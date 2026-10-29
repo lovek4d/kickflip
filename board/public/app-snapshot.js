@@ -1,0 +1,71 @@
+// The last visit's board on the board page: reading and saving it, holding the controls that send until the fresh
+// board lands, and flashing the lines the fresh board changed (docs/adr/0028-the-board-opens-on-the-last-visit.md).
+// Needs app-core.js and ui-snapshot.js; app.js paints it.
+(function () {
+  const B = globalThis.BoardApp;
+  const { state } = B;
+  const { packSnapshot, unpackSnapshot, preloadKeys, liveControls, changedLines } = BoardUI;
+  // The hub serves every site from one origin, so each board keeps its own key.
+  const KEY = 'boardSnapshot:' + ClaudeSite.url('');
+
+  function readSnapshot() {
+    let raw = null;
+    try { raw = localStorage.getItem(KEY); } catch {}
+    return raw ? unpackSnapshot(raw) : null;
+  }
+  let saveTimer = null;
+  function saveSnapshot() {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    if (state.view !== 'fresh' || !state.board) return;
+    const raw = packSnapshot(state.board, state.threadCache, {
+      savedAt: state.board.generatedAt || new Date().toISOString(),
+      keep: [...state.openItems, ...preloadKeys(state.board.items, [])],
+    });
+    try { if (raw) localStorage.setItem(KEY, raw); else localStorage.removeItem(KEY); } catch { try { localStorage.removeItem(KEY); } catch {} }
+  }
+  const saveSnapshotSoon = () => { if (!saveTimer) saveTimer = setTimeout(saveSnapshot, 1000); };
+  window.addEventListener('pagehide', () => { if (saveTimer) saveSnapshot(); });
+
+  // view is ui-snapshot.js liveControls' view; style.css dims the snapshot and its held controls from body[data-board].
+  function setView(view) {
+    state.view = view;
+    document.body.dataset.board = view;
+  }
+  for (const type of ['click', 'submit']) {
+    window.addEventListener(type, (ev) => {
+      const { blocked } = liveControls(state.view);
+      if (!blocked) return;
+      const control = type === 'submit' ? ev.target.querySelector?.('button[type=submit]') : ev.target.closest?.(blocked);
+      if (control?.matches(blocked)) { ev.preventDefault(); ev.stopImmediatePropagation(); }
+    }, true);
+  }
+
+  // The lines a fresh board can change: each card line, lane count, Needs you line and thread message.
+  function lines() {
+    const out = new Map();
+    for (const wrap of document.querySelectorAll('details.item[data-key] > summary .title-wrap')) {
+      const key = wrap.closest('[data-key]').dataset.key;
+      [...wrap.children].forEach((el, i) => out.set(`${key}|${i}`, el));
+    }
+    for (const count of document.querySelectorAll('.lane[data-lane] > summary .count')) out.set(`lane:${count.closest('.lane').dataset.lane}`, count);
+    document.querySelectorAll('#waiting li').forEach((li, i) => out.set(`needs:${i}`, li));
+    for (const msgs of document.querySelectorAll('[data-thread] > .msgs')) [...msgs.children].forEach((m, i) => out.set(`thread:${msgs.parentElement.dataset.thread}|${i}`, m));
+    return out;
+  }
+  const texts = (els) => Object.fromEntries([...els].map(([id, el]) => [id, el.textContent.replace(/\s+/g, ' ').trim()]));
+  let before = null;
+  const holdForFlash = () => { before = texts(lines()); };
+  function flashChanged() {
+    if (!before || state.view !== 'fresh') return;
+    const els = lines();
+    const after = texts(els);
+    for (const id of changedLines(before, after)) {
+      els.get(id).classList.add('flash');
+      before[id] = after[id];
+    }
+  }
+  const endFlash = () => { before = null; };
+
+  Object.assign(B, { readSnapshot, saveSnapshotSoon, setView, holdForFlash, flashChanged, endFlash });
+})();

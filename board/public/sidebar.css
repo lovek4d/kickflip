@@ -1,0 +1,68 @@
+/* The sidebar (ui-sidebar.js, sidebar.js): a rail from 900px, a drawer below it. The board page and the hub's pages
+   link it after colors.css; the hub serves it as /_hub/sidebar.css. Every rule is scoped to .sidebar or the page
+   classes sidebar.js sets, since each page's own CSS uses the same short class names. */
+.sidebar { position: fixed; z-index: 20; top: 0; bottom: 0; left: 0; width: min(86vw, 320px); display: flex; flex-direction: column;
+  padding: max(10px, env(safe-area-inset-top)) 8px calc(12px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; overscroll-behavior: contain;
+  transform: translateX(-102%); visibility: hidden; transition: transform .24s cubic-bezier(.2,.8,.2,1), visibility 0s linear .24s;
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif; color: var(--text); }
+.sidebar.open { transform: none; visibility: visible; transition: transform .24s cubic-bezier(.2,.8,.2,1); }
+.sidebar-scrim { position: fixed; inset: 0; z-index: 19; background: rgba(0,0,0,.4); opacity: 0; pointer-events: none; transition: opacity .2s; }
+.sidebar-scrim.on { opacity: 1; pointer-events: auto; }
+@media (prefers-reduced-motion: reduce) { .sidebar, .sidebar.open, .sidebar-scrim { transition: none; } }
+
+.sidebar .sb-head { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 0 4px 0 8px; margin-bottom: 8px; }
+.sidebar .sb-head h2 { flex: 1; min-width: 0; margin: 0; font-size: 16px; font-weight: 600; }
+.sidebar .sb-logo { flex: none; display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; padding: 0; border: 0; background: none; cursor: pointer; }
+.sidebar .sb-logo img { width: 32px; height: auto; display: block; image-rendering: pixelated; }
+.sidebar .sb-close { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; }
+.sidebar .sb-label { margin: 14px 8px 4px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.sidebar .sb-group { display: flex; flex-direction: column; gap: 2px; }
+.sidebar .sb-foot { margin-top: auto; padding-top: 6px; }
+.sidebar .sb-empty { margin: 4px 8px; color: var(--muted); font-size: 12.5px; }
+.sidebar .sb-row { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 8px; border-radius: 10px; color: var(--text); text-decoration: none; }
+.sidebar .sb-row:active { background: var(--chip); }
+@media (hover: hover) { .sidebar .sb-row:hover { background: color-mix(in srgb, var(--chip) 70%, transparent); text-decoration: none; } }
+.sidebar .sb-row.on { background: var(--accent-soft); }
+.sidebar .sb-turnon { margin-bottom: 6px; background: color-mix(in srgb, var(--color-danger) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--color-danger) 30%, var(--line)); }
+.sidebar .sb-text { flex: 1; min-width: 0; }
+.sidebar .sb-title { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar .sb-sub { display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar .sb-count, .top .hub .hub-count { flex: none; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--color-danger); color: #fff;
+  font-size: 12px; font-weight: 700; line-height: 20px; text-align: center; font-variant-numeric: tabular-nums; }
+
+/* The site tiles hub/icons.mjs siteIcon draws, and the hub rows' solid tiles. */
+.sidebar .icon { flex: none; width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; color: var(--c);
+  background: color-mix(in srgb, var(--c) 18%, transparent); font-weight: 700; font-size: 15px; line-height: 1; }
+.sidebar .icon.sm { width: 32px; height: 32px; border-radius: 8px; }
+.sidebar .icon.solid { color: #fff; background: var(--c); }
+@media (prefers-color-scheme: dark) { .sidebar .icon:not(.solid) { color: color-mix(in srgb, var(--c) 70%, #fff); } }
+.sidebar .icon svg { display: block; }
+
+/* A site's status line (hub/home.mjs statusLine): the urgent word, then the lane chips. */
+.sidebar .sb-status { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sidebar .lcs { flex: 1; min-width: 0; display: flex; gap: 4px; overflow: hidden; }
+.sidebar .lc { flex: none; font-size: 11px; font-weight: 600; border-radius: 6px; padding: 0 6px; line-height: 18px; color: var(--tone); background: color-mix(in srgb, var(--tone) 14%, transparent); }
+.sidebar .lc-review { --tone: var(--accent); } .sidebar .lc-progress { --tone: var(--color-notice); } .sidebar .lc-todo { --tone: var(--muted); }
+.sidebar .dot { flex: none; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--tone); }
+@keyframes sb-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: no-preference) { .sidebar .dot.pulse { animation: sb-pulse 1.4s ease-in-out infinite; } }
+.sidebar .word { flex: none; font-weight: 600; color: var(--tone); }
+.sidebar .t-down, .sidebar .t-needs { --tone: var(--color-danger); }
+.sidebar .t-starting { --tone: var(--muted); }
+.sidebar .t-working { --tone: var(--color-notice); }
+.sidebar .t-building { --tone: var(--accent); }
+.sidebar .t-ok { --tone: var(--color-success); }
+
+/* The header's logo opens the drawer, with what waits on the other sites counted on it. */
+.top .hub { position: relative; }
+.top .hub .hub-count { position: absolute; top: -6px; right: -9px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 11px; line-height: 18px; box-shadow: 0 0 0 2px var(--bg); }
+
+@media (min-width: 900px) {
+  body.has-sidebar { padding-left: 272px; }
+  body.has-sidebar .sidebar { width: 272px; transform: none; visibility: visible; transition: none; z-index: 4; }
+  body.has-sidebar .sidebar .sb-close { display: none; }
+  body.has-sidebar .sidebar .sb-logo { pointer-events: none; }
+  body.has-sidebar .sidebar-scrim { display: none; }
+  body.has-sidebar .top .hub { display: none; }
+}

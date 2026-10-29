@@ -1,0 +1,100 @@
+// Renderers the board's pages share, and the base the other ui-*.js files add to BoardUI. Each returns an HTML
+// string and touches no DOM or storage: ui.test.mjs runs these files in node:vm, where neither exists. Load this first.
+(function () {
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const time = (iso) => new Date(iso).toLocaleString([], { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const ago = (iso) => {
+    if (!iso) return '';
+    const s = (Date.now() - new Date(iso).getTime()) / 1000;
+    if (s < 60) return 'just now';
+    if (s < 3600) return Math.round(s / 60) + 'm ago';
+    if (s < 86400) return Math.round(s / 3600) + 'h ago';
+    return Math.round(s / 86400) + 'd ago';
+  };
+  const since = (iso) => {
+    const s = (Date.now() - new Date(iso).getTime()) / 1000;
+    return s < 60 ? 'just now' : s < 3600 ? Math.round(s / 60) + ' min ago' : s < 86400 ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' d ago';
+  };
+  const clock = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s?([AP]M)$/i, (_, m) => ` ${m.toLowerCase()}`);
+  // "ETA about 4:30 pm", with the day when it isn't today.
+  function etaLine(iso, now = new Date()) {
+    const d = new Date(iso);
+    const day = d.toDateString() === now.toDateString() ? '' : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, `;
+    return `ETA about ${day}${clock(d)}`;
+  }
+  const replyBody = (reply) => reply.html ?? esc(JSON.stringify(reply.json));
+
+  // Attachments are uploads from POST /api/upload: {name, url, path, type, size}. Only uploads/ URLs become links.
+  const uploadUrl = (f) => (/^uploads\/[\w.-]+$/.test(f.url || '') ? f.url : null);
+  const isImage = (f) => /^image\//.test(f.type || '');
+  function attachments(files) {
+    if (!files?.length) return '';
+    return `<div class="files">${files.map((f) => {
+      const url = uploadUrl(f);
+      if (!url) return `<span class="file-link">${esc(f.name)}</span>`;
+      return isImage(f)
+        ? `<a class="file-thumb" href="${esc(url)}" target="_blank" rel="noopener" title="${esc(f.name)}"><img src="${esc(url)}" alt="${esc(f.name)}" loading="lazy"></a>`
+        : `<a class="file-link" href="${esc(url)}" target="_blank" rel="noopener">${esc(f.name)}</a>`;
+    }).join('')}</div>`;
+  }
+  const CLIP = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
+  const attachButton = () => `<label class="attach" title="Attach files"><input type="file" multiple data-attach aria-label="Attach files">${CLIP}</label>`;
+  const icon = (body, size = 18) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+  const EYE = icon('<path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/>');
+  const TRASH = icon('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>');
+  const ELLIPSIS = icon('<circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/>');
+  // Asks Claude for throwaway prototypes of one item (docs/adr/0015-prototypes-come-on-request.md).
+  function protoButton(id, state = null) {
+    if (state?.pending) return `<button type="button" class="attach proto-ask" data-proto="${esc(id)}" data-proto-pending="${esc(state.pending)}" aria-label="Prototypes are being made" title="Prototypes are being made">${ELLIPSIS}</button>`;
+    return `<button type="button" class="attach proto-ask" data-proto="${esc(id)}" aria-label="Ask for prototypes" title="Ask for prototypes">${EYE}</button>`;
+  }
+  // latestBump is the data.id of the newest ask-bump event.
+  const protoNotice = (eventId, latestBump) => (latestBump === eventId
+    ? { text: 'Prototypes are being made.', bump: false }
+    : { text: 'Prototypes are being made. Bump them to the top of the queue?', bump: true });
+  const PENCIL = icon('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>');
+  const BUMP = icon('<path d="M5 3h14"/><path d="m18 13-6-6-6 6"/><path d="M12 7v14"/>');
+  // Deletes or edits a pending ask or thread message; app-asks.js handles [data-withdraw] and [data-edit] on one path.
+  const withdrawButton = (id) => `<button class="ghost icon" data-withdraw="${esc(id)}" aria-label="Delete" title="Delete">${TRASH}</button>`;
+  const editButton = (id) => `<button class="ghost icon" data-edit="${esc(id)}" aria-label="Edit" title="Edit">${PENCIL}</button>`;
+  // A waiting ask's bump; a work card's Prioritize button in app-cards.js sends card-bump {key} (docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md).
+  const bumpButton = (it, top) => `<button class="ghost icon" data-bump="${esc(it.id)}" aria-label="Bump to top" title="Bump to top"${top ? ' disabled' : ''}>${BUMP}</button>`;
+  const workingLine = '<span class="working-dot" aria-hidden="true"></span>Working on it';
+  // html is markup the caller has escaped; href, title and attrs values are escaped here.
+  const BADGE_TONES = Object.freeze(['quiet', 'normal', 'notice', 'danger', 'ready']);
+  function badge(tone, html, { href, title, attrs = {} } = {}) {
+    if (!BADGE_TONES.includes(tone)) throw new Error(`unknown badge tone: ${tone}`);
+    const extra = Object.entries({ href, title, ...attrs }).filter(([, v]) => v != null).map(([k, v]) => ` ${k}="${esc(v)}"`).join('');
+    const tag = href == null ? 'span' : 'a';
+    return `<${tag} class="chip tone-${tone}"${extra}>${html}</${tag}>`;
+  }
+  // A composer's files before sending: {id, name, type, preview, status: uploading|done|error, progress (0–1), error}.
+  const pendingFiles = (list) => list.map((p) => `<span class="pfile ${esc(p.status)}" title="${esc(p.name)}">
+      ${isImage(p) && p.preview ? `<img src="${esc(p.preview)}" alt="${esc(p.name)}">` : `<span class="pname">${esc(p.name)}</span>`}
+      ${p.status === 'uploading' ? `<span class="pbar" role="progressbar" aria-label="Uploading ${esc(p.name)}" aria-valuenow="${Math.round((p.progress || 0) * 100)}"><span style="width:${Math.max(4, Math.round((p.progress || 0) * 100))}%"></span></span>` : ''}
+      ${p.status === 'error' ? `<span class="perr">${esc(p.error || 'Upload failed')}</span>` : ''}
+      <button type="button" class="unattach" data-unattach="${esc(p.id)}" aria-label="Remove ${esc(p.name)}">✕</button></span>`).join('');
+
+  // Setting innerHTML closes every <details> inside, which collapses whatever the reader had open on each poll.
+  // This skips an unchanged rebuild, and reopens each one the reader left open, matched by its owning [data-key]
+  // and summary text. Open state is tracked page-wide, so content filled in after a parent rebuild reopens too.
+  const lastHtml = new WeakMap();
+  const openDetails = new Set();
+  const detailsKey = (d) => `${(d.closest('[data-key]') || {}).dataset?.key || ''}|${(d.querySelector(':scope > summary')?.textContent || '').trim()}`;
+  globalThis.document?.addEventListener('toggle', (ev) => {
+    if (ev.target.tagName !== 'DETAILS') return;
+    if (ev.target.open) openDetails.add(detailsKey(ev.target)); else openDetails.delete(detailsKey(ev.target));
+  }, true);
+  function setHTML(el, html) {
+    if (lastHtml.get(el) === html) return false;
+    el.innerHTML = html;
+    lastHtml.set(el, html);
+    if (openDetails.size) for (const d of el.querySelectorAll('details:not([open])')) if (openDetails.has(detailsKey(d))) d.open = true;
+    return true;
+  }
+
+  globalThis.BoardUI = {
+    esc, time, ago, since, etaLine, replyBody, setHTML,
+    attachments, attachButton, pendingFiles, protoButton, protoNotice, withdrawButton, editButton, bumpButton, workingLine, BADGE_TONES, badge,
+  };
+})();

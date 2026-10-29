@@ -1,0 +1,259 @@
+#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import * as store from '../store.mjs';
+import { ITEM_STATUSES } from '../domain.mjs';
+
+export const USAGE = `usage: node board.mjs <command> [--site <route>] ...
+
+Writes a web-ts board's data files. --site <route> picks ~/.claude/web-ts/sites/<route>, and its
+board.json says where the board's waves live. Without --site, waves come from ~/.claude/waves.
+Paths resolve under $HOME, so HOME=<dir> points every command at a copy.
+A --file argument of - reads stdin.
+
+  reply <eventId> (--html <text> | --file <path>)        data/replies/<eventId>.html
+  working <eventId>                                      marks an ask or thread message started; the page
+                                                         shows "Working on it" until a reply or later thread line
+  thread <wave>/<id> --text <t> [--link <url>]           one line in the item's thread; ask:<eventId> in place
+         [--who claude|love|<name>] [--via github|slack] of <wave>/<id> writes in that ask's thread
+         [--answer]                                      --answer: this Claude line answers the owner's message
+                                                         in this thread. Never on a progress line
+         A Claude thread line, or a reply to an ask or item-message, rewrites the body of the thread's
+         queued push (tag ask-<eventId> or item-<wave>/<id>) to the message's first line, keeping
+         "· and N replies", and prints the new body. Once that push has gone, a reply or an --answer
+         line pushes again at once (as push --now) with the sent push's title and url, and the
+         message's first line as its body; any other line never pushes
+  topic add <id> --title <t> [--summary <s>]             a question topic in data/owner.json
+  question add --file <json>                             one question or an array of them:
+         {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
+          source?, context?, url?, urgent?}; topic is declared or item:<wave>/<id>.
+         url is http(s), or a site page such as prototype-<topic>.html?q=<id>, stored as given.
+         diagram, with practice: rows of 1-4 boxes [[{text, tone?, to?}]], tone quiet|info|notice|
+         danger|success, to the next row's box indexes (default all); practice: ["<line>", …]
+  question resolve <id> --note <text>                    sets resolved and resolved_at
+  item set <wave>/<id> [--status <s> | --clear-status]   edits the item in its wave file
+         [--next <t> | --clear-next] [--pr <n>]          status: ${ITEM_STATUSES.join(', ')}
+                                                         an empty --next "" clears it, as --clear-next does
+         [--from-ask <eventId>]                          the ask it came from: its New card gives way to this item,
+                                                         whose thread opens with the ask and its thread; it leaves
+                                                         a card it was folded into
+         [--held | --unheld]                             --held sets held: true, for the owner's card-hold;
+                                                         --unheld clears it and a held status
+         [--plan <file>]                                 the item's full write-up: a .md file inside its wave's
+                                                         folder, named relative to it; the card links to it
+         [--deps <id>,<wave>/<id>]                       replaces its blocked-by list; --deps "" clears it
+         --status building refuses while the item is held or a dep isn't done, merged or dropped;
+         done and merged print "unblocked: <wave>/<id>" for each waiting, unheld item this one
+         unblocked: start it next. checking is a builder's hand-back: In Review, reading "Claude
+         checking", until the owning session verifies it and sets done; it unblocks nothing.
+         Every --status or --clear-status records status_at, which ends the Done button's "Closing…"
+         for the owner's card-done; apply a card-done with --status done
+  item add <wave>/<id> --title <t> [--notes <t>]          a new card, planned (waiting when it has --deps); never
+         [--deps <id>,<wave>/<id>] [--plan <file>]       hand-edit wave.json to add one. Refuses an id the wave has
+  item relate-ask <eventId> <wave>/<id> --summary <t>   folds an ask about an existing item into it: the ask's
+                                                         card goes, its message and thread show in the item's
+                                                         thread marked Moved, then the summary line. Again with
+                                                         another item moves it there
+  ask progress <eventId> [--next <text>]                 keeps an answered ask in In Progress, --next as its next
+                                                         line, until the owner's ask-done (the Done beside Send
+                                                         in its thread) or ask done is newer. Use it when the answer
+                                                         waits on the owner, such as a pick between prototypes
+  ask done <eventId>                                     moves the ask to Done, as the owner's Done button does
+  ask unfold <eventId>                                   moves a folded ask back out to a card of its own
+  hello-ack <eventId>                                    answers the hub's hello: data/handshake.json records that the
+                                                         session hears the board, which clears the setup checklist's
+                                                         Events step. Refuses an older hello than the newest
+  checked [--every <minutes> | --idle]                   data/checked.json: GitHub was just checked, next in
+                                                         <minutes> (default 30); run it at the end of each monitor tick.
+                                                         --idle: the board shows no open PR, so never late.
+                                                         Then sends the queued pushes, each on its own, unless
+                                                         pushes are held (overnight, snoozed, the weekend or off)
+  followup add <wave> --id <PROD-1> --title <t> [--from <item id>]
+  followup done <wave> <id>
+  reviewers set --file <json>                            the board's reviewers in board.json, replacing them:
+                                                         [{name, slack_user, dm, github}], as in wave.json.
+                                                         The settings page lists them; new waves copy them
+  reviewers add --file <json>                            one reviewer or an array; replaces the same name
+  reviewers remove <name>...                             refuses a name the board doesn't have
+  rules list                                             the hub rules, then with --site the board's, one
+                                                         "<hub|board> <id> <owner|claude> <text>" line each
+  rules add --text <t> [--hub] [--by claude]             a rule in board.json, or with --hub in the hub's
+                                                         settings.json for every board; prints its id.
+                                                         --by claude when you codify one on the owner's word
+  rules edit <id> --text <t> [--hub]                     rewords a rule, keeping who added it
+  rules remove <id> [--hub]                              refuses an id the list doesn't have
+  builder start <wave>/<id> [--agent <name>] [--kind <opus|codex|sonnet|…>] [--label <who>]
+         [--progress <text>] [--eta <ISO time>]          one record per agent on the item; --agent defaults to main
+  builder progress <wave>/<id> (<text> | --text <t>)     one short present-tense line
+         [--agent <name>]
+         [--eta <ISO time> | --clear-eta]                an ETA shows as a line under the card's status
+         A progress line, --progress included, needs --site: it is a status line in the item's thread, and
+         the card's status shows the newest one from an agent still working
+  builder done <wave>/<id> [--agent <name>]              marks that agent's record done; the item's thread
+                                                         shows when it started and finished
+         builder takes --dir <dir> for a wave file in <dir>; its records go in <dir>/agents
+  push --title <t> [--body <b>] [--url </route/path>]    runs web-ts push with these flags, adding
+       [--tag <tag>] [--now | --urgent]                  "· and N replies" to the body for the replies
+                                                         written since the site's last push through this
+                                                         command (none before its first). For an item, tag it
+                                                         ask-<eventId> or item-<wave>/<id>. It records the
+                                                         push in data/push-state.json only when web-ts push
+                                                         succeeds, and exits with web-ts push's code.
+                                                         Without --now it queues until the tick ends (checked) or
+                                                         the hub's next check: merges, drafts on Ready, stale PRs,
+                                                         the digest. --now sends at once unless pushes are held
+                                                         (overnight, snoozed or the weekend): answers, questions,
+                                                         steps only the owner can run, prototypes asked for.
+                                                         --urgent: production only; it beats those holds. While
+                                                         notifications are off every push is dropped, urgent too
+         WEB_TS_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/web-ts.mjs push\`; the flags follow it`;
+
+class UsageError extends Error {}
+const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'answer', 'clear-eta', 'held', 'unheld', 'idle', 'hub']);
+const WEB_TS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'bin', 'web-ts.mjs');
+
+function pushCommand() {
+  if (!process.env.WEB_TS_PUSH_CMD) return [process.execPath, WEB_TS, 'push'];
+  try {
+    const cmd = JSON.parse(process.env.WEB_TS_PUSH_CMD);
+    if (Array.isArray(cmd) && cmd.length && cmd.every((a) => typeof a === 'string')) return cmd;
+  } catch {}
+  throw new store.BoardError('WEB_TS_PUSH_CMD must be a JSON array of strings');
+}
+
+async function push(site, f) {
+  if (f.title === undefined) throw new UsageError('push needs --title');
+  const at = new Date();
+  const n = await store.repliesSincePush(site, at);
+  const body = store.withReplies(f.body, n);
+  const flags = { title: f.title, body: body || undefined, url: store.pushUrl(f.url), tag: f.tag };
+  const [cmd, ...pre] = pushCommand();
+  const args = [...pre, ...Object.entries(flags).flatMap(([k, v]) => (v === undefined ? [] : [`--${k}`, v])), ...(f.urgent ? ['--urgent'] : []), ...(f.now ? ['--now'] : [])];
+  const r = spawnSync(cmd, args, { stdio: 'inherit' });
+  if (r.status !== 0) throw Object.assign(new store.BoardError(`web-ts push failed (${r.error?.message || `exit ${r.status ?? r.signal}`}); the push was not recorded`), { exitCode: r.status || 1 });
+  return store.recordPush(site, at);
+}
+
+function parse(argv) {
+  const flags = {};
+  const rest = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (!a.startsWith('--')) { rest.push(a); continue; }
+    const name = a.slice(2);
+    if (name in flags) throw new UsageError(`--${name} is given twice`);
+    if (BOOLEAN.has(name)) flags[name] = true;
+    else if (i + 1 < argv.length) flags[name] = argv[++i];
+    else throw new UsageError(`--${name} needs a value`);
+  }
+  return { flags, rest };
+}
+
+/*
+ * Flags whose value is shown to the owner as written. A bare file path there is a slip that posts
+ * the path itself (a reply once read "/private/tmp/…/exp-reply.html"), so it is refused: one
+ * token that names an existing file, or that looks like a path to a document.
+ */
+const TEXT_FLAGS = ['html', 'text', 'note', 'notes', 'summary', 'title', 'body', 'next', 'progress'];
+const DOC_PATH = /^(?:\/|~\/|\.{1,2}\/)\S*\.(?:html?|md|json|txt)$/;
+
+function looksLikePath(value) {
+  const v = value.trim();
+  if (!v || /\s/.test(v)) return false;
+  if (DOC_PATH.test(v)) return true;
+  try { return fs.statSync(v).isFile(); } catch { return false; }
+}
+
+function checkInputs(allowed, opts) {
+  for (const name of TEXT_FLAGS) {
+    if (typeof opts[name] !== 'string' || !looksLikePath(opts[name])) continue;
+    const hint = allowed.includes('file') ? `; for a file use --file ${opts[name].trim()}` : '';
+    throw new UsageError(`--${name} takes text, not a file path (${opts[name].trim()})${hint}`);
+  }
+  if (typeof opts.file === 'string' && opts.file !== '-' && !fs.existsSync(opts.file)) {
+    throw new UsageError(`--file ${opts.file}: no such file`);
+  }
+}
+
+const readInput = (file) => fs.readFileSync(file === '-' ? 0 : file, 'utf8');
+function readJSONInput(file) {
+  if (!file) throw new UsageError('--file <path> is required');
+  try { return JSON.parse(readInput(file)); } catch (e) { throw new store.BoardError(`${file}: ${e.message}`); }
+}
+
+// name: [positional args, allowed flags, run(site, args, flags) → message]
+const COMMANDS = {
+  reply: [['eventId'], ['html', 'file'], (site, [id], f) => {
+    if ((f.html === undefined) === (f.file === undefined)) throw new UsageError('reply takes --html or --file');
+    return store.writeReply(site, id, f.html ?? readInput(f.file));
+  }],
+  thread: [['wave/id'], ['text', 'link', 'who', 'via', 'answer'], (site, [key], f) => store.appendThread(site, key, f)],
+  'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
+  'question add': [[], ['file'], (site, _, f) => store.addQuestions(site, readJSONInput(f.file))],
+  'question resolve': [['id'], ['note'], (site, [id], f) => store.resolveQuestion(site, id, f.note)],
+  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'from-ask', 'held', 'unheld', 'plan', 'deps'], (site, [key], f) =>
+    store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, fromAsk: f['from-ask'], held: f.held, unheld: f.unheld, plan: f.plan, deps: f.deps })],
+  'item add': [['wave/id'], ['title', 'notes', 'deps', 'plan'], (site, [key], f) => store.addItem(site, key, f)],
+  'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
+  'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],
+  'ask done': [['eventId'], [], (site, [id]) => store.markAsk(site, id, 'done')],
+  'ask unfold': [['eventId'], [], (site, [id]) => store.unfoldAsk(site, id)],
+  'followup add': [['wave'], ['id', 'title', 'from'], (site, [wave], f) => store.addFollowup(site, wave, f)],
+  'followup done': [['wave', 'id'], [], (site, [wave, id]) => store.finishFollowup(site, wave, id)],
+  'reviewers set': [[], ['file'], (site, _, f) => store.setReviewers(site, readJSONInput(f.file))],
+  'reviewers add': [[], ['file'], (site, _, f) => store.addReviewers(site, readJSONInput(f.file))],
+  'reviewers remove': [['...name'], [], (site, names) => store.removeReviewers(site, names)],
+  'rules list': [[], [], (site) => store.listRules(site)],
+  'rules add': [[], ['text', 'hub', 'by'], (site, _, f) => store.addRuleTo(site, f)],
+  'rules edit': [['id'], ['text', 'hub'], (site, [id], f) => store.editRuleIn(site, id, f)],
+  'rules remove': [['id'], ['hub'], (site, [id], f) => store.removeRuleFrom(site, id, f)],
+  'builder start': [['wave/id'], ['label', 'progress', 'dir', 'agent', 'kind', 'eta'], (site, [key], f) => store.startBuilder(site, key, f)],
+  'builder progress': [['wave/id', '...text?'], ['text', 'dir', 'agent', 'eta', 'clear-eta'], (site, [key, ...words], f) => {
+    if (words.length && f.text !== undefined) throw new UsageError('builder progress takes its text once: as words or as --text');
+    if (!words.length && f.text === undefined) throw new UsageError('builder progress needs its text, as words or as --text');
+    return store.builderProgress(site, key, f.text ?? words.join(' '), { ...f, clearEta: f['clear-eta'] });
+  }],
+  'builder done': [['wave/id'], ['dir', 'agent'], (site, [key], f) => store.stopBuilder(site, key, f)],
+  working: [['eventId'], [], (site, [id]) => store.setWorking(site, id)],
+  'hello-ack': [['eventId'], [], (site, [id]) => store.ackHello(site, id)],
+  checked: [[], ['every', 'idle'], (site, _, f) => store.writeChecked(site, f.every, { idle: f.idle })],
+  push: [[], ['title', 'body', 'url', 'tag', 'urgent', 'now'], (site, _, f) => push(site, f)],
+};
+
+export async function main(argv) {
+  try {
+    const { flags, rest } = parse(argv);
+    const name = COMMANDS[rest[0]] ? rest[0] : `${rest[0]} ${rest[1]}`;
+    const command = COMMANDS[name];
+    if (!command) throw new UsageError(rest.length ? `unknown command "${rest.slice(0, 2).join(' ')}"` : 'no command given');
+    const [params, allowed, run] = command;
+    const args = rest.slice(name.split(' ').length);
+    const variadic = params.at(-1)?.startsWith('...');
+    const least = params.at(-1)?.endsWith('?') ? params.length - 1 : params.length;
+    if (variadic ? args.length < least : args.length !== params.length) throw new UsageError(`${name} takes ${params.map((p) => `<${p.replace(/^\.\.\.|\?$/g, '')}>`).join(' ') || 'no arguments'}`);
+    const { site: route, ...opts } = flags;
+    const unknown = Object.keys(opts).filter((k) => !allowed.includes(k));
+    if (unknown.length) throw new UsageError(`${name} does not take ${unknown.map((k) => '--' + k).join(', ')}`);
+    checkInputs(allowed, opts);
+    const site = route === undefined ? null : await store.siteDir(route);
+    const result = await run(site, args, opts);
+    const { file, lines = [] } = typeof result === 'object' && result ? result : { file: result };
+    // A read, such as rules list, names no file and prints only its lines.
+    if (name.startsWith('builder ')) console.log(`${name.slice(8)} ${args[0]}`);
+    else if (file !== undefined) console.log(`${name} → ${file}`);
+    for (const line of lines) console.log(line);
+    return 0;
+  } catch (e) {
+    if (e instanceof UsageError) { console.error(`${e.message} (node board.mjs --help lists the commands)`); return 2; }
+    if (e instanceof store.BoardError) { console.error(e.message); return e.exitCode ?? 1; }
+    throw e;
+  }
+}
+
+if (import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) {
+  const argv = process.argv.slice(2);
+  if (!argv.length || argv.includes('--help') || argv[0] === 'help') console.log(USAGE);
+  else process.exitCode = await main(argv);
+}

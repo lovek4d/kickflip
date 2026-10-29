@@ -1,0 +1,700 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+
+const context = vm.createContext({});
+for (const file of ['ui.js', 'ui-links.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-sidebar.js']) {
+  vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
+}
+const ui = context.BoardUI;
+
+const ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };
+const text = (html) => html.replace(/<[^>]+>/g, ' ').replace(/&(amp|lt|gt|quot|#39);/g, (e) => ENTITIES[e]).replace(/\s+/g, ' ').trim();
+const ago = (hours) => new Date(Date.now() - hours * 3600000).toISOString();
+const options = (html) => html.split('<label class="opt">').slice(1);
+const plain = (v) => JSON.parse(JSON.stringify(v));
+
+const openPR = { number: 7, url: 'https://github.com/o/repo/pull/7', state: 'OPEN', isDraft: false, checks: { state: 'pass' } };
+
+const colorsCss = fs.readFileSync(new URL('../shared/colors.css', import.meta.url), 'utf8');
+const definedIn = (src) => new Set([...src.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]));
+const usedIn = (src) => new Set([...src.matchAll(/var\((--[\w-]+)\)/g)].map((m) => m[1]));
+
+test('the board and the hub take every colour from shared/colors.css and define none of their own', () => {
+  const shared = definedIn(colorsCss);
+  const boardCss = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  const hub = fs.readFileSync(new URL('../hub/hub.mjs', import.meta.url), 'utf8');
+  const hubCss = /const CSS = `([^`]*)`/.exec(hub)[1];
+  const sidebarCss = fs.readFileSync(new URL('./public/sidebar.css', import.meta.url), 'utf8');
+  for (const [name, css, local] of [['style.css', boardCss, definedIn(boardCss)], ['hub.mjs', hubCss, definedIn(hub)], ['sidebar.css', sidebarCss, definedIn(sidebarCss + fs.readFileSync(new URL('./public/ui-sidebar.js', import.meta.url), 'utf8'))]]) {
+    assert.deepEqual([...usedIn(css)].filter((v) => !shared.has(v) && !local.has(v)), [], name);
+    assert.deepEqual([...definedIn(css)].filter((v) => shared.has(v)), [], name);
+  }
+});
+
+test('a badge takes one of the five tones, each coloured by a shared colour constant, as a span or a link, and refuses any other tone', () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  const shared = definedIn(colorsCss);
+  assert.deepEqual(plain(ui.BADGE_TONES), ['quiet', 'normal', 'notice', 'danger', 'ready']);
+  for (const tone of ui.BADGE_TONES) {
+    assert.equal(ui.badge(tone, 'A &amp; B'), `<span class="chip tone-${tone}">A &amp; B</span>`);
+    const color = new RegExp(`\\.chip\\.tone-${tone}\\s*\\{[^}]*color:\\s*var\\((--color-[\\w-]+)\\)`).exec(css)?.[1];
+    assert.ok(shared.has(color), tone);
+  }
+  assert.equal(ui.badge('notice', 'Open items', { href: 'questions.html#q"1', title: '2 <open>', attrs: { target: '_blank' } }),
+    '<a class="chip tone-notice" href="questions.html#q&quot;1" title="2 &lt;open&gt;" target="_blank">Open items</a>');
+  assert.throws(() => ui.badge('warn', 'x'), /warn/);
+  assert.throws(() => ui.badge(undefined, 'x'));
+});
+
+test('a review chip shows its age once it has waited a day', () => {
+  const chips = (since) => text(ui.reviewChips({ pr: openPR, reviewers: ['Jamie'], review: { Jamie: { state: 'sent', since } } }));
+  assert.equal(chips(ago(3)), 'J ●');
+  assert.equal(chips(ago(50)), 'J ● 2d');
+  assert.equal(text(ui.reviewChips({ pr: openPR, reviewers: ['Jamie'], review: { Jamie: { state: 'approved', since: null } } })), 'J ✓');
+});
+
+test('a merged PR shows no review chips', () => {
+  assert.equal(ui.reviewChips({ pr: { ...openPR, state: 'MERGED' }, reviewers: ['Jamie'], review: {} }), '');
+});
+
+test('PR chips show the repo with an orange dot for a draft or a green check once ready, then CI and unanswered Codex findings', () => {
+  const draft = ui.prChips({ pr: { ...openPR, isDraft: true, codexOpen: 2 } });
+  assert.equal(text(draft), 'repo#7 ● CI ✓ codex 2');
+  assert.match(draft, /^<a class="chip tone-notice" [^>]*title="Draft" [^>]*aria-label="repo#7: Draft">/);
+  const ready = ui.prChips({ pr: openPR });
+  assert.equal(text(ready), 'repo#7 ✓ CI ✓');
+  assert.match(ready, /^<a class="chip tone-ready" [^>]*title="Ready for review" [^>]*aria-label="repo#7: Ready for review">/);
+  const ci = (state) => /<span class="chip (tone-\w+)" title="CI/.exec(ui.prChips({ pr: { ...openPR, checks: { state } } }))[1];
+  assert.deepEqual(['pass', 'fail', 'pending', 'unknown'].map(ci), ['tone-ready', 'tone-danger', 'tone-notice', 'tone-quiet']);
+  assert.equal(text(ui.prChips({ pr: { ...openPR, state: 'MERGED', codexOpen: 2 } })), 'repo#7 merged');
+  assert.equal(text(ui.prChips({ pr: { ...openPR, state: 'CLOSED' } })), 'repo#7 closed');
+});
+
+test('the header reads the time since the last change signal or refresh, and the In Review header when GitHub was checked, each saying when it needs a look', () => {
+  const checks = { at: ago(4 / 60), every: 30, late: false, watcher: 'running', claudeAt: ago(3) };
+  const fresh = ago(1 / 60);
+  assert.equal(text(ui.statusLine(fresh)), '1 min');
+  assert.match(ui.statusLine(fresh), /title="Updated 1 min ago[^"]*"/);
+  assert.equal(text(ui.statusLine(ago(0))), 'now');
+  assert.equal(text(ui.statusLine(ago(2), { watcher: 'running' })), '2 h');
+  assert.equal(ui.statusLine(null), '');
+  assert.match(ui.statusLine(fresh, { watcher: 'stopped' }), /^<span class="claude late" title="Claude not listening">not listening<\/span>$/);
+  assert.match(ui.statusLine(fresh, { watcher: 'stopped', link: 'offline' }), /^<span class="link-state offline" title="Offline: can't reach the Mac">1 min<\/span>$/);
+  assert.equal(text(ui.statusLine(fresh, { link: 'reconnecting' })), 'Reconnecting…');
+  assert.match(ui.statusLine(undefined, { link: 'offline' }), /^<span class="link-state offline"[^>]*>offline<\/span>$/);
+  assert.equal(text(ui.githubLine(checks)), 'GitHub 4 min');
+  assert.match(ui.githubLine(checks), /<svg class="gh-mark"[^>]*aria-label="GitHub"/);
+  assert.equal(text(ui.githubLine(checks, { pending: true })), 'GitHub Checking…');
+  assert.equal(text(ui.githubLine({ ...checks, at: null })), 'GitHub not checked');
+  const late = ui.githubLine({ ...checks, at: ago(2), late: true });
+  assert.match(late, /^<span class="github late" title="GitHub checked 2 h ago; checks are late">/);
+  assert.equal(text(late), 'GitHub 2 h · checks are late');
+  const idle = ui.githubLine({ ...checks, at: ago(2), every: null, idle: true });
+  assert.doesNotMatch(idle, /late/);
+  assert.equal(text(idle), 'GitHub 2 h');
+});
+
+test('the header time moves on a refresh, the first load and a change signal that brought something new, never on a poll', () => {
+  const board = { generatedAt: '2026-10-23T12:00:00Z', items: [{ key: 'w/A', lane: 'todo' }] };
+  const threads = new Map([['w/A', [{ text: 'a' }]]]);
+  const sig = ui.freshSig(board, threads, ['w/A']);
+  assert.equal(ui.freshSig({ ...board, generatedAt: '2026-10-23T12:05:00Z' }, threads, ['w/A']), sig);
+  const replied = ui.freshSig(board, new Map([['w/A', [{ text: 'a' }, { text: 'b' }]]]), ['w/A']);
+  assert.notEqual(replied, sig);
+  assert.notEqual(ui.freshSig({ ...board, items: [] }, threads, ['w/A']), sig);
+  const snapshot = { at: '2026-10-23T08:00:00Z', sig: null };
+  assert.deepEqual(plain(ui.nextFresh(snapshot, { via: 'poll', at: 't1', sig })), { at: 't1', sig });
+  assert.deepEqual(plain(ui.nextFresh(null, { via: 'signal', at: 't1', sig })), { at: 't1', sig });
+  const landed = { at: 't1', sig };
+  assert.equal(ui.nextFresh(landed, { via: 'poll', at: 't2', sig: replied }), landed);
+  assert.equal(ui.nextFresh(landed, { via: 'signal', at: 't2', sig }), landed);
+  assert.deepEqual(plain(ui.nextFresh(landed, { via: 'signal', at: 't2', sig: replied })), { at: 't2', sig: replied });
+  assert.deepEqual(plain(ui.nextFresh(landed, { via: 'refresh', at: 't2', sig })), { at: 't2', sig });
+});
+
+test('the GitHub refresh spins and rests only while a check is pending', () => {
+  const now = Date.parse('2026-10-23T12:00:00Z');
+  const checks = (s) => ({ at: new Date(now - s * 1000).toISOString() });
+  assert.equal(ui.checkLanded(checks(20), now - 1000), false);
+  assert.equal(ui.checkLanded({ at: new Date(now).toISOString() }, now - 1000), true);
+  const spinning = (html) => /aria-disabled="true"/.test(html) && /class="[^"]*\bspinning\b/.test(html);
+  assert.equal(spinning(ui.githubRefresh(checks(1), null)), false);
+  assert.equal(spinning(ui.githubRefresh(checks(20), now - 1000)), true);
+  assert.match(ui.githubRefresh({ at: null }, null), /data-check-github/);
+  assert.match(ui.githubRefresh(null, null), /data-check-github/);
+});
+
+test('header controls turn on together once the first board load lands, refresh spinning until then', () => {
+  const on = (o) => ({ ...ui.headerControls(o) });
+  const waiting = { refresh: false, settings: false, spin: true };
+  assert.deepEqual(on({}), waiting);
+  assert.deepEqual(on({ wired: true }), waiting);
+  assert.deepEqual(on({ boardSettled: true }), { ...waiting, spin: false });
+  assert.deepEqual(on({ wired: true, boardSettled: true }), { refresh: true, settings: true, spin: false });
+  assert.deepEqual(on({ wired: true, boardSettled: true, link: 'offline' }), { refresh: true, settings: false, spin: false });
+  assert.deepEqual(on({ wired: true, boardSettled: true, link: 'reconnecting', reloading: true }), { refresh: false, settings: false, spin: true });
+});
+
+test("a snapshot keeps the board and the threads of its cards, open cards' first, dropping threads past the size cap", () => {
+  const savedAt = '2026-10-23T08:00:00.000Z';
+  const board = { generatedAt: savedAt, items: [{ key: 'w/A', lane: 'todo' }, { key: 'w/B', lane: 'done' }, { key: 'w/C', lane: 'progress' }] };
+  const threads = new Map([['w/B', [{ text: 'b' }]], ['w/A', [{ text: 'a' }]], ['w/gone', [{ text: 'x' }]], ['w/C', [{ text: 'c'.repeat(200) }]]]);
+  const raw = ui.packSnapshot(board, threads, { savedAt, keep: ['w/A'] });
+  const back = plain(ui.unpackSnapshot(raw));
+  assert.deepEqual([back.savedAt, back.board], [savedAt, board]);
+  assert.deepEqual(Object.keys(back.threads), ['w/A', 'w/B', 'w/C']);
+  assert.deepEqual(back.threads['w/A'], [{ text: 'a' }]);
+  const capped = plain(ui.unpackSnapshot(ui.packSnapshot(board, threads, { savedAt, keep: ['w/A'], max: raw.length - 100 })));
+  assert.deepEqual(Object.keys(capped.threads), ['w/A', 'w/B']);
+  assert.equal(ui.packSnapshot(board, threads, { savedAt, max: 50 }), null);
+});
+
+test('a stored snapshot that is damaged, from another version or undated reads as none', () => {
+  const good = ui.packSnapshot({ items: [{ key: 'w/A', lane: 'todo' }] }, new Map(), { savedAt: '2026-10-23T08:00:00.000Z' });
+  assert.ok(ui.unpackSnapshot(good));
+  for (const raw of [null, '', 'not json', good.slice(0, -3), good.replace('"v":1', '"v":0'), good.replace('"items":[', '"cards":['), good.replace('2026-10-23T08:00:00.000Z', 'soon')]) {
+    assert.equal(ui.unpackSnapshot(raw), null, String(raw));
+  }
+  const odd = JSON.parse(good);
+  odd.threads = { 'w/A': 'text', 'w/B': [{ text: 'b' }] };
+  assert.deepEqual(Object.keys(ui.unpackSnapshot(JSON.stringify(odd)).threads), ['w/B']);
+});
+
+test('threads load in the background for every In Review, Stale, In Progress and Todo card that is not already open', () => {
+  const items = ['review', 'stale', 'progress', 'todo', 'followups', 'done', 'asks', 'todo'].map((lane, n) => ({ key: `w/${n}`, lane }));
+  assert.deepEqual([...ui.preloadKeys(items, new Set(['w/2']))], ['w/0', 'w/1', 'w/3', 'w/7']);
+  assert.deepEqual([...ui.preloadKeys(items, [])], ['w/0', 'w/1', 'w/2', 'w/3', 'w/7']);
+});
+
+test('while the last visit shows, reading and asking work but card buttons and thread sends wait for the fresh board', () => {
+  const live = (view) => { const { blocked, ...rest } = ui.liveControls(view); return { ...rest, blocks: Boolean(blocked) }; };
+  assert.deepEqual(live('snapshot'), { read: true, ask: true, cards: false, send: false, blocks: true });
+  assert.deepEqual(live('fresh'), { read: true, ask: true, cards: true, send: true, blocks: false });
+  assert.deepEqual(live(null), { read: true, ask: true, cards: true, send: true, blocks: false });
+});
+
+test('when the fresh board replaces the last visit, only lines whose text changed or that are new flash', () => {
+  assert.deepEqual([...ui.changedLines({ a: 'Running tests', b: '2', c: 'gone' }, { a: 'Running tests', b: '3', d: 'new' })], ['b', 'd']);
+  assert.deepEqual([...ui.changedLines({}, {})], []);
+});
+
+test('every page header leads with the logo or a back arrow, then the title, then disabled controls', () => {
+  const logo = ui.header({ lead: 'logo', title: 'iOS <Orchestrator>' });
+  assert.match(logo, /^<header class="top"><div class="brand"><a class="hub" href="\/_hub\/" aria-label="Boards"><img src="kickflip\.png" alt=""><\/a><h1>iOS &lt;Orchestrator&gt;<\/h1><\/div>/);
+  assert.match(logo, /<button class="ghost spinning" id="refresh" type="button" disabled/);
+  assert.match(logo, /<span class="muted" id="status">…<\/span>/);
+  assert.match(logo, /<a href="settings\.html" id="settingsLink" class="ghost icon"[^>]*aria-disabled="true" tabindex="-1">/);
+  assert.equal(text(logo), 'iOS <Orchestrator> …');
+
+  const back = ui.header({ lead: 'back', backHref: '/', backLabel: 'Back to Claude', title: 'Settings', logoSrc: '/_hub/kickflip.png', settingsHref: '/_hub/settings', time: 'now' });
+  assert.match(back, /^<header class="top"><div class="brand"><a class="back" href="\/" aria-label="Back to Claude"><svg width="24" height="24"[^>]*>.*?<\/svg><\/a><h1>Settings<\/h1><\/div>/);
+  assert.doesNotMatch(back, /kickflip/);
+  assert.match(back, /href="\/_hub\/settings" id="settingsLink"/);
+  assert.match(back, /id="status">now</);
+
+  const bare = ui.header({ lead: 'back', title: 'Waiting on you', titleId: 'gtitle', backId: 'back', controls: false, trail: '<span class="muted small" id="progress"></span>' });
+  assert.match(bare, /<a class="back" href="\.\/" id="back" aria-label="Back to the board">/);
+  assert.match(bare, /<h1 id="gtitle">Waiting on you<\/h1><\/div><span class="muted small" id="progress"><\/span><\/header><script>[\s\S]*<\/script>$/);
+  assert.doesNotMatch(bare, /id="refresh"|settingsLink/);
+  assert.doesNotMatch(logo, /<script>/);
+});
+
+test("the sidebar lists the boards then the pages, marks this one, counts what waits on the others, and ends with the hub's rows", () => {
+  const site = (route, board, count, sub = '') => ({ route, title: route.toUpperCase(), board, count, icon: `<i data-r="${route}"></i>`, sub });
+  const data = {
+    sites: [site('ios', true, 2, '<b>2 need you</b>'), site('learn', false, 1), site('shop', true, 0), site('hub', true, 3)],
+    hub: { tone: 'ok', word: 'Healthy', detail: '4 of 4 sites up' }, notifications: { state: 'on', text: 'On' }, polling: { text: 'Every 15 min · next 4:45pm' },
+  };
+  const html = ui.sidebar(data, { here: 'ios', device: 'on' });
+  assert.equal(text(html), 'Boards IOS 2 need you SHOP HUB 3 Pages LEARN 1 Hub Hub Healthy 4 of 4 sites up Notifications On Polling Every 15 min · next 4:45pm Settings Rules for every board');
+  assert.match(html, /<a class="sb-row on" href="\/ios\/" aria-current="page"><i data-r="ios"><\/i>/);
+  assert.match(html, /href="\/_hub\/"[^>]*>.*Hub<\/span>/);
+  assert.equal(ui.othersWaiting(data, 'ios'), 4);
+  assert.equal(ui.othersWaiting(data, '_hub'), 6);
+  assert.match(text(ui.sidebar(data, { here: 'ios', device: 'off' })), /^Boards Turn on notifications Off on this device IOS.* Notifications Off on this device /);
+  assert.match(text(ui.sidebar({ ...data, notifications: { state: 'off', text: 'Off' } }, { device: 'on' })), / Notifications Off Polling /);
+  assert.match(ui.sidebar({ sites: [] }), /No boards yet/);
+});
+
+test("a back arrow goes one step back after a page on this hub, and to its href after a push, on that push's reloads, or with nothing before it", () => {
+  const script = /<script>([\s\S]*)<\/script>$/.exec(ui.header({ lead: 'back', backHref: './#item=w%2FA1', title: 'Prototype' }))[1];
+  const store = new Map();
+  const tap = ({ url, referrer = '', depth = 2, nav = 'navigate' }) => {
+    let onClick = null;
+    let back = false;
+    vm.runInNewContext(script, {
+      URL, URLSearchParams,
+      location: new URL(url),
+      document: { referrer, addEventListener: (kind, fn) => { if (kind === 'click') onClick = fn; } },
+      history: { length: depth, back: () => { back = true; } },
+      sessionStorage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) },
+      performance: { getEntriesByType: () => [{ type: nav }] },
+    });
+    let followed = true;
+    onClick({ target: { closest: (sel) => (sel === 'a.back' ? {} : null) }, preventDefault: () => { followed = false; } });
+    return followed ? 'href' : back && 'back';
+  };
+  const page = 'https://mac.ts.net/orch/prototype-x.html?q=q1';
+  assert.equal(tap({ url: page, referrer: 'https://mac.ts.net/orch/questions.html' }), 'back');
+  assert.equal(tap({ url: page, referrer: 'https://mac.ts.net/' }), 'back');
+  assert.equal(tap({ url: `${page}&from=push`, referrer: 'https://mac.ts.net/orch/questions.html' }), 'href');
+  assert.equal(tap({ url: page, referrer: 'https://mac.ts.net/orch/questions.html', nav: 'reload' }), 'href');
+  assert.equal(tap({ url: page, referrer: 'https://mac.ts.net/orch/questions.html' }), 'back');
+  assert.equal(tap({ url: page, depth: 1 }), 'href');
+  assert.equal(tap({ url: page, referrer: 'https://elsewhere.example/' }), 'href');
+});
+
+test('the Action needed badge shows only while the card waits on the owner, and links to what they act on', () => {
+  assert.equal(ui.actionChip({ questions: { open: 2, first: 'q1' }, action: null }), '');
+  const pick = ui.actionChip({ action: { kind: 'pick', url: 'https://mac.ts.net/r/prototype-x.html?q=q1', label: 'Prototypes ready: pick a take' } });
+  assert.match(pick, /^<a class="chip tone-notice" href="https:\/\/mac\.ts\.net\/r\/prototype-x\.html\?q=q1"[^>]*>Action needed<\/a>$/);
+  assert.doesNotMatch(pick, /target=/);
+  assert.match(ui.actionChip({ action: { kind: 'ready', url: 'https://github.com/o/r/pull/7', label: 'Tap Ready on GitHub' } }), /href="https:\/\/github\.com\/o\/r\/pull\/7"[^>]*target="_blank"/);
+});
+
+test('a thread message shows its text as written, never as markup', () => {
+  const html = ui.threadMessages([{ ts: ago(1), who: 'claude', text: '<img src=x onerror=alert(1)> done' }]);
+  assert.doesNotMatch(html, /<img/);
+  assert.match(text(html), /<img src=x onerror=alert\(1\)> done/);
+});
+
+test('a thread names who wrote each message and where', () => {
+  const html = ui.threadMessages([
+    { ts: ago(2), who: 'Jamie', via: 'github', text: 'Looks good' },
+    { ts: ago(1), who: 'love', via: 'site', text: 'Ship it', eventId: 'e1', reply: null },
+  ]);
+  assert.match(text(html), /^Jamie · GitHub · .* Looks good You · .* Ship it Waiting for Claude…$/);
+  assert.equal(text(ui.threadMessages([])), 'No messages here yet.');
+});
+
+const question = {
+  id: 'q1', source: 'Triage', question: 'Keep <it>?', state: 'open', answers: [],
+  options: [{ id: 'A', label: 'Keep' }, { id: 'B', label: 'Drop', recommended: true, detail: 'Saves a step' }],
+};
+
+test('a question card marks the recommended option', () => {
+  const opts = options(ui.questionCard(question));
+  assert.deepEqual(opts.map((o) => text(o)), ['A. Keep', 'B. Drop Recommended Saves a step']);
+  assert.match(text(ui.questionCard(question)), /Keep <it>\?/);
+});
+
+test("a question card checks this device's draft over the last answer", () => {
+  const answered = { ...question, state: 'answered', answers: [{ ts: ago(1), choice: 'A', note: '', reply: null }] };
+  const checked = (html) => options(html).map((o) => /\bchecked>/.test(o));
+  assert.deepEqual(checked(ui.questionCard(answered)), [true, false]);
+  assert.deepEqual(checked(ui.questionCard(answered, { draft: { choice: 'B' } })), [false, true]);
+  assert.match(text(ui.questionCard(answered)), /You · .* A\. Keep Waiting for Claude…/);
+});
+
+const takeCards = (html) => html.split('<article class="take"').slice(1);
+const frames = (html) => [...html.matchAll(/<iframe src="([^"]*)"/g)].map((m) => m[1].replace(/&amp;/g, '&'));
+const fullSize = (html) => [...html.matchAll(/<a class="take-open" href="([^"]*)">Open full size →<\/a>/g)].map((m) => m[1].replace(/&amp;/g, '&'));
+
+test("a question on a prototype page shows each take inline, opening full size in place, with the pick's dot filled", () => {
+  const proto = ui.questionCard({ ...question, url: 'prototype-hub-snooze.html?q=q1#top' }, { draft: { choice: 'B' } });
+  assert.deepEqual(takeCards(proto).map((t) => /\bchecked>/.test(t)), [false, true]);
+  assert.deepEqual(frames(proto), ['prototype-hub-snooze.html?q=q1&take=A#top', 'prototype-hub-snooze.html?q=q1&take=B#top']);
+  assert.deepEqual(fullSize(proto), ['prototype-hub-snooze.html?q=q1&variant=A#top', 'prototype-hub-snooze.html?q=q1&variant=B#top']);
+  assert.deepEqual([...proto.matchAll(/data-dot="\d" class="([^"]*)"/g)].map((m) => m[1]), ['on', 'picked']);
+  assert.doesNotMatch(proto, /See the prototypes|target="_blank"|<label class="opt">[\s\S]*<label class="opt">[\s\S]*<label class="opt">/);
+  context.location = { origin: 'https://mac.tail.ts.net', href: 'https://mac.tail.ts.net/orch/' };
+  try {
+    const absolute = ui.questionCard({ ...question, url: 'https://mac.tail.ts.net/orch/prototype-hub-snooze.html?q=q1' });
+    assert.deepEqual(frames(absolute), ['https://mac.tail.ts.net/orch/prototype-hub-snooze.html?q=q1&take=A', 'https://mac.tail.ts.net/orch/prototype-hub-snooze.html?q=q1&take=B']);
+    assert.doesNotMatch(absolute, /target="_blank"/);
+    const elsewhere = ui.questionCard({ ...question, url: 'https://elsewhere.example/orch/prototype-hub-snooze.html?q=q1' });
+    assert.deepEqual(takeCards(elsewhere), []);
+    assert.match(elsewhere, /target="_blank"/);
+  } finally { delete context.location; }
+});
+
+test('a take with nothing to see draws its boxes and arrows, coloured by meaning, and what it means in practice', () => {
+  const drawn = {
+    ...question, url: 'prototype-seams.html?q=q1',
+    options: [
+      { id: 'A', label: 'One registry', diagram: [[{ text: 'Poll' }, { text: 'Wake', to: [0] }], [{ text: 'boards.mjs', tone: 'info' }, { text: 'Unused', tone: 'quiet' }]], practice: ['A new feature asks INT-54.'] },
+      { id: 'B', label: 'Keep it', diagram: [[{ text: 'Each <own> read', tone: 'danger' }]], practice: ['Nothing to build.', 'Each feature forgets a kind.'] },
+    ],
+  };
+  const html = ui.questionCard(drawn, { links: ui.linkContext(boardItems, null, { base: './' }) });
+  const [a, b] = takeCards(html);
+  assert.deepEqual(frames(html), []);
+  assert.deepEqual([...a.matchAll(/<div class="flow-box([^"]*)">([^<]*)<\/div>/g)].map((m) => [m[2], m[1].trim()]),
+    [['Poll', ''], ['Wake', ''], ['boards.mjs', 'in tone-info'], ['Unused', 'in tone-quiet']]);
+  assert.equal((a.match(/<line /g) || []).length, 3);
+  assert.match(text(a), /In practice A new feature asks INT-54 \.$/);
+  assert.deepEqual(anchors(a), [['./#item=site%2FS54', 'INT-54', false]]);
+  assert.match(b, /<div class="flow-box tone-danger">Each &lt;own&gt; read<\/div>/);
+  assert.match(text(b), /In practice Nothing to build\. Each feature forgets a kind\. 1 of 2$/);
+  assert.match(html, /<a class="pill proto" href="prototype-seams\.html\?q=q1">See the prototypes →<\/a>/);
+});
+
+test("a question's link opens in place on this hub, and outside the board anywhere else", () => {
+  context.location = { origin: 'https://mac.tail.ts.net', href: 'https://mac.tail.ts.net/orch/' };
+  try {
+    assert.doesNotMatch(ui.questionCard({ ...question, url: 'https://mac.tail.ts.net/orch/plan.html?item=w%2FA1' }), /target="_blank"/);
+  } finally { delete context.location; }
+  const linear = ui.questionCard({ ...question, url: 'https://linear.app/acme/issue/INT-1' });
+  assert.match(linear, /href="https:\/\/linear\.app\/acme\/issue\/INT-1" target="_blank"/);
+  assert.match(text(linear), /INT-1 ↗/);
+});
+
+test('a resolved question says how it was resolved', () => {
+  assert.match(text(ui.questionCard({ ...question, state: 'resolved', resolved: 'Kept it.' })), /Resolved: Kept it\. A new answer reopens it\./);
+});
+
+test('a topic pill is named by the card id its title starts with, else by its whole title', () => {
+  assert.deepEqual(['INT-92: Hub home rows', 'B5: Lane chips', 'Release plan', 'INT-92 without a colon', 'Other'].map((title) => ui.topicName({ title })),
+    ['INT-92', 'B5', 'Release plan', 'INT-92 without a colon', 'Other']);
+});
+
+test('the topic row shows only topics with an open question, the current one kept, and the rest wait on Claude', () => {
+  const t = (id, state, open, answered = 0, replied = 0) => ({ id, title: id, state, open, answered, replied });
+  const topics = [t('a', 'open', 0, 1), t('b', 'open', 2), t('c', 'open', 0, 0, 1), t('d', 'resolved', 0), t('e', 'open', 1), t('f', 'resolved', 0)];
+  const ids = (row) => ({ pills: row.pills.map((x) => x.id), waiting: row.waiting.map((x) => x.id) });
+  assert.deepEqual(ids(ui.topicRow(topics, 'b')), { pills: ['b', 'e'], waiting: ['a', 'c'] });
+  assert.deepEqual(ids(ui.topicRow(topics, 'c')), { pills: ['b', 'c', 'e'], waiting: ['a'] });
+  assert.deepEqual(ids(ui.topicRow(topics, 'f')), { pills: ['b', 'e', 'f'], waiting: ['a', 'c'] });
+  assert.deepEqual(ids(ui.topicRow(topics, null)), { pills: ['b', 'e'], waiting: ['a', 'c'] });
+});
+
+const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png', size: 3 };
+const log = { name: '<b>build</b>.log', url: 'uploads/2-build-.log', type: 'text/plain', size: 9 };
+
+test('a thread message shows an image as a thumbnail that opens the file, and any other file as a named link', () => {
+  const html = ui.threadMessages([{ ts: ago(1), who: 'love', via: 'site', text: '', files: [shot, log], eventId: 'e1', reply: null }]);
+  assert.match(html, /<a class="file-thumb" href="uploads\/1-shot\.png"[^>]*><img src="uploads\/1-shot\.png"/);
+  assert.match(html, /<a class="file-link" href="uploads\/2-build-\.log"[^>]*>&lt;b&gt;build&lt;\/b&gt;\.log<\/a>/);
+  assert.doesNotMatch(html, /<b>/);
+});
+
+test('an attachment that is not an upload gets no link', () => {
+  const html = ui.attachments([{ name: 'x', url: 'javascript:alert(1)', type: 'image/png' }]);
+  assert.doesNotMatch(html, /href|src=/);
+  assert.equal(text(html), 'x');
+});
+
+test("a question's answer history shows the answer's files", () => {
+  const answered = { ...question, state: 'answered', answers: [{ ts: ago(1), choice: 'A', note: 'see', files: [shot], reply: null }] };
+  assert.match(ui.answerHistory(answered), /<img src="uploads\/1-shot\.png"/);
+});
+
+test('a pending upload shows its progress and a remove button naming the file', () => {
+  const html = ui.pendingFiles([{ id: 'f1', name: 'a.pdf', type: 'application/pdf', status: 'uploading', progress: 0.5 }, { id: 'f2', name: 'big.mov', type: 'video/quicktime', status: 'error', error: 'Over 20 MB' }]);
+  assert.match(html, /aria-valuenow="50"/);
+  assert.match(html, /data-unattach="f1" aria-label="Remove a\.pdf"/);
+  assert.match(text(html), /big\.mov Over 20 MB/);
+});
+
+test("a thread's Done shows on every card not in Done, and a work card's reads Closing…, disabled, while it is sent or waits on the session", () => {
+  const done = (it, sending) => { const html = ui.doneButton(it, sending); return html && [text(html), /disabled/.test(html)]; };
+  assert.deepEqual(done({ key: 'ask:a1', kind: 'ask', finishable: true }), ['Done', false]);
+  assert.deepEqual(done({ key: 'ask:a1', kind: 'ask', finishable: true }, true), ['Done', false]);
+  assert.deepEqual(done({ key: 'w/A1', kind: 'work', finishable: true, closing: false }), ['Done', false]);
+  assert.deepEqual(done({ key: 'w/A1', kind: 'work', finishable: true, closing: false }, true), ['Closing…', true]);
+  assert.deepEqual(done({ key: 'w/A1', kind: 'work', finishable: true, closing: true }), ['Closing…', true]);
+  assert.equal(done({ key: 'w/A1', kind: 'work', finishable: false }), '');
+  assert.equal(done(undefined), '');
+});
+
+test('a thread message says Working on it while Claude works on it, and only a pending message can be deleted', () => {
+  const html = ui.threadMessages([
+    { ts: ago(3), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it', eventId: 'e1', reply: null, state: 'working', canDelete: true },
+    { ts: ago(2), who: 'love', via: 'site', kind: 'item-message', text: 'Old', eventId: 'e2', reply: null, state: 'answered', canDelete: false },
+  ]);
+  assert.match(text(html), /Fix it Working on it .* Old$/);
+  assert.deepEqual([...html.matchAll(/data-withdraw="(\w+)"/g)].map((m) => m[1]), ['e1']);
+});
+
+test("a builder line shows the progress and its age, not who is building", () => {
+  const at = new Date(Date.now() - 4 * 60000).toISOString();
+  assert.equal(ui.builderLine({ label: 'Opus builder', progress: 'Running tests', at }), 'Running tests · 4m ago');
+  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at: null }), 'Building');
+  assert.equal(ui.builderLine({ label: null, progress: 'Making changes', at: null }), 'Making changes');
+});
+
+test("a New card reads New and its first line, then when it was sent and whether Claude has started, with bump, edit and delete and no Action needed", () => {
+  const card = (ask, extra = {}) => ui.workLines({ kind: 'ask', id: 'a1', key: 'ask:a1', ref: 'New', isNew: true, title: 'Fix <it>', linear: [], pr: null, deps: [], blockedBy: [],
+    bumpedAt: ask.bumpedAt || null, ask: { askedAt: ago(1), bumpedAt: null, canEdit: true, text: 'Fix <it>\nand more', files: [], ...ask }, ...extra }, { top: Boolean(ask.bumpedAt) });
+  assert.deepEqual(lines(card({ state: 'waiting' })).map((l, n) => (n === 1 ? l.split(' · ').slice(1).join(' · ') : l)), ['New Fix <it>', 'Waiting']);
+  assert.deepEqual(lines(card({ state: 'working', bumpedAt: ago(0.5), edited: true })).map((l, n) => (n === 1 ? l.split(' · ').slice(1).join(' · ') : l)), ['New Fix <it>', 'Edited · Working on it', 'bumped']);
+  assert.deepEqual([...card({ state: 'waiting' }).matchAll(/data-(bump|edit|withdraw)="a1"/g)].map((m) => m[1]), ['bump', 'edit', 'withdraw']);
+  assert.match(card({ state: 'waiting', bumpedAt: ago(0.5) }), /data-bump="a1"[^>]* disabled/);
+  assert.doesNotMatch(card({ state: 'waiting' }), /Action needed/);
+  assert.deepEqual(lines(card({ state: 'answered' }, { isNew: false, ref: 'Task', working: false })), ['Task Fix <it>']);
+});
+
+test('a pending prototype request offers a bump unless it is already the latest bump', () => {
+  assert.deepEqual({ ...ui.protoNotice('e1', 'e9') }, { text: 'Prototypes are being made. Bump them to the top of the queue?', bump: true });
+  assert.deepEqual({ ...ui.protoNotice('e1', 'e1') }, { text: 'Prototypes are being made.', bump: false });
+});
+
+const lines = (html) => html.split('<div class="line').slice(1).map((l) => text('<div class="line' + l));
+const workCard = { kind: 'work', key: 'w/B5', id: 'B5', ref: 'B5', title: 'Five', internal: false, held: false, risky: false, threadCount: 4,
+  linear: [{ id: 'PROD-1', url: 'https://linear.app/x/PROD-1' }], pr: { ...openPR, isDraft: true }, reviewers: ['Jamie'], review: { Jamie: { state: 'unsent' } },
+  questions: null, builder: null, working: false, next: 'Waiting for PR reviewers' };
+
+test('a work card reads its title, then its next step or builder, its unread messages, its chips, and last its Blocked by chips', () => {
+  assert.deepEqual(lines(ui.workLines(workCard, { unread: 2 })), ['PROD-1 Five', 'Next: Waiting for PR reviewers', '2 unread messages', 'repo#7 ● CI ✓ J ✗']);
+  assert.deepEqual(lines(ui.workLines({ ...workCard, next: null, pr: null, reviewers: [] }, { unread: 1 })), ['PROD-1 Five', '1 unread message']);
+  assert.match(ui.workLines(workCard, { unread: 1 }), /<div class="line4 sub unread">1 unread message<\/div>/);
+  assert.doesNotMatch(text(ui.workLines(workCard)), /B5|msg|unread/);
+  const busy = { ...workCard, held: true, risky: true, builder: { progress: 'Running tests', at: null } };
+  assert.deepEqual(lines(ui.workLines(busy)), ['PROD-1 Five', 'Running tests', 'repo#7 ● CI ✓ J ✗ held risky']);
+  const internal = { ...workCard, key: 'site/S3', id: 'S3', ref: 'INT-3', internal: true, pr: null, linear: [{ id: 'PROD-9', url: 'u' }], next: null };
+  assert.deepEqual(lines(ui.workLines(internal)), ['INT-3 Five']);
+  assert.deepEqual(lines(ui.workLines({ ...workCard, questions: { open: 1, first: 'q1' }, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
+    ['PROD-1 Five', 'Next: Waiting for PR reviewers', 'Action needed repo#7 ● CI ✓ J ✗']);
+  const blocked = { ...internal, lane: 'todo', deps: ['S1', 'S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }] };
+  assert.deepEqual(lines(ui.workLines(blocked)), ['INT-3 Five', 'blocked by INT-2']);
+  assert.match(ui.workLines(blocked), /href="#item=site%2FS2"/);
+  assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [] })), ['INT-3 Five', 'ready to start']);
+  const waiting = { ...workCard, lane: 'todo', deps: ['S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }], bumpedAt: ago(1) };
+  assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['PROD-1 Five', 'Next: Waiting for PR reviewers', '1 unread message', 'repo#7 ● CI ✓ J ✗ bumped', 'blocked by INT-2']);
+  const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: 'Task', title: 'Fix it', internal: false, linear: [], pr: null, deps: [], blockedBy: [], working: true };
+  assert.deepEqual(lines(ui.workLines(ask)), ['Task Fix it', 'Working on it']);
+  assert.deepEqual(lines(ui.workLines({ ...internal, waitsOn: 'checking', working: true, next: 'Verify it' })), ['INT-3 Five', 'Claude checking']);
+  const followup = { ...workCard, kind: 'followup', key: 'w/PROD-7', id: 'PROD-7', ref: 'PROD-7', linear: [{ id: 'PROD-7', url: 'u' }], pr: null, reviewers: [], next: null, lane: 'todo', deps: [], blockedBy: [] };
+  assert.deepEqual(lines(ui.workLines(followup)), ['PROD-7 Five', 'follow-up']);
+  assert.match(ui.workLines(followup), /<a class="chip tone-normal" href="u"[^>]*>PROD-7<\/a>.*<span class="chip tone-quiet">follow-up<\/span>/s);
+});
+
+test('Todo offers to plan a wave from its follow-ups once it holds two, with their keys', () => {
+  const todo = [{ key: 'w/A1', kind: 'work' }, { key: 'w/PROD-1', kind: 'followup' }, { key: 'v/PROD-2', kind: 'followup' }];
+  const html = ui.planButton(todo);
+  assert.equal(/data-plan="([^"]*)"/.exec(html)[1], 'w/PROD-1 v/PROD-2');
+  assert.equal(text(html), 'Plan a wave from these 2 follow-ups →');
+  assert.equal(ui.planButton(todo.slice(0, 2)), '');
+});
+
+test("a card's ETA line gives the time, with the day when not today", () => {
+  const now = new Date(2026, 9, 23, 9, 0);
+  assert.equal(ui.etaLine(new Date(2026, 9, 23, 16, 30).toISOString(), now), 'ETA about 4:30 pm');
+  assert.match(ui.etaLine(new Date(2026, 9, 24, 9, 5).toISOString(), now), /^ETA about Oct 24, 9:05 am$/);
+  const busy = { ...workCard, builder: { progress: 'Running benchmarks', at: null }, eta: new Date(Date.now() + 3600000).toISOString() };
+  assert.match(lines(ui.workLines(busy))[1], /^Running benchmarks$/);
+  assert.match(lines(ui.workLines(busy))[2], /^ETA about /);
+  assert.equal(lines(ui.workLines({ ...busy, builder: null })).some((l) => l.startsWith('ETA')), false);
+});
+
+test('a thread counts as unread only the messages from others since this browser last opened it', () => {
+  const at = ['2026-10-23T09:00:00Z', '2026-10-23T10:00:00Z', '2026-10-23T11:00:00Z'];
+  assert.equal(ui.unreadCount(at, null), 0);
+  assert.equal(ui.unreadCount(at, '2026-10-23T09:30:00Z'), 2);
+  assert.equal(ui.unreadCount(at, '2026-10-23T11:00:00Z'), 0);
+});
+
+test('a pending message offers bump, edit and delete in that order, a thread message edit and delete, and an edited one says so', () => {
+  const order = (html) => [...html.matchAll(/data-(bump|edit|withdraw)="/g)].map((m) => m[1]);
+  const ask = { kind: 'ask', id: 'a1', key: 'ask:a1', ask: { state: 'waiting', canEdit: true } };
+  assert.deepEqual(order(ui.askActions(ask, false)), ['bump', 'edit', 'withdraw']);
+  const html = ui.threadMessages([{ ts: ago(1), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it well', edited: true, eventId: 'e1', reply: null, state: 'waiting', canDelete: true, canEdit: true }]);
+  assert.deepEqual(order(html), ['edit', 'withdraw']);
+  assert.match(text(html), /^You · Edited · .* Fix it well Waiting for Claude…$/);
+  const moved = ui.threadMessages([{ ts: ago(1), who: 'love', via: 'ask', kind: 'ask', text: 'Swipe the gallery', moved: true, eventId: 'a1', reply: null, state: 'answered' }]);
+  assert.match(text(moved), /^You · Moved · .* Swipe the gallery$/);
+});
+
+test('a builder status line, and an agent starting or finishing, reads as one line with its time and no author or actions, a running agent with its ETA', () => {
+  const html = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'status', text: 'Codex: <b>Running</b> tests' }]);
+  assert.match(html, /class="msg builder-status">/);
+  assert.match(text(html), /^Codex: <b>Running<\/b> tests · \S/);
+  assert.doesNotMatch(html, /class="who"|data-withdraw|data-edit/);
+  const agents = ui.threadMessages([
+    { ts: ago(1), who: 'claude', kind: 'agent', text: 'Codex started', finished: false, eta: new Date(Date.now() + 3600000).toISOString() },
+    { ts: ago(0.8), who: 'claude', kind: 'agent', text: 'Opus builder started', finished: false, eta: null },
+    { ts: ago(0.5), who: 'claude', kind: 'agent', text: 'Opus builder <b>finished</b>', finished: true, eta: null },
+  ]);
+  assert.match(agents, /^<div class="msg agent started"><span class="agent-dot" aria-hidden="true"><\/span>Codex started/);
+  assert.match(agents, /<div class="msg agent started"><span class="agent-dot" aria-hidden="true"><\/span>Opus builder started/);
+  assert.match(agents, /<div class="msg agent finished"><span class="agent-dot" aria-hidden="true"><\/span>Opus builder &lt;b&gt;finished/);
+  assert.match(text(agents), /^Codex started · \S.* · ETA about .+ Opus builder started · [^·]+ Opus builder <b>finished<\/b> · [^·]+$/);
+  assert.doesNotMatch(agents, /class="who"|data-withdraw|data-edit/);
+});
+
+test("an ask's link line opens the work it became, and a thread line opens a linked card on the board", () => {
+  assert.match(ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'ask-link', text: 'Became INT-21', link: '#item=site%2FS21' }]), /<a href="#item=site%2FS21">Became INT-21 →<\/a>/);
+  const html = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'Asked to keep it', link: '#item=ask:e1' }]);
+  assert.match(html, /<a href="#item=ask:e1">Open the task →<\/a>/);
+  assert.doesNotMatch(html, /target="_blank"/);
+});
+
+test("a thread's links to this hub's pages open in place, and only other origins open a new window", () => {
+  context.location = { origin: 'https://mac.tail.ts.net', href: 'https://mac.tail.ts.net/orch/' };
+  try {
+    const html = ui.threadMessages([
+      { ts: ago(2), who: 'claude', text: 'Prototypes: https://mac.tail.ts.net/orch/prototype-x.html?q=q1 and https://elsewhere.example/x', link: 'prototype-x.html?q=q1' },
+      { ts: ago(1), who: 'claude', text: 'Mirror', link: 'https://mac.tail.ts.net/orch/prototype-y.html' },
+      { ts: ago(1), who: 'claude', text: 'Elsewhere', link: 'https://elsewhere.example/y' },
+    ]);
+    assert.deepEqual(anchors(html), [
+      ['https://mac.tail.ts.net/orch/prototype-x.html?q=q1', 'https://mac.tail.ts.net/orch/prototype-x.html?q=q1', false],
+      ['https://elsewhere.example/x', 'https://elsewhere.example/x', true],
+      ['prototype-x.html?q=q1', 'prototype-x.html?q=q1', false],
+      ['https://mac.tail.ts.net/orch/prototype-y.html', 'https://mac.tail.ts.net/orch/prototype-y.html', false],
+      ['https://elsewhere.example/y', 'https://elsewhere.example/y', true],
+    ]);
+  } finally { delete context.location; }
+});
+
+test('a plan renders headings, lists, emphasis, code and links, escapes raw HTML, and wraps each table in its own scroll box', () => {
+  const html = ui.markdown([
+    '# Plan <b>x</b>', '', 'Some **bold** and `a <tag>` with [a link](https://x.test/a?b=1&c=2) and [bad](javascript:alert(1)).', 'Same paragraph.',
+    '', '- one', '  - two', '- three', '', '1. first', '2. second', '',
+    '| id | Scope |', '|---|---|', `| I1 | ${'long '.repeat(20)}|`, '| I2 | a \\| b |', '', '```', '<script>', '```',
+  ].join('\n'));
+  assert.match(html, /<h1>Plan &lt;b&gt;x&lt;\/b&gt;<\/h1>/);
+  assert.match(html, /<p>Some <strong>bold<\/strong> and <code>a &lt;tag&gt;<\/code> with <a href="https:\/\/x.test\/a\?b=1&amp;c=2" target="_blank" rel="noopener">a link<\/a> and \[bad\]\(javascript:alert\(1\)\)\. Same paragraph\.<\/p>/);
+  assert.match(html, /<ul><li>one<\/li><li class="nested">two<\/li><li>three<\/li><\/ul>/);
+  assert.match(html, /<ol><li>first<\/li><li>second<\/li><\/ol>/);
+  assert.match(html, /<div class="md-table"><table><thead><tr><th>id<\/th><th>Scope<\/th><\/tr><\/thead><tbody><tr><td>I1<\/td><td class="wide">/);
+  assert.match(html, /<td>a \| b<\/td>/);
+  assert.match(html, /<pre><code>&lt;script&gt;<\/code><\/pre>/);
+  assert.doesNotMatch(html, /<script|<b>/);
+});
+
+const shown = (html) => html.replace(/<[^>]+>/g, '').replace(/&(amp|lt|gt|quot|#39);/g, (e) => ENTITIES[e]);
+const anchors = (html) => [...html.matchAll(/<a href="([^"]*)"([^>]*)>([\s\S]*?)<\/a>/g)].map((m) => [m[1], text(m[3]), /target="_blank" rel="noopener"/.test(m[2])]);
+const boardItems = [
+  { key: 'site/S54', wave: 'site', kind: 'work', ref: 'INT-54', internal: true, linear: [], repo: null },
+  { key: 'site/INT-56', wave: 'site', kind: 'followup', ref: 'INT-56', internal: true, linear: [{ id: 'INT-56' }], repo: null },
+  { key: 'att/A1', wave: 'att', kind: 'work', ref: 'A1', internal: false, linear: [{ id: 'PROD-2310' }], repo: 'acme/app' },
+  { key: 'att/A2', wave: 'att', kind: 'work', ref: 'A2', internal: false, linear: [], repo: 'acme/app' },
+  { key: 'att/PROD-2467', wave: 'att', kind: 'followup', ref: 'PROD-2467', internal: false, linear: [{ id: 'PROD-2467' }], repo: 'acme/app' },
+  { key: 'elig/A1', wave: 'elig', kind: 'work', ref: 'A1', internal: false, linear: [{ id: 'ENG-7' }], repo: 'o/r' },
+  { key: 'ask:e9', wave: null, kind: 'ask', ref: 'Ask', internal: false, linear: [], repo: null },
+];
+const refLine = 'INT-54 shipped, INT-99 did not. PROD-2310, ENG-7 and PROD-2467 next, then A1. See acme/app#3116, app#3050, foo#4 and #2988, not #ffffff, #000000 or UTF-8. https://github.com/o/r/pull/1#issuecomment-2 and (https://x.test/a_(b)).';
+
+test('a thread line links each ref the board knows to its card, Linear ids and PRs to their pages, and bare URLs, leaving the text as written', () => {
+  const html = ui.threadMessages([{ ts: ago(1), who: 'claude', text: refLine }], ui.linkContext(boardItems, 'att/A1'));
+  assert.deepEqual(anchors(html), [
+    ['#item=site%2FS54', 'INT-54', false],
+    ['https://linear.app/acme/issue/PROD-2310', 'PROD-2310', true],
+    ['https://linear.app/acme/issue/ENG-7', 'ENG-7', true],
+    ['#item=att%2FPROD-2467', 'PROD-2467', false],
+    ['#item=att%2FA1', 'A1', false],
+    ['https://github.com/acme/app/pull/3116', 'acme/app#3116', true],
+    ['https://github.com/acme/app/pull/3050', 'app#3050', true],
+    ['https://github.com/acme/app/pull/2988', '#2988', true],
+    ['https://github.com/o/r/pull/1#issuecomment-2', 'https://github.com/o/r/pull/1#issuecomment-2', true],
+    ['https://x.test/a_(b)', 'https://x.test/a_(b)', true],
+  ]);
+  assert.ok(shown(html).includes(refLine));
+});
+
+test("a bare #n links only in a thread whose item has a repo, and a wave's short id links only from that wave's cards", () => {
+  const line = [{ ts: ago(1), who: 'claude', text: 'A1 and A2 wait on #2988' }];
+  assert.deepEqual(anchors(ui.threadMessages(line, ui.linkContext(boardItems, 'elig/A1'))), [
+    ['#item=elig%2FA1', 'A1', false], ['https://github.com/o/r/pull/2988', '#2988', true],
+  ]);
+  assert.deepEqual(anchors(ui.threadMessages(line, ui.linkContext(boardItems, 'site/S54'))), []);
+  assert.deepEqual(anchors(ui.threadMessages(line, ui.linkContext(boardItems, 'ask:e9'))), []);
+});
+
+test('a linked thread line still shows markup in its text as text', () => {
+  const html = ui.threadMessages([{ ts: ago(1), who: 'love', text: '<b>INT-54</b> <img src=x>' }], ui.linkContext(boardItems, 'site/S54'));
+  assert.doesNotMatch(html, /<b>|<img/);
+  assert.deepEqual(anchors(html), [['#item=site%2FS54', 'INT-54', false]]);
+  assert.ok(shown(html).includes('<b>INT-54</b> <img src=x>'));
+});
+
+test('a reply is Claude’s own message at its time, quoting the owner’s message only when others came between', () => {
+  const msgs = [
+    { ts: '2026-10-23T10:00:00Z', who: 'love', text: 'Why red?', eventId: 'e1', state: 'replied', reply: { html: '<p>Offline.</p>', at: '2026-10-23T10:20:00Z' } },
+    { ts: '2026-10-23T10:10:00Z', who: 'claude', text: 'Reading app.js' },
+    { ts: '2026-10-23T10:30:00Z', who: 'love', text: 'And blue?', eventId: 'e2', state: 'replied', reply: { html: '<p>Links.</p>', at: '2026-10-23T10:31:00Z' } },
+  ];
+  assert.deepEqual(ui.withReplies(msgs).map((m) => [m.who, m.kind || '', m.quote ?? null]), [
+    ['love', '', null], ['claude', '', null], ['claude', 'reply', 'Why red?'], ['love', '', null], ['claude', 'reply', ''],
+  ]);
+  const html = ui.threadMessages(msgs);
+  assert.equal((html.match(/class="msg claude reply-msg"/g) || []).length, 2);
+  assert.match(html, /<blockquote class="quote">Why red\?<\/blockquote><div class="body"><p>Offline\.<\/p>/);
+  assert.doesNotMatch(html, /quote">And blue/);
+  assert.doesNotMatch(html, /class="reply">/);
+});
+
+test('an HTML line and a reply link refs in their text but leave existing links and preformatted text alone', () => {
+  const links = ui.linkContext(boardItems, 'site/S54');
+  const html = ui.threadMessages([
+    { ts: ago(2), who: 'claude', html: '<p>See <a href="https://x.test/">INT-54 notes</a> &amp; INT-54 at https://x.test/b?c=1&amp;d=2 &rarr; done</p><pre>INT-54</pre>' },
+    { ts: ago(1), who: 'love', text: 'Is INT-56 filed?', eventId: 'e1', reply: { html: '<p>Yes, INT-56 &mdash; see PROD-2310.</p>' }, state: 'replied' },
+  ], links);
+  assert.deepEqual(anchors(html), [
+    ['https://x.test/', 'INT-54 notes', false],
+    ['#item=site%2FS54', 'INT-54', false],
+    ['https://x.test/b?c=1&amp;d=2', 'https://x.test/b?c=1&d=2', true],
+    ['#item=site%2FINT-56', 'INT-56', false],
+    ['#item=site%2FINT-56', 'INT-56', false],
+    ['https://linear.app/acme/issue/PROD-2310', 'PROD-2310', true],
+  ]);
+  assert.match(html, /&rarr; done<\/p><pre>INT-54<\/pre>/);
+  assert.match(html, /INT-56<\/a> &mdash; see/);
+});
+
+test('a question card and a full plan link refs too, to the board page from another page', () => {
+  const onPage = ui.linkContext(boardItems, 'site/S54', { base: './' });
+  const q = { ...question, question: 'Keep INT-54?', context: 'See PROD-2310', state: 'replied', answers: [{ ts: ago(1), choice: 'A', note: 'Like INT-56', reply: { html: '<p>Done in INT-54</p>' } }] };
+  assert.deepEqual(anchors(ui.questionCard(q, { links: onPage })), [
+    ['./#item=site%2FS54', 'INT-54', false],
+    ['https://linear.app/acme/issue/PROD-2310', 'PROD-2310', true],
+    ['./#item=site%2FINT-56', 'INT-56', false],
+    ['./#item=site%2FS54', 'INT-54', false],
+  ]);
+  assert.deepEqual(anchors(ui.markdown('Builds on INT-54, see [notes](https://x.test/n).\n\n```\nINT-54\n```', onPage)), [
+    ['./#item=site%2FS54', 'INT-54', false], ['https://x.test/n', 'notes', true],
+  ]);
+});
+
+test('the rules editor stages edits until Save, sends the list with the ids it loaded, tags Claude\'s rules, and takes colours only from colors.css', () => {
+  const ctx = vm.createContext({});
+  vm.runInContext(fs.readFileSync(new URL('./public/rules-editor.js', import.meta.url), 'utf8'), ctx);
+  const ed = ctx.RulesEditor;
+  const list = ed.rows([{ id: 'r1', text: 'Ask first', by: 'claude', at: 'x' }, { id: 'r2', text: 'Screenshots <b>', by: 'owner', at: 'x' }]);
+  assert.equal(ed.dirty(list), false);
+  assert.match(ed.render(list), /Added by Claude/);
+  assert.equal(text(ed.render(list)).match(/Added by Claude/g).length, 1);
+  assert.match(ed.render(list), /Screenshots &lt;b&gt;/);
+  assert.doesNotMatch(ed.render(list, { readOnly: true }), /<button/);
+  assert.match(ed.render([], { empty: 'None.' }), /None\./);
+
+  list[0].text = 'Ask before main';
+  list[1].gone = true;
+  list.push({ key: 'new-1', id: null, text: 'New', by: 'owner', orig: null, gone: false });
+  assert.equal(ed.dirty(list), true);
+  const html = ed.render(list, { buttons: { primary: 'btn', quiet: 'btn quiet', icon: 'ghost' } });
+  assert.match(html, /class="rule edited"/);
+  assert.match(html, /class="rule gone"[\s\S]*data-act="undo"/);
+  assert.match(html, /class="rule new"/);
+  assert.match(html, /class="ghost" data-act="remove"/);
+  assert.match(ed.render(list, { editing: 'r1' }), /<textarea class="rule-input"[^>]*>Ask before main<\/textarea>/);
+  assert.deepEqual(plain(ed.payload(list)), { rules: [{ id: 'r1', text: 'Ask before main' }, { text: 'New' }], base: ['r1', 'r2'] });
+
+  const shared = definedIn(colorsCss);
+  assert.deepEqual([...usedIn(ed.CSS)].filter((v) => !shared.has(v)), []);
+  assert.doesNotMatch(ed.CSS, /#[0-9a-f]{3,6}\b|rgb/i);
+});
+
+test('the GitHub mark opens the Hub links sheet, with a red dot while a link is broken, and a new board shows its setup checklist', () => {
+  const checks = { at: ago(4 / 60), every: 30, late: false, watcher: 'running' };
+  const links = [{ link: 'github', ok: true, detail: '1 open PR, all in the last check.' }, { link: 'events', ok: false, detail: 'No watcher is running <now>.' }];
+  assert.match(ui.githubLine(checks), /<button class="ghost gh-links" type="button" data-hub-links [^>]*aria-label="Hub links"/);
+  assert.doesNotMatch(ui.githubLine(checks, { links: [links[0]] }), /links-dot/);
+  const broken = ui.githubLine(checks, { links });
+  assert.match(broken, /aria-label="Hub links: 1 not working"[^>]*><svg class="gh-mark"[^]*<span class="links-dot"/);
+  assert.equal(text(broken), 'GitHub 4 min');
+  const list = ui.linksList(links);
+  assert.equal(text(list), 'GitHub polling 1 open PR, all in the last check. Events No watcher is running <now>.');
+  assert.match(list, /<span class="dot pass" role="img" aria-label="Working">[^]*<span class="dot fail" role="img" aria-label="Not working">/);
+  assert.match(ui.linksList(null), /doesn't list this board/);
+  const settling = [links[0], { ...links[1], state: 'settling' }];
+  assert.doesNotMatch(ui.githubLine(checks, { links: settling }), /links-dot/);
+  assert.match(ui.linksList(settling), /<span class="dot" role="img" aria-label="Settling">[^]*Settling: No watcher/);
+  assert.match(ui.githubLine(checks, { links: [links[0], { ...links[1], state: 'broken' }] }), /links-dot/);
+  assert.equal(ui.setupCard(null), '');
+  const setup = ui.setupCard({ events: false, github: true, push: 'no device' });
+  assert.equal(text(setup), "Connecting this board Waiting for Claude to answer the hello GitHub checks reach this board No device has notifications on");
+});

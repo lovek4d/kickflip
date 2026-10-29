@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>New Site</title>
+<style>
+  /* Placeholder: the owning Claude session replaces this page with the real site. */
+  :root { --bg: #fafaf8; --ink: #1d1f1e; --muted: #6a706c; --line: #dadcd8; --accent: #3b6ea8; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #141615; --ink: #e4e7e5; --muted: #9aa19d; --line: #2c302e; --accent: #8db6e8; color-scheme: dark; } }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 40rem; margin: 0 auto; padding: 2rem max(16px, env(safe-area-inset-right)) 3rem max(16px, env(safe-area-inset-left)); }
+  textarea { width: 100%; box-sizing: border-box; font: inherit; padding: .6rem; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: inherit; }
+  button { font: inherit; padding: .4rem 1rem; border: 1px solid var(--accent); color: var(--accent); background: none; border-radius: 6px; margin-top: .5rem; }
+  .muted { color: var(--muted); }
+  li { margin: .8rem 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>New site</h1>
+  <p class="muted">A Claude session owns this route and hasn't built the site yet. You can still send it a message.</p>
+  <form id="f"><textarea id="m" rows="3" placeholder="Tell Claude what this site should be"></textarea><button>Send to Claude</button></form>
+  <ul id="list"></ul>
+</main>
+<script src="claude.js"></script>
+<script>
+  const list = document.getElementById('list');
+  const w = ClaudeSite.watch((events) => {
+    if (!events) return;
+    list.replaceChildren(...events.map((e) => {
+      const li = document.createElement('li');
+      const q = document.createElement('div'); q.textContent = e.data.text || JSON.stringify(e.data);
+      const a = document.createElement('div'); a.className = 'muted';
+      if (e.reply && e.reply.html) a.innerHTML = e.reply.html; else a.textContent = e.reply ? JSON.stringify(e.reply.json) : 'Waiting for Claude…';
+      li.append(q, a); return li;
+    }));
+  }, { kind: 'message' });
+  document.getElementById('f').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const m = document.getElementById('m');
+    if (!m.value.trim()) return;
+    await ClaudeSite.send('message', { text: m.value.trim() });
+    m.value = '';
+    w.refresh();
+  });
+</script>
+</body>
+</html>
