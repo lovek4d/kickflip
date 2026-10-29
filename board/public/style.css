@@ -278,10 +278,14 @@ body.offline main, body.offline .top > :not(.nav), body.offline .top .nav > :not
 .top .nav #refresh:disabled, .top .nav a.icon[aria-disabled="true"] { opacity: .35; pointer-events: none; }
 /* INT-64: offline, the header's time and refresh turn red */
 body.offline .refresh #refresh, .refresh .link-state.offline { color: var(--color-danger); }
-/* INT-67: the back arrow takes the kickflip icon's 32px box */
 .back { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; color: var(--accent); text-decoration: none; }
-/* INT-71: the header's lead slot, logo or back, is one 32px box, so every page's header is the same height */
-.top .hub, .top .back { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; }
+/* The lead slot, logo or back, is one 44px tap box on the page's left edge, so every page's header lines up the same
+   (docs/adr/0048-a-questions-takes-show-inline.md). */
+.top { min-height: 52px; padding-top: max(4px, env(safe-area-inset-top)); padding-bottom: 4px; }
+.top .brand { gap: 4px; }
+.top .hub, .top .back { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 44px; height: 44px; margin-left: -10px; border-radius: 10px; }
+.top .back:active { background: var(--accent-soft); }
+.top .brand h1 { font-size: 17px; font-weight: 600; line-height: 22px; }
 /* INT-61: the last visit paints dimmed until the fresh board lands; the controls ui-snapshot.js liveControls blocks rest meanwhile; a changed line flashes once */
 main > * { transition: opacity .25s ease; }
 body[data-board="snapshot"]:not(.offline) main > * { opacity: .62; }
