@@ -267,6 +267,8 @@ window.BoardView = (function () {
     const live = paintSnapshot();
     B.headerWired();
     if (live) B.linkUp();
+    const sent = BoardUI.sentNotice.take(B.route);
+    if (sent) B.toast(BoardUI.esc(sent), 4000);
     B.on(document, 'visibilitychange', () => {
       if (document.hidden) return;
       if (signalMissed) { signalMissed = false; signalled(); } else loadBoard();

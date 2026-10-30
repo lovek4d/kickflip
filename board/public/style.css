@@ -372,6 +372,8 @@ main > * { transition: opacity .25s ease; }
 .view-questions .bar { position: sticky; bottom: 0; padding: 10px 0 max(10px, env(safe-area-inset-bottom)); background: var(--bg);
   display: flex; justify-content: space-between; align-items: center; gap: 8px; border-top: 1px solid var(--line); }
 .view-questions .bar .send-hint { margin-left: auto; }
+.view-questions .bar #qstatus { min-width: 0; }
+.view-questions .bar #qstatus.sent { color: var(--color-success); font-weight: 600; }
 .view-questions .solo { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 4px 0; }
 
 /* A question's takes inline: one full width with the next peeking on a phone, side by side from 900px. */

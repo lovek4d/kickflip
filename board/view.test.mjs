@@ -590,3 +590,92 @@ test("a lane repaint while the owner types in a card's reply box moves the other
   assert.deepEqual(kept(), [true, 'Half a reply', 4, true]);
   assert.equal(b.root.querySelector('#askText').value, 'A new task');
 });
+
+function questionsOnDom({ topics, questions, at }) {
+  const page = fakePage(memoryStorage().localStorage);
+  const { Element } = miniDom(page.Target, page.win.document);
+  const base = 'https://mac.ts.net/board-a';
+  const server = { questions: structuredClone(questions) };
+  const ownerTopics = () => topics.map((t) => {
+    const qs = server.questions.filter((q) => q.topic === t.id);
+    const count = (s) => qs.filter((q) => q.state === s).length;
+    return { ...t, state: 'open', questions: qs.map((q) => q.id), open: count('open'), answered: count('answered') };
+  }).filter((t) => t.questions.length);
+  const body = (url) => (new URL(url, base).pathname.endsWith('/api/board') ? { ...boardOf([]), owner: server.questions, ownerTopics: ownerTopics() } : []);
+  page.win.fetch = async (url) => { const b = structuredClone(body(url)); return { ok: true, status: 200, text: async () => JSON.stringify(b), json: async () => b }; };
+  const site = page.win.ClaudeSite.site;
+  page.win.ClaudeSite.site = (r) => ({ ...site(r), send: async (kind, data) => {
+    const q = server.questions.find((x) => x.id === data.id);
+    q.state = 'answered';
+    q.answers.push({ ts: '2026-10-30T10:00:00.000Z', choice: data.choice, note: '', files: [], reply: null });
+    return {};
+  } });
+  Object.assign(page.win, { scrollTo() {}, scrollY: 0, sessionStorage: memoryStorage().localStorage });
+  page.win.BoardAttach.paintAll = () => {};
+  page.win.location.hash = `#${at}`;
+  page.win.history = { state: { idx: 1, up: 1 }, replaceState: (state, _, url) => { page.win.location.hash = url; } };
+  const shell = { root: page.win.document.body.appendChild(new Element('div')), board: null };
+  const view = { kind: 'questions', route: 'board-a', id: at };
+  shell.root.innerHTML = page.win.AppViews.questions.markup(view);
+  const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
+  const up = () => {
+    questionsView.unmount();
+    const root = page.win.document.body.appendChild(new Element('div'));
+    root.innerHTML = page.win.BoardView.markup({ title: 'A' });
+    page.win.BoardView.create(root, base, {}).mount();
+    shell.board = root;
+    return true;
+  };
+  const questionsView = page.win.AppViews.questions.create(shell.root, base, { view, up });
+  questionsView.mount();
+  const $ = (sel) => shell.root.querySelector(sel);
+  const answer = (id) => {
+    const input = $(`section.q[data-q="${id}"] input[value="A"]`);
+    input.type = 'radio';
+    page.fire(shell.root, 'change', { target: input });
+  };
+  const send = async () => { page.fire(shell.root, 'submit', { target: $('#qform') }); await settle(); };
+  const shown = () => shell.board ? { board: shell.board.querySelector('#toast').hidden ? '' : shell.board.querySelector('#toast').textContent }
+    : { pills: shell.root.querySelectorAll('.topics button').map((b) => [b.dataset.topic, b.getAttribute('aria-pressed')]),
+      questions: shell.root.querySelectorAll('section.q').map((s) => s.dataset.q), status: $('#qstatus').textContent, hash: page.win.location.hash };
+  return { settle, answer, send, shown };
+}
+
+test("Waiting on you's Send stays on a topic with a question still open, and from one with none, an urgent question's alone included, opens the topic whose pill was to its left before the Send, else to its right, else goes back to the board, saying what it sent", async () => {
+  const topic = (n) => ({ id: `item:w/T${n}`, title: `INT-${n}: Topic ${n}` });
+  const question = (id, n) => ({ id, topic: `item:w/T${n}`, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
+  const three = [question('q1', 1), question('q2', 2), question('q3', 3)];
+  const open = (...ids) => three.filter((q) => ids.includes(q.id)).concat(three.filter((q) => !ids.includes(q.id)).map((q) => ({ ...q, state: 'answered' })));
+
+  const middle = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: three, at: 'q2' });
+  await middle.settle();
+  middle.answer('q2');
+  await middle.send();
+  assert.deepEqual(middle.shown(), { pills: [['item:w/T1', 'true'], ['item:w/T3', 'false']], questions: ['q1'], status: 'Sent 1 answer to INT-2.', hash: '#q1' });
+
+  const leftmost = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: three, at: 'q1' });
+  await leftmost.settle();
+  leftmost.answer('q1');
+  await leftmost.send();
+  assert.deepEqual(leftmost.shown(), { pills: [['item:w/T2', 'true'], ['item:w/T3', 'false']], questions: ['q2'], status: 'Sent 1 answer to INT-1.', hash: '#q2' });
+
+  const partial = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: [...three, question('q2b', 2)], at: 'q2' });
+  await partial.settle();
+  partial.answer('q2');
+  await partial.send();
+  assert.deepEqual(partial.shown(), { pills: [['item:w/T1', 'false'], ['item:w/T2', 'true'], ['item:w/T3', 'false']], questions: ['q2', 'q2b'],
+    status: 'Sent 1 answer to INT-2. 1 still open, answer it any time.', hash: '#q2' });
+
+  const last = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: open('q3'), at: 'q3' });
+  await last.settle();
+  last.answer('q3');
+  await last.send();
+  assert.deepEqual(last.shown(), { board: 'Sent 1 answer to INT-3.' });
+
+  const urgent = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: three.map((q) => (q.id === 'q3' ? { ...q, urgent: true } : q)), at: '' });
+  await urgent.settle();
+  assert.deepEqual(urgent.shown().questions, ['q3']);
+  urgent.answer('q3');
+  await urgent.send();
+  assert.deepEqual(urgent.shown(), { pills: [['item:w/T1', 'false'], ['item:w/T2', 'true']], questions: ['q2'], status: 'Sent 1 answer to INT-3.', hash: '#q2' });
+});

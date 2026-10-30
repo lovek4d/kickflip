@@ -1,7 +1,10 @@
 // Waiting on you, /<route>/questions.html#<question id>, a view of the app shell (shell.js). A topic's questions show
 // on one page with one Send at the bottom, which sends an `owner-answer` event per question answered there; the rest
-// stay open for a later visit. An open question with `urgent: true` in owner.json shows alone first. A question whose
-// options are prototype takes frames each take with ?take= (docs/adr/0048-a-questions-takes-show-inline.md).
+// stay open for a later visit. Once every answer has sent, a topic with a question still open stays; one with none
+// opens the topic whose pill was to its left before the Send, else to its right, and with no topic left that has an
+// open question goes back to the board, where the Sent line shows as a toast (BoardUI.sentNotice). An open question
+// with `urgent: true` in owner.json shows alone first, and its Send follows the same rule for its topic. A question
+// whose options are prototype takes frames each take with ?take= (docs/adr/0048-a-questions-takes-show-inline.md).
 (globalThis.AppViews ||= {}).questions = {
   className: 'view-questions',
   title: () => 'Waiting On You',
@@ -12,7 +15,7 @@
 
   create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
     const { $, site } = B;
-    const { esc, choiceLabel, questionCard, linkContext, badge, topicName, topicRow, fetchJSON, restartNotice } = BoardUI;
+    const { esc, choiceLabel, questionCard, linkContext, badge, topicName, topicRow, sentNotice, fetchJSON, restartNotice } = BoardUI;
     // prototype-switcher.js reads a draft's note and clears the draft once it sends that question's answer.
     const draftKey = (id) => 'qdraft:' + id;
     const getDraft = (id) => { try { return JSON.parse(localStorage.getItem(draftKey(id)) || '{}'); } catch { return {}; } };
@@ -25,10 +28,12 @@
     let topicId = null;
     let soloId = null;
     let shown = '';
+    let sentLine = '';
 
     const byId = (id) => all.find((q) => q.id === id);
     const topicOf = (qid) => topics.find((t) => t.questions.includes(qid)) || null;
     const openTopics = () => topics.filter((t) => t.state !== 'resolved');
+    const needsOwner = (id) => topics.some((t) => t.id === id && t.state !== 'resolved' && t.open > 0);
     const links = (q) => linkContext(items, q.topic?.startsWith('item:') ? q.topic.slice(5) : null, { base: './' });
     const urgentOpen = () => all.find((q) => q.urgent && q.state === 'open');
 
@@ -77,7 +82,7 @@
       el.innerHTML = `${head}<form id="qform">
         ${live.map((q, i) => questionCard(q, { n: soloId ? 0 : i + 1, draft: getDraft(q.id), links: links(q) })).join('')}
         ${done.length ? `<details class="done"><summary>Resolved · ${done.length}</summary>${done.map((q) => questionCard(q, { draft: getDraft(q.id), links: links(q) })).join('')}</details>` : ''}
-        <div class="bar"><span class="muted small" id="qstatus"></span><span class="send-hint" aria-hidden="true">${/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘↵' : 'Ctrl+↵'}</span><button class="primary" type="submit" id="send">Send</button></div>
+        <div class="bar"><span class="muted small${sentLine ? ' sent' : ''}" id="qstatus" role="status">${esc(sentLine)}</span><span class="send-hint" aria-hidden="true">${/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘↵' : 'Ctrl+↵'}</span><button class="primary" type="submit" id="send">Send</button></div>
       </form>${soloId ? '' : waitingTopics() + resolvedTopics()}`;
       BoardAttach.paintAll();
       el.querySelectorAll('.takes').forEach(wireTakes);
@@ -132,16 +137,17 @@
       topicId = t ? t.id : null;
     }
 
-    // One load at a time: a load waiting out a board restart would otherwise overlap the next poll's.
-    let loading = false;
+    const sigNow = () => JSON.stringify([soloId, topicId, topics.map((t) => [t.id, t.state, t.open, t.answered]), visible().map((q) => [q.id, q.state, q.answers.length, q.answers.map((a) => Boolean(a.reply))])]);
+    // One load at a time: a load waiting out a board restart would otherwise overlap the next poll's. A load asked for
+    // while one runs shares it. → true when the board's answer landed in this view.
+    let loading = null;
     let loaded = false;
-    async function load(first) {
-      if (loading) return;
-      loading = true;
+    const load = (first) => (loading ||= fetchBoard(first).finally(() => { loading = null; }));
+    async function fetchBoard(first) {
       const page = $('#page');
       try {
         const { body: d } = await fetchJSON(site.url('api/board'), { onWait: () => { if (first) page.innerHTML = restartNotice(); }, sleep: B.sleep });
-        if (!B.alive()) return;
+        if (!B.alive()) return false;
         all = d.owner || [];
         items = d.items || [];
         topics = d.ownerTopics || [];
@@ -150,7 +156,7 @@
         else if (soloId && byId(soloId)?.state !== 'open') pick('');
         else if (!topics.some((t) => t.id === topicId)) pick('');
         loaded = true;
-        const sig = JSON.stringify([soloId, topicId, topics.map((t) => [t.id, t.state, t.open, t.answered]), visible().map((q) => [q.id, q.state, q.answers.length, q.answers.map((a) => Boolean(a.reply))])]);
+        const sig = sigNow();
         const active = document.activeElement;
         if (sig !== shown && !(active && active.tagName === 'TEXTAREA')) {
           shown = sig;
@@ -158,15 +164,51 @@
           render();
           scrollTo(0, first ? 0 : y);
         }
+        return true;
       } catch (e) {
         if (first) page.innerHTML = `<p class="muted">Could not load the questions: ${esc(e.message)}</p>`;
-      } finally { loading = false; }
+        return false;
+      }
+    }
+
+    // After a Send from topic `from` whose pills stood as `pills` before it: stays while the topic has a question open,
+    // else opens the pill that was to its left, else to its right, else any topic with an open question, else the board.
+    function moveOn(from, pills, what) {
+      soloId = null;
+      const left = topics.find((t) => t.id === from)?.open || 0;
+      if (needsOwner(from)) {
+        topicId = from;
+        sentLine = `${what} ${left} still open, answer ${left === 1 ? 'it' : 'them'} any time.`;
+        shown = sigNow();
+        const y = scrollY;
+        render();
+        scrollTo(0, y);
+        return;
+      }
+      const at = pills.indexOf(from);
+      const other = (id) => id !== from && needsOwner(id);
+      const next = pills.slice(0, at).reverse().find(other) ?? pills.slice(at + 1).find(other) ?? topics.map((t) => t.id).find(other);
+      sentLine = what;
+      if (next === undefined) {
+        sentNotice.put(B.route, what);
+        if (ctx.up?.()) return;
+        sentNotice.take(B.route);
+        topicId = from;
+      } else {
+        topicId = next;
+        const t = topics.find((x) => x.id === next);
+        const first = t.questions.find((id) => byId(id)?.state === 'open') ?? t.questions[0];
+        history.replaceState(history.state, '', '#' + encodeURIComponent(first));
+      }
+      shown = sigNow();
+      render();
+      scrollTo(0, 0);
     }
 
     B.on(root, 'click', (ev) => {
-      if (ev.target.id === 'showAll') { soloId = null; shown = ''; render(); return; }
+      if (ev.target.id === 'showAll') { soloId = null; sentLine = ''; shown = ''; render(); return; }
       const b = ev.target.closest && ev.target.closest('[data-topic]');
-      if (b) { soloId = null; topicId = b.dataset.topic; shown = ''; render(); scrollTo(0, 0); }
+      if (b) { soloId = null; topicId = b.dataset.topic; sentLine = ''; shown = ''; render(); scrollTo(0, 0); }
     });
     B.on(root, 'change', (ev) => {
       const sec = ev.target.closest('section.q'); if (!sec || ev.target.type !== 'radio') return;
@@ -192,6 +234,9 @@
       if (uploading(visible())) return;
       if (!list.length) { st.textContent = 'Pick an option or write a note first.'; return; }
       st.textContent = 'Sending…';
+      const from = soloId ? topicOf(soloId)?.id : topicId;
+      const pills = topicRow(topics, from).pills.map((t) => t.id);
+      const name = topicName(topics.find((t) => t.id === from) || { title: '' });
       let sent = 0;
       try {
         for (const q of list) {
@@ -204,10 +249,11 @@
           BoardAttach.clear('q:' + q.id, site.root);
           sent++;
         }
-        shown = '';
-        await load(false);
-        const left = visible().filter((q) => q.state === 'open').length;
-        $('#qstatus').textContent = `Sent ${sent}.${left ? ` ${left} still open, answer them any time.` : ' Claude replies under each one.'}`;
+        const what = `Sent ${sent} answer${sent === 1 ? '' : 's'}${name ? ` to ${name}` : ''}.`;
+        // A load that started before these answers went out would read them as still open.
+        await loading;
+        if (await load(false)) moveOn(from, pills, what);
+        else if (B.alive()) { sentLine = what; $('#qstatus').textContent = what; $('#qstatus').classList.add('sent'); }
       } catch { st.textContent = sent ? `Sent ${sent} of ${list.length}. Is the Mac awake?` : 'Could not send. Is the Mac awake?'; }
     });
     // Each composer painted raises a bubbling attach-change (attach.js).
@@ -216,6 +262,7 @@
     B.on(window, 'hashchange', () => {
       if (!loaded) return;
       pick(hashId());
+      sentLine = '';
       shown = '';
       render();
       scrollTo(0, 0);

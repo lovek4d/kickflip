@@ -94,5 +94,15 @@
     return { pills, waiting };
   }
 
-  Object.assign(globalThis.BoardUI, { choiceLabel, option, answerHistory, questionCard, topicName, topicRow });
+  // The line Waiting on you's Send leaves for the board it goes back to, read once by that board's view (app.js).
+  // Kept in sessionStorage, so a board opened later in another tab shows none.
+  const noticeKey = (route) => 'sent:' + route;
+  const sentNotice = {
+    put(route, text) { try { sessionStorage.setItem(noticeKey(route), text); } catch {} },
+    take(route) {
+      try { const t = sessionStorage.getItem(noticeKey(route)) || ''; sessionStorage.removeItem(noticeKey(route)); return t; } catch { return ''; }
+    },
+  };
+
+  Object.assign(globalThis.BoardUI, { choiceLabel, option, answerHistory, questionCard, topicName, topicRow, sentNotice });
 })();

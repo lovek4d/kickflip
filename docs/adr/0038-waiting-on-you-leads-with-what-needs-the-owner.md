@@ -3,7 +3,7 @@
 The top row of Waiting on you (`questions.html`) shows only the topics with a question the owner hasn't answered. Topics that wait only on Claude move to a fold at the bottom.
 
 - **The top row** has one pill per unresolved topic with at least one open question. A pill is named by the card id its title starts with ("INT-92", "B5"); any other topic keeps its whole title. Its count is the topic's open questions. The row hides when fewer than two pills would show.
-- **The current topic keeps its pill** even when it no longer needs the owner, such as right after they answer, so the row doesn't jump under them.
+- **The current topic keeps its pill** even when it no longer needs the owner, such as one opened from Waiting on Claude, so the row doesn't jump under them. A Send that leaves the topic with nothing open moves on instead: to the topic whose pill was to its left, else to its right, else back to the board, saying what it sent. A Send that leaves a question open stays.
 - **The line under the row** shows the current topic's full title, then its summary when it has one.
 - **Waiting on Claude · N** folds below the Send bar, above Resolved topics, in the same look. It lists the unresolved topics with no open question, each opening its topic, with a muted state word: "answered" when any of its questions waits for Claude's reply, else "Claude replied".
 - **The page opens** on the urgent question alone when there is one, else on the first topic with an open question, as before.
