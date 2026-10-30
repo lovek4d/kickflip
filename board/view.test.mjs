@@ -418,21 +418,46 @@ const askCard = (id, lane) => ({ key: `ask:${id}`, id, kind: 'ask', lane, title:
 const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items, waves: [], needs: [], answers: [] });
 const workCard = (id, extra) => ({ key: `w/${id}`, id, kind: 'work', lane: 'todo', title: `Work ${id}`, ref: id, internal: true, waveTitle: 'W', deps: [], manualSteps: [], othersAt: [], ...extra });
 
-test("an open card shows the one action button the board names: Open questions links to its first question, Grill asks for questions or reads Writing questions…, and an ask's Mark as done confirms and sends ask-done", async () => {
+test("an open card shows the one action button the board names, its workflow buttons in one row and the links that leave the board in the next with Install last, and colours orange the button that clears Action needed: Open questions links to its first question, Grill asks for questions or reads Writing questions…, and an ask's Mark as done confirms and sends ask-done", async () => {
+  const draft = { state: 'OPEN', isDraft: true, number: 7, url: 'https://github.com/o/r/pull/7', checks: { state: 'pass' } };
+  const ready = { ...draft, isDraft: false };
+  const install = { url: 'itms-services://?action=download-manifest&url=https://m/x/manifest.plist', label: null, older: false };
+  const asking = { actionButton: 'openQuestions', questions: { first: 'q7', open: 1, state: 'open' } };
   const cards = [
-    workCard('A1', { actionButton: 'openQuestions', questions: { first: 'q7', open: 1, state: 'open' }, action: { kind: 'questions', url: 'questions.html#q7', label: 'Answer 1 question' } }),
+    workCard('A1', { ...asking, action: { kind: 'questions', url: 'questions.html#q7', label: 'Answer 1 question' }, resolvedBy: 'openQuestions' }),
     workCard('A2', { actionButton: 'grill' }),
     workCard('A3', { actionButton: 'grill', grilling: true }),
     workCard('A4', { actionButton: null, lane: 'done' }),
-    { ...askCard('a1', 'review'), ref: 'Task', actionButton: 'markDone', finishable: true, action: { kind: 'done', url: '#item=ask%3Aa1', label: 'Pick a take' } },
+    workCard('A5', { ...asking, held: true, holdable: true, action: null, resolvedBy: null }),
+    workCard('P1', { ...asking, action: { kind: 'pick', url: 'questions.html#q7', label: 'Prototypes ready: pick a take' }, resolvedBy: 'openQuestions' }),
+    workCard('D1', { lane: 'review', actionButton: 'grill', pr: draft, hasNotes: true, install, action: { kind: 'ready', url: draft.url, label: 'Tap Ready on GitHub' }, resolvedBy: 'github' }),
+    workCard('R1', { lane: 'review', actionButton: 'grill', pr: ready, install }),
+    workCard('S1', { lane: 'review', actionButton: 'grill', pr: ready, manualSteps: ['Run the backfill'], action: { kind: 'steps', url: '#item=w%2FS1', label: 'Run the manual steps, then merge' }, resolvedBy: 'github' }),
+    workCard('M1', { lane: 'review', actionButton: 'grill', pr: ready, action: { kind: 'merge', url: '#item=w%2FM1', label: 'Merge' }, resolvedBy: 'merge' }),
+    { ...askCard('a1', 'review'), ref: 'Task', actionButton: 'markDone', finishable: true, action: { kind: 'done', url: '#item=ask%3Aa1', label: 'Pick a take' }, resolvedBy: 'markDone' },
     { ...askCard('a2', 'done'), ref: 'Task', actionButton: null },
   ];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
   await b.settle();
   const row = (key) => b.root.querySelector(`details.item[data-key="${key}"] .detail`)?.querySelector('.actions');
-  const buttons = (key) => (row(key) ? row(key).querySelectorAll('a.button, button').map((el) => el.textContent.trim()) : []);
-  assert.deepEqual(['w/A1', 'w/A2', 'w/A3', 'w/A4', 'ask:a1', 'ask:a2'].map(buttons), [['Open questions'], ['Grill'], ['Writing questions…'], [], ['Mark as done'], []]);
+  const labels = (els) => els.map((el) => el.textContent.trim());
+  const shown = (key) => ['workflow', 'external', 'resolves'].map((part) => labels(row(key)?.querySelectorAll(part === 'resolves' ? '.resolves' : `.action-row.${part} a, .action-row.${part} button`) || []));
+  assert.deepEqual(Object.fromEntries(cards.map((c) => [c.key, shown(c.key)])), {
+    'w/A1': [['Open questions'], [], ['Open questions']],
+    'w/A2': [['Grill'], [], []],
+    'w/A3': [['Writing questions…'], [], []],
+    'w/A4': [[], [], []],
+    'w/A5': [['Resume', 'Open questions'], [], []],
+    'w/P1': [['Open questions'], [], ['Open questions']],
+    'w/D1': [['Grill'], ['Review draft on GitHub →', 'Notes →', 'Install →'], ['Review draft on GitHub →']],
+    'w/R1': [['Grill'], ['Review on GitHub →', 'Install →'], []],
+    'w/S1': [['Grill'], ['Review on GitHub →'], ['Review on GitHub →']],
+    'w/M1': [['Merge', 'Grill'], ['Review on GitHub →'], ['Merge']],
+    'ask:a1': [['Mark as done'], [], ['Mark as done']],
+    'ask:a2': [[], [], []],
+  });
   assert.equal(row('w/A1').querySelector('a.button').getAttribute('href'), 'questions.html#q7');
+  assert.deepEqual(row('w/D1').querySelectorAll('.action-row.external a').map((a) => a.getAttribute('href')), [draft.url, 'notes.html?item=w%2FD1', install.url]);
 
   b.page.fire(b.root, 'click', { target: row('w/A2').querySelector('button') });
   b.page.fire(b.root, 'click', { target: row('ask:a1').querySelector('button') });

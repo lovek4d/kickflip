@@ -7,7 +7,7 @@ BoardView.part((B) => {
   function detail(it) {
     if (it.kind === 'ask') {
       const button = actionButton(it);
-      return `<div class="detail">${button ? `<div class="actions" data-actions="${esc(it.key)}">${button}</div>` : ''}${B.thread(it.key)}</div>`;
+      return `<div class="detail">${button ? `<div class="actions" data-actions="${esc(it.key)}">${actionRow('workflow', button)}</div>` : ''}${B.thread(it.key)}</div>`;
     }
     const pr = it.pr;
     const ctx = links(it.key);
@@ -51,10 +51,18 @@ BoardView.part((B) => {
       : `Close ${ref}? It moves to Done and Claude stops work on it.${it.pr?.state === 'OPEN' ? ' Its PR stays open on GitHub.' : ''}`),
   };
 
+  const classes = (it, button, base = '') => {
+    const names = [base, it.resolvedBy === button && 'resolves'].filter(Boolean).join(' ');
+    return names ? ` class="${names}"` : '';
+  };
+  const actionRow = (kind, html) => (html.trim() ? `<div class="action-row ${kind}">${html}</div>` : '');
+
   function actions(it) {
     const key = esc(it.key);
     const pr = it.pr;
-    const draftPR = pr && pr.state === 'OPEN' && pr.isDraft;
+    const github = pr?.state === 'OPEN'
+      ? `<a${classes(it, 'github', 'pill')} href="${esc(pr.url)}" target="_blank" rel="noopener">${pr.isDraft ? 'Review draft on GitHub' : 'Review on GitHub'} →</a>` : '';
+    const install = it.install ? `<a class="pill" href="${esc(it.install.url)}">${esc(it.install.label || 'Install')} →</a>` : '';
     const ask = (act, label, disabled) => `<button data-confirm="${act}" data-key="${key}"${disabled ? ' disabled' : ''}>${label}</button>`;
     const holding = sendingHold.has(it.key) ? sendingHold.get(it.key) : it.holdPending;
     const hold = it.kind !== 'work' || !it.holdable ? ''
@@ -62,18 +70,15 @@ BoardView.part((B) => {
       : it.held ? ask('resume', 'Resume') : ask('hold', 'Hold');
     const topBump = Boolean(it.bumpedAt) && !state.board.items.some((i) => i.lane === it.lane && (i.bumpedAt || '') > it.bumpedAt);
     const prioritize = it.bumpable ? ask('bump', 'Prioritize', topBump) : '';
-    return `<div class="actions" data-actions="${key}">
-        ${draftPR ? `<a class="pill" href="${esc(pr.url)}" target="_blank" rel="noopener">Review #${esc(pr.number)} on GitHub →</a>` : ''}
-        ${it.kind === 'followup' && it.lane !== 'done' ? `<button class="build" data-confirm="build" data-key="${key}">Build</button>` : ''}
-        ${mergeButton(it, sendingMerge.has(it.key))}${hold}${prioritize}${actionButton(it)}
-        ${it.hasNotes ? `<a class="pill" href="notes.html?item=${encodeURIComponent(it.key)}">Notes →</a>` : ''}
-      </div>`;
+    const build = it.kind === 'followup' && it.lane !== 'done' ? `<button class="build" data-confirm="build" data-key="${key}">Build</button>` : '';
+    const notes = it.hasNotes ? `<a class="pill" href="notes.html?item=${encodeURIComponent(it.key)}">Notes →</a>` : '';
+    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${build}${mergeButton(it, sendingMerge.has(it.key))}${hold}${prioritize}${actionButton(it)}`)}${actionRow('external', `${github}${notes}${install}`)}</div>`;
   }
 
-  // board/domain.mjs actionButtonOf picks the button (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md).
+  // board/domain.mjs actionButtonOf picks the button and resolvedBy its colour (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md).
   const ACTION_BUTTONS = {
-    openQuestions: (it) => `<a class="button answer" href="questions.html#${esc(it.questions.first)}">Open questions</a>`,
-    markDone: (it) => `<button data-confirm="finish" data-key="${esc(it.key)}">Mark as done</button>`,
+    openQuestions: (it) => `<a${classes(it, 'openQuestions', 'button')} href="questions.html#${esc(it.questions.first)}">Open questions</a>`,
+    markDone: (it) => `<button${classes(it, 'markDone')} data-confirm="finish" data-key="${esc(it.key)}">Mark as done</button>`,
     grill: (it) => (it.grilling ? '<button disabled>Writing questions…</button>' : `<button data-confirm="grill" data-key="${esc(it.key)}">Grill</button>`),
   };
   const actionButton = (it) => ACTION_BUTTONS[it.actionButton]?.(it) || '';

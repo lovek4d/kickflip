@@ -45,7 +45,7 @@
   function doneButton(it, sending = false) {
     if (!it?.finishable) return '';
     const closing = it.kind !== 'ask' && (sending || it.closing);
-    return `<button type="button" data-confirm="finish" data-key="${esc(it.key)}"${closing ? ' disabled' : ''}>${closing ? 'Closing…' : 'Done'}</button>`;
+    return `<button type="button"${it.resolvedBy === 'markDone' ? ' class="resolves"' : ''} data-confirm="finish" data-key="${esc(it.key)}"${closing ? ' disabled' : ''}>${closing ? 'Closing…' : 'Done'}</button>`;
   }
 
   Object.assign(globalThis.BoardUI, { threadMessages, withReplies, doneButton });

@@ -176,6 +176,10 @@ function actionButtonOf(it) {
   return it.kind === 'ask' ? null : 'grill';
 }
 
+// The open card's button that resolves each action kind, which the board page colours orange: an action button's name,
+// github for the PR's Review on GitHub, or merge.
+const RESOLVED_BY = { pick: 'openQuestions', questions: 'openQuestions', ready: 'github', steps: 'github', merge: 'merge', done: 'markDone' };
+
 // docs/adr/0045-the-lane-follows-who-acts-next.md
 // A card only the owner can move on goes to In Review, apart from a Todo card waiting on its questions, which stays in
 // Todo (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md). One Claude still works on, or one already
@@ -183,6 +187,7 @@ function actionButtonOf(it) {
 function placeOwnerWait(it, questionById, autoMerge) {
   it.action = actionOf(it, questionById, autoMerge);
   it.actionButton = actionButtonOf(it);
+  it.resolvedBy = RESOLVED_BY[it.action?.kind] || null;
   if (it.action?.kind === 'merge') it.next = OWNER_MERGE_NEXT.ready;
   const ownerOnly = it.lane === 'todo' || (it.lane === 'progress' && (it.waitsOn === 'ready' || it.waitsOn === 'owner'));
   if (!it.action || !ownerOnly) return;

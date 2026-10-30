@@ -594,10 +594,12 @@ test('a pending upload shows its progress and a remove button naming the file', 
   assert.match(text(html), /big\.mov Over 20 MB/);
 });
 
-test("a thread's Done shows on every card not in Done, and a work card's reads Closing…, disabled, while it is sent or waits on the session", () => {
+test("a thread's Done shows on every card not in Done, orange while it clears an ask's Action needed, and a work card's reads Closing…, disabled, while it is sent or waits on the session", () => {
   const done = (it, sending) => { const html = ui.doneButton(it, sending); return html && [text(html), /disabled/.test(html)]; };
   assert.deepEqual(done({ key: 'ask:a1', kind: 'ask', finishable: true }), ['Done', false]);
   assert.deepEqual(done({ key: 'ask:a1', kind: 'ask', finishable: true }, true), ['Done', false]);
+  assert.match(ui.doneButton({ key: 'ask:a1', kind: 'ask', finishable: true, resolvedBy: 'markDone' }), /^<button type="button" class="resolves"/);
+  assert.doesNotMatch(ui.doneButton({ key: 'ask:a1', kind: 'ask', finishable: true }), /resolves/);
   assert.deepEqual(done({ key: 'w/A1', kind: 'work', finishable: true, closing: false }), ['Done', false]);
   assert.deepEqual(done({ key: 'w/A1', kind: 'work', finishable: true, closing: false }, true), ['Closing…', true]);
   assert.deepEqual(done({ key: 'w/A1', kind: 'work', finishable: true, closing: true }), ['Closing…', true]);
@@ -715,13 +717,13 @@ test('a work card reads its title, then its next step or builder, its unread mes
   assert.match(ui.workLines(followup), /<a class="chip tone-normal" href="u"[^>]*>PROD-7<\/a>.*<span class="chip tone-quiet">follow-up<\/span>/s);
 });
 
-test("a card with an install shows its Install link right of Action needed, opening in place, and marks an older build", () => {
+test("a card with an install shows its Install link last among its badges, opening in place, and marks an older build", () => {
   const url = 'itms-services://?action=download-manifest&url=https://m/x/manifest.plist';
   const install = { url, label: null, builtAt: ago(2), sha: 'abc1234', older: false };
   const asking = { ...workCard, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' }, install };
-  assert.deepEqual(lines(ui.workLines(asking)), ['PROD-1 Five', 'Next: Waiting for PR reviewers', 'Action needed Install repo#7 ● CI ✓ J ✗']);
+  assert.deepEqual(lines(ui.workLines(asking)), ['PROD-1 Five', 'Next: Waiting for PR reviewers', 'Action needed repo#7 ● CI ✓ J ✗ Install']);
   const html = ui.workLines({ ...workCard, install });
-  assert.equal(lines(html)[2], 'Install repo#7 ● CI ✓ J ✗');
+  assert.equal(lines(html)[2], 'repo#7 ● CI ✓ J ✗ Install');
   const link = /<a class="chip tone-ready" href="([^"]*)"[^>]*>Install<\/a>/.exec(html);
   assert.equal(link?.[1], url.replaceAll('&', '&amp;'));
   assert.doesNotMatch(link[0], /target=/);

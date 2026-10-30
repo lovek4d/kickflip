@@ -110,8 +110,16 @@ _Avoid_: task (a **new task** is the owner's), ticket (a ticket is the Linear is
 A work item about the sites themselves rather than the product. Its card shows its **ref**, `INT-<n>`, where other cards show Linear chips; a stored id `S<n>` reads `INT-<n>`.
 _Avoid_: meta task, chore
 
+**Badge**:
+A chip on a card or page that shows a status, such as Action needed, Install, a PR's state or "held". It may link to what it is about: on a closed card, Action needed and Install go straight to the thing to act on (owner, question `badge-tap`). A badge never acts on the board; a **button** does.
+_Avoid_: chip (in what the owner reads), tag, label
+
+**Button**:
+A control that acts: it sends something to the board, such as Merge, Hold or Grill, or opens a place to act, such as Open questions or Review on GitHub. The open card's buttons sit in two rows: workflow first (a follow-up's Build, Merge, Hold or Resume, Prioritize, then the **action button**), then the links that leave the board (Review on GitHub, Notes, then Install last). The one that clears the card's **Action needed** is orange.
+_Avoid_: badge, pill (a pill is only a look)
+
 **Badge tone**:
-The color of a badge (a status chip on a card or page), picked from one fixed set by what the badge says, through `BoardUI.badge` in `board/public/ui.js`: quiet (gray), normal (blue), notice (orange), danger (red) or ready (green). Each tone takes its color from a **status color**, so a badge is one consumer of the colors, not their source. No badge has a look of its own, so the same tone looks the same everywhere. Buttons and links styled like chips, such as quick replies, a follow-up's Build and "Notes →", aren't badges.
+The color of a badge (a status chip on a card or page), picked from one fixed set by what the badge says, through `BoardUI.badge` in `board/public/ui.js`: quiet (gray), normal (blue), notice (orange), danger (red) or ready (green). Each tone takes its color from a **status color**, so a badge is one consumer of the colors, not their source. No badge has a look of its own, so the same tone looks the same everywhere. Buttons and links styled like chips, such as quick replies, a follow-up's Build and "Notes →", aren't badges; the orange of the button that clears Action needed is the same notice color.
 _Avoid_: chip color, badge style, variant
 
 **Status color**:
@@ -148,14 +156,19 @@ _Avoid_: open items, needs you (Needs you is the box at the top of the board)
 
 **Action button**:
 The open card's one workflow button, which `board/domain.mjs` picks as the card's `actionButton`: **Open questions** (`openQuestions`) while it has open questions or a prototype pick, opening the first; **Mark as done** (`markDone`) on an ask waiting only on the owner's Done, sending the same `ask-done` as the thread's Done; otherwise **Grill** (`grill`), which reads "Writing questions…" while a grill waits on Claude. Open questions win over Mark as done. A Done card, and an ask with neither, has none ([0059](docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md)).
+While the card carries **Action needed**, the button that clears it is orange, in the notice color: the card's `resolvedBy` from `board/domain.mjs`, by the action's kind. A question or a pick makes Open questions orange, an ask's Done makes Mark as done and the thread's Done orange, a green draft's Ready or manual steps make Review on GitHub orange, and an approved PR's Merge makes Merge orange. A held card's Open questions, and Grill, stay plain. A follow-up's Build is always orange.
 _Avoid_: Open items, Action needed (the badge)
 
 **Auto-merge**:
 A board setting, `auto_merge` in its `board.json`, off unless set: on, monitor merges a PR once it is approved, CI is green and its merge state is CLEAN; off, the card shows the owner Action needed and a Merge button, which reads "Merging…" until the PR merges or Claude says in the thread why it didn't. The board's Settings page toggles it, and the watcher prints it with every wake as `setting auto-merge on|off`. A setting, not a **rule**, since the board itself acts on it ([0052](docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md)).
 _Avoid_: merge rule, merge policy
 
+**Review on GitHub**:
+The open card's link to its PR, on every card with an open PR, first in the second row of buttons. It reads "Review draft on GitHub" on a draft and "Review on GitHub" once ready, with no PR number, and is orange while a green draft's Ready or manual steps wait on the owner.
+_Avoid_: Review #<n> on GitHub, PR link
+
 **Install**:
-The link on a card whose PR builds a device app, right of Action needed, that installs the build on the owner's phone: an iOS `itms-services://` manifest link or an Android `.apk`, kept in the item's `install`. It reads "older build" once the PR's head moves past the commit it was built from, and leaves the card in Done ([0051](docs/adr/0051-a-device-app-card-carries-an-install-link.md)).
+The link on a card whose PR builds a device app, last in its badge row and last in the open card's second row of buttons, that installs the build on the owner's phone: an iOS `itms-services://` manifest link or an Android `.apk`, kept in the item's `install`. It reads "older build" once the PR's head moves past the commit it was built from, and leaves the card in Done ([0051](docs/adr/0051-a-device-app-card-carries-an-install-link.md)).
 _Avoid_: download, TestFlight (a different channel), build link
 
 **Notes**:
@@ -243,7 +256,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `../shared/colors.css` | Every color, served as `colors.css` and linked before `style.css`; the hub serves it as `/_hub/colors.css` |
 | `ui.js` | Shared helpers: escaping, times, reply bodies, attachments, icons and message buttons, badges by tone, `setHTML`, which patches a region in place, and `fetchJSON`, through which the side pages read the API and wait out a board restart |
 | `ui-links.js` | Linking refs, Linear ids, PRs and URLs in written text; load it right after `ui.js` |
-| `ui-cards.js` | A card's lines, in order: title with its ref, or New or Task chip; status with its ETA; unread; Action needed, Install, PR, review and other chips; Blocked by chips; and a New card's bump, edit and delete icons; and the action row's Merge button |
+| `ui-cards.js` | A card's lines, in order: title with its ref, or New or Task chip; status with its ETA; unread; Action needed, PR, review and other chips, then Install; Blocked by chips; and a New card's bump, edit and delete icons; and the action row's Merge button |
 | `ui-sidebar.js` | `BoardUI.sidebar`, the sidebar's markup from `/_hub/sidebar.json`, headed by `BoardUI.header` itself, with each row's key in **switch mode**; `switchKeys`, which row each key opens; and `othersWaiting`, for the logo's label. Needs `ui-page-header.js` loaded before it: `hub/hub.mjs` renders the app shell's first sidebar with both in a vm context |
 | `sidebar.js` | Painting the sidebar from the copy written into the shell, else this device's last copy, then from each copy the hub's stream sends; this device's push subscription for its Turn on row; the logo's toggle, the drawer and its swipes, the rail's collapse, which this device keeps, and the logo's label; **switch mode**'s keys, from the document and a framed page, each row opened through the shell |
 | `app.html` | The app shell: the sidebar, the view's slot, and its scripts and CSS from `/_hub/app/`, with a board's loads started in its `<head>`; the hub serves it for a browser's load of `/` or any site's page, and every load of a hub page, with the sidebar and its data written in (`hub/shell.mjs` `pageOf`), and the board server for a board's four view paths without them (`shellHtml`) |
@@ -272,7 +285,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `dialogs.js` | `BoardDialogs.confirm` and `notice`, which every board page's dialogs go through; loaded on every page |
 | `rules-editor.js` | `RulesEditor`, the rules list on board Settings and hub Settings, with its own CSS; `ui.test.mjs` tests its pure parts |
 | `app-threads.js` | Loading a thread, once at a time per card; an open card's thread, its reply box, quick replies and Done |
-| `app-cards.js` | Cards, their open detail, and the action row: a follow-up's Build, Merge, Hold, Prioritize and the **action button** with each one's confirmation, then Notes; an ask's detail shows only its action button; the thread's Done confirmation and send |
+| `app-cards.js` | Cards, their open detail, and the action rows: a follow-up's Build, Merge, Hold, Prioritize and the **action button** with each one's confirmation, then Review on GitHub, Notes and Install; an ask's detail shows only its action button; the thread's Done confirmation and send |
 | `app-lanes.js` | Lanes, the Answered, older and finished-wave folds, the wave bars and filter, and Plan a wave |
 | `app-asks.js` | The + sheet and its press-n-twice shortcut, and bump, edit and delete |
 | `app-needs.js` | The Needs you box |

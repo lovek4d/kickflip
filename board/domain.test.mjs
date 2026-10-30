@@ -30,9 +30,9 @@ function board({ agents = {}, pr = greenDraft, owner = {}, events = [], topicIte
 test('a green draft waits on Ready in In Review until a builder works on it', () => {
   const ready = board().items.find((i) => i.key === 'w/A1');
   assert.deepEqual([ready.lane, ready.waitsOn, ready.next, ready.action], ['review', 'ready', 'Tap Ready on GitHub', { kind: 'ready', url: 'https://github.com/o/r/pull/7', label: 'Tap Ready on GitHub' }]);
-  assert.equal(ready.actionButton, 'grill');
+  assert.deepEqual([ready.actionButton, ready.resolvedBy], ['grill', 'github']);
   const asked = board({ owner: { items: [{ id: 'q1', topic: 'item:w/A1', question: 'Ship it?' }] } }).items.find((i) => i.key === 'w/A1');
-  assert.deepEqual([asked.lane, asked.waitsOn, asked.action.kind, asked.actionButton], ['review', 'ready', 'questions', 'openQuestions']);
+  assert.deepEqual([asked.lane, asked.waitsOn, asked.action.kind, asked.actionButton, asked.resolvedBy], ['review', 'ready', 'questions', 'openQuestions', 'openQuestions']);
   const record = { label: 'Opus builder', started: '2026-10-23T10:00:00Z', progress: 'Record line', progress_at: '2026-10-23T10:06:00Z' };
   const earlier = { ts: '2026-10-23T09:00:00Z', who: 'claude', kind: 'status', text: 'Previous run' };
   const fresh = board({ agents: { A1: { main: record } }, threads: { 'w/A1': [earlier] } }).items.find((i) => i.key === 'w/A1');
@@ -52,7 +52,7 @@ test('an unstarted card waiting on its questions stays in Todo with its action, 
   const card = (opts) => board({ pr: null, ...opts }).items.find((i) => i.key === 'w/A1');
   const waiting = card({ owner: { items: [q] } });
   assert.deepEqual([waiting.lane, waiting.waitsOn, waiting.next, waiting.bumpable, waiting.actionButton], ['todo', 'owner', 'Prototypes ready: pick a take', false, 'openQuestions']);
-  assert.deepEqual(waiting.action, { kind: 'pick', url: 'questions.html#q1', label: 'Prototypes ready: pick a take' });
+  assert.deepEqual([waiting.action, waiting.resolvedBy], [{ kind: 'pick', url: 'questions.html#q1', label: 'Prototypes ready: pick a take' }, 'openQuestions']);
   const picked = { id: 'e1', ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A' }, reply: null };
   const answered = card({ owner: { items: [q] }, events: [picked] });
   assert.deepEqual([answered.lane, answered.action, answered.actionButton], ['progress', null, 'grill']);
@@ -66,7 +66,7 @@ test('an unstarted card waiting on its questions stays in Todo with its action, 
   const built = card({ owner: { items: [q] }, agents: { A1: { main: { label: 'Opus builder', started: '2026-10-23T10:00:00Z', done: '2026-10-23T10:30:00Z' } } } });
   assert.deepEqual([built.lane, built.action?.kind], ['progress', 'pick']);
   const held = card({ owner: { items: [q] }, held: true });
-  assert.deepEqual([held.lane, held.action, held.actionButton], ['todo', null, 'openQuestions']);
+  assert.deepEqual([held.lane, held.action, held.actionButton, held.resolvedBy], ['todo', null, 'openQuestions', null]);
   assert.equal(card({ held: true }).actionButton, 'grill');
 });
 
@@ -144,7 +144,7 @@ test('a review waits with its age, and parks in Stale after a week', () => {
     now: at(2), fromWaves: false, prs: { 'o/r#7': { ...ready, reviewDecision: 'APPROVED' } },
     waves: [{ slug: 'f', wave: { repo: 'o/r', items: [{ id: 'B1', title: 'Two', pr: 7, manual_steps: ['Run the backfill'] }] } }],
   }).items[0];
-  assert.deepEqual([steps.lane, steps.waitsOn, steps.action], ['review', 'merge', { kind: 'steps', url: '#item=f%2FB1', label: 'Run the manual steps, then merge' }]);
+  assert.deepEqual([steps.lane, steps.waitsOn, steps.action, steps.resolvedBy], ['review', 'merge', { kind: 'steps', url: '#item=f%2FB1', label: 'Run the manual steps, then merge' }, 'github']);
   const fixing = buildBoard({
     now: at(2), fromWaves: false, prs: { 'o/r#7': ready },
     waves: [{ slug: 'f', wave: { repo: 'o/r', items: [{ id: 'B1', title: 'Two', pr: 7, status: 'fixing', next: 'Reply to Codex', review_sent: { Ann: '1792800000.000100' } }] } }],
@@ -389,17 +389,17 @@ test("an ask Claude marks in progress waits on the owner in In Review with its n
   const done = (ts) => ({ id: 'd' + ts, ts, kind: 'ask-done', data: { id: 'a1' }, reply: null });
   const at = (events, askProgress) => {
     const i = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [], events: [ask, ...events], askProgress }).items.find((x) => x.key === 'ask:a1');
-    return [i.lane, i.fold, i.next, i.finishable, i.action, i.actionButton];
+    return [i.lane, i.fold, i.next, i.finishable, i.action, i.actionButton, i.resolvedBy];
   };
   const progress = { a1: { state: 'progress', at: '2026-10-23T09:20:00Z', next: 'Pick a take' } };
   const action = { kind: 'done', url: '#item=ask%3Aa1', label: 'Pick a take' };
-  assert.deepEqual(at([], {}), ['done', 'asks', null, false, null, null]);
-  assert.deepEqual(at([], progress), ['review', null, 'Pick a take', true, action, 'markDone']);
-  assert.deepEqual(at([done('2026-10-23T09:30:00Z')], progress), ['done', 'asks', null, false, null, null]);
-  assert.deepEqual(at([done('2026-10-23T09:10:00Z')], progress), ['review', null, 'Pick a take', true, action, 'markDone']);
+  assert.deepEqual(at([], {}), ['done', 'asks', null, false, null, null, null]);
+  assert.deepEqual(at([], progress), ['review', null, 'Pick a take', true, action, 'markDone', 'markDone']);
+  assert.deepEqual(at([done('2026-10-23T09:30:00Z')], progress), ['done', 'asks', null, false, null, null, null]);
+  assert.deepEqual(at([done('2026-10-23T09:10:00Z')], progress), ['review', null, 'Pick a take', true, action, 'markDone', 'markDone']);
   const reply = { id: 'm1', ts: '2026-10-23T09:30:00Z', kind: 'item-message', data: { key: 'ask:a1', text: 'Take B' }, reply: null };
-  assert.deepEqual(at([reply], progress), ['progress', null, 'Pick a take', true, null, null]);
-  assert.deepEqual(at([], { a1: { state: 'done', at: '2026-10-23T09:40:00Z' } }), ['done', 'asks', null, false, null, null]);
+  assert.deepEqual(at([reply], progress), ['progress', null, 'Pick a take', true, null, null, null]);
+  assert.deepEqual(at([], { a1: { state: 'done', at: '2026-10-23T09:40:00Z' } }), ['done', 'asks', null, false, null, null, null]);
   const waiting = buildBoard({ fromWaves: false, waves: [], events: [askAt('a2', '2026-10-23T09:00:00Z')], askProgress: { a2: { state: 'done', at: '2026-10-23T09:40:00Z' } } }).items[0];
   assert.deepEqual([waiting.lane, waiting.bumpable], ['done', false]);
 });
@@ -412,7 +412,7 @@ test("with auto-merge off an approved, green, clean PR waits on the owner's Merg
   });
   const off = card();
   const it = off.items[0];
-  assert.deepEqual([it.lane, it.waitsOn, it.merging, it.next, it.action], ['review', 'merge', false, 'Approved and green: tap Merge', { kind: 'merge', url: '#item=w%2FA1', label: 'Merge' }]);
+  assert.deepEqual([it.lane, it.waitsOn, it.merging, it.next, it.action, it.resolvedBy], ['review', 'merge', false, 'Approved and green: tap Merge', { kind: 'merge', url: '#item=w%2FA1', label: 'Merge' }, 'merge']);
   assert.deepEqual(needsAnswer(off).items, [{ kind: 'Action needed', text: 'A1: One · Merge', url: '#item=w%2FA1' }]);
   for (const pr of [{ ...clean, mergeStateStatus: 'BLOCKED' }, { ...clean, checks: { state: 'pending' } }, { ...clean, reviewDecision: 'REVIEW_REQUIRED' }]) {
     assert.equal(card({ pr }).items[0].action, null, JSON.stringify(pr));
@@ -423,7 +423,7 @@ test("with auto-merge off an approved, green, clean PR waits on the owner's Merg
 
   const tapped = [{ id: 'm1', ts: '2026-10-29T10:00:00Z', kind: 'card-merge', data: { key: 'w/A1' } }];
   const merging = card({ events: tapped, threads: { 'w/A1': [{ ts: '2026-10-29T10:01:00Z', who: 'claude', kind: 'status', text: 'Merging' }] } }).items[0];
-  assert.deepEqual([merging.lane, merging.merging, merging.action, merging.next], ['review', true, null, 'Merging']);
+  assert.deepEqual([merging.lane, merging.merging, merging.action, merging.next, merging.resolvedBy], ['review', true, null, 'Merging', null]);
   const declined = card({ events: tapped, threads: { 'w/A1': [{ ts: '2026-10-29T10:02:00Z', who: 'claude', text: 'Not merged: a commit after the approval changes behaviour' }] } }).items[0];
   assert.deepEqual([declined.merging, declined.action?.kind], [false, 'merge']);
   const merged = card({ events: tapped, pr: { ...clean, state: 'MERGED' } }).items[0];
