@@ -6,7 +6,7 @@ import { hubStream } from './stream.mjs';
 
 const boards = new Set(['hub-orchestrator', 'ios']);
 
-test("a browser's page load of `/` or a board gets the shell; frames, curl, API calls, uploads and other pages still reach the site, and /_hub/ the hub", () => {
+test("a browser's page load of `/` or of a board's view gets the shell; frames, curl, API calls, uploads and other pages still reach the site, and /_hub/ the hub", () => {
   const cases = [
     [{ pathname: '/', dest: 'document' }, 'shell'],
     [{ pathname: '/' }, 'shell'],
@@ -19,8 +19,15 @@ test("a browser's page load of `/` or a board gets the shell; frames, curl, API 
     [{ pathname: '/hub-orchestrator/api/upload', dest: 'empty', method: 'POST' }, 'forward'],
     [{ pathname: '/hub-orchestrator/uploads/1-shot.png', dest: 'image' }, 'forward'],
     [{ pathname: '/hub-orchestrator/uploads/1-page.html', dest: 'document' }, 'forward'],
-    [{ pathname: '/hub-orchestrator/settings.html', dest: 'document' }, 'forward'],
-    [{ pathname: '/hub-orchestrator/questions.html', dest: 'document' }, 'forward'],
+    [{ pathname: '/hub-orchestrator/settings.html', dest: 'document' }, 'shell'],
+    [{ pathname: '/hub-orchestrator/questions.html', dest: 'document' }, 'shell'],
+    [{ pathname: '/hub-orchestrator/notes.html', dest: 'document' }, 'shell'],
+    [{ pathname: '/hub-orchestrator/settings.html', dest: 'iframe' }, 'forward'],
+    [{ pathname: '/hub-orchestrator/questions.html' }, 'forward'],
+    [{ pathname: '/hub-orchestrator/plan.html', dest: 'document' }, 'forward'],
+    [{ pathname: '/hub-orchestrator/index.html', dest: 'document' }, 'forward'],
+    [{ pathname: '/hub-orchestrator/installs/P2/', dest: 'document' }, 'forward'],
+    [{ pathname: '/learn/settings.html', dest: 'document' }, 'forward'],
     [{ pathname: '/hub-orchestrator/prototype-sidebar.html', dest: 'document' }, 'forward'],
     [{ pathname: '/learn/', dest: 'document' }, 'forward'],
     [{ pathname: '/_hub/', dest: 'document' }, 'hub'],

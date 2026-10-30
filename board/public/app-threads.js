@@ -44,7 +44,7 @@ BoardView.part((B) => {
 
   // A load while one for the same thread runs shares it, so a card the page inserts open isn't fetched twice; force
   // starts a new one, after a send. maxAge skips a thread that loaded that recently. from is a load already started
-  // (index.html BoardBoot). A response older than the one shown is dropped. A failed load keeps the previous render.
+  // (app.html BoardBoot). A response older than the one shown is dropped. A failed load keeps the previous render.
   const inflight = new Map();
   const loadedAt = new Map();
   const shown = new Map();

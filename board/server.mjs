@@ -19,6 +19,9 @@
 // agents/<id>.json (or agents/<id>@<agent>.json for each further agent) beside the wave file. A wave's followups [{id, title, from, filed, done}] are
 // Linear tickets filed along the way; they are Todo cards of their wave until done. domain.mjs
 // decides lanes and card state from what this server reads.
+//   GET  /, /settings.html, /questions.html, /notes.html
+//                                the app shell, public/app.html, whose views these pages are (../hub/shell.mjs shellHtml;
+//                                docs/adr/0055-one-app-for-the-whole-hub.md). /index.html redirects to /
 //   GET  /...                    the site's public/, then this template's public/, then the
 //                                starter's, then ../shared for colors.css (directories serve index.html; in .html, each <!--header {…}-->
 //                                becomes public/ui-page-header.js's header({…}), then {{title}} board.json's title).
@@ -31,7 +34,7 @@
 //                                data/owner.json and GitHub (gh, cached for 45 s).
 //                                owner.json: {topics: [{id, title, summary}], items: [{id, topic,
 //                                question, context, url, options, urgent, resolved, resolved_at}]};
-//                                questions.html shows an open `urgent` question alone, first
+//                                Waiting on you shows an open `urgent` question alone, first
 //                                checks comes from data/checked.json (board.mjs checked),
 //                                data/watcher.json (bin/wait-events.mjs) and Claude's latest writes;
 //                                an ask's In Progress mark from data/ask-progress.json (board.mjs ask).
@@ -92,6 +95,7 @@ import { createReadStream, watch as watchFiles } from 'node:fs';
 import { BoardError, boardConfig, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readNotes, readWorking, readUpload, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, linksOf } from '../hub/boards.mjs';
+import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 
 const template = path.dirname(fileURLToPath(import.meta.url));
 // The hub's Home Screen icon, versioned by mtime the way hub/hub.mjs iconUrl() does, so iOS refetches a replaced icon.
@@ -550,14 +554,16 @@ const server = http.createServer(async (req, res) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405).end(); return; }
     if (p.startsWith('/uploads/')) return await sendUpload(req, res, decodeURIComponent(p.slice(9)));
     if (p === '/plan.html') { res.writeHead(302, { location: `notes.html${url.search}`, 'cache-control': 'no-store' }).end(); return; }
+    if (p === '/index.html') { res.writeHead(302, { location: `./${url.search}`, 'cache-control': 'no-store' }).end(); return; }
 
-    const file = await staticFile(decodeURIComponent(p));
-    if (!file) { res.writeHead(404).end(); return; }
-    const ext = path.extname(file).toLowerCase();
-    const st = await fs.stat(file);
-    let body = await fs.readFile(file);
-    if (ext === '.html') body = (await pageHeaders(body.toString('utf8'))).replaceAll('{{title}}', esc((await config()).title)).replaceAll('{{touchIcon}}', await touchIcon());
-    if (ext === '.html') body = Buffer.from(await versionAssets(body, p));
+    const shell = VIEW_PAGES.has(p.slice(1));
+    const file = shell ? null : await staticFile(decodeURIComponent(p));
+    if (!shell && !file) { res.writeHead(404).end(); return; }
+    const ext = shell ? '.html' : path.extname(file).toLowerCase();
+    const st = shell ? null : await fs.stat(file);
+    let body = shell ? Buffer.from(shellHtml({ touchIcon: await touchIcon() })) : await fs.readFile(file);
+    if (!shell && ext === '.html') body = (await pageHeaders(body.toString('utf8'))).replaceAll('{{title}}', esc((await config()).title)).replaceAll('{{touchIcon}}', await touchIcon());
+    if (!shell && ext === '.html') body = Buffer.from(await versionAssets(body, p));
     const etag = ext === '.html' ? `W/"${crypto.createHash('sha1').update(body).digest('base64url').slice(0, 20)}"` : `W/"${versionOf(st)}"`;
     const pinned = ext !== '.html' && url.searchParams.get('v') === versionOf(st);
     const headers = { 'content-type': types[ext] || 'application/octet-stream', 'cache-control': pinned ? 'public, max-age=31536000, immutable' : 'no-cache', etag };

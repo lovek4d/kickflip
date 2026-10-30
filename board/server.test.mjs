@@ -186,16 +186,28 @@ test("an item's notes are served only from a markdown file inside its wave's fol
   assert.deepEqual([moved.status, moved.headers.get('location')], [302, 'notes.html?item=t%2FP1']);
 });
 
-test('board pages render the shared header: the board leads with the logo, Settings with a back arrow and the same controls', async () => {
-  const board = await (await fetch(`${base}/`)).text();
-  assert.match(board, /<header class="top"><div class="brand"><a class="hub" href="\/_hub\/"[^>]*><img src="kickflip\.png" alt=""><\/a><h1>T<\/h1><\/div><nav class="nav">/);
-  assert.match(board, /<body class="has-sidebar">\s*<aside id="sidebar" class="sidebar"/);
-  assert.match(board, /<script>Sidebar\.mount\(\{ here: [^<]*remember: true \}\);<\/script>/);
-  const settings = await (await fetch(`${base}/settings.html`)).text();
-  assert.match(settings, /<header class="top"><div class="brand"><a class="back" href="\.\/" aria-label="Back to the board">/);
-  for (const id of ['refresh', 'settingsLink']) assert.match(settings, new RegExp(`id="${id}"`));
-  assert.match(settings, /href="\/_hub\/settings"/);
-  for (const page of [board, settings]) assert.doesNotMatch(page, /<!--header/);
+test("the board, its Settings, Waiting on you and Notes serve the app shell, with no sidebar for shell.js to fetch, and a site's own page still renders the shared header", async () => {
+  for (const p of ['/', '/settings.html', '/questions.html', '/notes.html?item=t%2FP1']) {
+    const r = await fetch(base + p);
+    const html = await r.text();
+    assert.equal(r.status, 200, p);
+    assert.match(r.headers.get('content-type'), /^text\/html/, p);
+    assert.match(html, /<script src="\/_hub\/app\/shell\.js\?v=[^"]+"><\/script>\s*<script>AppShell\.start\(\);<\/script>/, p);
+    assert.match(html, /<aside id="sidebar" class="sidebar" aria-label="Boards"><\/aside>/, p);
+    assert.match(html, /<script id="sidebarData" type="application\/json">null<\/script>/, p);
+    assert.doesNotMatch(html, /\{\{/, p);
+  }
+  const moved = await fetch(`${base}/index.html?x=1`, { redirect: 'manual' });
+  assert.deepEqual([moved.status, moved.headers.get('location')], [302, './?x=1']);
+
+  const pub = path.join(site, 'public');
+  fs.mkdirSync(pub, { recursive: true });
+  fs.writeFileSync(path.join(pub, 'prototype-hdr.html'), '<title>{{title}}</title><!--header {"lead":"back","title":"Take","backHref":"./#item=t%2FP1"}-->');
+  try {
+    const page = await (await fetch(`${base}/prototype-hdr.html`)).text();
+    assert.match(page, /^<title>T<\/title><header class="top"><div class="brand"><a class="back" href="\.\/#item=t%2FP1" aria-label="Back to the board">/);
+    assert.doesNotMatch(page, /<!--header/);
+  } finally { fs.rmSync(path.join(pub, 'prototype-hdr.html')); }
 });
 
 const raw = (p, headers = {}) => new Promise((resolve, reject) => {
@@ -258,13 +270,11 @@ test('the stream sends a change, uncompressed, within a second of a write to a t
   } finally { req.destroy(); }
 });
 
-test('every board page links the shared colors.css, versioned, before style.css, and the board serves it', async () => {
-  for (const p of ['/', '/questions.html', '/notes.html', '/settings.html']) {
-    const html = (await raw(p)).body.toString();
-    const colors = html.search(/href="colors\.css\?v=/);
-    assert.ok(colors >= 0 && colors < html.search(/href="style\.css\?v=/), p);
-  }
-  const v = /href="colors\.css\?v=([^"]+)"/.exec((await raw('/')).body.toString())[1];
+test('the shell links the shared colors.css, versioned, before style.css, and the board serves it', async () => {
+  const html = (await raw('/')).body.toString();
+  const colors = html.search(/href="\/_hub\/colors\.css\?v=/);
+  assert.ok(colors >= 0 && colors < html.search(/href="\/_hub\/app\/style\.css\?v=/));
+  const v = /href="\/_hub\/colors\.css\?v=([^"]+)"/.exec(html)[1];
   const css = await raw(`/colors.css?v=${v}`, { 'accept-encoding': 'identity' });
   assert.equal(css.status, 200);
   assert.match(css.headers['content-type'], /^text\/css/);

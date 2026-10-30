@@ -73,7 +73,7 @@
   // it is aria-disabled, not disabled: a resting tap must still reach app-header.js's handler, which keeps the lane from folding.
   const githubRefresh = (checks, pendingSince) => `<button class="ghost gh-refresh${pendingSince ? ' spinning' : ''}" type="button" data-check-github aria-label="Check GitHub" title="Check GitHub"${pendingSince ? ' aria-disabled="true"' : ''}>${refreshIcon(14)}</button>`;
 
-  // Which header controls take taps, and whether refresh spins. index.html paints them disabled with refresh spinning;
+  // Which header controls take taps, and whether refresh spins. The header paints them disabled with refresh spinning;
   // both turn on together once the first board load has answered or failed.
   // Offline, refresh stays on so a tap can retry the load (docs/adr/0021-the-board-shows-github-checks-and-watcher-health.md).
   const headerControls = ({ link = 'online', wired = false, boardSettled = false, reloading = false } = {}) => {

@@ -1,4 +1,4 @@
-// Owner questions, for questions.html. Needs ui.js and ui-links.js.
+// Owner questions, for Waiting on you (view-questions.js). Needs ui.js and ui-links.js.
 (function () {
   const { esc, time, replyBody, attachments, attachButton, linkText, linkHtml, badge, opensHere } = globalThis.BoardUI;
   // A short id such as A or C2 leads the label; a word id such as "inline" would repeat it. prototype-switcher.js answerLabel matches.

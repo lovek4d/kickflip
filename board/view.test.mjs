@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js',
-  'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-banner.js', 'app-snapshot.js'];
+const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-questions.js', 'ui-markdown.js', 'rules-editor.js',
+  'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-banner.js', 'app-snapshot.js',
+  'view-settings.js', 'view-questions.js', 'view-notes.js'];
 
 function memoryStorage(entries = []) {
   const storage = new Map(entries);
@@ -115,6 +116,31 @@ test('a board view mounted then unmounted leaves no listener, interval, timer, s
   assert.deepEqual([subscribed.size, page.streams.length], [1, 1]);
   shelled.unmount();
   assert.deepEqual([subscribed.size, page.left()], [0, loaded]);
+});
+
+test("the board's Settings, Waiting on you and Notes views, mounted then unmounted, leave no listener, interval, timer or watch behind, and stop retrying a load", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  let fetches = 0;
+  page.win.fetch = () => { fetches++; return Promise.reject(new Error('offline')); };
+  const loaded = page.left();
+  const views = page.win.AppViews;
+  assert.deepEqual(Object.keys(views).sort(), ['notes', 'questions', 'settings']);
+  for (const [kind, view] of [['settings', {}], ['questions', { id: 'q1' }], ['notes', { item: 'w/A1' }]]) {
+    assert.equal(typeof views[kind].markup({ kind, route: 'board-a', ...view }), 'string', kind);
+    const v = views[kind].create(new page.El(), 'https://mac.ts.net/board-a', { view: { kind, route: 'board-a', ...view }, reload() {} });
+    v.mount();
+    await new Promise((r) => setImmediate(r));
+    const mounted = page.left();
+    assert.ok(mounted.timeouts > loaded.timeouts, `${kind} ${JSON.stringify(mounted)}`);
+    v.unmount();
+    assert.deepEqual(page.left(), loaded, kind);
+    const sent = fetches;
+    v.mount();
+    v.unmount();
+    await new Promise((r) => setImmediate(r));
+    assert.ok(fetches > sent, kind);
+    assert.deepEqual(page.left(), loaded, kind);
+  }
 });
 
 test("a board the app shell leaves keeps its fresh board as its last visit, dropping the least recent boards' past the storage budget, and paints live when the shell says nothing changed since, and dimmed otherwise", () => {

@@ -28,7 +28,7 @@
     if (!picked) return { kind: 'pick', option };
     return { kind: picked === take ? 'picked' : 'change', option, picked };
   }
-  // Matches questions.html's choiceLabel for a single-choice question.
+  // Matches ui-questions.js choiceLabel for a single-choice question.
   const answerLabel = (option) => `${/^[A-Z][0-9]?$/i.test(option.id) ? `${option.id}. ` : ''}${option.label}`;
   // After a pick: the next open question on the same topic, after this one in owner.json's order and then from the
   // top, else null. Its own prototype page when it has one, else its card on questions.html.
@@ -41,6 +41,13 @@
   // questions.html keeps each question's unsent {choice, note} under this key; a pick sent here takes its note and clears it.
   const draftKey = (qid) => 'qdraft:' + qid;
   const readDraft = (qid) => { try { return JSON.parse(localStorage.getItem(draftKey(qid)) || '{}'); } catch { return {}; } };
+  // In place of this page: framed in the app shell, the shell shows the URL's view in place (board/public/shell.js
+  // AppShell.open); alone, or for a URL that isn't a view, the page loads it.
+  function replaceWith(url) {
+    let app = null;
+    try { app = window.top !== window ? window.top.AppShell : null; } catch { app = null; }
+    if (!app?.open?.(String(url), { replace: true })) location.replace(url);
+  }
 
   function pillHtml({ name, pick = { kind: 'none' }, busy = false }) {
     const control = pick.kind === 'picked' ? '<span class="ps-picked">Picked</span>'
@@ -117,14 +124,15 @@
 
     async function load() {
       if (!qid || !site) return;
+      let board = null;
       try {
-        const board = await (await fetch(site.url('api/board'), { cache: 'no-store' })).json();
+        board = await (await fetch(site.url('api/board'), { cache: 'no-store' })).json();
         question = (board.owner || []).find((q) => q.id === qid) || null;
         if (!question) note('This prototype’s question is gone, so there is nothing to pick.');
       } catch { /* keep the last question shown */ }
       if (fromPush && pickedChoice(question)) {
         const card = /^item:(.+)$/.exec(question.topic || '')?.[1];
-        location.replace(site.url(card ? `#item=${encodeURIComponent(card)}&reply` : 'questions.html'));
+        replaceWith(site.url(card ? `#item=${encodeURIComponent(card)}&reply` : 'questions.html'));
         return;
       }
       if (question && !text.value) text.value = readDraft(qid).note || '';
@@ -151,9 +159,9 @@
       if (next) {
         const u = new URL(site.url(questionUrl(next)), location.href);
         if (globalThis.PageBack?.pushed) u.searchParams.set('from', 'push');
-        location.replace(u);
+        replaceWith(u);
       } else if (globalThis.PageBack?.target() === 'back') history.back();
-      else location.replace(document.querySelector('header.top a.back')?.href || site.url(''));
+      else replaceWith(document.querySelector('header.top a.back')?.href || site.url(''));
     }
     text.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || e.isComposing) return;

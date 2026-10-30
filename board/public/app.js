@@ -4,7 +4,7 @@
 // /api/thread. Actions go out as events through B.site.send (each wakes Claude). Parts add listeners, intervals,
 // timers, streams, watches and unmount steps only through B.on, B.every, B.later, B.stream, B.watch and B.atUnmount,
 // so unmount() undoes them all and no board's state outlives its view. BoardView.markup({title}) is the root's inner
-// HTML for a view the app shell mounts; index.html carries the same markup for a page with one board.
+// HTML. BoardView.page(root, site, run) gives a board's other views (view-*.js) the same site, $ and recorders.
 // opts, both from the app shell (shell.js):
 //   signal(fn) → off   calls fn on each change signal for this board, in place of the board's own api/stream
 //   live {fresh, generatedAt}
@@ -15,8 +15,8 @@ window.BoardView = (function () {
   const parts = [];
   const part = (fn) => { parts.push(fn); };
 
-  // Every board shares the hub's one origin, so each keeps its keys under site:<route>:; the preloads in index.html and
-  // app.html read openItems by the same key. Thread and question drafts are already per card and keep their own keys.
+  // Every board shares the hub's one origin, so each keeps its keys under site:<route>:; app.html's preload reads
+  // openItems by the same key. Thread and question drafts are already per card and keep their own keys.
   function storeFor(route) {
     const keyOf = (k) => (/^(draft:(?!ask$)|qdraft:)/.test(k) ? k : `site:${route}:${k}`);
     // The keys boards kept unprefixed move once, to the first board opened; a key whose new name is taken stays.
@@ -35,26 +35,15 @@ window.BoardView = (function () {
     };
   }
 
-  function create(root, siteRoot, opts = {}) {
+  // What every view of one site shares: its ClaudeSite.site, a $ and $$ scoped to its root, and the recorders. Each
+  // recorder returns a function that undoes what it added, and stop() runs every one still pending, so a view adds
+  // listeners, intervals, timers, streams, watches and unmount steps only through them. Before start() and after
+  // stop() they add nothing. B.sleep(ms) resolves after ms, and never once the view is gone, so a retry loop stops.
+  function base(root, siteRoot) {
     const site = ClaudeSite.site(siteRoot);
     const route = new URL(site.url('')).pathname.replace(/^\/+|\/+$/g, '');
-    const store = storeFor(route);
     // attach.js uploads each composer's files to the site of the [data-site] around it.
     root.dataset.site = site.root;
-    // board is the last /api/board; githubPending the time of a refresh's unanswered check-github request; fresh the
-    // header's time, ui-header.js nextFresh's {at, sig}.
-    const state = {
-      board: null,
-      fresh: null,
-      openItems: new Set(store.get('openItems', [])),
-      threadCache: new Map(),
-      withdrawnAsks: new Set(),
-      lanesStale: false,
-      githubPending: null,
-      waveFilter: store.get('wave', null),
-    };
-
-    // Each recorder returns a function that undoes what it added; unmount runs every one still pending.
     let alive = false;
     const undo = new Set();
     const own = (off) => { undo.add(off); return () => { undo.delete(off); off(); }; };
@@ -74,6 +63,7 @@ window.BoardView = (function () {
       const t = setTimeout(() => { undo.delete(off); fn(); }, ms);
       return own(off);
     };
+    const sleep = (ms) => new Promise((resolve) => { later(ms, resolve); });
     const watch = (fn, opts) => {
       if (!alive) return null;
       const w = site.watch(fn, opts);
@@ -105,26 +95,57 @@ window.BoardView = (function () {
       s.open();
       return s;
     }
-
     const atUnmount = (fn) => { if (alive) own(fn); };
-    const signal = opts.signal ? (fn) => { if (alive) own(opts.signal(fn)); } : null;
-
     const $ = (s, el = root) => el.querySelector(s);
     const $$ = (s, el = root) => el.querySelectorAll(s);
-    const B = { root, site, route, $, $$, store, state, on, every, later, stream, watch, atUnmount, signal, live: opts.live || null };
+    const B = { root, site, route, $, $$, on, every, later, sleep, stream, watch, atUnmount, alive: () => alive, own: (off) => (alive ? own(off) : off()) };
+    return {
+      B,
+      start() { alive = true; },
+      stop() {
+        alive = false;
+        for (const off of [...undo]) off();
+        undo.clear();
+      },
+    };
+  }
+
+  function create(root, siteRoot, opts = {}) {
+    const { B, start: begin, stop } = base(root, siteRoot);
+    const store = storeFor(B.route);
+    // board is the last /api/board; githubPending the time of a refresh's unanswered check-github request; fresh the
+    // header's time, ui-header.js nextFresh's {at, sig}.
+    const state = {
+      board: null,
+      fresh: null,
+      openItems: new Set(store.get('openItems', [])),
+      threadCache: new Map(),
+      withdrawnAsks: new Set(),
+      lanesStale: false,
+      githubPending: null,
+      waveFilter: store.get('wave', null),
+    };
+    const signal = opts.signal ? (fn) => { if (B.alive()) B.own(opts.signal(fn)); } : null;
+    Object.assign(B, { store, state, signal, live: opts.live || null });
 
     function mount() {
-      if (alive) return;
-      alive = true;
+      if (B.alive()) return;
+      begin();
       for (const p of parts) p(B);
       start(B);
     }
-    function unmount() {
-      alive = false;
-      for (const off of [...undo]) off();
-      undo.clear();
-    }
-    return { B, mount, unmount };
+    return { B, mount, unmount: stop };
+  }
+
+  // A view other than the board: run(B) adds what it needs through B's recorders when the view mounts.
+  // → {B, mount, unmount}
+  function page(root, siteRoot, run) {
+    const { B, start: begin, stop } = base(root, siteRoot);
+    return {
+      B,
+      mount() { if (B.alive()) return; begin(); run(B); },
+      unmount: stop,
+    };
   }
 
   // The board itself, after every part: rendering, the #item= hash, loading and the change signal.
@@ -217,8 +238,8 @@ window.BoardView = (function () {
       return live;
     }
 
-    // The first load takes over the page's BoardBoot fetches (index.html's, or app.html's naming its route), so only the
-    // first view mounted takes them, and only for its own board. Each load fetches the open cards' threads beside the
+    // The first load takes over app.html's BoardBoot fetches, so only the first view mounted takes them, and only for
+    // its own board. Each load fetches the open cards' threads beside the
     // board. via is ui-header.js nextFresh's: a refresh or a change signal fetches every open thread anew rather than
     // share a load that started before the change.
     let boot = globalThis.BoardBoot || null;
@@ -288,7 +309,6 @@ window.BoardView = (function () {
     B.every(30000, () => { if (!document.hidden) { loadBoard(); } });
   }
 
-  // The same markup as index.html's .view-board, whose header board/server.mjs renders on the server.
   function markup({ title = '' } = {}) {
     return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png' })}
 <main>
@@ -319,5 +339,5 @@ window.BoardView = (function () {
 <div id="toast" class="toast" role="status" hidden></div>`;
   }
 
-  return { part, create, markup };
+  return { part, create, page, markup };
 })();

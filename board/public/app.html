@@ -6,9 +6,10 @@
 <title>Claude</title>
 <script>
 // The board this URL opens, or `/`'s last board, starts loading with its open cards' threads here, beside the scripts
-// below; app.js loadBoard takes the loads over when it mounts that board. Above the stylesheets, since a script after
-// one waits for it to load.
+// below; app.js loadBoard takes the loads over when it mounts that board. A board's other views load their own. Above
+// the stylesheets, since a script after one waits for it to load.
 window.BoardBoot = (function () {
+  if (!/^\/(?:[^/]+\/)?$/.test(location.pathname)) return null;
   let route = null;
   try { route = decodeURIComponent(location.pathname.split('/')[1] || '') || localStorage.getItem('hub:lastBoard'); } catch {}
   if (!route) return null;
@@ -40,7 +41,10 @@ window.BoardBoot = (function () {
 <script src="/_hub/app/ui-snapshot.js"></script>
 <script src="/_hub/app/ui-page-header.js"></script>
 <script src="/_hub/app/ui-sidebar.js"></script>
+<script src="/_hub/app/ui-questions.js"></script>
+<script src="/_hub/app/ui-markdown.js"></script>
 <script src="/_hub/app/dialogs.js"></script>
+<script src="/_hub/app/rules-editor.js"></script>
 <script src="/_hub/app/claude.js"></script>
 <script src="/_hub/app/attach.js"></script>
 <script src="/_hub/app/sidebar.js"></script>
@@ -54,6 +58,9 @@ window.BoardBoot = (function () {
 <script src="/_hub/app/app-header.js"></script>
 <script src="/_hub/app/app-banner.js"></script>
 <script src="/_hub/app/app-snapshot.js"></script>
+<script src="/_hub/app/view-settings.js"></script>
+<script src="/_hub/app/view-questions.js"></script>
+<script src="/_hub/app/view-notes.js"></script>
 <script src="/_hub/app/router.js"></script>
 <script src="/_hub/app/shell.js"></script>
 <script>AppShell.start();</script>

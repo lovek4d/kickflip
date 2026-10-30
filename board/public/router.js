@@ -10,9 +10,10 @@
 //   hub, hub-settings {hash}, polling {w}
 //                               /_hub/, /_hub/settings, /_hub/settings/polling?w=<HH:MM>
 //   frame {url}                 anything else on the hub: other sites, prototypes and every other board page
+// A push's from=push mark (entryOf) is no part of the view, so a push link reads as the view its page shows.
 globalThis.AppRouter = (function () {
   // The kinds the shell mounts in place; a link to any other kind loads its page.
-  const MOUNTED = new Set(['board']);
+  const MOUNTED = new Set(['board', 'settings', 'questions', 'notes']);
 
   // href against base; boards, the set of board routes. null for another origin.
   function viewOf(href, { boards = new Set(), base = globalThis.location?.href } = {}) {
@@ -58,36 +59,69 @@ globalThis.AppRouter = (function () {
 
   const mounted = (view) => Boolean(view && MOUNTED.has(view.kind));
 
-  // Each history entry carries {idx}, its distance from the shell's first entry, which ui-page-header.js backStep reads.
-  // go(view, href, how) shows a view: how is 'push' for a link, a push tap or the start, 'pop' for back and forward.
-  // boards() → the board routes now.
+  // A push to a page other than the board carries from=push (board/store.mjs pushUrl). The router keeps that mark in
+  // the entry's history.state as pushed, which a reload keeps too, and drops it from the URL.
+  // → {href without from=push, pushed}
+  function entryOf(href) {
+    const u = new URL(href, globalThis.location?.href);
+    const pushed = u.searchParams.get('from') === 'push';
+    if (pushed) u.searchParams.delete('from');
+    return { href: u.href, pushed };
+  }
+
+  // Each history entry carries {idx}, its distance from the shell's first entry, and pushed when a push opened it.
+  // A back arrow (a.back) goes one step back by them (ui-page-header.js backStep), else follows its href.
+  // go(view, href, how) shows a view: how is 'push' for a link, a push tap or the start, 'pop' for back and forward;
+  // it answers false, or a promise of false, when the view stays, such as when the owner keeps an unsaved edit, and a
+  // refused pop then returns to the entry it left. boards() → the board routes now.
+  // → {push(href), replace(href)}, which write an entry for a view go is showing.
   function listen({ boards, go }) {
     let idx = Number.isInteger(history.state?.idx) ? history.state.idx : 0;
-    history.replaceState({ ...(history.state || {}), idx }, '');
-    const push = (href) => { if (href !== location.href) history.pushState({ idx: ++idx }, '', href); };
+    const first = entryOf(location.href);
+    history.replaceState({ ...(history.state || {}), idx, ...(first.pushed ? { pushed: true } : {}) }, '', first.href);
+    const write = (how, href) => {
+      const { href: url, pushed } = entryOf(href);
+      if (how === 'push' && url === location.href) return;
+      if (how === 'push') idx++;
+      history[how === 'push' ? 'pushState' : 'replaceState']({ idx, ...(pushed ? { pushed: true } : {}) }, '', url);
+    };
 
     // Listens after sidebar.js, so a tap the drawer took (its logo, ✕) is already defaultPrevented.
     document.addEventListener('click', (e) => {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       const a = e.target.closest?.('a[href]');
       if (!a || (a.target && a.target !== '_self') || a.hasAttribute('download')) return;
+      if (a.classList.contains('back') && BoardUI.backStep({ pushed: history.state?.pushed === true, href: location.href, idx: history.state?.idx }) === 'back') {
+        e.preventDefault();
+        history.back();
+        return;
+      }
       const url = new URL(a.href, location.href);
       const view = viewOf(url.href, { boards: boards() });
       if (!mounted(view)) return;
-      // A link to another card on this board is a hash change, which the board view follows itself.
+      // A link to another card on this board, or another question on Waiting on you, only moves the hash, which the
+      // view follows itself.
       if (url.pathname === location.pathname && url.search === location.search && url.hash && url.hash !== location.hash) return;
       e.preventDefault();
       go(view, url.href, 'push');
     });
+    let restoring = false;
     addEventListener('popstate', (e) => {
+      const was = idx;
       if (Number.isInteger(e.state?.idx)) idx = e.state.idx;
+      if (restoring) { restoring = false; return; }
       const view = viewOf(location.href, { boards: boards() });
-      if (mounted(view)) go(view, location.href, 'pop'); else location.reload();
+      if (!mounted(view)) { location.reload(); return; }
+      Promise.resolve(go(view, location.href, 'pop')).then((shown) => {
+        if (shown !== false || was === idx) return;
+        restoring = true;
+        history.go(was - idx);
+      });
     });
     // A hash link adds an entry with no state of its own.
     addEventListener('hashchange', () => { if (!Number.isInteger(history.state?.idx)) history.replaceState({ idx: ++idx }, ''); });
-    return { push };
+    return { push: (href) => write('push', href), replace: (href) => write('replace', href) };
   }
 
-  return { viewOf, urlOf, mounted, listen };
+  return { viewOf, urlOf, mounted, entryOf, listen };
 })();

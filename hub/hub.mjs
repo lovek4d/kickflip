@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // web-ts hub: one loopback server that Tailscale sends every request to.
 //   /                 the app shell (board/public/app.html), which opens this device's last board, else the board with
-//                     the most waiting; a browser's page load of a board, /<route>/, gets the shell too (shell.mjs pageOf)
+//                     the most waiting; a browser's page load of a board's view, such as /<route>/ or
+//                     /<route>/settings.html, gets the shell too (shell.mjs pageOf)
 //                     (docs/adr/0055-one-app-for-the-whole-hub.md)
 //   /_hub/app/<file>  the shell's scripts and CSS, read from ../board/public then ../starter/public on each request;
 //                     ?v=<version> caches for a year
@@ -71,13 +72,10 @@ import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './r
 import { siteIcon } from './icons.mjs';
 import { readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
 import { checkSessions } from './sessions.mjs';
-import { pageOf, versionAppAssets } from './shell.mjs';
+import { BOARD_PUBLIC, appFile, colorsVersion, fileVersion, pageOf, shellHtml } from './shell.mjs';
 import { hubStream } from './stream.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
-const BOARD_PUBLIC = path.join(HUB_DIR, '..', 'board', 'public');
-// Where /_hub/app/<file> is read from, first match wins, as the board server reads its own public/ folders.
-const APP_ROOTS = [BOARD_PUBLIC, path.join(HUB_DIR, '..', 'starter', 'public')];
 const COLORS = path.join(HUB_DIR, '..', 'shared', 'colors.css');
 
 const HOME = path.join(os.homedir(), '.claude', 'web-ts');
@@ -418,13 +416,6 @@ async function sidebar(here = '', state = null) {
 }
 
 // ---------- app shell ----------
-function appFile(name) {
-  if (!/^[\w.-]+\.(?:js|css|png)$/.test(name)) return null;
-  for (const root of APP_ROOTS) { const f = path.join(root, name); try { if (fs.statSync(f).isFile()) return f; } catch {} }
-  return null;
-}
-const fileVersion = (f) => { try { const st = fs.statSync(f); return `${Math.floor(st.mtimeMs).toString(36)}-${st.size.toString(36)}`; } catch { return null; } };
-
 // Text a browser accepts gzipped goes gzipped; the shell's scripts are a few hundred kilobytes before it.
 function sendText(req, res, code, headers, body) {
   let out = Buffer.isBuffer(body) ? body : Buffer.from(body);
@@ -435,13 +426,11 @@ function sendText(req, res, code, headers, body) {
   res.end(req.method === 'HEAD' ? undefined : out);
 }
 
-// The app shell (board/public/app.html, read on each load) with the sidebar drawn in and its data beside it, so the
-// first paint has both; `/` passes no route, a board's page its own.
+// The app shell with the sidebar drawn in and its data beside it, so the first paint has both; `/` passes no route, a
+// board's page its own.
 async function shellPage(route) {
   const side = await sidebar(route);
-  const html = versionAppAssets(fs.readFileSync(path.join(BOARD_PUBLIC, 'app.html'), 'utf8'), (name) => { const f = appFile(name); return f && fileVersion(f); });
-  const fill = { sidebar: side.rows, sidebarData: side.json, touchIcon: iconUrl(180), colorsVersion: colorsVersion() };
-  return html.replace(/\{\{(sidebar|sidebarData|touchIcon|colorsVersion)\}\}/g, (_, k) => fill[k]);
+  return shellHtml({ sidebar: side.rows, sidebarData: side.json, touchIcon: iconUrl(180) });
 }
 
 const boardRoutes = () => new Set(Object.entries(loadManifest().sites).filter(([, s]) => isBoardSite(s)).map(([route]) => route));
@@ -532,9 +521,6 @@ function iconUrl(size) {
   let v = '0';
   try { v = Math.floor(fs.statSync(path.join(HUB_DIR, `icon-${size}.png`)).mtimeMs).toString(36); } catch {}
   return `/_hub/icon-${size}.png?v=${v}`;
-}
-function colorsVersion() {
-  try { const st = fs.statSync(COLORS); return `${Math.floor(st.mtimeMs).toString(36)}-${st.size.toString(36)}`; } catch { return '0'; }
 }
 const manifestJson = () => JSON.stringify({
   name: 'Claude sites', short_name: 'Claude', start_url: '/', scope: '/', display: 'standalone',

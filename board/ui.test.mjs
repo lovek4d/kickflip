@@ -270,7 +270,7 @@ test("a back arrow goes one step back after a page on this hub, and to its href 
   assert.equal(tap({ url: `${page}&from=push`, state: { idx: 3 } }), 'href');
 });
 
-test("the app's router reads every hub URL as a view and writes each view back as that URL, every push link's shape included, and mounts only boards in place", () => {
+test("the app's router reads every hub URL as a view and writes each view back as that URL, every push link's shape included, and mounts a board and its Settings, Waiting on you and Notes in place", () => {
   const routerContext = vm.createContext({ URL });
   vm.runInContext(fs.readFileSync(new URL('./public/router.js', import.meta.url), 'utf8'), routerContext);
   const { viewOf, urlOf, mounted } = routerContext.AppRouter;
@@ -298,8 +298,59 @@ test("the app's router reads every hub URL as a view and writes each view back a
     assert.equal(urlOf(view), url, url);
   }
   assert.deepEqual(read('/orch/plan.html?item=w%2FA1'), { kind: 'notes', route: 'orch', item: 'w/A1' });
+  assert.deepEqual(read('/orch/questions.html?from=push#q-1'), { kind: 'questions', route: 'orch', id: 'q-1' });
+  assert.deepEqual(read('/orch/notes.html?item=w%2FA1&from=push'), { kind: 'notes', route: 'orch', item: 'w/A1' });
   assert.equal(viewOf('https://elsewhere.example/orch/', { boards: new Set(['orch']), base }), null);
-  assert.deepEqual(table.filter(([, view]) => mounted(view)).map(([url]) => url), ['/orch/', '/orch/#item=w%2FA1&reply']);
+  assert.deepEqual(table.filter(([, view]) => mounted(view)).map(([url]) => url),
+    ['/orch/', '/orch/#item=w%2FA1&reply', '/orch/settings.html', '/orch/questions.html#q-1', '/orch/notes.html?item=w%2FA1']);
+});
+
+test("in the app, a view's back arrow goes one step back after a view, and to its href when a push opened the view, on a reload of it, or with nothing before it", () => {
+  const app = (url, state = null) => {
+    let entries = [{ url: new URL(url), state }];
+    let at = 0;
+    let backs = 0;
+    const handlers = {};
+    const cur = () => entries[at];
+    const location = { get href() { return cur().url.href; }, get pathname() { return cur().url.pathname; }, get search() { return cur().url.search; }, get hash() { return cur().url.hash; } };
+    const history = {
+      get state() { return cur().state; },
+      replaceState(state, _, u) { entries[at] = { url: u ? new URL(u, location.href) : cur().url, state }; },
+      pushState(state, _, u) { entries = [...entries.slice(0, at + 1), { url: new URL(u, location.href), state }]; at++; },
+      back() { backs++; },
+    };
+    const context = vm.createContext({ URL, URLSearchParams, location, history,
+      document: { addEventListener: (type, fn) => { handlers[`document:${type}`] = fn; } },
+      addEventListener: (type, fn) => { handlers[type] = fn; } });
+    for (const file of ['ui-page-header.js', 'router.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
+    const shown = [];
+    const router = context.AppRouter.listen({ boards: () => new Set(['orch']),
+      go: (view, href, how) => { shown.push(`${how} ${view.kind}`); if (how === 'push') router.push(href); return true; } });
+    const tap = (href, cls = '') => {
+      const a = { href: new URL(href, location.href).href, target: '', hasAttribute: () => false, classList: { contains: (c) => c === cls } };
+      const was = [backs, shown.length];
+      handlers['document:click']({ defaultPrevented: false, button: 0, target: { closest: () => a }, preventDefault() {} });
+      return backs > was[0] ? 'back' : shown.slice(was[1]).join(', ');
+    };
+    return { tap, router, location, history };
+  };
+
+  const pushed = app('https://mac.ts.net/orch/questions.html?from=push#q-1');
+  assert.deepEqual([pushed.location.href, plain(pushed.history.state)], ['https://mac.ts.net/orch/questions.html#q-1', { idx: 0, pushed: true }]);
+  assert.equal(pushed.tap('./', 'back'), 'push board');
+  assert.equal(pushed.tap('settings.html'), 'push settings');
+  assert.equal(pushed.tap('./', 'back'), 'back');
+
+  const inApp = app('https://mac.ts.net/orch/');
+  assert.equal(inApp.tap('notes.html?item=w%2FA1'), 'push notes');
+  assert.equal(inApp.tap('./#item=w%2FA1', 'back'), 'back');
+  inApp.router.push('https://mac.ts.net/orch/questions.html?from=push#q-2');
+  assert.deepEqual([inApp.location.href, plain(inApp.history.state)], ['https://mac.ts.net/orch/questions.html#q-2', { idx: 2, pushed: true }]);
+  assert.equal(inApp.tap('./', 'back'), 'push board');
+
+  assert.equal(app('https://mac.ts.net/orch/settings.html', { idx: 3, pushed: true }).tap('./', 'back'), 'push board');
+  assert.equal(app('https://mac.ts.net/orch/settings.html', { idx: 3 }).tap('./', 'back'), 'back');
+  assert.equal(app('https://mac.ts.net/orch/settings.html').tap('./', 'back'), 'push board');
 });
 
 test('the Action needed badge shows only while the card waits on the owner, and links to what they act on', () => {

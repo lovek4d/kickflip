@@ -311,7 +311,7 @@ main > * { transition: opacity .25s ease; }
 .setup-steps li { display: flex; align-items: baseline; gap: 8px; margin: 3px 0; overflow-wrap: anywhere; }
 .setup-steps .dot { flex: none; }
 
-/* settings.html, questions.html and notes.html each scope their own rules by the class on their body. */
+/* The board's other views (view-settings.js, view-questions.js, view-notes.js) each scope their rules by the class on their root. */
 .view-settings .set h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); margin: 18px 0 6px; }
 .view-settings .who { display: flex; align-items: center; justify-content: space-between; padding: 9px 10px; border: 1px solid var(--line);
   border-radius: 9px; margin: 6px 0; background: var(--panel); }
@@ -398,24 +398,24 @@ main > * { transition: opacity .25s ease; }
 .view-questions .practice b { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .view-questions .practice ul { margin: 4px 0 0; padding-left: 18px; }
 .view-questions .practice li { margin: 3px 0; }
-.view-plan .plan { overflow-wrap: anywhere; line-height: 1.5; }
-.view-plan .plan h1 { font-size: 20px; line-height: 1.3; margin: 8px 0 10px; }
-.view-plan .plan h2 { font-size: 17px; margin: 22px 0 8px; }
-.view-plan .plan h3, .view-plan .plan h4, .view-plan .plan h5, .view-plan .plan h6 { font-size: 15px; margin: 18px 0 6px; }
-.view-plan .plan p, .view-plan .plan ul, .view-plan .plan ol, .view-plan .plan blockquote { margin: 8px 0; }
-.view-plan .plan ul, .view-plan .plan ol { padding-left: 22px; }
-.view-plan .plan li { margin: 3px 0; }
-.view-plan .plan li.nested { margin-left: 20px; }
-.view-plan .plan code { font-size: 12.5px; background: var(--accent-soft); border-radius: 4px; padding: 0 3px; }
-.view-plan .plan pre { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
-.view-plan .plan pre code { background: none; padding: 0; overflow-wrap: normal; }
-.view-plan .plan blockquote { border-left: 3px solid var(--line); padding-left: 10px; color: var(--muted); }
-.view-plan .plan hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
-.view-plan .plan a { color: var(--accent); }
-.view-plan .md-table { overflow-x: auto; margin: 10px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
-.view-plan .md-table table { border-collapse: collapse; font-size: 13px; line-height: 1.4; }
-.view-plan .md-table th, .view-plan .md-table td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--line); min-width: 5em; overflow-wrap: normal; }
-.view-plan .md-table th { background: var(--bg); font-weight: 600; }
-.view-plan .md-table tr:last-child td { border-bottom: 0; }
-.view-plan .md-table .wide { min-width: 14em; }
-.view-plan .md-table .wider { min-width: 24em; }
+.view-notes .plan { overflow-wrap: anywhere; line-height: 1.5; }
+.view-notes .plan h1 { font-size: 20px; line-height: 1.3; margin: 8px 0 10px; }
+.view-notes .plan h2 { font-size: 17px; margin: 22px 0 8px; }
+.view-notes .plan h3, .view-notes .plan h4, .view-notes .plan h5, .view-notes .plan h6 { font-size: 15px; margin: 18px 0 6px; }
+.view-notes .plan p, .view-notes .plan ul, .view-notes .plan ol, .view-notes .plan blockquote { margin: 8px 0; }
+.view-notes .plan ul, .view-notes .plan ol { padding-left: 22px; }
+.view-notes .plan li { margin: 3px 0; }
+.view-notes .plan li.nested { margin-left: 20px; }
+.view-notes .plan code { font-size: 12.5px; background: var(--accent-soft); border-radius: 4px; padding: 0 3px; }
+.view-notes .plan pre { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.view-notes .plan pre code { background: none; padding: 0; overflow-wrap: normal; }
+.view-notes .plan blockquote { border-left: 3px solid var(--line); padding-left: 10px; color: var(--muted); }
+.view-notes .plan hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
+.view-notes .plan a { color: var(--accent); }
+.view-notes .md-table { overflow-x: auto; margin: 10px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.view-notes .md-table table { border-collapse: collapse; font-size: 13px; line-height: 1.4; }
+.view-notes .md-table th, .view-notes .md-table td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--line); min-width: 5em; overflow-wrap: normal; }
+.view-notes .md-table th { background: var(--bg); font-weight: 600; }
+.view-notes .md-table tr:last-child td { border-bottom: 0; }
+.view-notes .md-table .wide { min-width: 14em; }
+.view-notes .md-table .wider { min-width: 24em; }
