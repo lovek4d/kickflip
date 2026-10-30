@@ -91,7 +91,7 @@ A site built from the board template that shows one or more waves as cards in la
 _Avoid_: dashboard, kanban
 
 **Hub links**:
-What the hub owes a board, each passing or broken: GitHub polling, events (the board is **listening**), daily wakes, pushes (a device is subscribed), reviewer links and hub code (the hub runs the code in its files). The In Review header's GitHub mark opens them as a sheet, red-dotted only while one stays broken past its grace period; until then it is **settling** ([0046](docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md)). A new board tests them with a **handshake**: a `hello` event the session answers with `board.mjs hello-ack` and a test push, with a Connecting checklist on the board until the session answered and GitHub checks reach it ([0040](docs/adr/0040-one-board-registry-for-every-hub-feature.md)).
+What the hub owes a board, each passing or broken: GitHub polling, events (the board is **listening**), daily wakes, pushes (a device is subscribed) and reviewer links. The hub link (the hub runs the code in its files) is the hub's own, shown in amber only on the sidebar's Hub row and the hub page's Health card ([0064](docs/adr/0064-every-builder-works-in-a-worktree.md)). The In Review header's GitHub mark opens them as a sheet, red-dotted only while one stays broken past its grace period; until then it is **settling** ([0046](docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md)). A new board tests them with a **handshake**: a `hello` event the session answers with `board.mjs hello-ack` and a test push, with a Connecting checklist on the board until the session answered and GitHub checks reach it ([0040](docs/adr/0040-one-board-registry-for-every-hub-feature.md)).
 _Avoid_: health, status, integrations
 
 **Change signal**:
@@ -191,6 +191,10 @@ _Avoid_: paused, frozen, on hold (as a status name)
 **Builder**:
 An agent (Opus, Codex, Sonnet…) working on a work item, with one builder record each (`board.mjs builder … --agent <name>`; the first is `main`). The record holds its label, kind, start, ETA and finish, not its progress. Each progress line (`builder progress`, which needs `--site`) goes only to the card's thread, as a **status line** ("Codex: Running the benchmark"; the main agent's has no prefix), shown as one line with no bubble. The card's status line under its title is the thread's newest status line since its earliest running agent started, with its age, and an optional "ETA about 4:30 pm" line under it (owner ask on INT-76). In the thread every status line stays orange, dot included, whether its agent is working or done (owner, card INT-77). `builder done` marks the record done and keeps it. The thread shows each record as **agent lines** among its messages, with no bubble: "Opus builder started" at its start, always orange and with its ETA while the agent runs, and "Opus builder finished" at its finish, the only green one (owner, question `int42-agents-look`, option C; owner ask on INT-63). The session's own thread summary closes the work.
 _Avoid_: worker, bot
+
+**Worktree**:
+The git worktree a builder works in, never the folder the session, a running app or the hub uses. A site or skill card's is `~/.claude/web-ts/worktrees/<card id>` on branch `<card id>` from the skill repo's main, made by `board.mjs builder start --worktree` and kept on the builder record; the owning session checks and commits there, then **lands** it (`board.mjs land`): rebased onto main, tested, fast-forwarded into the live folder's main, the hub or board servers restarted, the worktree and branch removed. A repo card's comes from wave-build ([0064](docs/adr/0064-every-builder-works-in-a-worktree.md)).
+_Avoid_: copy, checkout, live folder (for the builder's)
 
 ### Talking with the owner
 

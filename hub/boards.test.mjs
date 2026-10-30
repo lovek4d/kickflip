@@ -14,7 +14,7 @@ const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SKILL = path.join(HUB_DIR, '..');
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'boards-'));
 process.env.HOME = home;
-const { listBoards, linksOf, oldestUnheard, hubCode, HUB_CODE, listenState, checkListening, RESUME_STATE } = await import('./boards.mjs');
+const { listBoards, linksOf, hubLink, oldestUnheard, hubCode, HUB_CODE, listenState, checkListening, RESUME_STATE } = await import('./boards.mjs');
 
 const claude = (...p) => path.join(home, '.claude', ...p);
 const site = (route, ...p) => claude('web-ts', 'sites', route, ...p);
@@ -71,10 +71,10 @@ test('the registry lists every board site, over the waves or its own file, with 
 test('linksOf names each hub link that reaches a board and each that does not', () => {
   const orch = listBoards().find((b) => b.route === 'orch');
   const github = { lastCheck: { at: 'T', boards: ['orch'] }, prs: { 'o/r#11': { at: 'T', state: 'OPEN', isDraft: false } } };
-  const ok = { github, settings: { wakes: ['08:00'] }, wakes: {}, devices: 2, listen: 'listening', topics: { 'w1/A1': { review_link_ts: { Ann: '1.1', Bea: '1.2' } } }, code: { running: 'h1', onDisk: 'h1' }, faults: {} };
+  const ok = { github, settings: { wakes: ['08:00'] }, wakes: {}, devices: 2, listen: 'listening', topics: { 'w1/A1': { review_link_ts: { Ann: '1.1', Bea: '1.2' } } }, faults: {} };
   const state = (ctx) => Object.fromEntries(linksOf(orch, ctx).map((l) => [l.link, l.ok]));
-  assert.deepEqual(linksOf(orch, ok).map((l) => l.link), ['github', 'events', 'wakes', 'push', 'slack', 'hub']);
-  assert.deepEqual(state(ok), { github: true, events: true, wakes: true, push: true, slack: true, hub: true });
+  assert.deepEqual(linksOf(orch, ok).map((l) => l.link), ['github', 'events', 'wakes', 'push', 'slack']);
+  assert.deepEqual(state(ok), { github: true, events: true, wakes: true, push: true, slack: true });
   const broken = (ctx) => Object.entries(state({ ...ok, ...ctx })).filter(([, v]) => !v).map(([k]) => k);
   assert.deepEqual(broken({ github: {} }), ['github']);
   assert.deepEqual(broken({ github: { ...github, prs: { 'o/r#11': { ...github.prs['o/r#11'], at: 'older' } } } }), ['github']);
@@ -84,10 +84,10 @@ test('linksOf names each hub link that reaches a board and each that does not', 
   assert.deepEqual(broken({ settings: { wakes: [] } }), ['wakes']);
   assert.deepEqual(broken({ wakes: { last: { due: ['08:00'], failed: ['orch'] } } }), ['wakes']);
   assert.deepEqual(broken({ devices: 0 }), ['push']);
-  assert.deepEqual(broken({ code: { running: 'h0', onDisk: 'h1' } }), ['hub']);
-  assert.deepEqual(broken({ code: { running: undefined, onDisk: 'h1' } }), ['hub']);
-  assert.equal(linksOf(orch, { ...ok, code: { running: 'h0', onDisk: 'h1' } })[5].detail,
-    'The hub runs older code than its files; restart it with launchctl kickstart -k gui/$(id -u)/local.claude.web-ts-hub');
+  assert.equal(hubLink({ running: 'h1', onDisk: 'h1' }).ok, true);
+  assert.equal(hubLink({ running: undefined, onDisk: 'h1' }).ok, false);
+  assert.deepEqual(hubLink({ running: 'h0', onDisk: 'h1' }), { link: 'hub', ok: false,
+    detail: 'The hub runs older code than its files; restart it with launchctl kickstart -k gui/$(id -u)/local.claude.web-ts-hub' });
   const slack = linksOf(orch, { ...ok, topics: { 'w1/A1': { review_link_ts: { Ann: '1.1' } } } })[4];
   assert.deepEqual([slack.ok, slack.detail], [false, '#11 has no link for Bea.']);
   // A draft isn't in review yet, so it needs no links.
@@ -99,11 +99,11 @@ test('a broken link reads settling until it has stayed broken past its grace per
   const settings = { windows: [{ from: '08:00', every_minutes: 15 }, { from: '22:00', every_minutes: 60 }], wakes: ['08:00'] };
   const now = new Date(2026, 9, 29, 12, 0).getTime();
   const ago = (min) => new Date(now - min * 60_000).toISOString();
-  const faulty = { github: {}, settings, wakes: {}, devices: 0, listen: 'deaf', topics: {}, code: { running: 'h0', onDisk: 'h1' }, now };
+  const faulty = { github: {}, settings, wakes: {}, devices: 0, listen: 'deaf', topics: {}, now };
   const states = (faults, at = now) => Object.fromEntries(linksOf(orch, { ...faulty, faults, now: at }).filter((l) => !l.ok).map((l) => [l.link, l.state]));
-  assert.deepEqual(states({}), { github: 'settling', events: 'settling', push: 'broken', hub: 'settling' });
-  assert.deepEqual(states({ github: ago(24), events: ago(1.9), hub: ago(4.9) }), { github: 'settling', events: 'settling', push: 'broken', hub: 'settling' });
-  assert.deepEqual(states({ github: ago(26), events: ago(2.1), hub: ago(5.1) }), { github: 'broken', events: 'broken', push: 'broken', hub: 'broken' });
+  assert.deepEqual(states({}), { github: 'settling', events: 'settling', push: 'broken' });
+  assert.deepEqual(states({ github: ago(24), events: ago(1.9) }), { github: 'settling', events: 'settling', push: 'broken' });
+  assert.deepEqual(states({ github: ago(26), events: ago(2.1) }), { github: 'broken', events: 'broken', push: 'broken' });
   assert.equal(linksOf(orch, { ...faulty, faults: { github: ago(26) } })[0].since, ago(26));
   // A fault from the hourly window keeps its hour once the 15-minute window starts, until a check could have fixed it.
   const eight = new Date(2026, 9, 29, 8, 5).getTime();
@@ -231,12 +231,12 @@ test('a hub rules save reaches both boards', async () => {
 
 test("each board serves its hub links, and the slack link passes once every reviewer has the PR's link", async () => {
   const orch = await api('orch');
-  assert.deepEqual(linkState(orch.links), { github: true, events: true, wakes: true, push: true, slack: false, hub: true });
+  assert.deepEqual(linkState(orch.links), { github: true, events: true, wakes: true, push: true, slack: false });
   assert.equal(orch.links[4].state, 'settling');
   assert.match(orch.links[4].detail, /#11 has no link for Ann, Bea/);
   assert.equal(orch.setup, null);
   const shop = await api('shop');
-  assert.deepEqual(linkState(shop.links), { github: true, events: false, wakes: true, push: true, slack: true, hub: true });
+  assert.deepEqual(linkState(shop.links), { github: true, events: false, wakes: true, push: true, slack: true });
   const sub = Object.fromEntries((await (await fetch(`${base}/_hub/sidebar.json`)).json()).sites.map((x) => [x.route, x.sub]));
   assert.match(sub.shop, /^<span class="dot t-down" aria-hidden="true"><\/span><span class="word t-down">Not listening<\/span>/);
   assert.doesNotMatch(sub.orch, /Not listening/);
@@ -245,14 +245,27 @@ test("each board serves its hub links, and the slack link passes once every revi
   assert.equal(linkState((await (await fetch(`${base}/orch/api/links`)).json()).links).slack, true);
 });
 
-test('the hub link breaks while the hub runs older code than its files', async () => {
+test('while the hub runs older code than its files, the Hub row and Health card say so once and no board shows it', async () => {
   const running = read(HUB_CODE);
   assert.equal(running.hash, hubCode().hash);
+  const sidebar = async () => (await fetch(`${base}/_hub/sidebar.json`)).json();
+  const page = async () => (await fetch(`${base}/_hub/api/hub`)).json();
+  assert.doesNotMatch((await sidebar()).hub.detail, /older code/);
   write(HUB_CODE, { ...running, hash: 'older' });
   try {
-    const hub = (await (await fetch(`${base}/orch/api/links`)).json()).links.find((l) => l.link === 'hub');
-    assert.deepEqual([hub.ok, hub.state], [false, 'settling']);
+    for (const route of ['orch', 'shop']) {
+      assert.equal((await api(route)).links.some((l) => l.link === 'hub'), false);
+      assert.equal((await (await fetch(`${base}/${route}/api/links`)).json()).links.some((l) => l.link === 'hub'), false);
+    }
+    const side = await sidebar();
+    assert.match(side.hub.detail, /^\d+ of \d+ sites up · runs older code than its files; restart it$/);
+    assert.notEqual(side.hub.word, 'Healthy');
+    assert.ok(side.sites.every((s) => !/older code|restart/i.test(s.sub)));
+    const hub = await page();
+    assert.equal(hub.hub.detail, side.hub.detail);
+    assert.ok(hub.groups.flatMap((g) => g.sites).every((x) => x.lines.every((l) => l.link !== 'hub')));
   } finally { write(HUB_CODE, running); }
+  assert.match((await page()).hub.detail, /runs the code in its files/);
 });
 
 test("the daily wake reaches both boards", async () => {

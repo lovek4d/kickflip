@@ -62,8 +62,8 @@
 // (docs/adr/0040-one-board-registry-for-every-hub-feature.md). launchd keeps the
 // hub itself running (see ../SKILL.md, `web-ts install`).
 // After each poll it records when each board's hub links first failed (boards.mjs recordLinkFaults). As it starts it
-// records the hash of its own code (boards.mjs recordHubCode), so a board's hub link can tell when the files changed
-// under it (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md).
+// records the hash of its own code (boards.mjs recordHubCode), so the hub link (boards.mjs hubLink) can tell when the
+// files changed under it (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md).
 // Every 15 seconds it counts each board's watched lines, and resumes the recorded session of a board that got an event
 // while that session wasn't running, and pushes once when that doesn't bring it back (sessions.mjs checkSessions;
 // docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md).
@@ -84,7 +84,7 @@ import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, readPromp
 import { clock, nextSlot, windowAt, hold, heldUntil, holdLine, editPolling } from './schedule.mjs';
 import { capital, every, hubView, settingsView, pollingView, flushView, SNOOZE_REFUSED } from './views.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
-import { listBoards, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, recordLinkFaults, linksOf, hubCode, readJSON, HUB_CODE } from './boards.mjs';
+import { listBoards, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON } from './boards.mjs';
 import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
@@ -421,22 +421,24 @@ function boardLinks(boards) {
   return linksCache.value;
 }
 
-// What /_hub/sidebar.json serves, with each board's links and the status rows behind it for the hub's page.
+// What /_hub/sidebar.json serves, with each board's links, the hub's code hashes and the status rows behind it for the
+// hub's page.
 async function sidebarState({ fresh = false } = {}) {
   const now = new Date();
   const rows = status();
   const waiting = await waitingCounts(rows, { fresh });
   const boards = listBoards(loadManifest());
   const { links, listens } = boardLinks(boards);
+  const code = hubCodeState();
   const sites = sidebarSites(rows, waiting, new Set(boards.map((b) => b.route)), listens);
   const settings = readSettings();
   const held = hold(now, settings);
   const data = {
-    total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links),
+    total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links, hubLink(code)),
     notifications: !held ? { state: 'on', text: 'On' } : held.why === 'off' ? { state: 'off', text: 'Off' } : { state: 'held', text: capital(holdLine(held, now)) },
     polling: { text: `Every ${every(windowAt(now, settings).every_minutes)} · next ${clock(nextPollAt(), now)}` },
   };
-  return { data, links, rows };
+  return { data, links, rows, code };
 }
 
 // ---------- app shell ----------
@@ -504,11 +506,11 @@ const POLLING_ANCHOR = { from: 'day', every: 'day', split: 'day', remove: 'day',
 
 async function hubData(req) {
   const now = new Date();
-  const { data, links, rows } = await sidebarState();
+  const { data, links, rows, code } = await sidebarState();
   return {
     ...hubView({
       now, st: queueStatus(now), poll: pollState(), sidebar: data, rows, links, rules: readHubRules(),
-      code: { running: readJSON(HUB_CODE, null)?.hash, onDisk: hubCode().hash }, host: req.headers['x-forwarded-host'] || req.headers.host || '',
+      code, host: req.headers['x-forwarded-host'] || req.headers.host || '',
     }),
     prompts: pendingFor(null).map(shown),
   };

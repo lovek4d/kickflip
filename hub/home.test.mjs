@@ -79,3 +79,12 @@ test('the hub reads broken while a site is down or a board link stays broken, no
   const bad = hubHealth([...sites, { route: 'd', state: 'down' }], { b: [{ link: 'github', state: 'ok' }, { link: 'events', state: 'broken' }] });
   assert.deepEqual([bad.tone, bad.word, bad.broken], ['down', '2 broken', ['b', 'd']]);
 });
+
+test('the hub running older code than its files reads amber on the hub alone, under any broken site', () => {
+  const sites = [{ route: 'a', state: 'up' }, { route: 'b', state: 'up' }];
+  const stale = { link: 'hub', ok: false, detail: 'The hub runs older code than its files' };
+  assert.deepEqual(hubHealth(sites, {}, stale), { tone: 'wait', word: 'Needs a restart', detail: '2 of 2 sites up · runs older code than its files; restart it', broken: [] });
+  assert.deepEqual(hubHealth(sites, {}, { ...stale, ok: true }), { tone: 'ok', word: 'Healthy', detail: '2 of 2 sites up', broken: [] });
+  const down = hubHealth([...sites, { route: 'c', state: 'down' }], {}, stale);
+  assert.deepEqual([down.tone, down.word, down.detail], ['down', '1 broken', '2 of 3 sites up · runs older code than its files; restart it']);
+});

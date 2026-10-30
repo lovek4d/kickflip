@@ -44,17 +44,18 @@ export function siteHealth(r, links) {
   return { tone: broken.length ? 'down' : off.length ? 'wait' : 'ok', word, lines: off.map((l) => ({ link: l.link, detail: `${l.state === 'broken' ? '' : 'settling: '}${l.detail}` })) };
 }
 
-// sidebar: the /_hub/sidebar.json data; rows: hub.mjs status() rows; links: {<route>: linksOf}; code: {running,
-// onDisk}, the hub's code hashes (boards.mjs); host: the address the page was loaded from; rules: the hub rules.
-// Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js).
+// sidebar: the /_hub/sidebar.json data, whose hub detail already says when the hub runs older code (home.mjs
+// hubHealth); rows: hub.mjs status() rows; links: {<route>: linksOf}; code: {running, onDisk}, the hub's code hashes
+// (boards.mjs); host: the address the page was loaded from; rules: the hub rules. Boards and Pages stay apart, as in
+// the sidebar (board/public/ui-sidebar.js).
 export function hubView({ now, st, poll, sidebar, rows, links = {}, code = {}, host = '', rules = [] }) {
   const boards = new Set(sidebar.sites.filter((x) => x.board).map((x) => x.route));
-  const codeLine = code.running && code.running === code.onDisk ? `runs the code in its files (${code.onDisk})` : 'runs older code than its files; restart it';
+  const codeLine = code.running && code.running === code.onDisk ? ` · runs the code in its files (${code.onDisk})` : '';
   const site = (r) => ({ route: r.route, title: r.title, icon: siteIcon(r.route, r), href: `/${encodeURIComponent(r.route)}/`, ...siteHealth(r, links[r.route]) });
   const groups = [['Boards', rows.filter((r) => boards.has(r.route))], ['Pages', rows.filter((r) => !boards.has(r.route))]]
     .filter(([, list]) => list.length).map(([label, list]) => ({ label, sites: list.map(site) }));
   return {
-    hub: { tone: sidebar.hub.tone, word: sidebar.hub.word, detail: `${sidebar.hub.detail} · ${codeLine}` },
+    hub: { tone: sidebar.hub.tone, word: sidebar.hub.word, detail: `${sidebar.hub.detail}${codeLine}` },
     groups,
     empty: rows.length === 0,
     polling: { ...pollingNow(st, poll, now), summary: pollingSummary(st.settings) },

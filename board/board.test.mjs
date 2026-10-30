@@ -339,6 +339,122 @@ test('a hand-back closes every builder record still open on the item', () => {
   assert.equal(typeof read(at('waves', 'w', 'agents', 'A1@fix.json')).done, 'string');
 });
 
+const git = (cwd, ...args) => {
+  const r = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  return r.stdout.trim();
+};
+const commit = (dir, file, text) => { write(path.join(dir, file), text); git(dir, 'add', '-A'); git(dir, 'commit', '--quiet', '-m', `change ${file}`); };
+function scratchRepo() {
+  const repo = path.join(home, 'repo');
+  fs.mkdirSync(repo, { recursive: true });
+  git(repo, 'init', '--quiet', '-b', 'main');
+  git(repo, 'config', 'user.name', 'Test');
+  git(repo, 'config', 'user.email', 'test@example.com');
+  write(path.join(repo, 'hub', 'hub.mjs'), "import { a } from '../shared/lib.mjs';\n");
+  write(path.join(repo, 'shared', 'lib.mjs'), 'export const a = 1;\n');
+  write(path.join(repo, 'shared', 'notes.md'), 'a\n');
+  write(path.join(repo, 'board', 'server.mjs'), '1\n');
+  write(path.join(repo, 'ok.test.mjs'), "import test from 'node:test';\ntest('ok', () => {});\n");
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '--quiet', '-m', 'base');
+  write(at('web-ts', 'manifest.json'), { sites: {
+    orch: { dir: site('orch'), port: 1, cmd: ['node', '/x/board/server.mjs'] },
+    audit: { dir: site('audit'), port: 2, cmd: ['node', '/x/board/server.mjs'] },
+  } });
+  return repo;
+}
+const worktree = () => at('web-ts', 'worktrees', 'A1');
+const restarts = () => (fs.existsSync(path.join(home, 'restarts')) ? fs.readFileSync(path.join(home, 'restarts'), 'utf8').trim().split('\n') : []);
+const land = () => run('board.mjs', ['land', 'w/A1'], undefined, {
+  WEB_TS_RESTART_CMD: JSON.stringify([process.execPath, '-e', "require('fs').appendFileSync(process.argv[1], process.argv.slice(2).join(' ') + '\\n')", path.join(home, 'restarts')]),
+});
+const branches = (repo) => git(repo, 'branch', '--format=%(refname:short)').split('\n');
+
+test('builder start --worktree makes a worktree on a new branch from main, keeps it on the record and prints it, and refuses a taken path or branch', () => {
+  const repo = scratchRepo();
+  const r = board('builder', 'start', 'w/A1', '--worktree', '--repo', repo);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.out, `start w/A1\nworktree: ${worktree()}\n`);
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo });
+  assert.equal(git(worktree(), 'rev-parse', '--abbrev-ref', 'HEAD'), 'A1');
+  assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(repo, 'rev-parse', 'main'));
+  const taken = board('builder', 'start', 'w/A1', '--agent', 'two', '--worktree', '--repo', repo);
+  assert.deepEqual([taken.code, taken.err], [1, `--worktree: ${worktree()} already exists; land or remove it first\n`]);
+  assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A1@two.json')), false);
+  git(repo, 'worktree', 'remove', worktree());
+  const branch = board('builder', 'start', 'w/A1', '--agent', 'two', '--worktree', '--repo', repo);
+  assert.deepEqual([branch.code, branch.err], [1, `--worktree: branch A1 already exists in ${repo}\n`]);
+  assert.equal(fs.existsSync(worktree()), false);
+  assert.equal(board('builder', 'start', 'w/A1', '--repo', repo).code, 2);
+});
+
+test('land refuses a worktree with uncommitted changes, with no commit beyond main, or whose suite fails, leaving main and the worktree as they were', () => {
+  const repo = scratchRepo();
+  assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  const main = git(repo, 'rev-parse', 'main');
+  const none = land();
+  assert.deepEqual([none.code, none.err], [1, 'A1 has no commits beyond main; nothing to land\n']);
+  write(path.join(worktree(), 'board', 'server.mjs'), '2\n');
+  const dirty = land();
+  assert.deepEqual([dirty.code, dirty.err], [1, `${worktree()} has uncommitted changes; commit them there first\n`]);
+  git(worktree(), 'add', '-A');
+  git(worktree(), 'commit', '--quiet', '-m', 'board');
+  commit(worktree(), 'bad.test.mjs', "import test from 'node:test';\ntest('bad', () => { throw new Error('no'); });\n");
+  const failing = land();
+  assert.deepEqual([failing.code, failing.err], [1, `tests failed in ${worktree()} (1 failing); nothing landed\n`]);
+  assert.equal(git(repo, 'rev-parse', 'main'), main);
+  assert.ok(fs.existsSync(worktree()));
+  assert.ok(branches(repo).includes('A1'));
+  assert.deepEqual(restarts(), []);
+});
+
+test('land rebases onto a moved main, fast-forwards main, restarts only what changed, and removes the worktree and branch', () => {
+  const repo = scratchRepo();
+  assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  commit(worktree(), 'board/server.mjs', '2\n');
+  commit(repo, 'shared/notes.md', 'b\n');
+  const moved = git(repo, 'rev-parse', '--short', 'main');
+  const r = land();
+  assert.equal(r.code, 0, r.err);
+  const main = git(repo, 'rev-parse', '--short', 'main');
+  assert.deepEqual(r.out.trim().split('\n'), [
+    `rebased A1 onto main (${moved})`, 'tests passed: 1', `main fast-forwarded to ${main} in ${repo}`,
+    'board restarted: orch', 'board restarted: audit', `worktree removed: ${worktree()}`, 'branch deleted: A1',
+  ]);
+  assert.equal(git(repo, 'rev-parse', 'main~1'), git(repo, 'rev-parse', moved));
+  assert.equal(fs.readFileSync(path.join(repo, 'board', 'server.mjs'), 'utf8'), '2\n');
+  assert.deepEqual(restarts(), ['board orch', 'board audit']);
+  assert.equal(fs.existsSync(worktree()), false);
+  assert.deepEqual(branches(repo), ['main']);
+
+  assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  commit(worktree(), 'shared/lib.mjs', 'export const a = 2;\n');
+  commit(worktree(), 'board/server.mjs', '3\n');
+  assert.equal(land().code, 0);
+  assert.deepEqual(restarts(), ['board orch', 'board audit', 'hub']);
+
+  assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  commit(worktree(), 'shared/notes.md', 'c\n');
+  const docs = land();
+  assert.equal(docs.code, 0, docs.err);
+  assert.doesNotMatch(docs.out, /restarted/);
+  assert.deepEqual(restarts(), ['board orch', 'board audit', 'hub']);
+});
+
+test('land refuses a rebase that conflicts, naming the files, and leaves the branch, worktree and main as they were', () => {
+  const repo = scratchRepo();
+  assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  commit(worktree(), 'shared/notes.md', 'branch\n');
+  commit(repo, 'shared/notes.md', 'main\n');
+  const [main, head] = [git(repo, 'rev-parse', 'main'), git(worktree(), 'rev-parse', 'HEAD')];
+  const r = land();
+  assert.deepEqual([r.code, r.err], [1, `rebasing A1 onto main conflicts in shared/notes.md; resolve it in ${worktree()} and land again\n`]);
+  assert.deepEqual([git(repo, 'rev-parse', 'main'), git(worktree(), 'rev-parse', 'HEAD'), git(worktree(), 'status', '--porcelain')], [main, head, '']);
+  assert.equal(fs.readFileSync(path.join(worktree(), 'shared', 'notes.md'), 'utf8'), 'branch\n');
+  assert.deepEqual(restarts(), []);
+});
+
 test("builder start and progress on --site write each new status line to the item's thread, named by a further agent's kind", () => {
   assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--progress', 'Reading the plan').code, 0);
   assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--agent', 'bench', '--kind', 'codex', '--progress', 'Running the benchmark').code, 0);

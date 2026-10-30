@@ -67,6 +67,7 @@
 .sidebar .t-working { --tone: var(--color-notice); }
 .sidebar .t-building { --tone: var(--color-notice); }
 .sidebar .t-ok { --tone: var(--color-success); }
+.sidebar .t-wait { --tone: var(--color-notice); }
 
 @media (min-width: 1000px) {
   body.has-sidebar { padding-left: 272px; }

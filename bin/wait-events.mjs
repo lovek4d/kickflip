@@ -14,7 +14,8 @@
 //   link <name> <detail>      each hub link that doesn't reach the board (../hub/boards.mjs linksOf), the list its
 //                             Hub links sheet shows (docs/adr/0040-one-board-registry-for-every-hub-feature.md), at
 //                             once, while the sheet still reads it settling
-//                             (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md)
+//                             (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md); and `link hub
+//                             <detail>` while the hub runs older code than its files (../hub/boards.mjs hubLink)
 //   handed-over <owner json>  another session took the route over: stop, don't relaunch
 //   site-removed              the route left the manifest: stop, don't relaunch
 // On start it writes <site dir>/data/watcher.json {pid, since}, and adds exited_at when it exits; a board reads it
@@ -23,7 +24,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { readHubRules, rulesOf, ruleLines } from '../hub/rules.mjs';
-import { boardAt, linksOf } from '../hub/boards.mjs';
+import { boardAt, linksOf, hubLink } from '../hub/boards.mjs';
 import { settingsLines, settingsOf } from '../board/store.mjs';
 
 const [route, session] = process.argv.slice(2);
@@ -89,7 +90,7 @@ for (;;) {
     // cursor below from moving, or the same events would wake the session again.
     try {
       const self = board && boardAt(s.dir);
-      if (self) for (const l of linksOf(self, { listen: 'listening' })) if (!l.ok) console.log(`link ${l.link} ${l.detail}`);
+      if (self) for (const l of [...linksOf(self, { listen: 'listening' }), hubLink()]) if (!l.ok) console.log(`link ${l.link} ${l.detail}`);
     } catch (e) { console.log(`link registry could not check the links (${e.message})`); }
     fs.writeFileSync(cursorFile, JSON.stringify(Object.fromEntries(Object.entries(seen).map(([f, l]) => [f, l.length]))));
     process.exit(0);

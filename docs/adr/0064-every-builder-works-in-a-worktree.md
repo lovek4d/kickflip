@@ -1,0 +1,17 @@
+# Every builder works in a worktree, and the hub's own fault shows once
+
+Every builder a board session starts works in a git worktree of the repo its card changes, never in the folder the session, a running app or the hub uses. Repo cards already did, through wave-build's worktrees and PRs, and keep doing so. Site and skill cards now get one from the board CLI:
+
+- **`board.mjs builder start <key> --worktree`** makes `~/.claude/web-ts/worktrees/<card id>` on a new branch `<card id>` from `main` of the skill repo, `~/.claude/skills/join-web-ts` (`--repo <dir>` names another). The builder record keeps `{path, branch, repo}`, and the command prints `worktree: <path>` for the builder's prompt. It refuses when that path or branch already exists. The folder sits outside `~/.claude/skills`, so Claude Code never loads it as a skill.
+- **The builder edits, tests and runs scratch hubs there.** The owning session checks the work in the worktree and commits it there, as the repo's configured user.
+- **`board.mjs land <key>`** then brings it in, one line per step. It refuses while the worktree has uncommitted changes or the branch adds no commit. It rebases the branch onto main when main moved, and on a conflict aborts the rebase and refuses, naming the files. It refuses unless the worktree's full `node --test` suite passes. It fast-forwards `main` in the live folder, restarts the hub when the hub's code changed (anything under `hub/` or in its import graph, as the hub link hashes it), else each board server when `board/` changed, since a hub restart restarts every site. It removes the worktree and deletes the branch. It never pushes.
+
+The hub runs from the live skill folder, and board pages load `board/public/*.js` straight from it. A builder editing there made every page a mid-edit risk: a page opened then could load half-written code, a hub restart then would run half-written hub code, and the hub link failed for as long as the builder worked (hub/INT-139). The owner settled the isolation first for one board ("builder-isolation"), then for every board: "really everything, every work item, should be built in a worktree always no? should be a top level skill feature". The owner picked the CLI over a skill rule alone ("worktree-feature", take `cli`), so no session has to remember the git steps.
+
+**The hub's own fault shows once.** The `hub` link (the hub runs older code than its files, [0046](0046-hub-links-turn-red-only-after-a-grace-period.md)) belongs to the hub, not to a board. It leaves each board's links (`linksOf`), so no board row, In Review header or Hub links sheet shows it. It shows on the sidebar's Hub row and the hub page's Health card, in amber, which read "Needs a restart" while it stands rather than "Healthy". A site that is down still reads red over it. The watcher still prints `link hub …`, since the owning session lands the fix and restarts the hub.
+
+Considered:
+- a hub-orchestrator board rule alone: every board's builders edit the same skill folder, and a rule holds only on the board that has it;
+- a skill rule with the git steps written out for each session: each session would rebase, test, fast-forward and restart by hand, and a missed step leaves the live folder ahead of the running hub;
+- worktrees under `~/.claude/skills`: Claude Code would load each one as another copy of the skill;
+- restarting the board servers as well as the hub when both changed: the hub's restart already restarts them.

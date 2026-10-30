@@ -75,16 +75,20 @@ export function startRoute(sites) {
   return sites.filter((s) => s.board).sort((a, b) => b.count - a.count || b.changedAt - a.changedAt || a.route.localeCompare(b.route))[0]?.route ?? null;
 }
 
-// The hub's health from the sites' process states and each board's linksOf states ({<route>: [{link, state}]}): a site
-// is broken while it is down or one of its links reads broken; a link still settling doesn't count
-// (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md).
-export function hubHealth(sites, linksByRoute = {}) {
+export const STALE_CODE = 'runs older code than its files; restart it';
+
+// The hub's health from the sites' process states, each board's linksOf states ({<route>: [{link, state}]}) and the
+// hub's own boards.mjs hubLink: a site is broken while it is down or one of its links reads broken; a link still
+// settling doesn't count (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md). A failing hub link reads
+// amber, and says why in the detail, here and nowhere else (docs/adr/0064-every-builder-works-in-a-worktree.md).
+export function hubHealth(sites, linksByRoute = {}, hub = null) {
   const broken = sites.filter((s) => s.state === 'down' || (linksByRoute[s.route] || []).some((l) => l.state === 'broken'));
   const up = sites.filter((s) => s.state === 'up').length;
+  const stale = hub?.ok === false;
   return {
-    tone: broken.length ? 'down' : 'ok',
-    word: broken.length ? `${broken.length} broken` : 'Healthy',
-    detail: `${up} of ${sites.length} site${sites.length === 1 ? '' : 's'} up`,
+    tone: broken.length ? 'down' : stale ? 'wait' : 'ok',
+    word: broken.length ? `${broken.length} broken` : stale ? 'Needs a restart' : 'Healthy',
+    detail: `${up} of ${sites.length} site${sites.length === 1 ? '' : 's'} up${stale ? ` · ${STALE_CODE}` : ''}`,
     broken: broken.map((s) => s.route),
   };
 }

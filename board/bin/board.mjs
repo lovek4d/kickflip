@@ -4,6 +4,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as store from '../store.mjs';
+import { makeWorktree, land, skillRepo, worktreesDir } from '../worktree.mjs';
 import { ITEM_STATUSES } from '../domain.mjs';
 
 export const USAGE = `usage: node board.mjs <command> [--site <route>] ...
@@ -114,6 +115,11 @@ A --file argument of - reads stdin.
                                                          card-merge event. The Settings page's toggle writes it too
   builder start <wave>/<id> [--agent <name>] [--kind <opus|codex|sonnet|…>] [--label <who>]
          [--progress <text>] [--eta <ISO time>]          one record per agent on the item; --agent defaults to main
+         [--worktree [--repo <dir>]]                     --worktree: a git worktree for the builder at
+                                                         ~/.claude/web-ts/worktrees/<id> on a new branch <id> from
+                                                         main of --repo (default ~/.claude/skills/join-web-ts), kept on
+                                                         the record and printed as "worktree: <path>". Refuses when
+                                                         that path or branch exists
   builder progress <wave>/<id> (<text> | --text <t>)     one short present-tense line
          [--agent <name>]
          [--eta <ISO time> | --clear-eta]                an ETA shows as a line under the card's status
@@ -122,6 +128,16 @@ A --file argument of - reads stdin.
   builder done <wave>/<id> [--agent <name>]              marks that agent's record done; the item's thread
                                                          shows when it started and finished
          builder takes --dir <dir> for a wave file in <dir>; its records go in <dir>/agents
+  land <wave>/<id> [--repo <dir>] [--dir <dir>]          brings the worktree its builder record keeps (else
+                                                         ~/.claude/web-ts/worktrees/<id> of --repo) into main, one line
+                                                         per step: refuses while it has uncommitted changes or adds no
+                                                         commit; rebases onto main when main moved, refusing on a
+                                                         conflict with the rebase undone; refuses unless its full
+                                                         node --test suite passes; fast-forwards main in the repo;
+                                                         restarts the hub when its code changed, else each board
+                                                         server when board/ changed; removes the worktree and its
+                                                         branch. Never pushes. WEB_TS_RESTART_CMD='["<cmd>"]' replaces
+                                                         the restarts, called with hub or board <route>
   push --title <t> [--body <b>] [--url </route/path>]    runs web-ts push with these flags, adding
        [--tag <tag>] [--now | --urgent]                  "· and N replies" to the body for the replies
                                                          written since the site's last push through this
@@ -139,7 +155,7 @@ A --file argument of - reads stdin.
          WEB_TS_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/web-ts.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
-const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'answer', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force']);
+const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'answer', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree']);
 const WEB_TS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'bin', 'web-ts.mjs');
 
 function pushCommand() {
@@ -247,13 +263,23 @@ const COMMANDS = {
   'rules remove': [['id'], ['hub'], (site, [id], f) => store.removeRuleFrom(site, id, f)],
   settings: [[], [], async (site) => ({ lines: [JSON.stringify(await store.readBoardSettings(site))] })],
   'settings set': [['name', 'on|off'], [], (site, [name, value]) => store.setBoardSetting(site, name, value)],
-  'builder start': [['wave/id'], ['label', 'progress', 'dir', 'agent', 'kind', 'eta'], (site, [key], f) => store.startBuilder(site, key, f)],
+  'builder start': [['wave/id'], ['label', 'progress', 'dir', 'agent', 'kind', 'eta', 'worktree', 'repo'], (site, [key], { worktree, repo, ...f }) => {
+    if (repo !== undefined && !worktree) throw new UsageError('--repo goes with --worktree');
+    return store.startBuilder(site, key, { ...f, worktree: worktree && (() => makeWorktree(key.split('/')[1], { repo })) });
+  }],
   'builder progress': [['wave/id', '...text?'], ['text', 'dir', 'agent', 'eta', 'clear-eta'], (site, [key, ...words], f) => {
     if (words.length && f.text !== undefined) throw new UsageError('builder progress takes its text once: as words or as --text');
     if (!words.length && f.text === undefined) throw new UsageError('builder progress needs its text, as words or as --text');
     return store.builderProgress(site, key, f.text ?? words.join(' '), { ...f, clearEta: f['clear-eta'] });
   }],
   'builder done': [['wave/id'], ['dir', 'agent'], (site, [key], f) => store.stopBuilder(site, key, f)],
+  land: [['wave/id'], ['repo', 'dir'], async (site, [key], f) => {
+    const id = key.split('/')[1];
+    const recorded = await store.recordedWorktree(site, key, { dir: f.dir });
+    const repo = path.resolve(f.repo ?? recorded?.repo ?? skillRepo());
+    land({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo });
+    return { lines: [] };
+  }],
   working: [['eventId'], [], (site, [id]) => store.setWorking(site, id)],
   'hello-ack': [['eventId'], [], (site, [id]) => store.ackHello(site, id)],
   checked: [[], ['every', 'idle'], (site, _, f) => store.writeChecked(site, f.every, { idle: f.idle })],

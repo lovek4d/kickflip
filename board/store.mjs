@@ -886,7 +886,9 @@ async function statusToThread(site, key, agent = 'main', kind, line, ts) {
   await appendLine(file, { ts, who: 'claude', kind: 'status', text: body });
 }
 
-export async function startBuilder(site, key, { label, progress, dir, agent = 'main', kind, eta }) {
+// worktree, when given, makes the builder's worktree once every flag has passed (board/worktree.mjs makeWorktree) and
+// returns {path, branch, repo}, which the record keeps for `board.mjs land`.
+export async function startBuilder(site, key, { label, progress, dir, agent = 'main', kind, eta, worktree }) {
   const line = optional(progress, (v) => progressLine(site, v, '--progress'));
   const file = await builderFile(site, key, dir, agent);
   const now = new Date().toISOString();
@@ -895,9 +897,19 @@ export async function startBuilder(site, key, { label, progress, dir, agent = 'm
     label: label === undefined ? 'Builder' : text(label, '--label'), ...(k ? { kind: k } : {}), started: now,
     ...(eta === undefined ? {} : { eta: isoTime(eta, '--eta') }),
   };
-  await writeJSON(file, record);
+  const wt = worktree ? await worktree() : null;
+  await writeJSON(file, wt ? { ...record, worktree: wt } : record);
   if (line) await statusToThread(site, key, agent, k, line, now);
-  return file;
+  return { file, lines: wt ? [`worktree: ${wt.path}`] : [] };
+}
+
+// The worktree the item's newest builder record keeps ({path, branch, repo}), or null when none keeps one.
+export async function recordedWorktree(site, key, { dir } = {}) {
+  const { id } = parseKey(key);
+  const agents = path.dirname(await builderFile(site, key, dir));
+  const names = (await fs.readdir(agents).catch(() => [])).filter((n) => n === `${id}.json` || (n.startsWith(`${id}@`) && n.endsWith('.json')));
+  const records = (await Promise.all(names.map((n) => readJSON(path.join(agents, n), null)))).filter((r) => r?.worktree?.path);
+  return records.sort((a, b) => String(b.started).localeCompare(String(a.started)))[0]?.worktree ?? null;
 }
 
 export async function builderProgress(site, key, progress, { dir, agent = 'main', eta, clearEta }) {

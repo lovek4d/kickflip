@@ -107,7 +107,8 @@ test("the hub page lists Boards and Pages apart with each site's health and link
   assert.deepEqual(plain(v.groups[0].sites[1].lines), [{ link: 'events', detail: 'no watcher since 6:00pm' }, { link: 'wakes', detail: 'settling: missed 9:00am' }]);
   assert.match(v.groups[0].sites[0].icon, /^<span class="icon/);
   assert.deepEqual(plain(v.hub), { tone: 'down', word: '2 broken', detail: '3 of 5 sites up · runs the code in its files (abc)' });
-  assert.equal(hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar, rows, code: { running: 'old', onDisk: 'abc' } }).hub.detail, '3 of 5 sites up · runs older code than its files; restart it');
+  const staleHub = { tone: 'wait', word: 'Needs a restart', detail: '3 of 5 sites up · runs older code than its files; restart it' };
+  assert.deepEqual(plain(hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar: { ...sidebar, hub: staleHub }, rows, code: { running: 'old', onDisk: 'abc' } }).hub), staleHub);
   assert.deepEqual(plain(v.polling), { title: 'Checks every 30 min until 10:00pm', lines: ['Next check 7:30pm', '1 push queued; next send 7:30pm.'], count: 1,
     summary: '3 windows, 58 checks a day · held overnight · wakes 8:00am, 9:00am' });
   assert.deepEqual(plain(v.notifications), { on: true, text: 'On', device: 'checks every 30 min until 10:00pm' });

@@ -262,7 +262,7 @@ export async function handshake(route, manifest = readManifest()) {
 }
 
 // ---------- links ----------
-export const LINKS = ['github', 'events', 'wakes', 'push', 'slack', 'hub'];
+export const LINKS = ['github', 'events', 'wakes', 'push', 'slack'];
 
 function topicItems() {
   let files = [];
@@ -351,7 +351,10 @@ export function recordHubCode() {
 }
 
 const RESTART_HUB = 'launchctl kickstart -k gui/$(id -u)/local.claude.web-ts-hub';
-const hubLink = ({ running, onDisk }) => (running && running === onDisk
+export const hubCodeState = () => ({ running: readJSON(HUB_CODE, null)?.hash, onDisk: hubCode().hash });
+// The hub's own link, so linksOf leaves it out (docs/adr/0064-every-builder-works-in-a-worktree.md).
+// → {link: 'hub', ok, detail}
+export const hubLink = ({ running, onDisk } = hubCodeState()) => (running && running === onDisk
   ? { link: 'hub', ok: true, detail: `The hub runs the code in its files (${onDisk}).` }
   : { link: 'hub', ok: false, detail: `The hub runs older code than its files; restart it with ${RESTART_HUB}` });
 
@@ -366,7 +369,6 @@ export const GRACE = {
   wakes: (every) => (every + 10) * MIN,
   push: () => 0,
   slack: (every) => (every + 10) * MIN,
-  hub: () => 5 * MIN,
 };
 
 // The longer of the polling window when the fault began and the window now, so a fault from a slow window doesn't
@@ -405,10 +407,9 @@ function settle(route, links, { settings, now, faults }) {
 //   wakes   the polling interval has daily wakes, and the last one reached the board
 //   push    at least one device is subscribed
 //   slack   every open, non-draft PR has a Slack link for each of the board's and its wave's reviewers
-//   hub     the hub runs the code in its files (hubCode, against the hash recordHubCode wrote as it started)
 // ctx overrides what is read from disk: github (github-state.json), settings (polling), wakes (wake-state.json),
-// devices (subscription count), listen (listenState), topics (slack-bridge topic items), code
-// ({running, onDisk} hashes), faults (as settle takes them; given, nothing is written) and now (ms).
+// devices (subscription count), listen (listenState), topics (slack-bridge topic items), faults (as settle takes them;
+// given, nothing is written) and now (ms).
 export function linksOf(board, ctx = {}) {
   const state = ctx.github ?? readJSON(GITHUB_STATE, {});
   const settings = ctx.settings ?? readSettings();
@@ -418,7 +419,6 @@ export function linksOf(board, ctx = {}) {
     wakesLink(board, settings, ctx.wakes ?? readJSON(WAKE_STATE, {})),
     pushLink(ctx.devices ?? (readJSON(SUBS, []) || []).length),
     slackLink(board, state, ctx.topics ?? topicItems()),
-    hubLink(ctx.code ?? { running: readJSON(HUB_CODE, null)?.hash, onDisk: hubCode().hash }),
   ];
   return settle(board.route, links, { settings, now: ctx.now ?? Date.now(), faults: ctx.faults });
 }

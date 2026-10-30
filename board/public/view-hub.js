@@ -25,9 +25,9 @@
   function html(d, { flash, device, prompts }) {
     const { row, tile, CHEVRON, nowRow, deviceRow } = HubUI;
     return `${HubUI.flash(flash)}${promptsHtml(d.prompts || [], prompts)}<h2 class="label" style="margin-top:4px">Health</h2>
-<div class="group">${row({ icon: tile('power', d.hub.tone === 'ok' ? '#22c55e' : '#ef4444'), title: 'Hub', sub: `<span class="st ${esc(d.hub.tone)}">${esc(d.hub.word)}</span> · ${esc(d.hub.detail)}`, wrap: true })}
+<div class="group">${row({ icon: tile('power', { ok: '#22c55e', wait: '#f59e0b' }[d.hub.tone] || '#ef4444'), title: 'Hub', sub: `<span class="st ${esc(d.hub.tone)}">${esc(d.hub.word)}</span> · ${esc(d.hub.detail)}`, wrap: true })}
 ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/join-web-ts &lt;route&gt;</code>.' }) : ''}</div>
-${sitesHtml(d.groups)}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, events (its session and a watcher run, or the hub can wake it), daily wakes, pushes, reviewer links and hub code. One that just broke reads settling first.</p>
+${sitesHtml(d.groups)}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, events (its session and a watcher run, or the hub can wake it), daily wakes, pushes and reviewer links. One that just broke reads settling first.</p>
 <h2 class="label">Polling</h2>
 <div class="group">${nowRow(d.polling, tile('clock', '#3b82f6'))}
 ${row({ title: 'Windows, overnight hold, daily wakes', sub: esc(d.polling.summary), wrap: true, trail: CHEVRON, href: '/_hub/settings/polling' })}</div>
