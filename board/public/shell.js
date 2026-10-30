@@ -34,7 +34,7 @@ window.AppShell = (function () {
       try { const r = await fetch('/_hub/sidebar.json', { cache: 'no-store' }); if (r.ok) data = await r.json(); } catch { /* the cached copy */ }
     }
     data ||= read(DATA_KEY);
-    const sidebar = Sidebar.mount({ data, poll: false });
+    const sidebar = Sidebar.mount({ data, poll: false, open: (href) => { if (!open(href)) location.assign(href); } });
     const boards = () => new Set((data?.sites || []).filter((s) => s.board).map((s) => s.route));
     const titleOf = (route) => data?.sites?.find((s) => s.route === route)?.title || route;
 
@@ -122,7 +122,8 @@ window.AppShell = (function () {
         left.delete(route);
         v = BoardView.create(root, siteRoot, { signal: signalFor(route), live });
       } else {
-        v = page.create(root, siteRoot, { view, siteTitle, boards, open: openHere, toggleSidebar: sidebar.toggle, reload: () => go(current.view, location.href, 'reload'),
+        v = page.create(root, siteRoot, { view, siteTitle, boards, open: openHere, toggleSidebar: sidebar.toggle, keydown: sidebar.keydown, pointerdown: sidebar.pointerdown,
+          reload: () => go(current.view, location.href, 'reload'),
           loaded: (url, title) => { if (current?.v === v) framed(url, title); }, sidebarChanged: refreshSidebar });
       }
       current = { view, route, root, v };

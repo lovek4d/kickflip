@@ -6,13 +6,24 @@
 // left edge opens it, and the scrim, Escape, ✕, the drawer's own logo or a swipe back closes it. From 1000px it is a
 // rail, which its own logo collapses and the page's logo brings back; this device remembers that, and <html> carries
 // sb-collapsed meanwhile (docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md).
-// → {setHere(route), setData(data), checkDevice(), close(), toggle()}, toggle doing what the logo does and checkDevice
-// reading this device's push subscription again
+// Switch mode: s pressed twice within a second, outside a text field, a contenteditable or an open dialog, shows each
+// row's key (ui-sidebar.js switchKeys), opening the drawer or showing a collapsed rail until it ends; the next key opens
+// that row through open(href). Escape, a click, a held modifier, typing in a field or 3 seconds with no key end it
+// with nothing opened. A key it uses is defaultPrevented, so the board's other shortcuts skip it.
+// mount({here, data, open}): open(href) shows a row's page, by default by loading it.
+// → {setHere(route), setData(data), checkDevice(), close(), toggle(), keydown(e), pointerdown()}, toggle doing what the
+// logo does, checkDevice reading this device's push subscription again, and keydown and pointerdown taking a framed
+// page's events (view-frame.js), as the document's own
 (function () {
   const DATA_KEY = 'hub:sidebar';
   // app.html reads it before the first paint, so a collapsed rail never shows for a moment.
   const COLLAPSED_KEY = 'hub:sidebarCollapsed';
   const RAIL = '(min-width: 1000px)';
+  const TWICE_MS = 1000;
+  // sidebar.css .ks-bar drains over the same time.
+  const IDLE_MS = 3000;
+  const FIELD = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
+  const MODIFIERS = new Set(['Shift', 'Meta', 'Control', 'Alt', 'AltGraph', 'CapsLock', 'Fn']);
   const read = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
   const write = (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode or full: no copy */ } };
 
@@ -27,12 +38,12 @@
     } catch { return null; }
   }
 
-  function mount({ here = '', data = null } = {}) {
+  function mount({ here = '', data = null, open: openRow = (href) => location.assign(href) } = {}) {
     const aside = document.getElementById('sidebar');
     const scrim = document.getElementById('sidebarScrim');
     // ui.js replaces the BoardUI global when it loads after this, so the renderers are held here.
-    const { sidebar, othersWaiting } = globalThis.BoardUI || {};
-    const none = { setHere() {}, setData() {}, checkDevice() {}, close() {}, toggle() {} };
+    const { sidebar, othersWaiting, switchKeys } = globalThis.BoardUI || {};
+    const none = { setHere() {}, setData() {}, checkDevice() {}, close() {}, toggle() {}, keydown() {}, pointerdown() {} };
     if (!aside || !sidebar) return none;
     if (!data) { try { data = JSON.parse(read(DATA_KEY) || 'null'); } catch { data = null; } }
     let device = null;
@@ -49,11 +60,13 @@
       const n = othersWaiting(data, here);
       logo.setAttribute('aria-label', n ? `Boards, ${n} waiting on other boards` : 'Boards');
     }
+    // switching: {timer, opened} while switch mode shows, opened when it opened the drawer.
+    let switching = null;
     // A repaint keeps the drawer's scroll, so a new copy doesn't move the list under a finger.
     function paint() {
       if (!data) return;
       const top = aside.scrollTop;
-      aside.innerHTML = sidebar(data, { here, device });
+      aside.innerHTML = sidebar(data, { here, device, switching: Boolean(switching) });
       aside.scrollTop = top;
       logoCount();
     }
@@ -98,8 +111,53 @@
       toggle();
     });
     scrim?.addEventListener('click', close);
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isOpen()) close(); });
-    rail.addEventListener?.('change', close);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !e.defaultPrevented && isOpen()) close(); });
+
+    let lastS = -Infinity;
+    function startSwitch() {
+      lastS = -Infinity;
+      switching = { opened: !rail.matches && !isOpen(), timer: setTimeout(() => endSwitch(), IDLE_MS) };
+      if (switching.opened) open();
+      aside.classList.add('ks-on');
+      paint();
+    }
+    function endSwitch({ keepDrawer = false } = {}) {
+      if (!switching) return;
+      clearTimeout(switching.timer);
+      const { opened } = switching;
+      switching = null;
+      // No repaint here: a click that ended it must land on the row it pressed, so the keys only hide (sidebar.css).
+      aside.classList.remove('ks-on');
+      if (opened && !keepDrawer) close();
+    }
+    // A framed page's event comes from another window, so its target is checked by duck type, not instanceof.
+    const inField = (t) => Boolean(t?.closest?.(FIELD));
+    const dialogOpen = (t) => Boolean(document.querySelector('dialog[open]') || t?.ownerDocument?.querySelector?.('dialog[open]'));
+    function keydown(e) {
+      if (MODIFIERS.has(e.key) || e.isComposing || e.defaultPrevented) return;
+      const mods = e.metaKey || e.ctrlKey || e.altKey || e.shiftKey;
+      if (switching) {
+        if (e.key === 'Escape') { e.preventDefault(); endSwitch(); return; }
+        if (mods || inField(e.target)) { endSwitch(); return; }
+        e.preventDefault();
+        const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+        const row = switchKeys(data).find((k) => k.num === key || k.letter === key);
+        endSwitch({ keepDrawer: Boolean(row) });
+        if (row) openRow(row.href);
+        return;
+      }
+      if (e.key !== 's' && e.key !== 'S') { lastS = -Infinity; return; }
+      if (e.repeat) return;
+      if (mods || inField(e.target) || dialogOpen(e.target) || !data) { lastS = -Infinity; return; }
+      const now = Date.now();
+      if (now - lastS <= TWICE_MS) { e.preventDefault(); startSwitch(); return; }
+      lastS = now;
+    }
+    function pointerdown() { endSwitch({ keepDrawer: true }); }
+    // Capturing, so switch mode sees a key before any view's own shortcut does.
+    document.addEventListener('keydown', keydown, true);
+    document.addEventListener('pointerdown', pointerdown, true);
+    rail.addEventListener?.('change', () => { endSwitch(); close(); });
     // A swipe opens from the left edge and closes back toward it; a mostly vertical drag is a scroll.
     let swipe = null;
     addEventListener('touchstart', (e) => {
@@ -124,7 +182,7 @@
       here = route;
       paint();
     }
-    return { setHere, setData, checkDevice, close, toggle };
+    return { setHere, setData, checkDevice, close, toggle, keydown, pointerdown };
   }
 
   globalThis.Sidebar = { mount };

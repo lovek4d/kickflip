@@ -40,7 +40,7 @@ test("a site's needs answer may leave out lanes and building", () => {
 
 test("the sidebar's rows carry each site's icon, status line and count, and mark which are boards", () => {
   const rows = [
-    { route: 'ios', title: 'iOS', state: 'up', icon: 'phone', color: '#3b82f6', changedAt: 5 },
+    { route: 'ios', title: 'iOS', state: 'up', icon: 'phone', color: '#3b82f6', changedAt: 5, created: '2026-10-22T19:19:11.878Z' },
     { route: 'learn', title: 'Course', state: 'up', changedAt: 9 },
     { route: 'gone', title: 'Gone', state: 'down' },
   ];
@@ -48,6 +48,7 @@ test("the sidebar's rows carry each site's icon, status line and count, and mark
   const [ios, learn, gone] = sidebarSites(rows, waiting, new Set(['ios', 'gone']));
   assert.deepEqual([ios.board, learn.board, gone.board], [true, false, true]);
   assert.deepEqual([ios.count, learn.count, gone.count], [1, 0, 0]);
+  assert.deepEqual([ios.created, learn.created], ['2026-10-22T19:19:11.878Z', null]);
   assert.match(ios.icon, /data-icon="phone"/);
   assert.match(ios.sub, /1 need you.*1 review.*2 todo/);
   assert.equal(learn.sub, '');

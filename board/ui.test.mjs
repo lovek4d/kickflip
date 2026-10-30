@@ -239,6 +239,36 @@ test("the sidebar's head is the page header, whose logo and ✕ close it, then i
   assert.match(ui.sidebar({ sites: [] }), /No boards yet/);
 });
 
+test("switch mode numbers the first nine boards in sidebar order, and gives every row a letter from its name, boards claiming first in the order they joined, so a new board moves only a page's or a Hub row's letter", () => {
+  const site = (route, title, created, board = true) => ({ route, title, board, created, icon: '<span class="icon" style="--c:#000" aria-hidden="true"><svg></svg></span>' });
+  const live = [site('backend-audit', 'Backend Audit', '2026-10-22T21:47:40Z'), site('hub-orchestrator', 'Hub Orchestrator', '2026-10-29T21:49:30Z'),
+    site('ios-orchestrator', 'iOS Orchestrator', '2026-10-22T19:19:11Z'), site('learn', 'Sync V2.1 course', '2026-10-22T05:35:39Z', false),
+    site('shipyard-orchestrator', 'Shipyard Orchestrator', '2026-10-23T20:06:41Z'), site('software-pipeline', 'Software Pipeline', '2026-10-30T09:00:00Z')];
+  const keys = (sites) => plain(ui.switchKeys({ sites })).map((k) => [k.title, k.num ?? null, k.letter ?? null]);
+  assert.deepEqual(keys(live), [
+    ['Backend Audit', '1', 'b'], ['Hub Orchestrator', '2', 'h'], ['iOS Orchestrator', '3', 'i'], ['Shipyard Orchestrator', '4', 's'], ['Software Pipeline', '5', 'o'],
+    ['Sync V2.1 course', null, 'y'], ['Hub', null, 'u'], ['Notifications', null, 'n'], ['Polling', null, 'p'], ['Settings', null, 'e'],
+  ]);
+
+  const added = [...live.slice(0, 2), site('inkwell', 'Inkwell', '2026-10-30T10:00:00Z'), ...live.slice(2)];
+  assert.deepEqual(keys(added), [
+    ['Backend Audit', '1', 'b'], ['Hub Orchestrator', '2', 'h'], ['Inkwell', '3', 'n'], ['iOS Orchestrator', '4', 'i'], ['Shipyard Orchestrator', '5', 's'], ['Software Pipeline', '6', 'o'],
+    ['Sync V2.1 course', null, 'y'], ['Hub', null, 'u'], ['Notifications', null, 't'], ['Polling', null, 'p'], ['Settings', null, 'e'],
+  ]);
+
+  const many = [site('a0', 'Zed One'), site('a1', 'Zed Two', '2026-10-21T00:00:00Z'), ...Array.from({ length: 8 }, (_, i) => site(`a${i + 2}`, `Q${i + 2}`, '2026-10-22T00:00:00Z'))];
+  const k = keys(many);
+  assert.deepEqual([k[0], k[1], k[2], k[9]], [['Zed One', '1', 'e'], ['Zed Two', '2', 'z'], ['Q2', '3', 'q'], ['Q9', null, null]]);
+
+  const html = ui.sidebar({ sites: live }, { here: 'ios-orchestrator', device: 'off', switching: true });
+  assert.match(html, /href="\/ios-orchestrator\/"[^>]*><span class="icon"[^>]*><svg><\/svg><span class="ks-key">3<\/span><\/span><span class="sb-text"><span class="sb-title"><span class="ks-u">i<\/span>OS Orchestrator</);
+  assert.match(html, /href="\/learn\/"[^>]*><span class="icon"[^>]*><svg><\/svg><span class="ks-key">y<\/span><\/span><span class="sb-text"><span class="sb-title">S<span class="ks-u">y<\/span>nc V2\.1 course</);
+  assert.match(html, /<span class="sb-title">S<span class="ks-u">e<\/span>ttings</);
+  assert.match(text(html), /^Boards Turn on notifications Off on this device 1 B ackend Audit /);
+  assert.match(html, /class="ks-hint"/);
+  assert.doesNotMatch(ui.sidebar({ sites: live }, { here: 'ios-orchestrator' }), /ks-/);
+});
+
 test("a back arrow goes one step back after a page on this hub, and to its href after a push, on that push's reloads, or with nothing before it", () => {
   const script = /<script>([\s\S]*)<\/script>$/.exec(ui.header({ lead: 'back', backHref: './#item=w%2FA1', title: 'Prototype' }))[1];
   const store = new Map();
@@ -577,6 +607,9 @@ test("a New card reads New and its first line, then when it was sent and whether
   assert.match(card({ state: 'waiting', bumpedAt: ago(0.5) }), /data-bump="a1"[^>]* disabled/);
   assert.doesNotMatch(card({ state: 'waiting' }), /Action needed/);
   assert.deepEqual(lines(card({ state: 'answered' }, { isNew: false, ref: 'Task', working: false })), ['Task Fix <it>']);
+  assert.match(lines(card({ state: 'waiting', from: 'Orch' }))[1], /^Moved from Orch · .+ · Waiting$/);
+  const asked = card({ state: 'waiting' }, { next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#mv', label: 'Answer 1 question' } });
+  assert.deepEqual(lines(asked), ['New Fix <it>', 'Next: Answer 1 question', 'Action needed']);
 });
 
 test('a pending prototype request offers a bump unless it is already the latest bump', () => {
@@ -686,6 +719,10 @@ test("an ask's link line opens the work it became, and a thread line opens a lin
   const html = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'Asked to keep it', link: '#item=ask:e1' }]);
   assert.match(html, /<a href="#item=ask:e1">Open the task →<\/a>/);
   assert.doesNotMatch(html, /target="_blank"/);
+  const moved = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'Moved to Audit.', link: '/audit/#item=ask%3Ab1' }]);
+  assert.match(moved, /<a href="\/audit\/#item=ask%3Ab1">Open the task →<\/a>/);
+  const arrived = ui.threadMessages([{ ts: ago(1), who: 'love', via: 'ask', kind: 'ask', text: 'Fix the header', from: 'Orch', eventId: 'b1', reply: null, state: 'waiting' }]);
+  assert.match(text(arrived), /^You · Moved from Orch · .* Fix the header Waiting for Claude…$/);
 });
 
 test("a thread's links to this hub's pages open in place, and only other origins open a new window", () => {

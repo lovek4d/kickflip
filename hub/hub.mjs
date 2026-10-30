@@ -13,7 +13,7 @@
 //   /_hub/api/hub, /_hub/api/settings, /_hub/api/polling?w=HH:MM
 //                     those views' data and words (views.mjs)
 //   /_hub/sidebar.json what the sidebar shows (board/public/ui-sidebar.js): {total, start,
-//                     sites: [{route, title, board, state, count, changedAt, icon, sub}], hub: {tone, word, detail, broken},
+//                     sites: [{route, title, board, state, count, changedAt, created, icon, sub}], hub: {tone, word, detail, broken},
 //                     notifications: {state, text}, polling: {text}}, each site's row from its GET /_claude/needs
 //                     (home.mjs; docs/adr/0010-sites-report-what-waits-through-claude-needs.md)
 //   /_hub/status.json the manifest's sites and their process state, as JSON
@@ -317,7 +317,7 @@ function status() {
     const state = p.child ? (p.up ? 'up' : 'starting') : (p.state === 'crashed' ? 'down' : (p.state || 'starting'));
     return {
       route, title: s.title || route, description: s.description || '', icon: s.icon || null, color: s.color || null, port: s.port, state,
-      exitCode: p.exitCode ?? null, owner: s.owner || null, changedAt: changedAt(route, s) || null,
+      exitCode: p.exitCode ?? null, owner: s.owner || null, changedAt: changedAt(route, s) || null, created: s.created || null,
       log: path.join(LOGS, route + '.log'),
     };
   });

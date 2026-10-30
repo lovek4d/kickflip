@@ -38,6 +38,21 @@
 @media (prefers-color-scheme: dark) { .sidebar .icon:not(.solid) { color: color-mix(in srgb, var(--c) 70%, #fff); } }
 .sidebar .icon svg { display: block; }
 
+/* Switch mode (sidebar.js): while .ks-on, each row's key in its tile in place of its glyph, the title's letter
+   underlined, and the hint whose bar drains over the 3 seconds switch mode waits for a key. Its marks stay in the
+   markup until the next paint, hidden. */
+.sidebar .ks-key, .sidebar .ks-hint { display: none; }
+.sidebar.ks-on .icon:has(.ks-key) { font-size: 0; }
+.sidebar.ks-on .icon:has(.ks-key) > svg { display: none; }
+.sidebar.ks-on .ks-key { display: block; font: 700 15px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+.sidebar.ks-on .ks-u { text-decoration: underline var(--accent); text-decoration-thickness: 2px; text-underline-offset: 3px; text-decoration-skip-ink: none; }
+.sidebar.ks-on .ks-hint { display: block; position: sticky; bottom: calc(-12px - env(safe-area-inset-bottom)); margin: 8px -8px calc(-12px - env(safe-area-inset-bottom)) calc(-1 * max(8px, env(safe-area-inset-left)));
+  padding: 9px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
+.sidebar .ks-hint b { color: var(--text); font-weight: 600; }
+.sidebar .ks-bar { display: block; height: 2px; margin-top: 7px; border-radius: 2px; background: var(--accent); transform-origin: 0 50%; animation: ks-drain 3s linear forwards; }
+@keyframes ks-drain { to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) { .sidebar .ks-bar { animation: none; } }
+
 /* A site's status (hub/home.mjs statusLine): the lane chips wrap on their own line, and the status word goes below them. */
 .sidebar .sb-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
 .sidebar .lcs { order: -1; flex: 1 1 100%; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; }
@@ -61,6 +76,8 @@
   html:not(.sb-collapsed) body.has-sidebar > .top .hub, html:not(.sb-collapsed) body.has-sidebar > :not(.sidebar) > .top .hub { display: none; }
   html.sb-collapsed body.has-sidebar { padding-left: 0; }
   html.sb-collapsed body.has-sidebar .sidebar { transform: translateX(-102%); visibility: hidden; }
+  /* Switch mode shows a collapsed rail over the page until it ends, and leaves it collapsed. */
+  html.sb-collapsed body.has-sidebar .sidebar.ks-on { transform: none; visibility: visible; z-index: 20; }
   html.sb-anim body.has-sidebar { transition: padding-left .24s cubic-bezier(.2,.8,.2,1); }
   html.sb-anim body.has-sidebar .sidebar { transition: transform .24s cubic-bezier(.2,.8,.2,1), visibility 0s linear .24s; }
   html.sb-anim:not(.sb-collapsed) body.has-sidebar .sidebar { transition: transform .24s cubic-bezier(.2,.8,.2,1); }

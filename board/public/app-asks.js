@@ -50,10 +50,12 @@ BoardView.part((B) => {
   }
   B.on($('#compose'), 'click', openSheet);
   // n pressed twice opens the sheet, as the + button's tooltip says, unless a field or another dialog has focus. With
-  // nothing focused the key goes to <body>, outside the view, so this listens on the document.
+  // nothing focused the key goes to <body>, outside the view, so this listens on the document. A key switch mode
+  // used (sidebar.js) comes defaultPrevented and doesn't count.
   const TWICE_MS = 500;
   let lastN = -Infinity;
   B.on(document, 'keydown', (ev) => {
+    if (ev.defaultPrevented) { lastN = -Infinity; return; }
     if (ev.key !== 'n' || ev.metaKey || ev.ctrlKey || ev.altKey || ev.repeat || ev.isComposing) return;
     const field = ev.target instanceof Element && ev.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
     if (field || document.querySelector('dialog[open]') || B.root.classList.contains('offline')) { lastN = -Infinity; return; }

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-questions.js', 'ui-markdown.js', 'ui-hub.js', 'rules-editor.js',
-  'hub-kit.js', 'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-banner.js', 'app-snapshot.js',
+const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-markdown.js', 'ui-hub.js', 'rules-editor.js',
+  'hub-kit.js', 'sidebar.js', 'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-polling.js', 'view-frame.js', 'router.js'];
 
 function memoryStorage(entries = []) {
@@ -76,7 +76,9 @@ function fakePage(localStorage) {
   vm.createContext(win);
   for (const file of SCRIPTS) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), win);
   const fire = (target, type, ev = {}) => {
-    for (const l of listeners.filter((x) => x.target === target && x.type === type)) l.fn({ target, preventDefault() {}, stopImmediatePropagation() {}, ...ev });
+    const e = { target, defaultPrevented: false, preventDefault() { e.defaultPrevented = true; }, stopImmediatePropagation() {}, ...ev };
+    for (const l of listeners.filter((x) => x.target === target && x.type === type).sort((a, b) => b.capture - a.capture)) l.fn(e);
+    return e;
   };
   const left = () => ({ listeners: listeners.length, intervals: intervals.size, timeouts: timeouts.size, watches: watches.filter((w) => !w.stopped).length, observers: observers.size });
   return { win, El, Target, fire, left };
@@ -302,4 +304,80 @@ test("the page header's logo toggles the sidebar at every width: from 1000px it 
   html.classList.set.clear();
   win.Sidebar.mount({ here: 'a', data, poll: false });
   assert.equal(html.classList.contains('sb-collapsed'), true);
+});
+
+test("s s shows each sidebar row's key and the next key opens that row through the shell; Escape, a click, a held modifier or 3 s with no key end it with nothing opened; s s does nothing in a text field or with a dialog open; on a drawer it opens the drawer and closes it again; and its keys never count toward the board's n n", () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const { win } = page;
+  win.Element = page.El;
+  const aside = new page.El();
+  const scrim = new page.El();
+  let dialog = null;
+  Object.assign(win.document, { getElementById: (id) => ({ sidebar: aside, sidebarScrim: scrim })[id] || null, querySelectorAll: () => [],
+    querySelector: (sel) => (sel === 'dialog[open]' ? dialog : null) });
+  const wide = Object.assign(new page.Target(), { matches: true });
+  win.matchMedia = (q) => (q === '(min-width: 1000px)' ? wide : Object.assign(new page.Target(), { matches: false }));
+  let idle = null;
+  const setTimeout = win.setTimeout;
+  win.setTimeout = (fn, ms) => { if (ms === 3000) idle = fn; return setTimeout(fn, ms); };
+  const icon = '<span class="icon" aria-hidden="true"><svg></svg></span>';
+  const data = { sites: [{ route: 'hub-orchestrator', title: 'Hub Orchestrator', board: true, created: '2026-10-29T00:00:00Z', icon },
+    { route: 'ios', title: 'iOS', board: true, created: '2026-10-22T00:00:00Z', icon }] };
+  const board = win.BoardView.create(new page.El(), 'https://mac.ts.net/hub-orchestrator');
+  board.mount();
+  const opened = [];
+  win.Sidebar.mount({ here: 'hub-orchestrator', data, open: (href) => opened.push(href) });
+
+  const body = new page.El();
+  const field = Object.assign(new page.El(), { closest: (sel) => (sel.includes('textarea') ? field : null) });
+  let at = 0;
+  const press = (key, ev = {}) => page.fire(win.document, 'keydown', { key, target: body, timeStamp: at += 100, ...ev });
+  const switching = () => aside.classList.contains('ks-on');
+  const sw = () => { press('s'); return press('s'); };
+
+  assert.equal(sw().defaultPrevented, true);
+  assert.equal(switching(), true);
+  assert.match(aside.innerHTML, /href="\/ios\/"><span class="icon" aria-hidden="true"><svg><\/svg><span class="ks-key">2<\/span><\/span><span class="sb-text"><span class="sb-title"><span class="ks-u">i<\/span>OS</);
+  assert.equal(press('2').defaultPrevented, true);
+  assert.deepEqual([opened, switching()], [['/ios/'], false]);
+  sw();
+  press('H');
+  assert.deepEqual(opened, ['/ios/', '/hub-orchestrator/']);
+
+  sw();
+  assert.equal(press('Escape').defaultPrevented, true);
+  sw();
+  page.fire(win.document, 'pointerdown', { target: body });
+  assert.equal(switching(), false);
+  sw();
+  idle();
+  assert.equal(switching(), false);
+  sw();
+  assert.equal(press('1', { metaKey: true }).defaultPrevented, false);
+  sw();
+  press('x');
+  assert.deepEqual([switching(), opened.length], [false, 2]);
+
+  press('s', { target: field });
+  press('s', { target: field });
+  assert.equal(switching(), false);
+  dialog = {};
+  sw();
+  assert.equal(switching(), false);
+  dialog = null;
+
+  wide.matches = false;
+  sw();
+  assert.deepEqual([switching(), aside.classList.contains('open')], [true, true]);
+  press('Escape');
+  assert.deepEqual([switching(), aside.classList.contains('open')], [false, false]);
+
+  const sheet = board.B.root.querySelector('#sheet');
+  sw();
+  press('n');
+  press('n');
+  assert.deepEqual([opened.at(-1), sheet.open], ['/_hub/settings', false]);
+  press('n');
+  assert.equal(sheet.open, true);
+  board.unmount();
 });

@@ -275,9 +275,16 @@ test('the handshake says hello and sends a test push; the board shows its checkl
   assert.equal((await cli(path.join(SKILL, 'bin', 'web-ts.mjs'), ['handshake', 'plain'])).status, 2);
 });
 
-test("joining a board polls at once, so the new board's GitHub link passes without waiting for the next slot", async () => {
+test("joining a board polls at once, so the new board's GitHub link passes without waiting for the next slot, and records when it joined, which a later join keeps and the sidebar serves", async () => {
+  const before = Date.now();
   const r = await cli(path.join(SKILL, 'bin', 'web-ts.mjs'), ['join', 'fresh', '--session', 's-fresh', '--template', 'board', '--title', 'Fresh']);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(JSON.parse(r.stdout).poll, 'reached this board');
   assert.ok(read(claude('web-ts', 'github-state.json')).lastCheck.boards.includes('fresh'));
+  const { created } = read(claude('web-ts', 'manifest.json')).sites.fresh;
+  assert.ok(Date.parse(created) >= before - 1000 && Date.parse(created) <= Date.now(), created);
+  assert.equal((await cli(path.join(SKILL, 'bin', 'web-ts.mjs'), ['join', 'fresh', '--session', 's-fresh', '--title', 'Fresher'])).status, 0);
+  assert.equal(read(claude('web-ts', 'manifest.json')).sites.fresh.created, created);
+  const sites = (await (await fetch(`${base}/_hub/sidebar.json?fresh=1`)).json()).sites;
+  assert.deepEqual(sites.map((s) => [s.route, s.created]), [['fresh', created], ['orch', null], ['plain', null], ['shop', null]]);
 });

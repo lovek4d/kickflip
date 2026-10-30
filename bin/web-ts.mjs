@@ -16,6 +16,8 @@
 //               --repo is the folder the session runs in, which `resume` needs: by default the session's own
 //               cwd while it runs (../hub/live.mjs), else the cwd of this join. --model is the session's model,
 //               kept for start and resume. The owner entry records both (../hub/sessions.mjs)
+//               A new route's entry records when it joined, `created`, which a later join keeps; the sidebar's
+//               switch-mode letters go to sites in that order (../board/public/ui-sidebar.js switchKeys)
 //   web-ts start <route> [--repo <dir>] [--model <m>] [--prompt <text>]
 //               starts a background session (`claude --bg`, auto mode, worktree isolation off) in --repo, else
 //               the route's recorded folder, else the cwd, named after the board, whose first prompt is

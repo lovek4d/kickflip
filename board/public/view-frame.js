@@ -6,7 +6,7 @@
 // and in the browser's history; each load hands its URL and title to the shell. A tap in the frame on a link to any
 // other view, the page's own back arrow included, goes to the shell.
 // ctx, from shell.js: {view, siteTitle, boards() → board routes, open(href) shows a URL in the shell or loads it,
-// toggleSidebar(), loaded(url, title) after each load}.
+// toggleSidebar(), keydown(e) and pointerdown(e) for switch mode, loaded(url, title) after each load}.
 (function () {
   // sidebar.js's rail.
   const RAIL = '(min-width: 1000px)';
@@ -74,6 +74,9 @@
         shown = doc;
         syncLogo();
         B.on(doc, 'click', (e) => tap(e, win));
+        // Switch mode (sidebar.js) answers keys and clicks in the frame as it does the shell's own.
+        if (ctx.keydown) B.on(doc, 'keydown', ctx.keydown, true);
+        if (ctx.pointerdown) B.on(doc, 'pointerdown', ctx.pointerdown, true);
         ctx.loaded(url, title);
       });
     }),

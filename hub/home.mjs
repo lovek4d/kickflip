@@ -52,13 +52,14 @@ export function statusLine(state, needs) {
 }
 
 // The sidebar's site rows, from hub.mjs status() rows, each site's readNeeds answer (a Map by route) and the set of
-// routes that are boards. icon and sub are HTML that board/public/ui-sidebar.js places as given.
+// routes that are boards. icon and sub are HTML that board/public/ui-sidebar.js places as given. created is when the
+// site joined the hub, null when the manifest has no time, which ui-sidebar.js switchKeys orders by.
 export function sidebarSites(rows, waiting, boards) {
   return rows.map((r) => {
     const needs = waiting.get(r.route) ?? null;
     return {
       route: r.route, title: r.title, board: boards.has(r.route), state: r.state, count: needs?.count || 0,
-      changedAt: r.changedAt || 0, icon: siteIcon(r.route, r), sub: statusLine(r.state, needs),
+      changedAt: r.changedAt || 0, created: r.created || null, icon: siteIcon(r.route, r), sub: statusLine(r.state, needs),
     };
   });
 }
