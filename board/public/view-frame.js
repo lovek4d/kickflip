@@ -6,7 +6,8 @@
 // and in the browser's history; each load hands its URL and title to the shell. A tap in the frame on a link to any
 // other view, the page's own back arrow included, goes to the shell.
 // ctx, from shell.js: {view, siteTitle, boards() → board routes, open(href) shows a URL in the shell or loads it,
-// toggleSidebar(), keydown(e) and pointerdown(e) for switch mode, loaded(url, title) after each load}.
+// toggleSidebar(), keydown(e) and pointerdown(e) for switch mode, loaded(url, title) after each load, up() → true when
+// the shown page is in the page tree and the router took it up a level (router.js)}.
 (function () {
   // sidebar.js's rail.
   const RAIL = '(min-width: 1000px)';
@@ -55,6 +56,13 @@
         if (back && BoardUI.backStep({ pushed: history.state?.pushed === true, href: location.href, idx: history.state?.idx }) === 'back') history.back();
         else ctx.open(a.href);
       }
+      // A prototype's back arrow goes up to Waiting on you whatever its own backHref says, so the shell takes it before
+      // the page's own header script (ui-page-header.js wireBack) can.
+      function upTap(e) {
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || !e.target.closest?.('header.top a.back') || !ctx.up?.()) return;
+        e.preventDefault();
+        e.stopPropagation();
+      }
 
       B.on(frame, 'load', () => {
         let win = null;
@@ -73,6 +81,7 @@
         if (!doc.getElementById('hub-frame-logo')) doc.head?.insertAdjacentHTML('beforeend', LOGO_CSS);
         shown = doc;
         syncLogo();
+        B.on(win, 'click', upTap, true);
         B.on(doc, 'click', (e) => tap(e, win));
         // Switch mode (sidebar.js) answers keys and clicks in the frame as it does the shell's own.
         if (ctx.keydown) B.on(doc, 'keydown', ctx.keydown, true);

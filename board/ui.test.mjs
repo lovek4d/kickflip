@@ -338,38 +338,57 @@ test("the app's router reads every hub URL as a view and writes each view back a
       '/orch/prototype-sidebar.html?q=q1&from=push', '/orch/shots-gallery.html', '/learn/', '/learn/lessons/lesson-2.html#top']);
 });
 
+function appHistory(url, state = null) {
+  let entries = [{ url: new URL(url), state }];
+  let at = 0;
+  let backs = 0;
+  const handlers = {};
+  const cur = () => entries[at];
+  const location = { get href() { return cur().url.href; }, get pathname() { return cur().url.pathname; }, get search() { return cur().url.search; }, get hash() { return cur().url.hash; } };
+  const history = {
+    get state() { return cur().state; },
+    replaceState(state, _, u) { entries[at] = { url: u ? new URL(u, location.href) : cur().url, state }; },
+    pushState(state, _, u) { entries = [...entries.slice(0, at + 1), { url: new URL(u, location.href), state }]; at++; },
+    go(n) {
+      if (n < 0) backs++;
+      if (!entries[at + n]) return;
+      at += n;
+      handlers.popstate({ state: cur().state });
+    },
+    back() { history.go(-1); },
+  };
+  const context = vm.createContext({ URL, URLSearchParams, location, history,
+    HashChangeEvent: class { constructor(type) { this.type = type; } }, dispatchEvent: (e) => handlers[e.type]?.(e),
+    document: { addEventListener: (type, fn) => { handlers[`document:${type}`] = fn; } },
+    addEventListener: (type, fn) => { handlers[type] = fn; } });
+  for (const file of ['ui-page-header.js', 'router.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
+  const shown = [];
+  const router = context.AppRouter.listen({ boards: () => new Set(['orch']),
+    go: (view, href, how, from) => {
+      shown.push(`${how} ${view.kind}`);
+      if (how === 'push') router.push(href, from);
+      if (how === 'replace') router.replace(href);
+      return true;
+    } });
+  const tap = (href, { cls = '', card = null } = {}) => {
+    const a = { href: new URL(href, location.href).href, target: '', hasAttribute: () => false, classList: { contains: (c) => c === cls },
+      closest: (sel) => (card && sel === 'details.item[open][data-key]' ? { dataset: { key: card } } : null) };
+    const was = [backs, shown.length];
+    handlers['document:click']({ defaultPrevented: false, button: 0, target: { closest: () => a }, preventDefault() {} });
+    return backs > was[0] ? 'back' : shown.slice(was[1]).join(', ');
+  };
+  const stack = () => entries.slice(0, at + 1).map((e) => e.url.href.replace('https://mac.ts.net/orch/', ''));
+  return { tap, router, location, history, stack, shown };
+}
+
 test("in the app, a view's back arrow goes one step back after a view, and to its href when a push opened the view, on a reload of it, or with nothing before it", () => {
-  const app = (url, state = null) => {
-    let entries = [{ url: new URL(url), state }];
-    let at = 0;
-    let backs = 0;
-    const handlers = {};
-    const cur = () => entries[at];
-    const location = { get href() { return cur().url.href; }, get pathname() { return cur().url.pathname; }, get search() { return cur().url.search; }, get hash() { return cur().url.hash; } };
-    const history = {
-      get state() { return cur().state; },
-      replaceState(state, _, u) { entries[at] = { url: u ? new URL(u, location.href) : cur().url, state }; },
-      pushState(state, _, u) { entries = [...entries.slice(0, at + 1), { url: new URL(u, location.href), state }]; at++; },
-      back() { backs++; },
-    };
-    const context = vm.createContext({ URL, URLSearchParams, location, history,
-      document: { addEventListener: (type, fn) => { handlers[`document:${type}`] = fn; } },
-      addEventListener: (type, fn) => { handlers[type] = fn; } });
-    for (const file of ['ui-page-header.js', 'router.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
-    const shown = [];
-    const router = context.AppRouter.listen({ boards: () => new Set(['orch']),
-      go: (view, href, how) => { shown.push(`${how} ${view.kind}`); if (how === 'push') router.push(href); return true; } });
-    const tap = (href, cls = '') => {
-      const a = { href: new URL(href, location.href).href, target: '', hasAttribute: () => false, classList: { contains: (c) => c === cls } };
-      const was = [backs, shown.length];
-      handlers['document:click']({ defaultPrevented: false, button: 0, target: { closest: () => a }, preventDefault() {} });
-      return backs > was[0] ? 'back' : shown.slice(was[1]).join(', ');
-    };
-    return { tap, router, location, history };
+  const app = (url, state) => {
+    const page = appHistory(url, state);
+    return { ...page, tap: (href, cls = '') => page.tap(href, { cls }) };
   };
 
-  const pushed = app('https://mac.ts.net/orch/questions.html?from=push#q-1');
-  assert.deepEqual([pushed.location.href, plain(pushed.history.state)], ['https://mac.ts.net/orch/questions.html#q-1', { idx: 0, pushed: true }]);
+  const pushed = app('https://mac.ts.net/orch/notes.html?item=w%2FA1&from=push');
+  assert.deepEqual([pushed.location.href, plain(pushed.history.state)], ['https://mac.ts.net/orch/notes.html?item=w%2FA1', { idx: 0, pushed: true }]);
   assert.equal(pushed.tap('./', 'back'), 'push board');
   assert.equal(pushed.tap('settings.html'), 'push settings');
   assert.equal(pushed.tap('./', 'back'), 'back');
@@ -377,13 +396,60 @@ test("in the app, a view's back arrow goes one step back after a view, and to it
   const inApp = app('https://mac.ts.net/orch/');
   assert.equal(inApp.tap('notes.html?item=w%2FA1'), 'push notes');
   assert.equal(inApp.tap('./#item=w%2FA1', 'back'), 'back');
-  inApp.router.push('https://mac.ts.net/orch/questions.html?from=push#q-2');
-  assert.deepEqual([inApp.location.href, plain(inApp.history.state)], ['https://mac.ts.net/orch/questions.html#q-2', { idx: 2, pushed: true }]);
+  inApp.router.push('https://mac.ts.net/orch/notes.html?item=w%2FA2&from=push');
+  assert.deepEqual([inApp.location.href, plain(inApp.history.state)], ['https://mac.ts.net/orch/notes.html?item=w%2FA2', { idx: 1, pushed: true }]);
   assert.equal(inApp.tap('./', 'back'), 'push board');
 
   assert.equal(app('https://mac.ts.net/orch/settings.html', { idx: 3, pushed: true }).tap('./', 'back'), 'push board');
   assert.equal(app('https://mac.ts.net/orch/settings.html', { idx: 3 }).tap('./', 'back'), 'back');
   assert.equal(app('https://mac.ts.net/orch/settings.html').tap('./', 'back'), 'push board');
+});
+
+test("in the app, back follows the page tree: a prototype goes up to Waiting on you on its question, which goes up to the board, with the card open when the owner came from its thread, however the page was reached", () => {
+  const cold = appHistory('https://mac.ts.net/orch/prototype-x.html?q=q1&from=push');
+  assert.deepEqual(cold.stack(), ['', 'questions.html#q1', 'prototype-x.html?q=q1']);
+  assert.deepEqual(plain(cold.history.state), { idx: 2, up: 2, pushed: true });
+  assert.equal(cold.tap('./#item=w%2FA1', { cls: 'back' }), 'back');
+  assert.deepEqual([cold.stack(), cold.shown.at(-1)], [['', 'questions.html#q1'], 'pop questions']);
+  assert.equal(cold.tap('./', { cls: 'back' }), 'back');
+  assert.deepEqual([cold.stack(), cold.shown.at(-1)], [[''], 'pop board']);
+
+  const swipe = appHistory('https://mac.ts.net/orch/prototype-x.html?q=q1&from=push');
+  swipe.history.back();
+  swipe.history.back();
+  assert.deepEqual([swipe.stack(), swipe.shown], [[''], ['pop questions', 'pop board']]);
+
+  const reloaded = appHistory('https://mac.ts.net/orch/prototype-x.html?q=q1', { idx: 2, up: 2 });
+  assert.deepEqual(reloaded.stack(), ['prototype-x.html?q=q1']);
+  assert.deepEqual(appHistory('https://mac.ts.net/orch/questions.html?from=push#q1').stack(), ['', 'questions.html#q1']);
+
+  const thread = appHistory('https://mac.ts.net/orch/');
+  thread.tap('questions.html#q1', { card: 'w/A1' });
+  assert.deepEqual(thread.stack(), ['#item=w%2FA1', 'questions.html#q1']);
+  thread.tap('prototype-x.html?q=q2&variant=B');
+  assert.deepEqual(thread.stack(), ['#item=w%2FA1', 'questions.html#q2', 'prototype-x.html?q=q2&variant=B']);
+  thread.router.replace('https://mac.ts.net/orch/prototype-y.html?q=q3');
+  assert.deepEqual([thread.stack(), plain(thread.history.state)], [['#item=w%2FA1', 'questions.html#q2', 'prototype-y.html?q=q3'], { idx: 2, up: 2 }]);
+  assert.equal(thread.router.replace('https://mac.ts.net/orch/questions.html#q4'), 'up');
+  assert.deepEqual([thread.stack(), thread.shown.at(-1)], [['#item=w%2FA1', 'questions.html#q4'], 'pop questions']);
+  assert.equal(thread.tap('./', { cls: 'back' }), 'back');
+  assert.deepEqual(thread.stack(), ['#item=w%2FA1']);
+
+  const line = appHistory('https://mac.ts.net/orch/');
+  line.tap('prototype-x.html?q=q1', { card: 'w/A1' });
+  assert.deepEqual(line.stack(), ['#item=w%2FA1', 'questions.html#q1', 'prototype-x.html?q=q1']);
+
+  const needs = appHistory('https://mac.ts.net/orch/#item=w%2FA1&reply');
+  needs.tap('questions.html#q1');
+  assert.deepEqual(needs.stack(), ['', 'questions.html#q1']);
+  needs.tap('#q2');
+  assert.deepEqual(needs.stack(), ['', 'questions.html#q2']);
+  assert.equal(needs.tap('./', { cls: 'back' }), 'back');
+  assert.deepEqual(needs.stack(), ['']);
+
+  const picked = appHistory('https://mac.ts.net/orch/prototype-x.html?q=q1&from=push');
+  picked.router.replace('https://mac.ts.net/orch/#item=w%2FA1&reply');
+  assert.deepEqual([picked.stack(), picked.shown.at(-1)], [['#item=w%2FA1&reply'], 'pop board']);
 });
 
 test('the Action needed badge shows only while the card waits on the owner, and links to what they act on', () => {

@@ -1,0 +1,17 @@
+# Back follows the page tree
+
+The pages that lead the owner to a pick form a tree: a board, its Waiting on you, and a prototype page tied to one of its questions. Back goes up one level of that tree, not one step of history: from a prototype to Waiting on you on that prototype's question, and from Waiting on you to the board. History is built to match, so the back arrow, the browser's back and the phone's swipe all go the same way.
+
+- **The levels.** A board's view is the top. Waiting on you (`questions.html#<id>`) sits under it. A prototype page with `?q=<question id>`, framed by the app shell, sits under Waiting on you on that question (`board/public/router.js` `parentsOf`). Every other view keeps [0048](0048-a-questions-takes-show-inline.md)'s one step back, and a push to one still takes its arrow to its `backHref`.
+- **History is built on the way in.** Each history entry in the tree carries `up`, how many of its parents sit under it. A push, a link from anywhere, a reload or a typed URL that lands below the current entry writes the missing levels first: the bottom one in place of the current entry, the rest pushed on top. A cold push to a prototype leaves the board, Waiting on you on its question, then the prototype. A reload keeps the entries it has. The arrow goes back one entry when `up` says its parent is there, and otherwise opens the parent.
+- **Which board.** Waiting on you reached from a card's thread, by a link inside an open card, sits on the board with that card open (`#item=<key>`). Reached from Needs you, a push or anywhere else, it sits on the plain board.
+- **Moving within a level replaces.** Another question on Waiting on you takes the current entry's place, and so does a pick on a prototype that moves on to the next question's prototype page. A pick whose next question has no prototype, or with no open question left, goes up to Waiting on you on that question: back to the entry below, which then takes that URL. A pushed prototype whose question already has a pick goes up to its card's thread the same way ([0036](0036-a-push-lands-where-the-owner-answers.md)).
+- **Prototype pages keep their `backHref`.** In the shell, the frame view takes a prototype's back arrow before the page's own header script does, so no existing page needs an edit. `backHref`, the card, applies only to a page opened alone with Open alone ↗.
+
+The owner asked on hub/INT-127: "back from open items should always go back to the board, and back from a prototype should go back to the open items. This should also be naturally present in the nav stack reaching those pages, as in open items is only reachable from board and expanded prototypes only reachable from open items." They then settled that back from Waiting on you lands on the board with the card still open when it was reached from that card's thread, and on the plain board from Needs you or a push (`back-board`).
+
+Considered:
+- the arrow opening the parent while history stays as the owner came, so the arrow and the browser's back or a swipe would disagree;
+- each prototype page's `backHref` pointing at its question, which every existing page would need edited and which leaves history as it came;
+- telling a card's Waiting on you from the board's URL, which stays plain when a card is opened by a tap, rather than from where the link was tapped;
+- a pick stacking the next question on top, so back stepped through every question picked.

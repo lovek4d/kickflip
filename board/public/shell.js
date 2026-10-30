@@ -123,7 +123,7 @@ window.AppShell = (function () {
         v = BoardView.create(root, siteRoot, { signal: signalFor(route), live });
       } else {
         v = page.create(root, siteRoot, { view, siteTitle, boards, open: openHere, toggleSidebar: sidebar.toggle, keydown: sidebar.keydown, pointerdown: sidebar.pointerdown,
-          reload: () => go(current.view, location.href, 'reload'),
+          reload: () => go(current.view, location.href, 'reload'), up: () => router.up(),
           loaded: (url, title) => { if (current?.v === v) framed(url, title); }, sidebarChanged: refreshSidebar });
       }
       current = { view, route, root, v };
@@ -153,15 +153,15 @@ window.AppShell = (function () {
     const dirty = () => Boolean(current?.root.querySelector('[data-dirty]'));
     addEventListener('beforeunload', (e) => { if (dirty()) { e.preventDefault(); e.returnValue = ''; } });
 
-    // go(view, href, how): router.js's, with how 'replace' for a framed page's hand-off and 'reload' for a view's own
-    // refresh. → true, or a promise of whether the view switched once the owner answers about an unsaved edit.
+    // go(view, href, how, from): router.js's, with how 'replace' for a framed page's hand-off and 'reload' for a view's
+    // own refresh. → true, or a promise of whether the view switched once the owner answers about an unsaved edit.
     let router = null;
-    function go(view, href, how) {
+    function go(view, href, how, from) {
       if (!AppRouter.mounted(view)) return false;
       const stays = how !== 'reload' && current && sameView(current.view, view);
       const finish = () => {
-        if (how === 'push') router.push(href);
-        else if (how === 'replace') router.replace(href);
+        const moved = how === 'push' ? router.push(href, from) : how === 'replace' ? router.replace(href) : null;
+        if (moved === 'up') { sidebar.close(); return true; }
         if (!stays) show(view);
         else {
           current.view = view;

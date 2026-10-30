@@ -75,46 +75,136 @@ globalThis.AppRouter = (function () {
     return { href: u.href, pushed };
   }
 
-  // Each history entry carries {idx}, its distance from the shell's first entry, and pushed when a push opened it.
-  // A back arrow (a.back) goes one step back by them (ui-page-header.js backStep), else follows its href.
-  // go(view, href, how) shows a view: how is 'push' for a link, a push tap or the start, 'pop' for back and forward;
-  // it answers false, or a promise of false, when the view stays, such as when the owner keeps an unsaved edit, and a
-  // refused pop then returns to the entry it left. boards() → the board routes now.
-  // → {push(href), replace(href)}, which write an entry for a view go is showing.
+  // The page tree (docs/adr/0058-back-follows-the-page-tree.md): a board, its Waiting on you, and a prototype page tied
+  // to one of its questions by ?q=, framed. levelOf → 0, 1 or 2 down the tree, or null for a view outside it.
+  function questionOf(view, boards) {
+    if (view?.kind !== 'frame' || !boards.has(view.route)) return null;
+    const u = new URL(view.url, 'http://hub');
+    return /^\/[^/]+\/prototype-[\w-]+\.html$/.test(u.pathname) ? u.searchParams.get('q') || null : null;
+  }
+  function levelOf(view, { boards = new Set() } = {}) {
+    if (view?.kind === 'board') return 0;
+    if (view?.kind === 'questions') return 1;
+    return questionOf(view, boards) ? 2 : null;
+  }
+  // → the views above view in the tree, its board first. card: the card whose thread the owner left the board from,
+  // which the board keeps open.
+  function parentsOf(view, { boards = new Set(), card = null } = {}) {
+    const q = questionOf(view, boards);
+    if (!q && view?.kind !== 'questions') return [];
+    const board = { kind: 'board', route: view.route, hash: card ? `#item=${encodeURIComponent(card)}` : '' };
+    return q ? [board, { kind: 'questions', route: view.route, id: q }] : [board];
+  }
+
+  // Each history entry carries {idx}, its distance from the shell's first entry, pushed when a push opened it, and on a
+  // view in the page tree up, how many of the entries under it are its parents. Every way into the tree writes the
+  // parents it lacks under it, so a back arrow there (up), the browser's back and a swipe all go up one level. Any other
+  // back arrow (a.back) goes one step back by idx and pushed (ui-page-header.js backStep), else follows its href.
+  // go(view, href, how, from) shows a view: how is 'push' for a link, a push tap or the start, 'pop' for back and
+  // forward; from.card is the open card a link was tapped in. It answers false, or a promise of false, when the view
+  // stays, such as when the owner keeps an unsaved edit, and a refused pop then returns to the entry it left.
+  // boards() → the board routes now.
+  // → {push(href, from), replace(href), up()}: push and replace write an entry for a view go is showing; replace answers
+  // 'up' when it went back to a parent instead, which then takes href, and go shows it on that pop.
   function listen({ boards, go }) {
+    const b = () => ({ boards: boards() });
+    const mark = (pushed) => (pushed ? { pushed: true } : {});
     let idx = Number.isInteger(history.state?.idx) ? history.state.idx : 0;
+    let landing = null;
+    const put = (how, href, state) => {
+      if (how === 'push') idx++;
+      history[how === 'push' ? 'pushState' : 'replaceState']({ idx, ...state }, '', href);
+    };
+    // Pushes parents, then href. up: the current entry's own up when the first parent sits on it, else -1, so a board
+    // pushed first carries none.
+    const climb = (parents, href, pushed, up) => {
+      for (const p of parents) put('push', urlOf(p), up++ >= 0 ? { up } : {});
+      put('push', href, { ...(up >= 0 ? { up: up + 1 } : {}), ...mark(pushed) });
+    };
+
     const first = entryOf(location.href);
-    history.replaceState({ ...(history.state || {}), idx, ...(first.pushed ? { pushed: true } : {}) }, '', first.href);
-    const write = (how, href) => {
+    const start = viewOf(first.href, b());
+    const depth = levelOf(start, b());
+    if (depth && !(history.state?.up >= depth)) {
+      const parents = parentsOf(start, b());
+      put('replace', urlOf(parents[0]), {});
+      climb(parents.slice(1), first.href, first.pushed, 0);
+    } else history.replaceState({ ...(history.state || {}), idx, ...mark(first.pushed) }, '', first.href);
+
+    function write(how, href, { card = null } = {}) {
       const { href: url, pushed } = entryOf(href);
       if (how === 'push' && url === location.href) return;
-      if (how === 'push') idx++;
-      history[how === 'push' ? 'pushState' : 'replaceState']({ idx, ...(pushed ? { pushed: true } : {}) }, '', url);
-    };
+      const view = viewOf(url, b());
+      const here = viewOf(location.href, b());
+      const level = levelOf(view, b());
+      const at = here && view && here.route === view.route ? levelOf(here, b()) : null;
+      const below = history.state?.up || 0;
+      const keep = level !== null && level === at && below ? { up: below } : {};
+      if (how === 'replace') {
+        if (level !== null && at !== null && level < at && at - level <= below) {
+          landing = href;
+          history.go(level - at);
+          return 'up';
+        }
+        put('replace', url, { ...keep, ...mark(pushed) });
+        return;
+      }
+      // Another question on Waiting on you takes this one's place, so back still goes to the board.
+      if (level === 1 && at === 1) { put('replace', url, { ...keep, ...mark(pushed) }); return; }
+      const parents = parentsOf(view, { ...b(), card });
+      if (level !== null && at !== null && at < level) {
+        history.replaceState(history.state, '', urlOf(parents[at]));
+        climb(parents.slice(at + 1), url, pushed, below);
+      } else climb(parents, url, pushed, -1);
+    }
+
+    // A back arrow's tap on a view in the tree: back when its parent is the entry under it, else on to the parent.
+    // → false for a view outside the tree.
+    function up() {
+      const parents = parentsOf(viewOf(location.href, b()), b());
+      if (!parents.length) return false;
+      if (history.state?.up > 0) history.back();
+      else go(parents.at(-1), new URL(urlOf(parents.at(-1)), location.href).href, 'push');
+      return true;
+    }
 
     // Listens after sidebar.js, so a tap the drawer took (its logo, ✕) is already defaultPrevented.
     document.addEventListener('click', (e) => {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       const a = e.target.closest?.('a[href]');
       if (!a || (a.target && a.target !== '_self') || a.hasAttribute('download')) return;
-      if (a.classList.contains('back') && BoardUI.backStep({ pushed: history.state?.pushed === true, href: location.href, idx: history.state?.idx }) === 'back') {
-        e.preventDefault();
-        history.back();
-        return;
+      if (a.classList.contains('back')) {
+        if (up()) { e.preventDefault(); return; }
+        if (BoardUI.backStep({ pushed: history.state?.pushed === true, href: location.href, idx: history.state?.idx }) === 'back') {
+          e.preventDefault();
+          history.back();
+          return;
+        }
       }
       const url = new URL(a.href, location.href);
       const view = viewOf(url.href, { boards: boards() });
       if (!mounted(view)) return;
       // A link to another card on this board, or another question on Waiting on you, only moves the hash, which the
-      // view follows itself.
-      if (url.pathname === location.pathname && url.search === location.search && url.hash && url.hash !== location.hash) return;
+      // view follows itself. On Waiting on you it takes this entry's place, so back still goes to the board.
+      if (url.pathname === location.pathname && url.search === location.search && url.hash && url.hash !== location.hash) {
+        if (view.kind !== 'questions') return;
+        e.preventDefault();
+        write('replace', url.href);
+        dispatchEvent(new HashChangeEvent('hashchange'));
+        return;
+      }
       e.preventDefault();
-      go(view, url.href, 'push');
+      go(view, url.href, 'push', { card: a.closest?.('details.item[open][data-key]')?.dataset.key || null });
     });
     let restoring = false;
     addEventListener('popstate', (e) => {
       const was = idx;
       if (Number.isInteger(e.state?.idx)) idx = e.state.idx;
+      if (landing) {
+        const to = entryOf(landing);
+        landing = null;
+        history.replaceState({ ...(e.state || {}), ...mark(to.pushed) }, '', to.href);
+      }
       if (restoring) { restoring = false; return; }
       const view = viewOf(location.href, { boards: boards() });
       if (!mounted(view)) { location.reload(); return; }
@@ -126,7 +216,7 @@ globalThis.AppRouter = (function () {
     });
     // A hash link adds an entry with no state of its own.
     addEventListener('hashchange', () => { if (!Number.isInteger(history.state?.idx)) history.replaceState({ idx: ++idx }, ''); });
-    return { push: (href) => write('push', href), replace: (href) => write('replace', href) };
+    return { push: (href, from) => write('push', href, from), replace: (href) => write('replace', href), up };
   }
 
   return { viewOf, urlOf, mounted, entryOf, listen };

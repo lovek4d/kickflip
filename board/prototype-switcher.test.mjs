@@ -105,12 +105,15 @@ function prototypePage(url, { framed = false, owner }) {
   return { pick, sent, moves };
 }
 
-test('a pick on a prototype page sends the answer, then moves on to the next open question in its place, through the app shell around a framed page', async () => {
+test('a pick on a prototype page sends the answer, then moves on to the next open question in its place, or with none left up to Waiting on you on its question, through the app shell around a framed page', async () => {
   const owner = [{ ...question, topic: 'item:w/A1' }, { id: 'q2', topic: 'item:w/A1', state: 'open', question: 'Next?', options: [] }];
   for (const framed of [false, true]) {
     const page = prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1', { framed, owner });
     await page.pick();
     assert.deepEqual(plain(page.sent), [['owner-answer', { id: 'q1', question: 'Which snooze?', choice: 'A', label: 'A. Named chips', note: '' }]]);
     assert.deepEqual(plain(page.moves), [framed ? ['app', 'https://mac.ts.net/orch/questions.html#q2', { replace: true }] : ['load', 'https://mac.ts.net/orch/questions.html#q2']]);
+    const last = prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1', { framed, owner: owner.slice(0, 1) });
+    await last.pick();
+    assert.deepEqual(plain(last.moves), [framed ? ['app', 'https://mac.ts.net/orch/questions.html#q1', { replace: true }] : ['load', 'https://mac.ts.net/orch/questions.html#q1']]);
   }
 });

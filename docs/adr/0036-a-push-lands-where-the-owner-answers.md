@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0058
+---
+
 # A push lands where the owner answers
+
+Superseded in part by [0058](0058-back-follows-the-page-tree.md): `from=push` no longer sends the back arrow of Waiting on you or a prototype page to the card or the board. A push to either builds the board and Waiting on you under it, and back goes up a level. The forward to the card's thread below still holds.
 
 A tap on a push opens the place the owner acts on it, at the moment they tap, not where it pointed when it was written.
 

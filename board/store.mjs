@@ -177,8 +177,9 @@ const pushResult = (tag, r) => (r.noDevice ? `push ${tag}: no device has turned 
 
 // Where a push lands (docs/adr/0036-a-push-lands-where-the-owner-answers.md). A card or ask link (#item=) gains
 // &reply, so the board opens that thread with its reply box focused. A page other than the board gains from=push, so
-// its back arrow goes to the card or the board (docs/adr/0048-a-questions-takes-show-inline.md), and a prototype
-// page tied to a question (?q=) sends the owner to the card's thread instead once that question has a pick.
+// the back arrow of a page outside the page tree goes to the card or the board
+// (docs/adr/0058-back-follows-the-page-tree.md), and a prototype page tied to a question (?q=) sends the owner to the
+// card's thread instead once that question has a pick.
 export function pushUrl(url) {
   if (!url || !url.startsWith('/')) return url;
   const u = new URL(url, 'http://board');

@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0058
+---
+
 # One app for the whole hub
+
+Superseded in part by [0058](0058-back-follows-the-page-tree.md) on back in the page tree: entries for a board, its Waiting on you and a prototype page carry `up`, the router writes the missing levels into history on every way in, and their back arrow goes up a level. `idx` and `pushed` below still steer every other view's arrow.
 
 Every board, each board's pages and the hub's own pages are views of one page, the app shell, so nothing reloads, switching boards included. Sites that aren't boards open in a frame inside it. The shell mounts a board and its Settings, Waiting on you and Notes, and the hub's page, Hub Settings and Polling, as views, and every other site's page, a board's prototypes included, in a frame.
 

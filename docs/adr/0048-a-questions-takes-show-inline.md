@@ -1,10 +1,12 @@
 ---
-status: superseded in part by ADR-0055
+status: superseded in part by ADR-0055 and ADR-0058
 ---
 
 # A question's takes show inline, and back goes one step
 
 Superseded in part by [0055](0055-one-app-for-the-whole-hub.md) on how back finds the step: in the app shell the referrer stops changing, so each history entry carries `{idx}`, and the arrow goes back while `idx` is above 0. A page a push opened still goes to its `backHref`.
+
+Superseded in part by [0058](0058-back-follows-the-page-tree.md) on back from Waiting on you and a prototype page: in the app it goes up a level, from a prototype to Waiting on you on its question and from there to the board, however the owner arrived, a push included. A pick with no prototype page to move on to goes up to Waiting on you. Every other page still goes one step back.
 
 A question's takes show on the questions page itself, not behind a link. Every page opens in the same window, and its back arrow goes one step back.
 

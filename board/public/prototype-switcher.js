@@ -142,7 +142,7 @@
     }
 
     // Sent at once, with no confirmation; a later pick changes it. Then on to the next open question, in this page's
-    // place, or back as the header's back arrow goes (ui-page-header.js).
+    // place, or up to Waiting on you on this question (docs/adr/0058-back-follows-the-page-tree.md).
     async function pick() {
       const state = pickState(question, take);
       if (busy || !(state.kind === 'pick' || state.kind === 'change')) return;
@@ -160,8 +160,7 @@
         const u = new URL(site.url(questionUrl(next)), location.href);
         if (globalThis.PageBack?.pushed) u.searchParams.set('from', 'push');
         replaceWith(u);
-      } else if (globalThis.PageBack?.target() === 'back') history.back();
-      else replaceWith(document.querySelector('header.top a.back')?.href || site.url(''));
+      } else replaceWith(site.url(`questions.html#${encodeURIComponent(qid)}`));
     }
     text.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || e.isComposing) return;

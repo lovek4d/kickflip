@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { miniDom } from './mini-dom.mjs';
 
 const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-markdown.js', 'ui-hub.js', 'rules-editor.js',
   'hub-kit.js', 'sidebar.js', 'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-banner.js', 'app-snapshot.js',
@@ -160,8 +161,10 @@ test("a framed page hands each load's URL and title to the shell, hides the shel
   assert.match(markup, /<iframe class="frame-page" src="\/learn\/"/);
   const root = new page.El();
   let toggles = 0;
+  const ups = [];
   const v = page.win.AppViews.frame.create(root, 'https://mac.ts.net/learn', { view, siteTitle: 'Course', boards: () => new Set(['board-a']),
-    open: (href) => opened.push(href), toggleSidebar: () => toggles++, loaded: (url, title) => loads.push([url, title]) });
+    open: (href) => opened.push(href), toggleSidebar: () => toggles++, loaded: (url, title) => loads.push([url, title]),
+    up: () => ups.push(loads.at(-1)[0]) > 0 && loads.at(-1)[0].includes('/prototype-') });
   const loaded = page.left();
   v.mount();
 
@@ -170,15 +173,20 @@ test("a framed page hands each load's URL and title to the shell, hides the shel
     const u = new URL(url);
     const doc = Object.assign(new page.Target(), { title, head: new page.El(), documentElement: new page.El(), getElementById: () => null,
       querySelector: (sel) => (header && sel === 'body > header.top' ? {} : null) });
-    frame.contentWindow = { document: doc, location: { href: u.href, pathname: u.pathname, search: u.search, hash: u.hash } };
+    frame.contentWindow = Object.assign(new page.Target(), { document: doc, location: { href: u.href, pathname: u.pathname, search: u.search, hash: u.hash } });
+    doc.defaultView = frame.contentWindow;
     page.fire(frame, 'load');
     return doc;
   };
   const tap = (doc, href, { cls = '', target = '' } = {}) => {
     let prevented = false;
+    let stopped = false;
     const a = { href, target, hasAttribute: () => false, classList: { contains: (c) => c === cls }, closest: (sel) => (cls === 'back' && sel === 'header.top' ? {} : null) };
     const logo = cls === 'hub';
-    page.fire(doc, 'click', { button: 0, target: { closest: (sel) => (sel === 'body > header.top a.hub' ? (logo ? a : null) : a) }, preventDefault() { prevented = true; } });
+    const closest = (sel) => (sel === 'body > header.top a.hub' ? (logo ? a : null) : sel === 'header.top a.back' ? (cls === 'back' ? a : null) : a);
+    const ev = { button: 0, target: { closest }, preventDefault() { prevented = true; }, stopPropagation() { stopped = true; } };
+    page.fire(doc.defaultView, 'click', ev);
+    if (!stopped) page.fire(doc, 'click', ev);
     return prevented;
   };
 
@@ -198,9 +206,11 @@ test("a framed page hands each load's URL and title to the shell, hides the shel
   const proto = land('https://mac.ts.net/board-a/prototype-x.html?q=q1', { title: 'Prototype', header: true });
   assert.deepEqual([loads.at(-1), root.classList.contains('own-header')], [['/board-a/prototype-x.html?q=q1', 'Prototype'], true]);
   assert.equal(tap(proto, 'https://mac.ts.net/board-a/#item=w%2FA1', { cls: 'back' }), true);
-  assert.equal(opened.at(-1), 'https://mac.ts.net/board-a/#item=w%2FA1');
+  assert.deepEqual([ups, opened.length], [['/board-a/prototype-x.html?q=q1'], 3]);
   const own = land('https://mac.ts.net/learn/', { title: 'Course', header: true });
-  assert.deepEqual([tap(own, 'https://mac.ts.net/_hub/', { cls: 'hub' }), toggles, opened.length], [true, 1, 4]);
+  assert.deepEqual([tap(own, 'https://mac.ts.net/_hub/', { cls: 'hub' }), toggles, opened.length], [true, 1, 3]);
+  assert.equal(tap(own, 'https://mac.ts.net/_hub/', { cls: 'back' }), true);
+  assert.deepEqual([ups.length, opened.at(-1)], [2, 'https://mac.ts.net/_hub/']);
 
   v.unmount();
   assert.deepEqual(page.left(), loaded);
@@ -380,4 +390,65 @@ test("s s shows each sidebar row's key and the next key opens that row through t
   press('n');
   assert.equal(sheet.open, true);
   board.unmount();
+});
+
+function boardOnDom({ open = [], board, threads }) {
+  const page = fakePage(memoryStorage([['site:board-a:openItems', JSON.stringify(open)]]).localStorage);
+  const { Element } = miniDom(page.Target, page.win.document);
+  const server = { board, threads };
+  page.win.fetch = async (url) => {
+    const u = new URL(url);
+    const body = u.pathname.endsWith('/api/board') ? server.board : server.threads[u.searchParams.get('key')] || [];
+    return { ok: true, json: async () => structuredClone(body) };
+  };
+  const root = page.win.document.body.appendChild(new Element('div'));
+  root.innerHTML = page.win.BoardView.markup({ title: 'A' });
+  let signalled = null;
+  page.win.BoardView.create(root, 'https://mac.ts.net/board-a', { signal: (fn) => { signalled = fn; return () => {}; } }).mount();
+  const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
+  const change = async (next) => { Object.assign(server, next); signalled(); await settle(); };
+  return { page, root, settle, change, doc: page.win.document };
+}
+const askCard = (id, lane) => ({ key: `ask:${id}`, id, kind: 'ask', lane, title: `Task ${id}`, deps: [], othersAt: [] });
+const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items, waves: [], needs: [], answers: [] });
+
+test("a thread repaint while a message's edit box is open shows the new message and keeps the edit box's text, cursor and focus", async () => {
+  const mine = { ts: '2026-10-30T10:00:00.000Z', who: 'love', text: 'Fix the header', eventId: 'e1', canEdit: true, canDelete: true, state: 'waiting' };
+  const b = boardOnDom({ open: ['ask:a1'], board: boardOf([askCard('a1', 'progress')]), threads: { 'ask:a1': [mine] } });
+  await b.settle();
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('.msg[data-event="e1"] button[data-edit]') });
+  await b.settle();
+  const ta = b.root.querySelector('.msg[data-event="e1"] .edit-form textarea');
+  assert.equal(ta.value, 'Fix the header');
+  ta.value = 'Fix the header and the footer';
+  ta.setSelectionRange(7, 7);
+  b.page.fire(b.root, 'input', { target: ta });
+
+  await b.change({ threads: { 'ask:a1': [mine, { ts: '2026-10-30T10:01:00.000Z', who: 'claude', text: 'Looking at it now' }] } });
+  assert.match(b.root.querySelector('[data-thread="ask:a1"] .msgs').textContent, /Looking at it now/);
+  assert.equal(b.root.querySelector('.msg[data-event="e1"] .edit-form textarea'), ta);
+  assert.deepEqual([ta.value, ta.selectionStart, ta.selectionEnd, b.doc.activeElement === ta], ['Fix the header and the footer', 7, 7, true]);
+});
+
+test("a lane repaint while the owner types in a card's reply box moves the other cards and keeps the reply's text, cursor and focus, also when its own card moves lanes, and leaves the + sheet's text alone", async () => {
+  const b = boardOnDom({ open: ['ask:a1'], board: boardOf([askCard('a1', 'progress'), askCard('b1', 'todo')]),
+    threads: { 'ask:a1': [{ ts: '2026-10-30T10:00:00.000Z', who: 'claude', text: 'Started' }] } });
+  await b.settle();
+  const ta = b.root.querySelector('form[data-reply="ask:a1"] textarea');
+  ta.focus();
+  ta.value = 'Half a reply';
+  ta.setSelectionRange(4, 4);
+  b.page.fire(b.root, 'input', { target: ta });
+  b.root.querySelector('#askText').value = 'A new task';
+  const lane = (id) => b.root.querySelector(`details.item[data-key="ask:${id}"]`)?.closest('details.lane').dataset.lane;
+  const kept = () => [b.root.querySelector('form[data-reply="ask:a1"] textarea') === ta, ta.value, ta.selectionStart, b.doc.activeElement === ta];
+
+  await b.change({ board: boardOf([askCard('b1', 'progress'), askCard('a1', 'progress')]) });
+  assert.deepEqual([lane('b1'), lane('a1')], ['progress', 'progress']);
+  assert.deepEqual(kept(), [true, 'Half a reply', 4, true]);
+
+  await b.change({ board: boardOf([askCard('a1', 'review'), askCard('b1', 'done')]) });
+  assert.deepEqual([lane('a1'), lane('b1')], ['review', 'done']);
+  assert.deepEqual(kept(), [true, 'Half a reply', 4, true]);
+  assert.equal(b.root.querySelector('#askText').value, 'A new task');
 });
