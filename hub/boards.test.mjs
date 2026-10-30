@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startFakeDevice } from './fake-device.mjs';
 
@@ -178,7 +178,7 @@ before(async () => {
 
 after(async () => {
   orchWatcher?.kill();
-  if (hub) {
+  if (hub && hub.exitCode === null && hub.signalCode === null) {
     const exited = new Promise((resolve) => hub.once('exit', resolve));
     hub.kill('SIGTERM');
     await exited;
@@ -287,4 +287,24 @@ test("joining a board polls at once, so the new board's GitHub link passes witho
   assert.equal(read(claude('web-ts', 'manifest.json')).sites.fresh.created, created);
   const sites = (await (await fetch(`${base}/_hub/sidebar.json?fresh=1`)).json()).sites;
   assert.deepEqual(sites.map((s) => [s.route, s.created]), [['fresh', created], ['orch', null], ['plain', null], ['shop', null]]);
+});
+
+test('stopping the hub stops every site it started, one that ignores SIGTERM and one that joined just before, and starts none', async () => {
+  const sitesDir = claude('web-ts', 'sites');
+  const siteProcs = () => execFileSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf8' }).split('\n').filter((l) => l.includes(sitesDir)).map((l) => Number(l.trim().split(' ')[0]));
+  const node = (route, script) => [process.execPath, '-e', script, site(route)];
+  const manifest = read(claude('web-ts', 'manifest.json'));
+  manifest.sites.stubborn = { dir: home, port: port + 4, cmd: node('stubborn', "process.on('SIGTERM', () => {}); console.log('ready'); setInterval(() => {}, 1000)") };
+  write(claude('web-ts', 'manifest.json'), manifest);
+  const log = claude('web-ts', 'logs', 'stubborn.log');
+  for (let i = 0; i < 100 && !(fs.existsSync(log) && fs.readFileSync(log, 'utf8').includes('ready')); i++) await new Promise((r) => setTimeout(r, 100));
+  assert.match(fs.readFileSync(log, 'utf8'), /ready/);
+  manifest.sites.late = { dir: home, port: port + 5, cmd: node('late', 'setInterval(() => {}, 1000)') };
+  write(claude('web-ts', 'manifest.json'), manifest);
+  const exited = new Promise((resolve) => hub.once('exit', resolve));
+  hub.kill('SIGTERM');
+  await exited;
+  await new Promise((r) => setTimeout(r, 500));
+  const left = siteProcs();
+  try { assert.deepEqual(left, []); } finally { for (const pid of left) { try { process.kill(pid, 'SIGKILL'); } catch {} } }
 });

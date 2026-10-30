@@ -43,7 +43,7 @@
 //   /_hub/poll        POST runs one poll now, or joins the running one, and returns its result as JSON;
 //                     {"flush": false} skips sending the queue (`web-ts poll-now`)
 // It also runs every site: it starts each manifest entry's `cmd`, restarts it
-// when it exits, and restarts it when its entry changes. On each slot of the
+// when it exits, restarts it when its entry changes, and stops every one before it exits itself. On each slot of the
 // polling interval (schedule.mjs), and once a minute after it starts, it checks
 // GitHub (github.mjs), pushes once for each board that has stopped listening (boards.mjs
 // checkListening), then sends the queued pushes unless schedule.mjs heldUntil holds them;
@@ -115,6 +115,10 @@ function loadManifest() {
 // ---------- supervisor ----------
 // route -> { child, key, state, since, exitCode, restarts, nextStart, up }
 const procs = new Map();
+// Every child spawned and not yet exited, including one whose route has left procs.
+const children = new Set();
+let shuttingDown = false;
+const KILL_AFTER = 5000;
 const keyOf = (s) => JSON.stringify([s.cmd, s.cwd || s.dir, s.port, s.env || {}, s.restart_at || 0]);
 
 function pidFile(route) { return path.join(RUN, route + '.pid'); }
@@ -151,16 +155,20 @@ function start(route, site) {
   Object.assign(p, { child, key: keyOf(site), state: 'starting', since: Date.now(), exitCode: null });
   procs.set(route, p);
   log(`started ${route} pid ${child.pid}`);
-  child.on('error', (e) => log(`${route} spawn error: ${e.message}`));
-  child.on('exit', (code, signal) => {
+  if (child.pid) children.add(child);
+  const ended = (code, sig) => {
+    children.delete(child);
     if (p.child !== child) return;
     try { fs.unlinkSync(pidFile(route)); } catch {}
     const ranLong = Date.now() - p.since > 60_000;
     if (ranLong) p.restarts = 0;
-    Object.assign(p, { child: null, state: p.stopping ? 'stopped' : 'crashed', exitCode: code ?? signal, nextStart: Date.now() + backoff(p.restarts++) });
+    Object.assign(p, { child: null, state: p.stopping ? 'stopped' : 'crashed', exitCode: code ?? sig, nextStart: Date.now() + backoff(p.restarts++) });
     p.stopping = false;
-    log(`${route} exited (${code ?? signal})`);
-  });
+    log(`${route} exited (${code ?? sig})`);
+  };
+  // A child that never spawned, such as one whose cwd is missing, emits no exit.
+  child.on('error', (e) => { log(`${route} spawn error: ${e.message}`); if (!child.pid) ended(e.code, null); });
+  child.on('exit', ended);
 }
 
 const backoff = (n) => Math.min(60_000, 1000 * 2 ** Math.min(n, 6));
@@ -169,10 +177,12 @@ function stop(route) {
   const p = procs.get(route);
   if (!p || !p.child) { procs.delete(route); return; }
   p.stopping = true;
-  try { process.kill(-p.child.pid, 'SIGTERM'); } catch {}
   const c = p.child;
-  setTimeout(() => { try { if (c.exitCode === null) process.kill(-c.pid, 'SIGKILL'); } catch {} }, 5000);
+  signal(c, 'SIGTERM');
+  setTimeout(() => { if (children.has(c)) signal(c, 'SIGKILL'); }, KILL_AFTER);
 }
+
+const signal = (child, sig) => { try { process.kill(-child.pid, sig); } catch {} };
 
 function probe(port) {
   return new Promise((resolve) => {
@@ -186,6 +196,7 @@ function probe(port) {
 
 let first = true;
 async function reconcile() {
+  if (shuttingDown) return;
   const { sites } = loadManifest();
   for (const route of [...procs.keys()]) {
     if (!sites[route]) { log(`${route} left the manifest; stopping it`); stop(route); procs.delete(route); }
@@ -211,7 +222,7 @@ async function reconcile() {
     if (p.child && p.up) p.state = 'up';
   }
 }
-setInterval(() => reconcile().catch((e) => log('reconcile failed:', e.message)), 2000);
+const reconciling = setInterval(() => reconcile().catch((e) => log('reconcile failed:', e.message)), 2000);
 reconcile().catch((e) => log('reconcile failed:', e.message));
 
 // ---------- polling ----------
@@ -279,10 +290,20 @@ setInterval(() => {
   runSessionCheck();
 }, 15_000);
 
+// Sites run detached, so the hub must not exit while one it started still runs.
 function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  clearInterval(reconciling);
   log('hub stopping; stopping sites');
-  for (const route of procs.keys()) stop(route);
-  setTimeout(() => process.exit(0), 1500);
+  for (const p of procs.values()) if (p.child) p.stopping = true;
+  for (const c of children) signal(c, 'SIGTERM');
+  const deadline = Date.now() + KILL_AFTER;
+  setInterval(() => {
+    if (children.size && Date.now() < deadline) return;
+    for (const c of children) { log(`pid ${c.pid} ignored SIGTERM; killing it`); signal(c, 'SIGKILL'); }
+    process.exit(0);
+  }, 50);
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
