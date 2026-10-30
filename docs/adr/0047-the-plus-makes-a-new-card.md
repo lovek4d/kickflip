@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0059
+---
+
 # The + makes a New card, which Claude files, folds or answers
+
+Superseded in part by [0059](0059-an-unstarted-card-waits-on-its-questions-in-todo.md) on answering: an answer that leaves a question open on the card keeps it in Todo as a Task with Action needed, not in Done, until its questions are settled or it is closed. A New card asked a question waits in Todo, not In Review.
 
 The board's + makes a card from the owner's first message, so the board has one kind of thing on it. The card is marked **New** until Claude sorts it, and there is no Waiting for Claude strip. The message is still stored as an `ask` event, and its thread keeps the key `ask:<event id>`; only what the owner reads says "new task".
 

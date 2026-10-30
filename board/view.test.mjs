@@ -392,10 +392,15 @@ test("s s shows each sidebar row's key and the next key opens that row through t
   board.unmount();
 });
 
-function boardOnDom({ open = [], board, threads }) {
+function boardOnDom({ open = [], board, threads, confirm = false }) {
   const page = fakePage(memoryStorage([['site:board-a:openItems', JSON.stringify(open)]]).localStorage);
   const { Element } = miniDom(page.Target, page.win.document);
   const server = { board, threads };
+  const sent = [];
+  const confirms = [];
+  page.win.BoardDialogs.confirm = async (text) => { confirms.push(text); return confirm; };
+  const site = page.win.ClaudeSite.site;
+  page.win.ClaudeSite.site = (r) => ({ ...site(r), send: async (kind, data) => { sent.push([kind, data]); return {}; } });
   page.win.fetch = async (url) => {
     const u = new URL(url);
     const body = u.pathname.endsWith('/api/board') ? server.board : server.threads[u.searchParams.get('key')] || [];
@@ -407,10 +412,34 @@ function boardOnDom({ open = [], board, threads }) {
   page.win.BoardView.create(root, 'https://mac.ts.net/board-a', { signal: (fn) => { signalled = fn; return () => {}; } }).mount();
   const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
   const change = async (next) => { Object.assign(server, next); signalled(); await settle(); };
-  return { page, root, settle, change, doc: page.win.document };
+  return { page, root, settle, change, sent, confirms, doc: page.win.document };
 }
 const askCard = (id, lane) => ({ key: `ask:${id}`, id, kind: 'ask', lane, title: `Task ${id}`, deps: [], othersAt: [] });
 const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items, waves: [], needs: [], answers: [] });
+const workCard = (id, extra) => ({ key: `w/${id}`, id, kind: 'work', lane: 'todo', title: `Work ${id}`, ref: id, internal: true, waveTitle: 'W', deps: [], manualSteps: [], othersAt: [], ...extra });
+
+test("an open card shows the one action button the board names: Open questions links to its first question, Grill asks for questions or reads Writing questions…, and an ask's Mark as done confirms and sends ask-done", async () => {
+  const cards = [
+    workCard('A1', { actionButton: 'openQuestions', questions: { first: 'q7', open: 1, state: 'open' }, action: { kind: 'questions', url: 'questions.html#q7', label: 'Answer 1 question' } }),
+    workCard('A2', { actionButton: 'grill' }),
+    workCard('A3', { actionButton: 'grill', grilling: true }),
+    workCard('A4', { actionButton: null, lane: 'done' }),
+    { ...askCard('a1', 'review'), ref: 'Task', actionButton: 'markDone', finishable: true, action: { kind: 'done', url: '#item=ask%3Aa1', label: 'Pick a take' } },
+    { ...askCard('a2', 'done'), ref: 'Task', actionButton: null },
+  ];
+  const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
+  await b.settle();
+  const row = (key) => b.root.querySelector(`details.item[data-key="${key}"] .detail`)?.querySelector('.actions');
+  const buttons = (key) => (row(key) ? row(key).querySelectorAll('a.button, button').map((el) => el.textContent.trim()) : []);
+  assert.deepEqual(['w/A1', 'w/A2', 'w/A3', 'w/A4', 'ask:a1', 'ask:a2'].map(buttons), [['Open questions'], ['Grill'], ['Writing questions…'], [], ['Mark as done'], []]);
+  assert.equal(row('w/A1').querySelector('a.button').getAttribute('href'), 'questions.html#q7');
+
+  b.page.fire(b.root, 'click', { target: row('w/A2').querySelector('button') });
+  b.page.fire(b.root, 'click', { target: row('ask:a1').querySelector('button') });
+  await b.settle();
+  assert.deepEqual(b.confirms, ['Ask Claude for questions about A2?', 'Mark this task done? "Task a1" moves to Done.']);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['grill-more', { key: 'w/A2' }], ['ask-done', { id: 'a1' }]]);
+});
 
 test("a thread repaint while a message's edit box is open shows the new message and keeps the edit box's text, cursor and focus", async () => {
   const mine = { ts: '2026-10-30T10:00:00.000Z', who: 'love', text: 'Fix the header', eventId: 'e1', canEdit: true, canDelete: true, state: 'waiting' };

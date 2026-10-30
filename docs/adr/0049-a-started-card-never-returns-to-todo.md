@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0059
+---
+
 # A started card never returns to Todo
+
+Superseded in part by [0059](0059-an-unstarted-card-waits-on-its-questions-in-todo.md) on grilled: a card counts as grilled once one of its questions is answered or resolved, so one whose questions are all still open hasn't started and waits on them in Todo. The owner's other waits still go to In Review first.
 
 Todo holds only work that hasn't started. A work card counts as started once it has been grilled (it has an `item:` question topic) or built (it has a builder record). `buildBoard` in `board/domain.mjs` keeps such a card in In Progress when it would otherwise land in Todo. That covers its last question being answered, its builder finishing without a new status, or its being blocked.
 

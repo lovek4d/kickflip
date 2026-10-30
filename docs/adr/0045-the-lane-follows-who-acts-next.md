@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0059
+---
+
 # The lane follows who acts next, and a card waiting on the owner says Action needed
+
+Superseded in part by [0059](0059-an-unstarted-card-waits-on-its-questions-in-todo.md) on the owner's questions: a card that hasn't started and waits only on its open questions or a prototype pick stays in Todo with Action needed, and a started one keeps its lane. In Review keeps the owner's other waits below. The open card's action row shows Open questions, not "Action needed", while questions are open.
 
 A card's lane answers one question: who acts next? `board/domain.mjs` decides it in two steps. `laneOf` places the card by what Claude and GitHub say, and `placeOwnerWait` moves a card only the owner can move on to In Review and gives it its action.
 

@@ -703,6 +703,8 @@ test('a work card reads its title, then its next step or builder, its unread mes
   assert.deepEqual(lines(ui.workLines(blocked)), ['INT-3 Five', 'blocked by INT-2']);
   assert.match(ui.workLines(blocked), /href="#item=site%2FS2"/);
   assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [] })), ['INT-3 Five', 'ready to start']);
+  assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [], next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
+    ['INT-3 Five', 'Next: Answer 1 question', 'Action needed']);
   const waiting = { ...workCard, lane: 'todo', deps: ['S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }], bumpedAt: ago(1) };
   assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['PROD-1 Five', 'Next: Waiting for PR reviewers', '1 unread message', 'repo#7 ● CI ✓ J ✗ bumped', 'blocked by INT-2']);
   const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: 'Task', title: 'Fix it', internal: false, linear: [], pr: null, deps: [], blockedBy: [], working: true };

@@ -123,7 +123,7 @@ A Linear ticket filed while building a wave. It is a Todo card of that wave, wit
 _Avoid_: backlog item, todo
 
 **Lane**:
-Where a card sits (In Review, Stale, In Progress, Todo, Done), set by who acts next ([0045](docs/adr/0045-the-lane-follows-who-acts-next.md)). In Progress means Claude or a builder is working: a running builder, a building, fixing or **checking** item, or a PR whose CI is red or, on a draft, still running. In Review means it waits on a person: the reviewers, or the owner (see **Action needed**). A card waiting only on the owner moves there from Todo or In Progress; one Claude still works on stays in In Progress. Todo opens with the New cards, which wait on Claude ([0047](docs/adr/0047-the-plus-makes-a-new-card.md)).
+Where a card sits (In Review, Stale, In Progress, Todo, Done), set by who acts next ([0045](docs/adr/0045-the-lane-follows-who-acts-next.md)). In Progress means Claude or a builder is working: a running builder, a building, fixing or **checking** item, or a PR whose CI is red or, on a draft, still running. In Review means finished work waits on a person: the reviewers, or the owner's Ready, Merge, manual steps or an ask's Done (see **Action needed**). A card waiting only on those moves there from In Progress; one Claude still works on stays in In Progress. Todo holds work not yet started: the New cards, which wait on Claude ([0047](docs/adr/0047-the-plus-makes-a-new-card.md)), and any card that hasn't started and waits only on its open questions or a prototype pick, with Action needed. Answering them moves it to In Progress as its work starts; a started card that gets a question keeps its lane ([0059](docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md)).
 _Avoid_: column, status (status is the item's own field)
 
 **Checking**:
@@ -143,8 +143,12 @@ Who the card is waiting for: the owning session's check, the owner's Ready, the 
 _Avoid_: blocked by, assignee
 
 **Action needed**:
-The notice-tone badge on a card waiting on the owner, in any lane: an open question or a prototype pick, a green draft's Ready, an ask's Done, manual steps on an approved PR, or, with **auto-merge** off, an approved PR's Merge. It links to the thing to act on. Reviewer waits and held cards get none ([0045](docs/adr/0045-the-lane-follows-who-acts-next.md)).
+The notice-tone badge on a card waiting on the owner, in any lane: an open question or a prototype pick, a green draft's Ready, an ask's Done, manual steps on an approved PR, or, with **auto-merge** off, an approved PR's Merge. It links to the thing to act on. Reviewer waits and held cards get none ([0045](docs/adr/0045-the-lane-follows-who-acts-next.md)). An unstarted card with open questions carries it in Todo ([0059](docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md)).
 _Avoid_: open items, needs you (Needs you is the box at the top of the board)
+
+**Action button**:
+The open card's one workflow button, which `board/domain.mjs` picks as the card's `actionButton`: **Open questions** (`openQuestions`) while it has open questions or a prototype pick, opening the first; **Mark as done** (`markDone`) on an ask waiting only on the owner's Done, sending the same `ask-done` as the thread's Done; otherwise **Grill** (`grill`), which reads "Writing questions…" while a grill waits on Claude. Open questions win over Mark as done. A Done card, and an ask with neither, has none ([0059](docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md)).
+_Avoid_: Open items, Action needed (the badge)
 
 **Auto-merge**:
 A board setting, `auto_merge` in its `board.json`, off unless set: on, monitor merges a PR once it is approved, CI is green and its merge state is CLEAN; off, the card shows the owner Action needed and a Merge button, which reads "Merging…" until the PR merges or Claude says in the thread why it didn't. The board's Settings page toggles it, and the watcher prints it with every wake as `setting auto-merge on|off`. A setting, not a **rule**, since the board itself acts on it ([0052](docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md)).
@@ -169,7 +173,7 @@ _Avoid_: worker, bot
 ### Talking with the owner
 
 **New task**:
-A free-form request or question the owner sends from the board's + button (or by pressing n twice). Code and events call it an **ask**: an `ask` event whose thread is `ask:<event id>`. It is a **New card** at the top of Todo, with no wave and no Action needed, until Claude sorts it one of three ways ([0047](docs/adr/0047-the-plus-makes-a-new-card.md)): files it under a wave as a work item, whose thread opens with it (`item set --from-ask`); folds it into the card it's about, whose thread then holds the message marked Moved (`item relate-ask`, undone by `ask unfold`); or answers it, which makes it a Done card reading Task, under Done's Answered row, whose thread takes the owner's later replies. When another board fits it better, the owner can have it **moved there** (`ask move`): it becomes a New card on that board reading "Moved from <this board>", and here a Done card whose thread links to it. Folding is within one board; a move is between boards. An answer that waits on the owner, such as a choice only the owner can settle, keeps it in In Review with Action needed until the owner taps Done in its thread ([0035](docs/adr/0035-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md)).
+A free-form request or question the owner sends from the board's + button (or by pressing n twice). Code and events call it an **ask**: an `ask` event whose thread is `ask:<event id>`. It is a **New card** at the top of Todo, with no wave and no Action needed, until Claude sorts it one of three ways ([0047](docs/adr/0047-the-plus-makes-a-new-card.md)): files it under a wave as a work item, whose thread opens with it (`item set --from-ask`); folds it into the card it's about, whose thread then holds the message marked Moved (`item relate-ask`, undone by `ask unfold`); or answers it, which makes it a Done card reading Task, under Done's Answered row, whose thread takes the owner's later replies. An answer that leaves a question open on it keeps it in Todo as a Task with Action needed, never in Done, until the owner answers and Claude replies, or it is closed ([0059](docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md)). When another board fits it better, the owner can have it **moved there** (`ask move`): it becomes a New card on that board reading "Moved from <this board>", and here a Done card whose thread links to it. Folding is within one board; a move is between boards. An answer that waits on the owner, such as a choice only the owner can settle, keeps it in In Review with Action needed until the owner taps Mark as done or the Done in its thread ([0035](docs/adr/0035-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md)).
 _Avoid_: ask (in what the owner reads), message, prompt, Waiting for Claude strip
 
 **Thread**:
@@ -221,7 +225,7 @@ A New card's message, or the owner's message in a thread, that Claude hasn't ans
 _Avoid_: unread, queued
 
 **Prototype request**:
-The owner asking, from a card's thread, for throwaway prototype pages to compare options. Each prototype comes with an open question on its card, and the page's switcher can send the pick; until the owner picks, the card carries Action needed and, unless Claude is working on it, sits in In Review ([0015](docs/adr/0015-prototypes-come-on-request.md)).
+The owner asking, from a card's thread, for throwaway prototype pages to compare options. Each prototype comes with an open question on its card, and the page's switcher can send the pick; until the owner picks, the card carries Action needed and keeps its lane, Todo while it hasn't started ([0015](docs/adr/0015-prototypes-come-on-request.md), [0059](docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md)).
 _Avoid_: mockup request, preview
 
 **Take**:
@@ -268,7 +272,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `dialogs.js` | `BoardDialogs.confirm` and `notice`, which every board page's dialogs go through; loaded on every page |
 | `rules-editor.js` | `RulesEditor`, the rules list on board Settings and hub Settings, with its own CSS; `ui.test.mjs` tests its pure parts |
 | `app-threads.js` | Loading a thread, once at a time per card; an open card's thread, its reply box, quick replies and Done |
-| `app-cards.js` | Cards, their open detail, and the action row: a follow-up's Build, Merge, Hold, Prioritize and Grill with each one's confirmation, then Notes; the thread's Done confirmation and send |
+| `app-cards.js` | Cards, their open detail, and the action row: a follow-up's Build, Merge, Hold, Prioritize and the **action button** with each one's confirmation, then Notes; an ask's detail shows only its action button; the thread's Done confirmation and send |
 | `app-lanes.js` | Lanes, the Answered, older and finished-wave folds, the wave bars and filter, and Plan a wave |
 | `app-asks.js` | The + sheet and its press-n-twice shortcut, and bump, edit and delete |
 | `app-needs.js` | The Needs you box |

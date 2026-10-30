@@ -5,7 +5,10 @@ BoardView.part((B) => {
   const { esc, REVIEW, reviewAge, unreadCount, workLines, linkText, mergeButton } = BoardUI;
 
   function detail(it) {
-    if (it.kind === 'ask') return `<div class="detail">${B.thread(it.key)}</div>`;
+    if (it.kind === 'ask') {
+      const button = actionButton(it);
+      return `<div class="detail">${button ? `<div class="actions" data-actions="${esc(it.key)}">${button}</div>` : ''}${B.thread(it.key)}</div>`;
+    }
     const pr = it.pr;
     const ctx = links(it.key);
     const rows = [];
@@ -59,19 +62,21 @@ BoardView.part((B) => {
       : it.held ? ask('resume', 'Resume') : ask('hold', 'Hold');
     const topBump = Boolean(it.bumpedAt) && !state.board.items.some((i) => i.lane === it.lane && (i.bumpedAt || '') > it.bumpedAt);
     const prioritize = it.bumpable ? ask('bump', 'Prioritize', topBump) : '';
-    const asking = it.questions?.open && it.questions.state !== 'resolved';
-    const answer = it.action?.kind === 'pick' || it.action?.kind === 'questions' ? it.action.url : `questions.html#${it.questions?.first}`;
-    const grill = asking
-      ? `<a class="button answer" href="${esc(answer)}">${it.action ? 'Action needed' : 'Questions'}</a>`
-      : it.grilling ? '<button disabled>Writing questions…</button>'
-      : ask('grill', 'Grill');
     return `<div class="actions" data-actions="${key}">
         ${draftPR ? `<a class="pill" href="${esc(pr.url)}" target="_blank" rel="noopener">Review #${esc(pr.number)} on GitHub →</a>` : ''}
         ${it.kind === 'followup' && it.lane !== 'done' ? `<button class="build" data-confirm="build" data-key="${key}">Build</button>` : ''}
-        ${mergeButton(it, sendingMerge.has(it.key))}${hold}${prioritize}${grill}
+        ${mergeButton(it, sendingMerge.has(it.key))}${hold}${prioritize}${actionButton(it)}
         ${it.hasNotes ? `<a class="pill" href="notes.html?item=${encodeURIComponent(it.key)}">Notes →</a>` : ''}
       </div>`;
   }
+
+  // board/domain.mjs actionButtonOf picks the button (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md).
+  const ACTION_BUTTONS = {
+    openQuestions: (it) => `<a class="button answer" href="questions.html#${esc(it.questions.first)}">Open questions</a>`,
+    markDone: (it) => `<button data-confirm="finish" data-key="${esc(it.key)}">Mark as done</button>`,
+    grill: (it) => (it.grilling ? '<button disabled>Writing questions…</button>' : `<button data-confirm="grill" data-key="${esc(it.key)}">Grill</button>`),
+  };
+  const actionButton = (it) => ACTION_BUTTONS[it.actionButton]?.(it) || '';
 
   // The latest bump among New cards takes no second bump (docs/adr/0014-a-pending-ask-can-be-deleted-or-bumped.md).
   const topNew = (it) => Boolean(it.isNew && it.bumpedAt) && !state.board.items.some((i) => i.isNew && (i.bumpedAt || '') > it.bumpedAt);

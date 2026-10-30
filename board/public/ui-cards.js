@@ -68,7 +68,7 @@
   function workLines(it, { unread = 0, top = false } = {}) {
     const ids = it.kind === 'ask' ? askChip(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
     const blocked = (it.blockedBy || []).map((d) => badge('notice', `blocked by ${esc(d.ref)}`, { href: `#item=${encodeURIComponent(d.key)}` })).join('');
-    const ready = !blocked && it.deps?.length && it.lane === 'todo' ? badge('ready', 'ready to start') : '';
+    const ready = !blocked && !it.action && it.deps?.length && it.lane === 'todo' ? badge('ready', 'ready to start') : '';
     const chips = `${actionChip(it)}${installChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('normal', 'bumped') : ''}${ready}`;
     const status = it.isNew && !it.action ? `<div class="line3 sub">${askLine(it.ask)}</div>`
       : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Claude checking</div>'

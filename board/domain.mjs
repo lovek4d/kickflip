@@ -32,7 +32,7 @@ const internalRef = (id) => String(id).replace(/^S(\d+)$/, 'INT-$1');
 export const refOf = (wave, id) => (wave.internal === true ? internalRef(id) : id);
 
 // The lane before owner waits are placed: In Progress while Claude acts next, In Review while the reviewers do.
-// buildBoard moves a card that only the owner can move on to In Review (docs/adr/0045-the-lane-follows-who-acts-next.md).
+// buildBoard places a card that only the owner can move on (docs/adr/0045-the-lane-follows-who-acts-next.md).
 function laneOf(item, pr, running) {
   const s = (item.status || '').toLowerCase();
   if (s === 'merged' || s === 'done' || s === 'dropped' || pr?.state === 'MERGED' || pr?.state === 'CLOSED') return 'done';
@@ -150,7 +150,7 @@ const mergeable = (pr) => pr?.state === 'OPEN' && !pr.isDraft && pr.reviewDecisi
 function actionOf(it, questionById, autoMerge) {
   if (it.held || it.lane === 'done') return null;
   const thread = `#item=${encodeURIComponent(it.key)}`;
-  if (it.questions && it.questions.state !== 'resolved' && it.questions.open > 0) {
+  if (asking(it)) {
     const q = questionById.get(it.questions.first);
     if (PROTOTYPE_URL.test(q?.url || '')) return { kind: 'pick', url: `questions.html#${q.id}`, label: 'Prototypes ready: pick a take' };
     return { kind: 'questions', url: `questions.html#${it.questions.first}`, label: `Answer ${plural(it.questions.open, 'question')}` };
@@ -163,16 +163,35 @@ function actionOf(it, questionById, autoMerge) {
   return null;
 }
 
+const asking = (it) => Boolean(it.questions && it.questions.state !== 'resolved' && it.questions.open > 0);
+const ASKING = new Set(['pick', 'questions']);
+
+// The open card's one workflow button, which board/public/app-cards.js only labels: openQuestions while it has open
+// questions, held or not, markDone for an ask waiting on the owner's Done, grill otherwise, and none on a Done card or
+// on an ask with neither.
+function actionButtonOf(it) {
+  if (it.lane === 'done') return null;
+  if (asking(it)) return 'openQuestions';
+  if (it.action?.kind === 'done') return 'markDone';
+  return it.kind === 'ask' ? null : 'grill';
+}
+
 // docs/adr/0045-the-lane-follows-who-acts-next.md
-// A card only the owner can move on goes to In Review. One Claude still works on, or one already waiting on the
-// reviewers, keeps its lane; either way it carries its action.
+// A card only the owner can move on goes to In Review, apart from a Todo card waiting on its questions, which stays in
+// Todo (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md). One Claude still works on, or one already
+// waiting on the reviewers, keeps its lane; either way it carries its action.
 function placeOwnerWait(it, questionById, autoMerge) {
   it.action = actionOf(it, questionById, autoMerge);
+  it.actionButton = actionButtonOf(it);
   if (it.action?.kind === 'merge') it.next = OWNER_MERGE_NEXT.ready;
   const ownerOnly = it.lane === 'todo' || (it.lane === 'progress' && (it.waitsOn === 'ready' || it.waitsOn === 'owner'));
   if (!it.action || !ownerOnly) return;
-  Object.assign(it, { lane: 'review', waitsOn: it.waitsOn === 'ready' ? 'ready' : 'owner', next: it.action.label, bumpable: false, bumpedAt: null });
+  const lane = it.lane === 'todo' && ASKING.has(it.action.kind) ? 'todo' : 'review';
+  Object.assign(it, { lane, waitsOn: it.waitsOn === 'ready' ? 'ready' : 'owner', next: it.action.label, bumpable: false, bumpedAt: null });
 }
+
+// docs/adr/0049-a-started-card-never-returns-to-todo.md
+const started = (it) => it.agents.length > 0 || Boolean(it.questions && it.questions.answered + it.questions.replied + it.questions.resolved > 0);
 
 // An open follow-up is a Todo card of its wave (docs/adr/0034-follow-ups-are-todo-cards-of-their-wave.md).
 function followUp({ slug, wave, f, order, repo, bumpedAt, closedAt }) {
@@ -192,17 +211,23 @@ function followUp({ slug, wave, f, order, repo, bumpedAt, closedAt }) {
 // mark is Claude's latest data/ask-progress.json entry {state, at, next} and doneAt the owner's latest ask-done: the newer
 // one decides whether the ask sits in In Progress with a Done button (docs/adr/0035-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md).
 // A mark with moved is an ask sent to another board on the owner's answer, so it never shows as an answer.
-function askItem(e, msgs, bumpedAt, linked, mark, doneAt) {
+// pending counts its questions (topic item:ask:<event id>) that are open or answered and waiting on Claude: an answered
+// ask with either stays out of Done until a mark or the owner's Done closes it
+// (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md).
+function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
   const msg = msgs.find((m) => m.kind === 'ask' && m.eventId === e.id);
   const files = e.data?.files || [];
   const title = (msg.text || '').trim().split('\n')[0] || files.map((f) => f.name).join(', ') || 'Ask';
   const answered = msg.state === 'replied' || msg.state === 'answered';
   const inProgress = mark?.state === 'progress' && !(String(doneAt || '') > String(mark.at || ''));
-  const done = !inProgress && (answered || Boolean(mark) || Boolean(doneAt));
+  const closed = !inProgress && (Boolean(mark) || Boolean(doneAt));
+  const asked = answered && !closed && !inProgress && pending.open > 0;
+  const onClaude = answered && !closed && !inProgress && !asked && pending.answered > 0;
+  const done = closed || (answered && !inProgress && !asked && !onClaude);
   const answerAt = answered && !linked && !mark?.moved
     ?[...msgs.filter((m) => m.who === 'claude' && m.kind !== 'ask-link' && m.kind !== 'status').map((m) => m.ts), ...msgs.map((m) => m.reply?.at)].filter(Boolean).sort().pop() || null
     : null;
-  const handled = done || inProgress;
+  const handled = done || inProgress || asked || onClaude;
   // An owner message Claude hasn't answered puts the next step back with Claude.
   const ownerPending = msgs.some((m) => m.who === 'love' && m.kind !== 'ask' && (m.state === 'waiting' || m.state === 'working'));
   const state = handled ? 'answered' : msg.state;
@@ -211,9 +236,9 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt) {
   const lastTs = [...msgs.map((m) => m.ts), ...othersAt, ...(inProgress ? [mark.at] : [])].filter(Boolean).sort().pop();
   return {
     key: `ask:${e.id}`, kind: 'ask', order: 0, wave: null, waveTitle: null, id: e.id, ref: handled ? 'Task' : 'New', isNew: !handled, title, status: null,
-    internal: false, repo: null, lane: inProgress ? 'progress' : done ? 'done' : 'todo', waitsOn: inProgress && !ownerPending ? 'owner' : null, builder: null, agents: [], eta: null, working: msgs.some((m) => m.state === 'working'),
+    internal: false, repo: null, lane: inProgress || onClaude ? 'progress' : done ? 'done' : 'todo', waitsOn: inProgress && !ownerPending ? 'owner' : null, builder: null, agents: [], eta: null, working: msgs.some((m) => m.state === 'working'),
     deps: [], held: false, risky: false, bumpable: !handled, bumpedAt: bumped, manualSteps: [], fromAsk: null, from: null, next: inProgress ? mark.next || null : null, hasNotes: false, branch: null,
-    finishable: inProgress, closing: false,
+    finishable: handled && !done, closing: false,
     linear: [], pr: null, reviewers: [], review: {}, inReviewSince: null,
     slack: null, threadCount: msgs.length, lastTs, othersAt: handled ? othersAt : [], grilling: false, updatedAt: handled ? lastTs : e.ts,
     ask: { eventId: e.id, state, askedAt: e.ts, bumpedAt: bumped, edited: Boolean(msg.edited), canEdit: !handled, text: msg.text, files, answerAt, from: msg.from || null },
@@ -382,6 +407,12 @@ export function buildBoard(snapshot) {
   const moved = {};
   const askProgress = snapshot.askProgress || {};
   const askDones = latest('ask-done', 'id');
+  const answerEvents = events.filter((e) => e.kind === 'owner-answer');
+  const questions = (owner.items || []).map((q) => ownerQuestion(q, answerEvents));
+  const pendingOn = (topic) => {
+    const qs = questions.filter((q) => q.topic === topic);
+    return { open: qs.filter((q) => q.state === 'open').length, answered: qs.filter((q) => q.state === 'answered').length };
+  };
   for (const e of asks.values()) {
     const key = `ask:${e.id}`;
     const related = works.get(askLinks[e.id]);
@@ -390,7 +421,7 @@ export function buildBoard(snapshot) {
     if (links.length) { moved[key] = links[0].key; continue; }
     const msgs = threadOf(key, { lines: threads[key] || [], events, working, links });
     for (const m of msgs) if (m.eventId) threadStates.set(m.eventId, m.state);
-    items.push(askItem(e, msgs, bumps.get(e.id), links.length > 0 || Boolean(askLinks[e.id]), askProgress[e.id], askDones.get(e.id)));
+    items.push(askItem(e, msgs, bumps.get(e.id), links.length > 0 || Boolean(askLinks[e.id]), askProgress[e.id], askDones.get(e.id), pendingOn(`item:${key}`)));
   }
   for (const w of waves) {
     const cards = items.filter((i) => i.wave === w.slug);
@@ -398,8 +429,6 @@ export function buildBoard(snapshot) {
     if (w.finished) for (const i of cards) if (i.lane === 'done') i.fold = waveFold(w.slug);
   }
   for (const i of items) if (i.kind === 'ask' && i.lane === 'done') i.fold = ASKS_FOLD;
-  const answerEvents = events.filter((e) => e.kind === 'owner-answer');
-  const questions = (owner.items || []).map((q) => ownerQuestion(q, answerEvents));
   const declared = new Set((owner.topics || []).map((t) => t.id));
   const topicsOf = () => ownerTopics([...(owner.topics || []), ...items.filter((it) => !declared.has(`item:${it.key}`))
     .map((it) => ({ id: `item:${it.key}`, title: `${it.ref}: ${it.title}`, summary: 'Questions about this work item.' }))], questions);
@@ -419,8 +448,7 @@ export function buildBoard(snapshot) {
       .filter((d) => d && d.lane !== 'done').map((d) => ({ key: d.key, ref: d.ref }));
     if (it.lane === 'done' && !it.fold && it.updatedAt && now - Date.parse(it.updatedAt) >= DONE_OPEN) it.fold = OLDER_FOLD;
     placeOwnerWait(it, questionById, autoMerge);
-    // docs/adr/0049-a-started-card-never-returns-to-todo.md
-    if (it.lane === 'todo' && it.kind === 'work' && !it.held && (it.questions || it.agents.length)) it.lane = 'progress';
+    if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it)) it.lane = 'progress';
   }
   // docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md
   // New cards lead Todo, unbumped ones oldest first, so the top one is the next taken (docs/adr/0047-the-plus-makes-a-new-card.md).
