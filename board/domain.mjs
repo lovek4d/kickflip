@@ -191,6 +191,7 @@ function followUp({ slug, wave, f, order, repo, bumpedAt, closedAt }) {
 // of its own: buildBoard leaves it out. msgs is its thread; bumpedAt is its latest ask-bump.
 // mark is Claude's latest data/ask-progress.json entry {state, at, next} and doneAt the owner's latest ask-done: the newer
 // one decides whether the ask sits in In Progress with a Done button (docs/adr/0035-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md).
+// A mark with moved is an ask sent to another board on the owner's answer, so it never shows as an answer.
 function askItem(e, msgs, bumpedAt, linked, mark, doneAt) {
   const msg = msgs.find((m) => m.kind === 'ask' && m.eventId === e.id);
   const files = e.data?.files || [];
@@ -198,8 +199,8 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt) {
   const answered = msg.state === 'replied' || msg.state === 'answered';
   const inProgress = mark?.state === 'progress' && !(String(doneAt || '') > String(mark.at || ''));
   const done = !inProgress && (answered || Boolean(mark) || Boolean(doneAt));
-  const answerAt = answered && !linked
-    ? [...msgs.filter((m) => m.who === 'claude' && m.kind !== 'ask-link' && m.kind !== 'status').map((m) => m.ts), ...msgs.map((m) => m.reply?.at)].filter(Boolean).sort().pop() || null
+  const answerAt = answered && !linked && !mark?.moved
+    ?[...msgs.filter((m) => m.who === 'claude' && m.kind !== 'ask-link' && m.kind !== 'status').map((m) => m.ts), ...msgs.map((m) => m.reply?.at)].filter(Boolean).sort().pop() || null
     : null;
   const handled = done || inProgress;
   // An owner message Claude hasn't answered puts the next step back with Claude.
@@ -215,7 +216,7 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt) {
     finishable: inProgress, closing: false,
     linear: [], pr: null, reviewers: [], review: {}, inReviewSince: null,
     slack: null, threadCount: msgs.length, lastTs, othersAt: handled ? othersAt : [], grilling: false, updatedAt: handled ? lastTs : e.ts,
-    ask: { eventId: e.id, state, askedAt: e.ts, bumpedAt: bumped, edited: Boolean(msg.edited), canEdit: !handled, text: msg.text, files, answerAt },
+    ask: { eventId: e.id, state, askedAt: e.ts, bumpedAt: bumped, edited: Boolean(msg.edited), canEdit: !handled, text: msg.text, files, answerAt, from: msg.from || null },
     fold: null, action: null,
   };
 }
@@ -254,7 +255,8 @@ function ownerQuestion(q, answerEvents) {
 }
 
 // A topic is resolved once every question in it is; questions without a known topic share "Other".
-// A work item's questions use topic `item:<wave>/<id>`; the board supplies its title when owner.json has none.
+// A card's questions use topic `item:<key>`: `item:<wave>/<id>`, or `item:ask:<event id>` for a New card not yet sorted.
+// The board supplies its title when owner.json has none.
 function ownerTopics(topics, questions) {
   const known = new Set(topics.map((t) => t.id));
   const all = [...topics];
@@ -298,7 +300,8 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       return { ts: e.ts, who: 'love', via: 'questions', kind: e.kind, text: `${asked.get(e.data.id).question}\n→ ${answer}`, files: e.data.files || [], eventId: e.id, reply: e.reply };
     }),
     ...events.filter((e) => e.kind === 'ask' && askIds.includes(e.id))
-      .flatMap((e) => [{ ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, ...(moved.includes(e.id) ? { moved: true } : {}) },
+      .flatMap((e) => [{ ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, ...(moved.includes(e.id) ? { moved: true } : {}),
+        ...(typeof e.data?.from?.title === 'string' ? { from: e.data.from.title } : {}) },
         ...links.map((l) => ({ ts: e.ts, who: 'claude', kind: 'ask-link', text: `${l.became ? 'Became' : 'Added to'} ${l.ref}`, link: `#item=${encodeURIComponent(l.key)}`, html: null, via: null }))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
   const lastClaude = msgs.filter((m) => m.who === 'claude' && m.kind !== 'status' && m.kind !== 'agent').map((m) => String(m.ts)).pop() || '';
@@ -317,7 +320,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
 // snapshot: {waves: [{slug, wave, agents: {<id>: {<agent>: record}}}], watched: [slug], fromWaves,
 //   prs: {"<repo>#<n>": pr}, threads: {<key>: [line]}, events: [event with reply, hidden ones left out],
 //   working: {<event id>: ts}, checked: data/checked.json, watcher: {running}, askLinks: {<ask event id>: <wave>/<id>},
-//   askProgress: {<ask event id>: {state: progress|done, at, next}}, owner: owner.json, bridge: slack-bridge state.json,
+//   askProgress: {<ask event id>: {state: progress|done, at, next, moved}}, owner: owner.json, bridge: slack-bridge state.json,
 //   autoMerge: board.json's auto_merge (true leaves merging to monitor, so no card gets the owner's Merge),
 //   threads also holds each ask's lines under ask:<event id>;
 //   topicItems: merged topic items, now: ms}
@@ -398,7 +401,7 @@ export function buildBoard(snapshot) {
   const answerEvents = events.filter((e) => e.kind === 'owner-answer');
   const questions = (owner.items || []).map((q) => ownerQuestion(q, answerEvents));
   const declared = new Set((owner.topics || []).map((t) => t.id));
-  const topicsOf = () => ownerTopics([...(owner.topics || []), ...items.filter((it) => it.kind !== 'ask' && !declared.has(`item:${it.key}`))
+  const topicsOf = () => ownerTopics([...(owner.topics || []), ...items.filter((it) => !declared.has(`item:${it.key}`))
     .map((it) => ({ id: `item:${it.key}`, title: `${it.ref}: ${it.title}`, summary: 'Questions about this work item.' }))], questions);
   const itemTopics = new Map(topicsOf().map((t) => [t.id, t]));
   for (const it of items) {

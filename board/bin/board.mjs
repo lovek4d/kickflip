@@ -28,7 +28,8 @@ A --file argument of - reads stdin.
   topic add <id> --title <t> [--summary <s>]             a question topic in data/owner.json
   question add --file <json>                             one question or an array of them:
          {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
-          source?, context?, url?, urgent?}; topic is declared or item:<wave>/<id>.
+          source?, context?, url?, urgent?}; topic is declared, item:<wave>/<id>, or item:ask:<eventId>
+          for a New card not sorted yet.
          url is http(s), or a site page such as prototype-<topic>.html?q=<id>, stored as given.
          diagram, with practice: rows of 1-4 boxes [[{text, tone?, to?}]], tone quiet|info|notice|
          danger|success, to the next row's box indexes (default all); practice: ["<line>", …]
@@ -73,6 +74,13 @@ A --file argument of - reads stdin.
                                                          waits on the owner, such as a pick between prototypes
   ask done <eventId>                                     moves the ask to Done, as the owner's Done button does
   ask unfold <eventId>                                   moves a folded ask back out to a card of its own
+  ask move <eventId> --to <route>                        sends a New ask to another board in the hub's manifest:
+                                                         a New card there with the owner's text, attachments and
+                                                         "Moved from <this board>", which wakes its session; here the
+                                                         ask goes to Done with a thread line linking to that card.
+                                                         A card the ask became is dropped, unless it has started.
+                                                         Refuses a route that isn't another board, and an ask
+                                                         that isn't New
   hello-ack <eventId>                                    answers the hub's hello: data/handshake.json records that the
                                                          session hears the board, which clears the setup checklist's
                                                          Events step. Refuses an older hello than the newest
@@ -224,6 +232,7 @@ const COMMANDS = {
   'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],
   'ask done': [['eventId'], [], (site, [id]) => store.markAsk(site, id, 'done')],
   'ask unfold': [['eventId'], [], (site, [id]) => store.unfoldAsk(site, id)],
+  'ask move': [['eventId'], ['to'], (site, [id], f) => store.moveAsk(site, id, f.to)],
   'followup add': [['wave'], ['id', 'title', 'from'], (site, [wave], f) => store.addFollowup(site, wave, f)],
   'followup done': [['wave', 'id'], [], (site, [wave, id]) => store.finishFollowup(site, wave, id)],
   'reviewers set': [[], ['file'], (site, _, f) => store.setReviewers(site, readJSONInput(f.file))],

@@ -64,13 +64,13 @@
   // docs/adr/0047-the-plus-makes-a-new-card.md). top is whether it is the latest bump.
   const askActions = (it, top) => `<div class="ask-actions">${bumpButton(it, top)}${it.ask.canEdit ? editButton(it.id) : ''}${withdrawButton(it.id)}</div>`;
   const ASK_STATE = { waiting: 'Waiting', working: `<span class="working">${workingLine}</span>` };
-  const askLine = (ask) => `${esc(time(ask.askedAt))} · ${ask.edited ? 'Edited · ' : ''}${ASK_STATE[ask.state] || ''}`;
+  const askLine = (ask) => `${ask.from ? `Moved from ${esc(ask.from)} · ` : ''}${esc(time(ask.askedAt))} · ${ask.edited ? 'Edited · ' : ''}${ASK_STATE[ask.state] || ''}`;
   function workLines(it, { unread = 0, top = false } = {}) {
     const ids = it.kind === 'ask' ? askChip(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
     const blocked = (it.blockedBy || []).map((d) => badge('notice', `blocked by ${esc(d.ref)}`, { href: `#item=${encodeURIComponent(d.key)}` })).join('');
     const ready = !blocked && it.deps?.length && it.lane === 'todo' ? badge('ready', 'ready to start') : '';
     const chips = `${actionChip(it)}${installChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('normal', 'bumped') : ''}${ready}`;
-    const status = it.isNew ? `<div class="line3 sub">${askLine(it.ask)}</div>`
+    const status = it.isNew && !it.action ? `<div class="line3 sub">${askLine(it.ask)}</div>`
       : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Claude checking</div>'
       : it.builder ? `<div class="line3 sub agent">${esc(builderLine(it.builder))}</div>`
       : it.working ? `<div class="line3 sub agent">${workingLine}</div>`

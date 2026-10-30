@@ -130,15 +130,16 @@ test('thread refuses an unknown item, an empty text and an unknown channel', () 
 
 test('question add appends valid questions and rejects the whole file otherwise', () => {
   const drawn = (more = {}) => ({ id: 'A', label: 'Keep', diagram: [[{ text: 'Hub' }, { text: 'Board', tone: 'info', to: [0] }], [{ text: 'Owner', tone: 'success' }]], practice: ['One place to change.'], ...more });
-  write(path.join(home, 'q.json'), [question('q1', { url: 'prototype-site.html?q=q1' }), question('q2', { topic: 'item:w/A1', urgent: true, url: 'https://linear.app/x/issue/INT-1', options: [drawn(), { id: 'B', label: 'Drop' }] })]);
+  write(path.join(home, 'q.json'), [question('q1', { url: 'prototype-site.html?q=q1' }), question('q2', { topic: 'item:w/A1', urgent: true, url: 'https://linear.app/x/issue/INT-1', options: [drawn(), { id: 'B', label: 'Drop' }] }), question('q4', { topic: 'item:ask:e1' })]);
   assert.equal(board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')).code, 0);
-  assert.deepEqual(read(site('orch', 'data', 'owner.json')).items.map((q) => [q.id, q.url]), [['q1', 'prototype-site.html?q=q1'], ['q2', 'https://linear.app/x/issue/INT-1']]);
+  assert.deepEqual(read(site('orch', 'data', 'owner.json')).items.map((q) => [q.id, q.url]), [['q1', 'prototype-site.html?q=q1'], ['q2', 'https://linear.app/x/issue/INT-1'], ['q4', undefined]]);
   assert.deepEqual(read(site('orch', 'data', 'owner.json')).items[1].options[0], drawn());
 
   const rejected = [
     [question('q1')],
     [question('q3', { topic: 'nowhere' })],
     [question('q3', { topic: 'item:w/Z9' })],
+    [question('q3', { topic: 'item:ask:e9' })],
     [question('q3', { options: [] })],
     [question('q3', { options: [{ id: 'A', label: 'Keep', recommend: true }] })],
     [question('q3', { options: [{ id: 'A', label: 'X', recommended: true }, { id: 'B', label: 'Y', recommended: true }] })],
@@ -160,7 +161,7 @@ test('question add appends valid questions and rejects the whole file otherwise'
     write(path.join(home, 'bad.json'), file);
     assert.equal(board('question', 'add', '--site', 'orch', '--file', path.join(home, 'bad.json')).code, 1, JSON.stringify(file));
   }
-  assert.deepEqual(read(site('orch', 'data', 'owner.json')).items.map((q) => q.id), ['q1', 'q2']);
+  assert.deepEqual(read(site('orch', 'data', 'owner.json')).items.map((q) => q.id), ['q1', 'q2', 'q4']);
 });
 
 test('a new topic takes questions, and resolving one records when', () => {
@@ -552,6 +553,85 @@ test('item relate-ask folds an ask into an item with one summary line, ask unfol
   board('item', 'relate-ask', 'e1', 'w/A1', '--summary', 'Back in', '--site', 'orch');
   assert.equal(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--site', 'orch').code, 0);
   assert.deepEqual([read(site('orch', 'data', 'ask-links.json')), read(at('waves', 'w', 'wave.json')).items[0].from_ask], [{ links: {} }, 'e1']);
+});
+
+function boardsManifest() {
+  const entry = (route) => ({ dir: site(route), port: 1, cmd: [process.execPath, '/skill/board/server.mjs', site(route)] });
+  write(at('web-ts', 'manifest.json'), { sites: { orch: entry('orch'), audit: entry('audit'), notes: { dir: site('notes'), port: 1, cmd: [process.execPath, 'server.mjs'] } } });
+}
+const addEvents = (...events) => fs.appendFileSync(site('orch', 'data', 'events.jsonl'), events.map((e) => JSON.stringify(e) + '\n').join(''));
+
+test("ask move sends a New ask to another board with the owner's latest text, its attachments and where it came from, and leaves it Done here with a line linking there", () => {
+  boardsManifest();
+  write(site('orch', 'data', 'uploads', '1700-shot.png'), 'png bytes');
+  write(site('orch', 'data', 'uploads', '.meta', '1700-shot.png.json'), { name: 'shot.png', type: 'image/png', size: 9, at: '2026-10-23T09:00:00Z' });
+  const shot = { name: 'shot.png', url: 'uploads/1700-shot.png', path: site('orch', 'data', 'uploads', '1700-shot.png'), type: 'image/png', size: 9 };
+  addEvents({ id: 'e2', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Fix the audit header', files: [shot] } },
+    { id: 'e3', ts: '2026-10-23T11:05:00Z', kind: 'ask-edited', data: { id: 'e2', text: 'Fix the audit header spacing' } });
+  const r = board('ask', 'move', 'e2', '--to', 'audit', '--site', 'orch');
+  assert.equal(r.code, 0, r.err);
+  const [moved, ...others] = lines(site('audit', 'data', 'events.jsonl'));
+  assert.equal(others.length, 0);
+  const [file] = moved.data.files;
+  assert.deepEqual([moved.kind, moved.data.text, moved.data.from, file.name, file.type], ['ask', 'Fix the audit header spacing', { route: 'orch', title: 'Orch', id: 'e2' }, 'shot.png', 'image/png']);
+  assert.match(file.url, /^uploads\/\d+-shot\.png$/);
+  assert.equal(file.path, site('audit', 'data', file.url));
+  assert.equal(fs.readFileSync(site('audit', 'data', file.url), 'utf8'), 'png bytes');
+  assert.equal(read(site('audit', 'data', 'uploads', '.meta', `${file.url.slice(8)}.json`)).name, 'shot.png');
+  const link = `/audit/#item=ask%3A${moved.id}`;
+  assert.match(r.out, new RegExp(`moved to ${link.replace(/[/#%]/g, '\\$&')}`));
+  const mark = read(site('orch', 'data', 'ask-progress.json')).asks.e2;
+  assert.deepEqual([mark.state, mark.moved], ['done', { route: 'audit', title: 'Audit', id: moved.id }]);
+  assert.deepEqual(lines(site('orch', 'data', 'threads', 'ask__e2.jsonl')).map(({ ts, ...m }) => m), [{ who: 'claude', text: 'Moved to Audit.', link }]);
+
+  assert.match(board('ask', 'move', 'e2', '--to', 'audit', '--site', 'orch').err, /ask "e2" was already moved to \/audit/);
+  assert.match(board('ask', 'progress', 'e2', '--site', 'orch').err, /ask "e2" was moved to \/audit/);
+  assert.match(board('item', 'set', 'w/A1', '--from-ask', 'e2', '--site', 'orch').err, /ask "e2" was moved to \/audit/);
+  assert.equal(lines(site('audit', 'data', 'events.jsonl')).length, 1);
+});
+
+test('ask move refuses a route that is not another board, and an ask that is not New, changing nothing', () => {
+  boardsManifest();
+  addEvents({ id: 'e4', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Folded' } }, { id: 'e5', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Deleted' } },
+    { id: 'e6', ts: '2026-10-23T11:01:00Z', kind: 'ask-withdrawn', data: { id: 'e5' } }, { id: 'e7', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Talked' } },
+    { id: 'm1', ts: '2026-10-23T11:00:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'Not an ask' } });
+  board('reply', 'e1', '--site', 'orch', '--html', '<p>Answered.</p>');
+  board('item', 'relate-ask', 'e4', 'w/A1', '--summary', 'Folded in', '--site', 'orch');
+  board('thread', 'ask:e7', '--site', 'orch', '--text', 'Answered in the thread.');
+  const refusals = [
+    [['e7', '--to', 'nope'], /--to nope: no board at \/nope in the hub's manifest; the boards are orch, audit/],
+    [['e7', '--to', 'notes'], /no board at \/notes/],
+    [['e7', '--to', 'orch'], /--to orch: that is this board/],
+    [['e7'], /ask move needs --to <route>/],
+    [['m1', '--to', 'audit'], /no ask "m1"/],
+    [['e1', '--to', 'audit'], /ask "e1" is not New: Claude already answered it/],
+    [['e7', '--to', 'audit'], /ask "e7" is not New/],
+    [['e4', '--to', 'audit'], /ask "e4" is folded into w\/A1; run ask unfold e4 first/],
+    [['e5', '--to', 'audit'], /ask "e5" was deleted by the owner/],
+  ];
+  for (const [args, err] of refusals) {
+    const r = board('ask', 'move', ...args, '--site', 'orch');
+    assert.equal(r.code, 1, args.join(' '));
+    assert.match(r.err, err);
+    assert.equal(r.err.trim().split('\n').length, 1);
+  }
+  assert.equal(fs.existsSync(site('audit', 'data', 'events.jsonl')), false);
+  assert.equal(fs.existsSync(site('orch', 'data', 'ask-progress.json')), false);
+});
+
+test('ask move drops the card an ask became when it has not started, and refuses one that has', () => {
+  boardsManifest();
+  addEvents({ id: 'e2', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Filed first' } }, { id: 'e3', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Started' } });
+  board('item', 'set', 'w/A1', '--from-ask', 'e2', '--site', 'orch');
+  board('item', 'add', 'w/A2', '--title', 'Two', '--site', 'orch');
+  board('item', 'set', 'w/A2', '--from-ask', 'e3', '--status', 'building', '--site', 'orch');
+  assert.match(board('ask', 'move', 'e3', '--to', 'audit', '--site', 'orch').err, /ask "e3" became w\/A2, which has started/);
+  const r = board('ask', 'move', 'e2', '--to', 'audit', '--site', 'orch');
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /dropped: w\/A1/);
+  assert.deepEqual(read(at('waves', 'w', 'wave.json')).items.map((i) => [i.id, i.status]), [['A1', 'dropped'], ['A2', 'building']]);
+  assert.deepEqual(lines(site('audit', 'data', 'events.jsonl')).map((e) => e.data.text), ['Filed first']);
+  assert.equal(lines(site('orch', 'data', 'threads', 'ask__e2.jsonl'))[0].text, 'Moved to Audit.');
 });
 
 test('item set records when the status last changed, and only then', () => {

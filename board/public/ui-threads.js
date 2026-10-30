@@ -2,6 +2,14 @@
 (function () {
   const { esc, time, etaLine, replyBody, attachments, editButton, withdrawButton, workingLine, linkText, linkHtml, anyLink } = globalThis.BoardUI;
   const VIA = { slack: ' · Slack', github: ' · GitHub' };
+  // A link to a card on this board (#item=<key>) or on another board (/<route>/#item=<key>, an ask's move), or ''.
+  function cardLink(link) {
+    const key = /^(?:\/[\w-]+\/)?#item=([^&]+)/.exec(link)?.[1];
+    if (!key) return '';
+    let ask = key.startsWith('ask:');
+    try { ask = decodeURIComponent(key).startsWith('ask:'); } catch {}
+    return `<a href="${esc(link)}">Open the ${ask ? 'task' : 'card'} →</a>`;
+  }
   // A message's state comes from domain.mjs threadOf.
   const msgFooter = (m) => ({
     working: () => `<div class="reply muted small">${workingLine}</div>`,
@@ -22,9 +30,9 @@
     : m.kind === 'status' ? `<div class="msg builder-status"><span class="working-dot" aria-hidden="true"></span>${linkText(m.text, links)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.kind === 'agent' ? `<div class="msg agent ${m.finished ? 'finished' : 'started'}"><span class="agent-dot" aria-hidden="true"></span>${esc(m.text)} <span class="muted">· ${esc(time(m.ts))}${m.eta ? ` · ${esc(etaLine(m.eta))}` : ''}</span></div>` : `<div class="msg ${m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : ''}>
         ${m.canDelete || m.canEdit ? `<div class="ask-actions">${m.canEdit ? editButton(m.eventId) : ''}${m.canDelete ? withdrawButton(m.eventId) : ''}</div>` : ''}
-        <div class="who">${m.who === 'love' ? 'You' : m.who === 'claude' ? 'Claude' : esc(m.who)}${VIA[m.via] || ''}${m.moved ? ' · Moved' : ''}${m.edited ? ' · Edited' : ''} · ${esc(time(m.ts))}</div>
+        <div class="who">${m.who === 'love' ? 'You' : m.who === 'claude' ? 'Claude' : esc(m.who)}${VIA[m.via] || ''}${m.moved ? ' · Moved' : ''}${m.from ? ` · Moved from ${esc(m.from)}` : ''}${m.edited ? ' · Edited' : ''} · ${esc(time(m.ts))}</div>
         <div class="body">${m.html ? linkHtml(m.html, links) : linkText(m.text, links)}</div>${attachments(m.files)}
-        ${m.link ? `<div class="small">${m.link.startsWith('#item=') ? `<a href="${esc(m.link)}">Open the ${m.link.startsWith('#item=ask:') ? 'task' : 'card'} →</a>` : anyLink(m.link, m.link)}</div>` : ''}
+        ${m.link ? `<div class="small">${cardLink(m.link) || anyLink(m.link, m.link)}</div>` : ''}
         ${m.eventId ? msgFooter(m) : ''}
       </div>`)).join('') : '<div class="muted small">No messages here yet.</div>');
 

@@ -2,9 +2,11 @@
 // ~/.claude/web-ts/sites; `site` null means a board over ~/.claude/waves alone. Every write
 // is validated first, JSON files are replaced by rename, and JSONL files are appended to.
 import fs from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { ITEM_STATUSES } from './domain.mjs';
+import { appendEvent, listBoards } from '../hub/boards.mjs';
 import { reviseQueued, deliver, lastSent, flushQueue, queueStatus } from '../hub/push.mjs';
 import { clock, holdLine } from '../hub/schedule.mjs';
 import { RuleError, rulesOf, addRule, editRule, removeRule, applyRules, readHubRules, writeHubRules } from '../hub/rules.mjs';
@@ -301,6 +303,7 @@ export async function relateAsk(site, eventId, key, summary) {
   domId(eventId, 'the event id');
   const known = (await readLines(path.join(site, 'data', 'events.jsonl'))).some((e) => e.id === eventId && e.kind === 'ask');
   if (!known) fail(`no ask "${eventId}" in this site's data/events.jsonl`);
+  await refuseMoved(site, eventId);
   await loadItem(site, key);
   const line = { ts: new Date().toISOString(), who: 'claude', text: text(summary, '--summary') };
   const links = await readAskLinks(site);
@@ -320,20 +323,103 @@ export async function unfoldAsk(site, eventId) {
   return askLinksFile(site);
 }
 
-// Claude's latest mark on each ask, data/ask-progress.json {asks: {<ask event id>: {state, at, next?}}}: progress keeps
-// an answered ask in In Progress until the owner's ask-done or a done mark is newer
-// (docs/adr/0035-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md).
+// Claude's latest mark on each ask, data/ask-progress.json {asks: {<ask event id>: {state, at, next?, moved?}}}: progress
+// keeps an answered ask in In Progress until the owner's ask-done or a done mark is newer
+// (docs/adr/0035-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md). moved {route, title, id} is a done
+// mark that names the ask moveAsk sent to another board.
 const askProgressFile = (site) => path.join(site, 'data', 'ask-progress.json');
 export async function readAskProgress(site) {
   return (await readJSON(askProgressFile(site), {})).asks || {};
 }
 
+async function refuseMoved(site, eventId) {
+  const moved = (await readAskProgress(site))[eventId]?.moved;
+  if (moved) fail(`ask "${eventId}" was moved to /${moved.route}; it lives there now`);
+}
+
 export async function markAsk(site, eventId, state, next) {
   await checkAsk(site, eventId, 'the ask');
+  await refuseMoved(site, eventId);
   const asks = await readAskProgress(site);
   asks[eventId] = { state, at: new Date().toISOString(), ...(next === undefined ? {} : { next: text(next, '--next') }) };
   await writeJSON(askProgressFile(site), { asks });
   return askProgressFile(site);
+}
+
+// Why an ask is no longer New on this board, or null. An ask that became work items is New to moveAsk while none of
+// them has started; it returns them as `items`.
+const UNSTARTED = [undefined, 'planned', 'waiting'];
+async function askNotNew(site, eventId, events) {
+  const named = `ask "${eventId}"`;
+  if (events.some((e) => e.kind === 'ask-withdrawn' && e.data?.id === eventId && !e.data?.key)) return { why: `${named} was deleted by the owner` };
+  const mark = (await readAskProgress(site))[eventId];
+  if (mark?.moved) return { why: `${named} was already moved to /${mark.moved.route}` };
+  const folded = (await readAskLinks(site))[eventId];
+  if (folded) return { why: `${named} is folded into ${folded}; run ask unfold ${eventId} first` };
+  const items = [];
+  for (const s of await itemSources(site)) {
+    const wave = await readJSON(s.file, null);
+    for (const it of Array.isArray(wave?.items) ? wave.items : []) if (it.from_ask === eventId) items.push({ key: `${s.slug}/${it.id}`, it });
+  }
+  const started = items.find(({ it }) => it.pr || !UNSTARTED.includes(it.status));
+  if (started) return { why: `${named} became ${started.key}, which has started` };
+  if (items.length) return { items: items.map((i) => i.key) };
+  const replied = await Promise.all(['html', 'json'].map((ext) => fs.stat(path.join(site, 'data', 'replies', `${eventId}.${ext}`)).then(() => true, () => false)));
+  const answered = replied.some(Boolean) || Boolean(mark) || events.some((e) => e.kind === 'ask-done' && e.data?.id === eventId)
+    || (await readLines(threadFile(site, `ask:${eventId}`))).some((m) => (m.who || 'claude') === 'claude' && m.kind !== 'status');
+  return answered ? { why: `${named} is not New: Claude already answered it` } : null;
+}
+
+// A copy of an upload in another site's data/uploads under a fresh stored name, or the file's name alone when this
+// site no longer has it, so the other board never shows a broken link.
+async function copyUpload(from, to, f) {
+  const file = /^uploads\/([\w.-]+)$/.exec(f?.url || '')?.[1];
+  const src = STORED.test(file || '') ? path.join(uploadsDir(from), file) : null;
+  if (!src || !(await fs.stat(src).then((s) => s.isFile(), () => false))) return { name: String(f?.name || file || 'file') };
+  await fs.mkdir(path.dirname(uploadMeta(to, 'x')), { recursive: true });
+  const safe = file.replace(/^\d+-/, '');
+  let name;
+  for (let t = Date.now(); ; t++) {
+    name = `${t}-${safe}`;
+    const copied = await fs.copyFile(src, path.join(uploadsDir(to), name), fsConstants.COPYFILE_EXCL).then(() => true, (e) => (e.code === 'EEXIST' ? false : Promise.reject(e)));
+    if (copied) break;
+  }
+  const meta = await readJSON(uploadMeta(from, file), null);
+  if (meta) await writeJSON(uploadMeta(to, name), meta);
+  return { ...f, url: `uploads/${name}`, path: path.join(uploadsDir(to), name) };
+}
+
+// Sends a New ask to another board in the hub's manifest: there, an `ask` event with the owner's latest text, copies
+// of its uploads and `from {route, title, id}`, which wakes that board's session; here, a done mark naming it, and a
+// line in the ask's thread linking to its card there. Work items the ask became, none of them started, are dropped.
+export async function moveAsk(site, eventId, route) {
+  needSite(site);
+  domId(eventId, 'the event id');
+  if (typeof route !== 'string' || !route.trim()) fail('ask move needs --to <route>, the board to move it to');
+  const events = await readLines(path.join(site, 'data', 'events.jsonl'));
+  const ask = events.find((e) => e.id === eventId && e.kind === 'ask') || fail(`no ask "${eventId}" in this site's data/events.jsonl`);
+  const boards = listBoards();
+  const target = boards.find((b) => b.route === route)
+    || fail(`--to ${route}: no board at /${route} in the hub's manifest; the boards are ${boards.map((b) => b.route).join(', ') || 'none'}`);
+  if (path.resolve(target.dir) === path.resolve(site)) fail(`--to ${route}: that is this board`);
+  const state = await askNotNew(site, eventId, events);
+  if (state?.why) fail(state.why);
+  const edited = events.filter((e) => e.kind === 'ask-edited' && e.data?.id === eventId && typeof e.data?.text === 'string')
+    .sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop();
+  const files = [];
+  for (const f of ask.data?.files || []) files.push(await copyUpload(site, target.dir, f));
+  const from = { route: path.basename(site), title: (await boardConfig(site)).title, id: eventId };
+  const body = edited ? edited.data.text : ask.data?.text || '';
+  const id = await appendEvent(target, 'ask', { text: body, ...(files.length ? { files } : {}), from });
+  const moved = { route, title: target.title, id };
+  const at = new Date().toISOString();
+  const asks = await readAskProgress(site);
+  asks[eventId] = { state: 'done', at, moved };
+  await writeJSON(askProgressFile(site), { asks });
+  const link = `/${route}/#item=${encodeURIComponent(`ask:${id}`)}`;
+  await appendLine(threadFile(site, `ask:${eventId}`), { ts: at, who: 'claude', text: `Moved to ${target.title}.`, link });
+  for (const key of state?.items || []) await setItem(site, key, { status: 'dropped' });
+  return { file: path.join(target.dir, 'data', 'events.jsonl'), lines: [`moved to ${link}`, ...(state?.items || []).map((k) => `dropped: ${k}`)] };
 }
 
 // When the session last checked GitHub, and how often it checks (docs/adr/0021-the-board-shows-github-checks-and-watcher-health.md).
@@ -571,7 +657,8 @@ export async function addQuestions(site, input) {
     if (taken.has(domId(q.id, `${name}.id`))) fail(`question id "${q.id}" is already used`);
     taken.add(q.id);
     text(q.topic, `${name}.topic`);
-    if (q.topic.startsWith('item:')) await loadItem(site, q.topic.slice(5));
+    if (q.topic.startsWith('item:ask:')) await checkAsk(site, q.topic.slice(9), `${name}.topic`);
+    else if (q.topic.startsWith('item:')) await loadItem(site, q.topic.slice(5));
     else if (!topics.has(q.topic)) fail(`topic "${q.topic}" is not declared; add it with: topic add ${q.topic} --title <t>`);
     text(q.question, `${name}.question`);
     for (const k of ['source', 'context']) optional(q[k], (v) => text(v, `${name}.${k}`));
@@ -667,6 +754,7 @@ export async function setItem(site, key, { status, clearStatus, next, clearNext,
   const built = installOf({ install, installSha, installLabel, clearInstall });
   if ([status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, built, title].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --from-ask, --held, --unheld, --notes-file, --deps, --install, --clear-install or --title');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
+  if (ask) await refuseMoved(site, ask);
   const { source, wave, item } = await loadItem(site, key);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
   if (title !== undefined) item.title = text(title, '--title');

@@ -301,6 +301,28 @@ test("an ask that became work or was folded into a card has no card of its own: 
   assert.deepEqual(msgs.map(({ who, text, files, state, moved }) => [who, text, files, state, moved]), [['love', 'Fix the header', [shot], 'answered', undefined], ['claude', 'Building it.', undefined, undefined, undefined]]);
 });
 
+test("a New card asked whether to move waits on the owner in In Review, then a move leaves it Done, never an answer, with a line linking to its card on the other board, where it reads as moved from here", () => {
+  const ask = askAt('a1', '2026-10-23T09:00:00Z');
+  const owner = { items: [{ id: 'mv', topic: 'item:ask:a1', question: 'Move it?', options: [{ id: 'move', label: 'Move to Audit', recommended: true }, { id: 'keep', label: 'Keep here' }] }] };
+  const asked = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [], events: [ask], owner });
+  const card = asked.items[0];
+  assert.deepEqual([card.key, card.lane, card.isNew, card.action, card.next], ['ask:a1', 'review', true, { kind: 'questions', url: 'questions.html#mv', label: 'Answer 1 question' }, 'Answer 1 question']);
+  assert.deepEqual(asked.needs.map((n) => [n.kind, n.url]), [['Question', '#item=ask%3Aa1']]);
+  const answer = { id: 'ans', ts: '2026-10-23T09:30:00Z', kind: 'owner-answer', data: { id: 'mv', choice: 'move' }, reply: null };
+  const back = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [], events: [ask, answer], owner }).items[0];
+  assert.deepEqual([back.lane, back.isNew, back.action], ['todo', true, null]);
+  const link = '/audit/#item=ask%3Ab1';
+  const line = { ts: '2026-10-23T09:40:00Z', who: 'claude', text: 'Moved to Audit.', link };
+  const moved = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [], events: [ask, answer], owner, threads: { 'ask:a1': [line] },
+    askProgress: { a1: { state: 'done', at: '2026-10-23T09:40:00Z', moved: { route: 'audit', title: 'Audit', id: 'b1' } } } });
+  assert.deepEqual([moved.items[0].lane, moved.items[0].isNew, moved.answers], ['done', false, []]);
+  assert.deepEqual(threadOf('ask:a1', { events: [ask], lines: [line] }).map(({ who, text, link: l }) => [who, text, l]), [['love', 'a1 first line\nmore', undefined], ['claude', 'Moved to Audit.', link]]);
+  const arrived = askAt('b1', '2026-10-23T09:40:00Z', { data: { text: 'Fix the header', from: { route: 'orch', title: 'Orch', id: 'a1' } } });
+  const there = buildBoard({ fromWaves: false, waves: [], events: [arrived] }).items[0];
+  assert.deepEqual([there.lane, there.isNew, there.title, there.ask.from], ['todo', true, 'Fix the header', 'Orch']);
+  assert.equal(threadOf('ask:b1', { events: [arrived] })[0].from, 'Orch');
+});
+
 test("the owner's reply in a Done ask's thread waits, works and takes edit and delete like a work item's thread message", () => {
   const ask = askAt('a1', '2026-10-23T09:00:00Z', { reply: { html: 'Yes.' } });
   const msg = { id: 'm1', ts: '2026-10-23T10:00:00Z', kind: 'item-message', data: { key: 'ask:a1', text: 'One more thing' }, reply: null };
