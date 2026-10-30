@@ -28,7 +28,7 @@
 .sidebar .sb-text { flex: 1; min-width: 0; }
 .sidebar .sb-title { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sidebar .sb-sub { display: block; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
-.sidebar .sb-count, .top .hub .hub-count { flex: none; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--color-danger); color: #fff;
+.top .hub .hub-count { flex: none; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--color-danger); color: #fff;
   font-size: 12px; font-weight: 700; line-height: 20px; text-align: center; font-variant-numeric: tabular-nums; }
 
 /* The site tiles hub/icons.mjs siteIcon draws, and the hub rows' solid tiles. */

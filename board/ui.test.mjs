@@ -208,7 +208,7 @@ test("the sidebar lists the boards then the pages, marks this one, counts what w
     hub: { tone: 'ok', word: 'Healthy', detail: '4 of 4 sites up' }, notifications: { state: 'on', text: 'On' }, polling: { text: 'Every 15 min · next 4:45pm' },
   };
   const html = ui.sidebar(data, { here: 'ios', device: 'on' });
-  assert.equal(text(html), 'Boards IOS 2 need you SHOP HUB 3 Pages LEARN 1 Hub Hub Healthy 4 of 4 sites up Notifications On Polling Every 15 min · next 4:45pm Settings Rules for every board');
+  assert.equal(text(html), 'Boards IOS 2 need you SHOP HUB Pages LEARN Hub Hub Healthy 4 of 4 sites up Notifications On Polling Every 15 min · next 4:45pm Settings Rules for every board');
   assert.match(html, /<a class="sb-row on" href="\/ios\/" aria-current="page"><i data-r="ios"><\/i>/);
   assert.match(html, /href="\/_hub\/"[^>]*>.*Hub<\/span>/);
   assert.equal(ui.othersWaiting(data, 'ios'), 4);

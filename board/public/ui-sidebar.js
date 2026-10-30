@@ -15,9 +15,9 @@
   const tile = (key, color) => `<span class="icon sm solid" style="--c:${color}" aria-hidden="true">${svg(ICONS[key])}</span>`;
   const word = (tone, text) => `<span class="dot t-${tone}" aria-hidden="true"></span><span class="word t-${tone}">${esc(text)}</span>`;
 
-  function row({ href, icon, title, sub = '', on = false, trail = '', cls = '' }) {
+  function row({ href, icon, title, sub = '', on = false, cls = '' }) {
     return `<a class="sb-row${on ? ' on' : ''}${cls ? ` ${cls}` : ''}" href="${esc(href)}"${on ? ' aria-current="page"' : ''}>${icon}`
-      + `<span class="sb-text"><span class="sb-title">${esc(title)}</span>${sub ? `<span class="sb-sub">${sub}</span>` : ''}</span>${trail}</a>`;
+      + `<span class="sb-text"><span class="sb-title">${esc(title)}</span>${sub ? `<span class="sb-sub">${sub}</span>` : ''}</span></a>`;
   }
 
   // What waits on the owner on every site but `here`: the count on the logo that opens the drawer.
@@ -30,8 +30,7 @@
   // null while unknown or unsupported.
   function sidebar(data, { here = '', device = null } = {}) {
     const sites = data?.sites || [];
-    const siteRow = (s) => row({ href: `/${encodeURIComponent(s.route)}/`, icon: s.icon, title: s.title, sub: s.sub ? `<span class="sb-status">${s.sub}</span>` : '', on: s.route === here,
-      trail: s.count && s.route !== here ? `<span class="sb-count" aria-label="${esc(s.count)} waiting on you">${esc(s.count)}</span>` : '' });
+    const siteRow = (s) => row({ href: `/${encodeURIComponent(s.route)}/`, icon: s.icon, title: s.title, sub: s.sub ? `<span class="sb-status">${s.sub}</span>` : '', on: s.route === here });
     const boards = sites.filter((s) => s.board);
     const pages = sites.filter((s) => !s.board);
     const turnOn = device === 'off' ? row({ href: '/_hub/settings', icon: tile('bell', '#ef4444'), title: 'Turn on notifications', sub: 'Off on this device', cls: 'sb-turnon' })
