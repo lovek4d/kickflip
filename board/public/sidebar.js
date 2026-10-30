@@ -37,11 +37,7 @@
       const logo = document.querySelector('.top a.hub');
       if (!logo || !data) return;
       const n = othersWaiting(data, here);
-      let badge = logo.querySelector('.hub-count');
       logo.setAttribute('aria-label', n ? `Boards, ${n} waiting on other boards` : 'Boards');
-      if (!n) { badge?.remove(); return; }
-      if (!badge) { badge = document.createElement('span'); badge.className = 'hub-count'; badge.setAttribute('aria-hidden', 'true'); logo.append(badge); }
-      badge.textContent = n;
     }
     // A repaint keeps the drawer's scroll, so a poll doesn't move the list under a finger.
     function paint() {

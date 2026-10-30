@@ -28,8 +28,6 @@
 .sidebar .sb-text { flex: 1; min-width: 0; }
 .sidebar .sb-title { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sidebar .sb-sub { display: block; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
-.top .hub .hub-count { flex: none; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--color-danger); color: #fff;
-  font-size: 12px; font-weight: 700; line-height: 20px; text-align: center; font-variant-numeric: tabular-nums; }
 
 /* The site tiles hub/icons.mjs siteIcon draws, and the hub rows' solid tiles. */
 .sidebar .icon { flex: none; width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; color: var(--c);
@@ -53,10 +51,6 @@
 .sidebar .t-working { --tone: var(--color-notice); }
 .sidebar .t-building { --tone: var(--accent); }
 .sidebar .t-ok { --tone: var(--color-success); }
-
-/* The header's logo opens the drawer, with what waits on the other sites counted on it. */
-.top .hub { position: relative; }
-.top .hub .hub-count { position: absolute; top: -6px; right: -9px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 11px; line-height: 18px; box-shadow: 0 0 0 2px var(--bg); }
 
 @media (min-width: 900px) {
   body.has-sidebar { padding-left: 272px; }
