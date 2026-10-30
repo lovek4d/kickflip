@@ -575,7 +575,7 @@ test("an internal card's ref reads INT-<n> with no repo, and each card lists whe
   assert.equal(b.ownerTopics.find((t) => t.id === 'item:site/S3').title, 'INT-3: Three');
 });
 
-test('a card lists each unfinished dep it is blocked by; an unstarted one sits in Todo, a started one stays In Progress unless held', () => {
+test('a card lists each unfinished dep it is blocked by, a Done one none; an unstarted one sits in Todo, a started one stays In Progress unless held', () => {
   const items = [
     { id: 'S10', title: 'Ten', status: 'done' },
     { id: 'S11', title: 'Eleven', status: 'building' },
@@ -586,6 +586,7 @@ test('a card lists each unfinished dep it is blocked by; an unstarted one sits i
     { id: 'INT-18', title: 'Grilled', deps: ['S11'] },
     { id: 'INT-19', title: 'Grilled, held', deps: ['S11'], held: true },
     { id: 'INT-20', title: 'Built before', status: 'planned' },
+    { id: 'INT-21', title: 'Landed first', status: 'done', deps: ['S11'] },
   ];
   const owner = { items: ['INT-18', 'INT-19'].map((id) => ({ id: `q${id}`, topic: `item:site/${id}`, question: '?', options: [], resolved: 'Picked.', resolved_at: '2026-10-23T10:00:00Z' })) };
   const agents = { 'INT-20': { main: { label: 'Opus builder', started: '2026-10-23T09:00:00Z', done: '2026-10-23T09:30:00Z' } } };
@@ -597,6 +598,7 @@ test('a card lists each unfinished dep it is blocked by; an unstarted one sits i
   assert.deepEqual([card('INT-17').blockedBy, card('S11').lane], [[], 'progress']);
   assert.deepEqual([card('INT-18').blockedBy, card('INT-18').lane], [[{ key: 'site/S11', ref: 'INT-11' }], 'progress']);
   assert.deepEqual([card('INT-19').lane, card('INT-20').lane], ['todo', 'progress']);
+  assert.deepEqual([card('INT-21').blockedBy, card('INT-21').lane], [[], 'done']);
 });
 
 test("a checking card sits in In Progress waiting on Claude's check, with no builder line or next step, and still blocks its dependents", () => {

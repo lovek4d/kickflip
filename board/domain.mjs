@@ -460,11 +460,11 @@ export function buildBoard(snapshot) {
     const first = t.questions.find((id) => questions.find((q) => q.id === id)?.state === 'open') || pending[0] || t.questions[0];
     it.questions = { topic: t.id, state: t.state, open: t.open, answered: t.answered, replied: t.replied, resolved: t.resolved, first };
   }
-  // A card waits on each dep until it reaches Done (docs/adr/0020-cards-wait-on-explicit-blocked-by-links.md).
+  // A card waits on each dep until it reaches Done, and a Done card waits on nothing (docs/adr/0020-cards-wait-on-explicit-blocked-by-links.md).
   const byKey = new Map(items.map((i) => [i.key, i]));
   const questionById = new Map(questions.map((q) => [q.id, q]));
   for (const it of items) {
-    it.blockedBy = it.kind !== 'work' ? [] : it.deps.map((d) => byKey.get(String(d).includes('/') ? d : `${it.wave}/${d}`))
+    it.blockedBy = it.kind !== 'work' || it.lane === 'done' ? [] : it.deps.map((d) => byKey.get(String(d).includes('/') ? d : `${it.wave}/${d}`))
       .filter((d) => d && d.lane !== 'done').map((d) => ({ key: d.key, ref: d.ref }));
     if (it.lane === 'done' && !it.fold && it.updatedAt && now - Date.parse(it.updatedAt) >= DONE_OPEN) it.fold = OLDER_FOLD;
     placeOwnerWait(it, questionById, autoMerge);
