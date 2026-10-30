@@ -61,7 +61,8 @@
     const els = lines();
     const after = texts(els);
     for (const id of changedLines(before, after)) {
-      els.get(id).classList.add('flash');
+      const el = els.get(id);
+      (el.closest('details.item') || el).classList.add('flash');
       before[id] = after[id];
     }
   }
