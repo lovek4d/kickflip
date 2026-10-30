@@ -2,7 +2,7 @@
 // app-core.js and app-threads.js.
 BoardView.part((B) => {
   const { $, store, state, markSeen, seen, toast, links } = B;
-  const { esc, REVIEW, reviewAge, unreadCount, workLines, linkText, mergeButton } = BoardUI;
+  const { esc, REVIEW, reviewAge, unreadCount, workLines, linkText, mergeButton, BUTTON } = BoardUI;
 
   function detail(it) {
     if (it.kind === 'ask') {
@@ -61,7 +61,7 @@ BoardView.part((B) => {
     const key = esc(it.key);
     const pr = it.pr;
     const github = pr?.state === 'OPEN'
-      ? `<a${classes(it, 'github', 'pill')} href="${esc(pr.url)}" target="_blank" rel="noopener">${pr.isDraft ? 'Review draft on GitHub' : 'Review on GitHub'} →</a>` : '';
+      ? `<a${classes(it, BUTTON.github, 'pill')} href="${esc(pr.url)}" target="_blank" rel="noopener">${pr.isDraft ? 'Review draft on GitHub' : 'Review on GitHub'} →</a>` : '';
     const install = it.install ? `<a class="pill" href="${esc(it.install.url)}">${esc(it.install.label || 'Install')} →</a>` : '';
     const ask = (act, label, disabled) => `<button data-confirm="${act}" data-key="${key}"${disabled ? ' disabled' : ''}>${label}</button>`;
     const holding = sendingHold.has(it.key) ? sendingHold.get(it.key) : it.holdPending;
@@ -77,9 +77,9 @@ BoardView.part((B) => {
 
   // board/domain.mjs actionButtonOf picks the button and resolvedBy its colour (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md).
   const ACTION_BUTTONS = {
-    openQuestions: (it) => `<a${classes(it, 'openQuestions', 'button')} href="questions.html#${esc(it.questions.first)}">Open questions</a>`,
-    markDone: (it) => `<button${classes(it, 'markDone')} data-confirm="finish" data-key="${esc(it.key)}">Mark as done</button>`,
-    grill: (it) => (it.grilling ? '<button disabled>Writing questions…</button>' : `<button data-confirm="grill" data-key="${esc(it.key)}">Grill</button>`),
+    [BUTTON.openQuestions]: (it) => `<a${classes(it, BUTTON.openQuestions, 'button')} href="questions.html#${esc(it.questions.first)}">Open questions</a>`,
+    [BUTTON.markDone]: (it) => `<button${classes(it, BUTTON.markDone)} data-confirm="finish" data-key="${esc(it.key)}">Mark as done</button>`,
+    [BUTTON.grill]: (it) => (it.grilling ? '<button disabled>Writing questions…</button>' : `<button data-confirm="grill" data-key="${esc(it.key)}">Grill</button>`),
   };
   const actionButton = (it) => ACTION_BUTTONS[it.actionButton]?.(it) || '';
 

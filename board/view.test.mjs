@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { miniDom } from './mini-dom.mjs';
+import { buildBoard, BUTTON, ACTION_KIND } from './domain.mjs';
 
-const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
+const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
   'hub-kit.js', 'sidebar.js', 'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-polling.js', 'view-frame.js', 'router.js'];
 
@@ -466,6 +467,51 @@ test("an open card shows the one action button the board names, its workflow but
   await b.settle();
   assert.deepEqual(b.confirms, ['Ask Claude for questions about A2?', 'Mark this task done? "Task a1" moves to Done.']);
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['grill-more', { key: 'w/A2' }], ['ask-done', { id: 'a1' }]]);
+});
+
+test("every owner action kind the board derives makes exactly one of the open card's buttons orange, every action button the board names draws, and the board and the page share one frozen enum of buttons and one of action kinds, each value its name", async () => {
+  const question = (id, url = null) => ({ id: `q${id}`, topic: `item:w/${id}`, question: 'Which?', options: [{ id: 'A', label: 'One' }], url });
+  const draft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
+  const approved = { state: 'OPEN', isDraft: false, reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN', checks: { state: 'pass' }, reviews: {} };
+  const built = buildBoard({
+    fromWaves: false, now: Date.parse('2026-10-30T10:00:00Z'),
+    prs: { 'o/r#1': draft, 'o/r#2': approved, 'o/r#3': approved },
+    owner: { items: [question('P', 'prototype-x.html?q=qP'), question('Q')] },
+    waves: [{ slug: 'w', wave: { repo: 'o/r', items: [
+      { id: 'P', title: 'Pick' }, { id: 'Q', title: 'Questions' }, { id: 'R', title: 'Ready', pr: 1 },
+      { id: 'S', title: 'Steps', pr: 2, manual_steps: ['Run the backfill'] }, { id: 'M', title: 'Merge', pr: 3 }, { id: 'G', title: 'Grill' },
+    ] } }],
+    events: [{ id: 'a1', ts: '2026-10-30T09:00:00Z', kind: 'ask', data: { text: 'Which take?' }, reply: { html: 'Two takes.', at: '2026-10-30T09:10:00Z' } }],
+    askProgress: { a1: { state: 'progress', at: '2026-10-30T09:20:00Z', next: 'Pick a take' } },
+  });
+  assert.deepEqual(built.items.filter((i) => i.action).map((i) => i.action.kind).sort(), Object.values(ACTION_KIND).sort());
+  for (const i of built.items) {
+    assert.ok(i.actionButton === null || Object.values(BUTTON).includes(i.actionButton), i.key);
+    assert.ok(Object.values(BUTTON).includes(i.resolvedBy) === Boolean(i.action), i.key);
+  }
+
+  const mounted = async (items) => {
+    const b = boardOnDom({ open: items.map((i) => i.key), board: { ...built, items, title: 'A', generatedAt: '2026-10-30T10:00:00.000Z' }, threads: {} });
+    await b.settle();
+    const row = (key) => b.root.querySelector(`details.item[data-key="${key}"] .detail`)?.querySelector('.actions');
+    const counts = Object.fromEntries(items.map((i) => [i.key, [row(i.key)?.querySelectorAll('.action-row.workflow a, .action-row.workflow button').length ?? 0, row(i.key)?.querySelectorAll('.resolves').length ?? 0]]));
+    return { counts, ui: b.page.win.BoardUI };
+  };
+  const shown = await mounted(built.items);
+  const without = await mounted(built.items.map((i) => ({ ...i, actionButton: null })));
+  for (const i of built.items) {
+    const [controls, orange] = shown.counts[i.key];
+    assert.deepEqual([controls - without.counts[i.key][0], orange], [i.actionButton ? 1 : 0, i.action ? 1 : 0], `${i.key}: ${i.actionButton}, ${i.action?.kind}`);
+  }
+
+  for (const [name, values] of Object.entries({ BUTTON, ACTION_KIND })) {
+    assert.deepEqual({ ...shown.ui[name] }, { ...values }, name);
+    for (const e of [values, shown.ui[name]]) {
+      assert.ok(Object.isFrozen(e), name);
+      assert.deepEqual(Object.entries(e).filter(([k, v]) => k !== v), [], name);
+    }
+  }
+  assert.throws(() => { BUTTON.grill = 'markDone'; }, TypeError);
 });
 
 test("Needs you shows each pending prompt with its details and answers it from the line: Allow once and Deny on the tap, Always allow after a confirmation naming its rule, one question's option on the tap, and several questions with Send once each has a pick", async () => {

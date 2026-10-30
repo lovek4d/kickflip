@@ -10,6 +10,14 @@
 // it is the item's status lines in its thread.
 // A record with done is a finished agent: it stays for the thread's timeline and no longer counts as building.
 
+import fs from 'node:fs';
+import vm from 'node:vm';
+
+// A page script with no exports, which the page loads as is, so node runs it the same way.
+const enums = vm.createContext({});
+vm.runInContext(fs.readFileSync(new URL('./public/ui-enums.js', import.meta.url), 'utf8'), enums);
+export const { BUTTON, ACTION_KIND } = enums.BoardUI;
+
 export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'build-followup', 'prototype-request'];
 export const ITEM_STATUSES = ['planned', 'waiting', 'building', 'fixing', 'checking', 'held', 'merged', 'done', 'dropped'];
 const LANE_ORDER = { review: 0, stale: 1, progress: 2, todo: 3, done: 4 };
@@ -152,33 +160,36 @@ function actionOf(it, questionById, autoMerge) {
   const thread = `#item=${encodeURIComponent(it.key)}`;
   if (asking(it)) {
     const q = questionById.get(it.questions.first);
-    if (PROTOTYPE_URL.test(q?.url || '')) return { kind: 'pick', url: `questions.html#${q.id}`, label: 'Prototypes ready: pick a take' };
-    return { kind: 'questions', url: `questions.html#${it.questions.first}`, label: `Answer ${plural(it.questions.open, 'question')}` };
+    if (PROTOTYPE_URL.test(q?.url || '')) return { kind: ACTION_KIND.pick, url: `questions.html#${q.id}`, label: 'Prototypes ready: pick a take' };
+    return { kind: ACTION_KIND.questions, url: `questions.html#${it.questions.first}`, label: `Answer ${plural(it.questions.open, 'question')}` };
   }
-  if (it.waitsOn === 'ready') return { kind: 'ready', url: it.pr.url, label: 'Tap Ready on GitHub' };
-  if (it.kind === 'ask' && it.waitsOn === 'owner') return { kind: 'done', url: thread, label: it.next || 'Tap Done once it is settled' };
-  if (it.waitsOn === 'merge' && it.manualSteps.length) return { kind: 'steps', url: thread, label: 'Run the manual steps, then merge' };
+  if (it.waitsOn === 'ready') return { kind: ACTION_KIND.ready, url: it.pr.url, label: 'Tap Ready on GitHub' };
+  if (it.kind === 'ask' && it.waitsOn === 'owner') return { kind: ACTION_KIND.done, url: thread, label: it.next || 'Tap Done once it is settled' };
+  if (it.waitsOn === 'merge' && it.manualSteps.length) return { kind: ACTION_KIND.steps, url: thread, label: 'Run the manual steps, then merge' };
   // docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md
-  if (it.waitsOn === 'merge' && !autoMerge && !it.merging && mergeable(it.pr)) return { kind: 'merge', url: thread, label: 'Merge' };
+  if (it.waitsOn === 'merge' && !autoMerge && !it.merging && mergeable(it.pr)) return { kind: ACTION_KIND.merge, url: thread, label: 'Merge' };
   return null;
 }
 
 const asking = (it) => Boolean(it.questions && it.questions.state !== 'resolved' && it.questions.open > 0);
-const ASKING = new Set(['pick', 'questions']);
+const ASKING = new Set([ACTION_KIND.pick, ACTION_KIND.questions]);
 
 // The open card's one workflow button, which board/public/app-cards.js only labels: openQuestions while it has open
 // questions, held or not, markDone for an ask waiting on the owner's Done, grill otherwise, and none on a Done card or
 // on an ask with neither.
 function actionButtonOf(it) {
   if (it.lane === 'done') return null;
-  if (asking(it)) return 'openQuestions';
-  if (it.action?.kind === 'done') return 'markDone';
-  return it.kind === 'ask' ? null : 'grill';
+  if (asking(it)) return BUTTON.openQuestions;
+  if (it.action?.kind === ACTION_KIND.done) return BUTTON.markDone;
+  return it.kind === 'ask' ? null : BUTTON.grill;
 }
 
-// The open card's button that resolves each action kind, which the board page colours orange: an action button's name,
-// github for the PR's Review on GitHub, or merge.
-const RESOLVED_BY = { pick: 'openQuestions', questions: 'openQuestions', ready: 'github', steps: 'github', merge: 'merge', done: 'markDone' };
+// The open card's button that resolves each action kind, which the board page colours orange: an action button, the
+// PR's Review on GitHub, or Merge.
+const RESOLVED_BY = Object.freeze({
+  [ACTION_KIND.pick]: BUTTON.openQuestions, [ACTION_KIND.questions]: BUTTON.openQuestions, [ACTION_KIND.ready]: BUTTON.github,
+  [ACTION_KIND.steps]: BUTTON.github, [ACTION_KIND.merge]: BUTTON.merge, [ACTION_KIND.done]: BUTTON.markDone,
+});
 
 // docs/adr/0045-the-lane-follows-who-acts-next.md
 // A card only the owner can move on goes to In Review, apart from a Todo card waiting on its questions, which stays in
@@ -188,7 +199,7 @@ function placeOwnerWait(it, questionById, autoMerge) {
   it.action = actionOf(it, questionById, autoMerge);
   it.actionButton = actionButtonOf(it);
   it.resolvedBy = RESOLVED_BY[it.action?.kind] || null;
-  if (it.action?.kind === 'merge') it.next = OWNER_MERGE_NEXT.ready;
+  if (it.action?.kind === ACTION_KIND.merge) it.next = OWNER_MERGE_NEXT.ready;
   const ownerOnly = it.lane === 'todo' || (it.lane === 'progress' && (it.waitsOn === 'ready' || it.waitsOn === 'owner'));
   if (!it.action || !ownerOnly) return;
   const lane = it.lane === 'todo' && ASKING.has(it.action.kind) ? 'todo' : 'review';

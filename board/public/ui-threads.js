@@ -1,6 +1,6 @@
-// A card's thread: Claude's lines, the owner's messages and their replies. Needs ui.js and ui-links.js.
+// A card's thread: Claude's lines, the owner's messages and their replies. Needs ui.js, ui-links.js and ui-enums.js.
 (function () {
-  const { esc, time, etaLine, replyBody, attachments, editButton, withdrawButton, workingLine, linkText, linkHtml, anyLink } = globalThis.BoardUI;
+  const { esc, time, etaLine, replyBody, attachments, editButton, withdrawButton, workingLine, linkText, linkHtml, anyLink, BUTTON } = globalThis.BoardUI;
   const VIA = { slack: ' · Slack', github: ' · GitHub' };
   // A link to a card on this board (#item=<key>) or on another board (/<route>/#item=<key>, an ask's move), or ''.
   function cardLink(link) {
@@ -45,7 +45,7 @@
   function doneButton(it, sending = false) {
     if (!it?.finishable) return '';
     const closing = it.kind !== 'ask' && (sending || it.closing);
-    return `<button type="button"${it.resolvedBy === 'markDone' ? ' class="resolves"' : ''} data-confirm="finish" data-key="${esc(it.key)}"${closing ? ' disabled' : ''}>${closing ? 'Closing…' : 'Done'}</button>`;
+    return `<button type="button"${it.resolvedBy === BUTTON.markDone ? ' class="resolves"' : ''} data-confirm="finish" data-key="${esc(it.key)}"${closing ? ' disabled' : ''}>${closing ? 'Closing…' : 'Done'}</button>`;
   }
 
   Object.assign(globalThis.BoardUI, { threadMessages, withReplies, doneButton });

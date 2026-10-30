@@ -1,6 +1,6 @@
-// Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js.
+// Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js and ui-enums.js.
 (function () {
-  const { esc, ago, time, etaLine, workingLine, badge, bumpButton, editButton, withdrawButton } = globalThis.BoardUI;
+  const { esc, ago, time, etaLine, workingLine, badge, bumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   function prChips(it) {
     const pr = it.pr;
@@ -39,7 +39,7 @@
   // docs/adr/0045-the-lane-follows-who-acts-next.md
   function actionChip(it) {
     if (!it.action) return '';
-    const external = it.action.kind === 'ready' ? EXTERNAL : {};
+    const external = it.action.kind === ACTION_KIND.ready ? EXTERNAL : {};
     return badge('notice', 'Action needed', { href: it.action.url, title: it.action.label, attrs: { ...external, 'aria-label': `Action needed: ${it.action.label}` } });
   }
   // docs/adr/0051-a-device-app-card-carries-an-install-link.md
@@ -54,9 +54,9 @@
   // The open card's Merge, while the board's auto-merge is off: it confirms, then sends card-merge, and reads "Merging…"
   // while it is sent or waits on the session (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md).
   function mergeButton(it, sending = false) {
-    if (it?.action?.kind !== 'merge' && !it?.merging) return '';
+    if (it?.action?.kind !== ACTION_KIND.merge && !it?.merging) return '';
     const merging = sending || it.merging;
-    return `<button class="${it.resolvedBy === 'merge' ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${merging ? ' disabled' : ''}>${merging ? 'Merging…' : 'Merge'}</button>`;
+    return `<button class="${it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${merging ? ' disabled' : ''}>${merging ? 'Merging…' : 'Merge'}</button>`;
   }
   const builderLine = (b) => [b.progress || 'Building', b.at && ago(b.at)].filter(Boolean).join(' · ');
   const unreadCount = (othersAt, seenAt) => (seenAt ? (othersAt || []).filter((t) => String(t) > seenAt).length : 0);

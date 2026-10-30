@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const context = vm.createContext({});
-for (const file of ['ui.js', 'ui-links.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-sidebar.js']) {
+for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-sidebar.js']) {
   vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
 }
 const ui = context.BoardUI;
@@ -612,7 +612,7 @@ test("the open card's Notes opens notes.html in its action row, with no notes fo
   assert.match(css, /button\.build \{[^}]*background: var\(--color-notice\)/);
 
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s } });
-  for (const file of ['ui.js', 'ui-links.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const B = { on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
