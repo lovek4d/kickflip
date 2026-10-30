@@ -241,8 +241,7 @@
         shown = sig;
         const y = window.scrollY;
         render();
-        if (first && hash && document.getElementById(hash)) document.getElementById(hash).scrollIntoView({ block: 'start' });
-        else window.scrollTo(0, y);
+        window.scrollTo(0, first ? 0 : y);
       }
     } catch (e) {
       if (first) page.innerHTML = `<p class="muted">Could not load the questions: ${esc(e.message)}</p>`;
