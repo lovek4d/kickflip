@@ -168,7 +168,7 @@ test("the board lists its own title and reviewers from board.json, whatever its 
   }
 });
 
-test("an item's notes are served only from a markdown file inside its wave's folder, else from its short notes text, and the board carries their summary", async () => {
+test("an item's notes are served only from a markdown file inside its wave's folder, else from its short notes text, and the board carries no summary", async () => {
   const outside = path.join(home, 'secret.md');
   fs.writeFileSync(outside, '# Secret');
   fs.writeFileSync(path.join(site, 'data', 'P1-plan.md'), '# The plan\n\nBody.');
@@ -188,8 +188,9 @@ test("an item's notes are served only from a markdown file inside its wave's fol
   assert.equal((await (await notes('P8')).json()).markdown, '# The plan\n\nBody.');
   for (const id of ['P2', 'P3', 'P4', 'P5', 'P6', 'P9', 'P10']) assert.equal((await notes(id)).status, 404, id);
   const board = await (await fetch(`${base}/api/board`)).json();
-  const cards = Object.fromEntries(board.items.map((i) => [i.id, [i.hasNotes, i.summary]]));
-  assert.deepEqual([cards.P1, cards.P6, cards.P7], [[true, 'Plan so far: X is settled.'], [false, null], [true, null]]);
+  const cards = Object.fromEntries(board.items.map((i) => [i.id, i.hasNotes]));
+  assert.deepEqual([cards.P1, cards.P6, cards.P7], [true, false, true]);
+  assert.equal(board.items.some((i) => 'summary' in i), false);
   assert.equal(board.items.some((i) => typeof i.notes === 'string'), false);
   const moved = await fetch(`${base}/plan.html?item=t%2FP1`, { redirect: 'manual' });
   assert.deepEqual([moved.status, moved.headers.get('location')], [302, 'notes.html?item=t%2FP1']);

@@ -607,7 +607,7 @@ test("a thread's Done shows on every card not in Done, orange while it clears an
   assert.equal(done(undefined), '');
 });
 
-test("the open card's details list ends with a Notes row, its summary word for word then (view more) opening notes.html, or just (view more) with no summary, and no row without notes; Notes has no fold or button, and a follow-up's Build is filled orange", () => {
+test("the open card's details list ends with a Notes row whose label is a link to notes.html with nothing beside it, and no row without notes; Notes has no fold or button, and a follow-up's Build is filled orange", () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.match(css, /button\.build \{[^}]*background: var\(--color-notice\)/);
 
@@ -616,14 +616,12 @@ test("the open card's details list ends with a Notes row, its summary word for w
   const B = { on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
-  const open = { ...workCard, pr: null, reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'Asked for <X>; "Y" is settled.' };
-  const rows = (it) => [...B.detail(it).matchAll(/<dt>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [k, text(v)]);
-  const notesLink = (it) => B.detail(it).match(/<dd[^>]*>[^]*?<a href="([^"]+)">\(view more\)<\/a><\/dd>/)?.[1];
-  assert.deepEqual(rows(open), [['Wave', 'W'], ['Next', 'Waiting for PR reviewers'], ['Notes', 'Asked for <X>; "Y" is settled. (view more)']]);
-  assert.equal(notesLink(open), 'notes.html?item=w%2FA1');
-  assert.deepEqual(rows({ ...open, summary: null }).at(-1), ['Notes', '(view more)']);
-  assert.equal(notesLink({ ...open, summary: null }), 'notes.html?item=w%2FA1');
-  assert.doesNotMatch(B.detail(open), /Old short note|<summary[^>]*>Notes|class="actions"[^]*notes\.html/);
+  const open = { ...workCard, pr: null, reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
+  const rows = (it) => [...B.detail(it).matchAll(/<dt>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
+  const labelLink = (it) => B.detail(it).match(/<dt><a href="([^"]+)">[^<]*<\/a><\/dt>/)?.[1];
+  assert.deepEqual(rows(open), [['Wave', 'W'], ['Next', 'Waiting for PR reviewers'], ['Notes ↗', '']]);
+  assert.equal(labelLink(open), 'notes.html?item=w%2FA1');
+  assert.doesNotMatch(B.detail(open), /Old short note|A stored summary|view more|<summary[^>]*>Notes|class="actions"[^]*notes\.html/);
   assert.doesNotMatch(B.detail({ ...open, hasNotes: false }), /Notes|notes\.html/);
 });
 

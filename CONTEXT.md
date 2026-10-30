@@ -181,7 +181,7 @@ The link on a card whose PR builds a device app, last in its badge row and last 
 _Avoid_: download, TestFlight (a different channel), build link
 
 **Notes**:
-The owning session's understanding of a work item so far: what was asked, what is settled, what is open. A Markdown file in its wave's folder that the item names in `plan` (`item set --notes-file`), rewritten as the grill settles things, or with no file the item's short `notes` text. Its **summary** is one line of at most 100 characters that the session sets with the notes (`item set --notes-file <f> --summary "<line>"`); the store refuses notes without one. The open card's details list ends with a Notes row: the summary word for word, then "(view more)", which opens the notes as a page sized for the phone. A card with no notes has no row; one with notes from before summaries shows only "(view more)". The thread keeps the short news ([0053](docs/adr/0053-notes-replace-the-full-plan-and-cards-start-on-their-own.md), [0062](docs/adr/0062-notes-carry-a-one-line-summary.md)).
+The owning session's understanding of a work item so far: what was asked, what is settled, what is open. A Markdown file in its wave's folder that the item names in `plan` (`item set --notes-file`), rewritten as the grill settles things, or with no file the item's short `notes` text. The open card's details list ends with a Notes row whose label, "Notes ↗", opens the notes as a page sized for the phone; the row has no value and the board keeps no summary of them. A card with no notes has no row. The thread keeps the short news ([0053](docs/adr/0053-notes-replace-the-full-plan-and-cards-start-on-their-own.md), [0062](docs/adr/0062-notes-is-a-link-in-the-details-list.md)).
 _Avoid_: full plan, plan, spec
 
 **Held**:
@@ -299,7 +299,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `dialogs.js` | `BoardDialogs.confirm` and `notice`, which every board page's dialogs go through; loaded on every page |
 | `rules-editor.js` | `RulesEditor`, the rules list on board Settings and hub Settings, with its own CSS; `ui.test.mjs` tests its pure parts |
 | `app-threads.js` | Loading a thread, once at a time per card; an open card's thread, its reply box, quick replies and Done |
-| `app-cards.js` | Cards, their open detail with the details list ending in the Notes row, and the action rows: a follow-up's Build, Merge, Hold and the **action button** with each one's confirmation, then Review on GitHub and Install; the bump icon's confirmation; an ask's detail shows only its action button; the thread's Done confirmation and send |
+| `app-cards.js` | Cards, their open detail with the details list ending in the Notes ↗ row, and the action rows: a follow-up's Build, Merge, Hold and the **action button** with each one's confirmation, then Review on GitHub and Install; the bump icon's confirmation; an ask's detail shows only its action button; the thread's Done confirmation and send |
 | `app-lanes.js` | Lanes, the Answered, older and finished-wave folds, the wave bars and filter, and Plan a wave |
 | `app-asks.js` | The + sheet and its press-n-twice shortcut, and bump, edit and delete |
 | `app-needs.js` | The Needs you box, led by the board session's pending prompts |

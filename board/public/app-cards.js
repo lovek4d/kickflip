@@ -28,14 +28,11 @@ BoardView.part((B) => {
     if (it.slack) rows.push(['Slack', `<a href="${esc(it.slack)}" target="_blank" rel="noopener">thread</a>`]);
     if (it.from) rows.push(['Filed from', esc(it.from)]);
     if (it.next) rows.push(['Next', linkText(it.next, ctx)]);
-    // docs/adr/0062-notes-carry-a-one-line-summary.md
-    if (it.hasNotes) {
-      const summary = it.summary ? `<span class="notes-sum" title="${esc(it.summary)}">${esc(it.summary)}</span> ` : '';
-      rows.push(['Notes', `${summary}<a href="notes.html?item=${encodeURIComponent(it.key)}">(view more)</a>`, 'notes-line']);
-    }
+    // docs/adr/0062-notes-is-a-link-in-the-details-list.md
+    if (it.hasNotes) rows.push([`<a href="notes.html?item=${encodeURIComponent(it.key)}">Notes ↗</a>`, '']);
 
     return `<div class="detail">
-      <dl class="grid">${rows.map(([k, v, cls]) => `<dt>${k}</dt><dd${cls ? ` class="${cls}"` : ''}>${v}</dd>`).join('')}</dl>
+      <dl class="grid">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
       ${actions(it)}
       ${B.thread(it.key)}
     </div>`;

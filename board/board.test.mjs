@@ -85,13 +85,12 @@ test('every text flag refuses a bare file path, and --file refuses a missing fil
   assert.match(missing.err, /no such file/);
 });
 
-test('item add makes a planned card, waiting when it has deps, and refuses a taken id, an unknown dep, or notes without a summary', () => {
-  const unsummed = board('item', 'add', 'w/B2', '--site', 'orch', '--title', 'Two', '--notes', 'Why');
-  assert.equal(unsummed.code, 1);
-  assert.match(unsummed.err.trim(), /^--notes needs --summary[^\n]*$/);
-  assert.equal(board('item', 'add', 'w/B2', '--site', 'orch', '--title', 'Two', '--summary', 'Why').code, 1);
-  assert.equal(board('item', 'add', 'w/B2', '--site', 'orch', '--title', 'Two', '--notes', 'Why', '--summary', 'Asked why.').code, 0);
-  assert.deepEqual(read(at('waves', 'w', 'wave.json')).items.at(-1), { id: 'B2', title: 'Two', notes: 'Why', summary: 'Asked why.', status: 'planned' });
+test('item add makes a planned card, waiting when it has deps, and refuses a taken id, an unknown dep, or a --summary', () => {
+  const summed = board('item', 'add', 'w/B2', '--site', 'orch', '--title', 'Two', '--notes', 'Why', '--summary', 'Asked why.');
+  assert.equal(summed.code, 2);
+  assert.match(summed.err, /item add does not take --summary/);
+  assert.equal(board('item', 'add', 'w/B2', '--site', 'orch', '--title', 'Two', '--notes', 'Why').code, 0);
+  assert.deepEqual(read(at('waves', 'w', 'wave.json')).items.at(-1), { id: 'B2', title: 'Two', notes: 'Why', status: 'planned' });
   assert.equal(board('item', 'add', 'w/C3', '--site', 'orch', '--title', 'Three', '--deps', 'A1,B2').code, 0);
   assert.deepEqual(read(at('waves', 'w', 'wave.json')).items.at(-1), { id: 'C3', title: 'Three', deps: ['A1', 'B2'], status: 'waiting' });
   const taken = board('item', 'add', 'w/A1', '--site', 'orch', '--title', 'Again');
@@ -200,28 +199,23 @@ test('item set edits the item in a waves board and in a file board', () => {
   assert.equal(read(site('audit', 'data', 'wave.json')).items[0].status, undefined);
 });
 
-test('item set --notes-file, or its alias --plan, names a notes file inside the wave folder with a one-line --summary of at most 100 characters, --summary alone needs notes already there, and --title renames the card', () => {
+test('item set --notes-file, or its alias --plan, names a notes file inside the wave folder and refuses a --summary, and --title renames the card', () => {
   write(at('waves', 'w', 'A1-notes.md'), '# So far');
   write(at('waves', 'w', 'A1-old.md'), '# Old');
   const item = () => read(at('waves', 'w', 'wave.json')).items[0];
-  const refused = (...args) => { const r = board('item', 'set', 'w/A1', '--site', 'orch', ...args); return [r.code, r.err.trim().split('\n').length, r.err.match(/^--[\w-]+/)?.[0]]; };
-  assert.deepEqual(refused('--notes-file', 'A1-notes.md'), [1, 1, '--notes-file']);
-  assert.deepEqual(refused('--plan', 'A1-notes.md'), [1, 1, '--notes-file']);
-  assert.deepEqual(refused('--summary', 'No notes yet.'), [1, 1, '--summary']);
-  assert.deepEqual(refused('--notes-file', 'A1-notes.md', '--summary', 'x'.repeat(101)), [1, 1, '--summary']);
-  assert.deepEqual(refused('--notes-file', 'A1-notes.md', '--summary', 'One line\nand another'), [1, 1, '--summary']);
+  const summed = board('item', 'set', 'w/A1', '--site', 'orch', '--notes-file', 'A1-notes.md', '--summary', 'So far.');
+  assert.equal(summed.code, 2);
+  assert.match(summed.err, /item set does not take --summary/);
   assert.equal(item().plan, undefined);
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--notes-file', 'A1-notes.md', '--summary', 'x'.repeat(100), '--title', 'One, renamed').code, 0);
-  assert.deepEqual([item().plan, item().summary, item().title], ['A1-notes.md', 'x'.repeat(100), 'One, renamed']);
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--plan', 'A1-old.md', '--summary', 'The old take.').code, 0);
-  assert.deepEqual([item().plan, item().summary], ['A1-old.md', 'The old take.']);
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--summary', 'Settled: one take.').code, 0);
-  assert.deepEqual([item().plan, item().summary], ['A1-old.md', 'Settled: one take.']);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--notes-file', 'A1-notes.md', '--title', 'One, renamed').code, 0);
+  assert.deepEqual([item().plan, item().title], ['A1-notes.md', 'One, renamed']);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--plan', 'A1-old.md').code, 0);
+  assert.equal(item().plan, 'A1-old.md');
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--plan', 'A1-old.md', '--notes-file', 'A1-notes.md').code, 2);
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--notes-file', '../outside.md', '--summary', 'Out.').code, 1);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--notes-file', '../outside.md').code, 1);
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--title', ' ').code, 1);
-  assert.equal(board('item', 'add', 'w/B2', '--site', 'orch', '--title', 'Two', '--notes-file', 'A1-notes.md', '--summary', 'Two so far.').code, 0);
-  assert.deepEqual([read(at('waves', 'w', 'wave.json')).items.at(-1).plan, read(at('waves', 'w', 'wave.json')).items.at(-1).summary], ['A1-notes.md', 'Two so far.']);
+  assert.equal(board('item', 'add', 'w/B2', '--site', 'orch', '--title', 'Two', '--notes-file', 'A1-notes.md').code, 0);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items.at(-1).plan, 'A1-notes.md');
 });
 
 test('item set --install records a device build with when it was built, takes only https or an iOS manifest link, and --clear-install removes it', () => {
