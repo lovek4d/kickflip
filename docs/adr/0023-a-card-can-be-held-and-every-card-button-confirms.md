@@ -8,7 +8,7 @@ An open work card that isn't Done has a **Hold** button first in its action row,
 
 Every button in the open card's action row asks first, in the browser's native dialog, with a line naming the card by its ref ("Hold INT-41? It won't start until you resume it."). Cancel sends nothing. Grill sends no focus text; the owner adds any in the thread. Links in the row, such as Action needed and Review on GitHub, only navigate and don't ask.
 
-Every confirmation on every board page goes through `BoardDialogs.confirm(message)`, a promise of true or false, and every one-button notice through `BoardDialogs.notice(message)`, both in `board/public/dialogs.js`, which each page loads (the board page reaches them as `BoardApp.confirm` and `notice`). They wrap `window.confirm` and `window.alert`, so a custom dialog can replace both in that one place. The card buttons, follow-up Build and Plan, a thread's prototype eye and its bump, and deleting a waiting message all use them (owner, card INT-60).
+Every confirmation on every board page goes through `BoardDialogs.confirm(message)`, a promise of true or false, and every one-button notice through `BoardDialogs.notice(message)`, both in `board/public/dialogs.js`, which each page loads (the board view's parts reach them as `B.confirm` and `notice`). They wrap `window.confirm` and `window.alert`, so a custom dialog can replace both in that one place. The card buttons, follow-up Build and Plan, a thread's prototype eye and its bump, and deleting a waiting message all use them (owner, card INT-60).
 
 A stray tap on a phone sent an event that woke the session and changed the queue, and the owner had no way to pause a card short of writing an ask.
 

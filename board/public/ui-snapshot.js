@@ -6,7 +6,7 @@
   const SNAPSHOT_MAX = 900000;
   const ACTIVE_LANES = ['review', 'stale', 'progress', 'todo'];
 
-  // threads maps item keys to thread messages (app-core.js state.threadCache). Threads of `keep` go in first, then the
+  // threads maps item keys to thread messages (app.js state.threadCache). Threads of `keep` go in first, then the
   // rest while they fit under max; threads of items no longer on the board are dropped. Null when the board alone won't fit.
   function packSnapshot(board, threads, { savedAt, keep = [], max = SNAPSHOT_MAX } = {}) {
     const head = `{"v":${VERSION},"savedAt":${JSON.stringify(savedAt)},"board":${JSON.stringify(board)},"threads":{`;

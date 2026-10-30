@@ -1,7 +1,6 @@
-// The board page's lanes and wave filter: each lane's header and cards, the "N older" and finished-wave folds, and the wave bars.
+// The board view's lanes and wave filter: each lane's header and cards, the "N older" and finished-wave folds, and the wave bars.
 // Needs app-core.js and app-cards.js.
-(function () {
-  const B = globalThis.BoardApp;
+BoardView.part((B) => {
   const { $, store, state } = B;
   const { esc } = BoardUI;
   const LANES = [
@@ -69,19 +68,19 @@
       </button>`).join('');
   }
 
-  document.addEventListener('toggle', (ev) => {
+  B.on(B.root, 'toggle', (ev) => {
     const el = ev.target;
     if (el.matches?.('details.lane')) {
       const s = store.get('lanes', {}); s[el.dataset.lane] = el.open; store.set('lanes', s);
     } else if (el.matches?.('details.fold')) store.set(FOLDS[el.dataset.fold].store, el.open);
   }, true);
 
-  document.addEventListener('click', async (ev) => {
+  B.on(B.root, 'click', async (ev) => {
     const pb = ev.target.closest('button[data-plan]');
     if (pb) {
       if (!(await B.confirm('Claude groups these follow-ups into a small wave and asks you about the plan in Needs you. Nothing builds until you answer. Start?'))) return;
       pb.disabled = true;
-      try { await ClaudeSite.send('plan-followups', { keys: pb.dataset.plan.split(' ') }); pb.textContent = 'Planning… its questions appear in Needs you'; }
+      try { await B.site.send('plan-followups', { keys: pb.dataset.plan.split(' ') }); pb.textContent = 'Planning… its questions appear in Needs you'; }
       catch { B.notice('Could not send. Is the Mac awake?'); pb.disabled = false; }
       return;
     }
@@ -90,4 +89,4 @@
   });
 
   Object.assign(B, { FOLDS, lanesHtml, renderWaves });
-})();
+});

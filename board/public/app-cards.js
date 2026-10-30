@@ -1,8 +1,7 @@
-// Work cards on the board page: a card in a lane, its expanded detail, its action row with each button's confirmation, and opening it. Needs
+// Work cards on the board view: a card in a lane, its expanded detail, its action row with each button's confirmation, and opening it. Needs
 // app-core.js and app-threads.js.
-(function () {
-  const B = globalThis.BoardApp;
-  const { store, state, markSeen, seen, toast, links } = B;
+BoardView.part((B) => {
+  const { $, store, state, markSeen, seen, toast, links } = B;
   const { esc, REVIEW, reviewAge, unreadCount, workLines, linkText, mergeButton } = BoardUI;
 
   function detail(it) {
@@ -86,7 +85,7 @@
         </details>`;
   }
 
-  document.addEventListener('toggle', (ev) => {
+  B.on(B.root, 'toggle', (ev) => {
     const el = ev.target;
     if (!el.matches?.('details.item')) return;
     const key = el.dataset.key;
@@ -106,11 +105,11 @@
 
   function redrawActions(key) {
     const it = state.board.items.find((i) => i.key === key);
-    const row = document.querySelector(`.actions[data-actions="${CSS.escape(key)}"]`);
+    const row = $(`.actions[data-actions="${CSS.escape(key)}"]`);
     if (it && row) row.outerHTML = actions(it);
   }
 
-  document.addEventListener('click', async (ev) => {
+  B.on(B.root, 'click', async (ev) => {
     const b = ev.target.closest('button[data-confirm]');
     if (!b) return;
     ev.preventDefault();
@@ -120,7 +119,7 @@
     if (act === 'hold' || act === 'resume') {
       sendingHold.set(key, act === 'hold');
       redrawActions(key);
-      try { await ClaudeSite.send('card-hold', { key, hold: act === 'hold' }); }
+      try { await B.site.send('card-hold', { key, hold: act === 'hold' }); }
       catch { toast(`Could not ${act}. Is the Mac awake?`, 3000); }
       sendingHold.delete(key);
       B.loadBoard();
@@ -130,7 +129,7 @@
     if (act === 'merge') {
       sendingMerge.add(key);
       redrawActions(key);
-      try { await ClaudeSite.send('card-merge', { key }); }
+      try { await B.site.send('card-merge', { key }); }
       catch { toast('Could not send. Is the Mac awake?', 3000); }
       sendingMerge.delete(key);
       B.loadBoard();
@@ -140,21 +139,21 @@
     if (act === 'finish') {
       B.sendingDone.add(key);
       B.syncDone(key);
-      try { await (it.kind === 'ask' ? ClaudeSite.send('ask-done', { id: it.id }) : ClaudeSite.send('card-done', { key })); }
+      try { await (it.kind === 'ask' ? B.site.send('ask-done', { id: it.id }) : B.site.send('card-done', { key })); }
       catch { toast('Could not close. Is the Mac awake?', 3000); }
       B.sendingDone.delete(key);
       await B.loadBoard();
       B.syncDone(key);
       return;
     }
-    const row = document.querySelector(`.actions[data-actions="${CSS.escape(key)}"]`);
+    const row = $(`.actions[data-actions="${CSS.escape(key)}"]`);
     row?.querySelectorAll('button').forEach((x) => { x.disabled = true; });
     try {
-      if (act === 'bump') { await ClaudeSite.send('card-bump', { key }); toast('Moved to the top', 2500); }
-      else { await ClaudeSite.send(act === 'grill' ? 'grill-more' : 'build-followup', { key }); B.loadThread(key, { force: true }); }
+      if (act === 'bump') { await B.site.send('card-bump', { key }); toast('Moved to the top', 2500); }
+      else { await B.site.send(act === 'grill' ? 'grill-more' : 'build-followup', { key }); B.loadThread(key, { force: true }); }
     } catch { toast('Could not send. Is the Mac awake?', 3000); }
     B.loadBoard();
   });
 
   Object.assign(B, { detail, card });
-})();
+});

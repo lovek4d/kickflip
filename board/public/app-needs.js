@@ -1,6 +1,5 @@
-// The board page's Needs you box: one line per thing waiting on the owner (domain.mjs needsOf). Needs app-core.js.
-(function () {
-  const B = globalThis.BoardApp;
+// The board view's Needs you box: one line per thing waiting on the owner (domain.mjs needsOf). Needs app-core.js.
+BoardView.part((B) => {
   const { $, plural } = B;
   const { esc } = BoardUI;
 
@@ -20,4 +19,4 @@
   }
 
   Object.assign(B, { renderNeeds });
-})();
+});

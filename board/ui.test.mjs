@@ -429,13 +429,14 @@ test("the open card's Notes opens notes.html in its action row, with no notes fo
 
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s } });
   for (const file of ['ui.js', 'ui-links.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
-  app.BoardApp = { store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
+  const B = { on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
+  app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const open = { ...workCard, pr: null, reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note' };
-  const detail = app.BoardApp.detail(open);
+  const detail = B.detail(open);
   assert.match(detail, /<a class="pill" href="notes\.html\?item=w%2FA1">Notes →<\/a>/);
   assert.doesNotMatch(detail, /Old short note|<summary[^>]*>Notes/);
-  assert.doesNotMatch(app.BoardApp.detail({ ...open, hasNotes: false }), /Notes/);
+  assert.doesNotMatch(B.detail({ ...open, hasNotes: false }), /Notes/);
 });
 
 test('the side pages wait out a board restart: a failed request, a 5xx or a body that is not JSON shows Board restarting… and retries with a growing backoff, until about limit ms', async () => {
@@ -777,32 +778,4 @@ test('the GitHub mark opens the Hub links sheet, with a red dot while a link is 
   assert.equal(ui.setupCard(null), '');
   const setup = ui.setupCard({ events: false, github: true, push: 'no device' });
   assert.equal(text(setup), "Connecting this board Waiting for Claude to answer the hello GitHub checks reach this board No device has notifications on");
-});
-
-test("a New task draft typed on one board isn't read on another, the old shared keys move to the first board opened, and a card's draft keeps its key", () => {
-  const storage = new Map([['draft:ask', JSON.stringify('old draft')], ['openItems', JSON.stringify(['w/A1'])], ['draft:w/A1', JSON.stringify('a reply')]]);
-  const localStorage = { get length() { return storage.size; }, key: (i) => [...storage.keys()][i] ?? null, getItem: (k) => storage.get(k) ?? null,
-    setItem: (k, v) => storage.set(k, String(v)), removeItem: (k) => storage.delete(k) };
-  const open = (route) => {
-    const els = new Map();
-    const el = (sel) => {
-      if (!els.has(sel)) els.set(sel, { value: '', on: {}, style: { setProperty() {} }, classList: { add() {}, remove() {}, toggle() {} },
-        addEventListener(kind, fn) { this.on[kind] = fn; }, insertAdjacentHTML() {}, contains: () => false });
-      return els.get(sel);
-    };
-    const page = vm.createContext({ URL, localStorage, setTimeout, clearTimeout, navigator: { platform: 'MacIntel' }, matchMedia: () => ({ matches: false, addEventListener() {} }),
-      document: { querySelector: el, querySelectorAll: () => [], addEventListener() {} }, BoardDialogs: { confirm() {}, notice() {} },
-      ClaudeSite: { url: (p) => `https://mac.ts.net/${route}/${p}`, watch() {} } });
-    page.window = page;
-    for (const file of ['ui.js', 'ui-links.js', 'app-core.js', 'app-asks.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), page);
-    return { ask: el('#askText'), store: page.BoardApp.store };
-  };
-  const a = open('board-a');
-  assert.deepEqual([a.ask.value, plain(a.store.get('openItems'))], ['old draft', ['w/A1']]);
-  const b = open('board-b');
-  assert.deepEqual([b.ask.value, b.store.get('openItems', null)], ['', null]);
-  b.ask.on.input({ target: { value: 'for B' } });
-  assert.deepEqual([open('board-a').ask.value, open('board-b').ask.value], ['old draft', 'for B']);
-  assert.deepEqual([storage.has('draft:ask'), storage.has('openItems')], [false, false]);
-  assert.deepEqual([a.store.get('draft:w/A1'), b.store.get('draft:w/A1')], ['a reply', 'a reply']);
 });

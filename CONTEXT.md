@@ -143,7 +143,7 @@ The owning session's understanding of a work item so far: what was asked, what i
 _Avoid_: full plan, plan, spec
 
 **Held**:
-A work card the owner paused with its Hold button. It doesn't start, and a running one gets no new work, until the owner taps Resume ([0023](docs/adr/0023-a-card-can-be-held-and-every-card-button-confirms.md)). Every action-row button asks to confirm first, through `BoardApp.confirm`.
+A work card the owner paused with its Hold button. It doesn't start, and a running one gets no new work, until the owner taps Resume ([0023](docs/adr/0023-a-card-can-be-held-and-every-card-button-confirms.md)). Every action-row button asks to confirm first, through `B.confirm` (`dialogs.js`).
 _Avoid_: paused, frozen, on hold (as a status name)
 
 **Builder**:
@@ -214,7 +214,7 @@ _Avoid_: variant (the switcher's URL parameter, not the word), mockup
 
 ## Board page files
 
-The board page's scripts in `board/public/` are plain scripts with no bundler, loaded in the order `index.html` lists them. The `ui*.js` files hold pure renderers on the `BoardUI` global, which `ui.test.mjs` tests. The `app*.js` files hold page state and event handlers on the `BoardApp` global, and `app.js` comes last. A site card names the files it expects to touch from this table ([0022](docs/adr/0022-site-cards-build-in-parallel-when-their-files-dont-overlap.md)).
+The board page's scripts in `board/public/` are plain scripts with no bundler, loaded in the order `index.html` lists them. The `ui*.js` files hold pure renderers on the `BoardUI` global, which `ui.test.mjs` tests. `app.js` defines `BoardView`, and each `app-*.js` file after it registers one part of the board view with `BoardView.part((B) => …)`. `BoardView.create(root, site)` gives each board its own `B` (state, `ClaudeSite.site`, store, and a `$` scoped to the view's root), and a part adds listeners, intervals, timers, streams and watches only through `B.on`, `B.every`, `B.later`, `B.stream` and `B.watch`, so `unmount()` leaves none behind; `view.test.mjs` checks that. The view's state, such as `offline` and `data-board`, sits on its root (`.view-board`), not on `<body>`. A site card names the files it expects to touch from this table ([0022](docs/adr/0022-site-cards-build-in-parallel-when-their-files-dont-overlap.md)).
 
 Refs in text that Claude or the owner wrote are linked by the renderer, never by hand: pass the text through `ui-links.js` (`linkText`, or `linkHtml` for an HTML reply or line) with the item's `linkContext`. A card's ref (`INT-<n>`, or any `ref` on the board) opens its card, a Linear id or PR opens its page, and a bare URL becomes a link. Write refs as plain text in thread lines, replies, questions and plans.
 
@@ -238,7 +238,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `notes.html` | One item's notes, from `GET /api/notes`; the server redirects `plan.html` here |
 | `attach.js` | Picking and uploading attachments |
 | `prototype-switcher.js` | A prototype page's ‹ take › pill, its keys and `?variant=`, one take alone with `?take=`, and with `?q=` the pick and note that answer the card's question, then the next open question; `prototype-switcher.test.mjs` tests its logic |
-| `app-core.js` | Shared page state, storage, toasts, drafts, seen marks and hiding; re-exports `dialogs.js` as `BoardApp.confirm` and `notice` |
+| `app-core.js` | The view's shared helpers: toasts, drafts, seen marks and hiding; re-exports `dialogs.js` as `B.confirm` and `notice` |
 | `dialogs.js` | `BoardDialogs.confirm` and `notice`, which every board page's dialogs go through; loaded on every page |
 | `rules-editor.js` | `RulesEditor`, the rules list on board Settings and hub Settings (served as `/_hub/rules-editor.js`), with its own CSS; `ui.test.mjs` tests its pure parts |
 | `app-threads.js` | Loading a thread, once at a time per card; an open card's thread, its reply box, quick replies and Done |
@@ -249,4 +249,4 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `app-banner.js` | The answer banner, its tap and its ✕ |
 | `app-header.js` | The board's header controls and time, refresh, the offline state, the In Review header's GitHub line, the Hub links sheet and the setup checklist |
 | `app-snapshot.js` | Reading and saving the last visit, holding the controls that send while it shows, and the flash when the fresh board lands |
-| `app.js` | Rendering the page from those parts, painting the last visit, loading the board with its open threads (taking over the loads `index.html` starts), preloading active cards' threads, the reload timers, and the change-signal stream |
+| `app.js` | `BoardView`: each board's `B`, its state and per-board store, mount and unmount; rendering the view from its parts, painting the last visit, loading the board with its open threads (taking over the loads `index.html` starts), preloading active cards' threads, the reload timers, and the change-signal stream |

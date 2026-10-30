@@ -4,7 +4,8 @@
 //   BoardAttach.files(id)    the uploaded files, ready for an event's data.files
 //   BoardAttach.busy(id)     true while any upload is running
 //   BoardAttach.clear(id)    after sending
-//   BoardAttach.onChange(fn) fn(id) after each change, such as to disable Send while busy
+//   BoardAttach.onChange(fn) fn(id) after each change, such as to disable Send while busy; each composer
+//                            painted also gets a bubbling attach-change event with detail {id}
 window.BoardAttach = (function () {
   const LIMIT = 20 * 1024 * 1024;
   const state = new Map();
@@ -17,6 +18,7 @@ window.BoardAttach = (function () {
     for (const c of composers(id)) {
       const el = c.querySelector('[data-files]');
       if (el) el.innerHTML = BoardUI.pendingFiles(list(id));
+      c.dispatchEvent(new CustomEvent('attach-change', { bubbles: true, detail: { id } }));
     }
     for (const fn of listeners) fn(id);
   }

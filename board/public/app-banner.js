@@ -1,7 +1,6 @@
-// The answer banner at the top of the board page: asks Claude answered without making work, whose answer this
+// The answer banner at the top of the board view: asks Claude answered without making work, whose answer this
 // browser hasn't seen (domain.mjs answers; docs/adr/0016-every-ask-is-a-card.md). Needs app-core.js.
-(function () {
-  const B = globalThis.BoardApp;
+BoardView.part((B) => {
   const { $, store, state, seen, markSeen, plural, svg } = B;
   const { esc } = BoardUI;
   const DISMISSED = 'dismissedAnswers';
@@ -26,7 +25,7 @@
       <button type="button" class="ghost icon answer-dismiss" aria-label="Dismiss" title="Dismiss">${svg('<path d="M18 6 6 18M6 6l12 12"/>', 16)}</button>`;
   }
 
-  $('#answers').addEventListener('click', (ev) => {
+  B.on($('#answers'), 'click', (ev) => {
     const d = state.board;
     if (!d) return;
     if (ev.target.closest('.answer-dismiss')) {
@@ -46,4 +45,4 @@
   });
 
   Object.assign(B, { renderBanner });
-})();
+});

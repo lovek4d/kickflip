@@ -1,19 +1,18 @@
-// New tasks on the board page: the + sheet that sends one as an ask event, and bump, edit and delete for a New card or a
+// New tasks on the board view: the + sheet that sends one as an ask event, and bump, edit and delete for a New card or a
 // pending thread message (docs/adr/0014-a-pending-ask-can-be-deleted-or-bumped.md,
 // docs/adr/0047-the-plus-makes-a-new-card.md). Needs app-core.js and app-threads.js.
-(function () {
-  const B = globalThis.BoardApp;
+BoardView.part((B) => {
   const { $, store, state, typing, toast, quieted, sendDraft, hide } = B;
   const { esc, attachButton } = BoardUI;
 
   // The ask box is a bottom sheet: a <dialog> opened from the + button. Closing keeps the draft.
   const sheet = $('#sheet');
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
-  $('#askForm .row').insertAdjacentHTML('afterbegin', attachButton());
+  if (!$('#askForm .row .attach')) $('#askForm .row').insertAdjacentHTML('afterbegin', attachButton());
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-  $('#askForm button[type=submit]').insertAdjacentHTML('beforebegin', `<span class="send-hint" aria-hidden="true">${isMac ? '⌘↵' : 'Ctrl+↵'}</span>`);
+  if (!$('#askForm .send-hint')) $('#askForm button[type=submit]').insertAdjacentHTML('beforebegin', `<span class="send-hint" aria-hidden="true">${isMac ? '⌘↵' : 'Ctrl+↵'}</span>`);
   // ⌘↵ (Ctrl+↵ off a Mac) sends from any composer: the ask, a thread reply, an edit.
-  document.addEventListener('keydown', (ev) => {
+  B.on(B.root, 'keydown', (ev) => {
     if (ev.key !== 'Enter' || !(ev.metaKey || ev.ctrlKey) || ev.isComposing) return;
     const form = ev.target instanceof HTMLTextAreaElement ? ev.target.closest('form[data-composer], form.edit-form') : null;
     if (!form) return;
@@ -21,7 +20,7 @@
     form.requestSubmit();
   });
   $('#askText').value = store.get('draft:ask', '');
-  $('#askText').addEventListener('input', (e) => { if (!quieted('draft:ask', e.target)) store.set('draft:ask', e.target.value); });
+  B.on($('#askText'), 'input', (e) => { if (!quieted('draft:ask', e.target)) store.set('draft:ask', e.target.value); });
   // iOS keeps fixed elements on the layout viewport, under the keyboard; this lifts the sheet to the visual viewport's bottom.
   const vv = window.visualViewport;
   function fitSheet() {
@@ -30,8 +29,8 @@
     sheet.style.setProperty('--vh', (vv ? vv.height : window.innerHeight) + 'px');
     sheet.classList.toggle('kb', kb > 0);
   }
-  vv?.addEventListener('resize', fitSheet);
-  vv?.addEventListener('scroll', fitSheet);
+  B.on(vv, 'resize', fitSheet);
+  B.on(vv, 'scroll', fitSheet);
   function openSheet() {
     if (sheet.open) return;
     fitSheet();
@@ -45,25 +44,26 @@
     $('#compose').setAttribute('aria-expanded', 'false');
     if (reduceMotion.matches) { sheet.close(); return; }
     sheet.classList.add('closing');
-    setTimeout(() => { sheet.classList.remove('closing'); sheet.close(); }, 180);
+    B.later(180, () => { sheet.classList.remove('closing'); sheet.close(); });
   }
-  $('#compose').addEventListener('click', openSheet);
-  // n pressed twice opens the sheet, as the + button's tooltip says, unless a field or another dialog has focus.
+  B.on($('#compose'), 'click', openSheet);
+  // n pressed twice opens the sheet, as the + button's tooltip says, unless a field or another dialog has focus. With
+  // nothing focused the key goes to <body>, outside the view, so this listens on the document.
   const TWICE_MS = 500;
   let lastN = -Infinity;
-  document.addEventListener('keydown', (ev) => {
+  B.on(document, 'keydown', (ev) => {
     if (ev.key !== 'n' || ev.metaKey || ev.ctrlKey || ev.altKey || ev.repeat || ev.isComposing) return;
     const field = ev.target instanceof Element && ev.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
-    if (field || document.querySelector('dialog[open]') || document.body.classList.contains('offline')) { lastN = -Infinity; return; }
+    if (field || document.querySelector('dialog[open]') || B.root.classList.contains('offline')) { lastN = -Infinity; return; }
     if (ev.timeStamp - lastN > TWICE_MS) { lastN = ev.timeStamp; return; }
     lastN = -Infinity;
     ev.preventDefault();
     openSheet();
   });
-  $('#sheetClose').addEventListener('click', closeSheet);
-  sheet.addEventListener('click', (ev) => { if (ev.target === sheet) closeSheet(); });
-  sheet.addEventListener('cancel', (ev) => { ev.preventDefault(); closeSheet(); });
-  $('#askForm').addEventListener('submit', async (ev) => {
+  B.on($('#sheetClose'), 'click', closeSheet);
+  B.on(sheet, 'click', (ev) => { if (ev.target === sheet) closeSheet(); });
+  B.on(sheet, 'cancel', (ev) => { ev.preventDefault(); closeSheet(); });
+  B.on($('#askForm'), 'submit', async (ev) => {
     ev.preventDefault();
     $('#askText').blur();
     const text = $('#askText').value.trim();
@@ -71,7 +71,7 @@
     if ((!text && !files.length) || BoardAttach.busy('ask')) return;
     $('#askStatus').textContent = 'Sending…';
     try {
-      await sendDraft('draft:ask', $('#askText'), () => $('#askText'), () => ClaudeSite.send('ask', { text, ...(files.length ? { files } : {}) }));
+      await sendDraft('draft:ask', $('#askText'), () => $('#askText'), () => B.site.send('ask', { text, ...(files.length ? { files } : {}) }));
       BoardAttach.clear('ask');
       $('#askStatus').textContent = '';
       closeSheet();
@@ -80,12 +80,12 @@
     } catch { $('#askStatus').textContent = 'Could not send'; }
   });
 
-  document.addEventListener('click', async (ev) => {
+  B.on(B.root, 'click', async (ev) => {
     const bump = ev.target.closest('button[data-bump]');
     if (!bump) return;
     ev.preventDefault();
     bump.disabled = true;
-    try { await ClaudeSite.send('ask-bump', { id: bump.dataset.bump }); toast('Bumped to the top', 2500); } catch { toast('Could not bump', 3000); }
+    try { await B.site.send('ask-bump', { id: bump.dataset.bump }); toast('Bumped to the top', 2500); } catch { toast('Could not bump', 3000); }
     B.loadBoard();
   });
   // A New card's icons sit on the card; a message in a thread, an ask's included, carries its thread's key.
@@ -101,7 +101,7 @@
     return { thread, key, msg, data: { id, ...(key ? { key } : {}) } };
   }
   const closeEditor = (form) => { form.previousElementSibling.hidden = false; form.remove(); if (state.lanesStale && !typing()) B.render(); };
-  document.addEventListener('click', async (ev) => {
+  B.on(B.root, 'click', async (ev) => {
     const eb = ev.target.closest('button[data-edit]');
     if (eb) {
       ev.preventDefault();
@@ -128,13 +128,13 @@
     B.render();
     if (msg) msg.hidden = true;
     try {
-      await ClaudeSite.send('ask-withdrawn', { id, ...(key ? { key } : {}) });
+      await B.site.send('ask-withdrawn', { id, ...(key ? { key } : {}) });
       await hide(id, true);
       toast('Deleted', 2500);
       if (key) B.loadThread(key, { force: true }); else B.loadBoard();
     } catch { state.withdrawnAsks.delete(id); B.render(); if (msg) msg.hidden = false; toast('Could not delete', 3000); }
   });
-  document.addEventListener('submit', async (ev) => {
+  B.on(B.root, 'submit', async (ev) => {
     const form = ev.target.closest('form.edit-form');
     if (!form) return;
     ev.preventDefault();
@@ -142,7 +142,7 @@
     if (!text) { toast('Write something, or delete the message', 3000); return; }
     const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
     try {
-      await ClaudeSite.send('ask-edited', { ...JSON.parse(form.dataset.event), text });
+      await B.site.send('ask-edited', { ...JSON.parse(form.dataset.event), text });
       const thread = form.dataset.threadKey;
       closeEditor(form);
       toast('Edited', 2500);
@@ -152,9 +152,9 @@
   });
   // The asks watch polls every 10 s while an ask waits for its reply, sooner than the board's own refresh.
   let asksSeen = false;
-  ClaudeSite.watch((list) => {
+  B.watch((list) => {
     if (!list) return;
     if (asksSeen) B.loadBoard();
     asksSeen = true;
   }, { kind: 'ask', limit: 50 });
-})();
+});

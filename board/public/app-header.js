@@ -1,9 +1,8 @@
-// The board page's header and GitHub status: the time since the last change signal or refresh, refresh, the In Review
+// The board view's header and GitHub status: the time since the last change signal or refresh, refresh, the In Review
 // header's GitHub line (docs/adr/0021-the-board-shows-github-checks-and-watcher-health.md);
 // the GitHub mark's Hub links sheet and a new board's setup checklist (docs/adr/0040-one-board-registry-for-every-hub-feature.md).
 // Needs app-core.js.
-(function () {
-  const B = globalThis.BoardApp;
+BoardView.part((B) => {
   const { $, state, toast } = B;
   const { statusLine, freshSig, nextFresh, githubLine, linksList, setupCard, checkLanded, githubRefresh, headerControls } = BoardUI;
   // A request no check answers stops showing after this.
@@ -22,7 +21,7 @@
     state.fresh = nextFresh(state.fresh, { via, at: new Date().toISOString(), sig: freshSig(state.board, state.threadCache, state.openItems) });
     renderStatus();
   }
-  setInterval(() => { if (!document.hidden) renderStatus(); }, 15000);
+  B.every(15000, () => { if (!document.hidden) renderStatus(); });
   const githubHeader = (d) => `<span class="lane-github">${githubLine(d.checks, { pending: Boolean(state.githubPending), links: d.links })}${githubRefresh(d.checks, state.githubPending)}</span>`;
 
   // The Hub links sheet: the GitHub mark opens it, from inside the lane's summary, so the tap must not fold the lane.
@@ -32,9 +31,9 @@
     if (!linksSheet.open || linksSheet.classList.contains('closing')) return;
     if (reduceMotion.matches) { linksSheet.close(); return; }
     linksSheet.classList.add('closing');
-    setTimeout(() => { linksSheet.classList.remove('closing'); linksSheet.close(); }, 180);
+    B.later(180, () => { linksSheet.classList.remove('closing'); linksSheet.close(); });
   }
-  document.addEventListener('click', (ev) => {
+  B.on(B.root, 'click', (ev) => {
     if (!ev.target.closest('[data-hub-links]')) return;
     ev.preventDefault();
     if (!state.board || linksSheet.open) return;
@@ -42,15 +41,15 @@
     linksSheet.classList.remove('closing');
     linksSheet.showModal();
   });
-  $('#linksClose').addEventListener('click', closeLinks);
-  linksSheet.addEventListener('click', (ev) => { if (ev.target === linksSheet) closeLinks(); });
-  linksSheet.addEventListener('cancel', (ev) => { ev.preventDefault(); closeLinks(); });
+  B.on($('#linksClose'), 'click', closeLinks);
+  B.on(linksSheet, 'click', (ev) => { if (ev.target === linksSheet) closeLinks(); });
+  B.on(linksSheet, 'cancel', (ev) => { ev.preventDefault(); closeLinks(); });
   function askGitHub() {
     state.githubPending = Date.now();
     B.render();
-    ClaudeSite.send('check-github', {}).catch(() => { state.githubPending = null; B.render(); toast('Could not ask Claude to check GitHub', 3000); });
+    B.site.send('check-github', {}).catch(() => { state.githubPending = null; B.render(); toast('Could not ask Claude to check GitHub', 3000); });
   }
-  document.addEventListener('click', (ev) => {
+  B.on(B.root, 'click', (ev) => {
     const b = ev.target.closest('[data-check-github]');
     if (!b) return;
     ev.preventDefault();
@@ -68,12 +67,13 @@
   }
   const headerWired = () => { controls.wired = true; applyControls(); };
   const OFFLINE_TOAST = `Offline, ${BoardUI.refreshIcon(14)} to retry`;
+  // style.css dims the offline view from .view-board.offline.
   function setLink(link) {
     const was = state.link;
     state.link = link;
     if (link !== 'reconnecting') controls.boardSettled = true;
     const off = link !== 'online';
-    document.body.classList.toggle('offline', off);
+    B.root.classList.toggle('offline', off);
     if (off) B.toast(OFFLINE_TOAST);
     else if (was && was !== 'online') B.toast('');
     applyControls();
@@ -81,7 +81,7 @@
   }
   const linkUp = () => setLink('online');
   const linkDown = () => { if (state.link !== 'reconnecting') setLink('offline'); };
-  $('.nav').addEventListener('click', (ev) => {
+  B.on($('.nav'), 'click', (ev) => {
     if (ev.target.closest('a[aria-disabled="true"]')) { ev.preventDefault(); ev.stopImmediatePropagation(); }
   }, true);
   // A load can return in milliseconds, so the spin and "Reconnecting…" hold long enough to read.
@@ -100,12 +100,12 @@
 
   // The header refresh reloads the board and its open threads; only the GitHub ↻ asks Claude to check GitHub.
   // Offline, it retries the board load instead.
-  $('#refresh').addEventListener('click', () => {
+  B.on($('#refresh'), 'click', () => {
     if (state.link === 'offline') { reconnect(); return; }
     reloading(() => B.loadBoard({ via: 'refresh' }));
   });
-  $('#toast').addEventListener('click', () => { if (state.link === 'offline') reconnect(); });
-  setInterval(() => { if (state.githubPending && !document.hidden) B.loadBoard(); }, 5000);
+  B.on($('#toast'), 'click', () => { if (state.link === 'offline') reconnect(); });
+  B.every(5000, () => { if (state.githubPending && !document.hidden) B.loadBoard(); });
 
   Object.assign(B, { renderHeader, landed, githubHeader, linkUp, linkDown, headerWired });
-})();
+});

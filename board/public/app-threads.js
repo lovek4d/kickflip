@@ -1,7 +1,6 @@
-// A card's thread on the board page: loading and rendering it, and its reply box. Needs app-core.js.
-(function () {
-  const B = globalThis.BoardApp;
-  const { store, state, toast, quieted, sendDraft, links } = B;
+// A card's thread on the board view: loading and rendering it, and its reply box. Needs app-core.js.
+BoardView.part((B) => {
+  const { $, store, state, toast, quieted, sendDraft, links } = B;
   const { esc, setHTML, threadMessages, attachButton, protoButton, protoNotice, doneButton } = BoardUI;
 
   const thread = (key) => `<div class="thread" data-thread="${esc(key)}"><div class="muted small">Loading thread…</div></div>`;
@@ -19,7 +18,7 @@
   }
 
   function renderThread(key, msgs) {
-    const el = document.querySelector(`[data-thread="${CSS.escape(key)}"]`);
+    const el = $(`[data-thread="${CSS.escape(key)}"]`);
     if (!el || el.querySelector('.edit-form')) return;
     syncDone(el, key);
     const sig = JSON.stringify(msgs);
@@ -54,7 +53,7 @@
     if (!force && inflight.has(key)) return inflight.get(key);
     if (maxAge && Date.now() - (loadedAt.get(key) || 0) < maxAge) return Promise.resolve();
     const n = ++seq;
-    const p = (from || fetch(ClaudeSite.url('api/thread?key=' + encodeURIComponent(key)), { cache: 'no-store' })
+    const p = (from || fetch(B.site.url('api/thread?key=' + encodeURIComponent(key)), { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`thread ${r.status}`)))))
       .then((msgs) => {
         if ((shown.get(key) || 0) > n) return;
@@ -70,44 +69,44 @@
     return p;
   }
 
-  document.addEventListener('input', (ev) => {
+  B.on(B.root, 'input', (ev) => {
     const f = ev.target.closest('form[data-reply]');
     if (!f || ev.target.tagName !== 'TEXTAREA' || quieted('draft:' + f.dataset.reply, ev.target)) return;
     store.set('draft:' + f.dataset.reply, ev.target.value);
   });
-  document.addEventListener('click', async (ev) => {
+  B.on(B.root, 'click', async (ev) => {
     const b = ev.target.closest('form[data-reply] button[data-quick]');
     if (!b) return;
     const key = b.closest('form').dataset.reply;
     b.disabled = true;
-    try { await ClaudeSite.send('item-message', { key, text: b.dataset.quick }); loadThread(key, { force: true }); }
+    try { await B.site.send('item-message', { key, text: b.dataset.quick }); loadThread(key, { force: true }); }
     catch { toast('Could not send', 3000); }
     b.disabled = false;
   });
-  document.addEventListener('click', async (ev) => {
+  B.on(B.root, 'click', async (ev) => {
     const b = ev.target.closest('form[data-reply] button[data-proto]');
     if (!b) return;
     const key = b.dataset.proto;
     const pending = b.dataset.protoPending;
     if (pending) {
       let latest = null;
-      try { latest = (await ClaudeSite.events({ kind: 'ask-bump', limit: 1 }))[0]?.data?.id ?? null; } catch {}
+      try { latest = (await B.site.events({ kind: 'ask-bump', limit: 1 }))[0]?.data?.id ?? null; } catch {}
       const n = protoNotice(pending, latest);
       if (!n.bump) { B.notice(n.text); return; }
       if (!(await B.confirm(n.text))) return;
-      try { await ClaudeSite.send('ask-bump', { id: pending }); toast('Bumped to the top', 2500); } catch { toast('Could not bump', 3000); }
+      try { await B.site.send('ask-bump', { id: pending }); toast('Bumped to the top', 2500); } catch { toast('Could not bump', 3000); }
       return;
     }
     if (!(await B.confirm('Ask Claude for prototypes of this item?'))) return;
     b.disabled = true;
     try {
-      await ClaudeSite.send('prototype-request', { key });
+      await B.site.send('prototype-request', { key });
       b.title = b.ariaLabel = 'Prototypes asked for';
       toast('Asked Claude for prototypes', 2500);
       loadThread(key, { force: true });
     } catch { b.disabled = false; toast('Could not send', 3000); }
   });
-  document.addEventListener('submit', async (ev) => {
+  B.on(B.root, 'submit', async (ev) => {
     const f = ev.target.closest('form[data-reply]');
     if (!f) return;
     ev.preventDefault();
@@ -120,22 +119,21 @@
     const key = f.dataset.reply;
     const btn = f.querySelector('button[type=submit]'); btn.disabled = true;
     try {
-      await sendDraft('draft:' + key, ta, () => document.querySelector(`form[data-reply="${CSS.escape(key)}"] textarea`),
-        () => ClaudeSite.send('item-message', { key, text, ...(files.length ? { files } : {}) }));
+      await sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),
+        () => B.site.send('item-message', { key, text, ...(files.length ? { files } : {}) }));
       BoardAttach.clear(id);
       btn.disabled = false;
       loadThread(f.dataset.reply, { force: true });
     } catch { B.notice('Could not send. Is the Mac awake?'); btn.disabled = false; }
   });
-  BoardAttach.onChange((id) => {
-    for (const c of document.querySelectorAll(`[data-composer="${CSS.escape(id)}"]`)) {
-      const b = c.querySelector('button[type=submit]');
-      if (b) b.disabled = BoardAttach.busy(id);
-    }
+  // Send waits while a composer's files upload, the ask's included (attach.js attach-change).
+  B.on(B.root, 'attach-change', (ev) => {
+    const b = ev.target.querySelector('button[type=submit]');
+    if (b) b.disabled = BoardAttach.busy(ev.detail.id);
   });
 
   Object.assign(B, {
     thread, renderThread, loadThread, sendingDone,
-    syncDone: (key) => { const el = document.querySelector(`[data-thread="${CSS.escape(key)}"]`); if (el) syncDone(el, key); },
+    syncDone: (key) => { const el = $(`[data-thread="${CSS.escape(key)}"]`); if (el) syncDone(el, key); },
   });
-})();
+});

@@ -1,42 +1,11 @@
-// Board page base: the state and helpers the other app-*.js files share through BoardApp. Load it first, after
-// ui-*.js and attach.js; app.js loads last and starts the page.
-(function () {
-  const $ = (s, el = document) => el.querySelector(s);
-  // Every board shares the hub's one origin, so each keeps its keys under site:<route>:; index.html's preload reads
-  // openItems by the same key. Thread and question drafts are already per card and keep their own keys.
-  const route = new URL(ClaudeSite.url('')).pathname.replace(/^\/+|\/+$/g, '');
-  const keyOf = (k) => (/^(draft:(?!ask$)|qdraft:)/.test(k) ? k : `site:${route}:${k}`);
-  // The keys boards kept unprefixed move once, to the first board opened; a key whose new name is taken stays.
-  try {
-    const old = [];
-    for (let i = 0; i < localStorage.length; i++) old.push(localStorage.key(i));
-    for (const k of old.filter((k) => /^(openItems|wave|lanes|seenThreads|dismissedAnswers|draft:ask|foldOpen:.+)$/.test(k))) {
-      if (localStorage.getItem(keyOf(k)) != null) continue;
-      localStorage.setItem(keyOf(k), localStorage.getItem(k));
-      localStorage.removeItem(k);
-    }
-  } catch { /* no storage: nothing to move */ }
-  const store = {
-    get(k, d) { try { const v = localStorage.getItem(keyOf(k)); return v == null ? d : JSON.parse(v); } catch { return d; } },
-    set(k, v) { try { localStorage.setItem(keyOf(k), JSON.stringify(v)); } catch {} },
-  };
-  // board is the last /api/board; githubPending the time of a refresh's unanswered check-github request; fresh the
-  // header's time, ui-header.js nextFresh's {at, sig}.
-  const state = {
-    board: null,
-    fresh: null,
-    openItems: new Set(store.get('openItems', [])),
-    threadCache: new Map(),
-    withdrawnAsks: new Set(),
-    lanesStale: false,
-    githubPending: null,
-    waveFilter: store.get('wave', null),
-  };
+// The board view's shared helpers, which the other parts take from B. Register it first, after app.js.
+BoardView.part((B) => {
+  const { $, store, state } = B;
 
   // A rebuild would drop what the reader is typing in a card, so it waits until focus leaves the field.
   const typing = () => $('#lanes').contains(document.activeElement) && document.activeElement.matches('textarea, input:not([type=file])');
   const editing = () => Boolean($('#lanes .edit-form'));
-  $('#lanes').addEventListener('focusout', () => setTimeout(() => {
+  B.on($('#lanes'), 'focusout', () => B.later(0, () => {
     if (state.lanesStale && state.board && !typing() && !editing()) B.render();
   }));
   const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -59,8 +28,8 @@
       sticky = html;
       if (toastTimer) return;
     } else {
-      clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => { toastTimer = null; t.innerHTML = sticky; t.hidden = !sticky; }, ms);
+      toastTimer?.();
+      toastTimer = B.later(ms, () => { toastTimer = null; t.innerHTML = sticky; t.hidden = !sticky; });
     }
     t.innerHTML = html;
     t.hidden = !html;
@@ -86,12 +55,12 @@
   }
 
   // A deleted ask is hidden on the server, so it leaves every device (docs/adr/0008-dismissals-hide-on-the-server.md).
-  const hide = (id, hidden) => fetch(ClaudeSite.url('api/hide'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, hidden }) });
+  const hide = (id, hidden) => fetch(B.site.url('api/hide'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, hidden }) });
   // The ui-links.js linkContext for text shown on item `key`'s card or thread.
   const links = (key) => BoardUI.linkContext(state.board?.items || [], key);
   const svg = (body, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 
   const { confirm, notice } = globalThis.BoardDialogs;
 
-  const B = globalThis.BoardApp = { $, store, state, typing, editing, plural, seen, markSeen, toast, quieted, sendDraft, hide, links, svg, confirm, notice };
-})();
+  Object.assign(B, { typing, editing, plural, seen, markSeen, toast, quieted, sendDraft, hide, links, svg, confirm, notice });
+});

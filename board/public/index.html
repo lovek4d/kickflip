@@ -25,6 +25,7 @@ window.BoardBoot = (function () {
 <body class="has-sidebar">
 <aside id="sidebar" class="sidebar" aria-label="Boards"></aside>
 <div id="sidebarScrim" class="sidebar-scrim"></div>
+<div class="view-board">
 <!--header {"lead":"logo","title":"{{title}}"}-->
 
 <main>
@@ -54,6 +55,7 @@ window.BoardBoot = (function () {
   </div>
 </dialog>
 <div id="toast" class="toast" role="status" hidden></div>
+</div>
 
 <script src="claude.js"></script>
 <script src="ui-page-header.js"></script>
@@ -68,6 +70,7 @@ window.BoardBoot = (function () {
 <script src="ui-header.js"></script>
 <script src="ui-snapshot.js"></script>
 <script src="attach.js"></script>
+<script src="app.js"></script>
 <script src="app-core.js"></script>
 <script src="app-threads.js"></script>
 <script src="app-cards.js"></script>
@@ -77,6 +80,6 @@ window.BoardBoot = (function () {
 <script src="app-header.js"></script>
 <script src="app-banner.js"></script>
 <script src="app-snapshot.js"></script>
-<script src="app.js"></script>
+<script>BoardView.create(document.querySelector('.view-board'), ClaudeSite.root).mount();</script>
 </body>
 </html>
