@@ -1,8 +1,10 @@
 // The sidebar of every site (docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md), drawn from the hub's
-// /_hub/sidebar.json. It needs nothing else: the board page runs it through sidebar.js, and hub/hub.mjs renders the
-// hub pages' sidebar with it in a vm context. Its links are root-absolute, since every site and hub page sits beside
-// this one on the hub. sidebar.css styles it.
+// /_hub/sidebar.json. It needs only ui-page-header.js, loaded before it, for its head, which is the page header itself:
+// the board page runs it through sidebar.js, and hub/hub.mjs renders the hub pages' sidebar with both in a vm context.
+// Its links are root-absolute, since every site and hub page sits beside this one on the hub. sidebar.css styles it.
 (function () {
+  // ui.js replaces the BoardUI global when it loads after this, so the header renderer is held here.
+  const { header } = globalThis.BoardUI || {};
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const svg = (paths, size = 17) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
   const ICONS = {
@@ -40,8 +42,9 @@
     const notifySub = device === 'off' ? word('needs', 'Off on this device') : device === 'blocked' ? word('needs', 'Blocked on this device')
       : n.state === 'off' ? word('needs', n.text || 'Off') : esc(n.text || '');
     const hub = data?.hub;
-    return `<div class="sb-head"><button type="button" class="sb-logo" data-sidebar-close aria-label="Close boards"><img src="/_hub/kickflip.png" alt=""></button>`
-      + `<h2>Boards</h2><button type="button" class="sb-close" data-sidebar-close aria-label="Close">${svg(ICONS.close, 20)}</button></div>`
+    const close = `<div class="nav"><button type="button" class="sb-close" data-sidebar-close aria-label="Close boards">${svg(ICONS.close, 20)}</button></div>`;
+    return header({ lead: 'logo', title: 'Boards', level: 2, controls: false, trail: close, logoSrc: '/_hub/kickflip.png',
+      leadAttrs: { 'aria-label': 'Close boards', 'data-sidebar-close': '' } })
       + turnOn
       + `<div class="sb-group">${boards.map(siteRow).join('') || '<p class="sb-empty">No boards yet. In a Claude session, run /join-web-ts &lt;route&gt; --template board.</p>'}</div>`
       + (pages.length ? `<div class="sb-label">Pages</div><div class="sb-group">${pages.map(siteRow).join('')}</div>` : '')

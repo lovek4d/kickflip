@@ -23,7 +23,7 @@ textarea:focus, input:focus { outline: 2px solid var(--accent-soft); border-colo
   padding: max(10px, env(safe-area-inset-top)) 16px 10px; background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
 .brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
-.brand h1 { font-size: 16px; margin: 0; }
+.brand :is(h1, h2) { font-size: 16px; margin: 0; }
 .nav { display: flex; align-items: center; gap: 6px; }
 .pill { border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--text); }
 .pill.hot { background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -238,7 +238,7 @@ button.attach:disabled { opacity: .35; }
 body.offline #compose { display: none; }
 /* INT-80: offline, the board dims a little and only the header's refresh takes taps; app-header.js shows the offline toast */
 body.offline main > * { opacity: .72; }
-body.offline main, body.offline .top > :not(.nav), body.offline .top .nav > :not(.refresh) { pointer-events: none; }
+body.offline main, body.offline > .top > :not(.nav), body.offline > .top .nav > :not(.refresh) { pointer-events: none; }
 .toast svg { vertical-align: -2px; }
 /* INT-28: answer banner */
 .answer-banner { display: flex; align-items: center; gap: 4px; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
@@ -253,7 +253,7 @@ body.offline main, body.offline .top > :not(.nav), body.offline .top .nav > :not
 /* INT-37: one header row, the title cut with an ellipsis; the GitHub line's own refresh */
 .top { gap: 8px; }
 .brand { flex: 1 1 auto; display: flex; align-items: center; gap: 10px; min-width: 0; }
-.brand h1 { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brand :is(h1, h2) { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .top .nav { flex: none; }
 .lane-github { display: inline-flex; align-items: center; gap: 2px; }
 .lane-github .github { display: inline-flex; align-items: center; gap: 4px; }
@@ -279,12 +279,13 @@ body.offline main, body.offline .top > :not(.nav), body.offline .top .nav > :not
 body.offline .refresh #refresh, .refresh .link-state.offline { color: var(--color-danger); }
 .back { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; color: var(--accent); text-decoration: none; }
 /* The lead slot, logo or back, is one 44px tap box on the page's left edge, so every page's header lines up the same
-   (docs/adr/0048-a-questions-takes-show-inline.md). */
-.top { min-height: 52px; padding-top: max(4px, env(safe-area-inset-top)); padding-bottom: 4px; }
-.top .brand { gap: 4px; }
+   (docs/adr/0048-a-questions-takes-show-inline.md). The brand keeps that height when the rail hides the logo, so the
+   board's header and the sidebar's stay level. */
+.top { padding-top: max(4px, env(safe-area-inset-top)); padding-bottom: 4px; }
+.top .brand { gap: 4px; min-height: 44px; }
 .top .hub, .top .back { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 44px; height: 44px; margin-left: -10px; border-radius: 10px; }
 .top .back:active { background: var(--accent-soft); }
-.top .brand h1 { font-size: 17px; font-weight: 600; line-height: 22px; }
+.top .brand :is(h1, h2) { font-size: 17px; font-weight: 600; line-height: 22px; }
 /* The last visit paints dimmed until the fresh board lands; the controls ui-snapshot.js liveControls blocks rest meanwhile.
    A changed card, or other changed line, gets a builder-orange border that fades once (app-snapshot.js flashChanged). */
 main > * { transition: opacity .25s ease; }

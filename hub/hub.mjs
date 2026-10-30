@@ -16,8 +16,8 @@
 //                     the Home Screen app and its push service worker (scope /)
 //   /_hub/colors.css  ../shared/colors.css, the colours every hub page links before hub.css; ?v=colorsVersion() caches for a year
 //   /_hub/kickflip.png the header's image, and /_hub/dialogs.js and /_hub/page-header.js the header's scripts,
-//                     /_hub/rules-editor.js Settings' rules editor, /_hub/ui-sidebar.js, /_hub/sidebar.js and
-//                     /_hub/sidebar.css the sidebar, and /_hub/hub.css the hub pages' CSS, read from ../board/public
+//                     /_hub/rules-editor.js Settings' rules editor, /_hub/ui-page-header.js, /_hub/ui-sidebar.js,
+//                     /_hub/sidebar.js and /_hub/sidebar.css the sidebar, and /_hub/hub.css the hub pages' CSS, read from ../board/public
 //   /_hub/push/key    GET the VAPID public key; /_hub/push/subscribe and
 //                     /_hub/push/test take POSTs from the hub and Settings pages (push.mjs)
 //   /_hub/settings    GET the hub's Settings page; POST /_hub/settings/notifications takes set=on|weekends with
@@ -395,11 +395,11 @@ async function sidebarState({ fresh = false } = {}) {
 async function sidebar(here = '', state = null) {
   const { data } = state || await sidebarState();
   const context = vm.createContext({});
-  vm.runInContext(fs.readFileSync(path.join(BOARD_PUBLIC, 'ui-sidebar.js'), 'utf8'), context);
+  for (const file of ['ui-page-header.js', 'ui-sidebar.js']) vm.runInContext(fs.readFileSync(path.join(BOARD_PUBLIC, file), 'utf8'), context);
   const json = JSON.stringify(data).replace(/</g, '\\u003c');
   return {
     html: `<aside id="sidebar" class="sidebar" aria-label="Boards">${context.BoardUI.sidebar(data, { here })}</aside><div id="sidebarScrim" class="sidebar-scrim"></div>`,
-    scripts: `<script src="/_hub/ui-sidebar.js"></script><script src="/_hub/sidebar.js"></script><script>Sidebar.mount({ here: ${JSON.stringify(here)}, data: ${json} });</script>`,
+    scripts: `<script src="/_hub/ui-page-header.js"></script><script src="/_hub/ui-sidebar.js"></script><script src="/_hub/sidebar.js"></script><script>Sidebar.mount({ here: ${JSON.stringify(here)}, data: ${json} });</script>`,
   };
 }
 
@@ -719,7 +719,7 @@ async function hubRoute(req, res, url) {
     try { return send(200, 'image/png', fs.readFileSync(path.join(BOARD_PUBLIC, 'kickflip.png')), { 'cache-control': 'max-age=86400' }); }
     catch { res.writeHead(404).end(); return; }
   }
-  if (['/_hub/dialogs.js', '/_hub/page-header.js', '/_hub/rules-editor.js', '/_hub/ui-sidebar.js', '/_hub/sidebar.js'].includes(p)) return send(200, 'text/javascript; charset=utf-8', fs.readFileSync(path.join(BOARD_PUBLIC, p.slice(6))));
+  if (['/_hub/dialogs.js', '/_hub/page-header.js', '/_hub/rules-editor.js', '/_hub/ui-page-header.js', '/_hub/ui-sidebar.js', '/_hub/sidebar.js'].includes(p)) return send(200, 'text/javascript; charset=utf-8', fs.readFileSync(path.join(BOARD_PUBLIC, p.slice(6))));
   if (p === '/_hub/sidebar.css' || p === '/_hub/hub.css') return send(200, 'text/css; charset=utf-8', fs.readFileSync(path.join(BOARD_PUBLIC, p.slice(6))));
   if (p === '/_hub/sidebar.json') return sendJSON(200, (await sidebarState({ fresh: url.searchParams.get('fresh') === '1' })).data);
   if (p === '/_hub/') return send(200, 'text/html; charset=utf-8', await hubPage(req));

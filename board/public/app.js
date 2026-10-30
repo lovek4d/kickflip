@@ -55,7 +55,7 @@
     if (!focusKey) return;
     const el = document.querySelector(`details.item[data-key="${CSS.escape(focusKey)}"]`);
     // The sticky header would cover the card's title row, and its height changes with the safe area.
-    if (el) { el.style.scrollMarginTop = `${($('.top')?.offsetHeight || 0) + 8}px`; el.scrollIntoView({ block: 'start' }); }
+    if (el) { el.style.scrollMarginTop = `${($('body > .top')?.offsetHeight || 0) + 8}px`; el.scrollIntoView({ block: 'start' }); }
     if (el && replyKey === focusKey) focusReply(replyKey);
     if (el || final) focusKey = replyKey = null;
   }

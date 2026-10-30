@@ -1,7 +1,7 @@
 // The sidebar's behaviour on a page with <aside id="sidebar" class="sidebar"> and <div id="sidebarScrim"
-// class="sidebar-scrim">, after ui-sidebar.js (docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md).
+// class="sidebar-scrim">, after ui-page-header.js and ui-sidebar.js (docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md).
 // Sidebar.mount({here, remember, data}) paints the last copy this device stored, then /_hub/sidebar.json, again every
-// 30 seconds while the page shows. Below 900px the sidebar is a drawer: the header's logo (a.hub) or a swipe in
+// 30 seconds while the page shows. Below 900px the sidebar is a drawer: the page header's logo (a.hub) or a swipe in
 // from the left edge opens it, and the scrim, Escape, ✕, the drawer's own logo or a swipe back closes it.
 // remember stores `here` as this device's last board, which `/` opens (hub/hub.mjs startPage).
 (function () {
@@ -33,8 +33,10 @@
     let device = null;
     const rail = matchMedia(RAIL);
 
+    // The sidebar's head is a page header too, so the page's own logo is the one outside it.
+    const pageLogo = (el) => (el && !el.closest('.sidebar') ? el : null);
     function logoCount() {
-      const logo = document.querySelector('.top a.hub');
+      const logo = [...document.querySelectorAll('.top a.hub')].find(pageLogo);
       if (!logo || !data) return;
       const n = othersWaiting(data, here);
       logo.setAttribute('aria-label', n ? `Boards, ${n} waiting on other boards` : 'Boards');
@@ -70,8 +72,8 @@
     }
     document.addEventListener('click', (e) => {
       if (e.metaKey || e.ctrlKey || e.shiftKey) return;
-      if (e.target.closest?.('.top a.hub')) { if (!rail.matches) { e.preventDefault(); open(); } return; }
-      if (e.target.closest?.('[data-sidebar-close]')) { e.preventDefault(); close(); }
+      if (e.target.closest?.('[data-sidebar-close]')) { e.preventDefault(); close(); return; }
+      if (pageLogo(e.target.closest?.('.top a.hub'))) { if (!rail.matches) { e.preventDefault(); open(); } }
     });
     scrim?.addEventListener('click', close);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isOpen()) close(); });

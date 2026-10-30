@@ -220,7 +220,7 @@ test('every page header leads with the logo or a back arrow, then the title, the
   assert.doesNotMatch(logo, /<script>/);
 });
 
-test("the sidebar lists the boards then the pages, marks this one, counts what waits on the others, and ends with the hub's rows", () => {
+test("the sidebar's head is the page header, whose logo and ✕ close it, then it lists the boards then the pages, marks this one, counts what waits on the others, and ends with the hub's rows", () => {
   const site = (route, board, count, sub = '') => ({ route, title: route.toUpperCase(), board, count, icon: `<i data-r="${route}"></i>`, sub });
   const data = {
     sites: [site('ios', true, 2, '<b>2 need you</b>'), site('learn', false, 1), site('shop', true, 0), site('hub', true, 3)],
@@ -228,6 +228,8 @@ test("the sidebar lists the boards then the pages, marks this one, counts what w
   };
   const html = ui.sidebar(data, { here: 'ios', device: 'on' });
   assert.equal(text(html), 'Boards IOS 2 need you SHOP HUB Pages LEARN Hub Hub Healthy 4 of 4 sites up Notifications On Polling Every 15 min · next 4:45pm Settings Rules for every board');
+  assert.match(html, /^<header class="top"><div class="brand"><a class="hub" href="\/_hub\/" aria-label="Close boards" data-sidebar-close=""><img src="\/_hub\/kickflip\.png" alt=""><\/a><h2>Boards<\/h2><\/div><div class="nav"><button type="button" class="sb-close" data-sidebar-close aria-label="Close boards"><svg [^>]*>.*?<\/svg><\/button><\/div><\/header>/);
+  assert.doesNotMatch(html, /<h1|id="refresh"|settingsLink/);
   assert.match(html, /<a class="sb-row on" href="\/ios\/" aria-current="page"><i data-r="ios"><\/i>/);
   assert.match(html, /href="\/_hub\/"[^>]*>.*Hub<\/span>/);
   assert.equal(ui.othersWaiting(data, 'ios'), 4);

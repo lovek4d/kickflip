@@ -2,7 +2,7 @@
    link it after colors.css; the hub serves it as /_hub/sidebar.css. Every rule is scoped to .sidebar or the page
    classes sidebar.js sets, since each page's own CSS uses the same short class names. */
 .sidebar { position: fixed; z-index: 20; top: 0; bottom: 0; left: 0; width: min(86vw, 320px); display: flex; flex-direction: column;
-  padding: max(10px, env(safe-area-inset-top)) 8px calc(12px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  padding: 0 8px calc(12px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
   background: var(--panel); border-right: 1px solid var(--line); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
   transform: translateX(-102%); visibility: hidden; transition: transform .24s cubic-bezier(.2,.8,.2,1), visibility 0s linear .24s;
   font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif; color: var(--text); }
@@ -11,11 +11,12 @@
 .sidebar-scrim.on { opacity: 1; pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) { .sidebar, .sidebar.open, .sidebar-scrim { transition: none; } }
 
-.sidebar .sb-head { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 0 4px 0 8px; margin-bottom: 8px; }
-.sidebar .sb-head h2 { flex: 1; min-width: 0; margin: 0; font-size: 16px; font-weight: 600; }
-.sidebar .sb-logo { flex: none; display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; padding: 0; border: 0; background: none; cursor: pointer; }
-.sidebar .sb-logo img { width: 32px; height: auto; display: block; image-rendering: pixelated; }
-.sidebar .sb-close { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; }
+/* The head is the page header itself (ui-page-header.js), edge to edge across the sidebar and pinned while the list
+   scrolls, so its logo and title sit where the page header's do. Its ✕ mirrors the logo's 44px box on the right. */
+.sidebar > .top { flex: none; margin: 0 -8px 8px calc(-1 * max(8px, env(safe-area-inset-left))); }
+.sidebar .sb-close { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: 0 -10px 0 0; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--muted); cursor: pointer; }
+.sidebar .sb-close:active { background: var(--chip); }
+@media (hover: hover) { .sidebar .sb-close:hover { background: var(--chip); color: var(--text); } }
 .sidebar .sb-label { margin: 14px 8px 4px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .sidebar .sb-group { display: flex; flex-direction: column; gap: 2px; }
 .sidebar .sb-foot { margin-top: auto; padding-top: 6px; }
@@ -56,7 +57,7 @@
   body.has-sidebar { padding-left: 272px; }
   body.has-sidebar .sidebar { width: 272px; transform: none; visibility: visible; transition: none; z-index: 4; }
   body.has-sidebar .sidebar .sb-close { display: none; }
-  body.has-sidebar .sidebar .sb-logo { pointer-events: none; }
+  body.has-sidebar .sidebar .top .hub { pointer-events: none; }
   body.has-sidebar .sidebar-scrim { display: none; }
-  body.has-sidebar .top .hub { display: none; }
+  body.has-sidebar > .top .hub { display: none; }
 }
