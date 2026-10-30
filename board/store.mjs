@@ -7,8 +7,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { ITEM_STATUSES, ownerQuestion } from './domain.mjs';
 import { appendEvent, listBoards } from '../hub/boards.mjs';
-import { reviseQueued, deliver, lastSent, flushQueue, queueStatus } from '../hub/push.mjs';
-import { clock, holdLine } from '../hub/schedule.mjs';
+import { reviseQueued, flushQueue, queueStatus } from '../hub/push.mjs';
+import { holdLine } from '../hub/schedule.mjs';
 import { RuleError, rulesOf, addRule, editRule, removeRule, applyRules, readHubRules, writeHubRules } from '../hub/rules.mjs';
 
 export class BoardError extends Error {}
@@ -95,10 +95,9 @@ export async function writeReply(site, eventId, html) {
   const event = (await readLines(path.join(site, 'data', 'events.jsonl'))).find((e) => e.id === eventId);
   if (!event) fail(`no event "${eventId}" in this site's data/events.jsonl`);
   const file = path.join(site, 'data', 'replies', `${eventId}.html`);
-  const before = new Date();
   await replace(file, text(html, 'the reply'));
   const key = event.kind === 'ask' ? `ask:${eventId}` : event.kind === 'item-message' && typeof event.data?.key === 'string' ? event.data.key : null;
-  return { file, lines: key ? await freshenPush(site, key, htmlText(html), { answers: true, until: before }) : [] };
+  return { file, lines: key ? await freshenPush(site, key, htmlText(html)) : [] };
 }
 
 // An event the session has started, such as an ask or a thread message, reads "Working on it" until
@@ -160,21 +159,6 @@ function htmlText(html) {
     });
 }
 
-// A push from a board site, as `board.mjs push` sends it: "· and N replies" counts the replies written after the site's
-// last push and no later than `until`, and the push is recorded unless no device has notifications on.
-export async function sitePush(site, message, { immediate = false, until } = {}) {
-  const at = new Date();
-  const body = withReplies(message.body, await repliesSincePush(site, until || at));
-  const r = await deliver({ ...message, url: pushUrl(message.url), body }, { immediate, at });
-  if (r.noDevice) return { ...r, body };
-  await recordPush(site, at);
-  return { ...r, body };
-}
-
-const pushResult = (tag, r) => (r.noDevice ? `push ${tag}: no device has turned on notifications`
-  : r.dropped ? `dropped push ${tag}: notifications are off`
-  : r.sent ? `pushed ${tag}: ${r.body}` : `queued push ${tag}${r.queued.hold ? ` (${holdLine(r.queued.hold)})` : ''}, next send ${clock(r.queued.nextFlushAt)}: ${r.body}`);
-
 // Where a push lands (docs/adr/0036-a-push-lands-where-the-owner-answers.md). A card or ask link (#item=) gains
 // &reply, so the board opens that thread with its reply box focused. A page other than the board gains from=push, so
 // the back arrow of a page outside the page tree goes to the card or the board
@@ -190,18 +174,15 @@ export function pushUrl(url) {
 const threadUrl = (site, key) => `/${path.basename(site)}/#item=${encodeURIComponent(key)}&reply`;
 
 // Claude's latest message in a thread becomes the body of that thread's queued push, keeping its "· and N replies",
-// and the push now opens that thread at its reply box, whatever page it first linked. Once that push has gone, a
-// message that answers the owner pushes again at once under the same tag and title, to the thread
-// (docs/adr/0030-pushes-go-by-kind-and-each-arrives-on-its-own.md). → lines for the CLI to print.
-async function freshenPush(site, key, message, { answers = false, until } = {}) {
+// and the push now opens that thread at its reply box, whatever page it first linked. It never sends a push: a line
+// after the push went shows as the thread's unread mark (docs/adr/0030-pushes-go-by-kind-and-each-arrives-on-its-own.md).
+// → lines for the CLI to print.
+async function freshenPush(site, key, message) {
   const line = pushLine(message);
   if (!line) return [];
   const tag = pushTag(key);
   const body = await reviseQueued(tag, (old) => [line, REPLIES.exec(old)?.[1]].filter(Boolean).join(' · '), threadUrl(site, key));
-  if (body !== null) return [`queued push ${tag} now reads: ${body}`];
-  const sent = answers ? lastSent(tag) : null;
-  if (!sent) return [];
-  return [pushResult(tag, await sitePush(site, { title: sent.title, body: line, url: threadUrl(site, key), tag }, { immediate: true, until }))];
+  return body === null ? [] : [`queued push ${tag} now reads: ${body}`];
 }
 
 export const hiddenFile = (site) => path.join(site, 'data', 'hidden.json');
@@ -273,8 +254,7 @@ export async function readUpload(site, file) {
 
 const VIA = ['github', 'slack'];
 // key is <wave>/<id>, or ask:<event id> for an ask's thread.
-// answer: the line answers the owner's message in this thread, so it may push again (freshenPush).
-export async function appendThread(site, key, { text: body, link, who = 'claude', via, answer = false }) {
+export async function appendThread(site, key, { text: body, link, who = 'claude', via }) {
   needSite(site);
   if (String(key).startsWith('ask:')) await checkAsk(site, key.slice(4), 'the ask');
   else {
@@ -284,11 +264,10 @@ export async function appendThread(site, key, { text: body, link, who = 'claude'
   }
   if (!/^[^\n]{1,40}$/.test(who.trim())) fail('--who takes claude, love or a reviewer\'s name');
   if (via !== undefined && !VIA.includes(via)) fail(`--via takes ${VIA.join(' or ')}`);
-  if (answer && (who.trim() !== 'claude' || via !== undefined)) fail('--answer is only for Claude\'s own lines, without --via');
   const line = { ts: new Date().toISOString(), who: who.trim(), text: text(body, '--text'), link: optional(link, (v) => url(v, '--link')), via };
   const file = threadFile(site, key);
   await appendLine(file, line);
-  return { file, lines: line.who === 'claude' && !via ? await freshenPush(site, key, line.text, { answers: answer }) : [] };
+  return { file, lines: line.who === 'claude' && !via ? await freshenPush(site, key, line.text) : [] };
 }
 
 // An ask folded into an existing work item: data/ask-links.json ({links: {<ask event id>: <wave>/<id>}}) names the item,
@@ -444,7 +423,7 @@ async function flushAfterTick() {
 }
 
 // The join handshake (docs/adr/0040-one-board-registry-for-every-hub-feature.md): data/handshake.json
-// {hello: {id, at, session}, push: {result, at}, ack: {id, at} | null, done_at?}, written by hub/boards.mjs handshake.
+// {hello: {id, at, session}, ack: {id, at} | null, done_at?}, written by hub/boards.mjs handshake.
 // The board shows its setup checklist until the session acks the newest hello and the hub's GitHub check reaches it.
 const handshakeFile = (site) => path.join(site, 'data', 'handshake.json');
 export const readHandshake = (site) => readJSON(handshakeFile(site), null);

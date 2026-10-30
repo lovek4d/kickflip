@@ -629,7 +629,7 @@ async function hubRoute(req, res, url) {
     savePrompts(store);
     promptChanged(rec.route);
     log(`prompt ${rec.id}: ${rec.route ? `/${rec.route}` : rec.cwd} ${rec.tool}${rec.action ? ` (${rec.action})` : ''}`);
-    deliver(pushOf(rec), { immediate: true }).catch((e) => log(`prompt ${rec.id}: push failed: ${e.message}`));
+    deliver(pushOf(rec), { kind: 'prompt', immediate: true }).catch((e) => log(`prompt ${rec.id}: push failed: ${e.message}`));
     return sendJSON(200, { id: rec.id, deadline: rec.deadline });
   }
   const prompt = /^\/_hub\/prompts\/([\w-]+)(\/wait|\/answer)?$/.exec(p);

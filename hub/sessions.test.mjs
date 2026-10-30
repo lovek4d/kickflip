@@ -200,7 +200,7 @@ test("the hub wakes a board's session as soon as an event lands while it isn't r
     live: () => new Map([['s-busy', { pid: 1, kind: 'interactive' }]]),
     listening: (b) => listeningNow.has(b.route),
     resume: async (route, mark) => { resumed.push([min, route, mark]); if (route === 'lost') throw new Error('no such session'); },
-    push: async (msg) => { pushed.push([min, msg.title, msg.tag, msg.body]); },
+    push: async (msg, opts) => { pushed.push([min, msg.title, msg.tag, msg.body, opts.kind]); },
   });
   const comeback = COMEBACK_WAIT / 60_000;
   const resumeMin = RESUME_AFTER / 60_000;
@@ -223,6 +223,7 @@ test("the hub wakes a board's session as soon as an event lands while it isn't r
   assert.equal(pushed.length, 1);
   await check(0.25 + comeback);
   assert.deepEqual(pushed.map((p) => p.slice(0, 3)).at(-1), [0.25 + comeback, "Quiet's session didn't come back", 'resume-quiet']);
+  assert.deepEqual(pushed.map((p) => p[4]), ['fault', 'fault']);
   listeningNow.add('quiet');
   await check(10);
   assert.equal(read(web('resume-state.json')).quiet, undefined);

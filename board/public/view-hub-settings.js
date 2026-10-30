@@ -39,7 +39,7 @@ ${deviceRow(device.state(d.device))}
 ${notificationRows(d)}
 ${row({ icon: tile('clock', '#3b82f6'), title: 'Polling', sub: esc(d.polling), wrap: true, trail: CHEVRON, href: '/_hub/settings/polling' })}
 </div>
-<p class="note">Answers and questions go at once unless held overnight, snoozed or for the weekend; then they wait and go when the hold ends. Urgent pushes go through those holds. Needs you, the badge and the daily wakes carry on either way. Polling sets the windows, the overnight hold and the daily wakes.</p>`;
+<p class="note">Pushes come only when something needs you. Questions go at once unless held overnight, snoozed or for the weekend; then they wait and go when the hold ends. Urgent pushes go through those holds. Needs you, the badge and the daily wakes carry on either way. Polling sets the windows, the overnight hold and the daily wakes.</p>`;
   }
 
   (globalThis.AppViews ||= {})['hub-settings'] = {

@@ -65,7 +65,7 @@ The hub resuming a board session as soon as an event lands while that session is
 _Avoid_: auto-resume, respawn, wake (a daily wake is the morning `check-github`)
 
 **Push**:
-A phone notification from the hub that opens a page. A push is sent only when something waits on the owner. Answers and questions go at once; merges, drafts on Ready and stale PRs go when their tick ends; each arrives as its own notification ([0030](docs/adr/0030-pushes-go-by-kind-and-each-arrives-on-its-own.md)). Other replies don't push; a push that goes out anyway says how many came since the last one. With notifications off every push is dropped; a snooze and Off on weekends hold pushes until they end, and urgent ones go through those holds ([0032](docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md)).
+A phone notification from the hub that opens a page. Each push has a kind, and `hub/push.mjs` `deliver()` refuses any other: `action` when a card's **Action needed** appears or changes, `prompt` for a **pending prompt**, `fault` for what only the owner can fix (a board not listening, a session that didn't come back, an urgent production problem) ([0006](docs/adr/0006-pushes-only-when-something-waits-on-the-owner.md)). Answers, merges, Stale and other news never push; the threads' unread marks and the board carry them. Questions, steps and prototypes go at once; drafts on Ready and Merge go when their tick ends; each arrives as its own notification, and one under a card's tag replaces the last and alerts again ([0030](docs/adr/0030-pushes-go-by-kind-and-each-arrives-on-its-own.md)). Replies don't push; a push that goes out anyway says how many came since the last one. With notifications off every push is dropped; a snooze and Off on weekends hold pushes until they end, and urgent ones go through those holds ([0032](docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md)).
 _Avoid_: alert, notification (for the act of sending)
 
 **Polling interval**:
@@ -91,7 +91,7 @@ A site built from the board template that shows one or more waves as cards in la
 _Avoid_: dashboard, kanban
 
 **Hub links**:
-What the hub owes a board, each passing or broken: GitHub polling, events (the board is **listening**), daily wakes, pushes (a device is subscribed) and reviewer links. The hub link (the hub runs the code in its files) is the hub's own, shown in amber only on the sidebar's Hub row and the hub page's Health card ([0064](docs/adr/0064-every-builder-works-in-a-worktree.md)). The In Review header's GitHub mark opens them as a sheet, red-dotted only while one stays broken past its grace period; until then it is **settling** ([0046](docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md)). A new board tests them with a **handshake**: a `hello` event the session answers with `board.mjs hello-ack` and a test push, with a Connecting checklist on the board until the session answered and GitHub checks reach it ([0040](docs/adr/0040-one-board-registry-for-every-hub-feature.md)).
+What the hub owes a board, each passing or broken: GitHub polling, events (the board is **listening**), daily wakes, pushes (a device is subscribed) and reviewer links. The hub link (the hub runs the code in its files) is the hub's own, shown in amber only on the sidebar's Hub row and the hub page's Health card ([0064](docs/adr/0064-every-builder-works-in-a-worktree.md)). The In Review header's GitHub mark opens them as a sheet, red-dotted only while one stays broken past its grace period; until then it is **settling** ([0046](docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md)). A new board tests them with a **handshake**: a `hello` event the session answers with `board.mjs hello-ack`, with a Connecting checklist on the board until the session answered and GitHub checks reach it ([0040](docs/adr/0040-one-board-registry-for-every-hub-feature.md)).
 _Avoid_: health, status, integrations
 
 **Change signal**:
@@ -216,7 +216,7 @@ The board and threads this device last showed, kept in its browser storage. The 
 _Avoid_: cache, offline copy, stale board
 
 **Answer banner**:
-The one line at the top of a board, above Needs you, naming new tasks Claude answered without making work whose answer this browser hasn't seen: "1 answer · <ask>" or "2 answers · <newest> and 1 more". A tap opens the newest one's card; ✕ hides it on this device until a newer answer. The owning session also pushes each such answer ([0016](docs/adr/0016-every-ask-is-a-card.md)).
+The one line at the top of a board, above Needs you, naming new tasks Claude answered without making work whose answer this browser hasn't seen: "1 answer · <ask>" or "2 answers · <newest> and 1 more". A tap opens the newest one's card; ✕ hides it on this device until a newer answer. No push goes for an answer ([0006](docs/adr/0006-pushes-only-when-something-waits-on-the-owner.md)).
 _Avoid_: notification, toast
 
 **Owner question**:
@@ -229,15 +229,11 @@ _Avoid_: category, section
 
 **Needs you**:
 The box at the top of a board listing what waits on the owner, one line per work item, led by the board session's **pending prompts** ([0043](docs/adr/0043-needs-you-gathers-what-waits-and-questions-answer-on-one-page.md)).
-_Avoid_: inbox, digest (the digest is the **morning push** that opens it)
+_Avoid_: inbox, digest
 
 **Pending prompt**:
 A permission prompt or `AskUserQuestion` from a background board session, which its hook hands to the hub and holds the session on until the owner answers in the board's Needs you, or the hub page for a session that owns no board: Allow once, Always allow (a rule until the session ends) or Deny, or the question's options. With no answer in 10 minutes the call is denied with a note to ask on the card instead ([0060](docs/adr/0060-background-sessions-prompts-come-to-the-phone.md)).
 _Avoid_: permission request, approval, dialog
-
-**Morning push**:
-The owner's daily digest: one push each morning that opens the board at Needs you, skipped on a day when nothing waits ([0043](docs/adr/0043-needs-you-gathers-what-waits-and-questions-answer-on-one-page.md)). The reviewers' digests are Slack messages, not pushes.
-_Avoid_: Today page, owner digest in Slack
 
 **Event**:
 One thing the owner did on a page (an ask, an answer, a button), which wakes the owning session.

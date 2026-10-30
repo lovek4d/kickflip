@@ -207,7 +207,7 @@ export async function checkSessions({
         : isLive ? "Its session is running but hasn't relaunched its watcher."
           : `It still isn't listening after the hub resumed it. Try web-ts resume ${board.route}, or claude agents.`;
       try {
-        await push({ title: `${board.title}'s session didn't come back`, body, url: `/${board.route}/`, tag: `resume-${board.route}` }, { immediate: true, at: now });
+        await push({ title: `${board.title}'s session didn't come back`, body, url: `/${board.route}/`, tag: `resume-${board.route}` }, { kind: 'fault', immediate: true, at: now });
         out.pushed.push(board.route);
       } catch (e) { entry = { ...entry, pushed_at: undefined }; out.failed.push(`${board.route}: could not push that its session didn't come back (${e.message})`); }
     }

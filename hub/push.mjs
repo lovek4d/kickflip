@@ -1,13 +1,12 @@
 // Web Push for every hub site, with no dependencies. The hub serves the
-// subscribe side (hub.mjs); `web-ts push` sends through deliver(), which queues a
-// push unless it is urgent or immediate, and the queue goes out through flushQueue() after
+// subscribe side (hub.mjs); every push goes through deliver(), which refuses a push that isn't one of PUSH_KINDS and
+// queues one unless it is urgent or immediate. The queue goes out through flushQueue() after
 // each GitHub check on the polling interval (schedule.mjs) and at the end of each monitor tick
 // (`board.mjs checked`), each push as its own notification
 // (docs/adr/0030-pushes-go-by-kind-and-each-arrives-on-its-own.md).
 // State lives in ~/.claude/web-ts/push: vapid.json (the signing key),
 // subs.json (one entry per phone or browser that enabled notifications, with
-// the hub origin it subscribed from), queue.json (pushes waiting to go) and sent.json (the
-// title and url of the last push sent with each tag, for a week). The polling interval's
+// the hub origin it subscribed from) and queue.json (pushes waiting to go). The polling interval's
 // settings are `polling` in ~/.claude/web-ts/settings.json, with `notifications` beside it.
 // A subscription the push service reports gone (404 or 410) is dropped.
 // Payload encryption is RFC 8291 (aes128gcm); the Authorization header is RFC 8292 (VAPID).
@@ -22,8 +21,6 @@ const VAPID = path.join(DIR, 'vapid.json');
 const SUBS = path.join(DIR, 'subs.json');
 const QUEUE = path.join(DIR, 'queue.json');
 const QUEUE_LOCK = QUEUE + '.lock';
-const SENT = path.join(DIR, 'sent.json');
-const SENT_KEEP_MS = 7 * 86_400_000;
 const SETTINGS = path.join(os.homedir(), '.claude', 'web-ts', 'settings.json');
 
 const b64u = (buf) => Buffer.from(buf).toString('base64url');
@@ -216,29 +213,22 @@ export function queueStatus(now = new Date()) {
   return { settings, window: windowAt(now, settings), held: h !== null, hold: h, count: items.length, nextFlushAt: items.length ? flushAt(now, settings) : null };
 }
 
-function readSent() {
-  try { const s = JSON.parse(fs.readFileSync(SENT, 'utf8')); return s?.tags && typeof s.tags === 'object' ? s.tags : {}; } catch { return {}; }
-}
-// Call with the queue lock held.
-function recordSent(messages, at) {
-  const tagged = messages.filter((m) => m.tag);
-  if (!tagged.length) return;
-  const tags = Object.fromEntries(Object.entries(readSent()).filter(([, v]) => at - Date.parse(v.at) < SENT_KEEP_MS));
-  for (const m of tagged) tags[m.tag] = { title: m.title, url: m.url, at: at.toISOString() };
-  writePrivate(SENT, { tags });
-}
+// What a push may be about (docs/adr/0006-pushes-only-when-something-waits-on-the-owner.md): action, a card's Action
+// needed appearing or changing; prompt, a background session's pending prompt; fault, something only the owner can fix.
+export const PUSH_KINDS = ['action', 'prompt', 'fault'];
+export class PushKindError extends Error {}
+export const pushKindError = (kind) => (PUSH_KINDS.includes(kind) ? null
+  : `a push needs --kind ${PUSH_KINDS.join('|')}${kind === undefined || kind === true ? '' : `, not "${kind}"`}; news goes on the board, not in a push`);
 
-// {title, url, at} of the last push sent with this tag in the past week, or null.
-export function lastSent(tag) {
-  return (tag && readSent()[tag]) || null;
-}
-
-// message: as for sendAll. Returns {noDevice: true} with nothing sent or queued when no device has subscribed;
+// message: as for sendAll. kind: one of PUSH_KINDS, else it throws a PushKindError and nothing is sent or queued.
+// Returns {noDevice: true} with nothing sent or queued when no device has subscribed;
 // {dropped: true}, with nothing sent or queued, for any push while notifications are off;
 // {sent: results} for an urgent push, or for an immediate one that reached a device while pushes aren't held
 // (schedule.mjs heldUntil); else {queued: {count, replaced, nextFlushAt, held, hold, sendFailed}}. A push queued or
 // sent replaces a queued one with the same tag.
-export async function deliver(message, { urgent = false, immediate = false, at = new Date() } = {}) {
+export async function deliver(message, { kind, urgent = false, immediate = false, at = new Date() } = {}) {
+  const refused = pushKindError(kind);
+  if (refused) throw new PushKindError(refused);
   if (!readSubs().length) return { noDevice: true };
   const msg = { title: message.title, body: message.body || '', url: message.url || '/', tag: message.tag || undefined };
   const h = hold(at, readSettings());
@@ -248,10 +238,7 @@ export async function deliver(message, { urgent = false, immediate = false, at =
   if (urgent || (immediate && !held)) {
     const results = await sendAll(msg);
     if (delivered(results)) {
-      await withQueueLock(() => {
-        if (msg.tag) writePrivate(QUEUE, { items: readQueue().items.filter((i) => i.tag !== msg.tag) });
-        recordSent([msg], at);
-      });
+      if (msg.tag) await withQueueLock(() => writePrivate(QUEUE, { items: readQueue().items.filter((i) => i.tag !== msg.tag) }));
       return { sent: results };
     }
     if (urgent) return { sent: results };
@@ -305,9 +292,7 @@ export function flushQueue() {
       results.push(...r);
       (delivered(r) ? sent : failed).push(m);
     }
-    await withQueueLock(() => {
-      recordSent(sent, new Date());
-      if (!failed.length) return;
+    if (failed.length) await withQueueLock(() => {
       const q = readQueue();
       const newer = new Set(q.items.map((i) => i.tag).filter(Boolean));
       const back = items.filter((i) => failed.some((f) => f.id === i.id) && !(i.tag && newer.has(i.tag)));

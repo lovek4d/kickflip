@@ -98,9 +98,12 @@ self.addEventListener('push', (event) => {
     const nav = self.navigator;
     if (Number.isInteger(msg.badge) && nav && 'setAppBadge' in nav) badge = (msg.badge > 0 ? nav.setAppBadge(msg.badge) : nav.clearAppBadge()).catch(() => {});
   } catch {}
+  // renotify alerts again for a push that replaces one with its tag, such as a card's new question; browsers throw on
+  // renotify without a tag.
   event.waitUntil(Promise.all([self.registration.showNotification(msg.title || 'Claude', {
     body: msg.body || '',
     tag: msg.tag || undefined,
+    renotify: Boolean(msg.tag),
     icon: '/_hub/icon-192.png',
     data: { url: new URL(msg.url || '/', self.registration.scope).href },
   }), badge]));

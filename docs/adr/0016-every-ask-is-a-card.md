@@ -4,7 +4,7 @@ status: superseded by ADR-0047
 
 # Asks wait in a strip, then become Done items with their own thread
 
-Superseded by [0047](0047-the-plus-makes-a-new-card.md) on where an ask waits and how it joins work: a New card in Todo replaces the strip, and an ask that becomes work or joins a card shows in that card's thread instead of as a Done item. Done items, their threads and the answer banner below still hold.
+Superseded by [0047](0047-the-plus-makes-a-new-card.md) on where an ask waits and how it joins work: a New card in Todo replaces the strip, and an ask that becomes work or joins a card shows in that card's thread instead of as a Done item. Done items, their threads and the answer banner below still hold, but the answer no longer pushes ([0006](0006-pushes-only-when-something-waits-on-the-owner.md)): the banner and the thread's unread mark carry it.
 
 An ask the owner sends from the + button waits in a "Waiting for Claude" strip above the lanes. Once Claude answers it or links work to it, it is a Done item like any other, unless Claude keeps it open for the owner to finish.
 

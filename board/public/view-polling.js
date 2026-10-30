@@ -42,7 +42,7 @@ ${form('', w.from, `<button class="btn quiet" name="op" value="split"${w.split ?
 <h2 class="label" id="quiet">Quiet times</h2>
 <div class="group">${form('hold', w.from, `${tile('moon', '#6366f1')}<label class="body"><span class="text"><span class="title">Hold pushes overnight</span><span class="sub wrap">${esc(d.hold.sub)}</span></span><input type="checkbox" name="value" value="on" class="toggle" data-submit${d.hold.on ? ' checked' : ''}></label>`, ' class="row field"')}</div>
 <h2 class="label" id="wakes">Daily wakes</h2>
-<div class="group"><div class="block"><span class="sub wrap">At each time, once a day, every board's session checks GitHub even when nothing changed, so the morning push and reviewer digests go out.</span>
+<div class="group"><div class="block"><span class="sub wrap">At each time, once a day, every board's session checks GitHub even when nothing changed, so the reviewer digests go out.</span>
 <div class="chips">${wakeChips ? form('wake-remove', w.from, wakeChips) : ''}${form('wake-add', w.from, '<input type="time" name="value" required aria-label="New wake time"><button class="btn quiet">+ Add</button>', ' class="field"')}</div></div></div>`;
   }
 

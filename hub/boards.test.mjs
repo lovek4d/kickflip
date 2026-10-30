@@ -312,14 +312,14 @@ test('a board whose stopped session the hub can wake is asleep and pushes nothin
   assert.equal(linksOf(nap, { faults: {} }).find((l) => l.link === 'events').ok, true);
 });
 
-test('the handshake says hello and sends a test push; the board shows its checklist until the session acks the hello', async () => {
+test('the handshake says hello without a push; the board shows its checklist until the session acks the hello', async () => {
+  const before = pushes().length;
   const r = await cli(path.join(SKILL, 'bin', 'web-ts.mjs'), ['handshake', 'shop']);
   assert.equal(r.status, 0, r.stderr);
-  const { hello, push } = JSON.parse(r.stdout);
-  assert.equal(push, 'sent');
+  const { hello } = JSON.parse(r.stdout);
   assert.deepEqual(events('shop', 'hello').map((e) => [e.id, e.data.title]), [[hello, 'Shop']]);
-  assert.deepEqual(pushes().at(-1), { title: 'Shop board connected', url: '/shop/', tag: 'hello-shop' });
-  assert.deepEqual((await api('shop')).setup, { events: false, github: true, push: 'sent' });
+  assert.equal(pushes().length, before);
+  assert.deepEqual((await api('shop')).setup, { events: false, github: true });
   const board = (...a) => cli(path.join(SKILL, 'board', 'bin', 'board.mjs'), a);
   assert.match((await board('--site', 'shop', 'hello-ack', 'e-shop')).stderr, /no hello event "e-shop"/);
   assert.equal((await board('--site', 'shop', 'hello-ack', hello)).status, 0);

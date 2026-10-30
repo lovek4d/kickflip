@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as store from '../store.mjs';
 import { makeWorktree, land, skillRepo, worktreesDir } from '../worktree.mjs';
 import { ITEM_STATUSES } from '../domain.mjs';
+import { pushKindError } from '../../hub/push.mjs';
 
 export const USAGE = `usage: node board.mjs <command> [--site <route>] ...
 
@@ -19,13 +20,9 @@ A --file argument of - reads stdin.
                                                          shows "Working on it" until a reply or later thread line
   thread <wave>/<id> --text <t> [--link <url>]           one line in the item's thread; ask:<eventId> in place
          [--who claude|love|<name>] [--via github|slack] of <wave>/<id> writes in that ask's thread
-         [--answer]                                      --answer: this Claude line answers the owner's message
-                                                         in this thread. Never on a progress line
          A Claude thread line, or a reply to an ask or item-message, rewrites the body of the thread's
          queued push (tag ask-<eventId> or item-<wave>/<id>) to the message's first line, keeping
-         "· and N replies", and prints the new body. Once that push has gone, a reply or an --answer
-         line pushes again at once (as push --now) with the sent push's title and url, and the
-         message's first line as its body; any other line never pushes
+         "· and N replies", and prints the new body. It never pushes: the thread's unread mark carries it
   topic add <id> --title <t> [--summary <s>]             a question topic in data/owner.json
   question add --file <json>                             one question or an array of them:
          {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
@@ -138,24 +135,28 @@ A --file argument of - reads stdin.
                                                          server when board/ changed; removes the worktree and its
                                                          branch. Never pushes. WEB_TS_RESTART_CMD='["<cmd>"]' replaces
                                                          the restarts, called with hub or board <route>
-  push --title <t> [--body <b>] [--url </route/path>]    runs web-ts push with these flags, adding
-       [--tag <tag>] [--now | --urgent]                  "· and N replies" to the body for the replies
-                                                         written since the site's last push through this
+  push --kind action|prompt|fault --title <t>            runs web-ts push with these flags, adding
+       [--body <b>] [--url </route/path>]                "· and N replies" to the body for the replies
+       [--tag <tag>] [--now | --urgent]                  written since the site's last push through this
                                                          command (none before its first). For an item, tag it
-                                                         ask-<eventId> or item-<wave>/<id>. It records the
+                                                         ask-<eventId> or item-<wave>/<id>; a card whose action
+                                                         changes pushes again under its tag. It records the
                                                          push in data/push-state.json only when web-ts push
                                                          succeeds, and exits with web-ts push's code.
+                                                         --kind: action when a card's Action needed appears or
+                                                         changes, fault for what only the owner can fix. Refused
+                                                         without one: news stays on the board.
                                                          Without --now it queues until the tick ends (checked) or
-                                                         the hub's next check: merges, drafts on Ready, stale PRs,
-                                                         the digest. --now sends at once unless pushes are held
-                                                         (overnight, snoozed or the weekend): answers, questions,
-                                                         steps only the owner can run, prototypes asked for.
-                                                         --urgent: production only; it beats those holds. While
-                                                         notifications are off every push is dropped, urgent too
+                                                         the hub's next check: drafts on Ready, Merge. --now sends
+                                                         at once unless pushes are held (overnight, snoozed or the
+                                                         weekend): questions, steps only the owner can run,
+                                                         prototypes asked for. --urgent: a production fault only;
+                                                         it beats those holds. While notifications are off every
+                                                         push is dropped, urgent too
          WEB_TS_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/web-ts.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
-const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'answer', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree']);
+const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree']);
 const WEB_TS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'bin', 'web-ts.mjs');
 
 function pushCommand() {
@@ -168,11 +169,13 @@ function pushCommand() {
 }
 
 async function push(site, f) {
+  const refused = pushKindError(f.kind);
+  if (refused) throw new UsageError(refused);
   if (f.title === undefined) throw new UsageError('push needs --title');
   const at = new Date();
   const n = await store.repliesSincePush(site, at);
   const body = store.withReplies(f.body, n);
-  const flags = { title: f.title, body: body || undefined, url: store.pushUrl(f.url), tag: f.tag };
+  const flags = { kind: f.kind, title: f.title, body: body || undefined, url: store.pushUrl(f.url), tag: f.tag };
   const [cmd, ...pre] = pushCommand();
   const args = [...pre, ...Object.entries(flags).flatMap(([k, v]) => (v === undefined ? [] : [`--${k}`, v])), ...(f.urgent ? ['--urgent'] : []), ...(f.now ? ['--now'] : [])];
   const r = spawnSync(cmd, args, { stdio: 'inherit' });
@@ -239,7 +242,7 @@ const COMMANDS = {
     if ((f.html === undefined) === (f.file === undefined)) throw new UsageError('reply takes --html or --file');
     return store.writeReply(site, id, f.html ?? readInput(f.file));
   }],
-  thread: [['wave/id'], ['text', 'link', 'who', 'via', 'answer'], (site, [key], f) => store.appendThread(site, key, f)],
+  thread: [['wave/id'], ['text', 'link', 'who', 'via'], (site, [key], f) => store.appendThread(site, key, f)],
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
   'question add': [[], ['file'], (site, _, f) => store.addQuestions(site, readJSONInput(f.file))],
   'question resolve': [['id'], ['note'], (site, [id], f) => store.resolveQuestion(site, id, f.note)],
@@ -283,7 +286,7 @@ const COMMANDS = {
   working: [['eventId'], [], (site, [id]) => store.setWorking(site, id)],
   'hello-ack': [['eventId'], [], (site, [id]) => store.ackHello(site, id)],
   checked: [[], ['every', 'idle'], (site, _, f) => store.writeChecked(site, f.every, { idle: f.idle })],
-  push: [[], ['title', 'body', 'url', 'tag', 'urgent', 'now'], (site, _, f) => push(site, f)],
+  push: [[], ['kind', 'title', 'body', 'url', 'tag', 'urgent', 'now'], (site, _, f) => push(site, f)],
 };
 
 export async function main(argv) {

@@ -40,19 +40,27 @@ afterEach(async () => {
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test('deliver refuses a push with no kind or an info kind, sending and queueing nothing', async () => {
+  for (const opts of ['{}', "{ kind: 'info', immediate: true }", "{ kind: 'info', urgent: true }"]) {
+    const r = await inChild(`try { await push.deliver({ title: 'Answered: keep it?', url: '/orch/' }, { ...${opts}, at: ${NOON} }); return 'sent'; } catch (e) { return [e.constructor.name, e.message]; }`);
+    assert.equal(r[0], 'PushKindError', opts);
+    assert.match(r[1], /^a push needs --kind action\|prompt\|fault/);
+  }
+  assert.deepEqual(device.received, []);
+  assert.equal(fs.existsSync(pushFile('queue.json')), false);
+});
+
 test('an immediate push goes at once in the day, replacing a queued one with its tag, and queues while pushes are held', async () => {
-  await inChild(`return push.deliver({ title: 'Answered: keep it?', body: 'Queued', url: '/orch/#item=ask%3Ae1', tag: 'ask-e1' }, { at: ${NOON} });`);
-  await inChild(`return push.deliver({ title: '2 PRs merged', url: '/orch/' }, { at: ${NOON} });`);
+  await inChild(`return push.deliver({ title: 'A1 asks: Which layout?', body: 'Queued', url: '/orch/#item=w%2FA1', tag: 'item-w/A1' }, { kind: 'action', at: ${NOON} });`);
+  await inChild(`return push.deliver({ title: 'A2 waits on Ready', url: '/orch/' }, { kind: 'action', at: ${NOON} });`);
   assert.equal(read(pushFile('queue.json')).items.length, 2);
 
-  const now = await inChild(`return push.deliver({ title: 'Answered: keep it?', body: 'Yes', url: '/orch/#item=ask%3Ae1', tag: 'ask-e1' }, { immediate: true, at: ${NOON} });`);
+  const now = await inChild(`return push.deliver({ title: 'A1 asks: Which colour?', body: 'Blue · Red', url: '/orch/#item=w%2FA1', tag: 'item-w/A1' }, { kind: 'action', immediate: true, at: ${NOON} });`);
   assert.ok(now.sent);
-  assert.deepEqual(seen(), [{ title: 'Answered: keep it?', body: 'Yes', url: '/orch/#item=ask%3Ae1', tag: 'ask-e1' }]);
-  assert.deepEqual(read(pushFile('queue.json')).items.map((i) => i.title), ['2 PRs merged']);
-  assert.deepEqual(await inChild(`const s = push.lastSent('ask-e1'); return { title: s.title, url: s.url };`), { title: 'Answered: keep it?', url: '/orch/#item=ask%3Ae1' });
-  assert.equal(await inChild(`return push.lastSent('ask-e2');`), null);
+  assert.deepEqual(seen(), [{ title: 'A1 asks: Which colour?', body: 'Blue · Red', url: '/orch/#item=w%2FA1', tag: 'item-w/A1' }]);
+  assert.deepEqual(read(pushFile('queue.json')).items.map((i) => i.title), ['A2 waits on Ready']);
 
-  const held = await inChild(`return push.deliver({ title: 'One needs you', url: '/orch/', tag: 'item-w/A1' }, { immediate: true, at: ${NIGHT} });`);
+  const held = await inChild(`return push.deliver({ title: 'One needs you', url: '/orch/', tag: 'item-w/A1' }, { kind: 'action', immediate: true, at: ${NIGHT} });`);
   assert.ok(held.queued);
   assert.equal(device.received.length, 1);
   assert.deepEqual(read(pushFile('queue.json')).items.map((i) => i.tag), [undefined, 'item-w/A1']);
@@ -60,37 +68,36 @@ test('an immediate push goes at once in the day, replacing a queued one with its
 
 test('flushing the queue sends each push as its own notification, and a failed send keeps it queued', async () => {
   await inChild(`
-    await push.deliver({ title: '2 questions need you', body: 'Which layout?', url: '/orch/questions.html', tag: 'questions-orch' }, { at: ${NOON} });
-    await push.deliver({ title: 'B5 needs you', body: 'Pick one', url: '/orch/#item=w%2FB5', tag: 'item-w/B5' }, { at: ${NOON} });
-    await push.deliver({ title: '1 PR merged', url: '/orch/' }, { at: ${NOON} });`);
+    await push.deliver({ title: '2 questions need you', body: 'Which layout?', url: '/orch/questions.html', tag: 'questions-orch' }, { kind: 'action', at: ${NOON} });
+    await push.deliver({ title: 'B5 needs you', body: 'Pick one', url: '/orch/#item=w%2FB5', tag: 'item-w/B5' }, { kind: 'action', at: ${NOON} });
+    await push.deliver({ title: 'A3 waits on Merge', url: '/orch/' }, { kind: 'action', at: ${NOON} });`);
   const r = await inChild('return push.flushQueue();');
   assert.equal(r.count, 3);
   assert.equal(r.ok, true);
   assert.deepEqual(seen(), [
     { title: '2 questions need you', body: 'Which layout?', url: '/orch/questions.html', tag: 'questions-orch' },
     { title: 'B5 needs you', body: 'Pick one', url: '/orch/#item=w%2FB5', tag: 'item-w/B5' },
-    { title: '1 PR merged', body: '', url: '/orch/', tag: undefined },
+    { title: 'A3 waits on Merge', body: '', url: '/orch/', tag: undefined },
   ]);
   assert.deepEqual(read(pushFile('queue.json')).items, []);
-  assert.equal(await inChild(`return push.lastSent('item-w/B5').title;`), 'B5 needs you');
 
   write(pushFile('subs.json'), [{ ...device.subscription, endpoint: 'http://127.0.0.1:9/device' }]);
-  await inChild(`return push.deliver({ title: 'Stale', url: '/orch/', tag: 'stale-A1' }, { at: ${NOON} });`);
+  await inChild(`return push.deliver({ title: 'A4 waits on Ready', url: '/orch/', tag: 'item-w/A4' }, { kind: 'action', at: ${NOON} });`);
   const failed = await inChild('return push.flushQueue();');
   assert.equal(failed.ok, false);
-  assert.deepEqual(read(pushFile('queue.json')).items.map((i) => i.tag), ['stale-A1']);
+  assert.deepEqual(read(pushFile('queue.json')).items.map((i) => i.tag), ['item-w/A4']);
 });
 
 test('with notifications off every push is dropped, urgent ones too, and turning them off drops the queue', async () => {
-  await inChild(`return push.deliver({ title: '2 PRs merged', url: '/orch/' }, { at: ${NOON} });`);
+  await inChild(`return push.deliver({ title: 'A3 waits on Merge', url: '/orch/' }, { kind: 'action', at: ${NOON} });`);
   const off = await inChild('return push.setNotifications({ on: false });');
   assert.equal(off.dropped, 1);
   assert.equal(off.notifications.on, false);
   assert.deepEqual(read(pushFile('queue.json')).items, []);
   const results = await inChild(`return [
-    await push.deliver({ title: 'Answered', url: '/orch/' }, { immediate: true, at: ${NOON} }),
-    await push.deliver({ title: 'Prod down', url: '/orch/' }, { urgent: true, at: ${NOON} }),
-    await push.deliver({ title: '1 PR merged', url: '/orch/' }, { at: ${NOON} }),
+    await push.deliver({ title: 'A1 asks: Keep it?', url: '/orch/' }, { kind: 'action', immediate: true, at: ${NOON} }),
+    await push.deliver({ title: 'Orch is down', url: '/orch/' }, { kind: 'fault', urgent: true, at: ${NOON} }),
+    await push.deliver({ title: 'A3 waits on Merge', url: '/orch/' }, { kind: 'action', at: ${NOON} }),
   ];`);
   assert.deepEqual(results, [{ dropped: true }, { dropped: true }, { dropped: true }]);
   assert.deepEqual(device.received, []);
@@ -101,20 +108,20 @@ test('with notifications off every push is dropped, urgent ones too, and turning
 test('a snooze or the weekend queues pushes until it ends, an urgent push still goes, and undo lets them go', async () => {
   const snoozed = await inChild(`return push.setNotifications({ snooze: '3h' }, ${NOON});`);
   assert.equal(snoozed.notifications.snoozed_until, new Date(2026, 9, 14, 15).toISOString());
-  const held = await inChild(`return push.deliver({ title: 'Answered', url: '/orch/', tag: 'ask-e1' }, { immediate: true, at: ${NOON} });`);
+  const held = await inChild(`return push.deliver({ title: 'A1 asks: Keep it?', url: '/orch/', tag: 'ask-e1' }, { kind: 'action', immediate: true, at: ${NOON} });`);
   assert.equal(held.queued.held, true);
   assert.equal(held.queued.nextFlushAt, new Date(2026, 9, 14, 15).toISOString());
-  const urgent = await inChild(`return push.deliver({ title: 'Prod down', url: '/orch/' }, { urgent: true, at: ${NOON} });`);
+  const urgent = await inChild(`return push.deliver({ title: 'Orch is down', url: '/orch/' }, { kind: 'fault', urgent: true, at: ${NOON} });`);
   assert.ok(urgent.sent);
-  assert.deepEqual(seen().map((m) => m.title), ['Prod down']);
+  assert.deepEqual(seen().map((m) => m.title), ['Orch is down']);
 
   await inChild(`return push.setNotifications({ snooze: 'off' }, ${NOON});`);
-  const now = await inChild(`return push.deliver({ title: 'Answered', body: 'Again', url: '/orch/', tag: 'ask-e1' }, { immediate: true, at: ${NOON} });`);
+  const now = await inChild(`return push.deliver({ title: 'A1 asks: Keep it?', body: 'Again', url: '/orch/', tag: 'ask-e1' }, { kind: 'action', immediate: true, at: ${NOON} });`);
   assert.ok(now.sent);
-  assert.deepEqual(seen().map((m) => m.title), ['Prod down', 'Answered']);
+  assert.deepEqual(seen().map((m) => m.title), ['Orch is down', 'A1 asks: Keep it?']);
 
   await inChild('return push.setNotifications({ weekends_off: true });');
-  const weekend = await inChild(`return push.deliver({ title: 'B5 needs you', url: '/orch/', tag: 'item-w/B5' }, { immediate: true, at: ${SATURDAY} });`);
+  const weekend = await inChild(`return push.deliver({ title: 'B5 needs you', url: '/orch/', tag: 'item-w/B5' }, { kind: 'action', immediate: true, at: ${SATURDAY} });`);
   assert.equal(weekend.queued.held, true);
   assert.equal(weekend.queued.nextFlushAt, new Date(2026, 9, 19, 8).toISOString());
   assert.deepEqual(read(pushFile('queue.json')).items.map((i) => i.tag), ['item-w/B5']);

@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0006
+---
+
 # A PR in review shows its age, and goes Stale after seven days
+
+Superseded in part by [0006](0006-pushes-only-when-something-waits-on-the-owner.md): a card going Stale and a merge push nothing; the Stale lane and the board show them. The ages, the Stale lane and the reviewer replies below still hold.
 
 A PR waiting on its reviewers shows how long it has waited. After seven days it parks in its own lane and the owner is told once. Reviewers hear about a change only when it matters to them, and merges reach the owner as one summary per tick.
 

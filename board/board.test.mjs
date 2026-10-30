@@ -548,29 +548,29 @@ test('push adds the replies written since the last push to the body, and records
   };
 
   reply('e1', 60_000);
-  assert.equal(push(0, '--title', 'Question', '--body', 'Pick one', '--url', '/orch/questions.html').code, 0);
+  assert.equal(push(0, '--kind', 'action', '--title', 'Question', '--body', 'Pick one', '--url', '/orch/questions.html').code, 0);
   assert.ok(!Number.isNaN(Date.parse(read(state).last_push)));
 
   write(state, { last_push: new Date(Date.now() - 30_000).toISOString() });
   reply('e2', 10_000);
   reply('e3', 5_000);
-  const failed = push(3, '--title', 'Ready', '--body', 'A1 is green', '--tag', 'ready-A1', '--urgent');
+  const failed = push(3, '--kind', 'action', '--title', 'Ready', '--body', 'A1 is green', '--tag', 'ready-A1', '--urgent');
   assert.equal(failed.code, 3);
   const kept = read(state).last_push;
-  assert.equal(push(0, '--title', 'Ready', '--tag', 'ready-A1').code, 0);
+  assert.equal(push(0, '--kind', 'action', '--title', 'Ready', '--tag', 'ready-A1').code, 0);
   assert.ok(Date.parse(read(state).last_push) > Date.parse(kept));
-  assert.equal(push(0, '--title', 'Digest').code, 0);
-  assert.equal(push(0, '--title', 'Answered: keep it?', '--tag', 'ask-e1', '--now').code, 0);
+  assert.equal(push(0, '--kind', 'fault', '--title', 'Orch is down').code, 0);
+  assert.equal(push(0, '--kind', 'action', '--title', 'e1 waits on your Done', '--tag', 'ask-e1', '--now').code, 0);
 
   assert.deepEqual(lines(calls), [
-    ['push', '--title', 'Question', '--body', 'Pick one', '--url', '/orch/questions.html?from=push'],
-    ['push', '--title', 'Ready', '--body', 'A1 is green · and 2 replies', '--tag', 'ready-A1', '--urgent'],
-    ['push', '--title', 'Ready', '--body', 'and 2 replies', '--tag', 'ready-A1'],
-    ['push', '--title', 'Digest'],
-    ['push', '--title', 'Answered: keep it?', '--tag', 'ask-e1', '--now'],
+    ['push', '--kind', 'action', '--title', 'Question', '--body', 'Pick one', '--url', '/orch/questions.html?from=push'],
+    ['push', '--kind', 'action', '--title', 'Ready', '--body', 'A1 is green · and 2 replies', '--tag', 'ready-A1', '--urgent'],
+    ['push', '--kind', 'action', '--title', 'Ready', '--body', 'and 2 replies', '--tag', 'ready-A1'],
+    ['push', '--kind', 'fault', '--title', 'Orch is down'],
+    ['push', '--kind', 'action', '--title', 'e1 waits on your Done', '--tag', 'ask-e1', '--now'],
   ]);
-  assert.equal(board('push', '--site', 'orch').code, 2);
-  assert.equal(board('push', '--title', 'No site').code, 1);
+  assert.equal(board('push', '--site', 'orch', '--kind', 'action').code, 2);
+  assert.equal(board('push', '--kind', 'action', '--title', 'No site').code, 1);
 });
 
 test("a Claude thread line or reply rewrites its item's queued push to the latest message, and a sent push stays sent", () => {
@@ -581,10 +581,10 @@ test("a Claude thread line or reply rewrites its item's queued push to the lates
   const lastPush = () => write(site('orch', 'data', 'push-state.json'), { last_push: new Date(Date.now() - 60_000).toISOString() });
   write(site('orch', 'data', 'replies', 'old.html'), '<p>Earlier.</p>');
 
-  assert.equal(board('push', '--site', 'orch', '--title', 'Answered: keep it?', '--body', 'Too early', '--tag', 'ask-e1').code, 0);
+  assert.equal(board('push', '--site', 'orch', '--kind', 'action', '--title', 'e1 waits on your Done', '--body', 'Too early', '--tag', 'ask-e1').code, 0);
   lastPush();
-  assert.equal(board('push', '--site', 'orch', '--title', 'Answered: keep it?', '--body', 'First answer', '--tag', 'ask-e1').code, 0);
-  assert.equal(board('push', '--site', 'orch', '--title', 'One needs you', '--body', 'Pick a layout', '--url', '/orch/prototype-layout.html?q=w-layout', '--tag', 'item-w/A1').code, 0);
+  assert.equal(board('push', '--site', 'orch', '--kind', 'action', '--title', 'e1 waits on your Done', '--body', 'First answer', '--tag', 'ask-e1').code, 0);
+  assert.equal(board('push', '--site', 'orch', '--kind', 'action', '--title', 'One needs you', '--body', 'Pick a layout', '--url', '/orch/prototype-layout.html?q=w-layout', '--tag', 'item-w/A1').code, 0);
   assert.deepEqual(queue(), { 'ask-e1': 'First answer · and 1 reply', 'item-w/A1': 'Pick a layout' });
   const urls = () => Object.fromEntries(read(queueFile).items.map((i) => [i.tag, i.url]));
   assert.equal(urls()['item-w/A1'], '/orch/prototype-layout.html?q=w-layout&from=push');
@@ -609,36 +609,49 @@ test("a Claude thread line or reply rewrites its item's queued push to the lates
   assert.deepEqual(read(queueFile).items, []);
 });
 
-test("after a thread's push has gone, Claude's next line answering the owner there pushes again at once under its tag; other lines stay quiet", () => withDevice(async (b, received) => {
+test('a push without an allowed kind is refused with one line, by board.mjs and web-ts push alike, and nothing goes', () => withDevice(async (b, received) => {
+  const webTs = (...args) => runAsync(path.join('..', '..', 'bin', 'web-ts.mjs'), ['push', ...args], { WEB_TS_HUB_PORT: '9' });
+  for (const r of [
+    await b('push', '--site', 'orch', '--title', 'Answered: keep it?', '--now'),
+    await b('push', '--site', 'orch', '--kind', 'info', '--title', '2 PRs merged'),
+    await webTs('--title', 'Orch board connected', '--now'),
+    await webTs('--kind', 'info', '--title', 'Morning digest'),
+  ]) {
+    assert.equal(r.code, 2, r.err);
+    assert.match(r.err, /a push needs --kind action\|prompt\|fault/);
+    assert.equal(r.err.trim().split('\n').length, 1, r.err);
+  }
+  assert.deepEqual(received, []);
+  assert.equal(fs.existsSync(at('web-ts', 'push', 'queue.json')), false);
+  assert.equal(fs.existsSync(site('orch', 'data', 'push-state.json')), false);
+}));
+
+test("after a thread's push has gone, Claude's lines and replies there push nothing; a card whose action changes pushes again under its tag", () => withDevice(async (b, received) => {
   fs.appendFileSync(site('orch', 'data', 'events.jsonl'), JSON.stringify({ id: 'm1', ts: '2026-10-23T10:05:00Z', kind: 'item-message', data: { key: 'w/A1' } }) + '\n');
   const seen = () => received.map(({ title, body, url, tag }) => [tag, title, body, url]);
-  const url = '/orch/#item=ask%3Ae1';
+  const url = '/orch/#item=w%2FA1';
 
-  assert.equal((await b('push', '--site', 'orch', '--now', '--title', 'Answered: keep it?', '--body', 'Yes', '--url', url, '--tag', 'ask-e1')).code, 0);
-  assert.deepEqual(seen(), [['ask-e1', 'Answered: keep it?', 'Yes', `${url}&reply`]]);
-
-  assert.equal((await b('thread', 'ask:e1', '--site', 'orch', '--text', 'Reading SKILL.md')).code, 0);
-  assert.equal((await b('thread', 'ask:e1', '--site', 'orch', '--who', 'love', '--text', 'And the follow-up?')).code, 0);
-  assert.equal((await b('thread', 'ask:e1', '--site', 'orch', '--who', 'Jamie', '--via', 'github', '--text', 'Looks good')).code, 0);
-  assert.equal((await b('builder', 'progress', 'w/A1', '--site', 'orch', 'Running', 'tests')).code, 0);
-  assert.equal((await b('reply', 'm1', '--site', 'orch', '--html', '<p>No push has gone for this card</p>')).code, 0);
+  assert.equal((await b('push', '--site', 'orch', '--kind', 'action', '--now', '--title', 'A1 asks: Which layout?', '--body', 'Grid · List', '--url', url, '--tag', 'item-w/A1')).code, 0);
+  assert.equal((await b('thread', 'w/A1', '--site', 'orch', '--text', 'Grid fits the phone')).code, 0);
+  assert.equal((await b('reply', 'm1', '--site', 'orch', '--html', '<p>Filed as follow-up INT-56</p>')).code, 0);
+  assert.equal((await b('reply', 'e1', '--site', 'orch', '--html', '<p>Yes, keep it</p>')).code, 0);
+  assert.equal((await b('thread', 'w/A1', '--site', 'orch', '--text', 'Done', '--answer')).code, 2);
   assert.equal(received.length, 1);
 
-  assert.equal((await b('thread', 'ask:e1', '--site', 'orch', '--text', 'Filed as follow-up INT-56\nwith more', '--answer')).code, 0);
-  assert.equal((await b('reply', 'e1', '--site', 'orch', '--html', '<p>Done &amp; dusted</p>')).code, 0);
-  assert.deepEqual(seen().slice(1), [['ask-e1', 'Answered: keep it?', 'Filed as follow-up INT-56 · and 1 reply', `${url}&reply`], ['ask-e1', 'Answered: keep it?', 'Done & dusted', `${url}&reply`]]);
+  assert.equal((await b('push', '--site', 'orch', '--kind', 'action', '--now', '--title', 'A1 asks: Which colour?', '--body', 'Blue · Red', '--url', url, '--tag', 'item-w/A1')).code, 0);
+  assert.deepEqual(seen(), [
+    ['item-w/A1', 'A1 asks: Which layout?', 'Grid · List', `${url}&reply`],
+    ['item-w/A1', 'A1 asks: Which colour?', 'Blue · Red · and 2 replies', `${url}&reply`],
+  ]);
   assert.deepEqual(read(at('web-ts', 'push', 'queue.json')).items, []);
-
-  assert.equal((await b('thread', 'ask:e1', '--site', 'orch', '--who', 'love', '--text', 'Mine', '--answer')).code, 1);
-  assert.equal(received.length, 3);
 }));
 
 test('checked sends the queued pushes at the end of a tick, each as its own notification', () => withDevice(async (b, received) => {
-  assert.equal((await b('push', '--site', 'orch', '--title', '2 PRs merged', '--body', '0 open', '--url', '/orch/')).code, 0);
-  assert.equal((await b('push', '--site', 'orch', '--title', 'A1 waits on Ready', '--url', '/orch/#item=w%2FA1', '--tag', 'item-w/A1')).code, 0);
+  assert.equal((await b('push', '--site', 'orch', '--kind', 'action', '--title', 'A2 waits on Merge', '--body', 'Green and approved', '--url', '/orch/')).code, 0);
+  assert.equal((await b('push', '--site', 'orch', '--kind', 'action', '--title', 'A1 waits on Ready', '--url', '/orch/#item=w%2FA1', '--tag', 'item-w/A1')).code, 0);
   assert.equal(received.length, 0);
   assert.equal((await b('checked', '--site', 'orch', '--every', '15')).code, 0);
-  assert.deepEqual(received.map(({ title, tag, url }) => [title, tag, url]), [['2 PRs merged', undefined, '/orch/'], ['A1 waits on Ready', 'item-w/A1', '/orch/#item=w%2FA1&reply']]);
+  assert.deepEqual(received.map(({ title, tag, url }) => [title, tag, url]), [['A2 waits on Merge', undefined, '/orch/'], ['A1 waits on Ready', 'item-w/A1', '/orch/#item=w%2FA1&reply']]);
   assert.deepEqual(read(at('web-ts', 'push', 'queue.json')).items, []);
 }));
 

@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0006
+---
+
 # Notifications can be off, snoozed, or off on weekends
+
+Superseded in part by [0006](0006-pushes-only-when-something-waits-on-the-owner.md): there is no morning digest push. Off, snooze and weekends below still gate every push.
 
 hub Settings (`/_hub/settings`) has three Notifications controls beside the polling interval. They are stored as `notifications` (`{on, weekends_off, snoozed_until}`) beside `polling` in `~/.claude/web-ts/settings.json`, and `hub/schedule.mjs` `validate` checks them. `web-ts notifications` sets them from the terminal, and `web-ts polling` prints them.
 

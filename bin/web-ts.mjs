@@ -32,24 +32,27 @@
 //               one line per board: route, session id, live (background or terminal) or not, folder
 //   web-ts handshake <route>
 //               tests a board's hub links (../hub/boards.mjs handshake): appends a `hello` event, which the
-//               owning session answers with `board.mjs hello-ack <eventId>`, and sends the test push
-//               "<title> board connected" (--now). The board shows a setup checklist until the session answered
-//               and the hub's GitHub check reached it. Prints {route, hello, push}
+//               owning session answers with `board.mjs hello-ack <eventId>`. The board shows a setup checklist
+//               until the session answered and the hub's GitHub check reached it. Prints {route, hello}
 //   web-ts set <route> [--icon <key>] [--color <hex>]
 //               changes an existing site's icon or color without joining; '' clears one
 //   web-ts leave <route> --session <id> [--force]
 //   web-ts restart <route>
 //   web-ts logs <route> [--lines <n>]
 //   web-ts install | uninstall
-//   web-ts push --title <t> [--body <b>] [--url </route/path>] [--tag <tag>] [--now | --urgent]
-//               notify every device that turned on notifications on hub Settings;
-//               a tap opens --url. The push queues, replacing a queued one with the same
+//   web-ts push --kind action|prompt|fault --title <t> [--body <b>] [--url </route/path>] [--tag <tag>]
+//               [--now | --urgent]
+//               notify every device that turned on notifications on hub Settings; a tap opens --url.
+//               --kind says what waits on the owner (../hub/push.mjs PUSH_KINDS): action, a card's Action needed
+//               appearing or changing; prompt, a background session's prompt; fault, something only the owner
+//               can fix. A push without one is refused (exit 2): news stays on the board.
+//               The push queues, replacing a queued one with the same
 //               --tag, and goes out after the hub's next GitHub check on the polling interval
 //               (/_hub/settings/polling) or when a monitor tick ends (board.mjs checked), each
 //               queued push as its own notification. --now sends at once unless pushes are held
-//               (overnight, snoozed or the weekend), and queues if no device takes it; it is for answers,
-//               replies, questions and prototypes. --urgent sends at once through
-//               those holds. While notifications are off every push is dropped, urgent ones too.
+//               (overnight, snoozed or the weekend), and queues if no device takes it; it is for questions,
+//               steps only the owner can run and prototypes. --urgent sends at once through
+//               those holds, for a production fault. While notifications are off every push is dropped, urgent ones too.
 //               Prints "sent", "queued" with the next send time, or "dropped". Exit 3 when no device has turned them on.
 //   web-ts polling
 //               prints {every, until, next, held, held_until, held_why, notifications}: the current polling
@@ -121,7 +124,7 @@ async function sessionCall(fn) {
   const { SessionError } = await sessionsModule();
   try { return await fn(); } catch (e) { if (e instanceof SessionError) fail(e.message, e.reason === 'live' ? 3 : 1); throw e; }
 }
-// The board's hello and test push (../hub/boards.mjs handshake). → {route, hello, push}
+// The board's hello (../hub/boards.mjs handshake). → {route, hello}
 async function runHandshake(route) {
   const { handshake } = await import(path.join(SKILL, 'hub', 'boards.mjs'));
   try { return await handshake(route, readManifest()); } catch (e) { return fail(e.message, 2); }
@@ -445,12 +448,14 @@ const commands = {
   },
 
   async push() {
+    const { deliver, pushKindError } = await import(path.join(SKILL, 'hub', 'push.mjs'));
+    const refused = pushKindError(args.kind);
+    if (refused) fail(refused, 2);
     if (!args.title) fail('push needs --title', 2);
     if (args.url && !args.url.startsWith('/')) fail('--url is a path on the hub, such as /<route>/page.html', 2);
-    const { deliver } = await import(path.join(SKILL, 'hub', 'push.mjs'));
     const { clock, holdLine } = await import(path.join(SKILL, 'hub', 'schedule.mjs'));
     if (args.now && args.urgent) fail('pass --now or --urgent, not both', 2);
-    const r = await deliver({ title: args.title, body: args.body || '', url: args.url || '/', tag: args.tag }, { urgent: !!args.urgent, immediate: !!args.now });
+    const r = await deliver({ title: args.title, body: args.body || '', url: args.url || '/', tag: args.tag }, { kind: args.kind, urgent: !!args.urgent, immediate: !!args.now });
     if (r.noDevice) fail('no device has turned on notifications; open hub Settings (/_hub/settings) in the Home Screen app and tap Turn on', 3);
     if (r.dropped) return out('dropped (notifications are off on hub Settings)');
     if (r.queued) {

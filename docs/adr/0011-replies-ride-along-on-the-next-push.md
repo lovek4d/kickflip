@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0006
+---
+
 # Replies ride along on the next push; the hub keeps no push log
+
+Superseded in part by [0006](0006-pushes-only-when-something-waits-on-the-owner.md): no reply pushes, the answer to an ask that became no work and an answer after a thread's push went included; the thread's unread mark carries them, and `thread` takes no `--answer`. The ride-along count, the queued push's body and having no push log below still hold.
 
 A reply to an ask or a thread message never pushes by itself. There are two exceptions: the answer to an ask that became no work ([0016](0016-every-ask-is-a-card.md), round `site-v17`), and an answer in a thread whose push has already gone ([0030](0030-pushes-go-by-kind-and-each-arrives-on-its-own.md)). A push that goes out for something else adds "· and N replies" to its body. N counts the replies Claude wrote on that site since the site's previous push.
 

@@ -1015,6 +1015,6 @@ test('the GitHub mark opens the Hub links sheet, with a red dot while a link is 
   assert.match(ui.linksList(settling), /<span class="dot" role="img" aria-label="Settling">[^]*Settling: No watcher/);
   assert.match(ui.githubLine(checks, { links: [links[0], { ...links[1], state: 'broken' }] }), /links-dot/);
   assert.equal(ui.setupCard(null), '');
-  const setup = ui.setupCard({ events: false, github: true, push: 'no device' });
-  assert.equal(text(setup), "Connecting this board Waiting for Claude to answer the hello GitHub checks reach this board No device has notifications on");
+  const setup = ui.setupCard({ events: false, github: true });
+  assert.equal(text(setup), 'Connecting this board Waiting for Claude to answer the hello GitHub checks reach this board');
 });

@@ -57,14 +57,12 @@
 
   // The checklist a new board shows at the top until its session answered the hello and GitHub checks reach it; setup
   // is /api/board's, null once both pass. Cards can start meanwhile.
-  const PUSH_NOTES = { sent: 'Test push sent', queued: 'Test push queued for the next send', 'no device': 'No device has notifications on', dropped: 'Notifications are off', refused: 'No device took the test push' };
   const setupCard = (setup) => {
     if (!setup) return '';
     const step = (ok, done, waiting) => `<li><span class="dot ${ok ? 'pass' : 'pending'}" aria-hidden="true"></span>${ok ? done : waiting}</li>`;
     return `<h2>Connecting this board</h2><ul class="setup-steps">
       ${step(setup.events, 'Claude answered the hello', 'Waiting for Claude to answer the hello')}
       ${step(setup.github, 'GitHub checks reach this board', 'Waiting for the hub\'s next GitHub check')}
-      ${setup.push ? `<li class="muted"><span class="dot${setup.push === 'sent' ? ' pass' : ''}" aria-hidden="true"></span>${esc(PUSH_NOTES[setup.push] || setup.push)}</li>` : ''}
     </ul>`;
   };
   const checkLanded = (checks, pendingSince) => Boolean(checks?.at) && Date.parse(checks.at) >= pendingSince;

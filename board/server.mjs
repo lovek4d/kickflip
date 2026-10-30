@@ -41,7 +41,7 @@
 //                                links: [{link, ok, detail, state, since?}], whether each hub link reaches this
 //                                board, state reading broken only past the link's grace period
 //                                (../hub/boards.mjs linksOf), null when the manifest has no board here; setup:
-//                                {events, github, push} while the join handshake's checklist shows, else null
+//                                {events, github} while the join handshake's checklist shows, else null
 //   GET  /api/links              {links}: the same list alone
 //   GET  /api/thread?key=w/id    data/threads/<w>__<id>.jsonl ({ts, who, text, link, via}; who is
 //                                claude, love or a reviewer's name; via github or slack) plus the page's own
@@ -342,7 +342,7 @@ async function setupOf(links) {
   if (!h?.hello?.id || h.done_at) return null;
   const steps = { events: h.ack?.id === h.hello.id, github: Boolean(links?.find((l) => l.link === 'github')?.ok) };
   if (steps.events && steps.github) { await finishHandshake(here); return null; }
-  return { ...steps, push: h.push?.result || null };
+  return steps;
 }
 
 async function board() {

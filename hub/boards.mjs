@@ -230,7 +230,7 @@ export async function checkListening({ manifest, now = new Date(), running = liv
     const minutes = Math.round((now - Date.parse(since)) / 60_000);
     const why = running.has(board.owner.session) ? "no watcher runs. Relaunch it in the board's session." : "its session isn't running, and the hub can't wake it.";
     try {
-      await deliver({ title: `${board.title} isn't listening`, body: `An event has waited ${minutes} min and ${why}`, url: `/${board.route}/`, tag: `deaf-${board.route}` }, { immediate: true, at: now });
+      await deliver({ title: `${board.title} isn't listening`, body: `An event has waited ${minutes} min and ${why}`, url: `/${board.route}/`, tag: `deaf-${board.route}` }, { kind: 'fault', immediate: true, at: now });
       state[board.route] = { at: now.toISOString(), since };
       dirty = true;
       pushed.push(board.route);
@@ -241,13 +241,13 @@ export async function checkListening({ manifest, now = new Date(), running = liv
 }
 
 // ---------- handshake ----------
-// data/handshake.json {hello: {id, at, session}, push: {result, at}, ack: {id, at} | null, done_at?}: board/store.mjs
+// data/handshake.json {hello: {id, at, session}, ack: {id, at} | null, done_at?}: board/store.mjs
 // ackHello records the session's answer, and the board shows its setup checklist until that and the GitHub link pass.
 export const handshakeFile = (dir) => path.join(dir, 'data', 'handshake.json');
 
-// A new board's test of its links: a `hello` event its session answers with `board.mjs hello-ack`, and a test push.
-// The owner's watcher cursor is set first when the session has none, so its first watcher prints the hello rather
-// than starting past it. → {route, hello, push}, push being sent, queued, dropped, no device or refused.
+// A new board's test of its links: a `hello` event its session answers with `board.mjs hello-ack`. The owner's
+// watcher cursor is set first when the session has none, so its first watcher prints the hello rather than starting
+// past it. → {route, hello}
 export async function handshake(route, manifest = readManifest()) {
   const board = listBoards(manifest).find((b) => b.route === route);
   if (!board) throw new Error(`/${route} is not a board site in the manifest`);
@@ -255,10 +255,8 @@ export async function handshake(route, manifest = readManifest()) {
     saveJSON(cursorFile(board), Object.fromEntries(Object.entries(watchedLines(board)).map(([f, l]) => [f, l.length])));
   }
   const hello = { id: await appendEvent(board, 'hello', { title: board.title }), at: new Date().toISOString(), session: board.owner?.session || null };
-  const r = await deliver({ title: `${board.title} board connected`, body: 'A test push from the hub. Tap to open the board.', url: `/${route}/`, tag: `hello-${route}` }, { immediate: true });
-  const result = r.noDevice ? 'no device' : r.dropped ? 'dropped' : r.queued ? 'queued' : r.sent?.some((x) => x.status >= 200 && x.status < 300) ? 'sent' : 'refused';
-  saveJSON(handshakeFile(board.dir), { hello, push: { result, at: new Date().toISOString() }, ack: null });
-  return { route, hello: hello.id, push: result };
+  saveJSON(handshakeFile(board.dir), { hello, ack: null });
+  return { route, hello: hello.id };
 }
 
 // ---------- links ----------

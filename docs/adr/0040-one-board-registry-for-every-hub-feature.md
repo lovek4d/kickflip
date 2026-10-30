@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0006
+---
+
 # One board registry for every hub feature
+
+Superseded in part by [0006](0006-pushes-only-when-something-waits-on-the-owner.md): the handshake sends no test push, and the Connecting checklist shows only the hello and GitHub steps; the pushes link still says whether a device is subscribed. The registry and the links below still hold.
 
 `hub/boards.mjs` is the only hub code that reads a board's `board.json` and the wave files its items come from. Its `listBoards` returns each board site in the manifest as `{route, dir, port, title, kind, waves, prs, reviewers}`, `kind` being `waves` (every `~/.claude/waves/*/wave.json`) or `file` (a wave.json-format file in the site). Every hub feature that serves boards takes them from it: the GitHub check and its `github-change` routing (`github.mjs`), the daily wakes, the hub rules fan-out, the handshake and the not-listening push. `hub/boards.test.mjs` runs each of them over one board of each kind.
 

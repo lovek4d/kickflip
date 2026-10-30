@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0006
+---
+
 # Needs you gathers what waits on the owner, and a topic's questions are answered on one page
+
+Superseded in part by [0006](0006-pushes-only-when-something-waits-on-the-owner.md): there is no morning push. Needs you, the badge and the questions page below still hold, and an answer such as "not yet" stays open in Needs you.
 
 What waits on the owner is gathered in one place on the board, Needs you, and the owner answers questions in batches rather than one at a time.
 

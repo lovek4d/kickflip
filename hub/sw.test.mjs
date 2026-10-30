@@ -28,6 +28,7 @@ function worker() {
     skipped: 0,
     windows: [],
     opened: [],
+    shown: [],
     async advance(ms) {
       now += ms;
       for (const [id, t] of [...timers]) if (t.at <= now) { timers.delete(id); t.fn(); }
@@ -61,7 +62,7 @@ function worker() {
   }
   const self = {
     addEventListener: (type, fn) => { handlers[type] = fn; },
-    registration: { scope: SHELL, showNotification: async () => {} },
+    registration: { scope: SHELL, showNotification: async (title, opts) => { w.shown.push({ title, ...opts }); } },
     location: new URL('/sw.js', ORIGIN),
     skipWaiting: () => { w.skipped++; return Promise.resolve(); },
     clients: {
@@ -279,4 +280,17 @@ test("a push tap routes in place in a window that answers, and navigates one tha
   const closed = worker();
   await Promise.all((await tap(closed)).waits);
   assert.deepEqual(closed.opened, [URL_]);
+});
+
+test('a push under a tag replaces the notification with that tag and alerts again; one without a tag never sets renotify', async () => {
+  const w = worker();
+  const push = (msg) => w.dispatch('push', { data: { json: () => msg } });
+  await Promise.all((await push({ title: 'A1 asks: Which layout?', body: 'Grid · List', url: '/orch/#item=w%2FA1', tag: 'item-w/A1' })).waits);
+  await Promise.all((await push({ title: 'A1 asks: Which colour?', body: 'Blue · Red', url: '/orch/#item=w%2FA1', tag: 'item-w/A1' })).waits);
+  await Promise.all((await push({ title: "Orch isn't listening", url: '/orch/' })).waits);
+  assert.deepEqual(w.shown.map(({ title, tag, renotify }) => [title, tag, renotify]), [
+    ['A1 asks: Which layout?', 'item-w/A1', true],
+    ['A1 asks: Which colour?', 'item-w/A1', true],
+    ["Orch isn't listening", undefined, false],
+  ]);
 });
