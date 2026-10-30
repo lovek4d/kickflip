@@ -9,7 +9,7 @@ import { hubStream } from './stream.mjs';
 const boards = new Set(['hub-orchestrator', 'ios']);
 const sites = new Set([...boards, 'learn']);
 
-test("a browser's page load of `/` or of any site's page gets the shell; frames, curl, API calls, uploads, Open alone and other files still reach the site, and /_hub/ the hub", () => {
+test("a browser's page load of `/` or of any site's page gets the shell, and any GET of `/` or a hub page; frames, curl, API calls, uploads, Open alone and other files still reach the site, and the hub's own paths the hub", () => {
   const cases = [
     [{ pathname: '/', dest: 'document' }, 'shell'],
     [{ pathname: '/' }, 'shell'],
@@ -45,8 +45,16 @@ test("a browser's page load of `/` or of any site's page gets the shell; frames,
     [{ pathname: '/learn/assets/course.css', dest: 'style' }, 'forward'],
     [{ pathname: '/learn', dest: 'document' }, 'forward'],
     [{ pathname: '/gone/', dest: 'document' }, 'forward'],
-    [{ pathname: '/_hub/', dest: 'document' }, 'hub'],
-    [{ pathname: '/_hub/settings', dest: 'document' }, 'hub'],
+    [{ pathname: '/_hub/', dest: 'document' }, 'shell'],
+    [{ pathname: '/_hub/settings', dest: 'document' }, 'shell'],
+    [{ pathname: '/_hub/settings/polling', search: '?w=09%3A00', dest: 'document' }, 'shell'],
+    [{ pathname: '/_hub/settings', dest: 'iframe' }, 'shell'],
+    [{ pathname: '/_hub/' }, 'shell'],
+    [{ pathname: '/_hub/settings', method: 'HEAD' }, 'shell'],
+    [{ pathname: '/_hub/settings/polling', method: 'POST', dest: 'empty' }, 'hub'],
+    [{ pathname: '/_hub/settings/notifications', method: 'POST', dest: 'empty' }, 'hub'],
+    [{ pathname: '/_hub/api/hub', dest: 'empty' }, 'hub'],
+    [{ pathname: '/_hub', dest: 'document' }, 'hub'],
     [{ pathname: '/_hub/sidebar.json', dest: 'empty' }, 'hub'],
     [{ pathname: '/sw.js', dest: 'serviceworker' }, 'hub'],
   ];
@@ -59,7 +67,8 @@ test("the hub serves the shell for a page load of exactly the URLs the app's rou
   const { viewOf, mounted } = context.AppRouter;
   const paths = ['/hub-orchestrator/', '/hub-orchestrator/settings.html', '/hub-orchestrator/questions.html', '/hub-orchestrator/notes.html',
     '/hub-orchestrator/plan.html', '/hub-orchestrator/prototype-x.html', '/hub-orchestrator/installs/P2/', '/hub-orchestrator/uploads/1-shot.png',
-    '/hub-orchestrator/api/board', '/learn/', '/learn/lessons/0001.html', '/learn/lessons/0001.htm', '/learn/assets/course.css', '/learn/data'];
+    '/hub-orchestrator/api/board', '/learn/', '/learn/lessons/0001.html', '/learn/lessons/0001.htm', '/learn/assets/course.css', '/learn/data',
+    '/_hub/', '/_hub/settings', '/_hub/settings/polling', '/_hub/api/polling', '/_hub/sidebar.json', '/_hub/kickflip.png'];
   for (const p of paths) {
     const routed = mounted(viewOf(`https://mac.ts.net${p}`, { boards, base: 'https://mac.ts.net/' }));
     assert.equal(pageOf({ pathname: p, dest: 'document', sites }) === 'shell', routed, p);

@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-questions.js', 'ui-markdown.js', 'rules-editor.js',
-  'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-banner.js', 'app-snapshot.js',
-  'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-frame.js', 'router.js'];
+const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-questions.js', 'ui-markdown.js', 'ui-hub.js', 'rules-editor.js',
+  'hub-kit.js', 'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-banner.js', 'app-snapshot.js',
+  'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-polling.js', 'view-frame.js', 'router.js'];
 
 function memoryStorage(entries = []) {
   const storage = new Map(entries);
@@ -106,7 +106,7 @@ test("the board's Settings, Waiting on you and Notes views, mounted then unmount
   page.win.fetch = () => { fetches++; return Promise.reject(new Error('offline')); };
   const loaded = page.left();
   const views = page.win.AppViews;
-  assert.deepEqual(Object.keys(views).sort(), ['frame', 'notes', 'questions', 'settings']);
+  assert.deepEqual(Object.keys(views).sort(), ['frame', 'hub', 'hub-settings', 'notes', 'polling', 'questions', 'settings']);
   for (const [kind, view] of [['settings', {}], ['questions', { id: 'q1' }], ['notes', { item: 'w/A1' }]]) {
     assert.equal(typeof views[kind].markup({ kind, route: 'board-a', ...view }), 'string', kind);
     const v = views[kind].create(new page.El(), 'https://mac.ts.net/board-a', { view: { kind, route: 'board-a', ...view }, reload() {} });
@@ -123,6 +123,29 @@ test("the board's Settings, Waiting on you and Notes views, mounted then unmount
     assert.ok(fetches > sent, kind);
     assert.deepEqual(page.left(), loaded, kind);
   }
+});
+
+test("the hub page, Hub Settings and Polling, mounted then unmounted, load their data from the hub's API, refresh it on an interval and leave no listener or interval behind", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const urls = [];
+  page.win.fetch = (url) => { urls.push(url); return Promise.reject(new Error('offline')); };
+  const loaded = page.left();
+  for (const [kind, view] of [['hub', {}], ['hub-settings', { hash: '#rules' }], ['polling', { w: '09:00' }]]) {
+    const views = page.win.AppViews;
+    assert.match(views[kind].markup({ kind, ...view }), /<main class="has-top">/, kind);
+    const v = views[kind].create(new page.El(), 'https://mac.ts.net/_hub', { view: { kind, ...view }, reload() {}, sidebarChanged() {} });
+    v.mount();
+    await new Promise((r) => setImmediate(r));
+    const mounted = page.left();
+    assert.ok(mounted.listeners > loaded.listeners && mounted.intervals > loaded.intervals, `${kind} ${JSON.stringify(mounted)}`);
+    v.unmount();
+    assert.deepEqual(page.left(), loaded, kind);
+    v.mount();
+    v.unmount();
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(page.left(), loaded, kind);
+  }
+  assert.deepEqual([...new Set(urls)], ['/_hub/api/hub', '/_hub/api/settings', '/_hub/api/polling?w=09%3A00']);
 });
 
 test("a framed page hands each load's URL and title to the shell, hides the shell's header when it draws its own, whose logo toggles the sidebar, sends taps on links to other views and its back arrow to the shell, keeps its own navigations, and leaves nothing behind", () => {

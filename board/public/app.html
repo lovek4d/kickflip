@@ -13,7 +13,7 @@ window.BoardBoot = (function () {
   if (!/^\/(?:[^/]+\/)?$/.test(location.pathname)) return null;
   let route = null;
   try { route = decodeURIComponent(location.pathname.split('/')[1] || '') || localStorage.getItem('hub:lastBoard'); } catch {}
-  if (!route) return null;
+  if (!route || route === '_hub') return null;
   try { if (JSON.parse(localStorage.getItem('hub:sidebar') || 'null')?.sites?.some((s) => s.route === route && !s.board)) return null; } catch {}
   const base = '/' + encodeURIComponent(route) + '/';
   const get = (u) => { const p = fetch(base + u, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status))))); p.catch(() => {}); return p; };
@@ -27,6 +27,7 @@ window.BoardBoot = (function () {
 <script>try { if (localStorage.getItem('hub:sidebarCollapsed') === '1') document.documentElement.classList.add('sb-collapsed'); } catch {}</script>
 <link rel="stylesheet" href="/_hub/colors.css?v={{colorsVersion}}">
 <link rel="stylesheet" href="/_hub/app/style.css">
+<link rel="stylesheet" href="/_hub/app/hub.css">
 <link rel="stylesheet" href="/_hub/app/sidebar.css">
 <link rel="apple-touch-icon" href="{{touchIcon}}">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -46,10 +47,12 @@ window.BoardBoot = (function () {
 <script src="/_hub/app/ui-sidebar.js"></script>
 <script src="/_hub/app/ui-questions.js"></script>
 <script src="/_hub/app/ui-markdown.js"></script>
+<script src="/_hub/app/ui-hub.js"></script>
 <script src="/_hub/app/dialogs.js"></script>
 <script src="/_hub/app/rules-editor.js"></script>
 <script src="/_hub/app/claude.js"></script>
 <script src="/_hub/app/attach.js"></script>
+<script src="/_hub/app/hub-kit.js"></script>
 <script src="/_hub/app/sidebar.js"></script>
 <script src="/_hub/app/app.js"></script>
 <script src="/_hub/app/app-core.js"></script>
@@ -64,6 +67,9 @@ window.BoardBoot = (function () {
 <script src="/_hub/app/view-settings.js"></script>
 <script src="/_hub/app/view-questions.js"></script>
 <script src="/_hub/app/view-notes.js"></script>
+<script src="/_hub/app/view-hub.js"></script>
+<script src="/_hub/app/view-hub-settings.js"></script>
+<script src="/_hub/app/view-polling.js"></script>
 <script src="/_hub/app/view-frame.js"></script>
 <script src="/_hub/app/router.js"></script>
 <script src="/_hub/app/shell.js"></script>

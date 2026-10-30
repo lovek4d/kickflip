@@ -1,0 +1,144 @@
+// What the hub's views (view-hub.js, view-hub-settings.js, view-polling.js) share, each through the view's B
+// (app.js BoardView.page), so unmounting the view stops it all: loading and refreshing the view's data, posting its
+// forms for JSON, and this device's notifications row.
+(function () {
+  const age = (ms) => { const m = Math.round(ms / 60000); return m < 1 ? 'now' : m < 60 ? `${m} min` : `${Math.round(m / 60)} h`; };
+
+  // Paints url()'s JSON with paint(data) now and every `every` ms while the view shows, as the header's time says; a
+  // refresh waits while busy() or the page is hidden, and the time then says how old the data is. The header's refresh
+  // button loads at once. paint(null) means the first load failed. → load()
+  function live(B, { url, paint, busy = () => false, every = 30000 }) {
+    const refresh = B.$('#refresh');
+    const status = B.$('#status');
+    let at = 0;
+    let loaded = false;
+    async function load() {
+      refresh.disabled = true;
+      refresh.classList.add('spinning');
+      try {
+        const r = await fetch(url(), { cache: 'no-store', headers: { accept: 'application/json' } });
+        if (!r.ok) throw new Error(String(r.status));
+        const data = await r.json();
+        if (!B.alive()) return;
+        at = Date.now();
+        paint(data);
+        status.textContent = 'now';
+      } catch {
+        if (!B.alive()) return;
+        if (!loaded) paint(null);
+        status.innerHTML = BoardUI.statusLine(undefined, { link: 'offline' });
+      }
+      loaded = true;
+      refresh.disabled = false;
+      refresh.classList.remove('spinning');
+      const gear = B.$('#settingsLink');
+      gear.removeAttribute('aria-disabled');
+      gear.removeAttribute('tabindex');
+    }
+    B.on(refresh, 'click', load);
+    const tick = () => {
+      if (document.hidden || busy()) { if (at) status.textContent = age(Date.now() - at); return; }
+      load();
+    };
+    B.every(every, tick);
+    B.on(document, 'visibilitychange', () => { if (!document.hidden && Date.now() - at >= every) tick(); });
+    load();
+    return load;
+  }
+
+  const FAILED = 'Could not save. Is the Mac awake?';
+  // Every form in the view that posts to /_hub/ posts for JSON in place of loading a page: answer(body, action) takes
+  // the hub's answer, fail(message) a refusal. A checkbox marked data-submit saves on change, and a time input marked
+  // data-autosave once its picker closes, so turning an iOS wheel doesn't save each value it passes.
+  // → {busy()}, true while a post is out
+  function forms(B, { answer, fail }) {
+    let sending = false;
+    B.on(B.root, 'submit', async (e) => {
+      const form = e.target;
+      const action = form.getAttribute?.('action') || '';
+      if (!action.startsWith('/_hub/')) return;
+      e.preventDefault();
+      if (sending) return;
+      const body = new URLSearchParams(new FormData(form));
+      if (e.submitter?.name) body.append(e.submitter.name, e.submitter.value);
+      sending = true;
+      try {
+        const r = await fetch(action, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' }, body });
+        const out = await r.json().catch(() => null);
+        if (!B.alive()) return;
+        if (r.ok && out) answer(out, action); else fail(out?.error || FAILED);
+      } catch {
+        if (B.alive()) fail(FAILED);
+      } finally { sending = false; }
+    });
+    const save = (el) => { if (el.value && el.value !== el.defaultValue && el.checkValidity()) el.form.requestSubmit(); };
+    B.on(B.root, 'change', (e) => {
+      const el = e.target;
+      if (el.matches?.('input[data-submit]')) el.form.requestSubmit();
+      else if (el.matches?.('input[data-autosave]') && document.activeElement !== el) save(el);
+    });
+    B.on(B.root, 'focusout', (e) => { if (e.target.matches?.('input[data-autosave]')) save(e.target); });
+    return { busy: () => sending };
+  }
+
+  // This device's push subscription, as HubUI.deviceRow shows it: Turn on subscribes, and Test sends a test push.
+  // iOS allows web push only in a Home Screen app, and asks for permission only from a tap, so requestPermission runs
+  // first in the tap. paint() redraws the row, never before device() returns; changed() follows a subscription this
+  // device just made.
+  // → {state() for HubUI.deviceRow with the hub's line for an `on` device, busy(), ready: a promise settled once the
+  // row first shows}
+  function device(B, { paint, changed = () => {} }) {
+    let state = null;
+    let on = false;
+    let busy = false;
+    const standalone = navigator.standalone || globalThis.matchMedia?.('(display-mode: standalone)').matches;
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent || '');
+    const keyBytes = (k) => Uint8Array.from(atob(k.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+    const post = (p, body) => fetch(p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) }).then((r) => r.json());
+    const show = (next, isOn = false) => { if (!B.alive()) return; state = next; on = isOn; paint(); };
+
+    async function render() {
+      if (!('serviceWorker' in navigator) || !('PushManager' in globalThis)) {
+        if (ios && !standalone) show({ title: 'Add to Home Screen', sub: 'Tap Share, then Add to Home Screen, and open Claude from your Home Screen to turn on notifications.' });
+        return;
+      }
+      if (Notification.permission === 'denied') { show({ title: 'Notifications are blocked', sub: `Allow them in ${ios ? 'Settings → Notifications → Claude.' : "this browser's site settings."}` }); return; }
+      const reg = await navigator.serviceWorker.getRegistration('/');
+      const sub = await reg?.pushManager.getSubscription();
+      if (sub) {
+        post('/_hub/push/subscribe', sub.toJSON()).catch(() => {});
+        show({ title: 'This device', action: { label: 'Test', act: 'test', quiet: true } }, true);
+      } else {
+        show({ title: 'This device', sub: 'Off · Claude sessions tell you here when something needs you.', action: { label: 'Turn on', act: 'on' } });
+      }
+    }
+    async function enable() {
+      busy = true;
+      show({ ...state, action: { ...state.action, disabled: true } }, on);
+      try {
+        if (await Notification.requestPermission() !== 'granted') { await render(); return; }
+        const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        await navigator.serviceWorker.ready;
+        const { key } = await (await fetch('/_hub/push/key')).json();
+        const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
+        await post('/_hub/push/subscribe', sub.toJSON());
+        await render();
+        changed();
+      } catch (err) { show({ title: 'Could not turn on notifications', sub: String(err?.message || err) }); }
+      finally { busy = false; }
+    }
+    async function test() {
+      show({ ...state, action: { ...state.action, disabled: true } }, true);
+      const r = await post('/_hub/push/test').catch(() => null);
+      show({ ...state, action: { ...state.action, label: r?.sent ? 'Sent' : 'Could not send' } }, true);
+    }
+    B.on(B.root, 'click', (e) => {
+      const act = e.target.closest?.('[data-device]')?.dataset.device;
+      if (act === 'on') enable(); else if (act === 'test') test();
+    });
+    const ready = Promise.resolve().then(render).catch(() => {});
+    return { state: (line) => (state && on ? { ...state, sub: `On · ${line}` } : state), busy: () => busy, ready };
+  }
+
+  globalThis.HubKit = { live, forms, device };
+})();

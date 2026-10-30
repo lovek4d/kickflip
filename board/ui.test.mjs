@@ -26,7 +26,7 @@ test('the board and the hub take every colour from shared/colors.css and define 
   const boardCss = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   const hubCss = fs.readFileSync(new URL('./public/hub.css', import.meta.url), 'utf8');
   const sidebarCss = fs.readFileSync(new URL('./public/sidebar.css', import.meta.url), 'utf8');
-  for (const [name, css, local] of [['style.css', boardCss, definedIn(boardCss)], ['hub.css', hubCss, definedIn(hubCss + fs.readFileSync(new URL('../hub/hub.mjs', import.meta.url), 'utf8'))], ['sidebar.css', sidebarCss, definedIn(sidebarCss + fs.readFileSync(new URL('./public/ui-sidebar.js', import.meta.url), 'utf8'))]]) {
+  for (const [name, css, local] of [['style.css', boardCss, definedIn(boardCss)], ['hub.css', hubCss, definedIn(hubCss + ['ui-hub.js', 'view-polling.js'].map((f) => fs.readFileSync(new URL(`./public/${f}`, import.meta.url), 'utf8')).join(''))], ['sidebar.css', sidebarCss, definedIn(sidebarCss + fs.readFileSync(new URL('./public/ui-sidebar.js', import.meta.url), 'utf8'))]]) {
     assert.deepEqual([...usedIn(css)].filter((v) => !shared.has(v) && !local.has(v)), [], name);
     assert.deepEqual([...definedIn(css)].filter((v) => shared.has(v)), [], name);
   }
@@ -270,7 +270,7 @@ test("a back arrow goes one step back after a page on this hub, and to its href 
   assert.equal(tap({ url: `${page}&from=push`, state: { idx: 3 } }), 'href');
 });
 
-test("the app's router reads every hub URL as a view and writes each view back as that URL, every push link's shape included, and mounts a board, its Settings, Waiting on you and Notes, and every other page in a frame, in place", () => {
+test("the app's router reads every hub URL as a view and writes each view back as that URL, every push link's shape included, and mounts a board, its Settings, Waiting on you and Notes, the hub's pages, and every other page in a frame, in place", () => {
   const routerContext = vm.createContext({ URL });
   vm.runInContext(fs.readFileSync(new URL('./public/router.js', import.meta.url), 'utf8'), routerContext);
   const { viewOf, urlOf, mounted } = routerContext.AppRouter;
@@ -286,6 +286,7 @@ test("the app's router reads every hub URL as a view and writes each view back a
     ['/_hub/', { kind: 'hub' }],
     ['/_hub/settings', { kind: 'hub-settings', hash: '' }],
     ['/_hub/settings#rules', { kind: 'hub-settings', hash: '#rules' }],
+    ['/_hub/settings/polling', { kind: 'polling', w: null }],
     ['/_hub/settings/polling?w=09%3A00', { kind: 'polling', w: '09:00' }],
     ['/orch/prototype-sidebar.html?q=q1&from=push', { kind: 'frame', route: 'orch', url: '/orch/prototype-sidebar.html?q=q1&from=push' }],
     ['/orch/shots-gallery.html', { kind: 'frame', route: 'orch', url: '/orch/shots-gallery.html' }],
@@ -303,6 +304,7 @@ test("the app's router reads every hub URL as a view and writes each view back a
   for (const url of ['/orch/uploads/1-shot.png', '/orch/api/board', '/learn', '/_hub/kickflip.png', '/sw.js']) assert.equal(read(url), null, url);
   assert.deepEqual(table.filter(([, view]) => mounted(view)).map(([url]) => url),
     ['/orch/', '/orch/#item=w%2FA1&reply', '/orch/settings.html', '/orch/questions.html#q-1', '/orch/notes.html?item=w%2FA1',
+      '/_hub/', '/_hub/settings', '/_hub/settings#rules', '/_hub/settings/polling', '/_hub/settings/polling?w=09%3A00',
       '/orch/prototype-sidebar.html?q=q1&from=push', '/orch/shots-gallery.html', '/learn/', '/learn/lessons/lesson-2.html#top']);
 });
 

@@ -1,7 +1,6 @@
 // The sidebar of every site (docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md), drawn from the hub's
 // /_hub/sidebar.json. It needs only ui-page-header.js, loaded before it, for its head, which is the page header itself:
-// pages run it through sidebar.js, and hub/hub.mjs renders the hub pages' and the app shell's first sidebar with both in
-// a vm context.
+// the app shell runs it through sidebar.js, and hub/hub.mjs renders the shell's first sidebar with both in a vm context.
 // Its links are root-absolute, since every site and hub page sits beside this one on the hub. sidebar.css styles it.
 (function () {
   // ui.js replaces the BoardUI global when it loads after this, so the header renderer is held here.

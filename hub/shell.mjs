@@ -1,9 +1,10 @@
 // The app shell, board/public/app.html (docs/adr/0055-one-app-for-the-whole-hub.md): which requests the hub answers
-// with it, and its HTML, which the hub and each board server both serve. A browser's top-level load of `/` or of any
-// site's page gets the shell from the hub, with the sidebar drawn in; the shell shows a board's page as its view and
-// any other page in a frame. Every other request goes on to its site: the frame's own load, curl, an API call, an
-// image. A board server answers its view pages with the shell too, without the sidebar, so a browser that sends no
-// Sec-Fetch-Dest gets it there, and a frame's shell hands its URL to the app around it.
+// with it, and its HTML, which the hub and each board server both serve. A load of `/` or a hub page, and a browser's
+// top-level load of any site's page, gets the shell from the hub, with the sidebar drawn in; the shell shows a board's
+// page or a hub page as its view, and any other page in a frame. Every other request goes on to its site: the frame's
+// own load, curl, an API call, an image. A board server answers its view pages with the shell too, without the
+// sidebar, so a browser that sends no Sec-Fetch-Dest gets it there, and a frame's shell hands its URL to the app around
+// it.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,11 +21,15 @@ export const VIEW_PAGES = new Set(['', 'settings.html', 'questions.html', 'notes
 // A page's path under its route: a folder or an .html file. board/public/router.js viewOf frames the same paths.
 const isPagePath = (rest) => rest === '' || rest.endsWith('/') || /\.html?$/.test(rest);
 
+// The hub's own pages, views of the shell with no page of their own (board/public/router.js).
+const HUB_PAGES = new Set(['/', '/_hub/', '/_hub/settings', '/_hub/settings/polling']);
+
 // method, pathname, search and dest (the request's Sec-Fetch-Dest header) from the request; sites, the set of every
-// site's route. ?alone=1, the frame header's Open alone, loads the page itself.
+// site's route. A GET of `/` or a hub page is the shell for every dest: a frame's copy hands its URL to the app around
+// it, and curl sees the shell. ?alone=1, the frame header's Open alone, loads a site's page itself.
 // → 'shell' | 'hub' (the hub's own paths) | 'forward' (a site's path, forwarded with its prefix stripped)
 export function pageOf({ method = 'GET', pathname = '/', search = '', dest, sites = new Set() }) {
-  if (pathname === '/') return method === 'GET' || method === 'HEAD' ? 'shell' : 'hub';
+  if (HUB_PAGES.has(pathname)) return method === 'GET' || method === 'HEAD' ? 'shell' : 'hub';
   if (pathname === '/_hub' || pathname.startsWith('/_hub/') || pathname === '/sw.js' || pathname === '/manifest.webmanifest' || pathname === '/favicon.ico') return 'hub';
   if (method !== 'GET' || dest !== 'document' || new URLSearchParams(search).has('alone')) return 'forward';
   const m = /^\/([^/]+)\/(.*)$/.exec(pathname);

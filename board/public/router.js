@@ -15,7 +15,7 @@
 // A push's from=push mark (entryOf) is no part of the view, so a push link reads as the view its page shows.
 globalThis.AppRouter = (function () {
   // The kinds the shell mounts in place; a link to any other kind loads its page.
-  const MOUNTED = new Set(['board', 'settings', 'questions', 'notes', 'frame']);
+  const MOUNTED = new Set(['board', 'settings', 'questions', 'notes', 'hub', 'hub-settings', 'polling', 'frame']);
   // A page's path under its route. hub/shell.mjs pageOf takes the same rule, so the hub answers a page load of every view
   // this mounts with the shell; hub/shell.test.mjs checks the two agree.
   const isPagePath = (rest) => rest === '' || rest.endsWith('/') || /\.html?$/.test(rest);

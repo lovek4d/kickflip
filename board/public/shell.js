@@ -1,9 +1,10 @@
 // The app shell (app.html; docs/adr/0055-one-app-for-the-whole-hub.md): the sidebar, mounted once, beside one view at a
 // time. A board's view is BoardView (app.js); its Settings, Waiting on you and Notes are AppViews.settings, .questions
-// and .notes, and every other page on the hub is AppViews.frame (view-*.js), each {className, title(view, {siteTitle}),
-// markup(view, {siteTitle}), create(root, siteRoot, ctx)}. Following a link to any of them, the sidebar's included,
-// swaps the view in place through router.js; a link to a hub page or anything that isn't a page loads it. Leaving a
-// view whose root holds [data-dirty], an unsaved edit, asks first. The shell holds the hub's one stream, /_hub/stream
+// and .notes, the hub's own pages AppViews.hub, ['hub-settings'] and .polling, and every other page on the hub is
+// AppViews.frame (view-*.js), each {className, title(view, {siteTitle}), markup(view, {siteTitle}), create(root,
+// siteRoot, ctx)}; a hub page's siteRoot is /_hub. Following a link to any of them, the sidebar's included, swaps the
+// view in place through router.js; a link to anything that isn't a page loads it. Leaving a view whose root holds
+// [data-dirty], an unsaved edit, asks first. The shell holds the hub's one stream, /_hub/stream
 // (hub/stream.mjs): `change {route}` signals the open board, and `sidebar` repaints the sidebar. A board the shell
 // leaves is unmounted; one left fresh whose stream sent no change since paints live when it comes back, and any other
 // paints dimmed from its last visit (docs/adr/0028-the-board-opens-on-the-last-visit.md).
@@ -84,12 +85,23 @@ window.AppShell = (function () {
       });
     }
 
+    // A view that changed what the sidebar's foot rows say, such as notifications or polling, asks for a fresh copy
+    // rather than waiting for the stream's next one.
+    async function refreshSidebar() {
+      sidebar.checkDevice();
+      try {
+        const r = await fetch('/_hub/sidebar.json', { cache: 'no-store' });
+        if (r.ok) { data = await r.json(); sidebar.setData(data); }
+      } catch { /* the stream brings the next copy */ }
+    }
+
     const scrim = document.getElementById('sidebarScrim');
     // current: {view, route, root, v}, the router's view shown, its root element and its mounted {B, mount, unmount}.
     function show(view) {
       const { route } = view;
       const board = view.kind === 'board';
-      const siteTitle = titleOf(route);
+      const hub = route === undefined;
+      const siteTitle = hub ? 'Hub' : titleOf(route);
       if (current) {
         const st = current.v.B.state;
         const keep = streamUp && st?.view === 'fresh' && st.board ? { fresh: st.fresh, generatedAt: st.board.generatedAt } : null;
@@ -101,7 +113,7 @@ window.AppShell = (function () {
       root.className = board ? 'view-board' : page.className;
       root.innerHTML = board ? BoardView.markup({ title: siteTitle }) : page.markup(view, { siteTitle });
       if (current) current.root.replaceWith(root); else scrim.after(root);
-      const siteRoot = '/' + encodeURIComponent(route);
+      const siteRoot = hub ? '/_hub' : '/' + encodeURIComponent(route);
       let v;
       if (board) {
         const live = streamUp ? left.get(route) || null : null;
@@ -109,18 +121,18 @@ window.AppShell = (function () {
         v = BoardView.create(root, siteRoot, { signal: signalFor(route), live });
       } else {
         v = page.create(root, siteRoot, { view, siteTitle, boards, open: openHere, toggleSidebar: sidebar.toggle, reload: () => go(current.view, location.href, 'reload'),
-          loaded: (url, title) => { if (current?.v === v) framed(url, title); } });
+          loaded: (url, title) => { if (current?.v === v) framed(url, title); }, sidebarChanged: refreshSidebar });
       }
       current = { view, route, root, v };
       document.title = board ? siteTitle : page.title(view, { siteTitle });
       if (boards().has(route)) { try { localStorage.setItem(LAST_KEY, route); } catch { /* no storage: `/` opens the start board */ } }
-      sidebar.setHere(route);
+      sidebar.setHere(view.kind === 'hub' ? '_hub' : route || '');
       scrollTo(0, 0);
       v.mount();
     }
 
     // A framed page loaded url in the frame: the top's URL and title follow it, without a history entry of their own,
-    // since the frame's navigation made one. A hub page loads in the top instead.
+    // since the frame's navigation made one. Any other view shows in the top instead.
     function framed(url, title) {
       const { href } = AppRouter.entryOf(url);
       const view = AppRouter.viewOf(href, { boards: boards() });
@@ -166,8 +178,7 @@ window.AppShell = (function () {
       let last = null;
       try { last = localStorage.getItem(LAST_KEY); } catch {}
       const pick = boards().has(last) ? last : data?.start || null;
-      if (!pick || !boards().has(pick)) { location.replace('/_hub/'); return; }
-      history.replaceState(history.state, '', `/${encodeURIComponent(pick)}/`);
+      history.replaceState(history.state, '', boards().has(pick) ? `/${encodeURIComponent(pick)}/` : '/_hub/');
       first = AppRouter.viewOf(location.href, { boards: boards() });
     }
     if (!AppRouter.mounted(first)) { location.replace('/_hub/'); return; }

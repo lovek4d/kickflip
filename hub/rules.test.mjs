@@ -118,9 +118,10 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
     });
     for (let i = 0; i < 50 && !(await fetch(`${base}/orch/_claude/health`).then((r) => r.ok, () => false)); i++) await new Promise((r) => setTimeout(r, 100));
     const page = await (await fetch(`${base}/_hub/settings`)).text();
-    assert.match(page, /id="rules">Rules for every board</);
-    assert.match(page, /<script src="\/_hub\/rules-editor\.js"><\/script>/);
-    assert.equal((await fetch(`${base}/_hub/rules-editor.js`)).status, 200);
+    assert.match(page, /<script src="\/_hub\/app\/rules-editor\.js\?v=[^"]+"><\/script>/);
+    assert.match(page, /<script src="\/_hub\/app\/view-hub-settings\.js\?v=[^"]+"><\/script>/);
+    const hubRules = async () => (await (await fetch(`${base}/_hub/api/settings`)).json()).rules;
+    assert.deepEqual(await hubRules(), []);
 
     const post = (body) => fetch(`${base}/_hub/settings/rules`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const r = await post({ rules: [{ text: 'Screenshots </script> in every PR' }], base: [] });
@@ -133,7 +134,7 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
     assert.deepEqual(settings.rules.map((x) => [x.text, x.by]), [['Screenshots </script> in every PR', 'owner']]);
     const events = fs.readFileSync(path.join(siteDir, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.kind === 'rules');
     assert.deepEqual(events.map((e) => e.data), [{ scope: 'hub', added: ['Screenshots </script> in every PR'], edited: [], removed: [] }]);
-    assert.doesNotMatch(await (await fetch(`${base}/_hub/settings`)).text(), /Screenshots <\/script>/);
+    assert.deepEqual((await hubRules()).map((x) => x.text), ['Screenshots </script> in every PR']);
 
     const again = await (await post({ rules: settings.rules.map(({ id, text }) => ({ id, text })), base: settings.rules.map((x) => x.id) })).json();
     assert.deepEqual([again.changed, again.events], [false, []]);

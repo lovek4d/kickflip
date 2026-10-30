@@ -1,18 +1,16 @@
 // The sidebar's behaviour on a page with <aside id="sidebar" class="sidebar"> and <div id="sidebarScrim"
 // class="sidebar-scrim">, after ui-page-header.js and ui-sidebar.js (docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md).
-// Sidebar.mount({here, remember, data, poll}) paints `data` or the last copy this device stored, then with poll (the
-// default) /_hub/sidebar.json, again every 30 seconds while the page shows. The app shell passes poll false and hands
-// each new copy to setData from its one stream (shell.js). The page header's logo (a.hub) toggles the sidebar at every
+// Sidebar.mount({here, data}) paints `data` or the last copy this device stored; the app shell hands it each new copy
+// through setData from its one stream (shell.js). The page header's logo (a.hub) toggles the sidebar at every
 // width, carrying what waits on the other sites. Below 1000px the sidebar is a drawer: the logo or a swipe in from the
 // left edge opens it, and the scrim, Escape, ✕, the drawer's own logo or a swipe back closes it. From 1000px it is a
 // rail, which its own logo collapses and the page's logo brings back; this device remembers that, and <html> carries
-// sb-collapsed meanwhile (docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md). remember stores `here` as
-// this device's last board, which `/` opens (shell.js).
-// → {setHere(route), setData(data), close(), toggle()}, toggle doing what the logo does
+// sb-collapsed meanwhile (docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md).
+// → {setHere(route), setData(data), checkDevice(), close(), toggle()}, toggle doing what the logo does and checkDevice
+// reading this device's push subscription again
 (function () {
   const DATA_KEY = 'hub:sidebar';
-  const LAST_KEY = 'hub:lastBoard';
-  // app.html and hub/hub.mjs read it before the first paint, so a collapsed rail never shows for a moment.
+  // app.html reads it before the first paint, so a collapsed rail never shows for a moment.
   const COLLAPSED_KEY = 'hub:sidebarCollapsed';
   const RAIL = '(min-width: 1000px)';
   const read = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -29,14 +27,13 @@
     } catch { return null; }
   }
 
-  function mount({ here = '', remember = false, data = null, poll = true } = {}) {
+  function mount({ here = '', data = null } = {}) {
     const aside = document.getElementById('sidebar');
     const scrim = document.getElementById('sidebarScrim');
     // ui.js replaces the BoardUI global when it loads after this, so the renderers are held here.
     const { sidebar, othersWaiting } = globalThis.BoardUI || {};
-    const none = { setHere() {}, setData() {}, close() {}, toggle() {} };
+    const none = { setHere() {}, setData() {}, checkDevice() {}, close() {}, toggle() {} };
     if (!aside || !sidebar) return none;
-    if (remember && here) write(LAST_KEY, here);
     if (!data) { try { data = JSON.parse(read(DATA_KEY) || 'null'); } catch { data = null; } }
     let device = null;
     const rail = matchMedia(RAIL);
@@ -65,12 +62,6 @@
       data = next;
       write(DATA_KEY, JSON.stringify(data));
       paint();
-    }
-    async function load() {
-      try {
-        const r = await fetch('/_hub/sidebar.json', { cache: 'no-store' });
-        if (r.ok) setData(await r.json());
-      } catch { /* outside the hub, or the Mac is asleep: keep what shows */ }
     }
 
     const isOpen = () => aside.classList.contains('open');
@@ -123,22 +114,17 @@
       if (swipe.opening && dx > 40) { open(); swipe = null; } else if (!swipe.opening && dx < -50) { close(); swipe = null; }
     }, { passive: true });
 
+    const checkDevice = () => deviceState().then((d) => { device = d; paint(); });
     paint();
-    deviceState().then((d) => { device = d; paint(); });
-    if (poll) {
-      load();
-      setInterval(() => { if (!document.hidden) load(); }, 30000);
-      document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
-    }
+    checkDevice();
     // Coming back to a page from the back-forward cache shows the drawer as it was left.
     addEventListener('pageshow', (e) => { if (e.persisted) close(); });
 
     function setHere(route) {
       here = route;
-      if (remember && here) write(LAST_KEY, here);
       paint();
     }
-    return { setHere, setData, close, toggle };
+    return { setHere, setData, checkDevice, close, toggle };
   }
 
   globalThis.Sidebar = { mount };
