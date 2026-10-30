@@ -3,14 +3,34 @@
 // Needs app-core.js and ui-snapshot.js; app.js paints it.
 BoardView.part((B) => {
   const { $$, state } = B;
-  const { packSnapshot, unpackSnapshot, preloadKeys, liveControls, changedLines } = BoardUI;
+  const { packSnapshot, unpackSnapshot, preloadKeys, liveControls, changedLines, SNAPSHOT_MAX } = BoardUI;
   // The hub serves every site from one origin, so each board keeps its own key.
   const KEY = 'boardSnapshot:' + B.site.url('');
+  // Every board's snapshots together stay within three at ui-snapshot.js's cap, the boards saved least recently
+  // dropping first, so they leave room in the browser's 5 MB of storage for the drafts and seen marks, which would
+  // otherwise fail to save.
+  const BUDGET = 3 * SNAPSHOT_MAX;
+  const ORDER = 'boardSnapshots';
 
   function readSnapshot() {
     let raw = null;
     try { raw = localStorage.getItem(KEY); } catch {}
     return raw ? unpackSnapshot(raw) : null;
+  }
+  // Makes room for this board's raw snapshot.
+  function keepRecent(raw) {
+    let order = [];
+    try { order = JSON.parse(localStorage.getItem(ORDER) || '[]'); } catch {}
+    const stored = [];
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k?.startsWith('boardSnapshot:') && k !== KEY) stored.push(k); }
+    const recent = [...order.filter((k) => stored.includes(k)), ...stored.filter((k) => !order.includes(k))];
+    let used = raw.length;
+    const kept = [KEY];
+    for (const k of recent) {
+      const size = localStorage.getItem(k)?.length || 0;
+      if (used + size <= BUDGET) { used += size; kept.push(k); } else localStorage.removeItem(k);
+    }
+    localStorage.setItem(ORDER, JSON.stringify(kept));
   }
   let saveTimer = null;
   function saveSnapshot() {
@@ -21,10 +41,16 @@ BoardView.part((B) => {
       savedAt: state.board.generatedAt || new Date().toISOString(),
       keep: [...state.openItems, ...preloadKeys(state.board.items, [])],
     });
-    try { if (raw) localStorage.setItem(KEY, raw); else localStorage.removeItem(KEY); } catch { try { localStorage.removeItem(KEY); } catch {} }
+    try {
+      if (!raw) { localStorage.removeItem(KEY); return; }
+      keepRecent(raw);
+      localStorage.setItem(KEY, raw);
+    } catch { try { localStorage.removeItem(KEY); } catch {} }
   }
   const saveSnapshotSoon = () => { if (!saveTimer) saveTimer = B.later(1000, saveSnapshot); };
   B.on(window, 'pagehide', () => { if (saveTimer) saveSnapshot(); });
+  // The app shell paints a board it comes back to from this, live when nothing changed since (shell.js).
+  B.atUnmount(saveSnapshot);
 
   // view is ui-snapshot.js liveControls' view; style.css dims the snapshot and its held controls from the view root's data-board.
   function setView(view) {

@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 // web-ts hub: one loopback server that Tailscale sends every request to.
-//   /                 a page that opens this device's last board, from its storage, else the board with the most
-//                     waiting (docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md)
+//   /                 the app shell (board/public/app.html), which opens this device's last board, else the board with
+//                     the most waiting; a browser's page load of a board, /<route>/, gets the shell too (shell.mjs pageOf)
+//                     (docs/adr/0055-one-app-for-the-whole-hub.md)
+//   /_hub/app/<file>  the shell's scripts and CSS, read from ../board/public then ../starter/public on each request;
+//                     ?v=<version> caches for a year
+//   /_hub/stream      the shell's one event stream: `change {route}` for each board's change signal and `sidebar` with
+//                     /_hub/sidebar.json's data when it changes (stream.mjs)
 //   /_hub/            the hub's status page: each site's health, its board links and watcher, polling and notifications
 //   /_hub/sidebar.json what the sidebar of every board and hub page shows (board/public/ui-sidebar.js): {total, start,
 //                     sites: [{route, title, board, state, count, changedAt, icon, sub}], hub: {tone, word, detail, broken},
@@ -11,7 +16,7 @@
 //   /_hub/needs.json  {total, sites: {<route>: {count, working, summary, lanes, building} | null}}: total is the
 //                     Home Screen badge; ?fresh=1 skips the cache
 //   /<route>/...      forwarded to that site's port with the /<route> prefix
-//                     removed (X-Forwarded-Prefix carries it)
+//                     removed (X-Forwarded-Prefix carries it), unless it is a board's page load the shell takes
 //   /sw.js, /manifest.webmanifest, /_hub/icon-*.png
 //                     the Home Screen app and its push service worker (scope /)
 //   /_hub/colors.css  ../shared/colors.css, the colours every hub page links before hub.css; ?v=colorsVersion() caches for a year
@@ -57,17 +62,22 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+import zlib from 'node:zlib';
 import { publicKey, addSubscription, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications } from './push.mjs';
 import { clock, nextSlot, windowAt, hold, heldUntil, holdLine, checksIn, checksADay, holdsOvernight, daySegments, splitPoint, editPolling, snoozeEnd, localDay } from './schedule.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
-import { listBoards, sendToBoards, checkListening, recordHubCode, recordLinkFaults, linksOf, hubCode, readJSON, HUB_CODE } from './boards.mjs';
+import { listBoards, isBoardSite, sendToBoards, checkListening, recordHubCode, recordLinkFaults, linksOf, hubCode, readJSON, HUB_CODE } from './boards.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
 import { readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
 import { checkSessions } from './sessions.mjs';
+import { pageOf, versionAppAssets } from './shell.mjs';
+import { hubStream } from './stream.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const BOARD_PUBLIC = path.join(HUB_DIR, '..', 'board', 'public');
+// Where /_hub/app/<file> is read from, first match wins, as the board server reads its own public/ folders.
+const APP_ROOTS = [BOARD_PUBLIC, path.join(HUB_DIR, '..', 'starter', 'public')];
 const COLORS = path.join(HUB_DIR, '..', 'shared', 'colors.css');
 
 const HOME = path.join(os.homedir(), '.claude', 'web-ts');
@@ -324,11 +334,12 @@ async function fetchNeeds(port) {
     return readNeeds(await r.json());
   } catch { return null; }
 }
+// fresh: true refetches every site's answer, a Set of routes only those.
 async function waitingCounts(rows, { fresh = false } = {}) {
   const up = rows.filter((r) => r.state === 'up');
   for (const r of up) {
     const c = needsCache.get(r.route);
-    if (fresh || !c || Date.now() - c.at >= NEEDS_TTL) needsCache.set(r.route, { at: Date.now(), needs: fetchNeeds(r.port) });
+    if (fresh === true || fresh?.has?.(r.route) || !c || Date.now() - c.at >= NEEDS_TTL) needsCache.set(r.route, { at: Date.now(), needs: fetchNeeds(r.port) });
   }
   const needs = await Promise.all(up.map((r) => needsCache.get(r.route).needs));
   return new Map(up.map((r, i) => [r.route, needs[i]]));
@@ -390,18 +401,56 @@ async function sidebarState({ fresh = false } = {}) {
   return { data, links, rows };
 }
 
-// The sidebar for a hub page, drawn on the hub so it shows at first paint, then kept fresh by sidebar.js. here is the
-// route whose row reads current, '_hub' for the hub's page; state, a sidebarState() result already in hand. "<" is escaped so no site's title can close the script.
+// The sidebar for a hub page or the app shell, drawn on the hub so it shows at first paint, then kept fresh by
+// sidebar.js. here is the route whose row reads current, '_hub' for the hub's page; state, a sidebarState() result
+// already in hand. json is its data for a script; "<" is escaped so no site's title can close the script.
 async function sidebar(here = '', state = null) {
   const { data } = state || await sidebarState();
   const context = vm.createContext({});
   for (const file of ['ui-page-header.js', 'ui-sidebar.js']) vm.runInContext(fs.readFileSync(path.join(BOARD_PUBLIC, file), 'utf8'), context);
   const json = JSON.stringify(data).replace(/</g, '\\u003c');
+  const rows = context.BoardUI.sidebar(data, { here });
   return {
-    html: `<aside id="sidebar" class="sidebar" aria-label="Boards">${context.BoardUI.sidebar(data, { here })}</aside><div id="sidebarScrim" class="sidebar-scrim"></div>`,
+    rows, json,
+    html: `<aside id="sidebar" class="sidebar" aria-label="Boards">${rows}</aside><div id="sidebarScrim" class="sidebar-scrim"></div>`,
     scripts: `<script src="/_hub/ui-page-header.js"></script><script src="/_hub/ui-sidebar.js"></script><script src="/_hub/sidebar.js"></script><script>Sidebar.mount({ here: ${JSON.stringify(here)}, data: ${json} });</script>`,
   };
 }
+
+// ---------- app shell ----------
+function appFile(name) {
+  if (!/^[\w.-]+\.(?:js|css|png)$/.test(name)) return null;
+  for (const root of APP_ROOTS) { const f = path.join(root, name); try { if (fs.statSync(f).isFile()) return f; } catch {} }
+  return null;
+}
+const fileVersion = (f) => { try { const st = fs.statSync(f); return `${Math.floor(st.mtimeMs).toString(36)}-${st.size.toString(36)}`; } catch { return null; } };
+
+// Text a browser accepts gzipped goes gzipped; the shell's scripts are a few hundred kilobytes before it.
+function sendText(req, res, code, headers, body) {
+  let out = Buffer.isBuffer(body) ? body : Buffer.from(body);
+  const h = { ...headers, vary: [headers.vary, 'accept-encoding'].filter(Boolean).join(', ') };
+  if (out.length >= 1024 && /\bgzip\b/.test(req.headers['accept-encoding'] || '')) { out = zlib.gzipSync(out); h['content-encoding'] = 'gzip'; }
+  h['content-length'] = out.length;
+  res.writeHead(code, h);
+  res.end(req.method === 'HEAD' ? undefined : out);
+}
+
+// The app shell (board/public/app.html, read on each load) with the sidebar drawn in and its data beside it, so the
+// first paint has both; `/` passes no route, a board's page its own.
+async function shellPage(route) {
+  const side = await sidebar(route);
+  const html = versionAppAssets(fs.readFileSync(path.join(BOARD_PUBLIC, 'app.html'), 'utf8'), (name) => { const f = appFile(name); return f && fileVersion(f); });
+  const fill = { sidebar: side.rows, sidebarData: side.json, touchIcon: iconUrl(180), colorsVersion: colorsVersion() };
+  return html.replace(/\{\{(sidebar|sidebarData|touchIcon|colorsVersion)\}\}/g, (_, k) => fill[k]);
+}
+
+const boardRoutes = () => new Set(Object.entries(loadManifest().sites).filter(([, s]) => isBoardSite(s)).map(([route]) => route));
+
+const stream = hubStream({
+  targets: () => Object.entries(loadManifest().sites).filter(([, s]) => isBoardSite(s) && s.port).map(([route, s]) => ({ route, port: s.port })),
+  sidebar: async ({ fresh }) => (await sidebarState({ fresh })).data,
+  log,
+});
 
 // iOS allows web push only in a Home Screen app, and asks for permission only
 // from a tap, so requestPermission runs first in the click handler.
@@ -722,6 +771,16 @@ async function hubRoute(req, res, url) {
   if (['/_hub/dialogs.js', '/_hub/page-header.js', '/_hub/rules-editor.js', '/_hub/ui-page-header.js', '/_hub/ui-sidebar.js', '/_hub/sidebar.js'].includes(p)) return send(200, 'text/javascript; charset=utf-8', fs.readFileSync(path.join(BOARD_PUBLIC, p.slice(6))));
   if (p === '/_hub/sidebar.css' || p === '/_hub/hub.css') return send(200, 'text/css; charset=utf-8', fs.readFileSync(path.join(BOARD_PUBLIC, p.slice(6))));
   if (p === '/_hub/sidebar.json') return sendJSON(200, (await sidebarState({ fresh: url.searchParams.get('fresh') === '1' })).data);
+  if (p === '/_hub/stream' && req.method === 'GET') { stream.handle(req, res); return; }
+  if (p.startsWith('/_hub/app/')) {
+    const f = appFile(p.slice('/_hub/app/'.length));
+    if (!f) { res.writeHead(404).end(); return; }
+    const ext = path.extname(f);
+    const type = { '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png' }[ext];
+    const cache = url.searchParams.get('v') === fileVersion(f) ? 'public, max-age=31536000, immutable' : 'no-cache';
+    if (ext === '.png') return send(200, type, fs.readFileSync(f), { 'cache-control': cache });
+    return sendText(req, res, 200, { 'content-type': type, 'cache-control': cache }, fs.readFileSync(f));
+  }
   if (p === '/_hub/') return send(200, 'text/html; charset=utf-8', await hubPage(req));
   if (p === '/_hub/push/key') return sendJSON(200, { key: publicKey() });
   if (p === '/_hub/push/subscribe' && req.method === 'POST') {
@@ -800,24 +859,6 @@ async function hubRoute(req, res, url) {
   return false;
 }
 
-// `/` and the Home Screen app's start: this device's last board (sidebar.js stores it), else the hub's start board,
-// else the hub's page. A redirect on the hub can't see the device's storage, so the page decides.
-function startPage() {
-  const routes = JSON.stringify(Object.keys(loadManifest().sites)).replace(/</g, '\\u003c');
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Claude</title><link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="${iconUrl(180)}"><meta name="apple-mobile-web-app-title" content="Claude">
-<link rel="stylesheet" href="/_hub/colors.css?v=${colorsVersion()}"><style>body { margin:0; background:var(--bg); }</style>
-<script>(async () => {
-  const routes = ${routes};
-  const go = (route) => location.replace('/' + encodeURIComponent(route) + '/');
-  let last = null;
-  try { last = localStorage.getItem('hub:lastBoard'); } catch {}
-  if (routes.includes(last)) return go(last);
-  try { const { start } = await (await fetch('/_hub/sidebar.json', { cache: 'no-store' })).json(); if (routes.includes(start)) return go(start); } catch {}
-  location.replace('/_hub/');
-})();</script></head><body><noscript><a href="/_hub/">Open the hub</a></noscript></body></html>`;
-}
-
 // One board's links as the hub's page lists them: a word for the site, then each link that isn't passing.
 function siteHealth(r, links) {
   if (r.state !== 'up') return { tone: r.state === 'down' ? 'down' : 'wait', word: r.state === 'down' ? 'Down · restarting' : capital(r.state), lines: [] };
@@ -892,7 +933,12 @@ const requestURL = (req) => new URL(req.url.replace(/^\/+/, '/'), 'http://hub');
 
 const server = http.createServer((req, res) => {
   const url = requestURL(req);
-  if (url.pathname === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); res.end(startPage()); return; }
+  if (pageOf({ method: req.method, pathname: url.pathname, dest: req.headers['sec-fetch-dest'], boards: boardRoutes() }) === 'shell') {
+    const route = url.pathname === '/' ? '' : decodeURIComponent(url.pathname.split('/')[1]);
+    shellPage(route).then((html) => sendText(req, res, 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', vary: 'sec-fetch-dest' }, html))
+      .catch((e) => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
+    return;
+  }
   if (url.pathname === '/_hub') { res.writeHead(302, { location: '/_hub/' + url.search }).end(); return; }
   if (url.pathname === '/_hub/status.json') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ hub: { port: PORT, pid: process.pid }, sites: status() }, null, 2)); return; }
   if (url.pathname === '/_hub/needs.json') {

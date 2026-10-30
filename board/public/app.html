@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Claude</title>
+<script>
+// The board this URL opens, or `/`'s last board, starts loading with its open cards' threads here, beside the scripts
+// below; app.js loadBoard takes the loads over when it mounts that board. Above the stylesheets, since a script after
+// one waits for it to load.
+window.BoardBoot = (function () {
+  let route = null;
+  try { route = decodeURIComponent(location.pathname.split('/')[1] || '') || localStorage.getItem('hub:lastBoard'); } catch {}
+  if (!route) return null;
+  const base = '/' + encodeURIComponent(route) + '/';
+  const get = (u) => { const p = fetch(base + u, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status))))); p.catch(() => {}); return p; };
+  let open = [];
+  try { open = JSON.parse(localStorage.getItem(`site:${route}:openItems`) || '[]'); } catch {}
+  const focus = /^#item=([^&]+)/.exec(location.hash);
+  if (focus) open.push(decodeURIComponent(focus[1]));
+  return { route, board: get('api/board'), threads: new Map([...new Set(open)].map((k) => [k, get('api/thread?key=' + encodeURIComponent(k))])) };
+})();
+</script>
+<link rel="stylesheet" href="/_hub/colors.css?v={{colorsVersion}}">
+<link rel="stylesheet" href="/_hub/app/style.css">
+<link rel="stylesheet" href="/_hub/app/sidebar.css">
+<link rel="apple-touch-icon" href="{{touchIcon}}">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="Claude">
+</head>
+<body class="has-sidebar">
+<aside id="sidebar" class="sidebar" aria-label="Boards">{{sidebar}}</aside>
+<div id="sidebarScrim" class="sidebar-scrim"></div>
+<script id="sidebarData" type="application/json">{{sidebarData}}</script>
+<script src="/_hub/app/ui.js"></script>
+<script src="/_hub/app/ui-links.js"></script>
+<script src="/_hub/app/ui-threads.js"></script>
+<script src="/_hub/app/ui-cards.js"></script>
+<script src="/_hub/app/ui-header.js"></script>
+<script src="/_hub/app/ui-snapshot.js"></script>
+<script src="/_hub/app/ui-page-header.js"></script>
+<script src="/_hub/app/ui-sidebar.js"></script>
+<script src="/_hub/app/dialogs.js"></script>
+<script src="/_hub/app/claude.js"></script>
+<script src="/_hub/app/attach.js"></script>
+<script src="/_hub/app/sidebar.js"></script>
+<script src="/_hub/app/app.js"></script>
+<script src="/_hub/app/app-core.js"></script>
+<script src="/_hub/app/app-threads.js"></script>
+<script src="/_hub/app/app-cards.js"></script>
+<script src="/_hub/app/app-lanes.js"></script>
+<script src="/_hub/app/app-asks.js"></script>
+<script src="/_hub/app/app-needs.js"></script>
+<script src="/_hub/app/app-header.js"></script>
+<script src="/_hub/app/app-banner.js"></script>
+<script src="/_hub/app/app-snapshot.js"></script>
+<script src="/_hub/app/router.js"></script>
+<script src="/_hub/app/shell.js"></script>
+<script>AppShell.start();</script>
+</body>
+</html>

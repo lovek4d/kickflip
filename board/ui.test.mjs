@@ -270,6 +270,38 @@ test("a back arrow goes one step back after a page on this hub, and to its href 
   assert.equal(tap({ url: `${page}&from=push`, state: { idx: 3 } }), 'href');
 });
 
+test("the app's router reads every hub URL as a view and writes each view back as that URL, every push link's shape included, and mounts only boards in place", () => {
+  const routerContext = vm.createContext({ URL });
+  vm.runInContext(fs.readFileSync(new URL('./public/router.js', import.meta.url), 'utf8'), routerContext);
+  const { viewOf, urlOf, mounted } = routerContext.AppRouter;
+  const base = 'https://mac.ts.net/orch/';
+  const read = (url) => plain(viewOf(`https://mac.ts.net${url}`, { boards: new Set(['orch']), base }));
+  const table = [
+    ['/', { kind: 'start' }],
+    ['/orch/', { kind: 'board', route: 'orch', hash: '' }],
+    ['/orch/#item=w%2FA1&reply', { kind: 'board', route: 'orch', hash: '#item=w%2FA1&reply' }],
+    ['/orch/settings.html', { kind: 'settings', route: 'orch' }],
+    ['/orch/questions.html#q-1', { kind: 'questions', route: 'orch', id: 'q-1' }],
+    ['/orch/notes.html?item=w%2FA1', { kind: 'notes', route: 'orch', item: 'w/A1' }],
+    ['/_hub/', { kind: 'hub' }],
+    ['/_hub/settings', { kind: 'hub-settings', hash: '' }],
+    ['/_hub/settings#rules', { kind: 'hub-settings', hash: '#rules' }],
+    ['/_hub/settings/polling?w=09%3A00', { kind: 'polling', w: '09:00' }],
+    ['/orch/prototype-sidebar.html?q=q1&from=push', { kind: 'frame', url: '/orch/prototype-sidebar.html?q=q1&from=push' }],
+    ['/orch/shots-gallery.html', { kind: 'frame', url: '/orch/shots-gallery.html' }],
+    ['/orch/uploads/1-shot.png', { kind: 'frame', url: '/orch/uploads/1-shot.png' }],
+    ['/learn/', { kind: 'frame', url: '/learn/' }],
+    ['/learn/lesson-2.html', { kind: 'frame', url: '/learn/lesson-2.html' }],
+  ];
+  for (const [url, view] of table) {
+    assert.deepEqual(read(url), view, url);
+    assert.equal(urlOf(view), url, url);
+  }
+  assert.deepEqual(read('/orch/plan.html?item=w%2FA1'), { kind: 'notes', route: 'orch', item: 'w/A1' });
+  assert.equal(viewOf('https://elsewhere.example/orch/', { boards: new Set(['orch']), base }), null);
+  assert.deepEqual(table.filter(([, view]) => mounted(view)).map(([url]) => url), ['/orch/', '/orch/#item=w%2FA1&reply']);
+});
+
 test('the Action needed badge shows only while the card waits on the owner, and links to what they act on', () => {
   assert.equal(ui.actionChip({ questions: { open: 2, first: 'q1' }, action: null }), '');
   const pick = ui.actionChip({ action: { kind: 'pick', url: 'https://mac.ts.net/r/prototype-x.html?q=q1', label: 'Prototypes ready: pick a take' } });

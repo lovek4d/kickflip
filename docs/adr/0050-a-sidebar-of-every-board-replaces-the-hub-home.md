@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0055
+---
+
 # A sidebar of every board replaces the hub home
+
+Superseded in part by [0055](0055-one-app-for-the-whole-hub.md): `/` serves the app shell, which picks the board by the same rule and stores the last board as each one opens; the shell mounts the sidebar once and keeps it fresh from the hub's one stream, not a 30-second poll.
 
 The hub home page is gone. Every board page carries a sidebar listing every site, so the owner switches boards without going back to the hub, and the hub's own controls sit at the sidebar's foot and on a status page at `/_hub/`.
 

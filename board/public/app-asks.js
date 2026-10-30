@@ -9,6 +9,8 @@ BoardView.part((B) => {
   const sheet = $('#sheet');
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
   if (!$('#askForm .row .attach')) $('#askForm .row').insertAdjacentHTML('afterbegin', attachButton());
+  // Files picked before the app shell switched away from this board are still attached, so they show again.
+  BoardAttach.paint('ask', B.site.root);
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   if (!$('#askForm .send-hint')) $('#askForm button[type=submit]').insertAdjacentHTML('beforebegin', `<span class="send-hint" aria-hidden="true">${isMac ? '⌘↵' : 'Ctrl+↵'}</span>`);
   // ⌘↵ (Ctrl+↵ off a Mac) sends from any composer: the ask, a thread reply, an edit.
@@ -67,12 +69,12 @@ BoardView.part((B) => {
     ev.preventDefault();
     $('#askText').blur();
     const text = $('#askText').value.trim();
-    const files = BoardAttach.files('ask');
-    if ((!text && !files.length) || BoardAttach.busy('ask')) return;
+    const files = BoardAttach.files('ask', B.site.root);
+    if ((!text && !files.length) || BoardAttach.busy('ask', B.site.root)) return;
     $('#askStatus').textContent = 'Sending…';
     try {
       await sendDraft('draft:ask', $('#askText'), () => $('#askText'), () => B.site.send('ask', { text, ...(files.length ? { files } : {}) }));
-      BoardAttach.clear('ask');
+      BoardAttach.clear('ask', B.site.root);
       $('#askStatus').textContent = '';
       closeSheet();
       toast('Sent', 2500);

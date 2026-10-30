@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0055
+---
+
 # The board reloads on a change signal
+
+Superseded in part by [0055](0055-one-app-for-the-whole-hub.md): in the app shell the page holds the hub's one stream, `/_hub/stream`, which passes each board's signal on as `change {route}`, in place of a stream per board. The server side, the 30-second poll and the header's time below still hold.
 
 Each board page holds one server-sent event stream, `GET /api/stream` in `board/server.mjs`, and reloads the board and its open cards' threads as soon as the stream sends a change signal (owner ask, card INT-68).
 

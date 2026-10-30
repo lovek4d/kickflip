@@ -107,6 +107,40 @@ test('a board view mounted then unmounted leaves no listener, interval, timer, s
 
   view.unmount();
   assert.deepEqual(page.left(), loaded);
+
+  const subscribed = new Set();
+  const signal = (fn) => { subscribed.add(fn); return () => subscribed.delete(fn); };
+  const shelled = page.win.BoardView.create(new page.El(), 'https://mac.ts.net/board-b', { signal });
+  shelled.mount();
+  assert.deepEqual([subscribed.size, page.streams.length], [1, 1]);
+  shelled.unmount();
+  assert.deepEqual([subscribed.size, page.left()], [0, loaded]);
+});
+
+test("a board the app shell leaves keeps its fresh board as its last visit, dropping the least recent boards' past the storage budget, and paints live when the shell says nothing changed since, and dimmed otherwise", () => {
+  const { storage, localStorage } = memoryStorage([['boardSnapshot:https://mac.ts.net/old/', 'x'.repeat(2_000_000)],
+    ['boardSnapshot:https://mac.ts.net/recent/', 'y'.repeat(1_000_000)], ['boardSnapshots', JSON.stringify(['boardSnapshot:https://mac.ts.net/recent/', 'boardSnapshot:https://mac.ts.net/old/'])]]);
+  const page = fakePage(localStorage);
+  const site = 'https://mac.ts.net/board-a';
+  const left = page.win.BoardView.create(new page.El(), site);
+  left.mount();
+  const board = { title: 'A', generatedAt: '2026-10-29T10:00:00.000Z', items: [], waves: [], needs: [], answers: [] };
+  Object.assign(left.B.state, { board });
+  left.B.setView('fresh');
+  left.unmount();
+  assert.equal(JSON.parse(storage.get(`boardSnapshot:${site}/`)).board.generatedAt, board.generatedAt);
+  assert.deepEqual([...storage.keys()].filter((k) => k.startsWith('boardSnapshot:')).sort(), [`boardSnapshot:${site}/`, 'boardSnapshot:https://mac.ts.net/recent/']);
+
+  const back = (live) => {
+    const root = new page.El();
+    const view = page.win.BoardView.create(root, site, { live });
+    view.mount();
+    view.unmount();
+    return root.dataset.board;
+  };
+  assert.equal(back({ fresh: { at: board.generatedAt, sig: 's' }, generatedAt: board.generatedAt }), 'fresh');
+  assert.equal(back({ fresh: { at: board.generatedAt, sig: 's' }, generatedAt: '2026-10-29T09:00:00.000Z' }), 'snapshot');
+  assert.equal(back(null), 'snapshot');
 });
 
 test("two boards' stores never share a key: a New task draft stays on its board, the old shared keys move to the first board opened, and a card's draft keeps its key", () => {

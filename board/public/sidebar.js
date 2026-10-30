@@ -1,9 +1,11 @@
 // The sidebar's behaviour on a page with <aside id="sidebar" class="sidebar"> and <div id="sidebarScrim"
 // class="sidebar-scrim">, after ui-page-header.js and ui-sidebar.js (docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md).
-// Sidebar.mount({here, remember, data}) paints the last copy this device stored, then /_hub/sidebar.json, again every
-// 30 seconds while the page shows. Below 900px the sidebar is a drawer: the page header's logo (a.hub) or a swipe in
-// from the left edge opens it, and the scrim, Escape, ✕, the drawer's own logo or a swipe back closes it.
-// remember stores `here` as this device's last board, which `/` opens (hub/hub.mjs startPage).
+// Sidebar.mount({here, remember, data, poll}) paints `data` or the last copy this device stored, then with poll (the
+// default) /_hub/sidebar.json, again every 30 seconds while the page shows. The app shell passes poll false and hands
+// each new copy to setData from its one stream (shell.js). Below 900px the sidebar is a drawer: the page header's logo
+// (a.hub) or a swipe in from the left edge opens it, and the scrim, Escape, ✕, the drawer's own logo or a swipe back
+// closes it. remember stores `here` as this device's last board, which `/` opens (shell.js).
+// → {setHere(route), setData(data), close()}
 (function () {
   const DATA_KEY = 'hub:sidebar';
   const LAST_KEY = 'hub:lastBoard';
@@ -22,12 +24,13 @@
     } catch { return null; }
   }
 
-  function mount({ here = '', remember = false, data = null } = {}) {
+  function mount({ here = '', remember = false, data = null, poll = true } = {}) {
     const aside = document.getElementById('sidebar');
     const scrim = document.getElementById('sidebarScrim');
     // ui.js replaces the BoardUI global when it loads after this, so the renderers are held here.
     const { sidebar, othersWaiting } = globalThis.BoardUI || {};
-    if (!aside || !sidebar) return;
+    const none = { setHere() {}, setData() {}, close() {} };
+    if (!aside || !sidebar) return none;
     if (remember && here) write(LAST_KEY, here);
     if (!data) { try { data = JSON.parse(read(DATA_KEY) || 'null'); } catch { data = null; } }
     let device = null;
@@ -41,7 +44,7 @@
       const n = othersWaiting(data, here);
       logo.setAttribute('aria-label', n ? `Boards, ${n} waiting on other boards` : 'Boards');
     }
-    // A repaint keeps the drawer's scroll, so a poll doesn't move the list under a finger.
+    // A repaint keeps the drawer's scroll, so a new copy doesn't move the list under a finger.
     function paint() {
       if (!data) return;
       const top = aside.scrollTop;
@@ -49,13 +52,16 @@
       aside.scrollTop = top;
       logoCount();
     }
+    function setData(next) {
+      if (!next) return;
+      data = next;
+      write(DATA_KEY, JSON.stringify(data));
+      paint();
+    }
     async function load() {
       try {
         const r = await fetch('/_hub/sidebar.json', { cache: 'no-store' });
-        if (!r.ok) return;
-        data = await r.json();
-        write(DATA_KEY, JSON.stringify(data));
-        paint();
+        if (r.ok) setData(await r.json());
       } catch { /* outside the hub, or the Mac is asleep: keep what shows */ }
     }
 
@@ -93,12 +99,21 @@
     }, { passive: true });
 
     paint();
-    load();
     deviceState().then((d) => { device = d; paint(); });
-    setInterval(() => { if (!document.hidden) load(); }, 30000);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+    if (poll) {
+      load();
+      setInterval(() => { if (!document.hidden) load(); }, 30000);
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+    }
     // Coming back to a page from the back-forward cache shows the drawer as it was left.
     addEventListener('pageshow', (e) => { if (e.persisted) close(); });
+
+    function setHere(route) {
+      here = route;
+      if (remember && here) write(LAST_KEY, here);
+      paint();
+    }
+    return { setHere, setData, close };
   }
 
   globalThis.Sidebar = { mount };

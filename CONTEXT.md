@@ -11,8 +11,16 @@ The one server on the Mac that answers the tailnet address, lists every site, fo
 _Avoid_: portal, gateway
 
 **Sidebar**:
-The list of every site beside each board page and hub page: its rows with their status words, lane chips and waiting counts, then the Hub, Notifications, Polling and Settings rows. A rail from 900px wide; on a phone a drawer the header's logo opens, the logo counting what waits on the other sites. `/` opens this device's **last board**, which each board page stores as it opens ([0050](docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md)).
+The list of every site beside each board and hub page: its rows with their status words, lane chips and waiting counts, then the Hub, Notifications, Polling and Settings rows. A rail from 900px wide; on a phone a drawer the header's logo opens, the logo counting what waits on the other sites. In the **app shell** it is mounted once, and a board's row swaps the view in place. `/` opens this device's **last board**, which the app shell stores as each board opens ([0050](docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md), [0055](docs/adr/0055-one-app-for-the-whole-hub.md)).
 _Avoid_: hub home, switcher, nav
+
+**App shell**:
+The one page a browser's load of `/` or a board's own URL gets, `board/public/app.html`: the sidebar, mounted once, beside one **view** at a time, and the hub's one stream, `/_hub/stream`. Following a link to a view swaps it in place, with no reload; every URL stays a real address, and a frame, curl or an API call still reaches the site's own page ([0055](docs/adr/0055-one-app-for-the-whole-hub.md)).
+_Avoid_: SPA, wrapper, frame
+
+**View**:
+One page's content in the app shell, mounted when its URL opens and unmounted, with every listener, timer and stream it added, when another takes its place. A board is a view; a board left and opened again paints from its **last visit**, live when its stream sent no change since.
+_Avoid_: screen, tab, page (a page is its own document)
 
 **Hub page**:
 The hub's status page, `/_hub/`, which the sidebar's Hub row opens: each site's health with each board's hub links and watcher, polling and notifications ([0050](docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md)).
@@ -71,7 +79,7 @@ What the hub owes a board, each passing or broken: GitHub polling, events (a wat
 _Avoid_: health, status, integrations
 
 **Change signal**:
-The board server's note on its `api/stream` that a file the board reads changed; an open board page reloads at once. The header's time counts from the last one that brought something new, or the last ↻ tap ([0031](docs/adr/0031-the-board-reloads-on-a-change-signal.md)).
+The board server's note on its `api/stream` that a file the board reads changed; an open board reloads at once. In the app shell it arrives as `change {route}` on the hub's one stream. The header's time counts from the last one that brought something new, or the last ↻ tap ([0031](docs/adr/0031-the-board-reloads-on-a-change-signal.md)).
 _Avoid_: push (a push is a phone notification), live update
 
 **Wave**:
@@ -165,7 +173,7 @@ A line in a card's thread written by someone other than the owner, apart from bu
 _Avoid_: inbox, new, notification
 
 **Last visit**:
-The board and threads this device last showed, kept in its browser storage. The next visit paints it dimmed at first paint, readable at any age, with the controls that send held until the fresh board lands and replaces it in place, flashing a fading orange border round each card or line that changed ([0028](docs/adr/0028-the-board-opens-on-the-last-visit.md)). In code it is the snapshot.
+The board and threads this device last showed, kept in its browser storage. The next visit paints it dimmed at first paint, readable at any age, with the controls that send held until the fresh board lands and replaces it in place, flashing a fading orange border round each card or line that changed ([0028](docs/adr/0028-the-board-opens-on-the-last-visit.md)). A board the app shell left fresh and comes back to with no change since paints it live instead ([0055](docs/adr/0055-one-app-for-the-whole-hub.md)). In code it is the snapshot.
 _Avoid_: cache, offline copy, stale board
 
 **Answer banner**:
@@ -214,7 +222,7 @@ _Avoid_: variant (the switcher's URL parameter, not the word), mockup
 
 ## Board page files
 
-The board page's scripts in `board/public/` are plain scripts with no bundler, loaded in the order `index.html` lists them. The `ui*.js` files hold pure renderers on the `BoardUI` global, which `ui.test.mjs` tests. `app.js` defines `BoardView`, and each `app-*.js` file after it registers one part of the board view with `BoardView.part((B) => …)`. `BoardView.create(root, site)` gives each board its own `B` (state, `ClaudeSite.site`, store, and a `$` scoped to the view's root), and a part adds listeners, intervals, timers, streams and watches only through `B.on`, `B.every`, `B.later`, `B.stream` and `B.watch`, so `unmount()` leaves none behind; `view.test.mjs` checks that. The view's state, such as `offline` and `data-board`, sits on its root (`.view-board`), not on `<body>`. A site card names the files it expects to touch from this table ([0022](docs/adr/0022-site-cards-build-in-parallel-when-their-files-dont-overlap.md)).
+The board page's scripts in `board/public/` are plain scripts with no bundler, loaded in the order `index.html` lists them, and `app.html`, the app shell, loads the same ones from `/_hub/app/`. The `ui*.js` files hold pure renderers on the `BoardUI` global, which `ui.test.mjs` tests. `app.js` defines `BoardView`, and each `app-*.js` file after it registers one part of the board view with `BoardView.part((B) => …)`. `BoardView.create(root, site, opts)` gives each board its own `B` (state, `ClaudeSite.site`, store, and a `$` scoped to the view's root), and a part adds listeners, intervals, timers, streams, watches and unmount steps only through `B.on`, `B.every`, `B.later`, `B.stream`, `B.watch` and `B.atUnmount`, so `unmount()` leaves none behind; `view.test.mjs` checks that. The view's state, such as `offline` and `data-board`, sits on its root (`.view-board`), not on `<body>`. A site card names the files it expects to touch from this table ([0022](docs/adr/0022-site-cards-build-in-parallel-when-their-files-dont-overlap.md)).
 
 Refs in text that Claude or the owner wrote are linked by the renderer, never by hand: pass the text through `ui-links.js` (`linkText`, or `linkHtml` for an HTML reply or line) with the item's `linkContext`. A card's ref (`INT-<n>`, or any `ref` on the board) opens its card, a Linear id or PR opens its page, and a bare URL becomes a link. Write refs as plain text in thread lines, replies, questions and plans.
 
@@ -224,8 +232,11 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `ui.js` | Shared helpers: escaping, times, reply bodies, attachments, icons and message buttons, badges by tone, `setHTML`, and `fetchJSON`, through which the side pages read the API and wait out a board restart |
 | `ui-links.js` | Linking refs, Linear ids, PRs and URLs in written text; load it right after `ui.js` |
 | `ui-cards.js` | A card's lines, in order: title with its ref, or New or Task chip; status with its ETA; unread; Action needed, Install, PR, review and other chips; Blocked by chips; and a New card's bump, edit and delete icons; and the action row's Merge button |
-| `ui-sidebar.js` | `BoardUI.sidebar`, the sidebar's markup from `/_hub/sidebar.json`, headed by `BoardUI.header` itself, and `othersWaiting`, the logo's count. Needs `ui-page-header.js` loaded before it: `hub/hub.mjs` renders the hub pages' sidebar with both in a vm context, and serves it as `/_hub/ui-sidebar.js` |
-| `sidebar.js` | Painting the sidebar from this device's last copy and then the hub, the drawer and its swipes, the logo's count, and storing the last board for `/`; the hub serves it as `/_hub/sidebar.js` |
+| `ui-sidebar.js` | `BoardUI.sidebar`, the sidebar's markup from `/_hub/sidebar.json`, headed by `BoardUI.header` itself, and `othersWaiting`, the logo's count. Needs `ui-page-header.js` loaded before it: `hub/hub.mjs` renders the hub pages' and the app shell's sidebar with both in a vm context, and serves it as `/_hub/ui-sidebar.js` |
+| `sidebar.js` | Painting the sidebar from this device's last copy and then the hub, or in the app shell from each copy the hub's stream sends; the drawer and its swipes, the logo's count, and on a board page storing the last board for `/`; the hub serves it as `/_hub/sidebar.js` |
+| `app.html` | The app shell: the sidebar, the board view's slot, and its scripts and CSS from `/_hub/app/`, with the first board's loads started in its `<head>`; the hub serves it for a browser's load of `/` or a board, with the sidebar and its data written in |
+| `router.js` | `AppRouter`: every hub URL as a view and each view as its URL (`ui.test.mjs` tests both), the views the shell mounts in place, and catching taps on links to them and back and forward, with `{idx}` in each history entry |
+| `shell.js` | `AppShell`: the sidebar mounted once, one board view at a time, `/`'s pick of a board, the hub's one stream and which left boards are unchanged, and a push tap from `hub/sw.js` routed in place |
 | `sidebar.css` | The sidebar's rail and drawer, scoped to `.sidebar`; linked after `colors.css`, and served by the hub as `/_hub/sidebar.css` |
 | `hub.css` | The hub's own pages' CSS, every rule under `.hub-view`, the class on their `<html>`; served by the hub as `/_hub/hub.css`, linked before `sidebar.css` |
 | `ui-page-header.js` | `BoardUI.header`, every page's header: the logo (which opens the sidebar on a phone) or back arrow, the title, then the time and ↻ and the gear, or a page's own trail. The back arrow's own script goes one step back, or to its href after a push. Needs nothing else: `server.mjs` renders each board page's `<!--header {…}-->` with it, and `hub/hub.mjs` renders the hub's headers, each in a vm context; the sidebar's head is one too (`ui-sidebar.js`), so the hub serves it as `/_hub/ui-page-header.js` |
@@ -236,7 +247,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `ui-markdown.js` | The Markdown subset `notes.html` renders a card's notes with |
 | `ui-snapshot.js` | The last visit's stored shape and size cap, which threads preload, which controls wait for the fresh board, and which lines flash |
 | `notes.html` | One item's notes, from `GET /api/notes`; the server redirects `plan.html` here |
-| `attach.js` | Picking and uploading attachments |
+| `attach.js` | Picking and uploading attachments, each to the site of the board view around its composer |
 | `prototype-switcher.js` | A prototype page's ‹ take › pill, its keys and `?variant=`, one take alone with `?take=`, and with `?q=` the pick and note that answer the card's question, then the next open question; `prototype-switcher.test.mjs` tests its logic |
 | `app-core.js` | The view's shared helpers: toasts, drafts, seen marks and hiding; re-exports `dialogs.js` as `B.confirm` and `notice` |
 | `dialogs.js` | `BoardDialogs.confirm` and `notice`, which every board page's dialogs go through; loaded on every page |
@@ -248,5 +259,5 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `app-needs.js` | The Needs you box |
 | `app-banner.js` | The answer banner, its tap and its ✕ |
 | `app-header.js` | The board's header controls and time, refresh, the offline state, the In Review header's GitHub line, the Hub links sheet and the setup checklist |
-| `app-snapshot.js` | Reading and saving the last visit, holding the controls that send while it shows, and the flash when the fresh board lands |
-| `app.js` | `BoardView`: each board's `B`, its state and per-board store, mount and unmount; rendering the view from its parts, painting the last visit, loading the board with its open threads (taking over the loads `index.html` starts), preloading active cards' threads, the reload timers, and the change-signal stream |
+| `app-snapshot.js` | Reading and saving the last visit, also as the view unmounts, keeping every board's within three at the cap, holding the controls that send while it shows, and the flash when the fresh board lands |
+| `app.js` | `BoardView`: each board's `B`, its state and per-board store, mount and unmount, and the view's markup for the app shell; rendering the view from its parts, painting the last visit, live when the shell says nothing changed, loading the board with its open threads (taking over the loads `index.html` or `app.html` starts), preloading active cards' threads, the reload timers, and the change signal, from its own stream or the shell's |

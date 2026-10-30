@@ -2,7 +2,7 @@
 // page may do meanwhile (docs/adr/0028-the-board-opens-on-the-last-visit.md). Needs ui.js.
 (function () {
   const VERSION = 1;
-  // Characters, so two boards' snapshots stay well inside a browser's 5 MB of storage for the hub's one origin.
+  // Characters, one board's most; app-snapshot.js keeps every board's within three of these.
   const SNAPSHOT_MAX = 900000;
   const ACTIVE_LANES = ['review', 'stale', 'progress', 'todo'];
 
@@ -52,5 +52,5 @@
   // before and after map a line's id to its text; the ids of the lines that are new or read differently flash once.
   const changedLines = (before, after) => Object.keys(after).filter((id) => before[id] !== after[id]);
 
-  Object.assign(globalThis.BoardUI, { packSnapshot, unpackSnapshot, preloadKeys, liveControls, changedLines });
+  Object.assign(globalThis.BoardUI, { packSnapshot, unpackSnapshot, preloadKeys, liveControls, changedLines, SNAPSHOT_MAX });
 })();

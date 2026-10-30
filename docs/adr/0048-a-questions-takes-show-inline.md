@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0055
+---
+
 # A question's takes show inline, and back goes one step
+
+Superseded in part by [0055](0055-one-app-for-the-whole-hub.md) on how back finds the step: in the app shell the referrer stops changing, so each history entry carries `{idx}`, and the arrow goes back while `idx` is above 0. A page a push opened still goes to its `backHref`.
 
 A question's takes show on the questions page itself, not behind a link. Every page opens in the same window, and its back arrow goes one step back.
 

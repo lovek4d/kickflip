@@ -30,7 +30,7 @@ BoardView.part((B) => {
       el.innerHTML = `<div class="msgs"></div><form data-reply="${esc(key)}" data-composer="item:${esc(key)}"><textarea rows="2" placeholder="Reply in this thread…">${esc(draft)}</textarea>
         <div class="pending-files" data-files></div>
         <div class="row">${attachButton()}${protoButton(key)}<button class="chip quick" type="button" data-quick="What's left?">What's left?</button><button class="primary" type="submit">Send</button></div></form>`;
-      BoardAttach.paint('item:' + key);
+      BoardAttach.paint('item:' + key, B.site.root);
     }
     syncDone(el, key);
     setHTML(el.querySelector('.msgs'), threadMessages(msgs, links(key)));
@@ -114,14 +114,14 @@ BoardView.part((B) => {
     ta.blur();
     const text = ta.value.trim();
     const id = f.dataset.composer;
-    const files = BoardAttach.files(id);
-    if ((!text && !files.length) || BoardAttach.busy(id)) return;
+    const files = BoardAttach.files(id, B.site.root);
+    if ((!text && !files.length) || BoardAttach.busy(id, B.site.root)) return;
     const key = f.dataset.reply;
     const btn = f.querySelector('button[type=submit]'); btn.disabled = true;
     try {
       await sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),
         () => B.site.send('item-message', { key, text, ...(files.length ? { files } : {}) }));
-      BoardAttach.clear(id);
+      BoardAttach.clear(id, B.site.root);
       btn.disabled = false;
       loadThread(f.dataset.reply, { force: true });
     } catch { B.notice('Could not send. Is the Mac awake?'); btn.disabled = false; }
@@ -129,7 +129,7 @@ BoardView.part((B) => {
   // Send waits while a composer's files upload, the ask's included (attach.js attach-change).
   B.on(B.root, 'attach-change', (ev) => {
     const b = ev.target.querySelector('button[type=submit]');
-    if (b) b.disabled = BoardAttach.busy(ev.detail.id);
+    if (b) b.disabled = BoardAttach.busy(ev.detail.id, B.site.root);
   });
 
   Object.assign(B, {
