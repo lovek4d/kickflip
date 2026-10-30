@@ -233,7 +233,18 @@ test('builder keeps one record per agent on an item, with its kind and an ETA it
   assert.equal(board('builder', 'progress', 'w/A1', 'Benchmarking', '--site', 'orch', '--agent', 'bench', '--eta', '2026-10-24T01:00:00Z').code, 0);
   assert.equal(board('builder', 'done', 'w/A1', '--agent', 'bench').code, 0);
   const bench = read(at('waves', 'w', 'agents', 'A1@bench.json'));
-  assert.deepEqual([typeof bench.done, 'eta' in bench, 'done' in read(at('waves', 'w', 'agents', 'A1.json'))], ['string', false, false]);});
+  assert.deepEqual([typeof bench.done, 'eta' in bench, 'done' in read(at('waves', 'w', 'agents', 'A1.json'))], ['string', false, false]);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--next', 'Review').code, 0);
+  assert.equal('done' in read(at('waves', 'w', 'agents', 'A1.json')), false);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--pr', '7', '--clear-status').code, 0);
+  assert.deepEqual([typeof read(at('waves', 'w', 'agents', 'A1.json')).done, read(at('waves', 'w', 'agents', 'A1@bench.json')).done], ['string', bench.done]);
+});
+
+test('a hand-back closes every builder record still open on the item', () => {
+  assert.equal(board('builder', 'start', 'w/A1', '--agent', 'fix').code, 0);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'checking').code, 0);
+  assert.equal(typeof read(at('waves', 'w', 'agents', 'A1@fix.json')).done, 'string');
+});
 
 test("builder start and progress on --site write each new status line to the item's thread, named by a further agent's kind", () => {
   assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--progress', 'Reading the plan').code, 0);

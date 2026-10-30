@@ -638,6 +638,8 @@ export async function setItem(site, key, { status, clearStatus, next, clearNext,
   if (pr !== undefined) item.pr = /^[1-9]\d*$/.test(String(pr)) ? Number(pr) : fail('--pr takes a PR number');
   if (ask) item.from_ask = ask;
   await writeJSON(source.file, wave);
+  // A builder that forgot builder done would keep the card In Progress after it was handed back.
+  if (pr !== undefined || HANDED_BACK.includes(status)) await closeBuilders(source.dir, item.id);
   // An ask is in one card's thread: becoming this item moves it out of a card it was folded into.
   const links = ask ? await readAskLinks(site) : {};
   if (ask in links) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
@@ -734,6 +736,21 @@ export async function builderProgress(site, key, progress, { dir, agent = 'main'
   await writeJSON(file, next);
   await statusToThread(site, key, agent, next.kind, line, now);
   return file;
+}
+
+const HANDED_BACK = ['checking', 'done', 'merged', 'dropped'];
+
+// Marks every open record on the item done: agents/<id>.json and agents/<id>@<agent>.json.
+async function closeBuilders(waveDir, id) {
+  const dir = path.join(waveDir, 'agents');
+  const names = (await fs.readdir(dir).catch(() => [])).filter((n) => n === `${id}.json` || (n.startsWith(`${id}@`) && n.endsWith('.json')));
+  const now = new Date().toISOString();
+  for (const n of names) {
+    const record = await readJSON(path.join(dir, n), null);
+    if (!record || record.done) continue;
+    const { eta, ...rest } = record;
+    await writeJSON(path.join(dir, n), { ...rest, done: now });
+  }
 }
 
 // The record stays, marked done, so the item's thread can show when the agent finished (domain.mjs threadOf).
