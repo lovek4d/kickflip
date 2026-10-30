@@ -36,7 +36,7 @@
 //                                question, context, url, options, urgent, resolved, resolved_at}]};
 //                                Waiting on you shows an open `urgent` question alone, first
 //                                checks comes from data/checked.json (board.mjs checked),
-//                                data/watcher.json (bin/wait-events.mjs) and Claude's latest writes;
+//                                whether the board hears its events (../hub/boards.mjs listenState) and Claude's latest writes;
 //                                an ask's In Progress mark from data/ask-progress.json (board.mjs ask).
 //                                links: [{link, ok, detail, state, since?}], whether each hub link reaches this
 //                                board, state reading broken only past the link's grace period
@@ -95,7 +95,7 @@ import { buildBoard, ITEM_EVENTS, needsAnswer, refOf, threadOf } from './domain.
 import { createReadStream, watch as watchFiles } from 'node:fs';
 import { BoardError, boardConfig, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readNotes, readWorking, readUpload, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
-import { boardAt, linksOf } from '../hub/boards.mjs';
+import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 
@@ -274,19 +274,6 @@ async function prState(repo, n) {
 
 const config = () => boardConfig(here);
 
-// data/watcher.json {pid, since, exited_at} is written by bin/wait-events.mjs when it starts and when it exits. Its pid
-// outlives the watcher, and macOS reuses pids, so a live pid counts only while ps shows it running wait-events.mjs.
-// → {running, since, exitedAt}, or null with no record.
-async function watcherState() {
-  const w = await readJSON(path.join(data, 'watcher.json'), null);
-  if (!Number.isInteger(w?.pid)) return null;
-  const exitedAt = typeof w.exited_at === 'string' ? w.exited_at : null;
-  const since = typeof w.since === 'string' ? w.since : null;
-  try { process.kill(w.pid, 0); } catch (e) { if (e.code !== 'EPERM') return { running: false, since, exitedAt }; }
-  const command = await new Promise((resolve) => execFile('ps', ['-p', String(w.pid), '-o', 'command='], { timeout: 3000 }, (err, out) => resolve(err ? '' : out)));
-  return { running: command.includes('wait-events.mjs'), since, exitedAt };
-}
-
 async function latestReply() {
   const names = await fs.readdir(replies).catch(() => []);
   const times = await Promise.all(names.map((n) => fs.stat(path.join(replies, n)).then((st) => st.mtimeMs, () => 0)));
@@ -340,18 +327,12 @@ async function snapshot() {
 
   return {
     fromWaves, autoMerge: settingsOf(cfg).auto_merge, waves, prs, threads: threadLines, events: pageEvents, working, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
-    checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await watcherState(), replyAt: await latestReply(),
+    checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
     watched: (await readJSON(path.join(wavesDir(), 'monitor.json'), { waves: [] })).waves || [],
     owner: await readJSON(path.join(data, 'owner.json'), { items: [] }),
     bridge: await readJSON(bridgeState, { items: {}, config: {} }),
     topicItems: await topicItems(),
   };
-}
-
-// The hub's links to this board (hub/boards.mjs linksOf), or null when the manifest has no board here. listening is the
-// watcher state checksOf already worked out.
-function hubLinks(self, checks) {
-  return self ? linksOf(self, { listening: checks.watcher === 'running' }) : null;
 }
 
 // The setup checklist after a join's handshake (hub/boards.mjs handshake), or null: when the board never had one, or
@@ -367,8 +348,9 @@ async function setupOf(links) {
 async function board() {
   const { title, reviewers } = await config();
   const self = boardAt(here);
-  const built = buildBoard({ ...(await snapshot()), prompts: self ? pendingFor(self.route).map(shown) : [] });
-  const links = hubLinks(self, built.checks);
+  const listen = self ? listenState(self) : 'deaf';
+  const built = buildBoard({ ...(await snapshot()), listen, prompts: self ? pendingFor(self.route).map(shown) : [] });
+  const links = self ? linksOf(self, { listen }) : null;
   return { generatedAt: new Date().toISOString(), title, reviewers: (reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string'), ...built, links, setup: await setupOf(links) };
 }
 

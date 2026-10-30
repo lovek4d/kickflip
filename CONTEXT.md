@@ -47,14 +47,22 @@ Love, the person the sites serve. The word for the session that serves a site is
 _Avoid_: user, admin
 
 **Board session**:
-A board's owning session as the manifest records it in the site's owner: its id, its folder (`repo`, where `claude --resume` finds it) and an optional model. `web-ts start` launches one in the background; `web-ts resume` brings it back under the same id.
+A board's owning session as the manifest records it in the site's owner: its id, its folder (`repo`, where `claude --resume` finds it) and an optional model. `web-ts start` launches one in the background; `web-ts resume` brings it back and records the id it comes back under. A rejoin keeps the label, model and folder it leaves out.
 _Avoid_: orchestrator process, agent
 
 **Live**:
 A session whose `~/.claude/sessions/<pid>.json` record names it and whose process still runs, started when the record says. A live session is never started or resumed again.
 
-**Auto-resume**:
-The hub resuming a board session once when its board hasn't been listening for 3 minutes and the session isn't live, then pushing the owner once if the board still isn't listening 5 minutes later.
+**Listening**:
+A board is listening while its owner session is live and a watcher runs for it. A watcher outlives its session, so a watcher alone isn't listening. A board that isn't listening is **asleep** or deaf. The board header, the sidebar, the events link and the not-listening push read that state, and the **session wake** uses this test ([0061](docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md)).
+
+**Asleep**:
+A board whose owner session isn't live but that the hub can wake on its next event: a session and folder are recorded, and no **session wake** of this outage has failed or gone unanswered. It reads a muted Asleep in the sidebar, its events link passes, and it gets no not-listening push. A board that is neither listening nor asleep is deaf and reads Not listening in red ([0061](docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md)).
+_Avoid_: idle, stopped, offline
+
+**Session wake**:
+The hub resuming a board session as soon as an event lands while that session isn't live, or, as a fallback, once its board hasn't been listening for 3 minutes with an event its session hasn't heard. Once per outage, then one push to the owner if the board still isn't listening 5 minutes later. A session that idles out with nothing waiting stays stopped ([0061](docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md)).
+_Avoid_: auto-resume, respawn, wake (a daily wake is the morning `check-github`)
 
 **Push**:
 A phone notification from the hub that opens a page. A push is sent only when something waits on the owner. Answers and questions go at once; merges, drafts on Ready and stale PRs go when their tick ends; each arrives as its own notification ([0030](docs/adr/0030-pushes-go-by-kind-and-each-arrives-on-its-own.md)). Other replies don't push; a push that goes out anyway says how many came since the last one. With notifications off every push is dropped; a snooze and Off on weekends hold pushes until they end, and urgent ones go through those holds ([0032](docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md)).
@@ -73,7 +81,7 @@ The badge on a site's row in the sidebar: how many things the site's `GET /_clau
 _Avoid_: unread count, inbox
 
 **Status word**:
-The coloured word that leads a site's sub line in the sidebar when something urgent holds, most urgent first: Down, Starting, Working, "N need you" or Building. Lane chips with the site's open-card counts follow it; a calm site shows only the chips ([0037](docs/adr/0037-the-hub-home-shows-status-not-descriptions.md)).
+The coloured word that leads a site's sub line in the sidebar when something urgent holds, most urgent first: Down, Not listening (a board that is neither **listening** nor **asleep**), Starting, Working, "N need you", Asleep (muted) or Building. Lane chips with the site's open-card counts follow it; a calm site shows only the chips ([0037](docs/adr/0037-the-hub-home-shows-status-not-descriptions.md)).
 _Avoid_: activity line, subtitle
 
 ### Boards
@@ -83,7 +91,7 @@ A site built from the board template that shows one or more waves as cards in la
 _Avoid_: dashboard, kanban
 
 **Hub links**:
-What the hub owes a board, each passing or broken: GitHub polling, events (a watcher runs), daily wakes, pushes (a device is subscribed), reviewer links and hub code (the hub runs the code in its files). The In Review header's GitHub mark opens them as a sheet, red-dotted only while one stays broken past its grace period; until then it is **settling** ([0046](docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md)). A new board tests them with a **handshake**: a `hello` event the session answers with `board.mjs hello-ack` and a test push, with a Connecting checklist on the board until the session answered and GitHub checks reach it ([0040](docs/adr/0040-one-board-registry-for-every-hub-feature.md)).
+What the hub owes a board, each passing or broken: GitHub polling, events (the board is **listening**), daily wakes, pushes (a device is subscribed), reviewer links and hub code (the hub runs the code in its files). The In Review header's GitHub mark opens them as a sheet, red-dotted only while one stays broken past its grace period; until then it is **settling** ([0046](docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md)). A new board tests them with a **handshake**: a `hello` event the session answers with `board.mjs hello-ack` and a test push, with a Connecting checklist on the board until the session answered and GitHub checks reach it ([0040](docs/adr/0040-one-board-registry-for-every-hub-feature.md)).
 _Avoid_: health, status, integrations
 
 **Change signal**:

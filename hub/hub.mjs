@@ -53,8 +53,8 @@
 // It also runs every site: it starts each manifest entry's `cmd`, restarts it
 // when it exits, restarts it when its entry changes, and stops every one before it exits itself. On each slot of the
 // polling interval (schedule.mjs), and once a minute after it starts, it checks
-// GitHub (github.mjs), pushes once for each board that has stopped listening (boards.mjs
-// checkListening), then sends the queued pushes unless schedule.mjs heldUntil holds them;
+// GitHub (github.mjs), pushes once for each board that is deaf (boards.mjs
+// checkListening, listenState), then sends the queued pushes unless schedule.mjs heldUntil holds them;
 // one poll never overlaps another. At each of the polling settings' wake times it wakes each
 // board's session once a day (github.mjs sendWakes)
 // (docs/adr/0025-the-hub-polls-github-and-sends-pushes-on-one-interval.md). Every feature that serves
@@ -64,8 +64,9 @@
 // After each poll it records when each board's hub links first failed (boards.mjs recordLinkFaults). As it starts it
 // records the hash of its own code (boards.mjs recordHubCode), so a board's hub link can tell when the files changed
 // under it (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md).
-// Once a minute it resumes the recorded session of a board that has stopped listening and whose session isn't running,
-// and pushes once when that doesn't bring it back (sessions.mjs checkSessions).
+// Every 15 seconds it counts each board's watched lines, and resumes the recorded session of a board that got an event
+// while that session wasn't running, and pushes once when that doesn't bring it back (sessions.mjs checkSessions;
+// docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md).
 // Every 15 seconds it drops the pending prompts whose hook has gone (prompts.mjs expired).
 // State lives in ~/.claude/web-ts: manifest.json, logs/<route>.log, run/<route>.pid, github-state.json, wake-state.json,
 // deaf-state.json, link-faults.json, hub-code.json, resume-state.json, prompts.json.
@@ -83,7 +84,8 @@ import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, readPromp
 import { clock, nextSlot, windowAt, hold, heldUntil, holdLine, editPolling } from './schedule.mjs';
 import { capital, every, hubView, settingsView, pollingView, flushView, SNOOZE_REFUSED } from './views.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
-import { listBoards, isBoardSite, sendToBoards, checkListening, recordHubCode, recordLinkFaults, linksOf, hubCode, readJSON, HUB_CODE } from './boards.mjs';
+import { listBoards, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, recordLinkFaults, linksOf, hubCode, readJSON, HUB_CODE } from './boards.mjs';
+import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
 import { readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
@@ -284,11 +286,9 @@ function runWakes() {
   }).catch((e) => log('wake failed:', e.message)).finally(() => { waking = null; });
 }
 
-const SESSION_CHECK_MS = 60_000;
-const sessionCheck = { running: null, at: 0 };
+const sessionCheck = { running: null };
 function runSessionCheck() {
-  if (sessionCheck.running || Date.now() - sessionCheck.at < SESSION_CHECK_MS) return;
-  sessionCheck.at = Date.now();
+  if (sessionCheck.running) return;
   sessionCheck.running = checkSessions({ manifest: loadManifest() }).then((r) => {
     if (r.resumed.length || r.pushed.length || r.failed.length) log(`sessions: resumed ${r.resumed.join(', ') || 'none'}; pushed ${r.pushed.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
   }).catch((e) => log('session check failed:', e.message)).finally(() => { sessionCheck.running = null; });
@@ -402,14 +402,23 @@ async function waitingCounts(rows, { fresh = false } = {}) {
 const badgeTotal = (waiting) => [...waiting.values()].reduce((n, w) => n + (w?.count || 0), 0) + pendingFor(null).length;
 
 // ---------- sidebar ----------
-// Each board's linksOf, cached as long as the sites' needs, since every open page asks for the sidebar.
+// Each board's linksOf and listenState (boards.mjs), cached as long as the sites' needs, since every open page asks
+// for the sidebar. → {links: {<route>: linksOf}, listens: Map of route to listenState}
 const linksCache = { at: 0, value: null };
 function boardLinks(boards) {
   if (linksCache.value && Date.now() - linksCache.at < NEEDS_TTL) return linksCache.value;
-  const value = {};
-  for (const b of boards) { try { value[b.route] = linksOf(b); } catch (e) { log(`links of ${b.route} failed:`, e.message); value[b.route] = []; } }
-  Object.assign(linksCache, { at: Date.now(), value });
-  return value;
+  const links = {};
+  const listens = new Map();
+  const ctx = { running: liveSessions(), wakes: readJSON(RESUME_STATE, {}) };
+  for (const b of boards) {
+    try {
+      const listen = listenState(b, ctx);
+      listens.set(b.route, listen);
+      links[b.route] = linksOf(b, { listen });
+    } catch (e) { log(`links of ${b.route} failed:`, e.message); links[b.route] = []; }
+  }
+  Object.assign(linksCache, { at: Date.now(), value: { links, listens } });
+  return linksCache.value;
 }
 
 // What /_hub/sidebar.json serves, with each board's links and the status rows behind it for the hub's page.
@@ -418,8 +427,8 @@ async function sidebarState({ fresh = false } = {}) {
   const rows = status();
   const waiting = await waitingCounts(rows, { fresh });
   const boards = listBoards(loadManifest());
-  const links = boardLinks(boards);
-  const sites = sidebarSites(rows, waiting, new Set(boards.map((b) => b.route)));
+  const { links, listens } = boardLinks(boards);
+  const sites = sidebarSites(rows, waiting, new Set(boards.map((b) => b.route)), listens);
   const settings = readSettings();
   const held = hold(now, settings);
   const data = {

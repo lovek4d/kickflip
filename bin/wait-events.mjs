@@ -89,7 +89,7 @@ for (;;) {
     // cursor below from moving, or the same events would wake the session again.
     try {
       const self = board && boardAt(s.dir);
-      if (self) for (const l of linksOf(self, { listening: true })) if (!l.ok) console.log(`link ${l.link} ${l.detail}`);
+      if (self) for (const l of linksOf(self, { listen: 'listening' })) if (!l.ok) console.log(`link ${l.link} ${l.detail}`);
     } catch (e) { console.log(`link registry could not check the links (${e.message})`); }
     fs.writeFileSync(cursorFile, JSON.stringify(Object.fromEntries(Object.entries(seen).map(([f, l]) => [f, l.length]))));
     process.exit(0);

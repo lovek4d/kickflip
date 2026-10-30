@@ -63,7 +63,7 @@
 @media (prefers-reduced-motion: no-preference) { .sidebar .dot.pulse { animation: sb-pulse 1.4s ease-in-out infinite; } }
 .sidebar .word { flex: none; font-weight: 600; color: var(--tone); }
 .sidebar .t-down, .sidebar .t-needs { --tone: var(--color-danger); }
-.sidebar .t-starting { --tone: var(--muted); }
+.sidebar .t-starting, .sidebar .t-asleep { --tone: var(--muted); }
 .sidebar .t-working { --tone: var(--color-notice); }
 .sidebar .t-building { --tone: var(--accent); }
 .sidebar .t-ok { --tone: var(--color-success); }

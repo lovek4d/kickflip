@@ -100,7 +100,7 @@ test("the hub page lists Boards and Pages apart with each site's health and link
   };
   const v = hubView({ now, st: status(now, DEFAULTS, 1), poll: poll(now), sidebar, rows, links, code: { running: 'abc', onDisk: 'abc' }, host: 'mac.ts.net', rules: [{ text: 'a' }, { text: 'b' }] });
   assert.deepEqual(v.groups.map((g) => [g.label, g.sites.map((s) => [s.route, s.tone, s.word, s.href])]), [
-    ['Boards', [['alpha', 'ok', 'Up · watcher running · every link passes', '/alpha/'], ['beta', 'down', '1 link broken · no watcher', '/beta/'],
+    ['Boards', [['alpha', 'ok', 'Up · listening · every link passes', '/alpha/'], ['beta', 'down', '1 link broken · not listening', '/beta/'],
       ['gone', 'down', 'Down · restarting', '/gone/'], ['new', 'wait', 'Starting', '/new/']]],
     ['Pages', [['learn', 'ok', 'Up', '/learn/']]],
   ]);
@@ -115,6 +115,7 @@ test("the hub page lists Boards and Pages apart with each site's health and link
   const none = hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar: { ...sidebar, sites: [] }, rows: [] });
   assert.deepEqual([none.groups, none.empty, none.rules, none.sites], [[], true, 'None yet', '0 sites']);
   assert.deepEqual(plain(siteHealth({ state: 'stopped' })), { tone: 'wait', word: 'Stopped', lines: [] });
+  assert.deepEqual(plain(siteHealth({ state: 'up' }, [ok('github'), { ...ok('events'), listen: 'asleep' }])), { tone: 'ok', word: 'Up · asleep · every link passes', lines: [] });
 });
 
 test('Send now says how many queued pushes went, or that none could', () => {

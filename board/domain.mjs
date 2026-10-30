@@ -349,7 +349,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
 
 // snapshot: {waves: [{slug, wave, agents: {<id>: {<agent>: record}}}], watched: [slug], fromWaves,
 //   prs: {"<repo>#<n>": pr}, threads: {<key>: [line]}, events: [event with reply, hidden ones left out],
-//   working: {<event id>: ts}, checked: data/checked.json, watcher: {running}, askLinks: {<ask event id>: <wave>/<id>},
+//   working: {<event id>: ts}, checked: data/checked.json, listen, watcher: data/watcher.json, askLinks: {<ask event id>: <wave>/<id>},
 //   askProgress: {<ask event id>: {state: progress|done, at, next, moved}}, owner: owner.json, bridge: slack-bridge state.json,
 //   autoMerge: board.json's auto_merge (true leaves merging to monitor, so no card gets the owner's Merge),
 //   threads also holds each ask's lines under ask:<event id>;
@@ -494,15 +494,13 @@ export function buildBoard(snapshot) {
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-// checked is data/checked.json {at, every (minutes), idle?}, watcher {running, since, exitedAt} or null when the watcher left no
-// record, replyAt the newest reply file's time (docs/adr/0021-the-board-shows-github-checks-and-watcher-health.md).
-// claudeAt is the newest write of Claude's the board can see: a reply, a Claude thread line, a working mark, a builder
-// record or a watcher start. checked.json doesn't count, since the hub writes it on every poll (hub/github.mjs).
-// The session relaunches its watcher after each event, so a recent exit counts as running for this long.
-const RELAUNCH_GRACE = 2 * 60000;
-function checksOf({ checked, watcher, replyAt, threads = {}, working = {}, waves = [] }, now) {
+// checked is data/checked.json {at, every (minutes), idle?}, listen whether the board hears its events
+// (hub/boards.mjs listenState), watcher data/watcher.json {since} or null, replyAt the newest reply file's time
+// (docs/adr/0021-the-board-shows-github-checks-and-watcher-health.md). claudeAt is the newest write of Claude's the
+// board can see: a reply, a Claude thread line, a working mark, a builder record or a watcher start. checked.json
+// doesn't count, since the hub writes it on every poll (hub/github.mjs).
+function checksOf({ checked, listen, watcher, replyAt, threads = {}, working = {}, waves = [] }, now) {
   const every = Number(checked?.every) || 30;
-  const relaunching = Boolean(watcher?.exitedAt) && now - Date.parse(watcher.exitedAt) <= RELAUNCH_GRACE;
   const writes = [
     replyAt, watcher?.since, ...Object.values(working),
     ...Object.values(threads).flat().filter((l) => (l.who || 'claude') === 'claude').map((l) => l.ts),
@@ -512,7 +510,7 @@ function checksOf({ checked, watcher, replyAt, threads = {}, working = {}, waves
   const idle = Boolean(checked?.idle);
   return {
     at: checked?.at || null, every: idle ? null : every, idle, late: !idle && Boolean(checked?.at) && now - Date.parse(checked.at) > 2 * every * 60000,
-    watcher: watcher?.running || relaunching ? 'running' : 'stopped', claudeAt,
+    watcher: { listening: 'running', asleep: 'asleep' }[listen] || 'stopped', claudeAt,
   };
 }
 

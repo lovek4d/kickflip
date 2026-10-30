@@ -2,9 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { siteStatus, laneChips, readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
 
-test('the status word is the most urgent of down, starting, working, need you and building', () => {
+test('the status word is the most urgent of down, not listening, starting, working, need you, asleep and building', () => {
   const up = { state: 'up', working: 1, count: 2, lanes: { review: 1, progress: 0, todo: 0 }, building: true };
   const word = (s) => siteStatus(s)?.word ?? null;
+  assert.equal(word({ ...up, state: 'down', listen: 'deaf' }), 'Down');
+  assert.equal(word({ ...up, state: 'starting', listen: 'deaf' }), 'Not listening');
+  assert.equal(word({ ...up, listen: 'deaf' }), 'Not listening');
+  assert.equal(siteStatus({ state: 'up', listen: 'deaf' }).tone, 'down');
+  assert.equal(word({ ...up, listen: 'listening' }), 'Working');
+  assert.equal(word({ ...up, listen: 'asleep' }), 'Working');
+  assert.equal(word({ ...up, working: 0, listen: 'asleep' }), '2 need you');
+  assert.deepEqual(siteStatus({ ...up, working: 0, count: 0, listen: 'asleep' }), { tone: 'asleep', word: 'Asleep' });
   assert.equal(word({ ...up, state: 'down' }), 'Down');
   assert.equal(word({ ...up, state: 'starting' }), 'Starting');
   assert.equal(word(up), 'Working');
@@ -46,6 +54,8 @@ test("the sidebar's rows carry each site's icon, status line and count, and mark
   ];
   const waiting = new Map([['ios', readNeeds({ items: [{ kind: 'Question' }], lanes: { review: 1, progress: 0, todo: 2 } })], ['learn', null]]);
   const [ios, learn, gone] = sidebarSites(rows, waiting, new Set(['ios', 'gone']));
+  const [deaf] = sidebarSites(rows, waiting, new Set(['ios', 'gone']), new Map([['ios', 'deaf']]));
+  assert.match(deaf.sub, /^<span class="dot t-down" aria-hidden="true"><\/span><span class="word t-down">Not listening<\/span><span class="lcs"><span class="lc lc-review">1 review<\/span><span class="lc lc-todo">2 todo<\/span><\/span>$/);
   assert.deepEqual([ios.board, learn.board, gone.board], [true, false, true]);
   assert.deepEqual([ios.count, learn.count, gone.count], [1, 0, 0]);
   assert.deepEqual([ios.created, learn.created], ['2026-10-22T19:19:11.878Z', null]);

@@ -5,7 +5,7 @@ import http from 'node:http';
 import zlib from 'node:zlib';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 let home, site, child, base;
@@ -89,9 +89,14 @@ test("an ask marked in progress waits on the owner in In Review until their ask-
   assert.deepEqual(await card().then((c) => [c.lane, c.fold, c.finishable]), ['done', 'asks', false]);
 });
 
-test('a watcher that just exited on an event still counts as running', async () => {
+test('a watcher that just exited on an event still counts as listening, until its session stops', async () => {
+  const session = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  const procStart = execFileSync('ps', ['-o', 'lstart=', '-p', String(session.pid)], { encoding: 'utf8', env: { ...process.env, TZ: 'UTC' } }).trim();
+  fs.mkdirSync(path.join(home, '.claude', 'sessions'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'sessions', `${session.pid}.json`), JSON.stringify({ pid: session.pid, sessionId: 's1', cwd: home, procStart, kind: 'bg' }));
   fs.mkdirSync(path.join(home, '.claude', 'web-ts'), { recursive: true });
-  fs.writeFileSync(path.join(home, '.claude', 'web-ts', 'manifest.json'), JSON.stringify({ sites: { t: { dir: site } } }));
+  const cmd = [process.execPath, path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site];
+  fs.writeFileSync(path.join(home, '.claude', 'web-ts', 'manifest.json'), JSON.stringify({ sites: { t: { dir: site, port: 1, cmd, owner: { session: 's1' } } } }));
   fs.writeFileSync(path.join(site, 'data', 'checked.json'), JSON.stringify({ at: new Date().toISOString(), every: 30 }));
   const watcher = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'wait-events.mjs'), 't', 's1'], { env: { ...process.env, HOME: home } });
   const out = [];
@@ -104,6 +109,10 @@ test('a watcher that just exited on an event still counts as running', async () 
   const w = JSON.parse(fs.readFileSync(path.join(site, 'data', 'watcher.json'), 'utf8'));
   assert.ok(Date.parse(w.exited_at) >= Date.parse(w.since));
   assert.equal((await (await fetch(`${base}/api/board`)).json()).checks.watcher, 'running');
+  const stopped = new Promise((resolve) => session.once('exit', resolve));
+  session.kill();
+  await stopped;
+  assert.equal((await (await fetch(`${base}/api/board`)).json()).checks.watcher, 'stopped');
 });
 
 test("the board lists each agent's record on an item, and the item's thread shows when each started and finished among its lines", async () => {

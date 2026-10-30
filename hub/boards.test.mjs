@@ -14,7 +14,7 @@ const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SKILL = path.join(HUB_DIR, '..');
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'boards-'));
 process.env.HOME = home;
-const { listBoards, linksOf, oldestUnheard, hubCode, HUB_CODE } = await import('./boards.mjs');
+const { listBoards, linksOf, oldestUnheard, hubCode, HUB_CODE, listenState, checkListening, RESUME_STATE } = await import('./boards.mjs');
 
 const claude = (...p) => path.join(home, '.claude', ...p);
 const site = (route, ...p) => claude('web-ts', 'sites', route, ...p);
@@ -24,6 +24,12 @@ const events = (route, kind) => { try { return fs.readFileSync(site(route, 'data
 const ago = (min) => new Date(Date.now() - min * 60_000).toISOString();
 const gh = (over = {}) => ({ state: 'OPEN', isDraft: false, reviewDecision: 'REVIEW_REQUIRED', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', head: 'abc', failing: [], pending: 0, events: [], ...over });
 const sleeper = () => spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', 'wait-events.mjs'], { stdio: 'ignore' });
+const liveSession = (sessionId) => {
+  const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  const procStart = execFileSync('ps', ['-o', 'lstart=', '-p', String(c.pid)], { encoding: 'utf8', env: { ...process.env, TZ: 'UTC' } }).trim();
+  write(claude('sessions', `${c.pid}.json`), { pid: c.pid, sessionId, cwd: home, procStart, kind: 'bg' });
+  return c;
+};
 
 const port = 50000 + Math.floor(Math.random() * 900);
 const base = `http://127.0.0.1:${port}`;
@@ -65,7 +71,7 @@ test('the registry lists every board site, over the waves or its own file, with 
 test('linksOf names each hub link that reaches a board and each that does not', () => {
   const orch = listBoards().find((b) => b.route === 'orch');
   const github = { lastCheck: { at: 'T', boards: ['orch'] }, prs: { 'o/r#11': { at: 'T', state: 'OPEN', isDraft: false } } };
-  const ok = { github, settings: { wakes: ['08:00'] }, wakes: {}, devices: 2, listening: true, topics: { 'w1/A1': { review_link_ts: { Ann: '1.1', Bea: '1.2' } } }, code: { running: 'h1', onDisk: 'h1' }, faults: {} };
+  const ok = { github, settings: { wakes: ['08:00'] }, wakes: {}, devices: 2, listen: 'listening', topics: { 'w1/A1': { review_link_ts: { Ann: '1.1', Bea: '1.2' } } }, code: { running: 'h1', onDisk: 'h1' }, faults: {} };
   const state = (ctx) => Object.fromEntries(linksOf(orch, ctx).map((l) => [l.link, l.ok]));
   assert.deepEqual(linksOf(orch, ok).map((l) => l.link), ['github', 'events', 'wakes', 'push', 'slack', 'hub']);
   assert.deepEqual(state(ok), { github: true, events: true, wakes: true, push: true, slack: true, hub: true });
@@ -73,7 +79,8 @@ test('linksOf names each hub link that reaches a board and each that does not', 
   assert.deepEqual(broken({ github: {} }), ['github']);
   assert.deepEqual(broken({ github: { ...github, prs: { 'o/r#11': { ...github.prs['o/r#11'], at: 'older' } } } }), ['github']);
   assert.deepEqual(broken({ github: { ...github, lastCheck: { at: 'T', boards: [] } } }), ['github']);
-  assert.deepEqual(broken({ listening: false }), ['events']);
+  assert.deepEqual(broken({ listen: 'deaf' }), ['events']);
+  assert.deepEqual(broken({ listen: 'asleep' }), []);
   assert.deepEqual(broken({ settings: { wakes: [] } }), ['wakes']);
   assert.deepEqual(broken({ wakes: { last: { due: ['08:00'], failed: ['orch'] } } }), ['wakes']);
   assert.deepEqual(broken({ devices: 0 }), ['push']);
@@ -92,7 +99,7 @@ test('a broken link reads settling until it has stayed broken past its grace per
   const settings = { windows: [{ from: '08:00', every_minutes: 15 }, { from: '22:00', every_minutes: 60 }], wakes: ['08:00'] };
   const now = new Date(2026, 9, 29, 12, 0).getTime();
   const ago = (min) => new Date(now - min * 60_000).toISOString();
-  const faulty = { github: {}, settings, wakes: {}, devices: 0, listening: false, topics: {}, code: { running: 'h0', onDisk: 'h1' }, now };
+  const faulty = { github: {}, settings, wakes: {}, devices: 0, listen: 'deaf', topics: {}, code: { running: 'h0', onDisk: 'h1' }, now };
   const states = (faults, at = now) => Object.fromEntries(linksOf(orch, { ...faulty, faults, now: at }).filter((l) => !l.ok).map((l) => [l.link, l.state]));
   assert.deepEqual(states({}), { github: 'settling', events: 'settling', push: 'broken', hub: 'settling' });
   assert.deepEqual(states({ github: ago(24), events: ago(1.9), hub: ago(4.9) }), { github: 'settling', events: 'settling', push: 'broken', hub: 'settling' });
@@ -134,7 +141,7 @@ test("oldestUnheard finds the oldest line past the owner's watcher cursor, or pa
 });
 
 // ---------- one hub over both boards ----------
-let hub, device, orchWatcher;
+let hub, device, orchWatcher, orchSession;
 const poll = async () => (await fetch(`${base}/_hub/poll`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json();
 const api = async (route) => (await fetch(`${base}/${route}/api/board`)).json();
 const linkState = (links) => Object.fromEntries(links.map((l) => [l.link, l.ok]));
@@ -159,10 +166,11 @@ before(async () => {
   write(path.join(home, 'gh', '722.json'), gh());
   write(path.join(home, 'bin', 'gh'), '#!/bin/sh\nexit 1\n');
   fs.chmodSync(path.join(home, 'bin', 'gh'), 0o755);
-  // Both boards hold an event that has waited half an hour; only orch has a watcher running.
+  // Both boards hold an event that has waited half an hour; only orch has its session and a watcher running.
   for (const route of ['orch', 'shop']) write(site(route, 'data', 'events.jsonl'), JSON.stringify({ id: `e-${route}`, ts: ago(30), kind: 'ask', data: {} }) + '\n');
   write(site('shop', 'data', '.watch-cursor-s-shop.json'), { 'data/events.jsonl': 0 });
   orchWatcher = sleeper();
+  orchSession = liveSession('s-orch');
   write(site('orch', 'data', 'watcher.json'), { pid: orchWatcher.pid, since: ago(1) });
 
   hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: String(port), WEB_TS_CLAUDE: '/usr/bin/false', PATH: `${path.join(home, 'bin')}:${process.env.PATH}` } });
@@ -178,6 +186,7 @@ before(async () => {
 
 after(async () => {
   orchWatcher?.kill();
+  orchSession?.kill();
   if (hub && hub.exitCode === null && hub.signalCode === null) {
     const exited = new Promise((resolve) => hub.once('exit', resolve));
     hub.kill('SIGTERM');
@@ -228,6 +237,9 @@ test("each board serves its hub links, and the slack link passes once every revi
   assert.equal(orch.setup, null);
   const shop = await api('shop');
   assert.deepEqual(linkState(shop.links), { github: true, events: false, wakes: true, push: true, slack: true, hub: true });
+  const sub = Object.fromEntries((await (await fetch(`${base}/_hub/sidebar.json`)).json()).sites.map((x) => [x.route, x.sub]));
+  assert.match(sub.shop, /^<span class="dot t-down" aria-hidden="true"><\/span><span class="word t-down">Not listening<\/span>/);
+  assert.doesNotMatch(sub.orch, /Not listening/);
   const wave = read(claude('waves', 'w1', 'wave.json'));
   write(claude('waves', 'w1', 'wave.json'), { ...wave, review_link_ts: { 11: { Ann: '1.1', Bea: '1.2' } } });
   assert.equal(linkState((await (await fetch(`${base}/orch/api/links`)).json()).links).slack, true);
@@ -249,14 +261,42 @@ test("the daily wake reaches both boards", async () => {
   assert.deepEqual([...read(claude('web-ts', 'wake-state.json')).last.routes].sort(), ['orch', 'shop']);
 });
 
-test('a running watcher ends the outage, and the next one pushes again', async () => {
+test('listening again ends the outage, a watcher whose session is not running does not, and the next one pushes again', async () => {
   const w = sleeper();
   write(site('shop', 'data', 'watcher.json'), { pid: w.pid, since: ago(0) });
-  try { assert.deepEqual((await poll()).deaf.pushed, []); } finally { w.kill(); }
+  try {
+    assert.deepEqual((await poll()).deaf.pushed, []);
+    assert.ok(read(claude('web-ts', 'deaf-state.json')).shop);
+    const s = liveSession('s-shop');
+    try { assert.deepEqual((await poll()).deaf.pushed, []); } finally { s.kill(); }
+  } finally { w.kill(); }
   assert.deepEqual(read(claude('web-ts', 'deaf-state.json')), {});
   write(site('shop', 'data', 'watcher.json'), { pid: w.pid, since: ago(20), exited_at: ago(10) });
   assert.deepEqual((await poll()).deaf.pushed, ['shop']);
   assert.equal(device.received.filter((p) => p.tag === 'deaf-shop').length, 2);
+});
+
+test('a board whose stopped session the hub can wake is asleep and pushes nothing; one it cannot wake is deaf and pushes once', async () => {
+  write(site('nap', 'board.json'), { title: 'Nap', items: 'data/items.json' });
+  write(site('nap', 'data', 'events.jsonl'), JSON.stringify({ id: 'e-nap', ts: ago(30), kind: 'ask', data: {} }) + '\n');
+  const owner = { session: 's-nap', since: NOW_SINCE, repo: home };
+  const manifest = (o = owner) => ({ sites: { nap: { dir: site('nap'), port: port + 6, cmd: boardCmd('nap'), watch: ['data/events.jsonl'], owner: o } } });
+  const [nap] = listBoards(manifest());
+  const napPushes = () => pushes().filter((p) => p.tag === 'deaf-nap');
+  try {
+    assert.equal(listenState(nap, { wakes: {} }), 'asleep');
+    assert.deepEqual((await checkListening({ manifest: manifest() })).pushed, []);
+    assert.equal(listenState(listBoards(manifest({ ...owner, repo: undefined }))[0], { wakes: {} }), 'deaf');
+    const s = liveSession('s-nap');
+    try { assert.equal(listenState(nap, { wakes: {} }), 'deaf'); } finally { s.kill(); }
+    const failed = { nap: { down_since: ago(1), resumed_at: ago(1), error: 'claude --resume failed' } };
+    assert.equal(listenState(nap, { wakes: failed }), 'deaf');
+    write(RESUME_STATE, failed);
+    assert.equal(linksOf(nap, { faults: {} }).find((l) => l.link === 'events').ok, false);
+    assert.deepEqual((await checkListening({ manifest: manifest() })).pushed, ['nap']);
+    assert.deepEqual(napPushes(), [{ title: "Nap isn't listening", url: '/nap/', tag: 'deaf-nap' }]);
+  } finally { fs.rmSync(RESUME_STATE, { force: true }); }
+  assert.equal(linksOf(nap, { faults: {} }).find((l) => l.link === 'events').ok, true);
 });
 
 test('the handshake says hello and sends a test push; the board shows its checklist until the session acks the hello', async () => {

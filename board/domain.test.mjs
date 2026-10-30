@@ -677,19 +677,16 @@ test('a wave whose every item and follow-up is merged, done or dropped is finish
   ]);
 });
 
-test('the board says when GitHub was last checked, late past twice the interval but never while idle, and whether the watcher runs', () => {
+test('the board says when GitHub was last checked, late past twice the interval but never while idle, and whether it is listening', () => {
   const now = Date.parse('2026-10-23T12:00:00Z');
-  const checks = (checked, watcher) => buildBoard({ now, fromWaves: false, waves: [], checked, watcher }).checks;
+  const checks = (checked, listening) => buildBoard({ now, fromWaves: false, waves: [], checked, listen: listening === true ? 'listening' : listening === false ? 'deaf' : listening }).checks;
   const at = (min) => new Date(now - min * 60000).toISOString();
-  assert.deepEqual(checks(null, { running: true }), { at: null, every: 30, idle: false, late: false, watcher: 'running', claudeAt: null });
-  assert.deepEqual(checks({ at: at(12), every: 30 }, { running: true }), { at: at(12), every: 30, idle: false, late: false, watcher: 'running', claudeAt: null });
-  assert.deepEqual(checks({ at: at(61), every: 30 }, { running: true }), { at: at(61), every: 30, idle: false, late: true, watcher: 'running', claudeAt: null });
-  assert.deepEqual(checks({ at: at(61), every: 60 }, { running: false }), { at: at(61), every: 60, idle: false, late: false, watcher: 'stopped', claudeAt: null });
-  assert.deepEqual(checks({ at: at(5) }, null), { at: at(5), every: 30, idle: false, late: false, watcher: 'stopped', claudeAt: null });
-  assert.equal(checks({ at: at(5) }, { running: false, exitedAt: at(1.5) }).watcher, 'running');
-  assert.equal(checks({ at: at(5) }, { running: false, exitedAt: at(3) }).watcher, 'stopped');
-  assert.equal(checks({ at: at(5) }, { running: false, exitedAt: null }).watcher, 'stopped');
-  assert.deepEqual(checks({ at: at(300), every: null, idle: true }, { running: true }), { at: at(300), every: null, idle: true, late: false, watcher: 'running', claudeAt: null });
+  assert.deepEqual(checks(null, true), { at: null, every: 30, idle: false, late: false, watcher: 'running', claudeAt: null });
+  assert.deepEqual(checks({ at: at(12), every: 30 }, true), { at: at(12), every: 30, idle: false, late: false, watcher: 'running', claudeAt: null });
+  assert.deepEqual(checks({ at: at(61), every: 30 }, true), { at: at(61), every: 30, idle: false, late: true, watcher: 'running', claudeAt: null });
+  assert.deepEqual(checks({ at: at(61), every: 60 }, false), { at: at(61), every: 60, idle: false, late: false, watcher: 'stopped', claudeAt: null });
+  assert.equal(checks({ at: at(12), every: 30 }, 'asleep').watcher, 'asleep');
+  assert.deepEqual(checks({ at: at(300), every: null, idle: true }, true), { at: at(300), every: null, idle: true, late: false, watcher: 'running', claudeAt: null });
 });
 
 test("the board dates Claude's newest write it can see: a reply, a Claude thread line, a working mark, a builder record or a watcher start, not the hub's check", () => {

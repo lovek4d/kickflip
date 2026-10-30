@@ -38,8 +38,9 @@ export function siteHealth(r, links) {
   if (!links) return { tone: 'ok', word: 'Up', lines: [] };
   const off = links.filter((l) => !l.ok);
   const broken = off.filter((l) => l.state === 'broken');
-  const watcher = links.find((l) => l.link === 'events')?.ok ? 'watcher running' : 'no watcher';
-  const word = broken.length ? `${plural(broken.length, 'link')} broken · ${watcher}` : off.length ? `Up · ${watcher} · ${off.length} settling` : `Up · ${watcher} · every link passes`;
+  const events = links.find((l) => l.link === 'events');
+  const heard = events?.listen === 'asleep' ? 'asleep' : events?.ok ? 'listening' : 'not listening';
+  const word = broken.length ? `${plural(broken.length, 'link')} broken · ${heard}` : off.length ? `Up · ${heard} · ${off.length} settling` : `Up · ${heard} · every link passes`;
   return { tone: broken.length ? 'down' : off.length ? 'wait' : 'ok', word, lines: off.map((l) => ({ link: l.link, detail: `${l.state === 'broken' ? '' : 'settling: '}${l.detail}` })) };
 }
 

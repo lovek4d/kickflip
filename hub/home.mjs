@@ -21,13 +21,16 @@ export function readNeeds(body) {
   };
 }
 
-// The most urgent thing a site is doing, or null when it is calm. state is the hub's process state.
-export function siteStatus({ state, working, count: waiting, building } = {}) {
+// The most urgent thing a site is doing, or null when it is calm. state is the hub's process state; listen is a board's
+// boards.mjs listenState and undefined for a site that isn't a board.
+export function siteStatus({ state, working, count: waiting, building, listen } = {}) {
   if (state === 'down') return { tone: 'down', word: 'Down' };
+  if (listen === 'deaf') return { tone: 'down', word: 'Not listening' };
   if (state === 'starting') return { tone: 'starting', word: 'Starting' };
   if (state === 'stopped') return { tone: 'starting', word: 'Stopped' };
   if (working) return { tone: 'working', word: 'Working' };
   if (waiting) return { tone: 'needs', word: `${waiting} need you` };
+  if (listen === 'asleep') return { tone: 'asleep', word: 'Asleep' };
   if (building) return { tone: 'building', word: 'Building' };
   return null;
 }
@@ -41,25 +44,27 @@ export function laneChips(lanes) {
 
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-// The row's sub line HTML, or '' when there is nothing to say. needs is readNeeds' result or null. Its classes are
-// styled by board/public/sidebar.css.
-export function statusLine(state, needs) {
-  const s = siteStatus({ state, ...needs });
+// The row's sub line HTML, or '' when there is nothing to say. needs is readNeeds' result or null; listen as
+// siteStatus takes it. Its classes are styled by board/public/sidebar.css.
+export function statusLine(state, needs, listen) {
+  const s = siteStatus({ state, ...needs, listen });
   const chips = state === 'up' ? laneChips(needs?.lanes) : null;
   const word = s ? `<span class="dot t-${s.tone}${s.tone === 'working' ? ' pulse' : ''}" aria-hidden="true"></span><span class="word t-${s.tone}">${esc(s.word)}</span>` : '';
   const lanes = chips === null ? '' : chips.length ? chips.map((c) => `<span class="lc lc-${c.lane}">${esc(c.text)}</span>`).join('') : '<span>nothing open</span>';
   return word || lanes ? `${word}${lanes ? `<span class="lcs">${lanes}</span>` : ''}` : '';
 }
 
-// The sidebar's site rows, from hub.mjs status() rows, each site's readNeeds answer (a Map by route) and the set of
-// routes that are boards. icon and sub are HTML that board/public/ui-sidebar.js places as given. created is when the
-// site joined the hub, null when the manifest has no time, which ui-sidebar.js switchKeys orders by.
-export function sidebarSites(rows, waiting, boards) {
+// The sidebar's site rows, from hub.mjs status() rows, each site's readNeeds answer (a Map by route), the set of
+// routes that are boards and each board's boards.mjs listenState (a Map by route). icon and sub are HTML that board/public/ui-sidebar.js
+// places as given. created is when the site joined the hub, null when the manifest has no time, which ui-sidebar.js
+// switchKeys orders by.
+export function sidebarSites(rows, waiting, boards, listens = new Map()) {
   return rows.map((r) => {
     const needs = waiting.get(r.route) ?? null;
+    const listen = boards.has(r.route) ? listens.get(r.route) ?? 'listening' : undefined;
     return {
       route: r.route, title: r.title, board: boards.has(r.route), state: r.state, count: needs?.count || 0,
-      changedAt: r.changedAt || 0, created: r.created || null, icon: siteIcon(r.route, r), sub: statusLine(r.state, needs),
+      changedAt: r.changedAt || 0, created: r.created || null, icon: siteIcon(r.route, r), sub: statusLine(r.state, needs, listen),
     };
   });
 }

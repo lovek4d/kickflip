@@ -14,8 +14,9 @@
 //               sidebar; without an icon the hub picks one from the route and title, else the
 //               title's first letter, on a color picked from the route
 //               --repo is the folder the session runs in, which `resume` needs: by default the session's own
-//               cwd while it runs (../hub/live.mjs), else the cwd of this join. --model is the session's model,
-//               kept for start and resume. The owner entry records both (../hub/sessions.mjs)
+//               cwd while it runs (../hub/live.mjs), else the recorded folder, else the cwd of this join. --model is
+//               the session's model, kept for start and resume. The owner entry records both (../hub/sessions.mjs).
+//               A join that leaves out --label, --model or --repo keeps the owner record's, a --force takeover too.
 //               A new route's entry records when it joined, `created`, which a later join keeps; the sidebar's
 //               switch-mode letters go to sites in that order (../board/public/ui-sidebar.js switchKeys)
 //   web-ts start <route> [--repo <dir>] [--model <m>] [--prompt <text>]
@@ -25,7 +26,8 @@
 //               join takes it up when the route has no site yet. Prints {route, session, confirmed, repo, argv, output}
 //   web-ts resume <route>
 //               `claude --resume <id> --bg` for the route's recorded session in its folder, prompting it to rejoin
-//               and relaunch its watcher. Exit 1 when no session or folder is recorded
+//               and relaunch its watcher, and records the id it comes back under as the route's owner. Prints
+//               {route, session, previous, confirmed, repo, argv, output}. Exit 1 when no session or folder is recorded
 //   web-ts sessions [--json]
 //               one line per board: route, session id, live (background or terminal) or not, folder
 //   web-ts handshake <route>
@@ -73,7 +75,6 @@ import { liveSessions } from '../hub/live.mjs';
 const SKILL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOME = path.join(os.homedir(), '.claude', 'web-ts');
 const MANIFEST = path.join(HOME, 'manifest.json');
-const LOCK = MANIFEST + '.lock';
 const LOGS = path.join(HOME, 'logs');
 const HUB_PORT = Number(process.env.WEB_TS_HUB_PORT || 4500);
 const FIRST_SITE_PORT = 4600;
@@ -147,17 +148,8 @@ function writeManifest(m) {
   fs.renameSync(tmp, MANIFEST);
 }
 async function withLock(fn) {
-  fs.mkdirSync(HOME, { recursive: true });
-  const deadline = Date.now() + 10_000;
-  for (;;) {
-    try { fs.mkdirSync(LOCK); break; } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-      try { if (Date.now() - fs.statSync(LOCK).mtimeMs > 30_000) { fs.rmdirSync(LOCK); continue; } } catch {}
-      if (Date.now() > deadline) fail('manifest is locked by another web-ts; try again');
-      await new Promise((r) => setTimeout(r, 100));
-    }
-  }
-  try { return await fn(); } finally { try { fs.rmdirSync(LOCK); } catch {} }
+  const { withManifestLock } = await import(path.join(SKILL, 'hub', 'boards.mjs'));
+  try { return await withManifestLock(fn); } catch (e) { if (e.code === 'ELOCKED') fail(e.message); throw e; }
 }
 
 function connects(port) {
@@ -276,12 +268,13 @@ const commands = {
       const previous = existing?.owner && existing.owner.session !== args.session ? existing.owner : null;
       const started = m.starting?.[route]?.session === args.session ? m.starting[route] : null;
       const same = existing?.owner?.session === args.session ? existing.owner : null;
+      const kept = same || started || previous;
       site.owner = {
-        ...(same || { session: args.session, label: started?.label || '', since: now }),
-        ...(args.label ? { label: args.label } : {}),
-        repo: args.repo ? path.resolve(args.repo) : liveSessions().get(args.session)?.cwd || process.cwd(),
+        ...(same || { session: args.session, since: now }),
+        label: args.label || kept?.label || '',
+        repo: args.repo ? path.resolve(args.repo) : liveSessions().get(args.session)?.cwd || kept?.repo || process.cwd(),
       };
-      const model = args.model || same?.model || started?.model;
+      const model = args.model || kept?.model;
       if (model) site.owner.model = model;
       if (m.starting?.[route]) { delete m.starting[route]; if (!Object.keys(m.starting).length) delete m.starting; }
       site.updated = now;

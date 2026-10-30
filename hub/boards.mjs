@@ -14,6 +14,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { deliver, readSettings } from './push.mjs';
 import { DEFAULTS, windowAt } from './schedule.mjs';
+import { liveSessions } from './live.mjs';
 
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLAUDE = path.join(os.homedir(), '.claude');
@@ -23,6 +24,7 @@ const MANIFEST = path.join(WEB, 'manifest.json');
 export const GITHUB_STATE = path.join(WEB, 'github-state.json');
 export const WAKE_STATE = path.join(WEB, 'wake-state.json');
 const DEAF_STATE = path.join(WEB, 'deaf-state.json');
+export const RESUME_STATE = path.join(WEB, 'resume-state.json');
 const LINK_FAULTS = path.join(WEB, 'link-faults.json');
 export const HUB_CODE = path.join(WEB, 'hub-code.json');
 const SUBS = path.join(WEB, 'push', 'subs.json');
@@ -30,10 +32,9 @@ const TOPICS = path.join(CLAUDE, 'slack-bridge', 'topics');
 export const DEFAULT_REPO = 'acme/app';
 const FINISHED = ['merged', 'dropped'];
 const NO_SINCE = '1970-01-01T00:00:00Z';
-// bin/wait-events.mjs exits on each event and the session relaunches it, so a recent exit still counts as listening
-// (board/domain.mjs checksOf uses the same grace).
+// bin/wait-events.mjs exits on each event and the session relaunches it, so a recent exit still counts as running.
 const RELAUNCH_GRACE = 2 * 60_000;
-// An event waiting this long with no watcher pushes the owner once (checkListening).
+// An event waiting this long while the board isn't listening pushes the owner once (checkListening).
 export const DEAF_AFTER = 15 * 60_000;
 
 export const readJSON = (f, fallback) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return fallback; } };
@@ -44,6 +45,24 @@ export function saveJSON(file, value) {
   fs.renameSync(tmp, file);
 }
 export const readManifest = () => readJSON(MANIFEST, { sites: {} });
+
+// Runs fn while holding the manifest's lock, the directory manifest.json.lock that bin/web-ts.mjs takes too. A lock
+// older than 30 seconds is a dead holder's and is taken over. Throws with code 'ELOCKED' after 10 seconds.
+export async function withManifestLock(fn) {
+  const lock = `${MANIFEST}.lock`;
+  fs.mkdirSync(WEB, { recursive: true });
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    try { fs.mkdirSync(lock); break; } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      try { if (Date.now() - fs.statSync(lock).mtimeMs > 30_000) { fs.rmdirSync(lock); continue; } } catch {}
+      if (Date.now() > deadline) throw Object.assign(new Error('manifest is locked by another web-ts; try again'), { code: 'ELOCKED' });
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+  try { return await fn(); } finally { try { fs.rmdirSync(lock); } catch {} }
+}
+export const writeManifest = (m) => saveJSON(MANIFEST, m);
 export const prKey = (p) => `${p.repo}#${p.pr}`;
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const names = (list) => (Array.isArray(list) ? list : []).map((r) => (typeof r === 'string' ? r : r?.name)).filter((n) => typeof n === 'string' && n);
@@ -126,7 +145,40 @@ export function watcherRunning(dir, now = Date.now()) {
   try { return execFileSync('ps', ['-p', String(w.pid), '-o', 'command='], { encoding: 'utf8', timeout: 3000 }).includes('wait-events.mjs'); } catch { return false; }
 }
 
-const cursorFile = (board) => path.join(board.dir, 'data', `.watch-cursor-${board.owner.session}.json`);
+// Whether the board hears its events: its owner session runs and a watcher runs for it. A watcher outlives its
+// session, so one alone isn't listening (docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md). running is
+// live.mjs liveSessions' Map, passed when checking several boards.
+export function isListening(board, { now = Date.now(), running } = {}) {
+  const session = board.owner?.session;
+  return Boolean(session && (running ?? liveSessions()).has(session)) && watcherRunning(board.dir, now);
+}
+
+// Whether the board hears its events now: 'listening' (isListening); 'asleep', its owner session isn't running and the
+// hub can wake it on the next event (hub/sessions.mjs checkSessions): a session and folder are recorded and no wake of
+// this outage has failed or gone unanswered (resume-state.json error, pushed_at); else 'deaf', which nothing will wake.
+// running is live.mjs liveSessions' Map and wakes resume-state.json, passed when checking several boards.
+export function listenState(board, { now = Date.now(), running = liveSessions(), wakes = readJSON(RESUME_STATE, {}) } = {}) {
+  if (isListening(board, { now, running })) return 'listening';
+  const session = board.owner?.session;
+  const wake = wakes[board.route];
+  return session && board.owner.repo && !running.has(session) && !wake?.error && !wake?.pushed_at ? 'asleep' : 'deaf';
+}
+
+const cursorPath = (board, session) => path.join(board.dir, 'data', `.watch-cursor-${session}.json`);
+const cursorFile = (board) => cursorPath(board, board.owner.session);
+// How many watched lines each of the board's watched files holds: {<file>: count}, as a watcher cursor counts them.
+export const watchedCounts = (board) => Object.fromEntries(Object.entries(watchedLines(board)).map(([f, l]) => [f, l.length]));
+
+// Gives session `to` the watcher cursor of session `from`, wound back to mark ({<file>: count}) where it is past it, so
+// to's first watcher prints every line since mark: a watcher left running after its session stopped may have printed
+// those to nobody. With no cursor for from, mark is the cursor.
+export function carryCursor(board, { from, to = from, mark = null }) {
+  const cursor = readJSON(cursorPath(board, from), null);
+  if (!cursor && !mark) return;
+  const next = { ...cursor };
+  for (const [f, n] of Object.entries(mark || {})) next[f] = Math.min(next[f] ?? n, n);
+  saveJSON(cursorPath(board, to), next);
+}
 // The board's watched lines, per file, as bin/wait-events.mjs counts them: its manifest `watch` files, `filter` applied.
 function watchedLines(board) {
   const re = board.filter ? new RegExp(board.filter) : null;
@@ -157,25 +209,28 @@ export function oldestUnheard(board) {
   return oldest;
 }
 
-// One push per board per outage when an event has waited DEAF_AFTER with no watcher running; a running watcher ends
-// the outage (~/.claude/web-ts/deaf-state.json {<route>: {at, since}}). The hub runs it after each GitHub check.
-// → {pushed: [route], failed: [message]}
-export async function checkListening({ manifest, now = new Date() } = {}) {
+// One push per board per outage when an event has waited DEAF_AFTER while the board is deaf (listenState); an asleep
+// board waits for the hub's wake, which pushes on its own when it fails. Its listening again ends the outage (~/.claude/web-ts/deaf-state.json {<route>: {at, since}}). The hub runs it after each
+// GitHub check. → {pushed: [route], failed: [message]}
+export async function checkListening({ manifest, now = new Date(), running = liveSessions() } = {}) {
   const state = readJSON(DEAF_STATE, {});
   const pushed = [];
   const failed = [];
   let dirty = false;
+  const wakes = readJSON(RESUME_STATE, {});
   for (const board of listBoards(manifest)) {
-    if (watcherRunning(board.dir, now.getTime())) {
+    const listen = listenState(board, { now: now.getTime(), running, wakes });
+    if (listen === 'listening') {
       if (state[board.route]) { delete state[board.route]; dirty = true; }
       continue;
     }
-    if (state[board.route]) continue;
+    if (listen === 'asleep' || state[board.route]) continue;
     const since = oldestUnheard(board);
     if (!since || now - Date.parse(since) < DEAF_AFTER) continue;
     const minutes = Math.round((now - Date.parse(since)) / 60_000);
+    const why = running.has(board.owner.session) ? "no watcher runs. Relaunch it in the board's session." : "its session isn't running, and the hub can't wake it.";
     try {
-      await deliver({ title: `${board.title} isn't listening`, body: `An event has waited ${minutes} min and no watcher runs. Relaunch it in the board's session.`, url: `/${board.route}/`, tag: `deaf-${board.route}` }, { immediate: true, at: now });
+      await deliver({ title: `${board.title} isn't listening`, body: `An event has waited ${minutes} min and ${why}`, url: `/${board.route}/`, tag: `deaf-${board.route}` }, { immediate: true, at: now });
       state[board.route] = { at: now.toISOString(), since };
       dirty = true;
       pushed.push(board.route);
@@ -225,9 +280,12 @@ function githubLink(board, state) {
   return { link: 'github', ok: true, detail: n ? `${plural(n, 'open PR')}, all in the last check.` : 'No open PRs; the last check reached this board.' };
 }
 
-const eventsLink = (listening) => (listening
-  ? { link: 'events', ok: true, detail: 'A watcher is running.' }
-  : { link: 'events', ok: false, detail: 'No watcher is running, so events wait. Relaunch it in the board\'s session.' });
+const EVENTS = {
+  listening: { ok: true, detail: 'Its session and a watcher are running.' },
+  asleep: { ok: true, detail: 'Asleep: its session idled out, and the hub wakes it on the next event.' },
+  deaf: { ok: false, detail: "Not listening: its session or its watcher isn't running, and the hub can't wake it, so events wait." },
+};
+const eventsLink = (listen) => ({ link: 'events', listen, ...EVENTS[listen] });
 
 function wakesLink(board, settings, wakeState) {
   const wakes = settings?.wakes || [];
@@ -343,20 +401,20 @@ function settle(route, links, { settings, now, faults }) {
 // Whether each hub link reaches the board → [{link, ok, detail, state, since?}] in LINKS order. ok is the link's
 // state now; state is what the board shows, broken only once ok has stayed false past the link's GRACE.
 //   github  every open PR on a card was in the hub's last check, and that check reached the board
-//   events  a watcher is running, so its events wake the session
+//   events  the board is listening or asleep (listenState, as the link's listen), so its events reach the session
 //   wakes   the polling interval has daily wakes, and the last one reached the board
 //   push    at least one device is subscribed
 //   slack   every open, non-draft PR has a Slack link for each of the board's and its wave's reviewers
 //   hub     the hub runs the code in its files (hubCode, against the hash recordHubCode wrote as it started)
 // ctx overrides what is read from disk: github (github-state.json), settings (polling), wakes (wake-state.json),
-// devices (subscription count), listening (whether a watcher runs), topics (slack-bridge topic items), code
+// devices (subscription count), listen (listenState), topics (slack-bridge topic items), code
 // ({running, onDisk} hashes), faults (as settle takes them; given, nothing is written) and now (ms).
 export function linksOf(board, ctx = {}) {
   const state = ctx.github ?? readJSON(GITHUB_STATE, {});
   const settings = ctx.settings ?? readSettings();
   const links = [
     githubLink(board, state),
-    eventsLink(ctx.listening ?? watcherRunning(board.dir)),
+    eventsLink(ctx.listen ?? listenState(board)),
     wakesLink(board, settings, ctx.wakes ?? readJSON(WAKE_STATE, {})),
     pushLink(ctx.devices ?? (readJSON(SUBS, []) || []).length),
     slackLink(board, state, ctx.topics ?? topicItems()),
@@ -368,5 +426,6 @@ export function linksOf(board, ctx = {}) {
 // Brings link-faults.json up to date for every board, so a fault no page or watcher looked at still dates from the
 // poll that first saw it. The hub runs it after each poll.
 export function recordLinkFaults(manifest) {
-  for (const board of listBoards(manifest)) linksOf(board);
+  const ctx = { running: liveSessions(), wakes: readJSON(RESUME_STATE, {}) };
+  for (const board of listBoards(manifest)) linksOf(board, { listen: listenState(board, ctx) });
 }
