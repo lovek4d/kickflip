@@ -43,11 +43,14 @@ A --file argument of - reads stdin.
          [--held | --unheld]                             --held sets held: true, for the owner's card-hold;
                                                          --unheld clears it and a held status
          [--title <t>]                                   renames the card
-         [--notes-file <file>]                           the item's notes: a .md file inside its wave's folder,
+         [--notes-file <file> --summary <line>]          the item's notes: a .md file inside its wave's folder,
                                                          named relative to it, holding the session's understanding
-                                                         of the task so far. The open card's Notes opens it; without
-                                                         one, Notes shows the item's short notes text. --plan is an
-                                                         alias
+                                                         of the task so far, and their summary: one line of at most
+                                                         100 characters, shown word for word in the open card's
+                                                         Notes row before its "(view more)", which opens the file;
+                                                         without one, the item's short notes text. --plan is an
+                                                         alias. --notes-file refuses without --summary; --summary
+                                                         alone rewrites the summary of notes the item already has
          [--deps <id>,<wave>/<id>]                       replaces its blocked-by list; --deps "" clears it
          [--install <url> [--install-sha <sha>]          a device build the owner installs from the card's Install
           [--install-label <text>] | --clear-install]    button, stamped built_at now: itms-services://?action=
@@ -66,7 +69,8 @@ A --file argument of - reads stdin.
          for each. It refuses while one has no answer yet; [--force] closes it and resolves that one too
   item add <wave>/<id> --title <t> [--notes <t>]          a new card, planned (waiting when it has --deps); never
          [--deps <id>,<wave>/<id>] [--notes-file <file>] hand-edit wave.json to add one. Refuses an id the wave has.
-                                                         --plan is an alias of --notes-file
+         [--summary <line>]                              --plan is an alias of --notes-file. --notes or --notes-file
+                                                         refuses without --summary, as item set's does
   item relate-ask <eventId> <wave>/<id> --summary <t>   folds an ask about an existing item into it: the ask's
                                                          card goes, its message and thread show in the item's
                                                          thread marked Moved, then the summary line. Again with
@@ -227,10 +231,10 @@ const COMMANDS = {
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
   'question add': [[], ['file'], (site, _, f) => store.addQuestions(site, readJSONInput(f.file))],
   'question resolve': [['id'], ['note'], (site, [id], f) => store.resolveQuestion(site, id, f.note)],
-  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'from-ask', 'held', 'unheld', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force'], (site, [key], f) =>
-    store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, fromAsk: f['from-ask'], held: f.held, unheld: f.unheld, notesFile: notesFileOf(f), deps: f.deps,
+  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'from-ask', 'held', 'unheld', 'notes-file', 'plan', 'summary', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force'], (site, [key], f) =>
+    store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, fromAsk: f['from-ask'], held: f.held, unheld: f.unheld, notesFile: notesFileOf(f), summary: f.summary, deps: f.deps,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, force: f.force })],
-  'item add': [['wave/id'], ['title', 'notes', 'deps', 'notes-file', 'plan'], (site, [key], f) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f) })],
+  'item add': [['wave/id'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'summary'], (site, [key], f) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), summary: f.summary })],
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
   'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],
   'ask done': [['eventId'], [], (site, [id]) => store.markAsk(site, id, 'done')],

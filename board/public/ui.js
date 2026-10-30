@@ -58,8 +58,10 @@
   // Deletes or edits a pending ask or thread message; app-asks.js handles [data-withdraw] and [data-edit] on one path.
   const withdrawButton = (id) => `<button class="ghost icon" data-withdraw="${esc(id)}" aria-label="Delete" title="Delete">${TRASH}</button>`;
   const editButton = (id) => `<button class="ghost icon" data-edit="${esc(id)}" aria-label="Edit" title="Edit">${PENCIL}</button>`;
-  // A waiting ask's bump; a work card's Prioritize button in app-cards.js sends card-bump {key} (docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md).
+  // A waiting ask's bump, which app-asks.js sends as ask-bump {id}. A work card's is the same icon, which app-cards.js
+  // confirms before it sends card-bump {key} (docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md).
   const bumpButton = (it, top) => `<button class="ghost icon" data-bump="${esc(it.id)}" aria-label="Bump to top" title="Bump to top"${top ? ' disabled' : ''}>${BUMP}</button>`;
+  const cardBumpButton = (key, top) => `<button class="ghost icon" data-confirm="bump" data-key="${esc(key)}" aria-label="Bump to top" title="Bump to top"${top ? ' disabled' : ''}>${BUMP}</button>`;
   const workingLine = '<span class="working-dot" aria-hidden="true"></span>Working on it';
   // html is markup the caller has escaped; href, title and attrs values are escaped here.
   const BADGE_TONES = Object.freeze(['quiet', 'normal', 'notice', 'danger', 'ready']);
@@ -190,6 +192,6 @@
 
   globalThis.BoardUI = {
     esc, time, ago, since, etaLine, replyBody, setHTML, fetchJSON, RESTARTING, restartNotice,
-    attachments, attachButton, pendingFiles, protoButton, protoNotice, withdrawButton, editButton, bumpButton, workingLine, BADGE_TONES, badge,
+    attachments, attachButton, pendingFiles, protoButton, protoNotice, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, BADGE_TONES, badge,
   };
 })();

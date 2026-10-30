@@ -28,9 +28,14 @@ BoardView.part((B) => {
     if (it.slack) rows.push(['Slack', `<a href="${esc(it.slack)}" target="_blank" rel="noopener">thread</a>`]);
     if (it.from) rows.push(['Filed from', esc(it.from)]);
     if (it.next) rows.push(['Next', linkText(it.next, ctx)]);
+    // docs/adr/0062-notes-carry-a-one-line-summary.md
+    if (it.hasNotes) {
+      const summary = it.summary ? `<span class="notes-sum" title="${esc(it.summary)}">${esc(it.summary)}</span> ` : '';
+      rows.push(['Notes', `${summary}<a href="notes.html?item=${encodeURIComponent(it.key)}">(view more)</a>`, 'notes-line']);
+    }
 
     return `<div class="detail">
-      <dl class="grid">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+      <dl class="grid">${rows.map(([k, v, cls]) => `<dt>${k}</dt><dd${cls ? ` class="${cls}"` : ''}>${v}</dd>`).join('')}</dl>
       ${actions(it)}
       ${B.thread(it.key)}
     </div>`;
@@ -63,16 +68,13 @@ BoardView.part((B) => {
     const github = pr?.state === 'OPEN'
       ? `<a${classes(it, BUTTON.github, 'pill')} href="${esc(pr.url)}" target="_blank" rel="noopener">${pr.isDraft ? 'Review draft on GitHub' : 'Review on GitHub'} →</a>` : '';
     const install = it.install ? `<a class="pill" href="${esc(it.install.url)}">${esc(it.install.label || 'Install')} →</a>` : '';
-    const ask = (act, label, disabled) => `<button data-confirm="${act}" data-key="${key}"${disabled ? ' disabled' : ''}>${label}</button>`;
+    const ask = (act, label) => `<button data-confirm="${act}" data-key="${key}">${label}</button>`;
     const holding = sendingHold.has(it.key) ? sendingHold.get(it.key) : it.holdPending;
     const hold = it.kind !== 'work' || !it.holdable ? ''
       : holding != null ? `<button disabled>${holding ? 'Holding…' : 'Resuming…'}</button>`
       : it.held ? ask('resume', 'Resume') : ask('hold', 'Hold');
-    const topBump = Boolean(it.bumpedAt) && !state.board.items.some((i) => i.lane === it.lane && (i.bumpedAt || '') > it.bumpedAt);
-    const prioritize = it.bumpable ? ask('bump', 'Prioritize', topBump) : '';
     const build = it.kind === 'followup' && it.lane !== 'done' ? `<button class="build" data-confirm="build" data-key="${key}">Build</button>` : '';
-    const notes = it.hasNotes ? `<a class="pill" href="notes.html?item=${encodeURIComponent(it.key)}">Notes →</a>` : '';
-    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${build}${mergeButton(it, sendingMerge.has(it.key))}${hold}${prioritize}${actionButton(it)}`)}${actionRow('external', `${github}${notes}${install}`)}</div>`;
+    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${build}${mergeButton(it, sendingMerge.has(it.key))}${hold}${actionButton(it)}`)}${actionRow('external', `${github}${install}`)}</div>`;
   }
 
   // board/domain.mjs actionButtonOf picks the button and resolvedBy its colour (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md).
@@ -83,13 +85,14 @@ BoardView.part((B) => {
   };
   const actionButton = (it) => ACTION_BUTTONS[it.actionButton]?.(it) || '';
 
-  // The latest bump among New cards takes no second bump (docs/adr/0014-a-pending-ask-can-be-deleted-or-bumped.md).
-  const topNew = (it) => Boolean(it.isNew && it.bumpedAt) && !state.board.items.some((i) => i.isNew && (i.bumpedAt || '') > it.bumpedAt);
+  // The latest bump takes no second bump: among New cards for a New card (docs/adr/0014-a-pending-ask-can-be-deleted-or-bumped.md),
+  // in its lane for any other card (docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md).
+  const latestBump = (it) => Boolean(it.bumpedAt) && !state.board.items.some((i) => (it.isNew ? i.isNew : i.lane === it.lane) && (i.bumpedAt || '') > it.bumpedAt);
   function card(it) {
     return `<details class="item" data-key="${esc(it.key)}" ${state.openItems.has(it.key) ? 'open' : ''}>
           <summary class="work">
             <span class="status ${it.lane}"></span>
-            <div class="title-wrap">${workLines(it, { unread: state.openItems.has(it.key) ? 0 : unreadCount(it.othersAt, seen[it.key]), top: topNew(it) })}</div>
+            <div class="title-wrap">${workLines(it, { unread: state.openItems.has(it.key) ? 0 : unreadCount(it.othersAt, seen[it.key]), top: latestBump(it) })}</div>
           </summary>
           ${state.openItems.has(it.key) ? detail(it) : ''}
         </details>`;
@@ -158,6 +161,7 @@ BoardView.part((B) => {
     }
     const row = $(`.actions[data-actions="${CSS.escape(key)}"]`);
     row?.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+    b.disabled = true;
     try {
       if (act === 'bump') { await B.site.send('card-bump', { key }); toast('Moved to the top', 2500); }
       else { await B.site.send(act === 'grill' ? 'grill-more' : 'build-followup', { key }); B.loadThread(key, { force: true }); }

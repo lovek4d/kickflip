@@ -124,7 +124,7 @@ function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, threa
     internal: wave.internal === true, repo: wave.internal === true && !wave.repo ? null : repo,
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, agents, eta, working,
     deps: it.deps || [], held, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable ? bumpedAt || null : null,
-    holdable: lane !== 'done', holdPending, hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
+    holdable: lane !== 'done', holdPending, hasNotes: Boolean(it.plan || String(it.notes || '').trim()), summary: it.summary || null,
     // docs/adr/0035-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md
     finishable: lane !== 'done', closing: lane !== 'done' && Boolean(closedAt) && String(closedAt) > String(it.status_at || ''),
     merging, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, from: null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || null,

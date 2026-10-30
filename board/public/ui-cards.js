@@ -1,6 +1,6 @@
 // Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js and ui-enums.js.
 (function () {
-  const { esc, ago, time, etaLine, workingLine, badge, bumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND } = globalThis.BoardUI;
+  const { esc, ago, time, etaLine, workingLine, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   function prChips(it) {
     const pr = it.pr;
@@ -63,6 +63,7 @@
   // A New card's bump, edit and delete, and its line from its ask state (domain.mjs askItem;
   // docs/adr/0047-the-plus-makes-a-new-card.md). top is whether it is the latest bump.
   const askActions = (it, top) => `<div class="ask-actions">${bumpButton(it, top)}${it.ask.canEdit ? editButton(it.id) : ''}${withdrawButton(it.id)}</div>`;
+  const cardActions = (it, top) => (it.isNew ? askActions(it, top) : it.bumpable ? `<div class="ask-actions">${cardBumpButton(it.key, top)}</div>` : '');
   const ASK_STATE = { waiting: 'Waiting', working: `<span class="working">${workingLine}</span>` };
   const askLine = (ask) => `${ask.from ? `Moved from ${esc(ask.from)} · ` : ''}${esc(time(ask.askedAt))} · ${ask.edited ? 'Edited · ' : ''}${ASK_STATE[ask.state] || ''}`;
   function workLines(it, { unread = 0, top = false } = {}) {
@@ -76,7 +77,7 @@
       : it.working ? `<div class="line3 sub agent">${workingLine}</div>`
       : it.next ? `<div class="line3 sub next">Next: ${esc(it.next)}</div>` : '';
     const eta = it.eta && it.builder ? `<div class="line3 sub eta">${esc(etaLine(it.eta))}</div>` : '';
-    return `${it.isNew ? askActions(it, top) : ''}<div class="line1 title">${ids ? `${ids} ` : ''}${esc(it.title)}</div>
+    return `${cardActions(it, top)}<div class="line1 title">${ids ? `${ids} ` : ''}${esc(it.title)}</div>
       ${status}${eta}${unread ? `<div class="line4 sub unread">${unread} unread message${unread === 1 ? '' : 's'}</div>` : ''}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
       ${blocked ? `<div class="line5 meta blocked">${blocked}</div>` : ''}`;

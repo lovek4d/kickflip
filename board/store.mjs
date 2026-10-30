@@ -739,6 +739,17 @@ async function planPath(dir, rel) {
   return real;
 }
 
+// docs/adr/0062-notes-carry-a-one-line-summary.md
+const SUMMARY_MAX = 100;
+function summaryOf(v) {
+  const line = text(v, '--summary');
+  if (/[\r\n]/.test(line)) fail('--summary is one line: take out its line breaks');
+  const length = [...line].length;
+  if (length > SUMMARY_MAX) fail(`--summary is at most ${SUMMARY_MAX} characters, not ${length}`);
+  return line;
+}
+const hasNotes = (item) => Boolean(item.plan || String(item.notes || '').trim());
+
 // → {wave, item, markdown}: the item's notes file (stored in `plan`) once it passes planPath's checks, or with no file
 // its short `notes` text, so notes written before the page existed still show; otherwise a BoardError.
 export async function readNotes(site, key) {
@@ -769,18 +780,22 @@ function installOf({ install, installSha, installLabel, clearInstall }) {
 // → the wave file, and with --status done or merged the items it unblocked as `unblocked: <key>` lines; closing
 // (done, merged, dropped) adds a `resolved: <id>` line per question it resolved (closeQuestions).
 // notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`.
-export async function setItem(site, key, { status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, install, installSha, installLabel, clearInstall, title, force }) {
+export async function setItem(site, key, { status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, summary, deps, install, installSha, installLabel, clearInstall, title, force }) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
   if (force && !FINISHED.includes(status)) fail(`--force goes with --status ${FINISHED.join(', ')}`);
   if (next !== undefined && clearNext) fail('pass --next or --clear-next, not both');
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   if (held && unheld) fail('pass --held or --unheld, not both');
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, built, title].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --from-ask, --held, --unheld, --notes-file, --deps, --install, --clear-install or --title');
+  if ([status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, summary, deps, built, title].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --from-ask, --held, --unheld, --notes-file, --summary, --deps, --install, --clear-install or --title');
+  if (notesFile !== undefined && summary === undefined) fail('--notes-file (or --plan) needs --summary "<one line>" for the card\'s Notes row');
+  const line = optional(summary, summaryOf);
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   const { source, wave, item } = await loadItem(site, key);
+  if (line !== undefined && notesFile === undefined && !hasNotes(item)) fail(`--summary needs notes: ${key} has none, so pass --notes-file with it`);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
+  if (line !== undefined) item.summary = line;
   if (title !== undefined) item.title = text(title, '--title');
   if (deps !== undefined) {
     const list = await depList(site, parseKey(key).wave, deps);
@@ -829,15 +844,19 @@ async function depList(site, slug, deps) {
 }
 
 // → the wave file. A new card starts unstarted: planned, or waiting when it names deps.
-export async function addItem(site, key, { title, notes, deps, notesFile }) {
+export async function addItem(site, key, { title, notes, deps, notesFile, summary }) {
   const { wave: slug, id } = parseKey(key);
   domId(id, 'the item id');
+  if ((notes !== undefined || notesFile !== undefined) && summary === undefined) fail(`${notesFile === undefined ? '--notes' : '--notes-file (or --plan)'} needs --summary "<one line>" for the card's Notes row`);
+  if (summary !== undefined && notes === undefined && notesFile === undefined) fail('--summary goes with --notes or --notes-file');
+  const line = optional(summary, summaryOf);
   const { source, wave } = await loadWave(site, slug);
   if (wave.items.some((it) => it.id === id)) fail(`wave "${slug}" already has an item "${id}"`);
   const item = { id, title: text(title, '--title') };
   if (notes !== undefined) item.notes = text(notes, '--notes');
   if (deps !== undefined) item.deps = await depList(site, slug, deps);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
+  if (line !== undefined) item.summary = line;
   item.status = item.deps?.length ? 'waiting' : 'planned';
   wave.items.push(item);
   await writeJSON(source.file, wave);

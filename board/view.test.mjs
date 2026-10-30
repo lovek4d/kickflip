@@ -428,7 +428,7 @@ test("an open card shows the one action button the board names, its workflow but
   const asking = { actionButton: 'openQuestions', questions: { first: 'q7', open: 1, state: 'open' } };
   const cards = [
     workCard('A1', { ...asking, action: { kind: 'questions', url: 'questions.html#q7', label: 'Answer 1 question' }, resolvedBy: 'openQuestions' }),
-    workCard('A2', { actionButton: 'grill' }),
+    workCard('A2', { actionButton: 'grill', bumpable: true }),
     workCard('A3', { actionButton: 'grill', grilling: true }),
     workCard('A4', { actionButton: null, lane: 'done' }),
     workCard('A5', { ...asking, held: true, holdable: true, action: null, resolvedBy: null }),
@@ -452,7 +452,7 @@ test("an open card shows the one action button the board names, its workflow but
     'w/A4': [[], [], []],
     'w/A5': [['Resume', 'Open questions'], [], []],
     'w/P1': [['Open questions'], [], ['Open questions']],
-    'w/D1': [['Grill'], ['Review draft on GitHub →', 'Notes →', 'Install →'], ['Review draft on GitHub →']],
+    'w/D1': [['Grill'], ['Review draft on GitHub →', 'Install →'], ['Review draft on GitHub →']],
     'w/R1': [['Grill'], ['Review on GitHub →', 'Install →'], []],
     'w/S1': [['Grill'], ['Review on GitHub →'], ['Review on GitHub →']],
     'w/M1': [['Merge', 'Grill'], ['Review on GitHub →'], ['Merge']],
@@ -460,13 +460,37 @@ test("an open card shows the one action button the board names, its workflow but
     'ask:a2': [[], [], []],
   });
   assert.equal(row('w/A1').querySelector('a.button').getAttribute('href'), 'questions.html#q7');
-  assert.deepEqual(row('w/D1').querySelectorAll('.action-row.external a').map((a) => a.getAttribute('href')), [draft.url, 'notes.html?item=w%2FD1', install.url]);
+  assert.deepEqual(row('w/D1').querySelectorAll('.action-row.external a').map((a) => a.getAttribute('href')), [draft.url, install.url]);
 
   b.page.fire(b.root, 'click', { target: row('w/A2').querySelector('button') });
   b.page.fire(b.root, 'click', { target: row('ask:a1').querySelector('button') });
   await b.settle();
   assert.deepEqual(b.confirms, ['Ask Claude for questions about A2?', 'Mark this task done? "Task a1" moves to Done.']);
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['grill-more', { key: 'w/A2' }], ['ask-done', { id: 'a1' }]]);
+});
+
+test("every bumpable card, closed or open, carries the bump icon at its top right and no bump in its button rows; the icon confirms, then sends card-bump, and the lane's latest bump shows it disabled", async () => {
+  const cards = [
+    workCard('T1', { bumpable: true, bumpedAt: '2026-10-30T09:00:00.000Z', actionButton: 'grill' }),
+    workCard('T2', { bumpable: true, bumpedAt: '2026-10-30T08:00:00.000Z', actionButton: 'grill' }),
+    workCard('T3', { bumpable: true, holdable: true }),
+    workCard('P1', { lane: 'progress', bumpable: true, bumpedAt: '2026-10-30T07:00:00.000Z', holdable: true }),
+    workCard('H1', { bumpable: false, held: true, holdable: true }),
+  ];
+  const b = boardOnDom({ open: ['w/T1', 'w/T3', 'w/H1'], board: boardOf(cards), threads: {}, confirm: true });
+  await b.settle();
+  const card = (key) => b.root.querySelector(`details.item[data-key="${key}"]`);
+  const icon = (key) => card(key).querySelector('summary .ask-actions button[data-confirm="bump"]');
+  assert.deepEqual(Object.fromEntries(cards.map((c) => [c.key, icon(c.key) ? [icon(c.key).getAttribute('aria-label'), icon(c.key).hasAttribute('disabled')] : null])), {
+    'w/T1': ['Bump to top', true], 'w/T2': ['Bump to top', false], 'w/T3': ['Bump to top', false], 'w/P1': ['Bump to top', true], 'w/H1': null,
+  });
+  for (const key of ['w/T1', 'w/T3', 'w/H1']) assert.equal(card(key).querySelector('.detail .actions [data-confirm="bump"]'), null, key);
+  assert.deepEqual(['w/T1', 'w/T3'].map((key) => card(key).querySelector('.detail .action-row.workflow').textContent.trim()), ['Grill', 'Hold']);
+
+  b.page.fire(b.root, 'click', { target: icon('w/T2') });
+  await b.settle();
+  assert.deepEqual(b.confirms, ['Move T2 to the top of its lane?']);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-bump', { key: 'w/T2' }]]);
 });
 
 test("every owner action kind the board derives makes exactly one of the open card's buttons orange, every action button the board names draws, and the board and the page share one frozen enum of buttons and one of action kinds, each value its name", async () => {

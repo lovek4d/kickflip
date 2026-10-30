@@ -1,6 +1,6 @@
 # A card can be held, and every card button confirms
 
-An open work card that isn't Done has a **Hold** button first in its action row, then Prioritize ([0019](0019-a-card-that-hasnt-started-can-be-bumped.md)), then Grill. On a held card it reads **Resume**.
+An open work card that isn't Done has a **Hold** button first in its action row, then Grill; its bump is an icon at the card's top right ([0019](0019-a-card-that-hasnt-started-can-be-bumped.md)) and confirms the same way. On a held card it reads **Resume**.
 
 - **Hold** sends a `card-hold` event `{key, hold: true}`, and Resume sends `{key, hold: false}`. The owning session runs `board.mjs item set <key> --held` or `--unheld`, which sets or clears the item's `held` in its wave file and records `held_at`.
 - **A held card never starts on its own.** `item set --status building` refuses while it is held, `--status done` and `merged` leave it out of their `unblocked:` lines ([0020](0020-cards-wait-on-explicit-blocked-by-links.md)), and a held card can't be bumped. A running card that is held gets no new work until it is resumed: no new builder, review fixes or CI reruns.
