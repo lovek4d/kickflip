@@ -72,7 +72,7 @@
     const ready = !blocked && !it.action && it.deps?.length && it.lane === 'todo' ? badge('ready', 'ready to start') : '';
     const chips = `${actionChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('normal', 'bumped') : ''}${ready}${installChip(it)}`;
     const status = it.isNew && !it.action ? `<div class="line3 sub">${askLine(it.ask)}</div>`
-      : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Claude checking</div>'
+      : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Orchestrator review</div>'
       : it.builder ? `<div class="line3 sub agent">${esc(builderLine(it.builder))}</div>`
       : it.working ? `<div class="line3 sub agent">${workingLine}</div>`
       : it.next ? `<div class="line3 sub next">Next: ${esc(it.next)}</div>` : '';

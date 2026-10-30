@@ -10,7 +10,7 @@ Considered:
 
 When a card finishes, its thread gets a text summary. Screenshots stay on the Mac.
 
-A builder hands a finished card back with `item set <key> --status checking`, not `done`. The card stays in In Progress, since Claude acts next ([0045](0045-the-lane-follows-who-acts-next.md)), reading "Claude checking", and it doesn't unblock dependents. The owning session runs the tests, checks the board at phone width, writes in the card's thread what it checked, and only then sets `done`, which unblocks dependents. Done then means verified work, not a builder's own claim, which the owning session reads as a claim to check (owner, round `site-v21`).
+A builder hands a finished card back with `item set <key> --status checking`, not `done`. The card stays in In Progress, since Claude acts next ([0045](0045-the-lane-follows-who-acts-next.md)), reading "Orchestrator review", and it doesn't unblock dependents. The owning session runs the tests, checks the board at phone width, writes in the card's thread what it checked, and only then sets `done`, which unblocks dependents. Done then means verified work, not a builder's own claim, which the owning session reads as a claim to check (owner, round `site-v21`).
 
 A small tweak skips the queue: a change of up to about 10 lines in one file, which the owning session makes at once, checks at phone width, and records as a done card with a thread line. Anything larger, or anything that changes behavior, goes to a builder (round `site-v19`). Builders working at the same time re-read a shared file such as `style.css` right before each edit.
 

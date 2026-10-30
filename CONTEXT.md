@@ -143,7 +143,7 @@ Where a card sits (In Review, Stale, In Progress, Todo, Done), set by who acts n
 _Avoid_: column, status (status is the item's own field)
 
 **Checking**:
-The item status a builder sets when it hands back finished work. The card sits in In Progress reading "Claude checking" while the owning session verifies it, then the session sets it done. Only done, merged and dropped unblock dependents ([0022](docs/adr/0022-site-cards-build-in-parallel-when-their-files-dont-overlap.md)).
+The item status a builder sets when it hands back finished work. The card sits in In Progress reading "Orchestrator review" while the owning session verifies it, then the session sets it done. Only done, merged and dropped unblock dependents ([0022](docs/adr/0022-site-cards-build-in-parallel-when-their-files-dont-overlap.md)).
 _Avoid_: verifying, in QA, review (review is the reviewers' part)
 
 **Stale**:

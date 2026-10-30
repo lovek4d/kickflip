@@ -715,7 +715,7 @@ test('a work card reads its title, then its next step or builder, its unread mes
   assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['PROD-1 Five', 'Next: Waiting for PR reviewers', '1 unread message', 'repo#7 ● CI ✓ J ✗ bumped', 'blocked by INT-2']);
   const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: 'Task', title: 'Fix it', internal: false, linear: [], pr: null, deps: [], blockedBy: [], working: true };
   assert.deepEqual(lines(ui.workLines(ask)), ['Task Fix it', 'Working on it']);
-  assert.deepEqual(lines(ui.workLines({ ...internal, waitsOn: 'checking', working: true, next: 'Verify it' })), ['INT-3 Five', 'Claude checking']);
+  assert.deepEqual(lines(ui.workLines({ ...internal, waitsOn: 'checking', working: true, next: 'Verify it' })), ['INT-3 Five', 'Orchestrator review']);
   const followup = { ...workCard, kind: 'followup', key: 'w/PROD-7', id: 'PROD-7', ref: 'PROD-7', linear: [{ id: 'PROD-7', url: 'u' }], pr: null, reviewers: [], next: null, lane: 'todo', deps: [], blockedBy: [] };
   assert.deepEqual(lines(ui.workLines(followup)), ['PROD-7 Five', 'follow-up']);
   assert.match(ui.workLines(followup), /<a class="chip tone-normal" href="u"[^>]*>PROD-7<\/a>.*<span class="chip tone-quiet">follow-up<\/span>/s);
