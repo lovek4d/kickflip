@@ -30,6 +30,16 @@ _Avoid_: app, page (a site has several pages)
 Love, the person the sites serve. The word for the session that serves a site is **owning session**.
 _Avoid_: user, admin
 
+**Board session**:
+A board's owning session as the manifest records it in the site's owner: its id, its folder (`repo`, where `claude --resume` finds it) and an optional model. `web-ts start` launches one in the background; `web-ts resume` brings it back under the same id.
+_Avoid_: orchestrator process, agent
+
+**Live**:
+A session whose `~/.claude/sessions/<pid>.json` record names it and whose process still runs, started when the record says. A live session is never started or resumed again.
+
+**Auto-resume**:
+The hub resuming a board session once when its board hasn't been listening for 3 minutes and the session isn't live, then pushing the owner once if the board still isn't listening 5 minutes later.
+
 **Push**:
 A phone notification from the hub that opens a page. A push is sent only when something waits on the owner. Answers and questions go at once; merges, drafts on Ready and stale PRs go when their tick ends; each arrives as its own notification ([0030](docs/adr/0030-pushes-go-by-kind-and-each-arrives-on-its-own.md)). Other replies don't push; a push that goes out anyway says how many came since the last one. With notifications off every push is dropped; a snooze and Off on weekends hold pushes until they end, and urgent ones go through those holds ([0032](docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md)).
 _Avoid_: alert, notification (for the act of sending)
