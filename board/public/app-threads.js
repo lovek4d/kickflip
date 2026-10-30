@@ -21,12 +21,15 @@ BoardView.part((B) => {
   // thread draws, so its unread messages start from its seen mark as the page loaded or as the card last closed.
   const seenBefore = new Map(Object.entries(B.seen));
   const moreTaps = new Map();
-  const viewOf = (key) => ({ seenAt: seenBefore.get(key) || null, more: moreTaps.get(key) || 0 });
+  const firstDrawn = new Map();
+  const newestTs = (msgs) => msgs.reduce((top, m) => [String(m.ts), m.reply?.at ? String(m.reply.at) : ''].reduce((a, b) => (b > a ? b : a), top), '');
+  const viewOf = (key) => ({ seenAt: seenBefore.get(key) || null, more: moreTaps.get(key) || 0, upto: firstDrawn.get(key) || null });
   B.on(B.root, 'toggle', (ev) => {
     const el = ev.target;
     if (!el.matches?.('details.item') || el.open) return;
     seenBefore.set(el.dataset.key, B.seen[el.dataset.key]);
     moreTaps.delete(el.dataset.key);
+    firstDrawn.delete(el.dataset.key);
   }, true);
   B.on(B.root, 'click', (ev) => {
     const key = ev.target.closest('[data-thread-more]')?.closest('[data-thread]')?.dataset.thread;
@@ -41,6 +44,7 @@ BoardView.part((B) => {
     if (!el) return;
     syncDone(el, key);
     const edits = editsIn(key);
+    if (!firstDrawn.has(key) && msgs.length) firstDrawn.set(key, newestTs(msgs));
     const view = viewOf(key);
     const sig = JSON.stringify([msgs, [...edits.keys()], view]);
     if (el.dataset.sig === sig) return;

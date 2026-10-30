@@ -592,7 +592,7 @@ test("a thread repaint while a message's edit box is open shows the new message 
   assert.deepEqual([ta.value, ta.selectionStart, ta.selectionEnd, b.doc.activeElement === ta], ['Fix the header and the footer', 7, 7, true]);
 });
 
-test("a card opened with more than 3 unread messages shows them all, and once closed reopens at its newest 3; Show more adds 3 older ones, and the expansion lasts through a repaint with a new message until the card closes", async () => {
+test("a card opened with more than 3 unread messages shows them all, and once closed reopens at its newest 3; Show more adds 3 older ones, and a new message adds below without hiding any until the card closes", async () => {
   const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
   const said = (n, text, extra) => ({ ts: at(n), who: 'claude', text, ...extra });
   const msgs = [said(0, 'One'), said(1, 'Plan written', { kind: 'status' }),
@@ -612,7 +612,7 @@ test("a card opened with more than 3 unread messages shows them all, and once cl
   b.page.fire(b.root, 'click', { target: thread().querySelector('[data-thread-more]') });
   assert.deepEqual(seen(), ['Show more · 1 previous message', ['Two?', 'Two.', 'Three', 'Four', 'Five', 'Six']]);
   await b.change({ threads: { 'w/A1': [...msgs, said(12, 'Seven')] } });
-  assert.deepEqual(seen(), ['Show more · 2 previous messages', ['Two.', 'Three', 'Four', 'Five', 'Six', 'Seven']]);
+  assert.deepEqual(seen(), ['Show more · 1 previous message', ['Two?', 'Two.', 'Three', 'Four', 'Five', 'Six', 'Seven']]);
   await toggle(false);
   await toggle(true);
   assert.deepEqual(seen(), ['Show more · 5 previous messages', ['Five', 'Six', 'Seven']]);

@@ -44,20 +44,21 @@
   const isMessage = (m) => !NOT_MESSAGE.has(m.kind);
   // The badge's unread test (domain.mjs othersAt, ui-cards.js unreadCount).
   const unread = (m, seenAt) => Boolean(seenAt) && isMessage(m) && m.who !== 'love' && String(m.ts) > seenAt;
-  function threadWindow(lines, { seenAt = null, more = 0 }, edits) {
-    const counted = lines.flatMap((m, i) => (isMessage(m) ? [i] : []));
+  function threadWindow(lines, { seenAt = null, more = 0, upto = null }, edits) {
+    const counted = lines.flatMap((m, i) => (isMessage(m) && (!upto || String(m.ts) <= upto) ? [i] : []));
     const firstUnread = lines.findIndex((m) => unread(m, seenAt));
     const unreadSpan = firstUnread < 0 ? 0 : counted.filter((i) => i >= firstUnread).length;
     const want = Math.max(STEP, unreadSpan) + STEP * more;
     const pinned = lines.findIndex((m) => m.eventId && (edits.has(m.eventId) || ['waiting', 'working'].includes(stateOf(m))));
     const start = Math.min(counted.length > want ? counted[counted.length - want] : 0, pinned < 0 ? Infinity : pinned);
-    const hidden = counted.filter((i) => i < start).length;
+    const hidden = lines.filter((m, i) => i < start && isMessage(m)).length;
     return { start: hidden ? start : 0, hidden };
   }
   const moreButton = (hidden) => `<button type="button" class="thread-more" data-thread-more>Show more <span class="n">· ${hidden} previous message${hidden === 1 ? '' : 's'}</span></button>`;
 
-  // links: the thread's ui-links.js linkContext. edits: the open edit boxes by event id, {text}. view: {seenAt, more},
-  // the card's seen mark from before it opened and its Show more taps, draws the open card's window; null draws every line.
+  // links: the thread's ui-links.js linkContext. edits: the open edit boxes by event id, {text}. view: {seenAt, more,
+  // upto}, the card's seen mark from before it opened, its Show more taps and its newest line's ts when it first drew,
+  // draws the open card's window, so lines after `upto` add below without hiding older ones; null draws every line.
   function threadMessages(msgs, links = {}, edits = new Map(), view = null) {
     if (!msgs.length) return '<div class="muted small">No messages here yet.</div>';
     const lines = withReplies(msgs);
