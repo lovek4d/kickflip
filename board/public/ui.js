@@ -76,9 +76,13 @@
       ${p.status === 'error' ? `<span class="perr">${esc(p.error || 'Upload failed')}</span>` : ''}
       <button type="button" class="unattach" data-unattach="${esc(p.id)}" aria-label="Remove ${esc(p.name)}">✕</button></span>`).join('');
 
-  // Setting innerHTML closes every <details> inside, which collapses whatever the reader had open on each poll.
-  // This skips an unchanged rebuild, and reopens each one the reader left open, matched by its owning [data-key]
-  // and summary text. Open state is tracked page-wide, so content filled in after a parent rebuild reopens too.
+  // Replacing innerHTML would close every <details> inside, collapsing what the reader had open, and replace the field
+  // being typed in, dropping its text, cursor and focus, and on iOS the keyboard. So setHTML patches el in place: a
+  // node stays when the new markup has one of its tag at its place, and an element with a key (keyOf) stays wherever
+  // under el it was, so a card that moves lanes keeps its open thread. A textarea keeps what was typed in it, and an
+  // element matching opts.keep stays as it is, for markup another part paints. setHTML skips an unchanged rebuild, and
+  // reopens each <details> the reader left open, matched by its owning [data-key] and summary text. Open state is
+  // tracked page-wide, so content filled in after a parent rebuild reopens too.
   const lastHtml = new WeakMap();
   const openDetails = new Set();
   const detailsKey = (d) => `${(d.closest('[data-key]') || {}).dataset?.key || ''}|${(d.querySelector(':scope > summary')?.textContent || '').trim()}`;
@@ -86,9 +90,75 @@
     if (ev.target.tagName !== 'DETAILS') return;
     if (ev.target.open) openDetails.add(detailsKey(ev.target)); else openDetails.delete(detailsKey(ev.target));
   }, true);
-  function setHTML(el, html) {
+  const KEYS = ['id', 'data-thread', 'data-event', 'data-edit-form', 'data-lane', 'data-fold'];
+  function keyOf(n) {
+    if (n.nodeType !== 1) return null;
+    if (n.tagName === 'DETAILS' && n.hasAttribute('data-key')) return `DETAILS|${n.getAttribute('data-key')}`;
+    const a = KEYS.find((k) => n.hasAttribute(k));
+    return a ? `${n.tagName}|${a}=${n.getAttribute(a)}` : null;
+  }
+  function keyedUnder(el, keep) {
+    const keyed = new Map();
+    const walk = (p) => {
+      for (const c of p.children) {
+        const k = keyOf(c);
+        if (k && !keyed.has(k)) keyed.set(k, c);
+        if (!(keep && c.matches(keep))) walk(c);
+      }
+    };
+    walk(el);
+    return keyed;
+  }
+  const holdsFocus = (n) => n.contains(document.activeElement);
+  function patchNode(old, next, keyed, keep) {
+    if (old.nodeType !== 1) { if (old.nodeValue !== next.nodeValue) old.nodeValue = next.nodeValue; return; }
+    if (keep && old.matches(keep)) return;
+    for (const { name } of [...old.attributes]) if (!next.hasAttribute(name)) old.removeAttribute(name);
+    for (const { name, value } of [...next.attributes]) if (old.getAttribute(name) !== value) old.setAttribute(name, value);
+    if (old.tagName !== 'TEXTAREA') patchChildren(old, next, keyed, keep);
+  }
+  function patchChildren(parent, next, keyed, keep) {
+    let cur = parent.firstChild;
+    for (const n of [...next.childNodes]) {
+      const k = keyOf(n);
+      let match = null;
+      if (k) {
+        match = keyed.get(k) || null;
+        if (match?.contains(parent)) match = null;
+        if (match) keyed.delete(k);
+      } else if (cur && !keyOf(cur) && cur.nodeName === n.nodeName) match = cur;
+      if (!match) {
+        parent.insertBefore(n, cur);
+        if (n.nodeType === 1) {
+          for (const d of n.querySelectorAll('*')) {
+            const dk = n.contains(d) && keyOf(d);
+            const old = dk && keyed.get(dk);
+            if (!old || old.contains(n)) continue;
+            keyed.delete(dk);
+            d.replaceWith(old);
+            patchNode(old, d, keyed, keep);
+          }
+        }
+        continue;
+      }
+      if (match === cur) cur = cur.nextSibling;
+      else if (match.parentNode === parent && holdsFocus(match)) {
+        // Moving the node that holds focus would blur it, so the siblings before it leave instead.
+        while (cur !== match) { const after = cur.nextSibling; cur.remove(); cur = after; }
+        cur = match.nextSibling;
+      } else parent.insertBefore(match, cur);
+      patchNode(match, n, keyed, keep);
+    }
+    while (cur) { const after = cur.nextSibling; cur.remove(); cur = after; }
+  }
+  function setHTML(el, html, { keep = null } = {}) {
     if (lastHtml.get(el) === html) return false;
-    el.innerHTML = html;
+    if (!el.firstChild) el.innerHTML = html;
+    else {
+      const t = document.createElement('template');
+      t.innerHTML = html;
+      patchChildren(el, t.content, keyedUnder(el, keep), keep);
+    }
     lastHtml.set(el, html);
     if (openDetails.size) for (const d of el.querySelectorAll('details:not([open])')) if (openDetails.has(detailsKey(d))) d.open = true;
     return true;

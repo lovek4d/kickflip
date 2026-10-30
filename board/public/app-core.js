@@ -2,12 +2,25 @@
 BoardView.part((B) => {
   const { $, store, state } = B;
 
-  // A rebuild would drop what the reader is typing in a card, so it waits until focus leaves the field.
-  const typing = () => $('#lanes').contains(document.activeElement) && document.activeElement.matches('textarea, input:not([type=file])');
-  const editing = () => Boolean($('#lanes .edit-form'));
-  B.on($('#lanes'), 'focusout', () => B.later(0, () => {
-    if (state.lanesStale && state.board && !typing() && !editing()) B.render();
-  }));
+  // Runs paint, a repaint through ui.js setHTML, then gives the field being typed in its focus and cursor back. setHTML
+  // keeps that field's node, but moves it with a card that changes lanes, which blurs it, and a box drawn anew (an edit
+  // box from state.edits, a reply box from its draft) is found by its form. A card that moved into a closed lane or
+  // fold opens it, since a field there can't take focus, and focus scrolls the field into view.
+  function keepFocus(paint) {
+    const a = document.activeElement;
+    const field = a && B.root.contains(a) && a.matches('textarea, input') ? a : null;
+    const form = field?.closest('form[data-reply], form[data-edit-form]');
+    const again = !form ? null : form.dataset.reply != null ? `form[data-reply="${CSS.escape(form.dataset.reply)}"] textarea`
+      : `form[data-edit-form="${CSS.escape(form.dataset.editForm)}"] textarea`;
+    const sel = field ? [field.selectionStart, field.selectionEnd, field.selectionDirection] : null;
+    paint();
+    if (!field || document.activeElement === field) return;
+    const el = field.isConnected ? field : again && $(again);
+    if (!el) return;
+    for (let d = el.closest('details:not([open])'); d; d = d.closest('details:not([open])')) d.open = true;
+    el.focus();
+    if (sel[0] != null) el.setSelectionRange(...sel);
+  }
   const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
   // A card this browser has never seen starts from now, so a first load badges nothing.
@@ -62,5 +75,5 @@ BoardView.part((B) => {
 
   const { confirm, notice } = globalThis.BoardDialogs;
 
-  Object.assign(B, { typing, editing, plural, seen, markSeen, toast, quieted, sendDraft, hide, links, svg, confirm, notice });
+  Object.assign(B, { keepFocus, plural, seen, markSeen, toast, quieted, sendDraft, hide, links, svg, confirm, notice });
 });

@@ -17,11 +17,13 @@ BoardView.part((B) => {
     if (html) send.insertAdjacentHTML('beforebegin', html);
   }
 
+  const editsIn = (key) => new Map([...state.edits].filter(([, e]) => e.thread === key));
   function renderThread(key, msgs) {
     const el = $(`[data-thread="${CSS.escape(key)}"]`);
-    if (!el || el.querySelector('.edit-form')) return;
+    if (!el) return;
     syncDone(el, key);
-    const sig = JSON.stringify(msgs);
+    const edits = editsIn(key);
+    const sig = JSON.stringify([msgs, [...edits.keys()]]);
     if (el.dataset.sig === sig) return;
     el.dataset.sig = sig;
     // The reply form is built once per card, so a refresh never drops what is being typed.
@@ -33,7 +35,7 @@ BoardView.part((B) => {
       BoardAttach.paint('item:' + key, B.site.root);
     }
     syncDone(el, key);
-    setHTML(el.querySelector('.msgs'), threadMessages(msgs, links(key)));
+    B.keepFocus(() => setHTML(el.querySelector('.msgs'), threadMessages(msgs, links(key), edits)));
     B.flashChanged?.(el);
     // A thread's request is answered by a later thread line, so only a pending one changes the eye.
     const req = msgs.filter((m) => m.kind === 'prototype-request').pop();
@@ -134,6 +136,7 @@ BoardView.part((B) => {
 
   Object.assign(B, {
     thread, renderThread, loadThread, sendingDone,
+    repaintThread: (key) => { if (state.threadCache.has(key)) renderThread(key, state.threadCache.get(key)); },
     syncDone: (key) => { const el = $(`[data-thread="${CSS.escape(key)}"]`); if (el) syncDone(el, key); },
   });
 });

@@ -2,8 +2,8 @@
 // pending thread message (docs/adr/0014-a-pending-ask-can-be-deleted-or-bumped.md,
 // docs/adr/0047-the-plus-makes-a-new-card.md). Needs app-core.js and app-threads.js.
 BoardView.part((B) => {
-  const { $, store, state, typing, toast, quieted, sendDraft, hide } = B;
-  const { esc, attachButton } = BoardUI;
+  const { $, store, state, toast, quieted, sendDraft, hide } = B;
+  const { attachButton } = BoardUI;
 
   // The ask box is a bottom sheet: a <dialog> opened from the + button. Closing keeps the draft.
   const sheet = $('#sheet');
@@ -104,30 +104,38 @@ BoardView.part((B) => {
     }
     return { thread, key, msg, data: { id, ...(key ? { key } : {}) } };
   }
-  const closeEditor = (form) => { form.previousElementSibling.hidden = false; form.remove(); if (state.lanesStale && !typing()) B.render(); };
+  // An edit box lives in state.edits and its thread draws it (ui-threads.js threadMessages), so a repaint keeps it.
+  function closeEditor(id) {
+    const e = state.edits.get(id);
+    state.edits.delete(id);
+    if (e) B.repaintThread(e.thread);
+  }
+  B.on(B.root, 'input', (ev) => {
+    const e = state.edits.get(ev.target.closest?.('form[data-edit-form]')?.dataset.editForm);
+    if (e) e.text = ev.target.value;
+  });
   B.on(B.root, 'click', async (ev) => {
     const eb = ev.target.closest('button[data-edit]');
     if (eb) {
       ev.preventDefault();
       const id = eb.dataset.edit;
       const { thread, msg, data } = await pendingMessage(eb, id);
-      if (!msg || msg.querySelector('.edit-form')) return;
-      const body = msg.querySelector('.body');
-      const current = (state.threadCache.get(thread) || []).find((m) => m.eventId === id)?.text ?? body.textContent;
-      body.hidden = true;
-      body.insertAdjacentHTML('afterend', `<form class="edit-form" data-thread-key="${esc(thread || '')}" data-event='${esc(JSON.stringify(data))}'><textarea rows="3">${esc(current)}</textarea>
-        <div class="row"><span></span><span><button type="button" data-edit-cancel>Cancel</button> <button class="primary" type="submit">Save</button></span></div></form>`);
-      msg.querySelector('.edit-form textarea').focus();
+      if (!msg || !thread || state.edits.has(id)) return;
+      const text = (state.threadCache.get(thread) || []).find((m) => m.eventId === id)?.text ?? msg.querySelector('.body').textContent;
+      state.edits.set(id, { thread, data, text });
+      B.repaintThread(thread);
+      $(`form[data-edit-form="${CSS.escape(id)}"] textarea`)?.focus();
       return;
     }
     const cancel = ev.target.closest('.edit-form button[data-edit-cancel]');
-    if (cancel) { closeEditor(cancel.closest('form')); return; }
+    if (cancel) { closeEditor(cancel.closest('form').dataset.editForm); return; }
     const del = ev.target.closest('button[data-withdraw]');
     if (!del) return;
     ev.preventDefault();
     if (!(await B.confirm('Delete this message? Claude will skip it.'))) return;
     const id = del.dataset.withdraw;
     const { key, msg } = await pendingMessage(del, id);
+    state.edits.delete(id);
     state.withdrawnAsks.add(id);
     B.render();
     if (msg) msg.hidden = true;
@@ -142,15 +150,17 @@ BoardView.part((B) => {
     const form = ev.target.closest('form.edit-form');
     if (!form) return;
     ev.preventDefault();
+    const id = form.dataset.editForm;
+    const e = state.edits.get(id);
+    if (!e) return;
     const text = form.querySelector('textarea').value.trim();
     if (!text) { toast('Write something, or delete the message', 3000); return; }
     const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
     try {
-      await B.site.send('ask-edited', { ...JSON.parse(form.dataset.event), text });
-      const thread = form.dataset.threadKey;
-      closeEditor(form);
+      await B.site.send('ask-edited', { ...e.data, text });
+      closeEditor(id);
       toast('Edited', 2500);
-      if (thread) B.loadThread(thread, { force: true });
+      B.loadThread(e.thread, { force: true });
       B.loadBoard();
     } catch { btn.disabled = false; toast('Could not save', 3000); }
   });

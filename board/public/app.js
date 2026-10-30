@@ -89,14 +89,15 @@ window.BoardView = (function () {
     const { B, start: begin, stop } = base(root, siteRoot);
     const store = storeFor(B.route);
     // board is the last /api/board; githubPending the time of a refresh's unanswered check-github request; fresh the
-    // header's time, ui-header.js nextFresh's {at, sig}.
+    // header's time, ui-header.js nextFresh's {at, sig}; edits each open edit box by its message's event id,
+    // {thread, data, text}, data being what ask-edited sends besides the text.
     const state = {
       board: null,
       fresh: null,
       openItems: new Set(store.get('openItems', [])),
       threadCache: new Map(),
       withdrawnAsks: new Set(),
-      lanesStale: false,
+      edits: new Map(),
       githubPending: null,
       waveFilter: store.get('wave', null),
     };
@@ -125,7 +126,7 @@ window.BoardView = (function () {
 
   // The board itself, after every part: rendering, the #item= hash, loading and the change signal.
   function start(B) {
-    const { $, $$, store, state, typing, editing, markSeen } = B;
+    const { $, $$, store, state, keepFocus, markSeen } = B;
     const { setHTML, preloadKeys } = BoardUI;
 
     // Renders open threads from state.threadCache; loadBoard and opening a card load them.
@@ -141,11 +142,8 @@ window.BoardView = (function () {
       for (const el of $$('details.item[open]')) state.openItems.add(el.dataset.key);
       for (const it of d.items) if (!it.isNew) markSeen(it, !state.openItems.has(it.key));
       const html = B.lanesHtml(d, shown);
-      if (typing() || editing()) state.lanesStale = true;
-      else {
-        setHTML($('#lanes'), html);
-        state.lanesStale = false;
-      }
+      // An open card's thread is renderThread's (app-threads.js), so a lane repaint leaves it as it is.
+      keepFocus(() => setHTML($('#lanes'), html, { keep: '[data-thread]' }));
       for (const key of state.openItems) if (state.threadCache.has(key)) B.renderThread(key, state.threadCache.get(key));
       B.renderNeeds(d);
       B.renderBanner(d);
