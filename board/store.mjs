@@ -659,22 +659,17 @@ function installOf({ install, installSha, installLabel, clearInstall }) {
 
 // → the wave file, and with --status done or merged the items it unblocked as `unblocked: <key>` lines.
 // notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`.
-export async function setItem(site, key, { status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, install, installSha, installLabel, clearInstall, title, awaitBuild, noAwaitBuild }) {
+export async function setItem(site, key, { status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, install, installSha, installLabel, clearInstall, title }) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
-  if (awaitBuild && noAwaitBuild) fail('pass --await-build or --no-await-build, not both');
-  if (awaitBuild && status === 'building') fail('--await-build waits for the owner\'s Build, so it does not go with --status building');
   if (next !== undefined && clearNext) fail('pass --next or --clear-next, not both');
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   if (held && unheld) fail('pass --held or --unheld, not both');
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, built, title, awaitBuild, noAwaitBuild].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --from-ask, --held, --unheld, --notes-file, --deps, --install, --clear-install, --title, --await-build or --no-await-build');
+  if ([status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, built, title].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --from-ask, --held, --unheld, --notes-file, --deps, --install, --clear-install or --title');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   const { source, wave, item } = await loadItem(site, key);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
   if (title !== undefined) item.title = text(title, '--title');
-  // docs/adr/0053-notes-replace-the-full-plan-and-build-gives-the-go.md
-  if (awaitBuild) item.await_build = true;
-  if (noAwaitBuild || status === 'building') delete item.await_build;
   if (deps !== undefined) {
     const list = await depList(site, parseKey(key).wave, deps);
     if (list.length) item.deps = list; else delete item.deps;

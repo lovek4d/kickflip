@@ -95,7 +95,7 @@ A work item about the sites themselves rather than the product. Its card shows i
 _Avoid_: meta task, chore
 
 **Badge tone**:
-The color of a badge (a status chip on a card or page), picked from one fixed set by what the badge says, through `BoardUI.badge` in `board/public/ui.js`: quiet (gray), normal (blue), notice (orange), danger (red) or ready (green). Each tone takes its color from a **status color**, so a badge is one consumer of the colors, not their source. No badge has a look of its own, so the same tone looks the same everywhere. Buttons and links styled like chips, such as quick replies, a card's Build and "Notes →", aren't badges.
+The color of a badge (a status chip on a card or page), picked from one fixed set by what the badge says, through `BoardUI.badge` in `board/public/ui.js`: quiet (gray), normal (blue), notice (orange), danger (red) or ready (green). Each tone takes its color from a **status color**, so a badge is one consumer of the colors, not their source. No badge has a look of its own, so the same tone looks the same everywhere. Buttons and links styled like chips, such as quick replies, a follow-up's Build and "Notes →", aren't badges.
 _Avoid_: chip color, badge style, variant
 
 **Status color**:
@@ -127,7 +127,7 @@ Who the card is waiting for: the owning session's check, the owner's Ready, the 
 _Avoid_: blocked by, assignee
 
 **Action needed**:
-The notice-tone badge on a card waiting on the owner, in any lane: an open question or a prototype pick, the go on a card awaiting **Build**, a green draft's Ready, an ask's Done, manual steps on an approved PR, or, with **auto-merge** off, an approved PR's Merge. It links to the thing to act on. Reviewer waits and held cards get none ([0045](docs/adr/0045-the-lane-follows-who-acts-next.md)).
+The notice-tone badge on a card waiting on the owner, in any lane: an open question or a prototype pick, a green draft's Ready, an ask's Done, manual steps on an approved PR, or, with **auto-merge** off, an approved PR's Merge. It links to the thing to act on. Reviewer waits and held cards get none ([0045](docs/adr/0045-the-lane-follows-who-acts-next.md)).
 _Avoid_: open items, needs you (Needs you is the box at the top of the board)
 
 **Auto-merge**:
@@ -139,12 +139,8 @@ The link on a card whose PR builds a device app, right of Action needed, that in
 _Avoid_: download, TestFlight (a different channel), build link
 
 **Notes**:
-The owning session's understanding of a work item so far: what was asked, what is settled, what is open. A Markdown file in its wave's folder that the item names in `plan` (`item set --notes-file`), rewritten as the grill settles things, or with no file the item's short `notes` text. The open card's Notes link opens it as a page sized for the phone; the thread keeps the short news ([0053](docs/adr/0053-notes-replace-the-full-plan-and-build-gives-the-go.md)).
+The owning session's understanding of a work item so far: what was asked, what is settled, what is open. A Markdown file in its wave's folder that the item names in `plan` (`item set --notes-file`), rewritten as the grill settles things, or with no file the item's short `notes` text. The open card's Notes link opens it as a page sized for the phone; the thread keeps the short news ([0053](docs/adr/0053-notes-replace-the-full-plan-and-cards-start-on-their-own.md)).
 _Avoid_: full plan, plan, spec
-
-**Build**:
-The orange button, in Action needed's place on the card and first in the open card's action row, on a card the session marked as waiting on the owner's go (`item set --await-build`) and that nothing blocks. It confirms, sends `card-build`, and reads "Starting…" until the card's status changes or Claude writes in its thread. A follow-up's Build looks the same ([0053](docs/adr/0053-notes-replace-the-full-plan-and-build-gives-the-go.md)).
-_Avoid_: start, go button
 
 **Held**:
 A work card the owner paused with its Hold button. It doesn't start, and a running one gets no new work, until the owner taps Resume ([0023](docs/adr/0023-a-card-can-be-held-and-every-card-button-confirms.md)). Every action-row button asks to confirm first, through `BoardApp.confirm`.
@@ -227,7 +223,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `../shared/colors.css` | Every color, served as `colors.css` and linked before `style.css`; the hub serves it as `/_hub/colors.css` |
 | `ui.js` | Shared helpers: escaping, times, reply bodies, attachments, icons and message buttons, badges by tone, `setHTML`, and `fetchJSON`, through which the side pages read the API and wait out a board restart |
 | `ui-links.js` | Linking refs, Linear ids, PRs and URLs in written text; load it right after `ui.js` |
-| `ui-cards.js` | A card's lines, in order: title with its ref, or New or Task chip; status with its ETA; unread; Action needed, Build, Install, PR, review and other chips; Blocked by chips; and a New card's bump, edit and delete icons; and the action row's Build and Merge buttons |
+| `ui-cards.js` | A card's lines, in order: title with its ref, or New or Task chip; status with its ETA; unread; Action needed, Install, PR, review and other chips; Blocked by chips; and a New card's bump, edit and delete icons; and the action row's Merge button |
 | `ui-sidebar.js` | `BoardUI.sidebar`, the sidebar's markup from `/_hub/sidebar.json`, and `othersWaiting`, the logo's count. Needs nothing else: `hub/hub.mjs` renders the hub pages' sidebar with it in a vm context, and serves it as `/_hub/ui-sidebar.js` |
 | `sidebar.js` | Painting the sidebar from this device's last copy and then the hub, the drawer and its swipes, the logo's count, and storing the last board for `/`; the hub serves it as `/_hub/sidebar.js` |
 | `sidebar.css` | The sidebar's rail and drawer, scoped to `.sidebar`; linked after `colors.css`, and served by the hub as `/_hub/sidebar.css` |
@@ -245,7 +241,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `dialogs.js` | `BoardDialogs.confirm` and `notice`, which every board page's dialogs go through; loaded on every page |
 | `rules-editor.js` | `RulesEditor`, the rules list on board Settings and hub Settings (served as `/_hub/rules-editor.js`), with its own CSS; `ui.test.mjs` tests its pure parts |
 | `app-threads.js` | Loading a thread, once at a time per card; an open card's thread, its reply box, quick replies and Done |
-| `app-cards.js` | Cards, their open detail, and the action row: Build, Merge, Hold, Prioritize and Grill with each one's confirmation, then Notes; the thread's Done confirmation and send |
+| `app-cards.js` | Cards, their open detail, and the action row: a follow-up's Build, Merge, Hold, Prioritize and Grill with each one's confirmation, then Notes; the thread's Done confirmation and send |
 | `app-lanes.js` | Lanes, the Answered, older and finished-wave folds, the wave bars and filter, and Plan a wave |
 | `app-asks.js` | The + sheet and its press-n-twice shortcut, and bump, edit and delete |
 | `app-needs.js` | The Needs you box |

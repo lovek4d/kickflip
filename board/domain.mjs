@@ -81,11 +81,9 @@ const PROTOTYPE_URL = /(^|\/)prototype-[\w-]+\.html/;
 const REVIEW_NEXT = { reviewers: 'Waiting for PR reviewers', merge: 'Approved, merges once CI and the merge state allow' };
 // docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md
 const OWNER_MERGE_NEXT = { waiting: 'Approved, Merge shows once CI and the merge state allow', ready: 'Approved and green: tap Merge', merging: 'Merging' };
-// docs/adr/0053-notes-replace-the-full-plan-and-build-gives-the-go.md
-const OWNER_BUILD_NEXT = { ready: 'Build', starting: 'Starting' };
 const FIX_CI = 'Fix the failing CI';
 
-function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, thread, events, working, topicItem, bridgeItem, permalink, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, buildAt }) {
+function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, thread, events, working, topicItem, bridgeItem, permalink, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge }) {
   const key = `${slug}/${it.id}`;
   const reviewers = wave.reviewers || [];
   const sentAt = Object.fromEntries([
@@ -112,19 +110,16 @@ function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, threa
   // The owner's Merge waits on the session until it merges or writes in the thread, such as why it can't merge yet.
   const lastClaudeAt = thread.filter((m) => (m.who || 'claude') === 'claude' && m.kind !== 'status').map((m) => String(m.ts)).sort().pop() || '';
   const merging = waitsOn === 'merge' && Boolean(mergeAt) && String(mergeAt) > lastClaudeAt;
-  // The owner's Build waits on the session until the card's status changes or Claude writes in the thread.
-  const awaitBuild = Boolean(it.await_build) && lane !== 'done';
-  const starting = awaitBuild && Boolean(buildAt) && String(buildAt) > lastClaudeAt && String(buildAt) > String(it.status_at || '');
   const reviewNext = waitsOn === 'merge' && !autoMerge ? OWNER_MERGE_NEXT[merging ? 'merging' : 'waiting'] : REVIEW_NEXT[waitsOn];
   return {
     key, kind: 'work', order, wave: slug, waveTitle: wave.title || slug, id: it.id, ref: refOf(wave, it.id), title: it.title, status: it.status || null,
     internal: wave.internal === true, repo: wave.internal === true && !wave.repo ? null : repo,
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, agents, eta, working,
     deps: it.deps || [], held, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable ? bumpedAt || null : null,
-    holdable: lane !== 'done', holdPending, hasNotes: Boolean(it.plan || String(it.notes || '').trim()), awaitBuild, starting,
+    holdable: lane !== 'done', holdPending, hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     // docs/adr/0035-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md
     finishable: lane !== 'done', closing: lane !== 'done' && Boolean(closedAt) && String(closedAt) > String(it.status_at || ''),
-    merging, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, from: null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : starting ? OWNER_BUILD_NEXT.starting : redReady ? FIX_CI : reviewNext || it.next || null,
+    merging, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, from: null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || null,
     branch: it.branch || pr?.headRefName || null,
     linear: (it.linear || []).map(linearRef),
     pr: it.pr ? { number: it.pr, url: `https://github.com/${repo}/pull/${it.pr}`, ...(pr || {}) } : null,
@@ -149,10 +144,9 @@ function installOf(install, pr) {
 const mergeable = (pr) => pr?.state === 'OPEN' && !pr.isDraft && pr.reviewDecision === 'APPROVED' && ['pass', 'none'].includes(pr.checks?.state) && pr.mergeStateStatus === 'CLEAN';
 
 // What the owner acts on next, or null: {kind, url, label}, url relative to the site root. kind is pick (a prototype
-// question), questions, build (the card's Build, once the session asks for the go with item set --await-build), ready
-// (a green draft's Ready on GitHub), done (an ask's Done in its thread), steps (manual steps on an approved PR, which
-// monitor never merges itself) or merge (the open card's Merge, while the board's auto-merge is off). A held card
-// waits on nobody.
+// question), questions, ready (a green draft's Ready on GitHub), done (an ask's Done in its thread), steps (manual
+// steps on an approved PR, which monitor never merges itself) or merge (the open card's Merge, while the board's
+// auto-merge is off). A held card waits on nobody.
 function actionOf(it, questionById, autoMerge) {
   if (it.held || it.lane === 'done') return null;
   const thread = `#item=${encodeURIComponent(it.key)}`;
@@ -161,7 +155,6 @@ function actionOf(it, questionById, autoMerge) {
     if (PROTOTYPE_URL.test(q?.url || '')) return { kind: 'pick', url: `questions.html#${q.id}`, label: 'Prototypes ready: pick a take' };
     return { kind: 'questions', url: `questions.html#${it.questions.first}`, label: `Answer ${plural(it.questions.open, 'question')}` };
   }
-  if (it.awaitBuild && !it.starting && !it.blockedBy?.length) return { kind: 'build', url: thread, label: OWNER_BUILD_NEXT.ready };
   if (it.waitsOn === 'ready') return { kind: 'ready', url: it.pr.url, label: 'Tap Ready on GitHub' };
   if (it.kind === 'ask' && it.waitsOn === 'owner') return { kind: 'done', url: thread, label: it.next || 'Tap Done once it is settled' };
   if (it.waitsOn === 'merge' && it.manualSteps.length) return { kind: 'steps', url: thread, label: 'Run the manual steps, then merge' };
@@ -176,7 +169,6 @@ function actionOf(it, questionById, autoMerge) {
 function placeOwnerWait(it, questionById, autoMerge) {
   it.action = actionOf(it, questionById, autoMerge);
   if (it.action?.kind === 'merge') it.next = OWNER_MERGE_NEXT.ready;
-  if (it.action?.kind === 'build') it.next = OWNER_BUILD_NEXT.ready;
   const ownerOnly = it.lane === 'todo' || (it.lane === 'progress' && (it.waitsOn === 'ready' || it.waitsOn === 'owner'));
   if (!it.action || !ownerOnly) return;
   Object.assign(it, { lane: 'review', waitsOn: it.waitsOn === 'ready' ? 'ready' : 'owner', next: it.action.label, bumpable: false, bumpedAt: null });
@@ -345,7 +337,6 @@ export function buildBoard(snapshot) {
   const cardBumps = latest('card-bump', 'key');
   const cardDones = latest('card-done', 'key');
   const cardMerges = latest('card-merge', 'key');
-  const cardBuilds = latest('card-build', 'key');
   const autoMerge = snapshot.autoMerge === true;
   const cardHolds = new Map(events.filter((e) => e.kind === 'card-hold').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((e) => [e.data?.key, e]));
   const madeFrom = new Map();
@@ -377,7 +368,7 @@ export function buildBoard(snapshot) {
         events: [...itemEvents.filter((e) => e.data.key === key || askKeys.has(e.data.key)), ...askIds.map((id) => asks.get(id))],
         working: msgs.some((m) => m.state === 'working'),
         topicItem: topicItems[key], bridgeItem: bridge.items?.[key], permalink, now, bumpedAt: cardBumps.get(key), holdAsk: cardHolds.get(key), closedAt: cardDones.get(key),
-        mergeAt: cardMerges.get(key), autoMerge, buildAt: cardBuilds.get(key),
+        mergeAt: cardMerges.get(key), autoMerge,
       }));
     });
     (wave.followups || []).forEach((f, n) => items.push(followUp({ slug, wave, f, order: wave.items.length + n, repo, bumpedAt: cardBumps.get(`${slug}/${f.id}`), closedAt: cardDones.get(`${slug}/${f.id}`) })));
@@ -426,7 +417,7 @@ export function buildBoard(snapshot) {
     if (it.lane === 'done' && !it.fold && it.updatedAt && now - Date.parse(it.updatedAt) >= DONE_OPEN) it.fold = OLDER_FOLD;
     placeOwnerWait(it, questionById, autoMerge);
     // docs/adr/0049-a-started-card-never-returns-to-todo.md
-    if (it.lane === 'todo' && it.kind === 'work' && !it.held && (it.questions || it.agents.length || it.starting)) it.lane = 'progress';
+    if (it.lane === 'todo' && it.kind === 'work' && !it.held && (it.questions || it.agents.length)) it.lane = 'progress';
   }
   // docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md
   // New cards lead Todo, unbumped ones oldest first, so the top one is the next taken (docs/adr/0047-the-plus-makes-a-new-card.md).

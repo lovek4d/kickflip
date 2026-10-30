@@ -195,7 +195,7 @@ test('item set edits the item in a waves board and in a file board', () => {
   assert.equal(read(site('audit', 'data', 'wave.json')).items[0].status, undefined);
 });
 
-test('item set --notes-file, or its alias --plan, names a notes file inside the wave folder, --title renames the card, and --await-build waits on the owner until --status building or --no-await-build', () => {
+test('item set --notes-file, or its alias --plan, names a notes file inside the wave folder, and --title renames the card', () => {
   write(at('waves', 'w', 'A1-notes.md'), '# So far');
   write(at('waves', 'w', 'A1-old.md'), '# Old');
   const item = () => read(at('waves', 'w', 'wave.json')).items[0];
@@ -208,15 +208,6 @@ test('item set --notes-file, or its alias --plan, names a notes file inside the 
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--title', ' ').code, 1);
   assert.equal(board('item', 'add', 'w/B2', '--site', 'orch', '--title', 'Two', '--notes-file', 'A1-notes.md').code, 0);
   assert.equal(read(at('waves', 'w', 'wave.json')).items.at(-1).plan, 'A1-notes.md');
-
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--await-build').code, 0);
-  assert.equal(item().await_build, true);
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--await-build', '--no-await-build').code, 1);
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'building').code, 0);
-  assert.equal('await_build' in item(), false);
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--await-build').code, 0);
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--no-await-build').code, 0);
-  assert.equal('await_build' in item(), false);
 });
 
 test('item set --install records a device build with when it was built, takes only https or an iOS manifest link, and --clear-install removes it', () => {

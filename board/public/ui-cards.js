@@ -58,14 +58,6 @@
     const merging = sending || it.merging;
     return `<button class="primary" data-confirm="merge" data-key="${esc(it.key)}"${merging ? ' disabled' : ''}>${merging ? 'Merging…' : 'Merge'}</button>`;
   }
-  // The card's Build, while the session waits on the owner's go: in Action needed's place on the card and first in the
-  // open card's action row. It confirms, then sends card-build, and reads "Starting…" while it is sent or waits on the session
-  // (docs/adr/0053-notes-replace-the-full-plan-and-build-gives-the-go.md). The follow-up Build shares its look.
-  function buildButton(it, sending = false) {
-    if (it?.action?.kind !== 'build' && !it?.starting) return '';
-    const starting = sending || it.starting;
-    return `<button class="build" data-confirm="card-build" data-key="${esc(it.key)}"${starting ? ' disabled' : ''}>${starting ? 'Starting…' : 'Build'}</button>`;
-  }
   const builderLine = (b) => [b.progress || 'Building', b.at && ago(b.at)].filter(Boolean).join(' · ');
   const unreadCount = (othersAt, seenAt) => (seenAt ? (othersAt || []).filter((t) => String(t) > seenAt).length : 0);
   // A New card's bump, edit and delete, and its line from its ask state (domain.mjs askItem;
@@ -73,11 +65,11 @@
   const askActions = (it, top) => `<div class="ask-actions">${bumpButton(it, top)}${it.ask.canEdit ? editButton(it.id) : ''}${withdrawButton(it.id)}</div>`;
   const ASK_STATE = { waiting: 'Waiting', working: `<span class="working">${workingLine}</span>` };
   const askLine = (ask) => `${esc(time(ask.askedAt))} · ${ask.edited ? 'Edited · ' : ''}${ASK_STATE[ask.state] || ''}`;
-  function workLines(it, { unread = 0, top = false, sendingBuild = false } = {}) {
+  function workLines(it, { unread = 0, top = false } = {}) {
     const ids = it.kind === 'ask' ? askChip(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
     const blocked = (it.blockedBy || []).map((d) => badge('notice', `blocked by ${esc(d.ref)}`, { href: `#item=${encodeURIComponent(d.key)}` })).join('');
     const ready = !blocked && it.deps?.length && it.lane === 'todo' ? badge('ready', 'ready to start') : '';
-    const chips = `${it.action?.kind === 'build' ? '' : actionChip(it)}${buildButton(it, sendingBuild)}${installChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('normal', 'bumped') : ''}${ready}`;
+    const chips = `${actionChip(it)}${installChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('normal', 'bumped') : ''}${ready}`;
     const status = it.isNew ? `<div class="line3 sub">${askLine(it.ask)}</div>`
       : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Claude checking</div>'
       : it.builder ? `<div class="line3 sub agent">${esc(builderLine(it.builder))}</div>`
@@ -95,5 +87,5 @@
     return keys.length > 1 ? `<button class="link" data-plan="${esc(keys.join(' '))}">Plan a wave from these ${keys.length} follow-ups →</button>` : '';
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, linearChips, REVIEW, reviewAge, reviewChips, pendingQuestions, actionChip, installChip, mergeButton, buildButton, builderLine, unreadCount, workLines, askChip, askActions, askLine, planButton });
+  Object.assign(globalThis.BoardUI, { prChips, linearChips, REVIEW, reviewAge, reviewChips, pendingQuestions, actionChip, installChip, mergeButton, builderLine, unreadCount, workLines, askChip, askActions, askLine, planButton });
 })();

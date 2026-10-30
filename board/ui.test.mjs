@@ -399,18 +399,7 @@ test("a thread's Done shows on every card not in Done, and a work card's reads C
   assert.equal(done(undefined), '');
 });
 
-test("a card awaiting the owner's go shows Build where Action needed goes and first in its open action row, which confirms first and reads Starting…, disabled, while it is sent or waits on the session", () => {
-  const build = (it, sending) => { const html = ui.buildButton(it, sending); return html && [text(html), /disabled/.test(html), /data-confirm="card-build"/.test(html), /data-key="w\/A1"/.test(html), /class="build"/.test(html)]; };
-  const waiting = { key: 'w/A1', action: { kind: 'build', url: '#item=w%2FA1', label: 'Build' }, starting: false };
-  assert.deepEqual(build(waiting), ['Build', false, true, true, true]);
-  assert.deepEqual(build(waiting, true), ['Starting…', true, true, true, true]);
-  assert.deepEqual(build({ key: 'w/A1', action: null, starting: true }), ['Starting…', true, true, true, true]);
-  assert.equal(build({ key: 'w/A1', action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' }, starting: false }), '');
-  assert.equal(build(undefined), '');
-  const card = { ...workCard, pr: null, reviewers: [], next: 'Build', ...waiting };
-  assert.deepEqual(lines(ui.workLines(card)), ['PROD-1 Five', 'Next: Build', 'Build']);
-  assert.doesNotMatch(ui.workLines(card), /Action needed/);
-  assert.deepEqual(lines(ui.workLines(card, { sendingBuild: true })), ['PROD-1 Five', 'Next: Build', 'Starting…']);
+test("the open card's Notes opens notes.html in its action row, with no notes fold, and a follow-up's Build is filled orange", () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.match(css, /button\.build \{[^}]*background: var\(--color-notice\)/);
 
@@ -418,9 +407,8 @@ test("a card awaiting the owner's go shows Build where Action needed goes and fi
   for (const file of ['ui.js', 'ui-links.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   app.BoardApp = { store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
-  const open = { ...card, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note' };
+  const open = { ...workCard, pr: null, reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note' };
   const detail = app.BoardApp.detail(open);
-  assert.match(detail, /<div class="actions"[^>]*>\s*<button class="build" data-confirm="card-build"/);
   assert.match(detail, /<a class="pill" href="notes\.html\?item=w%2FA1">Notes →<\/a>/);
   assert.doesNotMatch(detail, /Old short note|<summary[^>]*>Notes/);
   assert.doesNotMatch(app.BoardApp.detail({ ...open, hasNotes: false }), /Notes/);

@@ -3,7 +3,7 @@
 (function () {
   const B = globalThis.BoardApp;
   const { store, state, markSeen, seen, toast, links } = B;
-  const { esc, REVIEW, reviewAge, unreadCount, workLines, linkText, mergeButton, buildButton } = BoardUI;
+  const { esc, REVIEW, reviewAge, unreadCount, workLines, linkText, mergeButton } = BoardUI;
 
   function detail(it) {
     if (it.kind === 'ask') return `<div class="detail">${B.thread(it.key)}</div>`;
@@ -37,7 +37,6 @@
   // docs/adr/0023-a-card-can-be-held-and-every-card-button-confirms.md
   const sendingHold = new Map();
   const sendingMerge = new Set();
-  const sendingBuild = new Set();
   const refFor = (it) => (it.kind !== 'work' || it.internal ? it.ref : it.linear?.[0]?.id || (it.pr ? `#${it.pr.number}` : it.ref));
   const CONFIRM = {
     hold: (it, ref) => `Hold ${ref}? ${it.lane === 'todo' ? "It won't start" : 'Claude stops work on it'} until you resume it.`,
@@ -46,7 +45,6 @@
     grill: (it, ref) => `Ask Claude for questions about ${ref}?`,
     merge: (it, ref) => `Merge ${ref}? Claude squash-merges #${it.pr?.number} if it is still approved, green and clean.`,
     build: (it, ref) => `Build ${ref}? Claude replies with a short plan, then builds it as a draft.`,
-    'card-build': (it, ref) => `Build ${ref}? Claude starts its builder, or says in the thread what it waits on.`,
     finish: (it, ref) => (it.kind === 'ask' ? `Mark this task done? "${it.title}" moves to Done.`
       : `Close ${ref}? It moves to Done and Claude stops work on it.${it.pr?.state === 'OPEN' ? ' Its PR stays open on GitHub.' : ''}`),
   };
@@ -69,7 +67,6 @@
       : it.grilling ? '<button disabled>Writing questions…</button>'
       : ask('grill', 'Grill');
     return `<div class="actions" data-actions="${key}">
-        ${buildButton(it, sendingBuild.has(it.key))}
         ${draftPR ? `<a class="pill" href="${esc(pr.url)}" target="_blank" rel="noopener">Review #${esc(pr.number)} on GitHub →</a>` : ''}
         ${it.kind === 'followup' && it.lane !== 'done' ? `<button class="build" data-confirm="build" data-key="${key}">Build</button>` : ''}
         ${mergeButton(it, sendingMerge.has(it.key))}${hold}${prioritize}${grill}
@@ -83,7 +80,7 @@
     return `<details class="item" data-key="${esc(it.key)}" ${state.openItems.has(it.key) ? 'open' : ''}>
           <summary class="work">
             <span class="status ${it.lane}"></span>
-            <div class="title-wrap">${workLines(it, { unread: state.openItems.has(it.key) ? 0 : unreadCount(it.othersAt, seen[it.key]), top: topNew(it), sendingBuild: sendingBuild.has(it.key) })}</div>
+            <div class="title-wrap">${workLines(it, { unread: state.openItems.has(it.key) ? 0 : unreadCount(it.othersAt, seen[it.key]), top: topNew(it) })}</div>
           </summary>
           ${state.openItems.has(it.key) ? detail(it) : ''}
         </details>`;
@@ -136,16 +133,6 @@
       try { await ClaudeSite.send('card-merge', { key }); }
       catch { toast('Could not send. Is the Mac awake?', 3000); }
       sendingMerge.delete(key);
-      B.loadBoard();
-      return;
-    }
-    // docs/adr/0053-notes-replace-the-full-plan-and-build-gives-the-go.md
-    if (act === 'card-build') {
-      sendingBuild.add(key);
-      document.querySelectorAll(`button[data-confirm="card-build"][data-key="${CSS.escape(key)}"]`).forEach((x) => { x.outerHTML = buildButton(it, true); });
-      try { await ClaudeSite.send('card-build', { key }); }
-      catch { toast('Could not send. Is the Mac awake?', 3000); }
-      sendingBuild.delete(key);
       B.loadBoard();
       return;
     }

@@ -43,7 +43,7 @@
 <script src="ui-markdown.js"></script>
 <script>
 (async function () {
-  // notes.html?item=<wave>/<id> shows that item's notes (docs/adr/0053-notes-replace-the-full-plan-and-build-gives-the-go.md).
+  // notes.html?item=<wave>/<id> shows that item's notes (docs/adr/0053-notes-replace-the-full-plan-and-cards-start-on-their-own.md).
   const { esc, markdown, linkContext, fetchJSON, restartNotice } = BoardUI;
   const key = new URLSearchParams(location.search).get('item') || '';
   const el = document.getElementById('plan');
