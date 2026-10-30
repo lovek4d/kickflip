@@ -59,7 +59,8 @@
 <script>
   // Saving sends a `reviewers` event {add: [name], remove: [name]}. Claude finds each new
   // person's Slack and GitHub accounts, writes the list with board.mjs reviewers, and replies.
-  const { esc } = BoardUI;
+  const { esc, fetchJSON, restartNotice } = BoardUI;
+  const waitIn = (id) => () => { document.getElementById(id).innerHTML = restartNotice(); };
   let current = [];
   const add = new Set();
   const remove = new Set();
@@ -69,7 +70,7 @@
       <button class="ghost" data-name="${esc(n)}" aria-label="${cls === 'gone' ? 'Keep' : 'Remove'} ${esc(n)}">${cls === 'gone' ? 'Undo' : '✕'}</button></div>`).join('') : '<p class="muted small">No reviewers yet.</p>';
     document.getElementById('save').disabled = !add.size && !remove.size;
   }
-  const loaded = fetch(ClaudeSite.url('api/board'), { cache: 'no-store' }).then((r) => r.json()).then((d) => {
+  const loaded = fetchJSON(ClaudeSite.url('api/board'), { onWait: waitIn('list') }).then(({ body: d }) => {
     current = d.reviewers || [];
     render();
     document.getElementById('status').innerHTML = BoardUI.statusLine(new Date().toISOString(), { watcher: d.checks?.watcher });
@@ -111,7 +112,8 @@
   // session awake (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md).
   const autoMerge = document.getElementById('autoMerge');
   const autoMergeStatus = document.getElementById('autoMergeStatus');
-  fetch(ClaudeSite.url('api/settings'), { cache: 'no-store' }).then((r) => r.json()).then((d) => {
+  fetchJSON(ClaudeSite.url('api/settings'), { onWait: waitIn('autoMergeStatus') }).then(({ body: d }) => {
+    autoMergeStatus.textContent = '';
     autoMerge.checked = d.settings?.auto_merge === true;
     autoMerge.disabled = false;
   }).catch(() => { autoMergeStatus.textContent = 'Offline. Is the Mac awake?'; });
@@ -137,7 +139,7 @@
 
   // Saving writes board.json through POST api/rules, whose `rules {scope: "board"}` event wakes Claude to acknowledge
   // the change; replies show below, newest first. The hub's rules show read-only.
-  fetch(ClaudeSite.url('api/rules'), { cache: 'no-store' }).then((r) => r.json()).then((d) => {
+  fetchJSON(ClaudeSite.url('api/rules'), { onWait: waitIn('rules') }).then(({ body: d }) => {
     RulesEditor.mount(document.getElementById('rules'), {
       rules: d.board, buttons: { primary: 'primary', quiet: '', icon: 'ghost' }, empty: 'No rules for this board yet.',
       placeholder: 'Add a rule, such as: Ask before touching main',

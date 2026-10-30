@@ -101,7 +101,7 @@
   // A topic's questions show on one page with one Send at the bottom, which sends an `owner-answer`
   // event per question answered there; the rest stay open for a later visit. An open question with
   // `urgent: true` in owner.json shows alone first.
-  const { esc, choiceLabel, questionCard, linkContext, badge, topicName, topicRow } = BoardUI;
+  const { esc, choiceLabel, questionCard, linkContext, badge, topicName, topicRow, fetchJSON, restartNotice } = BoardUI;
   // prototype-switcher.js reads a draft's note and clears the draft once it sends that question's answer.
   const draftKey = (id) => 'qdraft:' + id;
   const getDraft = (id) => { try { return JSON.parse(localStorage.getItem(draftKey(id)) || '{}'); } catch { return {}; } };
@@ -219,9 +219,14 @@
     topicId = t ? t.id : null;
   }
 
+  // One load at a time: a load waiting out a board restart would otherwise overlap the next poll's.
+  let loading = false;
   async function load(first) {
+    if (loading) return;
+    loading = true;
+    const page = document.getElementById('page');
     try {
-      const d = await (await fetch(ClaudeSite.url('api/board'), { cache: 'no-store' })).json();
+      const { body: d } = await fetchJSON(ClaudeSite.url('api/board'), { onWait: () => { if (first) page.innerHTML = restartNotice(); } });
       all = d.owner || [];
       items = d.items || [];
       topics = d.ownerTopics || [];
@@ -239,7 +244,9 @@
         if (first && hash && document.getElementById(hash)) document.getElementById(hash).scrollIntoView({ block: 'start' });
         else window.scrollTo(0, y);
       }
-    } catch { /* keep what is shown */ }
+    } catch (e) {
+      if (first) page.innerHTML = `<p class="muted">Could not load the questions: ${esc(e.message)}</p>`;
+    } finally { loading = false; }
   }
 
   document.addEventListener('click', (ev) => {

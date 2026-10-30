@@ -1,8 +1,8 @@
 # A full plan opens as a page on the site
 
-A work item may name its full write-up in `plan`, a Markdown file inside its wave's folder named relative to it (`board.mjs item set <key> --plan <file>`). Its open card then shows a **Full plan** link, which opens `plan.html?item=<wave>/<id>`: the write-up rendered for the phone, with tables scrolling sideways inside their own box. The thread keeps the short summary.
+A work item may name its write-up in `plan`, a Markdown file inside its wave's folder named relative to it (`board.mjs item set <key> --notes-file <file>`, or `--plan`). Its open card then links to it, and the page renders it for the phone, with tables scrolling sideways inside their own box. The thread keeps the short summary. The write-up is now the card's **Notes**, its living understanding, opened from a Notes link at `notes.html?item=<wave>/<id>` ([0053](0053-notes-replace-the-full-plan-and-build-gives-the-go.md)).
 
-- **The server reads only that file.** `GET /api/plan?item=<key>` serves the item's `plan` only when it is a `.md` file whose real path, links followed, lies inside the wave's folder. An absolute path, `..`, a link out of the folder, another file type or a missing file is a 404. `--plan` makes the same checks when it is set, and the server repeats them, since a wave file can be edited by hand.
+- **The server reads only that file.** `GET /api/notes?item=<key>` (or `/api/plan`) serves the item's `plan` only when it is a `.md` file whose real path, links followed, lies inside the wave's folder. An absolute path, `..`, a link out of the folder, another file type or a missing file is a 404. `--notes-file` makes the same checks when it is set, and the server repeats them, since a wave file can be edited by hand. With no `plan`, it serves the item's short `notes` text instead.
 - **The page renders a small Markdown subset itself**: headings, paragraphs, lists, bold, inline code, code blocks, links and tables. Raw HTML in the file shows as text.
 
 Plans were long thread messages, or files on the Mac the phone couldn't open.

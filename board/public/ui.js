@@ -1,5 +1,6 @@
 // Renderers the board's pages share, and the base the other ui-*.js files add to BoardUI. Each returns an HTML
 // string and touches no DOM or storage: ui.test.mjs runs these files in node:vm, where neither exists. Load this first.
+// fetchJSON is the side pages' one way to read the board's API.
 (function () {
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const time = (iso) => new Date(iso).toLocaleString([], { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -93,8 +94,32 @@
     return true;
   }
 
+  // While a board restarts, the hub answers its own 502 page, and a request can fail outright. fetchJSON waits that out:
+  // on a network error, a 5xx or a body that isn't JSON it calls onWait(waitedMs) and retries with a growing backoff,
+  // then throws once about limit ms have passed. Any other answer resolves {ok, status, body}, a 404's {error} included.
+  const RESTARTING = 'Board restarting…';
+  const restartNotice = () => `<span class="muted small restarting">${RESTARTING}</span>`;
+  async function fetchJSON(url, { onWait = () => {}, limit = 30000, fetch: get = globalThis.fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+    let waited = 0;
+    let delay = 500;
+    for (;;) {
+      let failure;
+      try {
+        const r = await get(url, { cache: 'no-store' });
+        const body = await r.text().then((t) => JSON.parse(t)).catch(() => undefined);
+        if (body !== undefined && r.status < 500) return { ok: r.ok, status: r.status, body };
+        failure = new Error(r.status >= 500 ? `the board answered ${r.status}` : 'the board did not answer with JSON');
+      } catch { failure = new Error('Offline. Is the Mac awake?'); }
+      if (waited >= limit) throw failure;
+      onWait(waited);
+      await sleep(delay);
+      waited += delay;
+      delay = Math.min(delay * 2, 4000);
+    }
+  }
+
   globalThis.BoardUI = {
-    esc, time, ago, since, etaLine, replyBody, setHTML,
+    esc, time, ago, since, etaLine, replyBody, setHTML, fetchJSON, RESTARTING, restartNotice,
     attachments, attachButton, pendingFiles, protoButton, protoNotice, withdrawButton, editButton, bumpButton, workingLine, BADGE_TONES, badge,
   };
 })();

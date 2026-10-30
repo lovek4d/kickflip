@@ -385,6 +385,31 @@ test("with auto-merge off an approved, green, clean PR waits on the owner's Merg
   assert.equal(card({ autoMerge: true, item: { manual_steps: ['Run the backfill'] } }).items[0].action.kind, 'steps');
 });
 
+test("a card awaiting the owner's go waits on Build in In Review after its open questions, reads starting until its status changes or Claude writes after the tap, and a held one waits on nobody", () => {
+  const q = { id: 'q1', topic: 'item:w/A1', question: 'Which way?', options: [{ id: 'A', label: 'One' }] };
+  const card = ({ item = {}, events = [], threads = {}, owner = {} } = {}) => buildBoard({
+    fromWaves: false, events, threads, owner, prs: {},
+    waves: [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One', status: 'planned', await_build: true, ...item }] } }],
+  });
+  const waiting = card();
+  const it = waiting.items[0];
+  assert.deepEqual([it.lane, it.waitsOn, it.next, it.starting, it.action], ['review', 'owner', 'Build', false, { kind: 'build', url: '#item=w%2FA1', label: 'Build' }]);
+  assert.deepEqual(needsAnswer(waiting).items, [{ kind: 'Action needed', text: 'A1: One · Build', url: '#item=w%2FA1' }]);
+  assert.equal(card({ owner: { items: [q] } }).items[0].action.kind, 'questions');
+  const held = card({ item: { held: true } }).items[0];
+  assert.deepEqual([held.lane, held.action], ['todo', null]);
+  assert.equal(card({ item: { await_build: undefined } }).items[0].action, null);
+  assert.equal(card({ item: { status: 'done' } }).items[0].action, null);
+
+  const tapped = [{ id: 'b1', ts: '2026-10-29T10:00:00Z', kind: 'card-build', data: { key: 'w/A1' } }];
+  const starting = card({ events: tapped, item: { status_at: '2026-10-29T09:00:00Z' }, threads: { 'w/A1': [{ ts: '2026-10-29T10:01:00Z', who: 'claude', kind: 'status', text: 'Starting' }] } }).items[0];
+  assert.deepEqual([starting.lane, starting.starting, starting.action, starting.next], ['progress', true, null, 'Starting']);
+  const waitsOnDep = card({ events: tapped, threads: { 'w/A1': [{ ts: '2026-10-29T10:02:00Z', who: 'claude', text: 'Starts once INT-2 lands' }] } }).items[0];
+  assert.deepEqual([waitsOnDep.starting, waitsOnDep.action?.kind], [false, 'build']);
+  const moved = card({ events: tapped, item: { status: 'waiting', status_at: '2026-10-29T10:03:00Z' } }).items[0];
+  assert.deepEqual([moved.starting, moved.action?.kind], [false, 'build']);
+});
+
 test("every card not in Done can be closed, and a card-done reads closing until the card's status changes after it", () => {
   const close = (key, ts) => ({ id: 'c' + ts, ts, kind: 'card-done', data: { key }, reply: null });
   const items = [

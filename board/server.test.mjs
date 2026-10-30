@@ -156,23 +156,31 @@ test("the board lists its own reviewers from board.json, whatever its waves hold
   }
 });
 
-test("an item's plan is served only from a markdown file inside its wave's folder", async () => {
+test("an item's notes are served only from a markdown file inside its wave's folder, else from its short notes text", async () => {
   const outside = path.join(home, 'secret.md');
   fs.writeFileSync(outside, '# Secret');
   fs.writeFileSync(path.join(site, 'data', 'P1-plan.md'), '# The plan\n\nBody.');
   fs.symlinkSync(outside, path.join(site, 'data', 'link.md'));
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [
     { id: 'P1', title: 'Planned', plan: 'P1-plan.md' }, { id: 'P2', title: 'Up', plan: '../secret.md' }, { id: 'P3', title: 'Abs', plan: outside },
-    { id: 'P4', title: 'Link', plan: 'link.md' }, { id: 'P5', title: 'Json', plan: 'owner.json' }, { id: 'P6', title: 'None' },
+    { id: 'P4', title: 'Link', plan: 'link.md' }, { id: 'P5', title: 'Json', plan: 'owner.json' }, { id: 'P6', title: 'None', notes: '  ' },
+    { id: 'P7', title: 'Short', notes: 'Asked for X; Y is settled.' }, { id: 'P8', title: 'Both', plan: 'P1-plan.md', notes: 'Old line' },
+    { id: 'P10', title: 'Bad file', plan: '../secret.md', notes: 'Old line' },
   ] }));
-  const plan = (id) => fetch(`${base}/api/plan?item=t%2F${id}`);
-  const ok = await plan('P1');
+  const notes = (id, api = 'notes') => fetch(`${base}/api/${api}?item=t%2F${id}`);
+  const ok = await notes('P1');
   assert.equal(ok.status, 200);
   assert.deepEqual(await ok.json(), { key: 't/P1', ref: 'P1', title: 'Planned', markdown: '# The plan\n\nBody.' });
-  for (const id of ['P2', 'P3', 'P4', 'P5', 'P6', 'P9']) assert.equal((await plan(id)).status, 404, id);
+  assert.deepEqual(await (await notes('P1', 'plan')).json(), { key: 't/P1', ref: 'P1', title: 'Planned', markdown: '# The plan\n\nBody.' });
+  assert.equal((await (await notes('P7')).json()).markdown, 'Asked for X; Y is settled.');
+  assert.equal((await (await notes('P8')).json()).markdown, '# The plan\n\nBody.');
+  for (const id of ['P2', 'P3', 'P4', 'P5', 'P6', 'P9', 'P10']) assert.equal((await notes(id)).status, 404, id);
   const board = await (await fetch(`${base}/api/board`)).json();
-  const cards = Object.fromEntries(board.items.map((i) => [i.id, i.plan]));
-  assert.deepEqual([cards.P1, cards.P6], [true, false]);
+  const cards = Object.fromEntries(board.items.map((i) => [i.id, i.hasNotes]));
+  assert.deepEqual([cards.P1, cards.P6, cards.P7], [true, false, true]);
+  assert.equal(board.items.some((i) => typeof i.notes === 'string'), false);
+  const moved = await fetch(`${base}/plan.html?item=t%2FP1`, { redirect: 'manual' });
+  assert.deepEqual([moved.status, moved.headers.get('location')], [302, 'notes.html?item=t%2FP1']);
 });
 
 test('board pages render the shared header: the board leads with the logo, Settings with a back arrow and the same controls', async () => {
@@ -248,7 +256,7 @@ test('the stream sends a change, uncompressed, within a second of a write to a t
 });
 
 test('every board page links the shared colors.css, versioned, before style.css, and the board serves it', async () => {
-  for (const p of ['/', '/questions.html', '/plan.html', '/settings.html']) {
+  for (const p of ['/', '/questions.html', '/notes.html', '/settings.html']) {
     const html = (await raw(p)).body.toString();
     const colors = html.search(/href="colors\.css\?v=/);
     assert.ok(colors >= 0 && colors < html.search(/href="style\.css\?v=/), p);

@@ -48,8 +48,10 @@
 //                                the ask, a link line for each work item made from it (from_ask) or related to it
 //                                (data/ask-links.json), then data/threads/ask__<event id>.jsonl and item-message
 //                                events whose key is ask:<event id>
-//   GET  /api/plan?item=w/id     {key, ref, title, markdown}: the item's plan file, only a .md inside its wave's
-//                                folder (store.mjs readPlan); otherwise 404 {error}
+//   GET  /api/notes?item=w/id    {key, ref, title, markdown}: the item's notes file, only a .md inside its wave's
+//                                folder, or with no file its short notes text (store.mjs readNotes); otherwise 404
+//                                {error}. /api/plan is the same, for pages loaded before the rename
+//   GET  /plan.html?…            redirects to notes.html with the same query, since pushes and threads link it
 //   POST /_claude/events         {kind, ...data} → one line in data/events.jsonl; wakes Claude.
 //                                ask, item-message and owner-answer may carry files: [upload]
 //   POST /api/upload             the raw file as the body, its name URI-encoded in x-filename and its
@@ -87,7 +89,7 @@ import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { buildBoard, ITEM_EVENTS, needsAnswer, refOf, threadOf } from './domain.mjs';
 import { createReadStream, watch as watchFiles } from 'node:fs';
-import { BoardError, boardConfig, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readPlan, readWorking, readUpload, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, boardConfig, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readNotes, readWorking, readUpload, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, linksOf } from '../hub/boards.mjs';
 
@@ -507,10 +509,10 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, needsAnswer(await board()));
     }
     if (p === '/api/thread') return json(res, 200, await thread(String(url.searchParams.get('key') || '')));
-    if (p === '/api/plan') {
+    if (p === '/api/notes' || p === '/api/plan') {
       const key = String(url.searchParams.get('item') || '');
       try {
-        const { wave, item, markdown } = await readPlan(here, key);
+        const { wave, item, markdown } = await readNotes(here, key);
         return json(res, 200, { key, ref: refOf(wave, item.id), title: item.title, markdown });
       } catch (e) { if (e instanceof BoardError) return json(res, 404, { error: e.message }); throw e; }
     }
@@ -547,6 +549,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/upload' && req.method === 'POST') return await upload(req, res);
     if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405).end(); return; }
     if (p.startsWith('/uploads/')) return await sendUpload(req, res, decodeURIComponent(p.slice(9)));
+    if (p === '/plan.html') { res.writeHead(302, { location: `notes.html${url.search}`, 'cache-control': 'no-store' }).end(); return; }
 
     const file = await staticFile(decodeURIComponent(p));
     if (!file) { res.writeHead(404).end(); return; }

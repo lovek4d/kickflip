@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Full Plan</title>
+<title>Notes</title>
 <link rel="stylesheet" href="colors.css">
 <link rel="stylesheet" href="style.css">
 <link rel="apple-touch-icon" href="{{touchIcon}}">
@@ -32,9 +32,9 @@
 </style>
 </head>
 <body>
-<!--header {"lead":"back","title":"Full plan","titleId":"ref","backId":"back","controls":false}-->
+<!--header {"lead":"back","title":"Notes","titleId":"ref","backId":"back","controls":false}-->
 <main>
-  <article class="plan" id="plan"><p class="muted">Loading the plan…</p></article>
+  <article class="plan" id="plan"><p class="muted">Loading the notes…</p></article>
 </main>
 <script src="claude.js"></script>
 <script src="dialogs.js"></script>
@@ -43,21 +43,21 @@
 <script src="ui-markdown.js"></script>
 <script>
 (async function () {
-  // plan.html?item=<wave>/<id> shows that item's plan file (docs/adr/0024-a-full-plan-opens-as-a-page-on-the-site.md).
-  const { esc, markdown, linkContext } = BoardUI;
+  // notes.html?item=<wave>/<id> shows that item's notes (docs/adr/0053-notes-replace-the-full-plan-and-build-gives-the-go.md).
+  const { esc, markdown, linkContext, fetchJSON, restartNotice } = BoardUI;
   const key = new URLSearchParams(location.search).get('item') || '';
   const el = document.getElementById('plan');
   document.getElementById('back').href = `./#item=${encodeURIComponent(key)}`;
+  const onWait = () => { el.innerHTML = restartNotice(); };
   try {
-    const board = fetch(ClaudeSite.url('api/board'), { cache: 'no-store' }).then((b) => b.json()).catch(() => ({}));
-    const r = await fetch(ClaudeSite.url(`api/plan?item=${encodeURIComponent(key)}`), { cache: 'no-store' });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || `plan ${r.status}`);
-    document.getElementById('ref').textContent = `${d.ref} plan`;
-    document.title = `${d.ref} plan`;
-    el.innerHTML = markdown(d.markdown, linkContext((await board).items || [], key, { base: './' }));
+    const board = fetchJSON(ClaudeSite.url('api/board')).then((r) => r.body).catch(() => ({}));
+    const r = await fetchJSON(ClaudeSite.url(`api/notes?item=${encodeURIComponent(key)}`), { onWait });
+    if (!r.ok) throw new Error(r.body.error || `notes ${r.status}`);
+    document.getElementById('ref').textContent = `${r.body.ref} notes`;
+    document.title = `${r.body.ref} notes`;
+    el.innerHTML = markdown(r.body.markdown, linkContext((await board).items || [], key, { base: './' }));
   } catch (e) {
-    el.innerHTML = `<p class="muted">Could not load this plan: ${esc(e.message)}</p>`;
+    el.innerHTML = `<p class="muted">Could not load these notes: ${esc(e.message)}</p>`;
   }
 })();
 </script>

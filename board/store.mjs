@@ -619,10 +619,9 @@ async function unblockedBy(site, key) {
   return out;
 }
 
-// → the wave file, and with --status done or merged the items it unblocked as `unblocked: <key>` lines.
 // docs/adr/0024-a-full-plan-opens-as-a-page-on-the-site.md
 async function planPath(dir, rel) {
-  const bad = (why) => fail(`a plan is a .md file inside ${dir}, named relative to it: "${rel}" ${why}`);
+  const bad = (why) => fail(`a notes file is a .md file inside ${dir}, named relative to it: "${rel}" ${why}`);
   if (typeof rel !== 'string' || !rel.trim()) bad('is empty');
   if (path.isAbsolute(rel) || rel.split(/[\\/]/).includes('..')) bad('leaves the folder');
   if (path.extname(rel).toLowerCase() !== '.md') bad('is not a .md file');
@@ -631,11 +630,13 @@ async function planPath(dir, rel) {
   return real;
 }
 
-// → {wave, item, markdown} for an item whose plan passes planPath's checks; otherwise a BoardError.
-export async function readPlan(site, key) {
+// → {wave, item, markdown}: the item's notes file (stored in `plan`) once it passes planPath's checks, or with no file
+// its short `notes` text, so notes written before the page existed still show; otherwise a BoardError.
+export async function readNotes(site, key) {
   const { source, wave, item } = await loadItem(site, key);
-  if (!item.plan) fail(`${key} has no plan`);
-  return { wave, item, markdown: await fs.readFile(await planPath(source.dir, item.plan), 'utf8') };
+  if (item.plan) return { wave, item, markdown: await fs.readFile(await planPath(source.dir, item.plan), 'utf8') };
+  if (typeof item.notes === 'string' && item.notes.trim()) return { wave, item, markdown: item.notes };
+  fail(`${key} has no notes`);
 }
 
 // docs/adr/0051-a-device-app-card-carries-an-install-link.md
@@ -657,16 +658,23 @@ function installOf({ install, installSha, installLabel, clearInstall }) {
 }
 
 // → the wave file, and with --status done or merged the items it unblocked as `unblocked: <key>` lines.
-export async function setItem(site, key, { status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, plan, deps, install, installSha, installLabel, clearInstall }) {
+// notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`.
+export async function setItem(site, key, { status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, install, installSha, installLabel, clearInstall, title, awaitBuild, noAwaitBuild }) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
+  if (awaitBuild && noAwaitBuild) fail('pass --await-build or --no-await-build, not both');
+  if (awaitBuild && status === 'building') fail('--await-build waits for the owner\'s Build, so it does not go with --status building');
   if (next !== undefined && clearNext) fail('pass --next or --clear-next, not both');
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   if (held && unheld) fail('pass --held or --unheld, not both');
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, plan, deps, built].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --from-ask, --held, --unheld, --plan, --deps, --install or --clear-install');
+  if ([status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, built, title, awaitBuild, noAwaitBuild].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --from-ask, --held, --unheld, --notes-file, --deps, --install, --clear-install, --title, --await-build or --no-await-build');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   const { source, wave, item } = await loadItem(site, key);
-  if (plan !== undefined) { await planPath(source.dir, plan); item.plan = path.normalize(plan); }
+  if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
+  if (title !== undefined) item.title = text(title, '--title');
+  // docs/adr/0053-notes-replace-the-full-plan-and-build-gives-the-go.md
+  if (awaitBuild) item.await_build = true;
+  if (noAwaitBuild || status === 'building') delete item.await_build;
   if (deps !== undefined) {
     const list = await depList(site, parseKey(key).wave, deps);
     if (list.length) item.deps = list; else delete item.deps;
@@ -708,7 +716,7 @@ async function depList(site, slug, deps) {
 }
 
 // → the wave file. A new card starts unstarted: planned, or waiting when it names deps.
-export async function addItem(site, key, { title, notes, deps, plan }) {
+export async function addItem(site, key, { title, notes, deps, notesFile }) {
   const { wave: slug, id } = parseKey(key);
   domId(id, 'the item id');
   const { source, wave } = await loadWave(site, slug);
@@ -716,7 +724,7 @@ export async function addItem(site, key, { title, notes, deps, plan }) {
   const item = { id, title: text(title, '--title') };
   if (notes !== undefined) item.notes = text(notes, '--notes');
   if (deps !== undefined) item.deps = await depList(site, slug, deps);
-  if (plan !== undefined) { await planPath(source.dir, plan); item.plan = path.normalize(plan); }
+  if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
   item.status = item.deps?.length ? 'waiting' : 'planned';
   wave.items.push(item);
   await writeJSON(source.file, wave);

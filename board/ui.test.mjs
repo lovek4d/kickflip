@@ -399,6 +399,49 @@ test("a thread's Done shows on every card not in Done, and a work card's reads C
   assert.equal(done(undefined), '');
 });
 
+test("a card awaiting the owner's go shows Build beside Action needed and first in its open action row, which confirms first and reads Starting…, disabled, while it is sent or waits on the session", () => {
+  const build = (it, sending) => { const html = ui.buildButton(it, sending); return html && [text(html), /disabled/.test(html), /data-confirm="card-build"/.test(html), /data-key="w\/A1"/.test(html), /class="build"/.test(html)]; };
+  const waiting = { key: 'w/A1', action: { kind: 'build', url: '#item=w%2FA1', label: 'Build' }, starting: false };
+  assert.deepEqual(build(waiting), ['Build', false, true, true, true]);
+  assert.deepEqual(build(waiting, true), ['Starting…', true, true, true, true]);
+  assert.deepEqual(build({ key: 'w/A1', action: null, starting: true }), ['Starting…', true, true, true, true]);
+  assert.equal(build({ key: 'w/A1', action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' }, starting: false }), '');
+  assert.equal(build(undefined), '');
+  const card = { ...workCard, pr: null, reviewers: [], next: 'Build', ...waiting };
+  assert.deepEqual(lines(ui.workLines(card)), ['PROD-1 Five', 'Next: Build', 'Action needed Build']);
+  assert.match(ui.workLines(card), /tone-notice"[^>]*>Action needed<\/a><button class="build"/);
+  assert.deepEqual(lines(ui.workLines(card, { sendingBuild: true })), ['PROD-1 Five', 'Next: Build', 'Action needed Starting…']);
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /button\.build \{[^}]*background: var\(--color-notice\)/);
+
+  const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s } });
+  for (const file of ['ui.js', 'ui-links.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  app.BoardApp = { store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
+  vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
+  const open = { ...card, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note' };
+  const detail = app.BoardApp.detail(open);
+  assert.match(detail, /<div class="actions"[^>]*>\s*<button class="build" data-confirm="card-build"/);
+  assert.match(detail, /<a class="pill" href="notes\.html\?item=w%2FA1">Notes →<\/a>/);
+  assert.doesNotMatch(detail, /Old short note|<summary[^>]*>Notes/);
+  assert.doesNotMatch(app.BoardApp.detail({ ...open, hasNotes: false }), /Notes/);
+});
+
+test('the side pages wait out a board restart: a failed request, a 5xx or a body that is not JSON shows Board restarting… and retries with a growing backoff, until about limit ms', async () => {
+  const answers = (list) => { const calls = []; return { calls, fetch: async (url) => { calls.push(url); const a = list.shift(); if (a instanceof Error) throw a; return { ok: a.status < 400, status: a.status, text: async () => a.body }; } }; };
+  const waits = [];
+  const sleep = async (ms) => { waits.push(ms); };
+  const restarting = answers([new Error('refused'), { status: 502, body: '<html>Bad gateway</html>' }, { status: 200, body: '<!doctype html>' }, { status: 200, body: '{"ref":"INT-1"}' }]);
+  const r = await ui.fetchJSON('api/notes?item=w%2FA1', { fetch: restarting.fetch, sleep, onWait: (ms) => waits.push(`wait ${ms}`) });
+  assert.deepEqual(plain(r), { ok: true, status: 200, body: { ref: 'INT-1' } });
+  assert.deepEqual(waits, ['wait 0', 500, 'wait 500', 1000, 'wait 1500', 2000]);
+  const missing = await ui.fetchJSON('x', { fetch: answers([{ status: 404, body: '{"error":"w/A1 has no notes"}' }]).fetch, sleep });
+  assert.deepEqual(plain(missing), { ok: false, status: 404, body: { error: 'w/A1 has no notes' } });
+  const down = answers(Array.from({ length: 20 }, () => ({ status: 502, body: 'Bad gateway' })));
+  await assert.rejects(ui.fetchJSON('x', { fetch: down.fetch, sleep, limit: 3000 }), /the board answered 502/);
+  assert.equal(down.calls.length, 4);
+  assert.equal(ui.restartNotice().includes(ui.RESTARTING), true);
+});
+
 test("an open card waiting on the owner's Merge shows a Merge button that confirms first, and reads Merging…, disabled, while it is sent or waits on the session", () => {
   const merge = (it, sending) => { const html = ui.mergeButton(it, sending); return html && [text(html), /disabled/.test(html), /data-confirm="merge"/.test(html), /data-key="w\/A1"/.test(html)]; };
   const waiting = { key: 'w/A1', action: { kind: 'merge', url: '#item=w%2FA1', label: 'Merge' }, merging: false };
