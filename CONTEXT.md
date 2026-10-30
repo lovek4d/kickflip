@@ -215,11 +215,11 @@ The one line at the top of a board, above Needs you, naming new tasks Claude ans
 _Avoid_: notification, toast
 
 **Owner question**:
-A multiple-choice question Claude needs the owner to decide, attached to a topic. A builder's judgement call becomes one. One marked **urgent** blocks a build or a merge and shows alone; Claude resolves a question in the step that acts on its answer ([0043](docs/adr/0043-needs-you-gathers-what-waits-and-questions-answer-on-one-page.md)).
+A multiple-choice question Claude needs the owner to decide, attached to a topic. A builder's judgement call becomes one. One marked **urgent** blocks a build or a merge and shows alone; Claude resolves a question in the step that acts on its answer ([0043](docs/adr/0043-needs-you-gathers-what-waits-and-questions-answer-on-one-page.md)), and closing a card resolves each of its questions that has an answer; one with no answer yet stops the close unless forced.
 _Avoid_: poll, decision card
 
 **Topic**:
-The group an owner question belongs to; an item's questions use the topic `item:<wave>/<id>`.
+The group an owner question belongs to; an item's questions use the topic `item:<wave>/<id>`. A Done card's topic with no open question is resolved, so it never waits on Claude.
 _Avoid_: category, section
 
 **Needs you**:

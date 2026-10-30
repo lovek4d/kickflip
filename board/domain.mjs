@@ -287,7 +287,8 @@ function agentName({ kind, label }) {
 // A question's state: open (no answer yet), answered (waiting for Claude),
 // replied (Claude answered), resolved (owner.json sets `resolved` and `resolved_at`).
 // An answer newer than `resolved_at` reopens it; without `resolved_at` it stays resolved.
-function ownerQuestion(q, answerEvents) {
+// answerEvents are owner-answer events oldest first; store.mjs reads their states to close a card's questions.
+export function ownerQuestion(q, answerEvents) {
   const answers = answerEvents.filter((e) => e.data?.id === q.id);
   const last = answers[answers.length - 1] || null;
   const reopened = Boolean(q.resolved && q.resolved_at && last && String(last.ts) > q.resolved_at);
@@ -297,15 +298,17 @@ function ownerQuestion(q, answerEvents) {
 
 // A topic is resolved once every question in it is; questions without a known topic share "Other".
 // A card's questions use topic `item:<key>`: `item:<wave>/<id>`, or `item:ask:<event id>` for a New card not yet sorted.
-// The board supplies its title when owner.json has none.
-function ownerTopics(topics, questions) {
+// The board supplies its title when owner.json has none. closed holds the topics of Done cards: one with no open
+// question is resolved, so its answered questions never wait on Claude.
+function ownerTopics(topics, questions, closed = new Set()) {
   const known = new Set(topics.map((t) => t.id));
   const all = [...topics];
   if (questions.some((q) => !known.has(q.topic))) all.push({ id: '', title: 'Other' });
   return all.map((t) => {
     const qs = questions.filter((q) => (known.has(q.topic) ? q.topic : '') === t.id);
     const count = (s) => qs.filter((q) => q.state === s).length;
-    const state = qs.length && qs.every((q) => q.state === 'resolved') ? 'resolved' : 'open';
+    const settled = qs.every((q) => q.state === 'resolved') || (closed.has(t.id) && !count('open'));
+    const state = qs.length && settled ? 'resolved' : 'open';
     return { ...t, state, questions: qs.map((q) => q.id), open: count('open'), answered: count('answered'), replied: count('replied'), resolved: count('resolved') };
   }).filter((t) => t.questions.length);
 }
@@ -447,7 +450,8 @@ export function buildBoard(snapshot) {
   for (const i of items) if (i.kind === 'ask' && i.lane === 'done') i.fold = ASKS_FOLD;
   const declared = new Set((owner.topics || []).map((t) => t.id));
   const topicsOf = () => ownerTopics([...(owner.topics || []), ...items.filter((it) => !declared.has(`item:${it.key}`))
-    .map((it) => ({ id: `item:${it.key}`, title: `${it.ref}: ${it.title}`, summary: 'Questions about this work item.' }))], questions);
+    .map((it) => ({ id: `item:${it.key}`, title: `${it.ref}: ${it.title}`, summary: 'Questions about this work item.' }))], questions,
+  new Set(items.filter((it) => it.lane === 'done').map((it) => `item:${it.key}`)));
   const itemTopics = new Map(topicsOf().map((t) => [t.id, t]));
   for (const it of items) {
     const t = itemTopics.get(`item:${it.key}`);

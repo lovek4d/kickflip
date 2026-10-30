@@ -152,13 +152,15 @@ test('a review waits with its age, and parks in Stale after a week', () => {
   assert.deepEqual([fixing.lane, fixing.waitsOn, fixing.builder?.progress, fixing.next], ['progress', 'builder', 'Making changes', null]);
 });
 
-test('an answer after a question was resolved reopens it', () => {
+test("an answer after a question was resolved reopens it, but a Done card's topic with no open question is resolved", () => {
   const owner = { items: [{ id: 'q1', topic: 'item:w/A1', question: '?', options: [], resolved: 'Kept.', resolved_at: '2026-10-23T10:00:00Z' }] };
   const answer = (ts) => ({ id: 'e' + ts, ts, kind: 'owner-answer', data: { id: 'q1', choice: 'A' }, reply: null });
   assert.equal(board({ owner, events: [answer('2026-10-23T09:00:00Z')] }).owner[0].state, 'resolved');
   const reopened = board({ owner, events: [answer('2026-10-23T11:00:00Z')] });
   assert.equal(reopened.owner[0].state, 'answered');
   assert.equal(reopened.items.find((i) => i.key === 'w/A1').questions.answered, 1);
+  const closed = board({ owner, events: [answer('2026-10-23T11:00:00Z')], item: { status: 'done' } });
+  assert.deepEqual([closed.owner[0].state, closed.ownerTopics.find((t) => t.id === 'item:w/A1').state, closed.items.find((i) => i.key === 'w/A1').questions.state], ['answered', 'resolved', 'resolved']);
 });
 
 test("an answer to an item's question joins that item's thread", () => {

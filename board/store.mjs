@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { ITEM_STATUSES } from './domain.mjs';
+import { ITEM_STATUSES, ownerQuestion } from './domain.mjs';
 import { appendEvent, listBoards } from '../hub/boards.mjs';
 import { reviseQueued, deliver, lastSent, flushQueue, queueStatus } from '../hub/push.mjs';
 import { clock, holdLine } from '../hub/schedule.mjs';
@@ -419,7 +419,8 @@ export async function moveAsk(site, eventId, route) {
   await writeJSON(askProgressFile(site), { asks });
   const link = `/${route}/#item=${encodeURIComponent(`ask:${id}`)}`;
   await appendLine(threadFile(site, `ask:${eventId}`), { ts: at, who: 'claude', text: `Moved to ${target.title}.`, link });
-  for (const key of state?.items || []) await setItem(site, key, { status: 'dropped' });
+  // The ask has already gone to the other board, so a dropped card's open question can't stop it.
+  for (const key of state?.items || []) await setItem(site, key, { status: 'dropped', force: true });
   return { file: path.join(target.dir, 'data', 'events.jsonl'), lines: [`moved to ${link}`, ...(state?.items || []).map((k) => `dropped: ${k}`)] };
 }
 
@@ -671,14 +672,34 @@ export async function addQuestions(site, input) {
   return ownerFile(site);
 }
 
+async function markResolved(site, owner, ids, note) {
+  const at = new Date().toISOString();
+  for (const q of owner.items || []) if (ids.includes(q.id)) Object.assign(q, { resolved: note, resolved_at: at });
+  await writeJSON(ownerFile(site), owner);
+  return ownerFile(site);
+}
+
 export async function resolveQuestion(site, id, note) {
   needSite(site);
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
-  const q = (owner.items || []).find((x) => x.id === id) || fail(`no question "${id}" in owner.json`);
-  q.resolved = text(note, '--note');
-  q.resolved_at = new Date().toISOString();
-  await writeJSON(ownerFile(site), owner);
-  return ownerFile(site);
+  if (!(owner.items || []).some((x) => x.id === id)) fail(`no question "${id}" in owner.json`);
+  return markResolved(site, owner, [id], text(note, '--note'));
+}
+
+// Closing a card resolves its questions (topic item:<key>) that have an answer, and refuses while one has none, naming
+// `by`, unless force. → resolve(): writes the resolutions and returns `resolved: <id>` lines. Changes nothing itself.
+async function closeQuestions(site, key, by, force) {
+  if (!site) return async () => [];
+  const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
+  const answers = (await readLines(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'owner-answer');
+  const asked = (owner.items || []).filter((q) => q.topic === `item:${key}`).map((q) => ownerQuestion(q, answers));
+  const open = asked.filter((q) => q.state === 'open').map((q) => q.id);
+  if (open.length && !force) fail(`${by}: ${key} has ${open.length === 1 ? 'an open question' : 'open questions'} ${open.join(', ')} with no answer yet; pass --force to close the card and resolve ${open.length === 1 ? 'it' : 'them'} too`);
+  const ids = asked.filter((q) => q.state !== 'resolved').map((q) => q.id);
+  return async () => {
+    if (ids.length) await markResolved(site, owner, ids, 'Closed with the card');
+    return ids.map((id) => `resolved: ${id}`);
+  };
 }
 
 async function checkAsk(site, eventId, name = '--from-ask') {
@@ -745,10 +766,12 @@ function installOf({ install, installSha, installLabel, clearInstall }) {
   return { url: String(install).trim(), ...(installLabel === undefined ? {} : { label: text(installLabel, '--install-label') }), built_at: new Date().toISOString(), ...(sha ? { sha } : {}) };
 }
 
-// → the wave file, and with --status done or merged the items it unblocked as `unblocked: <key>` lines.
+// → the wave file, and with --status done or merged the items it unblocked as `unblocked: <key>` lines; closing
+// (done, merged, dropped) adds a `resolved: <id>` line per question it resolved (closeQuestions).
 // notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`.
-export async function setItem(site, key, { status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, install, installSha, installLabel, clearInstall, title }) {
+export async function setItem(site, key, { status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, install, installSha, installLabel, clearInstall, title, force }) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
+  if (force && !FINISHED.includes(status)) fail(`--force goes with --status ${FINISHED.join(', ')}`);
   if (next !== undefined && clearNext) fail('pass --next or --clear-next, not both');
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   if (held && unheld) fail('pass --held or --unheld, not both');
@@ -773,6 +796,7 @@ export async function setItem(site, key, { status, clearStatus, next, clearNext,
     const blockers = await unfinishedDeps(site, parseKey(key).wave, item);
     if (blockers.length) fail(`${key} is blocked by ${blockers.join(', ')}; start it once ${blockers.length === 1 ? 'that is' : 'those are'} done or merged`);
   }
+  const resolve = FINISHED.includes(status) ? await closeQuestions(site, key, `--status ${status}`, force) : async () => [];
   if (clearStatus) delete item.status;
   // A card-done newer than status_at reads "Closing…" (domain.mjs workItem).
   if (status !== undefined || clearStatus) item.status_at = new Date().toISOString();
@@ -783,17 +807,18 @@ export async function setItem(site, key, { status, clearStatus, next, clearNext,
   if (built) item.install = built;
   if (built === null) delete item.install;
   await writeJSON(source.file, wave);
+  const resolved = await resolve();
   // A builder that forgot builder done would keep the card In Progress after it was handed back.
   if (pr !== undefined || HANDED_BACK.includes(status)) await closeBuilders(source.dir, item.id);
   // An ask is in one card's thread: becoming this item moves it out of a card it was folded into.
   const links = ask ? await readAskLinks(site) : {};
   if (ask in links) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
-  if (status !== 'done' && status !== 'merged') return source.file;
+  if (status !== 'done' && status !== 'merged') return { file: source.file, lines: resolved };
   const unblocked = await unblockedBy(site, key);
   // The owner reads a card's wait in its thread, so the line that ends it goes there too.
   const ts = new Date().toISOString();
   for (const k of unblocked) await appendLine(threadFile(site, k), { ts, who: 'claude', text: `Unblocked: ${item.id} is ${status}.` });
-  return { file: source.file, lines: unblocked.map((k) => `unblocked: ${k}`) };
+  return { file: source.file, lines: [...unblocked.map((k) => `unblocked: ${k}`), ...resolved] };
 }
 
 // A comma list of deps, each an item that exists; "" is none.
@@ -829,12 +854,13 @@ export async function addFollowup(site, slug, { id, title, from }) {
   return source.file;
 }
 
-export async function finishFollowup(site, slug, id) {
+export async function finishFollowup(site, slug, id, { force } = {}) {
   const { source, wave } = await loadWave(site, slug);
   const f = (wave.followups || []).find((x) => x.id === id) || fail(`wave "${slug}" has no follow-up "${id}"`);
+  const resolve = await closeQuestions(site, `${slug}/${id}`, 'followup done', force);
   f.done = true;
   await writeJSON(source.file, wave);
-  return source.file;
+  return { file: source.file, lines: await resolve() };
 }
 
 // One record per agent on an item: agents/<id>.json for agent main, agents/<id>@<agent>.json for any other

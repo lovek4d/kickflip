@@ -60,7 +60,10 @@ A --file argument of - reads stdin.
          unblocked: start it next. checking is a builder's hand-back: In Review, reading "Claude
          checking", until the owning session verifies it and sets done; it unblocks nothing.
          Every --status or --clear-status records status_at, which ends the Done button's "Closing…"
-         for the owner's card-done; apply a card-done with --status done
+         for the owner's card-done; apply a card-done with --status done.
+         --status done, merged or dropped closes the card: it resolves each of its questions (topic
+         item:<wave>/<id>) that has an answer, noting "Closed with the card", and prints "resolved: <id>"
+         for each. It refuses while one has no answer yet; [--force] closes it and resolves that one too
   item add <wave>/<id> --title <t> [--notes <t>]          a new card, planned (waiting when it has --deps); never
          [--deps <id>,<wave>/<id>] [--notes-file <file>] hand-edit wave.json to add one. Refuses an id the wave has.
                                                          --plan is an alias of --notes-file
@@ -90,7 +93,7 @@ A --file argument of - reads stdin.
                                                          Then sends the queued pushes, each on its own, unless
                                                          pushes are held (overnight, snoozed, the weekend or off)
   followup add <wave> --id <PROD-1> --title <t> [--from <item id>]
-  followup done <wave> <id>
+  followup done <wave> <id> [--force]                    closes the follow-up's card as item set --status done does
   reviewers set --file <json>                            the board's reviewers in board.json, replacing them:
                                                          [{name, slack_user, dm, github}], as in wave.json.
                                                          The settings page lists them; new waves copy them
@@ -136,7 +139,7 @@ A --file argument of - reads stdin.
          WEB_TS_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/web-ts.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
-const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'answer', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install']);
+const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'answer', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force']);
 const WEB_TS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'bin', 'web-ts.mjs');
 
 function pushCommand() {
@@ -224,9 +227,9 @@ const COMMANDS = {
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
   'question add': [[], ['file'], (site, _, f) => store.addQuestions(site, readJSONInput(f.file))],
   'question resolve': [['id'], ['note'], (site, [id], f) => store.resolveQuestion(site, id, f.note)],
-  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'from-ask', 'held', 'unheld', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title'], (site, [key], f) =>
+  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'from-ask', 'held', 'unheld', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force'], (site, [key], f) =>
     store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, fromAsk: f['from-ask'], held: f.held, unheld: f.unheld, notesFile: notesFileOf(f), deps: f.deps,
-      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title })],
+      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, force: f.force })],
   'item add': [['wave/id'], ['title', 'notes', 'deps', 'notes-file', 'plan'], (site, [key], f) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f) })],
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
   'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],
@@ -234,7 +237,7 @@ const COMMANDS = {
   'ask unfold': [['eventId'], [], (site, [id]) => store.unfoldAsk(site, id)],
   'ask move': [['eventId'], ['to'], (site, [id], f) => store.moveAsk(site, id, f.to)],
   'followup add': [['wave'], ['id', 'title', 'from'], (site, [wave], f) => store.addFollowup(site, wave, f)],
-  'followup done': [['wave', 'id'], [], (site, [wave, id]) => store.finishFollowup(site, wave, id)],
+  'followup done': [['wave', 'id'], ['force'], (site, [wave, id], f) => store.finishFollowup(site, wave, id, { force: f.force })],
   'reviewers set': [[], ['file'], (site, _, f) => store.setReviewers(site, readJSONInput(f.file))],
   'reviewers add': [[], ['file'], (site, _, f) => store.addReviewers(site, readJSONInput(f.file))],
   'reviewers remove': [['...name'], [], (site, names) => store.removeReviewers(site, names)],

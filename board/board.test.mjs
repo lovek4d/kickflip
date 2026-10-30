@@ -247,6 +247,51 @@ test('a follow-up is filed with a date and leaves its lane when done', () => {
   assert.equal(followups[1].from, 'A1');
 });
 
+test("closing a card resolves its answered questions, refuses while one has no answer, changing nothing, and --force closes it anyway", () => {
+  board('item', 'add', 'w/A2', '--title', 'Two', '--site', 'orch');
+  const on = (key) => ({ topic: `item:${key}` });
+  write(site('orch', 'data', 'owner.json'), { topics: [{ id: 'site', title: 'Site' }], items: [
+    question('q1', on('w/A1')),
+    question('q2', { ...on('w/A1'), resolved: 'Kept.', resolved_at: '2026-10-23T10:00:00Z' }),
+    question('q3', { ...on('w/A1'), resolved: 'Old.', resolved_at: '2026-10-23T12:00:00Z' }),
+    question('q4'),
+    question('q5', on('w/A2')), question('q6', on('w/A2')), question('q7', on('w/A2')),
+    question('q8', on('w/PROD-1')), question('q9', on('w/PROD-1')),
+  ] });
+  fs.appendFileSync(site('orch', 'data', 'events.jsonl'), ['q1', 'q2', 'q3', 'q4', 'q5', 'q8'].map((id) =>
+    JSON.stringify({ id: `a-${id}`, ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id, choice: 'A' } }) + '\n').join(''));
+  const owner = () => Object.fromEntries(read(site('orch', 'data', 'owner.json')).items.map((q) => [q.id, q]));
+  const notes = () => Object.fromEntries(Object.values(owner()).map((q) => [q.id, q.resolved ?? null]));
+
+  const done = board('item', 'set', 'w/A1', '--status', 'done', '--site', 'orch');
+  assert.equal(done.code, 0, done.err);
+  assert.deepEqual(done.out.split('\n').filter((l) => l.startsWith('resolved')), ['resolved: q1', 'resolved: q2']);
+  assert.deepEqual(notes(), { q1: 'Closed with the card', q2: 'Closed with the card', q3: 'Old.', q4: null, q5: null, q6: null, q7: null, q8: null, q9: null });
+  assert.ok(owner().q2.resolved_at > '2026-10-23T11:00:00Z');
+
+  const before = [fs.readFileSync(at('waves', 'w', 'wave.json'), 'utf8'), fs.readFileSync(site('orch', 'data', 'owner.json'), 'utf8')];
+  const unchanged = () => assert.deepEqual([fs.readFileSync(at('waves', 'w', 'wave.json'), 'utf8'), fs.readFileSync(site('orch', 'data', 'owner.json'), 'utf8')], before);
+  for (const [args, err] of [
+    [['item', 'set', 'w/A2', '--status', 'dropped'], /^--status dropped: w\/A2 has open questions q6, q7 with no answer yet; pass --force/],
+    [['followup', 'done', 'w', 'PROD-1'], /^followup done: w\/PROD-1 has an open question q9 with no answer yet; pass --force/],
+    [['item', 'set', 'w/A2', '--next', 'Later', '--force'], /^--force goes with --status done, merged, dropped/],
+  ]) {
+    const r = board(...args, '--site', 'orch');
+    assert.equal(r.code, 1, args.join(' '));
+    assert.match(r.err, err, args.join(' '));
+    assert.equal(r.err.trim().split('\n').length, 1, args.join(' '));
+    unchanged();
+  }
+
+  assert.equal(board('item', 'set', 'w/A2', '--status', 'dropped', '--force', '--site', 'orch').code, 0);
+  const forced = board('followup', 'done', 'w', 'PROD-1', '--force', '--site', 'orch');
+  assert.equal(forced.code, 0, forced.err);
+  assert.deepEqual(forced.out.split('\n').filter((l) => l.startsWith('resolved')), ['resolved: q8', 'resolved: q9']);
+  const wave = read(at('waves', 'w', 'wave.json'));
+  assert.deepEqual([wave.items[1].status, wave.followups[0].done], ['dropped', true]);
+  assert.deepEqual(['q5', 'q6', 'q7', 'q8', 'q9'].map((id) => notes()[id]), Array(5).fill('Closed with the card'));
+});
+
 test('agent.mjs still writes builder records, beside the wave file it names', () => {
   assert.equal(run('agent.mjs', ['start', 'w/A1', '--label', 'Opus builder']).code, 0);
   assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).label, 'Opus builder');
