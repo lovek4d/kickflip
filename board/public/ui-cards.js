@@ -51,6 +51,13 @@
     const title = [built && built[0].toUpperCase() + built.slice(1), inst.older && 'the PR has newer commits'].filter(Boolean).join('; ');
     return badge(inst.older ? 'quiet' : 'ready', esc(inst.older ? `${label} · older build` : label), { href: inst.url, title: title || null, attrs: { 'aria-label': `${label}${inst.older ? ', an older build' : ''}` } });
   }
+  // The open card's Merge, while the board's auto-merge is off: it confirms, then sends card-merge, and reads "Merging…"
+  // while it is sent or waits on the session (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md).
+  function mergeButton(it, sending = false) {
+    if (it?.action?.kind !== 'merge' && !it?.merging) return '';
+    const merging = sending || it.merging;
+    return `<button class="primary" data-confirm="merge" data-key="${esc(it.key)}"${merging ? ' disabled' : ''}>${merging ? 'Merging…' : 'Merge'}</button>`;
+  }
   const builderLine = (b) => [b.progress || 'Building', b.at && ago(b.at)].filter(Boolean).join(' · ');
   const unreadCount = (othersAt, seenAt) => (seenAt ? (othersAt || []).filter((t) => String(t) > seenAt).length : 0);
   // A New card's bump, edit and delete, and its line from its ask state (domain.mjs askItem;
@@ -80,5 +87,5 @@
     return keys.length > 1 ? `<button class="link" data-plan="${esc(keys.join(' '))}">Plan a wave from these ${keys.length} follow-ups →</button>` : '';
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, linearChips, REVIEW, reviewAge, reviewChips, pendingQuestions, actionChip, installChip, builderLine, unreadCount, workLines, askChip, askActions, askLine, planButton });
+  Object.assign(globalThis.BoardUI, { prChips, linearChips, REVIEW, reviewAge, reviewChips, pendingQuestions, actionChip, installChip, mergeButton, builderLine, unreadCount, workLines, askChip, askActions, askLine, planButton });
 })();

@@ -399,6 +399,17 @@ test("a thread's Done shows on every card not in Done, and a work card's reads C
   assert.equal(done(undefined), '');
 });
 
+test("an open card waiting on the owner's Merge shows a Merge button that confirms first, and reads Merging…, disabled, while it is sent or waits on the session", () => {
+  const merge = (it, sending) => { const html = ui.mergeButton(it, sending); return html && [text(html), /disabled/.test(html), /data-confirm="merge"/.test(html), /data-key="w\/A1"/.test(html)]; };
+  const waiting = { key: 'w/A1', action: { kind: 'merge', url: '#item=w%2FA1', label: 'Merge' }, merging: false };
+  assert.deepEqual(merge(waiting), ['Merge', false, true, true]);
+  assert.deepEqual(merge(waiting, true), ['Merging…', true, true, true]);
+  assert.deepEqual(merge({ key: 'w/A1', action: null, merging: true }), ['Merging…', true, true, true]);
+  assert.equal(merge({ key: 'w/A1', action: { kind: 'steps', url: '#item=w%2FA1', label: 'Run the manual steps, then merge' }, merging: false }), '');
+  assert.equal(merge({ key: 'w/A1', action: null, merging: false }), '');
+  assert.equal(merge(undefined), '');
+});
+
 test('a thread message says Working on it while Claude works on it, and only a pending message can be deleted', () => {
   const html = ui.threadMessages([
     { ts: ago(3), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it', eventId: 'e1', reply: null, state: 'working', canDelete: true },

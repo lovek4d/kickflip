@@ -3,7 +3,7 @@
 (function () {
   const B = globalThis.BoardApp;
   const { store, state, markSeen, seen, toast, links } = B;
-  const { esc, REVIEW, reviewAge, unreadCount, workLines, linkText } = BoardUI;
+  const { esc, REVIEW, reviewAge, unreadCount, workLines, linkText, mergeButton } = BoardUI;
 
   function detail(it) {
     if (it.kind === 'ask') return `<div class="detail">${B.thread(it.key)}</div>`;
@@ -37,12 +37,14 @@
 
   // docs/adr/0023-a-card-can-be-held-and-every-card-button-confirms.md
   const sendingHold = new Map();
+  const sendingMerge = new Set();
   const refFor = (it) => (it.kind !== 'work' || it.internal ? it.ref : it.linear?.[0]?.id || (it.pr ? `#${it.pr.number}` : it.ref));
   const CONFIRM = {
     hold: (it, ref) => `Hold ${ref}? ${it.lane === 'todo' ? "It won't start" : 'Claude stops work on it'} until you resume it.`,
     resume: (it, ref) => `Resume ${ref}? It can start again once nothing blocks it.`,
     bump: (it, ref) => `Move ${ref} to the top of its lane?`,
     grill: (it, ref) => `Ask Claude for questions about ${ref}?`,
+    merge: (it, ref) => `Merge ${ref}? Claude squash-merges #${it.pr?.number} if it is still approved, green and clean.`,
     build: (it, ref) => `Build ${ref}? Claude replies with a short plan, then builds it as a draft.`,
     finish: (it, ref) => (it.kind === 'ask' ? `Mark this task done? "${it.title}" moves to Done.`
       : `Close ${ref}? It moves to Done and Claude stops work on it.${it.pr?.state === 'OPEN' ? ' Its PR stays open on GitHub.' : ''}`),
@@ -68,7 +70,7 @@
     return `<div class="actions" data-actions="${key}">
         ${draftPR ? `<a class="pill" href="${esc(pr.url)}" target="_blank" rel="noopener">Review #${esc(pr.number)} on GitHub →</a>` : ''}
         ${it.kind === 'followup' && it.lane !== 'done' ? `<button class="primary" data-confirm="build" data-key="${key}">Build</button>` : ''}
-        ${hold}${prioritize}${grill}
+        ${mergeButton(it, sendingMerge.has(it.key))}${hold}${prioritize}${grill}
         ${it.plan ? `<a class="pill" href="plan.html?item=${encodeURIComponent(it.key)}">Full plan →</a>` : ''}
       </div>`;
   }
@@ -122,6 +124,16 @@
       try { await ClaudeSite.send('card-hold', { key, hold: act === 'hold' }); }
       catch { toast(`Could not ${act}. Is the Mac awake?`, 3000); }
       sendingHold.delete(key);
+      B.loadBoard();
+      return;
+    }
+    // docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md
+    if (act === 'merge') {
+      sendingMerge.add(key);
+      redrawActions(key);
+      try { await ClaudeSite.send('card-merge', { key }); }
+      catch { toast('Could not send. Is the Mac awake?', 3000); }
+      sendingMerge.delete(key);
       B.loadBoard();
       return;
     }

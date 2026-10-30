@@ -355,6 +355,36 @@ test("an ask Claude marks in progress waits on the owner in In Review with its n
   assert.deepEqual([waiting.lane, waiting.bumpable], ['done', false]);
 });
 
+test("with auto-merge off an approved, green, clean PR waits on the owner's Merge, reads merging until Claude writes after it, and with it on waits on monitor", () => {
+  const clean = { state: 'OPEN', isDraft: false, reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN', checks: { state: 'pass' }, reviews: {} };
+  const card = ({ pr = clean, autoMerge, events = [], threads = {}, item = {} } = {}) => buildBoard({
+    fromWaves: false, autoMerge, events, threads, prs: { 'o/r#7': pr },
+    waves: [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7, ...item }] } }],
+  });
+  const off = card();
+  const it = off.items[0];
+  assert.deepEqual([it.lane, it.waitsOn, it.merging, it.next, it.action], ['review', 'merge', false, 'Approved and green: tap Merge', { kind: 'merge', url: '#item=w%2FA1', label: 'Merge' }]);
+  assert.deepEqual(needsAnswer(off).items, [{ kind: 'Action needed', text: 'A1: One · Merge', url: '#item=w%2FA1' }]);
+  for (const pr of [{ ...clean, mergeStateStatus: 'BLOCKED' }, { ...clean, checks: { state: 'pending' } }, { ...clean, reviewDecision: 'REVIEW_REQUIRED' }]) {
+    assert.equal(card({ pr }).items[0].action, null, JSON.stringify(pr));
+  }
+  assert.equal(card({ pr: { ...clean, mergeStateStatus: 'BLOCKED' } }).items[0].next, 'Approved, Merge shows once CI and the merge state allow');
+  assert.equal(card({ item: { held: true } }).items[0].action, null);
+  assert.equal(card({ item: { manual_steps: ['Run the backfill'] } }).items[0].action.kind, 'steps');
+
+  const tapped = [{ id: 'm1', ts: '2026-10-29T10:00:00Z', kind: 'card-merge', data: { key: 'w/A1' } }];
+  const merging = card({ events: tapped, threads: { 'w/A1': [{ ts: '2026-10-29T10:01:00Z', who: 'claude', kind: 'status', text: 'Merging' }] } }).items[0];
+  assert.deepEqual([merging.lane, merging.merging, merging.action, merging.next], ['review', true, null, 'Merging']);
+  const declined = card({ events: tapped, threads: { 'w/A1': [{ ts: '2026-10-29T10:02:00Z', who: 'claude', text: 'Not merged: a commit after the approval changes behaviour' }] } }).items[0];
+  assert.deepEqual([declined.merging, declined.action?.kind], [false, 'merge']);
+  const merged = card({ events: tapped, pr: { ...clean, state: 'MERGED' } }).items[0];
+  assert.deepEqual([merged.lane, merged.merging, merged.action], ['done', false, null]);
+
+  const on = card({ autoMerge: true }).items[0];
+  assert.deepEqual([on.lane, on.waitsOn, on.merging, on.action, on.next], ['review', 'merge', false, null, 'Approved, merges once CI and the merge state allow']);
+  assert.equal(card({ autoMerge: true, item: { manual_steps: ['Run the backfill'] } }).items[0].action.kind, 'steps');
+});
+
 test("every card not in Done can be closed, and a card-done reads closing until the card's status changes after it", () => {
   const close = (key, ts) => ({ id: 'c' + ts, ts, kind: 'card-done', data: { key }, reply: null });
   const items = [

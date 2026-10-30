@@ -90,6 +90,12 @@ A --file argument of - reads stdin.
                                                          --by claude when you codify one on the owner's word
   rules edit <id> --text <t> [--hub]                     rewords a rule, keeping who added it
   rules remove <id> [--hub]                              refuses an id the list doesn't have
+  settings                                               the board's settings as JSON, each false when board.json
+                                                         leaves it out: {"auto_merge": false}
+  settings set auto-merge on|off                         on: monitor merges an approved PR once CI is green and
+                                                         the merge state is CLEAN. off (the default): the card
+                                                         shows the owner a Merge button, and monitor merges on its
+                                                         card-merge event. The Settings page's toggle writes it too
   builder start <wave>/<id> [--agent <name>] [--kind <opus|codex|sonnet|…>] [--label <who>]
          [--progress <text>] [--eta <ISO time>]          one record per agent on the item; --agent defaults to main
   builder progress <wave>/<id> (<text> | --text <t>)     one short present-tense line
@@ -216,6 +222,8 @@ const COMMANDS = {
   'rules add': [[], ['text', 'hub', 'by'], (site, _, f) => store.addRuleTo(site, f)],
   'rules edit': [['id'], ['text', 'hub'], (site, [id], f) => store.editRuleIn(site, id, f)],
   'rules remove': [['id'], ['hub'], (site, [id], f) => store.removeRuleFrom(site, id, f)],
+  settings: [[], [], async (site) => ({ lines: [JSON.stringify(await store.readBoardSettings(site))] })],
+  'settings set': [['name', 'on|off'], [], (site, [name, value]) => store.setBoardSetting(site, name, value)],
   'builder start': [['wave/id'], ['label', 'progress', 'dir', 'agent', 'kind', 'eta'], (site, [key], f) => store.startBuilder(site, key, f)],
   'builder progress': [['wave/id', '...text?'], ['text', 'dir', 'agent', 'eta', 'clear-eta'], (site, [key, ...words], f) => {
     if (words.length && f.text !== undefined) throw new UsageError('builder progress takes its text once: as words or as --text');
@@ -232,7 +240,7 @@ const COMMANDS = {
 export async function main(argv) {
   try {
     const { flags, rest } = parse(argv);
-    const name = COMMANDS[rest[0]] ? rest[0] : `${rest[0]} ${rest[1]}`;
+    const name = COMMANDS[`${rest[0]} ${rest[1]}`] ? `${rest[0]} ${rest[1]}` : rest[0];
     const command = COMMANDS[name];
     if (!command) throw new UsageError(rest.length ? `unknown command "${rest.slice(0, 2).join(' ')}"` : 'no command given');
     const [params, allowed, run] = command;

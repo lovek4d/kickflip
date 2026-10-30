@@ -9,6 +9,8 @@
 //   rule hub <text>           each hub rule (settings.json `rules`), then
 //   rule board <text>         each of the board's own (board.json `rules`): the owner's standing instructions,
 //                             printed with every wake (docs/adr/0039-rules-live-on-settings-at-hub-and-board-level.md), then
+//   setting <name> on|off     each board setting from board.json, such as auto-merge, absent ones off
+//                             (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md), then
 //   link <name> <detail>      each hub link that doesn't reach the board (../hub/boards.mjs linksOf), the list its
 //                             Hub links sheet shows (docs/adr/0040-one-board-registry-for-every-hub-feature.md), at
 //                             once, while the sheet still reads it settling
@@ -22,6 +24,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { readHubRules, rulesOf, ruleLines } from '../hub/rules.mjs';
 import { boardAt, linksOf } from '../hub/boards.mjs';
+import { settingsLines, settingsOf } from '../board/store.mjs';
 
 const [route, session] = process.argv.slice(2);
 if (!route || !session) { console.error('usage: wait-events.mjs <route> <session-id>'); process.exit(2); }
@@ -81,6 +84,7 @@ for (;;) {
     let board = null;
     try { board = JSON.parse(fs.readFileSync(path.resolve(s.dir, 'board.json'), 'utf8')); } catch (e) { if (e.code !== 'ENOENT') board = {}; }
     if (board) for (const line of ruleLines(readHubRules(), rulesOf(board))) console.log(`rule ${line}`);
+    if (board) for (const line of settingsLines(settingsOf(board))) console.log(line);
     // This watcher still runs, so the events link reads as reaching the board. A failure here must not keep the
     // cursor below from moving, or the same events would wake the session again.
     try {

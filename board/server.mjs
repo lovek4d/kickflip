@@ -5,7 +5,8 @@
 // below through bin/board.mjs (store.mjs):
 //   reply, thread, topic add, question add|resolve, item set|relate-ask, ask progress|done, followup add|done,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder).
-// <site dir>/board.json: {title, items, slug, reviewers, rules}. rules are the owner's standing instructions to this
+// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge}. auto_merge (false when absent) lets monitor merge
+// an approved, green, clean PR itself; off, the card shows the owner's Merge (store.mjs settingsOf). rules are the owner's standing instructions to this
 // board's session [{id, text, by, at}] (board.mjs rules, hub/rules.mjs). reviewers are the board's own [{name, slack_user, dm,
 // github}] (board.mjs reviewers), which the settings page lists and new waves copy. items is "waves" (every ~/.claude/waves/*/wave.json,
 // the default) or a wave.json-format file relative to the site dir; slug names a file's items
@@ -62,6 +63,9 @@
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (store.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
+//   GET  /api/settings           the board's settings, {auto_merge} (store.mjs readBoardSettings)
+//   POST /api/settings           {auto_merge: boolean} → board.json, keeping its other keys, and when the value moved a
+//                                `settings {auto_merge}` event, which wakes Claude. → {settings, id}; a bad body → 400 {error}
 //   GET  /_claude/events         events not hidden, newest first, each with Claude's reply if written
 //   GET  /_claude/needs          {items: [{kind, text, url}], working, summary, lanes: {review, progress, todo}, building}:
 //                                one item per Needs you line, the count of events Claude is working on, a one-line
@@ -83,7 +87,7 @@ import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { buildBoard, ITEM_EVENTS, needsAnswer, refOf, threadOf } from './domain.mjs';
 import { createReadStream, watch as watchFiles } from 'node:fs';
-import { BoardError, boardConfig, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readHandshake, readHidden, readPlan, readWorking, readUpload, saveBoardRules, saveUpload, setHidden, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, boardConfig, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readPlan, readWorking, readUpload, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, linksOf } from '../hub/boards.mjs';
 
@@ -300,7 +304,8 @@ async function readAgents(dir) {
 // PR state from gh, item threads, page events with Claude's replies, owner
 // questions and the slack-bridge state.
 async function snapshot() {
-  const fromWaves = (await config()).items === 'waves';
+  const cfg = await config();
+  const fromWaves = cfg.items === 'waves';
   const sources = await itemSources(here);
   const waves = (await Promise.all(sources.map(async (s) => {
     const wave = await readJSON(s.file, null);
@@ -326,7 +331,7 @@ async function snapshot() {
   }));
 
   return {
-    fromWaves, waves, prs, threads: threadLines, events: pageEvents, working, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
+    fromWaves, autoMerge: settingsOf(cfg).auto_merge, waves, prs, threads: threadLines, events: pageEvents, working, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
     checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await watcherState(), replyAt: await latestReply(),
     watched: (await readJSON(path.join(wavesDir(), 'monitor.json'), { waves: [] })).waves || [],
     owner: await readJSON(path.join(data, 'owner.json'), { items: [] }),
@@ -522,6 +527,14 @@ const server = http.createServer(async (req, res) => {
       try { saved = await saveBoardRules(here, body.rules, body.base ?? []); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
       const id = rulesChanged(saved.changes) ? await appendEvent('rules', { scope: 'board', ...saved.changes }) : null;
       return json(res, 200, { rules: saved.rules, id });
+    }
+    if (p === '/api/settings' && req.method === 'GET') return json(res, 200, { settings: await readBoardSettings(here) });
+    if (p === '/api/settings' && req.method === 'POST') {
+      const body = await readBody(req);
+      let saved;
+      try { saved = await saveBoardSettings(here, body); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
+      const id = saved.changed.length ? await appendEvent('settings', Object.fromEntries(saved.changed.map((k) => [k, saved.settings[k]]))) : null;
+      return json(res, 200, { settings: saved.settings, id });
     }
     if (p === '/api/hide' && req.method === 'POST') {
       const body = await readBody(req);

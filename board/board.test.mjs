@@ -600,6 +600,32 @@ test("reviewers set, add and remove keep the board's own reviewers in its board.
   assert.deepEqual(cfg(), { title: 'Orch', items: 'waves', reviewers: [bob] });
 });
 
+test("settings prints the board's settings as JSON, off when absent, and settings set auto-merge on|off writes board.json keeping its other keys", () => {
+  const cfg = () => read(site('orch', 'board.json'));
+  write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] });
+  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false}\n', err: '' });
+  const on = board('settings', 'set', 'auto-merge', 'on', '--site', 'orch');
+  assert.equal(on.code, 0);
+  assert.match(on.out, /^auto-merge on$/m);
+  assert.deepEqual(cfg(), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }], auto_merge: true });
+  assert.equal(board('settings', '--site', 'orch').out, '{"auto_merge":true}\n');
+  assert.equal(board('settings', 'set', 'auto-merge', 'off', '--site', 'orch').code, 0);
+  assert.equal(cfg().auto_merge, false);
+
+  const bad = [
+    [['settings'], 1, /needs --site/],
+    [['settings', 'set', 'auto-merge', 'yes', '--site', 'orch'], 1, /takes on or off/],
+    [['settings', 'set', 'auto-deploy', 'on', '--site', 'orch'], 1, /no board setting "auto-deploy"; settings are auto-merge/],
+    [['settings', 'set', 'auto-merge', '--site', 'orch'], 2, /settings set takes <name> <on\|off>/],
+  ];
+  for (const [args, code, err] of bad) {
+    const r = board(...args);
+    assert.equal(r.code, code, args.join(' '));
+    assert.match(r.err, err, args.join(' '));
+  }
+  assert.equal(cfg().auto_merge, false);
+});
+
 test("rules add, edit and remove keep a board's rules in its board.json and the hub's in settings.json, and list prints both", () => {
   const settings = { polling: { windows: [{ from: '08:00', every_minutes: 15 }], hold_overnight: true }, other_key: 'kept' };
   write(at('web-ts', 'settings.json'), settings);

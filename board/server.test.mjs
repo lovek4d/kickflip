@@ -326,7 +326,31 @@ test("the settings page's rules save writes board.json, keeps its other keys and
   }
 });
 
-test('the watcher prints the hub rules, then the board rules, after the event lines', async () => {
+test("the settings page's auto-merge toggle writes board.json, keeping its other keys, and wakes Claude only when the value moves", async () => {
+  const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] }));
+  const save = (body) => fetch(`${base}/api/settings`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const settingsEvents = async () => (await (await fetch(`${base}/_claude/events?kind=settings`)).json()).map((e) => e.data);
+  try {
+    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false } });
+    const on = await save({ auto_merge: true });
+    assert.equal(on.status, 200);
+    const out = await on.json();
+    assert.deepEqual(out.settings, { auto_merge: true });
+    assert.match(out.id, /^e/);
+    const written = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8'));
+    assert.deepEqual([written.title, written.rules.length, written.auto_merge], ['T', 1, true]);
+    assert.deepEqual(await settingsEvents(), [{ auto_merge: true }]);
+    assert.equal((await (await save({ auto_merge: true })).json()).id, null);
+    for (const bad of [{ auto_merge: 'yes' }, { auto_deploy: true }, {}, ['x']]) assert.equal((await save(bad)).status, 400, JSON.stringify(bad));
+    assert.equal((await settingsEvents()).length, 1);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8')).auto_merge, true);
+  } finally {
+    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
+  }
+});
+
+test('the watcher prints the hub rules, then the board rules, then the board settings, after the event lines', async () => {
   const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
   const web = path.join(home, '.claude', 'web-ts');
   fs.mkdirSync(web, { recursive: true });
@@ -346,10 +370,10 @@ test('the watcher prints the hub rules, then the board rules, after the event li
   try {
     const lines = await watch('rules1');
     assert.match(lines[0], /^event data\/events\.jsonl /);
-    assert.deepEqual(lines.slice(1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main']);
-    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
+    assert.deepEqual(lines.slice(1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off']);
+    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, auto_merge: true }));
     fs.rmSync(path.join(web, 'settings.json'));
-    assert.equal((await watch('rules2')).length, 1);
+    assert.deepEqual((await watch('rules2')).slice(1), ['setting auto-merge on']);
   } finally {
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
     fs.rmSync(path.join(web, 'settings.json'), { force: true });

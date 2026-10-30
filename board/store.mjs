@@ -417,23 +417,55 @@ export function removeReviewers(site, names) {
 
 // Rules: the hub's in settings.json and this board's in board.json `rules` (../hub/rules.mjs;
 // docs/adr/0039-rules-live-on-settings-at-hub-and-board-level.md). The settings page and the CLI both write board.json,
-// so board rule writes run one at a time.
+// so board rule and setting writes run one at a time.
 const hubSettingsFile = () => path.join(os.homedir(), '.claude', 'web-ts', 'settings.json');
 const ruleCall = (fn) => { try { return fn(); } catch (e) { if (e instanceof RuleError) fail(e.message); throw e; } };
 export const readBoardRules = async (site) => rulesOf(await readJSON(path.join(site, 'board.json'), {}));
 
-let ruleWrites = Promise.resolve();
-function writeBoardRules(site, change) {
-  const write = ruleWrites.then(async () => {
+let boardWrites = Promise.resolve();
+// change(cfg) → {keys to set in board.json, ...anything else to return}
+function writeBoardJSON(site, change) {
+  const write = boardWrites.then(async () => {
     const file = path.join(needSite(site), 'board.json');
     const cfg = await readJSON(file, {});
-    const result = ruleCall(() => change(rulesOf(cfg)));
-    await writeJSON(file, { ...cfg, rules: result.rules });
+    const { set, ...result } = change(cfg);
+    await writeJSON(file, { ...cfg, ...set });
     return { file, ...result };
   });
-  ruleWrites = write.catch(() => {});
+  boardWrites = write.catch(() => {});
   return write;
 }
+const writeBoardRules = (site, change) => writeBoardJSON(site, (cfg) => {
+  const result = ruleCall(() => change(rulesOf(cfg)));
+  return { set: { rules: result.rules }, ...result };
+});
+
+// A board's settings in board.json, each off when absent (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md).
+// auto_merge: monitor merges an approved, green, clean PR itself; off, the card waits on the owner's Merge.
+export const settingsOf = (cfg) => ({ auto_merge: cfg?.auto_merge === true });
+export async function readBoardSettings(site) {
+  return settingsOf(await readJSON(path.join(needSite(site), 'board.json'), {}));
+}
+// changes {auto_merge: boolean} → {file, settings, changed}; changed lists the keys whose value moved.
+export function saveBoardSettings(site, changes) {
+  onlyKeys(changes, ['auto_merge'], 'the settings');
+  if (!Object.keys(changes).length) fail('the settings name nothing to change');
+  for (const [k, v] of Object.entries(changes)) bool(v, k);
+  return writeBoardJSON(site, (cfg) => {
+    const before = settingsOf(cfg);
+    const settings = { ...before, ...changes };
+    return { set: changes, settings, changed: Object.keys(changes).filter((k) => before[k] !== settings[k]) };
+  });
+}
+// The CLI's `settings set <name> on|off`; names are the board.json keys with "-" for "_".
+export async function setBoardSetting(site, name, value) {
+  const key = String(name).replace(/-/g, '_');
+  if (!(key in settingsOf({}))) fail(`no board setting "${name}"; settings are ${Object.keys(settingsOf({})).map((k) => k.replace(/_/g, '-')).join(', ')}`);
+  if (!['on', 'off'].includes(value)) fail(`settings set ${name} takes on or off, not "${value}"`);
+  const { file, settings } = await saveBoardSettings(site, { [key]: value === 'on' });
+  return { file, lines: [`${name} ${settings[key] ? 'on' : 'off'}`] };
+}
+export const settingsLines = (settings) => Object.entries(settings).map(([k, v]) => `setting ${k.replace(/_/g, '-')} ${v ? 'on' : 'off'}`);
 
 // change(list) → {rules, rule} from hub/rules.mjs; → {file, lines} naming the rule's id.
 async function changeRules(site, hub, change) {

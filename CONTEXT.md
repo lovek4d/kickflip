@@ -39,7 +39,7 @@ The hub's one schedule, a list of windows with their minutes: on each slot it ch
 _Avoid_: push schedule, send-at-once hours, cron
 
 **Hub Settings**:
-The hub pages' gear page, `/_hub/settings`: this device's notifications, push notifications on or off, snooze, off on weekends, a Polling row opening the page that edits the polling interval, hold pushes overnight and daily wakes, and the rules for every board. A board's gear opens that board's own Settings, which holds its reviewers and its own rules.
+The hub pages' gear page, `/_hub/settings`: this device's notifications, push notifications on or off, snooze, off on weekends, a Polling row opening the page that edits the polling interval, hold pushes overnight and daily wakes, and the rules for every board. A board's gear opens that board's own Settings, which holds its auto-merge toggle, its reviewers and its own rules.
 _Avoid_: preferences, hub config
 
 **Waiting count**:
@@ -117,8 +117,12 @@ Who the card is waiting for: the owning session's check, the owner's Ready, the 
 _Avoid_: blocked by, assignee
 
 **Action needed**:
-The notice-tone badge on a card waiting on the owner, in any lane: an open question or a prototype pick, a green draft's Ready, an ask's Done, or manual steps on an approved PR. It links to the thing to act on. Reviewer waits and held cards get none ([0045](docs/adr/0045-the-lane-follows-who-acts-next.md)).
+The notice-tone badge on a card waiting on the owner, in any lane: an open question or a prototype pick, a green draft's Ready, an ask's Done, manual steps on an approved PR, or, with **auto-merge** off, an approved PR's Merge. It links to the thing to act on. Reviewer waits and held cards get none ([0045](docs/adr/0045-the-lane-follows-who-acts-next.md)).
 _Avoid_: open items, needs you (Needs you is the box at the top of the board)
+
+**Auto-merge**:
+A board setting, `auto_merge` in its `board.json`, off unless set: on, monitor merges a PR once it is approved, CI is green and its merge state is CLEAN; off, the card shows the owner Action needed and a Merge button, which reads "Merging…" until the PR merges or Claude says in the thread why it didn't. The board's Settings page toggles it, and the watcher prints it with every wake as `setting auto-merge on|off`. A setting, not a **rule**, since the board itself acts on it ([0052](docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md)).
+_Avoid_: merge rule, merge policy
 
 **Install**:
 The link on a card whose PR builds a device app, right of Action needed, that installs the build on the owner's phone: an iOS `itms-services://` manifest link or an Android `.apk`, kept in the item's `install`. It reads "older build" once the PR's head moves past the commit it was built from, and leaves the card in Done ([0051](docs/adr/0051-a-device-app-card-carries-an-install-link.md)).
@@ -209,7 +213,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `../shared/colors.css` | Every color, served as `colors.css` and linked before `style.css`; the hub serves it as `/_hub/colors.css` |
 | `ui.js` | Shared helpers: escaping, times, reply bodies, attachments, icons and message buttons, badges by tone, `setHTML` |
 | `ui-links.js` | Linking refs, Linear ids, PRs and URLs in written text; load it right after `ui.js` |
-| `ui-cards.js` | A card's lines, in order: title with its ref, or New or Task chip; status with its ETA; unread; Action needed, Install, PR, review and other chips; Blocked by chips; and a New card's bump, edit and delete icons |
+| `ui-cards.js` | A card's lines, in order: title with its ref, or New or Task chip; status with its ETA; unread; Action needed, Install, PR, review and other chips; Blocked by chips; and a New card's bump, edit and delete icons; and the action row's Merge button |
 | `ui-sidebar.js` | `BoardUI.sidebar`, the sidebar's markup from `/_hub/sidebar.json`, and `othersWaiting`, the logo's count. Needs nothing else: `hub/hub.mjs` renders the hub pages' sidebar with it in a vm context, and serves it as `/_hub/ui-sidebar.js` |
 | `sidebar.js` | Painting the sidebar from this device's last copy and then the hub, the drawer and its swipes, the logo's count, and storing the last board for `/`; the hub serves it as `/_hub/sidebar.js` |
 | `sidebar.css` | The sidebar's rail and drawer, scoped to `.sidebar`; linked after `colors.css`, and served by the hub as `/_hub/sidebar.css` |
@@ -227,7 +231,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `dialogs.js` | `BoardDialogs.confirm` and `notice`, which every board page's dialogs go through; loaded on every page |
 | `rules-editor.js` | `RulesEditor`, the rules list on board Settings and hub Settings (served as `/_hub/rules-editor.js`), with its own CSS; `ui.test.mjs` tests its pure parts |
 | `app-threads.js` | Loading a thread, once at a time per card; an open card's thread, its reply box, quick replies and Done |
-| `app-cards.js` | Cards, their open detail, and the action row: Full plan, then Hold, Prioritize and Grill with each one's confirmation; the thread's Done confirmation and send |
+| `app-cards.js` | Cards, their open detail, and the action row: Merge, Hold, Prioritize and Grill with each one's confirmation, then Full plan; the thread's Done confirmation and send |
 | `app-lanes.js` | Lanes, the Answered, older and finished-wave folds, the wave bars and filter, and Plan a wave |
 | `app-asks.js` | The + sheet and its press-n-twice shortcut, and bump, edit and delete |
 | `app-needs.js` | The Needs you box |
