@@ -60,6 +60,11 @@
   }
   const builderLine = (b) => [b.progress || 'Building', b.at && ago(b.at)].filter(Boolean).join(' · ');
   const unreadCount = (othersAt, seenAt) => (seenAt ? (othersAt || []).filter((t) => String(t) > seenAt).length : 0);
+  const unreadChip = (n) => {
+    if (!n) return '';
+    const label = `${n} unread message${n === 1 ? '' : 's'}`;
+    return `<span class="chip unread" title="${label}" aria-label="${label}">${n} new</span>`;
+  };
   // A New card's bump, edit and delete, and its line from its ask state (domain.mjs askItem;
   // docs/adr/0047-the-plus-makes-a-new-card.md). top is whether it is the latest bump.
   const askActions = (it, top) => `<div class="ask-actions">${bumpButton(it, top)}${it.ask.canEdit ? editButton(it.id) : ''}${withdrawButton(it.id)}</div>`;
@@ -70,7 +75,7 @@
     const ids = it.kind === 'ask' ? askChip(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
     const blocked = (it.blockedBy || []).map((d) => badge('notice', `blocked by ${esc(d.ref)}`, { href: `#item=${encodeURIComponent(d.key)}` })).join('');
     const ready = !blocked && !it.action && it.deps?.length && it.lane === 'todo' ? badge('ready', 'ready to start') : '';
-    const chips = `${actionChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('normal', 'bumped') : ''}${ready}${installChip(it)}`;
+    const chips = `${unreadChip(unread)}${actionChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('normal', 'bumped') : ''}${ready}${installChip(it)}`;
     const status = it.isNew && !it.action ? `<div class="line3 sub">${askLine(it.ask)}</div>`
       : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Orchestrator review</div>'
       : it.builder ? `<div class="line3 sub agent">${esc(builderLine(it.builder))}</div>`
@@ -78,7 +83,7 @@
       : it.next ? `<div class="line3 sub next">Next: ${esc(it.next)}</div>` : '';
     const eta = it.eta && it.builder ? `<div class="line3 sub eta">${esc(etaLine(it.eta))}</div>` : '';
     return `${cardActions(it, top)}<div class="line1 title">${ids ? `${ids} ` : ''}${esc(it.title)}</div>
-      ${status}${eta}${unread ? `<div class="line4 sub unread">${unread} unread message${unread === 1 ? '' : 's'}</div>` : ''}
+      ${status}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
       ${blocked ? `<div class="line5 meta blocked">${blocked}</div>` : ''}`;
   }

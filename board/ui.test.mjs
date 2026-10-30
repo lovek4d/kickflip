@@ -692,10 +692,11 @@ const workCard = { kind: 'work', key: 'w/B5', id: 'B5', ref: 'B5', title: 'Five'
   linear: [{ id: 'PROD-1', url: 'https://linear.app/x/PROD-1' }], pr: { ...openPR, isDraft: true }, reviewers: ['Jamie'], review: { Jamie: { state: 'unsent' } },
   questions: null, builder: null, working: false, next: 'Waiting for PR reviewers' };
 
-test('a work card reads its title, then its next step or builder, its unread messages, its chips, and last its Blocked by chips', () => {
-  assert.deepEqual(lines(ui.workLines(workCard, { unread: 2 })), ['PROD-1 Five', 'Next: Waiting for PR reviewers', '2 unread messages', 'repo#7 ● CI ✓ J ✗']);
-  assert.deepEqual(lines(ui.workLines({ ...workCard, next: null, pr: null, reviewers: [] }, { unread: 1 })), ['PROD-1 Five', '1 unread message']);
-  assert.match(ui.workLines(workCard, { unread: 1 }), /<div class="line4 sub unread">1 unread message<\/div>/);
+test('a work card reads its title, then its next step or builder, its chips led by its unread messages, and last its Blocked by chips', () => {
+  assert.deepEqual(lines(ui.workLines(workCard, { unread: 2 })), ['PROD-1 Five', 'Next: Waiting for PR reviewers', '2 new repo#7 ● CI ✓ J ✗']);
+  assert.deepEqual(lines(ui.workLines({ ...workCard, next: null, pr: null, reviewers: [] }, { unread: 1 })), ['PROD-1 Five', '1 new']);
+  assert.match(ui.workLines(workCard, { unread: 1 }), /<div class="line2 meta"><span class="chip unread"[^>]* aria-label="1 unread message">1 new<\/span>/);
+  assert.match(ui.workLines(workCard, { unread: 3 }), /aria-label="3 unread messages">3 new</);
   assert.doesNotMatch(text(ui.workLines(workCard)), /B5|msg|unread/);
   const busy = { ...workCard, held: true, risky: true, builder: { progress: 'Running tests', at: null } };
   assert.deepEqual(lines(ui.workLines(busy)), ['PROD-1 Five', 'Running tests', 'repo#7 ● CI ✓ J ✗ held risky']);
@@ -703,6 +704,8 @@ test('a work card reads its title, then its next step or builder, its unread mes
   assert.deepEqual(lines(ui.workLines(internal)), ['INT-3 Five']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, questions: { open: 1, first: 'q1' }, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
     ['PROD-1 Five', 'Next: Waiting for PR reviewers', 'Action needed repo#7 ● CI ✓ J ✗']);
+  assert.deepEqual(lines(ui.workLines({ ...workCard, questions: { open: 1, first: 'q1' }, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } }, { unread: 3 })),
+    ['PROD-1 Five', 'Next: Waiting for PR reviewers', '3 new Action needed repo#7 ● CI ✓ J ✗']);
   const blocked = { ...internal, lane: 'todo', deps: ['S1', 'S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }] };
   assert.deepEqual(lines(ui.workLines(blocked)), ['INT-3 Five', 'blocked by INT-2']);
   assert.match(ui.workLines(blocked), /href="#item=site%2FS2"/);
@@ -710,9 +713,10 @@ test('a work card reads its title, then its next step or builder, its unread mes
   assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [], next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
     ['INT-3 Five', 'Next: Answer 1 question', 'Action needed']);
   const waiting = { ...workCard, lane: 'todo', deps: ['S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }], bumpedAt: ago(1) };
-  assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['PROD-1 Five', 'Next: Waiting for PR reviewers', '1 unread message', 'repo#7 ● CI ✓ J ✗ bumped', 'blocked by INT-2']);
+  assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['PROD-1 Five', 'Next: Waiting for PR reviewers', '1 new repo#7 ● CI ✓ J ✗ bumped', 'blocked by INT-2']);
   const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: 'Task', title: 'Fix it', internal: false, linear: [], pr: null, deps: [], blockedBy: [], working: true };
   assert.deepEqual(lines(ui.workLines(ask)), ['Task Fix it', 'Working on it']);
+  assert.deepEqual(lines(ui.workLines(ask, { unread: 2 })), ['Task Fix it', 'Working on it', '2 new']);
   assert.deepEqual(lines(ui.workLines({ ...internal, waitsOn: 'checking', working: true, next: 'Verify it' })), ['INT-3 Five', 'Orchestrator review']);
   const followup = { ...workCard, kind: 'followup', key: 'w/PROD-7', id: 'PROD-7', ref: 'PROD-7', linear: [{ id: 'PROD-7', url: 'u' }], pr: null, reviewers: [], next: null, lane: 'todo', deps: [], blockedBy: [] };
   assert.deepEqual(lines(ui.workLines(followup)), ['PROD-7 Five', 'follow-up']);

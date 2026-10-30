@@ -103,7 +103,10 @@ BoardView.part((B) => {
       state.openItems.add(key);
       const it = state.board.items.find((i) => i.key === key);
       markSeen(it);
-      el.querySelector('.unread')?.remove();
+      const unread = el.querySelector('summary .chip.unread');
+      const row = unread?.parentNode;
+      unread?.remove();
+      if (row && !row.children.length) row.remove();
       if (it && !el.querySelector('.detail')) { el.insertAdjacentHTML('beforeend', detail(it)); }
       if (state.threadCache.has(key)) B.renderThread(key, state.threadCache.get(key));
       B.loadThread(key, { maxAge: 10000 });

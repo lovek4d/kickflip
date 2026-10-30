@@ -72,6 +72,8 @@ main { max-width: 860px; margin: 0 auto; padding: 12px 16px 80px; }
   padding: 1px 7px; font-size: 12px; white-space: nowrap; color: var(--text); }
 .chip.tone-quiet { color: var(--color-quiet); } .chip.tone-normal { color: var(--color-info); } .chip.tone-notice { color: var(--color-notice); }
 .chip.tone-danger { color: var(--color-danger); } .chip.tone-ready { color: var(--color-success); }
+/* Action needed keeps the notice orange; unread takes the accent so the two never read alike. */
+.chip.unread { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--color-quiet); }
 .dot.pass { background: var(--color-success); } .dot.pending { background: var(--color-notice); } .dot.fail { background: var(--color-danger); }
 
@@ -239,7 +241,6 @@ button.attach:disabled { opacity: .35; }
 .line1 .chip { vertical-align: 1px; margin-right: 2px; }
 .line2.meta { justify-content: flex-start; margin-top: 4px; }
 .line3 { margin-top: 3px; }
-.line4 { margin-top: 2px; }
 .brand { display: grid; grid-template-columns: auto auto minmax(0, 1fr); column-gap: 10px; row-gap: 2px; }
 .brand .hub { grid-row: 1 / span 2; align-self: center; }
 .sub .working { color: var(--color-notice); }

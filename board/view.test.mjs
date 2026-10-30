@@ -618,6 +618,19 @@ test("a card opened with more than 3 unread messages shows them all, and once cl
   assert.deepEqual(seen(), ['Show more · 5 previous messages', ['Five', 'Six', 'Seven']]);
 });
 
+test("a closed card leads its chip row with its count of unread messages, and opening the card reads them, taking away the chip and the chip row it leaves empty", async () => {
+  const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
+  const b = boardOnDom({ seen: { 'w/A1': at(2), 'w/A2': at(2) },
+    board: boardOf([workCard('A1', { othersAt: [at(5), at(6)] }), workCard('A2', { othersAt: [at(5)], held: true })]) });
+  await b.settle();
+  const card = (key) => b.root.querySelector(`details.item[data-key="${key}"]`);
+  const chips = (key) => card(key).querySelector('summary .line2')?.children.map((c) => c.textContent) ?? null;
+  assert.deepEqual([chips('w/A1'), chips('w/A2')], [['2 new'], ['1 new', 'held']]);
+  for (const key of ['w/A1', 'w/A2']) { card(key).open = true; b.page.fire(b.root, 'toggle', { target: card(key) }); }
+  await b.settle();
+  assert.deepEqual([chips('w/A1'), chips('w/A2')], [null, ['held']]);
+});
+
 function layOut(b) {
   const view = { scrollY: 0, scrolls: [] };
   const all = () => { const out = []; const walk = (n) => { for (const c of n.children) { out.push(c); walk(c); } }; walk(b.doc.body); return out; };
