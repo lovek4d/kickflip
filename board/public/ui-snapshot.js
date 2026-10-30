@@ -43,7 +43,7 @@
   // and null before either. blocked selects the controls that send to the Mac and wait for the fresh board; style.css's
   // INT-61 block dims the same list.
   const SNAPSHOT_BLOCKED = ['.actions button', 'button[data-plan]', 'button[data-bump]', 'button[data-edit]', 'button[data-withdraw]',
-    'button[data-check-github]', 'form[data-reply] button[type=submit]', 'form[data-reply] button[data-quick]', 'form[data-reply] button[data-proto]', 'form[data-reply] button[data-confirm]'].join(', ');
+    'button[data-check-github]', 'form[data-reply] button[type=submit]', 'form[data-reply] button[data-quick]', 'form[data-reply] button[data-proto]', 'form[data-reply] button[data-confirm]', '.prompt button'].join(', ');
   const liveControls = (view) => {
     const fresh = view !== 'snapshot';
     return { read: true, ask: true, cards: fresh, send: fresh, blocked: fresh ? '' : SNAPSHOT_BLOCKED };

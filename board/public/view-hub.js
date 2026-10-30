@@ -1,4 +1,5 @@
-// The hub page, /_hub/, a view of the app shell (shell.js): the hub's health, each site's health and board links,
+// The hub page, /_hub/, a view of the app shell (shell.js): Needs you for the pending prompts of sessions that own no
+// board, the hub's health, each site's health and board links,
 // polling, this device's notifications and the hub rules, in hub/views.mjs hubView's words from GET /_hub/api/hub.
 // Its data refreshes every 30 seconds while it shows (hub-kit.js live).
 (function () {
@@ -15,9 +16,15 @@
     return groups.map((g) => `<h2 class="label">${esc(g.label)}</h2>\n<div class="group">${g.sites.map(site).join('')}</div>\n`).join('');
   }
 
-  function html(d, { flash, device }) {
+  // A pending prompt from a session that owns no board waits here (prompts.js).
+  function promptsHtml(list, prompts) {
+    const shown = list.filter(prompts.shows);
+    return shown.length ? `<section class="waiting"><h2>Needs you · ${shown.length}</h2><ul>${shown.map((p) => BoardUI.promptItem(p, prompts.state(p))).join('')}</ul></section>` : '';
+  }
+
+  function html(d, { flash, device, prompts }) {
     const { row, tile, CHEVRON, nowRow, deviceRow } = HubUI;
-    return `${HubUI.flash(flash)}<h2 class="label" style="margin-top:4px">Health</h2>
+    return `${HubUI.flash(flash)}${promptsHtml(d.prompts || [], prompts)}<h2 class="label" style="margin-top:4px">Health</h2>
 <div class="group">${row({ icon: tile('power', d.hub.tone === 'ok' ? '#22c55e' : '#ef4444'), title: 'Hub', sub: `<span class="st ${esc(d.hub.tone)}">${esc(d.hub.word)}</span> · ${esc(d.hub.detail)}`, wrap: true })}
 ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/join-web-ts &lt;route&gt;</code>.' }) : ''}</div>
 ${sitesHtml(d.groups)}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, events (a watcher runs), daily wakes, pushes, reviewer links and hub code. One that just broke reads settling first.</p>
@@ -47,7 +54,13 @@ ${row({ icon: tile('power', d.notifications.on ? '#22c55e' : '#6b7280'), title: 
     create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
       const main = B.$('main');
       let flash = null;
-      const paint = () => { if (last) main.innerHTML = html(last, { flash, device }); };
+      const paint = () => { if (last) main.innerHTML = html(last, { flash, device, prompts }); };
+      const prompts = PromptAnswers.wire(B, {
+        list: () => last?.prompts || [],
+        paint,
+        notify(text) { flash = { text, error: true }; paint(); },
+        after: () => load(),
+      });
       const device = HubKit.device(B, { paint, changed: () => ctx.sidebarChanged?.() });
       const forms = HubKit.forms(B, {
         answer(out) { flash = { text: out.message, error: !out.ok }; load(); ctx.sidebarChanged?.(); },

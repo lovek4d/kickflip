@@ -42,6 +42,14 @@
 //                     removed}` event (boards.mjs sendToBoards). → {rules, events, failed}; a bad list → 400 {error}
 //   /_hub/poll        POST runs one poll now, or joins the running one, and returns its result as JSON;
 //                     {"flush": false} skips sending the queue (`web-ts poll-now`)
+//   /_hub/prompts     POST a PermissionRequest hook's input (permission-hook.mjs) → {id, deadline}: a pending prompt in
+//                     prompts.json, on the board whose owner is that session, else the hub page, with a push
+//                     (docs/adr/0060-background-sessions-prompts-come-to-the-phone.md)
+//   /_hub/prompts/<id>/wait?ms=N  GET, the hook's poll, held up to N ms (at most prompts.mjs POLL_MS) →
+//                     {state: 'pending'} or {state: 'answered', answer}, which removes the prompt; 404 once it's gone
+//   /_hub/prompts/<id>/answer  POST the owner's {choice: allow | always | deny, answers?} from Needs you → {ok};
+//                     404 when gone, 409 when already answered, 400 {error} for a choice that doesn't fit
+//   /_hub/prompts/<id> DELETE, the hook giving up at its deadline
 // It also runs every site: it starts each manifest entry's `cmd`, restarts it
 // when it exits, restarts it when its entry changes, and stops every one before it exits itself. On each slot of the
 // polling interval (schedule.mjs), and once a minute after it starts, it checks
@@ -58,8 +66,9 @@
 // under it (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md).
 // Once a minute it resumes the recorded session of a board that has stopped listening and whose session isn't running,
 // and pushes once when that doesn't bring it back (sessions.mjs checkSessions).
+// Every 15 seconds it drops the pending prompts whose hook has gone (prompts.mjs expired).
 // State lives in ~/.claude/web-ts: manifest.json, logs/<route>.log, run/<route>.pid, github-state.json, wake-state.json,
-// deaf-state.json, link-faults.json, hub-code.json, resume-state.json.
+// deaf-state.json, link-faults.json, hub-code.json, resume-state.json, prompts.json.
 import http from 'node:http';
 import net from 'node:net';
 import { spawn, execFileSync } from 'node:child_process';
@@ -69,7 +78,8 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import zlib from 'node:zlib';
-import { publicKey, addSubscription, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications } from './push.mjs';
+import { publicKey, addSubscription, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, deliver } from './push.mjs';
+import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, readPrompts, savePrompts, shown } from './prompts.mjs';
 import { clock, nextSlot, windowAt, hold, heldUntil, holdLine, editPolling } from './schedule.mjs';
 import { capital, every, hubView, settingsView, pollingView, flushView, SNOOZE_REFUSED } from './views.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
@@ -284,10 +294,28 @@ function runSessionCheck() {
   }).catch((e) => log('session check failed:', e.message)).finally(() => { sessionCheck.running = null; });
 }
 
+// ---------- pending prompts ----------
+const STARTED_AT = Date.now();
+// id → the resolvers of the hook's poll held open on it.
+const promptWaiters = new Map();
+function promptChanged(route) {
+  if (route) { needsCache.delete(route); stream.changed(route); } else stream.refresh();
+}
+function prunePrompts() {
+  const store = readPrompts();
+  const gone = expired(store, { now: Date.now(), aliveSince: STARTED_AT });
+  if (!gone.length) return;
+  for (const r of gone) delete store.prompts[r.id];
+  savePrompts(store);
+  for (const r of gone) promptChanged(r.route);
+  log(`prompts: dropped ${gone.map((r) => r.id).join(', ')}, whose hook went away`);
+}
+
 setInterval(() => {
   if (!polls.running && Date.now() >= nextPollAt().getTime()) runPoll().catch((e) => log('poll failed:', e.message));
   runWakes();
   runSessionCheck();
+  try { prunePrompts(); } catch (e) { log('prompt expiry failed:', e.message); }
 }, 15_000);
 
 // Sites run detached, so the hub must not exit while one it started still runs.
@@ -369,8 +397,9 @@ async function waitingCounts(rows, { fresh = false } = {}) {
   const needs = await Promise.all(up.map((r) => needsCache.get(r.route).needs));
   return new Map(up.map((r, i) => [r.route, needs[i]]));
 }
-// A site whose answer is unknown adds nothing.
-const badgeTotal = (waiting) => [...waiting.values()].reduce((n, w) => n + (w?.count || 0), 0);
+// A site whose answer is unknown adds nothing. A board's pending prompts are in its count already; the rest wait on the
+// hub page.
+const badgeTotal = (waiting) => [...waiting.values()].reduce((n, w) => n + (w?.count || 0), 0) + pendingFor(null).length;
 
 // ---------- sidebar ----------
 // Each board's linksOf, cached as long as the sites' needs, since every open page asks for the sidebar.
@@ -467,10 +496,13 @@ const POLLING_ANCHOR = { from: 'day', every: 'day', split: 'day', remove: 'day',
 async function hubData(req) {
   const now = new Date();
   const { data, links, rows } = await sidebarState();
-  return hubView({
-    now, st: queueStatus(now), poll: pollState(), sidebar: data, rows, links, rules: readHubRules(),
-    code: { running: readJSON(HUB_CODE, null)?.hash, onDisk: hubCode().hash }, host: req.headers['x-forwarded-host'] || req.headers.host || '',
-  });
+  return {
+    ...hubView({
+      now, st: queueStatus(now), poll: pollState(), sidebar: data, rows, links, rules: readHubRules(),
+      code: { running: readJSON(HUB_CODE, null)?.hash, onDisk: hubCode().hash }, host: req.headers['x-forwarded-host'] || req.headers.host || '',
+    }),
+    prompts: pendingFor(null).map(shown),
+  };
 }
 const settingsData = () => { const now = new Date(); return settingsView({ now, st: queueStatus(now), rules: readHubRules() }); };
 const pollingData = (select) => { const now = new Date(); return pollingView({ now, st: queueStatus(now), poll: pollState(), select }); };
@@ -574,6 +606,78 @@ async function hubRoute(req, res, url) {
   if (p === '/_hub/poll' && req.method === 'POST') {
     const body = await readJSONBody(req);
     return sendJSON(200, await runPoll({ flush: body.flush !== false }));
+  }
+  if (p === '/_hub/prompts' && req.method === 'POST') {
+    let input;
+    try { input = JSON.parse(await readBody(req, 8 * 1024 * 1024)); } catch (e) { if (e.status) throw e; return sendJSON(400, { error: 'Send the hook input as JSON.' }); }
+    if (!input?.tool_name || (input.hook_event_name && input.hook_event_name !== 'PermissionRequest')) return sendJSON(400, { error: 'Send a PermissionRequest hook input.' });
+    const board = listBoards(loadManifest()).find((b) => b.owner?.session && b.owner.session === input.session_id) || null;
+    const rec = promptRecord(input, { board });
+    const store = readPrompts();
+    store.prompts[rec.id] = rec;
+    savePrompts(store);
+    promptChanged(rec.route);
+    log(`prompt ${rec.id}: ${rec.route ? `/${rec.route}` : rec.cwd} ${rec.tool}${rec.action ? ` (${rec.action})` : ''}`);
+    deliver(pushOf(rec), { immediate: true }).catch((e) => log(`prompt ${rec.id}: push failed: ${e.message}`));
+    return sendJSON(200, { id: rec.id, deadline: rec.deadline });
+  }
+  const prompt = /^\/_hub\/prompts\/([\w-]+)(\/wait|\/answer)?$/.exec(p);
+  if (prompt) return promptRoute(req, res, { id: prompt[1], op: prompt[2]?.slice(1) || null, url, sendJSON });
+  return false;
+}
+
+async function promptRoute(req, res, { id, op, url, sendJSON }) {
+  const take = (rec) => {
+    const store = readPrompts();
+    delete store.prompts[id];
+    savePrompts(store);
+    promptChanged(rec.route);
+    return sendJSON(200, { state: 'answered', answer: rec.answer });
+  };
+  if (op === 'wait' && req.method === 'GET') {
+    const seen = () => {
+      const store = readPrompts();
+      const rec = store.prompts[id];
+      if (rec && !rec.answer) { rec.seen = new Date().toISOString(); savePrompts(store); }
+      return rec;
+    };
+    const rec = seen();
+    if (!rec) return sendJSON(404, { state: 'gone' });
+    if (rec.answer) return take(rec);
+    const ms = Math.max(0, Math.min(Number(url.searchParams.get('ms')) || POLL_MS, POLL_MS));
+    await new Promise((resolve) => {
+      const set = promptWaiters.get(id) || new Set();
+      promptWaiters.set(id, set);
+      const done = () => { clearTimeout(timer); set.delete(done); if (!set.size && promptWaiters.get(id) === set) promptWaiters.delete(id); resolve(); };
+      const timer = setTimeout(done, ms);
+      set.add(done);
+      res.on('close', done);
+    });
+    if (res.writableEnded || res.destroyed) return;
+    const now = seen();
+    if (!now) return sendJSON(404, { state: 'gone' });
+    return now.answer ? take(now) : sendJSON(200, { state: 'pending' });
+  }
+  if (op === 'answer' && req.method === 'POST') {
+    const body = await readJSONBody(req);
+    const store = readPrompts();
+    const rec = store.prompts[id];
+    if (!rec) return sendJSON(404, { error: 'That prompt has expired.' });
+    if (rec.answer) return sendJSON(409, { error: 'That prompt was already answered.' });
+    const { answer, error } = answerOf(rec, body);
+    if (error) return sendJSON(400, { error });
+    rec.answer = answer;
+    savePrompts(store);
+    log(`prompt ${id}: ${answer.choice}`);
+    for (const done of [...(promptWaiters.get(id) || [])]) done();
+    promptChanged(rec.route);
+    return sendJSON(200, { ok: true });
+  }
+  if (op === null && req.method === 'DELETE') {
+    const store = readPrompts();
+    const rec = store.prompts[id];
+    if (rec) { delete store.prompts[id]; savePrompts(store); promptChanged(rec.route); log(`prompt ${id}: its hook gave up`); }
+    return sendJSON(200, { ok: true });
   }
   return false;
 }

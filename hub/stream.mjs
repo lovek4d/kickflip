@@ -8,7 +8,7 @@
 import http from 'node:http';
 
 // targets() → [{route, port}], the boards to hold; sidebar({fresh}) → the sidebar data, fresh naming the routes whose
-// waiting counts to refetch. → {handle(req, res), close()}
+// waiting counts to refetch. → {handle(req, res), close(), changed(route), refresh()}
 export function hubStream({ targets, sidebar, retryMs = 2000, sidebarMs = 15_000, pingMs = 25_000, settleMs = 300, log = () => {} }) {
   const clients = new Set();
   const upstreams = new Map(); // route → {port, req}
@@ -117,5 +117,11 @@ export function hubStream({ targets, sidebar, retryMs = 2000, sidebarMs = 15_000
     stopHolding();
   }
 
-  return { handle, close };
+  // changed(route) passes on a change the board's own stream can't see, such as a pending prompt; refresh() resends
+  // the sidebar when it differs.
+  return {
+    handle, close,
+    changed: (route) => { if (clients.size) changed(route); },
+    refresh: () => { if (clients.size) refreshSidebar(); },
+  };
 }

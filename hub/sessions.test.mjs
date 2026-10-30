@@ -10,6 +10,7 @@ const SKILL = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sessions-')));
 process.env.HOME = home;
 const { checkSessions, RESUME_AFTER, COMEBACK_WAIT, BG_SETTINGS } = await import('./sessions.mjs');
+const { WAIT_MS } = await import('./prompts.mjs');
 
 const web = (...p) => path.join(home, '.claude', 'web-ts', ...p);
 const write = (file, v) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof v === 'string' ? v : JSON.stringify(v)); };
@@ -81,7 +82,13 @@ test('start runs claude --bg in the folder, in auto mode with isolation off, and
   const [call] = calls();
   const id = call.argv[2];
   assert.deepEqual(call.argv, ['--bg', '--session-id', id, '--name', 'Shop', '--permission-mode', 'auto', '--settings', BG_SETTINGS, '--model', 'opus', '/join-web-ts shop Pick up INT-9']);
-  assert.deepEqual(JSON.parse(BG_SETTINGS), { worktree: { bgIsolation: 'none' } });
+  const settings = JSON.parse(BG_SETTINGS);
+  assert.deepEqual(Object.keys(settings), ['worktree', 'hooks']);
+  assert.deepEqual([settings.worktree, Object.keys(settings.hooks)], [{ bgIsolation: 'none' }, ['PermissionRequest']]);
+  const [{ matcher, hooks: [hook, ...more] }] = settings.hooks.PermissionRequest;
+  assert.deepEqual([matcher, hook.type, more], ['*', 'command', []]);
+  assert.equal(hook.command, `"${process.execPath}" "${path.join(SKILL, 'hub', 'permission-hook.mjs')}"`);
+  assert.ok(hook.timeout * 1000 > WAIT_MS, `the hook's timeout ${hook.timeout}s must outlast its wait`);
   assert.deepEqual([call.cwd, call.isolation, call.claudecode], [repo, 'none', null]);
   assert.deepEqual([r.session, r.confirmed, r.repo, r.argv], [id, true, repo, [fakeClaude, ...call.argv]]);
   assert.deepEqual(manifest().sites.shop.owner, { ...manifest().sites.shop.owner, session: id, repo, model: 'opus' });

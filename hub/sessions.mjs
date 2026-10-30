@@ -2,7 +2,8 @@
 // {session, label, since, repo, model?}: repo is the folder the session runs in, where `claude --resume` finds it. A
 // session `web-ts start` launched for a route with no site yet waits in the manifest's `starting` {<route>: owner}
 // until its join moves it into the site. Every session starts in the background (`claude --bg`) in auto mode, with
-// worktree.bgIsolation "none" so it stays in the repo folder, since its builders make their own worktrees.
+// worktree.bgIsolation "none" so it stays in the repo folder, since its builders make their own worktrees, and with
+// the hook that brings its prompts to the owner's phone.
 // checkSessions is the hub's auto-resume: a board not listening for RESUME_AFTER whose session isn't live is resumed
 // once, and if it still isn't listening COMEBACK_WAIT later, the owner gets one push.
 import fs from 'node:fs';
@@ -14,13 +15,20 @@ import { fileURLToPath } from 'node:url';
 import { listBoards, readManifest, readJSON, saveJSON, watcherRunning } from './boards.mjs';
 import { liveSessions, sessionRecords } from './live.mjs';
 import { deliver } from './push.mjs';
+import { WAIT_MS } from './prompts.mjs';
 
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RESUME_STATE = path.join(os.homedir(), '.claude', 'web-ts', 'resume-state.json');
 export const RESUME_AFTER = 3 * 60_000;
 export const COMEBACK_WAIT = 5 * 60_000;
-// "none" is the value that turns isolation off; Claude Code drops any other value and isolates.
-export const BG_SETTINGS = JSON.stringify({ worktree: { bgIsolation: 'none' } });
+// "none" is the value that turns isolation off; Claude Code drops any other value and isolates. The PermissionRequest
+// hook sends the session's prompts to the phone, and its timeout stays a minute past the hook's own wait
+// (docs/adr/0060-background-sessions-prompts-come-to-the-phone.md). launchd's PATH may have no node, hence execPath.
+export const PROMPT_HOOK_TIMEOUT_S = WAIT_MS / 1000 + 60;
+export const BG_SETTINGS = JSON.stringify({
+  worktree: { bgIsolation: 'none' },
+  hooks: { PermissionRequest: [{ matcher: '*', hooks: [{ type: 'command', command: `"${process.execPath}" "${path.join(SKILL_DIR, 'hub', 'permission-hook.mjs')}"`, timeout: PROMPT_HOOK_TIMEOUT_S }] }] },
+});
 
 export class SessionError extends Error {
   // reason: 'none' (no session or folder recorded), 'live' (the session runs), 'failed' (claude refused)

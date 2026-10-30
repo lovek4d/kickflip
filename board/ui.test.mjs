@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const context = vm.createContext({});
-for (const file of ['ui.js', 'ui-links.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-sidebar.js']) {
+for (const file of ['ui.js', 'ui-links.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-sidebar.js']) {
   vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
 }
 const ui = context.BoardUI;

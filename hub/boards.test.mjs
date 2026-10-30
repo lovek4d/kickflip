@@ -289,6 +289,37 @@ test("joining a board polls at once, so the new board's GitHub link passes witho
   assert.deepEqual(sites.map((s) => [s.route, s.created]), [['fresh', created], ['orch', null], ['plain', null], ['shop', null]]);
 });
 
+test("a board session's permission prompt pushes, waits in that board's Needs you and the badge, and Always allow reaches its hook as a rule for the session", async () => {
+  const input = { session_id: 's-orch', cwd: home, hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'npm test', description: 'Run tests' } };
+  const hook = new Promise((resolve) => {
+    const child = spawn(process.execPath, [path.join(HUB_DIR, 'permission-hook.mjs')], { env: { ...process.env, WEB_TS_HUB_PORT: String(port) } });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.on('close', (status) => resolve({ status, out }));
+    child.stdin.end(JSON.stringify(input));
+  });
+  const needs = async (route) => (await fetch(`${base}/${route}/_claude/needs`)).json();
+  let mine;
+  for (let i = 0; i < 50 && !mine; i++) { mine = (await needs('orch')).items.find((x) => x.kind === 'Prompt'); if (!mine) await new Promise((r) => setTimeout(r, 100)); }
+  assert.deepEqual(mine, { kind: 'Prompt', text: 'Bash: npm test', url: '' });
+  assert.match((await needs('orch')).summary, /^1 prompt/);
+  assert.equal((await needs('shop')).items.some((x) => x.kind === 'Prompt'), false);
+  const { prompt } = (await api('orch')).needs[0];
+  assert.deepEqual([prompt.tool, prompt.detail, prompt.rule], ['Bash', 'npm test', 'Bash(npm test)']);
+  const waiting = await (await fetch(`${base}/_hub/needs.json?fresh=1`)).json();
+  assert.equal(waiting.total, waiting.sites.orch.count + waiting.sites.shop.count);
+  assert.ok(waiting.sites.orch.count >= 1);
+  for (let i = 0; i < 50 && !pushes().some((x) => x.tag === `prompt-${prompt.id}`); i++) await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(pushes().find((x) => x.tag === `prompt-${prompt.id}`), { title: 'Orch wants to run npm test', url: '/orch/', tag: `prompt-${prompt.id}` });
+
+  const r = await fetch(`${base}/_hub/prompts/${prompt.id}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ choice: 'always' }) });
+  assert.equal(r.status, 200);
+  const { status, out } = await hook;
+  assert.equal(status, 0);
+  assert.deepEqual(JSON.parse(out).hookSpecificOutput.decision, { behavior: 'allow', updatedPermissions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'npm test' }], behavior: 'allow', destination: 'session' }] });
+  assert.equal((await needs('orch')).items.some((x) => x.kind === 'Prompt'), false);
+});
+
 test('stopping the hub stops every site it started, one that ignores SIGTERM and one that joined just before, and starts none', async () => {
   const sitesDir = claude('web-ts', 'sites');
   const siteProcs = () => execFileSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf8' }).split('\n').filter((l) => l.includes(sitesDir)).map((l) => Number(l.trim().split(' ')[0]));

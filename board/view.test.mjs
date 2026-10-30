@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { miniDom } from './mini-dom.mjs';
 
-const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-markdown.js', 'ui-hub.js', 'rules-editor.js',
+const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
   'hub-kit.js', 'sidebar.js', 'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-polling.js', 'view-frame.js', 'router.js'];
 
@@ -401,8 +401,10 @@ function boardOnDom({ open = [], board, threads, confirm = false }) {
   page.win.BoardDialogs.confirm = async (text) => { confirms.push(text); return confirm; };
   const site = page.win.ClaudeSite.site;
   page.win.ClaudeSite.site = (r) => ({ ...site(r), send: async (kind, data) => { sent.push([kind, data]); return {}; } });
-  page.win.fetch = async (url) => {
-    const u = new URL(url);
+  const posts = [];
+  page.win.fetch = async (url, opts = {}) => {
+    const u = new URL(url, 'https://mac.ts.net/');
+    if (opts.method === 'POST') { posts.push([u.pathname, JSON.parse(opts.body)]); return { ok: true, status: 200, json: async () => ({ ok: true }) }; }
     const body = u.pathname.endsWith('/api/board') ? server.board : server.threads[u.searchParams.get('key')] || [];
     return { ok: true, json: async () => structuredClone(body) };
   };
@@ -412,7 +414,7 @@ function boardOnDom({ open = [], board, threads, confirm = false }) {
   page.win.BoardView.create(root, 'https://mac.ts.net/board-a', { signal: (fn) => { signalled = fn; return () => {}; } }).mount();
   const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
   const change = async (next) => { Object.assign(server, next); signalled(); await settle(); };
-  return { page, root, settle, change, sent, confirms, doc: page.win.document };
+  return { page, root, settle, change, sent, confirms, posts, doc: page.win.document };
 }
 const askCard = (id, lane) => ({ key: `ask:${id}`, id, kind: 'ask', lane, title: `Task ${id}`, deps: [], othersAt: [] });
 const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items, waves: [], needs: [], answers: [] });
@@ -464,6 +466,42 @@ test("an open card shows the one action button the board names, its workflow but
   await b.settle();
   assert.deepEqual(b.confirms, ['Ask Claude for questions about A2?', 'Mark this task done? "Task a1" moves to Done.']);
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['grill-more', { key: 'w/A2' }], ['ask-done', { id: 'a1' }]]);
+});
+
+test("Needs you shows each pending prompt with its details and answers it from the line: Allow once and Deny on the tap, Always allow after a confirmation naming its rule, one question's option on the tap, and several questions with Send once each has a pick", async () => {
+  const at = new Date().toISOString();
+  const perm = (id, command) => ({ id, title: 'A', cwd: '~/repo', tool: 'Bash', action: `run ${command}`, detail: command, rule: `Bash(${command})`, questions: null, at });
+  const ask = (id, questions) => ({ id, title: 'A', cwd: '~/repo', tool: 'AskUserQuestion', action: null, detail: '', rule: null, at,
+    questions: questions.map(([question, labels]) => ({ question, header: '', multiSelect: false, options: labels.map((label) => ({ label, description: `${label} it` })) })) });
+  const prompts = [perm('p1', 'npm test'), perm('p2', 'rm -rf build'), perm('p3', 'git push'), ask('p4', [['Colour?', ['Red', 'Blue']], ['Size?', ['S', 'L']]]), ask('p5', [['Go?', ['Yes', 'No']]])];
+  const board = { ...boardOf([]), needs: prompts.map((p) => ({ kind: 'Prompt', title: 'x', text: 'x', url: '', prompt: p })) };
+  const b = boardOnDom({ board, threads: {}, confirm: true });
+  await b.settle();
+  const line = (id) => b.root.querySelector(`#waiting li.prompt[data-prompt="${id}"]`);
+  const buttons = (id) => line(id).querySelectorAll('button').map((x) => [(x.querySelector('.lbl') || x).textContent.trim(), x.disabled]);
+  const tap = async (id, sel) => { b.page.fire(b.root, 'click', { target: line(id).querySelector(sel) }); await b.settle(); };
+
+  assert.equal(b.root.querySelector('#waiting h2').textContent, 'Needs you · 5');
+  assert.match(line('p1').textContent, /Bash.*~\/repo.*npm test.*Always allow adds Bash\(npm test\) until the session ends\./s);
+  assert.deepEqual(buttons('p1'), [['Allow once', false], ['Always allow', false], ['Deny', false]]);
+  assert.deepEqual(buttons('p5'), [['Yes', false], ['No', false], ['Skip', false]]);
+
+  await tap('p1', '[data-prompt-choice="allow"]');
+  await tap('p2', '[data-prompt-choice="deny"]');
+  await tap('p3', '[data-prompt-choice="always"]');
+  assert.deepEqual(b.confirms, ['Always allow Bash(git push) for the rest of this session?']);
+  await tap('p5', '[data-prompt-opt="No"]');
+  assert.equal(line('p4').querySelector('[data-prompt-send]').disabled, true);
+  await tap('p4', '[data-prompt-opt="Blue"]');
+  assert.equal(line('p4').querySelector('[data-prompt-opt="Blue"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(line('p4').querySelector('[data-prompt-send]').disabled, true);
+  await tap('p4', '[data-prompt-opt="S"]');
+  await tap('p4', '[data-prompt-send]');
+  assert.deepEqual(JSON.parse(JSON.stringify(b.posts)), [
+    ['/_hub/prompts/p1/answer', { choice: 'allow' }], ['/_hub/prompts/p2/answer', { choice: 'deny' }], ['/_hub/prompts/p3/answer', { choice: 'always' }],
+    ['/_hub/prompts/p5/answer', { choice: 'allow', answers: { 'Go?': 'No' } }], ['/_hub/prompts/p4/answer', { choice: 'allow', answers: { 'Colour?': 'Blue', 'Size?': 'S' } }],
+  ]);
+  assert.equal(b.root.querySelector('#waiting').hidden, true);
 });
 
 test("a thread repaint while a message's edit box is open shows the new message and keeps the edit box's text, cursor and focus", async () => {

@@ -212,6 +212,16 @@ test('needs lists each Needs you line: open topics apart from items, then items 
   assert.deepEqual(lines(settling), [{ kind: 'Action needed', text: 'Task: a1 first line · Pick a take', url: '#item=ask%3Aa1' }]);
 });
 
+test("the board session's pending prompts lead Needs you, each a Prompt line carrying its details, and the summary and the hub's needs count them", () => {
+  const perm = { id: 'p1', tool: 'Bash', action: 'run npm test', detail: 'npm test', rule: 'Bash(npm test)', questions: null, cwd: '~/r', at: '2026-10-30T10:00:00Z' };
+  const ask = { id: 'p2', tool: 'AskUserQuestion', action: null, detail: '', rule: null, cwd: '~/r', at: '2026-10-30T10:01:00Z', questions: [{ question: 'Colour?', options: [{ label: 'Red' }] }, { question: 'Size?', options: [{ label: 'S' }] }] };
+  const b = buildBoard({ fromWaves: false, waves: [], events: [], prompts: [perm, ask] });
+  assert.deepEqual(b.needs.map(({ kind, text, url, prompt }) => [kind, text, url, prompt.id]), [['Prompt', 'Bash: npm test', '', 'p1'], ['Prompt', 'Question: Colour? · Size?', '', 'p2']]);
+  assert.equal(b.needsSummary, '2 prompts');
+  assert.deepEqual(needsAnswer(b).items, [{ kind: 'Prompt', text: 'Bash: npm test', url: '' }, { kind: 'Prompt', text: 'Question: Colour? · Size?', url: '' }]);
+  assert.deepEqual(board({ owner: {}, events: [] }).needs.map((l) => l.kind), ['Tap Ready']);
+});
+
 test('the needs answer counts open cards by lane and says when a builder works on one', () => {
   const quiet = needsAnswer(board());
   assert.deepEqual(quiet, {

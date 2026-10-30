@@ -73,7 +73,8 @@
 //                                `settings {auto_merge}` event, which wakes Claude. → {settings, id}; a bad body → 400 {error}
 //   GET  /_claude/events         events not hidden, newest first, each with Claude's reply if written
 //   GET  /_claude/needs          {items: [{kind, text, url}], working, summary, lanes: {review, progress, todo}, building}:
-//                                one item per Needs you line, the count of events Claude is working on, a one-line
+//                                one item per Needs you line, each pending prompt of this board's session among them
+//                                (../hub/prompts.mjs), the count of events Claude is working on, a one-line
 //                                summary, the open cards in each lane, and whether a builder works on a card
 //                                (domain.mjs needsAnswer); the hub badges the site's row and writes its status line with them
 //   GET  /api/stream             server-sent events: `event: change` shortly after a file the board reads changes, under
@@ -95,6 +96,7 @@ import { createReadStream, watch as watchFiles } from 'node:fs';
 import { BoardError, boardConfig, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readNotes, readWorking, readUpload, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, linksOf } from '../hub/boards.mjs';
+import { pendingFor, shown } from '../hub/prompts.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 
 const template = path.dirname(fileURLToPath(import.meta.url));
@@ -348,8 +350,7 @@ async function snapshot() {
 
 // The hub's links to this board (hub/boards.mjs linksOf), or null when the manifest has no board here. listening is the
 // watcher state checksOf already worked out.
-function hubLinks(checks) {
-  const self = boardAt(here);
+function hubLinks(self, checks) {
   return self ? linksOf(self, { listening: checks.watcher === 'running' }) : null;
 }
 
@@ -365,8 +366,9 @@ async function setupOf(links) {
 
 async function board() {
   const { title, reviewers } = await config();
-  const built = buildBoard(await snapshot());
-  const links = hubLinks(built.checks);
+  const self = boardAt(here);
+  const built = buildBoard({ ...(await snapshot()), prompts: self ? pendingFor(self.route).map(shown) : [] });
+  const links = hubLinks(self, built.checks);
   return { generatedAt: new Date().toISOString(), title, reviewers: (reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string'), ...built, links, setup: await setupOf(links) };
 }
 

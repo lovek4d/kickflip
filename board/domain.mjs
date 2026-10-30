@@ -353,7 +353,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
 //   askProgress: {<ask event id>: {state: progress|done, at, next, moved}}, owner: owner.json, bridge: slack-bridge state.json,
 //   autoMerge: board.json's auto_merge (true leaves merging to monitor, so no card gets the owner's Merge),
 //   threads also holds each ask's lines under ask:<event id>;
-//   topicItems: merged topic items, now: ms}
+//   topicItems: merged topic items, prompts: this board's pending prompts (../hub/prompts.mjs shown), now: ms}
 // moved maps ask:<event id> to the work item whose thread holds that ask.
 // An event marked working needs its reply loaded, or it counts as still working.
 export function buildBoard(snapshot) {
@@ -466,7 +466,7 @@ export function buildBoard(snapshot) {
 
   // Built again after the sort, so the item topics follow the lanes' order.
   const topicList = topicsOf();
-  const needs = needsOf(items, topicList, questions);
+  const needs = [...promptLines(snapshot.prompts), ...needsOf(items, topicList, questions)];
   // A thread's event works until a reply or a later Claude line; any other event until its reply. A mark also lapses once
   // its card leaves the board or is closed after the mark, since nothing would ever reply to it.
   const topicOf = new Map((owner.items || []).map((q) => [q.id, q.topic]));
@@ -541,11 +541,21 @@ function needsOf(items, topics, questions) {
   return [...fromTopics, ...fromItems];
 }
 
-// The hub's one-line summary of the Needs you lines, such as "2 questions · 1 draft waiting on Ready".
+// The board session's pending prompts lead Needs you, since each holds the session until the owner answers it there
+// (../hub/prompts.mjs shown; docs/adr/0060-background-sessions-prompts-come-to-the-phone.md).
+function promptLines(prompts = []) {
+  return prompts.map((p) => {
+    const text = p.questions?.length ? `Question: ${p.questions.map((q) => q.question).join(' · ')}` : `${p.tool}: ${p.detail || p.action}`;
+    return { kind: 'Prompt', title: text, text, url: '', prompt: p };
+  });
+}
+
+// The hub's one-line summary of the Needs you lines, such as "1 prompt · 2 questions · 1 draft waiting on Ready".
 function needsSummary(needs) {
+  const prompts = needs.filter((line) => line.prompt).length;
   const questions = needs.reduce((n, line) => n + (line.questions?.open || 0), 0);
   const drafts = needs.filter((line) => line.ready).length;
-  return [questions && plural(questions, 'question'), drafts && `${plural(drafts, 'draft')} waiting on Ready`].filter(Boolean).join(' · ');
+  return [prompts && plural(prompts, 'prompt'), questions && plural(questions, 'question'), drafts && `${plural(drafts, 'draft')} waiting on Ready`].filter(Boolean).join(' · ');
 }
 
 // The GET /_claude/needs body for a built board (docs/adr/0010-sites-report-what-waits-through-claude-needs.md).

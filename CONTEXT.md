@@ -31,7 +31,7 @@ The levels back climbs in the app shell: a board, its Waiting on you, then a pro
 _Avoid_: nav stack, breadcrumbs
 
 **Hub page**:
-The hub's status page, `/_hub/`, which the sidebar's Hub row opens: each site's health with each board's hub links and watcher, polling and notifications ([0050](docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md)).
+The hub's status page, `/_hub/`, which the sidebar's Hub row opens: the **pending prompts** of sessions that own no board, each site's health with each board's hub links and watcher, polling and notifications ([0050](docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md)).
 _Avoid_: dashboard, console, hub home
 
 **Board registry**:
@@ -214,8 +214,12 @@ The group an owner question belongs to; an item's questions use the topic `item:
 _Avoid_: category, section
 
 **Needs you**:
-The box at the top of a board listing what waits on the owner, one line per work item ([0043](docs/adr/0043-needs-you-gathers-what-waits-and-questions-answer-on-one-page.md)).
+The box at the top of a board listing what waits on the owner, one line per work item, led by the board session's **pending prompts** ([0043](docs/adr/0043-needs-you-gathers-what-waits-and-questions-answer-on-one-page.md)).
 _Avoid_: inbox, digest (the digest is the **morning push** that opens it)
+
+**Pending prompt**:
+A permission prompt or `AskUserQuestion` from a background board session, which its hook hands to the hub and holds the session on until the owner answers in the board's Needs you, or the hub page for a session that owns no board: Allow once, Always allow (a rule until the session ends) or Deny, or the question's options. With no answer in 10 minutes the call is denied with a note to ask on the card instead ([0060](docs/adr/0060-background-sessions-prompts-come-to-the-phone.md)).
+_Avoid_: permission request, approval, dialog
 
 **Morning push**:
 The owner's daily digest: one push each morning that opens the board at Needs you, skipped on a day when nothing waits ([0043](docs/adr/0043-needs-you-gathers-what-waits-and-questions-answer-on-one-page.md)). The reviewers' digests are Slack messages, not pushes.
@@ -265,7 +269,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `view-settings.js` | Board Settings as a view: auto-merge, reviewers and rules |
 | `view-questions.js` | Waiting on you as a view: a topic's questions, their takes framed with `?take=`, and one Send |
 | `view-notes.js` | One item's notes as a view, from `GET /api/notes`; the server redirects `plan.html` to `notes.html` |
-| `view-hub.js` | The **hub page** as a view, from `/_hub/api/hub`, refreshed every 30 seconds while it shows; Send now and this device's Turn on |
+| `view-hub.js` | The **hub page** as a view, from `/_hub/api/hub`, refreshed every 30 seconds while it shows; pending prompts of sessions with no board, Send now and this device's Turn on |
 | `view-hub-settings.js` | **Hub Settings** as a view, from `/_hub/api/settings`: notifications, the snooze sheet and the rules for every board |
 | `view-polling.js` | Polling as a view, from `/_hub/api/polling`: the day bar, whose taps pick a window without asking the hub, each window's edits, the overnight hold, the daily wakes and Send now |
 | `ui-hub.js` | `HubUI`, the hub views' pure renderers: rows, tiles, the flash, the Now row and this device's row |
@@ -288,7 +292,9 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `app-cards.js` | Cards, their open detail, and the action rows: a follow-up's Build, Merge, Hold, Prioritize and the **action button** with each one's confirmation, then Review on GitHub, Notes and Install; an ask's detail shows only its action button; the thread's Done confirmation and send |
 | `app-lanes.js` | Lanes, the Answered, older and finished-wave folds, the wave bars and filter, and Plan a wave |
 | `app-asks.js` | The + sheet and its press-n-twice shortcut, and bump, edit and delete |
-| `app-needs.js` | The Needs you box |
+| `app-needs.js` | The Needs you box, led by the board session's pending prompts |
+| `ui-prompts.js` | A pending prompt's Needs you line: its details, Allow once, Always allow and Deny, or a question's options, Skip and Send |
+| `prompts.js` | `PromptAnswers`, answering pending prompts from their lines on a board and the hub page: which taps send at once, Always allow's confirmation, and the picks a Send waits on |
 | `app-banner.js` | The answer banner, its tap and its ✕ |
 | `app-header.js` | The board's header controls and time, refresh, the offline state, the In Review header's GitHub line, the Hub links sheet and the setup checklist |
 | `app-snapshot.js` | Reading and saving the last visit, also as the view unmounts, keeping every board's within three at the cap, holding the controls that send while it shows, and the flash when the fresh board lands |
