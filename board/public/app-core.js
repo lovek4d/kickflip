@@ -2,24 +2,53 @@
 BoardView.part((B) => {
   const { $, store, state } = B;
 
-  // Runs paint, a repaint through ui.js setHTML, then gives the field being typed in its focus and cursor back. setHTML
-  // keeps that field's node, but moves it with a card that changes lanes, which blurs it, and a box drawn anew (an edit
-  // box from state.edits, a reply box from its draft) is found by its form. A card that moved into a closed lane or
-  // fold opens it, since a field there can't take focus, and focus scrolls the field into view.
-  function keepFocus(paint) {
+  const focusedField = () => {
     const a = document.activeElement;
-    const field = a && B.root.contains(a) && a.matches('textarea, input') ? a : null;
-    const form = field?.closest('form[data-reply], form[data-edit-form]');
+    return a && B.root.contains(a) && a.matches('textarea, input') ? a : null;
+  };
+  // → a function finding field after a repaint: the same node, else the box drawn anew in its place (an edit box from
+  // state.edits, a reply box from its draft), found by its form.
+  function finder(field) {
+    const form = field.closest('form[data-reply], form[data-edit-form]');
     const again = !form ? null : form.dataset.reply != null ? `form[data-reply="${CSS.escape(form.dataset.reply)}"] textarea`
       : `form[data-edit-form="${CSS.escape(form.dataset.editForm)}"] textarea`;
+    return () => (field.isConnected ? field : again && $(again));
+  }
+
+  // Runs paint, a repaint through ui.js setHTML, then gives the field being typed in its focus and cursor back when it
+  // lost them, which setHTML avoids for a node it moves. A card that moved into a closed lane or fold opens it, since a
+  // field there can't keep focus. Refocusing doesn't scroll: steady does.
+  function keepFocus(paint) {
+    const field = focusedField();
+    const find = field && finder(field);
     const sel = field ? [field.selectionStart, field.selectionEnd, field.selectionDirection] : null;
     paint();
-    if (!field || document.activeElement === field) return;
-    const el = field.isConnected ? field : again && $(again);
+    const el = find?.();
     if (!el) return;
     for (let d = el.closest('details:not([open])'); d; d = d.closest('details:not([open])')) d.open = true;
-    el.focus();
+    if (document.activeElement === el) return;
+    el.focus({ preventScroll: true });
     if (sel[0] != null) el.setSelectionRange(...sel);
+  }
+
+  // Runs paint through keepFocus and keeps the anchor where it was on screen, scrolling the page by however far it
+  // moved, in the same task so nothing visibly jumps (docs/adr/0063-an-open-card-moves-at-once-and-the-page-follows-it.md).
+  // The anchor is the field being typed in, else the title row of the open card on screen, else there is none. A field
+  // in a dialog doesn't move with the page, so the card anchors then.
+  function anchorOf() {
+    const field = focusedField();
+    if (field && !field.closest('dialog')) return finder(field);
+    const card = [...B.$$('details.item[open]')].find((d) => { const r = d.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
+    if (!card) return null;
+    const title = `details.item[data-key="${CSS.escape(card.dataset.key)}"] > summary`;
+    return () => $(title);
+  }
+  function steady(paint) {
+    const find = anchorOf();
+    const before = find?.()?.getBoundingClientRect().top;
+    keepFocus(paint);
+    const after = before == null ? null : find()?.getBoundingClientRect().top;
+    if (after != null && after !== before) scrollBy(0, after - before);
   }
   const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -75,5 +104,5 @@ BoardView.part((B) => {
 
   const { confirm, notice } = globalThis.BoardDialogs;
 
-  Object.assign(B, { keepFocus, plural, seen, markSeen, toast, quieted, sendDraft, hide, links, svg, confirm, notice });
+  Object.assign(B, { steady, plural, seen, markSeen, toast, quieted, sendDraft, hide, links, svg, confirm, notice });
 });

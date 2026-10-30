@@ -2,6 +2,8 @@
 html { -webkit-text-size-adjust: 100%; }
 /* clip, not hidden: hidden makes body a scroll container and breaks the sticky header. */
 body { overflow-x: clip; }
+/* app-core.js steady scrolls the board after a repaint; the browser's own scroll anchoring would correct the same shift a second time. */
+html:has(.view-board) { overflow-anchor: none; }
 body { margin: 0; background: var(--bg); color: var(--text);
   font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif; }
 a { color: var(--accent); text-decoration: none; }

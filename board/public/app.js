@@ -126,7 +126,7 @@ window.BoardView = (function () {
 
   // The board itself, after every part: rendering, the #item= hash, loading and the change signal.
   function start(B) {
-    const { $, $$, store, state, keepFocus, markSeen } = B;
+    const { $, $$, store, state, steady, markSeen } = B;
     const { setHTML, preloadKeys } = BoardUI;
 
     // Renders open threads from state.threadCache; loadBoard and opening a card load them.
@@ -135,18 +135,19 @@ window.BoardView = (function () {
       const title = $(':scope > .top h1');
       if (d.title && title && title.textContent !== d.title) title.textContent = d.title;
       if (d.title && document.title !== d.title) document.title = d.title;
-      B.renderHeader(d);
-      B.renderWaves(d);
-      const live = d.items.filter((i) => !state.withdrawnAsks.has(i.id));
-      const shown = state.waveFilter ? live.filter((i) => i.wave === state.waveFilter) : live;
-      for (const el of $$('details.item[open]')) state.openItems.add(el.dataset.key);
-      for (const it of d.items) if (!it.isNew) markSeen(it, !state.openItems.has(it.key));
-      const html = B.lanesHtml(d, shown);
-      // An open card's thread is renderThread's (app-threads.js), so a lane repaint leaves it as it is.
-      keepFocus(() => setHTML($('#lanes'), html, { keep: '[data-thread]' }));
-      for (const key of state.openItems) if (state.threadCache.has(key)) B.renderThread(key, state.threadCache.get(key));
-      B.renderNeeds(d);
-      B.renderBanner(d);
+      steady(() => {
+        B.renderHeader(d);
+        B.renderWaves(d);
+        const live = d.items.filter((i) => !state.withdrawnAsks.has(i.id));
+        const shown = state.waveFilter ? live.filter((i) => i.wave === state.waveFilter) : live;
+        for (const el of $$('details.item[open]')) state.openItems.add(el.dataset.key);
+        for (const it of d.items) if (!it.isNew) markSeen(it, !state.openItems.has(it.key));
+        // An open card's thread is renderThread's (app-threads.js), so a lane repaint leaves it as it is.
+        setHTML($('#lanes'), B.lanesHtml(d, shown), { keep: '[data-thread]' });
+        for (const key of state.openItems) if (state.threadCache.has(key)) B.renderThread(key, state.threadCache.get(key));
+        B.renderNeeds(d);
+        B.renderBanner(d);
+      });
       B.flashChanged();
     }
 

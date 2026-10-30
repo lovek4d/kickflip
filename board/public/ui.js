@@ -82,9 +82,10 @@
   // being typed in, dropping its text, cursor and focus, and on iOS the keyboard. So setHTML patches el in place: a
   // node stays when the new markup has one of its tag at its place, and an element with a key (keyOf) stays wherever
   // under el it was, so a card that moves lanes keeps its open thread. A textarea keeps what was typed in it, and an
-  // element matching opts.keep stays as it is, for markup another part paints. setHTML skips an unchanged rebuild, and
-  // reopens each <details> the reader left open, matched by its owning [data-key] and summary text. Open state is
-  // tracked page-wide, so content filled in after a parent rebuild reopens too.
+  // element matching opts.keep stays as it is, for markup another part paints. The focused field keeps its focus when
+  // its card moves (focusSafe). setHTML skips an unchanged rebuild, and reopens each <details> the reader left open,
+  // matched by its owning [data-key] and summary text. Open state is tracked page-wide, so content filled in after a
+  // parent rebuild reopens too.
   const lastHtml = new WeakMap();
   const openDetails = new Set();
   const detailsKey = (d) => `${(d.closest('[data-key]') || {}).dataset?.key || ''}|${(d.querySelector(':scope > summary')?.textContent || '').trim()}`;
@@ -112,23 +113,53 @@
     return keyed;
   }
   const holdsFocus = (n) => n.contains(document.activeElement);
-  function patchNode(old, next, keyed, keep) {
+  // insertBefore blurs the node it moves, and on iOS closes the keyboard; moveBefore keeps its focus, but moves only
+  // between connected nodes.
+  function move(parent, n, ref) {
+    if (parent.moveBefore && n.isConnected && parent.isConnected) parent.moveBefore(n, ref);
+    else parent.insertBefore(n, ref);
+  }
+  // Without moveBefore, the focused field's ancestors under el never move: each is patched into the node at the same
+  // depth on the path to the field's nearest keyed ancestor in the new markup, so a card that changes lanes takes over
+  // the old lane's node. → Map from each new markup node on that path to the old node it patches; empty when the
+  // paths' depths or tags differ, and app-core.js keepFocus refocuses the field after the move.
+  function focusSafe(el, next, keyed) {
+    const pins = new Map();
+    const a = document.activeElement;
+    if (el.moveBefore || !a || a === el || !el.contains(a)) return pins;
+    const olds = [];
+    for (let n = a; n !== el; n = n.parentNode) olds.unshift(n);
+    for (let i = olds.length - 1; i >= 0; i--) {
+      const k = keyOf(olds[i]);
+      const found = k && [...next.querySelectorAll('*')].find((d) => keyOf(d) === k);
+      if (!found) continue;
+      const news = [];
+      for (let n = found; n !== next; n = n.parentNode) news.unshift(n);
+      if (news.length !== i + 1 || news.some((n, j) => n.tagName !== olds[j].tagName)) return pins;
+      news.forEach((n, j) => { pins.set(n, olds[j]); keyed.delete(keyOf(olds[j])); });
+      return pins;
+    }
+    return pins;
+  }
+  // ctx: {keyed, keep, pins, pinned}, pinned being the old nodes in pins, which only their own new node takes.
+  function patchNode(old, next, ctx) {
     if (old.nodeType !== 1) { if (old.nodeValue !== next.nodeValue) old.nodeValue = next.nodeValue; return; }
-    if (keep && old.matches(keep)) return;
+    if (ctx.keep && old.matches(ctx.keep)) return;
     for (const { name } of [...old.attributes]) if (!next.hasAttribute(name)) old.removeAttribute(name);
     for (const { name, value } of [...next.attributes]) if (old.getAttribute(name) !== value) old.setAttribute(name, value);
-    if (old.tagName !== 'TEXTAREA') patchChildren(old, next, keyed, keep);
+    if (old.tagName !== 'TEXTAREA') patchChildren(old, next, ctx);
   }
-  function patchChildren(parent, next, keyed, keep) {
+  function patchChildren(parent, next, ctx) {
+    const { keyed, pins, pinned } = ctx;
     let cur = parent.firstChild;
     for (const n of [...next.childNodes]) {
       const k = keyOf(n);
-      let match = null;
-      if (k) {
+      let match = pins.get(n) || null;
+      if (!match && k) {
         match = keyed.get(k) || null;
         if (match?.contains(parent)) match = null;
         if (match) keyed.delete(k);
-      } else if (cur && !keyOf(cur) && cur.nodeName === n.nodeName) match = cur;
+      } else if (!match && cur && !keyOf(cur) && !pinned.has(cur) && cur.nodeName === n.nodeName) match = cur;
       if (!match) {
         parent.insertBefore(n, cur);
         if (n.nodeType === 1) {
@@ -137,8 +168,9 @@
             const old = dk && keyed.get(dk);
             if (!old || old.contains(n)) continue;
             keyed.delete(dk);
-            d.replaceWith(old);
-            patchNode(old, d, keyed, keep);
+            move(d.parentNode, old, d);
+            d.remove();
+            patchNode(old, d, ctx);
           }
         }
         continue;
@@ -148,8 +180,8 @@
         // Moving the node that holds focus would blur it, so the siblings before it leave instead.
         while (cur !== match) { const after = cur.nextSibling; cur.remove(); cur = after; }
         cur = match.nextSibling;
-      } else parent.insertBefore(match, cur);
-      patchNode(match, n, keyed, keep);
+      } else move(parent, match, cur);
+      patchNode(match, n, ctx);
     }
     while (cur) { const after = cur.nextSibling; cur.remove(); cur = after; }
   }
@@ -159,7 +191,9 @@
     else {
       const t = document.createElement('template');
       t.innerHTML = html;
-      patchChildren(el, t.content, keyedUnder(el, keep), keep);
+      const keyed = keyedUnder(el, keep);
+      const pins = focusSafe(el, t.content, keyed);
+      patchChildren(el, t.content, { keyed, keep, pins, pinned: new Set(pins.values()) });
     }
     lastHtml.set(el, html);
     if (openDetails.size) for (const d of el.querySelectorAll('details:not([open])')) if (openDetails.has(detailsKey(d))) d.open = true;

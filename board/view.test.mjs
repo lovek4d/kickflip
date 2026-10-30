@@ -618,27 +618,61 @@ test("a card opened with more than 3 unread messages shows them all, and once cl
   assert.deepEqual(seen(), ['Show more · 5 previous messages', ['Five', 'Six', 'Seven']]);
 });
 
-test("a lane repaint while the owner types in a card's reply box moves the other cards and keeps the reply's text, cursor and focus, also when its own card moves lanes, and leaves the + sheet's text alone", async () => {
+function layOut(b) {
+  const view = { scrollY: 0, scrolls: [] };
+  const all = () => { const out = []; const walk = (n) => { for (const c of n.children) { out.push(c); walk(c); } }; walk(b.doc.body); return out; };
+  Object.getPrototypeOf(b.root).getBoundingClientRect = function () {
+    const i = all().indexOf(this);
+    return { top: i * 2 - view.scrollY, bottom: (i + this.querySelectorAll('*').length + 1) * 2 - view.scrollY };
+  };
+  b.page.win.scrollBy = (x, y) => { view.scrolls.push(y); view.scrollY += y; };
+  return view;
+}
+
+function focusMoves(doc) {
+  const moves = [];
+  let active = doc.activeElement;
+  Object.defineProperty(doc, 'activeElement', { configurable: true, get: () => active, set: (v) => { if (v !== active) moves.push(v); active = v; } });
+  return moves;
+}
+
+test("a lane repaint while the owner types in a card's reply box moves the other cards and its own card at once, never takes focus off the reply, keeps its text, cursor and place on screen, scrolls for no change below it, and leaves the + sheet's text alone; with no box focused the open card's title row keeps its place", async () => {
   const b = boardOnDom({ open: ['ask:a1'], board: boardOf([askCard('a1', 'progress'), askCard('b1', 'todo')]),
     threads: { 'ask:a1': [{ ts: '2026-10-30T10:00:00.000Z', who: 'claude', text: 'Started' }] } });
   await b.settle();
+  const view = layOut(b);
+  const moves = focusMoves(b.doc);
   const ta = b.root.querySelector('form[data-reply="ask:a1"] textarea');
   ta.focus();
   ta.value = 'Half a reply';
-  ta.setSelectionRange(4, 4);
+  ta.setSelectionRange(4, 6);
   b.page.fire(b.root, 'input', { target: ta });
   b.root.querySelector('#askText').value = 'A new task';
+  moves.length = 0;
   const lane = (id) => b.root.querySelector(`details.item[data-key="ask:${id}"]`)?.closest('details.lane').dataset.lane;
-  const kept = () => [b.root.querySelector('form[data-reply="ask:a1"] textarea') === ta, ta.value, ta.selectionStart, b.doc.activeElement === ta];
+  const top = (sel) => b.root.querySelector(sel).getBoundingClientRect().top;
+  const BOX = 'form[data-reply="ask:a1"] textarea';
+  const boxTop = top(BOX);
+  const kept = () => [b.root.querySelector(BOX) === ta, ta.value, ta.selectionStart, ta.selectionEnd, b.doc.activeElement === ta, moves.length, top(BOX)];
 
   await b.change({ board: boardOf([askCard('b1', 'progress'), askCard('a1', 'progress')]) });
   assert.deepEqual([lane('b1'), lane('a1')], ['progress', 'progress']);
-  assert.deepEqual(kept(), [true, 'Half a reply', 4, true]);
+  assert.deepEqual(kept(), [true, 'Half a reply', 4, 6, true, 0, boxTop]);
+  assert.equal(view.scrolls.length, 1);
 
-  await b.change({ board: boardOf([askCard('a1', 'review'), askCard('b1', 'done')]) });
-  assert.deepEqual([lane('a1'), lane('b1')], ['review', 'done']);
-  assert.deepEqual(kept(), [true, 'Half a reply', 4, true]);
+  await b.change({ board: boardOf([askCard('b1', 'progress'), askCard('a1', 'progress'), askCard('c1', 'todo')]) });
+  assert.deepEqual([view.scrolls.length, top(BOX)], [1, boxTop]);
+
+  await b.change({ board: boardOf([askCard('d1', 'review'), askCard('a1', 'review'), askCard('b1', 'done'), askCard('c1', 'todo')]) });
+  assert.deepEqual([lane('d1'), lane('a1'), lane('b1')], ['review', 'review', 'done']);
+  assert.deepEqual(kept(), [true, 'Half a reply', 4, 6, true, 0, boxTop]);
   assert.equal(b.root.querySelector('#askText').value, 'A new task');
+
+  ta.blur();
+  const TITLE = 'details.item[data-key="ask:a1"] > summary';
+  const titleTop = top(TITLE);
+  await b.change({ board: boardOf([askCard('e1', 'review'), askCard('d1', 'review'), askCard('a1', 'review'), askCard('b1', 'done'), askCard('c1', 'todo')]) });
+  assert.deepEqual([lane('e1'), top(TITLE)], ['review', titleTop]);
 });
 
 function questionsOnDom({ topics, questions, at }) {

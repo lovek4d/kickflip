@@ -54,7 +54,7 @@ BoardView.part((B) => {
       BoardAttach.paint('item:' + key, B.site.root);
     }
     syncDone(el, key);
-    B.keepFocus(() => setHTML(el.querySelector('.msgs'), threadMessages(msgs, links(key), edits, view)));
+    B.steady(() => setHTML(el.querySelector('.msgs'), threadMessages(msgs, links(key), edits, view)));
     B.flashChanged?.(el);
     // A thread's request is answered by a later thread line, so only a pending one changes the eye.
     const req = msgs.filter((m) => m.kind === 'prototype-request').pop();
