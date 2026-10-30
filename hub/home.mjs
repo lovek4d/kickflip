@@ -63,11 +63,10 @@ export function sidebarSites(rows, waiting, boards) {
   });
 }
 
-// The route a device opens at `/` when it has no last board: the board with the most waiting on the owner, the most
-// recently changed among equals, else any site the same way; null with no site.
+// The board a device opens at `/` when it has no last board: the one with the most waiting on the owner, the most
+// recently changed among equals; null with no board, since `/` opens only a board.
 export function startRoute(sites) {
-  const best = (list) => [...list].sort((a, b) => b.count - a.count || b.changedAt - a.changedAt || a.route.localeCompare(b.route))[0];
-  return (best(sites.filter((s) => s.board)) || best(sites))?.route ?? null;
+  return sites.filter((s) => s.board).sort((a, b) => b.count - a.count || b.changedAt - a.changedAt || a.route.localeCompare(b.route))[0]?.route ?? null;
 }
 
 // The hub's health from the sites' process states and each board's linksOf states ({<route>: [{link, state}]}): a site

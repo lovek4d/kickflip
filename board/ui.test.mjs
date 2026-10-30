@@ -228,7 +228,7 @@ test("the sidebar's head is the page header, whose logo and ✕ close it, then i
   };
   const html = ui.sidebar(data, { here: 'ios', device: 'on' });
   assert.equal(text(html), 'Boards IOS 2 need you SHOP HUB Pages LEARN Hub Hub Healthy 4 of 4 sites up Notifications On Polling Every 15 min · next 4:45pm Settings Rules for every board');
-  assert.match(html, /^<header class="top"><div class="brand"><a class="hub" href="\/_hub\/" aria-label="Close boards" data-sidebar-close=""><img src="\/_hub\/kickflip\.png" alt=""><\/a><h2>Boards<\/h2><\/div><div class="nav"><button type="button" class="sb-close" data-sidebar-close aria-label="Close boards"><svg [^>]*>.*?<\/svg><\/button><\/div><\/header>/);
+  assert.match(html, /^<header class="top"><div class="brand"><a class="hub" href="\/_hub\/" aria-label="Hide boards" title="Hide boards" data-sidebar-close=""><img src="\/_hub\/kickflip\.png" alt=""><\/a><h2>Boards<\/h2><\/div><div class="nav"><button type="button" class="sb-close" data-sidebar-close aria-label="Close boards"><svg [^>]*>.*?<\/svg><\/button><\/div><\/header>/);
   assert.doesNotMatch(html, /<h1|id="refresh"|settingsLink/);
   assert.match(html, /<a class="sb-row on" href="\/ios\/" aria-current="page"><i data-r="ios"><\/i>/);
   assert.match(html, /href="\/_hub\/"[^>]*>.*Hub<\/span>/);
@@ -270,7 +270,7 @@ test("a back arrow goes one step back after a page on this hub, and to its href 
   assert.equal(tap({ url: `${page}&from=push`, state: { idx: 3 } }), 'href');
 });
 
-test("the app's router reads every hub URL as a view and writes each view back as that URL, every push link's shape included, and mounts a board and its Settings, Waiting on you and Notes in place", () => {
+test("the app's router reads every hub URL as a view and writes each view back as that URL, every push link's shape included, and mounts a board, its Settings, Waiting on you and Notes, and every other page in a frame, in place", () => {
   const routerContext = vm.createContext({ URL });
   vm.runInContext(fs.readFileSync(new URL('./public/router.js', import.meta.url), 'utf8'), routerContext);
   const { viewOf, urlOf, mounted } = routerContext.AppRouter;
@@ -287,11 +287,10 @@ test("the app's router reads every hub URL as a view and writes each view back a
     ['/_hub/settings', { kind: 'hub-settings', hash: '' }],
     ['/_hub/settings#rules', { kind: 'hub-settings', hash: '#rules' }],
     ['/_hub/settings/polling?w=09%3A00', { kind: 'polling', w: '09:00' }],
-    ['/orch/prototype-sidebar.html?q=q1&from=push', { kind: 'frame', url: '/orch/prototype-sidebar.html?q=q1&from=push' }],
-    ['/orch/shots-gallery.html', { kind: 'frame', url: '/orch/shots-gallery.html' }],
-    ['/orch/uploads/1-shot.png', { kind: 'frame', url: '/orch/uploads/1-shot.png' }],
-    ['/learn/', { kind: 'frame', url: '/learn/' }],
-    ['/learn/lesson-2.html', { kind: 'frame', url: '/learn/lesson-2.html' }],
+    ['/orch/prototype-sidebar.html?q=q1&from=push', { kind: 'frame', route: 'orch', url: '/orch/prototype-sidebar.html?q=q1&from=push' }],
+    ['/orch/shots-gallery.html', { kind: 'frame', route: 'orch', url: '/orch/shots-gallery.html' }],
+    ['/learn/', { kind: 'frame', route: 'learn', url: '/learn/' }],
+    ['/learn/lessons/lesson-2.html#top', { kind: 'frame', route: 'learn', url: '/learn/lessons/lesson-2.html#top' }],
   ];
   for (const [url, view] of table) {
     assert.deepEqual(read(url), view, url);
@@ -301,8 +300,10 @@ test("the app's router reads every hub URL as a view and writes each view back a
   assert.deepEqual(read('/orch/questions.html?from=push#q-1'), { kind: 'questions', route: 'orch', id: 'q-1' });
   assert.deepEqual(read('/orch/notes.html?item=w%2FA1&from=push'), { kind: 'notes', route: 'orch', item: 'w/A1' });
   assert.equal(viewOf('https://elsewhere.example/orch/', { boards: new Set(['orch']), base }), null);
+  for (const url of ['/orch/uploads/1-shot.png', '/orch/api/board', '/learn', '/_hub/kickflip.png', '/sw.js']) assert.equal(read(url), null, url);
   assert.deepEqual(table.filter(([, view]) => mounted(view)).map(([url]) => url),
-    ['/orch/', '/orch/#item=w%2FA1&reply', '/orch/settings.html', '/orch/questions.html#q-1', '/orch/notes.html?item=w%2FA1']);
+    ['/orch/', '/orch/#item=w%2FA1&reply', '/orch/settings.html', '/orch/questions.html#q-1', '/orch/notes.html?item=w%2FA1',
+      '/orch/prototype-sidebar.html?q=q1&from=push', '/orch/shots-gallery.html', '/learn/', '/learn/lessons/lesson-2.html#top']);
 });
 
 test("in the app, a view's back arrow goes one step back after a view, and to its href when a push opened the view, on a reload of it, or with nothing before it", () => {

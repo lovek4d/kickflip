@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // web-ts hub: one loopback server that Tailscale sends every request to.
 //   /                 the app shell (board/public/app.html), which opens this device's last board, else the board with
-//                     the most waiting; a browser's page load of a board's view, such as /<route>/ or
-//                     /<route>/settings.html, gets the shell too (shell.mjs pageOf)
+//                     the most waiting; a browser's page load of any site's page, such as /<route>/,
+//                     /<route>/settings.html or /learn/, gets the shell too (shell.mjs pageOf)
 //                     (docs/adr/0055-one-app-for-the-whole-hub.md)
 //   /_hub/app/<file>  the shell's scripts and CSS, read from ../board/public then ../starter/public on each request;
 //                     ?v=<version> caches for a year
@@ -17,7 +17,7 @@
 //   /_hub/needs.json  {total, sites: {<route>: {count, working, summary, lanes, building} | null}}: total is the
 //                     Home Screen badge; ?fresh=1 skips the cache
 //   /<route>/...      forwarded to that site's port with the /<route> prefix
-//                     removed (X-Forwarded-Prefix carries it), unless it is a board's page load the shell takes
+//                     removed (X-Forwarded-Prefix carries it), unless it is a page load the shell takes
 //   /sw.js, /manifest.webmanifest, /_hub/icon-*.png
 //                     the Home Screen app and its push service worker (scope /)
 //   /_hub/colors.css  ../shared/colors.css, the colours every hub page links before hub.css; ?v=colorsVersion() caches for a year
@@ -433,8 +433,6 @@ async function shellPage(route) {
   return shellHtml({ sidebar: side.rows, sidebarData: side.json, touchIcon: iconUrl(180) });
 }
 
-const boardRoutes = () => new Set(Object.entries(loadManifest().sites).filter(([, s]) => isBoardSite(s)).map(([route]) => route));
-
 const stream = hubStream({
   targets: () => Object.entries(loadManifest().sites).filter(([, s]) => isBoardSite(s) && s.port).map(([route, s]) => ({ route, port: s.port })),
   sidebar: async ({ fresh }) => (await sidebarState({ fresh })).data,
@@ -545,10 +543,12 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const pollingSummary = (s) => [`${plural(s.windows.length, 'window')}, ${checksADay(s)} checks a day`, holdsOvernight(s) && 'held overnight',
   s.wakes.length ? `wakes ${s.wakes.map(timeOfDay).join(', ')}` : 'no wakes'].filter(Boolean).join(' · ');
 
+// A rail the owner collapsed stays collapsed from the first paint (board/public/sidebar.js and app.html keep the same key).
+const COLLAPSED_JS = `<script>try { if (localStorage.getItem('hub:sidebarCollapsed') === '1') document.documentElement.classList.add('sb-collapsed'); } catch {}</script>`;
 // side: a sidebar() result, which puts the sidebar beside the page.
 const head = (title, extra = '', top = '', side = null) => `<!doctype html><html lang="en" class="hub-view"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>${esc(title)}</title><link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="${iconUrl(180)}">
-<meta name="apple-mobile-web-app-title" content="Claude">${extra}<link rel="stylesheet" href="/_hub/colors.css?v=${colorsVersion()}"><link rel="stylesheet" href="/_hub/hub.css">${side ? '<link rel="stylesheet" href="/_hub/sidebar.css">' : ''}</head><body${side ? ' class="has-sidebar"' : ''}>${side ? side.html : ''}${top}<main${top ? ' class="has-top"' : ''}>`;
+<meta name="apple-mobile-web-app-title" content="Claude">${extra}<link rel="stylesheet" href="/_hub/colors.css?v=${colorsVersion()}"><link rel="stylesheet" href="/_hub/hub.css">${side ? `<link rel="stylesheet" href="/_hub/sidebar.css">${COLLAPSED_JS}` : ''}</head><body${side ? ' class="has-sidebar"' : ''}>${side ? side.html : ''}${top}<main${top ? ' class="has-top"' : ''}>`;
 
 function pollLine(now) {
   if (polls.running) return 'Checking GitHub now';
@@ -865,11 +865,14 @@ async function hubPage(req) {
   const host = req.headers['x-forwarded-host'] || req.headers.host || '';
   const code = { running: readJSON(HUB_CODE, null)?.hash, onDisk: hubCode().hash };
   const codeLine = code.running && code.running === code.onDisk ? `runs the code in its files (${code.onDisk})` : 'runs older code than its files; restart it';
-  const health = rows.map((r) => {
+  const health = (r) => {
     const h = siteHealth(r, links[r.route]);
     const lines = h.lines.length ? `<span class="links">${h.lines.map((l) => `<span><b>${esc(l.link)}</b> ${esc(l.detail)}</span>`).join('')}</span>` : '';
     return row({ icon: siteIcon(r.route, r), title: esc(r.title), sub: `<span class="st ${h.tone}">${esc(h.word)}</span>${lines}`, wrap: true, trail: CHEVRON, href: `/${r.route}/` });
-  }).join('');
+  };
+  // Boards and Pages stay apart wherever sites are listed, as in the sidebar (board/public/ui-sidebar.js).
+  const isBoard = new Set(data.sites.filter((x) => x.board).map((x) => x.route));
+  const group = (label, list) => (list.length ? `<h2 class="label">${label}</h2>\n<div class="group">${list.map(health).join('')}</div>\n` : '');
   const st = queueStatus(now);
   const s = st.settings;
   const queued = st.count ? `${st.count} push${st.count === 1 ? '' : 'es'} queued; next send ${clock(st.nextFlushAt, now)}.` : 'No pushes queued.';
@@ -878,8 +881,8 @@ async function hubPage(req) {
   return `${head('Hub', '', top, side)}
 <h2 class="label" style="margin-top:4px">Health</h2>
 <div class="group">${row({ icon: tile('power', data.hub.tone === 'ok' ? '#22c55e' : '#ef4444'), title: 'Hub', sub: `<span class="st ${data.hub.tone}">${esc(data.hub.word)}</span> · ${esc(data.hub.detail)} · ${esc(codeLine)}`, wrap: true })}
-${health || row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/join-web-ts &lt;route&gt;</code>.' })}</div>
-<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, events (a watcher runs), daily wakes, pushes, reviewer links and hub code. One that just broke reads settling first.</p>
+${rows.length ? '' : row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/join-web-ts &lt;route&gt;</code>.' })}</div>
+${group('Boards', rows.filter((r) => isBoard.has(r.route)))}${group('Pages', rows.filter((r) => !isBoard.has(r.route)))}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, events (a watcher runs), daily wakes, pushes, reviewer links and hub code. One that just broke reads settling first.</p>
 <h2 class="label">Polling</h2>
 <div class="group">${row({ icon: tile('clock', '#3b82f6'), title: esc(capital(nowLine(st, now))), sub: `<span class="sub wrap">${esc(pollLine(now))}</span><span class="sub wrap">${esc(queued)}</span>`,
   trail: `<form method="post" action="/_hub/push/flush"><button class="btn quiet" ${st.count ? '' : 'disabled'}>Send now</button></form>` })}
@@ -919,7 +922,8 @@ const requestURL = (req) => new URL(req.url.replace(/^\/+/, '/'), 'http://hub');
 
 const server = http.createServer((req, res) => {
   const url = requestURL(req);
-  if (pageOf({ method: req.method, pathname: url.pathname, dest: req.headers['sec-fetch-dest'], boards: boardRoutes() }) === 'shell') {
+  const sites = new Set(Object.keys(loadManifest().sites));
+  if (pageOf({ method: req.method, pathname: url.pathname, search: url.search, dest: req.headers['sec-fetch-dest'], sites }) === 'shell') {
     const route = url.pathname === '/' ? '' : decodeURIComponent(url.pathname.split('/')[1]);
     shellPage(route).then((html) => sendText(req, res, 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', vary: 'sec-fetch-dest' }, html))
       .catch((e) => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
@@ -952,6 +956,8 @@ const server = http.createServer((req, res) => {
   const headers = { ...req.headers, 'x-forwarded-prefix': prefix, 'x-forwarded-host': req.headers['x-forwarded-host'] || req.headers.host, 'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'https' };
   const up = http.request({ host: '127.0.0.1', port: site.port, method: req.method, path: rest, headers }, (r) => {
     const h = { ...r.headers };
+    // The same URL is the shell for a page load and the page itself for its frame, so neither may answer the other.
+    if (pageOf({ pathname: url.pathname, dest: 'document', sites }) === 'shell') h.vary = [h.vary, 'sec-fetch-dest'].filter(Boolean).join(', ');
     if (typeof h.location === 'string' && h.location.startsWith('/') && !h.location.startsWith('//') && !h.location.startsWith(prefix + '/') && h.location !== prefix) h.location = prefix + h.location;
     res.writeHead(r.statusCode, h);
     r.pipe(res);

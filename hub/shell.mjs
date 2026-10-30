@@ -1,8 +1,9 @@
 // The app shell, board/public/app.html (docs/adr/0055-one-app-for-the-whole-hub.md): which requests the hub answers
-// with it, and its HTML, which the hub and each board server both serve. A browser's top-level load of `/` or of a
-// board page that is a view gets the shell from the hub, with the sidebar drawn in. Every other request goes on to its
-// site: a board server answers its view pages with the shell too, without the sidebar, so a browser that sends no
-// Sec-Fetch-Dest, curl and a frame get it there, and a frame's shell hands its URL to the app around it.
+// with it, and its HTML, which the hub and each board server both serve. A browser's top-level load of `/` or of any
+// site's page gets the shell from the hub, with the sidebar drawn in; the shell shows a board's page as its view and
+// any other page in a frame. Every other request goes on to its site: the frame's own load, curl, an API call, an
+// image. A board server answers its view pages with the shell too, without the sidebar, so a browser that sends no
+// Sec-Fetch-Dest gets it there, and a frame's shell hands its URL to the app around it.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,15 +17,20 @@ const COLORS = path.join(HUB_DIR, '..', 'shared', 'colors.css');
 // A board's pages that are views of the shell, by their path under the board (board/public/router.js).
 export const VIEW_PAGES = new Set(['', 'settings.html', 'questions.html', 'notes.html']);
 
-// method, pathname and dest (the request's Sec-Fetch-Dest header) from the request; boards, the set of board routes.
+// A page's path under its route: a folder or an .html file. board/public/router.js viewOf frames the same paths.
+const isPagePath = (rest) => rest === '' || rest.endsWith('/') || /\.html?$/.test(rest);
+
+// method, pathname, search and dest (the request's Sec-Fetch-Dest header) from the request; sites, the set of every
+// site's route. ?alone=1, the frame header's Open alone, loads the page itself.
 // → 'shell' | 'hub' (the hub's own paths) | 'forward' (a site's path, forwarded with its prefix stripped)
-export function pageOf({ method = 'GET', pathname = '/', dest, boards = new Set() }) {
+export function pageOf({ method = 'GET', pathname = '/', search = '', dest, sites = new Set() }) {
   if (pathname === '/') return method === 'GET' || method === 'HEAD' ? 'shell' : 'hub';
   if (pathname === '/_hub' || pathname.startsWith('/_hub/') || pathname === '/sw.js' || pathname === '/manifest.webmanifest' || pathname === '/favicon.ico') return 'hub';
-  const m = /^\/([^/]+)\/([^/]*)$/.exec(pathname);
+  if (method !== 'GET' || dest !== 'document' || new URLSearchParams(search).has('alone')) return 'forward';
+  const m = /^\/([^/]+)\/(.*)$/.exec(pathname);
   let route = null;
   try { route = m ? decodeURIComponent(m[1]) : null; } catch { route = null; }
-  return method === 'GET' && dest === 'document' && route !== null && boards.has(route) && VIEW_PAGES.has(m[2]) ? 'shell' : 'forward';
+  return route !== null && sites.has(route) && isPagePath(m[2]) ? 'shell' : 'forward';
 }
 
 // Each root-absolute /_hub/app/<file> link in the shell gains ?v=<version>, so a pinned file caches for a year and an

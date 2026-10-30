@@ -6,13 +6,15 @@
 <title>Claude</title>
 <script>
 // The board this URL opens, or `/`'s last board, starts loading with its open cards' threads here, beside the scripts
-// below; app.js loadBoard takes the loads over when it mounts that board. A board's other views load their own. Above
-// the stylesheets, since a script after one waits for it to load.
+// below; app.js loadBoard takes the loads over when it mounts that board. A board's other views load their own, and a
+// site this device's last sidebar copy lists as no board loads nothing here. Above the stylesheets, since a script
+// after one waits for it to load.
 window.BoardBoot = (function () {
   if (!/^\/(?:[^/]+\/)?$/.test(location.pathname)) return null;
   let route = null;
   try { route = decodeURIComponent(location.pathname.split('/')[1] || '') || localStorage.getItem('hub:lastBoard'); } catch {}
   if (!route) return null;
+  try { if (JSON.parse(localStorage.getItem('hub:sidebar') || 'null')?.sites?.some((s) => s.route === route && !s.board)) return null; } catch {}
   const base = '/' + encodeURIComponent(route) + '/';
   const get = (u) => { const p = fetch(base + u, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status))))); p.catch(() => {}); return p; };
   let open = [];
@@ -22,6 +24,7 @@ window.BoardBoot = (function () {
   return { route, board: get('api/board'), threads: new Map([...new Set(open)].map((k) => [k, get('api/thread?key=' + encodeURIComponent(k))])) };
 })();
 </script>
+<script>try { if (localStorage.getItem('hub:sidebarCollapsed') === '1') document.documentElement.classList.add('sb-collapsed'); } catch {}</script>
 <link rel="stylesheet" href="/_hub/colors.css?v={{colorsVersion}}">
 <link rel="stylesheet" href="/_hub/app/style.css">
 <link rel="stylesheet" href="/_hub/app/sidebar.css">
@@ -61,6 +64,7 @@ window.BoardBoot = (function () {
 <script src="/_hub/app/view-settings.js"></script>
 <script src="/_hub/app/view-questions.js"></script>
 <script src="/_hub/app/view-notes.js"></script>
+<script src="/_hub/app/view-frame.js"></script>
 <script src="/_hub/app/router.js"></script>
 <script src="/_hub/app/shell.js"></script>
 <script>AppShell.start();</script>

@@ -2,11 +2,11 @@
 // builds one board's B over its root element and its site root (such as '/hub-orchestrator', through ClaudeSite.site),
 // and mount() runs the parts in load order, then renders the board from /api/board and per-item threads from
 // /api/thread. Actions go out as events through B.site.send (each wakes Claude). Parts add listeners, intervals,
-// timers, streams, watches and unmount steps only through B.on, B.every, B.later, B.stream, B.watch and B.atUnmount,
-// so unmount() undoes them all and no board's state outlives its view. BoardView.markup({title}) is the root's inner
+// timers, watches and unmount steps only through B.on, B.every, B.later, B.watch and B.atUnmount, so unmount() undoes
+// them all and no board's state outlives its view. BoardView.markup({title}) is the root's inner
 // HTML. BoardView.page(root, site, run) gives a board's other views (view-*.js) the same site, $ and recorders.
 // opts, both from the app shell (shell.js):
-//   signal(fn) → off   calls fn on each change signal for this board, in place of the board's own api/stream
+//   signal(fn) → off   calls fn on each change signal for this board, from the hub's one stream
 //   live {fresh, generatedAt}
 //                      this board was left fresh and hasn't changed since, so a stored last visit whose board has
 //                      that generatedAt paints live, with the header time `fresh`, rather than dimmed
@@ -37,7 +37,7 @@ window.BoardView = (function () {
 
   // What every view of one site shares: its ClaudeSite.site, a $ and $$ scoped to its root, and the recorders. Each
   // recorder returns a function that undoes what it added, and stop() runs every one still pending, so a view adds
-  // listeners, intervals, timers, streams, watches and unmount steps only through them. Before start() and after
+  // listeners, intervals, timers, watches and unmount steps only through them. Before start() and after
   // stop() they add nothing. B.sleep(ms) resolves after ms, and never once the view is gone, so a retry loop stops.
   function base(root, siteRoot) {
     const site = ClaudeSite.site(siteRoot);
@@ -70,35 +70,10 @@ window.BoardView = (function () {
       own(() => w.stop());
       return w;
     };
-    // An EventSource retries a dropped stream by itself, but gives up on an answer that isn't a stream, such as the
-    // hub's 502 while the server restarts, so a closed one reopens here with a growing backoff. open() reopens it when
-    // it closed; handlers maps event types to listeners.
-    function stream(url, handlers) {
-      let es = null;
-      let tries = 0;
-      let retry = () => {};
-      const s = {
-        open() {
-          if (!alive || !('EventSource' in globalThis) || (es && es.readyState !== EventSource.CLOSED)) return;
-          retry();
-          const cur = es = new EventSource(url);
-          cur.addEventListener('open', () => { tries = 0; });
-          for (const [type, fn] of Object.entries(handlers)) cur.addEventListener(type, fn);
-          cur.addEventListener('error', () => {
-            if (cur.readyState !== EventSource.CLOSED || es !== cur) return;
-            retry = later(Math.min(30000, 1000 * 2 ** tries++), s.open);
-          });
-        },
-      };
-      if (!alive) return s;
-      own(() => { retry(); es?.close(); es = null; });
-      s.open();
-      return s;
-    }
     const atUnmount = (fn) => { if (alive) own(fn); };
     const $ = (s, el = root) => el.querySelector(s);
     const $$ = (s, el = root) => el.querySelectorAll(s);
-    const B = { root, site, route, $, $$, on, every, later, sleep, stream, watch, atUnmount, alive: () => alive, own: (off) => (alive ? own(off) : off()) };
+    const B = { root, site, route, $, $$, on, every, later, sleep, watch, atUnmount, alive: () => alive, own: (off) => (alive ? own(off) : off()) };
     return {
       B,
       start() { alive = true; },
@@ -276,9 +251,8 @@ window.BoardView = (function () {
       if (state.view === 'fresh') B.endFlash();
     }
 
-    // The server signals each change to what the board reads, and the page reloads at once; the 30 s poll stays as the
-    // fallback and the offline check (docs/adr/0031-the-board-reloads-on-a-change-signal.md).
-    let streamOpened = false;
+    // The server signals each change to what the board reads, through the shell, and the board reloads at once; the
+    // 30 s poll stays as the fallback and the offline check (docs/adr/0031-the-board-reloads-on-a-change-signal.md).
     let reloading = null;
     let reloadAgain = false;
     let signalMissed = false;
@@ -295,17 +269,12 @@ window.BoardView = (function () {
     const live = paintSnapshot();
     B.headerWired();
     if (live) B.linkUp();
-    let changes = null;
     B.on(document, 'visibilitychange', () => {
       if (document.hidden) return;
-      changes?.open();
       if (signalMissed) { signalMissed = false; signalled(); } else loadBoard();
     });
-    B.on(window, 'pageshow', () => changes?.open());
     loadBoard();
-    // A reopened stream may have missed signals while it was down.
-    if (B.signal) B.signal(signalled);
-    else changes = B.stream(B.site.url('api/stream'), { change: signalled, open: () => { if (streamOpened) signalled(); streamOpened = true; } });
+    B.signal?.(signalled);
     B.every(30000, () => { if (!document.hidden) { loadBoard(); } });
   }
 

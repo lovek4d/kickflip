@@ -419,3 +419,9 @@ main > * { transition: opacity .25s ease; }
 .view-notes .md-table tr:last-child td { border-bottom: 0; }
 .view-notes .md-table .wide { min-width: 14em; }
 .view-notes .md-table .wider { min-width: 24em; }
+/* A framed page (view-frame.js) fills the view under the header, and scrolls inside its frame. */
+.view-frame { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+.view-frame > .top { flex: none; }
+.view-frame.own-header > .top { display: none; }
+.view-frame > .frame-page { flex: 1 1 auto; display: block; width: 100%; min-height: 0; border: 0; background: var(--bg); }
+.view-frame .alone { white-space: nowrap; font-size: 13px; }

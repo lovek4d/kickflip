@@ -1,12 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import fs from 'node:fs';
+import vm from 'node:vm';
 import { pageOf, versionAppAssets } from './shell.mjs';
 import { hubStream } from './stream.mjs';
 
 const boards = new Set(['hub-orchestrator', 'ios']);
+const sites = new Set([...boards, 'learn']);
 
-test("a browser's page load of `/` or of a board's view gets the shell; frames, curl, API calls, uploads and other pages still reach the site, and /_hub/ the hub", () => {
+test("a browser's page load of `/` or of any site's page gets the shell; frames, curl, API calls, uploads, Open alone and other files still reach the site, and /_hub/ the hub", () => {
   const cases = [
     [{ pathname: '/', dest: 'document' }, 'shell'],
     [{ pathname: '/' }, 'shell'],
@@ -15,27 +18,52 @@ test("a browser's page load of `/` or of a board's view gets the shell; frames, 
     [{ pathname: '/hub-orchestrator/' }, 'forward'],
     [{ pathname: '/hub-orchestrator/', dest: 'document', method: 'POST' }, 'forward'],
     [{ pathname: '/hub-orchestrator/api/board', dest: 'empty' }, 'forward'],
+    [{ pathname: '/hub-orchestrator/api/board', dest: 'document' }, 'forward'],
     [{ pathname: '/hub-orchestrator/api/stream', dest: 'empty' }, 'forward'],
     [{ pathname: '/hub-orchestrator/api/upload', dest: 'empty', method: 'POST' }, 'forward'],
     [{ pathname: '/hub-orchestrator/uploads/1-shot.png', dest: 'image' }, 'forward'],
-    [{ pathname: '/hub-orchestrator/uploads/1-page.html', dest: 'document' }, 'forward'],
+    [{ pathname: '/hub-orchestrator/uploads/1-shot.png', dest: 'document' }, 'forward'],
+    [{ pathname: '/hub-orchestrator/uploads/1-page.html', dest: 'document' }, 'shell'],
     [{ pathname: '/hub-orchestrator/settings.html', dest: 'document' }, 'shell'],
     [{ pathname: '/hub-orchestrator/questions.html', dest: 'document' }, 'shell'],
     [{ pathname: '/hub-orchestrator/notes.html', dest: 'document' }, 'shell'],
+    [{ pathname: '/hub-orchestrator/plan.html', dest: 'document' }, 'shell'],
     [{ pathname: '/hub-orchestrator/settings.html', dest: 'iframe' }, 'forward'],
     [{ pathname: '/hub-orchestrator/questions.html' }, 'forward'],
-    [{ pathname: '/hub-orchestrator/plan.html', dest: 'document' }, 'forward'],
-    [{ pathname: '/hub-orchestrator/index.html', dest: 'document' }, 'forward'],
-    [{ pathname: '/hub-orchestrator/installs/P2/', dest: 'document' }, 'forward'],
-    [{ pathname: '/learn/settings.html', dest: 'document' }, 'forward'],
-    [{ pathname: '/hub-orchestrator/prototype-sidebar.html', dest: 'document' }, 'forward'],
-    [{ pathname: '/learn/', dest: 'document' }, 'forward'],
+    [{ pathname: '/hub-orchestrator/prototype-sidebar.html', dest: 'document' }, 'shell'],
+    [{ pathname: '/hub-orchestrator/prototype-sidebar.html', search: '?q=q1&from=push', dest: 'document' }, 'shell'],
+    [{ pathname: '/hub-orchestrator/prototype-sidebar.html', search: '?take=A', dest: 'iframe' }, 'forward'],
+    [{ pathname: '/hub-orchestrator/prototype-sidebar.html', search: '?q=q1&alone=1', dest: 'document' }, 'forward'],
+    [{ pathname: '/hub-orchestrator/shots-gallery.html', dest: 'document' }, 'shell'],
+    [{ pathname: '/hub-orchestrator/installs/P2/', dest: 'document' }, 'shell'],
+    [{ pathname: '/learn/', dest: 'document' }, 'shell'],
+    [{ pathname: '/learn/', dest: 'iframe' }, 'forward'],
+    [{ pathname: '/learn/', dest: 'document', search: '?alone=1' }, 'forward'],
+    [{ pathname: '/learn/settings.html', dest: 'document' }, 'shell'],
+    [{ pathname: '/learn/lessons/0001.html', dest: 'document' }, 'shell'],
+    [{ pathname: '/learn/lessons/0001.html', dest: 'iframe' }, 'forward'],
+    [{ pathname: '/learn/assets/course.css', dest: 'style' }, 'forward'],
+    [{ pathname: '/learn', dest: 'document' }, 'forward'],
+    [{ pathname: '/gone/', dest: 'document' }, 'forward'],
     [{ pathname: '/_hub/', dest: 'document' }, 'hub'],
     [{ pathname: '/_hub/settings', dest: 'document' }, 'hub'],
     [{ pathname: '/_hub/sidebar.json', dest: 'empty' }, 'hub'],
     [{ pathname: '/sw.js', dest: 'serviceworker' }, 'hub'],
   ];
-  assert.deepEqual(cases.map(([req]) => pageOf({ ...req, boards })), cases.map(([, page]) => page));
+  assert.deepEqual(cases.map(([req]) => pageOf({ ...req, sites })), cases.map(([, page]) => page));
+});
+
+test("the hub serves the shell for a page load of exactly the URLs the app's router shows in place, so a reload lands on the same view", () => {
+  const context = vm.createContext({ URL });
+  vm.runInContext(fs.readFileSync(new URL('../board/public/router.js', import.meta.url), 'utf8'), context);
+  const { viewOf, mounted } = context.AppRouter;
+  const paths = ['/hub-orchestrator/', '/hub-orchestrator/settings.html', '/hub-orchestrator/questions.html', '/hub-orchestrator/notes.html',
+    '/hub-orchestrator/plan.html', '/hub-orchestrator/prototype-x.html', '/hub-orchestrator/installs/P2/', '/hub-orchestrator/uploads/1-shot.png',
+    '/hub-orchestrator/api/board', '/learn/', '/learn/lessons/0001.html', '/learn/lessons/0001.htm', '/learn/assets/course.css', '/learn/data'];
+  for (const p of paths) {
+    const routed = mounted(viewOf(`https://mac.ts.net${p}`, { boards, base: 'https://mac.ts.net/' }));
+    assert.equal(pageOf({ pathname: p, dest: 'document', sites }) === 'shell', routed, p);
+  }
 });
 
 test("the shell's /_hub/app/ links name each file's version, and a file with none keeps its plain link", () => {

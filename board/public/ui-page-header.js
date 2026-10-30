@@ -38,7 +38,7 @@
     });
   }
 
-  // lead is 'logo' (the kickflip, which opens the sidebar on a phone, sidebar.js; logoHref, the hub's page, without it)
+  // lead is 'logo' (the kickflip, which toggles the sidebar, sidebar.js; logoHref, the hub's page, without it)
   // or 'back' (the arrow, which follows backStep, with backHref the work item or the board). The controls (time and refresh, gear) paint disabled with refresh spinning until the
   // page's script turns them on (docs/adr/0021-the-board-shows-github-checks-and-watcher-health.md). With controls
   // false, trail (HTML) takes their place. leadAttrs adds to or replaces the lead link's attributes, and level is the

@@ -54,11 +54,11 @@ test("the sidebar's rows carry each site's icon, status line and count, and mark
   assert.match(gone.sub, />Down</);
 });
 
-test('a first visit opens the board with the most waiting, the most recently changed among equals, else any site', () => {
+test('a first visit opens the board with the most waiting, the most recently changed among equals, and never a site that is not a board', () => {
   const site = (route, count, changedAt, board = true) => ({ route, count, changedAt, board });
   assert.equal(startRoute([site('a', 1, 1), site('b', 3, 0), site('c', 3, 2), site('page', 9, 9, false)]), 'c');
   assert.equal(startRoute([site('a', 0, 1), site('b', 0, 4)]), 'b');
-  assert.equal(startRoute([site('page', 0, 0, false)]), 'page');
+  assert.equal(startRoute([site('page', 0, 0, false)]), null);
   assert.equal(startRoute([]), null);
 });
 

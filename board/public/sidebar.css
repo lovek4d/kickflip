@@ -1,6 +1,6 @@
-/* The sidebar (ui-sidebar.js, sidebar.js): a rail from 900px, a drawer below it. The board page and the hub's pages
-   link it after colors.css; the hub serves it as /_hub/sidebar.css. Every rule is scoped to .sidebar or the page
-   classes sidebar.js sets, since each page's own CSS uses the same short class names. */
+/* The sidebar (ui-sidebar.js, sidebar.js): a rail from 1000px, which collapses out of sight, and a drawer below it.
+   The app shell and the hub's pages link it after colors.css; the hub serves it as /_hub/sidebar.css. Every rule is
+   scoped to .sidebar or the page classes sidebar.js sets, since each page's own CSS uses the same short class names. */
 .sidebar { position: fixed; z-index: 20; top: 0; bottom: 0; left: 0; width: min(86vw, 320px); display: flex; flex-direction: column;
   padding: 0 8px calc(12px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
   background: var(--panel); border-right: 1px solid var(--line); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
@@ -53,11 +53,16 @@
 .sidebar .t-building { --tone: var(--accent); }
 .sidebar .t-ok { --tone: var(--color-success); }
 
-@media (min-width: 900px) {
+@media (min-width: 1000px) {
   body.has-sidebar { padding-left: 272px; }
   body.has-sidebar .sidebar { width: 272px; transform: none; visibility: visible; transition: none; z-index: 4; }
   body.has-sidebar .sidebar .sb-close { display: none; }
-  body.has-sidebar .sidebar .top .hub { pointer-events: none; }
   body.has-sidebar .sidebar-scrim { display: none; }
-  body.has-sidebar > .top .hub, body.has-sidebar > .view-board > .top .hub { display: none; }
+  html:not(.sb-collapsed) body.has-sidebar > .top .hub, html:not(.sb-collapsed) body.has-sidebar > :not(.sidebar) > .top .hub { display: none; }
+  html.sb-collapsed body.has-sidebar { padding-left: 0; }
+  html.sb-collapsed body.has-sidebar .sidebar { transform: translateX(-102%); visibility: hidden; }
+  html.sb-anim body.has-sidebar { transition: padding-left .24s cubic-bezier(.2,.8,.2,1); }
+  html.sb-anim body.has-sidebar .sidebar { transition: transform .24s cubic-bezier(.2,.8,.2,1), visibility 0s linear .24s; }
+  html.sb-anim:not(.sb-collapsed) body.has-sidebar .sidebar { transition: transform .24s cubic-bezier(.2,.8,.2,1); }
 }
+@media (min-width: 1000px) and (prefers-reduced-motion: reduce) { html.sb-anim body.has-sidebar, html.sb-anim body.has-sidebar .sidebar { transition: none; } }

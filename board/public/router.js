@@ -9,11 +9,16 @@
 //   notes {route, item}         /<route>/notes.html?item=<key>, and plan.html, which the board redirects there
 //   hub, hub-settings {hash}, polling {w}
 //                               /_hub/, /_hub/settings, /_hub/settings/polling?w=<HH:MM>
-//   frame {url}                 anything else on the hub: other sites, prototypes and every other board page
+//   frame {route, url}          any other page under a route, a folder or an .html file: other sites, prototypes and
+//                               every other board page, shown in a frame
+// Any other URL, such as an image or another origin, is no view (null) and loads as itself.
 // A push's from=push mark (entryOf) is no part of the view, so a push link reads as the view its page shows.
 globalThis.AppRouter = (function () {
   // The kinds the shell mounts in place; a link to any other kind loads its page.
-  const MOUNTED = new Set(['board', 'settings', 'questions', 'notes']);
+  const MOUNTED = new Set(['board', 'settings', 'questions', 'notes', 'frame']);
+  // A page's path under its route. hub/shell.mjs pageOf takes the same rule, so the hub answers a page load of every view
+  // this mounts with the shell; hub/shell.test.mjs checks the two agree.
+  const isPagePath = (rest) => rest === '' || rest.endsWith('/') || /\.html?$/.test(rest);
 
   // href against base; boards, the set of board routes. null for another origin.
   function viewOf(href, { boards = new Set(), base = globalThis.location?.href } = {}) {
@@ -25,11 +30,12 @@ globalThis.AppRouter = (function () {
     if (p === '/_hub/') return { kind: 'hub' };
     if (p === '/_hub/settings') return { kind: 'hub-settings', hash: u.hash };
     if (p === '/_hub/settings/polling') return { kind: 'polling', w: u.searchParams.get('w') };
-    const frame = { kind: 'frame', url: p + u.search + u.hash };
-    const m = /^\/([^/]+)\/([^/]*)$/.exec(p);
+    const m = /^\/([^/]+)\/(.*)$/.exec(p);
     let route = null;
-    try { route = m && decodeURIComponent(m[1]); } catch { return frame; }
-    if (!route || !boards.has(route)) return frame;
+    try { route = m && decodeURIComponent(m[1]); } catch { return null; }
+    if (!route || route === '_hub' || !isPagePath(m[2])) return null;
+    const frame = { kind: 'frame', route, url: p + u.search + u.hash };
+    if (!boards.has(route)) return frame;
     const page = m[2];
     if (page === '') return { kind: 'board', route, hash: u.hash };
     if (page === 'settings.html') return { kind: 'settings', route };
