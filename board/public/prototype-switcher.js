@@ -30,12 +30,21 @@
   }
   // Matches ui-questions.js choiceLabel for a single-choice question.
   const answerLabel = (option) => `${/^[A-Z][0-9]?$/i.test(option.id) ? `${option.id}. ` : ''}${option.label}`;
-  // After a pick: the next open question on the same topic, after this one in owner.json's order and then from the
-  // top, else null. Its own prototype page when it has one, else its card on questions.html.
-  function nextQuestion(owner, qid) {
+  // After a pick, moving on as a Send does (board/public/view-questions.js moveOn): the next open question on the same
+  // topic, after this one in owner.json's order and then from the top; else the first open question of the topic to
+  // its left in `topics` (the board's ownerTopics), else to its right, else any; else null, for the board. Its own
+  // prototype page when it has one, else its card on questions.html.
+  function nextQuestion(owner, qid, topics = []) {
     const at = owner.findIndex((q) => q.id === qid);
     const topic = owner[at]?.topic;
-    return [...owner.slice(at + 1), ...owner.slice(0, Math.max(at, 0))].find((q) => q.topic === topic && q.state === 'open') || null;
+    const same = [...owner.slice(at + 1), ...owner.slice(0, Math.max(at, 0))].find((q) => q.topic === topic && q.state === 'open');
+    if (same) return same;
+    const ids = topics.map((t) => t.id);
+    const ti = ids.indexOf(topic);
+    const order = ti < 0 ? ids : [...ids.slice(0, ti).reverse(), ...ids.slice(ti + 1)];
+    const elsewhere = (q) => q.state === 'open' && q.topic !== topic;
+    for (const t of order) { const q = owner.find((x) => x.topic === t && elsewhere(x)); if (q) return q; }
+    return owner.find(elsewhere) || null;
   }
   const questionUrl = (q) => (/^prototype-[\w-]+\.html(?:[?#]|$)/.test(q.url || '') ? q.url : `questions.html#${encodeURIComponent(q.id)}`);
   // questions.html keeps each question's unsent {choice, note} under this key; a pick sent here takes its note and clears it.
@@ -155,12 +164,12 @@
       busy = false;
       note('Sent. Claude replies on the card.');
       const board = await load();
-      const next = nextQuestion(board?.owner || [], qid);
+      const next = nextQuestion(board?.owner || [], qid, board?.ownerTopics || []);
       if (next) {
         const u = new URL(site.url(questionUrl(next)), location.href);
         if (globalThis.PageBack?.pushed) u.searchParams.set('from', 'push');
         replaceWith(u);
-      } else replaceWith(site.url(`questions.html#${encodeURIComponent(qid)}`));
+      } else replaceWith(site.url('./'));
     }
     text.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || e.isComposing) return;

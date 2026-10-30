@@ -60,12 +60,14 @@ test("a pick answers with the label questions.html sends for that option", () =>
   for (const o of question.options) assert.equal(sw.answerLabel(o), ui.choiceLabel(question, o.id));
 });
 
-test('after a pick the page moves on to the next open question of the same topic, wrapping to the top, else to none', () => {
+test('after a pick the page moves on to the next open question of the same topic, wrapping to the top, else the topic to its left, else to its right, else none', () => {
   const q = (id, topic, state = 'open') => ({ id, topic, state });
-  const owner = [q('a', 'item:w/A1'), q('b', 'item:w/A1', 'answered'), q('c', 'item:w/A2'), q('d', 'item:w/A1'), q('e', 'item:w/A1')];
-  assert.equal(sw.nextQuestion(owner, 'd').id, 'e');
-  assert.equal(sw.nextQuestion(owner, 'e').id, 'a');
-  assert.equal(sw.nextQuestion(owner, 'c'), null);
+  const owner = [q('a', 'item:w/A1'), q('b', 'item:w/A1', 'answered'), q('c', 'item:w/A2'), q('d', 'item:w/A1'), q('e', 'item:w/A1'), q('f', 'item:w/A3')];
+  const topics = ['item:w/A2', 'item:w/A3', 'item:w/A1'].map((id) => ({ id }));
+  assert.equal(sw.nextQuestion(owner, 'd', topics).id, 'e');
+  assert.equal(sw.nextQuestion(owner, 'e', topics).id, 'a');
+  assert.equal(sw.nextQuestion(owner, 'f', topics).id, 'c');
+  assert.equal(sw.nextQuestion(owner, 'c', topics).id, 'f');
   assert.equal(sw.nextQuestion([q('a', 't'), q('b', 't', 'resolved')], 'a'), null);
 });
 
@@ -105,7 +107,7 @@ function prototypePage(url, { framed = false, owner }) {
   return { pick, sent, moves };
 }
 
-test('a pick on a prototype page sends the answer, then moves on to the next open question in its place, or with none left up to Waiting on you on its question, through the app shell around a framed page', async () => {
+test('a pick on a prototype page sends the answer, then moves on to the next open question in its place, or with none left to the board, through the app shell around a framed page', async () => {
   const owner = [{ ...question, topic: 'item:w/A1' }, { id: 'q2', topic: 'item:w/A1', state: 'open', question: 'Next?', options: [] }];
   for (const framed of [false, true]) {
     const page = prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1', { framed, owner });
@@ -114,6 +116,6 @@ test('a pick on a prototype page sends the answer, then moves on to the next ope
     assert.deepEqual(plain(page.moves), [framed ? ['app', 'https://mac.ts.net/orch/questions.html#q2', { replace: true }] : ['load', 'https://mac.ts.net/orch/questions.html#q2']]);
     const last = prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1', { framed, owner: owner.slice(0, 1) });
     await last.pick();
-    assert.deepEqual(plain(last.moves), [framed ? ['app', 'https://mac.ts.net/orch/questions.html#q1', { replace: true }] : ['load', 'https://mac.ts.net/orch/questions.html#q1']]);
+    assert.deepEqual(plain(last.moves), [framed ? ['app', 'https://mac.ts.net/orch/', { replace: true }] : ['load', 'https://mac.ts.net/orch/']]);
   }
 });

@@ -65,7 +65,7 @@
 .sidebar .t-down, .sidebar .t-needs { --tone: var(--color-danger); }
 .sidebar .t-starting, .sidebar .t-asleep { --tone: var(--muted); }
 .sidebar .t-working { --tone: var(--color-notice); }
-.sidebar .t-building { --tone: var(--accent); }
+.sidebar .t-building { --tone: var(--color-notice); }
 .sidebar .t-ok { --tone: var(--color-success); }
 
 @media (min-width: 1000px) {
