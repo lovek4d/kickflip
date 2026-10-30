@@ -3,7 +3,7 @@
    classes sidebar.js sets, since each page's own CSS uses the same short class names. */
 .sidebar { position: fixed; z-index: 20; top: 0; bottom: 0; left: 0; width: min(86vw, 320px); display: flex; flex-direction: column;
   padding: max(10px, env(safe-area-inset-top)) 8px calc(12px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
-  background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; overscroll-behavior: contain;
+  background: var(--panel); border-right: 1px solid var(--line); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
   transform: translateX(-102%); visibility: hidden; transition: transform .24s cubic-bezier(.2,.8,.2,1), visibility 0s linear .24s;
   font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif; color: var(--text); }
 .sidebar.open { transform: none; visibility: visible; transition: transform .24s cubic-bezier(.2,.8,.2,1); }
@@ -27,7 +27,7 @@
 .sidebar .sb-turnon { margin-bottom: 6px; background: color-mix(in srgb, var(--color-danger) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--color-danger) 30%, var(--line)); }
 .sidebar .sb-text { flex: 1; min-width: 0; }
 .sidebar .sb-title { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sidebar .sb-sub { display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar .sb-sub { display: block; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .sidebar .sb-count, .top .hub .hub-count { flex: none; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--color-danger); color: #fff;
   font-size: 12px; font-weight: 700; line-height: 20px; text-align: center; font-variant-numeric: tabular-nums; }
 
@@ -39,9 +39,9 @@
 @media (prefers-color-scheme: dark) { .sidebar .icon:not(.solid) { color: color-mix(in srgb, var(--c) 70%, #fff); } }
 .sidebar .icon svg { display: block; }
 
-/* A site's status line (hub/home.mjs statusLine): the urgent word, then the lane chips. */
-.sidebar .sb-status { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.sidebar .lcs { flex: 1; min-width: 0; display: flex; gap: 4px; overflow: hidden; }
+/* A site's status (hub/home.mjs statusLine): the lane chips wrap on their own line, and the status word goes below them. */
+.sidebar .sb-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+.sidebar .lcs { order: -1; flex: 1 1 100%; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; }
 .sidebar .lc { flex: none; font-size: 11px; font-weight: 600; border-radius: 6px; padding: 0 6px; line-height: 18px; color: var(--tone); background: color-mix(in srgb, var(--tone) 14%, transparent); }
 .sidebar .lc-review { --tone: var(--accent); } .sidebar .lc-progress { --tone: var(--color-notice); } .sidebar .lc-todo { --tone: var(--muted); }
 .sidebar .dot { flex: none; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--tone); }
