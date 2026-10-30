@@ -1,8 +1,93 @@
 // The hub's service worker, served at /sw.js with scope /. Push messages come
 // from push.mjs as {title, body, url, tag, badge}; url is a path on the hub, and badge, when
 // present, is the Home Screen app badge count.
-self.addEventListener('install', () => self.skipWaiting());
+// It keeps the app shell and its files, network first, so the app opens from the last copy while the Mac is asleep
+// (docs/adr/0055-one-app-for-the-whole-hub.md). Nothing else is cached: API calls, streams, uploads and frames always
+// go to the network.
+const CACHE = 'hub-app';
+const SHELL = new URL('/', self.registration.scope).href;
+// A sleeping Mac over Tailscale leaves a request hanging rather than failing, so a saved copy answers after this long.
+const NETWORK_WAIT_MS = 3000;
+
+// The paths hub/shell.mjs pageOf answers with the shell on a page load; hub/sw.test.mjs checks they agree.
+const HUB_PAGES = new Set(['/', '/_hub/', '/_hub/settings', '/_hub/settings/polling']);
+function isShellPage(url) {
+  if (HUB_PAGES.has(url.pathname)) return true;
+  if (url.searchParams.has('alone')) return false;
+  const m = /^\/([^/]+)\/(.*)$/.exec(url.pathname);
+  return Boolean(m) && m[1] !== '_hub' && (m[2] === '' || m[2].endsWith('/') || /\.html?$/.test(m[2]));
+}
+const isAsset = (url) => url.pathname.startsWith('/_hub/app/') || url.pathname === '/_hub/colors.css' || url.pathname === '/_hub/kickflip.png';
+// hub/hub.mjs marks the shell it serves with the sidebar written in; a site's own page and the board server's copy
+// aren't, so neither replaces the saved shell.
+const isShell = (res) => res.ok && res.headers.get('x-app-shell') === '1';
+
+// Saves res under key, dropping any other version of the same file.
+async function save(key, res) {
+  const cache = await caches.open(CACHE);
+  await cache.put(key, res);
+  const { pathname } = new URL(key);
+  for (const old of await cache.keys()) {
+    const u = new URL(old.url);
+    if (u.pathname === pathname && u.href !== key) await cache.delete(old);
+  }
+}
+const saved = async (key) => (await caches.open(CACHE)).match(key, { ignoreVary: true });
+
+// The network's answer, else the copy saved under key when the network fails, answers a 5xx (Tailscale's answer while
+// the hub is down) or takes too long. An answer keep accepts replaces the copy.
+function networkFirst(event, request, key, keep) {
+  const net = fetch(request).then((res) => {
+    if (keep(res)) event.waitUntil(save(key, res.clone()).catch(() => {}));
+    return res;
+  });
+  event.waitUntil(net.catch(() => {}));
+  return new Promise((resolve, reject) => {
+    const fallback = (otherwise) => saved(key).then((hit) => (hit ? resolve(hit) : otherwise())).catch(otherwise);
+    const timer = setTimeout(() => fallback(() => {}), NETWORK_WAIT_MS);
+    net.then((res) => {
+      clearTimeout(timer);
+      if (res.status >= 500) fallback(() => resolve(res)); else resolve(res);
+    }, (err) => {
+      clearTimeout(timer);
+      fallback(() => reject(err));
+    });
+  });
+}
+
+// The shell from `/` and the files it links, so one visit is enough to open offline.
+async function saveShell() {
+  const res = await fetch(SHELL, { cache: 'no-store' });
+  if (!isShell(res)) return;
+  const html = await res.clone().text();
+  await save(SHELL, res);
+  const urls = new Set([...html.matchAll(/\b(?:src|href)="(\/_hub\/[^"]+)"/g)].map((m) => new URL(m[1], SHELL)).filter(isAsset).map((u) => u.href));
+  await Promise.all([...urls].map(async (u) => {
+    try { const r = await fetch(u); if (r.ok) await save(u, r); } catch {}
+  }));
+}
+
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+  event.waitUntil(saveShell().catch(() => {}));
+});
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
+  if (req.mode === 'navigate') {
+    // A frame's page load always goes to the network, so a frame never shows the shell in place of its page.
+    if (req.destination !== 'document' || !isShellPage(url)) return;
+    // The hub tells the shell from a site's page by Sec-Fetch-Dest, which this fetch would lose (hub/shell.mjs destOf).
+    const page = new Request(url.href, { headers: { 'x-app-shell': '1' }, cache: 'no-store', redirect: 'manual' });
+    event.respondWith(networkFirst(event, page, SHELL, isShell));
+    return;
+  }
+  if (isAsset(url)) event.respondWith(networkFirst(event, req, url.href, (res) => res.ok));
+});
 
 self.addEventListener('push', (event) => {
   let msg = {};

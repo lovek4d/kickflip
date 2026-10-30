@@ -24,7 +24,11 @@ const isPagePath = (rest) => rest === '' || rest.endsWith('/') || /\.html?$/.tes
 // The hub's own pages, views of the shell with no page of their own (board/public/router.js).
 const HUB_PAGES = new Set(['/', '/_hub/', '/_hub/settings', '/_hub/settings/polling']);
 
-// method, pathname, search and dest (the request's Sec-Fetch-Dest header) from the request; sites, the set of every
+// The dest pageOf takes from a request's headers. hub/sw.js answers a page load by fetching it again, which Chrome
+// sends with Sec-Fetch-Dest: empty, so the worker marks that fetch X-App-Shell: 1.
+export const destOf = (headers) => (headers['x-app-shell'] === '1' ? 'document' : headers['sec-fetch-dest']);
+
+// method, pathname, search and dest (destOf) from the request; sites, the set of every
 // site's route. A GET of `/` or a hub page is the shell for every dest: a frame's copy hands its URL to the app around
 // it, and curl sees the shell. ?alone=1, the frame header's Open alone, loads a site's page itself.
 // → 'shell' | 'hub' (the hub's own paths) | 'forward' (a site's path, forwarded with its prefix stripped)

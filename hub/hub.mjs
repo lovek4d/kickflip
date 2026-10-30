@@ -22,7 +22,9 @@
 //   /<route>/...      forwarded to that site's port with the /<route> prefix
 //                     removed (X-Forwarded-Prefix carries it), unless it is a page load the shell takes
 //   /sw.js, /manifest.webmanifest, /_hub/icon-*.png
-//                     the Home Screen app and its push service worker (scope /)
+//                     the Home Screen app and its service worker (scope /), which shows pushes and keeps the shell
+//                     and its files to open while the Mac can't be reached; the shell's response carries
+//                     X-App-Shell: 1, and a request with X-App-Shell: 1 is a page load (shell.mjs destOf)
 //   /_hub/colors.css  ../shared/colors.css, the colours the shell and the down page link; ?v=colorsVersion() caches for a year
 //   /_hub/kickflip.png the header's image, and /_hub/hub.css the down page's CSS, read from ../board/public
 //   /_hub/push/key    GET the VAPID public key; /_hub/push/subscribe and
@@ -76,7 +78,7 @@ import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './r
 import { siteIcon } from './icons.mjs';
 import { readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
 import { checkSessions } from './sessions.mjs';
-import { BOARD_PUBLIC, appFile, colorsVersion, fileVersion, pageOf, shellHtml } from './shell.mjs';
+import { BOARD_PUBLIC, appFile, colorsVersion, destOf, fileVersion, pageOf, shellHtml } from './shell.mjs';
 import { hubStream } from './stream.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -579,9 +581,9 @@ const requestURL = (req) => new URL(req.url.replace(/^\/+/, '/'), 'http://hub');
 const server = http.createServer((req, res) => {
   const url = requestURL(req);
   const sites = new Set(Object.keys(loadManifest().sites));
-  if (pageOf({ method: req.method, pathname: url.pathname, search: url.search, dest: req.headers['sec-fetch-dest'], sites }) === 'shell') {
+  if (pageOf({ method: req.method, pathname: url.pathname, search: url.search, dest: destOf(req.headers), sites }) === 'shell') {
     const here = url.pathname === '/_hub/' ? '_hub' : url.pathname === '/' || url.pathname.startsWith('/_hub/') ? '' : decodeURIComponent(url.pathname.split('/')[1]);
-    shellPage(here).then((html) => sendText(req, res, 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', vary: 'sec-fetch-dest' }, html))
+    shellPage(here).then((html) => sendText(req, res, 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', vary: 'sec-fetch-dest', 'x-app-shell': '1' }, html))
       .catch((e) => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
     return;
   }

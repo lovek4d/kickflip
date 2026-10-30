@@ -25,6 +25,8 @@ window.AppShell = (function () {
   async function start() {
     // A frame that lands on a view's URL, such as a framed page's link back to its card, shows it in the shell around it.
     if (outer()?.open(location.href, { frames: false })) return;
+    // The same URL and scope as hub-kit.js's push registration, so the one registration and its push subscription stay.
+    navigator.serviceWorker?.register('/sw.js', { scope: '/' }).catch(() => {});
     let data = null;
     try { data = JSON.parse(document.getElementById('sidebarData')?.textContent || 'null'); } catch { data = null; }
     // The board server's copy of the shell, for a load the hub forwards, carries no sidebar data.
