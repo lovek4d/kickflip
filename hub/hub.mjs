@@ -26,7 +26,7 @@
 //                     and its files to open while the Mac can't be reached; the shell's response carries
 //                     X-App-Shell: 1, and a request with X-App-Shell: 1 is a page load (shell.mjs destOf)
 //   /_hub/colors.css  ../shared/colors.css, the colours the shell and the down page link; ?v=colorsVersion() caches for a year
-//   /_hub/kickflip.png the header's image, and /_hub/hub.css the down page's CSS, read from ../board/public
+//   /_hub/kickflip.png the header's image and every page's tab icon (/favicon.ico redirects to it), and /_hub/hub.css the down page's CSS, read from ../board/public
 //   /_hub/push/key    GET the VAPID public key; /_hub/push/subscribe and
 //                     /_hub/push/test take POSTs from the hub views (push.mjs)
 //   The forms below answer the view's JSON when the request accepts application/json, and redirect back with a 303
@@ -490,7 +490,7 @@ async function readJSONBody(req) {
 
 // The page the hub answers a site that is down or missing with, which a frame or curl gets too.
 const head = (title, extra = '') => `<!doctype html><html lang="en" class="hub-view"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>${esc(title)}</title><link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="${iconUrl(180)}">
+<title>${esc(title)}</title><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" type="image/png" href="/_hub/kickflip.png"><link rel="apple-touch-icon" href="${iconUrl(180)}">
 <meta name="apple-mobile-web-app-title" content="Claude">${extra}<link rel="stylesheet" href="/_hub/colors.css?v=${colorsVersion()}"><link rel="stylesheet" href="/_hub/hub.css"></head><body><main>`;
 
 // ---------- hub views ----------
@@ -731,7 +731,7 @@ const server = http.createServer((req, res) => {
     }).catch((e) => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
     return;
   }
-  if (url.pathname === '/favicon.ico') { res.writeHead(204).end(); return; }
+  if (url.pathname === '/favicon.ico') { res.writeHead(301, { location: '/_hub/kickflip.png' }).end(); return; }
   if (url.pathname === '/sw.js' || url.pathname === '/manifest.webmanifest' || url.pathname.startsWith('/_hub/')) {
     hubRoute(req, res, url).then((handled) => { if (handled === false) res.writeHead(404).end(); })
       .catch((e) => { if (!res.headersSent) res.writeHead(e.status || 500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
