@@ -269,6 +269,49 @@ test("builder start and progress on --site write each new status line to the ite
   assert.ok(msgs.every((m) => !Number.isNaN(Date.parse(m.ts))));
 });
 
+const toolUse = (id, command, ts) => JSON.stringify({ type: 'assistant', timestamp: ts, message: { content: [{ type: 'tool_use', id, name: 'Bash', input: { command } }] } });
+const toolResult = (id, ts) => JSON.stringify({ type: 'user', timestamp: ts, message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] } });
+const stopHook = (input) => run('builder-stop-hook.mjs', [], typeof input === 'string' ? input : JSON.stringify({ hook_event_name: 'SubagentStop', agent_id: 'a1', ...input }));
+const ago = (ms) => new Date(Date.now() - ms).toISOString();
+
+test('the SubagentStop hook closes the builder records its agent started and left open, quietly and any number of times', () => {
+  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch').code, 0);
+  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--agent', 'bench').code, 0);
+  assert.equal(board('builder', 'start', 'audit/A1', '--site', 'audit').code, 0);
+  assert.equal(board('builder', 'done', 'audit/A1', '--site', 'audit').code, 0);
+  const finished = read(site('audit', 'data', 'agents', 'A1.json')).done;
+  const transcript = path.join(home, 'agent.jsonl');
+  write(transcript, [
+    'not json',
+    toolUse('t1', 'node ~/.claude/skills/join-web-ts/board/bin/board.mjs --site orch builder start w/A1 --kind build --label "Opus builder"; ls', ago(5 * 60 * 1000)),
+    toolResult('t1', ago(1000)),
+    toolUse('t2', 'B="node ~/.claude/skills/join-web-ts/board/bin/board.mjs --site orch"; eval "$B builder start w/A1 --agent bench --kind codex"', ago(1000)),
+    toolUse('t3', '$B builder start audit/A1 --site audit', ago(1000)),
+  ].join('\n') + '\n');
+  for (const _ of [1, 2]) {
+    const r = stopHook({ agent_transcript_path: transcript });
+    assert.deepEqual([r.code, r.out], [0, '']);
+  }
+  assert.equal(typeof read(at('waves', 'w', 'agents', 'A1.json')).done, 'string');
+  assert.equal(typeof read(at('waves', 'w', 'agents', 'A1@bench.json')).done, 'string');
+  assert.equal(read(site('audit', 'data', 'agents', 'A1.json')).done, finished);
+});
+
+test('the SubagentStop hook leaves a record another agent restarted on the card after its own start', () => {
+  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--agent', 'fix').code, 0);
+  const transcript = path.join(home, 'agent.jsonl');
+  write(transcript, [toolUse('t1', 'node board.mjs --site orch builder start w/A1 --agent fix', ago(10 * 60 * 1000)), toolResult('t1', ago(10 * 60 * 1000 - 500))].join('\n'));
+  assert.equal(stopHook({ agent_transcript_path: transcript }).code, 0);
+  assert.equal('done' in read(at('waves', 'w', 'agents', 'A1@fix.json')), false);
+});
+
+test('the SubagentStop hook exits 0 with nothing on stdout when its input or transcript is missing', () => {
+  for (const input of [{ agent_transcript_path: path.join(home, 'gone.jsonl') }, {}, 'not json']) {
+    const r = stopHook(input);
+    assert.deepEqual([r.code, r.out, /builder-stop-hook: /.test(r.err)], [0, '', true]);
+  }
+});
+
 test('a refusal exits non-zero with one line naming the bad flag, and changes nothing', () => {
   for (const [args, code, err] of [
     [['item', 'set', 'w/A1', '--site', 'orch', '--colour', 'red'], 2, /^item set does not take --colour\b/],

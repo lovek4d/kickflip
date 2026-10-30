@@ -754,10 +754,16 @@ async function closeBuilders(waveDir, id) {
 }
 
 // The record stays, marked done, so the item's thread can show when the agent finished (domain.mjs threadOf).
-export async function stopBuilder(site, key, { dir, agent }) {
+// startedBetween [from, to] (ms) leaves a record alone unless it started in that window, so a caller closing an
+// agent's own record never closes one a later agent restarted on the same item.
+export async function stopBuilder(site, key, { dir, agent, startedBetween }) {
   const file = await builderFile(site, key, dir, agent);
   const record = await readJSON(file, null);
   if (!record || record.done) return file;
+  if (startedBetween) {
+    const started = Date.parse(record.started);
+    if (!(started >= startedBetween[0] && started <= startedBetween[1])) return file;
+  }
   const { eta, ...rest } = record;
   await writeJSON(file, { ...rest, done: new Date().toISOString() });
   return file;

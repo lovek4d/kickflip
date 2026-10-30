@@ -147,7 +147,7 @@ A line in a card's thread written by someone other than the owner, apart from bu
 _Avoid_: inbox, new, notification
 
 **Last visit**:
-The board and threads this device last showed, kept in its browser storage. The next visit paints it dimmed at first paint, readable at any age, with the controls that send held until the fresh board lands and replaces it in place, flashing each line that changed ([0028](docs/adr/0028-the-board-opens-on-the-last-visit.md)). In code it is the snapshot.
+The board and threads this device last showed, kept in its browser storage. The next visit paints it dimmed at first paint, readable at any age, with the controls that send held until the fresh board lands and replaces it in place, flashing a fading orange border round each card or line that changed ([0028](docs/adr/0028-the-board-opens-on-the-last-visit.md)). In code it is the snapshot.
 _Avoid_: cache, offline copy, stale board
 
 **Answer banner**:
