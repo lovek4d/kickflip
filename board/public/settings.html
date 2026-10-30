@@ -7,21 +7,8 @@
 <link rel="stylesheet" href="colors.css">
 <link rel="stylesheet" href="style.css">
 <link rel="apple-touch-icon" href="{{touchIcon}}">
-<style>
-  .set h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); margin: 18px 0 6px; }
-  .who { display: flex; align-items: center; justify-content: space-between; padding: 9px 10px; border: 1px solid var(--line);
-    border-radius: 9px; margin: 6px 0; background: var(--panel); }
-  .who.gone { opacity: .5; text-decoration: line-through; }
-  .who.new { border-color: var(--accent); }
-  .add { display: flex; gap: 6px; margin-top: 8px; }
-  .add input { flex: 1; min-width: 0; }
-  .replies .reply { margin-top: 8px; }
-  label.who { gap: 12px; cursor: pointer; }
-  label.who .sub { display: block; margin-top: 2px; }
-  input.toggle { flex: none; width: 1.4rem; height: 1.4rem; margin: 0; accent-color: var(--accent); }
-</style>
 </head>
-<body>
+<body class="view-settings">
 <!--header {"lead":"back","title":"Settings"}-->
 <main class="set">
   <p class="muted small">Notifications and polling live in <a href="/_hub/settings">hub Settings</a>.</p>

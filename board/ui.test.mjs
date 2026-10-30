@@ -24,13 +24,32 @@ const usedIn = (src) => new Set([...src.matchAll(/var\((--[\w-]+)\)/g)].map((m) 
 test('the board and the hub take every colour from shared/colors.css and define none of their own', () => {
   const shared = definedIn(colorsCss);
   const boardCss = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  const hub = fs.readFileSync(new URL('../hub/hub.mjs', import.meta.url), 'utf8');
-  const hubCss = /const CSS = `([^`]*)`/.exec(hub)[1];
+  const hubCss = fs.readFileSync(new URL('./public/hub.css', import.meta.url), 'utf8');
   const sidebarCss = fs.readFileSync(new URL('./public/sidebar.css', import.meta.url), 'utf8');
-  for (const [name, css, local] of [['style.css', boardCss, definedIn(boardCss)], ['hub.mjs', hubCss, definedIn(hub)], ['sidebar.css', sidebarCss, definedIn(sidebarCss + fs.readFileSync(new URL('./public/ui-sidebar.js', import.meta.url), 'utf8'))]]) {
+  for (const [name, css, local] of [['style.css', boardCss, definedIn(boardCss)], ['hub.css', hubCss, definedIn(hubCss + fs.readFileSync(new URL('../hub/hub.mjs', import.meta.url), 'utf8'))], ['sidebar.css', sidebarCss, definedIn(sidebarCss + fs.readFileSync(new URL('./public/ui-sidebar.js', import.meta.url), 'utf8'))]]) {
     assert.deepEqual([...usedIn(css)].filter((v) => !shared.has(v) && !local.has(v)), [], name);
     assert.deepEqual([...definedIn(css)].filter((v) => shared.has(v)), [], name);
   }
+});
+
+test("every hub.css selector is under .hub-view, so the hub's short class names never reach a board's elements", () => {
+  const css = fs.readFileSync(new URL('./public/hub.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const selectors = [];
+  const rules = (src) => {
+    for (let i = 0; i < src.length;) {
+      const open = src.indexOf('{', i);
+      if (open < 0) break;
+      let depth = 1, end = open + 1;
+      for (; depth; end++) depth += src[end] === '{' ? 1 : src[end] === '}' ? -1 : 0;
+      const prelude = src.slice(i, open).replace(/^[\s;}]+/, '').trim();
+      if (/^@(media|supports)/.test(prelude)) rules(src.slice(open + 1, end - 1));
+      else if (!prelude.startsWith('@')) selectors.push(...prelude.split(/,(?![^(]*\))/).map((x) => x.trim()));
+      i = end;
+    }
+  };
+  rules(css);
+  assert.ok(selectors.length > 50);
+  assert.deepEqual(selectors.filter((x) => !/^\.hub-view(?![\w-])/.test(x)), []);
 });
 
 test('a badge takes one of the five tones, each coloured by a shared colour constant, as a span or a link, and refuses any other tone', () => {
@@ -221,14 +240,14 @@ test("the sidebar lists the boards then the pages, marks this one, counts what w
 test("a back arrow goes one step back after a page on this hub, and to its href after a push, on that push's reloads, or with nothing before it", () => {
   const script = /<script>([\s\S]*)<\/script>$/.exec(ui.header({ lead: 'back', backHref: './#item=w%2FA1', title: 'Prototype' }))[1];
   const store = new Map();
-  const tap = ({ url, referrer = '', depth = 2, nav = 'navigate' }) => {
+  const tap = ({ url, referrer = '', depth = 2, nav = 'navigate', state = null }) => {
     let onClick = null;
     let back = false;
     vm.runInNewContext(script, {
       URL, URLSearchParams,
       location: new URL(url),
       document: { referrer, addEventListener: (kind, fn) => { if (kind === 'click') onClick = fn; } },
-      history: { length: depth, back: () => { back = true; } },
+      history: { length: depth, state, back: () => { back = true; } },
       sessionStorage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) },
       performance: { getEntriesByType: () => [{ type: nav }] },
     });
@@ -244,6 +263,9 @@ test("a back arrow goes one step back after a page on this hub, and to its href 
   assert.equal(tap({ url: page, referrer: 'https://mac.ts.net/orch/questions.html' }), 'back');
   assert.equal(tap({ url: page, depth: 1 }), 'href');
   assert.equal(tap({ url: page, referrer: 'https://elsewhere.example/' }), 'href');
+  assert.equal(tap({ url: page, depth: 1, state: { idx: 2 } }), 'back');
+  assert.equal(tap({ url: page, referrer: 'https://mac.ts.net/orch/questions.html', state: { idx: 0 } }), 'href');
+  assert.equal(tap({ url: `${page}&from=push`, state: { idx: 3 } }), 'href');
 });
 
 test('the Action needed badge shows only while the card waits on the owner, and links to what they act on', () => {
@@ -753,4 +775,32 @@ test('the GitHub mark opens the Hub links sheet, with a red dot while a link is 
   assert.equal(ui.setupCard(null), '');
   const setup = ui.setupCard({ events: false, github: true, push: 'no device' });
   assert.equal(text(setup), "Connecting this board Waiting for Claude to answer the hello GitHub checks reach this board No device has notifications on");
+});
+
+test("a New task draft typed on one board isn't read on another, the old shared keys move to the first board opened, and a card's draft keeps its key", () => {
+  const storage = new Map([['draft:ask', JSON.stringify('old draft')], ['openItems', JSON.stringify(['w/A1'])], ['draft:w/A1', JSON.stringify('a reply')]]);
+  const localStorage = { get length() { return storage.size; }, key: (i) => [...storage.keys()][i] ?? null, getItem: (k) => storage.get(k) ?? null,
+    setItem: (k, v) => storage.set(k, String(v)), removeItem: (k) => storage.delete(k) };
+  const open = (route) => {
+    const els = new Map();
+    const el = (sel) => {
+      if (!els.has(sel)) els.set(sel, { value: '', on: {}, style: { setProperty() {} }, classList: { add() {}, remove() {}, toggle() {} },
+        addEventListener(kind, fn) { this.on[kind] = fn; }, insertAdjacentHTML() {}, contains: () => false });
+      return els.get(sel);
+    };
+    const page = vm.createContext({ URL, localStorage, setTimeout, clearTimeout, navigator: { platform: 'MacIntel' }, matchMedia: () => ({ matches: false, addEventListener() {} }),
+      document: { querySelector: el, querySelectorAll: () => [], addEventListener() {} }, BoardDialogs: { confirm() {}, notice() {} },
+      ClaudeSite: { url: (p) => `https://mac.ts.net/${route}/${p}`, watch() {} } });
+    page.window = page;
+    for (const file of ['ui.js', 'ui-links.js', 'app-core.js', 'app-asks.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), page);
+    return { ask: el('#askText'), store: page.BoardApp.store };
+  };
+  const a = open('board-a');
+  assert.deepEqual([a.ask.value, plain(a.store.get('openItems'))], ['old draft', ['w/A1']]);
+  const b = open('board-b');
+  assert.deepEqual([b.ask.value, b.store.get('openItems', null)], ['', null]);
+  b.ask.on.input({ target: { value: 'for B' } });
+  assert.deepEqual([open('board-a').ask.value, open('board-b').ask.value], ['old draft', 'for B']);
+  assert.deepEqual([storage.has('draft:ask'), storage.has('openItems')], [false, false]);
+  assert.deepEqual([a.store.get('draft:w/A1'), b.store.get('draft:w/A1')], ['a reply', 'a reply']);
 });

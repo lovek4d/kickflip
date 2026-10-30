@@ -2,9 +2,23 @@
 // ui-*.js and attach.js; app.js loads last and starts the page.
 (function () {
   const $ = (s, el = document) => el.querySelector(s);
+  // Every board shares the hub's one origin, so each keeps its keys under site:<route>:; index.html's preload reads
+  // openItems by the same key. Thread and question drafts are already per card and keep their own keys.
+  const route = new URL(ClaudeSite.url('')).pathname.replace(/^\/+|\/+$/g, '');
+  const keyOf = (k) => (/^(draft:(?!ask$)|qdraft:)/.test(k) ? k : `site:${route}:${k}`);
+  // The keys boards kept unprefixed move once, to the first board opened; a key whose new name is taken stays.
+  try {
+    const old = [];
+    for (let i = 0; i < localStorage.length; i++) old.push(localStorage.key(i));
+    for (const k of old.filter((k) => /^(openItems|wave|lanes|seenThreads|dismissedAnswers|draft:ask|foldOpen:.+)$/.test(k))) {
+      if (localStorage.getItem(keyOf(k)) != null) continue;
+      localStorage.setItem(keyOf(k), localStorage.getItem(k));
+      localStorage.removeItem(k);
+    }
+  } catch { /* no storage: nothing to move */ }
   const store = {
-    get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
-    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+    get(k, d) { try { const v = localStorage.getItem(keyOf(k)); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(keyOf(k), JSON.stringify(v)); } catch {} },
   };
   // board is the last /api/board; githubPending the time of a refresh's unanswered check-github request; fresh the
   // header's time, ui-header.js nextFresh's {at, sig}.

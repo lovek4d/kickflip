@@ -9,9 +9,11 @@
   const id = (v) => (v ? ` id="${esc(v)}"` : '');
 
   // Where the back arrow goes (docs/adr/0048-a-questions-takes-show-inline.md): 'back', one step back in history, when
-  // the page before was on this hub; else 'href', its backHref. A page a push opened always takes its backHref.
-  function backStep({ pushed = false, referrer = '', href, depth = 1 }) {
+  // the page before was on this hub; else 'href', its backHref. A page a push opened always takes its backHref. idx is
+  // the entry's index in history.state, set by an in-app router: when present, it alone says whether a step back exists.
+  function backStep({ pushed = false, referrer = '', href, depth = 1, idx }) {
     if (pushed) return 'href';
+    if (Number.isInteger(idx)) return idx > 0 ? 'back' : 'href';
     let ref = null;
     try { ref = referrer ? new URL(referrer) : null; } catch { ref = null; }
     return ref && ref.origin === new URL(href).origin && ref.href !== href && depth > 1 ? 'back' : 'href';
@@ -27,7 +29,7 @@
       else if (performance.getEntriesByType('navigation')[0]?.type === 'navigate') sessionStorage.removeItem(key);
       pushed = sessionStorage.getItem(key) === '1';
     } catch { /* no storage: only this load knows */ }
-    const target = () => step({ pushed, referrer: document.referrer, href: location.href, depth: history.length });
+    const target = () => step({ pushed, referrer: document.referrer, href: location.href, depth: history.length, idx: history.state?.idx });
     globalThis.PageBack = { pushed, target };
     document.addEventListener('click', (e) => {
       if (e.metaKey || e.ctrlKey || e.shiftKey || !e.target.closest?.('a.back') || target() !== 'back') return;

@@ -309,3 +309,112 @@ body.offline .toast { cursor: pointer; }
 .setup-steps { list-style: none; margin: 0; padding: 0; }
 .setup-steps li { display: flex; align-items: baseline; gap: 8px; margin: 3px 0; overflow-wrap: anywhere; }
 .setup-steps .dot { flex: none; }
+
+/* settings.html, questions.html and notes.html each scope their own rules by the class on their body. */
+.view-settings .set h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); margin: 18px 0 6px; }
+.view-settings .who { display: flex; align-items: center; justify-content: space-between; padding: 9px 10px; border: 1px solid var(--line);
+  border-radius: 9px; margin: 6px 0; background: var(--panel); }
+.view-settings .who.gone { opacity: .5; text-decoration: line-through; }
+.view-settings .who.new { border-color: var(--accent); }
+.view-settings .add { display: flex; gap: 6px; margin-top: 8px; }
+.view-settings .add input { flex: 1; min-width: 0; }
+.view-settings .replies .reply { margin-top: 8px; }
+.view-settings label.who { gap: 12px; cursor: pointer; }
+.view-settings label.who .sub { display: block; margin-top: 2px; }
+.view-settings input.toggle { flex: none; width: 1.4rem; height: 1.4rem; margin: 0; accent-color: var(--accent); }
+.view-questions .q { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 12px 0; }
+.view-questions .q.urgent { border-color: var(--color-notice); }
+.view-questions .q h3 { font-size: 15px; margin: 6px 0 4px; line-height: 1.3; }
+.view-questions .ctx { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+.view-questions .opt { display: grid; grid-template-columns: 22px 1fr; gap: 6px; padding: 8px; border: 1px solid var(--line);
+  border-radius: 8px; margin: 6px 0; cursor: pointer; }
+.view-questions .opt:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.view-questions .opt input { margin: 3px 0 0; width: 16px; height: 16px; accent-color: var(--accent); }
+.view-questions .opt .lbl { font-weight: 600; }
+.view-questions .opt .rec { color: var(--accent); font-weight: 500; font-size: 12px; margin-left: 4px; }
+.view-questions .opt .det { color: var(--muted); font-size: 13px; }
+.view-questions .note { margin-top: 4px; }
+.view-questions .ans { background: var(--love); border-radius: 9px; padding: 7px 10px; margin-top: 8px; font-size: 13px; }
+.view-questions .rep { background: var(--claude); border-radius: 9px; padding: 7px 10px; margin-top: 6px; font-size: 13px; }
+.view-questions .q details { margin-top: 8px; }
+.view-questions .q details > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.view-questions .topics { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 8px; margin-bottom: 4px; }
+.view-questions .topics button { flex: none; border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; font-size: 13px;
+  background: var(--panel); color: var(--text); white-space: nowrap; }
+.view-questions .topics button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.view-questions .topics .n { color: var(--muted); margin-left: 4px; }
+.view-questions .topichead { margin: 2px 0 6px; }
+.view-questions details.done > summary { cursor: pointer; color: var(--muted); font-size: 13px; margin: 16px 0 4px; }
+.view-questions details.done .trow { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.view-questions details.done button.ghost { font-size: 14px; text-align: left; padding: 6px 2px; }
+.view-questions details.done .trow button { min-width: 0; }
+.view-questions details.done .trow span { flex: none; }
+.view-questions .bar { position: sticky; bottom: 0; padding: 10px 0 max(10px, env(safe-area-inset-bottom)); background: var(--bg);
+  display: flex; justify-content: space-between; align-items: center; gap: 8px; border-top: 1px solid var(--line); }
+.view-questions .bar .send-hint { margin-left: auto; }
+.view-questions .solo { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 4px 0; }
+
+/* A question's takes inline: one full width with the next peeking on a phone, side by side from 900px. */
+.view-questions .takes { margin: 6px 0; }
+.view-questions .take-track { display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory; margin: 0 -12px; padding: 2px 12px 4px;
+  scrollbar-width: none; overscroll-behavior-x: contain; }
+.view-questions .take-track::-webkit-scrollbar { display: none; }
+.view-questions .take { flex: 0 0 86%; scroll-snap-align: center; min-width: 0; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--bg); padding: 10px; }
+.view-questions .take:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.view-questions .take .opt, .view-questions .take .opt:has(input:checked) { border: 0; padding: 0; margin: 0; background: none; }
+.view-questions .take-shot { display: block; margin-top: 8px; height: 360px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.view-questions .take-shot iframe { width: 100%; height: 100%; border: 0; pointer-events: none; background: var(--bg); }
+.view-questions .take-open { display: inline-block; margin-top: 8px; font-size: 13px; color: var(--accent); text-decoration: none; }
+.view-questions .take-dots { display: flex; justify-content: center; align-items: center; gap: 6px; margin-top: 6px; }
+.view-questions .take-dots button { width: 22px; height: 22px; border: 0; padding: 0; background: none; display: grid; place-items: center; }
+.view-questions .take-dots button::after { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+.view-questions .take-dots button.on::after { background: var(--muted); }
+.view-questions .take-dots button.picked::after { background: var(--accent); width: 9px; height: 9px; box-shadow: 0 0 0 2px var(--accent-soft); }
+.view-questions .take-dots .lab { font-size: 12px; color: var(--muted); margin-left: 4px; }
+@media (min-width: 900px) {
+  .view-questions .take-track { display: grid; grid-template-columns: repeat(var(--n, 3), minmax(0, 1fr)); overflow: visible; margin: 0; padding: 0; }
+  .view-questions .take-dots { display: none; }
+}
+
+/* A take with nothing to see: boxes and arrows, then what it means in practice. */
+.view-questions .flow { margin: 10px 0 4px; }
+.view-questions .flow-row { display: grid; gap: 6px; }
+.view-questions .flow-row.dense { gap: 4px; }
+.view-questions .flow-box { position: relative; display: grid; place-items: center; border: 1.5px solid var(--line); border-radius: 8px;
+  background: var(--panel); padding: 6px 7px; font-size: 12px; line-height: 1.25; text-align: center; overflow-wrap: anywhere; hyphens: auto; }
+.view-questions .flow-row.dense .flow-box { font-size: 11px; padding: 5px 2px; }
+.view-questions .flow-box.in::before { content: ''; position: absolute; top: -6px; left: 50%; transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: var(--muted); border-bottom: 0; }
+.view-questions .flow-box.tone-info { border-color: var(--color-info); }
+.view-questions .flow-box.tone-notice { border-color: var(--color-notice); }
+.view-questions .flow-box.tone-danger { border-color: var(--color-danger); }
+.view-questions .flow-box.tone-success { border-color: var(--color-success); }
+.view-questions .flow-box.tone-quiet { border-style: dashed; color: var(--muted); }
+.view-questions .flow-conn { display: block; width: 100%; height: 18px; }
+.view-questions .flow-conn line { stroke: var(--muted); stroke-width: 1.3; vector-effect: non-scaling-stroke; }
+.view-questions .practice { font-size: 13px; margin-top: 8px; }
+.view-questions .practice b { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.view-questions .practice ul { margin: 4px 0 0; padding-left: 18px; }
+.view-questions .practice li { margin: 3px 0; }
+.view-plan .plan { overflow-wrap: anywhere; line-height: 1.5; }
+.view-plan .plan h1 { font-size: 20px; line-height: 1.3; margin: 8px 0 10px; }
+.view-plan .plan h2 { font-size: 17px; margin: 22px 0 8px; }
+.view-plan .plan h3, .view-plan .plan h4, .view-plan .plan h5, .view-plan .plan h6 { font-size: 15px; margin: 18px 0 6px; }
+.view-plan .plan p, .view-plan .plan ul, .view-plan .plan ol, .view-plan .plan blockquote { margin: 8px 0; }
+.view-plan .plan ul, .view-plan .plan ol { padding-left: 22px; }
+.view-plan .plan li { margin: 3px 0; }
+.view-plan .plan li.nested { margin-left: 20px; }
+.view-plan .plan code { font-size: 12.5px; background: var(--accent-soft); border-radius: 4px; padding: 0 3px; }
+.view-plan .plan pre { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.view-plan .plan pre code { background: none; padding: 0; overflow-wrap: normal; }
+.view-plan .plan blockquote { border-left: 3px solid var(--line); padding-left: 10px; color: var(--muted); }
+.view-plan .plan hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
+.view-plan .plan a { color: var(--accent); }
+.view-plan .md-table { overflow-x: auto; margin: 10px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.view-plan .md-table table { border-collapse: collapse; font-size: 13px; line-height: 1.4; }
+.view-plan .md-table th, .view-plan .md-table td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--line); min-width: 5em; overflow-wrap: normal; }
+.view-plan .md-table th { background: var(--bg); font-weight: 600; }
+.view-plan .md-table tr:last-child td { border-bottom: 0; }
+.view-plan .md-table .wide { min-width: 14em; }
+.view-plan .md-table .wider { min-width: 24em; }

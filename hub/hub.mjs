@@ -14,10 +14,10 @@
 //                     removed (X-Forwarded-Prefix carries it)
 //   /sw.js, /manifest.webmanifest, /_hub/icon-*.png
 //                     the Home Screen app and its push service worker (scope /)
-//   /_hub/colors.css  ../shared/colors.css, the colours every hub page links before its inline CSS; ?v=colorsVersion() caches for a year
+//   /_hub/colors.css  ../shared/colors.css, the colours every hub page links before hub.css; ?v=colorsVersion() caches for a year
 //   /_hub/kickflip.png the header's image, and /_hub/dialogs.js and /_hub/page-header.js the header's scripts,
-//                     /_hub/rules-editor.js Settings' rules editor, and /_hub/ui-sidebar.js, /_hub/sidebar.js and
-//                     /_hub/sidebar.css the sidebar, read from ../board/public
+//                     /_hub/rules-editor.js Settings' rules editor, /_hub/ui-sidebar.js, /_hub/sidebar.js and
+//                     /_hub/sidebar.css the sidebar, and /_hub/hub.css the hub pages' CSS, read from ../board/public
 //   /_hub/push/key    GET the VAPID public key; /_hub/push/subscribe and
 //                     /_hub/push/test take POSTs from the hub and Settings pages (push.mjs)
 //   /_hub/settings    GET the hub's Settings page; POST /_hub/settings/notifications takes set=on|weekends with
@@ -336,116 +336,6 @@ async function waitingCounts(rows, { fresh = false } = {}) {
 // A site whose answer is unknown adds nothing.
 const badgeTotal = (waiting) => [...waiting.values()].reduce((n, w) => n + (w?.count || 0), 0);
 
-const CSS = `
-:root { --mono: ui-monospace,"SF Mono",Menlo,monospace; --sans: -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif; }
-@media (prefers-color-scheme: dark) { :root { color-scheme: dark; } }
-* { box-sizing: border-box; }
-[hidden] { display:none !important; }
-html { -webkit-text-size-adjust:100%; }
-/* clip, not hidden: hidden makes body a scroll container and breaks the sticky header. iOS zooms on a focused field under 16px. */
-body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 var(--sans); overflow-x:clip; }
-main { max-width: 40rem; margin: 0 auto; padding: max(1.25rem, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 2.5rem max(16px, env(safe-area-inset-left)); }
-main.has-top { padding-top: 12px; }
-a { color:var(--accent); text-decoration:none; }
-.top { position:sticky; top:0; z-index:5; display:flex; align-items:center; justify-content:space-between; gap:8px;
-  padding: max(10px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left));
-  background: color-mix(in srgb, var(--bg) 88%, transparent); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border-bottom:1px solid var(--line); }
-/* The header comes from board/public/ui-page-header.js, styled as board/public/style.css styles it. */
-.brand { flex:1 1 auto; display:flex; align-items:center; gap:10px; min-width:0; }
-.brand .hub { display:inline-flex; align-items:center; justify-content:center; flex:none; width:32px; height:32px; }
-.top .back { display:inline-flex; align-items:center; justify-content:center; flex:none; width:32px; height:32px; margin:0; font-size:inherit; color:var(--accent); }
-.brand h1 { font-size:16px; line-height:1.45; margin:0; letter-spacing:0; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.brand img { flex:none; width:32px; height:auto; display:block; image-rendering:pixelated; }
-.nav { flex:none; display:flex; align-items:center; gap:8px; }
-.refresh { display:inline-flex; flex-direction:row-reverse; align-items:center; gap:2px; }
-.ghost { font:inherit; font-size:18px; color:var(--text); background:transparent; border:0; border-radius:7px; padding:4px; cursor:pointer; }
-#refresh { display:inline-flex; align-items:center; justify-content:center; margin:0; line-height:1; }
-#refresh:disabled { opacity:.35; pointer-events:none; cursor:default; }
-#status { font-size:12px; line-height:1.1; color:var(--muted); white-space:nowrap; }
-.nav a.icon { display:inline-flex; align-items:center; justify-content:center; width:auto; height:auto; padding:4px; border-radius:7px; background:none; color:var(--muted); line-height:1; }
-@media (hover: hover) { .nav a.icon:hover { color:var(--text); } }
-.nav a.icon[aria-disabled="true"] { opacity:.35; pointer-events:none; }
-@media (prefers-reduced-motion: no-preference) { #refresh.spinning svg { animation:refresh-spin .8s linear infinite; } }
-@keyframes refresh-spin { to { transform:rotate(360deg); } }
-.back { display:inline-block; font-size:1rem; margin-bottom:.2rem; }
-h1 { font-size:1.6rem; line-height:1.2; margin:.5rem 0 .3rem; overflow-wrap:anywhere; }
-.lede { color:var(--muted); margin:0; }
-.label { margin:16px 2px 6px; font-size:12px; font-weight:400; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); }
-.group { background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
-.row { display:flex; align-items:center; gap:10px; padding:10px 12px; color:var(--text); min-height:3.25rem; }
-a.row:active { background:var(--chip); }
-@media (hover: hover) { a.row:hover { background:color-mix(in srgb, var(--chip) 60%, transparent); } }
-.group > .row:not([hidden]) ~ .row { border-top:1px solid var(--line); }
-.body { flex:1; min-width:0; display:flex; align-items:center; gap:10px; }
-.text { flex:1; min-width:0; }
-.title { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.sub { display:block; color:var(--muted); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.sub.wrap { white-space:normal; }
-.st { font-weight:600; } .st.down { color:var(--color-danger); } .st.wait { color:var(--color-notice); }
-@keyframes pulse { 50% { opacity:.35; } }
-.icon { flex:none; width:34px; height:34px; border-radius:9px; display:grid; place-items:center; color:var(--c); background:color-mix(in srgb, var(--c) 18%, transparent); font-weight:700; font-size:16px; line-height:1; }
-.icon.sm { width:29px; height:29px; border-radius:7px; }
-.icon.solid { color:#fff; background:var(--c); }
-@media (prefers-color-scheme: dark) { .icon:not(.solid) { color:color-mix(in srgb, var(--c) 70%, #fff); } }
-.icon svg { display:block; }
-.badge { flex:none; min-width:22px; height:22px; padding:0 7px; border-radius:11px; background:var(--color-danger); color:#fff; font-size:12px; font-weight:600; line-height:22px; text-align:center; font-variant-numeric:tabular-nums; }
-.chev { flex:none; color:var(--muted); font-size:1.3rem; line-height:1; }
-.val { flex:none; color:var(--muted); font-size:13px; }
-.btn { flex:none; font:inherit; font-size:13px; color:#fff; background:var(--accent); border:1px solid var(--accent); border-radius:7px; padding:6px 10px; cursor:pointer; }
-.btn.quiet { color:var(--text); background:var(--panel); border-color:var(--line); }
-.btn:disabled { opacity:.5; cursor:default; }
-.btn.danger { color:var(--color-danger); }
-.block { padding:10px 12px; }
-.group > :is(.row, .block) ~ .block, .group > .block ~ .row { border-top:1px solid var(--line); }
-.chips form { display:contents; }
-.chips form.field { display:inline-flex; gap:6px; }
-.chips .field input { min-height:0; padding:.2rem .5rem; width:7.5rem; }
-.split { display:flex; gap:8px; justify-content:flex-end; }
-.day { position:relative; padding:18px 0 20px; }
-.day .bar { position:relative; height:40px; border-radius:8px; overflow:hidden; background:var(--chip); }
-.day .seg { position:absolute; top:0; bottom:0; display:grid; place-items:center; overflow:hidden; border-right:2px solid var(--panel);
-  background:color-mix(in srgb, var(--accent) var(--k), var(--chip)); }
-.day .seg.held { background-image:repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--text) 22%, transparent) 5px 8px); }
-.day .seg.sel { box-shadow:inset 0 0 0 3px var(--text); z-index:2; }
-.day .seg span { font-size:11px; font-weight:600; line-height:1.5; color:var(--text); background:color-mix(in srgb, var(--panel) 85%, transparent); border-radius:4px; padding:0 4px; }
-.day .pin { position:absolute; top:2px; transform:translateX(-50%); color:var(--color-notice); font-size:11px; line-height:1; }
-.day .now { position:absolute; top:14px; height:48px; width:2px; margin-left:-1px; background:var(--color-danger); z-index:3; pointer-events:none; }
-.day .ticks { position:absolute; left:0; right:0; bottom:0; height:16px; font-size:10px; color:var(--muted); }
-.day .ticks span { position:absolute; transform:translateX(-50%); }
-.day .ticks span:first-child { transform:none; } .day .ticks span:last-child { transform:translateX(-100%); }
-.legend { display:flex; gap:4px 12px; flex-wrap:wrap; font-size:11px; color:var(--muted); }
-.legend i { display:inline-block; width:10px; height:10px; border-radius:2px; vertical-align:-1px; margin-right:4px; }
-#day, #window, #quiet, #wakes { scroll-margin-top:64px; }
-.field input { flex:none; font:inherit; font-size:16px; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:.3rem .6rem; min-height:2.2rem; width:8.75rem; min-width:0; text-align:right; }
-.field input[type=number] { width:5rem; }
-.field input.toggle { width:1.4rem; height:1.4rem; min-height:0; padding:0; accent-color:var(--accent); }
-.field input:focus { outline:2px solid var(--accent-soft); border-color:var(--accent); }
-.note { margin:6px 2px 0; color:var(--muted); font-size:12px; }
-.chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
-.actions { margin-top:1.2rem; display:flex; justify-content:flex-end; }
-.flash { margin-top:1rem; padding:10px 12px; border-radius:10px; background:var(--panel); border:1px solid var(--line); color:var(--color-success); }
-.flash.error { color:var(--color-danger); }
-button.row { width:100%; font:inherit; text-align:left; background:none; border:0; cursor:pointer; }
-button.row:active:not(:disabled) { background:var(--chip); }
-@media (hover: hover) { button.row:hover:not(:disabled) { background:color-mix(in srgb, var(--chip) 60%, transparent); } }
-button.row:disabled { cursor:default; color:var(--muted); opacity:.5; }
-.banner { display:flex; align-items:center; gap:10px; margin-top:4px; padding:10px 12px; border-radius:10px; background:color-mix(in srgb, #a855f7 14%, var(--panel)); border:1px solid color-mix(in srgb, #a855f7 35%, var(--line)); }
-.banner .title { font-weight:600; white-space:normal; }
-dialog.sheet { margin:auto auto 0; padding:0; border:0; width:min(40rem, 100%); max-width:100%; max-height:calc(100dvh - 24px - env(safe-area-inset-top)); overflow:auto; background:var(--bg); color:var(--text); border-radius:14px 14px 0 0; }
-dialog.sheet::backdrop { background:#0006; }
-.sheet-body { padding:8px max(12px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
-.sheet .grab { width:36px; height:5px; border-radius:3px; background:var(--line); margin:4px auto 10px; }
-.sheet h2 { font-size:15px; margin:0 4px 8px; }
-.sheet .field input[type=datetime-local] { flex:1 1 auto; width:auto; text-align:left; }
-.sheet .cancel { display:block; width:100%; margin-top:8px; padding:12px; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--accent); font:inherit; font-weight:600; cursor:pointer; }
-code { font-family:var(--mono); font-size:.85em; white-space:nowrap; }
-footer { color:var(--muted); font-size:12px; margin:1.8rem 2px 0; }
-.host { font-family:var(--mono); font-size:11px; overflow-wrap:anywhere; }
-.st.ok { color:var(--color-success); }
-.links { display:block; margin-top:2px; }
-.links > span { display:block; color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
-.links b { font-weight:600; }`;
-
 const row = ({ icon = '', title, when = '', sub = '', subCls = '', wrap = false, trail = '', href, cls = '', attrs = '' }) => {
   const head = when ? `<span class="title with-time"><span class="name">${title}</span><span class="when">${when}</span></span>` : `<span class="title">${title}</span>`;
   const inner = `${icon}<span class="body"><span class="text">${head}${sub ? `<span class="sub${wrap ? ' wrap' : ''}${subCls ? ` ${subCls}` : ''}">${sub}</span>` : ''}</span>${trail}</span>`;
@@ -621,9 +511,9 @@ const pollingSummary = (s) => [`${plural(s.windows.length, 'window')}, ${checksA
   s.wakes.length ? `wakes ${s.wakes.map(timeOfDay).join(', ')}` : 'no wakes'].filter(Boolean).join(' · ');
 
 // side: a sidebar() result, which puts the sidebar beside the page.
-const head = (title, extra = '', top = '', side = null) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+const head = (title, extra = '', top = '', side = null) => `<!doctype html><html lang="en" class="hub-view"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>${esc(title)}</title><link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="${iconUrl(180)}">
-<meta name="apple-mobile-web-app-title" content="Claude">${extra}<link rel="stylesheet" href="/_hub/colors.css?v=${colorsVersion()}">${side ? '<link rel="stylesheet" href="/_hub/sidebar.css">' : ''}<style>${CSS}</style></head><body${side ? ' class="has-sidebar"' : ''}>${side ? side.html : ''}${top}<main${top ? ' class="has-top"' : ''}>`;
+<meta name="apple-mobile-web-app-title" content="Claude">${extra}<link rel="stylesheet" href="/_hub/colors.css?v=${colorsVersion()}"><link rel="stylesheet" href="/_hub/hub.css">${side ? '<link rel="stylesheet" href="/_hub/sidebar.css">' : ''}</head><body${side ? ' class="has-sidebar"' : ''}>${side ? side.html : ''}${top}<main${top ? ' class="has-top"' : ''}>`;
 
 function pollLine(now) {
   if (polls.running) return 'Checking GitHub now';
@@ -830,7 +720,7 @@ async function hubRoute(req, res, url) {
     catch { res.writeHead(404).end(); return; }
   }
   if (['/_hub/dialogs.js', '/_hub/page-header.js', '/_hub/rules-editor.js', '/_hub/ui-sidebar.js', '/_hub/sidebar.js'].includes(p)) return send(200, 'text/javascript; charset=utf-8', fs.readFileSync(path.join(BOARD_PUBLIC, p.slice(6))));
-  if (p === '/_hub/sidebar.css') return send(200, 'text/css; charset=utf-8', fs.readFileSync(path.join(BOARD_PUBLIC, 'sidebar.css')));
+  if (p === '/_hub/sidebar.css' || p === '/_hub/hub.css') return send(200, 'text/css; charset=utf-8', fs.readFileSync(path.join(BOARD_PUBLIC, p.slice(6))));
   if (p === '/_hub/sidebar.json') return sendJSON(200, (await sidebarState({ fresh: url.searchParams.get('fresh') === '1' })).data);
   if (p === '/_hub/') return send(200, 'text/html; charset=utf-8', await hubPage(req));
   if (p === '/_hub/push/key') return sendJSON(200, { key: publicKey() });

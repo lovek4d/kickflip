@@ -143,14 +143,17 @@ test('hiding and unhiding many events at once keeps every change', async () => {
   assert.deepEqual(ids.filter((id) => !afterUndo.has(id)), []);
 });
 
-test("the board lists its own reviewers from board.json, whatever its waves hold", async () => {
+test("the board lists its own title and reviewers from board.json, whatever its waves hold", async () => {
   const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
-  const reviewers = async () => (await (await fetch(`${base}/api/board`)).json()).reviewers;
+  const board = async () => (await (await fetch(`${base}/api/board`)).json());
+  const reviewers = async () => (await board()).reviewers;
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ reviewers: [{ name: 'Bob', slack_user: 'U2', dm: 'D2', github: 'bob' }], items: [{ id: 'R1', title: 'R' }] }));
   assert.deepEqual(await reviewers(), []);
-  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, reviewers: [{ name: 'Ann', slack_user: 'U1', dm: 'D1', github: 'ann' }] }));
+  assert.equal((await board()).title, 'T');
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, title: 'Renamed', reviewers: [{ name: 'Ann', slack_user: 'U1', dm: 'D1', github: 'ann' }] }));
   try {
     assert.deepEqual(await reviewers(), ['Ann']);
+    assert.equal((await board()).title, 'Renamed');
   } finally {
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
   }

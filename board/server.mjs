@@ -26,7 +26,7 @@
 //                                current version caches for a year, anything else revalidates by ETag. Every
 //                                text response, the API's included, is gzipped when the request accepts it;
 //                                API JSON stays no-store
-//   GET  /api/board              the board's reviewers' names, and lanes of those items, with
+//   GET  /api/board              the board's title (board.json's, as the page shows it), its reviewers' names, and lanes of those items, with
 //                                ~/.claude/slack-bridge/{state.json,topics/*.json},
 //                                data/owner.json and GitHub (gh, cached for 45 s).
 //                                owner.json: {topics: [{id, title, summary}], items: [{id, topic,
@@ -360,10 +360,10 @@ async function setupOf(links) {
 }
 
 async function board() {
-  const reviewers = ((await config()).reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string');
+  const { title, reviewers } = await config();
   const built = buildBoard(await snapshot());
   const links = hubLinks(built.checks);
-  return { generatedAt: new Date().toISOString(), reviewers, ...built, links, setup: await setupOf(links) };
+  return { generatedAt: new Date().toISOString(), title, reviewers: (reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string'), ...built, links, setup: await setupOf(links) };
 }
 
 async function itemOf(key) {

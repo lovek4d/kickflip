@@ -10,7 +10,7 @@
 window.BoardBoot = (function () {
   const get = (u) => { const p = fetch(u, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status))))); p.catch(() => {}); return p; };
   let open = [];
-  try { open = JSON.parse(localStorage.getItem('openItems') || '[]'); } catch {}
+  try { open = JSON.parse(localStorage.getItem(`site:${new URL('.', location.href).pathname.replace(/^\/+|\/+$/g, '')}:openItems`) || '[]'); } catch {}
   const focus = /^#item=(.+)$/.exec(location.hash);
   if (focus) open.push(decodeURIComponent(focus[1]));
   return { board: get('api/board'), threads: new Map([...new Set(open)].map((k) => [k, get('api/thread?key=' + encodeURIComponent(k))])) };
