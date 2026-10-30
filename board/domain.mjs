@@ -121,7 +121,17 @@ function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, threa
     slack: permalink(bridgeItem?.thread_ts), threadCount: thread.length + events.length, lastTs, othersAt,
     grilling: Boolean(lastGrill && !lastGrill.reply),
     updatedAt: pr?.mergedAt || pr?.updatedAt || it.merged_at || builder?.at || lastTs || null, ask: null, fold: null, action: null,
+    install: lane === 'done' ? null : installOf(it.install, pr),
   };
+}
+
+// docs/adr/0051-a-device-app-card-carries-an-install-link.md
+// older: the PR's head has moved past the commit the build came from; unknown heads never read older.
+function installOf(install, pr) {
+  if (!install?.url) return null;
+  const sha = install.sha ? String(install.sha).toLowerCase() : null;
+  const head = pr?.headRefOid ? String(pr.headRefOid).toLowerCase() : null;
+  return { url: install.url, label: install.label || null, builtAt: install.built_at || null, sha, older: Boolean(sha && head && !head.startsWith(sha)) };
 }
 
 // What the owner acts on next, or null: {kind, url, label}, url relative to the site root. kind is pick (a prototype

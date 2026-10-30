@@ -120,6 +120,10 @@ _Avoid_: blocked by, assignee
 The notice-tone badge on a card waiting on the owner, in any lane: an open question or a prototype pick, a green draft's Ready, an ask's Done, or manual steps on an approved PR. It links to the thing to act on. Reviewer waits and held cards get none ([0045](docs/adr/0045-the-lane-follows-who-acts-next.md)).
 _Avoid_: open items, needs you (Needs you is the box at the top of the board)
 
+**Install**:
+The link on a card whose PR builds a device app, right of Action needed, that installs the build on the owner's phone: an iOS `itms-services://` manifest link or an Android `.apk`, kept in the item's `install`. It reads "older build" once the PR's head moves past the commit it was built from, and leaves the card in Done ([0051](docs/adr/0051-a-device-app-card-carries-an-install-link.md)).
+_Avoid_: download, TestFlight (a different channel), build link
+
 **Full plan**:
 A work item's long write-up, a Markdown file in its wave's folder that the item names in `plan`. The open card links to it as a page sized for the phone; the thread keeps the short summary ([0024](docs/adr/0024-a-full-plan-opens-as-a-page-on-the-site.md)).
 _Avoid_: proposal doc, spec (the plan can be either)
@@ -205,7 +209,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `../shared/colors.css` | Every color, served as `colors.css` and linked before `style.css`; the hub serves it as `/_hub/colors.css` |
 | `ui.js` | Shared helpers: escaping, times, reply bodies, attachments, icons and message buttons, badges by tone, `setHTML` |
 | `ui-links.js` | Linking refs, Linear ids, PRs and URLs in written text; load it right after `ui.js` |
-| `ui-cards.js` | A card's lines, in order: title with its ref, or New or Task chip; status with its ETA; unread; Action needed, PR, review and other chips; Blocked by chips; and a New card's bump, edit and delete icons |
+| `ui-cards.js` | A card's lines, in order: title with its ref, or New or Task chip; status with its ETA; unread; Action needed, Install, PR, review and other chips; Blocked by chips; and a New card's bump, edit and delete icons |
 | `ui-sidebar.js` | `BoardUI.sidebar`, the sidebar's markup from `/_hub/sidebar.json`, and `othersWaiting`, the logo's count. Needs nothing else: `hub/hub.mjs` renders the hub pages' sidebar with it in a vm context, and serves it as `/_hub/ui-sidebar.js` |
 | `sidebar.js` | Painting the sidebar from this device's last copy and then the hub, the drawer and its swipes, the logo's count, and storing the last board for `/`; the hub serves it as `/_hub/sidebar.js` |
 | `sidebar.css` | The sidebar's rail and drawer, scoped to `.sidebar`; linked after `colors.css`, and served by the hub as `/_hub/sidebar.css` |

@@ -195,6 +195,31 @@ test('item set edits the item in a waves board and in a file board', () => {
   assert.equal(read(site('audit', 'data', 'wave.json')).items[0].status, undefined);
 });
 
+test('item set --install records a device build with when it was built, takes only https or an iOS manifest link, and --clear-install removes it', () => {
+  const ios = 'itms-services://?action=download-manifest&url=https://mac.ts.net/orch/installs/w-A1/manifest.plist';
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--install', ios, '--install-sha', 'ABCDEF1234', '--install-label', 'Install beta').code, 0);
+  const { built_at, ...install } = read(at('waves', 'w', 'wave.json')).items[0].install;
+  assert.deepEqual(install, { url: ios, label: 'Install beta', sha: 'abcdef1234' });
+  assert.ok(Math.abs(Date.parse(built_at) - Date.now()) < 60000);
+  assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--install', 'https://mac.ts.net/audit/installs/audit-A1/app.apk').code, 0);
+  assert.deepEqual(Object.keys(read(site('audit', 'data', 'wave.json')).items[0].install), ['url', 'built_at']);
+  for (const [args, err] of [
+    [['--install', 'http://mac.ts.net/app.apk'], /^--install takes an https:\/\/ or itms-services:\/\/ URL/],
+    [['--install', 'javascript:alert(1)'], /^--install takes /],
+    [['--install', 'itms-services://?action=download-manifest&url=http://x/manifest.plist'], /^--install: an itms-services/],
+    [['--install', ios, '--install-sha', 'main'], /^--install-sha takes a commit sha/],
+    [['--install-sha', 'abcdef1'], /^--install-sha and --install-label go with --install/],
+    [['--install', ios, '--clear-install'], /^pass --install or --clear-install, not both/],
+  ]) {
+    const r = board('item', 'set', 'w/A1', '--site', 'orch', ...args);
+    assert.equal(r.code, 1, args.join(' '));
+    assert.match(r.err, err, args.join(' '));
+  }
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].install.url, ios);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--clear-install').code, 0);
+  assert.equal('install' in read(at('waves', 'w', 'wave.json')).items[0], false);
+});
+
 test('a follow-up is filed with a date and leaves its lane when done', () => {
   assert.equal(board('followup', 'add', 'audit', '--site', 'audit', '--id', 'PROD-7', '--title', 'Tidy', '--from', 'A1').code, 0);
   assert.equal(board('followup', 'add', 'audit', '--site', 'audit', '--id', 'PROD-7', '--title', 'Again').code, 1);

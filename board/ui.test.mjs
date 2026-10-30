@@ -461,6 +461,20 @@ test('a work card reads its title, then its next step or builder, its unread mes
   assert.match(ui.workLines(followup), /<a class="chip tone-normal" href="u"[^>]*>PROD-7<\/a>.*<span class="chip tone-quiet">follow-up<\/span>/s);
 });
 
+test("a card with an install shows its Install link right of Action needed, opening in place, and marks an older build", () => {
+  const url = 'itms-services://?action=download-manifest&url=https://m/x/manifest.plist';
+  const install = { url, label: null, builtAt: ago(2), sha: 'abc1234', older: false };
+  const asking = { ...workCard, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' }, install };
+  assert.deepEqual(lines(ui.workLines(asking)), ['PROD-1 Five', 'Next: Waiting for PR reviewers', 'Action needed Install repo#7 ● CI ✓ J ✗']);
+  const html = ui.workLines({ ...workCard, install });
+  assert.equal(lines(html)[2], 'Install repo#7 ● CI ✓ J ✗');
+  const link = /<a class="chip tone-ready" href="([^"]*)"[^>]*>Install<\/a>/.exec(html);
+  assert.equal(link?.[1], url.replaceAll('&', '&amp;'));
+  assert.doesNotMatch(link[0], /target=/);
+  assert.match(ui.workLines({ ...workCard, install: { ...install, label: 'Install beta', older: true } }), /<a class="chip tone-quiet" href="[^"]*"[^>]*>Install beta · older build<\/a>/);
+  assert.doesNotMatch(ui.workLines(workCard), /Install/);
+});
+
 test('Todo offers to plan a wave from its follow-ups once it holds two, with their keys', () => {
   const todo = [{ key: 'w/A1', kind: 'work' }, { key: 'w/PROD-1', kind: 'followup' }, { key: 'v/PROD-2', kind: 'followup' }];
   const html = ui.planButton(todo);

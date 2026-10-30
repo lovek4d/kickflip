@@ -42,6 +42,15 @@
     const external = it.action.kind === 'ready' ? EXTERNAL : {};
     return badge('notice', 'Action needed', { href: it.action.url, title: it.action.label, attrs: { ...external, 'aria-label': `Action needed: ${it.action.label}` } });
   }
+  // docs/adr/0051-a-device-app-card-carries-an-install-link.md
+  function installChip(it) {
+    const inst = it.install;
+    if (!inst) return '';
+    const label = inst.label || 'Install';
+    const built = [inst.builtAt && `built ${time(inst.builtAt)}`, inst.sha && `from ${inst.sha.slice(0, 7)}`].filter(Boolean).join(' ');
+    const title = [built && built[0].toUpperCase() + built.slice(1), inst.older && 'the PR has newer commits'].filter(Boolean).join('; ');
+    return badge(inst.older ? 'quiet' : 'ready', esc(inst.older ? `${label} · older build` : label), { href: inst.url, title: title || null, attrs: { 'aria-label': `${label}${inst.older ? ', an older build' : ''}` } });
+  }
   const builderLine = (b) => [b.progress || 'Building', b.at && ago(b.at)].filter(Boolean).join(' · ');
   const unreadCount = (othersAt, seenAt) => (seenAt ? (othersAt || []).filter((t) => String(t) > seenAt).length : 0);
   // A New card's bump, edit and delete, and its line from its ask state (domain.mjs askItem;
@@ -53,7 +62,7 @@
     const ids = it.kind === 'ask' ? askChip(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
     const blocked = (it.blockedBy || []).map((d) => badge('notice', `blocked by ${esc(d.ref)}`, { href: `#item=${encodeURIComponent(d.key)}` })).join('');
     const ready = !blocked && it.deps?.length && it.lane === 'todo' ? badge('ready', 'ready to start') : '';
-    const chips = `${actionChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('normal', 'bumped') : ''}${ready}`;
+    const chips = `${actionChip(it)}${installChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('normal', 'bumped') : ''}${ready}`;
     const status = it.isNew ? `<div class="line3 sub">${askLine(it.ask)}</div>`
       : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Claude checking</div>'
       : it.builder ? `<div class="line3 sub agent">${esc(builderLine(it.builder))}</div>`
@@ -71,5 +80,5 @@
     return keys.length > 1 ? `<button class="link" data-plan="${esc(keys.join(' '))}">Plan a wave from these ${keys.length} follow-ups →</button>` : '';
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, linearChips, REVIEW, reviewAge, reviewChips, pendingQuestions, actionChip, builderLine, unreadCount, workLines, askChip, askActions, askLine, planButton });
+  Object.assign(globalThis.BoardUI, { prChips, linearChips, REVIEW, reviewAge, reviewChips, pendingQuestions, actionChip, installChip, builderLine, unreadCount, workLines, askChip, askActions, askLine, planButton });
 })();

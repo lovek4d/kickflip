@@ -44,6 +44,12 @@ A --file argument of - reads stdin.
          [--plan <file>]                                 the item's full write-up: a .md file inside its wave's
                                                          folder, named relative to it; the card links to it
          [--deps <id>,<wave>/<id>]                       replaces its blocked-by list; --deps "" clears it
+         [--install <url> [--install-sha <sha>]          a device build the owner installs from the card's Install
+          [--install-label <text>] | --clear-install]    button, stamped built_at now: itms-services://?action=
+                                                         download-manifest&url=https://…/manifest.plist for iOS,
+                                                         an https:// .apk URL for Android. --install-sha is the
+                                                         PR head it was built from: the button reads "older build"
+                                                         once the PR moves past it. Hidden once the card is Done
          --status building refuses while the item is held or a dep isn't done, merged or dropped;
          done and merged print "unblocked: <wave>/<id>" for each waiting, unheld item this one
          unblocked: start it next. checking is a builder's hand-back: In Review, reading "Claude
@@ -111,7 +117,7 @@ A --file argument of - reads stdin.
          WEB_TS_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/web-ts.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
-const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'answer', 'clear-eta', 'held', 'unheld', 'idle', 'hub']);
+const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'answer', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install']);
 const WEB_TS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'bin', 'web-ts.mjs');
 
 function pushCommand() {
@@ -156,7 +162,7 @@ function parse(argv) {
  * the path itself (a reply once read "/private/tmp/…/exp-reply.html"), so it is refused: one
  * token that names an existing file, or that looks like a path to a document.
  */
-const TEXT_FLAGS = ['html', 'text', 'note', 'notes', 'summary', 'title', 'body', 'next', 'progress'];
+const TEXT_FLAGS = ['html', 'text', 'note', 'notes', 'summary', 'title', 'body', 'next', 'progress', 'install-label'];
 const DOC_PATH = /^(?:\/|~\/|\.{1,2}\/)\S*\.(?:html?|md|json|txt)$/;
 
 function looksLikePath(value) {
@@ -193,8 +199,9 @@ const COMMANDS = {
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
   'question add': [[], ['file'], (site, _, f) => store.addQuestions(site, readJSONInput(f.file))],
   'question resolve': [['id'], ['note'], (site, [id], f) => store.resolveQuestion(site, id, f.note)],
-  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'from-ask', 'held', 'unheld', 'plan', 'deps'], (site, [key], f) =>
-    store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, fromAsk: f['from-ask'], held: f.held, unheld: f.unheld, plan: f.plan, deps: f.deps })],
+  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'from-ask', 'held', 'unheld', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install'], (site, [key], f) =>
+    store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, fromAsk: f['from-ask'], held: f.held, unheld: f.unheld, plan: f.plan, deps: f.deps,
+      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'] })],
   'item add': [['wave/id'], ['title', 'notes', 'deps', 'plan'], (site, [key], f) => store.addItem(site, key, f)],
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
   'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],

@@ -4,7 +4,7 @@ import { buildBoard, threadOf, needsAnswer } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 
-function board({ agents = {}, pr = greenDraft, owner = {}, events = [], topicItems = {}, now, held = false, threads = {} } = {}) {
+function board({ agents = {}, pr = greenDraft, owner = {}, events = [], topicItems = {}, now, held = false, threads = {}, item = {} } = {}) {
   return buildBoard({
     now,
     topicItems,
@@ -17,7 +17,7 @@ function board({ agents = {}, pr = greenDraft, owner = {}, events = [], topicIte
       wave: {
         repo: 'o/r',
         reviewers: [{ name: 'Ann', github: 'ann' }],
-        items: [{ id: 'A1', title: 'One', pr: 7, held }],
+        items: [{ id: 'A1', title: 'One', pr: 7, held, ...item }],
         followups: [{ id: 'PROD-1', title: 'Later', filed: '2026-10-22T00:00:00Z' }],
       },
     }],
@@ -59,6 +59,18 @@ test('a card waiting on the owner sits in In Review with its action, and one Cla
   assert.deepEqual([building.lane, building.waitsOn, building.action?.kind], ['progress', 'builder', 'pick']);
   const held = card({ owner: { items: [q] }, held: true });
   assert.deepEqual([held.lane, held.action], ['todo', null]);
+});
+
+test("a card's install shows until the card is Done, and reads older once the PR's head has moved past the commit it was built from", () => {
+  const install = { url: 'itms-services://?action=download-manifest&url=https://m/x/manifest.plist', built_at: '2026-10-29T10:00:00Z', sha: 'abc1234' };
+  const card = (opts) => board(opts).items.find((i) => i.key === 'w/A1').install;
+  assert.deepEqual(card({ item: { install } }), { url: install.url, label: null, builtAt: '2026-10-29T10:00:00Z', sha: 'abc1234', older: false });
+  assert.equal(card({ item: { install }, pr: { ...greenDraft, headRefOid: 'ABC1234def5678' } }).older, false);
+  assert.equal(card({ item: { install }, pr: { ...greenDraft, headRefOid: 'fff0000def5678' } }).older, true);
+  assert.equal(card({ item: { install: { ...install, sha: undefined } }, pr: { ...greenDraft, headRefOid: 'fff0000' } }).older, false);
+  assert.equal(card({ item: { install }, pr: { ...greenDraft, state: 'MERGED' } }), null);
+  assert.equal(card({ item: { install, status: 'done' }, pr: null }), null);
+  assert.equal(card(), null);
 });
 
 test('a card with a working builder is In Progress whatever its status says', () => {

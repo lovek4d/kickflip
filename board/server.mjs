@@ -12,7 +12,9 @@
 // (its keys are <slug>/<id>), defaulting to the file's basename. An item's review_sent is either
 // a list of the reviewers already sent its link, or {<reviewer name>: <Slack message ts>}, which
 // also dates the review so it can go stale. from_ask names the ask event that created the item,
-// and next is Claude's next step for it. A builder working on an item has a record in
+// and next is Claude's next step for it. install {url, label?, built_at, sha?} is a device build the card's Install
+// button opens (board.mjs item set --install); public/installs/ holds its files, served without a login like all of
+// public/, since iOS's installer fetches the manifest and .ipa with no cookies. A builder working on an item has a record in
 // agents/<id>.json (or agents/<id>@<agent>.json for each further agent) beside the wave file. A wave's followups [{id, title, from, filed, done}] are
 // Linear tickets filed along the way; they are Todo cards of their wave until done. domain.mjs
 // decides lanes and card state from what this server reads.
@@ -206,7 +208,7 @@ async function listEvents(kind, limit) {
 // GitHub PR state, refreshed in the background when the board is read and the
 // entry is older than 45 s. A PR's first read waits for gh.
 const prCache = new Map();
-const PR_FIELDS = 'number,title,url,state,isDraft,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,mergedAt,headRefName,updatedAt,latestReviews';
+const PR_FIELDS = 'number,title,url,state,isDraft,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,mergedAt,headRefName,headRefOid,updatedAt,latestReviews';
 function ghPR(repo, n) {
   return new Promise((resolve) => {
     execFile('gh', ['pr', 'view', String(n), '--repo', repo, '--json', PR_FIELDS], { timeout: 20000 }, (err, out) => {

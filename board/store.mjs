@@ -606,13 +606,32 @@ export async function readPlan(site, key) {
   return { wave, item, markdown: await fs.readFile(await planPath(source.dir, item.plan), 'utf8') };
 }
 
+// docs/adr/0051-a-device-app-card-carries-an-install-link.md
+// iOS installs over the air only from an itms-services:// manifest link, and Android from an https .apk.
+function installOf({ install, installSha, installLabel, clearInstall }) {
+  if (install === undefined) {
+    if (installSha !== undefined || installLabel !== undefined) fail('--install-sha and --install-label go with --install <url>');
+    return clearInstall ? null : undefined;
+  }
+  if (clearInstall) fail('pass --install or --clear-install, not both');
+  let url;
+  try { url = new URL(String(install).trim()); } catch { url = null; }
+  if (!url || !['https:', 'itms-services:'].includes(url.protocol)) fail(`--install takes an https:// or itms-services:// URL, not "${install}"`);
+  if (url.protocol === 'itms-services:' && !(url.searchParams.get('action') === 'download-manifest' && /^https:\/\//.test(url.searchParams.get('url') || ''))) {
+    fail('--install: an itms-services:// URL needs ?action=download-manifest&url=https://…/manifest.plist');
+  }
+  const sha = installSha === undefined ? undefined : /^[0-9a-f]{7,40}$/i.test(installSha) ? installSha.toLowerCase() : fail(`--install-sha takes a commit sha of 7 to 40 hex digits, not "${installSha}"`);
+  return { url: String(install).trim(), ...(installLabel === undefined ? {} : { label: text(installLabel, '--install-label') }), built_at: new Date().toISOString(), ...(sha ? { sha } : {}) };
+}
+
 // → the wave file, and with --status done or merged the items it unblocked as `unblocked: <key>` lines.
-export async function setItem(site, key, { status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, plan, deps }) {
+export async function setItem(site, key, { status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, plan, deps, install, installSha, installLabel, clearInstall }) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
   if (next !== undefined && clearNext) fail('pass --next or --clear-next, not both');
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   if (held && unheld) fail('pass --held or --unheld, not both');
-  if ([status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, plan, deps].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --from-ask, --held, --unheld, --plan or --deps');
+  const built = installOf({ install, installSha, installLabel, clearInstall });
+  if ([status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, plan, deps, built].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --from-ask, --held, --unheld, --plan, --deps, --install or --clear-install');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   const { source, wave, item } = await loadItem(site, key);
   if (plan !== undefined) { await planPath(source.dir, plan); item.plan = path.normalize(plan); }
@@ -637,6 +656,8 @@ export async function setItem(site, key, { status, clearStatus, next, clearNext,
   if (clearNext) delete item.next;
   if (pr !== undefined) item.pr = /^[1-9]\d*$/.test(String(pr)) ? Number(pr) : fail('--pr takes a PR number');
   if (ask) item.from_ask = ask;
+  if (built) item.install = built;
+  if (built === null) delete item.install;
   await writeJSON(source.file, wave);
   // A builder that forgot builder done would keep the card In Progress after it was handed back.
   if (pr !== undefined || HANDED_BACK.includes(status)) await closeBuilders(source.dir, item.id);
