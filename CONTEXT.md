@@ -200,6 +200,7 @@ _Avoid_: ask (in what the owner reads), message, prompt, Waiting for Claude stri
 
 **Thread**:
 The conversation on one work item: Claude's reports, builders' status lines, the owner's messages, mirrored GitHub comments, and answers to the item's questions. On a card not in Done, its reply form has a Done, left of Send, that closes the card ([0035](docs/adr/0035-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md)).
+An open card shows its thread's newest 3 messages, or from its oldest **unread message** when more than 3 are unread, unread as of when the card opened. Messages are the owner's, Claude's (replies included) and other people's; builder, status and ask-link lines show among the messages they sit between and don't count. "Show more · N previous messages" at the top adds the next 3 older messages each tap and goes when nothing older is left. The expansion lasts while the card stays open, through repaints and new messages, and closing the card puts it back to 3. A message being edited, or waiting on Claude, always shows, with every line after it.
 _Avoid_: comments, chat
 
 **Unread message**:
@@ -289,7 +290,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `hub.css` | The hub views' CSS and the hub's down page's, every rule under `.hub-view`, the class on a hub view's root and on the down page's `<html>`; the shell links it after `style.css`, whose header the hub views share, and the down page as `/_hub/hub.css` |
 | `ui-page-header.js` | `BoardUI.header`, every page's header: the logo (which toggles the sidebar) or back arrow, the title, then the time and ↻ and the gear, or a page's own trail. On a page of its own, the back arrow's own script goes one step back, or to its href after a push; in the app shell `router.js` does that. Needs nothing else: `server.mjs` renders each page's `<!--header {…}-->` with it, such as a prototype's, and `hub/hub.mjs` the shell's first sidebar, whose head is one too (`ui-sidebar.js`), each in a vm context |
 | `ui-header.js` | The header's time and when it moves, the GitHub status line and its Hub links mark, the Hub links list, the setup checklist, when a refresh asks for a GitHub check, and which board header controls take taps |
-| `ui-threads.js` | Thread messages, with link, status and agent lines, and the reply form's Done |
+| `ui-threads.js` | Thread messages, with link, status and agent lines, the open card's window over them with its Show more, and the reply form's Done |
 | `ui-questions.js` | Owner question cards with their takes inline and diagrams, answer history, prototype status and the Waiting on you topic row, for `view-questions.js` |
 | `ui-markdown.js` | The Markdown subset `view-notes.js` renders a card's notes with |
 | `ui-snapshot.js` | The last visit's stored shape and size cap, which threads preload, which controls wait for the fresh board, and which lines flash |

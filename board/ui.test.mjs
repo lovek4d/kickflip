@@ -786,6 +786,46 @@ test('a builder status line, and an agent starting or finishing, reads as one li
   assert.doesNotMatch(agents, /class="who"|data-withdraw|data-edit/);
 });
 
+test("an open card's thread shows its newest 3 messages with the lines between them, every unread one when more are unread, a message being edited or waiting on Claude always, and Show more saying how many messages it hides", () => {
+  const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
+  const msgs = [
+    { ts: at(0), who: 'claude', text: 'One' },
+    { ts: at(1), who: 'claude', kind: 'status', text: 'Plan written' },
+    { ts: at(2), who: 'love', kind: 'item-message', text: 'Two?', eventId: 'e1', state: 'replied', reply: { html: 'Two.', at: at(3) } },
+    { ts: at(4), who: 'claude', kind: 'agent', text: 'Opus builder started', finished: false, eta: null },
+    { ts: at(5), who: 'Sam', via: 'slack', text: 'Three' },
+    { ts: at(6), who: 'claude', text: 'Four' },
+    { ts: at(7), who: 'claude', kind: 'status', text: 'Opened #1' },
+    { ts: at(8), who: 'claude', text: 'Five' },
+    { ts: at(9), who: 'claude', kind: 'agent', text: 'Opus builder finished', finished: true, eta: null },
+    { ts: at(10), who: 'claude', text: 'Six' },
+    { ts: at(11), who: 'claude', kind: 'status', text: 'CI green' },
+  ];
+  const WORDS = ['One', 'Plan written', 'Two.', 'Two?', 'Opus builder started', 'Three', 'Four', 'Opened #1', 'Five', 'Opus builder finished', 'Six', 'CI green'];
+  const shown = (html) => html.split(/(?=<div class="msg )/).filter((h) => h.startsWith('<div class="msg ')).map((h) => WORDS.find((w) => h.includes(`>${w}`)));
+  const more = (html) => (/^<button type="button" class="thread-more" data-thread-more>/.test(html) ? text(html.slice(0, html.indexOf('</button>'))) : null);
+  const read = { seenAt: at(59), more: 0 };
+
+  const newest = ui.threadMessages(msgs, {}, new Map(), read);
+  assert.deepEqual(shown(newest), ['Four', 'Opened #1', 'Five', 'Opus builder finished', 'Six', 'CI green']);
+  assert.equal(more(newest), 'Show more · 4 previous messages');
+  const once = ui.threadMessages(msgs, {}, new Map(), { ...read, more: 1 });
+  assert.deepEqual(shown(once), ['Two?', 'Two.', 'Opus builder started', 'Three', 'Four', 'Opened #1', 'Five', 'Opus builder finished', 'Six', 'CI green']);
+  const all = ui.threadMessages(msgs, {}, new Map(), { ...read, more: 2 });
+  assert.deepEqual([more(once), more(all), shown(all).length], ['Show more · 1 previous message', null, 12]);
+
+  const unread = ui.threadMessages(msgs, {}, new Map(), { seenAt: at(2), more: 0 });
+  assert.deepEqual(shown(unread), ['Two.', 'Opus builder started', 'Three', 'Four', 'Opened #1', 'Five', 'Opus builder finished', 'Six', 'CI green']);
+  assert.match(unread, /<blockquote class="quote">Two\?<\/blockquote>/);
+  assert.equal(more(unread), 'Show more · 2 previous messages');
+
+  const waiting = ui.threadMessages(msgs.map((m) => (m.eventId ? { ...m, state: 'waiting', reply: null } : m)), {}, new Map(), read);
+  assert.deepEqual(shown(waiting).slice(0, 2), ['Two?', 'Opus builder started']);
+  assert.equal(more(waiting), 'Show more · 1 previous message');
+  const editing = ui.threadMessages(msgs, {}, new Map([['e1', { text: 'Two, edited' }]]), read);
+  assert.deepEqual(shown(editing).slice(0, 2), ['Two?', 'Two.']);
+});
+
 test("an ask's link line opens the work it became, and a thread line opens a linked card on the board", () => {
   assert.match(ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'ask-link', text: 'Became INT-21', link: '#item=site%2FS21' }]), /<a href="#item=site%2FS21">Became INT-21 →<\/a>/);
   const html = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'Asked to keep it', link: '#item=ask:e1' }]);

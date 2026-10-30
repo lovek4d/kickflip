@@ -17,13 +17,32 @@ BoardView.part((B) => {
     if (html) send.insertAdjacentHTML('beforebegin', html);
   }
 
+  // Each open card's ui-threads.js threadMessages view. Opening a card marks it seen (app-core.js markSeen) before its
+  // thread draws, so its unread messages start from its seen mark as the page loaded or as the card last closed.
+  const seenBefore = new Map(Object.entries(B.seen));
+  const moreTaps = new Map();
+  const viewOf = (key) => ({ seenAt: seenBefore.get(key) || null, more: moreTaps.get(key) || 0 });
+  B.on(B.root, 'toggle', (ev) => {
+    const el = ev.target;
+    if (!el.matches?.('details.item') || el.open) return;
+    seenBefore.set(el.dataset.key, B.seen[el.dataset.key]);
+    moreTaps.delete(el.dataset.key);
+  }, true);
+  B.on(B.root, 'click', (ev) => {
+    const key = ev.target.closest('[data-thread-more]')?.closest('[data-thread]')?.dataset.thread;
+    if (key == null) return;
+    moreTaps.set(key, (moreTaps.get(key) || 0) + 1);
+    B.repaintThread(key);
+  });
+
   const editsIn = (key) => new Map([...state.edits].filter(([, e]) => e.thread === key));
   function renderThread(key, msgs) {
     const el = $(`[data-thread="${CSS.escape(key)}"]`);
     if (!el) return;
     syncDone(el, key);
     const edits = editsIn(key);
-    const sig = JSON.stringify([msgs, [...edits.keys()]]);
+    const view = viewOf(key);
+    const sig = JSON.stringify([msgs, [...edits.keys()], view]);
     if (el.dataset.sig === sig) return;
     el.dataset.sig = sig;
     // The reply form is built once per card, so a refresh never drops what is being typed.
@@ -35,7 +54,7 @@ BoardView.part((B) => {
       BoardAttach.paint('item:' + key, B.site.root);
     }
     syncDone(el, key);
-    B.keepFocus(() => setHTML(el.querySelector('.msgs'), threadMessages(msgs, links(key), edits)));
+    B.keepFocus(() => setHTML(el.querySelector('.msgs'), threadMessages(msgs, links(key), edits, view)));
     B.flashChanged?.(el);
     // A thread's request is answered by a later thread line, so only a pending one changes the eye.
     const req = msgs.filter((m) => m.kind === 'prototype-request').pop();

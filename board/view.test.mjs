@@ -393,8 +393,8 @@ test("s s shows each sidebar row's key and the next key opens that row through t
   board.unmount();
 });
 
-function boardOnDom({ open = [], board, threads, confirm = false }) {
-  const page = fakePage(memoryStorage([['site:board-a:openItems', JSON.stringify(open)]]).localStorage);
+function boardOnDom({ open = [], seen = {}, board, threads, confirm = false }) {
+  const page = fakePage(memoryStorage([['site:board-a:openItems', JSON.stringify(open)], ['site:board-a:seenThreads', JSON.stringify(seen)]]).localStorage);
   const { Element } = miniDom(page.Target, page.win.document);
   const server = { board, threads };
   const sent = [];
@@ -590,6 +590,32 @@ test("a thread repaint while a message's edit box is open shows the new message 
   assert.match(b.root.querySelector('[data-thread="ask:a1"] .msgs').textContent, /Looking at it now/);
   assert.equal(b.root.querySelector('.msg[data-event="e1"] .edit-form textarea'), ta);
   assert.deepEqual([ta.value, ta.selectionStart, ta.selectionEnd, b.doc.activeElement === ta], ['Fix the header and the footer', 7, 7, true]);
+});
+
+test("a card opened with more than 3 unread messages shows them all, and once closed reopens at its newest 3; Show more adds 3 older ones, and the expansion lasts through a repaint with a new message until the card closes", async () => {
+  const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
+  const said = (n, text, extra) => ({ ts: at(n), who: 'claude', text, ...extra });
+  const msgs = [said(0, 'One'), said(1, 'Plan written', { kind: 'status' }),
+    said(2, 'Two?', { who: 'love', kind: 'item-message', eventId: 'e1', state: 'replied', reply: { html: 'Two.', at: at(3) } }),
+    said(5, 'Three', { who: 'Sam' }), said(6, 'Four'), said(7, 'Opened #1', { kind: 'status' }), said(8, 'Five'), said(10, 'Six')];
+  const b = boardOnDom({ open: ['w/A1'], seen: { 'w/A1': at(2) }, board: boardOf([workCard('A1', { lane: 'progress' })]), threads: { 'w/A1': msgs } });
+  await b.settle();
+  const card = b.root.querySelector('details.item[data-key="w/A1"]');
+  const thread = () => b.root.querySelector('[data-thread="w/A1"] .msgs');
+  const seen = () => [thread().querySelector('[data-thread-more]')?.textContent ?? null, thread().querySelectorAll('.msg .body').map((el) => el.textContent)];
+  const toggle = async (open) => { card.open = open; b.page.fire(b.root, 'toggle', { target: card }); await b.settle(); };
+
+  assert.deepEqual(seen(), ['Show more · 2 previous messages', ['Two.', 'Three', 'Four', 'Five', 'Six']]);
+  await toggle(false);
+  await toggle(true);
+  assert.deepEqual(seen(), ['Show more · 4 previous messages', ['Four', 'Five', 'Six']]);
+  b.page.fire(b.root, 'click', { target: thread().querySelector('[data-thread-more]') });
+  assert.deepEqual(seen(), ['Show more · 1 previous message', ['Two?', 'Two.', 'Three', 'Four', 'Five', 'Six']]);
+  await b.change({ threads: { 'w/A1': [...msgs, said(12, 'Seven')] } });
+  assert.deepEqual(seen(), ['Show more · 2 previous messages', ['Two.', 'Three', 'Four', 'Five', 'Six', 'Seven']]);
+  await toggle(false);
+  await toggle(true);
+  assert.deepEqual(seen(), ['Show more · 5 previous messages', ['Five', 'Six', 'Seven']]);
 });
 
 test("a lane repaint while the owner types in a card's reply box moves the other cards and keeps the reply's text, cursor and focus, also when its own card moves lanes, and leaves the + sheet's text alone", async () => {

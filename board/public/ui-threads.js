@@ -11,10 +11,11 @@
     return `<a href="${esc(link)}">Open the ${ask ? 'task' : 'card'} →</a>`;
   }
   // A message's state comes from domain.mjs threadOf.
+  const stateOf = (m) => m.state || (m.reply ? 'replied' : 'waiting');
   const msgFooter = (m) => ({
     working: () => `<div class="reply muted small">${workingLine}</div>`,
     waiting: () => '<div class="reply muted small">Waiting for Claude…</div>',
-  }[m.state || (m.reply ? 'replied' : 'waiting')] || (() => ''))();
+  }[stateOf(m)] || (() => ''))();
   // Each reply becomes Claude's own message at the time it was written, quoting the owner's message
   // when other messages came between them. A reply with no time follows its message.
   const withReplies = (msgs) => {
@@ -26,8 +27,7 @@
   // A message being edited shows its edit box in place of its text; app-asks.js handles the form.
   const editForm = (id, text) => `<form class="edit-form" data-edit-form="${esc(id)}"><textarea rows="3">${esc(text)}</textarea>
         <div class="row"><span></span><span><button type="button" data-edit-cancel>Cancel</button> <button class="primary" type="submit">Save</button></span></div></form>`;
-  // links: the thread's ui-links.js linkContext. edits: the open edit boxes by event id, {text}.
-  const threadMessages = (msgs, links = {}, edits = new Map()) => (msgs.length ? withReplies(msgs).map((m) => (m.kind === 'reply'
+  const line = (m, links, edits) => (m.kind === 'reply'
     ? `<div class="msg claude reply-msg"><div class="who">Claude · ${esc(time(m.ts))}</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body">${linkHtml(replyBody(m.reply), links)}</div></div>`
     : m.kind === 'ask-link' ? `<div class="msg link"><a href="${esc(m.link)}">${esc(m.text)} →</a></div>`
     : m.kind === 'status' ? `<div class="msg builder-status"><span class="working-dot" aria-hidden="true"></span>${linkText(m.text, links)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
@@ -37,7 +37,35 @@
         <div class="body"${edits.has(m.eventId) ? ' hidden' : ''}>${m.html ? linkHtml(m.html, links) : linkText(m.text, links)}</div>${edits.has(m.eventId) ? editForm(m.eventId, edits.get(m.eventId).text) : ''}${attachments(m.files)}
         ${m.link ? `<div class="small">${cardLink(m.link) || anyLink(m.link, m.link)}</div>` : ''}
         ${m.eventId ? msgFooter(m) : ''}
-      </div>`)).join('') : '<div class="muted small">No messages here yet.</div>');
+      </div>`);
+
+  const STEP = 3;
+  const NOT_MESSAGE = new Set(['status', 'agent', 'ask-link']);
+  const isMessage = (m) => !NOT_MESSAGE.has(m.kind);
+  // The badge's unread test (domain.mjs othersAt, ui-cards.js unreadCount).
+  const unread = (m, seenAt) => Boolean(seenAt) && isMessage(m) && m.who !== 'love' && String(m.ts) > seenAt;
+  function threadWindow(lines, { seenAt = null, more = 0 }, edits) {
+    const counted = lines.flatMap((m, i) => (isMessage(m) ? [i] : []));
+    const firstUnread = lines.findIndex((m) => unread(m, seenAt));
+    const unreadSpan = firstUnread < 0 ? 0 : counted.filter((i) => i >= firstUnread).length;
+    const want = Math.max(STEP, unreadSpan) + STEP * more;
+    const pinned = lines.findIndex((m) => m.eventId && (edits.has(m.eventId) || ['waiting', 'working'].includes(stateOf(m))));
+    const start = Math.min(counted.length > want ? counted[counted.length - want] : 0, pinned < 0 ? Infinity : pinned);
+    const hidden = counted.filter((i) => i < start).length;
+    return { start: hidden ? start : 0, hidden };
+  }
+  const moreButton = (hidden) => `<button type="button" class="thread-more" data-thread-more>Show more <span class="n">· ${hidden} previous message${hidden === 1 ? '' : 's'}</span></button>`;
+
+  // links: the thread's ui-links.js linkContext. edits: the open edit boxes by event id, {text}. view: {seenAt, more},
+  // the card's seen mark from before it opened and its Show more taps, draws the open card's window; null draws every line.
+  function threadMessages(msgs, links = {}, edits = new Map(), view = null) {
+    if (!msgs.length) return '<div class="muted small">No messages here yet.</div>';
+    const lines = withReplies(msgs);
+    const { start, hidden } = view ? threadWindow(lines, view, edits) : { start: 0, hidden: 0 };
+    const shown = lines.slice(start);
+    if (start && shown[0].kind === 'reply' && !shown[0].quote) shown[0] = { ...shown[0], quote: lines[start - 1].text || '' };
+    return (hidden ? moreButton(hidden) : '') + shown.map((m) => line(m, links, edits)).join('');
+  }
 
   // The reply form's Done, just left of Send, on every card not in Done: an ask's sends ask-done, a work card's or
   // follow-up's card-done, which reads "Closing…" until the session sets its status
