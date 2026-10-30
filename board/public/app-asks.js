@@ -23,7 +23,7 @@ BoardView.part((B) => {
   });
   $('#askText').value = store.get('draft:ask', '');
   B.on($('#askText'), 'input', (e) => { if (!quieted('draft:ask', e.target)) store.set('draft:ask', e.target.value); });
-  // iOS keeps fixed elements on the layout viewport, under the keyboard; this lifts the sheet to the visual viewport's bottom.
+  // iOS keeps fixed elements on the layout viewport, under the keyboard; --kb is how much of the sheet the keyboard covers.
   const vv = window.visualViewport;
   function fitSheet() {
     const kb = vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
