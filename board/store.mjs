@@ -705,7 +705,11 @@ export async function setItem(site, key, { status, clearStatus, next, clearNext,
   const links = ask ? await readAskLinks(site) : {};
   if (ask in links) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
   if (status !== 'done' && status !== 'merged') return source.file;
-  return { file: source.file, lines: (await unblockedBy(site, key)).map((k) => `unblocked: ${k}`) };
+  const unblocked = await unblockedBy(site, key);
+  // The owner reads a card's wait in its thread, so the line that ends it goes there too.
+  const ts = new Date().toISOString();
+  for (const k of unblocked) await appendLine(threadFile(site, k), { ts, who: 'claude', text: `Unblocked: ${item.id} is ${status}.` });
+  return { file: source.file, lines: unblocked.map((k) => `unblocked: ${k}`) };
 }
 
 // A comma list of deps, each an item that exists; "" is none.

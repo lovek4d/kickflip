@@ -10,10 +10,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: 1px solid var(-
   border-radius: 7px; padding: 6px 10px; }
 button:disabled { opacity: .5; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-a.button.answer, button.build { display: inline-block; border: 1px solid var(--color-notice); border-radius: 7px; padding: 6px 10px; background: var(--color-notice); color: #1c1407; text-decoration: none; }
-/* The Build on a card's chip row sits at a chip's size. */
-.meta button.build { padding: 1px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-button.ghost { border-color: transparent; background: transparent; font-size: 18px; padding: 2px 8px; }
+a.button.answer, button.build { display: inline-block; border: 1px solid var(--color-notice); border-radius: 7px; padding: 6px 10px; background: var(--color-notice); color: #1c1407; text-decoration: none; }button.ghost { border-color: transparent; background: transparent; font-size: 18px; padding: 2px 8px; }
 textarea, input { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line);
   border-radius: 8px; padding: 8px 10px; width: 100%; resize: vertical; }
 textarea:focus, input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }

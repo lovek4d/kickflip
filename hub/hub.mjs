@@ -45,8 +45,10 @@
 // After each poll it records when each board's hub links first failed (boards.mjs recordLinkFaults). As it starts it
 // records the hash of its own code (boards.mjs recordHubCode), so a board's hub link can tell when the files changed
 // under it (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md).
+// Once a minute it resumes the recorded session of a board that has stopped listening and whose session isn't running,
+// and pushes once when that doesn't bring it back (sessions.mjs checkSessions).
 // State lives in ~/.claude/web-ts: manifest.json, logs/<route>.log, run/<route>.pid, github-state.json, wake-state.json,
-// deaf-state.json, link-faults.json, hub-code.json.
+// deaf-state.json, link-faults.json, hub-code.json, resume-state.json.
 import http from 'node:http';
 import net from 'node:net';
 import { spawn, execFileSync } from 'node:child_process';
@@ -62,6 +64,7 @@ import { listBoards, sendToBoards, checkListening, recordHubCode, recordLinkFaul
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
 import { readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
+import { checkSessions } from './sessions.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const BOARD_PUBLIC = path.join(HUB_DIR, '..', 'board', 'public');
@@ -246,9 +249,20 @@ function runWakes() {
   }).catch((e) => log('wake failed:', e.message)).finally(() => { waking = null; });
 }
 
+const SESSION_CHECK_MS = 60_000;
+const sessionCheck = { running: null, at: 0 };
+function runSessionCheck() {
+  if (sessionCheck.running || Date.now() - sessionCheck.at < SESSION_CHECK_MS) return;
+  sessionCheck.at = Date.now();
+  sessionCheck.running = checkSessions({ manifest: loadManifest() }).then((r) => {
+    if (r.resumed.length || r.pushed.length || r.failed.length) log(`sessions: resumed ${r.resumed.join(', ') || 'none'}; pushed ${r.pushed.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
+  }).catch((e) => log('session check failed:', e.message)).finally(() => { sessionCheck.running = null; });
+}
+
 setInterval(() => {
   if (!polls.running && Date.now() >= nextPollAt().getTime()) runPoll().catch((e) => log('poll failed:', e.message));
   runWakes();
+  runSessionCheck();
 }, 15_000);
 
 function shutdown() {

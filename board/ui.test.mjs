@@ -399,7 +399,7 @@ test("a thread's Done shows on every card not in Done, and a work card's reads C
   assert.equal(done(undefined), '');
 });
 
-test("a card awaiting the owner's go shows Build beside Action needed and first in its open action row, which confirms first and reads Starting…, disabled, while it is sent or waits on the session", () => {
+test("a card awaiting the owner's go shows Build where Action needed goes and first in its open action row, which confirms first and reads Starting…, disabled, while it is sent or waits on the session", () => {
   const build = (it, sending) => { const html = ui.buildButton(it, sending); return html && [text(html), /disabled/.test(html), /data-confirm="card-build"/.test(html), /data-key="w\/A1"/.test(html), /class="build"/.test(html)]; };
   const waiting = { key: 'w/A1', action: { kind: 'build', url: '#item=w%2FA1', label: 'Build' }, starting: false };
   assert.deepEqual(build(waiting), ['Build', false, true, true, true]);
@@ -408,9 +408,9 @@ test("a card awaiting the owner's go shows Build beside Action needed and first 
   assert.equal(build({ key: 'w/A1', action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' }, starting: false }), '');
   assert.equal(build(undefined), '');
   const card = { ...workCard, pr: null, reviewers: [], next: 'Build', ...waiting };
-  assert.deepEqual(lines(ui.workLines(card)), ['PROD-1 Five', 'Next: Build', 'Action needed Build']);
-  assert.match(ui.workLines(card), /tone-notice"[^>]*>Action needed<\/a><button class="build"/);
-  assert.deepEqual(lines(ui.workLines(card, { sendingBuild: true })), ['PROD-1 Five', 'Next: Build', 'Action needed Starting…']);
+  assert.deepEqual(lines(ui.workLines(card)), ['PROD-1 Five', 'Next: Build', 'Build']);
+  assert.doesNotMatch(ui.workLines(card), /Action needed/);
+  assert.deepEqual(lines(ui.workLines(card, { sendingBuild: true })), ['PROD-1 Five', 'Next: Build', 'Starting…']);
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.match(css, /button\.build \{[^}]*background: var\(--color-notice\)/);
 

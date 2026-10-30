@@ -482,7 +482,7 @@ test('checked sends the queued pushes at the end of a tick, each as its own noti
   assert.deepEqual(read(at('web-ts', 'push', 'queue.json')).items, []);
 }));
 
-test('item set refuses to start a blocked item, and done or merged names the items it unblocked', () => {
+test('item set refuses to start a blocked item, and done or merged names the items it unblocked and says so in their threads', () => {
   write(at('waves', 'd', 'wave.json'), { items: [
     { id: 'A1', title: 'One', status: 'building' },
     { id: 'A2', title: 'Two', status: 'waiting', deps: ['A1'] },
@@ -497,6 +497,8 @@ test('item set refuses to start a blocked item, and done or merged names the ite
   const done = board('item', 'set', 'd/A1', '--status', 'done', '--site', 'orch');
   assert.equal(done.code, 0);
   assert.deepEqual(done.out.split('\n').filter((l) => l.startsWith('unblocked')), ['unblocked: d/A2']);
+  assert.deepEqual(lines(site('orch', 'data', 'threads', 'd__A2.jsonl')).map(({ ts, ...m }) => m), [{ who: 'claude', text: 'Unblocked: A1 is done.' }]);
+  assert.equal(fs.existsSync(site('orch', 'data', 'threads', 'd__A3.jsonl')), false);
   assert.equal(board('item', 'set', 'd/A2', '--status', 'building', '--site', 'orch').code, 0);
   const merged = board('item', 'set', 'd/A2', '--status', 'merged', '--site', 'orch');
   assert.deepEqual(merged.out.split('\n').filter((l) => l.startsWith('unblocked')), ['unblocked: d/A3']);

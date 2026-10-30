@@ -4,7 +4,7 @@
 //   web-ts join <route> --session <id> [--label <name>] [--title <t>] [--description <d>]
 //               [--dir <path>] [--cmd '<json array>'] [--port <n>] [--watch <file,file>]
 //               [--filter <regex>] [--template board [--items <waves|file>]] [--force]
-//               [--icon <key>] [--color <css hex>]
+//               [--icon <key>] [--color <css hex>] [--repo <dir>] [--model <m>]
 //               --template board runs the shared board (../board/server.mjs) from the site dir,
 //               writing its board.json; --items is "waves" (default) or a wave.json-format file.
 //               It then runs handshake, unless this session already answered the board's hello, and
@@ -13,6 +13,19 @@
 //               --icon names a line icon from ../hub/icons.mjs and --color tints it in the
 //               sidebar; without an icon the hub picks one from the route and title, else the
 //               title's first letter, on a color picked from the route
+//               --repo is the folder the session runs in, which `resume` needs: by default the session's own
+//               cwd while it runs (../hub/live.mjs), else the cwd of this join. --model is the session's model,
+//               kept for start and resume. The owner entry records both (../hub/sessions.mjs)
+//   web-ts start <route> [--repo <dir>] [--model <m>] [--prompt <text>]
+//               starts a background session (`claude --bg`, auto mode, worktree isolation off) in --repo, else
+//               the route's recorded folder, else the cwd, named after the board, whose first prompt is
+//               `/join-web-ts <route>` plus --prompt. Records it as the route's owner, or in `starting` until a
+//               join takes it up when the route has no site yet. Prints {route, session, confirmed, repo, argv, output}
+//   web-ts resume <route>
+//               `claude --resume <id> --bg` for the route's recorded session in its folder, prompting it to rejoin
+//               and relaunch its watcher. Exit 1 when no session or folder is recorded
+//   web-ts sessions [--json]
+//               one line per board: route, session id, live (background or terminal) or not, folder
 //   web-ts handshake <route>
 //               tests a board's hub links (../hub/boards.mjs handshake): appends a `hello` event, which the
 //               owning session answers with `board.mjs hello-ack <eventId>`, and sends the test push
@@ -44,7 +57,8 @@
 //   web-ts poll-now [--keep-queue]
 //               asks the hub for one poll now (GitHub check, github-change events,
 //               checked.json, then the queue unless --keep-queue) and prints its result
-// Exit codes: 0 ok, 1 error, 2 bad usage, 3 route owned by another session (join/leave).
+// Exit codes: 0 ok, 1 error, 2 bad usage, 3 route owned by another session (join/leave), or its recorded session is
+// live (start/resume).
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -52,6 +66,7 @@ import net from 'node:net';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ICON_KEYS } from '../hub/icons.mjs';
+import { liveSessions } from '../hub/live.mjs';
 
 const SKILL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOME = path.join(os.homedir(), '.claude', 'web-ts');
@@ -97,6 +112,12 @@ function readManifest() {
   catch (e) { if (e.code === 'ENOENT') return { version: 1, sites: {} }; fail('manifest unreadable: ' + e.message); }
 }
 const readJSON = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
+const sessionsModule = () => import(path.join(SKILL, 'hub', 'sessions.mjs'));
+// ../hub/sessions.mjs refusals as exits: a live session 3, nothing recorded or claude failing 1.
+async function sessionCall(fn) {
+  const { SessionError } = await sessionsModule();
+  try { return await fn(); } catch (e) { if (e instanceof SessionError) fail(e.message, e.reason === 'live' ? 3 : 1); throw e; }
+}
 // The board's hello and test push (../hub/boards.mjs handshake). → {route, hello, push}
 async function runHandshake(route) {
   const { handshake } = await import(path.join(SKILL, 'hub', 'boards.mjs'));
@@ -251,8 +272,16 @@ const commands = {
       applyLook(site);
       site.title ||= route;
       const previous = existing?.owner && existing.owner.session !== args.session ? existing.owner : null;
-      if (!existing?.owner || existing.owner.session !== args.session) site.owner = { session: args.session, label: args.label || '', since: now };
-      else if (args.label) site.owner = { ...site.owner, label: args.label };
+      const started = m.starting?.[route]?.session === args.session ? m.starting[route] : null;
+      const same = existing?.owner?.session === args.session ? existing.owner : null;
+      site.owner = {
+        ...(same || { session: args.session, label: started?.label || '', since: now }),
+        ...(args.label ? { label: args.label } : {}),
+        repo: args.repo ? path.resolve(args.repo) : liveSessions().get(args.session)?.cwd || process.cwd(),
+      };
+      const model = args.model || same?.model || started?.model;
+      if (model) site.owner.model = model;
+      if (m.starting?.[route]) { delete m.starting[route]; if (!Object.keys(m.starting).length) delete m.starting; }
       site.updated = now;
       m.sites[route] = site;
       writeManifest(m);
@@ -299,6 +328,44 @@ const commands = {
       writeManifest(m);
       out({ left: route, filesKept: s.dir });
     });
+  },
+
+  async start() {
+    const route = args._[0];
+    if (!route || !ROUTE_RE.test(route)) fail('start needs a route: lowercase letters, digits and dashes', 2);
+    const { startSession } = await sessionsModule();
+    const r = await sessionCall(() => startSession(route, { manifest: readManifest(), repo: args.repo, model: args.model, prompt: args.prompt }));
+    await withLock(async () => {
+      const m = readManifest();
+      const owner = { session: r.session, label: r.name, since: new Date().toISOString(), repo: r.repo, ...(r.model ? { model: r.model } : {}) };
+      if (m.sites[route]) { m.sites[route].owner = owner; m.sites[route].updated = owner.since; }
+      else m.starting = { ...m.starting, [route]: owner };
+      writeManifest(m);
+    });
+    out({ route: r.route, session: r.session, confirmed: r.confirmed, repo: r.repo, argv: r.argv, output: r.output });
+  },
+
+  async resume() {
+    const route = args._[0];
+    if (!route) fail('resume needs a route', 2);
+    const { resumeSession } = await sessionsModule();
+    out(await sessionCall(() => resumeSession(route, { manifest: readManifest() })));
+  },
+
+  async sessions() {
+    const { sessionOf } = await sessionsModule();
+    const { listBoards } = await import(path.join(SKILL, 'hub', 'boards.mjs'));
+    const m = readManifest();
+    const live = liveSessions();
+    const routes = [...listBoards(m).map((b) => b.route), ...Object.keys(m.starting || {}).filter((r) => !m.sites[r])];
+    const rows = routes.map((route) => {
+      const rec = sessionOf(m, route);
+      const l = rec && live.get(rec.session);
+      return { route, session: rec?.session || null, live: l ? (l.kind === 'bg' ? 'background' : 'terminal') : null, repo: rec?.repo || null, starting: !m.sites[route] };
+    });
+    if (args.json) return out(rows);
+    if (!rows.length) return out('no boards');
+    for (const r of rows) out(`/${r.route}  ${r.session || 'no session'}  ${r.live ? `live (${r.live})` : 'not live'}  ${r.repo || 'no folder'}${r.starting ? '  (starting: not joined yet)' : ''}`);
   },
 
   async set() {

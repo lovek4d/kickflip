@@ -400,6 +400,13 @@ test("a card awaiting the owner's go waits on Build in In Review after its open 
   assert.deepEqual([held.lane, held.action], ['todo', null]);
   assert.equal(card({ item: { await_build: undefined } }).items[0].action, null);
   assert.equal(card({ item: { status: 'done' } }).items[0].action, null);
+  const withDep = (status) => buildBoard({
+    fromWaves: false, events: [], threads: {}, owner: {}, prs: {},
+    waves: [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One', status: 'planned', await_build: true, deps: ['A2'] }, { id: 'A2', title: 'Two', status }] } }],
+  }).items.find((i) => i.id === 'A1');
+  const blocked = withDep('building');
+  assert.deepEqual([blocked.action, blocked.blockedBy.map((b) => b.ref)], [null, ['A2']]);
+  assert.equal(withDep('done').action.kind, 'build');
 
   const tapped = [{ id: 'b1', ts: '2026-10-29T10:00:00Z', kind: 'card-build', data: { key: 'w/A1' } }];
   const starting = card({ events: tapped, item: { status_at: '2026-10-29T09:00:00Z' }, threads: { 'w/A1': [{ ts: '2026-10-29T10:01:00Z', who: 'claude', kind: 'status', text: 'Starting' }] } }).items[0];

@@ -133,7 +133,7 @@ The owning session's understanding of a work item so far: what was asked, what i
 _Avoid_: full plan, plan, spec
 
 **Build**:
-The orange button, beside Action needed and first in the open card's action row, on a card the session marked as waiting on the owner's go (`item set --await-build`). It confirms, sends `card-build`, and reads "Starting…" until the card's status changes or Claude writes in its thread. A follow-up's Build looks the same ([0053](docs/adr/0053-notes-replace-the-full-plan-and-build-gives-the-go.md)).
+The orange button, in Action needed's place on the card and first in the open card's action row, on a card the session marked as waiting on the owner's go (`item set --await-build`) and that nothing blocks. It confirms, sends `card-build`, and reads "Starting…" until the card's status changes or Claude writes in its thread. A follow-up's Build looks the same ([0053](docs/adr/0053-notes-replace-the-full-plan-and-build-gives-the-go.md)).
 _Avoid_: start, go button
 
 **Held**:

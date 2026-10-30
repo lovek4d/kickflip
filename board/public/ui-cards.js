@@ -58,8 +58,8 @@
     const merging = sending || it.merging;
     return `<button class="primary" data-confirm="merge" data-key="${esc(it.key)}"${merging ? ' disabled' : ''}>${merging ? 'Merging…' : 'Merge'}</button>`;
   }
-  // The card's Build, while the session waits on the owner's go: beside Action needed on the card and first in the open
-  // card's action row. It confirms, then sends card-build, and reads "Starting…" while it is sent or waits on the session
+  // The card's Build, while the session waits on the owner's go: in Action needed's place on the card and first in the
+  // open card's action row. It confirms, then sends card-build, and reads "Starting…" while it is sent or waits on the session
   // (docs/adr/0053-notes-replace-the-full-plan-and-build-gives-the-go.md). The follow-up Build shares its look.
   function buildButton(it, sending = false) {
     if (it?.action?.kind !== 'build' && !it?.starting) return '';
@@ -77,7 +77,7 @@
     const ids = it.kind === 'ask' ? askChip(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
     const blocked = (it.blockedBy || []).map((d) => badge('notice', `blocked by ${esc(d.ref)}`, { href: `#item=${encodeURIComponent(d.key)}` })).join('');
     const ready = !blocked && it.deps?.length && it.lane === 'todo' ? badge('ready', 'ready to start') : '';
-    const chips = `${actionChip(it)}${buildButton(it, sendingBuild)}${installChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('normal', 'bumped') : ''}${ready}`;
+    const chips = `${it.action?.kind === 'build' ? '' : actionChip(it)}${buildButton(it, sendingBuild)}${installChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('normal', 'bumped') : ''}${ready}`;
     const status = it.isNew ? `<div class="line3 sub">${askLine(it.ask)}</div>`
       : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Claude checking</div>'
       : it.builder ? `<div class="line3 sub agent">${esc(builderLine(it.builder))}</div>`

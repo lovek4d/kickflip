@@ -161,7 +161,7 @@ function actionOf(it, questionById, autoMerge) {
     if (PROTOTYPE_URL.test(q?.url || '')) return { kind: 'pick', url: `questions.html#${q.id}`, label: 'Prototypes ready: pick a take' };
     return { kind: 'questions', url: `questions.html#${it.questions.first}`, label: `Answer ${plural(it.questions.open, 'question')}` };
   }
-  if (it.awaitBuild && !it.starting) return { kind: 'build', url: thread, label: OWNER_BUILD_NEXT.ready };
+  if (it.awaitBuild && !it.starting && !it.blockedBy?.length) return { kind: 'build', url: thread, label: OWNER_BUILD_NEXT.ready };
   if (it.waitsOn === 'ready') return { kind: 'ready', url: it.pr.url, label: 'Tap Ready on GitHub' };
   if (it.kind === 'ask' && it.waitsOn === 'owner') return { kind: 'done', url: thread, label: it.next || 'Tap Done once it is settled' };
   if (it.waitsOn === 'merge' && it.manualSteps.length) return { kind: 'steps', url: thread, label: 'Run the manual steps, then merge' };

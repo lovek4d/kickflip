@@ -165,7 +165,7 @@ before(async () => {
   orchWatcher = sleeper();
   write(site('orch', 'data', 'watcher.json'), { pid: orchWatcher.pid, since: ago(1) });
 
-  hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: String(port), PATH: `${path.join(home, 'bin')}:${process.env.PATH}` } });
+  hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: String(port), WEB_TS_CLAUDE: '/usr/bin/false', PATH: `${path.join(home, 'bin')}:${process.env.PATH}` } });
   await new Promise((resolve, reject) => {
     let out = '';
     hub.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) resolve(); });
