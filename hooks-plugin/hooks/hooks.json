@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$HOME/.claude/skills/join-web-ts/board/bin/builder-stop-hook.mjs\"",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
