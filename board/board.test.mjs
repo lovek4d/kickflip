@@ -175,13 +175,24 @@ test("thread appends a line to an item's thread", () => {
     { who: 'claude', text: 'Merged.' },
   ]);
   assert.ok(!Number.isNaN(Date.parse(msgs[0].ts)));
+  const links = ['prototype-x.html', 'prototype-x.html?q=some-id', 'prototype-x.html#take-A', 'prototype-x.html?q=some-id#take-A', 'http://example.com/prototype'];
+  for (const link of links) {
+    const r = board('thread', 'w/A1', '--site', 'orch', '--text', 'Pick a take.', '--link', link);
+    assert.equal(r.code, 0, r.err);
+  }
+  assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).slice(msgs.length).map((m) => m.link), links);
 });
 
-test('thread refuses an unknown item, an empty text and an unknown channel', () => {
+test('thread refuses an unknown item, an empty text, an unknown channel and invalid links', () => {
   assert.equal(board('thread', 'w/Z9', '--site', 'orch', '--text', 'Hi').code, 1);
   assert.equal(board('thread', 'w/A1', '--site', 'orch', '--text', ' ').code, 1);
   assert.equal(board('thread', 'w/A1', '--site', 'orch', '--text', 'Hi', '--via', 'email').code, 1);
   assert.equal(board('thread', 'w/A1', '--text', 'Hi').code, 1);
+  for (const link of ['javascript:alert(1)', 'data:text/html,Hi', 'file:///tmp/prototype-x.html', 'ftp://example.com/page', '//example.com/page', '/orch/prototype-x.html', 'notes.html', 'prototype-x.html?q=some id']) {
+    const r = board('thread', 'w/A1', '--site', 'orch', '--text', 'Hi', '--link', link);
+    assert.equal(r.code, 1, link);
+    assert.match(r.err, /--link must be an http\(s\) URL or a site page/);
+  }
   assert.equal(fs.existsSync(site('orch', 'data', 'threads')), false);
 });
 

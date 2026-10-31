@@ -66,16 +66,17 @@
       : pick.kind === 'pick' || pick.kind === 'change'
         ? `<button type="button" class="ps-pick" data-ps="pick"${busy ? ' disabled' : ''}>${busy ? 'Sending…' : pick.kind === 'pick' ? 'Pick this' : 'Change pick'}</button>`
         : '';
-    return `<button type="button" data-ps="prev" aria-label="Previous take">‹</button><span class="ps-name">${esc(name)}</span><button type="button" data-ps="next" aria-label="Next take">›</button>${control}`;
+    return `<button type="button" data-ps="prev" aria-label="Previous take">‹</button><span class="ps-name" title="${esc(name)}">${esc(name)}</span><button type="button" data-ps="next" aria-label="Next take">›</button>${control}`;
   }
 
   const CSS = `
-.ps-switch { position:fixed; left:8px; right:8px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:30;
+.ps-switch { position:fixed; left:16px; right:16px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:30;
   display:flex; flex-direction:column; align-items:center; gap:6px; pointer-events:none; }
 .ps-switch > * { pointer-events:auto; max-width:100%; min-width:0; box-sizing:border-box; }
 .ps-switch .pill, .ps-pill { display:flex; align-items:center; gap:2px; background:#000d; border:1px solid #fff3; border-radius:999px; padding:4px;
   -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); font:600 13px -apple-system, system-ui, sans-serif; }
 .ps-switch .pill button, .ps-pill button { color:#fff; background:transparent; border:0; border-radius:999px; padding:7px 11px; font:inherit; white-space:nowrap; cursor:pointer; }
+.ps-pill button { flex-shrink:0; min-width:44px; min-height:44px; }
 .ps-switch .pill button.on { background:#fff; color:#000; }
 .ps-name { flex:0 1 auto; padding:7px 6px; color:#fff; white-space:nowrap; min-width:0; text-align:center; overflow:hidden; text-overflow:ellipsis; }
 .ps-pill .ps-pick { background:#fff; color:#000; margin-left:2px; }

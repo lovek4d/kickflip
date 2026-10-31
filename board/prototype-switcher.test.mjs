@@ -54,6 +54,17 @@ test("the pill shows the take's name and the pick control for its state", () => 
   assert.match(pill(sw.pickState(answered('A'), 'A')), /<span class="ps-picked">Picked<\/span>/);
   assert.doesNotMatch(pill(sw.pickState(answered('A'), 'A')), /data-ps="pick"/);
   assert.match(pill(sw.pickState(question, 'A'), true), /data-ps="pick" disabled>Sending…/);
+  const name = 'A. A long take name with "quotes" & <details> '.repeat(8);
+  const html = sw.pillHtml({ name });
+  const escaped = name.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  assert.ok(html.includes(`<span class="ps-name" title="${escaped}">${escaped}</span>`));
+  assert.match(html, /data-ps="prev" aria-label="Previous take"/);
+  assert.match(html, /data-ps="next" aria-label="Next take"/);
+  const page = prototypePage('https://mac.ts.net/orch/prototype-snooze.html', { owner: [] });
+  assert.match(page.styles, /\.ps-switch\s*\{[^}]*left:16px;[^}]*right:16px;/);
+  assert.match(page.styles, /\.ps-switch > \*\s*\{[^}]*max-width:100%;[^}]*box-sizing:border-box;/);
+  assert.match(page.styles, /\.ps-name\s*\{[^}]*min-width:0;[^}]*overflow:hidden;[^}]*text-overflow:ellipsis;/);
+  assert.match(page.styles, /\.ps-pill button\s*\{[^}]*flex-shrink:0;[^}]*min-width:44px;[^}]*min-height:44px;/);
 });
 
 test("a pick answers with the label questions.html sends for that option", () => {
@@ -73,6 +84,7 @@ function prototypePage(url, { framed = false, owner, next = owner[1] || null }) 
   const noticesAtMove = [];
   const decisions = [];
   const loaded = [];
+  let styles = '';
   const storage = () => {
     const data = new Map();
     return { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, v), removeItem: (k) => data.delete(k) };
@@ -86,7 +98,7 @@ function prototypePage(url, { framed = false, owner, next = owner[1] || null }) 
     history: { replaceState() {} },
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     sessionStorage: storage(),
-    document: { getElementById: () => null, head: { insertAdjacentHTML() {} }, body: { append() {} }, documentElement: { classList: { add() {} } },
+    document: { getElementById: () => null, head: { insertAdjacentHTML: (_, html) => { styles += html; } }, body: { append() {} }, documentElement: { classList: { add() {} } },
       createElement: el, querySelector: () => null, addEventListener: (type, fn) => listeners.push({ target: 'document', type, fn }) },
     fetch: async () => ({ json: async () => ({ owner, ownerTopics: topics }) }),
     ClaudeSite: { url: (p) => new URL(p, 'https://mac.ts.net/orch/').href, send: async (kind, data) => { sent.push([kind, data]); return {}; } },
@@ -120,7 +132,7 @@ function prototypePage(url, { framed = false, owner, next = owner[1] || null }) 
     for (const l of listeners.filter((x) => x.target === pill && x.type === 'click')) l.fn({ target: { closest: () => ({ dataset: { ps: 'pick' } }) } });
     await settle();
   };
-  return { pick, sent, moves, noticesAtMove, decisions, loaded, notice: () => shared.BoardUI.sentNotice.take('orch'), localNotice: () => win.sessionStorage.getItem('sent:orch') };
+  return { pick, sent, moves, noticesAtMove, decisions, loaded, styles, notice: () => shared.BoardUI.sentNotice.take('orch'), localNotice: () => win.sessionStorage.getItem('sent:orch') };
 }
 
 test('a pick on a prototype page sends the answer, then moves on to the next open question in its place, or with none left to the board, through the app shell around a framed page', async () => {

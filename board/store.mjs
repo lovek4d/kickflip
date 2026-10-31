@@ -60,9 +60,8 @@ const ownerFile = (site) => path.join(site, 'data', 'owner.json');
 const needSite = (site) => site || fail('this command needs --site <route>');
 const text = (v, name) => (typeof v === 'string' && v.trim() ? v.trim() : fail(`${name} must be non-empty text`));
 const optional = (v, check) => (v === undefined ? undefined : check(v));
-const url = (v, name) => (typeof v === 'string' && /^https?:\/\/\S+$/.test(v) ? v : fail(`${name} must be an http(s) URL`));
 const PROTOTYPE_PAGE = /^prototype-[\w-]+\.html(?:[?#]\S*)?$/;
-const questionUrl = (v, name) => (typeof v === 'string' && (PROTOTYPE_PAGE.test(v) || /^https?:\/\/\S+$/.test(v)) ? v : fail(`${name} must be an http(s) URL or a site page such as prototype-<topic>.html?q=<id>`));
+const pageUrl = (v, name) => (typeof v === 'string' && (PROTOTYPE_PAGE.test(v) || /^https?:\/\/\S+$/.test(v)) ? v : fail(`${name} must be an http(s) URL or a site page such as prototype-<topic>.html?q=<id>`));
 const bool = (v, name) => (typeof v === 'boolean' ? v : fail(`${name} must be true or false`));
 const domId = (v, name) => (typeof v === 'string' && /^[\w.-]+$/.test(v) ? v : fail(`${name} must use only letters, digits, "_", "." and "-"`));
 const onlyKeys = (o, keys, name) => {
@@ -265,7 +264,7 @@ export async function appendThread(site, key, { text: body, link, who = 'claude'
   }
   if (!/^[^\n]{1,40}$/.test(who.trim())) fail('--who takes claude, love or a reviewer\'s name');
   if (via !== undefined && !VIA.includes(via)) fail(`--via takes ${VIA.join(' or ')}`);
-  const line = { ts: new Date().toISOString(), who: who.trim(), text: text(body, '--text'), link: optional(link, (v) => url(v, '--link')), via };
+  const line = { ts: new Date().toISOString(), who: who.trim(), text: text(body, '--text'), link: optional(link, (v) => pageUrl(v, '--link')), via };
   const file = threadFile(site, key);
   await appendLine(file, line);
   return { file, lines: line.who === 'claude' && !via ? await freshenPush(site, key, line.text) : [] };
@@ -659,7 +658,7 @@ export async function addQuestions(site, input) {
     else if (!topics.has(q.topic)) fail(`topic "${q.topic}" is not declared; add it with: topic add ${q.topic} --title <t>`);
     text(q.question, `${name}.question`);
     for (const k of ['source', 'context']) optional(q[k], (v) => text(v, `${name}.${k}`));
-    optional(q.url, (v) => questionUrl(v, `${name}.url`));
+    optional(q.url, (v) => pageUrl(v, `${name}.url`));
     optional(q.urgent, (v) => bool(v, `${name}.urgent`));
     checkOptions(q.options, name);
   }
