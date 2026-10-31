@@ -1,8 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import os from 'node:os';
+import { execFile, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { listBoards } from './boards.mjs';
+import { promisify } from 'node:util';
+import { DEFAULT_REPO, listBoards, readManifest } from './boards.mjs';
 import { installScriptError } from '../board/install-script.mjs';
 import { appendThread, recordedWorktree, startBuilder, stopBuilder } from '../board/store.mjs';
 
@@ -13,6 +15,42 @@ export class InstallError extends Error {
 const running = new Map();
 let stopping = false;
 const KEYCHAIN = /errSecInternalComponent|keychain[^\n]*\blocked\b|\blocked\b[^\n]*keychain/i;
+const execFileAsync = promisify(execFile);
+// Async because this runs in the hub process, where a sync git call stalls every site's requests.
+const git = async (dir, ...args) => (await execFileAsync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 3000 })).stdout.trim();
+
+async function installWorktree(board, key, manifest) {
+  const record = await recordedWorktree(board.dir, key);
+  const [slug, id] = key.split('/');
+  const wave = board.waves.find((w) => w.slug === slug)?.wave;
+  const candidate = record?.path || wave?.items.find((it) => it.id === id)?.worktree;
+  if (typeof candidate !== 'string' || !candidate || candidate.split(path.sep).includes('..')) return '';
+  let repo = record?.repo;
+  if (!repo) {
+    const dirs = [board.owner?.repo, board.dir, ...Object.values(manifest?.sites || {}).map((s) => s.owner?.repo)];
+    for (const dir of new Set(dirs.filter((d) => typeof d === 'string' && path.isAbsolute(d)))) {
+      try {
+        const remote = /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/.exec(await git(dir, 'remote', 'get-url', 'origin'));
+        if (remote?.[1].toLowerCase() === (wave?.repo || DEFAULT_REPO).toLowerCase()) {
+          repo = await git(dir, 'rev-parse', '--show-toplevel');
+          break;
+        }
+      } catch {}
+    }
+  }
+  if (!record?.path && !repo) return '';
+  if (record?.path && !path.isAbsolute(candidate)) return '';
+  try {
+    const roots = [path.join(fs.realpathSync(os.homedir()), '.claude', 'web-ts', 'worktrees')];
+    if (typeof repo === 'string' && path.isAbsolute(repo)) {
+      try { roots.push(path.join(fs.realpathSync(repo), '.claude', 'worktrees')); } catch {}
+    }
+    const absolute = path.resolve(repo || '/', candidate);
+    const resolved = fs.realpathSync(absolute);
+    return roots.some((root) => absolute.startsWith(root + path.sep) && resolved.startsWith(root + path.sep))
+      && fs.statSync(resolved).isDirectory() ? resolved : '';
+  } catch { return ''; }
+}
 
 async function report(site, key, logFile, code, signal, error) {
   await stopBuilder(site, key, { agent: 'install' });
@@ -30,7 +68,7 @@ async function report(site, key, logFile, code, signal, error) {
     keychain && 'The login keychain must be unlocked on the Mac.', ...tail].filter((line) => line !== false && line != null).join('\n') });
 }
 
-export async function startInstall(input, { manifest, log = console.log } = {}) {
+export async function startInstall(input, { manifest = readManifest(), log = console.log } = {}) {
   if (stopping) throw new InstallError('The hub is stopping. Try again after it restarts.', 503);
   if (!input || Array.isArray(input) || typeof input !== 'object' || Object.keys(input).some((k) => !['route', 'key'].includes(k))
     || typeof input.route !== 'string' || typeof input.key !== 'string') throw new InstallError('Send only the board route and card key.');
@@ -47,7 +85,7 @@ export async function startInstall(input, { manifest, log = console.log } = {}) 
   let fd;
   let started = false;
   try {
-    const worktree = (await recordedWorktree(board.dir, key))?.path || '';
+    const worktree = await installWorktree(board, key, manifest);
     const logFile = path.join(board.dir, 'data', 'installs', key.split('/')[1] + '.log');
     fs.mkdirSync(path.dirname(logFile), { recursive: true });
     fd = fs.openSync(logFile, 'w', 0o600);

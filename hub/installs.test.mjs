@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'installs-')));
@@ -34,6 +34,14 @@ function setScript(body) {
 }
 function config(extra = {}) {
   write(path.join(site, 'board.json'), { title: 'Test', items: 'data/wave.json', slug: 'w', install_script: script, ...extra });
+}
+function checkout() {
+  const repo = path.join(site, 'repo');
+  fs.mkdirSync(path.join(repo, 'apps', 'ios'), { recursive: true });
+  execFileSync('git', ['init', '--quiet', repo]);
+  execFileSync('git', ['-C', repo, 'remote', 'add', 'origin', 'git@github.com:example/device.git']);
+  manifest.sites.orch.owner = { repo: path.join(repo, 'apps', 'ios') };
+  return repo;
 }
 const start = (key = 'w/A1', input = {}) => startInstall({ route: 'orch', key, ...input }, { manifest, log() {} });
 
@@ -79,7 +87,11 @@ test('installs refuse an unset or invalid script, an unknown card and caller-sel
 });
 
 test('the hub starts one install per card, passes the newest worktree and cwd literally, and closes records with both output streams', async () => {
-  const worktree = path.join(home, 'worktree with spaces;literal');
+  const worktree = web('worktrees', 'worktree with spaces;literal');
+  fs.mkdirSync(worktree, { recursive: true });
+  const repo = checkout();
+  fs.mkdirSync(path.join(repo, '.claude', 'worktrees', 'item'), { recursive: true });
+  write(path.join(source, 'wave.json'), { repo: 'example/device', items: [{ id: 'A1', worktree: '.claude/worktrees/item' }, { id: 'A2' }] });
   write(path.join(source, 'agents', 'A1.json'), { started: '2026-10-29T00:00:00Z', worktree: { path: '/older' } });
   write(path.join(source, 'agents', 'A1@build.json'), { started: '2026-10-30T00:00:00Z', done: '2026-10-30T01:00:00Z', worktree: { path: worktree } });
   assert.equal(listBoards(manifest)[0].install_script, script);
@@ -115,6 +127,84 @@ const timer = setInterval(() => { if (fs.existsSync(${JSON.stringify(gate)})) { 
   assert.equal(thread()[1].text, 'Install build finished\nreplacement');
 });
 
+test('an item worktree resolves against its matching repo checkout when builder records have no worktree', async () => {
+  const repo = checkout();
+  const worktree = path.join(repo, '.claude', 'worktrees', 'device');
+  fs.mkdirSync(worktree, { recursive: true });
+  write(path.join(source, 'wave.json'), { repo: 'example/device', items: [{ id: 'A1', worktree: '.claude/worktrees/device' }] });
+  write(path.join(source, 'agents', 'A1.json'), { started: '2026-10-30T00:00:00Z', worktree: null });
+  setScript('console.log(JSON.stringify(process.argv.slice(2)));');
+  await start();
+  await until(() => thread().length === 1);
+  assert.equal(thread()[0].text, `Install build finished\n${JSON.stringify(['w/A1', worktree])}`);
+});
+
+test('a recorded repo worktree wins over the item and an internal symlink passes its real path', async () => {
+  const repo = checkout();
+  const worktree = path.join(repo, '.claude', 'worktrees', 'record');
+  const alias = path.join(repo, '.claude', 'worktrees', 'alias');
+  fs.mkdirSync(worktree, { recursive: true });
+  fs.symlinkSync(worktree, alias);
+  write(path.join(source, 'wave.json'), { repo: 'example/device', items: [{ id: 'A1', worktree: '.claude/worktrees/item' }] });
+  write(path.join(source, 'agents', 'A1.json'), { worktree: { repo, path: alias } });
+  setScript('console.log(JSON.stringify(process.argv.slice(2)));');
+  await start();
+  await until(() => thread().length === 1);
+  assert.equal(thread()[0].text, `Install build finished\n${JSON.stringify(['w/A1', worktree])}`);
+});
+
+test('worktree arguments reject traversal, outside paths, symlink escapes, files and missing directories from either source', async () => {
+  const repo = checkout();
+  const trees = path.join(repo, '.claude', 'worktrees');
+  const outside = path.join(site, 'outside');
+  fs.mkdirSync(trees, { recursive: true });
+  fs.mkdirSync(outside);
+  fs.mkdirSync(path.join(site, 'x'));
+  fs.mkdirSync(path.join(repo, '.claude', 'worktrees-other', 'device'), { recursive: true });
+  fs.mkdirSync(web('worktrees'), { recursive: true });
+  fs.symlinkSync(outside, path.join(trees, 'escape'));
+  fs.symlinkSync(outside, web('worktrees', 'escape'));
+  write(path.join(trees, 'file'), 'file');
+  setScript('console.log(JSON.stringify(process.argv.slice(2)));');
+  const attempts = ['../x', outside, path.join(repo, '.claude', 'worktrees-other', 'device'),
+    '.claude/worktrees/escape', '.claude/worktrees/file', '.claude/worktrees/missing',
+    '.claude/worktrees/../worktrees/escape', web('worktrees', 'escape')];
+  for (const recorded of [false, true]) {
+    for (const attempt of attempts) {
+      const previous = thread().length;
+      write(path.join(source, 'wave.json'), { repo: 'example/device', items: [{ id: 'A1', worktree: recorded ? '.claude/worktrees/valid' : attempt }] });
+      fs.mkdirSync(path.join(trees, 'valid'), { recursive: true });
+      if (recorded) write(path.join(source, 'agents', 'A1.json'), { worktree: { repo, path: path.isAbsolute(attempt) ? attempt : repo + '/' + attempt } });
+      await start();
+      await until(() => thread().length === previous + 1);
+      assert.equal(thread().at(-1).text, 'Install build finished\n["w/A1",""]', `${recorded ? 'record' : 'item'}: ${attempt}`);
+    }
+  }
+});
+
+test('an item worktree is empty when no checkout with a matching origin is known', async () => {
+  const repo = checkout();
+  fs.mkdirSync(path.join(repo, '.claude', 'worktrees', 'device'), { recursive: true });
+  write(path.join(source, 'wave.json'), { repo: 'example/unknown', items: [{ id: 'A1', worktree: '.claude/worktrees/device' }] });
+  setScript('console.log(JSON.stringify(process.argv.slice(2)));');
+  await start();
+  await until(() => thread().length === 1);
+  assert.equal(thread()[0].text, 'Install build finished\n["w/A1",""]');
+});
+
+test('a symlink replacing the repo worktrees directory cannot authorize an outside directory', async () => {
+  const repo = checkout();
+  const outside = path.join(site, 'outside');
+  fs.mkdirSync(path.join(outside, 'device'), { recursive: true });
+  fs.mkdirSync(path.join(repo, '.claude'));
+  fs.symlinkSync(outside, path.join(repo, '.claude', 'worktrees'));
+  write(path.join(source, 'wave.json'), { repo: 'example/device', items: [{ id: 'A1', worktree: '.claude/worktrees/device' }] });
+  setScript('console.log(JSON.stringify(process.argv.slice(2)));');
+  await start();
+  await until(() => thread().length === 1);
+  assert.equal(thread()[0].text, 'Install build finished\n["w/A1",""]');
+});
+
 test('a failed install closes its builder and reports exit, the last five lines, and a keychain hint from anywhere in the log', async () => {
   for (const hint of ['errSecInternalComponent', 'The login keychain is locked']) {
     const previous = thread().length;
@@ -146,14 +236,17 @@ test('a card with no recorded worktree gets an empty argument, and a spawn failu
 });
 
 test('a waves board uses the same registry and records as a file board', async () => {
+  const repo = checkout();
+  const worktree = path.join(repo, '.claude', 'worktrees', 'wave');
+  fs.mkdirSync(worktree, { recursive: true });
   source = path.join(home, '.claude', 'waves', 'w');
-  write(path.join(source, 'wave.json'), { items: [{ id: 'A1' }] });
+  write(path.join(source, 'wave.json'), { repo: 'example/device', items: [{ id: 'A1', worktree: '.claude/worktrees/wave' }] });
   config({ items: 'waves' });
-  setScript('console.log("wave install");');
+  setScript('console.log(JSON.stringify(process.argv.slice(2)));');
   await start();
   await until(() => thread().length === 1);
   assert.ok(read(agent()).done);
-  assert.equal(thread()[0].text, 'Install build finished\nwave install');
+  assert.equal(thread()[0].text, `Install build finished\n${JSON.stringify(['w/A1', worktree])}`);
 });
 
 test('the hub install route starts asynchronously and refuses forwarded, browser and caller-command requests', async () => {
