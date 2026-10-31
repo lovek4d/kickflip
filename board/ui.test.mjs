@@ -715,6 +715,14 @@ test('a thread message says Working on it while Claude works on it, and only a p
   assert.deepEqual([...html.matchAll(/data-withdraw="(\w+)"/g)].map((m) => m[1]), ['e1']);
 });
 
+test('a stalled builder adds a fault-tone button in the chip row and keeps its builder line', () => {
+  const builder = { progress: 'Running tests', at: null, stalled: true };
+  const html = ui.workLines({ ...workCard, builder });
+  assert.match(html, /<div class="line2 meta"><button class="chip tone-danger"[^>]*type="button"[^>]*data-confirm="nudge"[^>]*data-key="w\/B5"[^>]*>Stalled<\/button>/);
+  assert.match(html, /<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"><\/span>Running tests<\/div>/);
+  for (const next of [{ ...builder, stalled: false }, null]) assert.doesNotMatch(ui.workLines({ ...workCard, builder: next }), /Stalled|data-confirm="nudge"/);
+});
+
 test("a builder line shows the progress and its age, not who is building", () => {
   const at = new Date(Date.now() - 4 * 60000).toISOString();
   assert.equal(ui.builderLine({ label: 'Opus builder', progress: 'Running tests', at }), 'Running tests · 4m ago');

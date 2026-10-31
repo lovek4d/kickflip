@@ -57,6 +57,8 @@
 //   GET  /plan.html?…            redirects to notes.html with the same query, since pushes and threads link it
 //   POST /_claude/events         {kind, ...data} → one line in data/events.jsonl; wakes Claude.
 //                                ask, item-message and owner-answer may carry files: [upload]
+//                                builder-nudge {key} asks the session to check a builder. The server also appends
+//                                builder-stalled {key, silentSince} once per silent spell, tracked in data/builder-stalled.json
 //   POST /api/upload             the raw file as the body, its name URI-encoded in x-filename and its
 //                                type in content-type → data/uploads/<ms>-<safe name>, returning the
 //                                upload {name, url, path, type, size}: url is relative to the site
@@ -295,10 +297,7 @@ async function readAgents(dir) {
   return out;
 }
 
-// Reads every source buildBoard needs: wave files and their builder records,
-// PR state from gh, item threads, page events with Claude's replies, owner
-// questions and the slack-bridge state.
-async function snapshot() {
+async function itemSnapshot() {
   const cfg = await config();
   const fromWaves = cfg.items === 'waves';
   const sources = await itemSources(here);
@@ -308,14 +307,23 @@ async function snapshot() {
     return { slug: s.slug, wave, agents: await readAgents(path.join(s.dir, 'agents')) };
   }))).filter(Boolean);
 
+  const threadLines = {};
+  await Promise.all(waves.flatMap(({ slug, wave }) => wave.items.map(async (it) => {
+    threadLines[`${slug}/${it.id}`] = await readLines(threadFile(`${slug}/${it.id}`));
+  })));
+  return { fromWaves, autoMerge: settingsOf(cfg).auto_merge, waves, threads: threadLines };
+}
+
+// Reads every source buildBoard needs: wave files and their builder records,
+// PR state from gh, item threads, page events with Claude's replies, owner
+// questions and the slack-bridge state.
+async function snapshot() {
+  const items = await itemSnapshot();
+  const { waves, threads: threadLines } = items;
   const prs = {};
   await Promise.all(waves.flatMap(({ wave }) => wave.items.filter((it) => it.pr).map(async (it) => {
     const repo = wave.repo || 'acme/app';
     prs[`${repo}#${it.pr}`] = await prState(repo, it.pr);
-  })));
-  const threadLines = {};
-  await Promise.all(waves.flatMap(({ slug, wave }) => wave.items.map(async (it) => {
-    threadLines[`${slug}/${it.id}`] = await readLines(threadFile(`${slug}/${it.id}`));
   })));
   const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'item-message']);
   const working = await readWorking(here);
@@ -326,13 +334,45 @@ async function snapshot() {
   }));
 
   return {
-    fromWaves, autoMerge: settingsOf(cfg).auto_merge, waves, prs, threads: threadLines, events: pageEvents, working, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
+    ...items, prs, events: pageEvents, working, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
     checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
     watched: (await readJSON(path.join(wavesDir(), 'monitor.json'), { waves: [] })).waves || [],
     owner: await readJSON(path.join(data, 'owner.json'), { items: [] }),
     bridge: await readJSON(bridgeState, { items: {}, config: {} }),
     topicItems: await topicItems(),
   };
+}
+
+let checkingStalled = false;
+async function checkStalled() {
+  if (checkingStalled) return;
+  checkingStalled = true;
+  try {
+    const file = path.join(data, 'builder-stalled.json');
+    const previous = await readJSON(file, {});
+    const current = {};
+    let sent;
+    for (const { key, lane, builder } of buildBoard(await itemSnapshot()).items) {
+      if (lane === 'done' || !builder?.stalled) continue;
+      current[key] = builder.silentSince;
+      if (previous[key] !== builder.silentSince) {
+        // The event log covers a restart between appending an event and saving its marker.
+        sent ||= await readLines(events);
+        if (!sent.some((e) => e.kind === 'builder-stalled' && e.data?.key === key && e.data?.silentSince === builder.silentSince)) {
+          await appendEvent('builder-stalled', { key, silentSince: builder.silentSince });
+        }
+      }
+    }
+    if (JSON.stringify(current) !== JSON.stringify(previous)) {
+      await fs.mkdir(data, { recursive: true });
+      await fs.writeFile(file + '.tmp', JSON.stringify(current) + '\n');
+      await fs.rename(file + '.tmp', file);
+    }
+  } catch (err) {
+    console.error('Builder check failed:', err.message);
+  } finally {
+    checkingStalled = false;
+  }
 }
 
 // The setup checklist after a join's handshake (hub/boards.mjs handshake), or null: when the board never had one, or
@@ -462,6 +502,7 @@ function changed() {
   changeTimer = setTimeout(() => {
     changeTimer = null;
     broadcast(`event: change\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`);
+    checkStalled();
   }, Math.max(0, Math.min(CHANGE_QUIET, changeFirst + CHANGE_MAX - now)));
 }
 // A folder that doesn't exist yet, or whose watch fails, is retried; the first watch after a retry signals, since a
@@ -559,4 +600,6 @@ const server = http.createServer(async (req, res) => {
 });
 
 watchBoard();
+setInterval(checkStalled, 60000).unref();
+await checkStalled();
 server.listen(port, '127.0.0.1', () => console.log(`site on http://127.0.0.1:${port}/ (prefix ${prefix || 'none'})`));

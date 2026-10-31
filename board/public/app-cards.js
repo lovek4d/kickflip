@@ -51,6 +51,7 @@ BoardView.part((B) => {
     hold: (it, ref) => `Hold ${ref}? ${it.lane === 'todo' ? "It won't start" : 'Claude stops work on it'} until you resume it.`,
     resume: (it, ref) => `Resume ${ref}? It can start again once nothing blocks it.`,
     bump: (it, ref) => `Move ${ref} to the top of its lane?`,
+    nudge: () => 'Nudge Claude to check this builder?',
     grill: (it, ref) => `Ask Claude for questions about ${ref}?`,
     merge: (it, ref) => `Merge ${ref}? Claude squash-merges #${it.pr?.number} if it is still approved, green and clean.`,
     build: (it, ref) => `Build ${ref}? Claude replies with a short plan, then builds it as a draft.`,
@@ -173,6 +174,7 @@ BoardView.part((B) => {
     b.disabled = true;
     try {
       if (act === 'bump') { await B.site.send('card-bump', { key }); toast('Moved to the top', 2500); }
+      else if (act === 'nudge') { await B.site.send('builder-nudge', { key }); b.textContent = 'Sent'; toast('Nudge sent', 2500); }
       else { await B.site.send(act === 'grill' ? 'grill-more' : 'build-followup', { key }); B.loadThread(key, { force: true }); }
     } catch { toast('Could not send. Is the Mac awake?', 3000); }
     B.loadBoard();

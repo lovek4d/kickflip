@@ -35,13 +35,13 @@ test('a green draft waits on Ready in In Review until a builder works on it', ()
   assert.deepEqual([asked.lane, asked.waitsOn, asked.action.kind, asked.actionButton, asked.resolvedBy], ['review', 'ready', 'questions', 'openQuestions', 'openQuestions']);
   const record = { label: 'Opus builder', started: '2026-10-23T10:00:00Z', progress: 'Record line', progress_at: '2026-10-23T10:06:00Z' };
   const earlier = { ts: '2026-10-23T09:00:00Z', who: 'claude', kind: 'status', text: 'Previous run' };
-  const fresh = board({ agents: { A1: { main: record } }, threads: { 'w/A1': [earlier] } }).items.find((i) => i.key === 'w/A1');
-  assert.deepEqual(fresh.builder, { progress: null, at: '2026-10-23T10:00:00Z', kind: null });
+  const fresh = board({ now: Date.parse(record.started), agents: { A1: { main: record } }, threads: { 'w/A1': [earlier] } }).items.find((i) => i.key === 'w/A1');
+  assert.deepEqual(fresh.builder, { progress: null, at: record.started, kind: null, stalled: false, silentSince: record.started });
   const lines = [earlier, { ts: '2026-10-23T10:05:00Z', who: 'claude', kind: 'status', text: 'Running tests' }, { ts: '2026-10-23T10:07:00Z', who: 'claude', text: 'Halfway.' }];
-  const busy = board({ agents: { A1: { main: record } }, threads: { 'w/A1': lines } });
+  const busy = board({ now: Date.parse('2026-10-23T10:07:00Z'), agents: { A1: { main: record } }, threads: { 'w/A1': lines } });
   const item = busy.items.find((i) => i.key === 'w/A1');
   assert.deepEqual([item.lane, item.waitsOn, item.action], ['progress', 'builder', null]);
-  assert.deepEqual(item.builder, { progress: 'Running tests', at: '2026-10-23T10:05:00Z', kind: null });
+  assert.deepEqual(item.builder, { progress: 'Running tests', at: '2026-10-23T10:05:00Z', kind: null, stalled: false, silentSince: '2026-10-23T10:05:00Z' });
   const finished = board({ agents: { A1: { main: { label: 'Opus builder', started: '2026-10-23T10:00:00Z', progress: 'Running tests', progress_at: '2026-10-23T10:05:00Z', eta: '2026-10-23T11:00:00Z', done: '2026-10-23T10:30:00Z' } } } });
   const after = finished.items.find((i) => i.key === 'w/A1');
   assert.deepEqual([after.lane, after.waitsOn, after.builder, after.eta], ['review', 'ready', null, null]);
@@ -104,6 +104,26 @@ test('an install builder exposes its kind and keeps drafts and ready PRs In Prog
   }
   const other = card(greenDraft, { install: { ...record, done: '2026-10-30T10:10:00Z' }, main: { kind: 'opus', started: '2026-10-30T10:01:00Z' } });
   assert.equal(other.builder.kind, 'opus');
+});
+
+test('a builder stalls after 30 minutes without progress, clears on progress or done, and ignores ordinary thread lines', () => {
+  const started = '2026-10-30T10:00:00Z';
+  const record = { kind: 'codex', started };
+  const card = (minutes, lines = [], agent = record) => board({
+    now: Date.parse(started) + minutes * 60000,
+    agents: { A1: { main: agent } }, threads: { 'w/A1': lines },
+  }).items.find((i) => i.key === 'w/A1');
+  for (const minutes of [29, 30, 31]) {
+    const builder = card(minutes).builder;
+    assert.deepEqual([builder.stalled, builder.silentSince, builder.at], [minutes >= 30, started, started]);
+  }
+  const progress = { ts: '2026-10-30T10:20:00Z', kind: 'status', text: 'Running tests' };
+  assert.deepEqual([card(31, [progress]).builder.stalled, card(31, [progress]).builder.silentSince], [false, progress.ts]);
+  assert.equal(card(49, [progress]).builder.stalled, false);
+  assert.equal(card(51, [progress, { ts: '2026-10-30T10:50:00Z', who: 'claude', text: 'Checking.' }]).builder.stalled, true);
+  assert.equal(card(31, [{ ...progress, ts: '2026-10-30T09:59:00Z' }]).builder.silentSince, started);
+  assert.equal(card(31, [], { ...record, done: '2026-10-30T10:30:00Z' }).builder, null);
+  assert.equal(card(31, [], { kind: 'codex' }).builder, null);
 });
 
 test("a card lists each agent oldest first, its line is the newest status line since a running agent started, and it shows the latest ETA", () => {

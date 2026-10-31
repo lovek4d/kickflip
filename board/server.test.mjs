@@ -410,3 +410,13 @@ test('the watcher prints the hub rules, then the board rules, then the board set
     fs.rmSync(path.join(web, 'settings.json'), { force: true });
   }
 });
+
+test('a builder nudge is recorded even when the card is no longer stalled', async () => {
+  const response = await fetch(`${base}/_claude/events`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ kind: 'builder-nudge', key: 't/A1' }),
+  });
+  const { id } = await response.json();
+  const events = await (await fetch(`${base}/_claude/events?kind=builder-nudge`)).json();
+  assert.deepEqual(events.map((e) => [e.id, e.data]), [[id, { key: 't/A1' }]]);
+});

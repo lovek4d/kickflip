@@ -20,6 +20,7 @@ export const { BUTTON, ACTION_KIND, BUILDER_KIND } = enums.BoardUI;
 
 export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'build-followup', 'prototype-request'];
 export const ITEM_STATUSES = ['planned', 'waiting', 'building', 'fixing', 'checking', 'held', 'merged', 'done', 'dropped'];
+export const BUILDER_STALLED_AFTER = 30 * 60000;
 const LANE_ORDER = { review: 0, stale: 1, progress: 2, todo: 3, done: 4 };
 const DAY = 86400000;
 // Done cards older than this fold under one row (docs/adr/0012-lists-never-cut-silently.md).
@@ -270,13 +271,14 @@ function agentsOf(records = {}) {
   })).sort((a, b) => String(a.started || '').localeCompare(String(b.started || '')) || a.name.localeCompare(b.name));
 }
 // An install builder takes precedence so another running agent cannot hide the install's build state.
-function builderOf(agents, lines = []) {
-  const running = agents.filter((a) => !a.done);
+function builderOf(agents, lines = [], now) {
+  const running = agents.filter((a) => a.started && !a.done);
   const since = running.map((a) => String(a.started || '')).sort()[0];
   if (since === undefined) return null;
   const line = lines.filter((m) => m.kind === 'status' && String(m.ts) >= since).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop();
   const kind = running.some((a) => a.kind === BUILDER_KIND.install) ? BUILDER_KIND.install : running.at(-1).kind;
-  return { progress: line?.text || null, at: line?.ts || since || null, kind };
+  const silentSince = line?.ts || since;
+  return { progress: line?.text || null, at: silentSince, kind, silentSince, stalled: now - Date.parse(silentSince) >= BUILDER_STALLED_AFTER };
 }
 
 // Names the kind once, as "Opus builder" or "Codex benchmarks", never "Opus · Opus builder" (owner, question int42-agents-look).
@@ -413,7 +415,7 @@ export function buildBoard(snapshot) {
       items.push(workItem({
         slug, wave, it, order, repo,
         pr: it.pr ? prs[`${repo}#${it.pr}`] || null : null,
-        ...((agents) => ({ agents, builder: builderOf(agents, threads[key]), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(records[it.id])),
+        ...((agents) => ({ agents, builder: builderOf(agents, threads[key], now), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(records[it.id])),
         thread: lines,
         events: [...itemEvents.filter((e) => e.data.key === key || askKeys.has(e.data.key)), ...askIds.map((id) => asks.get(id))],
         working: msgs.some((m) => m.state === 'working'),

@@ -606,6 +606,30 @@ test("every bumpable card, closed or open, carries the bump icon at its top righ
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-bump', { key: 'w/T2' }]]);
 });
 
+test('the Stalled chip on closed and open cards confirms before sending a builder nudge and shows a sent notice', async () => {
+  for (const open of [[], ['w/S1']]) {
+    const item = workCard('S1', { lane: 'progress', builder: { stalled: true, progress: 'Running tests', at: null } });
+    const b = boardOnDom({ open, board: boardOf([item]), threads: {}, realDialogs: true });
+    const confirms = [];
+    let accept = false;
+    b.page.win.confirm = (message) => { confirms.push(message); return accept; };
+    await b.settle();
+    const chip = () => b.root.querySelector('summary .line2 button[data-confirm="nudge"]');
+    b.page.fire(b.root, 'click', { target: chip() });
+    await b.settle();
+    assert.deepEqual(confirms, ['Nudge Claude to check this builder?']);
+    assert.deepEqual(b.sent, []);
+    accept = true;
+    b.page.fire(b.root, 'click', { target: chip() });
+    await b.settle();
+    assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['builder-nudge', { key: 'w/S1' }]]);
+    assert.equal(b.root.querySelector('#toast').textContent, 'Nudge sent');
+    assert.equal(b.root.querySelector('summary .agent').textContent, 'Running tests');
+    assert.equal(b.root.querySelector('details.item').open, open.length > 0);
+    b.view.unmount();
+  }
+});
+
 test("every owner action kind the board derives makes exactly one of the open card's buttons orange, every action button the board names draws, and the board and the page share one frozen enum of buttons and one of action kinds, each value its name", async () => {
   const question = (id, url = null) => ({ id: `q${id}`, topic: `item:w/${id}`, question: 'Which?', options: [{ id: 'A', label: 'One' }], url });
   const draft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };

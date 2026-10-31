@@ -65,10 +65,10 @@
   const workingLine = '<span class="working-dot" aria-hidden="true"></span>Working on it';
   // html is markup the caller has escaped; href, title and attrs values are escaped here.
   const BADGE_TONES = Object.freeze(['quiet', 'normal', 'notice', 'danger', 'ready']);
-  function badge(tone, html, { href, title, attrs = {} } = {}) {
+  function badge(tone, html, { href, title, button = false, attrs = {} } = {}) {
     if (!BADGE_TONES.includes(tone)) throw new Error(`unknown badge tone: ${tone}`);
     const extra = Object.entries({ href, title, ...attrs }).filter(([, v]) => v != null).map(([k, v]) => ` ${k}="${esc(v)}"`).join('');
-    const tag = href == null ? 'span' : 'a';
+    const tag = button ? 'button' : href == null ? 'span' : 'a';
     return `<${tag} class="chip tone-${tone}"${extra}>${html}</${tag}>`;
   }
   // A composer's files before sending: {id, name, type, preview, status: uploading|done|error, progress (0–1), error}.
