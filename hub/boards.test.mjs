@@ -1,6 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
@@ -184,6 +185,68 @@ after(async () => {
   await device?.close();
   await new Promise((r) => setTimeout(r, 200));
   fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('hub writes refuse cross-site requests before handling forms, JSON or deletes', async () => {
+  const settings = claude('web-ts', 'settings.json');
+  const before = fs.readFileSync(settings, 'utf8');
+  for (const headers of [
+    { 'sec-fetch-site': 'cross-site' },
+    { 'sec-fetch-site': 'same-site' },
+    { origin: 'https://other.example' },
+    { origin: 'null' },
+    { origin: 'invalid' },
+    { 'sec-fetch-site': 'same-origin', origin: 'https://other.example' },
+  ]) {
+    const r = await fetch(`${base}/_hub/settings/codex`, {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers }, body: 'value=auto',
+    });
+    assert.equal(r.status, 403, JSON.stringify(headers));
+    assert.match(r.headers.get('content-type'), /^text\/plain/);
+    assert.equal(fs.readFileSync(settings, 'utf8'), before);
+  }
+  for (const p of ['/_hub/settings/rules', '/_hub/prompts', '/_hub/prompts/missing/answer', '/_hub/poll', '/_hub/push/subscribe']) {
+    for (const headers of [{ 'content-type': 'text/plain' }, { 'content-type': 'application/json', origin: 'https://other.example' }]) {
+      const r = await fetch(base + p, { method: 'POST', headers, body: '{' });
+      assert.equal(r.status, 403, p);
+      assert.match(r.headers.get('content-type'), /^text\/plain/);
+    }
+  }
+  for (const method of ['DELETE', 'PUT', 'PATCH', 'OPTIONS']) {
+    assert.equal((await fetch(`${base}/_hub/new-board/missing`, { method, headers: { origin: 'https://other.example' } })).status, 403, method);
+  }
+  for (const headers of [{ 'sec-fetch-site': 'cross-site' }, { origin: 'https://other.example' }]) {
+    assert.equal((await fetch(`${base}/_hub/push/test`, { method: 'POST', headers })).status, 403);
+    assert.equal((await fetch(`${base}/_hub/push/flush`, { method: 'POST', headers })).status, 403);
+    assert.equal((await fetch(`${base}/_hub/api/settings`, { method: 'HEAD', headers })).status, 200);
+    assert.equal((await fetch(`${base}/_hub/api/settings`, { headers })).status, 200);
+  }
+  assert.equal(fs.readFileSync(settings, 'utf8'), before);
+});
+
+test('the proxy preserves browser origin, fetch metadata and the external host for board writes', async () => {
+  const post = (headers) => new Promise((resolve, reject) => {
+    const req = http.request(`${base}/orch/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers } }, (res) => {
+      res.resume();
+      res.on('end', () => resolve({ status: res.statusCode }));
+    });
+    req.on('error', reject);
+    req.end(JSON.stringify({ kind: 'proxy-guard' }));
+  });
+  const host = 'mac.example.ts.net';
+  for (const headers of [
+    { host, origin: `https://${host}` },
+    { 'x-forwarded-host': host, origin: `https://${host}` },
+    { host, origin: `https://${host}`, 'sec-fetch-site': 'same-origin' },
+    {},
+  ]) assert.equal((await post(headers)).status, 200, JSON.stringify(headers));
+  const before = events('orch', 'proxy-guard').length;
+  for (const headers of [
+    { host, origin: 'https://other.example' },
+    { 'x-forwarded-host': host, origin: base },
+    { host, origin: `https://${host}`, 'sec-fetch-site': 'same-site' },
+  ]) assert.equal((await post(headers)).status, 403, JSON.stringify(headers));
+  assert.equal(events('orch', 'proxy-guard').length, before);
 });
 
 test('one check polls each open PR on either board once, writes both checked.json, and pushes once for the board not listening', async () => {

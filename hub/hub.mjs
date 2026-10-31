@@ -18,8 +18,7 @@
 //                     (home.mjs; docs/adr/0010-sites-report-what-waits-through-claude-needs.md)
 //                     repos lists distinct board owners' folders; starting lists pending boards (sessions.mjs)
 //   /_hub/new-board  POST {name, repo, purpose} → {route}: a starting reservation, then the board's session starts
-//                     without holding the response; 403 for a cross-site request or a body not sent as
-//                     application/json (cross-site.mjs); DELETE /_hub/new-board/<route> dismisses a start that failed
+//                     without holding the response; DELETE /_hub/new-board/<route> dismisses a start that failed
 //                     or timed out (new-board.mjs)
 //   /_hub/status.json the manifest's sites and their process state, as JSON
 //   /_hub/needs.json  {total, sites: {<route>: {count, working, summary, lanes, building} | null}}: total is the
@@ -59,6 +58,9 @@
 //   /_hub/prompts/<id>/answer  POST the owner's {choice: allow | always | deny, answers?} from Needs you → {ok};
 //                     404 when gone, 409 when already answered, 400 {error} for a choice that doesn't fit
 //   /_hub/prompts/<id> DELETE, the hook giving up at its deadline
+// Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing or proxying (403 plain text).
+// Routes that parse JSON require application/json; settings forms and raw uploads keep their own types.
+// /_hub/install also requires loopback and refuses Origin and forwarded headers.
 // It also runs every site: it starts each manifest entry's `cmd`, restarts it
 // when it exits, restarts it when its entry changes, and stops every one before it exits itself. On each slot of the
 // polling interval (schedule.mjs), and once a minute after it starts, it checks
@@ -102,7 +104,7 @@ import { siteIcon } from './icons.mjs';
 import { readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
 import { checkSessions, startingBoards } from './sessions.mjs';
 import { requestBoard, dismissBoard } from './new-board.mjs';
-import { crossSite, isJSON } from './cross-site.mjs';
+import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { BOARD_PUBLIC, appFile, colorsVersion, destOf, fileVersion, pageOf, shellHtml } from './shell.mjs';
 import { hubStream } from './stream.mjs';
 import { InstallError, startInstall, stopInstalls } from './installs.mjs';
@@ -508,8 +510,9 @@ async function readBody(req, limit = 16 * 1024) {
   for await (const chunk of req) { body += chunk; if (body.length > limit) throw Object.assign(new Error('too large'), { status: 413 }); }
   return body;
 }
-async function readJSONBody(req) {
-  const body = await readBody(req);
+async function readJSONBody(req, limit) {
+  if (!isJSON(req.headers)) throw Object.assign(new Error('Send the body as application/json.'), { status: 403 });
+  const body = await readBody(req, limit);
   return body ? JSON.parse(body) : {};
 }
 
@@ -552,7 +555,6 @@ async function hubRoute(req, res, url) {
   const json = wantsJSON(req);
   const p = url.pathname;
   if (p === '/_hub/new-board' && req.method === 'POST') {
-    if (crossSite(req.headers)) return send(403, 'text/plain; charset=utf-8', 'New board takes requests only from the hub’s own pages.');
     if (!isJSON(req.headers)) return send(403, 'text/plain; charset=utf-8', 'Send name, repo and purpose as application/json.');
     let input;
     try { input = await readJSONBody(req); } catch { return send(400, 'text/plain; charset=utf-8', 'Send name, repo and purpose as JSON.'); }
@@ -664,7 +666,7 @@ async function hubRoute(req, res, url) {
   if (p === '/_hub/settings/rules' && req.method === 'POST') {
     let body, saved;
     try {
-      body = JSON.parse((await readBody(req, 64 * 1024)) || '{}');
+      body = await readJSONBody(req, 64 * 1024);
       saved = applyRules(readHubRules(), body.rules, body.base ?? []);
       if (changed(saved.changes)) writeHubRules(saved.rules);
     } catch (e) {
@@ -687,7 +689,7 @@ async function hubRoute(req, res, url) {
   }
   if (p === '/_hub/prompts' && req.method === 'POST') {
     let input;
-    try { input = JSON.parse(await readBody(req, 8 * 1024 * 1024)); } catch (e) { if (e.status) throw e; return sendJSON(400, { error: 'Send the hook input as JSON.' }); }
+    try { input = await readJSONBody(req, 8 * 1024 * 1024); } catch (e) { if (e.status) throw e; return sendJSON(400, { error: 'Send the hook input as JSON.' }); }
     if (!input?.tool_name || (input.hook_event_name && input.hook_event_name !== 'PermissionRequest')) return sendJSON(400, { error: 'Send a PermissionRequest hook input.' });
     const { answer, rec } = await updatePrompts((store) => {
       const context = promptContext();
@@ -795,6 +797,11 @@ const requestURL = (req) => new URL(req.url.replace(/^\/+/, '/'), 'http://hub');
 
 const server = http.createServer((req, res) => {
   const url = requestURL(req);
+  if (req.method !== 'GET' && req.method !== 'HEAD' && crossSite(req.headers)) {
+    res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+    res.end('Requests must come from the app’s own pages.');
+    return;
+  }
   const sites = new Set(Object.keys(loadManifest().sites));
   if (pageOf({ method: req.method, pathname: url.pathname, search: url.search, dest: destOf(req.headers), sites }) === 'shell') {
     const here = url.pathname === '/' ? '' : url.pathname.startsWith('/_hub/') ? url.pathname.slice(1) : decodeURIComponent(url.pathname.split('/')[1]);

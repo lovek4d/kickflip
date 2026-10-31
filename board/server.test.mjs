@@ -26,6 +26,89 @@ after(() => { child.kill(); fs.rmSync(home, { recursive: true, force: true }); }
 
 const upload = (body, name, type) => fetch(`${base}/api/upload`, { method: 'POST', headers: { 'x-filename': encodeURIComponent(name), 'content-type': type }, body });
 
+test('board writes refuse cross-site requests and non-JSON bodies before their handlers run', async () => {
+  const file = path.join(site, 'data', 'events.jsonl');
+  const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+  for (const headers of [
+    { 'sec-fetch-site': 'cross-site' },
+    { 'sec-fetch-site': 'same-site' },
+    { origin: 'https://other.example' },
+    { origin: 'null' },
+    { origin: 'invalid' },
+    { 'sec-fetch-site': 'same-origin', origin: 'https://other.example' },
+  ]) {
+    const r = await fetch(`${base}/_claude/events`, {
+      method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ kind: 'ask', text: 'Refused' }),
+    });
+    assert.equal(r.status, 403, JSON.stringify(headers));
+    assert.match(r.headers.get('content-type'), /^text\/plain/);
+  }
+  for (const p of ['/_claude/events', '/api/settings', '/api/install-script', '/api/rules', '/api/hide']) {
+    for (const headers of [{ 'content-type': 'text/plain' }, { 'content-type': 'application/x-www-form-urlencoded' }, {}]) {
+      assert.equal((await fetch(base + p, { method: 'POST', headers, body: '{' })).status, 403, p);
+    }
+  }
+  for (const method of ['POST', 'DELETE', 'PUT', 'PATCH', 'OPTIONS']) {
+    assert.equal((await fetch(`${base}/_claude/health`, { method, headers: { 'sec-fetch-site': 'cross-site' } })).status, 403, method);
+  }
+  assert.equal(fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null, before);
+  for (const headers of [
+    { origin: base },
+    { 'sec-fetch-site': 'same-origin', origin: base },
+    { 'sec-fetch-site': 'none' },
+    { 'x-forwarded-host': 'mac.example.ts.net', origin: 'https://mac.example.ts.net' },
+    {},
+  ]) {
+    const r = await fetch(`${base}/_claude/events`, {
+      method: 'POST', headers: { 'content-type': 'application/json; charset=utf-8', ...headers }, body: JSON.stringify({ kind: 'guard-check' }),
+    });
+    assert.equal(r.status, 200, JSON.stringify(headers));
+  }
+  assert.equal((await fetch(`${base}/_claude/events`, { headers: { origin: 'https://other.example' } })).status, 200);
+  assert.equal((await fetch(`${base}/_claude/health`, { method: 'HEAD', headers: { 'sec-fetch-site': 'cross-site' } })).status, 200);
+});
+
+test('cross-site raw uploads are refused before a file is stored', async () => {
+  const before = fs.existsSync(uploads()) ? fs.readdirSync(uploads()) : [];
+  const r = await fetch(`${base}/api/upload`, {
+    method: 'POST', headers: { 'content-type': 'text/plain', 'x-filename': 'refused.txt', origin: 'https://other.example' }, body: 'refused',
+  });
+  assert.equal(r.status, 403);
+  assert.deepEqual(fs.existsSync(uploads()) ? fs.readdirSync(uploads()) : [], before);
+});
+
+test('a copied starter refuses cross-site writes and accepts same-origin JSON and Node callers', async () => {
+  const root = path.join(home, 'starter');
+  fs.cpSync(fileURLToPath(new URL('../starter', import.meta.url)), root, { recursive: true });
+  const port = 49000 + Math.floor(Math.random() * 1000);
+  const url = `http://127.0.0.1:${port}`;
+  const server = spawn(process.execPath, [path.join(root, 'server.mjs')], { env: { ...process.env, PORT: String(port), PREFIX: '/plain' } });
+  try {
+    await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', reject); });
+    const post = (headers, body = '{"kind":"message","text":"Hello"}') => fetch(`${url}/plain/_claude/events`, { method: 'POST', headers, body });
+    for (const headers of [
+      { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' },
+      { 'content-type': 'application/json', origin: 'https://other.example' },
+      { 'content-type': 'text/plain', origin: url },
+    ]) assert.equal((await post(headers)).status, 403, JSON.stringify(headers));
+    assert.equal(fs.existsSync(path.join(root, 'data')), false);
+    for (const headers of [
+      { 'content-type': 'application/json', origin: url },
+      { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      { 'content-type': 'application/json', origin: 'https://mac.example.ts.net', 'x-forwarded-host': 'mac.example.ts.net' },
+      { 'content-type': 'application/json' },
+    ]) assert.equal((await post(headers)).status, 200, JSON.stringify(headers));
+    assert.equal((await fetch(`${url}/_claude/events`)).status, 200);
+    assert.equal((await fetch(`${url}/_claude/health`, { method: 'DELETE', headers: { 'sec-fetch-site': 'cross-site' } })).status, 403);
+  } finally {
+    if (server.exitCode === null && server.signalCode === null) {
+      const exited = new Promise((resolve) => server.once('exit', resolve));
+      server.kill();
+      await exited;
+    }
+  }
+});
+
 test('an upload is stored under data/uploads and served back with its type', async () => {
   const r = await upload('hello', '../../ my log.txt', 'text/plain');
   assert.equal(r.status, 200);

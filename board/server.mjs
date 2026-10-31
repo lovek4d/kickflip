@@ -88,6 +88,8 @@
 //   GET  /api/stream             server-sent events: `event: change` shortly after a file the board reads changes, under
 //                                the wave files' folder or data/. Never gzipped
 //   GET  /_claude/health
+// Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing (403 plain text).
+// Routes that parse JSON require application/json; /api/upload keeps the file's content type.
 // Claude's reply to event <id> is data/replies/<id>.html, or .json.
 import http from 'node:http';
 import fs from 'node:fs/promises';
@@ -107,6 +109,7 @@ import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
+import { crossSite, isJSON } from '../starter/cross-site.mjs';
 
 const template = path.dirname(fileURLToPath(import.meta.url));
 // The hub's Home Screen icon, versioned by mtime the way hub/hub.mjs iconUrl() does, so iOS refetches a replaced icon.
@@ -192,6 +195,7 @@ const shownEvents = async () => {
 };
 
 async function readBody(req, limit = 64 * 1024) {
+  if (!isJSON(req.headers)) throw Object.assign(new Error('Send the body as application/json.'), { status: 403 });
   let body = '';
   for await (const chunk of req) { body += chunk; if (body.length > limit) throw Object.assign(new Error('too large'), { status: 413 }); }
   return body ? JSON.parse(body) : {};
@@ -533,6 +537,11 @@ async function watchBoard() {
 
 const server = http.createServer(async (req, res) => {
   try {
+    if (req.method !== 'GET' && req.method !== 'HEAD' && crossSite(req.headers)) {
+      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      res.end('Requests must come from the app’s own pages.');
+      return;
+    }
     const url = new URL(req.url, 'http://site');
     let p = url.pathname;
     if (prefix && (p === prefix || p.startsWith(prefix + '/'))) p = p.slice(prefix.length) || '/';
@@ -614,7 +623,10 @@ const server = http.createServer(async (req, res) => {
     if (sameTag(req.headers['if-none-match'], etag)) { res.writeHead(304, { etag, 'cache-control': headers['cache-control'], vary: 'accept-encoding' }).end(); return; }
     return await send(res, 200, headers, body);
   } catch (err) {
-    if (!res.headersSent) res.writeHead(err.status || (err.code === 'ENOENT' ? 404 : 400)).end();
+    if (!res.headersSent) {
+      if (err.status === 403) res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }).end(err.message);
+      else res.writeHead(err.status || (err.code === 'ENOENT' ? 404 : 400)).end();
+    }
   }
 });
 

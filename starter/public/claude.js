@@ -2,7 +2,7 @@
 // relative path, e.g. <script src="claude.js"></script> or "../claude.js":
 // its own URL tells it the site's root, so links survive the /<route> prefix.
 //   ClaudeSite.url('notes.html')        absolute URL under the site root
-//   await ClaudeSite.send(kind, data)   records an event and wakes the owning session → {id}
+//   await ClaudeSite.send(kind, data)   sends same-origin application/json, records an event and wakes the owning session → {id}
 //   await ClaudeSite.events({kind})     events newest first, each with .reply ({html} or {json}) or null
 //   ClaudeSite.watch(fn, {kind})        calls fn(events) now and on change; polls every 10 s while
 //                                       any event waits for a reply, else every 60 s; returns stop()
@@ -16,7 +16,7 @@ window.ClaudeSite = (function () {
     const url = (p) => root + '/' + String(p).replace(/^\/+/, '');
 
     async function send(kind, data) {
-      const r = await fetch(url('_claude/events'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...(data || {}), kind }) });
+      const r = await fetch(url('_claude/events'), { method: 'POST', mode: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...(data || {}), kind }) });
       if (!r.ok) throw new Error('send failed: ' + r.status);
       return r.json();
     }

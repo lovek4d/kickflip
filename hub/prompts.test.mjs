@@ -441,7 +441,7 @@ test('a remembered match bypasses prompts and push, survives a hub restart, and 
   write(web('push', 'subs.json'), [{ endpoint: 'https://unused.invalid/device', keys: {} }]);
   write(web('settings.json'), { notifications: { on: true, weekends_off: false, snoozed_until: new Date(Date.now() + 86_400_000).toISOString() } });
   await startHub();
-  const post = async (input) => (await (await fetch(`${base}/_hub/prompts`, { method: 'POST', body: JSON.stringify(input) })).json());
+  const post = async (input) => (await (await fetch(`${base}/_hub/prompts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) })).json());
   const data = async () => (await (await fetch(`${base}/_hub/api/hub`)).json());
   const queue = () => JSON.parse(fs.readFileSync(web('push', 'queue.json'), 'utf8')).items;
   const first = await post(bash('npm test'));

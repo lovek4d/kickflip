@@ -13,12 +13,15 @@
 //                                summary. No file means nothing waits; the hub badges and describes the
 //                                site's row with them
 //   GET  /_claude/health
+// Every non-GET/HEAD request passes ./cross-site.mjs before routing (403 plain text).
+// POST /_claude/events requires application/json; CLI callers may omit Origin and Sec-Fetch-Site.
 // Claude replies to event <id> by writing data/replies/<id>.html (an HTML
 // fragment) or data/replies/<id>.json.
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { crossSite, isJSON } from './cross-site.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pub = path.join(here, 'public');
@@ -38,6 +41,7 @@ const types = {
 const json = (res, code, body) => { res.writeHead(code, { 'content-type': types['.json'], 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); };
 
 async function readBody(req, limit = 64 * 1024) {
+  if (!isJSON(req.headers)) throw Object.assign(new Error('Send the body as application/json.'), { status: 403 });
   let body = '';
   for await (const chunk of req) { body += chunk; if (body.length > limit) throw Object.assign(new Error('too large'), { status: 413 }); }
   return body ? JSON.parse(body) : {};
@@ -62,6 +66,11 @@ async function listEvents(kind, limit) {
 
 const server = http.createServer(async (req, res) => {
   try {
+    if (req.method !== 'GET' && req.method !== 'HEAD' && crossSite(req.headers)) {
+      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      res.end('Requests must come from the app’s own pages.');
+      return;
+    }
     const url = new URL(req.url, 'http://site');
     let p = url.pathname;
     if (prefix && (p === prefix || p.startsWith(prefix + '/'))) p = p.slice(prefix.length) || '/';
@@ -98,7 +107,10 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'content-type': types[path.extname(file).toLowerCase()] || 'application/octet-stream', 'cache-control': 'no-store' });
     res.end(req.method === 'HEAD' ? undefined : body);
   } catch (err) {
-    if (!res.headersSent) res.writeHead(err.status || (err.code === 'ENOENT' ? 404 : 400)).end();
+    if (!res.headersSent) {
+      if (err.status === 403) res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }).end(err.message);
+      else res.writeHead(err.status || (err.code === 'ENOENT' ? 404 : 400)).end();
+    }
   }
 });
 

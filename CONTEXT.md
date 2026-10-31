@@ -7,7 +7,7 @@ Pages on Love's tailnet that Claude sessions serve, so the owner can follow and 
 ### Hub and sites
 
 **Hub**:
-The one server on the Mac that answers the tailnet address, lists every site, forwards to each, checks GitHub for the open PRs on boards' cards, and sends pushes.
+The one server on the Mac that answers the tailnet address, lists every site, forwards to each, checks GitHub for the open PRs on boards' cards, and sends pushes. Changes on the hub, boards and starter sites come from the app's own pages or non-browser clients; another site's page cannot act on them ([0069](docs/adr/0069-the-hub-starts-a-new-boards-session.md)).
 _Avoid_: portal, gateway
 
 **Sidebar**:
