@@ -97,7 +97,23 @@
     return { pills, waiting };
   }
 
-  // The line Waiting on you's Send leaves for the board it goes back to, read once by that board's view (app.js).
+  // owner is in owner.json order; topics are the pills before the answer. A topic-wide Send omits answered.id.
+  function nextQuestion(owner, topics, answered) {
+    const at = owner.findIndex((q) => q.id === answered.id);
+    const open = (q) => q.state === 'open' && q.id !== answered.id;
+    const same = [...owner.slice(at + 1), ...owner.slice(0, Math.max(at, 0))].find((q) => q.topic === answered.topic && open(q));
+    if (same) return same;
+    const ids = topics.map((t) => t.id);
+    const ti = ids.indexOf(answered.topic);
+    const order = ti < 0 ? ids : [...ids.slice(0, ti).reverse(), ...ids.slice(ti + 1)];
+    for (const id of order) {
+      const q = owner.find((q) => q.topic === id && open(q));
+      if (q) return q;
+    }
+    return owner.find(open) || null;
+  }
+
+  // The line a Send or prototype pick leaves for the board it goes back to, read once by that board's view (app.js).
   // Kept in sessionStorage, so a board opened later in another tab shows none.
   const noticeKey = (route) => 'sent:' + route;
   const sentNotice = {
@@ -107,5 +123,5 @@
     },
   };
 
-  Object.assign(globalThis.BoardUI, { choiceLabel, option, answerHistory, questionCard, takeButton, topicName, topicRow, sentNotice });
+  Object.assign(globalThis.BoardUI, { choiceLabel, option, answerHistory, questionCard, takeButton, topicName, topicRow, nextQuestion, sentNotice });
 })();

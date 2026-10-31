@@ -581,6 +581,33 @@ test('the topic row shows only topics with an open question, the current one kep
   assert.deepEqual(ids(ui.topicRow(topics, null)), { pills: ['b', 'e'], waiting: ['a', 'c'] });
 });
 
+test('Send and prototype picks share one move-on rule: same topic next and wrap, left topic, right topic, any, none, including an urgent question shown alone', () => {
+  const q = (id, topic, state = 'open', urgent = false) => Object.freeze({ id, topic, state, urgent });
+  const owner = Object.freeze([q('a', 't1'), q('b', 't1', 'answered'), q('c', 't2'), q('d', 't1'), q('e', 't1'), q('f', 't3')]);
+  const topics = Object.freeze(['t2', 't3', 't1'].map((id) => Object.freeze({ id })));
+  const cases = [
+    ['same topic next', owner, topics, owner[3], 'e'],
+    ['same topic wrap', owner, topics, owner[4], 'a'],
+    ['left topic in pill order', owner, topics, owner[5], 'c'],
+    ['nearest left topic', [q('a', 't1'), q('b', 't2'), q('c', 't3', 'answered')], ['t1', 't2', 't3'].map((id) => ({ id })), { id: 'c', topic: 't3' }, 'b'],
+    ['right topic', owner, topics, owner[2], 'f'],
+    ['any unlisted topic', [q('a', 'other'), q('b', 't1', 'answered')], topics, { id: 'b', topic: 't1' }, 'a'],
+    ['no pills', owner, [], owner[5], 'a'],
+    ['none', [q('a', 't'), q('b', 't', 'resolved')], [], { id: 'a', topic: 't' }, null],
+    ['empty', [], [], { topic: 'gone' }, null],
+    ['topic-wide Send stays', owner, topics, { topic: 't1' }, 'a'],
+    ['urgent answered, same topic still open', [q('a', 't1', 'answered', true), q('b', 't1'), q('c', 't2')], topics, { topic: 't1' }, 'b'],
+    ['urgent answered, left topic', [q('a', 't1', 'answered', true), q('b', 't2'), q('c', 't3')], topics, { topic: 't1' }, 'c'],
+    ['another urgent question does not override pill order', [q('a', 't1', 'answered'), q('b', 't2', 'open', true), q('c', 't3')], topics, { topic: 't1' }, 'c'],
+    ['answered question removed', [q('a', 't2'), q('b', 't3')], topics, { id: 'gone', topic: 't1' }, 'b'],
+  ];
+  for (const [label, questions, pills, answered, expected] of cases) {
+    const before = JSON.stringify([questions, pills, answered]);
+    assert.equal(ui.nextQuestion(questions, pills, answered)?.id ?? null, expected, label);
+    assert.equal(JSON.stringify([questions, pills, answered]), before, label + ' is pure');
+  }
+});
+
 const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png', size: 3 };
 const log = { name: '<b>build</b>.log', url: 'uploads/2-build-.log', type: 'text/plain', size: 9 };
 

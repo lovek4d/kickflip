@@ -794,7 +794,7 @@ test("a lane repaint while the owner types in a card's reply box moves the other
   assert.deepEqual([lane('e1'), top(TITLE)], ['review', titleTop]);
 });
 
-function questionsOnDom({ topics, questions, at }) {
+function questionsOnDom({ topics, questions, at, next }) {
   const page = fakePage(memoryStorage().localStorage);
   const { Element } = miniDom(page.Target, page.win.document);
   const base = 'https://mac.ts.net/board-a';
@@ -819,6 +819,12 @@ function questionsOnDom({ topics, questions, at }) {
   page.win.history = { state: { idx: 1, up: 1 }, replaceState: (state, _, url) => { page.win.location.hash = url; } };
   const shell = { root: page.win.document.body.appendChild(new Element('div')), board: null };
   const view = { kind: 'questions', route: 'board-a', id: at };
+  const decisions = [];
+  const nextQuestion = page.win.BoardUI.nextQuestion;
+  page.win.BoardUI.nextQuestion = (...args) => {
+    decisions.push(JSON.parse(JSON.stringify(args)));
+    return next === undefined ? nextQuestion(...args) : next;
+  };
   shell.root.innerHTML = page.win.AppViews.questions.markup(view);
   const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
   const up = () => {
@@ -841,46 +847,42 @@ function questionsOnDom({ topics, questions, at }) {
   const shown = () => shell.board ? { board: shell.board.querySelector('#toast').hidden ? '' : shell.board.querySelector('#toast').textContent }
     : { pills: shell.root.querySelectorAll('.topics button').map((b) => [b.dataset.topic, b.getAttribute('aria-pressed')]),
       questions: shell.root.querySelectorAll('section.q').map((s) => s.dataset.q), status: $('#qstatus').textContent, hash: page.win.location.hash };
-  return { settle, answer, send, shown, root: shell.root, page };
+  return { settle, answer, send, shown, decisions, root: shell.root, page };
 }
 
-test("Waiting on you's Send stays on a topic with a question still open, and from one with none, an urgent question's alone included, opens the topic whose pill was to its left before the Send, else to its right, else goes back to the board, saying what it sent", async () => {
+test("Waiting on you's Send follows the shared next question, leaving an urgent question's solo view, staying on the current topic or going to the board with its Sent toast", async () => {
   const topic = (n) => ({ id: `item:w/T${n}`, title: `INT-${n}: Topic ${n}` });
   const question = (id, n) => ({ id, topic: `item:w/T${n}`, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
   const three = [question('q1', 1), question('q2', 2), question('q3', 3)];
   const open = (...ids) => three.filter((q) => ids.includes(q.id)).concat(three.filter((q) => !ids.includes(q.id)).map((q) => ({ ...q, state: 'answered' })));
 
-  const middle = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: three, at: 'q2' });
+  const middle = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: three, at: 'q2', next: three[2] });
   await middle.settle();
   middle.answer('q2');
   await middle.send();
-  assert.deepEqual(middle.shown(), { pills: [['item:w/T1', 'true'], ['item:w/T3', 'false']], questions: ['q1'], status: 'Sent 1 answer to INT-2.', hash: '#q1' });
+  assert.deepEqual(middle.shown(), { pills: [['item:w/T1', 'false'], ['item:w/T3', 'true']], questions: ['q3'], status: 'Sent 1 answer to INT-2.', hash: '#q3' });
+  assert.deepEqual(middle.decisions.map(([qs, pills, answered]) => [qs.map((q) => [q.id, q.state]), pills.map((t) => [t.id, t.open]), answered]),
+    [[[['q1', 'open'], ['q2', 'answered'], ['q3', 'open']], [['item:w/T1', 1], ['item:w/T2', 1], ['item:w/T3', 1]], { topic: 'item:w/T2' }]]);
 
-  const leftmost = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: three, at: 'q1' });
-  await leftmost.settle();
-  leftmost.answer('q1');
-  await leftmost.send();
-  assert.deepEqual(leftmost.shown(), { pills: [['item:w/T2', 'true'], ['item:w/T3', 'false']], questions: ['q2'], status: 'Sent 1 answer to INT-1.', hash: '#q2' });
-
-  const partial = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: [...three, question('q2b', 2)], at: 'q2' });
+  const partial = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: [...three, question('q2b', 2)], at: 'q2', next: question('q2b', 2) });
   await partial.settle();
   partial.answer('q2');
   await partial.send();
   assert.deepEqual(partial.shown(), { pills: [['item:w/T1', 'false'], ['item:w/T2', 'true'], ['item:w/T3', 'false']], questions: ['q2', 'q2b'],
     status: 'Sent 1 answer to INT-2. 1 still open, answer it any time.', hash: '#q2' });
 
-  const last = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: open('q3'), at: 'q3' });
+  const last = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: open('q3'), at: 'q3', next: null });
   await last.settle();
   last.answer('q3');
   await last.send();
   assert.deepEqual(last.shown(), { board: 'Sent 1 answer to INT-3.' });
 
-  const urgent = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: three.map((q) => (q.id === 'q3' ? { ...q, urgent: true } : q)), at: '' });
+  const urgent = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: three.map((q) => (q.id === 'q3' ? { ...q, urgent: true } : q)), at: '', next: three[0] });
   await urgent.settle();
   assert.deepEqual(urgent.shown().questions, ['q3']);
   urgent.answer('q3');
   await urgent.send();
-  assert.deepEqual(urgent.shown(), { pills: [['item:w/T1', 'false'], ['item:w/T2', 'true']], questions: ['q2'], status: 'Sent 1 answer to INT-3.', hash: '#q2' });
+  assert.deepEqual(urgent.shown(), { pills: [['item:w/T1', 'true'], ['item:w/T2', 'false']], questions: ['q1'], status: 'Sent 1 answer to INT-3.', hash: '#q1' });
 });
 
 test("Waiting on you sizes each framed take to its page once it loads, past 80% of the screen's height shows the Open full size button instead, and a repaint keeps both", async () => {

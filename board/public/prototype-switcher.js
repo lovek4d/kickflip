@@ -4,7 +4,7 @@
 // render runs at mount and on each switch; sw.take is the current key. ←/→ switch unless a field has focus, and the
 // take stays in ?variant=. With ?q=<owner question id>, the pill offers the take as that question's answer: a take
 // is pickable when an option's id equals its key. Pick sends the owner-answer event questions.html sends, with the
-// note typed above the pill, then moves on (nextQuestion).
+// note typed above the pill, then moves on through BoardUI.nextQuestion (ui-questions.js).
 // With ?take=<key> the page shows that take alone, with no header or pill, as questions.html frames it
 // (docs/adr/0048-a-questions-takes-show-inline.md); a page hides its own extras under html.ps-embed. There main's
 // bottom padding, kept clear for the pill, shrinks to 12px whatever the page sets, since questions.html sizes the frame
@@ -32,22 +32,6 @@
   }
   // Matches ui-questions.js choiceLabel for a single-choice question.
   const answerLabel = (option) => `${/^[A-Z][0-9]?$/i.test(option.id) ? `${option.id}. ` : ''}${option.label}`;
-  // After a pick, moving on as a Send does (board/public/view-questions.js moveOn): the next open question on the same
-  // topic, after this one in owner.json's order and then from the top; else the first open question of the topic to
-  // its left in `topics` (the board's ownerTopics), else to its right, else any; else null, for the board. Its own
-  // prototype page when it has one, else its card on questions.html.
-  function nextQuestion(owner, qid, topics = []) {
-    const at = owner.findIndex((q) => q.id === qid);
-    const topic = owner[at]?.topic;
-    const same = [...owner.slice(at + 1), ...owner.slice(0, Math.max(at, 0))].find((q) => q.topic === topic && q.state === 'open');
-    if (same) return same;
-    const ids = topics.map((t) => t.id);
-    const ti = ids.indexOf(topic);
-    const order = ti < 0 ? ids : [...ids.slice(0, ti).reverse(), ...ids.slice(ti + 1)];
-    const elsewhere = (q) => q.state === 'open' && q.topic !== topic;
-    for (const t of order) { const q = owner.find((x) => x.topic === t && elsewhere(x)); if (q) return q; }
-    return owner.find(elsewhere) || null;
-  }
   const questionUrl = (q) => (/^prototype-[\w-]+\.html(?:[?#]|$)/.test(q.url || '') ? q.url : `questions.html#${encodeURIComponent(q.id)}`);
   // questions.html keeps each question's unsent {choice, note} under this key; a pick sent here takes its note and clears it.
   const draftKey = (qid) => 'qdraft:' + qid;
@@ -59,6 +43,23 @@
     try { app = window.top !== window ? window.top.AppShell : null; } catch { app = null; }
     if (!app?.open?.(String(url), { replace: true })) location.replace(url);
   }
+
+  // Prototype pages need only claude.js and this switcher. In the shell, its BoardUI also owns the board's notice.
+  let questionsUI = null;
+  const sharedQuestions = (site) => (questionsUI ||= (async () => {
+    try { if (window.top !== window && window.top.BoardUI?.nextQuestion) return window.top.BoardUI; } catch {}
+    for (const [file, key] of [['ui.js', 'esc'], ['ui-links.js', 'linkText'], ['ui-questions.js', 'nextQuestion']]) {
+      if (globalThis.BoardUI?.[key]) continue;
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = site.url(file);
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.append(script);
+      });
+    }
+    return globalThis.BoardUI;
+  })().catch((e) => { questionsUI = null; throw e; }));
 
   function pillHtml({ name, pick = { kind: 'none' }, busy = false }) {
     const control = pick.kind === 'picked' ? '<span class="ps-picked">Picked</span>'
@@ -105,6 +106,7 @@
     }
     let take = startTake(keys, params.get('variant'), initial);
     let question = null;
+    let topics = [];
     // A push opened this page (board/store.mjs pushUrl). Read once and dropped from the URL, so a pick made here or a
     // reload stays on the page; only the first load sends an already-picked question on to its card's thread.
     let fromPush = params.get('from') === 'push';
@@ -140,6 +142,7 @@
       try {
         board = await (await fetch(site.url('api/board'), { cache: 'no-store' })).json();
         question = (board.owner || []).find((q) => q.id === qid) || null;
+        topics = board.ownerTopics || [];
         if (!question) note('This prototype’s question is gone, so there is nothing to pick.');
       } catch { /* keep the last question shown */ }
       if (fromPush && pickedChoice(question)) {
@@ -153,26 +156,34 @@
       return board;
     }
 
-    // Sent at once, with no confirmation; a later pick changes it. Then on to the next open question, in this page's
-    // place, or up to Waiting on you on this question (docs/adr/0058-back-follows-the-page-tree.md).
     async function pick() {
       const state = pickState(question, take);
       if (busy || !(state.kind === 'pick' || state.kind === 'change')) return;
       busy = true; paint();
+      const answered = question;
+      let ui, pills, name;
       try {
-        await site.send('owner-answer', { id: question.id, question: question.question, choice: state.option.id, label: answerLabel(state.option), note: text.value.trim() });
+        ui = await sharedQuestions(site);
+        pills = ui.topicRow(topics, answered.topic).pills;
+        const topic = topics.find((t) => t.id === answered.topic);
+        name = topic ? ui.topicName(topic) : '';
+        await site.send('owner-answer', { id: answered.id, question: answered.question, choice: state.option.id, label: answerLabel(state.option), note: text.value.trim() });
       } catch { busy = false; paint(); note('Could not send. Is the Mac awake?'); return; }
       try { localStorage.removeItem(draftKey(qid)); } catch { /* nothing kept */ }
       text.value = '';
       busy = false;
       note('Sent. Claude replies on the card.');
       const board = await load();
-      const next = nextQuestion(board?.owner || [], qid, board?.ownerTopics || []);
+      const next = ui.nextQuestion(board?.owner || [], pills, answered);
       if (next) {
         const u = new URL(site.url(questionUrl(next)), location.href);
         if (globalThis.PageBack?.pushed) u.searchParams.set('from', 'push');
         replaceWith(u);
-      } else replaceWith(site.url('./'));
+      } else {
+        const route = new URL(site.url(''), location.href).pathname.replace(/^\/+|\/+$/g, '');
+        ui.sentNotice.put(route, `Sent 1 answer${name ? ` to ${name}` : ''}.`);
+        replaceWith(site.url('./'));
+      }
     }
     text.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || e.isComposing) return;
@@ -198,5 +209,5 @@
     return { get take() { return take; }, go };
   }
 
-  globalThis.PrototypeSwitcher = { takeAt, startTake, pickedChoice, pickState, answerLabel, nextQuestion, pillHtml, mount };
+  globalThis.PrototypeSwitcher = { takeAt, startTake, pickedChoice, pickState, answerLabel, pillHtml, mount };
 })();

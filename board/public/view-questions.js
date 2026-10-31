@@ -16,7 +16,7 @@
 
   create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
     const { $, site } = B;
-    const { esc, choiceLabel, questionCard, takeButton, linkContext, badge, topicName, topicRow, sentNotice, fetchJSON, restartNotice } = BoardUI;
+    const { esc, choiceLabel, questionCard, takeButton, linkContext, badge, topicName, topicRow, nextQuestion, sentNotice, fetchJSON, restartNotice } = BoardUI;
     // prototype-switcher.js reads a draft's note and clears the draft once it sends that question's answer.
     const draftKey = (id) => 'qdraft:' + id;
     const getDraft = (id) => { try { return JSON.parse(localStorage.getItem(draftKey(id)) || '{}'); } catch { return {}; } };
@@ -34,7 +34,6 @@
     const byId = (id) => all.find((q) => q.id === id);
     const topicOf = (qid) => topics.find((t) => t.questions.includes(qid)) || null;
     const openTopics = () => topics.filter((t) => t.state !== 'resolved');
-    const needsOwner = (id) => topics.some((t) => t.id === id && t.state !== 'resolved' && t.open > 0);
     const links = (q) => linkContext(items, q.topic?.startsWith('item:') ? q.topic.slice(5) : null, { base: './' });
     const urgentOpen = () => all.find((q) => q.urgent && q.state === 'open');
 
@@ -197,12 +196,11 @@
       }
     }
 
-    // After a Send from topic `from` whose pills stood as `pills` before it: stays while the topic has a question open,
-    // else opens the pill that was to its left, else to its right, else any topic with an open question, else the board.
     function moveOn(from, pills, what) {
       soloId = null;
+      const next = nextQuestion(all, pills, { topic: from });
       const left = topics.find((t) => t.id === from)?.open || 0;
-      if (needsOwner(from)) {
+      if (next?.topic === from) {
         topicId = from;
         sentLine = `${what} ${left} still open, answer ${left === 1 ? 'it' : 'them'} any time.`;
         shown = sigNow();
@@ -211,20 +209,15 @@
         scrollTo(0, y);
         return;
       }
-      const at = pills.indexOf(from);
-      const other = (id) => id !== from && needsOwner(id);
-      const next = pills.slice(0, at).reverse().find(other) ?? pills.slice(at + 1).find(other) ?? topics.map((t) => t.id).find(other);
       sentLine = what;
-      if (next === undefined) {
+      if (!next) {
         sentNotice.put(B.route, what);
         if (ctx.up?.()) return;
         sentNotice.take(B.route);
         topicId = from;
       } else {
-        topicId = next;
-        const t = topics.find((x) => x.id === next);
-        const first = t.questions.find((id) => byId(id)?.state === 'open') ?? t.questions[0];
-        history.replaceState(history.state, '', '#' + encodeURIComponent(first));
+        topicId = next.topic;
+        history.replaceState(history.state, '', '#' + encodeURIComponent(next.id));
       }
       shown = sigNow();
       render();
@@ -260,7 +253,7 @@
       if (!list.length) { st.textContent = 'Pick an option or write a note first.'; return; }
       st.textContent = 'Sending…';
       const from = soloId ? topicOf(soloId)?.id : topicId;
-      const pills = topicRow(topics, from).pills.map((t) => t.id);
+      const pills = topicRow(topics, from).pills;
       const name = topicName(topics.find((t) => t.id === from) || { title: '' });
       let sent = 0;
       try {
