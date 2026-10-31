@@ -199,6 +199,17 @@ main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 .sheet[open]::backdrop { animation: fade-in .22s ease-out; }
 .sheet.closing { animation: sheet-out .18s ease-in forwards; }
 .sheet.closing::backdrop { animation: fade-in .18s ease-in reverse forwards; }
+@media (max-width: 699px) {
+  /* iOS's reported bottom edge can sit above the visible bottom; the form scrolls so the dialog can paint past it. */
+  #sheet { max-width: none; overflow: visible; padding: 0; max-height: none;
+    --sheet-limit: max(80px, calc(var(--vh, 100dvh) + var(--kb, 0px) - max(12px, env(safe-area-inset-top)))); }
+  #sheet::after { content: ''; position: absolute; top: calc(100% - 1px); left: -1px; right: -1px;
+    height: 100vh; height: 100lvh; background: var(--panel); pointer-events: none; }
+  #sheet form { margin: 0; max-height: var(--sheet-limit); overflow-y: auto; overscroll-behavior: contain;
+    border-radius: 15px 15px 0 0; padding-bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--kb, 0px)); }
+  #sheet.kb form { padding-bottom: calc(10px + var(--kb, 0px)); }
+  #askText { font-size: 16px; }
+}
 @keyframes sheet-in { from { transform: translateY(100%); } }
 @keyframes sheet-out { to { transform: translateY(100%); } }
 @keyframes fade-in { from { opacity: 0; } }
