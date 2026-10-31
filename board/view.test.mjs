@@ -317,6 +317,65 @@ test("the page header's logo toggles the sidebar at every width: from 1000px it 
   assert.equal(html.classList.contains('sb-collapsed'), true);
 });
 
+test("the shell selects Settings on direct loads, sidebar taps, the Hub header's gear, Polling and browser back and forward", async () => {
+  for (const path of ['/_hub/', '/_hub/settings', '/_hub/settings/polling?w=09%3A00']) {
+    const page = fakePage(memoryStorage().localStorage);
+    const { win } = page;
+    const doc = win.document;
+    const { Element } = miniDom(page.Target, doc);
+    Object.defineProperty(Element.prototype, 'href', { get() { return new URL(this.getAttribute('href'), win.location.href).href; } });
+    doc.body.innerHTML = '<aside id="sidebar" class="sidebar"></aside><div id="sidebarScrim"></div><script id="sidebarData" type="application/json"></script>';
+    doc.getElementById = (id) => doc.body.querySelector(`#${id}`);
+    doc.querySelector = (sel) => doc.body.querySelector(sel);
+    doc.querySelectorAll = (sel) => doc.body.querySelectorAll(sel);
+    doc.getElementById('sidebarData').textContent = JSON.stringify({ sites: [] });
+    const scrim = doc.getElementById('sidebarScrim');
+    scrim.after = (root) => doc.body.insertBefore(root, scrim.nextSibling);
+    let entries = [{ href: `https://mac.ts.net${path}`, state: null }];
+    let at = 0;
+    win.location = new URL(entries[0].href);
+    const write = (state, url) => {
+      win.location = new URL(url || win.location.href, win.location.href);
+      entries[at] = { href: win.location.href, state };
+    };
+    win.history = {
+      get state() { return entries[at].state; },
+      replaceState: (state, _, url) => write(state, url),
+      pushState(state, _, url) { entries = entries.slice(0, ++at); write(state, url); },
+      go(n) { at += n; win.location = new URL(entries[at].href); page.fire(win, 'popstate', { state: entries[at].state }); },
+      back() { this.go(-1); },
+    };
+    win.scrollTo = () => {};
+    win.addEventListener = win.addEventListener.bind(win);
+    win.HashChangeEvent = class { constructor(type) { this.type = type; } };
+    win.dispatchEvent = (e) => page.fire(win, e.type, e);
+    win.top = win;
+    for (const kind of ['hub', 'hub-settings', 'polling']) {
+      win.AppViews[kind].create = () => ({ B: { state: {} }, mount() {}, unmount() {} });
+    }
+    vm.runInContext(fs.readFileSync(new URL('./public/shell.js', import.meta.url), 'utf8'), win);
+    await win.AppShell.start();
+    const selected = () => doc.querySelectorAll('.sb-row[aria-current="page"]').map((a) => a.getAttribute('href'));
+    const tap = (a) => page.fire(doc, 'click', { target: a, button: 0 });
+    assert.deepEqual(selected(), [path === '/_hub/' ? '/_hub/' : '/_hub/settings'], path);
+    win.AppShell.open('/_hub/');
+    assert.deepEqual(selected(), ['/_hub/']);
+    tap(doc.querySelector('#settingsLink'));
+    assert.deepEqual(selected(), ['/_hub/settings']);
+    win.AppShell.open('/_hub/settings/polling?w=18%3A00');
+    assert.deepEqual(selected(), ['/_hub/settings']);
+    win.history.back();
+    assert.deepEqual(selected(), ['/_hub/settings']);
+    win.history.back();
+    assert.deepEqual(selected(), ['/_hub/']);
+    win.history.go(1);
+    assert.deepEqual(selected(), ['/_hub/settings']);
+    win.AppShell.open('/_hub/');
+    tap(doc.querySelector('.sb-foot a[href="/_hub/settings"]'));
+    assert.deepEqual(selected(), ['/_hub/settings']);
+  }
+});
+
 test("s s shows each sidebar row's key and the next key opens that row through the shell; Escape, a click, a held modifier or 3 s with no key end it with nothing opened; s s does nothing in a text field or with a dialog open; on a drawer it opens the drawer and closes it again; and its keys never count toward the board's n n", () => {
   const page = fakePage(memoryStorage().localStorage);
   const { win } = page;
@@ -386,8 +445,17 @@ test("s s shows each sidebar row's key and the next key opens that row through t
   const sheet = board.B.root.querySelector('#sheet');
   sw();
   press('n');
+  assert.equal(opened.length, 2);
+  sw();
+  press('p');
+  assert.equal(opened.length, 2);
+  sw();
+  press('s');
+  assert.equal(opened.at(-1), '/_hub/settings');
+  sw();
+  press('2');
   press('n');
-  assert.deepEqual([opened.at(-1), sheet.open], ['/_hub/settings', false]);
+  assert.deepEqual([opened.at(-1), sheet.open], ['/ios/', false]);
   press('n');
   assert.equal(sheet.open, true);
   board.unmount();

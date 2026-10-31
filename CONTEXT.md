@@ -11,7 +11,7 @@ The one server on the Mac that answers the tailnet address, lists every site, fo
 _Avoid_: portal, gateway
 
 **Sidebar**:
-The list of every site beside each board and hub page: Boards, then Pages, the sites that aren't boards, with their status words, lane chips and waiting counts, then the Hub, Notifications, Polling and Settings rows. Boards and Pages stay apart wherever sites are listed. The header's logo toggles it at every width; it carries no count. From 1000px it is a rail, which its own logo collapses out of sight until the header's logo brings it back; narrower, it is a drawer. In the **app shell** it is mounted once, beside every view, Settings and framed pages included, and a site's row swaps the view in place. `/` opens this device's **last board**, which the app shell stores as each board opens, never a page ([0050](docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md), [0055](docs/adr/0055-one-app-for-the-whole-hub.md)).
+The list of every site beside each board and hub page: Boards, then Pages, the sites that aren't boards, with their status words, lane chips and waiting counts, then only the Hub and Settings rows. Settings carries notification problems in its sub line and stays selected on Hub Settings and its child pages, including Polling. Boards and Pages stay apart wherever sites are listed. The header's logo toggles it at every width; it carries no count. From 1000px it is a rail, which its own logo collapses out of sight until the header's logo brings it back; narrower, it is a drawer. In the **app shell** it is mounted once, beside every view, Settings and framed pages included, and a site's row swaps the view in place. `/` opens this device's **last board**, which the app shell stores as each board opens, never a page ([0050](docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md), [0055](docs/adr/0055-one-app-for-the-whole-hub.md)).
 _Avoid_: hub home, switcher, nav
 
 **Switch mode**:
@@ -77,7 +77,7 @@ The hub's one schedule, a list of windows with their minutes: on each slot it ch
 _Avoid_: push schedule, send-at-once hours, cron
 
 **Hub Settings**:
-The hub pages' gear page, `/_hub/settings`: this device's notifications, push notifications on or off, snooze, off on weekends, whether the owner is **at the Mac**, a Polling row opening the page that edits the polling interval, hold pushes overnight and daily wakes, the **Codex setting**, and the rules for every board. A board's gear opens that board's own Settings, which holds its auto-merge toggle, its reviewers and its own rules.
+The page opened by the hub pages' gear and the sidebar's Settings row, `/_hub/settings`: first this device's notifications, push notifications on or off, snooze, off on weekends, whether the owner is **at the Mac**, a Polling row opening the page that edits the polling interval, hold pushes overnight and daily wakes, then the **Codex setting** and the rules for every board. A board's gear opens that board's own Settings, which holds its auto-merge toggle, its reviewers and its own rules.
 _Avoid_: preferences, hub config
 
 **Codex setting**:
@@ -293,7 +293,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `view-questions.js` | Waiting on you as a view: a topic's questions, their takes framed with `?take=`, and one Send, which stays while the topic has a question open and otherwise opens the next topic with one, or goes back to the board |
 | `view-notes.js` | One item's notes as a view, from `GET /api/notes`; the server redirects `plan.html` to `notes.html` |
 | `view-hub.js` | The **hub page** as a view, from `/_hub/api/hub`, refreshed every 30 seconds while it shows; pending prompts of sessions with no board, Send now and this device's Turn on |
-| `view-hub-settings.js` | **Hub Settings** as a view, from `/_hub/api/settings`: notifications, the snooze sheet, the Codex setting and the rules for every board |
+| `view-hub-settings.js` | **Hub Settings** as a view, from `/_hub/api/settings`: notifications, the snooze sheet and the Polling summary row first, then the Codex setting and the rules for every board |
 | `view-polling.js` | Polling as a view, from `/_hub/api/polling`: the day bar, whose taps pick a window without asking the hub, each window's edits, the overnight hold, the daily wakes and Send now |
 | `ui-hub.js` | `HubUI`, the hub views' pure renderers: rows, tiles, the flash, the Now row and this device's row |
 | `hub-kit.js` | `HubKit`, what the hub views share: `live` (load, the header's time and ↻, the 30-second refresh), `forms` (posting a hub form for JSON, and saving a toggle or time on change) and `device` (this device's push subscription) |

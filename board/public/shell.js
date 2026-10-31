@@ -129,7 +129,7 @@ window.AppShell = (function () {
       current = { view, route, root, v };
       document.title = board ? siteTitle : page.title(view, { siteTitle });
       if (boards().has(route)) { try { localStorage.setItem(LAST_KEY, route); } catch { /* no storage: `/` opens the start board */ } }
-      sidebar.setHere(view.kind === 'hub' ? '_hub' : route || '');
+      sidebar.setHere(hub ? new URL(AppRouter.urlOf(view), location.href).pathname.slice(1) : route);
       scrollTo(0, 0);
       v.mount();
     }

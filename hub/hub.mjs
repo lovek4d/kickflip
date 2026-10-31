@@ -14,7 +14,7 @@
 //                     those views' data and words (views.mjs)
 //   /_hub/sidebar.json what the sidebar shows (board/public/ui-sidebar.js): {total, start,
 //                     sites: [{route, title, board, state, count, changedAt, created, icon, sub}], hub: {tone, word, detail, broken},
-//                     notifications: {state, text}, polling: {text}}, each site's row from its GET /_claude/needs
+//                     notifications: {state, text}}, each site's row from its GET /_claude/needs
 //                     (home.mjs; docs/adr/0010-sites-report-what-waits-through-claude-needs.md)
 //   /_hub/status.json the manifest's sites and their process state, as JSON
 //   /_hub/needs.json  {total, sites: {<route>: {count, working, summary, lanes, building} | null}}: total is the
@@ -82,8 +82,8 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import { publicKey, addSubscription, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, deliver, pushRoute } from './push.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, readPrompts, savePrompts, shown } from './prompts.mjs';
-import { clock, nextSlot, windowAt, hold, heldUntil, holdLine, editPolling } from './schedule.mjs';
-import { capital, every, hubView, settingsView, pollingView, flushView, SNOOZE_REFUSED } from './views.mjs';
+import { nextSlot, windowAt, hold, heldUntil, holdLine, editPolling } from './schedule.mjs';
+import { capital, hubView, settingsView, pollingView, flushView, SNOOZE_REFUSED } from './views.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
 import { listBoards, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON } from './boards.mjs';
 import { liveSessions } from './live.mjs';
@@ -437,7 +437,6 @@ async function sidebarState({ fresh = false } = {}) {
   const data = {
     total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links, hubLink(code)),
     notifications: !held ? { state: 'on', text: 'On' } : held.why === 'off' ? { state: 'off', text: 'Off' } : { state: 'held', text: capital(holdLine(held, now)) },
-    polling: { text: `Every ${every(windowAt(now, settings).every_minutes)} · next ${clock(nextPollAt(), now)}` },
   };
   return { data, links, rows, code };
 }
@@ -454,7 +453,7 @@ function sendText(req, res, code, headers, body) {
 }
 
 // The app shell with the sidebar drawn in (board/public/ui-sidebar.js, run here in a vm context) and its data beside
-// it, so the first paint has both. here is the route whose row reads current, '_hub' for the hub's page. "<" is
+// it, so the first paint has both. here is a site's route or a hub page's path without its leading slash. "<" is
 // escaped in the data so no site's title can close its script.
 async function shellPage(here) {
   const { data } = await sidebarState();
@@ -727,7 +726,7 @@ const server = http.createServer((req, res) => {
   const url = requestURL(req);
   const sites = new Set(Object.keys(loadManifest().sites));
   if (pageOf({ method: req.method, pathname: url.pathname, search: url.search, dest: destOf(req.headers), sites }) === 'shell') {
-    const here = url.pathname === '/_hub/' ? '_hub' : url.pathname === '/' || url.pathname.startsWith('/_hub/') ? '' : decodeURIComponent(url.pathname.split('/')[1]);
+    const here = url.pathname === '/' ? '' : url.pathname.startsWith('/_hub/') ? url.pathname.slice(1) : decodeURIComponent(url.pathname.split('/')[1]);
     shellPage(here).then((html) => sendText(req, res, 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', vary: 'sec-fetch-dest', 'x-app-shell': '1' }, html))
       .catch((e) => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
     return;

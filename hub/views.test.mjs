@@ -113,7 +113,7 @@ test('Hub Settings shows the Codex setting, defaulting to Off, with the meaning 
   }
 });
 
-test('the Codex segmented control posts each choice at once and repaints the saved value or a refusal', async () => {
+test('Hub Settings opens with Notifications and Polling before Codex and Rules, turns this device on, and saves each Codex choice or shows a refusal', async () => {
   const document = {};
   const { Element } = miniDom(class {}, document);
   const root = new Element('div');
@@ -123,25 +123,55 @@ test('the Codex segmented control posts each choice at once and repaints the sav
   const data = (codexShare) => settingsView({ now, st: status(now, DEFAULTS), codexShare });
   let refused = false;
   let live;
+  let subscribed = false;
+  let requested = false;
+  let sidebarChanges = 0;
+  const subscription = { toJSON: () => ({ endpoint: 'https://push.example/device' }) };
+  const registration = { pushManager: {
+    getSubscription: async () => subscribed ? subscription : null,
+    subscribe: async () => { subscribed = true; return subscription; },
+  } };
   const context = vm.createContext({
     URLSearchParams,
+    atob: (s) => Buffer.from(s, 'base64').toString('binary'),
+    navigator: { userAgent: 'Mac', serviceWorker: { getRegistration: async () => registration, register: async () => registration, ready: Promise.resolve(registration) } },
+    PushManager: class {},
+    Notification: { permission: 'default', requestPermission: () => { requested = true; return Promise.resolve('granted'); } },
     FormData: class { *[Symbol.iterator]() {} },
     BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), alive: () => true, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     RulesEditor: { mount: () => ({ set() {} }) },
     fetch: async (url, opts) => {
       posts.push({ url, opts });
+      if (url === '/_hub/push/key') return { json: async () => ({ key: 'AQID' }) };
+      if (url === '/_hub/push/subscribe') return { json: async () => ({ ok: true }) };
       return { ok: !refused, json: async () => refused ? { error: 'Could not save Codex setting.' } : data(opts.body.get('value')) };
     },
   });
   for (const file of ['ui-hub.js', 'ui-page-header.js', 'hub-kit.js', 'view-hub-settings.js']) {
     vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
   }
-  context.HubKit.device = () => ({ state: () => null, busy: () => false, ready: Promise.resolve() });
   context.HubKit.live = (B, options) => { live = options; };
   const view = context.AppViews['hub-settings'];
   root.innerHTML = view.markup();
-  view.create(root, '/_hub', {});
+  view.create(root, '/_hub', { sidebarChanged: () => sidebarChanges++ });
   live.paint(data());
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(root.querySelectorAll('h2.label').map((h) => h.textContent), ['Notifications', 'Polling', 'Codex', 'Rules for every board']);
+  assert.deepEqual(root.querySelectorAll('form input[name="set"]').map((input) => input.value), ['on', 'weekends']);
+  assert.ok(root.querySelector('[data-snooze-open]'));
+  assert.match(root.textContent, /Away from the Mac/);
+  const polling = root.querySelector('a[href="/_hub/settings/polling"]');
+  assert.match(polling.textContent, /3 windows, 58 checks a day/);
+  const enable = root.querySelector('[data-device="on"]');
+  assert.equal(enable.textContent, 'Turn on');
+  for (const l of listeners.filter((l) => l.target === root && l.type === 'click')) l.fn({ target: enable });
+  assert.equal(requested, true);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(subscribed, true);
+  assert.equal(sidebarChanges, 1);
+  assert.equal(root.querySelector('[data-device="test"]').textContent, 'Test');
+  assert.match(root.textContent, /On · checks every 15 min/);
+  assert.ok(posts.some(({ url, opts }) => url === '/_hub/push/subscribe' && JSON.parse(opts.body).endpoint === 'https://push.example/device'));
   const selected = () => root.querySelector('.segments button[aria-pressed="true"]').value;
   const submit = (value) => {
     const form = root.querySelector('.segments');

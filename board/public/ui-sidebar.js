@@ -9,7 +9,6 @@
   const svg = (paths, size = 17) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
   const ICONS = {
     bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
-    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     sliders: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
     pulse: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
     close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
@@ -19,9 +18,7 @@
   // The Hub group's rows, in the order they show.
   const FOOT = [
     { href: '/_hub/', title: 'Hub', icon: tile('pulse', '#64748b') },
-    { href: '/_hub/settings', title: 'Notifications', icon: tile('bell', '#ef4444') },
-    { href: '/_hub/settings/polling', title: 'Polling', icon: tile('clock', '#3b82f6') },
-    { href: '/_hub/settings#rules', title: 'Settings', icon: tile('sliders', '#6b7280') },
+    { href: '/_hub/settings', title: 'Settings', icon: tile('sliders', '#6b7280') },
   ];
   const siteHref = (s) => `/${encodeURIComponent(s.route)}/`;
 
@@ -65,7 +62,7 @@
     return (data?.sites || []).reduce((n, s) => n + (s.route === here ? 0 : Number(s.count) || 0), 0);
   }
 
-  // data: /_hub/sidebar.json. here: this page's route, or '_hub' on the hub's page. device: this device's push
+  // data: /_hub/sidebar.json. here: a site's route or a hub page's path without its leading slash. device: this device's push
   // subscription as sidebar.js finds it, 'on' | 'off' | 'blocked' | 'install' (iOS outside the Home Screen app), or
   // null while unknown or unsupported. switching: switch mode shows, each row with its key and the hint at the foot.
   function sidebar(data, { here = '', device = null, switching = false } = {}) {
@@ -83,10 +80,10 @@
     const hub = data?.hub;
     const subs = {
       '/_hub/': hub ? `<span class="sb-status">${word(hub.tone, hub.word)}<span>${esc(hub.detail)}</span></span>` : '',
-      '/_hub/settings': notifySub ? `<span class="sb-status">${notifySub}</span>` : '',
-      '/_hub/settings/polling': esc(data?.polling?.text || ''),
-      '/_hub/settings#rules': 'Rules for every board',
+      '/_hub/settings': device === 'off' || device === 'blocked' || n.state === 'off' || n.state === 'held'
+        ? `<span class="sb-status">${notifySub}</span>` : 'Notifications, polling and rules',
     };
+    const selected = here.startsWith('_hub/settings/') ? '/_hub/settings' : `/${here.replace(/\/$/, '')}`;
     const close = `<div class="nav"><button type="button" class="sb-close" data-sidebar-close aria-label="Close boards">${svg(ICONS.close, 20)}</button></div>`;
     return header({ lead: 'logo', title: 'Boards', level: 2, controls: false, trail: close, logoSrc: '/_hub/kickflip.png',
       leadAttrs: { 'aria-label': 'Hide boards', title: 'Hide boards', 'data-sidebar-close': '' } })
@@ -94,7 +91,7 @@
       + `<div class="sb-group">${boards.map(siteRow).join('') || '<p class="sb-empty">No boards yet. In a Claude session, run /join-web-ts &lt;route&gt; --template board.</p>'}</div>`
       + (pages.length ? `<div class="sb-label">Pages</div><div class="sb-group">${pages.map(siteRow).join('')}</div>` : '')
       + `<div class="sb-foot"><div class="sb-label">Hub</div><div class="sb-group">`
-      + FOOT.map((f) => row({ ...f, on: f.href === '/_hub/' && here === '_hub', sub: subs[f.href], key: keys?.get(f.href) })).join('')
+      + FOOT.map((f) => row({ ...f, on: f.href.replace(/\/$/, '') === selected, sub: subs[f.href], key: keys?.get(f.href) })).join('')
       + `</div></div>`
       + (switching ? '<div class="ks-hint" role="status"><b>Switch:</b> press a key · Esc to cancel<i class="ks-bar"></i></div>' : '');
   }

@@ -39,9 +39,11 @@
 ${deviceRow(device.state(d.device))}
 ${notificationRows(d)}
 ${d.presence ? row({ icon: tile('laptop', 'var(--color-quiet)'), title: esc(d.presence.title), sub: esc(d.presence.sub), wrap: true }) : ''}
-${row({ icon: tile('clock', '#3b82f6'), title: 'Polling', sub: esc(d.polling), wrap: true, trail: CHEVRON, href: '/_hub/settings/polling' })}
 </div>
-<p class="note">Pushes come only when something needs you. Questions go at once unless held overnight, snoozed or for the weekend; then they wait and go when the hold ends. Urgent pushes go through those holds. Needs you, the badge and the daily wakes carry on either way. Polling sets the windows, the overnight hold and the daily wakes.</p>
+<p class="note">Pushes come only when something needs you. Questions go at once unless held overnight, snoozed or for the weekend; then they wait and go when the hold ends. Urgent pushes go through those holds. Needs you, the badge and the daily wakes carry on either way.</p>
+<h2 class="label">Polling</h2>
+<div class="group">${row({ icon: tile('clock', '#3b82f6'), title: 'Polling', sub: esc(d.polling), wrap: true, trail: CHEVRON, href: '/_hub/settings/polling' })}</div>
+<p class="note">Polling sets the windows, the overnight hold and the daily wakes.</p>
 <h2 class="label" id="codex">Codex</h2>
 <div class="group"><div class="block">
 <form class="segments" method="post" action="/_hub/settings/codex" role="group" aria-labelledby="codex" aria-describedby="codexDescription codexNote">

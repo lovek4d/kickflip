@@ -227,15 +227,30 @@ test("the sidebar's head is the page header, whose logo and ✕ close it, then i
     hub: { tone: 'ok', word: 'Healthy', detail: '4 of 4 sites up' }, notifications: { state: 'on', text: 'On' }, polling: { text: 'Every 15 min · next 4:45pm' },
   };
   const html = ui.sidebar(data, { here: 'ios', device: 'on' });
-  assert.equal(text(html), 'Boards IOS 2 need you SHOP HUB Pages LEARN Hub Hub Healthy 4 of 4 sites up Notifications On Polling Every 15 min · next 4:45pm Settings Rules for every board');
+  assert.equal(text(html), 'Boards IOS 2 need you SHOP HUB Pages LEARN Hub Hub Healthy 4 of 4 sites up Settings Notifications, polling and rules');
+  const foot = (html) => html.slice(html.indexOf('<div class="sb-foot">'));
+  assert.deepEqual([...foot(html).matchAll(/href="([^"]+)"/g)].map((m) => m[1]), ['/_hub/', '/_hub/settings']);
   assert.match(html, /^<header class="top"><div class="brand"><a class="hub" href="\/_hub\/" aria-label="Hide boards" title="Hide boards" data-sidebar-close=""><img src="\/_hub\/kickflip\.png" alt=""><\/a><h2>Boards<\/h2><\/div><div class="nav"><button type="button" class="sb-close" data-sidebar-close aria-label="Close boards"><svg [^>]*>.*?<\/svg><\/button><\/div><\/header>/);
   assert.doesNotMatch(html, /<h1|id="refresh"|settingsLink/);
   assert.match(html, /<a class="sb-row on" href="\/ios\/" aria-current="page"><i data-r="ios"><\/i>/);
   assert.match(html, /href="\/_hub\/"[^>]*>.*Hub<\/span>/);
   assert.equal(ui.othersWaiting(data, 'ios'), 4);
   assert.equal(ui.othersWaiting(data, '_hub'), 6);
-  assert.match(text(ui.sidebar(data, { here: 'ios', device: 'off' })), /^Boards Turn on notifications Off on this device IOS.* Notifications Off on this device /);
-  assert.match(text(ui.sidebar({ ...data, notifications: { state: 'off', text: 'Off' } }, { device: 'on' })), / Notifications Off Polling /);
+  for (const [device, notifications, status, urgent] of [
+    ['off', data.notifications, 'Off on this device', true],
+    ['blocked', data.notifications, 'Blocked on this device', true],
+    ['on', { state: 'off', text: 'Off' }, 'Off', true],
+    ['on', { state: 'held', text: 'Snoozed until 6pm' }, 'Snoozed until 6pm', false],
+    ['on', { state: 'held', text: 'Off on weekends' }, 'Off on weekends', false],
+  ]) {
+    const settings = foot(ui.sidebar({ ...data, notifications }, { device }));
+    assert.match(text(settings), new RegExp(`Settings ${status}$`));
+    assert.equal(settings.includes('word t-needs'), urgent);
+  }
+  for (const here of ['_hub', '_hub/', '_hub/settings', '_hub/settings/polling']) {
+    const selected = [...ui.sidebar(data, { here }).matchAll(/<a class="sb-row on" href="([^"]+)" aria-current="page"/g)].map((m) => m[1]);
+    assert.deepEqual(selected, [here.startsWith('_hub/settings') ? '/_hub/settings' : '/_hub/'], here);
+  }
   assert.match(ui.sidebar({ sites: [] }), /No boards yet/);
 });
 
@@ -247,13 +262,13 @@ test("switch mode numbers the first nine boards in sidebar order, and gives ever
   const keys = (sites) => plain(ui.switchKeys({ sites })).map((k) => [k.title, k.num ?? null, k.letter ?? null]);
   assert.deepEqual(keys(live), [
     ['Backend Audit', '1', 'b'], ['Hub Orchestrator', '2', 'h'], ['iOS Orchestrator', '3', 'i'], ['Shipyard Orchestrator', '4', 's'], ['Software Pipeline', '5', 'o'],
-    ['Sync V2.1 course', null, 'y'], ['Hub', null, 'u'], ['Notifications', null, 'n'], ['Polling', null, 'p'], ['Settings', null, 'e'],
+    ['Sync V2.1 course', null, 'y'], ['Hub', null, 'u'], ['Settings', null, 'e'],
   ]);
 
   const added = [...live.slice(0, 2), site('inkwell', 'Inkwell', '2026-10-30T10:00:00Z'), ...live.slice(2)];
   assert.deepEqual(keys(added), [
     ['Backend Audit', '1', 'b'], ['Hub Orchestrator', '2', 'h'], ['Inkwell', '3', 'n'], ['iOS Orchestrator', '4', 'i'], ['Shipyard Orchestrator', '5', 's'], ['Software Pipeline', '6', 'o'],
-    ['Sync V2.1 course', null, 'y'], ['Hub', null, 'u'], ['Notifications', null, 't'], ['Polling', null, 'p'], ['Settings', null, 'e'],
+    ['Sync V2.1 course', null, 'y'], ['Hub', null, 'u'], ['Settings', null, 'e'],
   ]);
 
   const many = [site('a0', 'Zed One'), site('a1', 'Zed Two', '2026-10-21T00:00:00Z'), ...Array.from({ length: 8 }, (_, i) => site(`a${i + 2}`, `Q${i + 2}`, '2026-10-22T00:00:00Z'))];
