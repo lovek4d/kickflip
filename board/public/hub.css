@@ -67,6 +67,10 @@
 .hub-view .field input.toggle { width:1.4rem; height:1.4rem; min-height:0; padding:0; accent-color:var(--accent); }
 .hub-view .field input:focus { outline:2px solid var(--accent-soft); border-color:var(--accent); }
 .hub-view .note { margin:6px 2px 0; color:var(--muted); font-size:12px; }
+.hub-view .segments { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:3px; padding:3px; border:1px solid var(--line); border-radius:9px; background:var(--chip); }
+.hub-view .segments button { min-width:0; min-height:44px; padding:6px; border:1px solid transparent; border-radius:6px; background:transparent; color:var(--muted); font:inherit; cursor:pointer; }
+.hub-view .segments button[aria-pressed="true"] { border-color:var(--accent); background:var(--accent-soft); color:var(--accent); font-weight:600; }
+.hub-view .segments button:focus-visible { outline:2px solid var(--accent); outline-offset:-3px; }
 .hub-view .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
 .hub-view .actions { margin-top:1.2rem; display:flex; justify-content:flex-end; }
 .hub-view .flash { animation:none; margin-top:1rem; padding:10px 12px; border-radius:10px; background:var(--panel); border:1px solid var(--line); color:var(--color-success); }

@@ -61,6 +61,11 @@
 //   web-ts notifications [on | off | snooze <length> | unsnooze | weekends on|off]
 //               sets the hub Settings Notifications controls and prints them; off drops the queued pushes.
 //               A snooze length is a hub/schedule.mjs snoozeEnd choice. Without a change it only prints them
+//   web-ts codex-share [auto|always|off]
+//               prints the Codex setting for every board; with a value, saves it and prints it. Missing means off.
+//               auto: Codex builds and reviews; while Codex is out of usage, Opus builders take over until it resets.
+//               always (Always on): Codex builds and reviews; while Codex is out of usage, that work pauses until a usage-reset check succeeds.
+//               off (also when unset): no Codex.
 //   web-ts poll-now [--keep-queue]
 //               asks the hub for one poll now (GitHub check, github-change events,
 //               checked.json, then the queue unless --keep-queue) and prints its result
@@ -494,6 +499,14 @@ const commands = {
     let r;
     try { r = await setNotifications(change); } catch (e) { if (e.status === 400) fail(e.message, 2); throw e; }
     out(r.dropped ? { ...r.notifications, dropped: r.dropped } : r.notifications);
+  },
+
+  async 'codex-share'() {
+    const bad = 'codex-share takes auto, always, or off';
+    if (rest.length > 1 || (rest.length && args._.length !== 1)) fail(bad, 2);
+    const { readCodexShare, setCodexShare } = await import(path.join(SKILL, 'hub', 'push.mjs'));
+    if (!rest.length) return out(readCodexShare());
+    try { out(setCodexShare(rest[0])); } catch (e) { if (e.status === 400) fail(e.message, 2); throw e; }
   },
 
   async 'poll-now'() {

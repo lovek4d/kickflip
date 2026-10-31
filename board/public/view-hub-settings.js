@@ -1,6 +1,6 @@
 // Hub Settings, /_hub/settings, a view of the app shell (shell.js): notifications on or off, snooze, off on weekends,
-// whether pushes go to the Mac only because the owner is at it, the polling summary and the rules for every board, in
-// hub/views.mjs settingsView's words from GET /_hub/api/settings.
+// whether pushes go to the Mac only because the owner is at it, the polling summary, Codex setting and rules for every
+// board, in hub/views.mjs settingsView's words from GET /_hub/api/settings.
 // Each toggle and snooze posts to /_hub/settings/notifications and saves at once. The rules editor saves through POST
 // /_hub/settings/rules and marks [data-dirty] while an edit is unsaved, so the shell asks before leaving then. The
 // data refreshes every 30 seconds while nothing is being edited.
@@ -41,7 +41,15 @@ ${notificationRows(d)}
 ${d.presence ? row({ icon: tile('laptop', 'var(--color-quiet)'), title: esc(d.presence.title), sub: esc(d.presence.sub), wrap: true }) : ''}
 ${row({ icon: tile('clock', '#3b82f6'), title: 'Polling', sub: esc(d.polling), wrap: true, trail: CHEVRON, href: '/_hub/settings/polling' })}
 </div>
-<p class="note">Pushes come only when something needs you. Questions go at once unless held overnight, snoozed or for the weekend; then they wait and go when the hold ends. Urgent pushes go through those holds. Needs you, the badge and the daily wakes carry on either way. Polling sets the windows, the overnight hold and the daily wakes.</p>`;
+<p class="note">Pushes come only when something needs you. Questions go at once unless held overnight, snoozed or for the weekend; then they wait and go when the hold ends. Urgent pushes go through those holds. Needs you, the badge and the daily wakes carry on either way. Polling sets the windows, the overnight hold and the daily wakes.</p>
+<h2 class="label" id="codex">Codex</h2>
+<div class="group"><div class="block">
+<form class="segments" method="post" action="/_hub/settings/codex" role="group" aria-labelledby="codex" aria-describedby="codexDescription codexNote">
+${d.codex.choices.map((c) => `<button type="submit" name="value" value="${esc(c.value)}" aria-pressed="${c.on}">${esc(c.label)}</button>`).join('')}
+</form>
+<p class="note" id="codexDescription" role="status">${esc(d.codex.description)}</p>
+</div></div>
+<p class="note" id="codexNote">${esc(d.codex.note)}</p>`;
   }
 
   (globalThis.AppViews ||= {})['hub-settings'] = {

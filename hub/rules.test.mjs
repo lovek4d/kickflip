@@ -96,6 +96,44 @@ test('writing the hub rules keeps every other key of settings.json, and a settin
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
+test('codex-share prints, sets and refuses values while preserving the other hub settings', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-share-'));
+  const cli = (...args) => spawnSync(process.execPath, [path.join(HUB_DIR, '..', 'bin', 'web-ts.mjs'), 'codex-share', ...args], {
+    env: { ...process.env, HOME: home }, encoding: 'utf8',
+  });
+  const file = path.join(home, '.claude', 'web-ts', 'settings.json');
+  try {
+    const help = spawnSync(process.execPath, [path.join(HUB_DIR, '..', 'bin', 'web-ts.mjs')], {
+      env: { ...process.env, HOME: home }, encoding: 'utf8',
+    });
+    assert.equal(help.status, 0);
+    assert.match(help.stdout, /Missing means off\./);
+    assert.match(help.stdout, /auto: Codex builds and reviews; while Codex is out of usage, Opus builders take over until it resets\./);
+    assert.match(help.stdout, /always \(Always on\): Codex builds and reviews; while Codex is out of usage, that work pauses until a usage-reset check succeeds\./);
+    assert.match(help.stdout, /off \(also when unset\): no Codex\./);
+    assert.equal(cli().stdout, 'off\n');
+    assert.equal(fs.existsSync(file), false);
+    const first = cli('always');
+    assert.deepEqual([first.status, first.stdout, first.stderr], [0, 'always\n', '']);
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { codexShare: 'always' });
+    const other = { polling: { windows: [{ from: '00:00', every_minutes: 120 }] }, notifications: { on: false }, rules: saved, other_key: { keep: true } };
+    fs.writeFileSync(file, JSON.stringify(other));
+    assert.deepEqual([cli().status, cli().stdout], [0, 'off\n']);
+    for (const value of ['off', 'always', 'auto']) {
+      const r = cli(value);
+      assert.deepEqual([r.status, r.stdout, r.stderr], [0, `${value}\n`, '']);
+      assert.equal(cli().stdout, `${value}\n`);
+      assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { ...other, codexShare: value });
+    }
+    const before = fs.readFileSync(file, 'utf8');
+    for (const args of [['on'], [''], ['Auto'], ['toString'], ['--help'], ['auto', 'off'], ['auto', '--json']]) {
+      const r = cli(...args);
+      assert.deepEqual([r.status, r.stdout, r.stderr], [2, '', 'web-ts: codex-share takes auto, always, or off\n']);
+      assert.equal(fs.readFileSync(file, 'utf8'), before);
+    }
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
 test("hub Settings edits the hub rules, and a save that changes them sends every board a rules event", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-rules-'));
   const port = 49000 + Math.floor(Math.random() * 900);
@@ -104,7 +142,7 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
   const web = path.join(home, '.claude', 'web-ts');
   fs.mkdirSync(path.join(siteDir, 'data'), { recursive: true });
   fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ title: 'Orch', items: 'waves' }));
-  fs.writeFileSync(path.join(web, 'settings.json'), JSON.stringify({ polling: { windows: [{ from: '00:00', every_minutes: 120 }], hold_overnight: false, wakes: [] }, other_key: 'kept' }));
+  fs.writeFileSync(path.join(web, 'settings.json'), JSON.stringify({ polling: { windows: [{ from: '00:00', every_minutes: 120 }], hold_overnight: false, wakes: [] }, notifications: { on: true, weekends_off: false, snoozed_until: null }, other_key: 'kept' }));
   fs.writeFileSync(path.join(web, 'manifest.json'), JSON.stringify({ version: 1, sites: {
     orch: { dir: siteDir, port: sitePort, cmd: [process.execPath, path.join(HUB_DIR, '..', 'board', 'server.mjs'), siteDir] },
   } }));
@@ -141,6 +179,40 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
     const bad = await post({ rules: [{ text: ' ' }], base: [] });
     assert.equal(bad.status, 400);
     assert.match((await bad.json()).error, /non-empty/);
+
+    const getSettings = async () => (await fetch(`${base}/_hub/api/settings`)).json();
+    assert.equal((await getSettings()).codexShare, 'off');
+    const postCodex = (body, json = true) => fetch(`${base}/_hub/settings/codex`, {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...(json ? { accept: 'application/json' } : {}) }, body, redirect: 'manual',
+    });
+    const file = path.join(web, 'settings.json');
+    const before = JSON.parse(fs.readFileSync(file, 'utf8'));
+    for (const value of ['always', 'off', 'auto']) {
+      const r = await postCodex(`value=${value}`);
+      assert.equal(r.status, 200);
+      const out = await r.json();
+      assert.equal(out.codexShare, value);
+      assert.deepEqual(out, await getSettings());
+      assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { ...before, codexShare: value });
+    }
+    const unchanged = fs.readFileSync(file, 'utf8');
+    for (const body of ['', 'value=', 'value=on', 'value=Auto', 'value=toString']) {
+      const r = await postCodex(body);
+      assert.equal(r.status, 400);
+      assert.deepEqual(await r.json(), { error: 'codex-share takes auto, always, or off' });
+      assert.equal(fs.readFileSync(file, 'utf8'), unchanged);
+    }
+    const redirect = await postCodex('value=always', false);
+    assert.deepEqual([redirect.status, redirect.headers.get('location')], [303, '/_hub/settings']);
+    const refused = await postCodex('value=bad', false);
+    assert.equal(refused.status, 400);
+    assert.equal(await refused.text(), 'codex-share takes auto, always, or off');
+    const notify = await fetch(`${base}/_hub/settings/notifications`, {
+      method: 'POST', headers: { accept: 'application/json' }, body: 'set=weekends&value=on',
+    });
+    assert.equal(notify.status, 200);
+    assert.equal((await notify.json()).codexShare, 'always');
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).codexShare, 'always');
   } finally {
     const exited = new Promise((resolve) => hub.once('exit', resolve));
     hub.kill('SIGTERM');

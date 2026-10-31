@@ -34,6 +34,7 @@
 //   /_hub/settings/notifications POST set=on|weekends with value=on (absent for off), or snooze=<push.mjs
 //                     setNotifications choice | off> → /_hub/api/settings's JSON, or 400 {error} when refused
 //                     (303 to ?refused=snooze)
+//   /_hub/settings/codex POST value=auto|always|off → /_hub/api/settings's JSON, or 400 {error}
 //   /_hub/settings/polling POST one schedule.mjs editPolling change {op, w, value} → /_hub/api/polling's JSON for the
 //                     window to show, or 400 {error}
 //   /_hub/push/flush  POST sends the queued pushes now → {sent, count, ok, message}
@@ -79,7 +80,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import zlib from 'node:zlib';
-import { publicKey, addSubscription, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, deliver, pushRoute } from './push.mjs';
+import { publicKey, addSubscription, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, deliver, pushRoute } from './push.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, readPrompts, savePrompts, shown } from './prompts.mjs';
 import { clock, nextSlot, windowAt, hold, heldUntil, holdLine, editPolling } from './schedule.mjs';
 import { capital, every, hubView, settingsView, pollingView, flushView, SNOOZE_REFUSED } from './views.mjs';
@@ -515,7 +516,7 @@ async function hubData(req) {
     prompts: pendingFor(null).map(shown),
   };
 }
-const settingsData = async () => { const now = new Date(); return settingsView({ now, st: queueStatus(now), rules: readHubRules(), route: await pushRoute() }); };
+const settingsData = async () => { const now = new Date(); return settingsView({ now, st: queueStatus(now), rules: readHubRules(), codexShare: readCodexShare(), route: await pushRoute() }); };
 const pollingData = (select) => { const now = new Date(); return pollingView({ now, st: queueStatus(now), poll: pollState(), select }); };
 
 const redirect = (res, location) => { res.writeHead(303, { location, 'cache-control': 'no-store' }); res.end(); };
@@ -578,6 +579,14 @@ async function hubRoute(req, res, url) {
       return json ? sendJSON(400, { error: SNOOZE_REFUSED }) : redirect(res, '/_hub/settings?refused=snooze');
     }
     if (r.dropped) log(`notifications off: dropped ${r.dropped} queued push${r.dropped === 1 ? '' : 'es'}`);
+    return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/settings');
+  }
+  if (p === '/_hub/settings/codex' && req.method === 'POST') {
+    const f = new URLSearchParams(await readBody(req));
+    try { setCodexShare(f.get('value')); } catch (e) {
+      if (e.status !== 400) throw e;
+      return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
+    }
     return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/settings');
   }
   // One schedule.mjs editPolling change {op, w, value}.

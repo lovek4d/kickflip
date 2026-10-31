@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import { miniDom } from '../board/mini-dom.mjs';
 import { DEFAULTS, windowAt, hold, flushAt } from './schedule.mjs';
 import { hubView, settingsView, pollingView, pollLine, siteHealth, flushView } from './views.mjs';
 
@@ -86,6 +89,85 @@ test('Hub Settings says whether pushes go, when a snooze ends and what each snoo
   assert.deepEqual([off.snoozed, off.snooze, off.sheet, off.presence], [null, null, null, null]);
   assert.deepEqual([off.on.on, off.on.sub], [false, 'Off. Every push is dropped, urgent ones too. Needs you and the badge still update.']);
   assert.equal(off.device, 'checks every 15 min until 6:00pm; notifications are off');
+});
+
+test('Hub Settings shows the Codex setting, defaulting to Off, with the meaning of each choice', () => {
+  const now = t(10);
+  const view = (extra = {}) => settingsView({ now, st: status(now, DEFAULTS), ...extra });
+  assert.equal(view().codexShare, 'off');
+  assert.equal(view().codex.choices.find((c) => c.on).value, 'off');
+  assert.equal(view().codex.description, 'No Codex.');
+  const meanings = {
+    always: 'Codex builds and reviews; while Codex is out of usage, that work pauses until a usage-reset check succeeds.',
+    auto: 'Codex builds and reviews; while Codex is out of usage, Opus builders take over until it resets.',
+    off: 'No Codex.',
+  };
+  for (const [codexShare, description] of Object.entries(meanings)) {
+    const v = view({ codexShare });
+    assert.equal(v.codexShare, codexShare);
+    assert.deepEqual(v.codex.choices.map((c) => [c.value, c.label, c.on]), [
+      ['always', 'Always on', codexShare === 'always'], ['auto', 'Auto', codexShare === 'auto'], ['off', 'Off', codexShare === 'off'],
+    ]);
+    assert.equal(v.codex.description, description);
+    assert.equal(v.codex.note, "Applies to every board. A session's own /codex-share overrides it for that session.");
+  }
+});
+
+test('the Codex segmented control posts each choice at once and repaints the saved value or a refusal', async () => {
+  const document = {};
+  const { Element } = miniDom(class {}, document);
+  const root = new Element('div');
+  const listeners = [];
+  const posts = [];
+  const now = t(10);
+  const data = (codexShare) => settingsView({ now, st: status(now, DEFAULTS), codexShare });
+  let refused = false;
+  let live;
+  const context = vm.createContext({
+    URLSearchParams,
+    FormData: class { *[Symbol.iterator]() {} },
+    BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), alive: () => true, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    RulesEditor: { mount: () => ({ set() {} }) },
+    fetch: async (url, opts) => {
+      posts.push({ url, opts });
+      return { ok: !refused, json: async () => refused ? { error: 'Could not save Codex setting.' } : data(opts.body.get('value')) };
+    },
+  });
+  for (const file of ['ui-hub.js', 'ui-page-header.js', 'hub-kit.js', 'view-hub-settings.js']) {
+    vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
+  }
+  context.HubKit.device = () => ({ state: () => null, busy: () => false, ready: Promise.resolve() });
+  context.HubKit.live = (B, options) => { live = options; };
+  const view = context.AppViews['hub-settings'];
+  root.innerHTML = view.markup();
+  view.create(root, '/_hub', {});
+  live.paint(data());
+  const selected = () => root.querySelector('.segments button[aria-pressed="true"]').value;
+  const submit = (value) => {
+    const form = root.querySelector('.segments');
+    const button = form.querySelector(`button[value="${value}"]`);
+    return listeners.find((l) => l.target === root && l.type === 'submit').fn({ target: form,
+      submitter: { name: button.getAttribute('name'), value: button.value }, preventDefault() {} });
+  };
+  assert.equal(selected(), 'off');
+  assert.equal(root.querySelector('#codexDescription').textContent, 'No Codex.');
+  assert.deepEqual(root.querySelectorAll('.segments button').map((b) => b.textContent), ['Always on', 'Auto', 'Off']);
+  assert.equal(root.querySelector('.segments').getAttribute('aria-labelledby'), 'codex');
+  assert.match(root.querySelector('#codexNote').textContent, /every board.*\/codex-share overrides/);
+  for (const value of ['always', 'off', 'auto']) {
+    await submit(value);
+    assert.equal(selected(), value);
+    assert.equal(root.querySelector('#codexDescription').textContent, data(value).codex.description);
+    const { url, opts } = posts.at(-1);
+    assert.equal(url, '/_hub/settings/codex');
+    assert.equal(opts.method, 'POST');
+    assert.equal(opts.headers.accept, 'application/json');
+    assert.equal(opts.body.toString(), `value=${value}`);
+  }
+  refused = true;
+  await submit('off');
+  assert.equal(selected(), 'auto');
+  assert.equal(root.querySelector('[role="alert"]').textContent, 'Could not save Codex setting.');
 });
 
 test("the hub page lists Boards and Pages apart with each site's health and links, and says what the hub runs, polls and holds", () => {

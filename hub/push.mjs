@@ -147,9 +147,22 @@ export function readSettingsFile() {
 }
 // Replaces the whole file; callers spread readSettingsFile() so other keys, such as rules (rules.mjs), survive.
 export function writeSettingsFile(value) {
+  fs.mkdirSync(path.dirname(SETTINGS), { recursive: true });
   const tmp = `${SETTINGS}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n');
   fs.renameSync(tmp, SETTINGS);
+}
+
+const CODEX_SHARE_VALUES = ['auto', 'always', 'off'];
+export function readCodexShare() {
+  const value = readSettingsFile().codexShare;
+  return CODEX_SHARE_VALUES.includes(value) ? value : 'off';
+}
+
+export function setCodexShare(value) {
+  if (!CODEX_SHARE_VALUES.includes(value)) throw Object.assign(new Error('codex-share takes auto, always, or off'), { status: 400 });
+  writeSettingsFile({ ...readSettingsFile(), codexShare: value });
+  return value;
 }
 
 // The saved polling settings: an old `push` block is migrated, and a missing or invalid file gives the defaults.

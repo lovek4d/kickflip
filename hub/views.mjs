@@ -79,12 +79,18 @@ function timeLeft(until, now) {
 }
 const snoozedUntil = (n, now) => (n.on && n.snoozed_until && new Date(n.snoozed_until) > now ? new Date(n.snoozed_until) : null);
 
+const CODEX_CHOICES = [
+  { value: 'always', label: 'Always on', description: 'Codex builds and reviews; while Codex is out of usage, that work pauses until a usage-reset check succeeds.' },
+  { value: 'auto', label: 'Auto', description: 'Codex builds and reviews; while Codex is out of usage, Opus builders take over until it resets.' },
+  { value: 'off', label: 'Off', description: 'No Codex.' },
+];
+
 // Hub Settings: the on/off, snooze and weekend controls (docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md),
-// the polling summary and the hub rules. The snooze sheet is null while notifications are off; Until tonight shows only
+// the polling summary, Codex setting and hub rules. The snooze sheet is null while notifications are off; Until tonight shows only
 // while it ends today, and while snoozed the sheet extends the snooze, so a choice ending no later than now's snooze
 // is disabled. route is push.mjs pushRoute(): where an action push goes now
 // (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md).
-export function settingsView({ now, st, rules = [], route = { atMac: false, desktops: 0 } }) {
+export function settingsView({ now, st, rules = [], codexShare = 'off', route = { atMac: false, desktops: 0 } }) {
   const s = st.settings;
   const n = s.notifications;
   const [first, last] = [s.windows[0], s.windows.at(-1)];
@@ -94,6 +100,12 @@ export function settingsView({ now, st, rules = [], route = { atMac: false, desk
     .filter((c) => c.end && (c.value !== 'tonight' || localDay(c.end) === localDay(now)))
     .map(({ value, label, end }) => ({ value, label, until: `until ${clock(end, now)}`, disabled: Boolean(until && end <= until) }));
   return {
+    codexShare,
+    codex: {
+      choices: CODEX_CHOICES.map(({ value, label }) => ({ value, label, on: value === codexShare })),
+      description: CODEX_CHOICES.find((c) => c.value === codexShare).description,
+      note: "Applies to every board. A session's own /codex-share overrides it for that session.",
+    },
     snoozed: until ? { title: `Snoozed until ${clock(until, now)}`, sub: `${timeLeft(until, now)} · urgent pushes still go` } : null,
     device: nowLine(st, now),
     on: {
