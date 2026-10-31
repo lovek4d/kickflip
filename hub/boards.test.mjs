@@ -7,6 +7,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startFakeDevice } from './fake-device.mjs';
+import { freePorts } from '../shared/test-helpers.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SKILL = path.join(HUB_DIR, '..');
@@ -29,7 +30,8 @@ const liveSession = (sessionId) => {
   return c;
 };
 
-const port = 50000 + Math.floor(Math.random() * 900);
+const [port, orchPort, shopPort, plainPort, stubbornPort, latePort, napPort, hubPort, hubBoardPort, devPort, closePort] = await freePorts(11);
+process.env.WEB_TS_HUB_PORT = String(port);
 const base = `http://127.0.0.1:${port}`;
 const boardCmd = (route) => [process.execPath, path.join(SKILL, 'board', 'server.mjs'), site(route)];
 const NOW_SINCE = ago(60);
@@ -45,9 +47,9 @@ write(site('shop', 'data', 'wave.json'), { repo: 'o/r', items: [{ id: 'S1', pr: 
 write(site('bare', 'board.json'), { items: 'data/items.json' });
 write(site('bare', 'data', 'items.json'), { items: [{ id: 'B1', pr: 5 }] });
 write(claude('web-ts', 'manifest.json'), { version: 1, sites: {
-  orch: { dir: site('orch'), port: port + 1, cmd: boardCmd('orch'), watch: ['data/events.jsonl'], owner: { session: 's-orch', since: NOW_SINCE } },
-  shop: { dir: site('shop'), port: port + 2, cmd: boardCmd('shop'), watch: ['data/events.jsonl'], owner: { session: 's-shop', since: NOW_SINCE } },
-  plain: { dir: site('plain'), port: port + 3, cmd: ['/bin/sleep', '600'] },
+  orch: { dir: site('orch'), port: orchPort, cmd: boardCmd('orch'), watch: ['data/events.jsonl'], owner: { session: 's-orch', since: NOW_SINCE } },
+  shop: { dir: site('shop'), port: shopPort, cmd: boardCmd('shop'), watch: ['data/events.jsonl'], owner: { session: 's-shop', since: NOW_SINCE } },
+  plain: { dir: site('plain'), port: plainPort, cmd: ['/bin/sleep', '600'] },
 } });
 
 test('the registry lists every board site, over the waves or its own file, with the open PRs on its cards and its reviewers', () => {
@@ -232,7 +234,7 @@ test('closing a board through the hub requires JSON, same-origin access and its 
   write(site(route, 'board.json'), { title: 'Close Me', items: 'data/items.json', slug: route });
   write(site(route, 'data', 'items.json'), { repo: 'o/r', items: [{ id: 'C1', pr: 99 }] });
   write(site(route, 'data', 'agents', 'C1.json'), { label: 'Builder', started: new Date().toISOString() });
-  const entry = { dir, port: port + 4, cmd: boardCmd(route), owner: { session: 's-close', repo: home } };
+  const entry = { dir, port: closePort, cmd: boardCmd(route), owner: { session: 's-close', repo: home } };
   write(file, { ...original, sites: { ...original.sites, [route]: entry } });
   const headers = { 'content-type': 'application/json', origin: base, 'sec-fetch-site': 'same-origin' };
   const post = (path, body, h = headers) => fetch(base + path, { method: 'POST', headers: h, body: JSON.stringify(body) });
@@ -419,7 +421,7 @@ test('a board whose stopped session the hub can wake is asleep and pushes nothin
   write(site('nap', 'board.json'), { title: 'Nap', items: 'data/items.json' });
   write(site('nap', 'data', 'events.jsonl'), JSON.stringify({ id: 'e-nap', ts: ago(30), kind: 'ask', data: {} }) + '\n');
   const owner = { session: 's-nap', since: NOW_SINCE, repo: home };
-  const manifest = (o = owner) => ({ sites: { nap: { dir: site('nap'), port: port + 6, cmd: boardCmd('nap'), watch: ['data/events.jsonl'], owner: o } } });
+  const manifest = (o = owner) => ({ sites: { nap: { dir: site('nap'), port: napPort, cmd: boardCmd('nap'), watch: ['data/events.jsonl'], owner: o } } });
   const [nap] = listBoards(manifest());
   const napPushes = () => pushes().filter((p) => p.tag === 'deaf-nap');
   try {
@@ -644,7 +646,6 @@ test('a starting hub flags hub-orchestrator as the hub board once, only while no
   const other = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'boards-migrate-')));
   const file = path.join(other, '.claude', 'web-ts', 'manifest.json');
   const board = (name, at) => ({ dir: path.join(other, name), port: at, cmd: [process.execPath, path.join(SKILL, 'board', 'server.mjs'), path.join(other, name)] });
-  const hubPort = port + 100;
   const startHub = async () => {
     const h = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: other, WEB_TS_HUB_PORT: String(hubPort), WEB_TS_CLAUDE: '/usr/bin/false' } });
     await new Promise((resolve, reject) => {
@@ -660,10 +661,10 @@ test('a starting hub flags hub-orchestrator as the hub board once, only while no
   try {
     await startHub();
     assert.equal(fs.existsSync(file), false);
-    write(file, { sites: { 'hub-orchestrator': board('hub', hubPort + 1), dev: { ...board('dev', hubPort + 2), hub: true } } });
+    write(file, { sites: { 'hub-orchestrator': board('hub', hubBoardPort), dev: { ...board('dev', devPort), hub: true } } });
     await startHub();
     assert.deepEqual([flagged(), read(file).migrated], [['dev'], ['hub-flag']]);
-    write(file, { sites: { 'hub-orchestrator': board('hub', hubPort + 1), dev: board('dev', hubPort + 2) } });
+    write(file, { sites: { 'hub-orchestrator': board('hub', hubBoardPort), dev: board('dev', devPort) } });
     await startHub();
     assert.deepEqual([flagged(), read(file).migrated], [['hub-orchestrator'], ['hub-flag']]);
     const cleared = read(file);
@@ -679,12 +680,12 @@ test('stopping the hub stops every site it started, one that ignores SIGTERM and
   const siteProcs = () => execFileSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf8' }).split('\n').filter((l) => l.includes(sitesDir)).map((l) => Number(l.trim().split(' ')[0]));
   const node = (route, script) => [process.execPath, '-e', script, site(route)];
   const manifest = read(claude('web-ts', 'manifest.json'));
-  manifest.sites.stubborn = { dir: home, port: port + 4, cmd: node('stubborn', "process.on('SIGTERM', () => {}); console.log('ready'); setInterval(() => {}, 1000)") };
+  manifest.sites.stubborn = { dir: home, port: stubbornPort, cmd: node('stubborn', "process.on('SIGTERM', () => {}); console.log('ready'); setInterval(() => {}, 1000)") };
   write(claude('web-ts', 'manifest.json'), manifest);
   const log = claude('web-ts', 'logs', 'stubborn.log');
   for (let i = 0; i < 100 && !(fs.existsSync(log) && fs.readFileSync(log, 'utf8').includes('ready')); i++) await new Promise((r) => setTimeout(r, 100));
   assert.match(fs.readFileSync(log, 'utf8'), /ready/);
-  manifest.sites.late = { dir: home, port: port + 5, cmd: node('late', 'setInterval(() => {}, 1000)') };
+  manifest.sites.late = { dir: home, port: latePort, cmd: node('late', 'setInterval(() => {}, 1000)') };
   write(claude('web-ts', 'manifest.json'), manifest);
   const exited = new Promise((resolve) => hub.once('exit', resolve));
   hub.kill('SIGTERM');

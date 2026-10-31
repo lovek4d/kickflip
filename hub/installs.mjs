@@ -13,6 +13,7 @@ export class InstallError extends Error {
 }
 
 const running = new Map();
+const finishing = new Set();
 let stopping = false;
 const KEYCHAIN = /errSecInternalComponent|keychain[^\n]*\blocked\b|\blocked\b[^\n]*keychain/i;
 const execFileAsync = promisify(execFile);
@@ -52,7 +53,9 @@ async function installWorktree(board, key, manifest) {
   } catch { return ''; }
 }
 
-async function report(site, key, logFile, code, signal, error) {
+// release() frees the card before its result line is written: a caller that sees the result and starts again at once
+// would otherwise get a 409. It waits for stopBuilder and the log read, which a new install would clobber.
+async function report(site, key, logFile, code, signal, error, release) {
   await stopBuilder(site, key, { agent: 'install' });
   const tail = [];
   let keychain = false;
@@ -64,6 +67,7 @@ async function report(site, key, logFile, code, signal, error) {
     }
   } catch (e) { tail.push(`Could not read the install log: ${e.message}`); }
   const result = code === 0 ? 'Install build finished' : `Install build failed (exit ${error ? 1 : code ?? 1})`;
+  release();
   await appendThread(site, key, { text: [result, error?.message, signal && `Stopped by ${signal}.`,
     keychain && 'The login keychain must be unlocked on the Mac.', ...tail].filter((line) => line !== false && line != null).join('\n') });
 }
@@ -97,14 +101,17 @@ export async function startInstall(input, { manifest = readManifest(), log = con
     const child = spawn(board.install_script, [key, worktree], { cwd: board.dir, stdio: ['ignore', fd, fd], detached: true });
     let spawnError;
     child.once('error', (e) => { spawnError = e; });
+    const run = { child };
+    const release = () => { if (running.get(runKey) === run) running.delete(runKey); };
     const finished = new Promise((resolve) => {
       child.once('close', (code, signal) => {
-        report(board.dir, key, logFile, code, signal, spawnError)
+        report(board.dir, key, logFile, code, signal, spawnError, release)
           .catch((e) => log(`install /${route} ${key}: could not finish records: ${e.message}`))
-          .finally(() => { running.delete(runKey); resolve(); });
+          .finally(() => { release(); finishing.delete(finished); resolve(); });
       });
     });
-    running.set(runKey, { child, finished });
+    finishing.add(finished);
+    running.set(runKey, run);
     log(`install /${route} ${key}: started; log ${logFile}`);
     return { status: 'started' };
   } catch (e) {
@@ -122,5 +129,5 @@ export async function stopInstalls() {
   const signal = (child, name) => { try { process.kill(-child.pid, name); } catch { child.kill(name); } };
   for (const { child } of runs) signal(child, 'SIGTERM');
   const force = setTimeout(() => { for (const { child } of runs) if (child.exitCode === null && child.signalCode === null) signal(child, 'SIGKILL'); }, 4000);
-  try { await Promise.all(runs.map((run) => run.finished)); } finally { clearTimeout(force); }
+  try { await Promise.all(finishing); } finally { clearTimeout(force); }
 }

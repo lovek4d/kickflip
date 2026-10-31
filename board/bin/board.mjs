@@ -144,7 +144,9 @@ A --file argument of - reads stdin.
                                                          per step: refuses while it has uncommitted changes or adds no
                                                          commit; rebases onto main when main moved, refusing on a
                                                          conflict with the rebase undone; refuses unless its full
-                                                         node --test suite passes; fast-forwards main in the repo;
+                                                         node --test suite passes, naming each failing test and
+                                                         saving the TAP output under ~/.claude/web-ts/logs;
+                                                         fast-forwards main in the repo;
                                                          restarts the hub when its code changed, else each board
                                                          server when board/ changed; removes the worktree and its
                                                          branch. Never pushes. WEB_TS_RESTART_CMD='["<cmd>"]' replaces

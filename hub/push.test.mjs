@@ -47,7 +47,7 @@ beforeEach(async () => {
   write(pushFile('subs.json'), [device.subscription]);
 });
 afterEach(async () => {
-  await device.close();
+  await device?.close();
   fs.rmSync(home, { recursive: true, force: true });
 });
 

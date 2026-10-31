@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { freePorts, until } from '../shared/test-helpers.mjs';
 
 let home, site, child, base;
 const uploads = () => path.join(site, 'data', 'uploads');
@@ -17,12 +18,12 @@ before(async () => {
   fs.mkdirSync(path.join(site, 'data'), { recursive: true });
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't' }));
   fs.writeFileSync(path.join(site, 'data', 'owner.json'), '{"items":[]}');
-  const port = 47000 + Math.floor(Math.random() * 2000);
+  const [port] = await freePorts();
   base = `http://127.0.0.1:${port}`;
   child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port) } });
   await new Promise((resolve, reject) => { child.stdout.once('data', resolve); child.once('exit', reject); });
 });
-after(() => { child.kill(); fs.rmSync(home, { recursive: true, force: true }); });
+after(() => { child?.kill(); fs.rmSync(home, { recursive: true, force: true }); });
 
 const upload = (body, name, type) => fetch(`${base}/api/upload`, { method: 'POST', headers: { 'x-filename': encodeURIComponent(name), 'content-type': type }, body });
 
@@ -80,9 +81,9 @@ test('cross-site raw uploads are refused before a file is stored', async () => {
 test('a copied starter refuses cross-site writes and accepts same-origin JSON and Node callers', async () => {
   const root = path.join(home, 'starter');
   fs.cpSync(fileURLToPath(new URL('../starter', import.meta.url)), root, { recursive: true });
-  const port = 49000 + Math.floor(Math.random() * 1000);
+  const [port] = await freePorts();
   const url = `http://127.0.0.1:${port}`;
-  const server = spawn(process.execPath, [path.join(root, 'server.mjs')], { env: { ...process.env, PORT: String(port), PREFIX: '/plain' } });
+  const server = spawn(process.execPath, [path.join(root, 'server.mjs')], { env: { ...process.env, HOME: home, PORT: String(port), PREFIX: '/plain' } });
   try {
     await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', reject); });
     const post = (headers, body = '{"kind":"message","text":"Hello"}') => fetch(`${url}/plain/_claude/events`, { method: 'POST', headers, body });
@@ -185,7 +186,9 @@ test('a watcher that just exited on an event still counts as listening, until it
   const out = [];
   watcher.stdout.on('data', (c) => out.push(String(c)));
   const exited = new Promise((resolve) => watcher.once('exit', resolve));
-  await new Promise((r) => setTimeout(r, 500));
+  await until(() => {
+    try { return JSON.parse(fs.readFileSync(path.join(site, 'data', 'watcher.json'), 'utf8')).pid === watcher.pid && fs.existsSync(path.join(site, 'data', '.watch-cursor-s1.json')); } catch { return false; }
+  }, 'watcher did not initialize its cursor');
   await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ask', text: 'Wake' }) });
   assert.equal(await exited, 0);
   assert.match(out.join(''), /^event data\/events\.jsonl /);
@@ -510,7 +513,7 @@ test('the watcher prints the hub rules, then the board rules, then the board set
     const out = [];
     watcher.stdout.on('data', (c) => out.push(String(c)));
     const exited = new Promise((resolve) => watcher.once('exit', resolve));
-    await new Promise((r) => setTimeout(r, 500));
+    await until(() => fs.existsSync(path.join(site, 'data', `.watch-cursor-${session}.json`)), 'watcher did not initialize its cursor');
     await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ask', text: 'Wake' }) });
     assert.equal(await exited, 0);
     return out.join('').trim().split('\n');

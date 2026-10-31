@@ -81,7 +81,6 @@ test("the shell's /_hub/app/ links name each file's version, and a file with non
     '<link rel="stylesheet" href="/_hub/app/style.css?v=v-style.css"><script src="/_hub/app/app.js?v=v-app.js"></script><script src="/_hub/app/gone.js"></script><link href="colors.css">');
 });
 
-// A board server's api/stream: change() sends a change signal to every page listening.
 function fakeBoard(port = 0) {
   const streams = new Set();
   const server = http.createServer((req, res) => {
@@ -91,7 +90,7 @@ function fakeBoard(port = 0) {
     streams.add(res);
     req.on('close', () => streams.delete(res));
   });
-  return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve({
+  return new Promise((resolve, reject) => server.once('error', reject).listen(port, '127.0.0.1', () => resolve({
     port: server.address().port,
     listening: () => streams.size,
     change: () => { for (const res of streams) res.write(`event: change\ndata: {"at":"${new Date().toISOString()}"}\n\n`); },
@@ -99,7 +98,6 @@ function fakeBoard(port = 0) {
   })));
 }
 
-// The events a page reads from the hub's stream, as {type, data}.
 function listen(port) {
   const events = [];
   const req = http.get({ host: '127.0.0.1', port, path: '/_hub/stream' }, (res) => {
@@ -132,7 +130,7 @@ test("a board's change reaches /_hub/stream as change {route} with the sidebar's
   let waiting = 0;
   const relay = hubStream({ targets: () => [{ route: 'ios', port }], sidebar: async ({ fresh }) => ({ waiting, fresh: [...fresh] }), retryMs: 30, settleMs: 10 });
   const hub = http.createServer((req, res) => relay.handle(req, res));
-  await new Promise((r) => hub.listen(0, '127.0.0.1', r));
+  await new Promise((resolve, reject) => hub.once('error', reject).listen(0, '127.0.0.1', resolve));
   const page = listen(hub.address().port);
   try {
     assert.ok(await until(() => board.listening() === 1 && page.events.some((e) => e.type === 'sidebar')));

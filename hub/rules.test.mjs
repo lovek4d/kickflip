@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { freePorts } from '../shared/test-helpers.mjs';
 import { ruleText, rulesOf, addRule, editRule, removeRule, applyRules, changed, ruleLines, RULE_MAX, RuleError } from './rules.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -136,8 +137,7 @@ test('codex-share prints, sets and refuses values while preserving the other hub
 
 test("hub Settings edits the hub rules, and a save that changes them sends every board a rules event", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-rules-'));
-  const port = 49000 + Math.floor(Math.random() * 900);
-  const sitePort = port + 1000;
+  const [port, sitePort] = await freePorts(2);
   const siteDir = path.join(home, '.claude', 'web-ts', 'sites', 'orch');
   const web = path.join(home, '.claude', 'web-ts');
   fs.mkdirSync(path.join(siteDir, 'data'), { recursive: true });
@@ -214,10 +214,11 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
     assert.equal((await notify.json()).codexShare, 'always');
     assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).codexShare, 'always');
   } finally {
-    const exited = new Promise((resolve) => hub.once('exit', resolve));
-    hub.kill('SIGTERM');
-    await exited;
-    await new Promise((r) => setTimeout(r, 200));
+    if (hub.exitCode === null && hub.signalCode === null) {
+      const exited = new Promise((resolve) => hub.once('exit', resolve));
+      hub.kill('SIGTERM');
+      await exited;
+    }
     fs.rmSync(home, { recursive: true, force: true });
   }
 });

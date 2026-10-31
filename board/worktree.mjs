@@ -1,10 +1,11 @@
 // A builder's git worktree for a site or skill card (docs/adr/0064-every-builder-works-in-a-worktree.md):
 // `board.mjs builder start --worktree` makes it, and `board.mjs land` brings its branch into the live repo's main.
 // Worktrees resolve under $HOME and the repo defaults to the running clone, so a scratch HOME and --repo stand in for
-// the real ones. Refusals are one-line BoardErrors.
+// the real ones.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { BoardError } from './store.mjs';
@@ -51,14 +52,67 @@ function testFiles(dir) {
 }
 
 // The full suite of the worktree. NODE_TEST_CONTEXT is dropped, since a run started from inside a test would
-// otherwise report to that test's runner instead of exiting with its own result. → {ok, pass, fail}
+// otherwise report to that test's runner instead of exiting with its own result.
 export function nodeTests(dir) {
   const files = testFiles(dir);
   if (!files.length) return { ok: true, pass: 0, fail: 0 };
   const { NODE_TEST_CONTEXT: _, ...env } = process.env;
   const r = spawnSync(process.execPath, ['--test', '--test-reporter=tap', ...files], { cwd: dir, env, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   const count = (name) => Number((r.stdout || '').match(new RegExp(`^# ${name} (\\d+)$`, 'm'))?.[1] ?? 0);
-  return { ok: r.status === 0, pass: count('pass'), fail: count('fail') };
+  const result = { ok: r.status === 0, pass: count('pass'), fail: count('fail') };
+  if (!result.ok) {
+    const output = (r.stdout || '') + (r.stderr || '') + (r.error ? `\n${r.error.message}\n` : '');
+    const logs = path.join(os.homedir(), '.claude', 'web-ts', 'logs');
+    try {
+      fs.mkdirSync(logs, { recursive: true });
+      const log = path.join(logs, `land-${randomUUID()}.tap`);
+      fs.writeFileSync(log, output, { mode: 0o600 });
+      result.log = log;
+    } catch (e) { result.logError = `Could not save the full test output: ${e.message}`; }
+    result.failures = tapFailures(r.stdout || '');
+    const stderr = (r.stderr || '').trim().split('\n')[0];
+    result.error = r.error?.message || `${r.signal ? `test runner killed by ${r.signal}` : `test runner exited ${r.status}`}${stderr ? `: ${stderr}` : ''}`;
+  }
+  return result;
+}
+
+function tapFailures(tap) {
+  const lines = tap.split('\n');
+  const parents = [];
+  const failures = [];
+  const scalar = (s) => s.startsWith("'") ? s.slice(1, -1).replaceAll("''", "'") : s.startsWith('"') ? JSON.parse(s) : s;
+  for (let i = 0; i < lines.length; i++) {
+    const subtest = /^(\s*)# Subtest: (.*)$/.exec(lines[i]);
+    if (subtest) {
+      const indent = subtest[1].length;
+      while (parents.length && parents.at(-1).indent >= indent) parents.pop();
+      parents.push({ indent, name: subtest[2] });
+    }
+    const failed = /^(\s*)not ok \d+ - (.*)$/.exec(lines[i]);
+    if (!failed || / # (?:TODO|SKIP)\b/i.test(failed[2])) continue;
+    const indent = failed[1].length;
+    const name = [...parents.filter((p) => p.indent < indent).map((p) => p.name), failed[2]].join(' > ');
+    const diagnostic = [];
+    for (let j = i + 1; j < lines.length && lines[j].startsWith(' '.repeat(indent + 2)); j++) diagnostic.push(lines[j]);
+    const field = (key) => diagnostic.find((line) => line.startsWith(`${' '.repeat(indent + 2)}${key}: `))?.slice(indent + key.length + 4);
+    const location = field('location');
+    const error = field('error');
+    let excerpt = [];
+    if (error && /^[|>]/.test(error)) {
+      const start = diagnostic.findIndex((line) => line.startsWith(`${' '.repeat(indent + 2)}error: `)) + 1;
+      for (let j = start; j < diagnostic.length && diagnostic[j].startsWith(' '.repeat(indent + 4)); j++) excerpt.push(diagnostic[j].slice(indent + 4));
+    } else if (error) excerpt = scalar(error).split('\n');
+    if (excerpt[0] === 'test failed') {
+      const output = [];
+      let j = i - 1;
+      if (lines[j]?.startsWith('# Subtest: ')) j--;
+      for (; j >= 0 && lines[j].startsWith('# ') && !lines[j].startsWith('# Subtest: '); j--) output.unshift(lines[j].slice(2));
+      const start = output.findIndex((line) => /^\w*Error(?: \[[^\]]+\])?:/.test(line));
+      if (start >= 0) excerpt = output.slice(start);
+    }
+    failures.push(`${name}\n  ${location ? scalar(location) : 'file not reported by test runner'}${excerpt.length ? '\n' + excerpt.slice(0, 3).map((line) => `  ${line}`).join('\n') : ''}`);
+  }
+  return failures;
 }
 
 // Restarts the hub ('hub') or one board server ('board', route). WEB_TS_RESTART_CMD='["<cmd>", …]' replaces both,
@@ -98,7 +152,11 @@ export function land({ path: dir, branch, repo }, { say = console.log, runTests 
   }
 
   const tests = runTests(dir);
-  if (!tests.ok) fail(`tests failed in ${dir} (${tests.fail} failing); nothing landed`);
+  if (!tests.ok) fail([
+    `tests failed in ${dir} (${tests.fail} failing); nothing landed`,
+    ...(tests.failures?.length ? tests.failures : [tests.error || 'test runner failed without test diagnostics']),
+    ...(tests.log ? [`Full test output: ${tests.log}`] : tests.logError ? [tests.logError] : []),
+  ].join('\n'));
   say(`tests passed: ${tests.pass}`);
 
   const changed = git(repo, 'diff', '--name-only', 'main', branch).out.split('\n').filter(Boolean);

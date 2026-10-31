@@ -17,13 +17,13 @@ const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const lines = (file) => fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
 
 function run(script, args, input, env = {}) {
-  const r = spawnSync(process.execPath, [bin(script), ...args], { env: { ...process.env, HOME: home, ...env }, input, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [bin(script), ...args], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: '1', ...env }, input, encoding: 'utf8' });
   return { code: r.status, out: r.stdout, err: r.stderr };
 }
 const board = (...args) => run('board.mjs', args);
 function runAsync(script, args, env = {}) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [bin(script), ...args], { env: { ...process.env, HOME: home, ...env } });
+    const child = spawn(process.execPath, [bin(script), ...args], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: '1', ...env } });
     let out = '';
     let err = '';
     child.stdout.on('data', (d) => { out += d; });
@@ -132,7 +132,6 @@ test('every text flag refuses a bare file path, and --file refuses a missing fil
   assert.match(thread.err, /--text takes text, not a file path/);
   assert.doesNotMatch(thread.err, /for a file use/);
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--next', './plan.md').code, 2);
-  // Prose that mentions a path is still text.
   assert.equal(board('thread', 'w/A1', '--site', 'orch', '--text', `Wrote ${real} for you`).code, 0);
   const missing = board('reply', 'e1', '--site', 'orch', '--file', path.join(home, 'nope.html'));
   assert.equal(missing.code, 2);
@@ -550,9 +549,30 @@ test('land refuses a worktree with uncommitted changes, with no commit beyond ma
   assert.deepEqual([dirty.code, dirty.err], [1, `${worktree()} has uncommitted changes; commit them there first\n`]);
   git(worktree(), 'add', '-A');
   git(worktree(), 'commit', '--quiet', '-m', 'board');
-  commit(worktree(), 'bad.test.mjs', "import test from 'node:test';\ntest('bad', () => { throw new Error('no'); });\n");
+  commit(worktree(), 'bad.test.mjs', "import test from 'node:test';\ntest('fixture suite', async (t) => {\n  await t.test('bad fixture', () => { throw new Error('fixture error\\nsecond error line\\nthird error line\\nfourth error line'); });\n});\n");
+  commit(worktree(), 'other.test.mjs', "import test from 'node:test';\ntest('other failing fixture', () => { console.error('fixture stderr'); throw new Error('other fixture error'); });\n");
+  commit(worktree(), 'crash.test.mjs', "throw new Error('fixture module crash');\n");
   const failing = land();
-  assert.deepEqual([failing.code, failing.err], [1, `tests failed in ${worktree()} (1 failing); nothing landed\n`]);
+  assert.equal(failing.code, 1);
+  assert.match(failing.err, /tests failed in .* \(4 failing\); nothing landed/);
+  assert.match(failing.err, /fixture suite > bad fixture/);
+  assert.match(failing.err, /other failing fixture/);
+  assert.match(failing.err, /other fixture error/);
+  assert.match(failing.err, /Error: fixture module crash/);
+  assert.ok(failing.err.includes(path.join(worktree(), 'crash.test.mjs')));
+  assert.ok(failing.err.includes(path.join(worktree(), 'other.test.mjs')));
+  assert.ok(failing.err.includes(path.join(worktree(), 'bad.test.mjs')));
+  assert.match(failing.err, /fixture error\n.*second error line\n.*third error line/);
+  assert.doesNotMatch(failing.err, /fourth error line/);
+  const log = failing.err.match(/Full test output: (.+)\n/)?.[1];
+  assert.ok(log);
+  assert.equal(path.dirname(log), at('web-ts', 'logs'));
+  const tap = fs.readFileSync(log, 'utf8');
+  assert.match(tap, /^TAP version 13\n/);
+  assert.match(tap, /not ok .*bad fixture/);
+  assert.match(tap, /fourth error line/);
+  assert.match(tap, /fixture stderr/);
+  assert.equal(git(worktree(), 'status', '--porcelain'), '');
   assert.equal(git(repo, 'rev-parse', 'main'), main);
   assert.ok(fs.existsSync(worktree()));
   assert.ok(branches(repo).includes('A1'));
@@ -765,7 +785,6 @@ test("a Claude thread line or reply rewrites its item's queued push to the lates
   assert.equal(board('reply', 'm1', '--site', 'orch', '--html', `<p>${long}</p>`).code, 0);
   const bodies = queue();
   assert.equal(bodies['ask-e1'], 'Third & final · and 1 reply');
-  // Once Claude answers in the thread, the push opens that thread at its reply box, not the page it first linked.
   assert.equal(urls()['item-w/A1'], '/orch/#item=w%2FA1&reply');
   assert.ok(bodies['item-w/A1'].length <= 160 && bodies['item-w/A1'].endsWith('…') && long.startsWith(bodies['item-w/A1'].slice(0, -1)));
 
