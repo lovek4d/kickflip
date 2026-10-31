@@ -418,19 +418,19 @@ const badgeTotal = (waiting) => [...waiting.values()].reduce((n, w) => n + (w?.c
 
 // ---------- sidebar ----------
 // Each board's linksOf and listenState (boards.mjs), cached as long as the sites' needs, since every open page asks
-// for the sidebar. → {links: {<route>: linksOf}, listens: Map of route to listenState}
+// for the sidebar. → {links: Map of route to linksOf, listens: Map of route to listenState}
 const linksCache = { at: 0, value: null };
 function boardLinks(boards) {
   if (linksCache.value && Date.now() - linksCache.at < NEEDS_TTL) return linksCache.value;
-  const links = {};
+  const links = new Map();
   const listens = new Map();
   const ctx = { running: liveSessions(), wakes: readJSON(RESUME_STATE, {}) };
   for (const b of boards) {
     try {
       const listen = listenState(b, ctx);
       listens.set(b.route, listen);
-      links[b.route] = linksOf(b, { listen });
-    } catch (e) { log(`links of ${b.route} failed:`, e.message); links[b.route] = []; }
+      links.set(b.route, linksOf(b, { listen }));
+    } catch (e) { log(`links of ${b.route} failed:`, e.message); links.set(b.route, []); }
   }
   Object.assign(linksCache, { at: Date.now(), value: { links, listens } });
   return linksCache.value;
@@ -529,7 +529,7 @@ async function hubData(req) {
     ...hubView({
       now, st: queueStatus(now), poll: pollState(), sidebar: data, rows, links, rules: readHubRules(),
       code, host: req.headers['x-forwarded-host'] || req.headers.host || '',
-      remembered: Object.fromEntries(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])),
+      remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])),
     }),
     prompts: pendingFor(null).map(shown),
     remembered: rememberedFor(null),
@@ -704,7 +704,7 @@ async function hubRoute(req, res, url) {
 async function promptRoute(req, res, { id, op, url, sendJSON }) {
   if (op === 'wait' && req.method === 'GET') {
     const seen = () => updatePrompts((store) => {
-      const rec = store.prompts[id];
+      const rec = routeRecord(store.prompts, id);
       if (rec?.answer) delete store.prompts[id];
       else if (rec) rec.seen = new Date().toISOString();
       return rec;
@@ -733,7 +733,7 @@ async function promptRoute(req, res, { id, op, url, sendJSON }) {
   if (op === 'answer' && req.method === 'POST') {
     const body = await readJSONBody(req);
     const result = await updatePrompts((store) => {
-      const rec = store.prompts[id];
+      const rec = routeRecord(store.prompts, id);
       if (!rec) return { status: 404, error: 'That prompt has expired.' };
       if (rec.answer) return { status: 409, error: 'That prompt was already answered.' };
       const { answer, error } = answerOf(rec, body);
@@ -753,7 +753,7 @@ async function promptRoute(req, res, { id, op, url, sendJSON }) {
   }
   if (op === null && req.method === 'DELETE') {
     const rec = await updatePrompts((store) => {
-      const rec = store.prompts[id];
+      const rec = routeRecord(store.prompts, id);
       delete store.prompts[id];
       return rec;
     });

@@ -10,6 +10,7 @@ import { installScriptError } from './install-script.mjs';
 import { appendEvent, listBoards } from '../hub/boards.mjs';
 import { reviseQueued, flushQueue, queueStatus } from '../hub/push.mjs';
 import { holdLine } from '../hub/schedule.mjs';
+import { routeRecord } from '../hub/routes.mjs';
 import { RuleError, rulesOf, addRule, editRule, removeRule, applyRules, readHubRules, writeHubRules } from '../hub/rules.mjs';
 
 export class BoardError extends Error {}
@@ -113,8 +114,7 @@ export async function setWorking(site, eventId) {
   const known = (await readLines(path.join(site, 'data', 'events.jsonl'))).some((e) => e.id === eventId);
   if (!known) fail(`no event "${eventId}" in this site's data/events.jsonl`);
   const events = await readWorking(site);
-  events[eventId] = new Date().toISOString();
-  await writeJSON(workingFile(site), { events });
+  await writeJSON(workingFile(site), { events: { ...events, [eventId]: new Date().toISOString() } });
   return workingFile(site);
 }
 
@@ -155,7 +155,7 @@ function htmlText(html) {
   return html.replace(/<details[\s\S]*?<\/details>/gi, '\n').replace(/<(?:br|\/?(?:p|div|li|ul|ol|h\d|blockquote|pre|tr|summary))\b[^>]*>/gi, '\n').replace(/<[^>]*>/g, '')
     .replace(/&(?:#(x[\da-f]{1,6}|\d{1,7})|(\w+));/gi, (m, num, name) => {
       const code = num && parseInt(num.replace(/^x/i, ''), /^x/i.test(num) ? 16 : 10);
-      return num ? (code <= 0x10ffff ? String.fromCodePoint(code) : m) : ENTITIES[name.toLowerCase()] ?? m;
+      return num ? (code <= 0x10ffff ? String.fromCodePoint(code) : m) : routeRecord(ENTITIES, name.toLowerCase()) ?? m;
     });
 }
 
@@ -287,8 +287,7 @@ export async function relateAsk(site, eventId, key, summary) {
   await loadItem(site, key);
   const line = { ts: new Date().toISOString(), who: 'claude', text: text(summary, '--summary') };
   const links = await readAskLinks(site);
-  links[eventId] = key;
-  await writeJSON(askLinksFile(site), { links });
+  await writeJSON(askLinksFile(site), { links: { ...links, [eventId]: key } });
   await appendLine(threadFile(site, key), line);
   return askLinksFile(site);
 }
@@ -297,7 +296,7 @@ export async function relateAsk(site, eventId, key, summary) {
 export async function unfoldAsk(site, eventId) {
   await checkAsk(site, eventId, 'the ask');
   const links = await readAskLinks(site);
-  if (!(eventId in links)) fail(`ask "${eventId}" is not folded into a card`);
+  if (routeRecord(links, eventId) === undefined) fail(`ask "${eventId}" is not folded into a card`);
   delete links[eventId];
   await writeJSON(askLinksFile(site), { links });
   return askLinksFile(site);
@@ -313,7 +312,7 @@ export async function readAskProgress(site) {
 }
 
 async function refuseMoved(site, eventId) {
-  const moved = (await readAskProgress(site))[eventId]?.moved;
+  const moved = routeRecord(await readAskProgress(site), eventId)?.moved;
   if (moved) fail(`ask "${eventId}" was moved to /${moved.route}; it lives there now`);
 }
 
@@ -321,8 +320,7 @@ export async function markAsk(site, eventId, state, next) {
   await checkAsk(site, eventId, 'the ask');
   await refuseMoved(site, eventId);
   const asks = await readAskProgress(site);
-  asks[eventId] = { state, at: new Date().toISOString(), ...(next === undefined ? {} : { next: text(next, '--next') }) };
-  await writeJSON(askProgressFile(site), { asks });
+  await writeJSON(askProgressFile(site), { asks: { ...asks, [eventId]: { state, at: new Date().toISOString(), ...(next === undefined ? {} : { next: text(next, '--next') }) } } });
   return askProgressFile(site);
 }
 
@@ -332,9 +330,9 @@ const UNSTARTED = [undefined, 'planned', 'waiting'];
 async function askNotNew(site, eventId, events) {
   const named = `ask "${eventId}"`;
   if (events.some((e) => e.kind === 'ask-withdrawn' && e.data?.id === eventId && !e.data?.key)) return { why: `${named} was deleted by the owner` };
-  const mark = (await readAskProgress(site))[eventId];
+  const mark = routeRecord(await readAskProgress(site), eventId);
   if (mark?.moved) return { why: `${named} was already moved to /${mark.moved.route}` };
-  const folded = (await readAskLinks(site))[eventId];
+  const folded = routeRecord(await readAskLinks(site), eventId);
   if (folded) return { why: `${named} is folded into ${folded}; run ask unfold ${eventId} first` };
   const items = [];
   for (const s of await itemSources(site)) {
@@ -394,8 +392,7 @@ export async function moveAsk(site, eventId, route) {
   const moved = { route, title: target.title, id };
   const at = new Date().toISOString();
   const asks = await readAskProgress(site);
-  asks[eventId] = { state: 'done', at, moved };
-  await writeJSON(askProgressFile(site), { asks });
+  await writeJSON(askProgressFile(site), { asks: { ...asks, [eventId]: { state: 'done', at, moved } } });
   const link = `/${route}/#item=${encodeURIComponent(`ask:${id}`)}`;
   await appendLine(threadFile(site, `ask:${eventId}`), { ts: at, who: 'claude', text: `Moved to ${target.title}.`, link });
   // The ask has already gone to the other board, so a dropped card's open question can't stop it.
@@ -542,7 +539,7 @@ export function saveBoardSettings(site, changes) {
 // The CLI's `settings set <name> on|off`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
   const key = String(name).replace(/-/g, '_');
-  if (!(key in settingsOf({}))) fail(`no board setting "${name}"; settings are ${Object.keys(settingsOf({})).map((k) => k.replace(/_/g, '-')).join(', ')}`);
+  if (routeRecord(settingsOf({}), key) === undefined) fail(`no board setting "${name}"; settings are ${Object.keys(settingsOf({})).map((k) => k.replace(/_/g, '-')).join(', ')}`);
   if (!['on', 'off'].includes(value)) fail(`settings set ${name} takes on or off, not "${value}"`);
   const { file, settings } = await saveBoardSettings(site, { [key]: value === 'on' });
   return { file, lines: [`${name} ${settings[key] ? 'on' : 'off'}`] };
@@ -824,7 +821,7 @@ export async function setItem(site, key, { status, clearStatus, next, clearNext,
   if (pr !== undefined || HANDED_BACK.includes(status)) await closeBuilders(source.dir, item.id, FINISHED.includes(status));
   // An ask is in one card's thread: becoming this item moves it out of a card it was folded into.
   const links = ask ? await readAskLinks(site) : {};
-  if (ask in links) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
+  if (routeRecord(links, ask) !== undefined) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
   if (!FINISHED.includes(status) || wasFinished) return { file: source.file, lines: resolved };
   const unblocked = await unblockedBy(site, key);
   // The owner reads a card's wait in its thread, so the line that ends it goes there too.

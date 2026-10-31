@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { routeRecord } from '../../hub/routes.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -192,13 +193,13 @@ async function push(site, f) {
 }
 
 function parse(argv) {
-  const flags = {};
+  const flags = Object.create(null);
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith('--')) { rest.push(a); continue; }
     const name = a.slice(2);
-    if (name in flags) throw new UsageError(`--${name} is given twice`);
+    if (Object.hasOwn(flags, name)) throw new UsageError(`--${name} is given twice`);
     if (BOOLEAN.has(name)) flags[name] = true;
     else if (i + 1 < argv.length) flags[name] = argv[++i];
     else throw new UsageError(`--${name} needs a value`);
@@ -316,8 +317,8 @@ const COMMANDS = {
 export async function main(argv) {
   try {
     const { flags, rest } = parse(argv);
-    const name = COMMANDS[`${rest[0]} ${rest[1]}`] ? `${rest[0]} ${rest[1]}` : rest[0];
-    const command = COMMANDS[name];
+    const name = routeRecord(COMMANDS, `${rest[0]} ${rest[1]}`) ? `${rest[0]} ${rest[1]}` : rest[0];
+    const command = routeRecord(COMMANDS, name);
     if (!command) throw new UsageError(rest.length ? `unknown command "${rest.slice(0, 2).join(' ')}"` : 'no command given');
     const [params, allowed, run] = command;
     const args = rest.slice(name.split(' ').length);

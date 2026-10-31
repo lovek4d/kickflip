@@ -75,16 +75,16 @@ test('a first visit opens the board with the most waiting, the most recently cha
 
 test('the hub reads broken while a site is down or a board link stays broken, not while one settles', () => {
   const sites = [{ route: 'a', state: 'up' }, { route: 'b', state: 'up' }, { route: 'c', state: 'starting' }];
-  assert.deepEqual(hubHealth(sites, { a: [{ link: 'events', state: 'settling' }] }), { tone: 'ok', word: 'Healthy', detail: '2 of 3 sites up', broken: [] });
-  const bad = hubHealth([...sites, { route: 'd', state: 'down' }], { b: [{ link: 'github', state: 'ok' }, { link: 'events', state: 'broken' }] });
+  assert.deepEqual(hubHealth(sites, new Map([['a', [{ link: 'events', state: 'settling' }]]])), { tone: 'ok', word: 'Healthy', detail: '2 of 3 sites up', broken: [] });
+  const bad = hubHealth([...sites, { route: 'd', state: 'down' }], new Map([['b', [{ link: 'github', state: 'ok' }, { link: 'events', state: 'broken' }]]]));
   assert.deepEqual([bad.tone, bad.word, bad.broken], ['down', '2 broken', ['b', 'd']]);
 });
 
 test('the hub running older code than its files reads amber on the hub alone, under any broken site', () => {
   const sites = [{ route: 'a', state: 'up' }, { route: 'b', state: 'up' }];
   const stale = { link: 'hub', ok: false, detail: 'The hub runs older code than its files' };
-  assert.deepEqual(hubHealth(sites, {}, stale), { tone: 'wait', word: 'Needs a restart', detail: '2 of 2 sites up · runs older code than its files; restart it', broken: [] });
-  assert.deepEqual(hubHealth(sites, {}, { ...stale, ok: true }), { tone: 'ok', word: 'Healthy', detail: '2 of 2 sites up', broken: [] });
-  const down = hubHealth([...sites, { route: 'c', state: 'down' }], {}, stale);
+  assert.deepEqual(hubHealth(sites, new Map(), stale), { tone: 'wait', word: 'Needs a restart', detail: '2 of 2 sites up · runs older code than its files; restart it', broken: [] });
+  assert.deepEqual(hubHealth(sites, new Map(), { ...stale, ok: true }), { tone: 'ok', word: 'Healthy', detail: '2 of 2 sites up', broken: [] });
+  const down = hubHealth([...sites, { route: 'c', state: 'down' }], new Map(), stale);
   assert.deepEqual([down.tone, down.word, down.detail], ['down', '1 broken', '2 of 3 sites up · runs older code than its files; restart it']);
 });

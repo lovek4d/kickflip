@@ -30,7 +30,7 @@
   function reviewChips(it) {
     if (!it.pr || it.pr.state !== 'OPEN') return '';
     return (it.reviewers || []).map((r) => {
-      const rv = it.review?.[r];
+      const rv = globalThis.BoardUI.record(it.review, r);
       const s = REVIEW[rv?.state || 'unsent'];
       return badge(s.tone, `${esc(r[0])} ${s.mark}${reviewAge(rv)}`, { title: `${r}: ${s.label}` });
     }).join('');

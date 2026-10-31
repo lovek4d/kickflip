@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { withFileLock } from './locks.mjs';
+import { routeRecord } from './routes.mjs';
 
 const PROMPTS = path.join(os.homedir(), '.claude', 'web-ts', 'prompts.json');
 // How long the owner has to answer before the hook denies with a note. BG_SETTINGS's hook timeout must stay above it,
@@ -35,7 +36,7 @@ const hostOf = (url) => { try { return new URL(url).host; } catch { return Strin
 // "run npm test", "edit hub.mjs": what a push says the board wants to do.
 export function actionOf(tool, input = {}) {
   if (tool === 'Bash') return `run ${cut(input.command, 60)}`;
-  if (FILE_TOOLS[tool]) return `${FILE_TOOLS[tool]} ${path.basename(fileOf(input)) || 'a file'}`;
+  if (routeRecord(FILE_TOOLS, tool)) return `${routeRecord(FILE_TOOLS, tool)} ${path.basename(fileOf(input)) || 'a file'}`;
   if (tool === 'WebFetch') return `fetch ${hostOf(input.url)}`;
   if (tool === 'WebSearch') return `search the web for "${cut(input.query, 50)}"`;
   const mcp = /^mcp__(.+?)__(.+)$/.exec(tool || '');
@@ -46,7 +47,7 @@ export function actionOf(tool, input = {}) {
 // The full command, path, URL or query the line shows.
 function detailOf(tool, input = {}) {
   if (tool === 'Bash') return String(input.command ?? '');
-  if (FILE_TOOLS[tool]) return fileOf(input);
+  if (routeRecord(FILE_TOOLS, tool)) return fileOf(input);
   if (tool === 'WebFetch') return String(input.url ?? '');
   if (tool === 'WebSearch') return String(input.query ?? '');
   const json = JSON.stringify(input);
@@ -63,7 +64,7 @@ export function alwaysRules(input) {
   const ti = input?.tool_input || {};
   // Claude Code's path rules read `//path` as absolute from the filesystem root.
   const content = tool === 'Bash' && ti.command ? ti.command
-    : FILE_TOOLS[tool] && fileOf(ti).startsWith('/') ? `/${fileOf(ti)}`
+    : routeRecord(FILE_TOOLS, tool) && fileOf(ti).startsWith('/') ? `/${fileOf(ti)}`
       : tool === 'WebFetch' && ti.url ? `domain:${hostOf(ti.url)}` : null;
   return [{ type: 'addRules', rules: [content ? { toolName: tool, ruleContent: content } : { toolName: tool }], behavior: 'allow', destination: 'session' }];
 }
@@ -85,7 +86,7 @@ export function matchesRule(rule, input) {
   const ti = input.tool_input || {};
   if (tool === 'Bash') return typeof ti.command === 'string' && content === ti.command;
   // Only Claude Code's filesystem-root syntax is unambiguous without interpreting cwd or globs.
-  if (FILE_TOOLS[tool]) return content.startsWith('//') && !/[\*?\[\]{}]/.test(content) && content.slice(1) === fileOf(ti);
+  if (routeRecord(FILE_TOOLS, tool)) return content.startsWith('//') && !/[\*?\[\]{}]/.test(content) && content.slice(1) === fileOf(ti);
   if (tool === 'WebFetch') {
     try {
       const url = new URL(ti.url);
@@ -116,7 +117,7 @@ export function pruneRemembered(store, { running, boards }) {
 export function rememberRules(store, record, context) {
   if (record.answer?.choice !== 'always' || record.tool === ASK || !record.session || !record.permissions) return false;
   if (!sameRuntime(record.runtime, runtimeOf(context.running.get(record.session)))) return false;
-  const previous = Object.hasOwn(store.remembered || {}, record.session) ? store.remembered[record.session] : null;
+  const previous = routeRecord(store.remembered, record.session);
   const route = record.route || previous?.route;
   const board = (route && context.boards.find((b) => b.route === route)) ||
     (!record.route && context.boards.find((b) => b.owner?.session === record.session));
@@ -134,8 +135,8 @@ export function rememberRules(store, record, context) {
 }
 
 export function rememberedAnswer(store, input) {
-  if (!input.session_id || input.tool_name === ASK || !Object.hasOwn(store.remembered || {}, input.session_id)) return null;
-  return store.remembered[input.session_id].rules.some((rule) => matchesRule(rule, input)) ? { choice: 'allow' } : null;
+  if (!input.session_id || input.tool_name === ASK || !routeRecord(store.remembered, input.session_id)) return null;
+  return routeRecord(store.remembered, input.session_id).rules.some((rule) => matchesRule(rule, input)) ? { choice: 'allow' } : null;
 }
 
 export function rememberedFor(route, store = readPrompts()) {
@@ -187,11 +188,11 @@ export function answerOf(record, body, now = new Date()) {
     if (body?.choice === 'deny') return { answer: { choice: 'deny', message: SKIPPED, at } };
     const answers = body?.answers && typeof body.answers === 'object' ? body.answers : {};
     for (const q of record.questions) {
-      const picked = String(answers[q.question] ?? '').split(q.multiSelect ? ', ' : '\0').filter(Boolean);
+      const picked = String(routeRecord(answers, q.question) ?? '').split(q.multiSelect ? ', ' : '\0').filter(Boolean);
       if (!picked.length) return { error: `Pick an answer to "${q.question}".` };
-      if (!picked.every((l) => q.options.some((o) => o.label === l))) return { error: `"${answers[q.question]}" isn't an option of "${q.question}".` };
+      if (!picked.every((l) => q.options.some((o) => o.label === l))) return { error: `"${routeRecord(answers, q.question)}" isn't an option of "${q.question}".` };
     }
-    return { answer: { choice: 'allow', answers: Object.fromEntries(record.questions.map((q) => [q.question, String(answers[q.question])])), at } };
+    return { answer: { choice: 'allow', answers: Object.fromEntries(record.questions.map((q) => [q.question, String(routeRecord(answers, q.question))])), at } };
   }
   if (!['allow', 'always', 'deny'].includes(body?.choice)) return { error: 'Pass choice allow, always or deny.' };
   return { answer: { choice: body.choice, ...(body.choice === 'deny' ? { message: DENIED } : {}), at } };

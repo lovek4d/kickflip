@@ -3,6 +3,7 @@
 // fetchJSON is the side pages' one way to read the board's API.
 (function () {
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const record = (records, key) => (Object.hasOwn(records || {}, key) ? records[key] : undefined);
   const time = (iso) => new Date(iso).toLocaleString([], { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   const ago = (iso) => {
     if (!iso) return '';
@@ -225,7 +226,7 @@
   }
 
   globalThis.BoardUI = {
-    esc, time, ago, since, etaLine, replyBody, setHTML, fetchJSON, RESTARTING, restartNotice,
+    esc, record, time, ago, since, etaLine, replyBody, setHTML, fetchJSON, RESTARTING, restartNotice,
     attachments, attachButton, pendingFiles, protoButton, protoNotice, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, BADGE_TONES, badge,
   };
 })();

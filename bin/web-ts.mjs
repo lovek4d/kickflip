@@ -93,7 +93,7 @@ const PLIST = path.join(os.homedir(), 'Library', 'LaunchAgents', LABEL + '.plist
 const COLOR_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
 const [cmd, ...rest] = process.argv.slice(2);
-const args = { _: [] };
+const args = Object.assign(Object.create(null), { _: [] });
 for (let i = 0; i < rest.length; i++) {
   const a = rest[i];
   if (a.startsWith('--')) {
@@ -223,7 +223,7 @@ const commands = {
 
   async join() {
     const route = args._[0];
-    if (!validRoute(route)) fail('join needs a route: lowercase letters, digits and dashes, not "constructor"', 2);
+    if (!validRoute(route)) fail('join needs a route: lowercase letters, digits and dashes', 2);
     if (!args.session) fail('join needs --session <id> (this session\'s id)', 2);
     if (args.template && args.template !== 'board') fail('--template takes "board"', 2);
     checkLook();
@@ -330,7 +330,7 @@ const commands = {
 
   async start() {
     const route = args._[0];
-    if (!validRoute(route)) fail('start needs a route: lowercase letters, digits and dashes, not "constructor"', 2);
+    if (!validRoute(route)) fail('start needs a route: lowercase letters, digits and dashes', 2);
     const { startSession } = await sessionsModule();
     const r = await sessionCall(() => startSession(route, { manifest: readManifest(), repo: args.repo, model: args.model, prompt: args.prompt }));
     await withLock(async () => {

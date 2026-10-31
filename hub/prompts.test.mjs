@@ -18,7 +18,6 @@ const { readManifest, writeManifest, withManifestLock } = await import('./boards
 const write = (file, v) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof v === 'string' ? v : JSON.stringify(v)); };
 const freePort = () => new Promise((resolve, reject) => { const s = http.createServer().on('error', reject).listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); }); });
 
-// The hook as Claude Code runs it: the input on stdin, the decision on stdout. → {status, out, ms}
 function runHook(input, port, preload) {
   return new Promise((resolve) => {
     const t = Date.now();
@@ -287,8 +286,6 @@ test('the hook accepts an immediate remembered allow without polling and rejects
   }
 });
 
-// A hub that answers each prompt's first poll with `answer`, or holds every poll pending when answer is null, or
-// says the prompt is gone when answer is 'gone'.
 async function fakeHub({ answer, deadlineIn = WAIT_MS }) {
   const seen = { posted: [], deleted: [] };
   const server = http.createServer(async (req, res) => {
@@ -373,7 +370,6 @@ test("a pending prompt expires once its hook stops polling or never takes its an
   assert.deepEqual(expired({ prompts: { late: rec('late', { seen: iso(WAIT_MS + GONE_AFTER) }) } }, { now: t0 + WAIT_MS + GONE_AFTER + 1 }).map((r) => r.id), ['late']);
 });
 
-// ---------- a scratch hub ----------
 let hub;
 let port;
 let base;
@@ -492,4 +488,21 @@ test('a remembered match bypasses prompts and push, survives a hub restart, and 
   fs.unlinkSync(sessionFile);
   assert.deepEqual((await data()).groups[0].sites[0].remembered, []);
   assert.ok((await post(bash('npm test'))).id);
+});
+
+test('remembered rules and question answers use own session and question keys', () => {
+  for (const session of ['constructor', 'toString', 'hasOwnProperty', 'valueOf', '__proto__']) {
+    const store = { prompts: {}, remembered: {} };
+    const input = bash('npm test', { session_id: session });
+    assert.equal(rememberedAnswer(store, input), null);
+    const rec = promptRecord(input, { board: null, live });
+    rec.answer = { choice: 'always' };
+    assert.equal(rememberRules(store, rec, { running: new Map([[session, live]]), boards: [] }), true);
+    savePrompts(store);
+    assert.deepEqual(rememberedAnswer(readPrompts(), input), { choice: 'allow' });
+    assert.equal(rememberedAnswer(readPrompts(), bash('other', { session_id: session })), null);
+    const q = promptRecord({ ...question, tool_input: { questions: [{ question: session, options: [{ label: 'Yes' }] }] } }, { board: null, live });
+    assert.match(answerOf(q, { answers: {} }).error, /Pick an answer/);
+    assert.deepEqual(answerOf(q, { answers: { [session]: 'Yes' } }).answer.answers, { [session]: 'Yes' });
+  }
 });

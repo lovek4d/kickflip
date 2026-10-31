@@ -6,7 +6,7 @@
   // The answer a question prompt's picks make, {choice: 'allow', answers: {<question>: <label, or labels joined by
   // ", ">}}, or null until every question has a pick. picks: {<question index>: [label]}.
   function promptAnswer(p, picks = {}) {
-    const answers = {};
+    const answers = Object.create(null);
     for (const [i, q] of (p.questions || []).entries()) {
       const got = picks[i] || [];
       if (!got.length) return null;

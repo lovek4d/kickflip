@@ -267,15 +267,38 @@ test('the wake resumes the session in place with a prompt naming its id, and win
   assert.deepEqual((await check()).resumed, []);
 });
 
+test('the wake gives a session with no watcher cursor the mark as its cursor, for a watched file named __proto__', async () => {
+  const dir = path.join(home, 'boards', 'proto-watch');
+  const file = path.join(dir, '__proto__');
+  write(path.join(dir, 'board.json'), { title: 'Proto watch' });
+  const line = (n) => JSON.stringify({ id: `p${n}`, ts: new Date().toISOString(), kind: 'ask' }) + '\n';
+  write(file, line(1));
+  const id = crypto.randomUUID();
+  const cursor = path.join(dir, 'data', `.watch-cursor-${id}.json`);
+  const m = fs.existsSync(web('manifest.json')) ? manifest() : { sites: {} };
+  m.sites['proto-watch'] = { dir, port: 5, cmd: boardCmd(dir), title: 'Proto watch', watch: ['__proto__'], owner: { session: id, label: 'Proto', model: 'opus', repo, since: '2026-10-30T00:00:00Z' } };
+  write(web('manifest.json'), m);
+  write(agentsFile, [{ id: id.slice(0, 8), sessionId: id, kind: 'background' }]);
+  const check = () => checkSessions({ manifest: manifest(), live: () => new Map() });
+  await check();
+  fs.appendFileSync(file, line(2));
+  assert.ok((await check()).resumed.includes('proto-watch'));
+  assert.deepEqual(Object.entries(read(cursor)), [['__proto__', 1]]);
+});
 
-test('start and join refuse constructor as a route', async () => {
-  const before = fs.existsSync(web('manifest.json')) ? manifest() : null;
-  for (const args of [['start', 'constructor', '--repo', repo], ['join', 'constructor', '--session', 's-ctor', '--template', 'board']]) {
-    const r = await cli(args);
-    assert.equal(r.status, 2, r.stdout);
-    assert.match(r.stderr, /not "constructor"/);
+
+test('start, join and resume accept routes named after object properties', async () => {
+  for (const [i, route] of ['constructor', 'tostring', 'hasownproperty', 'valueof'].entries()) {
+    const started = json(await cli(['start', route, '--repo', repo]));
+    assert.equal(manifest().starting[route].session, started.session);
+    json(await cli(['join', route, '--session', started.session, '--template', 'board', '--port', String(4650 + i)]));
+    assert.equal(Object.hasOwn(manifest().starting || {}, route), false);
+    assert.equal(manifest().sites[route].owner.session, started.session);
+    const resumed = json(await cli(['resume', route]));
+    assert.equal(resumed.session, started.session);
+    assert.equal(manifest().sites[route].owner.session, resumed.session);
+    assert.match((await cli(['sessions'])).stdout, new RegExp(`^/${route}  ${resumed.session}  not live`, 'm'));
   }
-  assert.deepEqual(fs.existsSync(web('manifest.json')) ? manifest() : null, before);
 });
 
 test('route lookups ignore inherited site and starting records, including __proto__', async () => {
@@ -293,4 +316,40 @@ test('route lookups ignore inherited site and starting records, including __prot
     assert.equal(startingBoards({ sites: {}, starting })[0].route, route);
     assert.deepEqual(startingBoards({ sites, starting }), []);
   }
+});
+
+test('resume state starts a fresh outage and resumes once for object property routes', async () => {
+  const routes = ['constructor', 'tostring', 'hasownproperty', 'valueof', 'toString', 'hasOwnProperty', 'valueOf', '__proto__'];
+  const sites = Object.fromEntries(routes.map((route, i) => {
+    const dir = path.join(home, 'resume-names', route);
+    write(path.join(dir, 'board.json'), { title: route });
+    return [route, { dir, port: 4800 + i, cmd: boardCmd(dir), owner: { session: route, repo, since: new Date().toISOString() } }];
+  }));
+  write(web('resume-state.json'), {});
+  const resumed = [];
+  const pushed = [];
+  const at = Date.now();
+  const check = (ms, listening = false) => checkSessions({ manifest: { sites }, now: new Date(at + ms), live: () => new Map(),
+    listening: () => listening, resume: async (route) => { resumed.push(route); }, push: async (p) => { pushed.push(p.tag); } });
+  assert.deepEqual(await check(0), { resumed: [], pushed: [], failed: [] });
+  const state = read(web('resume-state.json'));
+  for (const route of routes) {
+    assert.equal(state[route].down_since, new Date(at).toISOString());
+    write(path.join(sites[route].dir, 'data', 'events.jsonl'), JSON.stringify({ id: route, ts: new Date(at + 1).toISOString(), kind: 'ask', data: {} }) + '\n');
+  }
+  assert.deepEqual((await check(2)).resumed, routes);
+  assert.deepEqual((await check(3)).resumed, []);
+  assert.deepEqual((await check(COMEBACK_WAIT + 2)).pushed, routes);
+  assert.deepEqual(resumed, routes);
+  assert.deepEqual(pushed, routes.map((route) => `resume-${route}`));
+  await check(COMEBACK_WAIT + 3, true);
+  assert.deepEqual(read(web('resume-state.json')), {});
+  const { checkListening } = await import('./boards.mjs');
+  write(web('settings.json'), { notifications: { on: false } });
+  write(web('deaf-state.json'), {});
+  for (const site of Object.values(sites)) delete site.owner.repo;
+  const listen = () => checkListening({ manifest: { sites }, now: new Date(at + 20 * 60_000), running: new Map() });
+  assert.deepEqual((await listen()).pushed, routes);
+  assert.deepEqual((await listen()).pushed, []);
+  for (const route of routes) assert.equal(read(web('deaf-state.json'))[route].since, new Date(at + 1).toISOString());
 });

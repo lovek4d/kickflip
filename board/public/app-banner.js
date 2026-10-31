@@ -6,7 +6,7 @@ BoardView.part((B) => {
   const DISMISSED = 'dismissedAnswers';
 
   function unseenAnswers(d) {
-    const dismissed = store.get(DISMISSED, {});
+    const dismissed = Object.assign(Object.create(null), store.get(DISMISSED, {}));
     return (d.answers || []).filter((a) => seen[a.key] && a.at > seen[a.key] && !(dismissed[a.id] >= a.at) && !state.withdrawnAsks.has(a.id));
   }
 
@@ -29,7 +29,7 @@ BoardView.part((B) => {
     const d = state.board;
     if (!d) return;
     if (ev.target.closest('.answer-dismiss')) {
-      const dismissed = store.get(DISMISSED, {});
+      const dismissed = Object.assign(Object.create(null), store.get(DISMISSED, {}));
       for (const a of unseenAnswers(d)) dismissed[a.id] = a.at;
       store.set(DISMISSED, dismissed);
       renderBanner(d);

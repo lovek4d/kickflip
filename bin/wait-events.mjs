@@ -37,7 +37,7 @@ function site() {
 }
 function matching(s) {
   const re = s.filter ? new RegExp(s.filter) : null;
-  const res = {};
+  const res = Object.create(null);
   for (const f of s.watch || ['data/events.jsonl']) {
     let lines = [];
     try { lines = fs.readFileSync(path.resolve(s.dir, f), 'utf8').split('\n').filter(Boolean); } catch {}
@@ -78,10 +78,10 @@ for (;;) {
   if (s === null) { console.log('site-removed'); process.exit(0); }
   if (s.owner?.session && s.owner.session !== session) { console.log('handed-over ' + JSON.stringify(s.owner)); process.exit(0); }
   const now = matching(s);
-  if (Object.entries(now).some(([f, l]) => l.length > (base[f] || 0))) {
+  if (Object.entries(now).some(([f, l]) => l.length > (routeRecord(base, f) || 0))) {
     await new Promise((r) => setTimeout(r, 2000));
     const seen = matching(s);
-    for (const [f, l] of Object.entries(seen)) for (const line of l.slice(base[f] || 0)) console.log(`event ${f} ${line}`);
+    for (const [f, l] of Object.entries(seen)) for (const line of l.slice(routeRecord(base, f) || 0)) console.log(`event ${f} ${line}`);
     // A board is a site with a board.json; other sites get no rules.
     let board = null;
     try { board = JSON.parse(fs.readFileSync(path.resolve(s.dir, 'board.json'), 'utf8')); } catch (e) { if (e.code !== 'ENOENT') board = {}; }

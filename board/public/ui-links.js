@@ -2,7 +2,7 @@
 // ref opens that card, a Linear id or PR opens its page, and a bare URL becomes a link. Needs ui.js; load it before
 // the ui-*.js files that render text.
 (function () {
-  const { esc } = globalThis.BoardUI;
+  const { esc, record } = globalThis.BoardUI;
   // domain.mjs buildBoard gives a wave without a repo this one.
   const DEFAULT_REPO = 'acme/app';
   // The Linear id shape store.mjs accepts for a follow-up, which an internal ref shares.
@@ -21,13 +21,13 @@
       if (i.kind === 'ask' || !i.ref || (!LINEAR_ID.test(i.ref) && i.wave !== wave)) continue;
       byRef.set(i.ref, [...(byRef.get(i.ref) || []), i]);
     }
-    const refs = {};
+    const refs = Object.create(null);
     for (const [ref, list] of byRef) {
       const pick = list.length === 1 ? list[0] : list.find((i) => i.wave === wave);
       if (pick) refs[ref] = pick.key;
     }
     const teams = ['PROD'];
-    const repos = { [DEFAULT_REPO.split('/')[1]]: DEFAULT_REPO };
+    const repos = Object.assign(Object.create(null), { [DEFAULT_REPO.split('/')[1]]: DEFAULT_REPO });
     for (const i of items) {
       if (i.repo) repos[i.repo.split('/')[1]] = i.repo;
       if (i.internal) continue;
@@ -66,7 +66,7 @@
   function wordLink(word, ctx) {
     for (let w = word; w; w = w.includes('-') ? w.slice(0, w.lastIndexOf('-')) : '') {
       const rest = esc(word.slice(w.length));
-      if (ctx.refs?.[w]) return `<a href="${esc(`${ctx.base || ''}#item=${encodeURIComponent(ctx.refs[w])}`)}">${esc(w)}</a>${rest}`;
+      if (record(ctx.refs, w)) return `<a href="${esc(`${ctx.base || ''}#item=${encodeURIComponent(record(ctx.refs, w))}`)}">${esc(w)}</a>${rest}`;
       const team = LINEAR_ID.exec(w)?.[1];
       if (team && team !== 'INT' && ctx.teams?.includes(team)) return out(linearUrl(w), w) + rest;
     }
@@ -87,7 +87,7 @@
       at = m.index + all.length;
       if (url) html += urlLink(url);
       else if (name) {
-        const repo = owner ? `${owner}/${name}` : ctx.repos?.[name];
+        const repo = owner ? `${owner}/${name}` : record(ctx.repos, name);
         html += repo ? out(prUrl(repo, n), all) : esc(all);
       } else if (bare) html += ctx.repo && !colour(bare) ? out(prUrl(ctx.repo, bare), all) : esc(all);
       else html += wordLink(word, ctx);
@@ -102,7 +102,7 @@
   const NAMED = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
   function decode(e) {
     const n = e.slice(1, -1).toLowerCase();
-    if (n[0] !== '#') return NAMED[n] ?? null;
+    if (n[0] !== '#') return record(NAMED, n) ?? null;
     const code = n[1] === 'x' ? parseInt(n.slice(2), 16) : parseInt(n.slice(1), 10);
     return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : null;
   }

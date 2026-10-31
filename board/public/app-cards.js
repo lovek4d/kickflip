@@ -18,7 +18,7 @@ BoardView.part((B) => {
       if (pr.state === 'OPEN') {
         rows.push(['CI', esc(ci)]);
         rows.push(['Merge', esc([pr.mergeStateStatus, pr.reviewDecision].filter(Boolean).join(' · ').toLowerCase() || 'unknown')]);
-        rows.push(['Review', (it.reviewers || []).map((r) => `${esc(r)} <span class="muted">${REVIEW[it.review?.[r]?.state || 'unsent'].label}${reviewAge(it.review?.[r]) ? `,${reviewAge(it.review[r])}` : ''}</span>`).join(' · ') || '—']);
+        rows.push(['Review', (it.reviewers || []).map((r) => `${esc(r)} <span class="muted">${REVIEW[BoardUI.record(it.review, r)?.state || 'unsent'].label}${reviewAge(BoardUI.record(it.review, r)) ? `,${reviewAge(BoardUI.record(it.review, r))}` : ''}</span>`).join(' · ') || '—']);
       }
     }
     if (it.branch) rows.push(['Branch', `<code>${esc(it.branch)}</code>`]);

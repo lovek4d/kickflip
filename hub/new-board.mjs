@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { appendEvent, listBoards, readManifest, withManifestLock, writeManifest } from './boards.mjs';
-import { ROUTE_RE, routeFromName, routeRecord, validRoute } from './routes.mjs';
+import { ROUTE_RE, routeFromName, routeRecord } from './routes.mjs';
 import { STARTING_WAIT } from './sessions.mjs';
 
 const refuse = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
@@ -15,7 +15,6 @@ function details(input) {
   const title = input.name.trim().replace(/\s+/g, ' ');
   const route = routeFromName(title);
   if (!ROUTE_RE.test(route)) refuse('Name must contain a letter or digit for its route.');
-  if (!validRoute(route)) refuse('That name can’t be a board route.');
   let repo = input.repo;
   if (typeof repo !== 'string') refuse('Repo must be an existing folder under your home.');
   repo = repo.trim().replace(/^~(?=\/|$)/, os.homedir());

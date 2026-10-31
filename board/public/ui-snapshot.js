@@ -50,7 +50,7 @@
   };
 
   // before and after map a line's id to its text; the ids of the lines that are new or read differently flash once.
-  const changedLines = (before, after) => Object.keys(after).filter((id) => before[id] !== after[id]);
+  const changedLines = (before, after) => Object.keys(after).filter((id) => globalThis.BoardUI.record(before, id) !== after[id]);
 
   Object.assign(globalThis.BoardUI, { packSnapshot, unpackSnapshot, preloadKeys, liveControls, changedLines, SNAPSHOT_MAX });
 })();

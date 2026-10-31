@@ -1,6 +1,3 @@
-// The board registry's contract (docs/adr/0040-one-board-registry-for-every-hub-feature.md): one board over the waves and
-// one over its own file, each with an open PR, and every hub feature that serves boards must reach both. The registry's
-// paths come from HOME, so this file points HOME at a temp dir before importing it, and the hub it starts shares it.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -40,7 +37,6 @@ write(claude('waves', 'w1', 'wave.json'), { repo: 'o/r', reviewers: [{ name: 'Be
   { id: 'A1', pr: 11, gh_since: '2026-10-20T00:00:00Z' }, { id: 'A2', pr: 12, status: 'merged' }, { id: 'A3' }, { id: 'A4', pr: 13, status: 'dropped' },
 ] });
 fs.mkdirSync(claude('waves', 'notes'), { recursive: true });
-// Nothing is watched here, so a PR reaches the check only by sitting on a card.
 write(claude('waves', 'monitor.json'), { waves: [] });
 write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', reviewers: [{ name: 'Ann', slack_user: 'U1', dm: 'D1', github: 'ann' }] });
 write(site('shop', 'board.json'), { title: 'Shop', items: 'data/wave.json', slug: 'shop' });
@@ -62,7 +58,6 @@ test('the registry lists every board site, over the waves or its own file, with 
   assert.deepEqual(orch.reviewers, ['Ann']);
   assert.deepEqual(shop.prs.map((p) => [p.wave, p.id, p.pr, p.repo]), [['shop', 'S1', 722, 'o/r'], ['shop', 'S2', 11, 'o/r']]);
   assert.deepEqual(shop.reviewers, []);
-  // A file board without a slug keys its cards by the file's name, as the board itself does (board/store.mjs itemSources).
   const bare = listBoards({ sites: { bare: { dir: site('bare'), port: 1, cmd: boardCmd('bare') } } });
   assert.deepEqual(bare.map((b) => [b.title, b.prs[0].wave, b.prs[0].repo]), [['bare', 'items', 'acme/app']]);
   assert.deepEqual(listBoards({}), []);
@@ -90,7 +85,6 @@ test('linksOf names each hub link that reaches a board and each that does not', 
     detail: 'The hub runs older code than its files; restart it with launchctl kickstart -k gui/$(id -u)/local.claude.web-ts-hub' });
   const slack = linksOf(orch, { ...ok, topics: { 'w1/A1': { review_link_ts: { Ann: '1.1' } } } })[4];
   assert.deepEqual([slack.ok, slack.detail], [false, '#11 has no link for Bea.']);
-  // A draft isn't in review yet, so it needs no links.
   assert.equal(linksOf(orch, { ...ok, topics: {}, github: { ...github, prs: { 'o/r#11': { at: 'T', state: 'OPEN', isDraft: true } } } })[4].ok, true);
 });
 
@@ -105,7 +99,6 @@ test('a broken link reads settling until it has stayed broken past its grace per
   assert.deepEqual(states({ github: ago(24), events: ago(1.9) }), { github: 'settling', events: 'settling', push: 'broken' });
   assert.deepEqual(states({ github: ago(26), events: ago(2.1) }), { github: 'broken', events: 'broken', push: 'broken' });
   assert.equal(linksOf(orch, { ...faulty, faults: { github: ago(26) } })[0].since, ago(26));
-  // A fault from the hourly window keeps its hour once the 15-minute window starts, until a check could have fixed it.
   const eight = new Date(2026, 9, 29, 8, 5).getTime();
   assert.equal(states({ github: new Date(eight - 35 * 60_000).toISOString() }, eight).github, 'settling');
   assert.equal(states({ github: new Date(eight - 71 * 60_000).toISOString() }, eight).github, 'broken');
@@ -140,13 +133,11 @@ test("oldestUnheard finds the oldest line past the owner's watcher cursor, or pa
   assert.equal(oldestUnheard({ ...board, owner: null }), null);
 });
 
-// ---------- one hub over both boards ----------
 let hub, device, orchWatcher, orchSession;
 const poll = async () => (await fetch(`${base}/_hub/poll`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json();
 const api = async (route) => (await fetch(`${base}/${route}/api/board`)).json();
 const linkState = (links) => Object.fromEntries(links.map((l) => [l.link, l.ok]));
 const pushes = () => device.received.map(({ title, url, tag }) => ({ title, url, tag }));
-// Not spawnSync: the fake device answers pushes from this process, so it must keep running meanwhile.
 const cli = (script, args) => new Promise((resolve) => {
   const child = spawn(process.execPath, [script, ...args], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: String(port) } });
   let stdout = '';
@@ -160,13 +151,11 @@ before(async () => {
   device = await startFakeDevice();
   write(claude('web-ts', 'push', 'subs.json'), [device.subscription]);
   write(claude('web-ts', 'settings.json'), { polling: { windows: [{ from: '00:00', every_minutes: 120 }], hold_overnight: false, wakes: ['00:00'] }, notifications: { on: true, weekends_off: false } });
-  // monitor-gh.sh answers from gh/<pr>.json and logs each call; the board servers' own gh always fails fast.
   write(claude('skills', 'monitor', 'monitor-gh.sh'), 'echo "$1" >> "$HOME/gh/calls"\ncat "$HOME/gh/$1.json"\n');
   write(path.join(home, 'gh', '11.json'), gh());
   write(path.join(home, 'gh', '722.json'), gh());
   write(path.join(home, 'bin', 'gh'), '#!/bin/sh\nexit 1\n');
   fs.chmodSync(path.join(home, 'bin', 'gh'), 0o755);
-  // Both boards hold an event that has waited half an hour; only orch has its session and a watcher running.
   for (const route of ['orch', 'shop']) write(site(route, 'data', 'events.jsonl'), JSON.stringify({ id: `e-${route}`, ts: ago(30), kind: 'ask', data: {} }) + '\n');
   write(site('shop', 'data', '.watch-cursor-s-shop.json'), { 'data/events.jsonl': 0 });
   orchWatcher = sleeper();
@@ -393,7 +382,7 @@ test('New board validates through HTTP, writes an ask to the hub board, and serv
       for (const input of [
         { ...request, extra: true }, { ...request, name: '' }, { ...request, name: '   ' }, { ...request, name: 'n'.repeat(61) },
         { ...request, name: null }, { ...request, name: '!!!' }, { ...request, name: 'ORCH' }, { ...request, name: 'Reserved' },
-        { ...request, name: 'Constructor' }, { ...request, repo: 'new-board-repo' }, { ...request, repo: '/tmp' }, { ...request, repo: '~/missing-folder' },
+        { ...request, repo: 'new-board-repo' }, { ...request, repo: '/tmp' }, { ...request, repo: '~/missing-folder' },
         { ...request, repo: `${repo}/file` }, { ...request, repo: `${repo}/outside` }, { ...request, repo: `${repo}/../../` },
         { ...request, repo: null }, { ...request, purpose: 'p'.repeat(241) }, { ...request, purpose: null }, [], null,
       ]) {
@@ -467,6 +456,62 @@ test("a board session's permission prompt pushes, waits in that board's Needs yo
   assert.equal(status, 0);
   assert.deepEqual(JSON.parse(out).hookSpecificOutput.decision, { behavior: 'allow', updatedPermissions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'npm test' }], behavior: 'allow', destination: 'session' }] });
   assert.equal((await needs('orch')).items.some((x) => x.kind === 'Prompt'), false);
+});
+
+test('object property names work as page routes and as new boards through HTTP and the CLI', async () => {
+  const manifestFile = claude('web-ts', 'manifest.json');
+  const original = read(manifestFile);
+  const routes = ['constructor', 'tostring', 'hasownproperty', 'valueof'];
+  const names = ['Constructor', 'toString', 'hasOwnProperty', 'valueOf'];
+  const sessions = ['constructor', 'toString', 'hasOwnProperty', 'valueOf'];
+  const repo = fs.realpathSync(home);
+  const get = async (url) => {
+    const response = await fetch(base + url);
+    assert.equal(response.status, 200, await response.clone().text());
+    return response.json();
+  };
+  try {
+    const pages = structuredClone(original);
+    for (const route of routes) pages.sites[route] = { ...pages.sites.plain, title: route };
+    write(manifestFile, pages);
+    assert.equal((await get('/_hub/sidebar.json')).sites.filter((s) => routes.includes(s.route)).length, 4);
+    const pageRows = (await get('/_hub/api/hub')).groups.flatMap((g) => g.sites).filter((s) => routes.includes(s.route));
+    assert.equal(pageRows.length, 4);
+    assert.ok(pageRows.every((s) => s.word && Array.isArray(s.remembered) && s.remembered.length === 0));
+    const manifest = structuredClone(original);
+    manifest.sites['hub-orchestrator'] = { ...manifest.sites.orch };
+    write(manifestFile, manifest);
+    for (const [i, route] of routes.entries()) {
+      const response = await fetch(`${base}/_hub/new-board`, { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: names[i], repo, purpose: 'Review changes' }) });
+      assert.equal(response.status, 200, await response.clone().text());
+      assert.deepEqual(await response.json(), { route });
+      const pending = (await get('/_hub/sidebar.json')).starting.find((s) => s.route === route);
+      assert.deepEqual([pending.title, pending.failed], [names[i], false]);
+      const joined = await cli(path.join(SKILL, 'bin', 'web-ts.mjs'), ['join', route, '--session', sessions[i], '--template', 'board', '--title', names[i], '--repo', repo]);
+      assert.equal(joined.status, 0, joined.stderr);
+      write(site(route, 'board.json'), { title: names[i], slug: route, items: 'data/items.json' });
+      write(site(route, 'data', 'items.json'), { items: [{ id: 'constructor', title: 'Review', status: 'planned' }] });
+      for (let n = 0; n < 80 && !(await fetch(`${base}/${route}/_claude/health`).then((r) => r.ok, () => false)); n++) await new Promise((r) => setTimeout(r, 100));
+      const side = await get('/_hub/sidebar.json?fresh=1');
+      assert.equal(side.starting.some((s) => s.route === route), false);
+      assert.equal(side.sites.find((s) => s.route === route).board, true);
+      const data = await get(`/${route}/api/board`);
+      assert.equal(data.items.find((it) => it.key === `${route}/constructor`).title, 'Review');
+      assert.deepEqual(data.items.find((it) => it.key === `${route}/constructor`).agents, []);
+      assert.equal((await get(`/${route}/api/thread?key=${route}%2Fconstructor`)).length, 0);
+    }
+    const checked = await poll();
+    assert.ok(routes.every((route) => checked.checked.includes(route)));
+    const downSince = () => {
+      try { const state = read(claude('web-ts', 'resume-state.json')); return routes.filter((route) => Object.hasOwn(state, route) && Number.isFinite(Date.parse(state[route].down_since))); } catch { return []; }
+    };
+    for (let n = 0; n < 200 && downSince().length < routes.length; n++) await new Promise((r) => setTimeout(r, 100));
+    assert.deepEqual(downSince(), routes);
+    const rows = (await get('/_hub/api/hub')).groups.flatMap((g) => g.sites);
+    for (const route of routes) assert.deepEqual(rows.find((s) => s.route === route).remembered, []);
+    assert.equal((await get('/_hub/api/polling')).now.lines.length, 2);
+  } finally { write(manifestFile, original); }
 });
 
 test('stopping the hub stops every site it started, one that ignores SIGTERM and one that joined just before, and starts none', async () => {

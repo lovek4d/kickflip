@@ -53,7 +53,7 @@ BoardView.part((B) => {
   const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
   // A card this browser has never seen starts from now, so a first load badges nothing.
-  const seen = store.get('seenThreads', {});
+  const seen = Object.assign(Object.create(null), store.get('seenThreads', {}));
   const latestOf = (it) => [new Date().toISOString(), ...(it?.othersAt || [])].sort().pop();
   function markSeen(it, onlyNew = false) {
     if (!it || (onlyNew && seen[it.key])) return;

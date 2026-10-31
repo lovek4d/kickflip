@@ -10,6 +10,7 @@
 // it is the item's status lines in its thread.
 // A record with done is a finished agent: it stays for the thread's timeline and no longer counts as building.
 
+import { routeRecord } from '../hub/routes.mjs';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
@@ -67,9 +68,9 @@ function finishedOf(cards) {
 // Each reviewer's state, and since when the link has waited on them.
 function reviewOf(reviewers, pr, sentAt) {
   return Object.fromEntries(reviewers.map((r) => {
-    const verdict = pr?.reviews?.[r.github];
-    const state = verdict === 'APPROVED' ? 'approved' : verdict === 'CHANGES_REQUESTED' ? 'changes' : r.name in sentAt ? 'sent' : 'unsent';
-    return [r.name, { state, since: state === 'sent' ? sentAt[r.name] : null }];
+    const verdict = routeRecord(pr?.reviews, r.github);
+    const state = verdict === 'APPROVED' ? 'approved' : verdict === 'CHANGES_REQUESTED' ? 'changes' : Object.hasOwn(sentAt, r.name) ? 'sent' : 'unsent';
+    return [r.name, { state, since: state === 'sent' ? routeRecord(sentAt, r.name) : null }];
   }));
 }
 
@@ -344,7 +345,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     ]),
     ...lines.map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.kind === 'status' ? { kind: 'status' } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null })),
     ...events.filter((e) => keys.has(e.data?.key) && ITEM_EVENTS.includes(e.kind))
-      .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: e.data.text || ACTION_LABELS[e.kind] || '', files: e.data.files || [], eventId: e.id, reply: e.reply })),
+      .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: e.data.text || routeRecord(ACTION_LABELS, e.kind) || '', files: e.data.files || [], eventId: e.id, reply: e.reply })),
     ...events.filter((e) => e.kind === 'owner-answer' && asked.has(e.data?.id)).map((e) => {
       const answer = [e.data.label || e.data.choice, e.data.note].filter(Boolean).join(' · ');
       return { ts: e.ts, who: 'love', via: 'questions', kind: e.kind, text: `${asked.get(e.data.id).question}\n→ ${answer}`, files: e.data.files || [], eventId: e.id, reply: e.reply };
@@ -360,7 +361,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     if (!m.eventId) continue;
     if ((m.kind === 'ask' || m.kind === 'item-message') && typeof edits.get(m.eventId) === 'string') Object.assign(m, { text: edits.get(m.eventId), edited: true });
     const linked = m.kind === 'ask' && (links.length > 0 || Boolean(m.moved));
-    m.state = m.reply ? 'replied' : linked || lastClaude > String(m.ts) ? 'answered' : working[m.eventId] ? 'working' : 'waiting';
+    m.state = m.reply ? 'replied' : linked || lastClaude > String(m.ts) ? 'answered' : routeRecord(working, m.eventId) ? 'working' : 'waiting';
     m.canDelete = m.kind === 'item-message' && (m.state === 'working' || m.state === 'waiting');
     m.canEdit = m.canDelete;
   }
@@ -409,18 +410,18 @@ export function buildBoard(snapshot) {
       const folded = foldedInto.get(key) || [];
       const askIds = [it.from_ask, ...folded].filter((id) => asks.has(id));
       const askKeys = new Set(askIds.map((id) => `ask:${id}`));
-      const lines = [...(threads[key] || []), ...askIds.flatMap((id) => threads[`ask:${id}`] || [])];
+      const lines = [...(routeRecord(threads, key) || []), ...askIds.flatMap((id) => routeRecord(threads, `ask:${id}`) || [])];
       if (it.from_ask) madeFrom.set(it.from_ask, [...(madeFrom.get(it.from_ask) || []), { key, ref: refOf(wave, it.id), became: true }]);
       const msgs = threadOf(key, { lines, events, owner, working, fromAsk: it.from_ask || null, moved: folded });
       for (const m of msgs) if (m.eventId) threadStates.set(m.eventId, m.state);
       items.push(workItem({
         slug, wave, it, order, repo,
-        pr: it.pr ? prs[`${repo}#${it.pr}`] || null : null,
-        ...((agents) => ({ agents, builder: builderOf(agents, threads[key], now), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(records[it.id])),
+        pr: it.pr ? routeRecord(prs, `${repo}#${it.pr}`) || null : null,
+        ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
         thread: lines,
         events: [...itemEvents.filter((e) => e.data.key === key || askKeys.has(e.data.key)), ...askIds.map((id) => asks.get(id))],
         working: msgs.some((m) => m.state === 'working'),
-        topicItem: topicItems[key], bridgeItem: bridge.items?.[key], permalink, now, bumpedAt: cardBumps.get(key), holdAsk: cardHolds.get(key), closedAt: cardDones.get(key),
+        topicItem: routeRecord(topicItems, key), bridgeItem: routeRecord(bridge.items, key), permalink, now, bumpedAt: cardBumps.get(key), holdAsk: cardHolds.get(key), closedAt: cardDones.get(key),
         mergeAt: cardMerges.get(key), autoMerge,
       }));
     });
@@ -429,7 +430,7 @@ export function buildBoard(snapshot) {
   const works = new Map(items.map((i) => [i.key, i]));
   // An ask that became work or was folded into a card shows in that card's thread instead of as a card of its own; old
   // links to it open that card.
-  const moved = {};
+  const moved = new Map();
   const askProgress = snapshot.askProgress || {};
   const askDones = latest('ask-done', 'id');
   const answerEvents = events.filter((e) => e.kind === 'owner-answer');
@@ -440,13 +441,13 @@ export function buildBoard(snapshot) {
   };
   for (const e of asks.values()) {
     const key = `ask:${e.id}`;
-    const related = works.get(askLinks[e.id]);
+    const related = works.get(routeRecord(askLinks, e.id));
     const links = [...(madeFrom.get(e.id) || [])];
     if (related && !links.some((l) => l.key === related.key)) links.push({ key: related.key, ref: related.ref, became: false });
-    if (links.length) { moved[key] = links[0].key; continue; }
-    const msgs = threadOf(key, { lines: threads[key] || [], events, working, links });
+    if (links.length) { moved.set(key, links[0].key); continue; }
+    const msgs = threadOf(key, { lines: routeRecord(threads, key) || [], events, working, links });
     for (const m of msgs) if (m.eventId) threadStates.set(m.eventId, m.state);
-    items.push(askItem(e, msgs, bumps.get(e.id), links.length > 0 || Boolean(askLinks[e.id]), askProgress[e.id], askDones.get(e.id), pendingOn(`item:${key}`)));
+    items.push(askItem(e, msgs, bumps.get(e.id), links.length > 0 || Boolean(routeRecord(askLinks, e.id)), routeRecord(askProgress, e.id), askDones.get(e.id), pendingOn(`item:${key}`)));
   }
   for (const w of waves) {
     const cards = items.filter((i) => i.wave === w.slug);
@@ -498,21 +499,21 @@ export function buildBoard(snapshot) {
     if (e.kind === 'ask') return `ask:${e.id}`;
     return e.data?.key || (e.kind.startsWith('ask-') && e.data?.id ? `ask:${e.data.id}` : null);
   };
-  const cardOf = (e) => { const card = ownCardOf(e); return moved[card] || card; };
+  const cardOf = (e) => { const card = ownCardOf(e); return moved.get(card) || card; };
   const closedAt = (key) => {
     const id = key.startsWith('ask:') ? key.slice(4) : null;
-    const done = id && askProgress[id]?.state === 'done' ? askProgress[id].at : null;
+    const done = id && routeRecord(askProgress, id)?.state === 'done' ? routeRecord(askProgress, id).at : null;
     return [cardDones.get(key), id && askDones.get(id), done].filter(Boolean).sort().pop() || '';
   };
   const live = (e) => {
     const card = cardOf(e);
-    return card === null || (byKey.has(card) && closedAt(card) < String(working[e.id]));
+    return card === null || (byKey.has(card) && closedAt(card) < String(routeRecord(working, e.id)));
   };
-  const workingCount = events.filter((e) => working[e.id] && live(e) && (threadStates.has(e.id) ? threadStates.get(e.id) === 'working' : !e.reply)).length;
+  const workingCount = events.filter((e) => routeRecord(working, e.id) && live(e) && (threadStates.has(e.id) ? threadStates.get(e.id) === 'working' : !e.reply)).length;
   // The page shows those this browser hasn't seen in the answer banner (docs/adr/0016-every-ask-is-a-card.md).
   const answers = items.filter((i) => i.ask?.answerAt).sort((a, b) => b.ask.answerAt.localeCompare(a.ask.answerAt))
     .map((i) => ({ key: i.key, id: i.id, text: i.title, at: i.ask.answerAt }));
-  return { waves, items, moved, answers, owner: questions, ownerTopics: topicList, needs, needsSummary: needsSummary(needs), working: workingCount, checks: checksOf(snapshot, now) };
+  return { waves, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, needs, needsSummary: needsSummary(needs), working: workingCount, checks: checksOf(snapshot, now) };
 }
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;

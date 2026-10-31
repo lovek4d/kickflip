@@ -172,7 +172,7 @@ export function isListening(board, { now = Date.now(), running } = {}) {
 export function listenState(board, { now = Date.now(), running = liveSessions(), wakes = readJSON(RESUME_STATE, {}) } = {}) {
   if (isListening(board, { now, running })) return 'listening';
   const session = board.owner?.session;
-  const wake = wakes[board.route];
+  const wake = routeRecord(wakes, board.route);
   return session && board.owner.repo && !running.has(session) && !wake?.error && !wake?.pushed_at ? 'asleep' : 'deaf';
 }
 
@@ -187,8 +187,8 @@ export const watchedCounts = (board) => Object.fromEntries(Object.entries(watche
 export function carryCursor(board, { from, to = from, mark = null }) {
   const cursor = readJSON(cursorPath(board, from), null);
   if (!cursor && !mark) return;
-  const next = { ...cursor };
-  for (const [f, n] of Object.entries(mark || {})) next[f] = Math.min(next[f] ?? n, n);
+  const next = Object.assign(Object.create(null), cursor);
+  for (const [f, n] of Object.entries(mark || {})) next[f] = Math.min(routeRecord(next, f) ?? n, n);
   saveJSON(cursorPath(board, to), next);
 }
 // The board's watched lines, per file, as bin/wait-events.mjs counts them: its manifest `watch` files, `filter` applied.
@@ -210,7 +210,7 @@ export function oldestUnheard(board) {
   const from = cursor ? 0 : Date.parse(board.owner.since || '') || 0;
   let oldest = null;
   for (const [f, lines] of Object.entries(watchedLines(board))) {
-    for (const line of cursor ? lines.slice(cursor[f] || 0) : lines) {
+    for (const line of cursor ? lines.slice(routeRecord(cursor, f) || 0) : lines) {
       let ts = null;
       try { ts = JSON.parse(line).ts; } catch {}
       const t = Date.parse(ts);
@@ -225,7 +225,7 @@ export function oldestUnheard(board) {
 // board waits for the hub's wake, which pushes on its own when it fails. Its listening again ends the outage (~/.claude/web-ts/deaf-state.json {<route>: {at, since}}). The hub runs it after each
 // GitHub check. → {pushed: [route], failed: [message]}
 export async function checkListening({ manifest, now = new Date(), running = liveSessions() } = {}) {
-  const state = readJSON(DEAF_STATE, {});
+  const state = Object.assign(Object.create(null), readJSON(DEAF_STATE, {}));
   const pushed = [];
   const failed = [];
   let dirty = false;
@@ -233,10 +233,10 @@ export async function checkListening({ manifest, now = new Date(), running = liv
   for (const board of listBoards(manifest)) {
     const listen = listenState(board, { now: now.getTime(), running, wakes });
     if (listen === 'listening') {
-      if (state[board.route]) { delete state[board.route]; dirty = true; }
+      if (routeRecord(state, board.route)) { delete state[board.route]; dirty = true; }
       continue;
     }
-    if (listen === 'asleep' || state[board.route]) continue;
+    if (listen === 'asleep' || routeRecord(state, board.route)) continue;
     const since = oldestUnheard(board);
     if (!since || now - Date.parse(since) < DEAF_AFTER) continue;
     const minutes = Math.round((now - Date.parse(since)) / 60_000);
@@ -312,8 +312,8 @@ const pushLink = (devices) => (devices
 // review_link_ts or review_sent, or the slack-bridge topic's items[<wave>/<id>].review_link_ts.
 function sentTo(wave, item, key, name, topics) {
   const sent = item?.review_sent;
-  return Boolean(wave.review_link_ts?.[item?.pr]?.[name] || wave.review_link_ts?.[key]?.[name] || item?.review_link_ts?.[name]
-    || (Array.isArray(sent) ? sent.includes(name) : sent?.[name]) || topics[key]?.review_link_ts?.[name]);
+  return Boolean(routeRecord(routeRecord(wave.review_link_ts, item?.pr), name) || routeRecord(routeRecord(wave.review_link_ts, key), name) || routeRecord(item?.review_link_ts, name)
+    || (Array.isArray(sent) ? sent.includes(name) : routeRecord(sent, name)) || routeRecord(routeRecord(topics, key)?.review_link_ts, name));
 }
 
 function slackLink(board, state, topics) {
@@ -393,17 +393,17 @@ function everyFor(since, now, settings) {
 // which this then updates.
 function settle(route, links, { settings, now, faults }) {
   const stored = faults === undefined;
-  const known = stored ? readJSON(LINK_FAULTS, {})[route] || {} : faults;
+  const known = stored ? routeRecord(readJSON(LINK_FAULTS, {}), route) || {} : faults;
   const open = {};
   const out = links.map((l) => {
     if (l.ok) return { ...l, state: 'ok' };
-    const since = known[l.link] || new Date(now).toISOString();
+    const since = routeRecord(known, l.link) || new Date(now).toISOString();
     open[l.link] = since;
     const grace = GRACE[l.link](everyFor(Date.parse(since), now, settings));
     return { ...l, state: now - Date.parse(since) >= grace ? 'broken' : 'settling', since };
   });
   if (stored && JSON.stringify(open) !== JSON.stringify(known)) {
-    const all = readJSON(LINK_FAULTS, {});
+    const all = Object.assign(Object.create(null), readJSON(LINK_FAULTS, {}));
     if (Object.keys(open).length) all[route] = open; else delete all[route];
     try { saveJSON(LINK_FAULTS, all); } catch {}
   }

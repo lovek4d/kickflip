@@ -169,7 +169,7 @@ window.BoardView = (function () {
       const m = /^#item=([^&]+)(&reply)?$/.exec(location.hash);
       if (!m) return;
       focusKey = decodeURIComponent(m[1]);
-      focusKey = state.board?.moved?.[focusKey] || focusKey;
+      focusKey = BoardUI.record(state.board?.moved, focusKey) || focusKey;
       replyKey = m[2] ? focusKey : null;
       state.openItems.add(focusKey);
       const it = state.board?.items.find((i) => i.key === focusKey);

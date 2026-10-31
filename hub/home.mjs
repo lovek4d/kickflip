@@ -77,12 +77,12 @@ export function startRoute(sites) {
 
 export const STALE_CODE = 'runs older code than its files; restart it';
 
-// The hub's health from the sites' process states, each board's linksOf states ({<route>: [{link, state}]}) and the
+// The hub's health from the sites' process states, each board's linksOf states (a Map by route) and the
 // hub's own boards.mjs hubLink: a site is broken while it is down or one of its links reads broken; a link still
 // settling doesn't count (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md). A failing hub link reads
 // amber, and says why in the detail, here and nowhere else (docs/adr/0064-every-builder-works-in-a-worktree.md).
-export function hubHealth(sites, linksByRoute = {}, hub = null) {
-  const broken = sites.filter((s) => s.state === 'down' || (linksByRoute[s.route] || []).some((l) => l.state === 'broken'));
+export function hubHealth(sites, linksByRoute = new Map(), hub = null) {
+  const broken = sites.filter((s) => s.state === 'down' || (linksByRoute.get(s.route) || []).some((l) => l.state === 'broken'));
   const up = sites.filter((s) => s.state === 'up').length;
   const stale = hub?.ok === false;
   return {

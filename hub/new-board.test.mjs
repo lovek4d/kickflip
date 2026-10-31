@@ -45,7 +45,7 @@ test('requests validate fields, home containment, route reservations and the hub
   const manifest = { sites: { 'hub-orchestrator': board, board }, starting: { pending: { since: new Date().toISOString() } } };
   saveJSON(manifestFile, manifest);
   fs.symlinkSync(path.dirname(home), path.join(home, 'outside'));
-  for (const change of [{ extra: true }, { name: '' }, { name: 'n'.repeat(61) }, { name: '!!!' }, { name: 'Board' }, { name: 'Pending' }, { name: 'Constructor' },
+  for (const change of [{ extra: true }, { name: '' }, { name: 'n'.repeat(61) }, { name: '!!!' }, { name: 'Board' }, { name: 'Pending' },
     { repo: 'relative' }, { repo: path.dirname(home) }, { repo: '~/outside' }, { repo: '~/absent' }, { purpose: 'p'.repeat(241) }, { purpose: null }]) {
     await assert.rejects(requestBoard({ ...input, ...change }), { status: 400 });
   }

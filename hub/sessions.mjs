@@ -186,7 +186,7 @@ export function resumeStep(entry, { listening, live, recorded, counts, waiting, 
     return e.error || now - Date.parse(e.resumed_at) >= COMEBACK_WAIT ? { action: 'push', entry: { ...e, pushed_at: at } } : { action: 'none', entry: e };
   }
   if (!recorded || live) return { action: 'none', entry: e };
-  const landed = Boolean(entry?.mark && counts && Object.entries(counts).some(([f, n]) => n > (entry.mark[f] ?? 0)));
+  const landed = Boolean(entry?.mark && counts && Object.entries(counts).some(([f, n]) => n > (routeRecord(entry.mark, f) ?? 0)));
   if (landed || (waiting && now - Date.parse(e.down_since) >= RESUME_AFTER)) return { action: 'resume', entry: { ...e, resumed_at: at } };
   return { action: 'none', entry: e };
 }
@@ -200,13 +200,13 @@ export async function checkSessions({
 } = {}) {
   const state = readJSON(RESUME_STATE, {});
   const running = live();
-  const next = {};
+  const next = Object.create(null);
   const out = { resumed: [], pushed: [], failed: [] };
   for (const board of listBoards(manifest)) {
     const rec = sessionOf(manifest, board.route);
     const isLive = Boolean(rec && running.has(rec.session));
     const heard = listening(board, running);
-    let { action, entry } = resumeStep(state[board.route], {
+    let { action, entry } = resumeStep(routeRecord(state, board.route), {
       listening: heard, live: isLive, recorded: Boolean(rec?.repo), now: now.getTime(),
       counts: heard ? null : watchedCounts(board), waiting: !heard && !isLive && oldestUnheard(board) !== null,
     });

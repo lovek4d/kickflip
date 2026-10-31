@@ -215,7 +215,7 @@ test("the hub page lists Boards and Pages apart with each site's health and link
     total: 3, sites: rows.map((r) => ({ route: r.route, board: ['alpha', 'beta', 'gone', 'new'].includes(r.route) })),
     hub: { tone: 'down', word: '2 broken', detail: '3 of 5 sites up' }, notifications: { state: 'on', text: 'On' },
   };
-  const v = hubView({ now, st: status(now, DEFAULTS, 1), poll: poll(now), sidebar, rows, links, code: { running: 'abc', onDisk: 'abc' }, host: 'mac.ts.net', rules: [{ text: 'a' }, { text: 'b' }] });
+  const v = hubView({ now, st: status(now, DEFAULTS, 1), poll: poll(now), sidebar, rows, links: new Map(Object.entries(links)), code: { running: 'abc', onDisk: 'abc' }, host: 'mac.ts.net', rules: [{ text: 'a' }, { text: 'b' }] });
   assert.deepEqual(v.groups.map((g) => [g.label, g.sites.map((s) => [s.route, s.tone, s.word, s.href])]), [
     ['Boards', [['alpha', 'ok', 'Up · listening · every link passes', '/alpha/'], ['beta', 'down', '1 link broken · not listening', '/beta/'],
       ['gone', 'down', 'Down · restarting', '/gone/'], ['new', 'wait', 'Starting', '/new/']]],
@@ -262,7 +262,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   const sessions = [{ session: 's-alpha', rules: ['Bash(echo "<img>")', 'Write(//r/a)', 'WebFetch(domain:docs.x.dev)'] }];
   const data = hubView({ now, st: status(now, DEFAULTS), poll: poll(now),
     sidebar: { sites: [{ route: 'alpha', board: true }, { route: 'beta', board: true }], hub: {}, notifications: {}, total: 0 },
-    rows: [{ route: 'alpha', title: 'Alpha', state: 'up' }, { route: 'beta', title: 'Beta', state: 'up' }], remembered: { alpha: sessions },
+    rows: [{ route: 'alpha', title: 'Alpha', state: 'up' }, { route: 'beta', title: 'Beta', state: 'up' }], remembered: new Map([['alpha', sessions]]),
   });
   assert.deepEqual(data.groups[0].sites.map((s) => s.remembered), [sessions, []]);
   live.paint({ ...data, remembered: [{ session: 's-alone', rules: ['WebSearch'] }] });

@@ -105,6 +105,7 @@ import { BoardError, boardConfig, finishHandshake, itemSources, readAskLinks, re
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
+import { routeRecord } from '../hub/routes.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 
 const template = path.dirname(fileURLToPath(import.meta.url));
@@ -131,7 +132,7 @@ const topicsDir = path.join(os.homedir(), '.claude', 'slack-bridge', 'topics');
 async function topicItems() {
   let files = [];
   try { files = (await fs.readdir(topicsDir)).filter((f) => f.endsWith('.json')); } catch {}
-  const merged = {};
+  const merged = Object.create(null);
   for (const f of files) {
     const t = await readJSON(path.join(topicsDir, f), { items: {} });
     for (const [key, v] of Object.entries(t.items || {})) merged[key] = { ...merged[key], ...v };
@@ -221,7 +222,7 @@ async function listEvents(kind, limit) {
   if (kind) lines = lines.filter((e) => e.kind === kind);
   return Promise.all(lines.reverse().slice(0, limit).map(async (e) => {
     const withR = await withReply(e);
-    return withR.reply || !working[e.id] ? withR : { ...withR, working: working[e.id] };
+    return withR.reply || !routeRecord(working, e.id) ? withR : { ...withR, working: routeRecord(working, e.id) };
   }));
 }
 
@@ -294,11 +295,11 @@ async function readAgents(dir) {
   let files = [];
   try { files = (await fs.readdir(dir)).filter((f) => f.endsWith('.json')); } catch {}
   const records = await Promise.all(files.map((f) => readJSON(path.join(dir, f), null)));
-  const out = {};
+  const out = Object.create(null);
   files.forEach((f, i) => {
     if (!records[i]) return;
     const [id, agent = 'main'] = path.basename(f, '.json').split('@');
-    (out[id] ||= {})[agent] = records[i];
+    (out[id] ||= Object.create(null))[agent] = records[i];
   });
   return out;
 }
@@ -313,7 +314,7 @@ async function itemSnapshot() {
     return { slug: s.slug, wave, agents: await readAgents(path.join(s.dir, 'agents')) };
   }))).filter(Boolean);
 
-  const threadLines = {};
+  const threadLines = Object.create(null);
   await Promise.all(waves.flatMap(({ slug, wave }) => wave.items.map(async (it) => {
     threadLines[`${slug}/${it.id}`] = await readLines(threadFile(`${slug}/${it.id}`));
   })));
@@ -326,14 +327,14 @@ async function itemSnapshot() {
 async function snapshot() {
   const items = await itemSnapshot();
   const { waves, threads: threadLines } = items;
-  const prs = {};
+  const prs = Object.create(null);
   await Promise.all(waves.flatMap(({ wave }) => wave.items.filter((it) => it.pr).map(async (it) => {
     const repo = wave.repo || 'acme/app';
     prs[`${repo}#${it.pr}`] = await prState(repo, it.pr);
   })));
   const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'item-message']);
   const working = await readWorking(here);
-  const pageEvents = await Promise.all((await shownEvents()).map((e) => (needsReply.has(e.kind) || working[e.id] ? withReply(e) : { ...e, reply: null })));
+  const pageEvents = await Promise.all((await shownEvents()).map((e) => (needsReply.has(e.kind) || routeRecord(working, e.id) ? withReply(e) : { ...e, reply: null })));
   await Promise.all(pageEvents.filter((e) => e.kind === 'ask').map(async (e) => {
     const lines = await readLines(threadFile(`ask:${e.id}`));
     if (lines.length) threadLines[`ask:${e.id}`] = lines;
@@ -356,12 +357,12 @@ async function checkStalled() {
   try {
     const file = path.join(data, 'builder-stalled.json');
     const previous = await readJSON(file, {});
-    const current = {};
+    const current = Object.create(null);
     let sent;
     for (const { key, lane, builder } of buildBoard(await itemSnapshot()).items) {
       if (lane === 'done' || !builder?.stalled) continue;
       current[key] = builder.silentSince;
-      if (previous[key] !== builder.silentSince) {
+      if (routeRecord(previous, key) !== builder.silentSince) {
         // The event log covers a restart between appending an event and saving its marker.
         sent ||= await readLines(events);
         if (!sent.some((e) => e.kind === 'builder-stalled' && e.data?.key === key && e.data?.silentSince === builder.silentSince)) {
@@ -405,12 +406,12 @@ async function itemOf(key) {
   const source = (await itemSources(here)).find((s) => s.slug === slug);
   const wave = source ? await readJSON(source.file, null) : null;
   const item = (Array.isArray(wave?.items) && wave.items.find((it) => it.id === id)) || null;
-  return { item, agents: item ? (await readAgents(path.join(source.dir, 'agents')))[id] || {} : {} };
+  return { item, agents: item ? routeRecord(await readAgents(path.join(source.dir, 'agents')), id) || {} : {} };
 }
 
 // The work items an ask became (their from_ask) or was related to (data/ask-links.json), as domain.mjs threadOf's links.
 async function askLinksOf(askId) {
-  const related = (await readAskLinks(here))[askId];
+  const related = routeRecord(await readAskLinks(here), askId);
   const links = [];
   for (const s of await itemSources(here)) {
     const wave = await readJSON(s.file, null);
@@ -609,7 +610,7 @@ const server = http.createServer(async (req, res) => {
     if (!shell && ext === '.html') body = Buffer.from(await versionAssets(body, p));
     const etag = ext === '.html' ? `W/"${crypto.createHash('sha1').update(body).digest('base64url').slice(0, 20)}"` : `W/"${versionOf(st)}"`;
     const pinned = ext !== '.html' && url.searchParams.get('v') === versionOf(st);
-    const headers = { 'content-type': types[ext] || 'application/octet-stream', 'cache-control': pinned ? 'public, max-age=31536000, immutable' : 'no-cache', etag };
+    const headers = { 'content-type': routeRecord(types, ext) || 'application/octet-stream', 'cache-control': pinned ? 'public, max-age=31536000, immutable' : 'no-cache', etag };
     if (sameTag(req.headers['if-none-match'], etag)) { res.writeHead(304, { etag, 'cache-control': headers['cache-control'], vary: 'accept-encoding' }).end(); return; }
     return await send(res, 200, headers, body);
   } catch (err) {
