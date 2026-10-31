@@ -8,7 +8,15 @@ import { fileURLToPath } from 'node:url';
 import { startFakeDevice } from './fake-device.mjs';
 
 const PUSH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'push.mjs');
-let home, device;
+let home, device, bin;
+const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1';
+const CHROME_MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
+const owner = ({ locked = false, idleSeconds }) => {
+  const root = locked ? '"IOConsoleUsers" = ({"CGSSessionScreenIsLocked"=Yes})' : '"IOConsoleLocked" = No';
+  fs.writeFileSync(path.join(bin, 'ioreg'), `#!/bin/sh\ncase "$*" in\n  *Root*) echo '${root}' ;;\n  *) echo '"HIDIdleTime" = ${idleSeconds * 1e9}' ;;\nesac\n`, { mode: 0o755 });
+};
+const atTheMac = () => owner({ idleSeconds: 20 });
+const away = () => owner({ idleSeconds: 3600 });
 const pushFile = (name) => path.join(home, '.claude', 'web-ts', 'push', name);
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value)); };
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -21,7 +29,7 @@ const settingsFile = () => path.join(home, '.claude', 'web-ts', 'settings.json')
 function inChild(code) {
   const script = `const push = await import(${JSON.stringify(PUSH)}); const out = await (async () => { ${code} })(); console.log(JSON.stringify(out ?? null));`;
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: String(device.port) } });
+    const child = spawn(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: String(device.port), PATH: `${bin}:${process.env.PATH}` } });
     let out = '';
     let err = '';
     child.stdout.on('data', (d) => { out += d; });
@@ -32,6 +40,9 @@ function inChild(code) {
 
 beforeEach(async () => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'push-'));
+  bin = path.join(home, 'bin');
+  fs.mkdirSync(bin);
+  away();
   device = await startFakeDevice();
   write(pushFile('subs.json'), [device.subscription]);
 });
@@ -126,4 +137,38 @@ test('a snooze or the weekend queues pushes until it ends, an urgent push still 
   assert.equal(weekend.queued.nextFlushAt, new Date(2026, 9, 19, 8).toISOString());
   assert.deepEqual(read(pushFile('queue.json')).items.map((i) => i.tag), ['item-w/B5']);
   assert.equal(device.received.length, 2);
+});
+
+test('at the Mac an action push reaches only the Mac, while prompts, faults, urgent pushes and the away owner reach the phone too', async () => {
+  const mac = await startFakeDevice();
+  const titles = (d) => d.received.map((m) => m.title);
+  try {
+    write(pushFile('subs.json'), [{ ...device.subscription, agent: IPHONE }, { ...mac.subscription, agent: CHROME_MAC }]);
+    atTheMac();
+    await inChild(`return [
+      await push.deliver({ title: 'A1 asks: Keep it?', url: '/orch/' }, { kind: 'action', immediate: true, at: ${NOON} }),
+      await push.deliver({ title: 'Allow Bash?', url: '/orch/' }, { kind: 'prompt', immediate: true, at: ${NOON} }),
+      await push.deliver({ title: 'Orch is not listening', url: '/orch/' }, { kind: 'fault', immediate: true, at: ${NOON} }),
+      await push.deliver({ title: 'B2 blocks the release', url: '/orch/' }, { kind: 'action', urgent: true, at: ${NIGHT} }),
+    ];`);
+    assert.deepEqual(titles(mac), ['A1 asks: Keep it?', 'Allow Bash?', 'Orch is not listening', 'B2 blocks the release']);
+    assert.deepEqual(titles(device), ['Allow Bash?', 'Orch is not listening', 'B2 blocks the release']);
+
+    owner({ locked: true, idleSeconds: 5 });
+    await inChild(`return push.deliver({ title: 'A2 asks: Which one?', url: '/orch/' }, { kind: 'action', immediate: true, at: ${NOON} });`);
+    assert.deepEqual([titles(mac).at(-1), titles(device).at(-1)], ['A2 asks: Which one?', 'A2 asks: Which one?']);
+
+    away();
+    await inChild(`return push.deliver({ title: 'A3 waits on Merge', url: '/orch/' }, { kind: 'action', at: ${NOON} });`);
+    atTheMac();
+    assert.equal((await inChild('return push.flushQueue();')).ok, true);
+    assert.equal(titles(mac).at(-1), 'A3 waits on Merge');
+    assert.notEqual(titles(device).at(-1), 'A3 waits on Merge');
+
+    write(pushFile('subs.json'), [{ ...device.subscription, agent: IPHONE }]);
+    await inChild(`return push.deliver({ title: 'A4 asks: Ship it?', url: '/orch/' }, { kind: 'action', immediate: true, at: ${NOON} });`);
+    assert.equal(titles(device).at(-1), 'A4 asks: Ship it?');
+  } finally {
+    await mac.close();
+  }
 });

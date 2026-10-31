@@ -64,6 +64,11 @@ test('Hub Settings says whether pushes go, when a snooze ends and what each snoo
     ['tonight', 'until 6:00pm', false], ['morning', 'until 8:00am tomorrow', false], ['monday', 'until 8:00am Mon Oct 19', false], ['1w', 'until 10:00am Wed Oct 21', false]]);
   assert.deepEqual([v.sheet.min, new Date(v.sheet.max) - now], ['2026-10-14T10:00', 30 * 86_400_000]);
   assert.deepEqual(plain(v.rules), [{ id: 'r1', text: 'Be brief' }]);
+  assert.deepEqual(plain(v.presence), { title: 'Away from the Mac', sub: 'Pushes go to every device. At the Mac means unlocked and used in the last 3 minutes.' });
+  assert.deepEqual(plain(settingsView({ now, st: status(now, DEFAULTS), route: { atMac: true, desktops: 1 } }).presence),
+    { title: 'At the Mac', sub: 'Pushes go to the Mac only. Prompts, faults and urgent pushes still reach the phone.' });
+  assert.deepEqual(plain(settingsView({ now, st: status(now, DEFAULTS), route: { atMac: true, desktops: 0 } }).presence),
+    { title: 'At the Mac', sub: 'No notifications on the Mac, so pushes still go to the phone.' });
 
   const snoozed = settingsView({ now, st: status(now, notify(DEFAULTS, { snoozed_until: t(12).toISOString() }), 2) });
   assert.deepEqual(plain(snoozed.snoozed), { title: 'Snoozed until 12:00pm', sub: '2 h left · urgent pushes still go' });
@@ -78,7 +83,7 @@ test('Hub Settings says whether pushes go, when a snooze ends and what each snoo
   assert.deepEqual(evening.sheet.choices.map((c) => c.value), ['1h', '3h', 'morning', 'monday', '1w']);
 
   const off = settingsView({ now, st: status(now, notify(DEFAULTS, { on: false, snoozed_until: t(12).toISOString() })) });
-  assert.deepEqual([off.snoozed, off.snooze, off.sheet], [null, null, null]);
+  assert.deepEqual([off.snoozed, off.snooze, off.sheet, off.presence], [null, null, null, null]);
   assert.deepEqual([off.on.on, off.on.sub], [false, 'Off. Every push is dropped, urgent ones too. Needs you and the badge still update.']);
   assert.equal(off.device, 'checks every 15 min until 6:00pm; notifications are off');
 });

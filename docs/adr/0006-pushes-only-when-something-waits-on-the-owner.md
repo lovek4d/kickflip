@@ -1,7 +1,7 @@
 # A push goes out only when something waits on the owner, on the hub's schedule
 
 A push is one of three kinds, and nothing else pushes:
-- **action**: a card's Action needed appears or changes. That is a question or prototype pick, manual steps, a reviewer's suggestion that needs the owner's call, a draft waiting on Ready, Merge, or an ask waiting on the owner's Done (the `actionOf` kinds in `board/domain.mjs`). A card whose action changes, such as a new question on a card already asking, pushes again under the card's tag, which replaces the notification on the phone and alerts again.
+- **action**: a card's Action needed appears or changes. That is a question or prototype pick, manual steps, a reviewer's suggestion that needs the owner's call, a draft waiting on Ready, Merge, or an ask waiting on the owner's Done (the `actionOf` kinds in `board/domain.mjs`). A card whose action changes, such as a new question on a card already asking, pushes again under the card's tag, which replaces the notification on the device it reached and alerts again. While the owner is at the Mac, an action push goes to the Mac only ([0065](0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md)).
 - **prompt**: a background session's permission prompt or `AskUserQuestion` ([0060](0060-background-sessions-prompts-come-to-the-phone.md)).
 - **fault**: something only the owner can fix: a board that isn't listening, a session that didn't come back, and a production problem pushed with `--urgent`.
 

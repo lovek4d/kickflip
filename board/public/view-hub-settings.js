@@ -1,5 +1,6 @@
 // Hub Settings, /_hub/settings, a view of the app shell (shell.js): notifications on or off, snooze, off on weekends,
-// the polling summary and the rules for every board, in hub/views.mjs settingsView's words from GET /_hub/api/settings.
+// whether pushes go to the Mac only because the owner is at it, the polling summary and the rules for every board, in
+// hub/views.mjs settingsView's words from GET /_hub/api/settings.
 // Each toggle and snooze posts to /_hub/settings/notifications and saves at once. The rules editor saves through POST
 // /_hub/settings/rules and marks [data-dirty] while an edit is unsaved, so the shell asks before leaving then. The
 // data refreshes every 30 seconds while nothing is being edited.
@@ -37,6 +38,7 @@
 <div class="group">
 ${deviceRow(device.state(d.device))}
 ${notificationRows(d)}
+${d.presence ? row({ icon: tile('laptop', '#64748b'), title: esc(d.presence.title), sub: esc(d.presence.sub), wrap: true }) : ''}
 ${row({ icon: tile('clock', '#3b82f6'), title: 'Polling', sub: esc(d.polling), wrap: true, trail: CHEVRON, href: '/_hub/settings/polling' })}
 </div>
 <p class="note">Pushes come only when something needs you. Questions go at once unless held overnight, snoozed or for the weekend; then they wait and go when the hold ends. Urgent pushes go through those holds. Needs you, the badge and the daily wakes carry on either way. Polling sets the windows, the overnight hold and the daily wakes.</p>`;

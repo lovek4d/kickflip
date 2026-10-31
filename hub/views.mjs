@@ -82,8 +82,9 @@ const snoozedUntil = (n, now) => (n.on && n.snoozed_until && new Date(n.snoozed_
 // Hub Settings: the on/off, snooze and weekend controls (docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md),
 // the polling summary and the hub rules. The snooze sheet is null while notifications are off; Until tonight shows only
 // while it ends today, and while snoozed the sheet extends the snooze, so a choice ending no later than now's snooze
-// is disabled.
-export function settingsView({ now, st, rules = [] }) {
+// is disabled. route is push.mjs pushRoute(): where an action push goes now
+// (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md).
+export function settingsView({ now, st, rules = [], route = { atMac: false, desktops: 0 } }) {
   const s = st.settings;
   const n = s.notifications;
   const [first, last] = [s.windows[0], s.windows.at(-1)];
@@ -100,6 +101,9 @@ export function settingsView({ now, st, rules = [] }) {
       sub: n.on ? 'On. Turn off to drop every push, urgent ones too.' : 'Off. Every push is dropped, urgent ones too. Needs you and the badge still update.',
       confirm: `Turn off notifications? Every push is dropped until you turn them back on, urgent ones too.${queued} Needs you and the badge still update.`,
     },
+    presence: !n.on ? null : !route.atMac ? { title: 'Away from the Mac', sub: 'Pushes go to every device. At the Mac means unlocked and used in the last 3 minutes.' }
+      : route.desktops ? { title: 'At the Mac', sub: 'Pushes go to the Mac only. Prompts, faults and urgent pushes still reach the phone.' }
+      : { title: 'At the Mac', sub: 'No notifications on the Mac, so pushes still go to the phone.' },
     snooze: n.on ? { sub: until ? `Until ${clock(until, now)}` : 'Pushes wait, then go. Urgent ones still go.', value: until ? 'On' : 'Off' } : null,
     weekends: { on: n.weekends_off, sub: `Pushes wait from Friday ${timeOfDay(last.from)} until Monday ${timeOfDay(first.from)}. Urgent ones still go.` },
     polling: pollingSummary(s),

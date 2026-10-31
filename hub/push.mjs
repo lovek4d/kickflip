@@ -1,12 +1,13 @@
 // Web Push for every hub site, with no dependencies. The hub serves the
 // subscribe side (hub.mjs); every push goes through deliver(), which refuses a push that isn't one of PUSH_KINDS and
-// queues one unless it is urgent or immediate. The queue goes out through flushQueue() after
-// each GitHub check on the polling interval (schedule.mjs) and at the end of each monitor tick
-// (`board.mjs checked`), each push as its own notification
+// queues one unless it is urgent or immediate. While the owner is at the Mac (presence.mjs), an action push reaches
+// the desktop subscriptions only (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md).
+// The queue goes out through flushQueue() after each GitHub check on the polling interval (schedule.mjs) and at the end
+// of each monitor tick (`board.mjs checked`), each push as its own notification
 // (docs/adr/0030-pushes-go-by-kind-and-each-arrives-on-its-own.md).
 // State lives in ~/.claude/web-ts/push: vapid.json (the signing key),
 // subs.json (one entry per phone or browser that enabled notifications, with
-// the hub origin it subscribed from) and queue.json (pushes waiting to go). The polling interval's
+// the hub origin it subscribed from and its user agent) and queue.json (pushes waiting to go). The polling interval's
 // settings are `polling` in ~/.claude/web-ts/settings.json, with `notifications` beside it.
 // A subscription the push service reports gone (404 or 410) is dropped.
 // Payload encryption is RFC 8291 (aes128gcm); the Authorization header is RFC 8292 (VAPID).
@@ -15,6 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { validate, pollingOf, flushAt, hold, windowAt, notifications, snoozeEnd } from './schedule.mjs';
+import { presence } from './presence.mjs';
 
 const DIR = path.join(os.homedir(), '.claude', 'web-ts', 'push');
 const VAPID = path.join(DIR, 'vapid.json');
@@ -63,6 +65,24 @@ export function subscriptions() {
   return readSubs().map((s) => ({ host: new URL(s.endpoint).host, agent: s.agent, added: s.added }));
 }
 
+// A subscription with no user agent counts as a phone, so it never loses pushes while the owner is at the Mac.
+const onPhone = (sub) => !sub.agent || /iPhone|iPad|Android/.test(sub.agent);
+const PHONE_TOO = ['prompt', 'fault'];
+
+// The subscriptions a push of this kind goes to now: only the desktop ones while the owner is at the Mac, unless it is
+// urgent, a prompt or a fault, or no desktop has subscribed.
+async function reach(kind, urgent = false) {
+  const subs = readSubs();
+  if (urgent || PHONE_TOO.includes(kind) || !(await presence()).atMac) return subs;
+  const desktop = subs.filter((s) => !onPhone(s));
+  return desktop.length ? desktop : subs;
+}
+
+// {atMac, desktops}: whether the owner is at the Mac now, and how many desktop subscriptions an action push would reach.
+export async function pushRoute() {
+  return { atMac: (await presence()).atMac, desktops: readSubs().filter((s) => !onPhone(s)).length };
+}
+
 function encrypt(sub, payload) {
   const uaPublic = unb64u(sub.keys.p256dh);
   const ecdh = crypto.createECDH('prime256v1');
@@ -100,8 +120,9 @@ async function badgeTotal() {
 // message: {title, body, url, tag}. url is a path on the hub, such as
 // /<route>/page.html#x; the service worker opens it on tap. The payload adds badge, the count of
 // what waits on the owner across every site when this sends, which the service worker shows.
-export async function sendAll(message) {
-  const subs = readSubs();
+export const sendAll = (message) => sendTo(readSubs(), message);
+
+async function sendTo(subs, message) {
   if (!subs.length) return [];
   const payload = JSON.stringify({ ...message, badge: await badgeTotal() });
   const results = await Promise.all(subs.map(async (sub) => {
@@ -225,7 +246,8 @@ export const pushKindError = (kind) => (PUSH_KINDS.includes(kind) ? null
 // {dropped: true}, with nothing sent or queued, for any push while notifications are off;
 // {sent: results} for an urgent push, or for an immediate one that reached a device while pushes aren't held
 // (schedule.mjs heldUntil); else {queued: {count, replaced, nextFlushAt, held, hold, sendFailed}}. A push queued or
-// sent replaces a queued one with the same tag.
+// sent replaces a queued one with the same tag. A push sent now, or flushed later, reaches the subscriptions reach()
+// picks at that moment.
 export async function deliver(message, { kind, urgent = false, immediate = false, at = new Date() } = {}) {
   const refused = pushKindError(kind);
   if (refused) throw new PushKindError(refused);
@@ -236,7 +258,7 @@ export async function deliver(message, { kind, urgent = false, immediate = false
   const held = h !== null;
   let sendFailed = false;
   if (urgent || (immediate && !held)) {
-    const results = await sendAll(msg);
+    const results = await sendTo(await reach(kind, urgent), msg);
     if (delivered(results)) {
       if (msg.tag) await withQueueLock(() => writePrivate(QUEUE, { items: readQueue().items.filter((i) => i.tag !== msg.tag) }));
       return { sent: results };
@@ -244,7 +266,7 @@ export async function deliver(message, { kind, urgent = false, immediate = false
     if (urgent) return { sent: results };
     sendFailed = true;
   }
-  const item = { id: crypto.randomUUID(), ...msg, queuedAt: at.toISOString() };
+  const item = { id: crypto.randomUUID(), ...msg, kind, queuedAt: at.toISOString() };
   const queued = await withQueueLock(() => {
     const q = readQueue();
     const kept = item.tag ? q.items.filter((i) => i.tag !== item.tag) : q.items;
@@ -273,9 +295,10 @@ export async function reviseQueued(tag, revise, url) {
 }
 
 let flushing = null;
-// Sends each queued push as its own notification (schedule.mjs notifications). The queue is emptied before sending, so
-// the hub and a `board.mjs checked` flushing at once never send a push twice. Returns null when nothing was queued,
-// else {count, sent, ok, results}: a push no device took goes back to the queue unless a newer one has its tag.
+// Sends each queued push as its own notification (schedule.mjs notifications), to whom reach() picks for its kind at
+// flush time. The queue is emptied before sending, so the hub and a `board.mjs checked` flushing at once never send a
+// push twice. Returns null when nothing was queued, else {count, sent, ok, results}: a push no device took goes back
+// to the queue unless a newer one has its tag.
 export function flushQueue() {
   flushing ||= (async () => {
     const items = await withQueueLock(() => {
@@ -287,8 +310,9 @@ export function flushQueue() {
     const sent = [];
     const failed = [];
     const results = [];
+    const kindOf = new Map(items.map((i) => [i.id, i.kind]));
     for (const m of notifications(items)) {
-      const r = await sendAll({ title: m.title, body: m.body, url: m.url, tag: m.tag });
+      const r = await sendTo(await reach(kindOf.get(m.id)), { title: m.title, body: m.body, url: m.url, tag: m.tag });
       results.push(...r);
       (delivered(r) ? sent : failed).push(m);
     }

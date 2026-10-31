@@ -65,15 +65,19 @@ The hub resuming a board session as soon as an event lands while that session is
 _Avoid_: auto-resume, respawn, wake (a daily wake is the morning `check-github`)
 
 **Push**:
-A phone notification from the hub that opens a page. Each push has a kind, and `hub/push.mjs` `deliver()` refuses any other: `action` when a card's **Action needed** appears or changes, `prompt` for a **pending prompt**, `fault` for what only the owner can fix (a board not listening, a session that didn't come back, an urgent production problem) ([0006](docs/adr/0006-pushes-only-when-something-waits-on-the-owner.md)). Answers, merges, Stale and other news never push; the threads' unread marks and the board carry them. Questions, steps and prototypes go at once; drafts on Ready and Merge go when their tick ends; each arrives as its own notification, and one under a card's tag replaces the last and alerts again ([0030](docs/adr/0030-pushes-go-by-kind-and-each-arrives-on-its-own.md)). Replies don't push; a push that goes out anyway says how many came since the last one. With notifications off every push is dropped; a snooze and Off on weekends hold pushes until they end, and urgent ones go through those holds ([0032](docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md)).
+A notification from the hub, on the phone or a desktop browser, that opens a page. Each push has a kind, and `hub/push.mjs` `deliver()` refuses any other: `action` when a card's **Action needed** appears or changes, `prompt` for a **pending prompt**, `fault` for what only the owner can fix (a board not listening, a session that didn't come back, an urgent production problem) ([0006](docs/adr/0006-pushes-only-when-something-waits-on-the-owner.md)). Answers, merges, Stale and other news never push; the threads' unread marks and the board carry them. Questions, steps and prototypes go at once; drafts on Ready and Merge go when their tick ends; each arrives as its own notification, and one under a card's tag replaces the last and alerts again ([0030](docs/adr/0030-pushes-go-by-kind-and-each-arrives-on-its-own.md)). Replies don't push; a push that goes out anyway says how many came since the last one. With notifications off every push is dropped; a snooze and Off on weekends hold pushes until they end, and urgent ones go through those holds ([0032](docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md)). While the owner is **at the Mac**, an action push goes to the Mac only ([0065](docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md)).
 _Avoid_: alert, notification (for the act of sending)
+
+**At the Mac**:
+The owner's presence that keeps pushes off the phone: the Mac's screen is unlocked and a key or the pointer was used in the last 3 minutes, whatever app is in front (`hub/presence.mjs`). Then an action push goes only to the desktop subscriptions, and the phone never gets it later; prompts, faults and urgent pushes still reach the phone, and with no desktop subscription every push does. Otherwise the owner is away and every push goes to every device ([0065](docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md)).
+_Avoid_: active, online, desktop app active
 
 **Polling interval**:
 The hub's one schedule, a list of windows with their minutes: on each slot it checks GitHub, wakes a board's owning session with `github-change` when a PR on its cards changed, pushes once for each board that isn't listening, then sends the queued pushes. At each daily wake time it also sends each board one `check-github {reason: "morning"}`, changed or not. With hold pushes overnight on, pushes queued in the last window wait for the first window's start ([0025](docs/adr/0025-the-hub-polls-github-and-sends-pushes-on-one-interval.md)).
 _Avoid_: push schedule, send-at-once hours, cron
 
 **Hub Settings**:
-The hub pages' gear page, `/_hub/settings`: this device's notifications, push notifications on or off, snooze, off on weekends, a Polling row opening the page that edits the polling interval, hold pushes overnight and daily wakes, and the rules for every board. A board's gear opens that board's own Settings, which holds its auto-merge toggle, its reviewers and its own rules.
+The hub pages' gear page, `/_hub/settings`: this device's notifications, push notifications on or off, snooze, off on weekends, whether the owner is **at the Mac**, a Polling row opening the page that edits the polling interval, hold pushes overnight and daily wakes, and the rules for every board. A board's gear opens that board's own Settings, which holds its auto-merge toggle, its reviewers and its own rules.
 _Avoid_: preferences, hub config
 
 **Waiting count**:
@@ -96,7 +100,7 @@ _Avoid_: health, status, integrations
 
 **Change signal**:
 The board server's note on its `api/stream` that a file the board reads changed; the hub passes it on as `change {route}` on its one stream, and an open board reloads at once. The header's time counts from the last one that brought something new, or the last ↻ tap ([0031](docs/adr/0031-the-board-reloads-on-a-change-signal.md)).
-_Avoid_: push (a push is a phone notification), live update
+_Avoid_: push (a push is a notification from the hub), live update
 
 **Wave**:
 A set of work items built and reviewed together, with its reviewers and follow-ups.
