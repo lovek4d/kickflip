@@ -7,8 +7,10 @@
   transform: translateX(-102%); visibility: hidden; transition: transform .24s cubic-bezier(.2,.8,.2,1), visibility 0s linear .24s;
   font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif; color: var(--text); }
 .sidebar.open { transform: none; visibility: visible; transition: transform .24s cubic-bezier(.2,.8,.2,1); }
-.sidebar-scrim { position: fixed; inset: 0; z-index: 19; background: rgba(0,0,0,.4); opacity: 0; pointer-events: none; transition: opacity .2s; }
-.sidebar-scrim.on { opacity: 1; pointer-events: auto; }
+/* Safari tints its toolbars with the background of fixed elements at the screen's edges, even a hidden or opacity: 0
+   one, so a closed scrim has no background colour, or the bars and the strip below a bottom sheet turn grey. */
+.sidebar-scrim { position: fixed; inset: 0; z-index: 19; background: transparent; pointer-events: none; transition: background-color .2s; }
+.sidebar-scrim.on { background: rgba(0,0,0,.4); pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) { .sidebar, .sidebar.open, .sidebar-scrim { transition: none; } }
 
 /* The head is the page header itself (ui-page-header.js), edge to edge across the sidebar and pinned while the list

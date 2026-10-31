@@ -202,7 +202,10 @@ main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
   max-height: calc(var(--vh, 100dvh) + var(--kb, 0px) - env(safe-area-inset-top) - 12px); overflow-y: auto; overscroll-behavior: contain;
   padding: 0 0 var(--kb, 0px); border: 1px solid var(--line); border-bottom: 0; border-radius: 16px 16px 0 0; background: var(--panel); color: var(--text);
   box-shadow: 0 -8px 30px rgba(0,0,0,.18); }
-.sheet::backdrop { background: rgba(0,0,0,.35); }
+/* iOS scrolls the page under a modal dialog, and a drag on the dim area pans the view and Safari's toolbar even when the
+   page can't scroll; either moves a sheet pinned to the bottom and shows the board below it. */
+html:has(dialog:modal) { overflow: hidden; }
+.sheet::backdrop { background: rgba(0,0,0,.35); touch-action: none; }
 .sheet form { padding: 10px 16px max(12px, env(safe-area-inset-bottom)); }
 .sheet.kb form { padding-bottom: 10px; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }

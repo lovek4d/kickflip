@@ -652,7 +652,7 @@ test("the shell selects Settings on direct loads, sidebar taps, the Hub header's
   }
 });
 
-test('ask and New board sheets follow the phone keyboard and release viewport listeners on close', () => {
+test('ask and New board sheets follow the phone keyboard, hold the page still and release viewport listeners on close', () => {
   const page = fakePage(memoryStorage().localStorage);
   const { win } = page;
   const doc = win.document;
@@ -671,10 +671,15 @@ test('ask and New board sheets follow the phone keyboard and release viewport li
   const view = win.BoardView.create(root, 'https://mac.ts.net/board-a');
   view.mount();
   const vv = win.visualViewport;
+  const global = vm.runInContext('window', win);
+  const scrolls = [];
+  win.scrollTo = (x, y) => { scrolls.push(y); win.scrollY = y; };
   for (const kind of ['board', 'ask']) {
     for (let i = 0; i < 2; i++) {
-      const baseline = [page.listenerCount(vv), page.listenerCount(win)];
+      const baseline = [page.listenerCount(vv), page.listenerCount(global)];
       vv.height = 844; vv.offsetTop = 0;
+      win.scrollY = 120;
+      scrolls.length = 0;
       if (kind === 'ask') page.fire(root.querySelector('#compose'), 'click');
       else page.fire(aside, 'click', { target: aside.querySelector('[data-new-board]') });
       const sheet = kind === 'ask' ? root.querySelector('#sheet') : doc.getElementById('newBoardSheet');
@@ -692,11 +697,17 @@ test('ask and New board sheets follow the phone keyboard and release viewport li
       page.fire(vv, 'resize');
       assert.equal(values.get('--kb'), '0px');
       assert.equal(sheet.classList.contains('kb'), false);
+      win.scrollY = 469;
+      page.fire(global, 'scroll');
+      assert.deepEqual(scrolls, [120]);
       sheet.close();
-      const closed = [page.listenerCount(vv), page.listenerCount(win)];
+      const closed = [page.listenerCount(vv), page.listenerCount(global)];
       values.clear();
       page.fire(vv, 'resize'); page.fire(vv, 'scroll');
+      win.scrollY = 300;
+      page.fire(global, 'scroll');
       assert.equal(values.size, 0);
+      assert.deepEqual(scrolls, [120]);
       assert.deepEqual(closed, baseline);
     }
   }

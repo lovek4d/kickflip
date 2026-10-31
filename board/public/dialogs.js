@@ -50,15 +50,29 @@
       sheet.style.setProperty('--vh', (vv ? vv.height : window.innerHeight) + 'px');
       sheet.classList.toggle('kb', kb > 0);
     };
+    // iOS scrolls the page to show a focused field even under a modal sheet, and then draws the sheet cut off above the
+    // keyboard with the board below it, so the page keeps its scroll position. innerHeight reads short during that
+    // scroll and no resize follows the restore, so --kb is measured again once the keyboard has settled.
+    const y = window.scrollY;
+    let settle = 0;
+    const pin = () => {
+      if (window.scrollY === y) return;
+      window.scrollTo(window.scrollX, y);
+      clearTimeout(settle);
+      settle = setTimeout(fit, 350);
+    };
     sheet.classList.add('keyboard-sheet');
     fit();
     vv?.addEventListener('resize', fit);
     vv?.addEventListener('scroll', fit);
     window.addEventListener('resize', fit);
+    window.addEventListener('scroll', pin);
     return () => {
+      clearTimeout(settle);
       vv?.removeEventListener('resize', fit);
       vv?.removeEventListener('scroll', fit);
       window.removeEventListener('resize', fit);
+      window.removeEventListener('scroll', pin);
     };
   }
   const confirm = (message, labels) => (labels?.signal?.aborted ? Promise.resolve(false)
