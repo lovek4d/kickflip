@@ -29,10 +29,15 @@ BoardView.part((B) => {
     if (it.from) rows.push(['Filed from', esc(it.from)]);
     if (it.next) rows.push(['Next', linkText(it.next, ctx)]);
     // docs/adr/0062-notes-is-a-link-in-the-details-list.md
-    if (it.hasNotes) rows.push([`<a href="notes.html?item=${encodeURIComponent(it.key)}">Notes ↗</a>`, '']);
+    const external = [
+      it.hasNotes ? `<a href="notes.html?item=${encodeURIComponent(it.key)}">Notes ↗</a>` : '',
+      installButton(it),
+      pr?.state === 'OPEN' ? `<a${classes(it, BUTTON.github)} href="${esc(pr.url)}" target="_blank" rel="noopener">${pr.isDraft ? 'Review draft on GitHub' : 'Review on GitHub'} ↗</a>` : '',
+    ].filter(Boolean);
+    const externalRow = external.length ? `<dt class="external-links-label">Links</dt><dd class="external-links">${external.map((html, i) => `<span class="external-link">${i ? '<span class="external-separator" aria-hidden="true"> · </span>' : ''}${html}</span>`).join('')}</dd>` : '';
 
     return `<div class="detail">
-      <dl class="grid">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+      <dl class="grid">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}${externalRow}</dl>
       ${actions(it)}
       ${B.thread(it.key)}
     </div>`;
@@ -61,17 +66,13 @@ BoardView.part((B) => {
 
   function actions(it) {
     const key = esc(it.key);
-    const pr = it.pr;
-    const github = pr?.state === 'OPEN'
-      ? `<a${classes(it, BUTTON.github, 'pill')} href="${esc(pr.url)}" target="_blank" rel="noopener">${pr.isDraft ? 'Review draft on GitHub' : 'Review on GitHub'} →</a>` : '';
-    const install = installButton(it);
     const ask = (act, label) => `<button data-confirm="${act}" data-key="${key}">${label}</button>`;
     const holding = sendingHold.has(it.key) ? sendingHold.get(it.key) : it.holdPending;
     const hold = it.kind !== 'work' || !it.holdable ? ''
       : holding != null ? `<button disabled>${holding ? 'Holding…' : 'Resuming…'}</button>`
       : it.held ? ask('resume', 'Resume') : ask('hold', 'Hold');
     const build = it.kind === 'followup' && it.lane !== 'done' ? `<button class="build" data-confirm="build" data-key="${key}">Build</button>` : '';
-    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${build}${mergeButton(it, sendingMerge.has(it.key))}${hold}${actionButton(it)}`)}${actionRow('external', `${github}${install}`)}</div>`;
+    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${build}${mergeButton(it, sendingMerge.has(it.key))}${hold}${actionButton(it)}`)}</div>`;
   }
 
   // board/domain.mjs actionButtonOf picks the button and resolvedBy its colour (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md).

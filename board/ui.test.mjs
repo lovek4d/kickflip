@@ -649,7 +649,7 @@ test("a thread's Done shows on every card not in Done, orange while it clears an
   assert.equal(done(undefined), '');
 });
 
-test("the open card's details list ends with a Notes row whose label is a link to notes.html with nothing beside it, and no row without notes; Notes has no fold or button, and a follow-up's Build is filled orange", () => {
+test("the open card's details list ends with Notes, Install and GitHub links in order, omitting links that do not apply; Notes has no summary or button, and a follow-up's Build is filled orange", () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.match(css, /button\.build \{[^}]*background: var\(--color-notice\)/);
 
@@ -659,12 +659,24 @@ test("the open card's details list ends with a Notes row whose label is a link t
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const open = { ...workCard, pr: null, reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
-  const rows = (it) => [...B.detail(it).matchAll(/<dt>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
-  const labelLink = (it) => B.detail(it).match(/<dt><a href="([^"]+)">[^<]*<\/a><\/dt>/)?.[1];
-  assert.deepEqual(rows(open), [['Wave', 'W'], ['Next', 'Waiting for PR reviewers'], ['Notes ↗', '']]);
-  assert.equal(labelLink(open), 'notes.html?item=w%2FA1');
+  const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
+  assert.deepEqual(rows(open), [['Wave', 'W'], ['Next', 'Waiting for PR reviewers'], ['Links', 'Notes ↗']]);
+  assert.match(B.detail(open), /href="notes.html\?item=w%2FA1"/);
   assert.doesNotMatch(B.detail(open), /Old short note|A stored summary|view more|<summary[^>]*>Notes|class="actions"[^]*notes\.html/);
   assert.doesNotMatch(B.detail({ ...open, hasNotes: false }), /Notes|notes\.html/);
+  const install = { url: 'https://m/app.apk', older: false };
+  const pr = { state: 'OPEN', url: 'https://github.com/o/r/pull/1' };
+  for (const hasNotes of [false, true]) {
+    for (const build of [null, install]) {
+      for (const state of ['OPEN', 'MERGED', 'CLOSED']) {
+        const it = { ...open, hasNotes, install: build, pr: { ...pr, state } };
+        const expected = [hasNotes && 'Notes ↗', build && 'Install ↗', state === 'OPEN' && 'Review on GitHub ↗'].filter(Boolean);
+        assert.deepEqual(rows(it).filter(([label]) => label === 'Links'), expected.length ? [['Links', expected.join(' · ')]] : []);
+        assert.match(B.detail(it), expected.length ? /<dd class="external-links">[^]*<\/dd><\/dl>/ : /<dd>Waiting for PR reviewers<\/dd><\/dl>/);
+        assert.doesNotMatch(B.detail(it), /action-row external/);
+      }
+    }
+  }
 });
 
 test('the side pages wait out a board restart: a failed request, a 5xx or a body that is not JSON shows Board restarting… and retries with a growing backoff, until about limit ms', async () => {
@@ -779,10 +791,12 @@ test("a card with an install shows its Install link last among its badges, openi
   assert.doesNotMatch(ui.workLines(workCard), /Install/);
 });
 
-test('the install chip and button share rebuilding, first build, older build and current states', () => {
+test('the install chip and details link share rebuilding, first build, older build and current states', () => {
   const install = { url: 'https://m/app.apk', sha: 'abc1234', older: true };
   const building = { ...workCard, builder: { kind: 'install' } };
   for (const render of [ui.installChip, ui.installButton]) {
+    const arrow = render === ui.installButton ? ' ↗' : '';
+    assert.equal(render(workCard), '');
     const first = render(building);
     assert.equal(text(first), 'Building…');
     assert.match(first, /tone-notice/);
@@ -790,7 +804,7 @@ test('the install chip and button share rebuilding, first build, older build and
     assert.doesNotMatch(first, /href=|data-install-confirm/);
     for (const older of [false, true]) {
       const rebuilding = render({ ...building, install: { ...install, older } });
-      assert.equal(text(rebuilding), 'Rebuilding…');
+      assert.equal(text(rebuilding), `Rebuilding…${arrow}`);
       assert.match(rebuilding, /tone-notice/);
       assert.match(rebuilding, /data-install-confirm="w\/B5"/);
       assert.match(rebuilding, /href="https:\/\/m\/app.apk"/);
@@ -798,11 +812,12 @@ test('the install chip and button share rebuilding, first build, older build and
     for (const kind of ['opus', undefined]) {
       const older = render({ ...workCard, install, builder: kind ? { kind } : null });
       assert.match(older, /tone-quiet/);
-      assert.match(text(older), /^Install · older build/);
+      assert.equal(text(older), `Install · older build${arrow}`);
       assert.doesNotMatch(older, /data-install-confirm/);
       const current = render({ ...workCard, install: { ...install, older: false } });
       assert.match(current, /tone-ready/);
-      assert.match(text(current), /^Install(?: →)?$/);
+      assert.equal(text(current), `Install${arrow}`);
+      assert.doesNotMatch(current, /target=|class="pill/);
     }
     assert.equal(render({ ...building, lane: 'done' }), '');
   }

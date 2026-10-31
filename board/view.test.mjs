@@ -424,7 +424,7 @@ const askCard = (id, lane) => ({ key: `ask:${id}`, id, kind: 'ask', lane, title:
 const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items, waves: [], needs: [], answers: [] });
 const workCard = (id, extra) => ({ key: `w/${id}`, id, kind: 'work', lane: 'todo', title: `Work ${id}`, ref: id, internal: true, waveTitle: 'W', deps: [], manualSteps: [], othersAt: [], ...extra });
 
-test("an open card shows the one action button the board names, its workflow buttons in one row and the links that leave the board in the next with Install last, and colours orange the button that clears Action needed: Open questions links to its first question, Grill asks for questions or reads Writing questions…, and an ask's Mark as done confirms and sends ask-done", async () => {
+test("an open card shows its workflow buttons below a final details line of Notes, Install and GitHub links, and colours orange the control that clears Action needed: Open questions links to its first question, Grill asks for questions or reads Writing questions…, and an ask's Mark as done confirms and sends ask-done", async () => {
   const draft = { state: 'OPEN', isDraft: true, number: 7, url: 'https://github.com/o/r/pull/7', checks: { state: 'pass' } };
   const ready = { ...draft, isDraft: false };
   const install = { url: 'itms-services://?action=download-manifest&url=https://m/x/manifest.plist', label: null, older: false };
@@ -445,9 +445,9 @@ test("an open card shows the one action button the board names, its workflow but
   ];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
   await b.settle();
-  const row = (key) => b.root.querySelector(`details.item[data-key="${key}"] .detail`)?.querySelector('.actions');
+  const row = (key) => b.root.querySelector(`details.item[data-key="${key}"] .detail`);
   const labels = (els) => els.map((el) => el.textContent.trim());
-  const shown = (key) => ['workflow', 'external', 'resolves'].map((part) => labels(row(key)?.querySelectorAll(part === 'resolves' ? '.resolves' : `.action-row.${part} a, .action-row.${part} button`) || []));
+  const shown = (key) => ['.action-row.workflow a, .action-row.workflow button', '.external-links a', '.actions .resolves, .external-links .resolves'].map((selector) => labels(row(key)?.querySelectorAll(selector) || []));
   assert.deepEqual(Object.fromEntries(cards.map((c) => [c.key, shown(c.key)])), {
     'w/A1': [['Open questions'], [], ['Open questions']],
     'w/A2': [['Grill'], [], []],
@@ -455,15 +455,21 @@ test("an open card shows the one action button the board names, its workflow but
     'w/A4': [[], [], []],
     'w/A5': [['Resume', 'Open questions'], [], []],
     'w/P1': [['Open questions'], [], ['Open questions']],
-    'w/D1': [['Grill'], ['Review draft on GitHub →', 'Install →'], ['Review draft on GitHub →']],
-    'w/R1': [['Grill'], ['Review on GitHub →', 'Install →'], []],
-    'w/S1': [['Grill'], ['Review on GitHub →'], ['Review on GitHub →']],
-    'w/M1': [['Merge', 'Grill'], ['Review on GitHub →'], ['Merge']],
+    'w/D1': [['Grill'], ['Notes ↗', 'Install ↗', 'Review draft on GitHub ↗'], ['Review draft on GitHub ↗']],
+    'w/R1': [['Grill'], ['Install ↗', 'Review on GitHub ↗'], []],
+    'w/S1': [['Grill'], ['Review on GitHub ↗'], ['Review on GitHub ↗']],
+    'w/M1': [['Merge', 'Grill'], ['Review on GitHub ↗'], ['Merge']],
     'ask:a1': [['Mark as done'], [], ['Mark as done']],
     'ask:a2': [[], [], []],
   });
   assert.equal(row('w/A1').querySelector('a.button').getAttribute('href'), 'questions.html#q7');
-  assert.deepEqual(row('w/D1').querySelectorAll('.action-row.external a').map((a) => a.getAttribute('href')), [draft.url, install.url]);
+  const external = row('w/D1').querySelector('.grid .external-links');
+  assert.deepEqual(external.querySelectorAll('a').map((a) => a.getAttribute('href')), ['notes.html?item=w%2FD1', install.url, draft.url]);
+  assert.equal(external.textContent, 'Notes ↗ · Install ↗ · Review draft on GitHub ↗');
+  assert.equal(external.parentNode.children.at(-1), external);
+  assert.equal(b.root.querySelector('.action-row.external'), null);
+  assert.equal(row('w/D1').querySelector('.actions .install, .actions a[target="_blank"]'), null);
+  assert.equal(row('w/R1').querySelector('.external-links .resolves'), null);
 
   b.page.fire(b.root, 'click', { target: row('w/A2').querySelector('button') });
   b.page.fire(b.root, 'click', { target: row('ask:a1').querySelector('button') });
@@ -472,7 +478,7 @@ test("an open card shows the one action button the board names, its workflow but
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['grill-more', { key: 'w/A2' }], ['ask-done', { id: 'a1' }]]);
 });
 
-test('both install links confirm with labelled actions while rebuilding, then become current when the install lands', async () => {
+test('the install chip and details link confirm with labelled actions while rebuilding, then become current when the install lands', async () => {
   const install = { url: 'https://m/app.apk', sha: 'old', older: true };
   const cards = [workCard('R1', { lane: 'progress', install, builder: { kind: 'install' } }),
     workCard('B1', { lane: 'progress', builder: { kind: 'install' } })];
@@ -480,12 +486,12 @@ test('both install links confirm with labelled actions while rebuilding, then be
   await b.settle();
   const row = (id) => b.root.querySelector(`details[data-key="w/${id}"]`);
   assert.equal(row('B1').querySelector('summary .chip.tone-notice').textContent, 'Building…');
-  assert.equal(row('B1').querySelector('.actions .install').textContent, 'Building…');
-  assert.equal(row('B1').querySelector('.actions .install').getAttribute('href'), null);
+  assert.equal(row('B1').querySelector('.grid .external-links .install').textContent, 'Building…');
+  assert.equal(row('B1').querySelector('.grid .external-links .install').getAttribute('href'), null);
   const href = b.page.win.location.href;
-  for (const sel of ['summary a[data-install-confirm]', '.actions a[data-install-confirm]']) {
+  for (const sel of ['summary a[data-install-confirm]', '.grid .external-links a[data-install-confirm]']) {
     const link = row('R1').querySelector(sel);
-    assert.equal(link.textContent, 'Rebuilding…');
+    assert.equal(link.textContent, sel.startsWith('summary') ? 'Rebuilding…' : 'Rebuilding… ↗');
     b.page.fire(b.root, 'click', { target: link });
     await b.settle();
     assert.equal(b.page.win.location.href, href);
@@ -494,7 +500,8 @@ test('both install links confirm with labelled actions while rebuilding, then be
   assert.deepEqual(b.confirmLabels, Array(2).fill({ ok: 'Install older build', cancel: 'Cancel' }));
   const allowed = boardOnDom({ open: ['w/R1'], board: boardOf(cards), threads: {}, confirm: true });
   await allowed.settle();
-  for (const link of allowed.root.querySelectorAll('a[data-install-confirm]')) {
+  for (const sel of ['summary a[data-install-confirm]', '.grid .external-links a[data-install-confirm]']) {
+    const link = allowed.root.querySelector(sel);
     allowed.page.win.location.href = href;
     const event = allowed.page.fire(allowed.root, 'click', { target: link });
     assert.equal(event.defaultPrevented, true);
@@ -503,7 +510,7 @@ test('both install links confirm with labelled actions while rebuilding, then be
   }
   await b.change({ board: boardOf([workCard('R1', { lane: 'review', install: { ...install, sha: 'new', older: false } }), cards[1]]) });
   assert.equal(row('R1').querySelector('summary .chip.tone-ready').textContent, 'Install');
-  assert.equal(row('R1').querySelector('.actions .install').textContent, 'Install →');
+  assert.equal(row('R1').querySelector('.grid .external-links .install').textContent, 'Install ↗');
   assert.equal(row('R1').querySelector('[data-install-confirm]'), null);
 });
 
@@ -513,7 +520,7 @@ test('an install confirmation closes on view unmount and cannot navigate after l
     const b = boardOnDom({ open: ['w/R1'], board: boardOf([workCard('R1', { lane: 'progress', install, builder: { kind: 'install' } })]), threads: {}, realDialogs: true });
     await b.settle();
     const href = b.page.win.location.href;
-    b.page.fire(b.root, 'click', { target: b.root.querySelector('a[data-install-confirm]') });
+    b.page.fire(b.root, 'click', { target: b.root.querySelector('.external-links a[data-install-confirm]') });
     const sheet = b.doc.body.querySelector('dialog.confirm-sheet');
     assert.ok(sheet?.open);
     if (accept) b.page.fire(sheet, 'click', { target: sheet.querySelector('[data-answer="ok"]') });
@@ -623,8 +630,8 @@ test("every owner action kind the board derives makes exactly one of the open ca
   const mounted = async (items) => {
     const b = boardOnDom({ open: items.map((i) => i.key), board: { ...built, items, title: 'A', generatedAt: '2026-10-30T10:00:00.000Z' }, threads: {} });
     await b.settle();
-    const row = (key) => b.root.querySelector(`details.item[data-key="${key}"] .detail`)?.querySelector('.actions');
-    const counts = Object.fromEntries(items.map((i) => [i.key, [row(i.key)?.querySelectorAll('.action-row.workflow a, .action-row.workflow button').length ?? 0, row(i.key)?.querySelectorAll('.resolves').length ?? 0]]));
+    const row = (key) => b.root.querySelector(`details.item[data-key="${key}"] .detail`);
+    const counts = Object.fromEntries(items.map((i) => [i.key, [row(i.key)?.querySelectorAll('.action-row.workflow a, .action-row.workflow button').length ?? 0, row(i.key)?.querySelectorAll('.actions .resolves, .external-links .resolves').length ?? 0]]));
     return { counts, ui: b.page.win.BoardUI };
   };
   const shown = await mounted(built.items);

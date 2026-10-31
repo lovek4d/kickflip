@@ -68,7 +68,7 @@
     const attrs = Object.entries({ href: s.href, title: s.title, ...s.attrs }).filter(([, v]) => v != null)
       .map(([k, v]) => ` ${k}="${esc(v)}"`).join('');
     const tag = s.href ? 'a' : 'span';
-    return `<${tag} class="pill install tone-${s.tone}"${attrs}>${esc(s.label)}${s.href && !installing(it) ? ' →' : ''}</${tag}>`;
+    return `<${tag} class="install tone-${s.tone}"${attrs}>${esc(s.label)}${s.href ? ' ↗' : ''}</${tag}>`;
   }
   // The open card's Merge, while the board's auto-merge is off: it confirms, then sends card-merge, and reads "Merging…"
   // while it is sent or waits on the session (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md).

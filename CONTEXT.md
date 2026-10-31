@@ -131,7 +131,7 @@ A chip on a card or page that shows a status, such as Action needed, Install, a 
 _Avoid_: chip (in what the owner reads), tag, label
 
 **Button**:
-A control that acts: it sends something to the board, such as Merge, Hold or Grill, or opens a place to act, such as Open questions or Review on GitHub. The open card's buttons sit in two rows: workflow first (a follow-up's Build, Merge, Hold or Resume, then the **action button**), then the links that leave the board (Review on GitHub, then Install last). A card that can be bumped carries its bump as an icon at its top right instead, closed or open, as a New card does; it confirms like a button ([0019](docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md)). The one that clears the card's **Action needed** is orange.
+A control that acts: it sends something to the board, such as Merge, Hold or Grill, or opens a place to act, such as Open questions. The open card's workflow row holds a follow-up's Build, Merge, Hold or Resume, then the **action button**, below the details list whose final line holds Notes, Install and Review on GitHub links in that order ([0067](docs/adr/0067-a-cards-external-links-share-the-last-details-line.md)). A card that can be bumped carries its bump as an icon at its top right instead, closed or open, as a New card does; it confirms like a button ([0019](docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md)). The control that clears the card's **Action needed** is orange.
 _Avoid_: badge, pill (a pill is only a look)
 
 **Badge tone**:
@@ -181,15 +181,15 @@ A board setting, `auto_merge` in its `board.json`, off unless set: on, monitor m
 _Avoid_: merge rule, merge policy
 
 **Review on GitHub**:
-The open card's link to its PR, on every card with an open PR, first in the second row of buttons. It reads "Review draft on GitHub" on a draft and "Review on GitHub" once ready, with no PR number, and is orange while a green draft's Ready or manual steps wait on the owner.
+The open card's link to its PR, on every card with an open PR, last on the details list's final line after Notes and Install when present. It reads "Review draft on GitHub ↗" on a draft and "Review on GitHub ↗" once ready, with no PR number, and is orange while a green draft's Ready or manual steps wait on the owner ([0067](docs/adr/0067-a-cards-external-links-share-the-last-details-line.md)).
 _Avoid_: Review #<n> on GitHub, PR link
 
 **Install**:
-The link on a device-app card that installs its build on the owner's phone, last in its badge row and the open card's second row of buttons. A new push triggers a rebuild: while an install builder works, both read "Rebuilding…" in builder orange and ask before installing the older build, or "Building…", inert, before the first install; without a build running, "older build" means the PR moved past the installed build, and the install leaves the card in Done ([0051](docs/adr/0051-a-device-app-card-carries-an-install-link.md)).
+The link on a device-app card that installs its build on the owner's phone, last in its badge row and between Notes and Review on GitHub on the open card's final details line. A new push triggers a rebuild: while an install builder works, both read "Rebuilding…" in builder orange and ask before installing the older build, or "Building…", inert, before the first install; without a build running, "older build" means the PR moved past the installed build, and the install leaves the card in Done ([0051](docs/adr/0051-a-device-app-card-carries-an-install-link.md), [0067](docs/adr/0067-a-cards-external-links-share-the-last-details-line.md)).
 _Avoid_: download, TestFlight (a different channel), build link
 
 **Notes**:
-The owning session's understanding of a work item so far: what was asked, what is settled, what is open. A Markdown file in its wave's folder that the item names in `plan` (`item set --notes-file`), rewritten as the grill settles things, or with no file the item's short `notes` text. The open card's details list ends with a Notes row whose label, "Notes ↗", opens the notes as a page sized for the phone; the row has no value and the board keeps no summary of them. A card with no notes has no row. The thread keeps the short news ([0053](docs/adr/0053-notes-replace-the-full-plan-and-cards-start-on-their-own.md), [0062](docs/adr/0062-notes-is-a-link-in-the-details-list.md)).
+The owning session's understanding of a work item so far: what was asked, what is settled, what is open. A Markdown file in its wave's folder that the item names in `plan` (`item set --notes-file`), rewritten as the grill settles things, or with no file the item's short `notes` text. "Notes ↗" opens them as a page sized for the phone, first on the open card's final details line before Install and Review on GitHub; the board keeps no summary of them and a card with no notes omits the link. The thread keeps the short news ([0053](docs/adr/0053-notes-replace-the-full-plan-and-cards-start-on-their-own.md), [0062](docs/adr/0062-notes-is-a-link-in-the-details-list.md), [0067](docs/adr/0067-a-cards-external-links-share-the-last-details-line.md)).
 _Avoid_: full plan, plan, spec
 
 **Held**:
@@ -308,7 +308,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `dialogs.js` | `BoardDialogs.confirm` and `notice`, which every board page's dialogs go through; loaded on every page |
 | `rules-editor.js` | `RulesEditor`, the rules list on board Settings and hub Settings, with its own CSS; `ui.test.mjs` tests its pure parts |
 | `app-threads.js` | Loading a thread, once at a time per card; an open card's thread, its reply box, quick replies and Done |
-| `app-cards.js` | Cards, their open detail with the details list ending in the Notes ↗ row, and the action rows: a follow-up's Build, Merge, Hold and the **action button** with each one's confirmation, then Review on GitHub and Install; the bump icon's confirmation; an ask's detail shows only its action button; the thread's Done confirmation and send |
+| `app-cards.js` | Cards, their open detail with the details list ending in Notes ↗ · Install ↗ · Review on GitHub ↗ when present, and the workflow row: a follow-up's Build, Merge, Hold and the **action button** with each one's confirmation; the install link's rebuilding confirmation; the bump icon's confirmation; an ask's detail shows only its action button; the thread's Done confirmation and send |
 | `app-lanes.js` | Lanes, the Answered, older and finished-wave folds, the wave bars and filter, and Plan a wave |
 | `app-asks.js` | The + sheet and its press-n-twice shortcut, and bump, edit and delete |
 | `app-needs.js` | The Needs you box, led by the board session's pending prompts |
