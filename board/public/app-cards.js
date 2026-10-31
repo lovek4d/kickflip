@@ -143,7 +143,7 @@ BoardView.part((B) => {
       sendingHold.set(key, act === 'hold');
       redrawActions(key);
       try { await B.site.send('card-hold', { key, hold: act === 'hold' }); }
-      catch { toast(`Could not ${act}. Is the Mac awake?`, 3000); }
+      catch { toast(`Could not ${act}. Is the Mac awake?`); }
       sendingHold.delete(key);
       B.loadBoard();
       return;
@@ -153,7 +153,7 @@ BoardView.part((B) => {
       sendingMerge.add(key);
       redrawActions(key);
       try { await B.site.send('card-merge', { key }); }
-      catch { toast('Could not send. Is the Mac awake?', 3000); }
+      catch { toast('Could not send. Is the Mac awake?'); }
       sendingMerge.delete(key);
       B.loadBoard();
       return;
@@ -163,7 +163,7 @@ BoardView.part((B) => {
       B.sendingDone.add(key);
       B.syncDone(key);
       try { await (it.kind === 'ask' ? B.site.send('ask-done', { id: it.id }) : B.site.send('card-done', { key })); }
-      catch { toast('Could not close. Is the Mac awake?', 3000); }
+      catch { toast('Could not close. Is the Mac awake?'); }
       B.sendingDone.delete(key);
       await B.loadBoard();
       B.syncDone(key);
@@ -173,10 +173,10 @@ BoardView.part((B) => {
     row?.querySelectorAll('button').forEach((x) => { x.disabled = true; });
     b.disabled = true;
     try {
-      if (act === 'bump') { await B.site.send('card-bump', { key }); toast('Moved to the top', 2500); }
-      else if (act === 'nudge') { await B.site.send('builder-nudge', { key }); b.textContent = 'Sent'; toast('Nudge sent', 2500); }
+      if (act === 'bump') { await B.site.send('card-bump', { key }); toast('Moved to the top'); }
+      else if (act === 'nudge') { await B.site.send('builder-nudge', { key }); b.textContent = 'Sent'; toast('Nudge sent'); }
       else { await B.site.send(act === 'grill' ? 'grill-more' : 'build-followup', { key }); B.loadThread(key, { force: true }); }
-    } catch { toast('Could not send. Is the Mac awake?', 3000); }
+    } catch { toast('Could not send. Is the Mac awake?'); }
     B.loadBoard();
   });
 

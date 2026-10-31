@@ -10,7 +10,7 @@
 //   live {fresh, generatedAt}
 //                      this board was left fresh and hasn't changed since, so a stored last visit whose board has
 //                      that generatedAt paints live, with the header time `fresh`, rather than dimmed
-// Load this after ui-*.js and attach.js, and before the app-*.js files.
+// Load this after ui-*.js, attach.js and toasts.js, and before the app-*.js files.
 window.BoardView = (function () {
   const parts = [];
   const part = (fn) => { parts.push(fn); };
@@ -73,7 +73,16 @@ window.BoardView = (function () {
     const atUnmount = (fn) => { if (alive) own(fn); };
     const $ = (s, el = root) => el.querySelector(s);
     const $$ = (s, el = root) => el.querySelectorAll(s);
-    const B = { root, site, route, $, $$, on, every, later, sleep, watch, atUnmount, alive: () => alive, own: (off) => (alive ? own(off) : off()) };
+    let toasts = null;
+    const toast = (text) => {
+      if (!alive) return;
+      if (!toasts) {
+        toasts = BoardToasts.create(root);
+        own(() => { toasts.destroy(); toasts = null; });
+      }
+      toasts.toast(text);
+    };
+    const B = { root, site, route, toast, $, $$, on, every, later, sleep, watch, atUnmount, alive: () => alive, own: (off) => (alive ? own(off) : off()) };
     return {
       B,
       start() { alive = true; },
@@ -269,7 +278,7 @@ window.BoardView = (function () {
     B.headerWired();
     if (live) B.linkUp();
     const sent = BoardUI.sentNotice.take(B.route);
-    if (sent) B.toast(BoardUI.esc(sent), 4000);
+    if (sent) B.toast(sent);
     B.on(document, 'visibilitychange', () => {
       if (document.hidden) return;
       if (signalMissed) { signalMissed = false; signalled(); } else loadBoard();
@@ -305,8 +314,7 @@ window.BoardView = (function () {
     <div class="sheet-head"><h2 id="linksTitle">Hub links</h2><button type="button" class="ghost" id="linksClose" aria-label="Close">✕</button></div>
     <div id="linksList"></div>
   </div>
-</dialog>
-<div id="toast" class="toast" role="status" hidden></div>`;
+</dialog>`;
   }
 
   return { part, create, page, markup };

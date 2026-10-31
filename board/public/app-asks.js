@@ -79,7 +79,7 @@ BoardView.part((B) => {
       BoardAttach.clear('ask', B.site.root);
       $('#askStatus').textContent = '';
       closeSheet();
-      toast('Sent', 2500);
+      toast('Sent');
       B.loadBoard();
     } catch { $('#askStatus').textContent = 'Could not send'; }
   });
@@ -89,7 +89,7 @@ BoardView.part((B) => {
     if (!bump) return;
     ev.preventDefault();
     bump.disabled = true;
-    try { await B.site.send('ask-bump', { id: bump.dataset.bump }); toast('Bumped to the top', 2500); } catch { toast('Could not bump', 3000); }
+    try { await B.site.send('ask-bump', { id: bump.dataset.bump }); toast('Bumped to the top'); } catch { toast('Could not bump'); }
     B.loadBoard();
   });
   // A New card's icons sit on the card; a message in a thread, an ask's included, carries its thread's key.
@@ -142,9 +142,9 @@ BoardView.part((B) => {
     try {
       await B.site.send('ask-withdrawn', { id, ...(key ? { key } : {}) });
       await hide(id, true);
-      toast('Deleted', 2500);
+      toast('Deleted');
       if (key) B.loadThread(key, { force: true }); else B.loadBoard();
-    } catch { state.withdrawnAsks.delete(id); B.render(); if (msg) msg.hidden = false; toast('Could not delete', 3000); }
+    } catch { state.withdrawnAsks.delete(id); B.render(); if (msg) msg.hidden = false; toast('Could not delete'); }
   });
   B.on(B.root, 'submit', async (ev) => {
     const form = ev.target.closest('form.edit-form');
@@ -154,15 +154,15 @@ BoardView.part((B) => {
     const e = state.edits.get(id);
     if (!e) return;
     const text = form.querySelector('textarea').value.trim();
-    if (!text) { toast('Write something, or delete the message', 3000); return; }
+    if (!text) { toast('Write something, or delete the message'); return; }
     const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
     try {
       await B.site.send('ask-edited', { ...e.data, text });
       closeEditor(id);
-      toast('Edited', 2500);
+      toast('Edited');
       B.loadThread(e.thread, { force: true });
       B.loadBoard();
-    } catch { btn.disabled = false; toast('Could not save', 3000); }
+    } catch { btn.disabled = false; toast('Could not save'); }
   });
   // The asks watch polls every 10 s while an ask waits for its reply, sooner than the board's own refresh.
   let asksSeen = false;

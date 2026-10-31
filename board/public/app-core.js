@@ -61,22 +61,6 @@ BoardView.part((B) => {
     store.set('seenThreads', seen);
   }
 
-  // A toast with no ms stays until toast('') clears it, and comes back when a timed toast over it ends.
-  let toastTimer = null;
-  let sticky = '';
-  function toast(html, ms) {
-    const t = $('#toast');
-    if (!ms) {
-      sticky = html;
-      if (toastTimer) return;
-    } else {
-      toastTimer?.();
-      toastTimer = B.later(ms, () => { toastTimer = null; t.innerHTML = sticky; t.hidden = !sticky; });
-    }
-    t.innerHTML = html;
-    t.hidden = !html;
-  }
-
   // iOS commits a pending predictive-text word after Send clears the box, which would refill it and resave the draft.
   // So Send blurs first, and input is dropped while the send runs and for a moment after it succeeds.
   const quiet = new Map();
@@ -108,5 +92,5 @@ BoardView.part((B) => {
   const confirm = (message, labels) => dialogs.confirm(message, { ...labels, signal: controller.signal });
   const notice = dialogs.notice;
 
-  Object.assign(B, { steady, plural, seen, markSeen, toast, quieted, sendDraft, hide, links, svg, confirm, notice });
+  Object.assign(B, { steady, plural, seen, markSeen, quieted, sendDraft, hide, links, svg, confirm, notice });
 });

@@ -47,7 +47,7 @@ BoardView.part((B) => {
   function askGitHub() {
     state.githubPending = Date.now();
     B.render();
-    B.site.send('check-github', {}).catch(() => { state.githubPending = null; B.render(); toast('Could not ask Claude to check GitHub', 3000); });
+    B.site.send('check-github', {}).catch(() => { state.githubPending = null; B.render(); toast('Could not ask Claude to check GitHub'); });
   }
   B.on(B.root, 'click', (ev) => {
     const b = ev.target.closest('[data-check-github]');
@@ -66,7 +66,6 @@ BoardView.part((B) => {
     if (on.settings) { gear.removeAttribute('aria-disabled'); gear.removeAttribute('tabindex'); } else { gear.setAttribute('aria-disabled', 'true'); gear.tabIndex = -1; }
   }
   const headerWired = () => { controls.wired = true; applyControls(); };
-  const OFFLINE_TOAST = `Offline, ${BoardUI.refreshIcon(14)} to retry`;
   // style.css dims the offline view from .view-board.offline.
   function setLink(link) {
     const was = state.link;
@@ -74,8 +73,7 @@ BoardView.part((B) => {
     if (link !== 'reconnecting') controls.boardSettled = true;
     const off = link !== 'online';
     B.root.classList.toggle('offline', off);
-    if (off) B.toast(OFFLINE_TOAST);
-    else if (was && was !== 'online') B.toast('');
+    if (link === 'offline' && was === 'online') toast('Offline. Use refresh in the header to retry.');
     applyControls();
     renderStatus();
   }
@@ -104,7 +102,6 @@ BoardView.part((B) => {
     if (state.link === 'offline') { reconnect(); return; }
     reloading(() => B.loadBoard({ via: 'refresh' }));
   });
-  B.on($('#toast'), 'click', () => { if (state.link === 'offline') reconnect(); });
   B.every(5000, () => { if (state.githubPending && !document.hidden) B.loadBoard(); });
 
   Object.assign(B, { renderHeader, landed, githubHeader, linkUp, linkDown, headerWired });

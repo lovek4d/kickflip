@@ -7,7 +7,7 @@ BoardView.part((B) => {
   const prompts = PromptAnswers.wire(B, {
     list: () => (state.board?.needs || []).filter((line) => line.prompt).map((line) => line.prompt),
     paint: () => { if (state.board) renderNeeds(state.board); },
-    notify: (text) => toast(esc(text), 3000),
+    notify: (text) => toast(text),
     after: () => B.loadBoard(),
   });
 

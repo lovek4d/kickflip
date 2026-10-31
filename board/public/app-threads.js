@@ -105,7 +105,7 @@ BoardView.part((B) => {
     const key = b.closest('form').dataset.reply;
     b.disabled = true;
     try { await B.site.send('item-message', { key, text: b.dataset.quick }); loadThread(key, { force: true }); }
-    catch { toast('Could not send', 3000); }
+    catch { toast('Could not send'); }
     b.disabled = false;
   });
   B.on(B.root, 'click', async (ev) => {
@@ -119,7 +119,7 @@ BoardView.part((B) => {
       const n = protoNotice(pending, latest);
       if (!n.bump) { B.notice(n.text); return; }
       if (!(await B.confirm(n.text))) return;
-      try { await B.site.send('ask-bump', { id: pending }); toast('Bumped to the top', 2500); } catch { toast('Could not bump', 3000); }
+      try { await B.site.send('ask-bump', { id: pending }); toast('Bumped to the top'); } catch { toast('Could not bump'); }
       return;
     }
     if (!(await B.confirm('Ask Claude for prototypes of this item?'))) return;
@@ -127,9 +127,9 @@ BoardView.part((B) => {
     try {
       await B.site.send('prototype-request', { key });
       b.title = b.ariaLabel = 'Prototypes asked for';
-      toast('Asked Claude for prototypes', 2500);
+      toast('Asked Claude for prototypes');
       loadThread(key, { force: true });
-    } catch { b.disabled = false; toast('Could not send', 3000); }
+    } catch { b.disabled = false; toast('Could not send'); }
   });
   B.on(B.root, 'submit', async (ev) => {
     const f = ev.target.closest('form[data-reply]');

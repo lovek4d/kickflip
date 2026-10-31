@@ -6,7 +6,7 @@ import { miniDom } from './mini-dom.mjs';
 import { buildBoard, BUTTON, ACTION_KIND } from './domain.mjs';
 
 const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
-  'hub-kit.js', 'sidebar.js', 'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-banner.js', 'app-snapshot.js',
+  'hub-kit.js', 'sidebar.js', 'toasts.js', 'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-polling.js', 'view-frame.js', 'router.js'];
 
 function memoryStorage(entries = []) {
@@ -39,6 +39,9 @@ function fakePage(localStorage) {
     setAttribute(k, v) { this.attrs[k] = String(v); }
     getAttribute(k) { return this.attrs[k] ?? null; }
     removeAttribute(k) { delete this.attrs[k]; }
+    appendChild(el) { el.parentNode = this; return el; }
+    remove() {}
+    getBoundingClientRect() { return { height: 36 }; }
     insertAdjacentHTML() {}
     contains() { return false; }
     closest() { return null; }
@@ -52,14 +55,19 @@ function fakePage(localStorage) {
   const intervals = new Map();
   const timeouts = new Map();
   const watches = [];
-  const document = Object.assign(new Target(), { hidden: false, activeElement: null, documentElement: new El(), querySelector: () => null });
+  const document = Object.assign(new Target(), { hidden: false, activeElement: null, documentElement: new El(), querySelector: () => null, createElement: () => new El() });
+  let now = 0;
+  const frames = new Map();
   const observers = new Set();
-  class MutationObserver { observe() { observers.add(this); } disconnect() { observers.delete(this); } }
+  class MutationObserver { observe() { observers.add(this); } unobserve() {} disconnect() { observers.delete(this); } }
   const win = Object.assign(new Target(), {
     URL, URLSearchParams, AbortController, localStorage, document, CSS: { escape: (s) => s }, navigator: { platform: 'MacIntel' },
     location: { href: 'https://mac.ts.net/', hash: '', pathname: '/', search: '' }, history: { replaceState() {} }, innerHeight: 844,
     visualViewport: Object.assign(new Target(), { height: 844, offsetTop: 0 }),
-    matchMedia: () => Object.assign(new Target(), { matches: false }), MutationObserver,
+    matchMedia: () => Object.assign(new Target(), { matches: false }), MutationObserver, ResizeObserver: MutationObserver,
+    performance: { now: () => now },
+    requestAnimationFrame: (fn) => { frames.set(++ids, fn); return ids; },
+    cancelAnimationFrame: (id) => frames.delete(id),
     fetch: () => new Promise(() => {}),
     setInterval: (fn, ms) => { intervals.set(++ids, { fn, ms }); return ids; },
     clearInterval: (id) => intervals.delete(id),
@@ -78,12 +86,18 @@ function fakePage(localStorage) {
   vm.createContext(win);
   for (const file of SCRIPTS) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), win);
   const fire = (target, type, ev = {}) => {
-    const e = { target, defaultPrevented: false, preventDefault() { e.defaultPrevented = true; }, stopImmediatePropagation() {}, ...ev };
+    const e = { target, type, defaultPrevented: false, preventDefault() { e.defaultPrevented = true; }, stopImmediatePropagation() {}, ...ev };
     for (const l of listeners.filter((x) => x.target === target && x.type === type).sort((a, b) => b.capture - a.capture)) l.fn(e);
     return e;
   };
-  const left = () => ({ listeners: listeners.length, intervals: intervals.size, timeouts: timeouts.size, watches: watches.filter((w) => !w.stopped).length, observers: observers.size });
-  return { win, El, Target, fire, left };
+  const left = () => ({ listeners: listeners.length, intervals: intervals.size, timeouts: timeouts.size, watches: watches.filter((w) => !w.stopped).length, observers: observers.size, frames: frames.size });
+  const advance = (ms) => {
+    now += ms;
+    const due = [...frames.values()];
+    frames.clear();
+    due.forEach((fn) => fn(now));
+  };
+  return { win, El, Target, fire, left, advance };
 }
 
 test("a board view mounted then unmounted leaves no listener, interval, timer or watch behind, and lets go of the shell's change signal", () => {
@@ -100,8 +114,217 @@ test("a board view mounted then unmounted leaves no listener, interval, timer or
 
   page.fire(root.querySelector('#compose'), 'click');
   page.fire(root.querySelector('#sheetClose'), 'click');
+  view.B.toast('Saved');
   view.unmount();
   assert.deepEqual([page.left(), subscribed.size], [loaded, 0]);
+});
+
+function toastOnDom({ reduced = false } = {}) {
+  const page = fakePage(memoryStorage().localStorage);
+  const { Element } = miniDom(page.Target, page.win.document);
+  Element.prototype.getBoundingClientRect = () => ({ height: 36 });
+  Element.prototype.setPointerCapture = function (id) { this.captured = id; };
+  page.win.matchMedia = (query) => ({ matches: query === '(prefers-reduced-motion: reduce)' && reduced });
+  const root = page.win.document.body.appendChild(new Element('div'));
+  const loaded = page.left();
+  const view = page.win.BoardView.page(root, 'https://mac.ts.net/_hub', () => {});
+  view.mount();
+  const toasts = () => root.querySelectorAll('.toast');
+  const show = (text) => { view.B.toast(text); return toasts().at(-1); };
+  const pointer = (el, type, extra = {}) => page.fire(el, type, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0, ...extra });
+  return { page, root, view, loaded, toasts, show, pointer, advance: page.advance };
+}
+
+test('shared toasts fade in for 150ms, hold solid for 3s through 100 text characters or 5s above, then fade out for 200ms', () => {
+  const t = toastOnDom();
+  const short = t.show('😀'.repeat(100));
+  const long = t.show('x'.repeat(101));
+  assert.equal(short.style.opacity, 0);
+  t.advance(75);
+  assert.equal(short.style.opacity, .5);
+  t.advance(75);
+  assert.equal(short.style.opacity, 1);
+  t.advance(2999);
+  assert.equal(short.style.opacity, 1);
+  t.advance(101);
+  assert.equal(short.style.opacity, .5);
+  assert.equal(long.style.opacity, 1);
+  t.advance(100);
+  assert.deepEqual(t.toasts(), [long]);
+  t.advance(1800);
+  assert.equal(long.style.opacity, 1);
+  t.advance(100);
+  assert.equal(long.style.opacity, .5);
+  t.advance(100);
+  assert.equal(t.toasts().length, 0);
+  assert.equal(t.page.left().frames, 0);
+  t.view.unmount();
+  assert.deepEqual(t.page.left(), t.loaded);
+});
+
+test('hover and held touch pause a toast independently, then resume its remaining time; a long press releases without dismissing', () => {
+  const t = toastOnDom();
+  const el = t.show('Sending…');
+  t.advance(1150);
+  t.pointer(el, 'pointerenter', { pointerType: 'mouse' });
+  t.advance(4000);
+  t.pointer(el, 'pointerdown');
+  assert.equal(el.captured, 1);
+  t.pointer(el, 'pointerleave', { pointerType: 'mouse' });
+  t.advance(4000);
+  assert.equal(el.style.opacity, 1);
+  t.pointer(el, 'pointerup');
+  t.page.fire(el, 'click');
+  t.advance(1999);
+  assert.equal(el.style.opacity, 1);
+  t.advance(101);
+  assert.equal(el.style.opacity, .5);
+  t.advance(100);
+  assert.equal(t.toasts().length, 0);
+  t.view.unmount();
+  assert.deepEqual(t.page.left(), t.loaded);
+});
+
+test('hover during a fade holds full opacity and resumes a fresh exit; blur and hiding the page release holds', () => {
+  const t = toastOnDom();
+  const el = t.show('Saved');
+  t.advance(3250);
+  assert.equal(el.style.opacity, .5);
+  t.pointer(el, 'pointerenter', { pointerType: 'mouse' });
+  t.advance(5000);
+  assert.equal(el.style.opacity, 1);
+  t.page.fire(vm.runInContext('window', t.page.win), 'blur');
+  t.advance(100);
+  assert.equal(el.style.opacity, .5);
+  t.pointer(el, 'pointerdown');
+  t.advance(5000);
+  assert.equal(el.style.opacity, 1);
+  t.page.win.document.hidden = true;
+  t.page.fire(t.page.win.document, 'visibilitychange');
+  t.advance(200);
+  assert.equal(t.toasts().length, 0);
+  t.view.unmount();
+});
+
+test('a tap, mouse click while hovered, or keyboard dismissal starts the exit immediately, even while held', () => {
+  for (const action of ['tap', 'click', 'Enter', 'Escape', ' ']) {
+    const t = toastOnDom();
+    const el = t.show('Could not send');
+    t.advance(150);
+    if (action === 'tap') {
+      t.pointer(el, 'pointerdown');
+      t.advance(100);
+      t.pointer(el, 'pointerup');
+      t.page.fire(el, 'click');
+    } else {
+      t.pointer(el, 'pointerenter', { pointerType: 'mouse' });
+      t.page.fire(el, action === 'click' ? 'click' : 'keydown', { key: action });
+    }
+    t.advance(100);
+    assert.equal(el.style.opacity, .5, action);
+    t.advance(100);
+    assert.equal(t.toasts().length, 0, action);
+    t.advance(10000);
+    assert.equal(t.toasts().length, 0, action);
+    t.view.unmount();
+    assert.deepEqual(t.page.left(), t.loaded);
+  }
+});
+
+test('a canceled or dragged touch resumes the toast without dismissing it', () => {
+  for (const type of ['pointercancel', 'lostpointercapture', 'pointerup']) {
+    const t = toastOnDom();
+    const el = t.show('Saved');
+    t.advance(150);
+    t.pointer(el, 'pointerdown');
+    t.pointer(el, type, { clientX: 20 });
+    t.page.fire(el, 'click');
+    t.advance(3000);
+    assert.equal(el.style.opacity, 1, type);
+    t.advance(200);
+    assert.equal(t.toasts().length, 0, type);
+    t.view.unmount();
+  }
+});
+
+test('toasts stack newest at the bottom, retain separate timers, and fade the oldest before a fourth can appear, even when held', () => {
+  const t = toastOnDom();
+  const first = t.show('First');
+  t.advance(1150);
+  const second = t.show('Second');
+  t.advance(1150);
+  const third = t.show('Third');
+  t.advance(150);
+  assert.deepEqual(t.toasts().map((el) => el.parentNode.style.transform), ['translateY(-124px)', 'translateY(-80px)', 'translateY(-36px)']);
+  t.pointer(first, 'pointerenter', { pointerType: 'mouse' });
+  t.show('Fourth');
+  t.show('Fifth');
+  assert.deepEqual(t.toasts().map((el) => el.textContent), ['First', 'Second', 'Third']);
+  t.advance(100);
+  assert.equal(first.style.opacity, .5);
+  t.advance(100);
+  assert.deepEqual(t.toasts().map((el) => el.textContent), ['Second', 'Third', 'Fourth']);
+  t.advance(200);
+  assert.deepEqual(t.toasts().map((el) => el.textContent), ['Third', 'Fourth', 'Fifth']);
+  t.advance(2700);
+  assert.equal(third.style.opacity, .5);
+  t.advance(100);
+  assert.deepEqual(t.toasts().map((el) => el.textContent), ['Fourth', 'Fifth']);
+  assert.equal(second.isConnected, false);
+  t.view.unmount();
+  assert.deepEqual(t.page.left(), t.loaded);
+  assert.equal(t.root.querySelector('.toast-stack'), null);
+});
+
+test('reduced motion uses short fades and a toast treats markup as text; leaving a view clears its pending arrivals', () => {
+  const t = toastOnDom({ reduced: true });
+  const el = t.show('<b>Saved & sent</b>');
+  assert.equal(el.textContent, '<b>Saved & sent</b>');
+  assert.equal(el.querySelector('b'), null);
+  t.advance(40);
+  assert.equal(el.style.opacity, .5);
+  t.advance(40);
+  t.advance(3000);
+  t.advance(50);
+  assert.equal(el.style.opacity, .5);
+  t.advance(50);
+  assert.equal(t.toasts().length, 0);
+  for (const text of ['1', '2', '3', '4']) t.show(text);
+  t.view.unmount();
+  t.advance(10000);
+  assert.deepEqual(t.page.left(), t.loaded);
+  assert.equal(t.toasts().length, 0);
+  t.view.B.toast('After leaving');
+  assert.equal(t.toasts().length, 0);
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.toast-row\s*\{\s*transition: none;/);
+});
+
+test('an offline toast dismisses without reconnecting or returning, while the header keeps the offline state and retry', async () => {
+  const b = boardOnDom({ board: boardOf([]), threads: {} });
+  await b.settle();
+  const { B } = b.view;
+  let retries = 0;
+  B.loadBoard = async () => { retries++; };
+  B.linkDown();
+  B.linkDown();
+  assert.equal(b.root.querySelectorAll('.toast').length, 1);
+  const el = b.root.querySelector('.toast');
+  b.page.advance(150);
+  b.page.fire(el, 'click');
+  b.page.advance(200);
+  assert.equal(b.root.querySelector('.toast'), null);
+  assert.equal(retries, 0);
+  B.toast('Could not send');
+  b.page.advance(3350);
+  assert.equal(b.root.querySelector('.toast'), null);
+  assert.equal(b.root.classList.contains('offline'), true);
+  assert.equal(B.state.link, 'offline');
+  const refresh = b.root.querySelector('#refresh');
+  assert.equal(refresh.disabled, false);
+  b.page.fire(refresh, 'click');
+  assert.equal(retries, 1);
+  b.view.unmount();
 });
 
 test("the board's Settings, Waiting on you and Notes views, mounted then unmounted, leave no listener, interval, timer or watch behind, and stop retrying a load", async () => {
@@ -115,6 +338,7 @@ test("the board's Settings, Waiting on you and Notes views, mounted then unmount
     assert.equal(typeof views[kind].markup({ kind, route: 'board-a', ...view }), 'string', kind);
     const v = views[kind].create(new page.El(), 'https://mac.ts.net/board-a', { view: { kind, route: 'board-a', ...view }, reload() {} });
     v.mount();
+    v.B.toast('Saved');
     await new Promise((r) => setImmediate(r));
     const mounted = page.left();
     assert.ok(mounted.timeouts > loaded.timeouts, `${kind} ${JSON.stringify(mounted)}`);
@@ -189,6 +413,7 @@ test("the hub page, Hub Settings and Polling, mounted then unmounted, load their
     assert.match(views[kind].markup({ kind, ...view }), /<main class="has-top">/, kind);
     const v = views[kind].create(new page.El(), 'https://mac.ts.net/_hub', { view: { kind, ...view }, reload() {}, sidebarChanged() {} });
     v.mount();
+    v.B.toast('Saved');
     await new Promise((r) => setImmediate(r));
     const mounted = page.left();
     assert.ok(mounted.listeners > loaded.listeners && mounted.intervals > loaded.intervals, `${kind} ${JSON.stringify(mounted)}`);
@@ -741,7 +966,7 @@ test('the Stalled chip on closed and open cards confirms before sending a builde
     b.page.fire(b.root, 'click', { target: chip() });
     await b.settle();
     assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['builder-nudge', { key: 'w/S1' }]]);
-    assert.equal(b.root.querySelector('#toast').textContent, 'Nudge sent');
+    assert.equal(b.root.querySelector('.toast').textContent, 'Nudge sent');
     assert.equal(b.root.querySelector('summary .agent').textContent, 'Running tests');
     assert.equal(b.root.querySelector('details.item').open, open.length > 0);
     b.view.unmount();
@@ -993,7 +1218,7 @@ function questionsOnDom({ topics, questions, at, next }) {
     page.fire(shell.root, 'change', { target: input });
   };
   const send = async () => { page.fire(shell.root, 'submit', { target: $('#qform') }); await settle(); };
-  const shown = () => shell.board ? { board: shell.board.querySelector('#toast').hidden ? '' : shell.board.querySelector('#toast').textContent }
+  const shown = () => shell.board ? { board: shell.board.querySelector('.toast')?.textContent || '' }
     : { pills: shell.root.querySelectorAll('.topics button').map((b) => [b.dataset.topic, b.getAttribute('aria-pressed')]),
       questions: shell.root.querySelectorAll('section.q').map((s) => s.dataset.q), status: $('#qstatus').textContent, hash: page.win.location.hash };
   return { settle, answer, send, shown, decisions, root: shell.root, page };
