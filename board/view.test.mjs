@@ -720,7 +720,7 @@ test('ask and New board sheets follow the phone keyboard, hold the page still an
   assert.equal(values.size, 0);
 });
 
-test('New board opens the shared sheet from rail and drawer, validates fields, posts the ask and keeps failed starts dismissible', async () => {
+test('New board opens the shared sheet from rail and drawer, validates fields, posts the request as JSON and keeps failed starts dismissible', async () => {
   for (const wide of [true, false]) {
     const page = fakePage(memoryStorage().localStorage);
     const { win } = page;
@@ -741,7 +741,7 @@ test('New board opens the shared sheet from rail and drawer, validates fields, p
     const posted = [];
     win.fetch = async (url, options) => {
       if (url === '/_hub/sidebar.json') return { ok: true, json: async () => data };
-      posted.push([url, options.method, options.body && JSON.parse(options.body)]);
+      posted.push([url, options.method, options.body && JSON.parse(options.body), options.headers?.['content-type']]);
       if (options.method === 'DELETE') { data = { ...data, starting: [] }; return { ok: true }; }
       if (refusal) return { ok: false, text: async () => refusal };
       return new Promise((resolve) => { finish = () => { data = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', repo, failed: false }] }; resolve({ ok: true, json: async () => ({ route: 'backend-audit' }) }); }; });
@@ -790,7 +790,7 @@ test('New board opens the shared sheet from rail and drawer, validates fields, p
     assert.equal(posted.length, 2);
     finish();
     await new Promise(setImmediate);
-    assert.deepEqual(posted.at(-1), ['/_hub/new-board', 'POST', { name: 'Backend audit', repo, purpose: 'Review changes' }]);
+    assert.deepEqual(posted.at(-1), ['/_hub/new-board', 'POST', { name: 'Backend audit', repo, purpose: 'Review changes' }, 'application/json']);
     assert.equal(doc.getElementById('newBoardSheet'), null);
     assert.ok(aside.querySelector('[data-starting="backend-audit"]'));
     assert.match(aside.querySelector('[data-starting="backend-audit"]').textContent, /Backend audit · ~\/repo & tools/);

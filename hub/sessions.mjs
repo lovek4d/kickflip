@@ -2,7 +2,7 @@
 // {session, label, since, repo, model?}: repo is the folder the session runs in, where `claude --resume` finds it. A
 // session `web-ts start` launched for a route with no site yet waits in the manifest's `starting` {<route>: owner}
 // until its join moves it into the site. A New board request (new-board.mjs) records {title, repo, asked_at} there
-// first, with no session until `web-ts start` merges its owner in. Board sessions start in the background (`claude --bg`) in auto mode, with
+// first, then the hub's start merges its owner in, or `error` when claude failed. Board sessions start in the background (`claude --bg`) in auto mode, with
 // worktree.bgIsolation "none" so it stays in the repo folder, since its builders make their own worktrees, and with
 // the hook that brings its prompts to the owner's phone. `web-ts hub` runs the hub board's session in the owner's terminal.
 // checkSessions is the hub's wake (docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md): when an event lands
@@ -28,7 +28,7 @@ export const STARTING_WAIT = 15 * 60_000;
 export function startingBoards(manifest, now = Date.now()) {
   return Object.entries(manifest.starting || {}).filter(([route]) => !routeRecord(manifest.sites, route)).map(([route, rec]) => {
     const askedAt = rec.asked_at || rec.since;
-    return { route, title: rec.title || rec.label || route, repo: rec.repo, askedAt, failed: now - Date.parse(askedAt) >= STARTING_WAIT };
+    return { route, title: rec.title || rec.label || route, repo: rec.repo, askedAt, failed: Boolean(rec.error) || now - Date.parse(askedAt) >= STARTING_WAIT, ...(rec.error ? { error: rec.error } : {}) };
   });
 }
 // "none" is the value that turns isolation off; Claude Code drops any other value and isolates. The PermissionRequest

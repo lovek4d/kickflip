@@ -42,9 +42,8 @@
 //               until the session answered and the hub's GitHub check reached it. Prints {route, hello}
 //   web-ts set <route> [--icon <key>] [--color <hex>] [--hub | --no-hub]
 //               changes an existing site's icon or color without joining; '' clears one. --hub makes the board the
-//               hub board, whose session `hub` opens and which New board asks to start boards (`hub: true` in its
-//               entry), clearing the flag from any other site; --no-hub clears it. Exit 2 for --hub on a site that
-//               isn't a board
+//               hub board, whose session `hub` opens (`hub: true` in its entry), clearing the flag from any other
+//               site; --no-hub clears it. Exit 2 for --hub on a site that isn't a board
 //   web-ts leave <route> --session <id> [--force]
 //   web-ts restart <route>
 //   web-ts logs <route> [--lines <n>]

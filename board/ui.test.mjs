@@ -257,10 +257,12 @@ test("the sidebar's head is the page header, whose logo and ✕ close it, then i
 test('pending boards have muted non-link rows, failed starts can be dismissed, and New board stays last in Boards', () => {
   const data = { sites: [{ route: 'page', title: 'Page', board: false, icon: '' }], starting: [
     { route: 'new', title: 'Backend <audit>', failed: false }, { route: 'old', title: 'Old board', failed: true },
+    { route: 'broken', title: 'Broken', failed: true, error: 'claude --bg failed (1): <Not signed in>' },
   ] };
   const html = ui.sidebar(data, { switching: true });
   assert.match(html, /<div class="sb-row sb-starting" data-starting="new">.*Starting….*Backend &lt;audit&gt; · Waiting for the board to answer/);
   assert.match(html, /data-starting="old">.*Didn't start.*data-dismiss-board="old"/);
+  assert.match(html, /data-starting="broken">.*Didn't start.*claude --bg failed \(1\): &lt;Not signed in&gt;.*data-dismiss-board="broken"/);
   assert.doesNotMatch(html, /href="\/(new|old)\//);
   assert.ok(html.indexOf('data-starting="old"') < html.indexOf('data-new-board'));
   assert.ok(html.indexOf('data-new-board') < html.indexOf('>Pages<'));

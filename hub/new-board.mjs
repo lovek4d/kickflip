@@ -1,16 +1,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { appendEvent, hubBoard, readManifest, withManifestLock, writeManifest } from './boards.mjs';
+import { readManifest, withManifestLock, writeManifest } from './boards.mjs';
 import { ROUTE_RE, routeFromName, routeRecord } from './routes.mjs';
-import { STARTING_WAIT } from './sessions.mjs';
+import { STARTING_WAIT, startSession } from './sessions.mjs';
 
 const refuse = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
-
-function repoLabel(repo) {
-  const home = fs.realpathSync(os.homedir());
-  return repo === home ? '~' : repo.startsWith(`${home}${path.sep}`) ? `~${repo.slice(home.length)}` : repo;
-}
 
 function details(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)
@@ -32,26 +27,50 @@ function details(input) {
   return { route, title, repo, purpose: input.purpose.trim().replace(/\s+/g, ' ') };
 }
 
-export async function requestBoard(input) {
-  const newBoard = details(input);
-  return withManifestLock(async () => {
+// The new session runs these join flags through its shell, so each value must stay one quoted word.
+const quote = (s) => `'${s.replaceAll("'", "'\\''")}'`;
+const joinFlags = ({ title, purpose }) => `--template board --title ${quote(title)}${purpose ? ` --description ${quote(purpose)}` : ''}`;
+
+function errorLine(message) {
+  const line = String(message).split('\n').map((l) => l.trim()).find(Boolean) || 'claude did not start';
+  return line.length > 200 ? `${line.slice(0, 199)}…` : line;
+}
+
+// Records the start's outcome on the route's Starting row: its session as `web-ts start` records one, or `error`. A
+// route that has joined or been dismissed meanwhile is left alone.
+async function recordStart(route, outcome) {
+  await withManifestLock(async () => {
+    const m = readManifest();
+    const pending = routeRecord(m.starting, route);
+    if (!pending || routeRecord(m.sites, route)) return;
+    m.starting[route] = outcome.error ? { ...pending, error: outcome.error }
+      : { ...pending, session: outcome.session, label: outcome.name, since: new Date().toISOString(), repo: outcome.repo, ...(outcome.model ? { model: outcome.model } : {}) };
+    await writeManifest(m);
+  });
+}
+
+// Reserves the route on a Starting row, then starts the board's session in the background
+// (docs/adr/0069-the-hub-starts-a-new-boards-session.md). run and live go to sessions.mjs startSession.
+// → {route, started}: started settles once the outcome is on the Starting row, as {session} or {error}, and never rejects.
+export async function requestBoard(input, { run, live } = {}) {
+  const board = details(input);
+  const { route, title, repo } = board;
+  await withManifestLock(async () => {
     const manifest = readManifest();
-    const { route, title, repo, purpose } = newBoard;
     if (Object.hasOwn(manifest.sites || {}, route) || Object.hasOwn(manifest.starting || {}, route)) refuse('That board route already exists.');
-    const hub = hubBoard(manifest);
-    if (!hub) refuse('No hub board is flagged; flag one with web-ts set <route> --hub', 503);
     manifest.starting = { ...manifest.starting, [route]: { title, repo, asked_at: new Date().toISOString() } };
     await writeManifest(manifest);
-    // The one feature that depends on the dev-time hub session: docs/adr/0068-the-hub-session-is-a-dev-time-role.md.
-    try { await appendEvent(hub, 'ask', { text: `New board: ${title} in ${repoLabel(repo)}${purpose ? ` — ${purpose}` : ''}`, newBoard }); }
-    catch (e) {
-      delete manifest.starting[route];
-      if (!Object.keys(manifest.starting).length) delete manifest.starting;
-      await writeManifest(manifest);
-      throw e;
-    }
-    return { route };
   });
+  const started = (async () => {
+    let outcome;
+    try {
+      const r = await startSession(route, { repo, prompt: joinFlags(board), run, live });
+      outcome = { session: r.session, name: r.name, repo: r.repo, model: r.model };
+    } catch (e) { outcome = { error: errorLine(e.message) }; }
+    try { await recordStart(route, outcome); } catch (e) { return { error: errorLine(`could not record the start: ${e.message}`) }; }
+    return outcome.error ? { error: outcome.error } : { session: outcome.session };
+  })();
+  return { route, started };
 }
 
 export async function dismissBoard(route) {
@@ -59,7 +78,8 @@ export async function dismissBoard(route) {
     const manifest = readManifest();
     const pending = routeRecord(manifest.starting, route);
     const askedAt = Date.parse(pending?.asked_at || pending?.since);
-    if (!pending || routeRecord(manifest.sites, route) || !Number.isFinite(askedAt) || Date.now() - askedAt < STARTING_WAIT) refuse('Only a board that didn’t start can be dismissed.');
+    const failed = Boolean(pending?.error) || (Number.isFinite(askedAt) && Date.now() - askedAt >= STARTING_WAIT);
+    if (!pending || routeRecord(manifest.sites, route) || !failed) refuse('Only a board that didn’t start can be dismissed.');
     delete manifest.starting[route];
     if (!Object.keys(manifest.starting).length) delete manifest.starting;
     await writeManifest(manifest);

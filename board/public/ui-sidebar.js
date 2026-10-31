@@ -79,7 +79,7 @@
     const pages = sites.filter((s) => !s.board);
     const plus = `<span class="icon sb-plus" aria-hidden="true">${svg(ICONS.plus, 20)}</span>`;
     const pending = (data?.starting || []).map((s) => `<div class="sb-row sb-starting" data-starting="${esc(s.route)}">${plus}`
-      + `<span class="sb-text"><span class="sb-title">${s.failed ? "Didn't start" : 'Starting…'}</span><span class="sb-sub">${esc(s.title)}${s.repo ? ` · ${esc(repoLabel(s.repo, data.home))}` : ''}${s.failed ? '' : ' · Waiting for the board to answer'}</span></span>`
+      + `<span class="sb-text"><span class="sb-title">${s.failed ? "Didn't start" : 'Starting…'}</span><span class="sb-sub">${esc(s.title)}${s.repo ? ` · ${esc(repoLabel(s.repo, data.home))}` : ''}${s.failed ? '' : ' · Waiting for the board to answer'}</span>${s.error ? `<span class="sb-sub">${esc(s.error)}</span>` : ''}</span>`
       + (s.failed ? `<button type="button" class="sb-dismiss" data-dismiss-board="${esc(s.route)}" aria-label="Dismiss ${esc(s.title)}">Dismiss</button>` : '') + '</div>').join('');
     const newBoard = `<button type="button" class="sb-row sb-new" data-new-board aria-haspopup="dialog">${plus}<span class="sb-text"><span class="sb-title">New board</span></span></button>`;
     const turnOn = device === 'off' ? row({ href: '/_hub/settings', icon: tile('bell', '#ef4444'), title: 'Turn on notifications', sub: 'Off on this device', cls: 'sb-turnon' })

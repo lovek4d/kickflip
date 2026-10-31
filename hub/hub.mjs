@@ -17,8 +17,10 @@
 //                     notifications: {state, text}}, each site's row from its GET /_claude/needs
 //                     (home.mjs; docs/adr/0010-sites-report-what-waits-through-claude-needs.md)
 //                     repos lists distinct board owners' folders; starting lists pending boards (sessions.mjs)
-//   /_hub/new-board  POST {name, repo, purpose} → {route}: an ask on the hub board and a starting reservation;
-//                     DELETE /_hub/new-board/<route> dismisses a start that timed out (new-board.mjs)
+//   /_hub/new-board  POST {name, repo, purpose} → {route}: a starting reservation, then the board's session starts
+//                     without holding the response; 403 for a cross-site request or a body not sent as
+//                     application/json (cross-site.mjs); DELETE /_hub/new-board/<route> dismisses a start that failed
+//                     or timed out (new-board.mjs)
 //   /_hub/status.json the manifest's sites and their process state, as JSON
 //   /_hub/needs.json  {total, sites: {<route>: {count, working, summary, lanes, building} | null}}: total is the
 //                     Home Screen badge; ?fresh=1 skips the cache
@@ -100,6 +102,7 @@ import { siteIcon } from './icons.mjs';
 import { readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
 import { checkSessions, startingBoards } from './sessions.mjs';
 import { requestBoard, dismissBoard } from './new-board.mjs';
+import { crossSite, isJSON } from './cross-site.mjs';
 import { BOARD_PUBLIC, appFile, colorsVersion, destOf, fileVersion, pageOf, shellHtml } from './shell.mjs';
 import { hubStream } from './stream.mjs';
 import { InstallError, startInstall, stopInstalls } from './installs.mjs';
@@ -549,12 +552,15 @@ async function hubRoute(req, res, url) {
   const json = wantsJSON(req);
   const p = url.pathname;
   if (p === '/_hub/new-board' && req.method === 'POST') {
+    if (crossSite(req.headers)) return send(403, 'text/plain; charset=utf-8', 'New board takes requests only from the hub’s own pages.');
+    if (!isJSON(req.headers)) return send(403, 'text/plain; charset=utf-8', 'Send name, repo and purpose as application/json.');
     let input;
     try { input = await readJSONBody(req); } catch { return send(400, 'text/plain; charset=utf-8', 'Send name, repo and purpose as JSON.'); }
     try {
-      const result = await requestBoard(input);
+      const { route, started } = await requestBoard(input);
+      started.then(({ error }) => { if (error) log(`new board /${route} didn't start: ${error}`); stream.refresh(); });
       stream.refresh();
-      return sendJSON(200, result);
+      return sendJSON(200, { route });
     } catch (e) { if (e.status) return send(e.status, 'text/plain; charset=utf-8', e.message); throw e; }
   }
   const dismiss = /^\/_hub\/new-board\/([a-z0-9-]+)$/.exec(p);
