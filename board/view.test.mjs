@@ -129,6 +129,56 @@ test("the board's Settings, Waiting on you and Notes views, mounted then unmount
   }
 });
 
+test('Board Settings loads the install script, keeps refused edits unsaved, and saves or clears the path', async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const root = new page.El();
+  root.querySelector('#installScript').disabled = true;
+  root.querySelector('#installSave').disabled = true;
+  let saved = '/owner/install.sh';
+  let refuse = false;
+  const posts = [];
+  page.win.fetch = async (url, opts = {}) => {
+    let body = {};
+    if (url.endsWith('/api/install-script')) {
+      if (opts.method === 'POST') {
+        posts.push([url, JSON.parse(opts.body)]);
+        if (refuse) return { ok: false, json: async () => ({ error: 'Install script must be an absolute path.' }) };
+        saved = JSON.parse(opts.body).install_script;
+      }
+      body = { install_script: saved };
+    }
+    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
+  };
+  const view = page.win.AppViews.settings.create(root, 'https://mac.ts.net/orch', { reload() {} });
+  view.mount();
+  await new Promise((resolve) => setImmediate(resolve));
+  const input = root.querySelector('#installScript');
+  const form = root.querySelector('#installForm');
+  const button = root.querySelector('#installSave');
+  const status = root.querySelector('#installStatus');
+  assert.deepEqual([input.value, input.disabled, button.disabled], ['/owner/install.sh', false, true]);
+  input.value = 'relative.sh';
+  page.fire(input, 'input');
+  assert.equal(form.getAttribute('data-dirty'), '');
+  refuse = true;
+  page.fire(form, 'submit');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(status.textContent, 'Install script must be an absolute path.');
+  assert.equal(form.getAttribute('data-dirty'), '');
+  assert.equal(button.disabled, false);
+  refuse = false;
+  for (const value of ['/owner/new install.sh', '']) {
+    input.value = value;
+    page.fire(input, 'input');
+    page.fire(form, 'submit');
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual([saved, input.disabled, button.disabled, form.getAttribute('data-dirty')], [value, false, true, null]);
+    assert.deepEqual(posts.at(-1), ['https://mac.ts.net/orch/api/install-script', { install_script: value }]);
+  }
+  assert.equal(status.textContent, 'Install builds are off.');
+  view.unmount();
+});
+
 test("the hub page, Hub Settings and Polling, mounted then unmounted, load their data from the hub's API, refresh it on an interval and leave no listener or interval behind", async () => {
   const page = fakePage(memoryStorage().localStorage);
   const urls = [];

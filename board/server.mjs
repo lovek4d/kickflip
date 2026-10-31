@@ -5,7 +5,9 @@
 // below through bin/board.mjs (store.mjs):
 //   reply, thread, topic add, question add|resolve, item set|relate-ask, ask progress|done, followup add|done,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder).
-// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge}. auto_merge (false when absent) lets monitor merge
+// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, install_script}. install_script is the
+// owner-set absolute script path the hub runs for a card's device install, saved only on this board's Settings.
+// auto_merge (false when absent) lets monitor merge
 // an approved, green, clean PR itself; off, the card shows the owner's Merge (store.mjs settingsOf). rules are the owner's standing instructions to this
 // board's session [{id, text, by, at}] (board.mjs rules, hub/rules.mjs). reviewers are the board's own [{name, slack_user, dm,
 // github}] (board.mjs reviewers), which the settings page lists and new waves copy. items is "waves" (every ~/.claude/waves/*/wave.json,
@@ -73,6 +75,8 @@
 //   GET  /api/settings           the board's settings, {auto_merge} (store.mjs readBoardSettings)
 //   POST /api/settings           {auto_merge: boolean} → board.json, keeping its other keys, and when the value moved a
 //                                `settings {auto_merge}` event, which wakes Claude. → {settings, id}; a bad body → 400 {error}
+//   GET, POST /api/install-script {install_script}: Settings reads or saves the script path; empty clears it.
+//                                Refuses an unsafe file, and logs a change in the hub log without a thread line
 //   GET  /_claude/events         events not hidden, newest first, each with Claude's reply if written
 //   GET  /_claude/needs          {items: [{kind, text, url}], working, summary, lanes: {review, progress, todo}, building}:
 //                                one item per Needs you line, each pending prompt of this board's session among them
@@ -95,7 +99,7 @@ import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { buildBoard, ITEM_EVENTS, needsAnswer, refOf, threadOf } from './domain.mjs';
 import { createReadStream, watch as watchFiles } from 'node:fs';
-import { BoardError, boardConfig, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readNotes, readWorking, readUpload, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, boardConfig, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readInstallScript, readNotes, readWorking, readUpload, saveBoardRules, saveBoardSettings, saveInstallScript, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -560,6 +564,18 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { rules: saved.rules, id });
     }
     if (p === '/api/settings' && req.method === 'GET') return json(res, 200, { settings: await readBoardSettings(here) });
+    if (p === '/api/install-script' && req.method === 'GET') return json(res, 200, { install_script: await readInstallScript(here) });
+    if (p === '/api/install-script' && req.method === 'POST') {
+      const body = await readBody(req);
+      let saved;
+      try { saved = await saveInstallScript(here, body); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
+      if (saved.changed) {
+        const web = path.join(os.homedir(), '.claude', 'web-ts');
+        await fs.mkdir(web, { recursive: true });
+        await fs.appendFile(path.join(web, 'hub.log'), `${new Date().toISOString()} install script ${here}: ${JSON.stringify(saved.install_script)}\n`);
+      }
+      return json(res, 200, { install_script: saved.install_script });
+    }
     if (p === '/api/settings' && req.method === 'POST') {
       const body = await readBody(req);
       let saved;

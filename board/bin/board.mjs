@@ -110,6 +110,10 @@ A --file argument of - reads stdin.
                                                          the merge state is CLEAN. off (the default): the card
                                                          shows the owner a Merge button, and monitor merges on its
                                                          card-merge event. The Settings page's toggle writes it too
+  install <wave>/<id> --site <route>                     asks the hub to run this board's install script; prints
+                                                         started and exits while the build runs. Only the owner
+                                                         sets the script, on this board's Settings page. The hub
+                                                         records its builder, output log and result in the thread
   builder start <wave>/<id> [--agent <name>] [--kind <opus|codex|sonnet|install|…>] [--label <who>]
          [--progress <text>] [--eta <ISO time>]          one record per agent on the item; --agent defaults to main.
                                                          --kind install: a build of the card's install, whose
@@ -267,6 +271,22 @@ const COMMANDS = {
   'rules edit': [['id'], ['text', 'hub'], (site, [id], f) => store.editRuleIn(site, id, f)],
   'rules remove': [['id'], ['hub'], (site, [id], f) => store.removeRuleFrom(site, id, f)],
   settings: [[], [], async (site) => ({ lines: [JSON.stringify(await store.readBoardSettings(site))] })],
+  install: [['wave/id'], [], async (site, [key]) => {
+    if (!site) throw new store.BoardError('install needs --site <route>');
+    store.parseKey(key);
+    try {
+      const r = await fetch(`http://127.0.0.1:${process.env.WEB_TS_HUB_PORT || 4500}/_hub/install`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ route: path.basename(site), key }), signal: AbortSignal.timeout(10_000),
+      });
+      const out = await r.json();
+      if (!r.ok) throw new store.BoardError(out.error || 'The hub refused the install build.');
+      return { lines: ['started'] };
+    } catch (e) {
+      if (e instanceof store.BoardError) throw e;
+      throw new store.BoardError(`Could not start the install build: ${e.message}`);
+    }
+  }],
   'settings set': [['name', 'on|off'], [], (site, [name, value]) => store.setBoardSetting(site, name, value)],
   'builder start': [['wave/id'], ['label', 'progress', 'dir', 'agent', 'kind', 'eta', 'worktree', 'repo'], (site, [key], { worktree, repo, ...f }) => {
     if (repo !== undefined && !worktree) throw new UsageError('--repo goes with --worktree');

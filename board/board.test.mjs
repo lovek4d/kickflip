@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startFakeDevice } from '../hub/fake-device.mjs';
+import http from 'node:http';
 
 const bin = (name) => path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', name);
 let home;
@@ -51,6 +52,59 @@ beforeEach(() => {
   write(site('audit', 'data', 'wave.json'), wave());
 });
 afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
+
+test('the install script setting validates the file, preserves other settings and has no CLI setter', async (t) => {
+  const { saveInstallScript } = await import('./store.mjs');
+  const script = path.join(home, 'install.sh');
+  write(script, '#!/bin/sh\nexit 0\n');
+  fs.chmodSync(script, 0o700);
+  const cfg = read(site('orch', 'board.json'));
+  for (const [file, message] of [['relative.sh', /absolute path/], [script + '.missing', /existing regular file/], [home, /regular file/], [null, /absolute path/]]) {
+    await assert.rejects(async () => saveInstallScript(site('orch'), { install_script: file }), message);
+  }
+  for (const mode of [0o720, 0o702]) {
+    fs.chmodSync(script, mode);
+    await assert.rejects(async () => saveInstallScript(site('orch'), { install_script: script }), /writable by group or others/);
+  }
+  fs.chmodSync(script, 0o700);
+  const stat = fs.statSync;
+  const mocked = t.mock.method(fs, 'statSync', (file, ...args) => {
+    const result = stat(file, ...args);
+    if (file === script) result.uid = process.getuid() + 1;
+    return result;
+  });
+  await assert.rejects(async () => saveInstallScript(site('orch'), { install_script: script }), /owned by the current user/);
+  mocked.mock.restore();
+  assert.deepEqual(read(site('orch', 'board.json')), cfg);
+  await saveInstallScript(site('orch'), { install_script: script });
+  assert.deepEqual(read(site('orch', 'board.json')), { ...cfg, install_script: script });
+  await saveInstallScript(site('orch'), { install_script: '' });
+  assert.equal(read(site('orch', 'board.json')).install_script, '');
+  assert.notEqual(board('--site', 'orch', 'settings', 'set', 'install-script', script).code, 0);
+  assert.notEqual(board('--site', 'orch', 'install', 'w/A1', '--script', script).code, 0);
+  assert.match(board('install', 'w/A1').err, /needs --site/);
+});
+
+test('install posts only the route and key to the hub, prints started, and reports refusals plainly', async () => {
+  const seen = [];
+  let refuse = false;
+  const hub = http.createServer(async (req, res) => {
+    let body = '';
+    for await (const chunk of req) body += chunk;
+    seen.push([req.method, req.url, JSON.parse(body)]);
+    res.writeHead(refuse ? 409 : 202, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(refuse ? { error: 'An install build is already running for this card.' } : { status: 'started' }));
+  });
+  await new Promise((resolve, reject) => hub.once('error', reject).listen(0, '127.0.0.1', resolve));
+  try {
+    const env = { WEB_TS_HUB_PORT: String(hub.address().port) };
+    const run = () => runAsync('board.mjs', ['--site', 'orch', 'install', 'w/A1'], env);
+    assert.deepEqual(await run(), { code: 0, out: 'started\n', err: '' });
+    assert.deepEqual(seen, [['POST', '/_hub/install', { route: 'orch', key: 'w/A1' }]]);
+    refuse = true;
+    assert.deepEqual(await run(), { code: 1, out: '', err: 'An install build is already running for this card.\n' });
+  } finally { await new Promise((resolve) => { hub.closeAllConnections(); hub.close(resolve); }); }
+});
 
 test('reply answers a known event and refuses an unknown one', () => {
   assert.equal(board('reply', 'e1', '--site', 'orch', '--html', '<p>Done.</p>').code, 0);

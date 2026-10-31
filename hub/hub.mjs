@@ -43,6 +43,8 @@
 //                     removed}` event (boards.mjs sendToBoards). → {rules, events, failed}; a bad list → 400 {error}
 //   /_hub/poll        POST runs one poll now, or joins the running one, and returns its result as JSON;
 //                     {"flush": false} skips sending the queue (`web-ts poll-now`)
+//   /_hub/install     POST {route, key}, loopback only: starts the board's owner-set install_script with key and
+//                     its builder's worktree path; returns {status: 'started'} without waiting (installs.mjs)
 //   /_hub/prompts     POST a PermissionRequest hook's input (permission-hook.mjs) → {id, deadline}: a pending prompt in
 //                     prompts.json, on the board whose owner is that session, else the hub page, with a push
 //                     (docs/adr/0060-background-sessions-prompts-come-to-the-phone.md)
@@ -93,6 +95,7 @@ import { readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
 import { checkSessions } from './sessions.mjs';
 import { BOARD_PUBLIC, appFile, colorsVersion, destOf, fileVersion, pageOf, shellHtml } from './shell.mjs';
 import { hubStream } from './stream.mjs';
+import { InstallError, startInstall, stopInstalls } from './installs.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const COLORS = path.join(HUB_DIR, '..', 'shared', 'colors.css');
@@ -327,9 +330,11 @@ function shutdown() {
   log('hub stopping; stopping sites');
   for (const p of procs.values()) if (p.child) p.stopping = true;
   for (const c of children) signal(c, 'SIGTERM');
+  let installsStopped = false;
+  stopInstalls().finally(() => { installsStopped = true; });
   const deadline = Date.now() + KILL_AFTER;
   setInterval(() => {
-    if (children.size && Date.now() < deadline) return;
+    if ((!installsStopped || children.size) && Date.now() < deadline) return;
     for (const c of children) { log(`pid ${c.pid} ignored SIGTERM; killing it`); signal(c, 'SIGKILL'); }
     process.exit(0);
   }, 50);
@@ -525,6 +530,19 @@ async function hubRoute(req, res, url) {
   const sendJSON = (code, v) => send(code, 'application/json', JSON.stringify(v));
   const json = wantsJSON(req);
   const p = url.pathname;
+  if (p === '/_hub/install' && req.method === 'POST') {
+    if (shuttingDown) return sendJSON(503, { error: 'The hub is stopping. Try again after it restarts.' });
+    const local = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
+    const host = (req.headers.host || '').replace(/:\d+$/, '');
+    if (!local.includes(req.socket.remoteAddress) || !['127.0.0.1', 'localhost', '[::1]'].includes(host)
+      || req.headers.origin || Object.keys(req.headers).some((h) => h === 'forwarded' || h.startsWith('x-forwarded-'))) {
+      return sendJSON(403, { error: 'Install builds can only be started from the Mac over loopback.' });
+    }
+    let input;
+    try { input = await readJSONBody(req); } catch (e) { return sendJSON(e.status || 400, { error: 'Send the board route and card key as JSON.' }); }
+    try { return sendJSON(202, await startInstall(input, { manifest: loadManifest(), log })); }
+    catch (e) { if (e instanceof InstallError) return sendJSON(e.status, { error: e.message }); throw e; }
+  }
   if (p === '/sw.js') return send(200, 'text/javascript; charset=utf-8', fs.readFileSync(path.join(HUB_DIR, 'sw.js')), { 'service-worker-allowed': '/' });
   if (p === '/manifest.webmanifest') return send(200, 'application/manifest+json', manifestJson());
   const icon = /^\/_hub\/icon-(180|192|512)\.png$/.exec(p);

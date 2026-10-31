@@ -94,7 +94,7 @@ function boardOf(route, s) {
   const kind = typeof cfg.items === 'string' && cfg.items !== 'waves' ? 'file' : 'waves';
   const waves = wavesOf(s.dir, cfg, kind);
   return {
-    route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, waves, prs: prsOf(waves),
+    route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, waves, prs: prsOf(waves), install_script: cfg.install_script,
     reviewers: names(cfg.reviewers), owner: s.owner || null, watch: Array.isArray(s.watch) && s.watch.length ? s.watch : ['data/events.jsonl'], filter: s.filter || null,
   };
 }

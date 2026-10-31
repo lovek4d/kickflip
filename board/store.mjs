@@ -6,6 +6,7 @@ import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { ITEM_STATUSES, ownerQuestion } from './domain.mjs';
+import { installScriptError } from './install-script.mjs';
 import { appendEvent, listBoards } from '../hub/boards.mjs';
 import { reviseQueued, flushQueue, queueStatus } from '../hub/push.mjs';
 import { holdLine } from '../hub/schedule.mjs';
@@ -512,6 +513,21 @@ const writeBoardRules = (site, change) => writeBoardJSON(site, (cfg) => {
 export const settingsOf = (cfg) => ({ auto_merge: cfg?.auto_merge === true });
 export async function readBoardSettings(site) {
   return settingsOf(await readJSON(path.join(needSite(site), 'board.json'), {}));
+}
+export async function readInstallScript(site) {
+  return (await boardConfig(needSite(site))).install_script ?? '';
+}
+
+export function saveInstallScript(site, changes) {
+  onlyKeys(changes, ['install_script'], 'the install script setting');
+  if (changes.install_script !== '') {
+    const error = installScriptError(changes.install_script);
+    if (error) fail(error);
+  }
+  return writeBoardJSON(site, (cfg) => ({
+    set: { install_script: changes.install_script }, install_script: changes.install_script,
+    changed: (cfg.install_script ?? '') !== changes.install_script,
+  }));
 }
 // changes {auto_merge: boolean} → {file, settings, changed}; changed lists the keys whose value moved.
 export function saveBoardSettings(site, changes) {

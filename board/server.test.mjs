@@ -381,6 +381,40 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
   }
 });
 
+test('Board Settings saves and clears a validated install script, preserving board.json and logging changes without a thread', async () => {
+  const cfg = { title: 'T', items: 'data/wave.json', slug: 't', auto_merge: true };
+  const script = path.join(home, 'install.sh');
+  fs.writeFileSync(script, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
+  const save = (body) => fetch(`${base}/api/install-script`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const log = path.join(home, '.claude', 'web-ts', 'hub.log');
+  const beforeLog = fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '';
+  const eventFile = path.join(site, 'data', 'events.jsonl');
+  const events = fs.existsSync(eventFile) ? fs.readFileSync(eventFile, 'utf8') : '';
+  try {
+    assert.deepEqual(await (await fetch(`${base}/api/install-script`)).json(), { install_script: '' });
+    for (const install_script of ['relative.sh', script + '.missing', home]) {
+      const r = await save({ install_script });
+      assert.equal(r.status, 400);
+      assert.match((await r.json()).error, /Install script must/);
+    }
+    fs.chmodSync(script, 0o720);
+    assert.equal((await save({ install_script: script })).status, 400);
+    fs.chmodSync(script, 0o700);
+    for (const body of [{}, { install_script: script, command: 'anything' }]) assert.equal((await save(body)).status, 400);
+    assert.deepEqual(await (await save({ install_script: script })).json(), { install_script: script });
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(site, 'board.json'))), { ...cfg, install_script: script });
+    assert.equal((await (await fetch(`${base}/api/install-script`)).json()).install_script, script);
+    const changed = fs.readFileSync(log, 'utf8');
+    assert.match(changed.slice(beforeLog.length), /install script/);
+    assert.ok(changed.includes(script));
+    await save({ install_script: script });
+    assert.equal(fs.readFileSync(log, 'utf8'), changed);
+    assert.equal((await save({ install_script: '' })).status, 200);
+    assert.equal(fs.existsSync(eventFile) ? fs.readFileSync(eventFile, 'utf8') : '', events);
+  } finally { fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't' })); }
+});
+
 test('the watcher prints the hub rules, then the board rules, then the board settings, after the event lines', async () => {
   const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
   const web = path.join(home, '.claude', 'web-ts');
