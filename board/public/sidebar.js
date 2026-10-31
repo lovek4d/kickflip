@@ -2,8 +2,8 @@
 // class="sidebar-scrim">, after ui-page-header.js and ui-sidebar.js (docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md).
 // Sidebar.mount({here, data}) paints `data` or the last copy this device stored; the app shell hands it each new copy
 // through setData from its one stream (shell.js). The page header's logo (a.hub) toggles the sidebar at every
-// width, carrying what waits on the other sites. Below 1000px the sidebar is a drawer: the logo or a swipe in from the
-// left edge opens it, and the scrim, Escape, ✕, the drawer's own logo or a swipe back closes it. From 1000px it is a
+// width, with what waits on the other sites in its accessible label. Below 900px the sidebar is a drawer: the logo or a swipe in from the
+// left edge opens it, and the scrim, Escape, ✕, the drawer's own logo or a swipe back closes it. From 900px it is a
 // rail, which its own logo collapses and the page's logo brings back; this device remembers that, and <html> carries
 // sb-collapsed meanwhile (docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md).
 // Switch mode: s pressed twice within a second, outside a text field, a contenteditable or an open dialog, shows each
@@ -18,7 +18,7 @@
   const DATA_KEY = 'hub:sidebar';
   // app.html reads it before the first paint, so a collapsed rail never shows for a moment.
   const COLLAPSED_KEY = 'hub:sidebarCollapsed';
-  const RAIL = '(min-width: 1000px)';
+  const RAIL = '(min-width: 900px)';
   const TWICE_MS = 1000;
   // sidebar.css .ks-bar drains over the same time.
   const IDLE_MS = 3000;
@@ -62,12 +62,16 @@
     }
     // switching: {timer, opened} while switch mode shows, opened when it opened the drawer.
     let switching = null;
+    let painted = false;
     // A repaint keeps the drawer's scroll, so a new copy doesn't move the list under a finger.
     function paint() {
       if (!data) return;
-      const top = aside.scrollTop;
+      const scroll = aside.querySelector('.sb-scroll');
+      const top = painted ? scroll?.scrollTop : undefined;
       aside.innerHTML = sidebar(data, { here, device, switching: Boolean(switching) });
-      aside.scrollTop = top;
+      const list = aside.querySelector('.sb-scroll');
+      if (list) list.scrollTop = top ?? list.scrollHeight;
+      painted = true;
       logoCount();
     }
     function setData(next) {
@@ -81,6 +85,8 @@
     function open() {
       if (rail.matches || isOpen()) return;
       aside.classList.add('open');
+      const list = aside.querySelector('.sb-scroll');
+      if (list) list.scrollTop = list.scrollHeight;
       scrim?.classList.add('on');
     }
     function close() {

@@ -1,9 +1,9 @@
-/* The sidebar (ui-sidebar.js, sidebar.js): a rail from 1000px, which collapses out of sight, and a drawer below it.
+/* The sidebar (ui-sidebar.js, sidebar.js): a rail from 900px, which collapses out of sight, and a drawer below it.
    The app shell and the hub's pages link it after colors.css; the hub serves it as /_hub/sidebar.css. Every rule is
    scoped to .sidebar, its scrim, the page classes sidebar.js sets or the shared New board dialog, since each page's own CSS uses the same short class names. */
 .sidebar { position: fixed; z-index: 20; top: 0; bottom: 0; left: 0; width: min(86vw, 320px); display: flex; flex-direction: column;
-  padding: 0 8px calc(12px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
-  background: var(--panel); border-right: 1px solid var(--line); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
+  padding: 0 8px 0 max(8px, env(safe-area-inset-left));
+  background: var(--panel); border-right: 1px solid var(--line); overflow: hidden; overscroll-behavior: contain; touch-action: pan-y;
   transform: translateX(-102%); visibility: hidden; transition: transform .24s cubic-bezier(.2,.8,.2,1), visibility 0s linear .24s;
   font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif; color: var(--text); }
 .sidebar.open { transform: none; visibility: visible; transition: transform .24s cubic-bezier(.2,.8,.2,1); }
@@ -15,19 +15,22 @@
 
 /* The head is the page header itself (ui-page-header.js), edge to edge across the sidebar and pinned while the list
    scrolls, so its logo and title sit where the page header's do. Its ✕ mirrors the logo's 44px box on the right. */
-.sidebar > .top { flex: none; margin: 0 -8px 8px calc(-1 * max(8px, env(safe-area-inset-left))); }
+.sidebar > .top { flex: none; margin: 0 -8px 0 calc(-1 * max(8px, env(safe-area-inset-left))); min-height: 53px; background: var(--panel); }
 .sidebar .sb-close { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: 0 -10px 0 0; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--muted); cursor: pointer; }
 .sidebar .sb-close:active { background: var(--chip); }
 @media (hover: hover) { .sidebar .sb-close:hover { background: var(--chip); color: var(--text); } }
-.sidebar .sb-label { margin: 14px 8px 4px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.sidebar .sb-label { margin: 12px 8px 4px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .sidebar .sb-group { display: flex; flex-direction: column; gap: 2px; }
-.sidebar .sb-foot { margin-top: auto; padding-top: 6px; }
+.sidebar .sb-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: max(12px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; }
+.sidebar .sb-scroll > section { flex: none; }
+.sidebar .sb-utility { padding-top: 6px; }
+.sidebar .sb-boards { margin-top: auto; }
 .sidebar .sb-empty { margin: 4px 8px; color: var(--muted); font-size: 12.5px; }
 .sidebar .sb-row { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 8px; border-radius: 10px; color: var(--text); text-decoration: none; }
 .sidebar .sb-row:active { background: var(--chip); }
 @media (hover: hover) { .sidebar .sb-row:hover { background: color-mix(in srgb, var(--chip) 70%, transparent); text-decoration: none; } }
 .sidebar .sb-row.on { background: var(--accent-soft); }
-.sidebar .sb-turnon { margin-bottom: 6px; background: color-mix(in srgb, var(--color-danger) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--color-danger) 30%, var(--line)); }
+.sidebar .sb-turnon { margin: 6px 0 0; background: color-mix(in srgb, var(--color-danger) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--color-danger) 30%, var(--line)); }
 .sidebar .sb-text { flex: 1; min-width: 0; }
 .sidebar .sb-title { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sidebar .sb-sub { display: block; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
@@ -53,7 +56,7 @@
 #newBoardSheet .nb-actions button { min-height: 44px; }
 #newBoardSheet .nb-next { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
 #newBoardSheet .nb-error { color: var(--color-danger); font-size: 13px; }
-@media (min-width: 1000px) {
+@media (min-width: 900px) {
   #newBoardSheet { inset: 0; margin: auto; height: fit-content; max-height: calc(100dvh - 48px); }
 }
 
@@ -73,7 +76,7 @@
 .sidebar.ks-on .icon:has(.ks-key) > svg { display: none; }
 .sidebar.ks-on .ks-key { display: block; font: 700 15px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
 .sidebar.ks-on .ks-u { text-decoration: underline var(--accent); text-decoration-thickness: 2px; text-underline-offset: 3px; text-decoration-skip-ink: none; }
-.sidebar.ks-on .ks-hint { display: block; position: sticky; bottom: calc(-12px - env(safe-area-inset-bottom)); margin: 8px -8px calc(-12px - env(safe-area-inset-bottom)) calc(-1 * max(8px, env(safe-area-inset-left)));
+.sidebar.ks-on .ks-hint { display: block; flex: none; margin: 0;
   padding: 9px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
 .sidebar .ks-hint b { color: var(--text); font-weight: 600; }
 .sidebar .ks-bar { display: block; height: 2px; margin-top: 7px; border-radius: 2px; background: var(--accent); transform-origin: 0 50%; animation: ks-drain 3s linear forwards; }
@@ -96,7 +99,7 @@
 .sidebar .t-ok { --tone: var(--color-success); }
 .sidebar .t-wait { --tone: var(--color-notice); }
 
-@media (min-width: 1000px) {
+@media (min-width: 900px) {
   body.has-sidebar { padding-left: 272px; }
   body.has-sidebar .sidebar { width: 272px; transform: none; visibility: visible; transition: none; z-index: 4; }
   body.has-sidebar .sidebar .sb-close { display: none; }
@@ -110,4 +113,11 @@
   html.sb-anim body.has-sidebar .sidebar { transition: transform .24s cubic-bezier(.2,.8,.2,1), visibility 0s linear .24s; }
   html.sb-anim:not(.sb-collapsed) body.has-sidebar .sidebar { transition: transform .24s cubic-bezier(.2,.8,.2,1); }
 }
-@media (min-width: 1000px) and (prefers-reduced-motion: reduce) { html.sb-anim body.has-sidebar, html.sb-anim body.has-sidebar .sidebar { transition: none; } }
+@media (min-width: 900px) and (prefers-reduced-motion: reduce) { html.sb-anim body.has-sidebar, html.sb-anim body.has-sidebar .sidebar { transition: none; } }
+
+@media (max-width: 899px) {
+  .sidebar > .top { position: static; order: 2; margin-bottom: 0; border-bottom: 0; border-top: 1px solid var(--line);
+    padding-top: 4px; padding-bottom: max(4px, env(safe-area-inset-bottom)); }
+  .sidebar .sb-scroll { padding-top: max(8px, env(safe-area-inset-top)); padding-bottom: 6px; }
+  .sidebar.ks-on .ks-hint { padding-bottom: 10px; }
+}

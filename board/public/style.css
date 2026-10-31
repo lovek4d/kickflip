@@ -84,7 +84,7 @@ button.chip { border: 0; }
 .status.todo { border-style: dashed; }
 .sub.agent { color: var(--color-notice); }
 .sub.next { color: var(--color-info); }
-.toast-stack { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom));
+.toast-stack { position: fixed; left: 50%; bottom: calc(var(--app-bottom, 0px) + 16px + env(safe-area-inset-bottom));
   width: min(520px, calc(100vw - 32px)); height: 0; transform: translateX(-50%); z-index: 25; pointer-events: none; }
 .toast-row { position: absolute; top: 0; left: 0; width: 100%; display: flex; justify-content: center;
   transition: transform 200ms ease; pointer-events: none; }
@@ -191,13 +191,13 @@ code { overflow-wrap: anywhere; }
 
 /* Compose button and sheet */
 main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
-.fab { position: fixed; z-index: 6; right: calc(16px + env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom));
+.fab { position: fixed; z-index: 6; right: calc(16px + env(safe-area-inset-right)); bottom: calc(var(--app-bottom, 0px) + 16px + env(safe-area-inset-bottom));
   width: 56px; height: 56px; padding: 0; border-radius: 50%; border: 0; background: var(--accent); color: #fff;
   display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
 .fab:active { transform: scale(.96); }
-.view-board .toast-stack { bottom: calc(80px + env(safe-area-inset-bottom)); }
-/* On a phone the sheet stays on the screen's bottom edge and pads its content above the keyboard (--kb, dialogs.js
-   fitSheet): iOS reports the keyboard's height late, so a sheet moved up by it leaves a strip of page showing below. */
+.view-board .toast-stack { bottom: calc(var(--app-bottom, 0px) + 80px + env(safe-area-inset-bottom)); }
+/* A phone sheet pads its content above the keyboard (--kb, dialogs.js fitSheet) and stays on the screen's bottom
+   edge while the keyboard covers the bar: iOS reports its height late, so moving the sheet up leaves a strip below. */
 .sheet { position: fixed; inset: auto 0 0 0; margin: 0 auto; width: 100%; max-width: 560px;
   max-height: calc(var(--vh, 100dvh) + var(--kb, 0px) - env(safe-area-inset-top) - 12px); overflow-y: auto; overscroll-behavior: contain;
   padding: 0 0 var(--kb, 0px); border: 1px solid var(--line); border-bottom: 0; border-radius: 16px 16px 0 0; background: var(--panel); color: var(--text);
@@ -410,7 +410,7 @@ main > * { transition: opacity .25s ease; }
 .view-questions details.done button.ghost { font-size: 14px; text-align: left; padding: 6px 2px; }
 .view-questions details.done .trow button { min-width: 0; }
 .view-questions details.done .trow span { flex: none; }
-.view-questions .bar { position: sticky; bottom: 0; padding: 10px 0 max(10px, env(safe-area-inset-bottom)); background: var(--bg);
+.view-questions .bar { position: sticky; bottom: var(--app-bottom, 0px); padding: 10px 0 max(10px, env(safe-area-inset-bottom)); background: var(--bg);
   display: flex; justify-content: space-between; align-items: center; gap: 8px; border-top: 1px solid var(--line); }
 .view-questions .bar .send-hint { margin-left: auto; }
 .view-questions .bar #qstatus { min-width: 0; }
@@ -479,9 +479,29 @@ main > * { transition: opacity .25s ease; }
 .view-notes .md-table tr:last-child td { border-bottom: 0; }
 .view-notes .md-table .wide { min-width: 14em; }
 .view-notes .md-table .wider { min-width: 24em; }
-/* A framed page (view-frame.js) fills the view under the header, and scrolls inside its frame. */
+/* A framed page (view-frame.js) fills the space beside the header, and scrolls inside its frame. */
 .view-frame { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 .view-frame > .top { flex: none; }
 .view-frame.own-header > .top { display: none; }
 .view-frame > .frame-page { flex: 1 1 auto; display: block; width: 100%; min-height: 0; border: 0; background: var(--bg); }
 .view-frame .alone { white-space: nowrap; font-size: 13px; }
+
+.top .phone-logo { display: none; }
+@media (max-width: 899px) {
+  :root:has(body > .top, body.has-sidebar > :not(.sidebar) > .top):not(.ps-embed) {
+    --app-bottom: calc(49px + max(4px, env(safe-area-inset-bottom)));
+  }
+  body > .top, body.has-sidebar > :not(.sidebar) > .top {
+    position: fixed; top: auto; bottom: 0; left: 0; right: 0; z-index: 7;
+    border-bottom: 0; border-top: 1px solid var(--line); padding-top: 4px; padding-bottom: max(4px, env(safe-area-inset-bottom));
+  }
+  .top .phone-logo { display: inline-flex; margin-left: 0; }
+  .top .nav #refresh, .top .nav a.icon { min-width: 44px; min-height: 44px; }
+  body > main, body.has-sidebar > :not(.sidebar) > main { padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: calc(96px + var(--app-bottom, 0px) + env(safe-area-inset-bottom)); }
+  .view-frame:not(.own-header) { padding-bottom: var(--app-bottom, 0px); }
+  .sheet { bottom: max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px)));
+    max-height: calc(var(--vh, 100dvh) + var(--kb, 0px) - max(var(--app-bottom, 0px), var(--kb, 0px)) - env(safe-area-inset-top) - 12px); }
+  .sheet.keyboard-sheet:not(.kb)::after { height: 0; }
+  .sheet.keyboard-sheet { --sheet-limit: max(80px, calc(var(--vh, 100dvh) + var(--kb, 0px) - max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px))) - max(12px, env(safe-area-inset-top)))); }
+  .confirm-sheet { padding-bottom: calc(10px + var(--app-bottom, 0px) + env(safe-area-inset-bottom)); }
+}

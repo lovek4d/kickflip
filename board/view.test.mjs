@@ -545,7 +545,7 @@ test("two boards' stores never share a key: a New task draft stays on its board,
   assert.deepEqual([a.store.get('draft:w/A1'), b.store.get('draft:w/A1')], ['a reply', 'a reply']);
 });
 
-test("the page header's logo toggles the sidebar at every width: from 1000px it collapses and restores the rail, which this device remembers, and the rail's own logo hides it; narrower, it opens and closes the drawer; it shows no count, and its label says what waits on the other sites", () => {
+test("the page header's logo toggles the sidebar at every width: from 900px it collapses and restores the rail, which this device remembers, and the rail's own logo hides it; narrower, it opens and closes the drawer; it shows no count, and its label says what waits on the other sites", () => {
   const { storage, localStorage } = memoryStorage();
   const handlers = [];
   const classes = (set = new Set()) => ({ set, add: (c) => set.add(c), remove: (c) => set.delete(c), contains: (c) => set.has(c), toggle: (c, on = !set.has(c)) => { if (on) set.add(c); else set.delete(c); return on; } });
@@ -553,12 +553,14 @@ test("the page header's logo toggles the sidebar at every width: from 1000px it 
     setAttribute(k, v) { this.attrs[k] = v; }, querySelector(sel) { return this.kids.find((k) => k.className === sel.slice(1)) || null; },
     append(k) { this.kids.push(k); }, closest: () => null });
   const aside = el();
+  const list = { scrollTop: 150, scrollHeight: 1200 };
+  aside.querySelector = (sel) => sel === '.sb-scroll' ? list : null;
   const scrim = el();
   const logo = el();
   const html = el();
   const wide = { matches: true, addEventListener() {} };
   const win = { localStorage, setTimeout: () => 0, clearTimeout() {}, addEventListener() {}, navigator: { userAgent: 'Mac' }, URL,
-    matchMedia: (q) => (q === '(min-width: 1000px)' ? wide : { matches: false }),
+    matchMedia: (q) => (q === '(min-width: 900px)' ? wide : { matches: false }),
     fetch: () => new Promise(() => {}),
     document: { documentElement: html, hidden: false, getElementById: (id) => ({ sidebar: aside, sidebarScrim: scrim })[id] || null,
       querySelectorAll: (sel) => (sel === '.top a.hub' ? [logo] : []), createElement: () => Object.assign(el(), { className: '', textContent: '' }),
@@ -567,7 +569,8 @@ test("the page header's logo toggles the sidebar at every width: from 1000px it 
   vm.createContext(win);
   for (const file of ['ui-page-header.js', 'ui-sidebar.js', 'sidebar.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), win);
   const data = { sites: [{ route: 'a', title: 'A', board: true, count: 1 }, { route: 'b', title: 'B', board: true, count: 2 }, { route: 'learn', title: 'Learn', board: false, count: 0 }] };
-  win.Sidebar.mount({ here: 'a', data, poll: false });
+  const sidebar = win.Sidebar.mount({ here: 'a', data, poll: false });
+  assert.equal(list.scrollTop, 1200);
   const tap = (target) => { for (const h of handlers.filter((x) => x.type === 'click')) h.fn({ target: { closest: (sel) => (sel === target ? (sel === '.top a.hub' ? logo : {}) : null) }, preventDefault() {} }); };
   const state = () => ({ collapsed: html.classList.contains('sb-collapsed'), stored: storage.get('hub:sidebarCollapsed') ?? null, drawer: aside.classList.contains('open') });
 
@@ -582,6 +585,10 @@ test("the page header's logo toggles the sidebar at every width: from 1000px it 
   wide.matches = false;
   tap('.top a.hub');
   assert.deepEqual(state(), { collapsed: true, stored: '1', drawer: true });
+  assert.equal(list.scrollTop, 1200);
+  list.scrollTop = 420;
+  sidebar.setData(data);
+  assert.equal(list.scrollTop, 420);
   tap('.top a.hub');
   assert.deepEqual(state(), { collapsed: true, stored: '1', drawer: false });
   tap('.top a.hub');
@@ -647,7 +654,7 @@ test("the shell selects Settings on direct loads, sidebar taps, the Hub header's
     win.history.go(1);
     assert.deepEqual(selected(), ['/_hub/settings']);
     win.AppShell.open('/_hub/');
-    tap(doc.querySelector('.sb-foot a[href="/_hub/settings"]'));
+    tap(doc.querySelector('.sb-utility a[href="/_hub/settings"]'));
     assert.deepEqual(selected(), ['/_hub/settings']);
   }
 });
@@ -818,7 +825,7 @@ test("s s shows each sidebar row's key and the next key opens that row through t
   Object.assign(win.document, { getElementById: (id) => ({ sidebar: aside, sidebarScrim: scrim })[id] || null, querySelectorAll: () => [],
     querySelector: (sel) => (sel === 'dialog[open]' ? dialog : null) });
   const wide = Object.assign(new page.Target(), { matches: true });
-  win.matchMedia = (q) => (q === '(min-width: 1000px)' ? wide : Object.assign(new page.Target(), { matches: false }));
+  win.matchMedia = (q) => (q === '(min-width: 900px)' ? wide : Object.assign(new page.Target(), { matches: false }));
   let idle = null;
   const setTimeout = win.setTimeout;
   win.setTimeout = (fn, ms) => { if (ms === 3000) idle = fn; return setTimeout(fn, ms); };

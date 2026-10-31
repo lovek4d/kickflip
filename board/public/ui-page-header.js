@@ -39,16 +39,17 @@
   }
 
   // lead is 'logo' (the kickflip, which toggles the sidebar, sidebar.js; logoHref, the hub's page, without it)
-  // or 'back' (the arrow, which follows backStep, with backHref the work item or the board). The controls (time and refresh, gear) paint disabled with refresh spinning until the
+  // or 'back' (the arrow, which follows backStep, with backHref the work item or the board, beside a phone-only logo). The controls (time and refresh, gear) paint disabled with refresh spinning until the
   // page's script turns them on (docs/adr/0021-the-board-shows-github-checks-and-watcher-health.md). With controls
   // false, trail (HTML) takes their place. leadAttrs adds to or replaces the lead link's attributes, and level is the
   // title's heading level, for a header that isn't the page's own, such as the sidebar's (ui-sidebar.js).
   function header({ lead = 'logo', title = '', titleId, backHref = './', backLabel = 'Back to the board', backId, logoSrc = 'kickflip.png',
     controls = true, trail = '', time = '…', settingsHref = 'settings.html', logoHref = '/_hub/', leadAttrs = {}, level = 1 } = {}) {
     const attrs = (base) => Object.entries({ ...base, ...leadAttrs }).map(([k, v]) => ` ${k}="${esc(v)}"`).join('');
+    const logo = (cls = 'hub') => `<a class="${cls}" href="${esc(logoHref)}"${attrs({ 'aria-label': 'Boards' })}><img src="${esc(logoSrc)}" alt=""></a>`;
     const first = lead === 'back'
-      ? `<a class="back" href="${esc(backHref)}"${id(backId)}${attrs({ 'aria-label': backLabel })}>${ARROW}</a>`
-      : `<a class="hub" href="${esc(logoHref)}"${attrs({ 'aria-label': 'Boards' })}><img src="${esc(logoSrc)}" alt=""></a>`;
+      ? `<a class="back" href="${esc(backHref)}"${id(backId)}${attrs({ 'aria-label': backLabel })}>${ARROW}</a>${logo('hub phone-logo')}`
+      : logo();
     const nav = controls ? `<nav class="nav">`
       + `<span class="refresh"><button class="ghost spinning" id="refresh" type="button" disabled aria-label="Refresh" title="Refresh">${REFRESH}</button><span class="muted" id="status">${esc(time)}</span></span>`
       + `<a href="${esc(settingsHref)}" id="settingsLink" class="ghost icon" aria-label="Settings" title="Settings" aria-disabled="true" tabindex="-1">${GEAR}</a>`

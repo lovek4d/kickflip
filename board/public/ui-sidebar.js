@@ -16,15 +16,15 @@
   };
   const tile = (key, color) => `<span class="icon sm solid" style="--c:${color}" aria-hidden="true">${svg(ICONS[key])}</span>`;
   const word = (tone, text) => `<span class="dot t-${tone}" aria-hidden="true"></span><span class="word t-${tone}">${esc(text)}</span>`;
-  // The Hub group's rows, in the order they show.
-  const FOOT = [
+  // The utility rows, in the order they show.
+  const UTILITY = [
     { href: '/_hub/', title: 'Hub', icon: tile('pulse', '#64748b') },
     { href: '/_hub/settings', title: 'Settings', icon: tile('sliders', '#6b7280') },
   ];
   const siteHref = (s) => `/${encodeURIComponent(s.route)}/`;
 
   // Switch mode's keys (sidebar.js; docs/adr/0056-switch-mode-letters-come-from-names-in-join-order.md): each linked row the
-  // sidebar draws, in its order, as {href, title, board, num, letter, at}. The first nine boards take num '1'–'9'.
+  // sidebar draws, boards first for numbering, as {href, title, board, num, letter, at}. The first nine boards take num '1'–'9'.
   // Every row takes as letter the first a–z letter of its title not yet taken, at index `at` of the title's characters,
   // claiming in this order: boards by `created`, then pages by `created`, a site with none after those with one, then
   // the Hub rows. So a new board never takes another board's letter. A row with no letter left gets none.
@@ -32,7 +32,7 @@
     const sites = data?.sites || [];
     const site = (rank) => (s) => ({ href: siteHref(s), title: String(s.title ?? s.route), board: rank === 0, rank, joined: Date.parse(s.created) });
     const rows = [...sites.filter((s) => s.board).map(site(0)), ...sites.filter((s) => !s.board).map(site(1)),
-      ...FOOT.map((f, i) => ({ href: f.href, title: f.title, board: false, rank: 2, joined: i }))];
+      ...UTILITY.map((f, i) => ({ href: f.href, title: f.title, board: false, rank: 2, joined: i }))];
     rows.filter((r) => r.board).slice(0, 9).forEach((r, i) => { r.num = String(i + 1); });
     const when = (r) => (Number.isFinite(r.joined) ? r.joined : Infinity);
     const taken = new Set();
@@ -96,14 +96,13 @@
     };
     const selected = here.startsWith('_hub/settings/') ? '/_hub/settings' : `/${here.replace(/\/$/, '')}`;
     const close = `<div class="nav"><button type="button" class="sb-close" data-sidebar-close aria-label="Close boards">${svg(ICONS.close, 20)}</button></div>`;
-    return header({ lead: 'logo', title: 'Boards', level: 2, controls: false, trail: close, logoSrc: '/_hub/kickflip.png',
+    return header({ lead: 'logo', title: 'Kickflip', level: 2, controls: false, trail: close, logoSrc: '/_hub/kickflip.png',
       leadAttrs: { 'aria-label': 'Hide boards', title: 'Hide boards', 'data-sidebar-close': '' } })
-      + turnOn
-      + `<div class="sb-group">${boards.map(siteRow).join('')}${pending}${newBoard}</div>`
-      + (pages.length ? `<div class="sb-label">Pages</div><div class="sb-group">${pages.map(siteRow).join('')}</div>` : '')
-      + `<div class="sb-foot"><div class="sb-label">Hub</div><div class="sb-group">`
-      + FOOT.map((f) => row({ ...f, on: f.href.replace(/\/$/, '') === selected, sub: subs[f.href], key: keys?.get(f.href) })).join('')
-      + `</div></div>`
+      + `<div class="sb-scroll"><section class="sb-utility" aria-label="Hub and settings"><div class="sb-group">`
+      + UTILITY.map((f) => row({ ...f, on: f.href.replace(/\/$/, '') === selected, sub: subs[f.href], key: keys?.get(f.href) })).join('')
+      + `</div>${turnOn}</section>`
+      + (pages.length ? `<section class="sb-pages" aria-label="Pages"><div class="sb-label">Pages</div><div class="sb-group">${pages.map(siteRow).join('')}</div></section>` : '')
+      + `<section class="sb-boards" aria-label="Boards"><div class="sb-label">Boards</div><div class="sb-group">${boards.map(siteRow).join('')}${pending}${newBoard}</div></section></div>`
       + (switching ? '<div class="ks-hint" role="status"><b>Switch:</b> press a key · Esc to cancel<i class="ks-bar"></i></div>' : '');
   }
 

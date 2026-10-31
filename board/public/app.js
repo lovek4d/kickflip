@@ -188,8 +188,12 @@ window.BoardView = (function () {
     function scrollToFocus(final = true) {
       if (!focusKey) return;
       const el = $(`details.item[data-key="${CSS.escape(focusKey)}"]`);
-      // The sticky header would cover the card's title row, and its height changes with the safe area.
-      if (el) { el.style.scrollMarginTop = `${($(':scope > .top')?.offsetHeight || 0) + 8}px`; el.scrollIntoView({ block: 'start' }); }
+      // The desktop header, or below 900px the status bar, would cover the card's title row.
+      if (el) {
+        el.style.scrollMarginTop = matchMedia('(min-width: 900px)').matches
+          ? `${($(':scope > .top')?.offsetHeight || 0) + 8}px` : 'calc(env(safe-area-inset-top) + 8px)';
+        el.scrollIntoView({ block: 'start' });
+      }
       if (el && replyKey === focusKey) focusReply(replyKey);
       if (el || final) focusKey = replyKey = null;
     }

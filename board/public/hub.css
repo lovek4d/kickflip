@@ -100,3 +100,9 @@
 .hub-view .remembered p { margin:0; }
 .hub-view .remembered ul { margin:4px 0 0; padding-left:18px; }
 .hub-view .remembered code { white-space:pre-wrap; overflow-wrap:anywhere; }
+
+@media (max-width: 899px) {
+  .hub-view main.has-top { padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: calc(40px + var(--app-bottom, 0px) + env(safe-area-inset-bottom)); }
+  .hub-view dialog.sheet { bottom: max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px)));
+    max-height: calc(var(--vh, 100dvh) - max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px))) - 24px - env(safe-area-inset-top)); }
+}

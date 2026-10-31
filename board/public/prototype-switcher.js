@@ -70,7 +70,7 @@
   }
 
   const CSS = `
-.ps-switch { position:fixed; left:16px; right:16px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:30;
+.ps-switch { position:fixed; left:16px; right:16px; bottom:calc(var(--app-bottom, 0px) + 14px + env(safe-area-inset-bottom)); z-index:30;
   display:flex; flex-direction:column; align-items:center; gap:6px; pointer-events:none; }
 .ps-switch > * { pointer-events:auto; max-width:100%; min-width:0; box-sizing:border-box; }
 .ps-switch .pill, .ps-pill { display:flex; align-items:center; gap:2px; background:#000d; border:1px solid #fff3; border-radius:999px; padding:4px;

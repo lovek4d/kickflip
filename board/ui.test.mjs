@@ -199,7 +199,7 @@ test('when the fresh board replaces the last visit, only lines whose text change
   assert.deepEqual([...ui.changedLines({}, {})], []);
 });
 
-test('every page header leads with the logo or a back arrow, then the title, then disabled controls', () => {
+test('every page header has a logo, a back arrow where needed, the title and disabled controls', () => {
   const logo = ui.header({ lead: 'logo', title: 'iOS <Orchestrator>' });
   assert.match(logo, /^<header class="top"><div class="brand"><a class="hub" href="\/_hub\/" aria-label="Boards"><img src="kickflip\.png" alt=""><\/a><h1>iOS &lt;Orchestrator&gt;<\/h1><\/div>/);
   assert.match(logo, /<button class="ghost spinning" id="refresh" type="button" disabled/);
@@ -208,8 +208,8 @@ test('every page header leads with the logo or a back arrow, then the title, the
   assert.equal(text(logo), 'iOS <Orchestrator> …');
 
   const back = ui.header({ lead: 'back', backHref: '/', backLabel: 'Back to Claude', title: 'Settings', logoSrc: '/_hub/kickflip.png', settingsHref: '/_hub/settings', time: 'now' });
-  assert.match(back, /^<header class="top"><div class="brand"><a class="back" href="\/" aria-label="Back to Claude"><svg width="24" height="24"[^>]*>.*?<\/svg><\/a><h1>Settings<\/h1><\/div>/);
-  assert.doesNotMatch(back, /kickflip/);
+  assert.match(back, /^<header class="top"><div class="brand"><a class="back" href="\/" aria-label="Back to Claude"><svg width="24" height="24"[^>]*>.*?<\/svg><\/a><a class="hub phone-logo" href="\/_hub\/" aria-label="Boards"><img src="\/_hub\/kickflip\.png" alt=""><\/a><h1>Settings<\/h1><\/div>/);
+  assert.equal((back.match(/class="hub phone-logo"/g) || []).length, 1);
   assert.match(back, /href="\/_hub\/settings" id="settingsLink"/);
   assert.match(back, /id="status">now</);
 
@@ -220,17 +220,17 @@ test('every page header leads with the logo or a back arrow, then the title, the
   assert.doesNotMatch(logo, /<script>/);
 });
 
-test("the sidebar's head is the page header, whose logo and ✕ close it, then it lists the boards then the pages, marks this one, counts what waits on the others, and ends with the hub's rows", () => {
+test("the Kickflip sidebar lists Hub and Settings, notifications, Pages, then Boards with New board last", () => {
   const site = (route, board, count, sub = '') => ({ route, title: route.toUpperCase(), board, count, icon: `<i data-r="${route}"></i>`, sub });
   const data = {
     sites: [site('ios', true, 2, '<b>2 need you</b>'), site('learn', false, 1), site('shop', true, 0), site('hub', true, 3)],
     hub: { tone: 'ok', word: 'Healthy', detail: '4 of 4 sites up' }, notifications: { state: 'on', text: 'On' }, polling: { text: 'Every 15 min · next 4:45pm' },
   };
   const html = ui.sidebar(data, { here: 'ios', device: 'on' });
-  assert.equal(text(html), 'Boards IOS 2 need you SHOP HUB New board Pages LEARN Hub Hub Healthy 4 of 4 sites up Settings Notifications, polling and rules');
-  const foot = (html) => html.slice(html.indexOf('<div class="sb-foot">'));
-  assert.deepEqual([...foot(html).matchAll(/href="([^"]+)"/g)].map((m) => m[1]), ['/_hub/', '/_hub/settings']);
-  assert.match(html, /^<header class="top"><div class="brand"><a class="hub" href="\/_hub\/" aria-label="Hide boards" title="Hide boards" data-sidebar-close=""><img src="\/_hub\/kickflip\.png" alt=""><\/a><h2>Boards<\/h2><\/div><div class="nav"><button type="button" class="sb-close" data-sidebar-close aria-label="Close boards"><svg [^>]*>.*?<\/svg><\/button><\/div><\/header>/);
+  assert.equal(text(html), 'Kickflip Hub Healthy 4 of 4 sites up Settings Notifications, polling and rules Pages LEARN Boards IOS 2 need you SHOP HUB New board');
+  const utility = (html) => /<section class="sb-utility"[^>]*>(.*?)<\/section>/.exec(html)[1];
+  assert.deepEqual([...utility(html).matchAll(/href="([^"]+)"/g)].map((m) => m[1]), ['/_hub/', '/_hub/settings']);
+  assert.match(html, /^<header class="top"><div class="brand"><a class="hub" href="\/_hub\/" aria-label="Hide boards" title="Hide boards" data-sidebar-close=""><img src="\/_hub\/kickflip\.png" alt=""><\/a><h2>Kickflip<\/h2><\/div><div class="nav"><button type="button" class="sb-close" data-sidebar-close aria-label="Close boards"><svg [^>]*>.*?<\/svg><\/button><\/div><\/header>/);
   assert.doesNotMatch(html, /<h1|id="refresh"|settingsLink/);
   assert.match(html, /<a class="sb-row on" href="\/ios\/" aria-current="page"><i data-r="ios"><\/i>/);
   assert.match(html, /href="\/_hub\/"[^>]*>.*Hub<\/span>/);
@@ -243,8 +243,8 @@ test("the sidebar's head is the page header, whose logo and ✕ close it, then i
     ['on', { state: 'held', text: 'Snoozed until 6pm' }, 'Snoozed until 6pm', false],
     ['on', { state: 'held', text: 'Off on weekends' }, 'Off on weekends', false],
   ]) {
-    const settings = foot(ui.sidebar({ ...data, notifications }, { device }));
-    assert.match(text(settings), new RegExp(`Settings ${status}$`));
+    const settings = utility(ui.sidebar({ ...data, notifications }, { device }));
+    assert.match(text(settings), new RegExp(`Settings ${status}`));
     assert.equal(settings.includes('word t-needs'), urgent);
   }
   for (const here of ['_hub', '_hub/', '_hub/settings', '_hub/settings/polling']) {
@@ -265,7 +265,8 @@ test('pending boards have muted non-link rows, failed starts can be dismissed, a
   assert.match(html, /data-starting="broken">.*Didn't start.*claude --bg failed \(1\): &lt;Not signed in&gt;.*data-dismiss-board="broken"/);
   assert.doesNotMatch(html, /href="\/(new|old)\//);
   assert.ok(html.indexOf('data-starting="old"') < html.indexOf('data-new-board'));
-  assert.ok(html.indexOf('data-new-board') < html.indexOf('>Pages<'));
+  assert.ok(html.indexOf('>Pages<') < html.indexOf('>Boards<'));
+  assert.match(html, /data-new-board[\s\S]*?<\/button><\/div><\/section><\/div>/);
   assert.deepEqual(plain(ui.switchKeys(data)).map((r) => r.href), ['/page/', '/_hub/', '/_hub/settings']);
 });
 
@@ -305,7 +306,7 @@ test("switch mode numbers the first nine boards in sidebar order, and gives ever
   assert.match(html, /href="\/ios-orchestrator\/"[^>]*><span class="icon"[^>]*><svg><\/svg><span class="ks-key">3<\/span><\/span><span class="sb-text"><span class="sb-title"><span class="ks-u">i<\/span>OS Orchestrator</);
   assert.match(html, /href="\/learn\/"[^>]*><span class="icon"[^>]*><svg><\/svg><span class="ks-key">y<\/span><\/span><span class="sb-text"><span class="sb-title">S<span class="ks-u">y<\/span>nc V2\.1 course</);
   assert.match(html, /<span class="sb-title">S<span class="ks-u">e<\/span>ttings</);
-  assert.match(text(html), /^Boards Turn on notifications Off on this device 1 B ackend Audit /);
+  assert.match(text(html), /^Kickflip u H u b e S e ttings Off on this device Turn on notifications Off on this device Pages /);
   assert.match(html, /class="ks-hint"/);
   assert.doesNotMatch(ui.sidebar({ sites: live }, { here: 'ios-orchestrator' }), /ks-/);
 });
