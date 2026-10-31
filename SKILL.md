@@ -9,6 +9,20 @@ One **hub** on this Mac answers `https://<this Mac>.<tailnet>.ts.net/` for every
 
 `WT=~/.claude/skills/join-web-ts/bin/web-ts.mjs`; run it with `node`. Its header comment lists every command and flag.
 
+## Install on a new Mac
+
+With Git, Node, Claude Code and Tailscale installed and signed in, clone kickflip into any folder, such as `~/dev/kickflip`. No npm install is needed:
+
+```sh
+mkdir -p "$HOME/dev"
+git clone <kickflip-repo-url> "$HOME/dev/kickflip"
+node "$HOME/dev/kickflip/bin/web-ts.mjs" install
+```
+
+Use the repo's Git URL in place of `<kickflip-repo-url>`. Install links `~/.claude/skills/join-web-ts` to that clone and `~/.claude/skills/web-ts-hooks` to its `hooks-plugin/`. Correct links are checked and kept. A real folder is accepted only when it is the target itself. A link pointing elsewhere, including a broken link, is refused with a message; move an existing real folder or explicitly remove a wrong link before retrying. `--force` does not replace install links.
+
+The same command installs the macOS login item, which starts the hub through the `~/.claude/skills/join-web-ts` link, starts it, and maps Tailscale `/` to it. Live state (manifest, sites, settings and builder worktrees) stays in `~/.claude/web-ts/`. Board repo clones belong in `<clone>/.repos/<owner>/<repo>`; `shared/repos.mjs` owns the base path. `.repos/` is gitignored and excluded from land's test suite along with `node_modules/` ([ADR 0071](docs/adr/0071-kickflip-runs-from-a-linked-clone.md)).
+
 ## Steps
 
 1. **Who you are.** Your session id is the directory name just above your scratchpad (`…/<session-id>/scratchpad`). Your label is the session's name if it has one, otherwise two or three words for its work.

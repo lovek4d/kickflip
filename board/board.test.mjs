@@ -592,6 +592,21 @@ test('land rebases onto a moved main, fast-forwards main, restarts only what cha
   assert.deepEqual(restarts(), ['board orch', 'board audit', 'hub']);
 });
 
+test('land skips tests inside .repos and node_modules at every depth', () => {
+  const repo = scratchRepo();
+  assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  const ignored = "import test from 'node:test';\ntest('foreign test', () => { throw new Error('foreign suite ran'); });\n";
+  for (const directory of ['.repos/owner/repo', 'node_modules/dependency', 'nested/.repos/owner/repo', 'nested/node_modules/dependency']) {
+    write(path.join(worktree(), directory, 'foreign.test.mjs'), ignored);
+  }
+  git(worktree(), 'add', '-A');
+  git(worktree(), 'commit', '--quiet', '-m', 'foreign repos');
+  const result = land();
+  assert.equal(result.code, 0, result.err);
+  assert.match(result.out, /tests passed: 1/);
+  assert.equal(fs.existsSync(worktree()), false);
+});
+
 test('land refuses a rebase that conflicts, naming the files, and leaves the branch, worktree and main as they were', () => {
   const repo = scratchRepo();
   assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);

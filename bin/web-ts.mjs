@@ -48,6 +48,8 @@
 //   web-ts restart <route>
 //   web-ts logs <route> [--lines <n>]
 //   web-ts install | uninstall
+//               install links the running clone and its hooks-plugin into ~/.claude/skills, then starts the hub.
+//               Existing links to another clone and real folders elsewhere are refused; move them explicitly first
 //   web-ts push --kind action|prompt|fault --title <t> [--body <b>] [--url </route/path>] [--tag <tag>]
 //               [--now | --urgent]
 //               notify every device that turned on notifications on hub Settings; a tap opens --url.
@@ -89,8 +91,10 @@ import { ICON_KEYS } from '../hub/icons.mjs';
 import { liveSessions } from '../hub/live.mjs';
 import { isBoardSite, writeManifest } from '../hub/boards.mjs';
 import { routeRecord, validRoute } from '../hub/routes.mjs';
+import { installLinks } from './install.mjs';
+import { cloneRoot } from '../shared/repos.mjs';
 
-const SKILL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const SKILL = cloneRoot();
 const HOME = path.join(os.homedir(), '.claude', 'web-ts');
 const MANIFEST = path.join(HOME, 'manifest.json');
 const LOGS = path.join(HOME, 'logs');
@@ -430,6 +434,11 @@ const commands = {
   },
 
   async install() {
+    let links;
+    try { links = installLinks(); } catch (e) { fail(e.message); }
+    for (const { link, target, created } of links) out(`${created ? 'linked' : 'checked'} ${link} -> ${target}`);
+    // The login item starts the hub through the skill link, so moving the clone and relinking it keeps launchd's path.
+    const hubEntry = path.join(links[0].link, 'hub', 'hub.mjs');
     fs.mkdirSync(HOME, { recursive: true });
     fs.mkdirSync(path.dirname(PLIST), { recursive: true });
     const hubLog = path.join(HOME, 'hub.log');
@@ -439,7 +448,7 @@ const commands = {
 <dict>
   <key>Label</key><string>${LABEL}</string>
   <key>ProgramArguments</key>
-  <array><string>${nodeBin()}</string><string>${path.join(SKILL, 'hub', 'hub.mjs')}</string></array>
+  <array><string>${nodeBin()}</string><string>${hubEntry}</string></array>
   <key>WorkingDirectory</key><string>${HOME}</string>
   <key>EnvironmentVariables</key>
   <dict><key>PATH</key><string>${path.dirname(nodeBin())}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>

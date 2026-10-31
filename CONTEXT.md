@@ -6,6 +6,14 @@ Pages on Love's tailnet that Claude sessions serve, so the owner can follow and 
 
 ### Hub and sites
 
+**Kickflip clone**:
+The Git checkout that supplies the running app's code, in any folder such as `~/dev/kickflip`, linked into Claude Code's skills by install. It is separate from the live state in `~/.claude/web-ts/` ([0071](docs/adr/0071-kickflip-runs-from-a-linked-clone.md)).
+_Avoid_: live skill folder
+
+**Board repo**:
+A project's checkout for its board session, kept under the kickflip clone's `.repos/<owner>/<repo>`. It is separate from the kickflip code and from a builder's worktree ([0071](docs/adr/0071-kickflip-runs-from-a-linked-clone.md)).
+_Avoid_: repo folder (for the repo choice)
+
 **Hub**:
 The one server on the Mac that answers the tailnet address, lists every site, forwards to each, checks GitHub for the open PRs on boards' cards, and sends pushes. Changes on the hub, boards and starter sites come from the app's own pages or non-browser clients; another site's page cannot act on them ([0069](docs/adr/0069-the-hub-starts-a-new-boards-session.md)).
 _Avoid_: portal, gateway

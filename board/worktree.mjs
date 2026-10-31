@@ -1,6 +1,7 @@
 // A builder's git worktree for a site or skill card (docs/adr/0064-every-builder-works-in-a-worktree.md):
 // `board.mjs builder start --worktree` makes it, and `board.mjs land` brings its branch into the live repo's main.
-// Paths resolve under $HOME, so a scratch HOME and repo stand in for the real ones. Refusals are one-line BoardErrors.
+// Worktrees resolve under $HOME and the repo defaults to the running clone, so a scratch HOME and --repo stand in for
+// the real ones. Refusals are one-line BoardErrors.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -8,9 +9,10 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { BoardError } from './store.mjs';
 import { hubCode, listBoards } from '../hub/boards.mjs';
+import { cloneRoot } from '../shared/repos.mjs';
 
 const WEB_TS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'web-ts.mjs');
-export const skillRepo = () => path.join(os.homedir(), '.claude', 'skills', 'join-web-ts');
+export const skillRepo = cloneRoot;
 export const worktreesDir = () => path.join(os.homedir(), '.claude', 'web-ts', 'worktrees');
 const fail = (msg) => { throw new BoardError(msg); };
 
@@ -39,7 +41,7 @@ function testFiles(dir) {
   const found = [];
   const walk = (d) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-      if (e.name === '.git' || e.name === 'node_modules') continue;
+      if (e.name === '.git' || e.name === '.repos' || e.name === 'node_modules') continue;
       if (e.isDirectory()) walk(path.join(d, e.name));
       else if (e.name.endsWith('.test.mjs')) found.push(path.join(d, e.name));
     }

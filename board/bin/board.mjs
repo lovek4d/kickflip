@@ -125,7 +125,7 @@ A --file argument of - reads stdin.
                                                          Install chip reads Rebuilding… (or Building…) meanwhile
          [--worktree [--repo <dir>]]                     --worktree: a git worktree for the builder at
                                                          ~/.claude/web-ts/worktrees/<id> on a new branch <id> from
-                                                         main of --repo (default ~/.claude/skills/join-web-ts), kept on
+                                                         main of --repo (default the running kickflip clone), kept on
                                                          the record and printed as "worktree: <path>". Refuses when
                                                          that path or branch exists
   builder progress <wave>/<id> (<text> | --text <t>)     one short present-tense line
