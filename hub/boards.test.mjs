@@ -374,7 +374,9 @@ test('New board validates through HTTP, writes an ask to the hub board, and serv
     manifest.sites['hub-orchestrator'] = { ...manifest.sites.orch, owner: { ...manifest.sites.orch.owner } };
     manifest.starting = { reserved: { session: 's-reserved', since: ago(1), repo } };
     write(manifestFile, manifest);
-    assert.deepEqual((await sidebar()).repos.sort(), [canonicalHome, repo].sort());
+    const sidebarData = await sidebar();
+    assert.equal(sidebarData.home, canonicalHome);
+    assert.deepEqual(sidebarData.repos.sort(), [canonicalHome, repo].sort());
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'outside-new-board-'));
     fs.symlinkSync(outside, path.join(repo, 'outside'));
     write(path.join(repo, 'file'), 'not a directory');
@@ -399,10 +401,10 @@ test('New board validates through HTTP, writes an ask to the hub board, and serv
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { route: 'backend-audit' });
     const ask = events('orch', 'ask').at(-1);
-    assert.deepEqual(ask.data, { text: `New board: Backend audit in ${repo} — Review backend changes`,
+    assert.deepEqual(ask.data, { text: 'New board: Backend audit in ~/new-board-repo — Review backend changes',
       newBoard: { route: 'backend-audit', title: request.name, repo, purpose: request.purpose } });
     const pending = (await sidebar()).starting.find((s) => s.route === 'backend-audit');
-    assert.deepEqual(pending, { route: 'backend-audit', title: request.name, askedAt: read(manifestFile).starting['backend-audit'].asked_at, failed: false });
+    assert.deepEqual(pending, { route: 'backend-audit', title: request.name, repo, askedAt: read(manifestFile).starting['backend-audit'].asked_at, failed: false });
     assert.equal((await sidebar()).sites.some((s) => s.route === pending.route), false);
     assert.equal((await post(request)).status, 400);
     const dismiss = (route) => fetch(`${base}/_hub/new-board/${route}`, { method: 'DELETE' });

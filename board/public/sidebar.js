@@ -42,7 +42,7 @@
     const aside = document.getElementById('sidebar');
     const scrim = document.getElementById('sidebarScrim');
     // ui.js replaces the BoardUI global when it loads after this, so the renderers are held here.
-    const { sidebar, othersWaiting, switchKeys } = globalThis.BoardUI || {};
+    const { sidebar, othersWaiting, switchKeys, repoLabel } = globalThis.BoardUI || {};
     const none = { setHere() {}, setData() {}, checkDevice() {}, close() {}, toggle() {}, keydown() {}, pointerdown() {} };
     if (!aside || !sidebar) return none;
     if (!data) { try { data = JSON.parse(read(DATA_KEY) || 'null'); } catch { data = null; } }
@@ -121,7 +121,7 @@
         <div class="group">
           <label class="nb-field"><span>Name</span><input name="name" type="text" autocomplete="off" placeholder="e.g. Backend audit" required maxlength="60"></label>
           <label class="nb-field"><span>Repo folder</span><select name="folder" required><option value="">Choose a folder…</option>
-            ${(data?.repos || []).map((repo) => `<option value="${esc(repo)}">${esc(repo)}</option>`).join('')}<option value="other">Other folder…</option></select>
+            ${(data?.repos || []).map((repo) => `<option value="${esc(repo)}">${esc(repoLabel(repo, data.home))}</option>`).join('')}<option value="other">Other folder…</option></select>
             <input class="nb-path" name="path" type="text" aria-label="Other repo folder" placeholder="~/dev/another-repo" autocomplete="off" spellcheck="false" hidden disabled></label>
           <label class="nb-field"><span>What it’s for</span><input name="purpose" type="text" placeholder="e.g. Review backend changes" maxlength="240"><span class="nb-help">One line to get the board started.</span></label>
         </div><p class="nb-error" role="alert" hidden></p>
@@ -159,7 +159,7 @@
           const response = await fetch('/_hub/new-board', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
           if (!response.ok) throw new Error(await response.text());
           const { route } = await response.json();
-          setData({ ...data, starting: [...(data?.starting || []).filter((s) => s.route !== route), { route, title: input.name, askedAt: new Date().toISOString(), failed: false }] });
+          setData({ ...data, starting: [...(data?.starting || []).filter((s) => s.route !== route), { route, title: input.name, repo: input.repo, askedAt: new Date().toISOString(), failed: false }] });
           sending = false;
           sheet.close();
           if (rail.matches) collapse(false); else open();

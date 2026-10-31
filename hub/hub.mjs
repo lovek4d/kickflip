@@ -451,6 +451,7 @@ async function sidebarState({ fresh = false } = {}) {
   const held = hold(now, settings);
   const data = {
     total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links, hubLink(code)),
+    home: fs.realpathSync(os.homedir()),
     repos: [...new Set(boards.map((b) => b.owner?.repo).filter((repo) => typeof repo === 'string' && repo))],
     starting: startingBoards(manifest, now.getTime()),
     notifications: !held ? { state: 'on', text: 'On' } : held.why === 'off' ? { state: 'off', text: 'Off' } : { state: 'held', text: capital(holdLine(held, now)) },

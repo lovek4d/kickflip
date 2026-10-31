@@ -7,6 +7,11 @@ import { STARTING_WAIT } from './sessions.mjs';
 
 const refuse = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 
+function repoLabel(repo) {
+  const home = fs.realpathSync(os.homedir());
+  return repo === home ? '~' : repo.startsWith(`${home}${path.sep}`) ? `~${repo.slice(home.length)}` : repo;
+}
+
 function details(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)
     || Object.keys(input).some((k) => !['name', 'repo', 'purpose'].includes(k))) refuse('Send only name, repo and purpose.');
@@ -37,7 +42,7 @@ export async function requestBoard(input) {
     if (!hub) refuse('No hub session', 503);
     manifest.starting = { ...manifest.starting, [route]: { title, repo, asked_at: new Date().toISOString() } };
     await writeManifest(manifest);
-    try { await appendEvent(hub, 'ask', { text: `New board: ${title} in ${repo}${purpose ? ` — ${purpose}` : ''}`, newBoard }); }
+    try { await appendEvent(hub, 'ask', { text: `New board: ${title} in ${repoLabel(repo)}${purpose ? ` — ${purpose}` : ''}`, newBoard }); }
     catch (e) {
       delete manifest.starting[route];
       if (!Object.keys(manifest.starting).length) delete manifest.starting;

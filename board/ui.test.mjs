@@ -267,6 +267,17 @@ test('pending boards have muted non-link rows, failed starts can be dismissed, a
   assert.deepEqual(plain(ui.switchKeys(data)).map((r) => r.href), ['/page/', '/_hub/', '/_hub/settings']);
 });
 
+test('pending board folders use home labels with a directory boundary and tolerate cached data without home', () => {
+  const home = '/Users/you';
+  for (const [repo, label] of [[`${home}/x`, '~/x'], [home, '~'], ['/opt/x', '/opt/x'], [`${home}2/x`, `${home}2/x`]]) {
+    for (const failed of [false, true]) {
+      const data = { home, sites: [], starting: [{ route: 'new', title: 'New', repo, failed }] };
+      assert.ok(ui.sidebar(data).includes(`New · ${label}`));
+      assert.ok(ui.sidebar({ ...data, home: undefined }).includes(`New · ${repo}`));
+    }
+  }
+});
+
 test("switch mode numbers the first nine boards in sidebar order, and gives every row a letter from its name, boards claiming first in the order they joined, so a new board moves only a page's or a Hub row's letter", () => {
   const site = (route, title, created, board = true) => ({ route, title, board, created, icon: '<span class="icon" style="--c:#000" aria-hidden="true"><svg></svg></span>' });
   const live = [site('backend-audit', 'Backend Audit', '2026-10-22T21:47:40Z'), site('hub-orchestrator', 'Hub Orchestrator', '2026-10-29T21:49:30Z'),

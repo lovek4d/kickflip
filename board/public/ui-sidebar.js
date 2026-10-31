@@ -63,6 +63,11 @@
     return (data?.sites || []).reduce((n, s) => n + (s.route === here ? 0 : Number(s.count) || 0), 0);
   }
 
+  function repoLabel(repo, home) {
+    if (!home) return repo;
+    return repo === home ? '~' : repo.startsWith(`${home}/`) ? `~${repo.slice(home.length)}` : repo;
+  }
+
   // data: /_hub/sidebar.json. here: a site's route or a hub page's path without its leading slash. device: this device's push
   // subscription as sidebar.js finds it, 'on' | 'off' | 'blocked' | 'install' (iOS outside the Home Screen app), or
   // null while unknown or unsupported. switching: switch mode shows, each row with its key and the hint at the foot.
@@ -74,7 +79,7 @@
     const pages = sites.filter((s) => !s.board);
     const plus = `<span class="icon sb-plus" aria-hidden="true">${svg(ICONS.plus, 20)}</span>`;
     const pending = (data?.starting || []).map((s) => `<div class="sb-row sb-starting" data-starting="${esc(s.route)}">${plus}`
-      + `<span class="sb-text"><span class="sb-title">${s.failed ? "Didn't start" : 'Starting…'}</span><span class="sb-sub">${esc(s.title)}${s.failed ? '' : ' · Waiting for the board to answer'}</span></span>`
+      + `<span class="sb-text"><span class="sb-title">${s.failed ? "Didn't start" : 'Starting…'}</span><span class="sb-sub">${esc(s.title)}${s.repo ? ` · ${esc(repoLabel(s.repo, data.home))}` : ''}${s.failed ? '' : ' · Waiting for the board to answer'}</span></span>`
       + (s.failed ? `<button type="button" class="sb-dismiss" data-dismiss-board="${esc(s.route)}" aria-label="Dismiss ${esc(s.title)}">Dismiss</button>` : '') + '</div>').join('');
     const newBoard = `<button type="button" class="sb-row sb-new" data-new-board aria-haspopup="dialog">${plus}<span class="sb-text"><span class="sb-title">New board</span></span></button>`;
     const turnOn = device === 'off' ? row({ href: '/_hub/settings', icon: tile('bell', '#ef4444'), title: 'Turn on notifications', sub: 'Off on this device', cls: 'sb-turnon' })
@@ -102,5 +107,5 @@
       + (switching ? '<div class="ks-hint" role="status"><b>Switch:</b> press a key · Esc to cancel<i class="ks-bar"></i></div>' : '');
   }
 
-  Object.assign(globalThis.BoardUI ||= {}, { sidebar, othersWaiting, switchKeys });
+  Object.assign(globalThis.BoardUI ||= {}, { sidebar, othersWaiting, switchKeys, repoLabel });
 })();

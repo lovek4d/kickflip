@@ -722,7 +722,9 @@ test('New board opens the shared sheet from rail and drawer, validates fields, p
     doc.querySelector = (sel) => doc.body.querySelector(sel);
     doc.querySelectorAll = (sel) => doc.body.querySelectorAll(sel);
     win.matchMedia = () => Object.assign(new page.Target(), { matches: wide });
-    let data = { sites: [], repos: ['~/repo & tools'], starting: [] };
+    const home = '/Users/you';
+    const repo = `${home}/repo & tools`;
+    let data = { home, sites: [], repos: [repo, home, '/opt/repo', `${home}2/repo`], starting: [] };
     let refusal = 'That board route already exists.';
     let finish = null;
     const posted = [];
@@ -731,7 +733,7 @@ test('New board opens the shared sheet from rail and drawer, validates fields, p
       posted.push([url, options.method, options.body && JSON.parse(options.body)]);
       if (options.method === 'DELETE') { data = { ...data, starting: [] }; return { ok: true }; }
       if (refusal) return { ok: false, text: async () => refusal };
-      return new Promise((resolve) => { finish = () => { data = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', failed: false }] }; resolve({ ok: true, json: async () => ({ route: 'backend-audit' }) }); }; });
+      return new Promise((resolve) => { finish = () => { data = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', repo, failed: false }] }; resolve({ ok: true, json: async () => ({ route: 'backend-audit' }) }); }; });
     };
     win.Sidebar.mount({ data });
     const aside = doc.getElementById('sidebar');
@@ -740,7 +742,9 @@ test('New board opens the shared sheet from rail and drawer, validates fields, p
     let sheet = doc.getElementById('newBoardSheet');
     assert.equal(sheet.open, true);
     assert.equal(sheet.classList.contains('sheet'), true);
-    assert.equal(sheet.querySelector('option[value="~/repo & tools"]').textContent, '~/repo & tools');
+    for (const [value, label] of [[repo, '~/repo & tools'], [home, '~'], ['/opt/repo', '/opt/repo'], [`${home}2/repo`, `${home}2/repo`]]) {
+      assert.equal(sheet.querySelector(`option[value="${value}"]`).textContent, label);
+    }
     page.fire(sheet.querySelector('[data-cancel-new]'), 'click');
     assert.equal(doc.getElementById('newBoardSheet'), null);
     assert.deepEqual(posted, []);
@@ -767,15 +771,18 @@ test('New board opens the shared sheet from rail and drawer, validates fields, p
     assert.equal(sheet.open, true);
     assert.equal(start.disabled, false);
     refusal = null;
+    field('folder').value = repo;
+    page.fire(form, 'change', { target: field('folder') });
     page.fire(form, 'submit');
     page.fire(form, 'submit');
     assert.equal(start.disabled, true);
     assert.equal(posted.length, 2);
     finish();
     await new Promise(setImmediate);
-    assert.deepEqual(posted.at(-1), ['/_hub/new-board', 'POST', { name: 'Backend audit', repo: '~/new-repo', purpose: 'Review changes' }]);
+    assert.deepEqual(posted.at(-1), ['/_hub/new-board', 'POST', { name: 'Backend audit', repo, purpose: 'Review changes' }]);
     assert.equal(doc.getElementById('newBoardSheet'), null);
     assert.ok(aside.querySelector('[data-starting="backend-audit"]'));
+    assert.match(aside.querySelector('[data-starting="backend-audit"]').textContent, /Backend audit · ~\/repo & tools/);
     assert.equal(aside.querySelector('a[href="/backend-audit/"]'), null);
     assert.equal(aside.classList.contains('open'), !wide);
     const failed = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', failed: true }] };
