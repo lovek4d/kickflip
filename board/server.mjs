@@ -61,6 +61,8 @@
 //                                ask, item-message and owner-answer may carry files: [upload]
 //                                builder-nudge {key} asks the session to check a builder. The server also appends
 //                                builder-stalled {key, silentSince} once per silent spell, tracked in data/builder-stalled.json
+//                                item set appends card-unblocked {key} when a waiting card's last dep finishes,
+//                                including held cards, so the owning session hears it whoever ran the command
 //   POST /api/upload             the raw file as the body, its name URI-encoded in x-filename and its
 //                                type in content-type → data/uploads/<ms>-<safe name>, returning the
 //                                upload {name, url, path, type, size}: url is relative to the site

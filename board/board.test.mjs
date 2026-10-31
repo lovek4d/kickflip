@@ -264,6 +264,35 @@ test('item set edits the item in a waves board and in a file board', () => {
   assert.equal(read(site('audit', 'data', 'wave.json')).items[0].status, undefined);
 });
 
+test('item set --next requires unfinished card ids and refs to be deps, and allows finished cards', () => {
+  write(site('audit', 'data', 'wave.json'), { internal: true, items: [
+    { id: 'A1', title: 'One', next: 'Old' },
+    { id: 'S133', title: 'Blocker', status: 'checking' },
+    { id: 'INT-134', title: 'Other blocker', status: 'planned' },
+    ...['done', 'merged', 'dropped'].map((status, i) => ({ id: `S${140 + i}`, title: 'Finished', status })),
+  ] });
+  const items = () => read(site('audit', 'data', 'wave.json')).items;
+  for (const name of ['S133', 'INT-133', 'audit/S133', 'audit/INT-133', 'INT-134', 'audit/INT-134']) {
+    const r = board('item', 'set', 'audit/A1', '--site', 'audit', '--next', `Wait for (${name}).`, '--title', 'Changed');
+    assert.equal(r.code, 1, name);
+    assert.match(r.err, /audit\/(S133|INT-134).*--deps/);
+    assert.equal(r.err.trim().split('\n').length, 1);
+    assert.deepEqual(items()[0], { id: 'A1', title: 'One', next: 'Old' });
+  }
+  for (const next of ['Follow INT-140, audit/S141 and INT-142.', 'Check INT-1330, other/INT-133 and A1.']) {
+    assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--next', next).code, 0);
+    assert.equal(items()[0].next, next);
+  }
+  assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--next', 'After INT-133', '--deps', 'S133').code, 0);
+  assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--next', 'After audit/INT-133').code, 0);
+  assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--next', 'After S133', '--deps', '').code, 1);
+  assert.deepEqual(items()[0].deps, ['S133']);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--next', 'After audit/S133').code, 0);
+  write(at('waves', 'x', 'wave.json'), { internal: true, items: [{ id: 'S133', title: 'Blocker', status: 'waiting' }] });
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--next', 'After x/INT-133').code, 1);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--next', 'After x/INT-133', '--deps', 'x/S133').code, 0);
+});
+
 test('item set --notes-file, or its alias --plan, names a notes file inside the wave folder and refuses a --summary, and --title renames the card', () => {
   write(at('waves', 'w', 'A1-notes.md'), '# So far');
   write(at('waves', 'w', 'A1-old.md'), '# Old');
@@ -736,26 +765,52 @@ test('checked sends the queued pushes at the end of a tick, each as its own noti
   assert.deepEqual(read(at('web-ts', 'push', 'queue.json')).items, []);
 }));
 
-test('item set refuses to start a blocked item, and done or merged names the items it unblocked and says so in their threads', () => {
+test('item set refuses to start a blocked item, and finishing a dep prints, threads and emits each unblocking once', () => {
   write(at('waves', 'd', 'wave.json'), { items: [
     { id: 'A1', title: 'One', status: 'building' },
     { id: 'A2', title: 'Two', status: 'waiting', deps: ['A1'] },
     { id: 'A3', title: 'Three', status: 'waiting', deps: ['A1', 'A2'] },
     { id: 'A4', title: 'Four', status: 'done', deps: ['A1'] },
+    { id: 'A5', title: 'Five', status: 'planned', deps: ['d/A3'] },
   ] });
   const status = () => read(at('waves', 'd', 'wave.json')).items.map((it) => it.status);
+  const events = () => lines(site('orch', 'data', 'events.jsonl')).filter((e) => e.kind === 'card-unblocked');
   const blocked = board('item', 'set', 'd/A3', '--status', 'building', '--site', 'orch');
   assert.equal(blocked.code, 1);
   assert.match(blocked.err, /d\/A1.*d\/A2|d\/A2.*d\/A1/);
-  assert.deepEqual(status(), ['building', 'waiting', 'waiting', 'done']);
+  assert.deepEqual(status(), ['building', 'waiting', 'waiting', 'done', 'planned']);
+  assert.deepEqual(events(), []);
   const done = board('item', 'set', 'd/A1', '--status', 'done', '--site', 'orch');
   assert.equal(done.code, 0);
   assert.deepEqual(done.out.split('\n').filter((l) => l.startsWith('unblocked')), ['unblocked: d/A2']);
   assert.deepEqual(lines(site('orch', 'data', 'threads', 'd__A2.jsonl')).map(({ ts, ...m }) => m), [{ who: 'claude', text: 'Unblocked: A1 is done.' }]);
   assert.equal(fs.existsSync(site('orch', 'data', 'threads', 'd__A3.jsonl')), false);
+  assert.deepEqual(events().map((e) => e.data), [{ key: 'd/A2' }]);
+  assert.ok(events()[0].id);
+  assert.ok(Date.parse(events()[0].ts));
+  for (const status of ['done', 'merged', 'dropped']) {
+    const repeated = board('item', 'set', 'd/A1', '--status', status, '--site', 'orch');
+    assert.equal(repeated.code, 0);
+    assert.doesNotMatch(repeated.out, /unblocked:/);
+  }
+  assert.equal(events().length, 1);
+  assert.equal(lines(site('orch', 'data', 'threads', 'd__A2.jsonl')).length, 1);
   assert.equal(board('item', 'set', 'd/A2', '--status', 'building', '--site', 'orch').code, 0);
   const merged = board('item', 'set', 'd/A2', '--status', 'merged', '--site', 'orch');
   assert.deepEqual(merged.out.split('\n').filter((l) => l.startsWith('unblocked')), ['unblocked: d/A3']);
+  assert.deepEqual(events().map((e) => e.data.key), ['d/A2', 'd/A3']);
+  const dropped = board('item', 'set', 'd/A3', '--status', 'dropped', '--site', 'orch');
+  assert.equal(dropped.code, 0);
+  assert.match(dropped.out, /unblocked: d\/A5/);
+  assert.deepEqual(events().map((e) => e.data.key), ['d/A2', 'd/A3', 'd/A5']);
+  write(site('audit', 'data', 'wave.json'), { items: [
+    { id: 'A1', status: 'building' }, { id: 'A2', status: 'checking' },
+    { id: 'A3', status: 'waiting', deps: ['A1', 'audit/A2'] },
+  ] });
+  assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--status', 'done').code, 0);
+  assert.equal(fs.existsSync(site('audit', 'data', 'events.jsonl')), false);
+  assert.equal(board('item', 'set', 'audit/A2', '--site', 'audit', '--status', 'merged').code, 0);
+  assert.deepEqual(lines(site('audit', 'data', 'events.jsonl')).map((e) => [e.kind, e.data]), [['card-unblocked', { key: 'audit/A3' }]]);
 });
 
 test('item set takes checking as a hand-back that unblocks nothing, and done from checking unblocks as usual', () => {
@@ -767,23 +822,25 @@ test('item set takes checking as a hand-back that unblocks nothing, and done fro
   const checking = board('item', 'set', 'd/A1', '--status', 'checking', '--site', 'orch');
   assert.equal(checking.code, 0);
   assert.deepEqual(unblocked(checking), []);
+  assert.equal(lines(site('orch', 'data', 'events.jsonl')).some((e) => e.kind === 'card-unblocked'), false);
   assert.equal(read(at('waves', 'd', 'wave.json')).items[0].status, 'checking');
   assert.equal(board('item', 'set', 'd/A2', '--status', 'building', '--site', 'orch').code, 1);
   assert.deepEqual(unblocked(board('item', 'set', 'd/A1', '--status', 'done', '--site', 'orch')), ['unblocked: d/A2']);
 });
 
-test('a held item never starts or unblocks until --unheld resumes it', () => {
+test('a held item emits its unblocking but never starts until --unheld resumes it', () => {
   write(at('waves', 'd', 'wave.json'), { items: [
     { id: 'A1', title: 'One', status: 'building' },
     { id: 'A2', title: 'Two', status: 'waiting', deps: ['A1'] },
-    { id: 'A3', title: 'Three', status: 'held' },
+    { id: 'A3', title: 'Three', status: 'held', deps: ['A1'] },
   ] });
   const items = () => read(at('waves', 'd', 'wave.json')).items;
   assert.equal(board('item', 'set', 'd/A2', '--held', '--site', 'orch').code, 0);
   assert.equal(items()[1].held, true);
   assert.equal(board('item', 'set', 'd/A2', '--held', '--unheld', '--site', 'orch').code, 1);
   const done = board('item', 'set', 'd/A1', '--status', 'done', '--site', 'orch');
-  assert.deepEqual(done.out.split('\n').filter((l) => l.startsWith('unblocked')), []);
+  assert.deepEqual(done.out.split('\n').filter((l) => l.startsWith('unblocked')), ['unblocked: d/A2', 'unblocked: d/A3']);
+  assert.deepEqual(lines(site('orch', 'data', 'events.jsonl')).filter((e) => e.kind === 'card-unblocked').map((e) => e.data.key), ['d/A2', 'd/A3']);
   const refused = board('item', 'set', 'd/A2', '--status', 'building', '--site', 'orch');
   assert.equal(refused.code, 1);
   assert.match(refused.err, /d\/A2 is held.*--unheld/);

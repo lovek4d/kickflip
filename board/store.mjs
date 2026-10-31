@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { ITEM_STATUSES, ownerQuestion } from './domain.mjs';
+import { ITEM_STATUSES, ownerQuestion, refOf } from './domain.mjs';
 import { installScriptError } from './install-script.mjs';
 import { appendEvent, listBoards } from '../hub/boards.mjs';
 import { reviseQueued, flushQueue, queueStatus } from '../hub/push.mjs';
@@ -715,11 +715,25 @@ async function unblockedBy(site, key) {
   for (const s of await itemSources(site)) {
     const wave = await readJSON(s.file, null);
     for (const it of Array.isArray(wave?.items) ? wave.items : []) {
-      if (it.held || ![undefined, 'planned', 'waiting'].includes(it.status) || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
+      if (![undefined, 'planned', 'waiting', 'held'].includes(it.status) || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
       if (!(await unfinishedDeps(site, s.slug, it)).length) out.push(`${s.slug}/${it.id}`);
     }
   }
   return out;
+}
+
+async function checkNextDeps(site, key, item, next) {
+  const mentions = new Set(next.match(/[\w-]+(?:\.[\w-]+)*(?:\/[\w-]+(?:\.[\w-]+)*)*/g) || []);
+  const deps = new Set((item.deps || []).map((d) => depKey(parseKey(key).wave, d)));
+  for (const source of await itemSources(site)) {
+    const wave = await readJSON(source.file, null);
+    for (const other of wave?.items || []) {
+      const otherKey = `${source.slug}/${other.id}`;
+      if (otherKey === key || deps.has(otherKey) || FINISHED.includes(other.status)) continue;
+      const names = [other.id, refOf(wave, other.id)].flatMap((id) => [id, `${source.slug}/${id}`]);
+      if (names.some((name) => mentions.has(name))) fail(`--next names unfinished card ${otherKey}; add it with --deps`);
+    }
+  }
 }
 
 // docs/adr/0024-a-full-plan-opens-as-a-page-on-the-site.md
@@ -760,7 +774,7 @@ function installOf({ install, installSha, installLabel, clearInstall }) {
   return { url: String(install).trim(), ...(installLabel === undefined ? {} : { label: text(installLabel, '--install-label') }), built_at: new Date().toISOString(), ...(sha ? { sha } : {}) };
 }
 
-// → the wave file, and with --status done or merged the items it unblocked as `unblocked: <key>` lines; closing
+// → the wave file, and when a dep finishes the items it unblocked as `unblocked: <key>` lines; closing
 // (done, merged, dropped) adds a `resolved: <id>` line per question it resolved (closeQuestions).
 // notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`.
 export async function setItem(site, key, { status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, install, installSha, installLabel, clearInstall, title, force }) {
@@ -774,6 +788,7 @@ export async function setItem(site, key, { status, clearStatus, next, clearNext,
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   const { source, wave, item } = await loadItem(site, key);
+  const wasFinished = FINISHED.includes(item.status);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
   if (title !== undefined) item.title = text(title, '--title');
   if (deps !== undefined) {
@@ -794,7 +809,10 @@ export async function setItem(site, key, { status, clearStatus, next, clearNext,
   if (clearStatus) delete item.status;
   // A card-done newer than status_at reads "Closing…" (domain.mjs workItem).
   if (status !== undefined || clearStatus) item.status_at = new Date().toISOString();
-  if (next !== undefined) item.next = text(next, '--next');
+  if (next !== undefined) {
+    item.next = text(next, '--next');
+    await checkNextDeps(site, key, item, item.next);
+  }
   if (clearNext) delete item.next;
   if (pr !== undefined) item.pr = /^[1-9]\d*$/.test(String(pr)) ? Number(pr) : fail('--pr takes a PR number');
   if (ask) item.from_ask = ask;
@@ -807,11 +825,14 @@ export async function setItem(site, key, { status, clearStatus, next, clearNext,
   // An ask is in one card's thread: becoming this item moves it out of a card it was folded into.
   const links = ask ? await readAskLinks(site) : {};
   if (ask in links) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
-  if (status !== 'done' && status !== 'merged') return { file: source.file, lines: resolved };
+  if (!FINISHED.includes(status) || wasFinished) return { file: source.file, lines: resolved };
   const unblocked = await unblockedBy(site, key);
   // The owner reads a card's wait in its thread, so the line that ends it goes there too.
   const ts = new Date().toISOString();
-  for (const k of unblocked) await appendLine(threadFile(site, k), { ts, who: 'claude', text: `Unblocked: ${item.id} is ${status}.` });
+  for (const k of unblocked) {
+    await appendLine(threadFile(site, k), { ts, who: 'claude', text: `Unblocked: ${item.id} is ${status}.` });
+    await appendEvent({ dir: site }, 'card-unblocked', { key: k });
+  }
   return { file: source.file, lines: [...unblocked.map((k) => `unblocked: ${k}`), ...resolved] };
 }
 

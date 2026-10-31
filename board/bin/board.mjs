@@ -35,6 +35,7 @@ A --file argument of - reads stdin.
   item set <wave>/<id> [--status <s> | --clear-status]   edits the item in its wave file
          [--next <t> | --clear-next] [--pr <n>]          status: ${ITEM_STATUSES.join(', ')}
                                                          an empty --next "" clears it, as --clear-next does
+                                                         naming another unfinished card requires it in --deps
          [--from-ask <eventId>]                          the ask it came from: its New card gives way to this item,
                                                          whose thread opens with the ask and its thread; it leaves
                                                          a card it was folded into
@@ -54,8 +55,9 @@ A --file argument of - reads stdin.
                                                          PR head it was built from: the button reads "older build"
                                                          once the PR moves past it. Hidden once the card is Done
          --status building refuses while the item is held or a dep isn't done, merged or dropped;
-         done and merged print "unblocked: <wave>/<id>" for each waiting, unheld item this one
-         unblocked: start it next. checking is a builder's hand-back: In Review, reading "Claude
+         done, merged and dropped print "unblocked: <wave>/<id>" and append card-unblocked {key}
+         once per unblocking, including held cards: start each unheld card next.
+         checking is a builder's hand-back: In Review, reading "Claude
          checking", until the owning session verifies it and sets done; it unblocks nothing.
          Every --status or --clear-status records status_at, which ends the Done button's "Closing…"
          for the owner's card-done; apply a card-done with --status done.

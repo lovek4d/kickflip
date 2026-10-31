@@ -252,7 +252,7 @@ A permission prompt or `AskUserQuestion` from a background board session, which 
 _Avoid_: permission request, approval, dialog
 
 **Event**:
-One thing the owner did on a page (an ask, an answer, a button), which wakes the owning session.
+A signal that wakes the owning session: something the owner did on a page (an ask, an answer, a button), or a board change such as `card-unblocked {key}` when a waiting card’s last unfinished dependency finishes ([0020](docs/adr/0020-cards-wait-on-explicit-blocked-by-links.md)).
 _Avoid_: action, request
 
 **Rule**:
