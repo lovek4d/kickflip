@@ -256,7 +256,14 @@ test('a new topic takes questions, and resolving one records when', () => {
 test('item set edits the item in a waves board and in a file board', () => {
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'building', '--next', 'Run tests', '--pr', '42').code, 0);
   const { status_at: _w, ...edited } = read(at('waves', 'w', 'wave.json')).items[0];
-  assert.deepEqual(edited, { id: 'A1', title: 'One', next: 'Run tests', status: 'building', pr: 42 });
+  assert.deepEqual(edited, { id: 'A1', title: 'One', next: 'Run tests', pr: 42 });
+  for (const [key, route, file] of [['w/A1', 'orch', at('waves', 'w', 'wave.json')], ['audit/A1', 'audit', site('audit', 'data', 'wave.json')]]) {
+    for (const status of ['building', 'fixing', 'checking', 'planned', 'held', 'done']) {
+      assert.equal(board('item', 'set', key, '--site', route, '--status', status).code, 0);
+      assert.equal(board('item', 'set', key, '--site', route, '--pr', '7').code, 0);
+      assert.equal(read(file).items[0].status, ['building', 'fixing'].includes(status) ? undefined : status);
+    }
+  }
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e9').code, 1);
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e1').code, 0);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].from_ask, 'e1');
@@ -264,7 +271,7 @@ test('item set edits the item in a waves board and in a file board', () => {
   assert.deepEqual([read(at('waves', 'w', 'wave.json')).items[0].status, 'next' in read(at('waves', 'w', 'wave.json')).items[0]], ['checking', false]);
   assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--clear-next', '--status', 'held').code, 0);
   const { status_at: _a, ...audit } = read(site('audit', 'data', 'wave.json')).items[0];
-  assert.deepEqual(audit, { id: 'A1', title: 'One', status: 'held' });
+  assert.deepEqual(audit, { id: 'A1', title: 'One', status: 'held', pr: 7 });
   assert.equal(board('item', 'set', 'w/A1', '--site', 'audit', '--status', 'held').code, 1);
   assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--status', 'shipped').code, 1);
   assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--pr', 'abc').code, 1);
@@ -418,6 +425,7 @@ test('agent.mjs still writes builder records, beside the wave file it names', ()
 });
 
 test('builder keeps one record per agent on an item, with its kind and an ETA it can change or clear', () => {
+  assert.equal(board('item', 'set', 'w/A1', '--status', 'building').code, 0);
   assert.equal(board('builder', 'start', 'w/A1', '--label', 'Opus builder', '--kind', 'opus').code, 0);
   assert.equal(board('builder', 'start', 'w/A1', '--agent', 'bench', '--kind', 'codex', '--eta', '2026-10-23T16:30:00-07:00').code, 0);
   assert.deepEqual([read(at('waves', 'w', 'agents', 'A1.json')).kind, read(at('waves', 'w', 'agents', 'A1@bench.json')).eta], ['opus', '2026-10-23T23:30:00.000Z']);
@@ -430,10 +438,33 @@ test('builder keeps one record per agent on an item, with its kind and an ETA it
   assert.equal(board('builder', 'done', 'w/A1', '--agent', 'bench').code, 0);
   const bench = read(at('waves', 'w', 'agents', 'A1@bench.json'));
   assert.deepEqual([typeof bench.done, 'eta' in bench, 'done' in read(at('waves', 'w', 'agents', 'A1.json'))], ['string', false, false]);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status, 'building');
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--next', 'Review').code, 0);
   assert.equal('done' in read(at('waves', 'w', 'agents', 'A1.json')), false);
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--pr', '7', '--clear-status').code, 0);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--pr', '7').code, 0);
   assert.deepEqual([typeof read(at('waves', 'w', 'agents', 'A1.json')).done, read(at('waves', 'w', 'agents', 'A1@bench.json')).done], ['string', bench.done]);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status, undefined);
+  for (const [key, flags, file] of [
+    ['w/A1', [], at('waves', 'w', 'wave.json')],
+    ['audit/A1', ['--site', 'audit'], site('audit', 'data', 'wave.json')],
+    ['audit/A1', ['--dir', site('audit', 'data')], site('audit', 'data', 'wave.json')],
+  ]) {
+    const route = key.startsWith('audit/') ? ['--site', 'audit'] : [];
+    for (const status of ['building', 'fixing', 'checking', 'planned', 'held', 'done']) {
+      assert.equal(board('item', 'set', key, ...route, '--status', status).code, 0);
+      const before = read(file).items[0];
+      assert.equal(board('builder', 'start', key, ...flags).code, 0);
+      assert.equal(board('builder', 'start', key, ...flags, '--agent', 'install', '--kind', 'install').code, 0);
+      assert.equal(board('builder', 'done', key, ...flags).code, 0);
+      assert.deepEqual(read(file).items[0], before);
+      assert.equal(board('builder', 'done', key, ...flags, '--agent', 'install').code, 0);
+      const after = read(file).items[0];
+      assert.equal(after.status, ['building', 'fixing'].includes(status) ? undefined : status);
+      if (!['building', 'fixing'].includes(status)) assert.deepEqual(after, before);
+      assert.equal(board('builder', 'done', key, ...flags, '--agent', 'install').code, 0);
+      assert.deepEqual(read(file).items[0], after);
+    }
+  }
 });
 
 test('a hand-back closes ordinary builders while an install survives until explicitly stopped or the card finishes', () => {

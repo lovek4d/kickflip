@@ -701,6 +701,12 @@ async function checkAsk(site, eventId, name = '--from-ask') {
 
 // docs/adr/0020-cards-wait-on-explicit-blocked-by-links.md
 const FINISHED = ['done', 'merged', 'dropped'];
+function clearBuildingStatus(item) {
+  if (!['building', 'fixing'].includes(item?.status)) return false;
+  delete item.status;
+  item.status_at = new Date().toISOString();
+  return true;
+}
 const depKey = (slug, dep) => (String(dep).includes('/') ? String(dep) : `${slug}/${dep}`);
 async function unfinishedDeps(site, slug, item) {
   const keys = (item.deps || []).map((d) => depKey(slug, d));
@@ -811,7 +817,10 @@ export async function setItem(site, key, { status, clearStatus, next, clearNext,
     await checkNextDeps(site, key, item, item.next);
   }
   if (clearNext) delete item.next;
-  if (pr !== undefined) item.pr = /^[1-9]\d*$/.test(String(pr)) ? Number(pr) : fail('--pr takes a PR number');
+  if (pr !== undefined) {
+    item.pr = /^[1-9]\d*$/.test(String(pr)) ? Number(pr) : fail('--pr takes a PR number');
+    clearBuildingStatus(item);
+  }
   if (ask) item.from_ask = ask;
   if (built) item.install = built;
   if (built === null) delete item.install;
@@ -919,8 +928,8 @@ export async function startBuilder(site, key, { label, progress, dir, agent = 'm
 export async function recordedWorktree(site, key, { dir } = {}) {
   const { id } = parseKey(key);
   const agents = path.dirname(await builderFile(site, key, dir));
-  const names = (await fs.readdir(agents).catch(() => [])).filter((n) => n === `${id}.json` || (n.startsWith(`${id}@`) && n.endsWith('.json')));
-  const records = (await Promise.all(names.map((n) => readJSON(path.join(agents, n), null)))).filter((r) => r?.worktree?.path);
+  const files = await builderFiles(path.dirname(agents), id);
+  const records = (await Promise.all(files.map((f) => readJSON(f, null)))).filter((r) => r?.worktree?.path);
   return records.sort((a, b) => String(b.started).localeCompare(String(a.started)))[0]?.worktree ?? null;
 }
 
@@ -939,15 +948,20 @@ export async function builderProgress(site, key, progress, { dir, agent = 'main'
 
 const HANDED_BACK = ['checking', 'done', 'merged', 'dropped'];
 
-async function closeBuilders(waveDir, id, cardFinished) {
+async function builderFiles(waveDir, id) {
   const dir = path.join(waveDir, 'agents');
-  const names = (await fs.readdir(dir).catch(() => [])).filter((n) => n === `${id}.json` || (n.startsWith(`${id}@`) && n.endsWith('.json')));
+  return (await fs.readdir(dir).catch(() => []))
+    .filter((n) => n === `${id}.json` || (n.startsWith(`${id}@`) && n.endsWith('.json')))
+    .map((n) => path.join(dir, n));
+}
+
+async function closeBuilders(waveDir, id, cardFinished) {
   const now = new Date().toISOString();
-  for (const n of names) {
-    const record = await readJSON(path.join(dir, n), null);
+  for (const file of await builderFiles(waveDir, id)) {
+    const record = await readJSON(file, null);
     if (!record || record.done || (record.kind === 'install' && !cardFinished)) continue;
     const { eta, ...rest } = record;
-    await writeJSON(path.join(dir, n), { ...rest, done: now });
+    await writeJSON(file, { ...rest, done: now });
   }
 }
 
@@ -964,5 +978,13 @@ export async function stopBuilder(site, key, { dir, agent, startedBetween }) {
   }
   const { eta, ...rest } = record;
   await writeJSON(file, { ...rest, done: new Date().toISOString() });
+  const { id } = parseKey(key);
+  const waveDir = path.dirname(path.dirname(file));
+  const records = await Promise.all((await builderFiles(waveDir, id)).map((f) => readJSON(f, null)));
+  if (records.some((r) => r?.started && !r.done)) return file;
+  const source = dir ? { file: path.join(waveDir, 'wave.json') } : (await loadItem(site, key)).source;
+  const wave = await readJSON(source.file, null);
+  const item = wave?.items?.find((it) => it.id === id);
+  if (clearBuildingStatus(item)) await writeJSON(source.file, wave);
   return file;
 }

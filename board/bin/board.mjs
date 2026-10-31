@@ -58,8 +58,10 @@ A --file argument of - reads stdin.
          --status building refuses while the item is held or a dep isn't done, merged or dropped;
          done, merged and dropped print "unblocked: <wave>/<id>" and append card-unblocked {key}
          once per unblocking, including held cards: start each unheld card next.
-         checking is a builder's hand-back: In Review, reading "Claude
-         checking", until the owning session verifies it and sets done; it unblocks nothing.
+         building and fixing count as working only while a builder record on the card is open.
+         --pr clears building/fixing and closes ordinary builders; install builders keep running.
+         checking is a builder's hand-back: In Progress, reading "Orchestrator review",
+         until the owning session verifies it and sets done; it unblocks nothing.
          Every --status or --clear-status records status_at, which ends the Done button's "Closing…"
          for the owner's card-done; apply a card-done with --status done.
          --status done, merged or dropped closes the card: it resolves each of its questions (topic
@@ -132,7 +134,8 @@ A --file argument of - reads stdin.
          A progress line, --progress included, needs --site: it is a status line in the item's thread, and
          the card's status shows the newest one from an agent still working
   builder done <wave>/<id> [--agent <name>]              marks that agent's record done; the item's thread
-                                                         shows when it started and finished
+                                                         shows when it started and finished; clears building/fixing
+                                                         when the card has no open builder records left
          builder takes --dir <dir> for a wave file in <dir>; its records go in <dir>/agents
   land <wave>/<id> [--repo <dir>] [--dir <dir>]          brings the worktree its builder record keeps (else
                                                          ~/.claude/web-ts/worktrees/<id> of --repo) into main, one line

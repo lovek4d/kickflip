@@ -46,7 +46,7 @@ export const refOf = (wave, id) => (wave.internal === true ? internalRef(id) : i
 function laneOf(item, pr, running) {
   const s = (item.status || '').toLowerCase();
   if (s === 'merged' || s === 'done' || s === 'dropped' || pr?.state === 'MERGED' || pr?.state === 'CLOSED') return 'done';
-  if (running || s === 'building' || s === 'fixing' || s === 'checking') return 'progress';
+  if (running || s === 'checking') return 'progress';
   if (pr && pr.state === 'OPEN' && !pr.isDraft) return pr.checks?.state === 'fail' ? 'progress' : 'review';
   return pr ? 'progress' : 'todo';
 }
@@ -79,7 +79,7 @@ function reviewOf(reviewers, pr, sentAt) {
 function waitsOnOf(lane, pr, builder, status) {
   if (builder?.kind === BUILDER_KIND.install) return 'builder';
   if (status === 'checking') return 'checking';
-  if (builder || status === 'building' || status === 'fixing') return 'builder';
+  if (builder) return 'builder';
   if (lane === 'progress' && pr?.state === 'OPEN' && pr.isDraft && pr.checks?.state === 'pass') return 'ready';
   if (lane === 'review' || lane === 'stale') return pr?.reviewDecision === 'APPROVED' ? 'merge' : 'reviewers';
   return null;
@@ -110,7 +110,6 @@ function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, threa
   if (lane === 'review' && inReviewSince && now - Date.parse(inReviewSince) > STALE_AFTER) lane = 'stale';
   const waitsOn = waitsOnOf(lane, pr, builder, (it.status || '').toLowerCase());
   const changing = waitsOn === 'builder' && pr?.state === 'OPEN' && !pr.isDraft;
-  if (changing && !builder) builder = { progress: 'Making changes', at: null, kind: null };
   const redReady = lane === 'progress' && !waitsOn && pr?.state === 'OPEN' && !pr.isDraft;
   const held = it.status === 'held' || Boolean(it.held);
   // docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md

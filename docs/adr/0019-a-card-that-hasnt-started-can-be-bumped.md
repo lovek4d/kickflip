@@ -4,7 +4,7 @@ Work cards in Todo and In Progress, and open follow-ups, which sit in Todo ([003
 
 - **The bump** sends a `card-bump` event `{key}`, the card's `<wave>/<id>`. Asks keep `ask-bump {id}`: the two name different things and ask the session for different work.
 - **A card that hasn't started** (`planned`, `waiting`, or no status) starts next once it is unblocked ([0020](0020-cards-wait-on-explicit-blocked-by-links.md)).
-- **A running card** (`building`, `fixing`) is prioritized: the session handles its next step ahead of other work, such as its builder's questions, review fixes and CI. Among cards waiting for a free builder, it goes first.
+- **A running card** (one with an open builder record) is prioritized: the session handles its next step ahead of other work, such as its builder's questions, review fixes and CI. Among cards waiting for a free builder, it goes first.
 
 Every lane lists bumped cards first, the latest bump on top, then the rest by their latest activity, newest first. A card with no activity yet sorts after those, the last added to its wave file on top. The icon is disabled, dimmed, on the lane's latest bump. Bumps are events, so the order survives reloads and the session learns of them through its watcher, as with Ask bumps. A bump stops counting once the card leaves Todo and In Progress.
 
