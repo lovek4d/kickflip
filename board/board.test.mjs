@@ -522,6 +522,8 @@ const branches = (repo) => git(repo, 'branch', '--format=%(refname:short)').spli
 
 test('builder start --worktree makes a worktree on a new branch from main, keeps it on the record and prints it, and refuses a taken path or branch', () => {
   const repo = scratchRepo();
+  git(repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+  commit(repo, 'landed.txt', 'locally landed');
   const r = board('builder', 'start', 'w/A1', '--worktree', '--repo', repo);
   assert.equal(r.code, 0, r.err);
   assert.equal(r.out, `start w/A1\nworktree: ${worktree()}\n`);
@@ -536,6 +538,29 @@ test('builder start --worktree makes a worktree on a new branch from main, keeps
   assert.deepEqual([branch.code, branch.err], [1, `--worktree: branch A1 already exists in ${repo}\n`]);
   assert.equal(fs.existsSync(worktree()), false);
   assert.equal(board('builder', 'start', 'w/A1', '--repo', repo).code, 2);
+});
+
+test('a board builder uses its shared clone and selected remote branch without changing the clone checkout', () => {
+  const origin = scratchRepo();
+  git(origin, 'checkout', '--quiet', '-b', 'develop');
+  commit(origin, 'develop.txt', 'develop');
+  const repo = path.join(home, 'clone');
+  git(home, 'clone', '--quiet', '--branch', 'main', origin, repo);
+  git(repo, 'config', 'user.name', 'Test');
+  git(repo, 'config', 'user.email', 'test@example.com');
+  git(repo, 'checkout', '--quiet', '-b', 'develop', 'origin/develop');
+  commit(repo, 'local.txt', 'local only');
+  git(repo, 'checkout', '--quiet', 'main');
+  commit(origin, 'pushed.txt', 'pushed after the clone');
+  const head = git(origin, 'rev-parse', 'HEAD');
+  const manifest = read(at('web-ts', 'manifest.json'));
+  Object.assign(manifest.sites.orch, { github: 'owner/project', branch: 'develop', owner: { repo } });
+  write(at('web-ts', 'manifest.json'), manifest);
+  const r = board('--site', 'orch', 'builder', 'start', 'w/A1', '--worktree');
+  assert.equal(r.code, 0, r.err);
+  assert.equal(git(worktree(), 'rev-parse', 'HEAD'), head);
+  assert.equal(git(repo, 'branch', '--show-current'), 'main');
+  assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).worktree.repo, repo);
 });
 
 test('land refuses a worktree with uncommitted changes, with no commit beyond main, or whose suite fails, leaving main and the worktree as they were', () => {

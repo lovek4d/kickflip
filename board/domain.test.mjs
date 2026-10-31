@@ -28,6 +28,20 @@ function board({ agents = {}, pr = greenDraft, owner = {}, events = [], topicIte
   });
 }
 
+test('manifest github selects PR state and card links ahead of wave repo with a wave fallback', () => {
+  const waves = [{ slug: 'w', wave: { repo: 'old/project', items: [{ id: 'A1', pr: 7 }], followups: [{ id: 'F1' }] } }];
+  const prs = { 'new/project#7': { ...greenDraft, title: 'selected' }, 'old/project#7': { state: 'CLOSED', title: 'legacy' } };
+  for (const github of ['new/project', undefined]) {
+    const repo = github || 'old/project';
+    const built = buildBoard({ github, waves, prs });
+    assert.deepEqual(built.items.map((item) => item.repo), [repo, repo]);
+    const card = built.items.find((item) => item.id === 'A1');
+    assert.equal(card.pr.url, `https://github.com/${repo}/pull/7`);
+    assert.equal(card.pr.title, github ? 'selected' : 'legacy');
+    assert.equal(card.pr.state, github ? 'OPEN' : 'CLOSED');
+  }
+});
+
 test('a green draft waits on Ready in In Review until a builder works on it', () => {
   const ready = board().items.find((i) => i.key === 'w/A1');
   assert.deepEqual([ready.lane, ready.waitsOn, ready.next, ready.action], ['review', 'ready', 'Tap Ready on GitHub', { kind: 'ready', url: 'https://github.com/o/r/pull/7', label: 'Tap Ready on GitHub' }]);

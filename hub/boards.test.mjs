@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { reposDir } from '../shared/repos.mjs';
 import { startFakeDevice } from './fake-device.mjs';
 import { freePorts } from '../shared/test-helpers.mjs';
 
@@ -470,16 +471,15 @@ test("joining a board polls at once, so the new board's GitHub link passes witho
   assert.deepEqual(sites.map((s) => [s.route, s.created]), [['fresh', created], ['orch', null], ['plain', null], ['shop', null]]);
 });
 
-test("New board validates through HTTP, starts the board's session with no hub board flagged, shows a failed start at once, and serves repos and pending join/timeout transitions", async () => {
+test("New board validates through HTTP, reports a failed clone and preserves repo and branch through pending join/timeout transitions", async () => {
   const manifestFile = claude('web-ts', 'manifest.json');
   const original = read(manifestFile);
   const canonicalHome = fs.realpathSync(home);
-  const repo = path.join(canonicalHome, 'new-board-repo');
-  fs.mkdirSync(repo);
+  const repo = path.join(reposDir(), 'int180-http-test/project');
   const sameOrigin = { 'content-type': 'application/json', origin: base, 'sec-fetch-site': 'same-origin' };
   const post = (input, headers = sameOrigin) => fetch(`${base}/_hub/new-board`, { method: 'POST', headers, body: JSON.stringify(input) });
   const sidebar = async () => (await fetch(`${base}/_hub/sidebar.json`)).json();
-  const request = { name: 'Backend audit', repo: '~/new-board-repo', purpose: 'Review backend changes' };
+  const request = { name: 'Backend audit', github: 'int180-http-test/project', branch: 'main', purpose: 'Review backend changes' };
   const before = events('orch', 'ask').length;
   try {
     const manifest = structuredClone(original);
@@ -491,24 +491,20 @@ test("New board validates through HTTP, starts the board's session with no hub b
     write(manifestFile, manifest);
     const sidebarData = await sidebar();
     assert.equal(sidebarData.home, canonicalHome);
-    assert.deepEqual(sidebarData.repos.sort(), [canonicalHome, repo].sort());
-    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'outside-new-board-'));
-    fs.symlinkSync(outside, path.join(repo, 'outside'));
-    write(path.join(repo, 'file'), 'not a directory');
-    try {
-      for (const input of [
-        { ...request, extra: true }, { ...request, name: '' }, { ...request, name: '   ' }, { ...request, name: 'n'.repeat(61) },
-        { ...request, name: null }, { ...request, name: '!!!' }, { ...request, name: 'ORCH' }, { ...request, name: 'Reserved' },
-        { ...request, repo: 'new-board-repo' }, { ...request, repo: '/tmp' }, { ...request, repo: '~/missing-folder' },
-        { ...request, repo: `${repo}/file` }, { ...request, repo: `${repo}/outside` }, { ...request, repo: `${repo}/../../` },
-        { ...request, repo: null }, { ...request, purpose: 'p'.repeat(241) }, { ...request, purpose: null }, [], null,
-      ]) {
-        const response = await post(input);
-        assert.equal(response.status, 400, JSON.stringify(input));
-        assert.match(response.headers.get('content-type'), /^text\/plain/);
-        assert.equal((await response.text()).split('\n').length, 1);
-      }
-    } finally { fs.rmSync(outside, { recursive: true, force: true }); }
+    assert.equal(sidebarData.repos, undefined);
+    assert.deepEqual(await (await fetch(`${base}/_hub/repos`)).json(), { signedIn: false, repos: [] });
+    for (const input of [
+      { ...request, extra: true }, { ...request, name: '' }, { ...request, name: '   ' }, { ...request, name: 'n'.repeat(61) },
+      { ...request, name: null }, { ...request, name: '!!!' }, { ...request, name: 'ORCH' }, { ...request, name: 'Reserved' },
+      { ...request, github: '../escape' }, { ...request, github: 'o/../../escape' }, { ...request, github: '/tmp' },
+      { ...request, branch: '-main' }, { ...request, branch: 'a..b' }, { ...request, branch: 'bad branch' },
+      { ...request, purpose: 'p'.repeat(241) }, { ...request, purpose: null }, [], null,
+    ]) {
+      const response = await post(input);
+      assert.equal(response.status, 400, JSON.stringify(input));
+      assert.match(response.headers.get('content-type'), /^text\/plain/);
+      assert.equal((await response.text()).split('\n').length, 1);
+    }
     const invalidJSON = await fetch(`${base}/_hub/new-board`, { method: 'POST', headers: sameOrigin, body: '{' });
     assert.equal(invalidJSON.status, 400);
     for (const headers of [
@@ -520,6 +516,10 @@ test("New board validates through HTTP, starts the board's session with no hub b
       assert.equal(refused.status, 403, JSON.stringify(headers));
       assert.match(refused.headers.get('content-type'), /^text\/plain/);
     }
+    for (const headers of [{ ...sameOrigin, origin: 'https://evil.example' }, { ...sameOrigin, 'content-type': 'text/plain' }]) {
+      const refused = await fetch(`${base}/_hub/board-repo/orch`, { method: 'POST', headers, body: JSON.stringify({ github: request.github, branch: 'main' }) });
+      assert.equal(refused.status, 403);
+    }
     assert.equal(read(manifestFile).starting['backend-audit'], undefined);
     assert.equal(events('orch', 'ask').length, before);
     const response = await post(request);
@@ -530,7 +530,7 @@ test("New board validates through HTTP, starts the board's session with no hub b
       pending = (await sidebar()).starting.find((s) => s.route === 'backend-audit');
       if (!pending?.failed) await new Promise((r) => setTimeout(r, 100));
     }
-    assert.deepEqual(pending, { route: 'backend-audit', title: request.name, repo, askedAt: read(manifestFile).starting['backend-audit'].asked_at, failed: true, error: 'claude --bg failed (1):' });
+    assert.deepEqual(pending, { route: 'backend-audit', title: request.name, repo, phase: 'cloning', askedAt: read(manifestFile).starting['backend-audit'].asked_at, failed: true, error: 'gh failed' });
     assert.equal(events('orch', 'ask').length, before);
     assert.equal((await sidebar()).sites.some((s) => s.route === pending.route), false);
     assert.equal((await post(request)).status, 400);
@@ -540,13 +540,15 @@ test("New board validates through HTTP, starts the board's session with no hub b
     const joined = await sidebar();
     assert.equal(joined.starting.some((s) => s.route === pending.route), false);
     assert.equal(joined.sites.find((s) => s.route === pending.route).board, true);
+    assert.equal(read(manifestFile).sites[pending.route].github, request.github);
+    assert.equal(read(manifestFile).sites[pending.route].branch, request.branch);
     const timed = read(manifestFile);
     timed.starting.reserved.since = ago(16);
     write(manifestFile, timed);
     assert.equal((await sidebar()).starting.find((s) => s.route === 'reserved').failed, true);
     assert.equal((await dismiss('reserved')).status, 200);
     assert.equal((await sidebar()).starting.some((s) => s.route === 'reserved'), false);
-    const boundary = await post({ name: 'N'.repeat(60), repo, purpose: 'p'.repeat(240) },
+    const boundary = await post({ ...request, name: 'N'.repeat(60), purpose: 'p'.repeat(240) },
       { 'content-type': 'application/json; charset=utf-8', origin: 'https://mac.example.ts.net', 'x-forwarded-host': 'mac.example.ts.net' });
     assert.equal(boundary.status, 200);
     assert.deepEqual(await boundary.json(), { route: 'n'.repeat(41) });
@@ -554,7 +556,8 @@ test("New board validates through HTTP, starts the board's session with no hub b
     assert.deepEqual(race.map((r) => r.status).sort(), [200, 400]);
     assert.ok(read(manifestFile).starting['one-race']);
     assert.equal(events('orch', 'ask').length, before);
-  } finally { write(manifestFile, original); }
+    for (let n = 0; n < 50 && Object.values(read(manifestFile).starting || {}).some((r) => r.github && !r.error && !r.session); n++) await new Promise((resolve) => setTimeout(resolve, 20));
+  } finally { write(manifestFile, original); fs.rmSync(path.join(reposDir(), 'int180-http-test'), { recursive: true, force: true }); }
 });
 
 test("a board session's permission prompt pushes, waits in that board's Needs you and the badge, and Always allow reaches its hook as a rule for the session", async () => {
@@ -611,7 +614,7 @@ test('object property names work as page routes and as new boards through HTTP a
     write(manifestFile, original);
     for (const [i, route] of routes.entries()) {
       const response = await fetch(`${base}/_hub/new-board`, { method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: names[i], repo, purpose: 'Review changes' }) });
+        body: JSON.stringify({ name: names[i], github: 'int180-http-test/project', branch: 'main', purpose: 'Review changes' }) });
       assert.equal(response.status, 200, await response.clone().text());
       assert.deepEqual(await response.json(), { route });
       const pending = (await get('/_hub/sidebar.json')).starting.find((s) => s.route === route);
@@ -639,7 +642,7 @@ test('object property names work as page routes and as new boards through HTTP a
     const rows = (await get('/_hub/api/hub')).groups.flatMap((g) => g.sites);
     for (const route of routes) assert.deepEqual(rows.find((s) => s.route === route).remembered, []);
     assert.equal((await get('/_hub/api/polling')).now.lines.length, 2);
-  } finally { write(manifestFile, original); }
+  } finally { write(manifestFile, original); fs.rmSync(path.join(reposDir(), 'int180-http-test'), { recursive: true, force: true }); }
 });
 
 test('a starting hub flags hub-orchestrator as the hub board once, only while no site has the flag', async () => {
@@ -663,10 +666,10 @@ test('a starting hub flags hub-orchestrator as the hub board once, only while no
     assert.equal(fs.existsSync(file), false);
     write(file, { sites: { 'hub-orchestrator': board('hub', hubBoardPort), dev: { ...board('dev', devPort), hub: true } } });
     await startHub();
-    assert.deepEqual([flagged(), read(file).migrated], [['dev'], ['hub-flag']]);
+    assert.deepEqual([flagged(), read(file).migrated], [['dev'], ['hub-flag', 'board-github']]);
     write(file, { sites: { 'hub-orchestrator': board('hub', hubBoardPort), dev: board('dev', devPort) } });
     await startHub();
-    assert.deepEqual([flagged(), read(file).migrated], [['hub-orchestrator'], ['hub-flag']]);
+    assert.deepEqual([flagged(), read(file).migrated], [['hub-orchestrator'], ['hub-flag', 'board-github']]);
     const cleared = read(file);
     delete cleared.sites['hub-orchestrator'].hub;
     write(file, cleared);

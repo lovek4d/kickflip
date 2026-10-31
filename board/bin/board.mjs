@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as store from '../store.mjs';
 import { makeWorktree, land, skillRepo, worktreesDir } from '../worktree.mjs';
 import { ITEM_STATUSES } from '../domain.mjs';
+import { boardAt } from '../../hub/boards.mjs';
 import { pushKindError } from '../../hub/push.mjs';
 
 export const USAGE = `usage: node board.mjs <command> [--site <route>] ...
@@ -127,7 +128,7 @@ A --file argument of - reads stdin.
                                                          Install chip reads Rebuilding… (or Building…) meanwhile
          [--worktree [--repo <dir>]]                     --worktree: a git worktree for the builder at
                                                          ~/.claude/web-ts/worktrees/<id> on a new branch <id> from
-                                                         main of --repo (default the running kickflip clone), kept on
+                                                         the board's branch of its clone (--repo overrides the clone), kept on
                                                          the record and printed as "worktree: <path>". Refuses when
                                                          that path or branch exists
   builder progress <wave>/<id> (<text> | --text <t>)     one short present-tense line
@@ -300,7 +301,11 @@ const COMMANDS = {
   'settings set': [['name', 'on|off'], [], (site, [name, value]) => store.setBoardSetting(site, name, value)],
   'builder start': [['wave/id'], ['label', 'progress', 'dir', 'agent', 'kind', 'eta', 'worktree', 'repo'], (site, [key], { worktree, repo, ...f }) => {
     if (repo !== undefined && !worktree) throw new UsageError('--repo goes with --worktree');
-    return store.startBuilder(site, key, { ...f, worktree: worktree && (() => makeWorktree(key.split('/')[1], { repo })) });
+    const board = site ? boardAt(site) : null;
+    const source = repo ?? (board?.github ? board.owner?.repo : undefined);
+    const remote = Boolean(board?.github);
+    const base = remote ? board.branch || 'main' : 'main';
+    return store.startBuilder(site, key, { ...f, worktree: worktree && (() => makeWorktree(key.split('/')[1], { repo: source, base, remote })) });
   }],
   'builder progress': [['wave/id', '...text?'], ['text', 'dir', 'agent', 'eta', 'clear-eta'], (site, [key, ...words], f) => {
     if (words.length && f.text !== undefined) throw new UsageError('builder progress takes its text once: as words or as --text');

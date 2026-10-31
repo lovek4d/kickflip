@@ -1,30 +1,21 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { readManifest, withManifestLock, writeManifest } from './boards.mjs';
 import { ROUTE_RE, routeFromName, routeRecord } from './routes.mjs';
+import { repoService, validateGithub, validateBranch } from './repos.mjs';
 import { STARTING_WAIT, startSession } from './sessions.mjs';
 
 const refuse = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 
 function details(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)
-    || Object.keys(input).some((k) => !['name', 'repo', 'purpose'].includes(k))) refuse('Send only name, repo and purpose.');
+    || Object.keys(input).some((k) => !['name', 'github', 'branch', 'purpose'].includes(k))) refuse('Send only name, github, branch and purpose.');
   if (typeof input.name !== 'string' || !input.name.trim() || input.name.length > 60) refuse('Name must be 1–60 characters.');
-  if (typeof input.purpose !== 'string' || input.purpose.length > 240) refuse('Purpose must be at most 240 characters.');
+  if (input.purpose !== undefined && (typeof input.purpose !== 'string' || input.purpose.length > 240)) refuse('Purpose must be at most 240 characters.');
   const title = input.name.trim().replace(/\s+/g, ' ');
   const route = routeFromName(title);
   if (!ROUTE_RE.test(route)) refuse('Name must contain a letter or digit for its route.');
-  let repo = input.repo;
-  if (typeof repo !== 'string') refuse('Repo must be an existing folder under your home.');
-  repo = repo.trim().replace(/^~(?=\/|$)/, os.homedir());
-  try {
-    if (!path.isAbsolute(repo)) throw new Error();
-    repo = fs.realpathSync(repo);
-    const relative = path.relative(fs.realpathSync(os.homedir()), repo);
-    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative) || !fs.statSync(repo).isDirectory()) throw new Error();
-  } catch { refuse('Repo must be an existing folder under your home.'); }
-  return { route, title, repo, purpose: input.purpose.trim().replace(/\s+/g, ' ') };
+  const github = validateGithub(input.github);
+  const branch = validateBranch(input.branch);
+  return { route, title, github, branch, purpose: (input.purpose || '').trim().replace(/\s+/g, ' ') };
 }
 
 // The new session runs these join flags through its shell, so each value must stay one quoted word.
@@ -43,7 +34,7 @@ async function recordStart(route, outcome) {
     const m = readManifest();
     const pending = routeRecord(m.starting, route);
     if (!pending || routeRecord(m.sites, route)) return;
-    m.starting[route] = outcome.error ? { ...pending, error: outcome.error }
+    m.starting[route] = outcome.phase ? { ...pending, phase: outcome.phase } : outcome.error ? { ...pending, error: outcome.error }
       : { ...pending, session: outcome.session, label: outcome.name, since: new Date().toISOString(), repo: outcome.repo, ...(outcome.model ? { model: outcome.model } : {}) };
     await writeManifest(m);
   });
@@ -52,18 +43,22 @@ async function recordStart(route, outcome) {
 // Reserves the route on a Starting row, then starts the board's session in the background
 // (docs/adr/0069-the-hub-starts-a-new-boards-session.md). run and live go to sessions.mjs startSession.
 // → {route, started}: started settles once the outcome is on the Starting row, as {session} or {error}, and never rejects.
-export async function requestBoard(input, { run, live } = {}) {
+export async function requestBoard(input, { run, live, repos = repoService(), changed = () => {} } = {}) {
   const board = details(input);
-  const { route, title, repo } = board;
+  const { route, title, github, branch } = board;
+  const repo = repos.path(github);
   await withManifestLock(async () => {
     const manifest = readManifest();
     if (Object.hasOwn(manifest.sites || {}, route) || Object.hasOwn(manifest.starting || {}, route) || Object.hasOwn(manifest.closed || {}, route)) refuse('That board route already exists. Reopen it from Closed boards if it is closed.');
-    manifest.starting = { ...manifest.starting, [route]: { title, repo, asked_at: new Date().toISOString() } };
+    manifest.starting = { ...manifest.starting, [route]: { title, repo, github, branch, phase: repos.cloned(github) ? 'starting' : 'cloning', asked_at: new Date().toISOString() } };
     await writeManifest(manifest);
   });
   const started = (async () => {
     let outcome;
     try {
+      await repos.ensure(github, branch);
+      await recordStart(route, { phase: 'starting' });
+      changed();
       const r = await startSession(route, { repo, prompt: joinFlags(board), run, live });
       outcome = { session: r.session, name: r.name, repo: r.repo, model: r.model };
     } catch (e) { outcome = { error: errorLine(e.message) }; }

@@ -8,6 +8,9 @@
   markup: () => `${BoardUI.header({ lead: 'back', title: 'Settings' })}
 <main class="set">
   <p class="muted small">Notifications and polling live in <a href="/_hub/settings">hub Settings</a>.</p>
+  <h2>Repo</h2>
+  <button type="button" class="who repo-row" id="boardRepo" aria-haspopup="dialog" disabled><span id="boardRepoValue">Loading…</span><span class="muted small">Change ›</span></button>
+  <p class="muted small" id="boardRepoStatus"></p>
   <h2>Merging</h2>
   <label class="who" for="autoMerge">
     <span><span>Auto-merge approved PRs</span>
@@ -122,6 +125,27 @@
       }
     });
     B.atUnmount(() => { unfit?.(); closeSheet.close(); });
+    const repoURL = `/_hub/board-repo/${encodeURIComponent(B.route)}`;
+    let repo = {}, closeRepo = () => {};
+    const showRepo = () => { $('#boardRepoValue').textContent = repo.github ? `${repo.github} · ${repo.branch || 'Branch not recorded'}` : 'No GitHub repo'; };
+    get(repoURL).then(({ body }) => {
+      if (!B.alive()) return;
+      repo = body;
+      showRepo();
+      $('#boardRepo').disabled = false;
+    }).catch(() => { $('#boardRepoValue').textContent = 'Could not load repo.'; });
+    B.on($('#boardRepo'), 'click', () => {
+      closeRepo = BoardDialogs.repoSheet({ current: repo, async save(input) {
+        const r = await fetch(repoURL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
+        const out = await r.json();
+        if (!r.ok) throw new Error(out.error || 'Could not save repo.');
+        repo = out;
+        if (!B.alive()) return;
+        showRepo();
+        $('#boardRepoStatus').textContent = 'Saved. The board’s session has been told.';
+      } });
+    });
+    B.atUnmount(() => closeRepo());
     let current = [];
     const add = new Set();
     const remove = new Set();

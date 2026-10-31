@@ -32,7 +32,7 @@ async function installWorktree(board, key, manifest) {
     for (const dir of new Set(dirs.filter((d) => typeof d === 'string' && path.isAbsolute(d)))) {
       try {
         const remote = /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/.exec(await git(dir, 'remote', 'get-url', 'origin'));
-        if (remote?.[1].toLowerCase() === (wave?.repo || DEFAULT_REPO).toLowerCase()) {
+        if (remote?.[1].toLowerCase() === (board.github || wave?.repo || DEFAULT_REPO).toLowerCase()) {
           repo = await git(dir, 'rev-parse', '--show-toplevel');
           break;
         }

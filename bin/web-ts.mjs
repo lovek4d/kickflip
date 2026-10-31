@@ -301,12 +301,17 @@ const commands = {
       site.title ||= route;
       const previous = existing?.owner && existing.owner.session !== args.session ? existing.owner : null;
       const started = routeRecord(m.starting, route)?.session === args.session ? routeRecord(m.starting, route) : null;
+      const pendingRepo = routeRecord(m.starting, route);
+      if (!existing && pendingRepo?.github && (!pendingRepo.session || pendingRepo.session === args.session)) {
+        site.github = pendingRepo.github;
+        site.branch = pendingRepo.branch;
+      }
       const same = existing?.owner?.session === args.session ? existing.owner : null;
       const kept = same || started || previous;
       site.owner = {
         ...(same || { session: args.session, since: now }),
         label: args.label || kept?.label || '',
-        repo: args.repo ? path.resolve(args.repo) : liveSessions().get(args.session)?.cwd || kept?.repo || process.cwd(),
+        repo: args.repo ? path.resolve(args.repo) : (site.github && kept?.repo) || liveSessions().get(args.session)?.cwd || kept?.repo || process.cwd(),
       };
       const model = args.model || kept?.model;
       if (model) site.owner.model = model;

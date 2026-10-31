@@ -402,7 +402,7 @@ export function buildBoard(snapshot) {
   const items = [];
   const threadStates = new Map();
   for (const { slug, wave, agents: records = {} } of snapshot.waves) {
-    const repo = wave.repo || 'acme/app';
+    const repo = snapshot.github || wave.repo || 'acme/app';
     waves.push({ slug, title: wave.title || slug, status: wave.status || null, internal: Boolean(wave.internal), finished: null, watched: !snapshot.fromWaves || (snapshot.watched || []).includes(slug), reviewers: (wave.reviewers || []).map((r) => r.name) });
     wave.items.forEach((it, order) => {
       const key = `${slug}/${it.id}`;

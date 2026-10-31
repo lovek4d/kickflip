@@ -29,7 +29,7 @@ export const STARTING_WAIT = 15 * 60_000;
 export function startingBoards(manifest, now = Date.now()) {
   return Object.entries(manifest.starting || {}).filter(([route]) => !routeRecord(manifest.sites, route)).map(([route, rec]) => {
     const askedAt = rec.asked_at || rec.since;
-    return { route, title: rec.title || rec.label || route, repo: rec.repo, askedAt, failed: Boolean(rec.error) || now - Date.parse(askedAt) >= STARTING_WAIT, ...(rec.error ? { error: rec.error } : {}) };
+    return { route, title: rec.title || rec.label || route, repo: rec.repo, ...(rec.phase ? { phase: rec.phase } : {}), askedAt, failed: Boolean(rec.error) || now - Date.parse(askedAt) >= STARTING_WAIT, ...(rec.error ? { error: rec.error } : {}) };
   });
 }
 // "none" is the value that turns isolation off; Claude Code drops any other value and isolates. The PermissionRequest

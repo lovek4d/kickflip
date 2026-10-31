@@ -322,7 +322,7 @@ async function itemSnapshot() {
   await Promise.all(waves.flatMap(({ slug, wave }) => wave.items.map(async (it) => {
     threadLines[`${slug}/${it.id}`] = await readLines(threadFile(`${slug}/${it.id}`));
   })));
-  return { fromWaves, autoMerge: settingsOf(cfg).auto_merge, waves, threads: threadLines };
+  return { github: boardAt(here)?.github, fromWaves, autoMerge: settingsOf(cfg).auto_merge, waves, threads: threadLines };
 }
 
 // Reads every source buildBoard needs: wave files and their builder records,
@@ -333,7 +333,7 @@ async function snapshot() {
   const { waves, threads: threadLines } = items;
   const prs = Object.create(null);
   await Promise.all(waves.flatMap(({ wave }) => wave.items.filter((it) => it.pr).map(async (it) => {
-    const repo = wave.repo || 'acme/app';
+    const repo = items.github || wave.repo || 'acme/app';
     prs[`${repo}#${it.pr}`] = await prState(repo, it.pr);
   })));
   const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'item-message']);

@@ -852,92 +852,169 @@ test('ask and New board sheets follow the phone keyboard, hold the page still an
   assert.equal(values.size, 0);
 });
 
-test('New board opens the shared sheet from rail and drawer, validates fields, posts the request as JSON and keeps failed starts dismissible', async () => {
+function repoPage(wide = true) {
+  const page = fakePage(memoryStorage().localStorage);
+  const { win } = page;
+  const doc = win.document;
+  const { Element } = miniDom(page.Target, doc);
+  const nativeClose = Element.prototype.close;
+  Element.prototype.close = function () { nativeClose.call(this); page.fire(this, 'close'); };
+  doc.body.innerHTML = '<aside id="sidebar" class="sidebar"></aside><div id="sidebarScrim"></div>';
+  doc.getElementById = (id) => doc.body.querySelector(`#${id}`);
+  doc.querySelector = (sel) => doc.body.querySelector(sel);
+  doc.querySelectorAll = (sel) => doc.body.querySelectorAll(sel);
+  win.matchMedia = () => Object.assign(new page.Target(), { matches: wide });
+  return { ...page, doc, Element };
+}
+const tick = () => new Promise(setImmediate);
+const repoList = [{ github: 'owner/project', private: true, pushedAt: '2026-10-31T12:00:00Z', description: 'The project', clone: '/clone/.repos/owner/project', cloned: false, shared: [] },
+  { github: 'org/tools', private: false, pushedAt: '2026-10-01T12:00:00Z', description: 'Tools', clone: '/clone/.repos/org/tools', cloned: true, shared: [{ route: 'tools', title: 'Tools board' }] }];
+const repoResponse = (body) => ({ ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body });
+
+test('New board chooses a searchable repo before board details, defaults its branch, posts JSON and keeps failures dismissible on rail and drawer', async () => {
   for (const wide of [true, false]) {
-    const page = fakePage(memoryStorage().localStorage);
-    const { win } = page;
-    const doc = win.document;
-    const { Element } = miniDom(page.Target, doc);
-    const nativeClose = Element.prototype.close;
-    Element.prototype.close = function () { nativeClose.call(this); page.fire(this, 'close'); };
-    doc.body.innerHTML = '<aside id="sidebar" class="sidebar"></aside><div id="sidebarScrim"></div>';
-    doc.getElementById = (id) => doc.body.querySelector(`#${id}`);
-    doc.querySelector = (sel) => doc.body.querySelector(sel);
-    doc.querySelectorAll = (sel) => doc.body.querySelectorAll(sel);
-    win.matchMedia = () => Object.assign(new page.Target(), { matches: wide });
-    const home = '/Users/you';
-    const repo = `${home}/repo & tools`;
-    let data = { home, sites: [], repos: [repo, home, '/opt/repo', `${home}2/repo`], starting: [] };
+    const page = repoPage(wide);
+    const { win, doc } = page;
+    let data = { sites: [], starting: [] };
     let refusal = 'That board route already exists.';
-    let finish = null;
+    let finish;
     const posted = [];
-    win.fetch = async (url, options) => {
-      if (url === '/_hub/sidebar.json') return { ok: true, json: async () => data };
+    win.fetch = async (url, options = {}) => {
+      if (url === '/_hub/sidebar.json') return repoResponse(data);
+      if (url === '/_hub/repos') return repoResponse({ signedIn: true, repos: repoList });
+      if (url.startsWith('/_hub/branches')) return repoResponse({ defaultBranch: 'trunk', branches: ['trunk', 'release/next'] });
       posted.push([url, options.method, options.body && JSON.parse(options.body), options.headers?.['content-type']]);
-      if (options.method === 'DELETE') { data = { ...data, starting: [] }; return { ok: true }; }
+      if (options.method === 'DELETE') { data = { ...data, starting: [] }; return repoResponse({}); }
       if (refusal) return { ok: false, text: async () => refusal };
-      return new Promise((resolve) => { finish = () => { data = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', repo, failed: false }] }; resolve({ ok: true, json: async () => ({ route: 'backend-audit' }) }); }; });
+      return new Promise((resolve) => { finish = () => { data = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', repo: repoList[0].clone, phase: 'cloning', failed: false }] }; resolve(repoResponse({ route: 'backend-audit' })); }; });
     };
-    win.Sidebar.mount({ data });
+    const sidebar = win.Sidebar.mount({ data });
     const aside = doc.getElementById('sidebar');
     const tapNew = () => page.fire(aside, 'click', { target: aside.querySelector('[data-new-board]') });
     tapNew();
+    await tick();
     let sheet = doc.getElementById('newBoardSheet');
+    const click = (sel) => page.fire(sheet.querySelector('form'), 'click', { target: sheet.querySelector(sel) });
     assert.equal(sheet.open, true);
-    assert.equal(sheet.classList.contains('sheet'), true);
-    for (const [value, label] of [[repo, '~/repo & tools'], [home, '~'], ['/opt/repo', '/opt/repo'], [`${home}2/repo`, `${home}2/repo`]]) {
-      assert.equal(sheet.querySelector(`option[value="${value}"]`).textContent, label);
-    }
-    page.fire(sheet.querySelector('[data-cancel-new]'), 'click');
+    assert.equal(sheet.querySelector('[name="name"]'), null);
+    assert.match(sheet.textContent, /Newest push first/);
+    assert.match(sheet.querySelector('[data-repo="owner/project"]').textContent, /Private.*Pushed.*Not cloned/);
+    assert.match(sheet.querySelector('[data-repo="org/tools"]').textContent, /Public.*In .repos · shared with Tools board/);
+    const search = sheet.querySelector('[name="search"]');
+    search.value = 'org/';
+    page.fire(sheet.querySelector('form'), 'input', { target: search });
+    assert.equal(sheet.querySelectorAll('[data-repo]').length, 1);
+    search.value = '';
+    page.fire(sheet.querySelector('form'), 'input', { target: search });
+    click('[data-cancel-new]');
     assert.equal(doc.getElementById('newBoardSheet'), null);
-    assert.deepEqual(posted, []);
     tapNew();
+    await tick();
     sheet = doc.getElementById('newBoardSheet');
+    click('[data-repo="owner/project"]');
+    await tick();
     const form = sheet.querySelector('form');
-    const field = (name) => form.querySelector(`[name="${name}"]`);
-    const start = form.querySelector('[type="submit"]');
-    assert.equal(start.disabled, true);
-    field('name').value = 'Backend audit';
+    const field = (name) => sheet.querySelector(`[name="${name}"]`);
+    const start = sheet.querySelector('[type="submit"]');
+    assert.equal(field('name').value, 'project');
+    assert.equal(field('branch').value, 'trunk');
+    assert.equal(start.disabled, false);
+    assert.match(sheet.textContent, /Clones to.*\/clone\/.repos\/owner\/project/);
+    assert.match(sheet.textContent, /builders work in separate worktrees/);
+    field('name').value = '';
     page.fire(form, 'input', { target: field('name') });
     assert.equal(start.disabled, true);
-    field('folder').value = 'other';
-    page.fire(form, 'change', { target: field('folder') });
-    assert.equal(field('path').hidden, false);
-    assert.equal(doc.activeElement, field('path'));
-    field('path').value = '~/new-repo';
+    field('name').value = 'Backend audit';
     field('purpose').value = 'Review changes';
-    page.fire(form, 'input', { target: field('path') });
-    assert.equal(start.disabled, false);
+    page.fire(form, 'input', { target: field('name') });
+    page.fire(form, 'input', { target: field('purpose') });
+    field('branch').value = 'release/next';
+    page.fire(form, 'change', { target: field('branch') });
     page.fire(form, 'submit');
-    await new Promise(setImmediate);
+    await tick();
     assert.equal(sheet.querySelector('[role="alert"]').textContent, refusal);
-    assert.equal(sheet.open, true);
     assert.equal(start.disabled, false);
     refusal = null;
-    field('folder').value = repo;
-    page.fire(form, 'change', { target: field('folder') });
     page.fire(form, 'submit');
     page.fire(form, 'submit');
     assert.equal(start.disabled, true);
     assert.equal(posted.length, 2);
     finish();
-    await new Promise(setImmediate);
-    assert.deepEqual(posted.at(-1), ['/_hub/new-board', 'POST', { name: 'Backend audit', repo, purpose: 'Review changes' }, 'application/json']);
+    await tick();
+    assert.deepEqual(posted.at(-1), ['/_hub/new-board', 'POST', { name: 'Backend audit', github: 'owner/project', branch: 'release/next', purpose: 'Review changes' }, 'application/json']);
     assert.equal(doc.getElementById('newBoardSheet'), null);
-    assert.ok(aside.querySelector('[data-starting="backend-audit"]'));
-    assert.match(aside.querySelector('[data-starting="backend-audit"]').textContent, /Backend audit · ~\/repo & tools/);
+    assert.match(aside.querySelector('[data-starting="backend-audit"]').textContent, /Cloning….*Backend audit/);
     assert.equal(aside.querySelector('a[href="/backend-audit/"]'), null);
     assert.equal(aside.classList.contains('open'), !wide);
-    const failed = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', failed: true }] };
-    data = failed;
-    const sidebar = win.Sidebar.mount({ data });
-    const dismiss = aside.querySelector('[data-dismiss-board]');
-    page.fire(aside, 'click', { target: dismiss });
-    await new Promise(setImmediate);
+    data = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', failed: true }] };
+    win.Sidebar.mount({ data });
+    page.fire(aside, 'click', { target: aside.querySelector('[data-dismiss-board]') });
+    await tick();
     assert.equal(posted.at(-1)[1], 'DELETE');
     assert.equal(aside.querySelector('[data-starting]'), null);
     sidebar.close();
   }
+});
+
+test('the repo sheet names gh auth login when signed out, retries authentication and preserves edited details through Back', async () => {
+  const page = repoPage();
+  const { win, doc } = page;
+  let signedIn = false;
+  const urls = [];
+  win.fetch = async (url) => {
+    urls.push(url);
+    return repoResponse(url.startsWith('/_hub/repos') ? { signedIn, repos: repoList } : { defaultBranch: 'main', branches: ['main'] });
+  };
+  win.BoardDialogs.repoSheet({ save: async () => {} });
+  await tick();
+  const sheet = doc.getElementById('newBoardSheet');
+  const form = sheet.querySelector('form');
+  const click = (sel) => page.fire(form, 'click', { target: sheet.querySelector(sel) });
+  assert.match(sheet.textContent, /GitHub isn’t connected.*gh auth login/);
+  assert.equal(sheet.querySelector('[data-repo]'), null);
+  signedIn = true;
+  click('[data-check-auth]');
+  await tick();
+  assert.ok(urls.includes('/_hub/repos?fresh=1'));
+  click('[data-repo="owner/project"]');
+  await tick();
+  const name = sheet.querySelector('[name="name"]');
+  name.value = 'Custom board';
+  page.fire(form, 'input', { target: name });
+  click('[data-back-repos]');
+  await tick();
+  click('[data-repo="org/tools"]');
+  await tick();
+  assert.equal(sheet.querySelector('[name="name"]').value, 'Custom board');
+  assert.match(sheet.textContent, /Shared with Tools board/);
+  sheet.close();
+});
+
+test('Board Settings shows repo and branch, changes them as JSON and closes the repo sheet when unmounted', async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const root = new page.El();
+  const posts = [];
+  let selected, closed = 0;
+  page.win.BoardDialogs.repoSheet = (options) => { selected = options; return () => { closed++; }; };
+  page.win.fetch = async (url, options = {}) => {
+    if (url === '/_hub/board-repo/orch') {
+      if (options.method === 'POST') { posts.push([url, { ...options.headers }, JSON.parse(options.body)]); return repoResponse({ ...JSON.parse(options.body), repo: '/new' }); }
+      return repoResponse({ github: 'owner/project', branch: 'main' });
+    }
+    return repoResponse({});
+  };
+  const view = page.win.AppViews.settings.create(root, 'https://mac.ts.net/orch', { reload() {} });
+  view.mount();
+  await tick();
+  assert.equal(root.querySelector('#boardRepoValue').textContent, 'owner/project · main');
+  page.fire(root.querySelector('#boardRepo'), 'click');
+  assert.equal(selected.current.github, 'owner/project');
+  await selected.save({ github: 'org/tools', branch: 'develop' });
+  assert.deepEqual(posts, [['/_hub/board-repo/orch', { 'content-type': 'application/json' }, { github: 'org/tools', branch: 'develop' }]]);
+  assert.equal(root.querySelector('#boardRepoValue').textContent, 'org/tools · develop');
+  assert.match(root.querySelector('#boardRepoStatus').textContent, /session has been told/);
+  view.unmount();
+  assert.equal(closed, 1);
 });
 
 test("s s shows each sidebar row's key and the next key opens that row through the shell; Escape, a click, a held modifier or 3 s with no key end it with nothing opened; s s does nothing in a text field or with a dialog open; on a drawer it opens the drawer and closes it again; and its keys never count toward the board's n n", () => {

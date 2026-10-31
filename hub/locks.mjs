@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-// A directory lock shared by hub and CLI writers; staleAfter must outlast the holder's work.
-export async function withFileLock(file, fn, { staleAfter = 30_000, timeout = 10_000 } = {}) {
+// A directory lock shared by hub and CLI writers; staleAfter must outlast the holder's work, which heartbeat renews.
+export async function withFileLock(file, fn, { staleAfter = 30_000, timeout = 10_000, heartbeat = false } = {}) {
   const lock = `${file}.lock`;
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const deadline = Date.now() + timeout;
@@ -14,5 +14,6 @@ export async function withFileLock(file, fn, { staleAfter = 30_000, timeout = 10
       await new Promise((r) => setTimeout(r, 100));
     }
   }
-  try { return await fn(); } finally { try { fs.rmdirSync(lock); } catch {} }
+  const timer = heartbeat ? setInterval(() => { try { const now = new Date(); fs.utimesSync(lock, now, now); } catch {} }, 5000) : null;
+  try { return await fn(); } finally { clearInterval(timer); try { fs.rmdirSync(lock); } catch {} }
 }

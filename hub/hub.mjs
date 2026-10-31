@@ -16,8 +16,11 @@
 //                     sites: [{route, title, board, state, count, changedAt, created, icon, sub}], hub: {tone, word, detail, broken},
 //                     notifications: {state, text}}, each site's row from its GET /_claude/needs
 //                     (home.mjs; docs/adr/0010-sites-report-what-waits-through-claude-needs.md)
-//                     repos lists distinct board owners' folders; starting lists pending boards (sessions.mjs)
-//   /_hub/new-board  POST {name, repo, purpose} → {route}: a starting reservation, then the board's session starts
+//                     starting lists pending boards and their clone/start phase (sessions.mjs)
+//   /_hub/repos      GET the signed-in owner's and orgs' repos with clone/share metadata
+//   /_hub/branches   GET ?github=owner/repo lists branches and the repo default
+//   /_hub/board-repo/<route> GET repo and branch; POST {github, branch} prepares the clone and sends repo-changed
+//   /_hub/new-board  POST {name, github, branch, purpose} → {route}: a starting reservation, then the board's session starts
 //                     without holding the response; DELETE /_hub/new-board/<route> dismisses a start that failed
 //                     or timed out (new-board.mjs)
 //   /_hub/close-board/<route> GET the board's title, hub flag, open PRs and running builder records
@@ -106,6 +109,8 @@ import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './r
 import { siteIcon } from './icons.mjs';
 import { readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
 import { checkSessions, startingBoards } from './sessions.mjs';
+import { repoService } from './repos.mjs';
+import { boardRepo, changeBoardRepo, migrateBoardRepos } from './board-repo.mjs';
 import { requestBoard, dismissBoard } from './new-board.mjs';
 import { boardClosure, closeBoard, closedBoards, reopenBoard } from './close-board.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
@@ -126,6 +131,8 @@ for (const d of [HOME, LOGS, RUN]) fs.mkdirSync(d, { recursive: true });
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 try { const code = recordHubCode(); log(`hub code ${code.hash} (${code.files.length} files)`); } catch (e) { log('could not record the hub code hash:', e.message); }
 try { const route = await migrateHubFlag(); if (route) log(`manifest: flagged /${route} as the hub board`); } catch (e) { log('hub board migration failed:', e.message); }
+try { const routes = await migrateBoardRepos(); if (routes.length) log(`manifest: recorded GitHub repos for ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('board repo migration failed:', e.message); }
+const repos = repoService();
 
 // ---------- manifest ----------
 let manifest = { version: 1, sites: {} };
@@ -465,7 +472,6 @@ async function sidebarState({ fresh = false } = {}) {
   const data = {
     total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links, hubLink(code)),
     home: fs.realpathSync(os.homedir()),
-    repos: [...new Set(boards.map((b) => b.owner?.repo).filter((repo) => typeof repo === 'string' && repo))],
     starting: startingBoards(manifest, now.getTime()),
     notifications: !held ? { state: 'on', text: 'On' } : held.why === 'off' ? { state: 'off', text: 'Off' } : { state: 'held', text: capital(holdLine(held, now)) },
   };
@@ -587,12 +593,28 @@ async function hubRoute(req, res, url) {
       return sendJSON(200, result);
     } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
   }
-  if (p === '/_hub/new-board' && req.method === 'POST') {
-    if (!isJSON(req.headers)) return send(403, 'text/plain; charset=utf-8', 'Send name, repo and purpose as application/json.');
-    let input;
-    try { input = await readJSONBody(req); } catch { return send(400, 'text/plain; charset=utf-8', 'Send name, repo and purpose as JSON.'); }
+  if (p === '/_hub/repos' && req.method === 'GET') {
+    try { return sendJSON(200, await repos.list(loadManifest(), { fresh: url.searchParams.get('fresh') === '1' })); }
+    catch (e) { return sendJSON(e.status || 502, { error: e.message }); }
+  }
+  if (p === '/_hub/branches' && req.method === 'GET') {
+    try { return sendJSON(200, await repos.branches(url.searchParams.get('github'))); }
+    catch (e) { return sendJSON(e.status || 502, { error: e.message }); }
+  }
+  const repoRoute = /^\/_hub\/board-repo\/([a-z0-9-]+)$/.exec(p);
+  if (repoRoute && ['GET', 'POST'].includes(req.method)) {
     try {
-      const { route, started } = await requestBoard(input);
+      const result = req.method === 'GET' ? boardRepo(repoRoute[1]) : await changeBoardRepo(repoRoute[1], await readJSONBody(req), { repos });
+      if (req.method === 'POST') stream.refresh();
+      return sendJSON(200, result);
+    } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
+  }
+  if (p === '/_hub/new-board' && req.method === 'POST') {
+    if (!isJSON(req.headers)) return send(403, 'text/plain; charset=utf-8', 'Send name, github, branch and purpose as application/json.');
+    let input;
+    try { input = await readJSONBody(req); } catch { return send(400, 'text/plain; charset=utf-8', 'Send name, github, branch and purpose as JSON.'); }
+    try {
+      const { route, started } = await requestBoard(input, { repos, changed: () => stream.refresh() });
       started.then(({ error }) => { if (error) log(`new board /${route} didn't start: ${error}`); stream.refresh(); });
       stream.refresh();
       return sendJSON(200, { route });

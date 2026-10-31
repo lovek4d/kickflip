@@ -94,9 +94,9 @@ function wavesOf(dir, cfg, kind) {
 }
 
 // [{slug, wave}] → each card's open PR: [{wave, id, pr, repo, since, install}], since being the item's gh_since.
-export function prsOf(waves) {
+export function prsOf(waves, github) {
   return waves.flatMap(({ slug, wave }) => wave.items.filter((it) => Number.isInteger(it?.pr) && !FINISHED.includes(it.status))
-    .map((it) => ({ wave: slug, id: it.id, pr: it.pr, repo: wave.repo || DEFAULT_REPO, since: it.gh_since || NO_SINCE,
+    .map((it) => ({ wave: slug, id: it.id, pr: it.pr, repo: github || wave.repo || DEFAULT_REPO, since: it.gh_since || NO_SINCE,
       install: Boolean(it.install?.url) })));
 }
 
@@ -105,7 +105,7 @@ function boardOf(route, s) {
   const kind = typeof cfg.items === 'string' && cfg.items !== 'waves' ? 'file' : 'waves';
   const waves = wavesOf(s.dir, cfg, kind);
   return {
-    route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, waves, prs: prsOf(waves), install_script: cfg.install_script,
+    route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, waves, prs: prsOf(waves, s.github), github: s.github, branch: s.branch, install_script: cfg.install_script,
     reviewers: names(cfg.reviewers), owner: s.owner || null, watch: Array.isArray(s.watch) && s.watch.length ? s.watch : ['data/events.jsonl'], filter: s.filter || null,
   };
 }

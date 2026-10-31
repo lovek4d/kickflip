@@ -23,17 +23,21 @@ function git(cwd, ...args) {
 }
 const short = (repo, ref) => git(repo, 'rev-parse', '--short', ref).out;
 
-// → {path, branch, repo}: a new branch <id> from the repo's main, checked out at ~/.claude/web-ts/worktrees/<id>.
-export function makeWorktree(id, { repo = skillRepo() } = {}) {
+// → {path, branch, repo}: a builder branch from base, checked out outside the shared clone.
+export function makeWorktree(id, { repo = skillRepo(), base = 'main', remote = false } = {}) {
   const root = path.resolve(repo);
   if (!git(root, 'rev-parse', '--git-dir').ok) fail(`--repo ${root} is not a git repo`);
   if (!git(root, 'check-ref-format', '--branch', id).ok) fail(`--worktree: "${id}" can't be a branch name`);
-  if (!git(root, 'rev-parse', '--verify', '--quiet', 'refs/heads/main').ok) fail(`--worktree: ${root} has no main branch`);
+  if (!git(root, 'check-ref-format', '--branch', base).ok) fail('--worktree: invalid base branch');
+  const ref = remote ? `refs/remotes/origin/${base}` : `refs/heads/${base}`;
+  // The shared clone is fetched only when a board picks it; offline, the last fetched tip still serves.
+  if (remote) git(root, 'fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${base}:${ref}`);
+  if (!git(root, 'rev-parse', '--verify', '--quiet', ref).ok) fail(`--worktree: ${root} has no ${base} branch`);
   const dir = path.join(worktreesDir(), id);
   if (fs.existsSync(dir)) fail(`--worktree: ${dir} already exists; land or remove it first`);
   if (git(root, 'rev-parse', '--verify', '--quiet', `refs/heads/${id}`).ok) fail(`--worktree: branch ${id} already exists in ${root}`);
   fs.mkdirSync(path.dirname(dir), { recursive: true });
-  const r = git(root, 'worktree', 'add', '--quiet', '-b', id, dir, 'main');
+  const r = git(root, 'worktree', 'add', '--quiet', '-b', id, dir, ref);
   if (!r.ok) fail(`--worktree: git worktree add failed: ${r.err}`);
   return { path: dir, branch: id, repo: root };
 }
