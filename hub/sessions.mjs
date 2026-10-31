@@ -2,9 +2,9 @@
 // {session, label, since, repo, model?}: repo is the folder the session runs in, where `claude --resume` finds it. A
 // session `web-ts start` launched for a route with no site yet waits in the manifest's `starting` {<route>: owner}
 // until its join moves it into the site. A New board request (new-board.mjs) records {title, repo, asked_at} there
-// first, with no session until `web-ts start` merges its owner in. Every session starts in the background (`claude --bg`) in auto mode, with
+// first, with no session until `web-ts start` merges its owner in. Board sessions start in the background (`claude --bg`) in auto mode, with
 // worktree.bgIsolation "none" so it stays in the repo folder, since its builders make their own worktrees, and with
-// the hook that brings its prompts to the owner's phone.
+// the hook that brings its prompts to the owner's phone. `web-ts hub` runs the hub board's session in the owner's terminal.
 // checkSessions is the hub's wake (docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md): when an event lands
 // for a board whose owner session isn't running, the session is resumed at once; a board not listening for
 // RESUME_AFTER with an event its session hasn't heard is resumed as a fallback. Either happens once per outage, and if
@@ -15,7 +15,7 @@ import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { routeRecord } from './routes.mjs';
-import { RESUME_STATE, carryCursor, isListening, listBoards, oldestUnheard, readManifest, readJSON, saveJSON, watchedCounts, withManifestLock, writeManifest } from './boards.mjs';
+import { RESUME_STATE, carryCursor, hubBoard, isListening, listBoards, oldestUnheard, readManifest, readJSON, saveJSON, watchedCounts, withManifestLock, writeManifest } from './boards.mjs';
 import { liveSessions, sessionRecords } from './live.mjs';
 import { deliver } from './push.mjs';
 import { WAIT_MS } from './prompts.mjs';
@@ -41,7 +41,7 @@ export const BG_SETTINGS = JSON.stringify({
 });
 
 export class SessionError extends Error {
-  // reason: 'none' (no session or folder recorded), 'live' (the session runs), 'failed' (claude refused)
+  // reason: 'none' (no session or folder recorded), 'hub' (no hub board), 'live' (the session runs), 'failed' (claude refused)
   constructor(message, reason) { super(message); this.reason = reason; }
 }
 
@@ -78,12 +78,45 @@ export function runClaude(argv, { cwd }) {
   });
 }
 
+export function runForegroundClaude(argv, { cwd }) {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !inherited(k) && k !== 'CLAUDE_BG_ISOLATION'));
+  // A terminal's Ctrl-C or Ctrl-\ signals both processes; this one has to outlive claude to hand back its exit code.
+  const ignore = () => {};
+  process.on('SIGINT', ignore).on('SIGQUIT', ignore);
+  const settle = () => process.off('SIGINT', ignore).off('SIGQUIT', ignore);
+  return new Promise((resolve, reject) => {
+    const child = spawn(claudeBin(), argv, { cwd, env, stdio: 'inherit' });
+    child.on('error', (e) => { settle(); reject(new SessionError(e.message, 'failed')); });
+    child.on('close', (code) => { settle(); resolve({ status: code ?? 1 }); });
+  });
+}
+
 const common = ({ name, model }) => ['--name', name, '--permission-mode', 'auto', '--settings', BG_SETTINGS, ...(model ? ['--model', model] : [])];
 export const startArgv = ({ route, name, model, prompt }) => ['--bg', ...common({ name, model }), `/join-web-ts ${route}${prompt ? ` ${prompt}` : ''}`];
 export const resumePrompt = (route, id) => `The hub resumed this session because /${route} had nobody listening. Rejoin the board as session ${id} (join-web-ts steps 3 and 5): rerun \`node ${path.join(SKILL_DIR, 'bin', 'web-ts.mjs')} join ${route} --session ${id}\`, relaunch its watcher as a background task, then go on with what its events ask. If your session id (the folder above your scratchpad) isn't ${id}, rejoin with yours and --force.`;
 // A background session resumed with any flag starts as a copy under a new id, so one goes without them and keeps the
 // options it started with; a session that never ran in the background gets them (Claude Code's `note:` line says which).
 export const resumeArgv = ({ id, route, name, model, background }) => ['--resume', id, '--bg', ...(background ? [] : common({ name, model })), resumePrompt(route, id)];
+
+const hubPrompt = `You are the hub session. Read \`${path.join(SKILL_DIR, 'docs', 'hub-session.md')}\`, then rejoin /hub-orchestrator and relaunch its watcher.`;
+export const hubArgv = ({ id, model } = {}) => [
+  ...(id ? ['--resume', id] : []), ...(model ? ['--model', model] : []),
+  id ? `${hubPrompt} If your session id (the folder above your scratchpad) isn't ${id}, rejoin with yours and --force.` : `/join-web-ts hub-orchestrator\n${hubPrompt}`,
+];
+
+// `repo` is the folder for a fresh session, or for a recorded session whose folder the manifest lacks.
+export async function hubSession({ manifest = readManifest(), repo, run = runForegroundClaude, live = liveSessions } = {}) {
+  const board = hubBoard(manifest);
+  if (!board) throw new SessionError('No hub board; join one with web-ts join hub-orchestrator --template board --session <id>', 'hub');
+  const owner = board.owner?.session ? board.owner : null;
+  if (owner && !owner.repo && !repo) throw new SessionError(`/hub-orchestrator's session ${owner.session} has no folder recorded; pass --repo <its folder>`, 'none');
+  refuseLive(owner, live);
+  const cwd = owner?.repo || path.resolve(repo || process.cwd());
+  if (!fs.statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
+    throw new SessionError(owner?.repo ? `/hub-orchestrator's recorded folder ${cwd} is gone; rejoin from its new folder with --repo` : `no folder at ${cwd}`, 'none');
+  }
+  return run(hubArgv({ id: owner?.session, model: owner?.model }), { cwd });
+}
 
 // The session recorded for a route: its site's owner, else a start its join hasn't taken up. → owner + {title} | null
 export function sessionOf(manifest, route) {

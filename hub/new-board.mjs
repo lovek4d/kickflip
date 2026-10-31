@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { appendEvent, listBoards, readManifest, withManifestLock, writeManifest } from './boards.mjs';
+import { appendEvent, hubBoard, readManifest, withManifestLock, writeManifest } from './boards.mjs';
 import { ROUTE_RE, routeFromName, routeRecord } from './routes.mjs';
 import { STARTING_WAIT } from './sessions.mjs';
 
@@ -38,10 +38,11 @@ export async function requestBoard(input) {
     const manifest = readManifest();
     const { route, title, repo, purpose } = newBoard;
     if (Object.hasOwn(manifest.sites || {}, route) || Object.hasOwn(manifest.starting || {}, route)) refuse('That board route already exists.');
-    const hub = listBoards(manifest).find((b) => b.route === 'hub-orchestrator');
+    const hub = hubBoard(manifest);
     if (!hub) refuse('No hub session', 503);
     manifest.starting = { ...manifest.starting, [route]: { title, repo, asked_at: new Date().toISOString() } };
     await writeManifest(manifest);
+    // The one feature that depends on the dev-time hub session: docs/adr/0068-the-hub-session-is-a-dev-time-role.md.
     try { await appendEvent(hub, 'ask', { text: `New board: ${title} in ${repoLabel(repo)}${purpose ? ` — ${purpose}` : ''}`, newBoard }); }
     catch (e) {
       delete manifest.starting[route];

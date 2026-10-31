@@ -115,6 +115,8 @@ export function listBoards(manifest = readManifest()) {
   return Object.entries(manifest?.sites || {}).filter(([, s]) => isBoardSite(s)).map(([route, s]) => boardOf(route, s));
 }
 
+export const hubBoard = (manifest = readManifest()) => listBoards(manifest).find((b) => b.route === 'hub-orchestrator');
+
 // The board served from `dir`, for its own server; null when the manifest has no board there.
 export function boardAt(dir, manifest = readManifest()) {
   const found = Object.entries(manifest?.sites || {}).find(([, s]) => isBoardSite(s) && path.resolve(s.dir) === path.resolve(dir));

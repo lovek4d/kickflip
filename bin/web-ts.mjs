@@ -28,6 +28,11 @@
 //               `claude --resume <id> --bg` for the route's recorded session in its folder, prompting it to rejoin
 //               and relaunch its watcher, and records the id it comes back under as the route's owner. Prints
 //               {route, session, previous, confirmed, repo, argv, output}. Exit 1 when no session or folder is recorded
+//   web-ts hub [--repo <dir>]
+//               opens the hub-orchestrator board's recorded session in this terminal, in its recorded folder and
+//               model, or in --repo when no folder is recorded; with no owner, starts a fresh session in --repo
+//               (default cwd). Points it to docs/hub-session.md.
+//               Exit 2 with no hub board; otherwise keeps claude's exit code
 //   web-ts sessions [--json]
 //               one line per board: route, session id, live (background or terminal) or not, folder
 //   web-ts handshake <route>
@@ -70,7 +75,7 @@
 //               asks the hub for one poll now (GitHub check, github-change events,
 //               checked.json, then the queue unless --keep-queue) and prints its result
 // Exit codes: 0 ok, 1 error, 2 bad usage, 3 route owned by another session (join/leave), or its recorded session is
-// live (start/resume).
+// live (start/resume/hub). hub passes through claude's exit code.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -125,10 +130,10 @@ function readManifest() {
 }
 const readJSON = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
 const sessionsModule = () => import(path.join(SKILL, 'hub', 'sessions.mjs'));
-// ../hub/sessions.mjs refusals as exits: a live session 3, nothing recorded or claude failing 1.
+// ../hub/sessions.mjs refusals as exits: a live session 3, no hub board 2, nothing recorded or claude failing 1.
 async function sessionCall(fn) {
   const { SessionError } = await sessionsModule();
-  try { return await fn(); } catch (e) { if (e instanceof SessionError) fail(e.message, e.reason === 'live' ? 3 : 1); throw e; }
+  try { return await fn(); } catch (e) { if (e instanceof SessionError) fail(e.message, e.reason === 'live' ? 3 : e.reason === 'hub' ? 2 : 1); throw e; }
 }
 // The board's hello (../hub/boards.mjs handshake). → {route, hello}
 async function runHandshake(route) {
@@ -364,6 +369,12 @@ const commands = {
     if (args.json) return out(rows);
     if (!rows.length) return out('no boards');
     for (const r of rows) out(`/${r.route}  ${r.session || 'no session'}  ${r.live ? `live (${r.live})` : 'not live'}  ${r.repo || 'no folder'}${r.starting ? '  (starting: not joined yet)' : ''}`);
+  },
+
+  async hub() {
+    const { hubSession } = await sessionsModule();
+    const r = await sessionCall(() => hubSession({ manifest: readManifest(), repo: args.repo }));
+    process.exitCode = r.status;
   },
 
   async set() {

@@ -50,6 +50,10 @@ _Avoid_: user, admin
 A board's owning session as the manifest records it in the site's owner: its id, its folder (`repo`, where `claude --resume` finds it) and an optional model. `web-ts start` launches one in the background; `web-ts resume` brings it back and records the id it comes back under. A rejoin keeps the label, model and folder it leaves out.
 _Avoid_: orchestrator process, agent
 
+**Hub session**:
+The dev-time session that builds the app from inside: the owning session of the `hub-orchestrator` board, opened in the owner's terminal by `web-ts hub`. The product needs only the hub server, with boards added in the app; New board's ask is the one feature that depends on this session ([0068](docs/adr/0068-the-hub-session-is-a-dev-time-role.md)).
+_Avoid_: hub server, permanent orchestrator
+
 **Live**:
 A session whose `~/.claude/sessions/<pid>.json` record names it and whose process still runs, started when the record says. A live session is never started or resumed again.
 

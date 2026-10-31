@@ -27,12 +27,19 @@ const fakeLog = path.join(home, 'claude-calls.jsonl');
 const fakeClaude = path.join(home, 'bin', 'claude');
 const agentsFile = path.join(home, 'agents.json');
 const copyNext = path.join(home, 'copy-next');
+const foregroundExit = path.join(home, 'foreground-exit');
 process.env.WEB_TS_CLAUDE = fakeClaude;
 write(fakeClaude, `#!${process.execPath}
 const fs = require('node:fs');
 const { spawn, spawnSync } = require('node:child_process');
 const argv = process.argv.slice(2);
 if (argv[0] === 'agents') { let list = []; try { list = JSON.parse(fs.readFileSync(${JSON.stringify(agentsFile)}, 'utf8')); } catch {} console.log(JSON.stringify(list)); process.exit(0); }
+if (!argv.includes('--bg')) {
+  fs.appendFileSync(${JSON.stringify(fakeLog)}, JSON.stringify({ argv, cwd: process.cwd(), isolation: process.env.CLAUDE_BG_ISOLATION ?? null, claudecode: process.env.CLAUDECODE ?? null }) + '\\n');
+  console.log('foreground stdin: ' + fs.readFileSync(0, 'utf8'));
+  console.error('foreground stderr');
+  process.exit(fs.existsSync(${JSON.stringify(foregroundExit)}) ? Number(fs.readFileSync(${JSON.stringify(foregroundExit)}, 'utf8')) : 0);
+}
 const resumed = argv.includes('--resume') ? argv[argv.indexOf('--resume') + 1] : null;
 const copy = fs.existsSync(${JSON.stringify(copyNext)});
 if (copy) fs.unlinkSync(${JSON.stringify(copyNext)});
@@ -59,7 +66,7 @@ const liveRecord = (sessionId, cwd) => {
   return c;
 };
 
-const cli = (args, { cwd = repo } = {}) => new Promise((resolve) => {
+const cli = (args, { cwd = repo, input = '' } = {}) => new Promise((resolve) => {
   const child = spawn(process.execPath, [path.join(SKILL, 'bin', 'web-ts.mjs'), ...args], {
     cwd, env: { ...process.env, HOME: home, WEB_TS_CLAUDE: fakeClaude, WEB_TS_HUB_PORT: '1', CLAUDECODE: '1' },
   });
@@ -67,6 +74,7 @@ const cli = (args, { cwd = repo } = {}) => new Promise((resolve) => {
   let stderr = '';
   child.stdout.on('data', (d) => { stdout += d; });
   child.stderr.on('data', (d) => { stderr += d; });
+  child.stdin.end(input);
   child.on('close', (status) => resolve({ status, stdout, stderr }));
 });
 const json = (r) => { assert.equal(r.status, 0, r.stderr); return JSON.parse(r.stdout); };
@@ -352,4 +360,89 @@ test('resume state starts a fresh outage and resumes once for object property ro
   assert.deepEqual((await listen()).pushed, routes);
   assert.deepEqual((await listen()).pushed, []);
   for (const route of routes) assert.equal(read(web('deaf-state.json'))[route].since, new Date(at + 1).toISOString());
+});
+
+const hubManifest = (owner) => {
+  const dir = path.join(home, 'hub-board');
+  write(path.join(dir, 'board.json'), { title: 'Hub' });
+  return { sites: { 'hub-orchestrator': { dir, port: 1, cmd: boardCmd(dir), owner } } };
+};
+
+test('hub resumes the hub board owner in the foreground with its folder and model and inherited terminal streams', async () => {
+  const m = hubManifest({ session: 's-hub', repo, model: 'opus' });
+  write(web('manifest.json'), m);
+  const before = calls().length;
+  const r = await cli(['hub', '--repo', otherRepo], { input: 'hello hub' });
+  assert.deepEqual(r, { status: 0, stdout: 'foreground stdin: hello hub\n', stderr: 'foreground stderr\n' });
+  const [call] = calls().slice(before);
+  assert.deepEqual(call.argv.slice(0, -1), ['--resume', 's-hub', '--model', 'opus']);
+  assert.match(call.argv.at(-1), /You are the hub session/);
+  assert.ok(call.argv.at(-1).includes(path.join(SKILL, 'docs', 'hub-session.md')));
+  assert.match(call.argv.at(-1), /rejoin \/hub-orchestrator/);
+  assert.deepEqual([call.cwd, call.isolation, call.claudecode], [repo, null, null]);
+  assert.deepEqual(manifest(), m);
+});
+
+test('hub starts fresh with no owner, in --repo or the cwd, with the join prompt and hub doc pointer', async () => {
+  for (const options of [{ args: ['--repo', otherRepo], dir: otherRepo, owner: undefined }, { args: [], dir: repo, owner: {} }]) {
+    write(web('manifest.json'), hubManifest(options.owner));
+    const before = calls().length;
+    const r = await cli(['hub', ...options.args]);
+    assert.equal(r.status, 0, r.stderr);
+    const [call] = calls().slice(before);
+    assert.equal(call.argv.length, 1);
+    assert.ok(call.argv[0].startsWith('/join-web-ts hub-orchestrator\n'));
+    assert.match(call.argv[0], /You are the hub session/);
+    assert.ok(call.argv[0].includes(path.join(SKILL, 'docs', 'hub-session.md')));
+    assert.equal(call.cwd, options.dir);
+  }
+});
+
+test('hub exits 2 with one line telling the owner to join a hub board when none is in the manifest', async () => {
+  const before = calls().length;
+  const page = { dir: repo, cmd: [process.execPath, path.join(SKILL, 'starter', 'server.mjs')] };
+  for (const m of [{ sites: {} }, { sites: { 'hub-orchestrator': page } }, { sites: {}, starting: { 'hub-orchestrator': { session: 's-hub', repo } } }]) {
+    write(web('manifest.json'), m);
+    const r = await cli(['hub']);
+    assert.equal(r.status, 2);
+    assert.equal(r.stdout, '');
+    assert.match(r.stderr, /^web-ts: No hub board; join one with web-ts join hub-orchestrator --template board --session <id>\n$/);
+  }
+  assert.equal(calls().length, before);
+});
+
+test('hub keeps claude exit codes for a fresh session and a resumed owner with no model', async () => {
+  for (const [owner, status] of [[undefined, 7], [{ session: 's-hub', repo }, 42]]) {
+    write(web('manifest.json'), hubManifest(owner));
+    write(foregroundExit, String(status));
+    const r = await cli(['hub']);
+    assert.equal(r.status, status);
+    assert.deepEqual(calls().at(-1).argv.slice(0, -1), owner ? ['--resume', 's-hub'] : []);
+  }
+  fs.rmSync(foregroundExit);
+});
+
+test('hub uses an injected runner and refuses a live owner or a missing recorded folder', async () => {
+  const { hubSession } = await import('./sessions.mjs');
+  const m = hubManifest({ session: 's-hub', repo });
+  const ran = [];
+  const run = async (argv, options) => { ran.push({ argv, options }); return { status: 9 }; };
+  assert.deepEqual(await hubSession({ manifest: m, run, live: () => new Map() }), { status: 9 });
+  assert.deepEqual(ran[0].options, { cwd: repo });
+  const before = calls().length;
+  await assert.rejects(hubSession({ manifest: m, run, live: () => new Map([['s-hub', { pid: 1, kind: 'interactive' }]]) }), { reason: 'live' });
+  assert.equal(ran.length, 1);
+  m.sites['hub-orchestrator'].owner.repo = path.join(home, 'gone');
+  write(web('manifest.json'), m);
+  const gone = await cli(['hub', '--repo', otherRepo]);
+  assert.equal(gone.status, 1);
+  assert.match(gone.stderr, /recorded folder .*gone/);
+  delete m.sites['hub-orchestrator'].owner.repo;
+  write(web('manifest.json'), m);
+  const r = await cli(['hub']);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /has no folder recorded/);
+  assert.equal(calls().length, before);
+  assert.equal((await cli(['hub', '--repo', otherRepo])).status, 0);
+  assert.deepEqual([calls().at(-1).argv.slice(0, 2), calls().at(-1).cwd], [['--resume', 's-hub'], otherRepo]);
 });
