@@ -55,22 +55,25 @@
   }
   const practice = (lines, links) => `<div class="practice"><b>In practice</b><ul>${lines.map((l) => `<li>${linkText(l, links)}</li>`).join('')}</ul></div>`;
 
-  function takeBody(q, o, links) {
+  const takeButton = (full) => `<a class="take-full" href="${esc(full)}"><span class="go">Open full size →</span><span class="why">This take scrolls, so it opens full size.</span></a>`;
+  // fit(option id): the take's measured size, {h} in px for its frame or {scrolls: true} for the button; none until
+  // view-questions.js measures its page.
+  function takeBody(q, o, links, fit) {
     if (o.diagram) return diagram(o.diagram) + practice(o.practice || [], links);
     if (!isPrototype(q.url)) return '';
     const full = withParam(q.url, 'variant', o.id);
-    return `<a class="take-shot" href="${esc(full)}" tabindex="-1" aria-hidden="true"><iframe src="${esc(withParam(q.url, 'take', o.id))}" loading="lazy" tabindex="-1" title="${esc(o.label)}"></iframe></a>`
+    const size = fit(o.id);
+    if (size?.scrolls) return takeButton(full);
+    return `<a class="take-shot${size ? '' : ' measuring'}" href="${esc(full)}" tabindex="-1" aria-hidden="true"${size ? ` style="height:${Math.round(size.h)}px"` : ''}><iframe src="${esc(withParam(q.url, 'take', o.id))}" loading="lazy" tabindex="-1" title="${esc(o.label)}"></iframe></a>`
       + `<a class="take-open" href="${esc(full)}">Open full size →</a>`;
   }
-  // One take full width with the next peeking, a dot per take; the filled dot is the pick.
-  function takes(q, chosen, links) {
+  function takes(q, chosen, links, fit) {
     const name = 'c-' + q.id;
-    const cards = q.options.map((o) => `<article class="take" data-opt="${esc(o.id)}">${option(o, { name, checked: chosen === o.id })}${takeBody(q, o, links)}</article>`).join('');
-    const dots = q.options.map((o, i) => `<button type="button" data-dot="${i}" class="${[i ? '' : 'on', chosen === o.id ? 'picked' : ''].filter(Boolean).join(' ')}" aria-label="Take ${esc(o.id)}"></button>`).join('');
-    return `<div class="takes"><div class="take-track" style="--n:${q.options.length}">${cards}</div><div class="take-dots">${dots}<span class="lab">1 of ${q.options.length}</span></div></div>`;
+    return `<div class="takes">${q.options.map((o) => `<article class="take" data-opt="${esc(o.id)}">${option(o, { name, checked: chosen === o.id })}${takeBody(q, o, links, fit)}</article>`).join('')}</div>`;
   }
-  // An owner question from /api/board; draft is this device's unsent {choice, note}; links its ui-links.js linkContext.
-  function questionCard(q, { n = 0, draft = {}, links = {} } = {}) {
+  // An owner question from /api/board; draft is this device's unsent {choice, note}; links its ui-links.js linkContext;
+  // fit as takeBody's.
+  function questionCard(q, { n = 0, draft = {}, links = {}, fit = () => null } = {}) {
     const last = q.answers[q.answers.length - 1];
     const chosen = draft.choice ?? (last ? last.choice : null);
     const st = QUESTION_STATE[q.state];
@@ -80,7 +83,7 @@
       ${q.context ? `<div class="ctx">${linkText(q.context, links)}</div>` : ''}
       ${framed(q) ? '' : questionLink(q.url)}
       ${q.state === 'resolved' && q.resolved ? `<div class="small muted" style="margin-bottom:8px">Resolved: ${esc(q.resolved)} A new answer reopens it.</div>` : ''}
-      ${inline(q) ? takes(q, chosen, links) : q.options.map((o) => option(o, { name: 'c-' + q.id, checked: chosen === o.id })).join('')}
+      ${inline(q) ? takes(q, chosen, links, fit) : q.options.map((o) => option(o, { name: 'c-' + q.id, checked: chosen === o.id })).join('')}
       ${noteComposer('q:' + q.id, draft.note)}
       ${answerHistory(q, links)}
     </section>`;
@@ -104,5 +107,5 @@
     },
   };
 
-  Object.assign(globalThis.BoardUI, { choiceLabel, option, answerHistory, questionCard, topicName, topicRow, sentNotice });
+  Object.assign(globalThis.BoardUI, { choiceLabel, option, answerHistory, questionCard, takeButton, topicName, topicRow, sentNotice });
 })();

@@ -256,7 +256,7 @@ The owner asking, from a card's thread, for throwaway prototype pages to compare
 _Avoid_: mockup request, preview
 
 **Take**:
-One option of an owner question shown as what it would be: its take on the question's prototype page, framed, or, with nothing to see, its `diagram` of boxes and arrows and what it means in `practice`. The questions page shows a question's takes as a carousel, each with its pick; a framed take opens full size in the same window ([0048](docs/adr/0048-a-questions-takes-show-inline.md)).
+One option of an owner question shown as what it would be: its take on the question's prototype page, framed, or, with nothing to see, its `diagram` of boxes and arrows and what it means in `practice`. The questions page sets a question's takes in a grid that fits as many as stay at least 380px wide, one column on a phone, each its pick above it; a framed take's frame is sized to its page, or, for a page taller than 80% of the screen, gives way to a button that opens it full size. A framed take opens full size in the same window ([0048](docs/adr/0048-a-questions-takes-show-inline.md)).
 _Avoid_: variant (the switcher's URL parameter, not the word), mockup
 
 ## Board page files

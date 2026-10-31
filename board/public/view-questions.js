@@ -5,7 +5,8 @@
 // open question goes back to the board, where the Sent line shows as a toast (BoardUI.sentNotice). An open question
 // with `urgent: true` in owner.json shows alone first, and its Send follows the same rule for its topic. A question
 // whose options are prototype takes frames each take with ?take= (docs/adr/0048-a-questions-takes-show-inline.md).
-(globalThis.AppViews ||= {}).questions = {
+// fits: each framed take's measured size, kept across repaints and visits so a take redraws at its size at once.
+(globalThis.AppViews ||= {}).questions = ((fits) => ({
   className: 'view-questions',
   title: () => 'Waiting On You',
   markup: () => `${BoardUI.header({ lead: 'back', title: 'Waiting on you', controls: false, trail: '<span class="muted small" id="progress"></span>' })}
@@ -15,7 +16,7 @@
 
   create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
     const { $, site } = B;
-    const { esc, choiceLabel, questionCard, linkContext, badge, topicName, topicRow, sentNotice, fetchJSON, restartNotice } = BoardUI;
+    const { esc, choiceLabel, questionCard, takeButton, linkContext, badge, topicName, topicRow, sentNotice, fetchJSON, restartNotice } = BoardUI;
     // prototype-switcher.js reads a draft's note and clears the draft once it sends that question's answer.
     const draftKey = (id) => 'qdraft:' + id;
     const getDraft = (id) => { try { return JSON.parse(localStorage.getItem(draftKey(id)) || '{}'); } catch { return {}; } };
@@ -80,31 +81,56 @@
         ? `<div class="solo">${badge('notice', 'needs you first')}<button class="ghost" id="showAll">All questions</button></div>`
         : `${topicBar()}${topicHead(t)}`;
       el.innerHTML = `${head}<form id="qform">
-        ${live.map((q, i) => questionCard(q, { n: soloId ? 0 : i + 1, draft: getDraft(q.id), links: links(q) })).join('')}
-        ${done.length ? `<details class="done"><summary>Resolved · ${done.length}</summary>${done.map((q) => questionCard(q, { draft: getDraft(q.id), links: links(q) })).join('')}</details>` : ''}
+        ${live.map((q, i) => questionCard(q, { n: soloId ? 0 : i + 1, draft: getDraft(q.id), links: links(q), fit: fitOf(q) })).join('')}
+        ${done.length ? `<details class="done"><summary>Resolved · ${done.length}</summary>${done.map((q) => questionCard(q, { draft: getDraft(q.id), links: links(q), fit: fitOf(q) })).join('')}</details>` : ''}
         <div class="bar"><span class="muted small${sentLine ? ' sent' : ''}" id="qstatus" role="status">${esc(sentLine)}</span><span class="send-hint" aria-hidden="true">${/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘↵' : 'Ctrl+↵'}</span><button class="primary" type="submit" id="send">Send</button></div>
       </form>${soloId ? '' : waitingTopics() + resolvedTopics()}`;
       BoardAttach.paintAll();
-      el.querySelectorAll('.takes').forEach(wireTakes);
+      el.querySelectorAll('.take-shot').forEach(fitTake);
       updateBar();
     }
 
-    // The dot under the take in view is on; a dot's tap brings its take into view. Opens on the pick, if any. Its
-    // listeners sit on the take's own elements, which the next render replaces.
-    function wireTakes(box) {
-      const track = box.querySelector('.take-track');
-      const dots = [...box.querySelectorAll('[data-dot]')];
-      const lab = box.querySelector('.lab');
-      const centre = (c) => c.offsetLeft - (track.clientWidth - c.offsetWidth) / 2;
-      const at = () => {
-        const cards = [...track.children];
-        return cards.reduce((best, c, i) => (Math.abs(centre(c) - track.scrollLeft) < Math.abs(centre(cards[best]) - track.scrollLeft) ? i : best), 0);
+    // A width sets its page's height, so a size measured at another width is measured again.
+    const fitKey = (qid, oid) => `${site.root}\n${qid}\n${oid}`;
+    const fitOf = (q) => (oid) => { const f = fits.get(fitKey(q.id, oid)); return f && f.w === window.innerWidth ? f : null; };
+    // A framed take is sized to its page once it loads, or past 80% of the screen's height turns into the Open full
+    // size button, since the frame can't scroll (docs/adr/0048-a-questions-takes-show-inline.md). Its listeners sit on
+    // the take's own elements, which the next render replaces.
+    function fitTake(shot) {
+      const frame = shot.querySelector('iframe');
+      const key = fitKey(shot.closest('section.q').dataset.q, shot.closest('.take').dataset.opt);
+      let watcher = null;
+      const measure = () => {
+        try {
+          const doc = frame.contentDocument;
+          // The body's own height: the document's scrollHeight never drops below the frame's.
+          return doc?.body && doc.location.href !== 'about:blank' ? Math.ceil(doc.body.getBoundingClientRect().height) : null;
+        } catch { return null; }
       };
-      const paint = () => { const i = at(); dots.forEach((d, j) => d.classList.toggle('on', j === i)); lab.textContent = `${i + 1} of ${dots.length}`; };
-      track.addEventListener('scroll', () => requestAnimationFrame(paint), { passive: true });
-      dots.forEach((d, i) => d.addEventListener('click', () => track.scrollTo({ left: centre(track.children[i]), behavior: 'smooth' })));
-      const picked = dots.findIndex((d) => d.classList.contains('picked'));
-      if (picked > 0) { track.scrollLeft = centre(track.children[picked]); paint(); }
+      const apply = () => {
+        const h = measure();
+        if (h === null || !shot.isConnected) return;
+        if (h > window.innerHeight * 0.8) {
+          fits.set(key, { w: window.innerWidth, scrolls: true });
+          watcher?.disconnect();
+          shot.closest('.take').querySelector('.take-open')?.remove();
+          shot.outerHTML = takeButton(shot.getAttribute('href'));
+          return;
+        }
+        // The shot's border is 1px each side, and the frame fills the rest.
+        fits.set(key, { w: window.innerWidth, h: h + 2 });
+        shot.style.height = `${h + 2}px`;
+        shot.classList.remove('measuring');
+      };
+      frame.addEventListener('load', () => {
+        if (measure() === null) return;
+        watcher?.disconnect();
+        watcher = null;
+        apply();
+        // A page that grows after it loads, or narrows with the view, is measured again.
+        if (!shot.isConnected) return;
+        try { watcher = new frame.contentWindow.ResizeObserver(apply); watcher.observe(frame.contentDocument.body); } catch { watcher = null; }
+      });
     }
 
     function waitingTopics() {
@@ -213,7 +239,6 @@
     B.on(root, 'change', (ev) => {
       const sec = ev.target.closest('section.q'); if (!sec || ev.target.type !== 'radio') return;
       const d = getDraft(sec.dataset.q); d.choice = ev.target.value; setDraft(sec.dataset.q, d); updateBar();
-      sec.querySelectorAll('.take').forEach((t, i) => sec.querySelector(`[data-dot="${i}"]`)?.classList.toggle('picked', t.dataset.opt === ev.target.value));
     });
     B.on(root, 'input', (ev) => {
       const sec = ev.target.closest('section.q'); if (!sec || ev.target.tagName !== 'TEXTAREA') return;
@@ -273,5 +298,13 @@
     B.on(document, 'visibilitychange', () => { if (!document.hidden) load(false); });
     // Back from a full-size take restores this page as it was, missing an answer sent there (prototype-switcher.js).
     B.on(window, 'pageshow', (ev) => { if (ev.persisted) { shown = ''; load(false); } });
+    // Fitted frames follow a new width through their ResizeObserver; a take shown as the button gets its frame back
+    // to be measured at the new width.
+    let width = window.innerWidth;
+    B.on(window, 'resize', () => {
+      if (window.innerWidth === width) return;
+      width = window.innerWidth;
+      if (root.querySelector('.take-full') && document.activeElement?.tagName !== 'TEXTAREA') { shown = ''; render(); }
+    });
   }),
-};
+}))(new Map());

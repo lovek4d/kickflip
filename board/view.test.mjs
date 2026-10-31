@@ -735,7 +735,7 @@ function questionsOnDom({ topics, questions, at }) {
   const shown = () => shell.board ? { board: shell.board.querySelector('#toast').hidden ? '' : shell.board.querySelector('#toast').textContent }
     : { pills: shell.root.querySelectorAll('.topics button').map((b) => [b.dataset.topic, b.getAttribute('aria-pressed')]),
       questions: shell.root.querySelectorAll('section.q').map((s) => s.dataset.q), status: $('#qstatus').textContent, hash: page.win.location.hash };
-  return { settle, answer, send, shown };
+  return { settle, answer, send, shown, root: shell.root, page };
 }
 
 test("Waiting on you's Send stays on a topic with a question still open, and from one with none, an urgent question's alone included, opens the topic whose pill was to its left before the Send, else to its right, else goes back to the board, saying what it sent", async () => {
@@ -775,4 +775,40 @@ test("Waiting on you's Send stays on a topic with a question still open, and fro
   urgent.answer('q3');
   await urgent.send();
   assert.deepEqual(urgent.shown(), { pills: [['item:w/T1', 'false'], ['item:w/T2', 'true']], questions: ['q2'], status: 'Sent 1 answer to INT-3.', hash: '#q2' });
+});
+
+test("Waiting on you sizes each framed take to its page once it loads, past 80% of the screen's height shows the Open full size button instead, and a repaint keeps both", async () => {
+  const takes = [{ id: 'A', label: 'Badge' }, { id: 'B', label: 'Dot' }, { id: 'C', label: 'Thread' }];
+  const q = { id: 'q1', topic: 'item:w/T1', source: '', question: 'Which?', context: '', url: 'prototype-unread.html?q=q1', options: takes, answers: [], state: 'open' };
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Unread' }], questions: [q], at: 'q1' });
+  v.page.win.innerWidth = 390;
+  await v.settle();
+  const shot = (id) => v.root.querySelector(`.take[data-opt="${id}"] .take-shot`);
+  const observers = [];
+  const load = (id, height, href = 'https://mac.ts.net/board-a/prototype-unread.html?q=q1&take=' + id) => {
+    const frame = shot(id).querySelector('iframe');
+    frame.contentDocument = { location: { href }, body: { getBoundingClientRect: () => ({ height: height() }) } };
+    frame.contentWindow = { ResizeObserver: class { constructor(fn) { this.fn = fn; this.on = false; observers.push(this); } observe() { this.on = true; } disconnect() { this.on = false; } } };
+    v.page.fire(frame, 'load');
+  };
+  const takesShown = () => takes.map(({ id }) => {
+    const s = shot(id);
+    return s ? [s.getAttribute('class'), s.style.height || s.getAttribute('style') || ''] : [...v.root.querySelectorAll(`.take[data-opt="${id}"] a`)].map((a) => a.textContent);
+  });
+  assert.deepEqual(takesShown(), [['take-shot measuring', ''], ['take-shot measuring', ''], ['take-shot measuring', '']]);
+
+  let aHeight = 0;
+  load('A', () => aHeight, 'about:blank');
+  aHeight = 213.2;
+  load('A', () => aHeight);
+  load('B', () => 120);
+  load('C', () => 900);
+  assert.deepEqual(takesShown(), [['take-shot', '216px'], ['take-shot', '122px'], ['Open full size →This take scrolls, so it opens full size.']]);
+  aHeight = 400;
+  observers[0].fn();
+  assert.equal(shot('A').style.height, '402px');
+  assert.deepEqual(observers.map((o) => o.on), [true, true]);
+
+  v.page.fire(vm.runInContext('window', v.page.win), 'hashchange');
+  assert.deepEqual(takesShown(), [['take-shot', 'height:402px'], ['take-shot', 'height:122px'], ['Open full size →This take scrolls, so it opens full size.']]);
 });

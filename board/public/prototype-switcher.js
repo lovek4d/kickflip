@@ -6,7 +6,9 @@
 // is pickable when an option's id equals its key. Pick sends the owner-answer event questions.html sends, with the
 // note typed above the pill, then moves on (nextQuestion).
 // With ?take=<key> the page shows that take alone, with no header or pill, as questions.html frames it
-// (docs/adr/0048-a-questions-takes-show-inline.md); a page hides its own extras under html.ps-embed.
+// (docs/adr/0048-a-questions-takes-show-inline.md); a page hides its own extras under html.ps-embed. There main's
+// bottom padding, kept clear for the pill, shrinks to 12px whatever the page sets, since questions.html sizes the frame
+// to the page's height.
 (function () {
   const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -84,7 +86,8 @@
 .ps-picked { margin-left:2px; padding:7px 11px; border-radius:999px; color:#fff; background:#1f9d55; white-space:nowrap; }
 .ps-note { background:#000d; color:#fff; border-radius:8px; padding:5px 10px; font:500 12px -apple-system, system-ui, sans-serif; text-align:center; }
 .ps-note[hidden] { display:none; }
-.ps-embed header.top { display:none; }`;
+.ps-embed header.top { display:none; }
+.ps-embed main { padding-bottom:12px !important; }`;
 
   const typing = (el) => Boolean(el?.closest?.('input, select, textarea, [contenteditable]:not([contenteditable="false"])'));
 
