@@ -70,6 +70,32 @@ test('an unstarted card waiting on its questions stays in Todo with its action, 
   assert.equal(card({ held: true }).actionButton, 'grill');
 });
 
+test('only Todo cards with a known creation time show their age from two full days, including held cards', () => {
+  const now = Date.parse('2026-10-30T12:00:00Z');
+  const day = 86400000;
+  const created = (days) => new Date(now - days * day).toISOString();
+  const card = (opts) => board({ now, pr: null, ...opts }).items.find((i) => i.key === 'w/A1');
+  for (const [days, label] of [[1, null], [2 - 1 / day, null], [2, '2 days ago'], [3, '3 days ago'], [3.9, '3 days ago']]) {
+    const it = card({ item: { created: created(days) } });
+    assert.deepEqual([it.lane, it.todoAge], ['todo', label]);
+  }
+  for (const item of [{ held: true }, { status: 'held' }]) {
+    const it = card({ item: { created: created(3), ...item } });
+    assert.deepEqual([it.lane, it.held, it.todoAge], ['todo', true, '3 days ago']);
+  }
+  for (const [status, lane] of [['done', 'done'], ['building', 'progress']]) {
+    const it = card({ item: { created: created(3), status } });
+    assert.deepEqual([it.lane, it.todoAge], [lane, null]);
+  }
+  const reviewed = card({ item: { created: created(3) }, pr: greenDraft });
+  assert.deepEqual([reviewed.lane, reviewed.todoAge], ['review', null]);
+  const started = card({ item: { created: created(3) }, agents: { A1: { main: { started: created(2), done: created(1) } } } });
+  assert.deepEqual([started.lane, started.todoAge], ['progress', null]);
+  for (const value of [undefined, null, '', 'unknown', created(-1)]) {
+    assert.equal(card({ item: { created: value }, threads: { 'w/A1': [{ ts: created(10), text: 'Waiting' }] } }).todoAge, null);
+  }
+});
+
 test("a card's install shows until the card is Done, and reads older once the PR's head has moved past the commit it was built from", () => {
   const install = { url: 'itms-services://?action=download-manifest&url=https://m/x/manifest.plist', built_at: '2026-10-29T10:00:00Z', sha: 'abc1234' };
   const card = (opts) => board(opts).items.find((i) => i.key === 'w/A1').install;

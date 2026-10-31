@@ -849,7 +849,7 @@ export async function addItem(site, key, { title, notes, deps, notesFile }) {
   domId(id, 'the item id');
   const { source, wave } = await loadWave(site, slug);
   if (wave.items.some((it) => it.id === id)) fail(`wave "${slug}" already has an item "${id}"`);
-  const item = { id, title: text(title, '--title') };
+  const item = { id, title: text(title, '--title'), created: new Date().toISOString() };
   if (notes !== undefined) item.notes = text(notes, '--notes');
   if (deps !== undefined) item.deps = await depList(site, slug, deps);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }

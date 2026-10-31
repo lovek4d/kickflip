@@ -800,6 +800,15 @@ test('a work card reads its title, then its next step or builder, its chips led 
   assert.match(ui.workLines(followup), /<a class="chip tone-normal" href="u"[^>]*>PROD-7<\/a>.*<span class="chip tone-quiet">follow-up<\/span>/s);
 });
 
+test('a Todo age uses muted secondary text on its own line below the title', () => {
+  const card = { ...workCard, lane: 'todo', pr: null, reviewers: [], next: null };
+  assert.deepEqual(lines(ui.workLines(card)), ['PROD-1 Five']);
+  const html = ui.workLines({ ...card, todoAge: '3 days ago', held: true });
+  assert.deepEqual(lines(html), ['PROD-1 Five', '3 days ago', 'held']);
+  assert.match(html, /<div class="line1 title">.*Five<\/div>\s*<div class="line3 sub">3 days ago<\/div>/);
+  assert.doesNotMatch(html, /tone-notice/);
+});
+
 test("a card with an install shows its Install link last among its badges, opening in place, and marks an older build", () => {
   const url = 'itms-services://?action=download-manifest&url=https://m/x/manifest.plist';
   const install = { url, label: null, builtAt: ago(2), sha: 'abc1234', older: false };

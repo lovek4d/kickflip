@@ -105,8 +105,9 @@
       : it.working ? `<div class="line3 sub agent">${workingLine}</div>`
       : it.next ? `<div class="line3 sub next">Next: ${esc(it.next)}</div>` : '';
     const eta = it.eta && it.builder ? `<div class="line3 sub eta">${esc(etaLine(it.eta))}</div>` : '';
+    const age = it.todoAge ? `<div class="line3 sub">${esc(it.todoAge)}</div>` : '';
     return `${cardActions(it, top)}<div class="line1 title">${ids ? `${ids} ` : ''}${esc(it.title)}</div>
-      ${status}${eta}
+      ${status}${eta}${age}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
       ${blocked ? `<div class="line5 meta blocked">${blocked}</div>` : ''}`;
   }

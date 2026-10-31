@@ -120,6 +120,7 @@ _Avoid_: closed wave, archived wave
 
 **Work item**:
 One unit of work in a wave, usually one PR. Its key is `<wave>/<id>`.
+In Todo, including while held, a card with a known creation time shows a muted "N days ago" once it is two full days old, counting whole days since creation.
 _Avoid_: task (a **new task** is the owner's), ticket (a ticket is the Linear issue it may link to)
 
 **Internal item**:
@@ -287,7 +288,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `ui.js` | Shared helpers: escaping, times, reply bodies, attachments, icons and message buttons, badges by tone, `setHTML`, which patches a region in place and keeps the focused field's focus when it moves, and `fetchJSON`, through which the side pages read the API and wait out a board restart |
 | `ui-links.js` | Linking refs, Linear ids, PRs and URLs in written text; load it right after `ui.js` |
 | `ui-enums.js` | `BoardUI.BUTTON` and `BoardUI.ACTION_KIND`, the **action button**'s enums, shared with `board/domain.mjs`, which runs it in a vm context; load it before `ui-threads.js` and `ui-cards.js`. `view.test.mjs` checks that every action kind makes one button orange and every action button draws |
-| `ui-cards.js` | A card's lines, in order: title with its ref, or New or Task chip; status with its ETA; Stalled when the builder is silent, then the unread chip, Action needed, PR, review and other chips, then Install; Blocked by chips; and at its top right a New card's bump, edit and delete icons, or another bumpable card's bump icon; and the action row's Merge button |
+| `ui-cards.js` | A card's lines, in order: title with its ref, or New or Task chip; status with its ETA; a Todo work item's age from two full days; Stalled when the builder is silent, then the unread chip, Action needed, PR, review and other chips, then Install; Blocked by chips; and at its top right a New card's bump, edit and delete icons, or another bumpable card's bump icon; and the action row's Merge button |
 | `ui-sidebar.js` | `BoardUI.sidebar`, the sidebar's markup from `/_hub/sidebar.json`, headed by `BoardUI.header` itself, with each row's key in **switch mode**; `switchKeys`, which row each key opens; and `othersWaiting`, for the logo's label. Needs `ui-page-header.js` loaded before it: `hub/hub.mjs` renders the app shell's first sidebar with both in a vm context |
 | `sidebar.js` | Painting the sidebar from the copy written into the shell, else this device's last copy, then from each copy the hub's stream sends; this device's push subscription for its Turn on row; the logo's toggle, the drawer and its swipes, the rail's collapse, which this device keeps, and the logo's label; **switch mode**'s keys, from the document and a framed page, each row opened through the shell |
 | `app.html` | The app shell: the sidebar, the view's slot, and its scripts and CSS from `/_hub/app/`, with a board's loads started in its `<head>`; the hub serves it for a browser's load of `/` or any site's page, and every load of a hub page, with the sidebar and its data written in (`hub/shell.mjs` `pageOf`), and the board server for a board's four view paths without them (`shellHtml`) |

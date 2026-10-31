@@ -123,6 +123,7 @@ function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, threa
   const reviewNext = waitsOn === 'merge' && !autoMerge ? OWNER_MERGE_NEXT[merging ? 'merging' : 'waiting'] : REVIEW_NEXT[waitsOn];
   return {
     key, kind: 'work', order, wave: slug, waveTitle: wave.title || slug, id: it.id, ref: refOf(wave, it.id), title: it.title, status: it.status || null,
+    created: it.created || null,
     internal: wave.internal === true, repo: wave.internal === true && !wave.repo ? null : repo,
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, agents, eta, working,
     deps: it.deps || [], held, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable ? bumpedAt || null : null,
@@ -474,6 +475,8 @@ export function buildBoard(snapshot) {
     if (it.lane === 'done' && !it.fold && it.updatedAt && now - Date.parse(it.updatedAt) >= DONE_OPEN) it.fold = OLDER_FOLD;
     placeOwnerWait(it, questionById, autoMerge);
     if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it)) it.lane = 'progress';
+    const days = it.created ? Math.floor((now - Date.parse(it.created)) / DAY) : 0;
+    it.todoAge = it.lane === 'todo' && days >= 2 ? `${days} days ago` : null;
   }
   // docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md
   // New cards lead Todo, unbumped ones oldest first, so the top one is the next taken (docs/adr/0047-the-plus-makes-a-new-card.md).

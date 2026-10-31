@@ -139,14 +139,22 @@ test('every text flag refuses a bare file path, and --file refuses a missing fil
   assert.match(missing.err, /no such file/);
 });
 
-test('item add makes a planned card, waiting when it has deps, and refuses a taken id, an unknown dep, or a --summary', () => {
+test('item add records creation on a planned card, waiting when it has deps, and refuses a taken id, an unknown dep, or a --summary', () => {
+  const before = Date.now();
+  const withoutCreated = (item) => {
+    const { created, ...rest } = item;
+    const ts = Date.parse(created);
+    assert.ok(ts >= before && ts <= Date.now());
+    assert.equal(created, new Date(ts).toISOString());
+    return rest;
+  };
   const summed = board('item', 'add', 'w/B2', '--site', 'orch', '--title', 'Two', '--notes', 'Why', '--summary', 'Asked why.');
   assert.equal(summed.code, 2);
   assert.match(summed.err, /item add does not take --summary/);
   assert.equal(board('item', 'add', 'w/B2', '--site', 'orch', '--title', 'Two', '--notes', 'Why').code, 0);
-  assert.deepEqual(read(at('waves', 'w', 'wave.json')).items.at(-1), { id: 'B2', title: 'Two', notes: 'Why', status: 'planned' });
+  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'B2', title: 'Two', notes: 'Why', status: 'planned' });
   assert.equal(board('item', 'add', 'w/C3', '--site', 'orch', '--title', 'Three', '--deps', 'A1,B2').code, 0);
-  assert.deepEqual(read(at('waves', 'w', 'wave.json')).items.at(-1), { id: 'C3', title: 'Three', deps: ['A1', 'B2'], status: 'waiting' });
+  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'C3', title: 'Three', deps: ['A1', 'B2'], status: 'waiting' });
   const taken = board('item', 'add', 'w/A1', '--site', 'orch', '--title', 'Again');
   assert.equal(taken.code, 1);
   assert.match(taken.err, /already has an item "A1"/);
@@ -155,7 +163,8 @@ test('item add makes a planned card, waiting when it has deps, and refuses a tak
   assert.match(dep.err, /no item "Z9"/);
   assert.equal(read(at('waves', 'w', 'wave.json')).items.length, 3);
   assert.equal(board('item', 'add', 'audit/E5', '--site', 'audit', '--title', 'Five').code, 0);
-  assert.equal(read(site('audit', 'data', 'wave.json')).items.at(-1).id, 'E5');
+  assert.deepEqual(withoutCreated(read(site('audit', 'data', 'wave.json')).items.at(-1)), { id: 'E5', title: 'Five', status: 'planned' });
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].created, undefined);
 });
 
 test('working marks a known ask started and refuses an unknown one', () => {
