@@ -79,6 +79,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ICON_KEYS } from '../hub/icons.mjs';
 import { liveSessions } from '../hub/live.mjs';
+import { writeManifest } from '../hub/boards.mjs';
 
 const SKILL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOME = path.join(os.homedir(), '.claude', 'web-ts');
@@ -148,12 +149,6 @@ async function pollFor(route) {
     if (res.failed?.length) return `missed this board: ${res.failed[0]}`;
   }
   return 'missed this board';
-}
-function writeManifest(m) {
-  fs.mkdirSync(HOME, { recursive: true });
-  const tmp = MANIFEST + '.' + process.pid + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(m, null, 2) + '\n');
-  fs.renameSync(tmp, MANIFEST);
 }
 async function withLock(fn) {
   const { withManifestLock } = await import(path.join(SKILL, 'hub', 'boards.mjs'));
@@ -287,7 +282,7 @@ const commands = {
       if (m.starting?.[route]) { delete m.starting[route]; if (!Object.keys(m.starting).length) delete m.starting; }
       site.updated = now;
       m.sites[route] = site;
-      writeManifest(m);
+      await writeManifest(m);
       return { route, created, previousOwner: previous, site };
     });
     const hub = await hubStatus();
@@ -328,7 +323,7 @@ const commands = {
         out({ error: 'owned', route, owner: s.owner }); throw new Exit('', 3);
       }
       delete m.sites[route];
-      writeManifest(m);
+      await writeManifest(m);
       out({ left: route, filesKept: s.dir });
     });
   },
@@ -343,7 +338,7 @@ const commands = {
       const owner = { session: r.session, label: r.name, since: new Date().toISOString(), repo: r.repo, ...(r.model ? { model: r.model } : {}) };
       if (m.sites[route]) { m.sites[route].owner = owner; m.sites[route].updated = owner.since; }
       else m.starting = { ...m.starting, [route]: owner };
-      writeManifest(m);
+      await writeManifest(m);
     });
     out({ route: r.route, session: r.session, confirmed: r.confirmed, repo: r.repo, argv: r.argv, output: r.output });
   },
@@ -381,7 +376,7 @@ const commands = {
       const site = m.sites[route] || fail('no site at /' + route);
       applyLook(site);
       site.updated = new Date().toISOString();
-      writeManifest(m);
+      await writeManifest(m);
       out({ route, icon: site.icon ?? null, color: site.color ?? null });
     });
   },
@@ -392,7 +387,7 @@ const commands = {
       const m = readManifest();
       if (!m.sites[route]) fail('no site at /' + route);
       m.sites[route].restart_at = Date.now();
-      writeManifest(m);
+      await writeManifest(m);
     });
     out(`restarting /${route}; the hub picks it up within 2 seconds`);
   },

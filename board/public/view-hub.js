@@ -7,11 +7,15 @@
   let last = null;
   const { esc } = HubUI;
 
+  function rememberedHtml(sessions = []) {
+    return sessions.map((s) => `<div class="remembered"><p>Always allow · session <code>${esc(s.session)}</code></p><ul>${s.rules.map((rule) => `<li><code>${esc(rule)}</code></li>`).join('')}</ul></div>`).join('');
+  }
+
   function sitesHtml(groups) {
     const { row, CHEVRON } = HubUI;
     const site = (s) => {
       const lines = s.lines.length ? `<span class="links">${s.lines.map((l) => `<span><b>${esc(l.link)}</b> ${esc(l.detail)}</span>`).join('')}</span>` : '';
-      return row({ icon: s.icon, title: esc(s.title), sub: `<span class="st ${esc(s.tone)}">${esc(s.word)}</span>${lines}`, wrap: true, trail: CHEVRON, href: s.href });
+      return row({ icon: s.icon, title: esc(s.title), sub: `<span class="st ${esc(s.tone)}">${esc(s.word)}</span>${lines}`, wrap: true, trail: CHEVRON, href: s.href }) + rememberedHtml(s.remembered);
     };
     return groups.map((g) => `<h2 class="label">${esc(g.label)}</h2>\n<div class="group">${g.sites.map(site).join('')}</div>\n`).join('');
   }
@@ -27,7 +31,7 @@
     return `${HubUI.flash(flash)}${promptsHtml(d.prompts || [], prompts)}<h2 class="label" style="margin-top:4px">Health</h2>
 <div class="group">${row({ icon: tile('power', { ok: '#22c55e', wait: '#f59e0b' }[d.hub.tone] || '#ef4444'), title: 'Hub', sub: `<span class="st ${esc(d.hub.tone)}">${esc(d.hub.word)}</span> · ${esc(d.hub.detail)}`, wrap: true })}
 ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/join-web-ts &lt;route&gt;</code>.' }) : ''}</div>
-${sitesHtml(d.groups)}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, events (its session and a watcher run, or the hub can wake it), daily wakes, pushes and reviewer links. One that just broke reads settling first.</p>
+${sitesHtml(d.groups)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, events (its session and a watcher run, or the hub can wake it), daily wakes, pushes and reviewer links. One that just broke reads settling first.</p>
 <h2 class="label">Polling</h2>
 <div class="group">${nowRow(d.polling, tile('clock', '#3b82f6'))}
 ${row({ title: 'Windows, overnight hold, daily wakes', sub: esc(d.polling.summary), wrap: true, trail: CHEVRON, href: '/_hub/settings/polling' })}</div>

@@ -1,7 +1,8 @@
 // Pending prompts: a permission prompt or an AskUserQuestion from a background board session, which its
 // PermissionRequest hook (permission-hook.mjs) hands to the hub and the owner answers in that board's Needs you
-// (docs/adr/0060-background-sessions-prompts-come-to-the-phone.md). The hub is the only writer of
-// ~/.claude/web-ts/prompts.json {prompts: {<id>: record}}; a board server reads its own route's from it.
+// (docs/adr/0060-background-sessions-prompts-come-to-the-phone.md). The hub and ownership commands write
+// ~/.claude/web-ts/prompts.json {prompts: {<id>: record}, remembered: {<session>: {route, ownerSince, runtime, rules}}};
+// a board server reads its own route's pending prompts from it.
 // A record: {id, session, route (null when no board's owner is that session), title (the board's, else the cwd),
 // cwd, tool, action, detail, rule, questions, at, deadline, seen, answer: null | {choice, answers?, message?, at}}.
 // seen is the hook's last poll; a record whose hook stopped polling, or whose answer it never fetched, expires (expired).
@@ -9,6 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { withFileLock } from './locks.mjs';
 
 const PROMPTS = path.join(os.homedir(), '.claude', 'web-ts', 'prompts.json');
 // How long the owner has to answer before the hook denies with a note. BG_SETTINGS's hook timeout must stay above it,
@@ -51,9 +53,7 @@ function detailOf(tool, input = {}) {
   return json === '{}' ? '' : cut(json, 600);
 }
 
-// Always allow's rules: the prompt's own addRules suggestions, else one rule for this exact tool and input. Every one
-// lasts only for the session (owner, `always-scope`): a suggestion's localSettings would write the board's repo, and
-// a setMode suggestion would take the session out of auto mode, so neither passes.
+// localSettings would write the board's repo, and setMode would take the session out of auto mode.
 export function alwaysRules(input) {
   const suggested = (Array.isArray(input?.permission_suggestions) ? input.permission_suggestions : [])
     .filter((s) => s?.type === 'addRules' && s.behavior === 'allow' && Array.isArray(s.rules) && s.rules.length)
@@ -69,6 +69,79 @@ export function alwaysRules(input) {
 }
 
 const ruleText = (rules) => rules.flatMap((r) => r.rules).map((x) => (x.ruleContent ? `${x.toolName}(${x.ruleContent})` : x.toolName)).join(', ');
+
+const runtimeOf = (live) => Number.isInteger(live?.pid) && live.pid > 0 && typeof live.procStart === 'string' &&
+  Number.isFinite(Date.parse(`${live.procStart.trim().replace(/\s+/g, ' ')} UTC`)) ? { pid: live.pid, procStart: live.procStart } : null;
+const sameRuntime = (a, b) => Boolean(runtimeOf(a) && runtimeOf(b) && a.pid === b.pid && a.procStart === b.procStart);
+const ownerSince = (board) => typeof board?.owner?.since === 'string' && board.owner.since ? board.owner.since : null;
+const sameOwner = (entry, board, session) => Boolean(board?.owner?.session === session && entry.ownerSince && entry.ownerSince === ownerSince(board));
+
+export function matchesRule(rule, input) {
+  const tool = input?.tool_name;
+  if (tool === ASK || !rule || rule.toolName !== tool || typeof tool !== 'string') return false;
+  const content = rule.ruleContent;
+  if (content === undefined) return true;
+  if (typeof content !== 'string' || !content) return false;
+  const ti = input.tool_input || {};
+  if (tool === 'Bash') return typeof ti.command === 'string' && content === ti.command;
+  // Only Claude Code's filesystem-root syntax is unambiguous without interpreting cwd or globs.
+  if (FILE_TOOLS[tool]) return content.startsWith('//') && !/[\*?\[\]{}]/.test(content) && content.slice(1) === fileOf(ti);
+  if (tool === 'WebFetch') {
+    try {
+      const url = new URL(ti.url);
+      return ['http:', 'https:'].includes(url.protocol) && content === `domain:${url.host}`;
+    } catch { return false; }
+  }
+  return false;
+}
+
+// Process identity prevents a resumed conversation with the same session id from inheriting an ended run's rules.
+export function pruneRemembered(store, { running, boards }) {
+  let changed = false;
+  for (const [session, entry] of Object.entries(store.remembered || {})) {
+    const board = boards.find((b) => entry.route ? b.route === entry.route : b.owner?.session === session);
+    if (!sameRuntime(entry.runtime, runtimeOf(running.get(session))) ||
+        (entry.route && !sameOwner(entry, board, session)) || (board && !ownerSince(board))) {
+      delete store.remembered[session];
+      changed = true;
+    } else if (entry.route === null && board) {
+      entry.route = board.route;
+      entry.ownerSince = ownerSince(board);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+export function rememberRules(store, record, context) {
+  if (record.answer?.choice !== 'always' || record.tool === ASK || !record.session || !record.permissions) return false;
+  if (!sameRuntime(record.runtime, runtimeOf(context.running.get(record.session)))) return false;
+  const previous = Object.hasOwn(store.remembered || {}, record.session) ? store.remembered[record.session] : null;
+  const route = record.route || previous?.route;
+  const board = (route && context.boards.find((b) => b.route === route)) ||
+    (!record.route && context.boards.find((b) => b.owner?.session === record.session));
+  if ((record.route && !sameOwner(record, board, record.session)) ||
+      (board && (board.owner?.session !== record.session || !ownerSince(board)))) return false;
+  store.remembered ||= {};
+  const keepPrevious = previous && sameRuntime(previous.runtime, record.runtime) &&
+    (previous.route ? previous.route === board?.route && sameOwner(previous, board, record.session) : true);
+  const rules = keepPrevious ? [...previous.rules] : [];
+  for (const rule of record.permissions.flatMap((p) => p.rules)) {
+    if (!rules.some((r) => r.toolName === rule.toolName && r.ruleContent === rule.ruleContent)) rules.push(rule);
+  }
+  Object.defineProperty(store.remembered, record.session, { value: { route: board?.route || null, ownerSince: ownerSince(board), runtime: record.runtime, rules }, enumerable: true, writable: true, configurable: true });
+  return true;
+}
+
+export function rememberedAnswer(store, input) {
+  if (!input.session_id || input.tool_name === ASK || !Object.hasOwn(store.remembered || {}, input.session_id)) return null;
+  return store.remembered[input.session_id].rules.some((rule) => matchesRule(rule, input)) ? { choice: 'allow' } : null;
+}
+
+export function rememberedFor(route, store = readPrompts()) {
+  return Object.entries(store.remembered || {}).filter(([, entry]) => entry.route === route)
+    .map(([session, entry]) => ({ session, rules: entry.rules.map((r) => ruleText([{ rules: [r] }])) }));
+}
 
 // The JSON the hook prints for the owner's answer {choice: 'allow' | 'always' | 'deny', answers?, message?}.
 export function hookOutput(input, answer) {
@@ -90,17 +163,19 @@ function questionsOf(input) {
   }));
 }
 
-// A new record for a PermissionRequest hook's input. board: {route, title} of the board whose owner is the
+// A new record for a PermissionRequest hook's input. board: {route, title, owner} of the board whose owner is the
 // session, or null.
-export function promptRecord(input, { board, now = new Date() }) {
+export function promptRecord(input, { board, live, now = new Date() }) {
   const tool = String(input.tool_name);
   const asking = tool === ASK;
+  const permissions = asking ? null : alwaysRules(input);
   const at = now.toISOString();
   return {
     id: 'p' + crypto.randomBytes(6).toString('hex'), session: String(input.session_id || ''), route: board?.route || null,
     title: board?.title || tilde(input.cwd) || 'A background session', cwd: String(input.cwd || ''), tool,
     action: asking ? null : actionOf(tool, input.tool_input), detail: asking ? '' : detailOf(tool, input.tool_input),
-    rule: asking ? null : ruleText(alwaysRules(input)), questions: asking ? questionsOf(input.tool_input) : null,
+    rule: asking ? null : ruleText(permissions), questions: asking ? questionsOf(input.tool_input) : null,
+    permissions, runtime: runtimeOf(live), ownerSince: ownerSince(board),
     at, deadline: new Date(now.getTime() + WAIT_MS).toISOString(), seen: at, answer: null,
   };
 }
@@ -136,8 +211,9 @@ export function expired(store, { now = Date.now(), aliveSince = 0 } = {}) {
 export function readPrompts() {
   try {
     const s = JSON.parse(fs.readFileSync(PROMPTS, 'utf8'));
-    return { prompts: s?.prompts && typeof s.prompts === 'object' ? s.prompts : {} };
-  } catch { return { prompts: {} }; }
+    return { prompts: s?.prompts && typeof s.prompts === 'object' ? s.prompts : {},
+      remembered: s?.remembered && typeof s.remembered === 'object' ? s.remembered : {} };
+  } catch { return { prompts: {}, remembered: {} }; }
 }
 
 export function savePrompts(store) {
@@ -145,6 +221,25 @@ export function savePrompts(store) {
   fs.mkdirSync(path.dirname(PROMPTS), { recursive: true });
   fs.writeFileSync(tmp, JSON.stringify(store, null, 2) + '\n');
   fs.renameSync(tmp, PROMPTS);
+}
+
+export const withPromptsLock = (fn) => withFileLock(PROMPTS, fn);
+
+export function updatePrompts(fn) {
+  return withPromptsLock(() => {
+    const store = readPrompts();
+    const result = fn(store);
+    savePrompts(store);
+    return result;
+  });
+}
+
+export function dropSessionPrompts(store, sessions) {
+  const dropped = new Set(sessions.filter(Boolean));
+  for (const session of dropped) delete store.remembered[session];
+  for (const [id, record] of Object.entries(store.prompts)) {
+    if (dropped.has(record.session)) delete store.prompts[id];
+  }
 }
 
 // What waits on the owner: unanswered records, oldest first, for one route, or with route null for no board's.

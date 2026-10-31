@@ -121,7 +121,7 @@ async function moveOwner(route, { from, to, mark }) {
     if (site?.owner?.session === from) Object.assign(site, { owner: { ...site.owner, session: to }, updated: new Date().toISOString() });
     else if (m.starting?.[route]?.session === from) m.starting[route] = { ...m.starting[route], session: to };
     else return;
-    writeManifest(m);
+    await writeManifest(m);
   });
 }
 

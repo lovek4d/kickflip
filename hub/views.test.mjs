@@ -242,3 +242,38 @@ test('Send now says how many queued pushes went, or that none could', () => {
   assert.deepEqual(flushView({ count: 1, sent: 1, ok: true }).message, 'Sent 1 queued push.');
   assert.deepEqual(flushView({ count: 2, sent: 0, ok: false }), { sent: 0, count: 2, ok: false, message: 'Could not send the queue. It stays queued for the next check.' });
 });
+
+test('the hub page shows each session\'s remembered rules under its board, escaped and read-only', () => {
+  const document = {};
+  const { Element } = miniDom(class {}, document);
+  const root = new Element('div');
+  let live;
+  const context = vm.createContext({
+    navigator: {},
+    BoardView: { page: (root, site, run) => run({ $: (s) => root.querySelector(s) }) },
+    BoardUI: { header: () => '' },
+    PromptAnswers: { wire: () => ({ shows: () => true }) },
+    HubKit: { device: () => ({ state: () => null }), forms: () => ({}), live: (B, opts) => { live = opts; } },
+  });
+  for (const file of ['ui-hub.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
+  root.innerHTML = '<main></main>';
+  context.AppViews.hub.create(root, '/_hub', {});
+  const now = t(19);
+  const sessions = [{ session: 's-alpha', rules: ['Bash(echo "<img>")', 'Write(//r/a)', 'WebFetch(domain:docs.x.dev)'] }];
+  const data = hubView({ now, st: status(now, DEFAULTS), poll: poll(now),
+    sidebar: { sites: [{ route: 'alpha', board: true }, { route: 'beta', board: true }], hub: {}, notifications: {}, total: 0 },
+    rows: [{ route: 'alpha', title: 'Alpha', state: 'up' }, { route: 'beta', title: 'Beta', state: 'up' }], remembered: { alpha: sessions },
+  });
+  assert.deepEqual(data.groups[0].sites.map((s) => s.remembered), [sessions, []]);
+  live.paint({ ...data, remembered: [{ session: 's-alone', rules: ['WebSearch'] }] });
+  const lists = root.querySelectorAll('.remembered');
+  assert.equal(lists.length, 2);
+  assert.match(lists[0].textContent, /Always allow · session s-alpha/);
+  assert.deepEqual(lists[0].querySelectorAll('li code').map((el) => el.textContent), sessions[0].rules);
+  assert.equal(lists[0].previousSibling.getAttribute('href'), '/alpha/');
+  assert.equal(lists[0].querySelectorAll('a, button, input').length, 0);
+  assert.equal(lists[0].querySelector('img'), null);
+  assert.match(lists[1].textContent, /s-alone.*WebSearch/);
+  live.paint({ ...data, groups: data.groups.map((g) => ({ ...g, sites: g.sites.map((s) => ({ ...s, remembered: [] })) })) });
+  assert.equal(root.querySelector('.remembered'), null);
+});

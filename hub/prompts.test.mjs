@@ -4,23 +4,25 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const HOOK = path.join(HUB_DIR, 'permission-hook.mjs');
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'prompts-')));
 process.env.HOME = home;
-const { expired, GONE_AFTER, NO_ANSWER, UNREACHABLE, DROPPED, DENIED, WAIT_MS } = await import('./prompts.mjs');
+const { expired, GONE_AFTER, NO_ANSWER, UNREACHABLE, DROPPED, DENIED, WAIT_MS,
+  promptRecord, answerOf, rememberRules, rememberedAnswer, pruneRemembered, readPrompts, savePrompts, updatePrompts, withPromptsLock, rememberedFor, pendingFor, matchesRule } = await import('./prompts.mjs');
+const { readManifest, writeManifest, withManifestLock } = await import('./boards.mjs');
 
 const write = (file, v) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof v === 'string' ? v : JSON.stringify(v)); };
-const freePort = () => new Promise((resolve) => { const s = http.createServer().listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); }); });
+const freePort = () => new Promise((resolve, reject) => { const s = http.createServer().on('error', reject).listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); }); });
 
 // The hook as Claude Code runs it: the input on stdin, the decision on stdout. → {status, out, ms}
-function runHook(input, port) {
+function runHook(input, port, preload) {
   return new Promise((resolve) => {
     const t = Date.now();
-    const child = spawn(process.execPath, [HOOK], { env: { ...process.env, WEB_TS_HUB_PORT: String(port) } });
+    const child = spawn(process.execPath, [...(preload ? ['--import', `data:text/javascript,${encodeURIComponent(preload)}`] : []), HOOK], { env: { ...process.env, WEB_TS_HUB_PORT: String(port) } });
     let out = '';
     child.stdout.on('data', (d) => { out += d; });
     child.on('close', (status) => resolve({ status, out: out ? JSON.parse(out) : null, ms: Date.now() - t }));
@@ -32,6 +34,258 @@ const decision = (r) => { assert.equal(r.status, 0); assert.equal(r.out.hookSpec
 const bash = (command, extra = {}) => ({ session_id: 's1', cwd: '/r', hook_event_name: 'PermissionRequest', permission_mode: 'auto', tool_name: 'Bash', tool_input: { command, description: 'x' }, ...extra });
 const question = { session_id: 's1', cwd: '/r', hook_event_name: 'PermissionRequest', tool_name: 'AskUserQuestion',
   tool_input: { questions: [{ question: 'Colour?', header: 'C', multiSelect: false, options: [{ label: 'Red', description: '' }, { label: 'Blue', description: '' }] }] } };
+
+const live = { pid: 123, procStart: 'Fri Oct 30 10:00:00 2026' };
+const board = { route: 'shop', title: 'Shop', owner: { session: 's1', since: '2026-10-30T17:00:00.000Z' } };
+const context = () => ({ running: new Map([['s1', live]]), boards: [board] });
+const kept = (inputs, choice = 'always') => {
+  const store = { prompts: {}, remembered: {} };
+  for (const input of inputs) {
+    const rec = promptRecord(input, { board, live });
+    rec.answer = answerOf(rec, { choice }).answer;
+    rememberRules(store, rec, context());
+  }
+  return store;
+};
+
+test('remembered rules persist by session and match only the exact command, path, domain or bare tool', () => {
+  const writeFile = (file_path) => ({ ...bash(''), tool_name: 'Write', tool_input: { file_path, content: 'x' } });
+  const fetchUrl = (url) => ({ ...bash(''), tool_name: 'WebFetch', tool_input: { url } });
+  const tool = (tool_name) => ({ ...bash(''), tool_name, tool_input: { title: 'x' } });
+  const inputs = [bash('npm test'), writeFile('/r/a.md'), fetchUrl('https://docs.x.dev/a'), tool('mcp__linear__save_issue')];
+  const store = kept(inputs);
+  savePrompts(store);
+  const restored = readPrompts();
+  assert.deepEqual(restored, store);
+  assert.deepEqual(Object.keys(restored.remembered), ['s1']);
+  for (const input of [...inputs, fetchUrl('https://docs.x.dev/b')]) assert.deepEqual(rememberedAnswer(restored, input), { choice: 'allow' });
+  for (const input of [bash('npm test '), bash('npm test --watch'), bash('npm'), writeFile('/r/a.md/child'), writeFile('/r/b.md'),
+    fetchUrl('https://other.x.dev/a'), fetchUrl('https://sub.docs.x.dev/a'), fetchUrl('https://docs.x.dev.evil/a'), tool('mcp__linear__get_issue'),
+    { ...inputs[0], session_id: 's2' }, { ...inputs[0], session_id: '' }]) assert.equal(rememberedAnswer(restored, input), null, JSON.stringify(input));
+  assert.deepEqual(pendingFor('shop', restored), []);
+  assert.deepEqual(rememberedFor('shop', restored), [{ session: 's1', rules: ['Bash(npm test)', 'Write(//r/a.md)', 'WebFetch(domain:docs.x.dev)', 'mcp__linear__save_issue'] }]);
+});
+
+test('suggested rules retain their exact scope; prefixes, globs and unknown rule contents never widen a match', () => {
+  const suggestions = (rule) => [{ type: 'addRules', behavior: 'allow', destination: 'localSettings', rules: [rule] }];
+  const store = kept([bash('npm test', { permission_suggestions: suggestions({ toolName: 'Bash', ruleContent: 'npm test' }) })]);
+  assert.deepEqual(rememberedAnswer(store, bash('npm test')), { choice: 'allow' });
+  assert.equal(rememberedAnswer(store, bash('npm test extra')), null);
+  for (const [rule, input] of [
+    [{ toolName: 'Bash', ruleContent: 'npm:*' }, bash('npm test')],
+    [{ toolName: 'Bash', ruleContent: 'npm *' }, bash('npm test')],
+    [{ toolName: 'Write', ruleContent: '//r/**' }, { tool_name: 'Write', tool_input: { file_path: '/r/a' } }],
+    [{ toolName: 'Write', ruleContent: '/r/a' }, { tool_name: 'Write', tool_input: { file_path: '/r/a' } }],
+    [{ toolName: 'WebFetch', ruleContent: 'domain:*.x.dev' }, { tool_name: 'WebFetch', tool_input: { url: 'https://docs.x.dev' } }],
+    [{ toolName: 'Other', ruleContent: 'x' }, { tool_name: 'Other', tool_input: { x: 'x' } }],
+  ]) assert.equal(matchesRule(rule, input), false);
+  assert.equal(matchesRule({ toolName: 'Bash' }, bash('anything')), true);
+});
+
+test('Allow once and Deny keep no rules and AskUserQuestion is never auto-answered, even by a bare tool rule', () => {
+  for (const choice of ['allow', 'deny']) assert.deepEqual(kept([bash('npm test')], choice).remembered, {});
+  const store = kept([question]);
+  assert.deepEqual(store.remembered, {});
+  store.remembered.s1 = { rules: [{ toolName: 'AskUserQuestion' }] };
+  assert.equal(rememberedAnswer(store, question), null);
+  assert.equal(matchesRule({ toolName: 'AskUserQuestion' }, question), false);
+});
+
+test('remembered rules end when the session stops, restarts under the same id, loses its board or changes owner', () => {
+  for (const next of [
+    { ...context(), running: new Map() },
+    { ...context(), running: new Map([['s1', { ...live, pid: 124 }]]) },
+    { ...context(), running: new Map([['s1', { ...live, procStart: 'another start' }]]) },
+    { ...context(), boards: [] },
+    { ...context(), boards: [{ ...board, owner: { session: 's2' } }] },
+  ]) {
+    const store = kept([bash('npm test')]);
+    assert.equal(pruneRemembered(store, context()), false);
+    assert.equal(pruneRemembered(store, next), true);
+    assert.equal(rememberedAnswer(store, bash('npm test')), null);
+    savePrompts(store);
+    assert.deepEqual(readPrompts().remembered, {});
+  }
+  const rec = promptRecord(bash('npm test'), { board, live });
+  rec.answer = { choice: 'always' };
+  assert.equal(rememberRules({ prompts: {} }, rec, { ...context(), running: new Map() }), false);
+  assert.equal(rememberRules({ prompts: {} }, rec, { ...context(), boards: [] }), false);
+});
+
+test('remembered rules follow a session into its board and then end when that board changes owner', () => {
+  const store = { prompts: {}, remembered: {} };
+  const rec = promptRecord(bash('npm test'), { board: null, live });
+  rec.answer = { choice: 'always' };
+  assert.equal(rememberRules(store, rec, { ...context(), boards: [] }), true);
+  assert.equal(pruneRemembered(store, { ...context(), boards: [] }), false);
+  assert.equal(rememberedFor(null, store).length, 1);
+  assert.equal(pruneRemembered(store, context()), true);
+  assert.equal(rememberedFor(null, store).length, 0);
+  assert.equal(rememberedFor('shop', store).length, 1);
+  assert.equal(store.remembered.s1.ownerSince, board.owner.since);
+  assert.equal(pruneRemembered(store, { ...context(), boards: [{ ...board, owner: { session: 's2' } }] }), true);
+  assert.equal(rememberedAnswer(store, bash('npm test')), null);
+});
+
+test('answering an older boardless prompt retains or resolves the current board binding', () => {
+  for (const existing of [true, false]) {
+    const store = { prompts: {}, remembered: {} };
+    const older = promptRecord(bash('npm test'), { board: null, live });
+    if (existing) {
+      const newer = promptRecord(bash('npm run build'), { board, live });
+      newer.answer = { choice: 'always' };
+      assert.equal(rememberRules(store, newer, context()), true);
+    }
+    older.answer = { choice: 'always' };
+    assert.equal(rememberRules(store, older, context()), true);
+    assert.equal(store.remembered.s1.route, 'shop');
+    assert.equal(store.remembered.s1.ownerSince, board.owner.since);
+    assert.equal(store.remembered.s1.rules.length, existing ? 2 : 1);
+    assert.equal(pruneRemembered(store, { ...context(), boards: [{ ...board, owner: { session: 's2', since: '2026-10-30T18:00:00.000Z' } }] }), true);
+    assert.equal(rememberedAnswer(store, bash('npm test')), null);
+    assert.equal(rememberedAnswer(store, bash('npm run build')), null);
+  }
+});
+
+test('an owner change away and back while the hub is down invalidates remembered rules and pending prompts', () => {
+  const store = kept([bash('npm test')]);
+  const pending = promptRecord(bash('npm run build'), { board, live });
+  store.prompts[pending.id] = pending;
+  savePrompts(store);
+  const restored = readPrompts();
+  const returned = { ...context(), boards: [{ ...board, owner: { session: 's1', since: '2026-10-30T19:00:00.000Z' } }] };
+  assert.equal(pruneRemembered(restored, returned), true);
+  assert.equal(rememberedAnswer(restored, bash('npm test')), null);
+  restored.prompts[pending.id].answer = { choice: 'always' };
+  assert.equal(rememberRules(restored, restored.prompts[pending.id], returned), false);
+  assert.equal(rememberedAnswer(restored, bash('npm run build')), null);
+});
+
+test('join clears boardless rules and prompts for both owners while the hub is stopped, even after a takeover back', () => {
+  const web = (...parts) => path.join(home, '.claude', 'web-ts', ...parts);
+  const dir = web('sites', 'shop');
+  const join = (session) => {
+    execFileSync(process.execPath, [path.join(HUB_DIR, '..', 'bin', 'web-ts.mjs'), 'join', 'shop',
+      '--session', session, '--force', '--dir', dir, '--port', '4600',
+      '--cmd', JSON.stringify([process.execPath, path.join(HUB_DIR, '..', 'board', 'server.mjs'), dir])],
+    { env: { ...process.env, WEB_TS_HUB_PORT: '1' }, stdio: 'pipe' });
+  };
+  for (const returns of [false, true]) {
+    write(web('manifest.json'), { version: 1, sites: {} });
+    const store = { prompts: {}, remembered: {} };
+    for (const session of ['s1', 's2', 'unrelated']) {
+      const rec = promptRecord({ ...bash('npm test'), session_id: session }, { board: null, live });
+      rec.answer = { choice: 'always' };
+      rememberRules(store, rec, { running: new Map([[session, live]]), boards: [] });
+      rec.answer = null;
+      store.prompts[rec.id] = rec;
+    }
+    savePrompts(store);
+    join('s1');
+    join('s2');
+    if (returns) join('s1');
+    const restored = readPrompts();
+    const { sites } = JSON.parse(fs.readFileSync(web('manifest.json'), 'utf8'));
+    const restarted = { running: new Map([['s1', live], ['s2', live], ['unrelated', live]]),
+      boards: [{ route: 'shop', owner: sites.shop.owner }] };
+    pruneRemembered(restored, restarted);
+    assert.equal(rememberedAnswer(restored, bash('npm test')), null);
+    assert.equal(rememberedAnswer(restored, { ...bash('npm test'), session_id: 's2' }), null);
+    assert.deepEqual(Object.keys(restored.remembered), ['unrelated']);
+    assert.deepEqual(Object.values(restored.prompts).map((r) => r.session), ['unrelated']);
+  }
+});
+
+test('ownership writes clear both sessions across routes and boardless prompts, while a same-owner rejoin keeps them', async () => {
+  const web = (...parts) => path.join(home, '.claude', 'web-ts', ...parts);
+  const store = { prompts: {}, remembered: {} };
+  for (const session of ['old', 'new', 'unrelated']) {
+    store.remembered[session] = { route: null, runtime: live, rules: [{ toolName: 'Bash', ruleContent: 'npm test' }] };
+    for (const route of [null, 'shop', 'another']) {
+      const rec = promptRecord({ ...bash('npm test'), session_id: session }, { board: route ? { ...board, route } : null, live });
+      store.prompts[rec.id] = rec;
+    }
+  }
+  for (const change of ['takeover', 'leave', 'generation', 'starting']) {
+    const owner = { session: 'old', since: '2026-10-30T17:00:00Z' };
+    write(web('manifest.json'), change === 'starting' ? { sites: {}, starting: { shop: owner } } : { sites: { shop: { owner } } });
+    savePrompts(store);
+    await withManifestLock(() => writeManifest(readManifest()));
+    assert.deepEqual(readPrompts(), store);
+    await withManifestLock(() => {
+      const m = readManifest();
+      if (change === 'leave') delete m.sites.shop;
+      else if (change === 'starting') m.starting.shop = { ...owner, session: 'new' };
+      else m.sites.shop.owner = { ...owner, session: change === 'generation' ? 'old' : 'new', since: '2026-10-30T18:00:00Z' };
+      return writeManifest(m);
+    });
+    const dropped = change === 'leave' || change === 'generation' ? ['old'] : ['old', 'new'];
+    assert.deepEqual(Object.keys(readPrompts().remembered), Object.keys(store.remembered).filter((s) => !dropped.includes(s)));
+    assert.ok(Object.values(readPrompts().prompts).every((r) => !dropped.includes(r.session)));
+  }
+});
+
+test('hub prompt mutations and ownership writes share a lock and cannot restore cleared rules or pending prompts', async () => {
+  const web = (...parts) => path.join(home, '.claude', 'web-ts', ...parts);
+  write(web('manifest.json'), { sites: { shop: { owner: board.owner } } });
+  savePrompts({ prompts: {}, remembered: {} });
+  let entered;
+  const acquired = new Promise((resolve) => { entered = resolve; });
+  let release;
+  const held = withPromptsLock(async () => {
+    entered();
+    await new Promise((resolve) => { release = resolve; });
+  });
+  await acquired;
+  const mutation = updatePrompts((store) => {
+    Object.assign(store, kept([bash('npm test')]));
+    const rec = promptRecord(bash('npm run build'), { board, live });
+    store.prompts[rec.id] = rec;
+  });
+  release();
+  await held;
+  await mutation;
+  await withManifestLock(() => {
+    const m = readManifest();
+    m.sites.shop.owner = { session: 's2', since: '2026-10-30T18:00:00Z' };
+    return writeManifest(m);
+  });
+  await updatePrompts((store) => {
+    assert.deepEqual(store, { prompts: {}, remembered: {} });
+    store.prompts.unrelated = { session: 'unrelated', route: null };
+  });
+  assert.deepEqual(readPrompts().remembered, {});
+  assert.deepEqual(Object.keys(readPrompts().prompts), ['unrelated']);
+});
+
+test('a session without a reliable process start cannot remember rules or retain persisted rules after PID reuse', () => {
+  for (const procStart of [undefined, null, '', 'unknown']) {
+    const uncertain = { ...live, procStart };
+    const next = { ...context(), running: new Map([['s1', uncertain]]) };
+    const store = { prompts: {}, remembered: {} };
+    const rec = promptRecord(bash('npm test'), { board, live: uncertain });
+    rec.answer = { choice: 'always' };
+    assert.equal(rememberRules(store, rec, next), false);
+    assert.equal(rememberedAnswer(store, bash('npm test')), null);
+    store.remembered.s1 = { route: 'shop', ownerSince: board.owner.since,
+      runtime: { pid: live.pid, procStart: procStart ?? null }, rules: [{ toolName: 'Bash', ruleContent: 'npm test' }] };
+    savePrompts(store);
+    const restored = readPrompts();
+    assert.equal(pruneRemembered(restored, next), true);
+    assert.equal(rememberedAnswer(restored, bash('npm test')), null);
+  }
+});
+
+test('the hook accepts an immediate remembered allow without polling and rejects immediate questions or other choices', async () => {
+  const preload = (choice) => `globalThis.fetch = async (url, opts) => {
+    if (opts?.method !== 'POST' || !url.endsWith('/_hub/prompts')) throw new Error('unexpected poll');
+    return { ok: true, json: async () => ({ state: 'answered', answer: { choice: ${JSON.stringify(choice)} } }) };
+  };`;
+  assert.deepEqual(decision(await runHook(bash('npm test'), 1, preload('allow'))), { behavior: 'allow' });
+  for (const [input, choice] of [[question, 'allow'], [bash('npm test'), 'deny'], [bash('npm test'), 'always']]) {
+    assert.equal(decision(await runHook(input, 1, preload(choice))).behavior, 'deny');
+  }
+});
 
 // A hub that answers each prompt's first poll with `answer`, or holds every poll pending when answer is null, or
 // says the prompt is gone when answer is 'gone'.
@@ -47,7 +301,7 @@ async function fakeHub({ answer, deadlineIn = WAIT_MS }) {
     if (answer) return json(200, { state: 'answered', answer });
     setTimeout(() => json(200, { state: 'pending' }), 200);
   });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   return { port: server.address().port, seen, close: () => new Promise((r) => { server.closeAllConnections(); server.close(r); }) };
 }
 
@@ -121,8 +375,8 @@ test("a pending prompt expires once its hook stops polling or never takes its an
 
 // ---------- a scratch hub ----------
 let hub;
-const port = await freePort();
-const base = `http://127.0.0.1:${port}`;
+let port;
+let base;
 function startHub() {
   hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: String(port), WEB_TS_CLAUDE: '/usr/bin/false' } });
   return new Promise((resolve, reject) => {
@@ -147,6 +401,8 @@ const hubPrompts = async () => (await (await fetch(`${base}/_hub/api/hub`)).json
 const answer = (id, body) => fetch(`${base}/_hub/prompts/${id}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 test("a session that owns no board waits on the hub page by its folder and counts in the badge; a question needs a pick on each, and its answer still reaches the hook after the hub restarts", async () => {
+  port = await freePort();
+  base = `http://127.0.0.1:${port}`;
   write(path.join(home, '.claude', 'web-ts', 'manifest.json'), { version: 1, sites: {} });
   await startHub();
   const total = async () => (await (await fetch(`${base}/_hub/needs.json`)).json()).total;
@@ -168,4 +424,72 @@ test("a session that owns no board waits on the hub page by its folder and count
   assert.deepEqual(await hubPrompts(), []);
   assert.equal(await total(), 0);
   assert.equal((await answer(p.id, { choice: 'deny' })).status, 404);
+});
+
+test('a remembered match bypasses prompts and push, survives a hub restart, and ends on owner change or session stop', async () => {
+  await stopHub();
+  port = await freePort();
+  base = `http://127.0.0.1:${port}`;
+  const web = (...parts) => path.join(home, '.claude', 'web-ts', ...parts);
+  const dir = web('sites', 'shop');
+  const manifestFile = web('manifest.json');
+  const manifest = { version: 1, sites: { shop: { title: 'Shop', dir, port: await freePort(),
+    cmd: [process.execPath, path.join(HUB_DIR, '..', 'board', 'server.mjs'), dir], owner: { ...board.owner } } } };
+  write(manifestFile, manifest);
+  write(path.join(dir, 'board.json'), { title: 'Shop', items: 'items.json' });
+  write(path.join(dir, 'items.json'), { items: [] });
+  const sessionFile = path.join(home, '.claude', 'sessions', `${process.pid}.json`);
+  const procStart = execFileSync('ps', ['-o', 'lstart=', '-p', String(process.pid)], { encoding: 'utf8', env: { ...process.env, TZ: 'UTC' } }).trim();
+  write(sessionFile, { sessionId: 's1', pid: process.pid, procStart, kind: 'bg' });
+  write(web('prompts.json'), { prompts: {}, remembered: {} });
+  write(web('push', 'subs.json'), [{ endpoint: 'https://unused.invalid/device', keys: {} }]);
+  write(web('settings.json'), { notifications: { on: true, weekends_off: false, snoozed_until: new Date(Date.now() + 86_400_000).toISOString() } });
+  await startHub();
+  const post = async (input) => (await (await fetch(`${base}/_hub/prompts`, { method: 'POST', body: JSON.stringify(input) })).json());
+  const data = async () => (await (await fetch(`${base}/_hub/api/hub`)).json());
+  const queue = () => JSON.parse(fs.readFileSync(web('push', 'queue.json'), 'utf8')).items;
+  const first = await post(bash('npm test'));
+  assert.equal((await answer(first.id, { choice: 'always' })).status, 200);
+  const wait = await (await fetch(`${base}/_hub/prompts/${first.id}/wait`)).json();
+  assert.equal(wait.answer.choice, 'always');
+  await until(() => fs.existsSync(web('push', 'queue.json')), 'the initial prompt push');
+  const pushed = queue().length;
+  assert.deepEqual((await data()).groups[0].sites[0].remembered, [{ session: 's1', rules: ['Bash(npm test)'] }]);
+  await stopHub();
+  await startHub();
+  assert.deepEqual(decision(await runHook(bash('npm test'), port)), { behavior: 'allow' });
+  assert.deepEqual(JSON.parse(fs.readFileSync(web('prompts.json'), 'utf8')).prompts, {});
+  assert.equal(queue().length, pushed);
+
+  for (const [input, changed] of [
+    [{ ...bash(''), tool_name: 'Write', tool_input: { file_path: '/r/a' } }, { ...bash(''), tool_name: 'Write', tool_input: { file_path: '/r/b' } }],
+    [{ ...bash(''), tool_name: 'WebFetch', tool_input: { url: 'https://docs.x.dev/a' } }, { ...bash(''), tool_name: 'WebFetch', tool_input: { url: 'https://other.x.dev/a' } }],
+  ]) {
+    const p = await post(input);
+    assert.equal((await answer(p.id, { choice: 'always' })).status, 200);
+    await fetch(`${base}/_hub/prompts/${p.id}/wait`);
+    assert.deepEqual(await post(input), { state: 'answered', answer: { choice: 'allow' } });
+    const asked = await post(changed);
+    assert.ok(asked.id);
+    await fetch(`${base}/_hub/prompts/${asked.id}`, { method: 'DELETE' });
+  }
+  for (const input of [bash('npm test --watch'), question, { ...bash('npm test'), session_id: 's2' }]) {
+    const asked = await post(input);
+    assert.ok(asked.id);
+    await fetch(`${base}/_hub/prompts/${asked.id}`, { method: 'DELETE' });
+  }
+  manifest.sites.shop.owner.session = 's2';
+  write(manifestFile, manifest);
+  assert.deepEqual((await data()).groups[0].sites[0].remembered, []);
+  assert.deepEqual(JSON.parse(fs.readFileSync(web('prompts.json'), 'utf8')).remembered, {});
+  const asked = await post(bash('npm test'));
+  assert.ok(asked.id);
+  await fetch(`${base}/_hub/prompts/${asked.id}`, { method: 'DELETE' });
+  manifest.sites.shop.owner.session = 's1';
+  write(manifestFile, manifest);
+  const again = await post(bash('npm test'));
+  await answer(again.id, { choice: 'always' });
+  fs.unlinkSync(sessionFile);
+  assert.deepEqual((await data()).groups[0].sites[0].remembered, []);
+  assert.ok((await post(bash('npm test'))).id);
 });

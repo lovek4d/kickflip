@@ -40,7 +40,12 @@ async function main() {
   try {
     const r = await fetch(`${BASE}/_hub/prompts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: raw, signal: AbortSignal.timeout(5000) });
     if (!r.ok) throw new Error(`hub ${r.status}`);
-    ({ id, deadline } = await r.json());
+    const body = await r.json();
+    if (body?.state === 'answered') {
+      if (input.tool_name !== 'AskUserQuestion' && body.answer?.choice === 'allow') return finish(hookOutput(input, body.answer));
+      return finish(deny(FALLBACK));
+    }
+    ({ id, deadline } = body);
   } catch { return finish(deny(UNREACHABLE)); }
   const until = Math.min(Date.parse(deadline) || Infinity, Date.now() + WAIT_CAP);
 

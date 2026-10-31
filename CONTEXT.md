@@ -31,7 +31,7 @@ The levels back climbs in the app shell: a board, its Waiting on you, then a pro
 _Avoid_: nav stack, breadcrumbs
 
 **Hub page**:
-The hub's status page, `/_hub/`, which the sidebar's Hub row opens: the **pending prompts** of sessions that own no board, each site's health with each board's hub links and watcher, polling and notifications ([0050](docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md)).
+The hub's status page, `/_hub/`, which the sidebar's Hub row opens: the **pending prompts** of sessions that own no board, each site's health with each board's hub links and watcher, each session's remembered Always allow rules read-only under its board, polling and notifications ([0050](docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md), [0060](docs/adr/0060-background-sessions-prompts-come-to-the-phone.md)).
 _Avoid_: dashboard, console, hub home
 
 **Board registry**:
@@ -248,7 +248,7 @@ The box at the top of a board listing what waits on the owner, one line per work
 _Avoid_: inbox, digest
 
 **Pending prompt**:
-A permission prompt or `AskUserQuestion` from a background board session, which its hook hands to the hub and holds the session on until the owner answers in the board's Needs you, or the hub page for a session that owns no board: Allow once, Always allow (a rule until the session ends) or Deny, or the question's options. With no answer in 10 minutes the call is denied with a note to ask on the card instead ([0060](docs/adr/0060-background-sessions-prompts-come-to-the-phone.md)).
+A permission prompt or `AskUserQuestion` from a background board session, which its hook hands to the hub and holds the session on until the owner answers in the board's Needs you, or the hub page for a session that owns no board: Allow once, Always allow or Deny, or the question's options. Always allow returns the session rule to Claude Code and keeps that same rule in the hub's `prompts.json`, keyed by session id. The hub remembers rules only with a reliable process start time and binds board rules to the current ownership's `owner.since`; ownership commands clear remembered rules and pending prompts for both the old and new sessions, including boardless entries, even while the hub is stopped. A later exact match on its command, absolute path, domain or bare tool name is allowed immediately, with no push or Needs you line; prefixes and globs never widen a match, and `AskUserQuestion` always asks. Rules end when the session stops or its board's owning session changes, and the hub page lists them read-only under the board. With no answer in 10 minutes the call is denied with a note to ask on the card instead ([0060](docs/adr/0060-background-sessions-prompts-come-to-the-phone.md)).
 _Avoid_: permission request, approval, dialog
 
 **Event**:

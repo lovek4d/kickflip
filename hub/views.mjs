@@ -48,10 +48,10 @@ export function siteHealth(r, links) {
 // hubHealth); rows: hub.mjs status() rows; links: {<route>: linksOf}; code: {running, onDisk}, the hub's code hashes
 // (boards.mjs); host: the address the page was loaded from; rules: the hub rules. Boards and Pages stay apart, as in
 // the sidebar (board/public/ui-sidebar.js).
-export function hubView({ now, st, poll, sidebar, rows, links = {}, code = {}, host = '', rules = [] }) {
+export function hubView({ now, st, poll, sidebar, rows, links = {}, code = {}, host = '', rules = [], remembered = {} }) {
   const boards = new Set(sidebar.sites.filter((x) => x.board).map((x) => x.route));
   const codeLine = code.running && code.running === code.onDisk ? ` · runs the code in its files (${code.onDisk})` : '';
-  const site = (r) => ({ route: r.route, title: r.title, icon: siteIcon(r.route, r), href: `/${encodeURIComponent(r.route)}/`, ...siteHealth(r, links[r.route]) });
+  const site = (r) => ({ route: r.route, title: r.title, icon: siteIcon(r.route, r), href: `/${encodeURIComponent(r.route)}/`, ...siteHealth(r, links[r.route]), remembered: remembered[r.route] || [] });
   const groups = [['Boards', rows.filter((r) => boards.has(r.route))], ['Pages', rows.filter((r) => !boards.has(r.route))]]
     .filter(([, list]) => list.length).map(([label, list]) => ({ label, sites: list.map(site) }));
   return {

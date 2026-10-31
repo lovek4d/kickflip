@@ -15,6 +15,8 @@ import { fileURLToPath } from 'node:url';
 import { deliver, readSettings } from './push.mjs';
 import { DEFAULTS, windowAt } from './schedule.mjs';
 import { liveSessions } from './live.mjs';
+import { withFileLock } from './locks.mjs';
+import { dropSessionPrompts, readPrompts, savePrompts, withPromptsLock } from './prompts.mjs';
 
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLAUDE = path.join(os.homedir(), '.claude');
@@ -48,21 +50,29 @@ export const readManifest = () => readJSON(MANIFEST, { sites: {} });
 
 // Runs fn while holding the manifest's lock, the directory manifest.json.lock that bin/web-ts.mjs takes too. A lock
 // older than 30 seconds is a dead holder's and is taken over. Throws with code 'ELOCKED' after 10 seconds.
-export async function withManifestLock(fn) {
-  const lock = `${MANIFEST}.lock`;
-  fs.mkdirSync(WEB, { recursive: true });
-  const deadline = Date.now() + 10_000;
-  for (;;) {
-    try { fs.mkdirSync(lock); break; } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-      try { if (Date.now() - fs.statSync(lock).mtimeMs > 30_000) { fs.rmdirSync(lock); continue; } } catch {}
-      if (Date.now() > deadline) throw Object.assign(new Error('manifest is locked by another web-ts; try again'), { code: 'ELOCKED' });
-      await new Promise((r) => setTimeout(r, 100));
+export const withManifestLock = (fn) => withFileLock(MANIFEST, fn);
+
+// Call under the manifest lock. Clear both sessions before publishing an ownership change, even with the hub down.
+export function writeManifest(m) {
+  return withPromptsLock(() => {
+    const previous = readManifest();
+    const owner = (manifest, route) => manifest.sites?.[route]?.owner || manifest.starting?.[route];
+    const routes = new Set([...Object.keys(previous.sites || {}), ...Object.keys(m.sites || {}),
+      ...Object.keys(previous.starting || {}), ...Object.keys(m.starting || {})]);
+    const sessions = [];
+    for (const route of routes) {
+      const before = owner(previous, route);
+      const after = owner(m, route);
+      if (before?.session !== after?.session || before?.since !== after?.since) sessions.push(before?.session, after?.session);
     }
-  }
-  try { return await fn(); } finally { try { fs.rmdirSync(lock); } catch {} }
+    if (sessions.some(Boolean)) {
+      const store = readPrompts();
+      dropSessionPrompts(store, sessions);
+      savePrompts(store);
+    }
+    saveJSON(MANIFEST, m);
+  });
 }
-export const writeManifest = (m) => saveJSON(MANIFEST, m);
 export const prKey = (p) => `${p.repo}#${p.pr}`;
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const names = (list) => (Array.isArray(list) ? list : []).map((r) => (typeof r === 'string' ? r : r?.name)).filter((n) => typeof n === 'string' && n);
