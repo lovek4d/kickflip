@@ -102,7 +102,11 @@ BoardView.part((B) => {
   const links = (key) => BoardUI.linkContext(state.board?.items || [], key);
   const svg = (body, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 
-  const { confirm, notice } = globalThis.BoardDialogs;
+  const dialogs = globalThis.BoardDialogs;
+  const controller = new AbortController();
+  B.atUnmount(() => controller.abort());
+  const confirm = (message, labels) => dialogs.confirm(message, { ...labels, signal: controller.signal });
+  const notice = dialogs.notice;
 
   Object.assign(B, { steady, plural, seen, markSeen, toast, quieted, sendDraft, hide, links, svg, confirm, notice });
 });

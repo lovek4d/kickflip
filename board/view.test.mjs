@@ -56,7 +56,7 @@ function fakePage(localStorage) {
   const observers = new Set();
   class MutationObserver { observe() { observers.add(this); } disconnect() { observers.delete(this); } }
   const win = Object.assign(new Target(), {
-    URL, URLSearchParams, localStorage, document, CSS: { escape: (s) => s }, navigator: { platform: 'MacIntel' },
+    URL, URLSearchParams, AbortController, localStorage, document, CSS: { escape: (s) => s }, navigator: { platform: 'MacIntel' },
     location: { href: 'https://mac.ts.net/', hash: '', pathname: '/', search: '' }, history: { replaceState() {} }, innerHeight: 844,
     visualViewport: Object.assign(new Target(), { height: 844, offsetTop: 0 }),
     matchMedia: () => Object.assign(new Target(), { matches: false }), MutationObserver,
@@ -393,13 +393,15 @@ test("s s shows each sidebar row's key and the next key opens that row through t
   board.unmount();
 });
 
-function boardOnDom({ open = [], seen = {}, board, threads, confirm = false }) {
+function boardOnDom({ open = [], seen = {}, board, threads, confirm = false, realDialogs = false }) {
   const page = fakePage(memoryStorage([['site:board-a:openItems', JSON.stringify(open)], ['site:board-a:seenThreads', JSON.stringify(seen)]]).localStorage);
   const { Element } = miniDom(page.Target, page.win.document);
   const server = { board, threads };
   const sent = [];
   const confirms = [];
-  page.win.BoardDialogs.confirm = async (text) => { confirms.push(text); return confirm; };
+  const confirmLabels = [];
+  page.win.BoardDialogs.confirm = async (text, labels) => { confirms.push(text); confirmLabels.push(labels?.ok ? { ok: labels.ok, cancel: labels.cancel } : undefined); return confirm; };
+  if (realDialogs) vm.runInContext(fs.readFileSync(new URL('./public/dialogs.js', import.meta.url), 'utf8'), page.win);
   const site = page.win.ClaudeSite.site;
   page.win.ClaudeSite.site = (r) => ({ ...site(r), send: async (kind, data) => { sent.push([kind, data]); return {}; } });
   const posts = [];
@@ -412,10 +414,11 @@ function boardOnDom({ open = [], seen = {}, board, threads, confirm = false }) {
   const root = page.win.document.body.appendChild(new Element('div'));
   root.innerHTML = page.win.BoardView.markup({ title: 'A' });
   let signalled = null;
-  page.win.BoardView.create(root, 'https://mac.ts.net/board-a', { signal: (fn) => { signalled = fn; return () => {}; } }).mount();
+  const view = page.win.BoardView.create(root, 'https://mac.ts.net/board-a', { signal: (fn) => { signalled = fn; return () => {}; } });
+  view.mount();
   const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
   const change = async (next) => { Object.assign(server, next); signalled(); await settle(); };
-  return { page, root, settle, change, sent, confirms, posts, doc: page.win.document };
+  return { page, root, view, settle, change, sent, confirms, confirmLabels, posts, doc: page.win.document };
 }
 const askCard = (id, lane) => ({ key: `ask:${id}`, id, kind: 'ask', lane, title: `Task ${id}`, deps: [], othersAt: [] });
 const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items, waves: [], needs: [], answers: [] });
@@ -467,6 +470,109 @@ test("an open card shows the one action button the board names, its workflow but
   await b.settle();
   assert.deepEqual(b.confirms, ['Ask Claude for questions about A2?', 'Mark this task done? "Task a1" moves to Done.']);
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['grill-more', { key: 'w/A2' }], ['ask-done', { id: 'a1' }]]);
+});
+
+test('both install links confirm with labelled actions while rebuilding, then become current when the install lands', async () => {
+  const install = { url: 'https://m/app.apk', sha: 'old', older: true };
+  const cards = [workCard('R1', { lane: 'progress', install, builder: { kind: 'install' } }),
+    workCard('B1', { lane: 'progress', builder: { kind: 'install' } })];
+  const b = boardOnDom({ open: ['w/R1', 'w/B1'], board: boardOf(cards), threads: {} });
+  await b.settle();
+  const row = (id) => b.root.querySelector(`details[data-key="w/${id}"]`);
+  assert.equal(row('B1').querySelector('summary .chip.tone-notice').textContent, 'Building…');
+  assert.equal(row('B1').querySelector('.actions .install').textContent, 'Building…');
+  assert.equal(row('B1').querySelector('.actions .install').getAttribute('href'), null);
+  const href = b.page.win.location.href;
+  for (const sel of ['summary a[data-install-confirm]', '.actions a[data-install-confirm]']) {
+    const link = row('R1').querySelector(sel);
+    assert.equal(link.textContent, 'Rebuilding…');
+    b.page.fire(b.root, 'click', { target: link });
+    await b.settle();
+    assert.equal(b.page.win.location.href, href);
+  }
+  assert.deepEqual(b.confirms, Array(2).fill('Currently rebuilding with latest changes. Install the existing older build now?'));
+  assert.deepEqual(b.confirmLabels, Array(2).fill({ ok: 'Install older build', cancel: 'Cancel' }));
+  const allowed = boardOnDom({ open: ['w/R1'], board: boardOf(cards), threads: {}, confirm: true });
+  await allowed.settle();
+  for (const link of allowed.root.querySelectorAll('a[data-install-confirm]')) {
+    allowed.page.win.location.href = href;
+    const event = allowed.page.fire(allowed.root, 'click', { target: link });
+    assert.equal(event.defaultPrevented, true);
+    await allowed.settle();
+    assert.equal(allowed.page.win.location.href, install.url);
+  }
+  await b.change({ board: boardOf([workCard('R1', { lane: 'review', install: { ...install, sha: 'new', older: false } }), cards[1]]) });
+  assert.equal(row('R1').querySelector('summary .chip.tone-ready').textContent, 'Install');
+  assert.equal(row('R1').querySelector('.actions .install').textContent, 'Install →');
+  assert.equal(row('R1').querySelector('[data-install-confirm]'), null);
+});
+
+test('an install confirmation closes on view unmount and cannot navigate after leaving, including an accepted answer still awaiting its continuation', async () => {
+  for (const accept of [false, true]) {
+    const install = { url: 'https://m/app.apk', older: true };
+    const b = boardOnDom({ open: ['w/R1'], board: boardOf([workCard('R1', { lane: 'progress', install, builder: { kind: 'install' } })]), threads: {}, realDialogs: true });
+    await b.settle();
+    const href = b.page.win.location.href;
+    b.page.fire(b.root, 'click', { target: b.root.querySelector('a[data-install-confirm]') });
+    const sheet = b.doc.body.querySelector('dialog.confirm-sheet');
+    assert.ok(sheet?.open);
+    if (accept) b.page.fire(sheet, 'click', { target: sheet.querySelector('[data-answer="ok"]') });
+    b.view.unmount();
+    assert.equal(sheet.open, false);
+    assert.equal(b.doc.body.querySelector('dialog.confirm-sheet'), null);
+    b.root.remove();
+    await b.settle();
+    assert.equal(b.page.win.location.href, href);
+    assert.deepEqual(b.sent, []);
+  }
+});
+
+test('labelled confirmations use the modal bottom sheet, preserve text, cancel safely and leave native callers working', async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const { Element } = miniDom(page.Target, page.win.document);
+  const doc = page.win.document;
+  const trigger = doc.body.appendChild(new Element('button'));
+  trigger.focus();
+  const native = [];
+  page.win.confirm = (message) => { native.push(message); return true; };
+  page.win.alert = (message) => native.push(message);
+  vm.runInContext(fs.readFileSync(new URL('./public/dialogs.js', import.meta.url), 'utf8'), page.win);
+  const dialogs = page.win.BoardDialogs;
+  assert.equal(await dialogs.confirm('Hold INT-143?'), true);
+  await dialogs.notice('Saved');
+  assert.deepEqual(native, ['Hold INT-143?', 'Saved']);
+  const message = 'Currently rebuilding with latest changes. Install the existing older build now?';
+  const labels = { ok: 'Install older build', cancel: 'Cancel' };
+  const pending = dialogs.confirm(message, labels);
+  const sheet = doc.body.querySelector('dialog.confirm-sheet');
+  assert.equal(sheet.open, true);
+  assert.equal(sheet.getAttribute('role'), 'alertdialog');
+  assert.equal(sheet.getAttribute('aria-modal'), 'true');
+  assert.equal(sheet.querySelector(`#${sheet.getAttribute('aria-labelledby')}`).textContent, message);
+  const ok = sheet.querySelector('[data-answer="ok"]');
+  const cancel = sheet.querySelector('[data-answer="cancel"]');
+  assert.deepEqual([ok.textContent, cancel.textContent], ['Install older build', 'Cancel']);
+  assert.equal(doc.activeElement, cancel);
+  page.fire(sheet, 'click', { target: ok });
+  assert.equal(await pending, true);
+  assert.equal(doc.body.querySelector('dialog'), null);
+  assert.equal(doc.activeElement, trigger);
+  for (const how of ['button', 'outside', 'escape']) {
+    const answer = dialogs.confirm(message, labels);
+    const el = doc.body.querySelector('dialog');
+    if (how === 'escape') assert.equal(page.fire(el, 'cancel').defaultPrevented, true);
+    else page.fire(el, 'click', { target: how === 'button' ? el.querySelector('.cancel') : el });
+    assert.equal(await answer, false, how);
+    assert.equal(doc.body.querySelector('dialog'), null);
+  }
+  const first = dialogs.confirm('<b>Build</b>', { ok: '<Install>' });
+  assert.equal(doc.body.querySelector('p').textContent, '<b>Build</b>');
+  assert.equal(doc.body.querySelector('b'), null);
+  const second = dialogs.confirm('Another build?', labels);
+  assert.equal(await first, false);
+  assert.equal(doc.body.querySelectorAll('dialog').length, 1);
+  page.fire(doc.body.querySelector('dialog'), 'cancel');
+  assert.equal(await second, false);
 });
 
 test("every bumpable card, closed or open, carries the bump icon at its top right and no bump in its button rows; the icon confirms, then sends card-bump, and the lane's latest bump shows it disabled", async () => {

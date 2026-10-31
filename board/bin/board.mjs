@@ -110,8 +110,10 @@ A --file argument of - reads stdin.
                                                          the merge state is CLEAN. off (the default): the card
                                                          shows the owner a Merge button, and monitor merges on its
                                                          card-merge event. The Settings page's toggle writes it too
-  builder start <wave>/<id> [--agent <name>] [--kind <opus|codex|sonnet|…>] [--label <who>]
-         [--progress <text>] [--eta <ISO time>]          one record per agent on the item; --agent defaults to main
+  builder start <wave>/<id> [--agent <name>] [--kind <opus|codex|sonnet|install|…>] [--label <who>]
+         [--progress <text>] [--eta <ISO time>]          one record per agent on the item; --agent defaults to main.
+                                                         --kind install: a build of the card's install, whose
+                                                         Install chip reads Rebuilding… (or Building…) meanwhile
          [--worktree [--repo <dir>]]                     --worktree: a git worktree for the builder at
                                                          ~/.claude/web-ts/worktrees/<id> on a new branch <id> from
                                                          main of --repo (default ~/.claude/skills/join-web-ts), kept on

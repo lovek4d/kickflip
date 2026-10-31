@@ -1,11 +1,13 @@
 // The hub's GitHub check, run once per polling slot (docs/adr/0025-the-hub-polls-github-and-sends-pushes-on-one-interval.md).
 // Its PRs are every open PR on any board's card, from the board registry, boards.mjs listBoards
 // (docs/adr/0040-one-board-registry-for-every-hub-feature.md). Each PR runs the monitor skill's monitor-gh.sh once,
-// however many boards show it, and its summary is compared with the last one seen, kept by repo#pr in
-// ~/.claude/web-ts/github-state.json. When PRs changed, each board showing any of them gets one `github-change` event
-// listing its own, which wakes its owning session to run a monitor tick. Each board gets data/checked.json after a check
-// that reached GitHub for every PR it shows, in the idle form when it shows none. sendWakes sends the polling interval's
-// daily wakes to every board, changed or not.
+// however many boards show it, and its summary is compared with the last one accepted, kept by repo#pr in
+// ~/.claude/web-ts/github-state.json. Each board's `github-change` event lists its eligible changed cards,
+// waking its owning session to run a monitor tick. A `head` change goes only to a card that
+// carries an install, so its session rebuilds it
+// (docs/adr/0051-a-device-app-card-carries-an-install-link.md). Each board gets data/checked.json after a check that reached
+// GitHub for every PR it shows, in the idle form when it shows none. sendWakes sends the polling interval's daily wakes
+// to every board, changed or not.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -16,7 +18,7 @@ import { GITHUB_STATE as STATE, WAKE_STATE, listBoards, appendEvent, prKey, read
 const MONITOR_GH = path.join(os.homedir(), '.claude', 'skills', 'monitor', 'monitor-gh.sh');
 // launchd starts the hub without Homebrew on PATH, and monitor-gh.sh needs gh and jq from it.
 const CHILD_PATH = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
-export const CHANGE_KINDS = ['ci', 'review', 'comments', 'merged', 'mergeable', 'draft'];
+export const CHANGE_KINDS = ['ci', 'review', 'comments', 'merged', 'mergeable', 'draft', 'head'];
 
 const known = (v) => (v && v !== 'UNKNOWN' ? v : null);
 
@@ -50,7 +52,12 @@ export function changesBetween(prev, next) {
   if (next.state === 'MERGED' && prev.state !== 'MERGED') out.add('merged');
   for (const k of ['mergeable', 'mergeStateStatus']) if (known(prev[k]) && known(next[k]) && prev[k] !== next[k]) out.add('mergeable');
   if (prev.isDraft !== next.isDraft) out.add('draft');
+  if (next.state === 'OPEN' && prev.head && next.head && prev.head !== next.head) out.add('head');
   return CHANGE_KINDS.filter((k) => out.has(k));
+}
+
+export function cardChanges(p, changes) {
+  return changes.filter((k) => k !== 'head' || p.install);
 }
 
 // What to remember for next time: next, keeping the last known mergeability over an UNKNOWN.
@@ -86,6 +93,7 @@ export async function checkGitHub({ every, manifest }) {
   const at = new Date().toISOString();
   const state = readJSON(STATE, { prs: {} });
   state.prs ||= {};
+  state.acknowledged ||= {};
   const boards = listBoards(manifest);
   // One fetch per PR, from the earliest gh_since of the cards that show it, so no board misses a comment.
   const prs = new Map();
@@ -98,34 +106,53 @@ export async function checkGitHub({ every, manifest }) {
   const found = {};
   for (const [key, p] of prs) {
     try { fetched[key] = summarize(await runMonitorGh(p)); } catch (e) { fetched[key] = null; failed.push(e.message); continue; }
-    found[key] = changesBetween(state.prs[key], fetched[key]);
+    found[key] = [];
   }
-  // A change goes to every board showing that PR, each board's event listing only its own cards.
   const events = [];
   const checked = [];
-  const delivered = new Set();
+  const undelivered = new Set();
   for (const board of boards) {
-    const changed = board.prs.filter((p) => found[prKey(p)]?.length);
+    const cards = board.prs.map((p) => {
+      const key = prKey(p);
+      const recipient = JSON.stringify([board.route, p.wave, p.id]);
+      const previous = state.acknowledged[key]?.[recipient] || state.prs[key];
+      const changes = fetched[key] ? cardChanges(p, changesBetween(previous, fetched[key])) : [];
+      if (changes.length) found[key] = CHANGE_KINDS.filter((k) => found[key].includes(k) || changes.includes(k));
+      return { p, key, recipient, previous, changes };
+    });
+    const changed = cards.filter((c) => c.changes.length);
     let reached = board.prs.every((p) => fetched[prKey(p)]);
+    let accepted = true;
     if (changed.length) {
       try {
-        events.push({ route: board.route, id: await appendEvent(board, 'github-change', { prs: changed.map((p) => ({ wave: p.wave, id: p.id, pr: p.pr, changes: found[prKey(p)] })) }) });
-        for (const p of changed) delivered.add(prKey(p));
-      } catch (e) { failed.push(`${board.route}: could not add the github-change event (${e.message})`); reached = false; }
+        events.push({ route: board.route, id: await appendEvent(board, 'github-change', { prs: changed.map(({ p, changes }) => ({ wave: p.wave, id: p.id, pr: p.pr, changes })) }) });
+      } catch (e) {
+        failed.push(`${board.route}: could not add the github-change event (${e.message})`);
+        for (const { key } of changed) undelivered.add(key);
+        reached = accepted = false;
+      }
+    }
+    // Retain each recipient's accepted summary while another delivery is outstanding, so retries don't repeat
+    // accepted changes or lose an install's head change when another board accepts only CI.
+    for (const { key, recipient, previous, changes } of cards) {
+      if (fetched[key] && (accepted || !changes.length)) {
+        state.acknowledged[key] ||= {};
+        state.acknowledged[key][recipient] = carry(previous, fetched[key]);
+      }
     }
     if (!reached) continue;
     try { writeChecked(board.dir, board.prs.length ? every : null); checked.push(board.route); } catch (e) { failed.push(`${board.route}: could not write checked.json (${e.message})`); }
   }
-  // A change no board took stays unseen, so the next check reports it again.
   const changes = [];
   for (const [key, next] of Object.entries(fetched)) {
-    if (!next) continue;
+    if (!next || undelivered.has(key)) continue;
     if (found[key].length) {
-      if (!delivered.has(key)) continue;
       changes.push({ repo: prs.get(key).repo, pr: prs.get(key).pr, changes: found[key] });
     }
     state.prs[key] = { ...carry(state.prs[key], next), at };
+    delete state.acknowledged[key];
   }
+  for (const key of Object.keys(state.acknowledged)) if (!prs.has(key)) delete state.acknowledged[key];
   state.lastCheck = { at, watched: prs.size, failed: failed.length, changed: changes.length, boards: checked };
   saveJSON(STATE, state);
   return { at, watched: prs.size, failed, changes, events, checked };

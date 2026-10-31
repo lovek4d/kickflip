@@ -16,7 +16,7 @@ import vm from 'node:vm';
 // A page script with no exports, which the page loads as is, so node runs it the same way.
 const enums = vm.createContext({});
 vm.runInContext(fs.readFileSync(new URL('./public/ui-enums.js', import.meta.url), 'utf8'), enums);
-export const { BUTTON, ACTION_KIND } = enums.BoardUI;
+export const { BUTTON, ACTION_KIND, BUILDER_KIND } = enums.BoardUI;
 
 export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'build-followup', 'prototype-request'];
 export const ITEM_STATUSES = ['planned', 'waiting', 'building', 'fixing', 'checking', 'held', 'merged', 'done', 'dropped'];
@@ -75,6 +75,7 @@ function reviewOf(reviewers, pr, sentAt) {
 // What the card waits on: the owning session's check of finished work, the owner's Ready on GitHub, the builder, the
 // reviewers, the merge once GitHub counts it approved, or nothing. buildBoard sets `owner` for the owner's other waits.
 function waitsOnOf(lane, pr, builder, status) {
+  if (builder?.kind === BUILDER_KIND.install) return 'builder';
   if (status === 'checking') return 'checking';
   if (builder || status === 'building' || status === 'fixing') return 'builder';
   if (lane === 'progress' && pr?.state === 'OPEN' && pr.isDraft && pr.checks?.state === 'pass') return 'ready';
@@ -107,7 +108,7 @@ function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, threa
   if (lane === 'review' && inReviewSince && now - Date.parse(inReviewSince) > STALE_AFTER) lane = 'stale';
   const waitsOn = waitsOnOf(lane, pr, builder, (it.status || '').toLowerCase());
   const changing = waitsOn === 'builder' && pr?.state === 'OPEN' && !pr.isDraft;
-  if (changing && !builder) builder = { progress: 'Making changes', at: null };
+  if (changing && !builder) builder = { progress: 'Making changes', at: null, kind: null };
   const redReady = lane === 'progress' && !waitsOn && pr?.state === 'OPEN' && !pr.isDraft;
   const held = it.status === 'held' || Boolean(it.held);
   // docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md
@@ -268,12 +269,14 @@ function agentsOf(records = {}) {
     name, kind: r.kind || null, label: r.label || null, started: r.started || null, eta: r.done ? null : r.eta || null, done: r.done || null,
   })).sort((a, b) => String(a.started || '').localeCompare(String(b.started || '')) || a.name.localeCompare(b.name));
 }
-// The card's live line: the item's newest status line since its earliest running agent started, with its age.
+// An install builder takes precedence so another running agent cannot hide the install's build state.
 function builderOf(agents, lines = []) {
-  const since = agents.filter((a) => !a.done).map((a) => String(a.started || '')).sort()[0];
+  const running = agents.filter((a) => !a.done);
+  const since = running.map((a) => String(a.started || '')).sort()[0];
   if (since === undefined) return null;
   const line = lines.filter((m) => m.kind === 'status' && String(m.ts) >= since).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop();
-  return { progress: line?.text || null, at: line?.ts || since || null };
+  const kind = running.some((a) => a.kind === BUILDER_KIND.install) ? BUILDER_KIND.install : running.at(-1).kind;
+  return { progress: line?.text || null, at: line?.ts || since || null, kind };
 }
 
 // Names the kind once, as "Opus builder" or "Codex benchmarks", never "Opus · Opus builder" (owner, question int42-agents-look).

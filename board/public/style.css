@@ -202,13 +202,22 @@ main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 @keyframes sheet-in { from { transform: translateY(100%); } }
 @keyframes sheet-out { to { transform: translateY(100%); } }
 @keyframes fade-in { from { opacity: 0; } }
+.confirm-sheet { position: fixed; inset: 0; margin: 0; width: 100%; max-width: none; height: 100%; max-height: none; border: 0;
+  display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
+  gap: 8px; padding: 8px 8px calc(10px + env(safe-area-inset-bottom)); background: rgba(0,0,0,.4); animation: fade-in .18s ease-out; }
+.confirm-sheet .box { width: min(520px, 100%); background: var(--panel); border-radius: 14px; overflow: hidden; text-align: center;
+  box-shadow: 0 10px 40px rgba(0,0,0,.3); animation: sheet-in .22s ease-out; }
+.confirm-sheet p { margin: 0; padding: 14px 16px; font-size: 13.5px; line-height: 1.4; color: var(--muted); border-bottom: 1px solid var(--line); }
+.confirm-sheet button { display: block; width: 100%; border: 0; border-radius: 0; background: transparent; padding: 14px 6px; font-size: 17px; color: var(--accent); }
+.confirm-sheet .cancel { font-weight: 600; }
+.confirm-sheet::backdrop { background: transparent; }
 @media (min-width: 700px) {
   .sheet { bottom: calc(var(--kb, 0px) + 24px); max-height: calc(var(--vh, 100dvh) - env(safe-area-inset-top) - 12px); padding-bottom: 0;
     border-bottom: 1px solid var(--line); border-radius: 16px; }
   .sheet form { padding-bottom: 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sheet[open], .sheet[open]::backdrop, .sheet.closing, .sheet.closing::backdrop { animation: none; }
+  .sheet[open], .sheet[open]::backdrop, .sheet.closing, .sheet.closing::backdrop, .confirm-sheet, .confirm-sheet .box { animation: none; }
   .fab:active { transform: none; }
 }
 /* The hub lives at the tailnet root, outside this site, so its link is root-absolute. */
@@ -296,7 +305,10 @@ button.attach:disabled { opacity: .35; }
   #refresh.spinning svg, .gh-refresh.spinning svg { animation: refresh-spin .8s linear infinite; }
 }
 @keyframes refresh-spin { to { transform: rotate(360deg); } }
-.actions a.pill { display: inline-flex; align-items: center; font-size: 13px; padding: 5px 11px; text-decoration: none; }
+.actions :is(a.pill, .install) { display: inline-flex; align-items: center; font-size: 13px; padding: 5px 11px; text-decoration: none; }
+.actions .install.tone-notice { color: var(--color-notice); }
+.actions .install.tone-quiet { color: var(--color-quiet); }
+.actions .install.tone-ready { color: var(--color-success); }
 /* INT-55: the header's right group (the time then ↻, settings) sits one gap apart; each control paints disabled until app-header.js wires it */
 .top .nav { gap: 8px; }
 .top .nav .refresh { flex-direction: row-reverse; gap: 2px; }

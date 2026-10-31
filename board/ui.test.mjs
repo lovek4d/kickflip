@@ -752,6 +752,35 @@ test("a card with an install shows its Install link last among its badges, openi
   assert.doesNotMatch(ui.workLines(workCard), /Install/);
 });
 
+test('the install chip and button share rebuilding, first build, older build and current states', () => {
+  const install = { url: 'https://m/app.apk', sha: 'abc1234', older: true };
+  const building = { ...workCard, builder: { kind: 'install' } };
+  for (const render of [ui.installChip, ui.installButton]) {
+    const first = render(building);
+    assert.equal(text(first), 'Building…');
+    assert.match(first, /tone-notice/);
+    assert.match(first, /aria-disabled="true"/);
+    assert.doesNotMatch(first, /href=|data-install-confirm/);
+    for (const older of [false, true]) {
+      const rebuilding = render({ ...building, install: { ...install, older } });
+      assert.equal(text(rebuilding), 'Rebuilding…');
+      assert.match(rebuilding, /tone-notice/);
+      assert.match(rebuilding, /data-install-confirm="w\/B5"/);
+      assert.match(rebuilding, /href="https:\/\/m\/app.apk"/);
+    }
+    for (const kind of ['opus', undefined]) {
+      const older = render({ ...workCard, install, builder: kind ? { kind } : null });
+      assert.match(older, /tone-quiet/);
+      assert.match(text(older), /^Install · older build/);
+      assert.doesNotMatch(older, /data-install-confirm/);
+      const current = render({ ...workCard, install: { ...install, older: false } });
+      assert.match(current, /tone-ready/);
+      assert.match(text(current), /^Install(?: →)?$/);
+    }
+    assert.equal(render({ ...building, lane: 'done' }), '');
+  }
+});
+
 test('Todo offers to plan a wave from its follow-ups once it holds two, with their keys', () => {
   const todo = [{ key: 'w/A1', kind: 'work' }, { key: 'w/PROD-1', kind: 'followup' }, { key: 'v/PROD-2', kind: 'followup' }];
   const html = ui.planButton(todo);

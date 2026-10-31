@@ -181,7 +181,7 @@ The open card's link to its PR, on every card with an open PR, first in the seco
 _Avoid_: Review #<n> on GitHub, PR link
 
 **Install**:
-The link on a card whose PR builds a device app, last in its badge row and last in the open card's second row of buttons, that installs the build on the owner's phone: an iOS `itms-services://` manifest link or an Android `.apk`, kept in the item's `install`. It reads "older build" once the PR's head moves past the commit it was built from, and leaves the card in Done ([0051](docs/adr/0051-a-device-app-card-carries-an-install-link.md)).
+The link on a device-app card that installs its build on the owner's phone, last in its badge row and the open card's second row of buttons. A new push triggers a rebuild: while an install builder works, both read "Rebuilding…" in builder orange and ask before installing the older build, or "Building…", inert, before the first install; without a build running, "older build" means the PR moved past the installed build, and the install leaves the card in Done ([0051](docs/adr/0051-a-device-app-card-carries-an-install-link.md)).
 _Avoid_: download, TestFlight (a different channel), build link
 
 **Notes**:

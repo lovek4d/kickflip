@@ -1,6 +1,6 @@
 // Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js and ui-enums.js.
 (function () {
-  const { esc, ago, time, etaLine, workingLine, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND } = globalThis.BoardUI;
+  const { esc, ago, time, etaLine, workingLine, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   function prChips(it) {
     const pr = it.pr;
@@ -43,13 +43,32 @@
     return badge('notice', 'Action needed', { href: it.action.url, title: it.action.label, attrs: { ...external, 'aria-label': `Action needed: ${it.action.label}` } });
   }
   // docs/adr/0051-a-device-app-card-carries-an-install-link.md
-  function installChip(it) {
+  const installing = (it) => it.lane !== 'done' && it.builder?.kind === BUILDER_KIND.install;
+  const REBUILDING_ASK = { message: 'Currently rebuilding with latest changes. Install the existing older build now?', ok: 'Install older build', cancel: 'Cancel' };
+  function installState(it) {
     const inst = it.install;
-    if (!inst) return '';
+    if (!inst) return installing(it) ? { tone: 'notice', label: 'Building…', title: 'Building the first install', attrs: { 'aria-disabled': 'true' } } : null;
     const label = inst.label || 'Install';
     const built = [inst.builtAt && `built ${time(inst.builtAt)}`, inst.sha && `from ${inst.sha.slice(0, 7)}`].filter(Boolean).join(' ');
+    if (installing(it)) {
+      return { tone: 'notice', label: 'Rebuilding…', href: inst.url, title: built ? `Older build, ${built}` : 'Older build',
+        attrs: { 'data-install-confirm': it.key, 'aria-label': 'Rebuilding. Tap to install the older build' } };
+    }
     const title = [built && built[0].toUpperCase() + built.slice(1), inst.older && 'the PR has newer commits'].filter(Boolean).join('; ');
-    return badge(inst.older ? 'quiet' : 'ready', esc(inst.older ? `${label} · older build` : label), { href: inst.url, title: title || null, attrs: { 'aria-label': `${label}${inst.older ? ', an older build' : ''}` } });
+    return { tone: inst.older ? 'quiet' : 'ready', label: inst.older ? `${label} · older build` : label,
+      href: inst.url, title: title || null, attrs: { 'aria-label': `${label}${inst.older ? ', an older build' : ''}` } };
+  }
+  function installChip(it) {
+    const s = installState(it);
+    return s ? badge(s.tone, esc(s.label), s) : '';
+  }
+  function installButton(it) {
+    const s = installState(it);
+    if (!s) return '';
+    const attrs = Object.entries({ href: s.href, title: s.title, ...s.attrs }).filter(([, v]) => v != null)
+      .map(([k, v]) => ` ${k}="${esc(v)}"`).join('');
+    const tag = s.href ? 'a' : 'span';
+    return `<${tag} class="pill install tone-${s.tone}"${attrs}>${esc(s.label)}${s.href && !installing(it) ? ' →' : ''}</${tag}>`;
   }
   // The open card's Merge, while the board's auto-merge is off: it confirms, then sends card-merge, and reads "Merging…"
   // while it is sent or waits on the session (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md).
@@ -93,5 +112,5 @@
     return keys.length > 1 ? `<button class="link" data-plan="${esc(keys.join(' '))}">Plan a wave from these ${keys.length} follow-ups →</button>` : '';
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, linearChips, REVIEW, reviewAge, reviewChips, pendingQuestions, actionChip, installChip, mergeButton, builderLine, unreadCount, workLines, askChip, askActions, askLine, planButton });
+  Object.assign(globalThis.BoardUI, { prChips, linearChips, REVIEW, reviewAge, reviewChips, pendingQuestions, actionChip, REBUILDING_ASK, installChip, installButton, mergeButton, builderLine, unreadCount, workLines, askChip, askActions, askLine, planButton });
 })();

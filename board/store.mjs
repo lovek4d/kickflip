@@ -788,7 +788,7 @@ export async function setItem(site, key, { status, clearStatus, next, clearNext,
   await writeJSON(source.file, wave);
   const resolved = await resolve();
   // A builder that forgot builder done would keep the card In Progress after it was handed back.
-  if (pr !== undefined || HANDED_BACK.includes(status)) await closeBuilders(source.dir, item.id);
+  if (pr !== undefined || HANDED_BACK.includes(status)) await closeBuilders(source.dir, item.id, FINISHED.includes(status));
   // An ask is in one card's thread: becoming this item moves it out of a card it was folded into.
   const links = ask ? await readAskLinks(site) : {};
   if (ask in links) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
@@ -906,14 +906,13 @@ export async function builderProgress(site, key, progress, { dir, agent = 'main'
 
 const HANDED_BACK = ['checking', 'done', 'merged', 'dropped'];
 
-// Marks every open record on the item done: agents/<id>.json and agents/<id>@<agent>.json.
-async function closeBuilders(waveDir, id) {
+async function closeBuilders(waveDir, id, cardFinished) {
   const dir = path.join(waveDir, 'agents');
   const names = (await fs.readdir(dir).catch(() => [])).filter((n) => n === `${id}.json` || (n.startsWith(`${id}@`) && n.endsWith('.json')));
   const now = new Date().toISOString();
   for (const n of names) {
     const record = await readJSON(path.join(dir, n), null);
-    if (!record || record.done) continue;
+    if (!record || record.done || (record.kind === 'install' && !cardFinished)) continue;
     const { eta, ...rest } = record;
     await writeJSON(path.join(dir, n), { ...rest, done: now });
   }

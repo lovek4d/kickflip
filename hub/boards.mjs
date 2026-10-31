@@ -3,7 +3,7 @@
 // GitHub check and its github-change routing (github.mjs), the daily wakes, the rules fan-out, the handshake and the
 // not-listening push. So a board over the waves and a board over its own file get every link the same way, and a
 // new feature can't forget one kind. linksOf says whether each link reaches a board, for its Hub links sheet.
-// A board: {route, dir, port, title, kind: 'waves' | 'file', waves: [{slug, wave}], prs: [{wave, id, pr, repo, since}],
+// A board: {route, dir, port, title, kind: 'waves' | 'file', waves: [{slug, wave}], prs: [{wave, id, pr, repo, since, install}],
 // reviewers: [name], owner, watch, filter}. prs are the open PRs on any of its cards: every item with a PR that isn't
 // merged or dropped, with no monitor.json opt-in; a card showing a PR is the opt-in.
 import fs from 'node:fs';
@@ -82,10 +82,11 @@ function wavesOf(dir, cfg, kind) {
   return slugs.map((slug) => ({ slug, wave: readJSON(path.join(WAVES, slug, 'wave.json'), null) })).filter((w) => isWave(w.wave));
 }
 
-// [{slug, wave}] → each card's open PR: [{wave, id, pr, repo, since}], since being the item's gh_since.
+// [{slug, wave}] → each card's open PR: [{wave, id, pr, repo, since, install}], since being the item's gh_since.
 export function prsOf(waves) {
   return waves.flatMap(({ slug, wave }) => wave.items.filter((it) => Number.isInteger(it?.pr) && !FINISHED.includes(it.status))
-    .map((it) => ({ wave: slug, id: it.id, pr: it.pr, repo: wave.repo || DEFAULT_REPO, since: it.gh_since || NO_SINCE })));
+    .map((it) => ({ wave: slug, id: it.id, pr: it.pr, repo: wave.repo || DEFAULT_REPO, since: it.gh_since || NO_SINCE,
+      install: Boolean(it.install?.url) })));
 }
 
 function boardOf(route, s) {

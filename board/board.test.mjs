@@ -333,10 +333,26 @@ test('builder keeps one record per agent on an item, with its kind and an ETA it
   assert.deepEqual([typeof read(at('waves', 'w', 'agents', 'A1.json')).done, read(at('waves', 'w', 'agents', 'A1@bench.json')).done], ['string', bench.done]);
 });
 
-test('a hand-back closes every builder record still open on the item', () => {
+test('a hand-back closes ordinary builders while an install survives until explicitly stopped or the card finishes', () => {
+  const install = at('waves', 'w', 'agents', 'A1@install.json');
+  assert.equal(board('builder', 'start', 'w/A1', '--agent', 'install', '--kind', 'install', '--eta', '2026-10-30T18:00:00Z').code, 0);
+  const running = read(install);
+  assert.equal(board('builder', 'start', 'w/A1').code, 0);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--pr', '7', '--clear-status').code, 0);
+  assert.equal(typeof read(at('waves', 'w', 'agents', 'A1.json')).done, 'string');
+  assert.deepEqual(read(install), running);
   assert.equal(board('builder', 'start', 'w/A1', '--agent', 'fix').code, 0);
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'checking').code, 0);
   assert.equal(typeof read(at('waves', 'w', 'agents', 'A1@fix.json')).done, 'string');
+  assert.deepEqual(read(install), running);
+  assert.equal(board('builder', 'done', 'w/A1', '--agent', 'install').code, 0);
+  assert.equal(typeof read(install).done, 'string');
+  assert.equal('eta' in read(install), false);
+  for (const status of ['done', 'merged', 'dropped']) {
+    assert.equal(board('builder', 'start', 'w/A1', '--agent', 'install', '--kind', 'install').code, 0);
+    assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', status).code, 0);
+    assert.equal(typeof read(install).done, 'string', status);
+  }
 });
 
 const git = (cwd, ...args) => {

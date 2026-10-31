@@ -2,7 +2,7 @@
 // app-core.js and app-threads.js.
 BoardView.part((B) => {
   const { $, store, state, markSeen, seen, toast, links } = B;
-  const { esc, REVIEW, reviewAge, unreadCount, workLines, linkText, mergeButton, BUTTON } = BoardUI;
+  const { esc, REVIEW, reviewAge, unreadCount, workLines, linkText, mergeButton, installButton, REBUILDING_ASK, BUTTON } = BoardUI;
 
   function detail(it) {
     if (it.kind === 'ask') {
@@ -64,7 +64,7 @@ BoardView.part((B) => {
     const pr = it.pr;
     const github = pr?.state === 'OPEN'
       ? `<a${classes(it, BUTTON.github, 'pill')} href="${esc(pr.url)}" target="_blank" rel="noopener">${pr.isDraft ? 'Review draft on GitHub' : 'Review on GitHub'} →</a>` : '';
-    const install = it.install ? `<a class="pill" href="${esc(it.install.url)}">${esc(it.install.label || 'Install')} →</a>` : '';
+    const install = installButton(it);
     const ask = (act, label) => `<button data-confirm="${act}" data-key="${key}">${label}</button>`;
     const holding = sendingHold.has(it.key) ? sendingHold.get(it.key) : it.holdPending;
     const hold = it.kind !== 'work' || !it.holdable ? ''
@@ -121,6 +121,14 @@ BoardView.part((B) => {
     const row = $(`.actions[data-actions="${CSS.escape(key)}"]`);
     if (it && row) row.outerHTML = actions(it);
   }
+
+  B.on(B.root, 'click', async (ev) => {
+    const a = ev.target.closest('a[data-install-confirm]');
+    if (!a) return;
+    ev.preventDefault();
+    const { message, ...labels } = REBUILDING_ASK;
+    if (await B.confirm(message, labels) && B.alive()) location.href = a.getAttribute('href');
+  });
 
   B.on(B.root, 'click', async (ev) => {
     const b = ev.target.closest('button[data-confirm]');
