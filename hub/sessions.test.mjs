@@ -364,9 +364,41 @@ test('resume state starts a fresh outage and resumes once for object property ro
 
 const hubManifest = (owner) => {
   const dir = path.join(home, 'hub-board');
+  const decoy = path.join(home, 'decoy-board');
   write(path.join(dir, 'board.json'), { title: 'Hub' });
-  return { sites: { 'hub-orchestrator': { dir, port: 1, cmd: boardCmd(dir), owner } } };
+  return { sites: {
+    'hub-orchestrator': { dir: decoy, port: 2, cmd: boardCmd(decoy), owner: { session: 's-decoy', repo: otherRepo } },
+    'dev-hub': { dir, port: 1, cmd: boardCmd(dir), owner, hub: true },
+  } };
 };
+const flagged = () => Object.entries(manifest().sites).filter(([, s]) => s.hub).map(([route]) => route);
+
+test('set --hub moves the hub flag to one board, --no-hub clears it, join --hub takes it and a later join keeps it', async () => {
+  const page = { dir: repo, port: 3, cmd: [process.execPath, path.join(SKILL, 'starter', 'server.mjs')] };
+  const dirA = path.join(home, 'flag-a');
+  const dirB = path.join(home, 'flag-b');
+  write(web('manifest.json'), { sites: { a: { dir: dirA, port: 1, cmd: boardCmd(dirA) }, b: { dir: dirB, port: 2, cmd: boardCmd(dirB), hub: true }, page } });
+  assert.deepEqual(json(await cli(['set', 'a', '--hub'])), { route: 'a', icon: null, color: null, hub: true });
+  assert.deepEqual(flagged(), ['a']);
+  assert.equal(json(await cli(['set', 'a', '--icon', 'book'])).hub, true);
+  assert.deepEqual(flagged(), ['a']);
+  assert.equal(json(await cli(['set', 'a', '--no-hub'])).hub, false);
+  assert.deepEqual(flagged(), []);
+  json(await cli(['join', 'b', '--session', 's-b', '--hub']));
+  assert.deepEqual(flagged(), ['b']);
+  json(await cli(['join', 'b', '--session', 's-b']));
+  assert.deepEqual(flagged(), ['b']);
+  const notBoard = await cli(['set', 'page', '--hub']);
+  assert.equal(notBoard.status, 2);
+  assert.match(notBoard.stderr, /\/page is not a board/);
+  const newPage = await cli(['join', 'new-page', '--session', 's-new', '--hub']);
+  assert.equal(newPage.status, 2);
+  assert.match(newPage.stderr, /\/new-page is not a board/);
+  assert.equal(fs.existsSync(web('sites', 'new-page')), false);
+  assert.equal(manifest().sites['new-page'], undefined);
+  assert.equal((await cli(['set', 'a', '--hub', '--no-hub'])).status, 2);
+  assert.deepEqual(flagged(), ['b']);
+});
 
 test('hub resumes the hub board owner in the foreground with its folder and model and inherited terminal streams', async () => {
   const m = hubManifest({ session: 's-hub', repo, model: 'opus' });
@@ -378,7 +410,7 @@ test('hub resumes the hub board owner in the foreground with its folder and mode
   assert.deepEqual(call.argv.slice(0, -1), ['--resume', 's-hub', '--model', 'opus']);
   assert.match(call.argv.at(-1), /You are the hub session/);
   assert.ok(call.argv.at(-1).includes(path.join(SKILL, 'docs', 'hub-session.md')));
-  assert.match(call.argv.at(-1), /rejoin \/hub-orchestrator/);
+  assert.match(call.argv.at(-1), /rejoin \/dev-hub and/);
   assert.deepEqual([call.cwd, call.isolation, call.claudecode], [repo, null, null]);
   assert.deepEqual(manifest(), m);
 });
@@ -391,22 +423,24 @@ test('hub starts fresh with no owner, in --repo or the cwd, with the join prompt
     assert.equal(r.status, 0, r.stderr);
     const [call] = calls().slice(before);
     assert.equal(call.argv.length, 1);
-    assert.ok(call.argv[0].startsWith('/join-web-ts hub-orchestrator\n'));
+    assert.ok(call.argv[0].startsWith('/join-web-ts dev-hub --hub\n'));
     assert.match(call.argv[0], /You are the hub session/);
     assert.ok(call.argv[0].includes(path.join(SKILL, 'docs', 'hub-session.md')));
     assert.equal(call.cwd, options.dir);
   }
 });
 
-test('hub exits 2 with one line telling the owner to join a hub board when none is in the manifest', async () => {
+test('hub exits 2 with one line telling the owner to flag or join a hub board when no board has the flag', async () => {
   const before = calls().length;
   const page = { dir: repo, cmd: [process.execPath, path.join(SKILL, 'starter', 'server.mjs')] };
-  for (const m of [{ sites: {} }, { sites: { 'hub-orchestrator': page } }, { sites: {}, starting: { 'hub-orchestrator': { session: 's-hub', repo } } }]) {
+  const board = { dir: repo, cmd: boardCmd(repo), owner: { session: 's-hub', repo } };
+  for (const m of [{ sites: {} }, { sites: { 'hub-orchestrator': page } }, { sites: { 'hub-orchestrator': board } }, { sites: { 'dev-hub': { ...page, hub: true } } },
+    { sites: {}, starting: { 'hub-orchestrator': { session: 's-hub', repo } } }]) {
     write(web('manifest.json'), m);
     const r = await cli(['hub']);
     assert.equal(r.status, 2);
     assert.equal(r.stdout, '');
-    assert.match(r.stderr, /^web-ts: No hub board; join one with web-ts join hub-orchestrator --template board --session <id>\n$/);
+    assert.equal(r.stderr, 'web-ts: No hub board is flagged; flag one with web-ts set <route> --hub, or join one with web-ts join hub-orchestrator --template board --hub --session <id>\n');
   }
   assert.equal(calls().length, before);
 });
@@ -432,12 +466,12 @@ test('hub uses an injected runner and refuses a live owner or a missing recorded
   const before = calls().length;
   await assert.rejects(hubSession({ manifest: m, run, live: () => new Map([['s-hub', { pid: 1, kind: 'interactive' }]]) }), { reason: 'live' });
   assert.equal(ran.length, 1);
-  m.sites['hub-orchestrator'].owner.repo = path.join(home, 'gone');
+  m.sites['dev-hub'].owner.repo = path.join(home, 'gone');
   write(web('manifest.json'), m);
   const gone = await cli(['hub', '--repo', otherRepo]);
   assert.equal(gone.status, 1);
   assert.match(gone.stderr, /recorded folder .*gone/);
-  delete m.sites['hub-orchestrator'].owner.repo;
+  delete m.sites['dev-hub'].owner.repo;
   write(web('manifest.json'), m);
   const r = await cli(['hub']);
   assert.equal(r.status, 1);

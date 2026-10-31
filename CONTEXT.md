@@ -51,7 +51,7 @@ A board's owning session as the manifest records it in the site's owner: its id,
 _Avoid_: orchestrator process, agent
 
 **Hub session**:
-The dev-time session that builds the app from inside: the owning session of the `hub-orchestrator` board, opened in the owner's terminal by `web-ts hub`. The product needs only the hub server, with boards added in the app; New board's ask is the one feature that depends on this session ([0068](docs/adr/0068-the-hub-session-is-a-dev-time-role.md)).
+The dev-time session that builds the app from inside: the owning session of the **hub board**, the one board whose manifest entry has `hub: true` (`web-ts set <route> --hub`), opened in the owner's terminal by `web-ts hub`. Code finds the hub board by that flag, never by its route. The product needs only the hub server, with boards added in the app; New board's ask is the one feature that depends on this session ([0068](docs/adr/0068-the-hub-session-is-a-dev-time-role.md)).
 _Avoid_: hub server, permanent orchestrator
 
 **Live**:

@@ -17,7 +17,7 @@
 //                     notifications: {state, text}}, each site's row from its GET /_claude/needs
 //                     (home.mjs; docs/adr/0010-sites-report-what-waits-through-claude-needs.md)
 //                     repos lists distinct board owners' folders; starting lists pending boards (sessions.mjs)
-//   /_hub/new-board  POST {name, repo, purpose} → {route}: an ask on hub-orchestrator and a starting reservation;
+//   /_hub/new-board  POST {name, repo, purpose} → {route}: an ask on the hub board and a starting reservation;
 //                     DELETE /_hub/new-board/<route> dismisses a start that timed out (new-board.mjs)
 //   /_hub/status.json the manifest's sites and their process state, as JSON
 //   /_hub/needs.json  {total, sites: {<route>: {count, working, summary, lanes, building} | null}}: total is the
@@ -70,7 +70,8 @@
 // hub itself running (see ../SKILL.md, `web-ts install`).
 // After each poll it records when each board's hub links first failed (boards.mjs recordLinkFaults). As it starts it
 // records the hash of its own code (boards.mjs recordHubCode), so the hub link (boards.mjs hubLink) can tell when the
-// files changed under it (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md).
+// files changed under it (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md), and flags `hub-orchestrator`
+// as the hub board once when no site has the flag (boards.mjs migrateHubFlag).
 // Every 15 seconds it counts each board's watched lines, and resumes the recorded session of a board that got an event
 // while that session wasn't running, and pushes once when that doesn't bring it back (sessions.mjs checkSessions;
 // docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md).
@@ -92,7 +93,7 @@ import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, updatePro
 import { nextSlot, windowAt, hold, heldUntil, holdLine, editPolling } from './schedule.mjs';
 import { capital, hubView, settingsView, pollingView, flushView, SNOOZE_REFUSED } from './views.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
-import { listBoards, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON } from './boards.mjs';
+import { listBoards, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, migrateHubFlag, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON } from './boards.mjs';
 import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
@@ -115,6 +116,7 @@ for (const d of [HOME, LOGS, RUN]) fs.mkdirSync(d, { recursive: true });
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 try { const code = recordHubCode(); log(`hub code ${code.hash} (${code.files.length} files)`); } catch (e) { log('could not record the hub code hash:', e.message); }
+try { const route = await migrateHubFlag(); if (route) log(`manifest: flagged /${route} as the hub board`); } catch (e) { log('hub board migration failed:', e.message); }
 
 // ---------- manifest ----------
 let manifest = { version: 1, sites: {} };

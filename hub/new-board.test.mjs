@@ -14,13 +14,15 @@ const { saveJSON, readManifest } = await import('./boards.mjs');
 const manifestFile = path.join(home, '.claude', 'web-ts', 'manifest.json');
 const dir = path.join(home, 'hub-board');
 const board = { dir, port: 0, cmd: [process.execPath, fileURLToPath(new URL('../board/server.mjs', import.meta.url))] };
+const decoyDir = path.join(home, 'decoy-board');
+const sites = { 'hub-orchestrator': { ...board, dir: decoyDir }, 'dev-hub': { ...board, hub: true } };
 after(() => {
   fs.rmSync(home, { recursive: true, force: true });
   fs.rmSync(`${home}2`, { recursive: true, force: true });
 });
 
-test('a new board reservation and its ask survive without a running board server', async () => {
-  saveJSON(manifestFile, { sites: { 'hub-orchestrator': board } });
+test('a new board reservation and its ask go to the flagged hub board and survive without a running board server', async () => {
+  saveJSON(manifestFile, { sites });
   assert.deepEqual(await requestBoard({ name: 'Backend audit', repo: '~', purpose: 'Review changes' }), { route: 'backend-audit' });
   const manifest = readManifest();
   const rec = manifest.starting['backend-audit'];
@@ -29,6 +31,7 @@ test('a new board reservation and its ask survive without a running board server
   assert.deepEqual(event.data, { text: 'New board: Backend audit in ~ — Review changes',
     newBoard: { route: 'backend-audit', title: 'Backend audit', repo: home, purpose: 'Review changes' } });
   assert.equal(rec.repo, home);
+  assert.equal(fs.existsSync(path.join(decoyDir, 'data', 'events.jsonl')), false);
   const at = Date.parse(rec.asked_at);
   assert.equal(startingBoards(manifest, at)[0].repo, home);
   assert.equal(startingBoards(manifest, at + STARTING_WAIT - 1)[0].failed, false);
@@ -46,7 +49,7 @@ test('a new board reservation and its ask survive without a running board server
 test('a repo under home is shortened only in the ask text', async () => {
   const repo = path.join(home, 'repo & tools');
   fs.mkdirSync(repo);
-  saveJSON(manifestFile, { sites: { 'hub-orchestrator': board } });
+  saveJSON(manifestFile, { sites });
   await requestBoard({ name: 'Tools', repo, purpose: '' });
   const event = fs.readFileSync(path.join(dir, 'data/events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).at(-1);
   assert.equal(event.data.text, 'New board: Tools in ~/repo & tools');
@@ -56,8 +59,11 @@ test('a repo under home is shortened only in the ask text', async () => {
 
 test('requests validate fields, home containment, route reservations and the hub before recording anything', async () => {
   const input = { name: 'New board', repo: home, purpose: '' };
-  saveJSON(manifestFile, { sites: {} });
-  await assert.rejects(requestBoard(input), { status: 503, message: 'No hub session' });
+  for (const unflagged of [{ sites: {} }, { sites: { 'hub-orchestrator': board } }]) {
+    saveJSON(manifestFile, unflagged);
+    await assert.rejects(requestBoard(input), { status: 503, message: 'No hub board is flagged; flag one with web-ts set <route> --hub' });
+    assert.deepEqual(readManifest(), unflagged);
+  }
   const manifest = { sites: { 'hub-orchestrator': board, board }, starting: { pending: { since: new Date().toISOString() } } };
   saveJSON(manifestFile, manifest);
   fs.symlinkSync(path.dirname(home), path.join(home, 'outside'));

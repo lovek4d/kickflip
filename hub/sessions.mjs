@@ -98,24 +98,24 @@ export const resumePrompt = (route, id) => `The hub resumed this session because
 // options it started with; a session that never ran in the background gets them (Claude Code's `note:` line says which).
 export const resumeArgv = ({ id, route, name, model, background }) => ['--resume', id, '--bg', ...(background ? [] : common({ name, model })), resumePrompt(route, id)];
 
-const hubPrompt = `You are the hub session. Read \`${path.join(SKILL_DIR, 'docs', 'hub-session.md')}\`, then rejoin /hub-orchestrator and relaunch its watcher.`;
-export const hubArgv = ({ id, model } = {}) => [
+const hubPrompt = (route) => `You are the hub session. Read \`${path.join(SKILL_DIR, 'docs', 'hub-session.md')}\`, then rejoin /${route} and relaunch its watcher.`;
+export const hubArgv = ({ route, id, model }) => [
   ...(id ? ['--resume', id] : []), ...(model ? ['--model', model] : []),
-  id ? `${hubPrompt} If your session id (the folder above your scratchpad) isn't ${id}, rejoin with yours and --force.` : `/join-web-ts hub-orchestrator\n${hubPrompt}`,
+  id ? `${hubPrompt(route)} If your session id (the folder above your scratchpad) isn't ${id}, rejoin with yours and --force.` : `/join-web-ts ${route} --hub\n${hubPrompt(route)}`,
 ];
 
 // `repo` is the folder for a fresh session, or for a recorded session whose folder the manifest lacks.
 export async function hubSession({ manifest = readManifest(), repo, run = runForegroundClaude, live = liveSessions } = {}) {
   const board = hubBoard(manifest);
-  if (!board) throw new SessionError('No hub board; join one with web-ts join hub-orchestrator --template board --session <id>', 'hub');
+  if (!board) throw new SessionError('No hub board is flagged; flag one with web-ts set <route> --hub, or join one with web-ts join hub-orchestrator --template board --hub --session <id>', 'hub');
   const owner = board.owner?.session ? board.owner : null;
-  if (owner && !owner.repo && !repo) throw new SessionError(`/hub-orchestrator's session ${owner.session} has no folder recorded; pass --repo <its folder>`, 'none');
+  if (owner && !owner.repo && !repo) throw new SessionError(`/${board.route}'s session ${owner.session} has no folder recorded; pass --repo <its folder>`, 'none');
   refuseLive(owner, live);
   const cwd = owner?.repo || path.resolve(repo || process.cwd());
   if (!fs.statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
-    throw new SessionError(owner?.repo ? `/hub-orchestrator's recorded folder ${cwd} is gone; rejoin from its new folder with --repo` : `no folder at ${cwd}`, 'none');
+    throw new SessionError(owner?.repo ? `/${board.route}'s recorded folder ${cwd} is gone; rejoin from its new folder with --repo` : `no folder at ${cwd}`, 'none');
   }
-  return run(hubArgv({ id: owner?.session, model: owner?.model }), { cwd });
+  return run(hubArgv({ route: board.route, id: owner?.session, model: owner?.model }), { cwd });
 }
 
 // The session recorded for a route: its site's owner, else a start its join hasn't taken up. → owner + {title} | null

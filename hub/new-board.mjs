@@ -39,7 +39,7 @@ export async function requestBoard(input) {
     const { route, title, repo, purpose } = newBoard;
     if (Object.hasOwn(manifest.sites || {}, route) || Object.hasOwn(manifest.starting || {}, route)) refuse('That board route already exists.');
     const hub = hubBoard(manifest);
-    if (!hub) refuse('No hub session', 503);
+    if (!hub) refuse('No hub board is flagged; flag one with web-ts set <route> --hub', 503);
     manifest.starting = { ...manifest.starting, [route]: { title, repo, asked_at: new Date().toISOString() } };
     await writeManifest(manifest);
     // The one feature that depends on the dev-time hub session: docs/adr/0068-the-hub-session-is-a-dev-time-role.md.

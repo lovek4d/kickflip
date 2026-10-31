@@ -4,7 +4,8 @@
 //   web-ts join <route> --session <id> [--label <name>] [--title <t>] [--description <d>]
 //               [--dir <path>] [--cmd '<json array>'] [--port <n>] [--watch <file,file>]
 //               [--filter <regex>] [--template board [--items <waves|file>]] [--force]
-//               [--icon <key>] [--color <css hex>] [--repo <dir>] [--model <m>]
+//               [--icon <key>] [--color <css hex>] [--repo <dir>] [--model <m>] [--hub | --no-hub]
+//               --hub makes this board the hub board, as `set --hub` does; a join without either keeps the flag
 //               --template board runs the shared board (../board/server.mjs) from the site dir,
 //               writing its board.json; --items is "waves" (default) or a wave.json-format file.
 //               It then runs handshake, unless this session already answered the board's hello, and
@@ -29,18 +30,21 @@
 //               and relaunch its watcher, and records the id it comes back under as the route's owner. Prints
 //               {route, session, previous, confirmed, repo, argv, output}. Exit 1 when no session or folder is recorded
 //   web-ts hub [--repo <dir>]
-//               opens the hub-orchestrator board's recorded session in this terminal, in its recorded folder and
-//               model, or in --repo when no folder is recorded; with no owner, starts a fresh session in --repo
-//               (default cwd). Points it to docs/hub-session.md.
-//               Exit 2 with no hub board; otherwise keeps claude's exit code
+//               opens the hub board's recorded session in this terminal, in its recorded folder and model, or in
+//               --repo when no folder is recorded; with no owner, starts a fresh session in --repo (default cwd)
+//               that joins the board with --hub. Points it to docs/hub-session.md.
+//               Exit 2 when no board has the hub flag (`set --hub`); otherwise keeps claude's exit code
 //   web-ts sessions [--json]
 //               one line per board: route, session id, live (background or terminal) or not, folder
 //   web-ts handshake <route>
 //               tests a board's hub links (../hub/boards.mjs handshake): appends a `hello` event, which the
 //               owning session answers with `board.mjs hello-ack <eventId>`. The board shows a setup checklist
 //               until the session answered and the hub's GitHub check reached it. Prints {route, hello}
-//   web-ts set <route> [--icon <key>] [--color <hex>]
-//               changes an existing site's icon or color without joining; '' clears one
+//   web-ts set <route> [--icon <key>] [--color <hex>] [--hub | --no-hub]
+//               changes an existing site's icon or color without joining; '' clears one. --hub makes the board the
+//               hub board, whose session `hub` opens and which New board asks to start boards (`hub: true` in its
+//               entry), clearing the flag from any other site; --no-hub clears it. Exit 2 for --hub on a site that
+//               isn't a board
 //   web-ts leave <route> --session <id> [--force]
 //   web-ts restart <route>
 //   web-ts logs <route> [--lines <n>]
@@ -84,7 +88,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ICON_KEYS } from '../hub/icons.mjs';
 import { liveSessions } from '../hub/live.mjs';
-import { writeManifest } from '../hub/boards.mjs';
+import { isBoardSite, writeManifest } from '../hub/boards.mjs';
 import { routeRecord, validRoute } from '../hub/routes.mjs';
 
 const SKILL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -103,7 +107,7 @@ for (let i = 0; i < rest.length; i++) {
   const a = rest[i];
   if (a.startsWith('--')) {
     const k = a.slice(2);
-    if (k === 'force' || k === 'json' || k === 'urgent' || k === 'now' || k === 'keep-queue') args[k] = true;
+    if (k === 'force' || k === 'json' || k === 'urgent' || k === 'now' || k === 'keep-queue' || k === 'hub' || k === 'no-hub') args[k] = true;
     else args[k] = rest[++i];
   } else args._.push(a);
 }
@@ -121,6 +125,16 @@ function applyLook(site) {
     if (args[k] === '') delete site[k];
     else if (args[k] !== undefined) site[k] = args[k];
   }
+}
+// At most one site has `hub: true`: ../hub/boards.mjs hubBoard takes the first board that has it.
+const checkHub = () => args.hub && args['no-hub'] && fail('pass --hub or --no-hub, not both', 2);
+const notBoard = (route) => fail(`/${route} is not a board; only a board can be the hub board`, 2);
+function applyHub(m, route, site) {
+  if (args['no-hub']) delete site.hub;
+  if (!args.hub) return;
+  if (!isBoardSite(site)) notBoard(route);
+  for (const [other, s] of Object.entries(m.sites)) if (other !== route && s?.hub) delete s.hub;
+  site.hub = true;
 }
 const nodeBin = () => (fs.existsSync('/opt/homebrew/bin/node') ? '/opt/homebrew/bin/node' : process.execPath);
 
@@ -232,6 +246,7 @@ const commands = {
     if (!args.session) fail('join needs --session <id> (this session\'s id)', 2);
     if (args.template && args.template !== 'board') fail('--template takes "board"', 2);
     checkLook();
+    checkHub();
     const result = await withLock(async () => {
       const m = readManifest();
       const now = new Date().toISOString();
@@ -240,6 +255,7 @@ const commands = {
         out({ error: 'owned', route, owner: existing.owner, hint: 'ask the user, then rerun with --force to take it over' });
         throw new Exit('', 3);
       }
+      if (args.hub && args.template !== 'board' && !isBoardSite({ dir: '', cmd: args.cmd ? JSON.parse(args.cmd) : existing?.cmd })) notBoard(route);
       const site = existing ? { ...existing } : {};
       let created = false;
       if (!existing) {
@@ -272,6 +288,7 @@ const commands = {
       if (args.watch) site.watch = args.watch.split(',').map((s) => s.trim()).filter(Boolean);
       if (args.filter !== undefined) site.filter = args.filter || undefined;
       applyLook(site);
+      applyHub(m, route, site);
       site.title ||= route;
       const previous = existing?.owner && existing.owner.session !== args.session ? existing.owner : null;
       const started = routeRecord(m.starting, route)?.session === args.session ? routeRecord(m.starting, route) : null;
@@ -380,15 +397,17 @@ const commands = {
   async set() {
     const route = args._[0];
     if (!route) fail('set needs a route', 2);
-    if (args.icon === undefined && args.color === undefined) fail('set needs --icon or --color', 2);
+    if (args.icon === undefined && args.color === undefined && !args.hub && !args['no-hub']) fail('set needs --icon, --color, --hub or --no-hub', 2);
     checkLook();
+    checkHub();
     await withLock(async () => {
       const m = readManifest();
       const site = routeRecord(m.sites, route) || fail('no site at /' + route);
       applyLook(site);
+      applyHub(m, route, site);
       site.updated = new Date().toISOString();
       await writeManifest(m);
-      out({ route, icon: site.icon ?? null, color: site.color ?? null });
+      out({ route, icon: site.icon ?? null, color: site.color ?? null, hub: site.hub === true });
     });
   },
 

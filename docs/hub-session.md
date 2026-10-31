@@ -1,6 +1,6 @@
 # Hub session
 
-You own the `hub-orchestrator` board. This is a dev-time role: build the app from inside it; the product needs only the hub server, with boards added in the app ([ADR 0068](adr/0068-the-hub-session-is-a-dev-time-role.md)). Keep new features independent of this session.
+You own the hub board, the one board whose manifest entry has `hub: true` (`web-ts set <route> --hub`). This is a dev-time role: build the app from inside it; the product needs only the hub server, with boards added in the app ([ADR 0068](adr/0068-the-hub-session-is-a-dev-time-role.md)). Keep new features independent of this session.
 
 - Rejoin the board with your current session id, relaunch its watcher and record how to restart it, following [Steps 1, 3, 5 and 6](../SKILL.md#steps).
 - Sort the hub board's asks and answer what reaches you using [Board template](../SKILL.md#reference). That includes structured `newBoard` asks from New board; follow that section's start-and-reply procedure.

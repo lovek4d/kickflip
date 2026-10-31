@@ -364,14 +364,14 @@ test('New board validates through HTTP, writes an ask to the hub board, and serv
   const before = events('orch', 'ask').length;
   try {
     const missing = await post(request);
-    assert.deepEqual([missing.status, await missing.text()], [503, 'No hub session']);
+    assert.deepEqual([missing.status, await missing.text()], [503, 'No hub board is flagged; flag one with web-ts set <route> --hub']);
     assert.equal(read(manifestFile).starting, undefined);
     const manifest = structuredClone(original);
     for (const s of Object.values(manifest.sites)) delete s.owner?.repo;
     manifest.sites.orch.owner.repo = canonicalHome;
     manifest.sites.shop.owner.repo = repo;
     manifest.sites.plain.owner = { repo: '/not-a-board' };
-    manifest.sites['hub-orchestrator'] = { ...manifest.sites.orch, owner: { ...manifest.sites.orch.owner } };
+    manifest.sites['hub-orchestrator'] = { ...manifest.sites.orch, owner: { ...manifest.sites.orch.owner }, hub: true };
     manifest.starting = { reserved: { session: 's-reserved', since: ago(1), repo } };
     write(manifestFile, manifest);
     const sidebarData = await sidebar();
@@ -481,7 +481,7 @@ test('object property names work as page routes and as new boards through HTTP a
     assert.equal(pageRows.length, 4);
     assert.ok(pageRows.every((s) => s.word && Array.isArray(s.remembered) && s.remembered.length === 0));
     const manifest = structuredClone(original);
-    manifest.sites['hub-orchestrator'] = { ...manifest.sites.orch };
+    manifest.sites['hub-orchestrator'] = { ...manifest.sites.orch, hub: true };
     write(manifestFile, manifest);
     for (const [i, route] of routes.entries()) {
       const response = await fetch(`${base}/_hub/new-board`, { method: 'POST', headers: { 'content-type': 'application/json' },
@@ -514,6 +514,40 @@ test('object property names work as page routes and as new boards through HTTP a
     for (const route of routes) assert.deepEqual(rows.find((s) => s.route === route).remembered, []);
     assert.equal((await get('/_hub/api/polling')).now.lines.length, 2);
   } finally { write(manifestFile, original); }
+});
+
+test('a starting hub flags hub-orchestrator as the hub board once, only while no site has the flag', async () => {
+  const other = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'boards-migrate-')));
+  const file = path.join(other, '.claude', 'web-ts', 'manifest.json');
+  const board = (name, at) => ({ dir: path.join(other, name), port: at, cmd: [process.execPath, path.join(SKILL, 'board', 'server.mjs'), path.join(other, name)] });
+  const hubPort = port + 100;
+  const startHub = async () => {
+    const h = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: other, WEB_TS_HUB_PORT: String(hubPort), WEB_TS_CLAUDE: '/usr/bin/false' } });
+    await new Promise((resolve, reject) => {
+      let out = '';
+      h.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) resolve(); });
+      h.once('exit', reject);
+    });
+    const exited = new Promise((resolve) => h.once('exit', resolve));
+    h.kill('SIGTERM');
+    await exited;
+  };
+  const flagged = () => Object.entries(read(file).sites).filter(([, s]) => s.hub).map(([route]) => route);
+  try {
+    await startHub();
+    assert.equal(fs.existsSync(file), false);
+    write(file, { sites: { 'hub-orchestrator': board('hub', hubPort + 1), dev: { ...board('dev', hubPort + 2), hub: true } } });
+    await startHub();
+    assert.deepEqual([flagged(), read(file).migrated], [['dev'], ['hub-flag']]);
+    write(file, { sites: { 'hub-orchestrator': board('hub', hubPort + 1), dev: board('dev', hubPort + 2) } });
+    await startHub();
+    assert.deepEqual([flagged(), read(file).migrated], [['hub-orchestrator'], ['hub-flag']]);
+    const cleared = read(file);
+    delete cleared.sites['hub-orchestrator'].hub;
+    write(file, cleared);
+    await startHub();
+    assert.deepEqual(flagged(), []);
+  } finally { fs.rmSync(other, { recursive: true, force: true }); }
 });
 
 test('stopping the hub stops every site it started, one that ignores SIGTERM and one that joined just before, and starts none', async () => {

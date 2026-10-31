@@ -115,7 +115,30 @@ export function listBoards(manifest = readManifest()) {
   return Object.entries(manifest?.sites || {}).filter(([, s]) => isBoardSite(s)).map(([route, s]) => boardOf(route, s));
 }
 
-export const hubBoard = (manifest = readManifest()) => listBoards(manifest).find((b) => b.route === 'hub-orchestrator');
+// The board whose manifest entry has `hub: true`, which bin/web-ts.mjs `set --hub` and `join --hub` keep on at most one
+// site (docs/adr/0068-the-hub-session-is-a-dev-time-role.md). → a board, or undefined when no board has it
+export function hubBoard(manifest = readManifest()) {
+  const found = Object.entries(manifest?.sites || {}).find(([, s]) => s?.hub === true && isBoardSite(s));
+  return found ? boardOf(...found) : undefined;
+}
+
+const HUB_FLAG_MIGRATION = 'hub-flag';
+// Run by the hub as it starts: flags the `hub-orchestrator` board as the hub board when no site has the flag. The
+// manifest's `migrated` list records the run, so a flag cleared later stays cleared. → the route flagged, or null
+export function migrateHubFlag() {
+  return withManifestLock(async () => {
+    const m = readJSON(MANIFEST, null);
+    if (!m || typeof m.sites !== 'object' || !m.sites) return null;
+    const done = Array.isArray(m.migrated) ? m.migrated : [];
+    if (done.includes(HUB_FLAG_MIGRATION)) return null;
+    const site = routeRecord(m.sites, 'hub-orchestrator');
+    const flag = isBoardSite(site) && !Object.values(m.sites).some((s) => s?.hub === true);
+    if (flag) site.hub = true;
+    m.migrated = [...done, HUB_FLAG_MIGRATION];
+    await writeManifest(m);
+    return flag ? 'hub-orchestrator' : null;
+  });
+}
 
 // The board served from `dir`, for its own server; null when the manifest has no board there.
 export function boardAt(dir, manifest = readManifest()) {
