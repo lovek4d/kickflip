@@ -1374,6 +1374,7 @@ function questionsOnDom({ topics, questions, at, next }) {
     return true;
   };
   const questionsView = page.win.AppViews.questions.create(shell.root, base, { view, up });
+  const idle = page.left();
   questionsView.mount();
   const $ = (sel) => shell.root.querySelector(sel);
   const answer = (id) => {
@@ -1385,7 +1386,7 @@ function questionsOnDom({ topics, questions, at, next }) {
   const shown = () => shell.board ? { board: shell.board.querySelector('.toast')?.textContent || '' }
     : { pills: shell.root.querySelectorAll('.topics button').map((b) => [b.dataset.topic, b.getAttribute('aria-pressed')]),
       questions: shell.root.querySelectorAll('section.q').map((s) => s.dataset.q), status: $('#qstatus').textContent, hash: page.win.location.hash };
-  return { settle, answer, send, shown, decisions, root: shell.root, page };
+  return { settle, answer, send, shown, decisions, root: shell.root, page, idle, unmount: () => questionsView.unmount() };
 }
 
 test("Waiting on you's Send follows the shared next question, leaving an urgent question's solo view, staying on the current topic or going to the board with its Sent toast", async () => {
@@ -1423,12 +1424,15 @@ test("Waiting on you's Send follows the shared next question, leaving an urgent 
   assert.deepEqual(urgent.shown(), { pills: [['item:w/T1', 'true'], ['item:w/T2', 'false']], questions: ['q1'], status: 'Sent 1 answer to INT-3.', hash: '#q1' });
 });
 
-test("Waiting on you sizes each framed take to its page once it loads, past 80% of the screen's height shows the Open full size button instead, and a repaint keeps both", async () => {
-  const takes = [{ id: 'A', label: 'Badge' }, { id: 'B', label: 'Dot' }, { id: 'C', label: 'Thread' }];
+test('Waiting on you measures a fitting grid, then uses one growing full-size frame when any take scrolls, preserving drafts and history while choices switch', async () => {
+  const takes = [{ id: 'A', label: 'Badge' }, { id: 'B', label: 'Dot', recommended: true }, { id: 'C', label: 'Thread' }];
   const q = { id: 'q1', topic: 'item:w/T1', source: '', question: 'Which?', context: '', url: 'prototype-unread.html?q=q1', options: takes, answers: [], state: 'open' };
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Unread' }], questions: [q], at: 'q1' });
-  v.page.win.innerWidth = 390;
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Unread' }, { id: 'item:w/T2', title: 'INT-2: Next' }],
+    questions: [q, { ...q, id: 'q2', topic: 'item:w/T2', url: '' }], at: 'q1' });
+  v.page.win.innerWidth = 1100;
   await v.settle();
+  const header = v.root.querySelector('header.top');
+  const pills = v.root.querySelector('.topics');
   const shot = (id) => v.root.querySelector(`.take[data-opt="${id}"] .take-shot`);
   const observers = [];
   const load = (id, height, href = 'https://mac.ts.net/board-a/prototype-unread.html?q=q1&take=' + id) => {
@@ -1437,24 +1441,85 @@ test("Waiting on you sizes each framed take to its page once it loads, past 80% 
     frame.contentWindow = { ResizeObserver: class { constructor(fn) { this.fn = fn; this.on = false; observers.push(this); } observe() { this.on = true; } disconnect() { this.on = false; } } };
     v.page.fire(frame, 'load');
   };
-  const takesShown = () => takes.map(({ id }) => {
-    const s = shot(id);
-    return s ? [s.getAttribute('class'), s.style.height || s.getAttribute('style') || ''] : [...v.root.querySelectorAll(`.take[data-opt="${id}"] a`)].map((a) => a.textContent);
-  });
-  assert.deepEqual(takesShown(), [['take-shot measuring', ''], ['take-shot measuring', ''], ['take-shot measuring', '']]);
-
-  let aHeight = 0;
-  load('A', () => aHeight, 'about:blank');
-  aHeight = 213.2;
+  assert.equal(v.root.querySelectorAll('iframe').length, 3);
+  load('A', () => 0, 'about:blank');
+  assert.ok(shot('A').classList.contains('measuring'));
+  let aHeight = 213.2;
   load('A', () => aHeight);
   load('B', () => 120);
-  load('C', () => 900);
-  assert.deepEqual(takesShown(), [['take-shot', '216px'], ['take-shot', '122px'], ['Open full size →This take scrolls, so it opens full size.']]);
-  aHeight = 400;
+  load('C', () => 350);
+  assert.equal(shot('A').style.height, '216px');
+  assert.equal(shot('B').style.height, '122px');
+  assert.equal(shot('C').style.height, '352px');
+  assert.equal(v.root.querySelector('.takes-full'), null);
+  assert.doesNotMatch(v.root.textContent, /Open full size/);
+  const note = v.root.querySelector('textarea');
+  note.value = 'Keep this note';
+  note.focus();
+  v.page.fire(v.root, 'input', { target: note });
+  aHeight = 900;
   observers[0].fn();
-  assert.equal(shot('A').style.height, '402px');
-  assert.deepEqual(observers.map((o) => o.on), [true, true]);
-
+  assert.equal(v.root.querySelectorAll('iframe').length, 1);
+  assert.ok(v.root.querySelector('.takes-full'));
+  assert.equal(v.root.querySelector('header.top'), header);
+  assert.equal(v.root.querySelector('.topics'), pills);
+  assert.ok(shot('B'));
+  assert.equal(v.root.querySelector('textarea'), note);
+  assert.equal(v.page.win.document.activeElement, note);
+  assert.equal(v.root.querySelector('#send').textContent, 'Send 1 answer');
+  assert.equal(JSON.parse(v.page.win.localStorage.getItem('qdraft:q1')).choice, undefined);
+  assert.deepEqual(v.root.querySelectorAll('.take-choices input').map((o) => o.getAttribute('value')), ['A', 'B', 'C']);
+  assert.match(v.root.querySelector('.take-choices').textContent, /B. DotRecommended/);
+  assert.ok(observers.every((o) => !o.on));
+  let bHeight = 1100;
+  load('B', () => bHeight);
+  assert.equal(shot('B').style.height, '1102px');
+  bHeight = 1300;
+  observers.at(-1).fn();
+  assert.equal(shot('B').style.height, '1302px');
+  const scrolls = [];
+  v.page.win.scrollY = 700;
+  v.page.win.scrollTo = (...args) => scrolls.push(args);
+  shot('B').getBoundingClientRect = () => ({ top: -400 });
+  v.answer('q1');
+  assert.equal(v.root.querySelectorAll('iframe').length, 1);
+  assert.ok(shot('A'));
+  assert.deepEqual(scrolls, [[0, 300]]);
+  assert.equal(v.page.win.location.hash, '#q1');
+  assert.deepEqual(v.page.win.history.state, { idx: 1, up: 1 });
+  v.page.win.scrollY = 0;
+  shot('A').getBoundingClientRect = () => ({ top: 300 });
+  load('A', () => 1400);
+  assert.deepEqual(scrolls, [[0, 300], [0, 300]]);
+  assert.equal(shot('A').style.height, '1402px');
+  assert.doesNotMatch(v.root.innerHTML, /Open full size|take-open|take-full|variant=/);
+  assert.equal(v.root.querySelector('textarea').value, 'Keep this note');
   v.page.fire(vm.runInContext('window', v.page.win), 'hashchange');
-  assert.deepEqual(takesShown(), [['take-shot', 'height:402px'], ['take-shot', 'height:122px'], ['Open full size →This take scrolls, so it opens full size.']]);
+  assert.equal(v.root.querySelectorAll('iframe').length, 1);
+  assert.equal(shot('A').getAttribute('style'), 'height:1402px');
+  v.page.win.innerWidth = 390;
+  v.page.fire(vm.runInContext('window', v.page.win), 'resize');
+  assert.equal(v.root.querySelectorAll('iframe').length, 3);
+  load('A', () => 200);
+  load('B', () => 120);
+  load('C', () => 350);
+  assert.equal(v.root.querySelector('.takes-full'), null);
+  v.page.win.innerWidth = 800;
+  v.page.fire(vm.runInContext('window', v.page.win), 'resize');
+  load('B', () => 120);
+  const gridA = shot('A');
+  Object.defineProperty(gridA.querySelector('iframe'), 'clientHeight', { get: () => parseInt(gridA.style.height || '360', 10) - 2 });
+  load('A', () => gridA.querySelector('iframe').clientHeight);
+  assert.equal(v.root.querySelector('.takes-full'), null);
+  assert.ok(gridA.classList.contains('measuring'));
+  v.page.advance(16);
+  v.page.advance(16);
+  assert.ok(v.root.querySelector('.takes-full'));
+  assert.equal(v.root.querySelectorAll('iframe').length, 1);
+  load('A', () => 300);
+  assert.equal(shot('A').style.height, '844px');
+  assert.ok(!shot('A').classList.contains('measuring'));
+  v.unmount();
+  assert.ok(observers.every((o) => !o.on));
+  assert.deepEqual(v.page.left(), v.idle);
 });

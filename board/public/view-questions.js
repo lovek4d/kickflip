@@ -16,7 +16,7 @@
 
   create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
     const { $, site } = B;
-    const { esc, choiceLabel, questionCard, takeButton, linkContext, badge, topicName, topicRow, nextQuestion, sentNotice, fetchJSON, restartNotice } = BoardUI;
+    const { esc, choiceLabel, questionCard, takes, linkContext, badge, topicName, topicRow, nextQuestion, sentNotice, fetchJSON, restartNotice } = BoardUI;
     // prototype-switcher.js reads a draft's note and clears the draft once it sends that question's answer.
     const draftKey = (id) => 'qdraft:' + id;
     const getDraft = (id) => { try { return JSON.parse(localStorage.getItem(draftKey(id)) || '{}'); } catch { return {}; } };
@@ -30,6 +30,14 @@
     let soloId = null;
     let shown = '';
     let sentLine = '';
+    let scrollTake = null;
+    const takeResources = new Map();
+    const clearTakeResources = (within = root) => {
+      for (const [shot, release] of takeResources) {
+        if (!shot.isConnected || within.contains(shot)) { release(); takeResources.delete(shot); }
+      }
+    };
+    B.atUnmount(() => clearTakeResources());
 
     const byId = (id) => all.find((q) => q.id === id);
     const topicOf = (qid) => topics.find((t) => t.questions.includes(qid)) || null;
@@ -66,6 +74,7 @@
     }
 
     function render() {
+      clearTakeResources();
       const el = $('#page');
       const qs = visible();
       if (!qs.length) {
@@ -92,13 +101,39 @@
     // A width sets its page's height, so a size measured at another width is measured again.
     const fitKey = (qid, oid) => `${site.root}\n${qid}\n${oid}`;
     const fitOf = (q) => (oid) => { const f = fits.get(fitKey(q.id, oid)); return f && f.w === window.innerWidth ? f : null; };
-    // A framed take is sized to its page once it loads, or past 80% of the screen's height turns into the Open full
-    // size button, since the frame can't scroll (docs/adr/0048-a-questions-takes-show-inline.md). Its listeners sit on
-    // the take's own elements, which the next render replaces.
+    // A phone's header is a bar at the bottom (docs/adr/0070-phone-headers-sit-at-the-bottom.md), so only a header
+    // at the top covers the frame's top.
+    const frameTop = (shot) => {
+      const head = $('header.top')?.getBoundingClientRect();
+      const over = head && head.top < innerHeight / 2 ? head.bottom : 0;
+      return Math.max(0, scrollY + shot.getBoundingClientRect().top - over);
+    };
+    function repaintTakes(sec) {
+      if (!sec.querySelector('.takes')) return;
+      const q = byId(sec.dataset.q);
+      const d = getDraft(q.id);
+      const chosen = d.choice ?? q.answers[q.answers.length - 1]?.choice;
+      const old = sec.querySelector('.takes');
+      clearTakeResources(old);
+      old.outerHTML = takes(q, chosen, links(q), fitOf(q));
+      sec.querySelectorAll('.take-shot').forEach(fitTake);
+    }
+
+    // A full-screen take gets the screen between the header and the Send bar.
+    const screenH = () => Math.max(320, innerHeight - ($('header.top')?.offsetHeight || 0) - ($('#qform .bar')?.offsetHeight || 0));
+
+    // A framed take is sized to its page once it loads, since the frame can't scroll. A page that fills its frame at
+    // any height is a full-screen take and gets screenH. A full-screen take, or a grid take past 80% of the screen's
+    // height, turns its question into one full-width take under a choice row
+    // (docs/adr/0048-a-questions-takes-show-inline.md).
     function fitTake(shot) {
       const frame = shot.querySelector('iframe');
-      const key = fitKey(shot.closest('section.q').dataset.q, shot.closest('.take').dataset.opt);
+      const sec = shot.closest('section.q');
+      const key = fitKey(sec.dataset.q, shot.closest('.take').dataset.opt);
+      const full = Boolean(shot.closest('.takes-full'));
       let watcher = null;
+      let probing = false;
+      let raf = 0;
       const measure = () => {
         try {
           const doc = frame.contentDocument;
@@ -106,30 +141,58 @@
           return doc?.body && doc.location.href !== 'about:blank' ? Math.ceil(doc.body.getBoundingClientRect().height) : null;
         } catch { return null; }
       };
+      const sizeNow = () => { const f = fits.get(key); return f?.w === window.innerWidth ? { ...f } : { w: window.innerWidth }; };
+      const fillsFrame = (h) => Math.abs(h - frame.clientHeight) <= 1;
+      // A page as tall as its frame is grown once: a page sized by its content keeps its height, a full-screen one
+      // follows the frame.
+      const probe = () => {
+        probing = true;
+        shot.style.height = `${frame.clientHeight + 202}px`;
+        raf = requestAnimationFrame(() => raf = requestAnimationFrame(() => {
+          raf = 0;
+          probing = false;
+          const h = measure();
+          if (h === null || !shot.isConnected || !B.alive()) return;
+          fits.set(key, { ...sizeNow(), fills: fillsFrame(h) });
+          apply();
+        }));
+      };
       const apply = () => {
+        if (probing) return;
         const h = measure();
-        if (h === null || !shot.isConnected) return;
-        if (h > window.innerHeight * 0.8) {
-          fits.set(key, { w: window.innerWidth, scrolls: true });
-          watcher?.disconnect();
-          shot.closest('.take').querySelector('.take-open')?.remove();
-          shot.outerHTML = takeButton(shot.getAttribute('href'));
-          return;
+        if (h === null || !shot.isConnected || !B.alive()) return;
+        const size = sizeNow();
+        if (size.fills === undefined) {
+          if (fillsFrame(h)) { probe(); return; }
+          size.fills = false;
         }
         // The shot's border is 1px each side, and the frame fills the rest.
-        fits.set(key, { w: window.innerWidth, h: h + 2 });
-        shot.style.height = `${h + 2}px`;
+        const height = size.fills ? screenH() : h + 2;
+        if (full) size.fullH = height;
+        else { size.h = height; size.scrolls = size.fills || h > window.innerHeight * 0.8; }
+        fits.set(key, size);
+        const q = byId(sec.dataset.q);
+        if (!full && size.scrolls && q.options.every((o) => !o.diagram && !o.practice)) {
+          repaintTakes(sec);
+          return;
+        }
+        shot.style.height = `${height}px`;
         shot.classList.remove('measuring');
+        if (scrollTake === shot) { scrollTo(0, frameTop(shot)); scrollTake = null; }
       };
-      frame.addEventListener('load', () => {
-        if (measure() === null) return;
+      const off = B.on(frame, 'load', () => {
+        if (measure() === null || !B.alive()) return;
         watcher?.disconnect();
         watcher = null;
         apply();
         // A page that grows after it loads, or narrows with the view, is measured again.
         if (!shot.isConnected) return;
-        try { watcher = new frame.contentWindow.ResizeObserver(apply); watcher.observe(frame.contentDocument.body); } catch { watcher = null; }
+        try {
+          watcher = new frame.contentWindow.ResizeObserver(apply);
+          watcher.observe(frame.contentDocument.body);
+        } catch {}
       });
+      takeResources.set(shot, () => { off(); watcher?.disconnect(); if (raf) cancelAnimationFrame(raf); });
     }
 
     function waitingTopics() {
@@ -232,6 +295,14 @@
     B.on(root, 'change', (ev) => {
       const sec = ev.target.closest('section.q'); if (!sec || ev.target.type !== 'radio') return;
       const d = getDraft(sec.dataset.q); d.choice = ev.target.value; setDraft(sec.dataset.q, d); updateBar();
+      const full = sec.querySelector('.takes-full');
+      if (full) {
+        const top = frameTop(full.querySelector('.take-shot'));
+        repaintTakes(sec);
+        scrollTake = sec.querySelector('.take-shot');
+        sec.querySelector(`input[value="${CSS.escape(d.choice)}"]`)?.focus({ preventScroll: true });
+        scrollTo(0, top);
+      }
     });
     B.on(root, 'input', (ev) => {
       const sec = ev.target.closest('section.q'); if (!sec || ev.target.tagName !== 'TEXTAREA') return;
@@ -289,15 +360,14 @@
     load(true);
     B.every(15000, () => { if (!document.hidden) load(false); });
     B.on(document, 'visibilitychange', () => { if (!document.hidden) load(false); });
-    // Back from a full-size take restores this page as it was, missing an answer sent there (prototype-switcher.js).
+    // An answer sent from a standalone prototype is reloaded when this page returns from the browser cache.
     B.on(window, 'pageshow', (ev) => { if (ev.persisted) { shown = ''; load(false); } });
-    // Fitted frames follow a new width through their ResizeObserver; a take shown as the button gets its frame back
-    // to be measured at the new width.
+    // A new width needs grid measurements before choosing either layout again.
     let width = window.innerWidth;
     B.on(window, 'resize', () => {
       if (window.innerWidth === width) return;
       width = window.innerWidth;
-      if (root.querySelector('.take-full') && document.activeElement?.tagName !== 'TEXTAREA') { shown = ''; render(); }
+      root.querySelectorAll('section.q').forEach(repaintTakes);
     });
   }),
 }))(new Map());

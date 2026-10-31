@@ -12,7 +12,7 @@ const ui = context.BoardUI;
 const ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };
 const text = (html) => html.replace(/<[^>]+>/g, ' ').replace(/&(amp|lt|gt|quot|#39);/g, (e) => ENTITIES[e]).replace(/\s+/g, ' ').trim();
 const ago = (hours) => new Date(Date.now() - hours * 3600000).toISOString();
-const options = (html) => html.split('<label class="opt">').slice(1);
+const options = (html) => html.split(/<label class="opt"[^>]*>/).slice(1);
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
 const openPR = { number: 7, url: 'https://github.com/o/repo/pull/7', state: 'OPEN', isDraft: false, checks: { state: 'pass' } };
@@ -538,19 +538,18 @@ test("a question card checks this device's draft over the last answer", () => {
 
 const takeCards = (html) => html.split('<article class="take"').slice(1);
 const frames = (html) => [...html.matchAll(/<iframe src="([^"]*)"/g)].map((m) => m[1].replace(/&amp;/g, '&'));
-const fullSize = (html) => [...html.matchAll(/<a class="take-open" href="([^"]*)">Open full size →<\/a>/g)].map((m) => m[1].replace(/&amp;/g, '&'));
 
-const shots = (html) => [...html.matchAll(/<a class="(take-shot[^"]*)"[^>]*?(?: style="([^"]*)")?><iframe/g)].map((m) => [m[1], m[2] ?? '']);
+const shots = (html) => [...html.matchAll(/<div class="(take-shot[^"]*)"[^>]*?(?: style="([^"]*)")?><iframe/g)].map((m) => [m[1], m[2] ?? '']);
 
-test("a question on a prototype page sets its takes in one grid with no carousel, each its option over a frame hidden until measured, opening full size in place", () => {
+test("a question on a prototype page sets its takes in one grid with no carousel, each its option over a frame hidden until measured, with no full-size link", () => {
   const proto = ui.questionCard({ ...question, url: 'prototype-hub-snooze.html?q=q1#top' }, { draft: { choice: 'B' } });
-  assert.match(proto, /<div class="takes"><article class="take" data-opt="A"><label class="opt">[\s\S]*<\/label><a class="take-shot[\s\S]*<\/article><article class="take" data-opt="B">[\s\S]*<\/article><\/div>/);
+  assert.match(proto, /<div class="takes"><article class="take" data-opt="A"><label class="opt">[\s\S]*<\/label><div class="take-shot[\s\S]*<\/article><article class="take" data-opt="B">[\s\S]*<\/article><\/div>/);
   assert.doesNotMatch(proto, /take-track|take-dots|data-dot/);
   assert.deepEqual(takeCards(proto).map((t) => /\bchecked>/.test(t)), [false, true]);
   assert.deepEqual(frames(proto), ['prototype-hub-snooze.html?q=q1&take=A#top', 'prototype-hub-snooze.html?q=q1&take=B#top']);
-  assert.match(proto, /<iframe [^>]*loading="lazy"/);
+  assert.doesNotMatch(proto, /loading="lazy"/);
   assert.deepEqual(shots(proto), [['take-shot measuring', ''], ['take-shot measuring', '']]);
-  assert.deepEqual(fullSize(proto), ['prototype-hub-snooze.html?q=q1&variant=A#top', 'prototype-hub-snooze.html?q=q1&variant=B#top']);
+  assert.doesNotMatch(proto, /Open full size|take-full|take-open|variant=/);
   assert.doesNotMatch(proto, /See the prototypes|target="_blank"|<label class="opt">[\s\S]*<label class="opt">[\s\S]*<label class="opt">/);
   context.location = { origin: 'https://mac.tail.ts.net', href: 'https://mac.tail.ts.net/orch/' };
   try {
@@ -563,14 +562,25 @@ test("a question on a prototype page sets its takes in one grid with no carousel
   } finally { delete context.location; }
 });
 
-test('a measured take shows its frame at its page\'s height, and a take that scrolls shows only the full-width Open full size button', () => {
-  const sizes = { A: { h: 214.4 }, B: { scrolls: true } };
-  const proto = ui.questionCard({ ...question, url: 'prototype-hub-snooze.html?q=q1' }, { fit: (id) => sizes[id] });
-  const [a, b] = takeCards(proto);
-  assert.deepEqual(shots(a), [['take-shot', 'height:214px']]);
-  assert.deepEqual(fullSize(a), ['prototype-hub-snooze.html?q=q1&variant=A']);
-  assert.deepEqual([frames(b), fullSize(b)], [[], []]);
-  assert.match(b, /<a class="take-full" href="prototype-hub-snooze\.html\?q=q1&amp;variant=B"><span class="go">Open full size →<\/span><span class="why">This take scrolls, so it opens full size\.<\/span><\/a><\/article>/);
+test('one scrolling take gives the question a chooser in stored order and one full-size frame, defaulting to the recommended take without answering', () => {
+  const q = { ...question, url: 'prototype-hub-snooze.html?q=q1' };
+  const sizes = { A: { h: 214 }, B: { h: 902, scrolls: true, fullH: 1102 } };
+  const render = (question = q, draft = {}) => ui.questionCard(question, { draft, fit: (id) => sizes[id] });
+  const proto = render();
+  assert.match(proto, /class="takes takes-full"/);
+  assert.deepEqual(options(proto).map((o) => text(o)), ['A. Keep', 'B. Drop Recommended Saves a step']);
+  assert.deepEqual(frames(proto), ['prototype-hub-snooze.html?q=q1&take=B']);
+  assert.deepEqual([...proto.matchAll(/aria-current="true"><input [^>]*value="(\w+)"/g)].map((m) => m[1]), ['B']);
+  assert.deepEqual(shots(proto), [['take-shot', 'height:1102px']]);
+  assert.equal(takeCards(proto).length, 1);
+  assert.doesNotMatch(proto, /checked|Open full size|take-full|take-open|variant=/);
+  assert.ok(proto.indexOf('<iframe') < proto.indexOf('class="composer"'));
+  assert.deepEqual(frames(render(q, { choice: 'A' })), ['prototype-hub-snooze.html?q=q1&take=A']);
+  assert.deepEqual(frames(render({ ...q, answers: [{ choice: 'A' }] })), ['prototype-hub-snooze.html?q=q1&take=A']);
+  assert.deepEqual(frames(render({ ...q, options: q.options.map((o) => ({ ...o, recommended: false })) })), ['prototype-hub-snooze.html?q=q1&take=A']);
+  const fitting = ui.questionCard(q, { fit: () => ({ h: 214 }) });
+  assert.doesNotMatch(fitting, /takes-full|Open full size/);
+  assert.deepEqual(frames(fitting), ['prototype-hub-snooze.html?q=q1&take=A', 'prototype-hub-snooze.html?q=q1&take=B']);
 });
 
 test('a take with nothing to see draws its boxes and arrows, coloured by meaning, and what it means in practice', () => {

@@ -35,7 +35,7 @@ One page's content in the app shell, mounted when its URL opens and unmounted, w
 _Avoid_: screen, tab, page (a page is its own document)
 
 **Page tree**:
-The levels back climbs in the app shell: a board, its Waiting on you, then a prototype page tied to one of its questions by `?q=`. On each, the back arrow, the browser's back and a swipe all go up one level: from a prototype to Waiting on you on its question, from there to the board, with the card still open when the owner left the board from that card's thread. However the owner arrives, by a push, a link or a reload, the levels above are written into history under the page first ([0058](docs/adr/0058-back-follows-the-page-tree.md)).
+The levels back climbs in the app shell: a board, its Waiting on you, then a separately opened prototype page tied to one of its questions by `?q=`. On each, the back arrow, the browser's back and a swipe all go up one level: from a prototype to Waiting on you on its question, from there to the board, with the card still open when the owner left the board from that card's thread. However the owner arrives, by a push, a link or a reload, the levels above are written into history under the page first ([0058](docs/adr/0058-back-follows-the-page-tree.md)).
 _Avoid_: nav stack, breadcrumbs
 
 **Hub page**:
@@ -285,7 +285,7 @@ The owner asking, from a card's thread, for throwaway prototype pages to compare
 _Avoid_: mockup request, preview
 
 **Take**:
-One option of an owner question shown as what it would be: its take on the question's prototype page, framed, or, with nothing to see, its `diagram` of boxes and arrows and what it means in `practice`. The questions page sets a question's takes in a grid that fits as many as stay at least 380px wide, one column on a phone, each its pick above it; a framed take's frame is sized to its page, or, for a page taller than 80% of the screen, gives way to a button that opens it full size. A framed take opens full size in the same window ([0048](docs/adr/0048-a-questions-takes-show-inline.md)).
+One option of an owner question shown as what it would be: a framed prototype, or a diagram of boxes and arrows with what it means in practice. Waiting on you keeps takes in option order with the recommended one tagged: small takes share a grid, while a question with any scrolling or full-screen prototype shows a choice row above one full-width take, followed by the note and Send ([0048](docs/adr/0048-a-questions-takes-show-inline.md)).
 _Avoid_: variant (the switcher's URL parameter, not the word), mockup
 
 ## Board page files
@@ -307,7 +307,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `router.js` | `AppRouter`: every hub URL as a view and each view as its URL (`ui.test.mjs` tests both), the views the shell mounts in place, framed pages included, and catching taps on links to them and back and forward, with `{idx}` in each history entry and `pushed` on one a push opened; a back arrow goes one step back by them. On the **page tree** each entry also carries `up`, how many of its parents sit under it, which the router writes on every way in, and the arrow goes up a level. It frames the paths `hub/shell.mjs` `pageOf` answers with the shell, which `hub/shell.test.mjs` checks |
 | `shell.js` | `AppShell`: the sidebar mounted once, one view at a time, asking before leaving an unsaved edit, `/`'s pick of a board, the hub's one stream and which left boards are unchanged, a framed page's URL and title copied to the top, a push tap from `hub/sw.js` or a framed page's view URL (`AppShell.open`) routed in place, and registering `hub/sw.js`, which opens the shell while the Mac is asleep |
 | `view-settings.js` | Board Settings as a view: auto-merge, install script, reviewers and rules |
-| `view-questions.js` | Waiting on you as a view: a topic's questions, their takes framed with `?take=`, and one Send, which stays while the topic has a question open and otherwise opens the next topic with one, or goes back to the board |
+| `view-questions.js` | Waiting on you as a view: a topic's questions, their takes framed with `?take=` in a fitting grid or a chooser above one full-width frame, and one Send, which stays while the topic has a question open and otherwise opens the next topic with one, or goes back to the board |
 | `view-notes.js` | One item's notes as a view, from `GET /api/notes`; the server redirects `plan.html` to `notes.html` |
 | `view-hub.js` | The **hub page** as a view, from `/_hub/api/hub`, refreshed every 30 seconds while it shows; pending prompts of sessions with no board, Send now and this device's Turn on |
 | `view-hub-settings.js` | **Hub Settings** as a view, from `/_hub/api/settings`: notifications, the snooze sheet and the Polling summary row first, then the Codex setting and the rules for every board |

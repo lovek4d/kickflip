@@ -30,6 +30,8 @@ A --file argument of - reads stdin.
           source?, context?, url?, urgent?}; topic is declared, item:<wave>/<id>, or item:ask:<eventId>
           for a New card not sorted yet.
          url is http(s), or a site page such as prototype-<topic>.html?q=<id>, stored as given.
+         Prototype options keep take order, ids matching take keys; recommended: true tags the recommendation.
+         Waiting on you shows fitting takes in a grid, or a chooser above one full-width take if any scrolls or fills the screen.
          diagram, with practice: rows of 1-4 boxes [[{text, tone?, to?}]], tone quiet|info|notice|
          danger|success, to the next row's box indexes (default all); practice: ["<line>", …]
   question resolve <id> --note <text>                    sets resolved and resolved_at

@@ -84,7 +84,12 @@ function prototypePage(url, { framed = false, owner, next = owner[1] || null }) 
   const noticesAtMove = [];
   const decisions = [];
   const loaded = [];
+  const replacements = [];
   let styles = '';
+  let fetches = 0;
+  const rendered = [];
+  const classes = [];
+  const controls = [];
   const storage = () => {
     const data = new Map();
     return { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, v), removeItem: (k) => data.delete(k) };
@@ -95,12 +100,12 @@ function prototypePage(url, { framed = false, owner, next = owner[1] || null }) 
   const win = {
     URL, URLSearchParams, Map, Set, JSON,
     location: { href: u.href, search: u.search, replace: (to) => move(['load', String(to)]) },
-    history: { replaceState() {} },
+    history: { replaceState: (...args) => replacements.push(args) },
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     sessionStorage: storage(),
-    document: { getElementById: () => null, head: { insertAdjacentHTML: (_, html) => { styles += html; } }, body: { append() {} }, documentElement: { classList: { add() {} } },
+    document: { getElementById: () => null, head: { insertAdjacentHTML: (_, html) => { styles += html; } }, body: { append: (el) => controls.push(el) }, documentElement: { classList: { add: (name) => classes.push(name) } },
       createElement: el, querySelector: () => null, addEventListener: (type, fn) => listeners.push({ target: 'document', type, fn }) },
-    fetch: async () => ({ json: async () => ({ owner, ownerTopics: topics }) }),
+    fetch: async () => { fetches++; return { json: async () => ({ owner, ownerTopics: topics }) }; },
     ClaudeSite: { url: (p) => new URL(p, 'https://mac.ts.net/orch/').href, send: async (kind, data) => { sent.push([kind, data]); return {}; } },
   };
   win.window = win;
@@ -124,15 +129,15 @@ function prototypePage(url, { framed = false, owner, next = owner[1] || null }) 
     script.onload();
   };
   vm.runInContext(fs.readFileSync(new URL('./public/prototype-switcher.js', import.meta.url), 'utf8'), win);
-  win.PrototypeSwitcher.mount({ takes: { A: 'A. Named chips', B: 'B. One stepper' }, initial: 'A', render() {} });
-  const pill = listeners.find((l) => l.type === 'click').target;
+  const mounted = win.PrototypeSwitcher.mount({ takes: { A: 'A. Named chips', B: 'B. One stepper' }, initial: 'A', render: (take) => rendered.push(take) });
+  const pill = listeners.find((l) => l.type === 'click')?.target;
   const settle = () => new Promise((r) => setTimeout(r, 0));
   const pick = async () => {
     await settle();
     for (const l of listeners.filter((x) => x.target === pill && x.type === 'click')) l.fn({ target: { closest: () => ({ dataset: { ps: 'pick' } }) } });
     await settle();
   };
-  return { pick, sent, moves, noticesAtMove, decisions, loaded, styles, notice: () => shared.BoardUI.sentNotice.take('orch'), localNotice: () => win.sessionStorage.getItem('sent:orch') };
+  return { pick, sent, moves, noticesAtMove, decisions, loaded, styles, rendered, classes, controls, replacements, take: mounted.take, fetches: () => fetches, notice: () => shared.BoardUI.sentNotice.take('orch'), localNotice: () => win.sessionStorage.getItem('sent:orch') };
 }
 
 test('a pick on a prototype page sends the answer, then moves on to the next open question in its place, or with none left to the board, through the app shell around a framed page', async () => {
@@ -158,4 +163,19 @@ test('a pick on a prototype page sends the answer, then moves on to the next ope
     assert.equal(last.notice(), 'Sent 1 answer to INT-1.');
     assert.equal(last.notice(), '');
   }
+});
+
+test('a take embedded by Waiting on you renders only that take without fetching the question, adding pick controls or changing history', () => {
+  const page = prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1&take=B', { framed: true, owner: [question] });
+  assert.deepEqual(page.rendered, ['B']);
+  assert.equal(page.take, 'B');
+  assert.deepEqual(page.classes, ['ps-embed']);
+  assert.deepEqual(page.controls, []);
+  assert.equal(page.fetches(), 0);
+  assert.deepEqual(page.moves, []);
+  assert.deepEqual(page.replacements, []);
+  assert.deepEqual(page.sent, []);
+  assert.deepEqual(page.loaded, []);
+  assert.match(page.styles, /\.ps-embed header\.top \{ display:none; \}/);
+  assert.match(page.styles, /\.ps-embed main \{ padding-bottom:12px !important; \}/);
 });

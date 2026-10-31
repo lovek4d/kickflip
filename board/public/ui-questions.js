@@ -4,7 +4,7 @@
   // A short id such as A or C2 leads the label; a word id such as "inline" would repeat it. prototype-switcher.js answerLabel matches.
   const lead = (o) => (/^[A-Z][0-9]?$/i.test(o.id) ? `${o.id}. ` : '');
   const choiceLabel = (q, id) => { const o = q.options.find((x) => x.id === id); return o ? `${q.multi ? '' : lead(o)}${o.label}` : id || ''; };
-  const option = (o, { type = 'radio', name, checked = false, numbered = true }) => `<label class="opt"><input type="${type}" name="${esc(name)}" value="${esc(o.id)}" ${checked ? 'checked' : ''}>
+  const option = (o, { type = 'radio', name, checked = false, numbered = true, shown = false }) => `<label class="opt"${shown ? ' aria-current="true"' : ''}><input type="${type}" name="${esc(name)}" value="${esc(o.id)}" ${checked ? 'checked' : ''}>
         <span><span class="lbl">${numbered ? esc(lead(o)) : ''}${esc(o.label)}</span>${o.recommended ? '<span class="rec">Recommended</span>' : ''}<div class="det">${esc(o.detail || '')}</div></span></label>`;
 
   const noteComposer = (id, note) => `<div class="composer" data-composer="${esc(id)}"><textarea class="note" rows="2" placeholder="Note (optional)">${esc(note || '')}</textarea>
@@ -55,24 +55,27 @@
   }
   const practice = (lines, links) => `<div class="practice"><b>In practice</b><ul>${lines.map((l) => `<li>${linkText(l, links)}</li>`).join('')}</ul></div>`;
 
-  const takeButton = (full) => `<a class="take-full" href="${esc(full)}"><span class="go">Open full size →</span><span class="why">This take scrolls, so it opens full size.</span></a>`;
-  // fit(option id): the take's measured size, {h} in px for its frame or {scrolls: true} for the button; none until
-  // view-questions.js measures its page.
-  function takeBody(q, o, links, fit) {
+  const fullTakes = (q, fit) => isPrototype(q.url) && q.options.every((o) => !o.diagram && !o.practice)
+    && q.options.some((o) => fit(o.id)?.scrolls);
+  // Grid heights decide the layout; fullH measures the chosen take at the full content width.
+  function takeBody(q, o, links, fit, full = false) {
     if (o.diagram) return diagram(o.diagram) + practice(o.practice || [], links);
     if (!isPrototype(q.url)) return '';
-    const full = withParam(q.url, 'variant', o.id);
     const size = fit(o.id);
-    if (size?.scrolls) return takeButton(full);
-    return `<a class="take-shot${size ? '' : ' measuring'}" href="${esc(full)}" tabindex="-1" aria-hidden="true"${size ? ` style="height:${Math.round(size.h)}px"` : ''}><iframe src="${esc(withParam(q.url, 'take', o.id))}" loading="lazy" tabindex="-1" title="${esc(o.label)}"></iframe></a>`
-      + `<a class="take-open" href="${esc(full)}">Open full size →</a>`;
+    const h = full ? size?.fullH : size?.h;
+    // Every take loads so one outside the viewport can still decide the question's layout.
+    return `<div class="take-shot${h ? '' : ' measuring'}"${h ? ` style="height:${Math.round(h)}px"` : ''}><iframe src="${esc(withParam(q.url, 'take', o.id))}" tabindex="${full ? 0 : -1}"${full ? '' : ' aria-hidden="true"'} title="${esc(o.label)}"></iframe></div>`;
   }
   function takes(q, chosen, links, fit) {
     const name = 'c-' + q.id;
+    if (fullTakes(q, fit)) {
+      const shown = q.options.find((o) => o.id === chosen) || q.options.find((o) => o.recommended) || q.options[0];
+      return `<div class="takes takes-full"><div class="take-choices" role="group" aria-label="Takes">${q.options.map((o) => option(o, { name, checked: chosen === o.id, shown: o === shown })).join('')}</div><article class="take" data-opt="${esc(shown.id)}">${takeBody(q, shown, links, fit, true)}</article></div>`;
+    }
     return `<div class="takes">${q.options.map((o) => `<article class="take" data-opt="${esc(o.id)}">${option(o, { name, checked: chosen === o.id })}${takeBody(q, o, links, fit)}</article>`).join('')}</div>`;
   }
   // An owner question from /api/board; draft is this device's unsent {choice, note}; links its ui-links.js linkContext;
-  // fit as takeBody's.
+  // fit(option id) supplies the measured grid and full-width heights.
   function questionCard(q, { n = 0, draft = {}, links = {}, fit = () => null } = {}) {
     const last = q.answers[q.answers.length - 1];
     const chosen = draft.choice ?? (last ? last.choice : null);
@@ -123,5 +126,5 @@
     },
   };
 
-  Object.assign(globalThis.BoardUI, { choiceLabel, option, answerHistory, questionCard, takeButton, topicName, topicRow, nextQuestion, sentNotice });
+  Object.assign(globalThis.BoardUI, { choiceLabel, option, answerHistory, questionCard, takes, topicName, topicRow, nextQuestion, sentNotice });
 })();
