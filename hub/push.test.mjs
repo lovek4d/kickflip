@@ -99,6 +99,24 @@ test('flushing the queue sends each push as its own notification, and a failed s
   assert.deepEqual(read(pushFile('queue.json')).items.map((i) => i.tag), ['item-w/A4']);
 });
 
+test('a legacy queued push without a kind still reaches the phone when flushed at the Mac', async () => {
+  const mac = await startFakeDevice();
+  try {
+    write(pushFile('subs.json'), [{ ...device.subscription, agent: IPHONE }, { ...mac.subscription, agent: CHROME_MAC }]);
+    write(pushFile('queue.json'), { items: [{ id: 'legacy-prompt', title: 'Allow Bash?', body: '', url: '/orch/', tag: 'prompt-legacy', queuedAt: new Date(2026, 9, 14, 12).toISOString() }] });
+    atTheMac();
+
+    const r = await inChild('return push.flushQueue();');
+    assert.equal(r.count, 1);
+    assert.equal(r.ok, true);
+    assert.deepEqual(device.received.map((m) => m.title), ['Allow Bash?']);
+    assert.deepEqual(mac.received.map((m) => m.title), ['Allow Bash?']);
+    assert.deepEqual(read(pushFile('queue.json')).items, []);
+  } finally {
+    await mac.close();
+  }
+});
+
 test('with notifications off every push is dropped, urgent ones too, and turning them off drops the queue', async () => {
   await inChild(`return push.deliver({ title: 'A3 waits on Merge', url: '/orch/' }, { kind: 'action', at: ${NOON} });`);
   const off = await inChild('return push.setNotifications({ on: false });');

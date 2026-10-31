@@ -1,7 +1,8 @@
 // Web Push for every hub site, with no dependencies. The hub serves the
 // subscribe side (hub.mjs); every push goes through deliver(), which refuses a push that isn't one of PUSH_KINDS and
 // queues one unless it is urgent or immediate. While the owner is at the Mac (presence.mjs), an action push reaches
-// the desktop subscriptions only (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md).
+// the desktop subscriptions only, unless urgent or no desktop has subscribed
+// (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md).
 // The queue goes out through flushQueue() after each GitHub check on the polling interval (schedule.mjs) and at the end
 // of each monitor tick (`board.mjs checked`), each push as its own notification
 // (docs/adr/0030-pushes-go-by-kind-and-each-arrives-on-its-own.md).
@@ -67,18 +68,14 @@ export function subscriptions() {
 
 // A subscription with no user agent counts as a phone, so it never loses pushes while the owner is at the Mac.
 const onPhone = (sub) => !sub.agent || /iPhone|iPad|Android/.test(sub.agent);
-const PHONE_TOO = ['prompt', 'fault'];
 
-// The subscriptions a push of this kind goes to now: only the desktop ones while the owner is at the Mac, unless it is
-// urgent, a prompt or a fault, or no desktop has subscribed.
 async function reach(kind, urgent = false) {
   const subs = readSubs();
-  if (urgent || PHONE_TOO.includes(kind) || !(await presence()).atMac) return subs;
+  if (kind !== 'action' || urgent || !(await presence()).atMac) return subs;
   const desktop = subs.filter((s) => !onPhone(s));
   return desktop.length ? desktop : subs;
 }
 
-// {atMac, desktops}: whether the owner is at the Mac now, and how many desktop subscriptions an action push would reach.
 export async function pushRoute() {
   return { atMac: (await presence()).atMac, desktops: readSubs().filter((s) => !onPhone(s)).length };
 }
