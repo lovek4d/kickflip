@@ -23,6 +23,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { routeRecord } from '../hub/routes.mjs';
 import { readHubRules, rulesOf, ruleLines } from '../hub/rules.mjs';
 import { boardAt, linksOf, hubLink } from '../hub/boards.mjs';
 import { settingsLines, settingsOf } from '../board/store.mjs';
@@ -32,7 +33,7 @@ if (!route || !session) { console.error('usage: wait-events.mjs <route> <session
 const MANIFEST = path.join(os.homedir(), '.claude', 'web-ts', 'manifest.json');
 
 function site() {
-  try { return JSON.parse(fs.readFileSync(MANIFEST, 'utf8')).sites?.[route] || null; } catch { return undefined; }
+  try { return routeRecord(JSON.parse(fs.readFileSync(MANIFEST, 'utf8')).sites, route) || null; } catch { return undefined; }
 }
 function matching(s) {
   const re = s.filter ? new RegExp(s.filter) : null;

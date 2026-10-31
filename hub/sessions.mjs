@@ -1,7 +1,8 @@
 // Board sessions the hub can start and wake. The manifest records each site's session in its `owner`
 // {session, label, since, repo, model?}: repo is the folder the session runs in, where `claude --resume` finds it. A
 // session `web-ts start` launched for a route with no site yet waits in the manifest's `starting` {<route>: owner}
-// until its join moves it into the site. Every session starts in the background (`claude --bg`) in auto mode, with
+// until its join moves it into the site. A New board request (new-board.mjs) records {title, repo, asked_at} there
+// first, with no session until `web-ts start` merges its owner in. Every session starts in the background (`claude --bg`) in auto mode, with
 // worktree.bgIsolation "none" so it stays in the repo folder, since its builders make their own worktrees, and with
 // the hook that brings its prompts to the owner's phone.
 // checkSessions is the hub's wake (docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md): when an event lands
@@ -13,6 +14,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { routeRecord } from './routes.mjs';
 import { RESUME_STATE, carryCursor, isListening, listBoards, oldestUnheard, readManifest, readJSON, saveJSON, watchedCounts, withManifestLock, writeManifest } from './boards.mjs';
 import { liveSessions, sessionRecords } from './live.mjs';
 import { deliver } from './push.mjs';
@@ -21,6 +23,14 @@ import { WAIT_MS } from './prompts.mjs';
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const RESUME_AFTER = 3 * 60_000;
 export const COMEBACK_WAIT = 5 * 60_000;
+export const STARTING_WAIT = 15 * 60_000;
+
+export function startingBoards(manifest, now = Date.now()) {
+  return Object.entries(manifest.starting || {}).filter(([route]) => !routeRecord(manifest.sites, route)).map(([route, rec]) => {
+    const askedAt = rec.asked_at || rec.since;
+    return { route, title: rec.title || rec.label || route, askedAt, failed: now - Date.parse(askedAt) >= STARTING_WAIT };
+  });
+}
 // "none" is the value that turns isolation off; Claude Code drops any other value and isolates. The PermissionRequest
 // hook sends the session's prompts to the phone, and its timeout stays a minute past the hook's own wait
 // (docs/adr/0060-background-sessions-prompts-come-to-the-phone.md). launchd's PATH may have no node, hence execPath.
@@ -77,8 +87,8 @@ export const resumeArgv = ({ id, route, name, model, background }) => ['--resume
 
 // The session recorded for a route: its site's owner, else a start its join hasn't taken up. → owner + {title} | null
 export function sessionOf(manifest, route) {
-  const site = manifest?.sites?.[route];
-  const owner = site?.owner?.session ? site.owner : manifest?.starting?.[route];
+  const site = routeRecord(manifest?.sites, route);
+  const owner = site?.owner?.session ? site.owner : routeRecord(manifest?.starting, route);
   return owner?.session ? { ...owner, title: site?.title || route } : null;
 }
 
@@ -117,9 +127,9 @@ async function moveOwner(route, { from, to, mark }) {
     const board = listBoards(m).find((b) => b.route === route);
     if (board?.owner?.session === from && (mark || to !== from)) carryCursor(board, { from, to, mark });
     if (to === from) return;
-    const site = m.sites?.[route];
+    const site = routeRecord(m.sites, route);
     if (site?.owner?.session === from) Object.assign(site, { owner: { ...site.owner, session: to }, updated: new Date().toISOString() });
-    else if (m.starting?.[route]?.session === from) m.starting[route] = { ...m.starting[route], session: to };
+    else if (routeRecord(m.starting, route)?.session === from) m.starting[route] = { ...routeRecord(m.starting, route), session: to };
     else return;
     await writeManifest(m);
   });
@@ -133,7 +143,7 @@ export async function startSession(route, { manifest = readManifest(), repo, mod
   refuseLive(rec, live);
   const dir = path.resolve(repo || rec?.repo || process.cwd());
   if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) throw new SessionError(`no folder at ${dir}`, 'none');
-  const name = manifest?.sites?.[route]?.title || route;
+  const name = routeRecord(manifest?.sites, route)?.title || routeRecord(manifest?.starting, route)?.title || route;
   const argv = startArgv({ route, name, model: model || rec?.model, prompt });
   const r = await run(argv, { cwd: dir });
   if (r.status !== 0) throw new SessionError(`claude --bg failed (${r.status}): ${(r.stderr || r.stdout).trim().slice(0, 300)}`, 'failed');

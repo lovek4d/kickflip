@@ -6,7 +6,7 @@ import { miniDom } from './mini-dom.mjs';
 import { buildBoard, BUTTON, ACTION_KIND } from './domain.mjs';
 
 const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
-  'hub-kit.js', 'sidebar.js', 'toasts.js', 'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-banner.js', 'app-snapshot.js',
+  'dialogs.js', 'hub-kit.js', 'sidebar.js', 'toasts.js', 'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-polling.js', 'view-frame.js', 'router.js'];
 
 function memoryStorage(entries = []) {
@@ -85,6 +85,7 @@ function fakePage(localStorage) {
   win.window = win;
   vm.createContext(win);
   for (const file of SCRIPTS) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), win);
+  Object.assign(win.BoardDialogs, { confirm: async () => false, notice: async () => {} });
   const fire = (target, type, ev = {}) => {
     const e = { target, type, defaultPrevented: false, preventDefault() { e.defaultPrevented = true; }, stopImmediatePropagation() {}, ...ev };
     for (const l of listeners.filter((x) => x.target === target && x.type === type).sort((a, b) => b.capture - a.capture)) l.fn(e);
@@ -97,7 +98,7 @@ function fakePage(localStorage) {
     frames.clear();
     due.forEach((fn) => fn(now));
   };
-  return { win, El, Target, fire, left, advance };
+  return { win, El, Target, fire, left, advance, listenerCount: (target) => listeners.filter((l) => l.target === target).length };
 }
 
 test("a board view mounted then unmounted leaves no listener, interval, timer or watch behind, and lets go of the shell's change signal", () => {
@@ -648,6 +649,144 @@ test("the shell selects Settings on direct loads, sidebar taps, the Hub header's
     win.AppShell.open('/_hub/');
     tap(doc.querySelector('.sb-foot a[href="/_hub/settings"]'));
     assert.deepEqual(selected(), ['/_hub/settings']);
+  }
+});
+
+test('ask and New board sheets follow the phone keyboard and release viewport listeners on close', () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const { win } = page;
+  const doc = win.document;
+  const { Element } = miniDom(page.Target, doc);
+  const nativeClose = Element.prototype.close;
+  Element.prototype.close = function () { nativeClose.call(this); page.fire(this, 'close'); };
+  doc.body.innerHTML = '<aside id="sidebar" class="sidebar"></aside><div id="sidebarScrim"></div>';
+  doc.getElementById = (id) => doc.body.querySelector(`#${id}`);
+  doc.querySelector = (sel) => doc.body.querySelector(sel);
+  doc.querySelectorAll = (sel) => doc.body.querySelectorAll(sel);
+  win.matchMedia = () => Object.assign(new page.Target(), { matches: true });
+  win.Sidebar.mount({ data: { sites: [], repos: [], starting: [] } });
+  const aside = doc.getElementById('sidebar');
+  const root = doc.body.appendChild(new Element('div'));
+  root.innerHTML = win.BoardView.markup({ title: 'A' });
+  const view = win.BoardView.create(root, 'https://mac.ts.net/board-a');
+  view.mount();
+  const vv = win.visualViewport;
+  for (const kind of ['board', 'ask']) {
+    for (let i = 0; i < 2; i++) {
+      const baseline = [page.listenerCount(vv), page.listenerCount(win)];
+      vv.height = 844; vv.offsetTop = 0;
+      if (kind === 'ask') page.fire(root.querySelector('#compose'), 'click');
+      else page.fire(aside, 'click', { target: aside.querySelector('[data-new-board]') });
+      const sheet = kind === 'ask' ? root.querySelector('#sheet') : doc.getElementById('newBoardSheet');
+      const values = new Map();
+      sheet.style.setProperty = (k, v) => values.set(k, v);
+      vv.height = 500;
+      page.fire(vv, 'resize');
+      assert.deepEqual([...values], [['--kb', '344px'], ['--vh', '500px']]);
+      assert.equal(sheet.classList.contains('kb'), true);
+      assert.equal(sheet.classList.contains('keyboard-sheet'), true);
+      vv.offsetTop = 20;
+      page.fire(vv, 'scroll');
+      assert.equal(values.get('--kb'), '324px');
+      vv.height = 844;
+      page.fire(vv, 'resize');
+      assert.equal(values.get('--kb'), '0px');
+      assert.equal(sheet.classList.contains('kb'), false);
+      sheet.close();
+      const closed = [page.listenerCount(vv), page.listenerCount(win)];
+      values.clear();
+      page.fire(vv, 'resize'); page.fire(vv, 'scroll');
+      assert.equal(values.size, 0);
+      assert.deepEqual(closed, baseline);
+    }
+  }
+  page.fire(root.querySelector('#compose'), 'click');
+  const values = new Map();
+  root.querySelector('#sheet').style.setProperty = (k, v) => values.set(k, v);
+  view.unmount();
+  values.clear();
+  page.fire(vv, 'resize'); page.fire(vv, 'scroll');
+  assert.equal(values.size, 0);
+});
+
+test('New board opens the shared sheet from rail and drawer, validates fields, posts the ask and keeps failed starts dismissible', async () => {
+  for (const wide of [true, false]) {
+    const page = fakePage(memoryStorage().localStorage);
+    const { win } = page;
+    const doc = win.document;
+    const { Element } = miniDom(page.Target, doc);
+    const nativeClose = Element.prototype.close;
+    Element.prototype.close = function () { nativeClose.call(this); page.fire(this, 'close'); };
+    doc.body.innerHTML = '<aside id="sidebar" class="sidebar"></aside><div id="sidebarScrim"></div>';
+    doc.getElementById = (id) => doc.body.querySelector(`#${id}`);
+    doc.querySelector = (sel) => doc.body.querySelector(sel);
+    doc.querySelectorAll = (sel) => doc.body.querySelectorAll(sel);
+    win.matchMedia = () => Object.assign(new page.Target(), { matches: wide });
+    let data = { sites: [], repos: ['~/repo & tools'], starting: [] };
+    let refusal = 'That board route already exists.';
+    let finish = null;
+    const posted = [];
+    win.fetch = async (url, options) => {
+      if (url === '/_hub/sidebar.json') return { ok: true, json: async () => data };
+      posted.push([url, options.method, options.body && JSON.parse(options.body)]);
+      if (options.method === 'DELETE') { data = { ...data, starting: [] }; return { ok: true }; }
+      if (refusal) return { ok: false, text: async () => refusal };
+      return new Promise((resolve) => { finish = () => { data = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', failed: false }] }; resolve({ ok: true, json: async () => ({ route: 'backend-audit' }) }); }; });
+    };
+    win.Sidebar.mount({ data });
+    const aside = doc.getElementById('sidebar');
+    const tapNew = () => page.fire(aside, 'click', { target: aside.querySelector('[data-new-board]') });
+    tapNew();
+    let sheet = doc.getElementById('newBoardSheet');
+    assert.equal(sheet.open, true);
+    assert.equal(sheet.classList.contains('sheet'), true);
+    assert.equal(sheet.querySelector('option[value="~/repo & tools"]').textContent, '~/repo & tools');
+    page.fire(sheet.querySelector('[data-cancel-new]'), 'click');
+    assert.equal(doc.getElementById('newBoardSheet'), null);
+    assert.deepEqual(posted, []);
+    tapNew();
+    sheet = doc.getElementById('newBoardSheet');
+    const form = sheet.querySelector('form');
+    const field = (name) => form.querySelector(`[name="${name}"]`);
+    const start = form.querySelector('[type="submit"]');
+    assert.equal(start.disabled, true);
+    field('name').value = 'Backend audit';
+    page.fire(form, 'input', { target: field('name') });
+    assert.equal(start.disabled, true);
+    field('folder').value = 'other';
+    page.fire(form, 'change', { target: field('folder') });
+    assert.equal(field('path').hidden, false);
+    assert.equal(doc.activeElement, field('path'));
+    field('path').value = '~/new-repo';
+    field('purpose').value = 'Review changes';
+    page.fire(form, 'input', { target: field('path') });
+    assert.equal(start.disabled, false);
+    page.fire(form, 'submit');
+    await new Promise(setImmediate);
+    assert.equal(sheet.querySelector('[role="alert"]').textContent, refusal);
+    assert.equal(sheet.open, true);
+    assert.equal(start.disabled, false);
+    refusal = null;
+    page.fire(form, 'submit');
+    page.fire(form, 'submit');
+    assert.equal(start.disabled, true);
+    assert.equal(posted.length, 2);
+    finish();
+    await new Promise(setImmediate);
+    assert.deepEqual(posted.at(-1), ['/_hub/new-board', 'POST', { name: 'Backend audit', repo: '~/new-repo', purpose: 'Review changes' }]);
+    assert.equal(doc.getElementById('newBoardSheet'), null);
+    assert.ok(aside.querySelector('[data-starting="backend-audit"]'));
+    assert.equal(aside.querySelector('a[href="/backend-audit/"]'), null);
+    assert.equal(aside.classList.contains('open'), !wide);
+    const failed = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', failed: true }] };
+    data = failed;
+    const sidebar = win.Sidebar.mount({ data });
+    const dismiss = aside.querySelector('[data-dismiss-board]');
+    page.fire(aside, 'click', { target: dismiss });
+    await new Promise(setImmediate);
+    assert.equal(posted.at(-1)[1], 'DELETE');
+    assert.equal(aside.querySelector('[data-starting]'), null);
+    sidebar.close();
   }
 });
 

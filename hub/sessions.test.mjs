@@ -114,10 +114,15 @@ test('start runs claude --bg in the folder, in auto mode with isolation off, and
 
 test('start on a route with no site waits in starting until that session joins', async () => {
   const before = calls().length;
+  const pending = { title: 'Fresh board', repo: otherRepo, asked_at: new Date().toISOString() };
+  const m = manifest();
+  m.starting = { ...m.starting, fresh: pending };
+  write(web('manifest.json'), m);
   const r = json(await cli(['start', 'fresh', '--repo', otherRepo]));
   const call = calls()[before];
   assert.deepEqual([call.argv.at(-1), call.cwd, call.argv.includes('--model')], ['/join-web-ts fresh', otherRepo, false]);
   assert.deepEqual(manifest().starting.fresh, { ...manifest().starting.fresh, session: r.session, repo: otherRepo });
+  assert.deepEqual([manifest().starting.fresh.title, manifest().starting.fresh.asked_at, call.argv[2]], [pending.title, pending.asked_at, pending.title]);
   assert.equal(manifest().sites.fresh, undefined);
   assert.match((await cli(['sessions'])).stdout, new RegExp(`^/fresh  ${r.session}  not live  ${otherRepo}  \\(starting: not joined yet\\)$`, 'm'));
   json(await cli(['join', 'fresh', '--session', r.session], { cwd: otherRepo }));
@@ -260,4 +265,32 @@ test('the wake resumes the session in place with a prompt naming its id, and win
   assert.match(call.argv.at(-1), new RegExp(`join wake --session ${id}\``));
   assert.deepEqual([read(cursor), manifest().sites.wake.owner.session], [{ 'data/events.jsonl': 1 }, id]);
   assert.deepEqual((await check()).resumed, []);
+});
+
+
+test('start and join refuse constructor as a route', async () => {
+  const before = fs.existsSync(web('manifest.json')) ? manifest() : null;
+  for (const args of [['start', 'constructor', '--repo', repo], ['join', 'constructor', '--session', 's-ctor', '--template', 'board']]) {
+    const r = await cli(args);
+    assert.equal(r.status, 2, r.stdout);
+    assert.match(r.stderr, /not "constructor"/);
+  }
+  assert.deepEqual(fs.existsSync(web('manifest.json')) ? manifest() : null, before);
+});
+
+test('route lookups ignore inherited site and starting records, including __proto__', async () => {
+  const { sessionOf, startingBoards } = await import('./sessions.mjs');
+  const { routeRecord } = await import('./routes.mjs');
+  for (const route of ['constructor', '__proto__', 'toString']) {
+    const owner = { session: 's-own', repo };
+    const sites = { [route]: { owner, title: route } };
+    const starting = { [route]: { ...owner, title: route, asked_at: new Date().toISOString() } };
+    assert.equal(routeRecord({}, route), undefined);
+    assert.equal(sessionOf({ sites: {}, starting: {} }, route), null);
+    assert.equal(sessionOf({ sites: Object.create(sites), starting: Object.create(starting) }, route), null);
+    assert.equal(sessionOf({ sites, starting: {} }, route).session, 's-own');
+    assert.equal(sessionOf({ sites: {}, starting }, route).session, 's-own');
+    assert.equal(startingBoards({ sites: {}, starting })[0].route, route);
+    assert.deepEqual(startingBoards({ sites, starting }), []);
+  }
 });

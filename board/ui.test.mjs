@@ -227,7 +227,7 @@ test("the sidebar's head is the page header, whose logo and ✕ close it, then i
     hub: { tone: 'ok', word: 'Healthy', detail: '4 of 4 sites up' }, notifications: { state: 'on', text: 'On' }, polling: { text: 'Every 15 min · next 4:45pm' },
   };
   const html = ui.sidebar(data, { here: 'ios', device: 'on' });
-  assert.equal(text(html), 'Boards IOS 2 need you SHOP HUB Pages LEARN Hub Hub Healthy 4 of 4 sites up Settings Notifications, polling and rules');
+  assert.equal(text(html), 'Boards IOS 2 need you SHOP HUB New board Pages LEARN Hub Hub Healthy 4 of 4 sites up Settings Notifications, polling and rules');
   const foot = (html) => html.slice(html.indexOf('<div class="sb-foot">'));
   assert.deepEqual([...foot(html).matchAll(/href="([^"]+)"/g)].map((m) => m[1]), ['/_hub/', '/_hub/settings']);
   assert.match(html, /^<header class="top"><div class="brand"><a class="hub" href="\/_hub\/" aria-label="Hide boards" title="Hide boards" data-sidebar-close=""><img src="\/_hub\/kickflip\.png" alt=""><\/a><h2>Boards<\/h2><\/div><div class="nav"><button type="button" class="sb-close" data-sidebar-close aria-label="Close boards"><svg [^>]*>.*?<\/svg><\/button><\/div><\/header>/);
@@ -251,7 +251,20 @@ test("the sidebar's head is the page header, whose logo and ✕ close it, then i
     const selected = [...ui.sidebar(data, { here }).matchAll(/<a class="sb-row on" href="([^"]+)" aria-current="page"/g)].map((m) => m[1]);
     assert.deepEqual(selected, [here.startsWith('_hub/settings') ? '/_hub/settings' : '/_hub/'], here);
   }
-  assert.match(ui.sidebar({ sites: [] }), /No boards yet/);
+  assert.match(ui.sidebar({ sites: [] }), /data-new-board aria-haspopup="dialog"/);
+});
+
+test('pending boards have muted non-link rows, failed starts can be dismissed, and New board stays last in Boards', () => {
+  const data = { sites: [{ route: 'page', title: 'Page', board: false, icon: '' }], starting: [
+    { route: 'new', title: 'Backend <audit>', failed: false }, { route: 'old', title: 'Old board', failed: true },
+  ] };
+  const html = ui.sidebar(data, { switching: true });
+  assert.match(html, /<div class="sb-row sb-starting" data-starting="new">.*Starting….*Backend &lt;audit&gt; · Waiting for the board to answer/);
+  assert.match(html, /data-starting="old">.*Didn't start.*data-dismiss-board="old"/);
+  assert.doesNotMatch(html, /href="\/(new|old)\//);
+  assert.ok(html.indexOf('data-starting="old"') < html.indexOf('data-new-board'));
+  assert.ok(html.indexOf('data-new-board') < html.indexOf('>Pages<'));
+  assert.deepEqual(plain(ui.switchKeys(data)).map((r) => r.href), ['/page/', '/_hub/', '/_hub/settings']);
 });
 
 test("switch mode numbers the first nine boards in sidebar order, and gives every row a letter from its name, boards claiming first in the order they joined, so a new board moves only a page's or a Hub row's letter", () => {

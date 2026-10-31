@@ -103,6 +103,92 @@
       else if (isOpen()) close();
       else open();
     }
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    async function refresh() {
+      const response = await fetch('/_hub/sidebar.json');
+      if (!response.ok) throw new Error('Could not refresh boards.');
+      setData(await response.json());
+    }
+    function newBoard() {
+      if (document.getElementById('newBoardSheet')) return;
+      close();
+      const sheet = document.createElement('dialog');
+      sheet.setAttribute('id', 'newBoardSheet');
+      sheet.setAttribute('class', 'sheet');
+      sheet.setAttribute('aria-labelledby', 'newBoardTitle');
+      sheet.innerHTML = `<form class="nb-form"><div class="sheet-head"><h2 id="newBoardTitle" tabindex="-1" autofocus>New board</h2></div>
+        <p class="nb-next">The hub starts a session and joins your board. It usually takes a minute or so. You can keep using your boards.</p>
+        <div class="group">
+          <label class="nb-field"><span>Name</span><input name="name" type="text" autocomplete="off" placeholder="e.g. Backend audit" required maxlength="60"></label>
+          <label class="nb-field"><span>Repo folder</span><select name="folder" required><option value="">Choose a folder…</option>
+            ${(data?.repos || []).map((repo) => `<option value="${esc(repo)}">${esc(repo)}</option>`).join('')}<option value="other">Other folder…</option></select>
+            <input class="nb-path" name="path" type="text" aria-label="Other repo folder" placeholder="~/dev/another-repo" autocomplete="off" spellcheck="false" hidden disabled></label>
+          <label class="nb-field"><span>What it’s for</span><input name="purpose" type="text" placeholder="e.g. Review backend changes" maxlength="240"><span class="nb-help">One line to get the board started.</span></label>
+        </div><p class="nb-error" role="alert" hidden></p>
+        <div class="nb-actions"><button type="button" data-cancel-new>Cancel</button><button type="submit" class="primary" disabled>Start</button></div></form>`;
+      const form = sheet.querySelector('form');
+      const field = (name) => form.querySelector(`[name="${name}"]`);
+      const start = form.querySelector('[type="submit"]');
+      const cancel = form.querySelector('[data-cancel-new]');
+      const error = form.querySelector('[role="alert"]');
+      let sending = false;
+      const folder = () => (field('folder').value === 'other' ? field('path').value : field('folder').value).trim();
+      function sync(e) {
+        const other = field('folder').value === 'other';
+        field('path').hidden = !other;
+        field('path').disabled = !other;
+        field('path').required = other;
+        start.disabled = sending || !field('name').value.trim() || !folder();
+        if (e.type === 'change' && e.target === field('folder') && other) field('path').focus();
+      }
+      const done = () => { if (!sending) sheet.close(); };
+      form.addEventListener('input', sync);
+      form.addEventListener('change', sync);
+      cancel.addEventListener('click', done);
+      sheet.addEventListener('cancel', (e) => { e.preventDefault(); done(); });
+      sheet.addEventListener('click', (e) => { if (e.target === sheet) done(); });
+      sheet.addEventListener('close', () => { stopFitting(); sheet.remove(); aside.querySelector('[data-new-board]')?.focus({ preventScroll: true }); });
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (sending || start.disabled) return;
+        const input = { name: field('name').value.trim(), repo: folder(), purpose: field('purpose').value.trim() };
+        sending = true;
+        start.disabled = cancel.disabled = true;
+        error.hidden = true;
+        try {
+          const response = await fetch('/_hub/new-board', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
+          if (!response.ok) throw new Error(await response.text());
+          const { route } = await response.json();
+          setData({ ...data, starting: [...(data?.starting || []).filter((s) => s.route !== route), { route, title: input.name, askedAt: new Date().toISOString(), failed: false }] });
+          sending = false;
+          sheet.close();
+          if (rail.matches) collapse(false); else open();
+          aside.querySelector(`[data-starting="${route}"]`)?.scrollIntoView({ block: 'nearest' });
+          refresh().catch(() => {});
+        } catch (e) {
+          sending = false;
+          if (!sheet.isConnected) return;
+          error.textContent = e.message || 'Could not start the board. Try again.';
+          error.hidden = false;
+          cancel.disabled = false;
+          sync({});
+        }
+      });
+      document.body.appendChild(sheet);
+      const stopFitting = BoardDialogs.fitSheet(sheet);
+      sheet.showModal();
+    }
+    aside.addEventListener('click', async (e) => {
+      if (e.target.closest?.('[data-new-board]')) { newBoard(); return; }
+      const dismiss = e.target.closest?.('[data-dismiss-board]');
+      if (!dismiss || dismiss.disabled) return;
+      dismiss.disabled = true;
+      try {
+        const response = await fetch(`/_hub/new-board/${encodeURIComponent(dismiss.dataset.dismissBoard)}`, { method: 'DELETE' });
+        if (!response.ok) throw new Error(await response.text());
+        await refresh();
+      } catch (e) { dismiss.disabled = false; globalThis.BoardDialogs?.notice(e.message); }
+    });
     document.addEventListener('click', (e) => {
       if (e.metaKey || e.ctrlKey || e.shiftKey) return;
       if (e.target.closest?.('[data-sidebar-close]')) { e.preventDefault(); if (rail.matches) collapse(true); else close(); return; }

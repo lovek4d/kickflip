@@ -12,6 +12,7 @@
     sliders: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
     pulse: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
     close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
   };
   const tile = (key, color) => `<span class="icon sm solid" style="--c:${color}" aria-hidden="true">${svg(ICONS[key])}</span>`;
   const word = (tone, text) => `<span class="dot t-${tone}" aria-hidden="true"></span><span class="word t-${tone}">${esc(text)}</span>`;
@@ -22,7 +23,7 @@
   ];
   const siteHref = (s) => `/${encodeURIComponent(s.route)}/`;
 
-  // Switch mode's keys (sidebar.js; docs/adr/0056-switch-mode-letters-come-from-names-in-join-order.md): each row the
+  // Switch mode's keys (sidebar.js; docs/adr/0056-switch-mode-letters-come-from-names-in-join-order.md): each linked row the
   // sidebar draws, in its order, as {href, title, board, num, letter, at}. The first nine boards take num '1'–'9'.
   // Every row takes as letter the first a–z letter of its title not yet taken, at index `at` of the title's characters,
   // claiming in this order: boards by `created`, then pages by `created`, a site with none after those with one, then
@@ -71,6 +72,11 @@
     const siteRow = (s) => row({ href: siteHref(s), icon: s.icon, title: s.title, sub: s.sub ? `<span class="sb-status">${s.sub}</span>` : '', on: s.route === here, key: keys?.get(siteHref(s)) });
     const boards = sites.filter((s) => s.board);
     const pages = sites.filter((s) => !s.board);
+    const plus = `<span class="icon sb-plus" aria-hidden="true">${svg(ICONS.plus, 20)}</span>`;
+    const pending = (data?.starting || []).map((s) => `<div class="sb-row sb-starting" data-starting="${esc(s.route)}">${plus}`
+      + `<span class="sb-text"><span class="sb-title">${s.failed ? "Didn't start" : 'Starting…'}</span><span class="sb-sub">${esc(s.title)}${s.failed ? '' : ' · Waiting for the board to answer'}</span></span>`
+      + (s.failed ? `<button type="button" class="sb-dismiss" data-dismiss-board="${esc(s.route)}" aria-label="Dismiss ${esc(s.title)}">Dismiss</button>` : '') + '</div>').join('');
+    const newBoard = `<button type="button" class="sb-row sb-new" data-new-board aria-haspopup="dialog">${plus}<span class="sb-text"><span class="sb-title">New board</span></span></button>`;
     const turnOn = device === 'off' ? row({ href: '/_hub/settings', icon: tile('bell', '#ef4444'), title: 'Turn on notifications', sub: 'Off on this device', cls: 'sb-turnon' })
       : device === 'install' ? row({ href: '/_hub/settings', icon: tile('bell', '#ef4444'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })
       : '';
@@ -88,7 +94,7 @@
     return header({ lead: 'logo', title: 'Boards', level: 2, controls: false, trail: close, logoSrc: '/_hub/kickflip.png',
       leadAttrs: { 'aria-label': 'Hide boards', title: 'Hide boards', 'data-sidebar-close': '' } })
       + turnOn
-      + `<div class="sb-group">${boards.map(siteRow).join('') || '<p class="sb-empty">No boards yet. In a Claude session, run /join-web-ts &lt;route&gt; --template board.</p>'}</div>`
+      + `<div class="sb-group">${boards.map(siteRow).join('')}${pending}${newBoard}</div>`
       + (pages.length ? `<div class="sb-label">Pages</div><div class="sb-group">${pages.map(siteRow).join('')}</div>` : '')
       + `<div class="sb-foot"><div class="sb-label">Hub</div><div class="sb-group">`
       + FOOT.map((f) => row({ ...f, on: f.href.replace(/\/$/, '') === selected, sub: subs[f.href], key: keys?.get(f.href) })).join('')

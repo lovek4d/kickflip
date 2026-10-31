@@ -196,7 +196,7 @@ main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
   display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
 .fab:active { transform: scale(.96); }
 .view-board .toast-stack { bottom: calc(80px + env(safe-area-inset-bottom)); }
-/* On a phone the sheet stays on the screen's bottom edge and pads its content above the keyboard (--kb, app-asks.js
+/* On a phone the sheet stays on the screen's bottom edge and pads its content above the keyboard (--kb, dialogs.js
    fitSheet): iOS reports the keyboard's height late, so a sheet moved up by it leaves a strip of page showing below. */
 .sheet { position: fixed; inset: auto 0 0 0; margin: 0 auto; width: 100%; max-width: 560px;
   max-height: calc(var(--vh, 100dvh) + var(--kb, 0px) - env(safe-area-inset-top) - 12px); overflow-y: auto; overscroll-behavior: contain;
@@ -214,13 +214,13 @@ main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 .sheet.closing::backdrop { animation: fade-in .18s ease-in reverse forwards; }
 @media (max-width: 699px) {
   /* iOS's reported bottom edge can sit above the visible bottom; the form scrolls so the dialog can paint past it. */
-  #sheet { max-width: none; overflow: visible; padding: 0; max-height: none;
+  .sheet.keyboard-sheet { max-width: none; overflow: visible; padding: 0; max-height: none;
     --sheet-limit: max(80px, calc(var(--vh, 100dvh) + var(--kb, 0px) - max(12px, env(safe-area-inset-top)))); }
-  #sheet::after { content: ''; position: absolute; top: calc(100% - 1px); left: -1px; right: -1px;
+  .sheet.keyboard-sheet::after { content: ''; position: absolute; top: calc(100% - 1px); left: -1px; right: -1px;
     height: 100vh; height: 100lvh; background: var(--panel); pointer-events: none; }
-  #sheet form { margin: 0; max-height: var(--sheet-limit); overflow-y: auto; overscroll-behavior: contain;
+  .sheet.keyboard-sheet form { margin: 0; max-height: var(--sheet-limit); overflow-y: auto; overscroll-behavior: contain;
     border-radius: 15px 15px 0 0; padding-bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--kb, 0px)); }
-  #sheet.kb form { padding-bottom: calc(10px + var(--kb, 0px)); }
+  .sheet.keyboard-sheet.kb form { padding-bottom: calc(10px + var(--kb, 0px)); }
   #askText { font-size: 16px; }
 }
 @keyframes sheet-in { from { transform: translateY(100%); } }

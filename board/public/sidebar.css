@@ -1,6 +1,6 @@
 /* The sidebar (ui-sidebar.js, sidebar.js): a rail from 1000px, which collapses out of sight, and a drawer below it.
    The app shell and the hub's pages link it after colors.css; the hub serves it as /_hub/sidebar.css. Every rule is
-   scoped to .sidebar or the page classes sidebar.js sets, since each page's own CSS uses the same short class names. */
+   scoped to .sidebar, its scrim, the page classes sidebar.js sets or the shared New board dialog, since each page's own CSS uses the same short class names. */
 .sidebar { position: fixed; z-index: 20; top: 0; bottom: 0; left: 0; width: min(86vw, 320px); display: flex; flex-direction: column;
   padding: 0 8px calc(12px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
   background: var(--panel); border-right: 1px solid var(--line); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
@@ -29,6 +29,31 @@
 .sidebar .sb-text { flex: 1; min-width: 0; }
 .sidebar .sb-title { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sidebar .sb-sub { display: block; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.sidebar .sb-new { width: 100%; text-align: left; border: 0; background: transparent; font: inherit; }
+.sidebar .sb-starting { color: var(--muted); }
+.sidebar .sb-starting:hover, .sidebar .sb-starting:active { background: transparent; }
+.sidebar .sb-dismiss { flex: none; min-height: 44px; font-size: 12px; }
+.sidebar .sb-row .icon.sb-plus { color: var(--muted); background: var(--chip); }
+
+#newBoardSheet .nb-form { min-width: 0; }
+#newBoardSheet .sheet-head { margin-bottom: 8px; }
+#newBoardSheet .sheet-head h2 { font-size: 17px; }
+#newBoardSheet .nb-field { display: block; padding: 8px 0; margin: 0; }
+#newBoardSheet .nb-field > span:first-child { display: block; margin-bottom: 6px; font-weight: 600; font-size: 13px; }
+#newBoardSheet :is(input, select) { display: block; width: 100%; min-width: 0; min-height: 44px; padding: 8px 10px;
+  color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 16px; text-align: left; box-sizing: border-box; }
+#newBoardSheet select { text-overflow: ellipsis; }
+#newBoardSheet :is(input, select):focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+#newBoardSheet .nb-path { margin-top: 8px; }
+#newBoardSheet [hidden] { display: none; }
+#newBoardSheet .nb-help { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; font-weight: 400; }
+#newBoardSheet .nb-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; padding-bottom: 2px; }
+#newBoardSheet .nb-actions button { min-height: 44px; }
+#newBoardSheet .nb-next { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+#newBoardSheet .nb-error { color: var(--color-danger); font-size: 13px; }
+@media (min-width: 1000px) {
+  #newBoardSheet { inset: 0; margin: auto; height: fit-content; max-height: calc(100dvh - 48px); }
+}
 
 /* The site tiles hub/icons.mjs siteIcon draws, and the hub rows' solid tiles. */
 .sidebar .icon { flex: none; width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; color: var(--c);

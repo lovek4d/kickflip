@@ -23,19 +23,14 @@ BoardView.part((B) => {
   });
   $('#askText').value = store.get('draft:ask', '');
   B.on($('#askText'), 'input', (e) => { if (!quieted('draft:ask', e.target)) store.set('draft:ask', e.target.value); });
-  // iOS keeps fixed elements on the layout viewport, under the keyboard; --kb is how much of the sheet the keyboard covers.
-  const vv = window.visualViewport;
-  function fitSheet() {
-    const kb = vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
-    sheet.style.setProperty('--kb', kb + 'px');
-    sheet.style.setProperty('--vh', (vv ? vv.height : window.innerHeight) + 'px');
-    sheet.classList.toggle('kb', kb > 0);
-  }
-  B.on(vv, 'resize', fitSheet);
-  B.on(vv, 'scroll', fitSheet);
+  let stopFitting = null;
+  const stopFit = () => { stopFitting?.(); stopFitting = null; };
+  B.on(sheet, 'close', stopFit);
+  B.atUnmount(stopFit);
   function openSheet() {
     if (sheet.open) return;
-    fitSheet();
+    stopFit();
+    stopFitting = BoardDialogs.fitSheet(sheet);
     sheet.classList.remove('closing');
     sheet.showModal();
     $('#askText').focus();

@@ -41,8 +41,28 @@
       close = done;
     });
   }
+  function fitSheet(sheet) {
+    const vv = window.visualViewport;
+    // iOS keeps fixed elements on the layout viewport; --kb is the part covered by its keyboard.
+    const fit = () => {
+      const kb = vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
+      sheet.style.setProperty('--kb', kb + 'px');
+      sheet.style.setProperty('--vh', (vv ? vv.height : window.innerHeight) + 'px');
+      sheet.classList.toggle('kb', kb > 0);
+    };
+    sheet.classList.add('keyboard-sheet');
+    fit();
+    vv?.addEventListener('resize', fit);
+    vv?.addEventListener('scroll', fit);
+    window.addEventListener('resize', fit);
+    return () => {
+      vv?.removeEventListener('resize', fit);
+      vv?.removeEventListener('scroll', fit);
+      window.removeEventListener('resize', fit);
+    };
+  }
   const confirm = (message, labels) => (labels?.signal?.aborted ? Promise.resolve(false)
     : labels?.ok ? sheet(message, labels) : Promise.resolve(window.confirm(message)));
   const notice = (message) => { window.alert(message); return Promise.resolve(); };
-  globalThis.BoardDialogs = { confirm, notice };
+  globalThis.BoardDialogs = { confirm, notice, fitSheet };
 })();

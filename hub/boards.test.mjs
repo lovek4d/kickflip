@@ -363,6 +363,81 @@ test("joining a board polls at once, so the new board's GitHub link passes witho
   assert.deepEqual(sites.map((s) => [s.route, s.created]), [['fresh', created], ['orch', null], ['plain', null], ['shop', null]]);
 });
 
+test('New board validates through HTTP, writes an ask to the hub board, and serves repos and pending join/timeout transitions', async () => {
+  const manifestFile = claude('web-ts', 'manifest.json');
+  const original = read(manifestFile);
+  const canonicalHome = fs.realpathSync(home);
+  const repo = path.join(canonicalHome, 'new-board-repo');
+  fs.mkdirSync(repo);
+  const post = (input) => fetch(`${base}/_hub/new-board`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
+  const sidebar = async () => (await fetch(`${base}/_hub/sidebar.json`)).json();
+  const request = { name: 'Backend audit', repo: '~/new-board-repo', purpose: 'Review backend changes' };
+  const before = events('orch', 'ask').length;
+  try {
+    const missing = await post(request);
+    assert.deepEqual([missing.status, await missing.text()], [503, 'No hub session']);
+    assert.equal(read(manifestFile).starting, undefined);
+    const manifest = structuredClone(original);
+    for (const s of Object.values(manifest.sites)) delete s.owner?.repo;
+    manifest.sites.orch.owner.repo = canonicalHome;
+    manifest.sites.shop.owner.repo = repo;
+    manifest.sites.plain.owner = { repo: '/not-a-board' };
+    manifest.sites['hub-orchestrator'] = { ...manifest.sites.orch, owner: { ...manifest.sites.orch.owner } };
+    manifest.starting = { reserved: { session: 's-reserved', since: ago(1), repo } };
+    write(manifestFile, manifest);
+    assert.deepEqual((await sidebar()).repos.sort(), [canonicalHome, repo].sort());
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'outside-new-board-'));
+    fs.symlinkSync(outside, path.join(repo, 'outside'));
+    write(path.join(repo, 'file'), 'not a directory');
+    try {
+      for (const input of [
+        { ...request, extra: true }, { ...request, name: '' }, { ...request, name: '   ' }, { ...request, name: 'n'.repeat(61) },
+        { ...request, name: null }, { ...request, name: '!!!' }, { ...request, name: 'ORCH' }, { ...request, name: 'Reserved' },
+        { ...request, name: 'Constructor' }, { ...request, repo: 'new-board-repo' }, { ...request, repo: '/tmp' }, { ...request, repo: '~/missing-folder' },
+        { ...request, repo: `${repo}/file` }, { ...request, repo: `${repo}/outside` }, { ...request, repo: `${repo}/../../` },
+        { ...request, repo: null }, { ...request, purpose: 'p'.repeat(241) }, { ...request, purpose: null }, [], null,
+      ]) {
+        const response = await post(input);
+        assert.equal(response.status, 400, JSON.stringify(input));
+        assert.match(response.headers.get('content-type'), /^text\/plain/);
+        assert.equal((await response.text()).split('\n').length, 1);
+      }
+    } finally { fs.rmSync(outside, { recursive: true, force: true }); }
+    const invalidJSON = await fetch(`${base}/_hub/new-board`, { method: 'POST', body: '{' });
+    assert.equal(invalidJSON.status, 400);
+    assert.equal(events('orch', 'ask').length, before);
+    const response = await post(request);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { route: 'backend-audit' });
+    const ask = events('orch', 'ask').at(-1);
+    assert.deepEqual(ask.data, { text: `New board: Backend audit in ${repo} — Review backend changes`,
+      newBoard: { route: 'backend-audit', title: request.name, repo, purpose: request.purpose } });
+    const pending = (await sidebar()).starting.find((s) => s.route === 'backend-audit');
+    assert.deepEqual(pending, { route: 'backend-audit', title: request.name, askedAt: read(manifestFile).starting['backend-audit'].asked_at, failed: false });
+    assert.equal((await sidebar()).sites.some((s) => s.route === pending.route), false);
+    assert.equal((await post(request)).status, 400);
+    const dismiss = (route) => fetch(`${base}/_hub/new-board/${route}`, { method: 'DELETE' });
+    assert.equal((await dismiss(pending.route)).status, 400);
+    const join = await cli(path.join(SKILL, 'bin', 'web-ts.mjs'), ['join', pending.route, '--session', 's-backend', '--template', 'board', '--title', request.name, '--repo', repo]);
+    assert.equal(join.status, 0, join.stderr);
+    const joined = await sidebar();
+    assert.equal(joined.starting.some((s) => s.route === pending.route), false);
+    assert.equal(joined.sites.find((s) => s.route === pending.route).board, true);
+    const timed = read(manifestFile);
+    timed.starting.reserved.since = ago(16);
+    write(manifestFile, timed);
+    assert.equal((await sidebar()).starting.find((s) => s.route === 'reserved').failed, true);
+    assert.equal((await dismiss('reserved')).status, 200);
+    assert.equal((await sidebar()).starting.some((s) => s.route === 'reserved'), false);
+    const boundary = await post({ name: 'N'.repeat(60), repo, purpose: 'p'.repeat(240) });
+    assert.equal(boundary.status, 200);
+    assert.deepEqual(await boundary.json(), { route: 'n'.repeat(41) });
+    const race = await Promise.all([post({ ...request, name: 'One race' }), post({ ...request, name: 'One race' })]);
+    assert.deepEqual(race.map((r) => r.status).sort(), [200, 400]);
+    assert.equal(events('orch', 'ask').filter((e) => e.data.newBoard?.route === 'one-race').length, 1);
+  } finally { write(manifestFile, original); }
+});
+
 test("a board session's permission prompt pushes, waits in that board's Needs you and the badge, and Always allow reaches its hook as a rule for the session", async () => {
   const input = { session_id: 's-orch', cwd: home, hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'npm test', description: 'Run tests' } };
   const hook = new Promise((resolve) => {

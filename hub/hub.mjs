@@ -16,6 +16,9 @@
 //                     sites: [{route, title, board, state, count, changedAt, created, icon, sub}], hub: {tone, word, detail, broken},
 //                     notifications: {state, text}}, each site's row from its GET /_claude/needs
 //                     (home.mjs; docs/adr/0010-sites-report-what-waits-through-claude-needs.md)
+//                     repos lists distinct board owners' folders; starting lists pending boards (sessions.mjs)
+//   /_hub/new-board  POST {name, repo, purpose} → {route}: an ask on hub-orchestrator and a starting reservation;
+//                     DELETE /_hub/new-board/<route> dismisses a start that timed out (new-board.mjs)
 //   /_hub/status.json the manifest's sites and their process state, as JSON
 //   /_hub/needs.json  {total, sites: {<route>: {count, working, summary, lanes, building} | null}}: total is the
 //                     Home Screen badge; ?fresh=1 skips the cache
@@ -83,6 +86,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import zlib from 'node:zlib';
+import { routeRecord } from './routes.mjs';
 import { publicKey, addSubscription, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, deliver, pushRoute } from './push.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
 import { nextSlot, windowAt, hold, heldUntil, holdLine, editPolling } from './schedule.mjs';
@@ -93,7 +97,8 @@ import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
 import { readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
-import { checkSessions } from './sessions.mjs';
+import { checkSessions, startingBoards } from './sessions.mjs';
+import { requestBoard, dismissBoard } from './new-board.mjs';
 import { BOARD_PUBLIC, appFile, colorsVersion, destOf, fileVersion, pageOf, shellHtml } from './shell.mjs';
 import { hubStream } from './stream.mjs';
 import { InstallError, startInstall, stopInstalls } from './installs.mjs';
@@ -216,7 +221,7 @@ async function reconcile() {
   if (shuttingDown) return;
   const { sites } = loadManifest();
   for (const route of [...procs.keys()]) {
-    if (!sites[route]) { log(`${route} left the manifest; stopping it`); stop(route); procs.delete(route); }
+    if (!routeRecord(sites, route)) { log(`${route} left the manifest; stopping it`); stop(route); procs.delete(route); }
   }
   for (const [route, site] of Object.entries(sites)) {
     if (!Array.isArray(site.cmd) || !site.cmd.length || !site.port) continue;
@@ -233,7 +238,7 @@ async function reconcile() {
   }
   first = false;
   for (const [route, p] of procs) {
-    const site = sites[route];
+    const site = routeRecord(sites, route);
     if (!site) continue;
     p.up = p.child ? await probe(site.port) : false;
     if (p.child && p.up) p.state = 'up';
@@ -437,7 +442,8 @@ async function sidebarState({ fresh = false } = {}) {
   const now = new Date();
   const rows = status();
   const waiting = await waitingCounts(rows, { fresh });
-  const boards = listBoards(loadManifest());
+  const manifest = loadManifest();
+  const boards = listBoards(manifest);
   const { links, listens } = boardLinks(boards);
   const code = hubCodeState();
   const sites = sidebarSites(rows, waiting, new Set(boards.map((b) => b.route)), listens);
@@ -445,6 +451,8 @@ async function sidebarState({ fresh = false } = {}) {
   const held = hold(now, settings);
   const data = {
     total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links, hubLink(code)),
+    repos: [...new Set(boards.map((b) => b.owner?.repo).filter((repo) => typeof repo === 'string' && repo))],
+    starting: startingBoards(manifest, now.getTime()),
     notifications: !held ? { state: 'on', text: 'On' } : held.why === 'off' ? { state: 'off', text: 'Off' } : { state: 'held', text: capital(holdLine(held, now)) },
   };
   return { data, links, rows, code };
@@ -537,6 +545,23 @@ async function hubRoute(req, res, url) {
   const sendJSON = (code, v) => send(code, 'application/json', JSON.stringify(v));
   const json = wantsJSON(req);
   const p = url.pathname;
+  if (p === '/_hub/new-board' && req.method === 'POST') {
+    let input;
+    try { input = await readJSONBody(req); } catch { return send(400, 'text/plain; charset=utf-8', 'Send name, repo and purpose as JSON.'); }
+    try {
+      const result = await requestBoard(input);
+      stream.refresh();
+      return sendJSON(200, result);
+    } catch (e) { if (e.status) return send(e.status, 'text/plain; charset=utf-8', e.message); throw e; }
+  }
+  const dismiss = /^\/_hub\/new-board\/([a-z0-9-]+)$/.exec(p);
+  if (dismiss && req.method === 'DELETE') {
+    try {
+      const result = await dismissBoard(dismiss[1]);
+      stream.refresh();
+      return sendJSON(200, result);
+    } catch (e) { if (e.status) return send(e.status, 'text/plain; charset=utf-8', e.message); throw e; }
+  }
   if (p === '/_hub/install' && req.method === 'POST') {
     if (shuttingDown) return sendJSON(503, { error: 'The hub is stopping. Try again after it restarts.' });
     const local = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
@@ -786,7 +811,7 @@ const server = http.createServer((req, res) => {
   }
 
   const route = url.pathname.split('/')[1];
-  const site = loadManifest().sites[route];
+  const site = routeRecord(loadManifest().sites, route);
   if (!site) { res.writeHead(404, { 'content-type': 'text/html; charset=utf-8' }); res.end(`${head('No Site')}<a class="back" href="/_hub/">‹ Hub</a><h1>No site at /${esc(route)}</h1></main></body></html>`); return; }
   if (url.pathname === '/' + route) { res.writeHead(302, { location: '/' + route + '/' + url.search }).end(); return; }
 
@@ -816,7 +841,7 @@ const server = http.createServer((req, res) => {
 // WebSockets and other upgrades: pipe the raw sockets through.
 server.on('upgrade', (req, socket, head) => {
   const route = requestURL(req).pathname.split('/')[1];
-  const site = loadManifest().sites[route];
+  const site = routeRecord(loadManifest().sites, route);
   if (!site) { socket.destroy(); return; }
   const rest = req.url.slice(route.length + 1) || '/';
   const up = net.connect(site.port, '127.0.0.1', () => {

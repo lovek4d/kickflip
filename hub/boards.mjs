@@ -12,6 +12,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { routeRecord } from './routes.mjs';
 import { deliver, readSettings } from './push.mjs';
 import { DEFAULTS, windowAt } from './schedule.mjs';
 import { liveSessions } from './live.mjs';
@@ -56,7 +57,7 @@ export const withManifestLock = (fn) => withFileLock(MANIFEST, fn);
 export function writeManifest(m) {
   return withPromptsLock(() => {
     const previous = readManifest();
-    const owner = (manifest, route) => manifest.sites?.[route]?.owner || manifest.starting?.[route];
+    const owner = (manifest, route) => routeRecord(manifest.sites, route)?.owner || routeRecord(manifest.starting, route);
     const routes = new Set([...Object.keys(previous.sites || {}), ...Object.keys(m.sites || {}),
       ...Object.keys(previous.starting || {}), ...Object.keys(m.starting || {})]);
     const sessions = [];

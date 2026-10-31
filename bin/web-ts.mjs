@@ -80,6 +80,7 @@ import { fileURLToPath } from 'node:url';
 import { ICON_KEYS } from '../hub/icons.mjs';
 import { liveSessions } from '../hub/live.mjs';
 import { writeManifest } from '../hub/boards.mjs';
+import { routeRecord, validRoute } from '../hub/routes.mjs';
 
 const SKILL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOME = path.join(os.homedir(), '.claude', 'web-ts');
@@ -89,7 +90,6 @@ const HUB_PORT = Number(process.env.WEB_TS_HUB_PORT || 4500);
 const FIRST_SITE_PORT = 4600;
 const LABEL = 'local.claude.web-ts-hub';
 const PLIST = path.join(os.homedir(), 'Library', 'LaunchAgents', LABEL + '.plist');
-const ROUTE_RE = /^[a-z0-9][a-z0-9-]{0,40}$/;
 const COLOR_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
 const [cmd, ...rest] = process.argv.slice(2);
@@ -223,14 +223,14 @@ const commands = {
 
   async join() {
     const route = args._[0];
-    if (!route || !ROUTE_RE.test(route)) fail('join needs a route: lowercase letters, digits and dashes', 2);
+    if (!validRoute(route)) fail('join needs a route: lowercase letters, digits and dashes, not "constructor"', 2);
     if (!args.session) fail('join needs --session <id> (this session\'s id)', 2);
     if (args.template && args.template !== 'board') fail('--template takes "board"', 2);
     checkLook();
     const result = await withLock(async () => {
       const m = readManifest();
       const now = new Date().toISOString();
-      const existing = m.sites[route];
+      const existing = routeRecord(m.sites, route);
       if (existing?.owner?.session && existing.owner.session !== args.session && !args.force) {
         out({ error: 'owned', route, owner: existing.owner, hint: 'ask the user, then rerun with --force to take it over' });
         throw new Exit('', 3);
@@ -269,7 +269,7 @@ const commands = {
       applyLook(site);
       site.title ||= route;
       const previous = existing?.owner && existing.owner.session !== args.session ? existing.owner : null;
-      const started = m.starting?.[route]?.session === args.session ? m.starting[route] : null;
+      const started = routeRecord(m.starting, route)?.session === args.session ? routeRecord(m.starting, route) : null;
       const same = existing?.owner?.session === args.session ? existing.owner : null;
       const kept = same || started || previous;
       site.owner = {
@@ -279,9 +279,9 @@ const commands = {
       };
       const model = args.model || kept?.model;
       if (model) site.owner.model = model;
-      if (m.starting?.[route]) { delete m.starting[route]; if (!Object.keys(m.starting).length) delete m.starting; }
+      if (routeRecord(m.starting, route)) { delete m.starting[route]; if (!Object.keys(m.starting).length) delete m.starting; }
       site.updated = now;
-      m.sites[route] = site;
+      m.sites = { ...m.sites, [route]: site };
       await writeManifest(m);
       return { route, created, previousOwner: previous, site };
     });
@@ -317,7 +317,7 @@ const commands = {
     if (!args.session && !args.force) fail('leave needs --session <id>, or --force', 2);
     await withLock(async () => {
       const m = readManifest();
-      const s = m.sites[route];
+      const s = routeRecord(m.sites, route);
       if (!s) fail('no site at /' + route);
       if (s.owner?.session && s.owner.session !== args.session && !args.force) {
         out({ error: 'owned', route, owner: s.owner }); throw new Exit('', 3);
@@ -330,14 +330,14 @@ const commands = {
 
   async start() {
     const route = args._[0];
-    if (!route || !ROUTE_RE.test(route)) fail('start needs a route: lowercase letters, digits and dashes', 2);
+    if (!validRoute(route)) fail('start needs a route: lowercase letters, digits and dashes, not "constructor"', 2);
     const { startSession } = await sessionsModule();
     const r = await sessionCall(() => startSession(route, { manifest: readManifest(), repo: args.repo, model: args.model, prompt: args.prompt }));
     await withLock(async () => {
       const m = readManifest();
       const owner = { session: r.session, label: r.name, since: new Date().toISOString(), repo: r.repo, ...(r.model ? { model: r.model } : {}) };
-      if (m.sites[route]) { m.sites[route].owner = owner; m.sites[route].updated = owner.since; }
-      else m.starting = { ...m.starting, [route]: owner };
+      if (routeRecord(m.sites, route)) { m.sites[route].owner = owner; m.sites[route].updated = owner.since; }
+      else m.starting = { ...m.starting, [route]: { ...routeRecord(m.starting, route), ...owner } };
       await writeManifest(m);
     });
     out({ route: r.route, session: r.session, confirmed: r.confirmed, repo: r.repo, argv: r.argv, output: r.output });
@@ -355,11 +355,11 @@ const commands = {
     const { listBoards } = await import(path.join(SKILL, 'hub', 'boards.mjs'));
     const m = readManifest();
     const live = liveSessions();
-    const routes = [...listBoards(m).map((b) => b.route), ...Object.keys(m.starting || {}).filter((r) => !m.sites[r])];
+    const routes = [...listBoards(m).map((b) => b.route), ...Object.keys(m.starting || {}).filter((r) => !routeRecord(m.sites, r))];
     const rows = routes.map((route) => {
       const rec = sessionOf(m, route);
       const l = rec && live.get(rec.session);
-      return { route, session: rec?.session || null, live: l ? (l.kind === 'bg' ? 'background' : 'terminal') : null, repo: rec?.repo || null, starting: !m.sites[route] };
+      return { route, session: rec?.session || null, live: l ? (l.kind === 'bg' ? 'background' : 'terminal') : null, repo: rec?.repo || null, starting: !routeRecord(m.sites, route) };
     });
     if (args.json) return out(rows);
     if (!rows.length) return out('no boards');
@@ -373,7 +373,7 @@ const commands = {
     checkLook();
     await withLock(async () => {
       const m = readManifest();
-      const site = m.sites[route] || fail('no site at /' + route);
+      const site = routeRecord(m.sites, route) || fail('no site at /' + route);
       applyLook(site);
       site.updated = new Date().toISOString();
       await writeManifest(m);
@@ -385,7 +385,7 @@ const commands = {
     const route = args._[0];
     await withLock(async () => {
       const m = readManifest();
-      if (!m.sites[route]) fail('no site at /' + route);
+      if (!routeRecord(m.sites, route)) fail('no site at /' + route);
       m.sites[route].restart_at = Date.now();
       await writeManifest(m);
     });
@@ -432,7 +432,7 @@ const commands = {
     execFileSync('tailscale', ['serve', '--bg', String(HUB_PORT)], { stdio: 'ignore' });
     const m = readManifest();
     for (const p of tailscaleRoot().paths) {
-      if (p !== '/' && m.sites[p.replace(/^\//, '').replace(/\/$/, '')]) {
+      if (p !== '/' && routeRecord(m.sites, p.replace(/^\//, '').replace(/\/$/, ''))) {
         try { execFileSync('tailscale', ['serve', '--https=443', '--set-path=' + p, 'off'], { stdio: 'ignore' }); } catch {}
       }
     }
