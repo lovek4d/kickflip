@@ -57,7 +57,7 @@ export async function requestBoard(input, { run, live } = {}) {
   const { route, title, repo } = board;
   await withManifestLock(async () => {
     const manifest = readManifest();
-    if (Object.hasOwn(manifest.sites || {}, route) || Object.hasOwn(manifest.starting || {}, route)) refuse('That board route already exists.');
+    if (Object.hasOwn(manifest.sites || {}, route) || Object.hasOwn(manifest.starting || {}, route) || Object.hasOwn(manifest.closed || {}, route)) refuse('That board route already exists. Reopen it from Closed boards if it is closed.');
     manifest.starting = { ...manifest.starting, [route]: { title, repo, asked_at: new Date().toISOString() } };
     await writeManifest(manifest);
   });

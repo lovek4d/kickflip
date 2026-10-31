@@ -20,6 +20,9 @@
 //   /_hub/new-board  POST {name, repo, purpose} → {route}: a starting reservation, then the board's session starts
 //                     without holding the response; DELETE /_hub/new-board/<route> dismisses a start that failed
 //                     or timed out (new-board.mjs)
+//   /_hub/close-board/<route> GET the board's title, hub flag, open PRs and running builder records
+//   /_hub/close-board POST {route, name} stops the session, closes builder records and keeps the site under `closed`
+//   /_hub/reopen-board POST {route} restores that entry and resumes its recorded session (close-board.mjs)
 //   /_hub/status.json the manifest's sites and their process state, as JSON
 //   /_hub/needs.json  {total, sites: {<route>: {count, working, summary, lanes, building} | null}}: total is the
 //                     Home Screen badge; ?fresh=1 skips the cache
@@ -104,6 +107,7 @@ import { siteIcon } from './icons.mjs';
 import { readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
 import { checkSessions, startingBoards } from './sessions.mjs';
 import { requestBoard, dismissBoard } from './new-board.mjs';
+import { boardClosure, closeBoard, closedBoards, reopenBoard } from './close-board.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { BOARD_PUBLIC, appFile, colorsVersion, destOf, fileVersion, pageOf, shellHtml } from './shell.mjs';
 import { hubStream } from './stream.mjs';
@@ -224,10 +228,12 @@ function probe(port) {
 }
 
 let first = true;
+const closingResponses = new Set();
 async function reconcile() {
   if (shuttingDown) return;
   const { sites } = loadManifest();
   for (const route of [...procs.keys()]) {
+    if (closingResponses.has(route)) continue;
     if (!routeRecord(sites, route)) { log(`${route} left the manifest; stopping it`); stop(route); procs.delete(route); }
   }
   for (const [route, site] of Object.entries(sites)) {
@@ -305,7 +311,7 @@ function runWakes() {
 
 const sessionCheck = { running: null };
 function runSessionCheck() {
-  if (sessionCheck.running) return;
+  if (sessionCheck.running || closingResponses.size) return;
   sessionCheck.running = checkSessions({ manifest: loadManifest() }).then((r) => {
     if (r.resumed.length || r.pushed.length || r.failed.length) log(`sessions: resumed ${r.resumed.join(', ') || 'none'}; pushed ${r.pushed.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
   }).catch((e) => log('session check failed:', e.message)).finally(() => { sessionCheck.running = null; });
@@ -544,7 +550,7 @@ async function hubData(req) {
     remembered: rememberedFor(null),
   };
 }
-const settingsData = async () => { const now = new Date(); return settingsView({ now, st: queueStatus(now), rules: readHubRules(), codexShare: readCodexShare(), route: await pushRoute() }); };
+const settingsData = async () => { const now = new Date(); return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), codexShare: readCodexShare(), route: await pushRoute() }), closed: closedBoards() }; };
 const pollingData = (select) => { const now = new Date(); return pollingView({ now, st: queueStatus(now), poll: pollState(), select }); };
 
 const redirect = (res, location) => { res.writeHead(303, { location, 'cache-control': 'no-store' }); res.end(); };
@@ -554,6 +560,33 @@ async function hubRoute(req, res, url) {
   const sendJSON = (code, v) => send(code, 'application/json', JSON.stringify(v));
   const json = wantsJSON(req);
   const p = url.pathname;
+  const closing = /^\/_hub\/close-board\/([a-z0-9-]+)$/.exec(p);
+  if (closing && req.method === 'GET') {
+    try { return sendJSON(200, await boardClosure(closing[1])); }
+    catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
+  }
+  if (['/_hub/close-board', '/_hub/reopen-board'].includes(p) && req.method === 'POST') {
+    let route;
+    try {
+      const input = await readJSONBody(req);
+      route = input.route;
+      if (p === '/_hub/reopen-board') {
+        const result = await reopenBoard(route);
+        stream.refresh();
+        return sendJSON(200, result);
+      }
+      if (closingResponses.has(route)) return sendJSON(409, { error: 'That board is already closing.' });
+      closingResponses.add(route);
+      // The hub owns this response; reconciliation waits until it is flushed before stopping the site's server.
+      const release = () => closingResponses.delete(route);
+      res.once('finish', release);
+      res.once('close', release);
+      await sessionCheck.running;
+      const result = await closeBoard(route, input.name);
+      stream.refresh();
+      return sendJSON(200, result);
+    } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
+  }
   if (p === '/_hub/new-board' && req.method === 'POST') {
     if (!isJSON(req.headers)) return send(403, 'text/plain; charset=utf-8', 'Send name, repo and purpose as application/json.');
     let input;

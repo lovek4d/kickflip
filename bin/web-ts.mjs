@@ -29,6 +29,11 @@
 //               `claude --resume <id> --bg` for the route's recorded session in its folder, prompting it to rejoin
 //               and relaunch its watcher, and records the id it comes back under as the route's owner. Prints
 //               {route, session, previous, confirmed, repo, argv, output}. Exit 1 when no session or folder is recorded
+//   web-ts close <route> --name <board title>
+//               stops its session, closes builder records and removes the site; keeps its folder and open PRs.
+//               --name must match the board title exactly. The board flagged --hub cannot be closed.
+//   web-ts reopen <route>
+//               restores the closed board's manifest entry and resumes its recorded session
 //   web-ts hub [--repo <dir>]
 //               opens the hub board's recorded session in this terminal, in its recorded folder and model, or in
 //               --repo when no folder is recorded; with no owner, starts a fresh session in --repo (default cwd)
@@ -194,7 +199,7 @@ function bindable(port) {
   });
 }
 async function freePort(m) {
-  const taken = new Set(Object.values(m.sites).map((s) => s.port));
+  const taken = new Set([...Object.values(m.sites), ...Object.values(m.closed || {}).map((c) => c.site)].map((s) => s?.port));
   for (let p = FIRST_SITE_PORT; p < FIRST_SITE_PORT + 400; p++) {
     if (taken.has(p)) continue;
     if (!(await connects(p)) && (await bindable(p))) return p;
@@ -252,6 +257,7 @@ const commands = {
     checkHub();
     const result = await withLock(async () => {
       const m = readManifest();
+      if (routeRecord(m.closed, route)) fail('That board is closed; use web-ts reopen ' + route, 2);
       const now = new Date().toISOString();
       const existing = routeRecord(m.sites, route);
       if (existing?.owner?.session && existing.owner.session !== args.session && !args.force) {
@@ -356,16 +362,18 @@ const commands = {
   async start() {
     const route = args._[0];
     if (!validRoute(route)) fail('start needs a route: lowercase letters, digits and dashes', 2);
-    const { startSession } = await sessionsModule();
-    const r = await sessionCall(() => startSession(route, { manifest: readManifest(), repo: args.repo, model: args.model, prompt: args.prompt }));
-    await withLock(async () => {
-      const m = readManifest();
-      const owner = { session: r.session, label: r.name, since: new Date().toISOString(), repo: r.repo, ...(r.model ? { model: r.model } : {}) };
-      if (routeRecord(m.sites, route)) { m.sites[route].owner = owner; m.sites[route].updated = owner.since; }
-      else m.starting = { ...m.starting, [route]: { ...routeRecord(m.starting, route), ...owner } };
-      await writeManifest(m);
+    const { startSession, withSessionLock } = await sessionsModule();
+    await withSessionLock(route, async () => {
+      const r = await sessionCall(() => startSession(route, { manifest: readManifest(), repo: args.repo, model: args.model, prompt: args.prompt }));
+      await withLock(async () => {
+        const m = readManifest();
+        const owner = { session: r.session, label: r.name, since: new Date().toISOString(), repo: r.repo, ...(r.model ? { model: r.model } : {}) };
+        if (routeRecord(m.sites, route)) { m.sites[route].owner = owner; m.sites[route].updated = owner.since; }
+        else m.starting = { ...m.starting, [route]: { ...routeRecord(m.starting, route), ...owner } };
+        await writeManifest(m);
+      });
+      out({ route: r.route, session: r.session, confirmed: r.confirmed, repo: r.repo, argv: r.argv, output: r.output });
     });
-    out({ route: r.route, session: r.session, confirmed: r.confirmed, repo: r.repo, argv: r.argv, output: r.output });
   },
 
   async resume() {
@@ -373,6 +381,18 @@ const commands = {
     if (!route) fail('resume needs a route', 2);
     const { resumeSession } = await sessionsModule();
     out(await sessionCall(() => resumeSession(route, { manifest: readManifest() })));
+  },
+
+  async close() {
+    const { closeBoard } = await import('../hub/close-board.mjs');
+    try { out(await closeBoard(args._[0], args.name)); }
+    catch (e) { fail(e.message, e.status ? 2 : 1); }
+  },
+
+  async reopen() {
+    const { reopenBoard } = await import('../hub/close-board.mjs');
+    try { out(await sessionCall(() => reopenBoard(args._[0]))); }
+    catch (e) { if (e.status) fail(e.message, 2); throw e; }
   },
 
   async sessions() {

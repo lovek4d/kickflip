@@ -1,15 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-// A directory lock shared by hub and CLI writers. A holder must finish within 30 seconds.
-export async function withFileLock(file, fn) {
+// A directory lock shared by hub and CLI writers; staleAfter must outlast the holder's work.
+export async function withFileLock(file, fn, { staleAfter = 30_000, timeout = 10_000 } = {}) {
   const lock = `${file}.lock`;
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + timeout;
   for (;;) {
     try { fs.mkdirSync(lock); break; } catch (e) {
       if (e.code !== 'EEXIST') throw e;
-      try { if (Date.now() - fs.statSync(lock).mtimeMs > 30_000) { fs.rmdirSync(lock); continue; } } catch {}
+      try { if (Date.now() - fs.statSync(lock).mtimeMs > staleAfter) { fs.rmdirSync(lock); continue; } } catch {}
       if (Date.now() > deadline) throw Object.assign(new Error(`${path.basename(file)} is locked by another web-ts; try again`), { code: 'ELOCKED' });
       await new Promise((r) => setTimeout(r, 100));
     }

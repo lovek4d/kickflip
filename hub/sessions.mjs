@@ -14,9 +14,10 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { routeRecord } from './routes.mjs';
+import { routeRecord, validRoute } from './routes.mjs';
+import { withFileLock } from './locks.mjs';
 import { RESUME_STATE, carryCursor, hubBoard, isListening, listBoards, oldestUnheard, readManifest, readJSON, saveJSON, watchedCounts, withManifestLock, writeManifest } from './boards.mjs';
-import { liveSessions, sessionRecords } from './live.mjs';
+import { liveSessions, sessionRecords, processStarts, verifiedProcess } from './live.mjs';
 import { deliver } from './push.mjs';
 import { WAIT_MS } from './prompts.mjs';
 
@@ -45,6 +46,12 @@ export class SessionError extends Error {
   constructor(message, reason) { super(message); this.reason = reason; }
 }
 
+export function withSessionLock(route, fn) {
+  if (!validRoute(route)) throw new SessionError('Choose a board route.', 'none');
+  return withFileLock(path.join(os.homedir(), '.claude', 'web-ts', 'session-locks', route),
+    () => fn({ resume: (options) => resumeRecordedSession(route, options) }), { staleAfter: 120_000, timeout: 90_000 });
+}
+
 // launchd gives the hub a PATH without ~/.local/bin, where the Claude Code installer puts claude.
 export function claudeBin() {
   if (process.env.WEB_TS_CLAUDE) return process.env.WEB_TS_CLAUDE;
@@ -57,7 +64,7 @@ const inherited = (k) => k === 'CLAUDECODE' || k === 'CLAUDE_PID' || k === 'CLAU
 
 // Runs claude with argv in cwd. → {status, stdout, stderr}. A process `claude --bg` leaves behind can hold our pipes
 // open, so this settles shortly after claude exits rather than on close, and drops the pipes so the caller can exit.
-export function runClaude(argv, { cwd }) {
+export function runClaude(argv, { cwd, timeout = 60_000 }) {
   const bin = claudeBin();
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !inherited(k)));
   env.CLAUDE_BG_ISOLATION = 'none';
@@ -68,7 +75,7 @@ export function runClaude(argv, { cwd }) {
     let child;
     try { child = spawn(bin, argv, { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] }); } catch (e) { resolve({ status: 1, stdout, stderr: e.message }); return; }
     const done = (status) => { clearTimeout(timer); child.stdout.destroy(); child.stderr.destroy(); resolve({ status, stdout, stderr }); };
-    const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch {} done(1); }, 60_000);
+    const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch {} done(1); }, timeout);
     child.stdout.on('data', (d) => { stdout += d; });
     child.stderr.on('data', (d) => { stderr += d; });
     child.on('error', (e) => { stderr += e.message; done(1); });
@@ -76,6 +83,28 @@ export function runClaude(argv, { cwd }) {
     child.on('exit', (code) => setTimeout(() => done(code ?? 1), 300));
     child.unref();
   });
+}
+
+export async function runSessionStop(record, { cwd, run = runClaude, starts = processStarts, signal = process.kill } = {}) {
+  if (record.kind === 'bg') {
+    const result = await run(['stop', record.jobId || record.sessionId.slice(0, 8)], { cwd, timeout: 8000 });
+    if (result.status !== 0) throw new SessionError(`claude stop failed: ${(result.stderr || result.stdout).trim().slice(0, 300)}`, 'failed');
+  } else {
+    if (!verifiedProcess(record, starts)) throw new SessionError(`Cannot verify session ${record.sessionId}'s process identity; refusing to signal pid ${record.pid}.`, 'failed');
+    signal(record.pid, 'SIGTERM');
+  }
+}
+
+export async function stopSession(owner, { live = liveSessions, stop = runSessionStop } = {}) {
+  if (!owner?.session) return;
+  const record = live().get(owner.session);
+  if (!record) return;
+  await stop(record, { cwd: owner.repo || record.cwd || os.homedir() });
+  const deadline = Date.now() + 5000;
+  while (live().get(owner.session)?.pid === record.pid) {
+    if (Date.now() >= deadline) throw new SessionError(`session ${owner.session} did not stop`, 'failed');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
 }
 
 export function runForegroundClaude(argv, { cwd }) {
@@ -172,6 +201,7 @@ async function moveOwner(route, { from, to, mark }) {
 // prompt is `/join-web-ts <route>` plus prompt. Refuses while the route's recorded session is live. Writes nothing.
 // → {route, session, confirmed, repo, model, name, argv, output}
 export async function startSession(route, { manifest = readManifest(), repo, model, prompt, run = runClaude, live = liveSessions } = {}) {
+  if (routeRecord(manifest.closed, route)) throw new SessionError(`/${route} is closed; use web-ts reopen ${route}`, 'none');
   const rec = sessionOf(manifest, route);
   refuseLive(rec, live);
   const dir = path.resolve(repo || rec?.repo || process.cwd());
@@ -189,7 +219,12 @@ export async function startSession(route, { manifest = readManifest(), repo, mod
 // comes back under as the route's owner (moveOwner), so the prompt and the manifest name the same id. mark winds the
 // session's watcher cursor back to it. Refuses with no session or folder recorded, and while the session is live.
 // → {route, session, previous, confirmed, repo, argv, output}
-export async function resumeSession(route, { manifest = readManifest(), run = runClaude, live = liveSessions, mark = null } = {}) {
+export function resumeSession(route, options = {}) {
+  return withSessionLock(route, ({ resume }) => resume(options));
+}
+
+async function resumeRecordedSession(route, { manifest = readManifest(), run = runClaude, live = liveSessions, mark = null } = {}) {
+  if (routeRecord(readManifest().closed, route)) throw new SessionError(`/${route} is closed; use web-ts reopen ${route}`, 'none');
   const rec = sessionOf(manifest, route);
   if (!rec) throw new SessionError(`/${route} has no recorded session`, 'none');
   if (!rec.repo) throw new SessionError(`/${route}'s session ${rec.session} has no folder recorded; its session records one by rejoining (web-ts join, --repo)`, 'none');

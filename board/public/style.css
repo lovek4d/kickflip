@@ -383,6 +383,13 @@ main > * { transition: opacity .25s ease; }
 .view-settings label.who { gap: 12px; cursor: pointer; }
 .view-settings label.who .sub { display: block; margin-top: 2px; }
 .view-settings input.toggle { flex: none; width: 1.4rem; height: 1.4rem; margin: 0; accent-color: var(--accent); }
+.view-settings .close-board-row { width: 100%; text-align: left; color: var(--color-danger); }
+.view-settings .close-board-row .sub { display: block; margin-top: 3px; }
+.view-settings .close-board-sheet { text-align: left; line-height: 1.5; }
+.view-settings .close-board-sheet h2 { color: var(--text); font-size: 18px; text-transform: none; letter-spacing: normal; }
+.view-settings .close-board-sheet input { display: block; width: 100%; margin-top: 8px; }
+.view-settings .close-board-sheet .danger { color: var(--color-danger); }
+.view-settings .close-board-warning:has(li) { border: 1px solid var(--color-notice); padding: 0 12px; border-radius: 10px; margin-bottom: 14px; }
 .view-questions .q { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 12px 0; }
 .view-questions .q.urgent { border-color: var(--color-notice); }
 .view-questions .q h3 { font-size: 15px; margin: 6px 0 4px; line-height: 1.3; }

@@ -224,6 +224,59 @@ test('hub writes refuse cross-site requests before handling forms, JSON or delet
   assert.equal(fs.readFileSync(settings, 'utf8'), before);
 });
 
+test('closing a board through the hub requires JSON, same-origin access and its exact name, retains its folder and stops its server after answering', async () => {
+  const file = claude('web-ts', 'manifest.json');
+  const original = read(file);
+  const route = 'close-me';
+  const dir = site(route);
+  write(site(route, 'board.json'), { title: 'Close Me', items: 'data/items.json', slug: route });
+  write(site(route, 'data', 'items.json'), { repo: 'o/r', items: [{ id: 'C1', pr: 99 }] });
+  write(site(route, 'data', 'agents', 'C1.json'), { label: 'Builder', started: new Date().toISOString() });
+  const entry = { dir, port: port + 4, cmd: boardCmd(route), owner: { session: 's-close', repo: home } };
+  write(file, { ...original, sites: { ...original.sites, [route]: entry } });
+  const headers = { 'content-type': 'application/json', origin: base, 'sec-fetch-site': 'same-origin' };
+  const post = (path, body, h = headers) => fetch(base + path, { method: 'POST', headers: h, body: JSON.stringify(body) });
+  try {
+    for (let i = 0; i < 80; i++) {
+      if ((await fetch(`${base}/${route}/_claude/health`)).ok) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    const pid = Number(fs.readFileSync(claude('web-ts', 'run', `${route}.pid`), 'utf8'));
+    const body = { route, name: 'Close Me' };
+    const before = read(file);
+    for (const h of [{ ...headers, origin: 'https://other.example' }, { ...headers, 'sec-fetch-site': 'cross-site' }, { 'content-type': 'text/plain' }]) {
+      assert.equal((await post('/_hub/close-board', body, h)).status, 403);
+      assert.equal((await post('/_hub/reopen-board', { route }, h)).status, 403);
+      assert.deepEqual(read(file), before);
+    }
+    assert.equal((await post('/_hub/close-board', { route, name: 'close me' })).status, 400);
+    const flagged = read(file);
+    flagged.sites[route].hub = true;
+    write(file, flagged);
+    assert.equal((await post('/_hub/close-board', body)).status, 409);
+    write(file, before);
+    const preview = await (await fetch(`${base}/_hub/close-board/${route}`)).json();
+    assert.deepEqual([preview.title, preview.prs[0].pr, preview.builders.length], ['Close Me', 99, 1]);
+    const response = await post('/_hub/close-board', body);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { route, filesKept: dir, buildersClosed: 1, next: '/_hub/' });
+    assert.equal(read(file).sites[route], undefined);
+    assert.deepEqual(read(file).closed[route].site, entry);
+    const settings = await (await fetch(`${base}/_hub/api/settings`)).json();
+    assert.equal(settings.closed.find((b) => b.route === route).title, 'Close Me');
+    const sidebar = await (await fetch(`${base}/_hub/sidebar.json`)).json();
+    assert.equal(sidebar.sites.some((b) => b.route === route), false);
+    for (let i = 0; i < 80 && fs.existsSync(claude('web-ts', 'run', `${route}.pid`)); i++) await new Promise((r) => setTimeout(r, 100));
+    assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+    assert.ok(fs.existsSync(site(route, 'data', 'items.json')));
+    const reopened = await post('/_hub/reopen-board', { route });
+    assert.equal(reopened.status, 400);
+    assert.match((await reopened.json()).error, /claude --resume failed/);
+    assert.equal(read(file).sites[route], undefined);
+    assert.deepEqual(read(file).closed[route].site, entry);
+  } finally { write(file, original); }
+});
+
 test('the proxy preserves browser origin, fetch metadata and the external host for board writes', async () => {
   const post = (headers) => new Promise((resolve, reject) => {
     const req = http.request(`${base}/orch/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers } }, (res) => {

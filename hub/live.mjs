@@ -48,6 +48,14 @@ export function processStarts(pids) {
   return starts;
 }
 
+export function verifiedProcess(record, starts = processStarts) {
+  if (!Number.isInteger(record?.pid) || record.pid <= 0 || !record.sessionId || typeof record.procStart !== 'string') return false;
+  const recorded = utc(record.procStart);
+  if (!Number.isFinite(recorded)) return false;
+  const actual = starts([record.pid]).get(record.pid);
+  return Number.isFinite(actual) && Math.abs(recorded - actual) <= START_SLACK;
+}
+
 // → Map sessionId → its live record.
 export function liveSessions({ dir = SESSIONS_DIR, starts = processStarts } = {}) {
   const records = sessionRecords(dir);

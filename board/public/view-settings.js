@@ -38,6 +38,22 @@
   <h3 class="muted small" style="margin:14px 0 0;font-weight:600">For every board</h3>
   <div id="hubRules"><p class="muted small">Loading…</p></div>
   <p class="muted small">Edit these in <a href="/_hub/settings#rules">hub Settings</a>.</p>
+  <h2>Board</h2>
+  <button class="who close-board-row" id="closeBoard" disabled aria-haspopup="dialog"><span>Close board<span class="muted small sub">Stop its session and server. Keep its cards, threads and notes.</span></span><span aria-hidden="true">›</span></button>
+  <p class="muted small" id="closeBoardReason" role="status">Loading…</p>
+  <dialog class="sheet close-board-sheet" id="closeBoardSheet" aria-labelledby="closeBoardTitle">
+    <form id="closeBoardForm">
+      <div class="grab" aria-hidden="true"></div>
+      <h2 id="closeBoardTitle">Close this board?</h2>
+      <p id="closeBoardName"></p>
+      <ul><li>Stop the board’s session.</li><li>Stop its server.</li><li>Remove its sidebar row and manifest entry.</li></ul>
+      <p>Keep its folder, cards, threads and notes on this Mac. Reopen later from hub Settings → Closed boards.</p>
+      <div class="close-board-warning" id="closeBoardWarning"></div>
+      <label for="closeBoardTyped">Type <strong id="closeBoardTypeName"></strong> to confirm.<input id="closeBoardTyped" autocomplete="off" autocapitalize="off" spellcheck="false" required></label>
+      <p class="muted small" id="closeBoardError" role="status"></p>
+      <div class="row"><button type="button" id="closeBoardCancel">Cancel</button><button class="danger" type="submit" id="closeBoardConfirm" disabled>Close board</button></div>
+    </form>
+  </dialog>
 </main>`,
 
   create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
@@ -45,6 +61,67 @@
     const { esc, fetchJSON, restartNotice } = BoardUI;
     const get = (url, onWait) => fetchJSON(url, { onWait, sleep: B.sleep });
     const waitIn = (sel) => () => { $(sel).innerHTML = restartNotice(); };
+    const route = B.route;
+    const closeRow = $('#closeBoard');
+    const closeSheet = $('#closeBoardSheet');
+    const typed = $('#closeBoardTyped');
+    const closeConfirm = $('#closeBoardConfirm');
+    let closing = false;
+    let closure = null;
+    let unfit = null;
+    const loadClosure = async () => {
+      const { body: d } = await get(`/_hub/close-board/${encodeURIComponent(route)}`);
+      if (!B.alive()) return;
+      closure = d;
+      closeRow.disabled = d.hub === true;
+      $('#closeBoardReason').textContent = d.hub ? 'The hub board cannot be closed while it is flagged as the hub.' : '';
+      $('#closeBoardName').textContent = d.title;
+      $('#closeBoardTypeName').textContent = d.title;
+      const warnings = [...(d.prs || []).map((p) => `<li>PR #${esc(p.pr)} (${esc(p.repo)}) — ${esc(p.wave)}/${esc(p.id)}</li>`),
+        ...(d.builders || []).map((b) => `<li>${esc(b.label)} — ${esc(b.key)}</li>`)];
+      $('#closeBoardWarning').innerHTML = warnings.length ? `<h3>This board still has active work</h3><ul>${warnings.join('')}</ul><p>Running builder records will be closed with a note. PRs stay open on GitHub; this board stops polling them.</p>` : '';
+    };
+    loadClosure().catch(() => { if (B.alive()) $('#closeBoardReason').textContent = 'Could not load Close board. Is the Mac awake?'; });
+    B.on(closeRow, 'click', async () => {
+      if (closing || closeRow.disabled) return;
+      closeRow.disabled = true;
+      try {
+        await loadClosure();
+        if (!B.alive() || closure.hub) return;
+        typed.value = '';
+        closeConfirm.disabled = true;
+        $('#closeBoardError').textContent = '';
+        unfit?.();
+        unfit = BoardDialogs.fitSheet(closeSheet);
+        closeSheet.showModal();
+        typed.focus();
+      } catch { $('#closeBoardReason').textContent = 'Could not load Close board. Is the Mac awake?'; closeRow.disabled = false; }
+    });
+    B.on(typed, 'input', () => { closeConfirm.disabled = closing || typed.value !== closure?.title; });
+    B.on($('#closeBoardCancel'), 'click', () => closeSheet.close());
+    B.on(closeSheet, 'close', () => { unfit?.(); unfit = null; });
+    B.on(closeSheet, 'click', (e) => { if (e.target === closeSheet && !closing) closeSheet.close(); });
+    B.on($('#closeBoardForm'), 'submit', async (e) => {
+      e.preventDefault();
+      if (closing || closure?.hub || typed.value !== closure?.title) return;
+      closing = true;
+      closeConfirm.disabled = true;
+      try {
+        const r = await fetch('/_hub/close-board', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ route, name: typed.value }) });
+        const out = await r.json();
+        if (!r.ok) throw new Error(out.error || 'Could not close board.');
+        if (!B.alive()) return;
+        closeSheet.close();
+        ctx.sidebarChanged?.();
+        ctx.open(out.next || '/_hub/');
+      } catch (error) {
+        if (B.alive()) $('#closeBoardError').textContent = error.message || 'Could not close board. Is the Mac awake?';
+      } finally {
+        closing = false;
+        closeConfirm.disabled = typed.value !== closure?.title;
+      }
+    });
+    B.atUnmount(() => { unfit?.(); closeSheet.close(); });
     let current = [];
     const add = new Set();
     const remove = new Set();

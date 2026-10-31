@@ -203,6 +203,13 @@ export function listenState(board, { now = Date.now(), running = liveSessions(),
 
 const cursorPath = (board, session) => path.join(board.dir, 'data', `.watch-cursor-${session}.json`);
 const cursorFile = (board) => cursorPath(board, board.owner.session);
+export function watcherCursor(board) {
+  const cursor = board.owner?.session ? readJSON(cursorFile(board), {}) : {};
+  return Object.fromEntries(board.watch.map((file) => {
+    const count = routeRecord(cursor, file);
+    return [file, Number.isSafeInteger(count) && count >= 0 ? count : 0];
+  }));
+}
 // How many watched lines each of the board's watched files holds: {<file>: count}, as a watcher cursor counts them.
 export const watchedCounts = (board) => Object.fromEntries(Object.entries(watchedLines(board)).map(([f, l]) => [f, l.length]));
 

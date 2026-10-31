@@ -113,7 +113,7 @@ test('Hub Settings shows the Codex setting, defaulting to Off, with the meaning 
   }
 });
 
-test('Hub Settings opens with Notifications and Polling before Codex and Rules, turns this device on, and saves each Codex choice or shows a refusal', async () => {
+test('Hub Settings opens with Notifications and Polling before Codex, Closed boards and Rules, turns this device on, and saves each Codex choice or shows a refusal', async () => {
   const document = {};
   const { Element } = miniDom(class {}, document);
   const root = new Element('div');
@@ -156,7 +156,7 @@ test('Hub Settings opens with Notifications and Polling before Codex and Rules, 
   view.create(root, '/_hub', { sidebarChanged: () => sidebarChanges++ });
   live.paint(data());
   await new Promise((r) => setImmediate(r));
-  assert.deepEqual(root.querySelectorAll('h2.label').map((h) => h.textContent), ['Notifications', 'Polling', 'Codex', 'Rules for every board']);
+  assert.deepEqual(root.querySelectorAll('h2.label').map((h) => h.textContent), ['Notifications', 'Polling', 'Codex', 'Closed boards', 'Rules for every board']);
   assert.deepEqual(root.querySelectorAll('form input[name="set"]').map((input) => input.value), ['on', 'weekends']);
   assert.ok(root.querySelector('[data-snooze-open]'));
   assert.match(root.textContent, /Away from the Mac/);

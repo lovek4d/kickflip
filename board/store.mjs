@@ -968,7 +968,7 @@ async function closeBuilders(waveDir, id, cardFinished) {
 // The record stays, marked done, so the item's thread can show when the agent finished (domain.mjs threadOf).
 // startedBetween [from, to] (ms) leaves a record alone unless it started in that window, so a caller closing an
 // agent's own record never closes one a later agent restarted on the same item.
-export async function stopBuilder(site, key, { dir, agent, startedBetween }) {
+export async function stopBuilder(site, key, { dir, agent, startedBetween, note }) {
   const file = await builderFile(site, key, dir, agent);
   const record = await readJSON(file, null);
   if (!record || record.done) return file;
@@ -977,7 +977,9 @@ export async function stopBuilder(site, key, { dir, agent, startedBetween }) {
     if (!(started >= startedBetween[0] && started <= startedBetween[1])) return file;
   }
   const { eta, ...rest } = record;
-  await writeJSON(file, { ...rest, done: new Date().toISOString() });
+  const done = new Date().toISOString();
+  await writeJSON(file, { ...rest, done, ...(note ? { note } : {}) });
+  if (note) await statusToThread(site, key, agent, record.kind, note, done);
   const { id } = parseKey(key);
   const waveDir = path.dirname(path.dirname(file));
   const records = await Promise.all((await builderFiles(waveDir, id)).map((f) => readJSON(f, null)));
@@ -987,4 +989,28 @@ export async function stopBuilder(site, key, { dir, agent, startedBetween }) {
   const item = wave?.items?.find((it) => it.id === id);
   if (clearBuildingStatus(item)) await writeJSON(source.file, wave);
   return file;
+}
+
+export async function openBoardBuilders(site) {
+  const builders = [];
+  for (const source of await itemSources(site)) {
+    const wave = await readJSON(source.file, null);
+    for (const item of wave?.items || []) {
+      for (const file of await builderFiles(source.dir, item.id)) {
+        const record = await readJSON(file, null);
+        if (!record?.started || record.done) continue;
+        const name = path.basename(file, '.json');
+        builders.push({ key: `${source.slug}/${item.id}`, agent: name.slice(String(item.id).length + 1) || 'main', label: record.label || 'Builder', started: record.started });
+      }
+    }
+  }
+  return builders;
+}
+
+export async function closeBoardBuilders(site) {
+  const builders = await openBoardBuilders(site);
+  for (const builder of builders) await stopBuilder(site, builder.key, {
+    agent: builder.agent, note: 'Board closed. Builder record stopped; work is kept for reopening.',
+  });
+  return builders;
 }

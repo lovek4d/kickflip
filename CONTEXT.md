@@ -89,7 +89,7 @@ The hub's one schedule, a list of windows with their minutes: on each slot it ch
 _Avoid_: push schedule, send-at-once hours, cron
 
 **Hub Settings**:
-The page opened by the hub pages' gear and the sidebar's Settings row, `/_hub/settings`: first this device's notifications, push notifications on or off, snooze, off on weekends, whether the owner is **at the Mac**, a Polling row opening the page that edits the polling interval, hold pushes overnight and daily wakes, then the **Codex setting** and the rules for every board. A board's gear opens that board's own Settings, which holds its auto-merge toggle, its reviewers and its own rules.
+The page opened by the hub pages' gear and the sidebar's Settings row, `/_hub/settings`: first this device's notifications, push notifications on or off, snooze, off on weekends, whether the owner is **at the Mac**, a Polling row opening the page that edits the polling interval, hold pushes overnight and daily wakes, then the **Codex setting** and the rules for every board. A board's gear opens that board's own Settings, which holds its auto-merge toggle, its reviewers and its own rules, then Close board with a typed-name confirmation. Hub Settings also lists **closed boards** with Reopen.
 _Avoid_: preferences, hub config
 
 **Codex setting**:
@@ -109,6 +109,10 @@ _Avoid_: activity line, subtitle
 **Board**:
 A site built from the board template that shows one or more waves as cards in lanes.
 _Avoid_: dashboard, kanban
+
+**Closed board**:
+A board whose session and server have stopped and whose sidebar row is gone, with its folder, cards, threads and notes kept on this Mac. Hub Settings lists it under Closed boards; Reopen restores it and resumes its recorded session. Open PRs stay on GitHub, and running builder records end with a note ([0072](docs/adr/0072-a-closed-board-keeps-its-folder-and-can-be-reopened.md)).
+_Avoid_: deleted board, archived board
 
 **Hub links**:
 What the hub owes a board, each passing or broken: GitHub polling, events (the board is **listening**), daily wakes, pushes (a device is subscribed) and reviewer links. The hub link (the hub runs the code in its files) is the hub's own, shown in amber only on the sidebar's Hub row and the hub page's Health card ([0064](docs/adr/0064-every-builder-works-in-a-worktree.md)). The In Review header's GitHub mark opens them as a sheet, red-dotted only while one stays broken past its grace period; until then it is **settling** ([0046](docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md)). A new board tests them with a **handshake**: a `hello` event the session answers with `board.mjs hello-ack`, with a Connecting checklist on the board until the session answered and GitHub checks reach it ([0040](docs/adr/0040-one-board-registry-for-every-hub-feature.md)).
@@ -306,11 +310,11 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `app.html` | The app shell: the sidebar, the view's slot, and its scripts and CSS from `/_hub/app/`, with a board's loads started in its `<head>`; the hub serves it for a browser's load of `/` or any site's page, and every load of a hub page, with the sidebar and its data written in (`hub/shell.mjs` `pageOf`), and the board server for a board's four view paths without them (`shellHtml`) |
 | `router.js` | `AppRouter`: every hub URL as a view and each view as its URL (`ui.test.mjs` tests both), the views the shell mounts in place, framed pages included, and catching taps on links to them and back and forward, with `{idx}` in each history entry and `pushed` on one a push opened; a back arrow goes one step back by them. On the **page tree** each entry also carries `up`, how many of its parents sit under it, which the router writes on every way in, and the arrow goes up a level. It frames the paths `hub/shell.mjs` `pageOf` answers with the shell, which `hub/shell.test.mjs` checks |
 | `shell.js` | `AppShell`: the sidebar mounted once, one view at a time, asking before leaving an unsaved edit, `/`'s pick of a board, the hub's one stream and which left boards are unchanged, a framed page's URL and title copied to the top, a push tap from `hub/sw.js` or a framed page's view URL (`AppShell.open`) routed in place, and registering `hub/sw.js`, which opens the shell while the Mac is asleep |
-| `view-settings.js` | Board Settings as a view: auto-merge, install script, reviewers and rules |
+| `view-settings.js` | Board Settings as a view: auto-merge, install script, reviewers, rules and Close board with its typed-name sheet |
 | `view-questions.js` | Waiting on you as a view: a topic's questions, their takes framed with `?take=` in a fitting grid or a chooser above one full-width frame, and one Send, which stays while the topic has a question open and otherwise opens the next topic with one, or goes back to the board |
 | `view-notes.js` | One item's notes as a view, from `GET /api/notes`; the server redirects `plan.html` to `notes.html` |
 | `view-hub.js` | The **hub page** as a view, from `/_hub/api/hub`, refreshed every 30 seconds while it shows; pending prompts of sessions with no board, Send now and this device's Turn on |
-| `view-hub-settings.js` | **Hub Settings** as a view, from `/_hub/api/settings`: notifications, the snooze sheet and the Polling summary row first, then the Codex setting and the rules for every board |
+| `view-hub-settings.js` | **Hub Settings** as a view, from `/_hub/api/settings`: notifications, the snooze sheet and the Polling summary row first, then the Codex setting, Closed boards with Reopen and the rules for every board |
 | `view-polling.js` | Polling as a view, from `/_hub/api/polling`: the day bar, whose taps pick a window without asking the hub, each window's edits, the overnight hold, the daily wakes and Send now |
 | `ui-hub.js` | `HubUI`, the hub views' pure renderers: rows, tiles, the flash, the Now row and this device's row |
 | `hub-kit.js` | `HubKit`, what the hub views share: `live` (load, the header's time and ↻, the 30-second refresh), `forms` (posting a hub form for JSON, and saving a toggle or time on change) and `device` (this device's push subscription) |

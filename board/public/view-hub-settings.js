@@ -76,7 +76,7 @@ ${d.codex.choices.map((c) => `<button type="submit" name="value" value="${esc(c.
 
       function paint() {
         if (!last) return;
-        top.innerHTML = html(last, { flash, device });
+        top.innerHTML = html(last, { flash, device }) + `<h2 class="label">Closed boards</h2><div class="group">${(last.closed || []).length ? last.closed.map((b) => `<div class="row"><span class="body"><span class="text"><span class="title">${esc(b.title)}</span><span class="sub wrap">Folder kept on this Mac · /${esc(b.route)}</span></span><button class="btn" type="button" data-reopen="${esc(b.route)}"${reopening ? ' disabled' : ''}>${reopening === b.route ? 'Reopening…' : 'Reopen'}</button></span></div>`).join('') : '<p class="note">No closed boards.</p>'}</div>`;
         if (!open()?.open) sheetBox.innerHTML = last.sheet ? sheet(last.sheet) : '';
         const json = JSON.stringify(last.rules);
         if (!rules) {
@@ -102,11 +102,29 @@ ${d.codex.choices.map((c) => `<button type="submit" name="value" value="${esc(c.
 
       // The device row shows a moment after the data and pushes the rules down, so the hash scroll waits for it.
       let deviceShown = false;
+      let reopening = null;
       const device = HubKit.device(B, { paint, changed: () => ctx.sidebarChanged?.() });
       device.ready.then(() => { deviceShown = true; if (B.alive()) paint(); });
       B.on(root, 'click', (e) => {
         if (e.target.closest?.('[data-snooze-open]')) open()?.showModal();
         else if (e.target === open()) open().close();
+      });
+      B.on(root, 'click', async (e) => {
+        const button = e.target.closest?.('[data-reopen]');
+        if (!button || reopening) return;
+        reopening = button.dataset.reopen;
+        flash = null;
+        paint();
+        try {
+          const r = await fetch('/_hub/reopen-board', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ route: reopening }) });
+          const out = await r.json();
+          if (!r.ok) throw new Error(out.error || 'Could not reopen board.');
+          last.closed = (last.closed || []).filter((b) => b.route !== out.route);
+          ctx.sidebarChanged?.();
+          flash = { text: 'Board reopened. Its recorded session is resuming.' };
+        } catch (error) { flash = { text: error.message || 'Could not reopen board. Is the Mac awake?', error: true }; }
+        reopening = null;
+        if (B.alive()) paint();
       });
       B.on(root, 'change', async (e) => {
         const on = e.target;
@@ -135,7 +153,7 @@ ${d.codex.choices.map((c) => `<button type="submit" name="value" value="${esc(c.
           last = d;
           paint();
         },
-        busy: () => device.busy() || forms.busy() || Boolean(root.querySelector('dialog[open], [data-dirty], input:focus, textarea:focus')),
+        busy: () => Boolean(reopening) || device.busy() || forms.busy() || Boolean(root.querySelector('dialog[open], [data-dirty], input:focus, textarea:focus')),
       });
       paint();
     }),

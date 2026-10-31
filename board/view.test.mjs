@@ -77,7 +77,7 @@ function fakePage(localStorage) {
     BoardAttach: { files: () => [], busy: () => false, clear() {}, paint() {} },
     ClaudeSite: {
       site: (root) => ({
-        root, url: (p) => `${root}/${p}`, send: async () => ({}), events: async () => [], syncBadge() {},
+        root, url: (p) => new URL(`${root}/${p}`, 'https://mac.ts.net/').href, send: async () => ({}), events: async () => [], syncBadge() {},
         watch: () => { const w = { stopped: false, stop() { w.stopped = true; } }; watches.push(w); return w; },
       }),
     },
@@ -374,7 +374,7 @@ test('Board Settings loads the install script, keeps refused edits unsaved, and 
     }
     return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
   };
-  const view = page.win.AppViews.settings.create(root, 'https://mac.ts.net/orch', { reload() {} });
+  const view = page.win.AppViews.settings.create(root, '/orch', { reload() {} });
   view.mount();
   await new Promise((resolve) => setImmediate(resolve));
   const input = root.querySelector('#installScript');
@@ -401,6 +401,131 @@ test('Board Settings loads the install script, keeps refused edits unsaved, and 
     assert.deepEqual(posts.at(-1), ['https://mac.ts.net/orch/api/install-script', { install_script: value }]);
   }
   assert.equal(status.textContent, 'Install builds are off.');
+  view.unmount();
+});
+
+test('Board Settings warns about active work, requires the exact board name and waits for the close response before opening the hub', async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const root = new page.El();
+  const opened = [];
+  const posts = [];
+  let answer;
+  let sidebarChanges = 0;
+  const closure = { title: 'The Shop', hub: false, prs: [{ pr: 42, repo: 'o/r', wave: 'shop', id: 'S1' }], builders: [{ label: 'Codex builder', key: 'shop/S1' }] };
+  page.win.fetch = async (url, opts = {}) => {
+    if (opts.method === 'POST') {
+      posts.push([url, JSON.parse(opts.body), opts.headers['content-type']]);
+      return new Promise((resolve) => { answer = resolve; });
+    }
+    const body = url === '/_hub/close-board/shop' ? closure : {};
+    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
+  };
+  const markup = page.win.AppViews.settings.markup();
+  assert.match(markup, /id="closeBoard" disabled/);
+  assert.match(markup, /Stop the board’s session[\s\S]*Stop its server[\s\S]*Remove its sidebar row/);
+  assert.match(markup, /Keep its folder, cards, threads and notes/);
+  const baseline = page.left();
+  const view = page.win.AppViews.settings.create(root, '/shop', { open: (url) => opened.push(url), sidebarChanged: () => sidebarChanges++ });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  view.mount();
+  await settle();
+  const row = root.querySelector('#closeBoard');
+  const sheet = root.querySelector('#closeBoardSheet');
+  const typed = root.querySelector('#closeBoardTyped');
+  const confirm = root.querySelector('#closeBoardConfirm');
+  const form = root.querySelector('#closeBoardForm');
+  assert.equal(row.disabled, false);
+  page.fire(row, 'click');
+  await settle();
+  assert.equal(sheet.open, true);
+  assert.match(root.querySelector('#closeBoardWarning').innerHTML, /PR #42[\s\S]*Codex builder[\s\S]*PRs stay open on GitHub/);
+  for (const name of ['', 'the shop', ' The Shop']) {
+    typed.value = name;
+    page.fire(typed, 'input');
+    assert.equal(confirm.disabled, true);
+    page.fire(form, 'submit');
+    await settle();
+    assert.equal(posts.length, 0);
+  }
+  typed.value = 'The Shop';
+  page.fire(typed, 'input');
+  assert.equal(confirm.disabled, false);
+  page.fire(form, 'submit');
+  page.fire(form, 'submit');
+  assert.equal(confirm.disabled, true);
+  assert.deepEqual(posts, [['/_hub/close-board', { route: 'shop', name: 'The Shop' }, 'application/json']]);
+  assert.deepEqual(opened, []);
+  answer({ ok: false, json: async () => ({ error: 'Session did not stop.' }) });
+  await settle();
+  assert.equal(root.querySelector('#closeBoardError').textContent, 'Session did not stop.');
+  assert.equal(sheet.open, true);
+  assert.equal(confirm.disabled, false);
+  page.fire(form, 'submit');
+  answer({ ok: true, json: async () => ({ next: '/_hub/' }) });
+  await settle();
+  assert.deepEqual(opened, ['/_hub/']);
+  assert.equal(sidebarChanges, 1);
+  assert.equal(sheet.open, false);
+  view.unmount();
+  assert.deepEqual(page.left(), baseline);
+});
+
+test('Board Settings disables Close board for the flagged hub board and gives the reason', async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const root = new page.El();
+  const requests = [];
+  page.win.fetch = async (url, opts = {}) => {
+    requests.push([url, opts.method]);
+    const body = url === '/_hub/close-board/dev' ? { title: 'Dev', hub: true, prs: [], builders: [] } : {};
+    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
+  };
+  const view = page.win.AppViews.settings.create(root, '/dev', {});
+  view.mount();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(root.querySelector('#closeBoard').disabled, true);
+  assert.match(root.querySelector('#closeBoardReason').textContent, /hub board cannot be closed/);
+  page.fire(root.querySelector('#closeBoard'), 'click');
+  page.fire(root.querySelector('#closeBoardForm'), 'submit');
+  assert.equal(requests.some(([, method]) => method === 'POST'), false);
+  assert.equal(root.querySelector('#closeBoardSheet').open, false);
+  view.unmount();
+});
+
+test('Hub Settings lists closed boards, keeps a refused reopen available, then removes it after reopening', async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const { Element } = miniDom(page.Target, page.win.document);
+  Element.prototype.setSelectionRange = () => {};
+  page.win.document.getElementById = () => true;
+  const root = page.win.document.body.appendChild(new Element('div'));
+  root.innerHTML = page.win.AppViews['hub-settings'].markup();
+  const d = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, codex: { choices: [], description: '', note: '' }, rules: [],
+    closed: [{ route: 'shop', title: 'The <Shop>' }] };
+  const posts = [];
+  let refuse = true;
+  let changed = 0;
+  page.win.fetch = async (url, opts = {}) => {
+    if (opts.method === 'POST') {
+      posts.push([url, JSON.parse(opts.body), opts.headers['content-type']]);
+      return { ok: !refuse, json: async () => refuse ? { error: 'Not signed in.' } : { route: 'shop' } };
+    }
+    return { ok: true, json: async () => structuredClone(d) };
+  };
+  const view = page.win.AppViews['hub-settings'].create(root, 'https://mac.ts.net/_hub', { sidebarChanged: () => changed++ });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  view.mount();
+  await settle();
+  const top = root.querySelector('.hs-top');
+  assert.match(top.innerHTML, /Closed boards[\s\S]*The &lt;Shop&gt;[\s\S]*data-reopen="shop"/);
+  page.fire(root, 'click', { target: root.querySelector('[data-reopen="shop"]') });
+  await settle();
+  assert.match(top.innerHTML, /Not signed in/);
+  assert.match(top.innerHTML, /data-reopen="shop"/);
+  refuse = false;
+  page.fire(root, 'click', { target: root.querySelector('[data-reopen="shop"]') });
+  await settle();
+  assert.deepEqual(posts.at(-1), ['/_hub/reopen-board', { route: 'shop' }, 'application/json']);
+  assert.match(top.innerHTML, /No closed boards/);
+  assert.equal(changed, 1);
   view.unmount();
 });
 
