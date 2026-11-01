@@ -1,5 +1,5 @@
 // The hub's own views' data (docs/adr/0055-one-app-for-the-whole-hub.md): what GET /_hub/api/hub, /_hub/api/settings
-// and /_hub/api/polling answer, with every word the hub page, Hub Settings and Polling show. hub.mjs reads the state
+// and /_hub/api/polling answer, with every word the hub page, its hub settings and Polling show. hub.mjs reads the state
 // these take; board/public/view-hub.js, view-hub-settings.js and view-polling.js only lay the words out.
 // st is a push.mjs queueStatus(now) result throughout, and poll the hub's poll state {running, nextAt, last}, last
 // being the last github.mjs checkGitHub result.
@@ -85,7 +85,7 @@ const CODEX_CHOICES = [
   { value: 'off', label: 'Off', description: 'No Codex.' },
 ];
 
-// Hub Settings: the on/off, snooze and weekend controls (docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md),
+// The hub page's hub settings: the on/off, snooze and weekend controls (docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md),
 // the polling summary, Codex setting and hub rules. The snooze sheet is null while notifications are off; Until tonight shows only
 // while it ends today, and while snoozed the sheet extends the snooze, so a choice ending no later than now's snooze
 // is disabled. route is push.mjs pushRoute(): where an action push goes now

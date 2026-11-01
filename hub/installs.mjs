@@ -80,7 +80,7 @@ export async function startInstall(input, { manifest = readManifest(), log = con
   if (!/^[\w.-]+\/[\w.-]+$/.test(key) || key.split('/').some((s) => s === '.' || s === '..')) throw new InstallError('Card key must be <wave>/<id>.');
   const board = listBoards(manifest).find((b) => b.route === route);
   if (!board) throw new InstallError(`/${route} is not a board.`, 404);
-  if (!board.install_script) throw new InstallError('Set an install script on this board’s Settings page first.');
+  if (!board.install_script) throw new InstallError('Set an install script in this board’s Settings first.');
   const error = installScriptError(board.install_script);
   if (error) throw new InstallError(error);
   const runKey = `${board.dir}\0${key}`;

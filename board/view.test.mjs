@@ -334,7 +334,7 @@ test("the board's Settings, Waiting on you and Notes views, mounted then unmount
   page.win.fetch = () => { fetches++; return Promise.reject(new Error('offline')); };
   const loaded = page.left();
   const views = page.win.AppViews;
-  assert.deepEqual(Object.keys(views).sort(), ['frame', 'hub', 'hub-settings', 'notes', 'polling', 'questions', 'settings']);
+  assert.deepEqual(Object.keys(views).sort(), ['frame', 'hub', 'notes', 'polling', 'questions', 'settings']);
   for (const [kind, view] of [['settings', {}], ['questions', { id: 'q1' }], ['notes', { item: 'w/A1' }]]) {
     assert.equal(typeof views[kind].markup({ kind, route: 'board-a', ...view }), 'string', kind);
     const v = views[kind].create(new page.El(), 'https://mac.ts.net/board-a', { view: { kind, route: 'board-a', ...view }, reload() {} });
@@ -497,7 +497,7 @@ test('Hub Settings lists closed boards, keeps a refused reopen available, then r
   Element.prototype.setSelectionRange = () => {};
   page.win.document.getElementById = () => true;
   const root = page.win.document.body.appendChild(new Element('div'));
-  root.innerHTML = page.win.AppViews['hub-settings'].markup();
+  root.innerHTML = page.win.HubSettings.markup();
   const d = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, codex: { choices: [], description: '', note: '' }, rules: [],
     closed: [{ route: 'shop', title: 'The <Shop>' }] };
   const posts = [];
@@ -510,11 +510,11 @@ test('Hub Settings lists closed boards, keeps a refused reopen available, then r
     }
     return { ok: true, json: async () => structuredClone(d) };
   };
-  const view = page.win.AppViews['hub-settings'].create(root, 'https://mac.ts.net/_hub', { sidebarChanged: () => changed++ });
+  const view = page.win.HubSettings.create(root, 'https://mac.ts.net/_hub', { sidebarChanged: () => changed++ });
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   view.mount();
   await settle();
-  const top = root.querySelector('.hs-top');
+  const top = root;
   assert.match(top.innerHTML, /Closed boards[\s\S]*The &lt;Shop&gt;[\s\S]*data-reopen="shop"/);
   page.fire(root, 'click', { target: root.querySelector('[data-reopen="shop"]') });
   await settle();
@@ -534,7 +534,7 @@ test("the hub page, Hub Settings and Polling, mounted then unmounted, load their
   const urls = [];
   page.win.fetch = (url) => { urls.push(url); return Promise.reject(new Error('offline')); };
   const loaded = page.left();
-  for (const [kind, view] of [['hub', {}], ['hub-settings', { hash: '#rules' }], ['polling', { w: '09:00' }]]) {
+  for (const [kind, view] of [['hub', { hash: '#rules' }], ['polling', { w: '09:00' }]]) {
     const views = page.win.AppViews;
     assert.match(views[kind].markup({ kind, ...view }), /<main class="has-top">/, kind);
     const v = views[kind].create(new page.El(), 'https://mac.ts.net/_hub', { view: { kind, ...view }, reload() {}, sidebarChanged() {} });
@@ -550,7 +550,7 @@ test("the hub page, Hub Settings and Polling, mounted then unmounted, load their
     await new Promise((r) => setImmediate(r));
     assert.deepEqual(page.left(), loaded, kind);
   }
-  assert.deepEqual([...new Set(urls)], ['/_hub/api/hub', '/_hub/api/settings', '/_hub/api/polling?w=09%3A00']);
+  assert.deepEqual([...new Set(urls)], ['/_hub/api/settings', '/_hub/api/hub', '/_hub/api/polling?w=09%3A00']);
 });
 
 test("a framed page hands each load's URL and title to the shell, hides the shell's header when it draws its own, whose logo toggles the sidebar, sends taps on links to other views and its back arrow to the shell, keeps its own navigations, and leaves nothing behind", () => {
@@ -725,62 +725,66 @@ test("the page header's logo toggles the sidebar at every width: from 900px it c
   assert.equal(html.classList.contains('sb-collapsed'), true);
 });
 
-test("the shell selects Settings on direct loads, sidebar taps, the Hub header's gear, Polling and browser back and forward", async () => {
-  for (const path of ['/_hub/', '/_hub/settings', '/_hub/settings/polling?w=09%3A00']) {
-    const page = fakePage(memoryStorage().localStorage);
-    const { win } = page;
-    const doc = win.document;
-    const { Element } = miniDom(page.Target, doc);
-    Object.defineProperty(Element.prototype, 'href', { get() { return new URL(this.getAttribute('href'), win.location.href).href; } });
-    doc.body.innerHTML = '<aside id="sidebar" class="sidebar"></aside><div id="sidebarScrim"></div><script id="sidebarData" type="application/json"></script>';
-    doc.getElementById = (id) => doc.body.querySelector(`#${id}`);
-    doc.querySelector = (sel) => doc.body.querySelector(sel);
-    doc.querySelectorAll = (sel) => doc.body.querySelectorAll(sel);
-    doc.getElementById('sidebarData').textContent = JSON.stringify({ sites: [] });
-    const scrim = doc.getElementById('sidebarScrim');
-    scrim.after = (root) => doc.body.insertBefore(root, scrim.nextSibling);
-    let entries = [{ href: `https://mac.ts.net${path}`, state: null }];
-    let at = 0;
-    win.location = new URL(entries[0].href);
-    const write = (state, url) => {
-      win.location = new URL(url || win.location.href, win.location.href);
-      entries[at] = { href: win.location.href, state };
-    };
-    win.history = {
-      get state() { return entries[at].state; },
-      replaceState: (state, _, url) => write(state, url),
-      pushState(state, _, url) { entries = entries.slice(0, ++at); write(state, url); },
-      go(n) { at += n; win.location = new URL(entries[at].href); page.fire(win, 'popstate', { state: entries[at].state }); },
-      back() { this.go(-1); },
-    };
-    win.scrollTo = () => {};
-    win.addEventListener = win.addEventListener.bind(win);
-    win.HashChangeEvent = class { constructor(type) { this.type = type; } };
-    win.dispatchEvent = (e) => page.fire(win, e.type, e);
-    win.top = win;
-    for (const kind of ['hub', 'hub-settings', 'polling']) {
-      win.AppViews[kind].create = () => ({ B: { state: {} }, mount() {}, unmount() {} });
-    }
-    vm.runInContext(fs.readFileSync(new URL('./public/shell.js', import.meta.url), 'utf8'), win);
-    await win.AppShell.start();
-    const selected = () => doc.querySelectorAll('.sb-row[aria-current="page"]').map((a) => a.getAttribute('href'));
-    const tap = (a) => page.fire(doc, 'click', { target: a, button: 0 });
-    assert.deepEqual(selected(), [path === '/_hub/' ? '/_hub/' : '/_hub/settings'], path);
-    win.AppShell.open('/_hub/');
+async function shellPage(path) {
+  const page = fakePage(memoryStorage().localStorage);
+  const { win } = page;
+  const doc = win.document;
+  const { Element } = miniDom(page.Target, doc);
+  Object.defineProperty(Element.prototype, 'className', { get() { return this.getAttribute('class') || ''; }, set(value) { this.setAttribute('class', value); } });
+  Object.defineProperty(Element.prototype, 'href', { get() { return new URL(this.getAttribute('href'), win.location.href).href; } });
+  doc.body.innerHTML = '<aside id="sidebar" class="sidebar"></aside><div id="sidebarScrim"></div><script id="sidebarData" type="application/json"></script>';
+  doc.getElementById = (id) => doc.body.querySelector(`#${id}`);
+  doc.querySelector = (sel) => doc.body.querySelector(sel);
+  doc.querySelectorAll = (sel) => doc.body.querySelectorAll(sel);
+  doc.getElementById('sidebarData').textContent = JSON.stringify({ sites: [{ route: 'shop', title: 'The Shop', board: true, icon: '' }, { route: 'other', title: 'Other', board: true, icon: '' }] });
+  const scrim = doc.getElementById('sidebarScrim');
+  scrim.after = (root) => doc.body.insertBefore(root, scrim.nextSibling);
+  let entries = [{ href: `https://mac.ts.net${path}`, state: null }];
+  let at = 0;
+  win.location = new URL(entries[0].href);
+  const write = (state, url) => {
+    win.location = new URL(url || win.location.href, win.location.href);
+    entries[at] = { href: win.location.href, state };
+  };
+  win.history = {
+    get state() { return entries[at].state; },
+    replaceState: (state, _, url) => write(state, url),
+    pushState(state, _, url) { entries = entries.slice(0, ++at); write(state, url); },
+    go(n) { at += n; win.location = new URL(entries[at].href); page.fire(win, 'popstate', { state: entries[at].state }); },
+    back() { this.go(-1); },
+  };
+  win.scrollTo = () => {};
+  win.addEventListener = win.addEventListener.bind(win);
+  win.removeEventListener = win.removeEventListener.bind(win);
+  win.HashChangeEvent = class { constructor(type) { this.type = type; } };
+  win.dispatchEvent = (e) => page.fire(win, e.type, e);
+  win.top = win;
+  for (const kind of ['hub', 'polling']) {
+    win.AppViews[kind].create = () => ({ B: { state: {} }, mount() {}, unmount() {} });
+  }
+  vm.runInContext(fs.readFileSync(new URL('./public/shell.js', import.meta.url), 'utf8'), win);
+  let boardUnmounts = 0;
+  win.BoardView.create = () => ({ B: { state: {} }, mount() {}, unmount() { boardUnmounts++; } });
+  await win.AppShell.start();
+  const tap = (a) => page.fire(doc, 'click', { target: a, button: 0 });
+  return { page, win, doc, tap, selected: () => doc.querySelectorAll('.sb-row[aria-current="page"]').map((a) => a.getAttribute('href')),
+    entries: () => entries, position: () => at, boardUnmounts: () => boardUnmounts };
+}
+
+test('the Hub row stays selected on old Settings URLs, hub sections, Polling and browser back', async () => {
+  for (const path of ['/_hub/', '/_hub/settings', '/_hub/settings#rules', '/_hub/settings/polling?w=09%3A00']) {
+    const { win, doc, selected, tap } = await shellPage(path);
+    assert.deepEqual(selected(), ['/_hub/'], path);
+    assert.equal(doc.querySelector('.sb-row[href="/_hub/settings"]'), null);
+    assert.equal(doc.querySelector('#settingsLink'), null);
+    win.AppShell.open('/_hub/#notifications');
     assert.deepEqual(selected(), ['/_hub/']);
-    tap(doc.querySelector('#settingsLink'));
-    assert.deepEqual(selected(), ['/_hub/settings']);
     win.AppShell.open('/_hub/settings/polling?w=18%3A00');
-    assert.deepEqual(selected(), ['/_hub/settings']);
-    win.history.back();
-    assert.deepEqual(selected(), ['/_hub/settings']);
+    assert.deepEqual(selected(), ['/_hub/']);
     win.history.back();
     assert.deepEqual(selected(), ['/_hub/']);
-    win.history.go(1);
-    assert.deepEqual(selected(), ['/_hub/settings']);
-    win.AppShell.open('/_hub/');
-    tap(doc.querySelector('.sb-utility a[href="/_hub/settings"]'));
-    assert.deepEqual(selected(), ['/_hub/settings']);
+    tap(doc.querySelector('.sb-utility a[href="/_hub/"]'));
+    assert.deepEqual(selected(), ['/_hub/']);
   }
 });
 
@@ -1091,8 +1095,8 @@ test("s s shows each sidebar row's key and the next key opens that row through t
   press('p');
   assert.equal(opened.length, 2);
   sw();
-  press('s');
-  assert.equal(opened.at(-1), '/_hub/settings');
+  press('u');
+  assert.equal(opened.at(-1), '/_hub/');
   sw();
   press('2');
   press('n');
@@ -1724,4 +1728,114 @@ test('Waiting on you measures a fitting grid, then uses one growing full-size fr
   v.unmount();
   assert.ok(observers.every((o) => !o.on));
   assert.deepEqual(v.page.left(), v.idle);
+});
+
+test('the board gear opens a board-only modal over the same board, closes without history entries and keeps back to Hub', async () => {
+  const { win, doc, page, entries, position, boardUnmounts } = await shellPage('/_hub/');
+  win.AppShell.open('/shop/#item=w%2FA1');
+  const board = doc.querySelector('.view-board');
+  const count = entries().length;
+  const baseline = page.left();
+  const gear = board.querySelector('#settingsLink');
+  gear.removeAttribute('aria-disabled');
+  doc.activeElement = gear;
+  page.fire(doc, 'click', { target: gear, button: 0 });
+  const modal = doc.querySelector('#boardSettingsModal');
+  assert.ok(modal?.open);
+  assert.equal(doc.querySelector('.view-board'), board);
+  assert.equal(boardUnmounts(), 0);
+  assert.equal(entries().length, count);
+  assert.equal(position(), 1);
+  assert.equal(win.location.pathname, '/shop/settings.html');
+  assert.match(modal.textContent, /Board settingsThe Shop/);
+  assert.match(modal.textContent, /Reviewers|Device installs|Auto-merge|Rules|Close board/);
+  assert.doesNotMatch(modal.textContent, /Notifications|Codex|For every board/);
+  assert.equal(modal.querySelector('.top'), null);
+  assert.match(modal.textContent, /Reopen later from Hub → Closed boards/);
+  const dismiss = modal.querySelector('[data-settings-dismiss]');
+  page.fire(modal, 'click', { target: dismiss });
+  assert.equal(doc.querySelector('#boardSettingsModal'), null);
+  assert.equal(win.location.pathname + win.location.hash, '/shop/#item=w%2FA1');
+  assert.equal(doc.activeElement, gear);
+  assert.equal(entries().length, count);
+  assert.deepEqual(page.left(), baseline);
+  win.history.back();
+  assert.equal(win.location.pathname, '/_hub/');
+});
+
+test('old board settings deep links open the board and modal, and Escape and Done guard unsaved edits', async () => {
+  const { win, doc, page, entries } = await shellPage('/shop/settings.html?from=push');
+  const board = doc.querySelector('.view-board');
+  const modal = doc.querySelector('#boardSettingsModal');
+  assert.ok(board);
+  assert.ok(modal?.open);
+  assert.equal(entries().length, 1);
+  const dirty = modal.querySelector('#installForm');
+  dirty.setAttribute('data-dirty', '');
+  let asks = 0;
+  win.BoardDialogs.confirm = async () => { asks++; return false; };
+  assert.equal(page.fire(modal, 'cancel').defaultPrevented, true);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(asks, 1);
+  assert.ok(modal.open);
+  win.BoardDialogs.confirm = async () => true;
+  page.fire(modal, 'click', { target: modal.querySelector('.settings-footer button') });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(doc.querySelector('#boardSettingsModal'), null);
+  assert.equal(doc.querySelector('.view-board'), board);
+  assert.equal(win.location.pathname, '/shop/');
+  assert.equal(entries().length, 1);
+});
+
+test('leaving a board with its settings open releases the modal and returning with back restores the modal over the board', async () => {
+  const { win, doc, page, boardUnmounts } = await shellPage('/shop/settings.html');
+  const modal = doc.querySelector('#boardSettingsModal');
+  const before = page.left();
+  win.AppShell.open('/_hub/');
+  assert.equal(doc.querySelector('#boardSettingsModal'), null);
+  assert.equal(modal.open, false);
+  assert.equal(boardUnmounts(), 1);
+  assert.ok(page.left().listeners < before.listeners);
+  win.history.back();
+  await new Promise((r) => setImmediate(r));
+  assert.ok(doc.querySelector('.view-board'));
+  assert.ok(doc.querySelector('#boardSettingsModal').open);
+});
+
+test('legacy hub section links expand and scroll only known rows, keeping expanded rows and the rules editor', async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const { Element } = miniDom(page.Target, page.win.document);
+  page.win.addEventListener = page.win.addEventListener.bind(page.win);
+  page.win.removeEventListener = page.win.removeEventListener.bind(page.win);
+  const scrolled = [];
+  Element.prototype.scrollIntoView = function () { scrolled.push(this.id); };
+  page.win.document.getElementById = () => true;
+  const root = page.win.document.body.appendChild(new Element('div'));
+  root.innerHTML = page.win.HubSettings.markup();
+  const data = { on: { on: true }, weekends: { on: false }, codex: { choices: [] }, rules: [], closed: [] };
+  page.win.fetch = async () => ({ ok: true, json: async () => structuredClone(data) });
+  const view = page.win.HubSettings.create(root, '/_hub', { view: { hash: '#closed' } });
+  view.mount();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(root.querySelector('#closed').open, true);
+  assert.deepEqual(scrolled, ['closed']);
+  const editor = root.querySelector('#hubRules');
+  editor.setAttribute('data-dirty', '');
+  for (const [hash, id] of [['#rules', 'rules'], ['#push', 'notifications'], ['#polling', 'polling'], ['#codex', 'codex']]) {
+    page.win.location = new URL(`https://mac.ts.net/_hub/settings${hash}`);
+    page.fire(page.win, 'hashchange');
+    assert.equal(root.querySelector(`#${id}`).open, true);
+    assert.equal(scrolled.at(-1), id);
+    assert.equal(root.querySelector('#closed').open, true);
+    assert.equal(root.querySelector('#hubRules'), editor);
+    assert.equal(editor.hasAttribute('data-dirty'), true);
+  }
+  const count = scrolled.length;
+  page.win.location = new URL('https://mac.ts.net/_hub/settings#[');
+  page.fire(page.win, 'hashchange');
+  assert.equal(scrolled.length, count);
+  page.win.location = new URL('https://mac.ts.net/_hub/settings');
+  page.fire(page.win, 'hashchange');
+  assert.equal(scrolled.at(-1), 'notifications');
+  view.unmount();
 });

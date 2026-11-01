@@ -1,4 +1,4 @@
-// The rules editor on a board's Settings and on hub Settings
+// The rules editor on Board Settings and on the Hub page
 // (docs/adr/0039-rules-live-on-settings-at-hub-and-board-level.md). Edits stay on the page until Save, as the
 // reviewers list does; Save hands {rules: [{id?, text}], base: [the ids it loaded]} to the page's save(), whose
 // server merges it (hub/rules.mjs applyRules). It brings its own CSS, colours from colors.css only, and takes the page's

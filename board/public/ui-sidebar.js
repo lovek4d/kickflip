@@ -19,7 +19,6 @@
   // The utility rows, in the order they show.
   const UTILITY = [
     { href: '/_hub/', title: 'Hub', icon: tile('pulse', '#64748b') },
-    { href: '/_hub/settings', title: 'Settings', icon: tile('sliders', '#6b7280') },
   ];
   const siteHref = (s) => `/${encodeURIComponent(s.route)}/`;
 
@@ -82,23 +81,24 @@
       + `<span class="sb-text"><span class="sb-title">${s.failed ? "Didn't start" : s.phase === 'cloning' ? 'Cloning…' : 'Starting…'}</span><span class="sb-sub">${esc(s.title)}${s.repo ? ` · ${esc(repoLabel(s.repo, data.home))}` : ''}${s.failed ? '' : ' · Waiting for the board to answer'}</span>${s.error ? `<span class="sb-sub">${esc(s.error)}</span>` : ''}</span>`
       + (s.failed ? `<button type="button" class="sb-dismiss" data-dismiss-board="${esc(s.route)}" aria-label="Dismiss ${esc(s.title)}">Dismiss</button>` : '') + '</div>').join('');
     const newBoard = `<button type="button" class="sb-row sb-new" data-new-board aria-haspopup="dialog">${plus}<span class="sb-text"><span class="sb-title">New board</span></span></button>`;
-    const turnOn = device === 'off' ? row({ href: '/_hub/settings', icon: tile('bell', '#ef4444'), title: 'Turn on notifications', sub: 'Off on this device', cls: 'sb-turnon' })
-      : device === 'install' ? row({ href: '/_hub/settings', icon: tile('bell', '#ef4444'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })
+    const turnOn = device === 'off' ? row({ href: '/_hub/#notifications', icon: tile('bell', '#ef4444'), title: 'Turn on notifications', sub: 'Off on this device', cls: 'sb-turnon' })
+      : device === 'install' ? row({ href: '/_hub/#notifications', icon: tile('bell', '#ef4444'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })
       : '';
-    const n = data?.notifications || {};
-    const notifySub = device === 'off' ? word('needs', 'Off on this device') : device === 'blocked' ? word('needs', 'Blocked on this device')
-      : n.state === 'off' ? word('needs', n.text || 'Off') : esc(n.text || '');
     const hub = data?.hub;
+    const n = data?.notifications || {};
+    const lower = (text) => String(text || '').replace(/^\w/, (c) => c.toLowerCase());
+    const notify = device === 'blocked' ? word('needs', 'Notifications blocked on this device')
+      : n.state === 'off' ? word('needs', `Notifications ${lower(n.text || 'Off')}`)
+      : n.state === 'held' ? esc(`Notifications ${lower(n.text)}`) : '';
     const subs = {
-      '/_hub/': hub ? `<span class="sb-status">${word(hub.tone, hub.word)}<span>${esc(hub.detail)}</span></span>` : '',
-      '/_hub/settings': device === 'off' || device === 'blocked' || n.state === 'off' || n.state === 'held'
-        ? `<span class="sb-status">${notifySub}</span>` : 'Notifications, polling and rules',
+      '/_hub/': (hub ? `<span class="sb-status">${word(hub.tone, hub.word)}<span>${esc(hub.detail)}</span></span>` : '')
+        + (notify ? `<span class="sb-status">${notify}</span>` : ''),
     };
-    const selected = here.startsWith('_hub/settings/') ? '/_hub/settings' : `/${here.replace(/\/$/, '')}`;
+    const selected = here.startsWith('_hub') ? '/_hub' : `/${here.replace(/\/$/, '')}`;
     const close = `<div class="nav"><button type="button" class="sb-close" data-sidebar-close aria-label="Close boards">${svg(ICONS.close, 20)}</button></div>`;
     return header({ lead: 'logo', title: 'Kickflip', level: 2, controls: false, trail: close, logoSrc: '/_hub/kickflip.png',
       leadAttrs: { 'aria-label': 'Hide boards', title: 'Hide boards', 'data-sidebar-close': '' } })
-      + `<div class="sb-scroll"><section class="sb-utility" aria-label="Hub and settings"><div class="sb-group">`
+      + `<div class="sb-scroll"><section class="sb-utility" aria-label="Hub"><div class="sb-group">`
       + UTILITY.map((f) => row({ ...f, on: f.href.replace(/\/$/, '') === selected, sub: subs[f.href], key: keys?.get(f.href) })).join('')
       + `</div>${turnOn}</section>`
       + (pages.length ? `<section class="sb-pages" aria-label="Pages"><div class="sb-label">Pages</div><div class="sb-group">${pages.map(siteRow).join('')}</div></section>` : '')

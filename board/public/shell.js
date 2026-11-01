@@ -1,7 +1,7 @@
 // The app shell (app.html; docs/adr/0055-one-app-for-the-whole-hub.md): the sidebar, mounted once, beside one view at a
-// time. A board's view is BoardView (app.js); its Settings, Waiting on you and Notes are AppViews.settings, .questions
-// and .notes, the hub's own pages AppViews.hub, ['hub-settings'] and .polling, and every other page on the hub is
-// AppViews.frame (view-*.js), each {className, title(view, {siteTitle}), markup(view, {siteTitle}), create(root,
+// time. A board's view is BoardView (app.js); Waiting on you and Notes are AppViews.questions and .notes,
+// the hub pages AppViews.hub and .polling, and every other page AppViews.frame. Board Settings mounts over the board
+// as a modal. Each page is {className, title(view, {siteTitle}), markup(view, {siteTitle}), create(root,
 // siteRoot, ctx)}; a hub page's siteRoot is /_hub. Following a link to any of them, the sidebar's included, swaps the
 // view in place through router.js; a link to anything that isn't a page loads it. Leaving a view whose root holds
 // [data-dirty], an unsaved edit, asks first. The shell holds the hub's one stream, /_hub/stream
@@ -98,8 +98,39 @@ window.AppShell = (function () {
     }
 
     const scrim = document.getElementById('sidebarScrim');
+    let settings = null;
+    function removeSettings() {
+      if (!settings) return;
+      settings.v.unmount();
+      settings.root.remove();
+      settings = null;
+    }
+    function dismissSettings() {
+      const closing = settings;
+      const finish = () => {
+        if (settings !== closing) return;
+        removeSettings();
+        router.replace(AppRouter.urlOf(current.view));
+      };
+      if (!settings?.root.querySelector('[data-dirty]')) { finish(); return; }
+      BoardDialogs.confirm('Leave without saving? Your unsaved edits here will be lost.').then((leave) => { if (leave) finish(); });
+    }
+    function showSettings() {
+      if (settings) return;
+      const root = document.createElement('div');
+      root.className = 'view-settings';
+      root.innerHTML = AppViews.settings.markup({}, { siteTitle: titleOf(current.route) });
+      current.root.appendChild(root);
+      const v = AppViews.settings.create(root, '/' + encodeURIComponent(current.route), { dismiss: dismissSettings, open: openHere, sidebarChanged: refreshSidebar });
+      settings = { root, v };
+      v.mount();
+    }
+
     // current: {view, route, root, v}, the router's view shown, its root element and its mounted {B, mount, unmount}.
     function show(view) {
+      const modal = view.kind === 'settings';
+      if (modal) view = { kind: 'board', route: view.route, hash: '' };
+      removeSettings();
       const { route } = view;
       const board = view.kind === 'board';
       const hub = route === undefined;
@@ -132,6 +163,7 @@ window.AppShell = (function () {
       sidebar.setHere(hub ? new URL(AppRouter.urlOf(view), location.href).pathname.slice(1) : route);
       scrollTo(0, 0);
       v.mount();
+      if (modal) showSettings();
     }
 
     // A framed page loaded url in the frame: the top's URL and title follow it, without a history entry of their own,
@@ -158,6 +190,23 @@ window.AppShell = (function () {
     let router = null;
     function go(view, href, how, from) {
       if (!AppRouter.mounted(view)) return false;
+      if (view.kind === 'settings') {
+        if (current?.view.kind === 'board' && current.route === view.route) {
+          const here = AppRouter.viewOf(location.href, { boards: boards() });
+          if (here?.kind === 'board') current.view = here;
+          router.replace(href);
+          showSettings();
+          sidebar.close();
+          return true;
+        }
+        const board = { kind: 'board', route: view.route, hash: '' };
+        return Promise.resolve(go(board, AppRouter.urlOf(board), how, from)).then((shown) => {
+          if (!shown) return false;
+          router.replace(href);
+          showSettings();
+          return true;
+        });
+      }
       const stays = how !== 'reload' && current && sameView(current.view, view);
       const finish = () => {
         const moved = how === 'push' ? router.push(href, from) : how === 'replace' ? router.replace(href) : null;
@@ -170,8 +219,8 @@ window.AppShell = (function () {
         sidebar.close();
         return true;
       };
-      if (stays || !dirty()) return finish();
-      return BoardDialogs.confirm('Leave without saving? Your unsaved edits here will be lost.').then((leave) => (leave ? finish() : false));
+      if ((stays && !settings) || !dirty()) { if (stays && settings) removeSettings(); return finish(); }
+      return BoardDialogs.confirm('Leave without saving? Your unsaved edits here will be lost.').then((leave) => (leave ? (removeSettings(), finish()) : false));
     }
 
     // `/` opens this device's last board, else the board the hub picks (sidebar data's start), else the hub's page

@@ -106,3 +106,16 @@
   .hub-view dialog.sheet { bottom: max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px)));
     max-height: calc(var(--vh, 100dvh) - max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px))) - 24px - env(safe-area-inset-top)); }
 }
+
+.hub-view .hub-settings { margin-top: 24px; }
+.hub-view .hub-setting { border: 1px solid var(--line); border-radius: 12px; margin: 10px 0; background: var(--panel); scroll-margin-top: 76px; }
+.hub-view .hub-setting > summary { list-style: none; display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; }
+.hub-view .hub-setting > summary::-webkit-details-marker { display: none; }
+.hub-view .hub-setting > summary .text { flex: 1; min-width: 0; }
+.hub-view .hub-setting > summary .title { display: block; font-weight: 600; }
+.hub-view .hub-setting > summary .sub { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hub-view .hub-setting[open] > summary .chev { transform: rotate(90deg); }
+.hub-view .setting-content { padding: 0 12px 12px; }
+@media (max-width: 899px) {
+  .hub-view .hub-setting { scroll-margin-top: calc(env(safe-area-inset-top) + 12px); }
+}

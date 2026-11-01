@@ -52,7 +52,7 @@
       : logo();
     const nav = controls ? `<nav class="nav">`
       + `<span class="refresh"><button class="ghost spinning" id="refresh" type="button" disabled aria-label="Refresh" title="Refresh">${REFRESH}</button><span class="muted" id="status">${esc(time)}</span></span>`
-      + `<a href="${esc(settingsHref)}" id="settingsLink" class="ghost icon" aria-label="Settings" title="Settings" aria-disabled="true" tabindex="-1">${GEAR}</a>`
+      + (settingsHref ? `<a href="${esc(settingsHref)}" id="settingsLink" class="ghost icon" aria-label="Settings" title="Settings" aria-disabled="true" tabindex="-1" aria-haspopup="dialog">${GEAR}</a>` : '')
       + `</nav>` : trail;
     const script = lead === 'back' ? `<script>(${wireBack})(${backStep});</script>` : '';
     const h = `h${[1, 2, 3, 4, 5, 6].includes(level) ? level : 1}`;

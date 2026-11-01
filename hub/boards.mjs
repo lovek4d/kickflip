@@ -341,7 +341,7 @@ const eventsLink = (listen) => ({ link: 'events', listen, ...EVENTS[listen] });
 
 function wakesLink(board, settings, wakeState) {
   const wakes = settings?.wakes || [];
-  if (!wakes.length) return { link: 'wakes', ok: false, detail: 'No daily wakes are set (hub Settings, Polling).' };
+  if (!wakes.length) return { link: 'wakes', ok: false, detail: 'No daily wakes are set (Hub, Polling).' };
   if ((wakeState?.last?.failed || []).includes(board.route)) return { link: 'wakes', ok: false, detail: `The last wake (${wakeState.last.due.join(', ')}) couldn't reach this board.` };
   return { link: 'wakes', ok: true, detail: `Daily at ${wakes.join(', ')}.` };
 }

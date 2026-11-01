@@ -1,13 +1,12 @@
-// Board Settings, /<route>/settings.html, a view of the app shell (shell.js): auto-merge, install script, reviewers and rules.
+// Board Settings, a modal the app shell (shell.js) mounts over its board for /<route>/settings.html.
 // Saving reviewers sends a `reviewers` event {add: [name], remove: [name]}; Claude finds each new person's Slack and
-// GitHub accounts, writes the list with board.mjs reviewers, and replies. The rules editor marks [data-dirty] while
-// an edit is unsaved, and the shell asks before leaving then.
+// GitHub accounts, writes the list with board.mjs reviewers, and replies. An unsaved edit marks [data-dirty], and the
+// shell asks before closing the modal then.
 (globalThis.AppViews ||= {}).settings = {
   className: 'view-settings',
   title: () => 'Board Settings',
-  markup: () => `${BoardUI.header({ lead: 'back', title: 'Settings' })}
-<main class="set">
-  <p class="muted small">Notifications and polling live in <a href="/_hub/settings">hub Settings</a>.</p>
+  markup: (view, { siteTitle = '' } = {}) => `<dialog class="settings-modal" id="boardSettingsModal" aria-labelledby="boardSettingsTitle"><div class="settings-head"><div><h2 id="boardSettingsTitle" tabindex="-1">Board settings</h2><p class="muted small">${BoardUI.esc(siteTitle)}</p></div><button type="button" class="ghost" data-settings-dismiss aria-label="Close board settings">✕</button></div>
+<div class="set settings-body">
   <h2>Repo</h2>
   <button type="button" class="who repo-row" id="boardRepo" aria-haspopup="dialog" disabled><span id="boardRepoValue">Loading…</span><span class="muted small">Change ›</span></button>
   <p class="muted small" id="boardRepoStatus"></p>
@@ -38,9 +37,6 @@
   <p class="muted small">Standing instructions for this board's Claude session. It sees them each time it wakes, and says what changes when you save.</p>
   <div id="rules"><p class="muted small">Loading…</p></div>
   <div class="replies" id="rulesReplies"></div>
-  <h3 class="muted small" style="margin:14px 0 0;font-weight:600">For every board</h3>
-  <div id="hubRules"><p class="muted small">Loading…</p></div>
-  <p class="muted small">Edit these in <a href="/_hub/settings#rules">hub Settings</a>.</p>
   <h2>Board</h2>
   <button class="who close-board-row" id="closeBoard" disabled aria-haspopup="dialog"><span>Close board<span class="muted small sub">Stop its session and server. Keep its cards, threads and notes.</span></span><span aria-hidden="true">›</span></button>
   <p class="muted small" id="closeBoardReason" role="status">Loading…</p>
@@ -50,20 +46,34 @@
       <h2 id="closeBoardTitle">Close this board?</h2>
       <p id="closeBoardName"></p>
       <ul><li>Stop the board’s session.</li><li>Stop its server.</li><li>Remove its sidebar row and manifest entry.</li></ul>
-      <p>Keep its folder, cards, threads and notes on this Mac. Reopen later from hub Settings → Closed boards.</p>
+      <p>Keep its folder, cards, threads and notes on this Mac. Reopen later from Hub → Closed boards.</p>
       <div class="close-board-warning" id="closeBoardWarning"></div>
       <label for="closeBoardTyped">Type <strong id="closeBoardTypeName"></strong> to confirm.<input id="closeBoardTyped" autocomplete="off" autocapitalize="off" spellcheck="false" required></label>
       <p class="muted small" id="closeBoardError" role="status"></p>
       <div class="row"><button type="button" id="closeBoardCancel">Cancel</button><button class="danger" type="submit" id="closeBoardConfirm" disabled>Close board</button></div>
     </form>
   </dialog>
-</main>`,
+</div><div class="settings-footer"><button type="button" data-settings-dismiss>Done</button></div></dialog>`,
 
   create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
     const { $, site } = B;
     const { esc, fetchJSON, restartNotice } = BoardUI;
     const get = (url, onWait) => fetchJSON(url, { onWait, sleep: B.sleep });
     const waitIn = (sel) => () => { $(sel).innerHTML = restartNotice(); };
+    const modal = $('#boardSettingsModal');
+    const previous = document.activeElement;
+    const unfitModal = BoardDialogs.fitSheet(modal);
+    B.on(modal, 'cancel', (e) => { e.preventDefault(); ctx.dismiss?.(); });
+    B.on(modal, 'click', (e) => {
+      if (e.target.closest?.('[data-settings-dismiss]')) ctx.dismiss?.();
+      else if (e.target === modal) {
+        const rect = modal.getBoundingClientRect();
+        if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) ctx.dismiss?.();
+      }
+    });
+    B.atUnmount(() => { unfitModal(); modal.close(); if (previous?.isConnected) previous.focus({ preventScroll: true }); });
+    modal.showModal();
+    $('#boardSettingsTitle').focus({ preventScroll: true });
     const route = B.route;
     const closeRow = $('#closeBoard');
     const closeSheet = $('#closeBoardSheet');
@@ -154,26 +164,15 @@
       $('#list').innerHTML = rows.length ? rows.map(({ n, cls }) => `<div class="who ${cls}"><span>${esc(n)}${cls === 'new' ? ' <span class="muted small">new</span>' : ''}</span>
         <button class="ghost" data-name="${esc(n)}" aria-label="${cls === 'gone' ? 'Keep' : 'Remove'} ${esc(n)}">${cls === 'gone' ? 'Undo' : '✕'}</button></div>`).join('') : '<p class="muted small">No reviewers yet.</p>';
       $('#save').disabled = !add.size && !remove.size;
+      if (add.size || remove.size) $('#list').setAttribute('data-dirty', '');
+      else $('#list').removeAttribute('data-dirty');
     }
 
-    // Refresh shows the view anew, through the shell, which asks first while an edit is unsaved.
-    const refresh = $('#refresh');
-    B.on(refresh, 'click', () => ctx.reload());
-    const loaded = get(site.url('api/board'), waitIn('#list')).then(({ body: d }) => {
+    get(site.url('api/board'), waitIn('#list')).then(({ body: d }) => {
+      if (!B.alive()) return;
       current = d.reviewers || [];
       render();
-      $('#status').innerHTML = BoardUI.statusLine(new Date().toISOString(), { watcher: d.checks?.watcher });
-    }).catch(() => {
-      $('#list').innerHTML = '<p class="muted">Offline. Is the Mac awake?</p>';
-      $('#status').innerHTML = BoardUI.statusLine(undefined, { link: 'offline' });
-    });
-    loaded.then(() => {
-      refresh.disabled = false;
-      refresh.classList.remove('spinning');
-      const gear = $('#settingsLink');
-      gear.removeAttribute('aria-disabled');
-      gear.removeAttribute('tabindex');
-    });
+    }).catch(() => { if (B.alive()) $('#list').innerHTML = '<p class="muted">Offline. Is the Mac awake?</p>'; });
 
     B.on($('#list'), 'click', (ev) => {
       const b = ev.target.closest('button[data-name]');
@@ -219,6 +218,7 @@
         autoMerge.checked = false;
         return;
       }
+      if (!B.alive()) return;
       autoMerge.disabled = true;
       try {
         const r = await fetch(site.url('api/settings'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ auto_merge: want }) });
@@ -267,7 +267,7 @@
     });
 
     // Saving writes board.json through POST api/rules, whose `rules {scope: "board"}` event wakes Claude to acknowledge
-    // the change; replies show below, newest first. The hub's rules show read-only.
+    // the change; replies show below, newest first.
     get(site.url('api/rules'), waitIn('#rules')).then(({ body: d }) => {
       if (!B.alive()) return;
       RulesEditor.mount($('#rules'), {
@@ -280,8 +280,7 @@
           return { rules: out.rules, message: out.id ? 'Saved. Claude acknowledges it below.' : 'Nothing changed.' };
         },
       });
-      RulesEditor.mount($('#hubRules'), { rules: d.hub, readOnly: true, empty: 'None.' });
-    }).catch(() => { for (const sel of ['#rules', '#hubRules']) $(sel).innerHTML = '<p class="muted">Offline. Is the Mac awake?</p>'; });
+    }).catch(() => { $('#rules').innerHTML = '<p class="muted">Offline. Is the Mac awake?</p>'; });
     B.watch((events) => {
       $('#rulesReplies').innerHTML = (events || []).slice(0, 3).map((e) => `<div class="reply">${e.reply ? (e.reply.html ?? '') : '<span class="muted small">Waiting for Claude…</span>'}</div>`).join('');
     }, { kind: 'rules' });

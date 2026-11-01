@@ -1,9 +1,8 @@
-// Hub Settings, /_hub/settings, a view of the app shell (shell.js): notifications on or off, snooze, off on weekends,
-// whether pushes go to the Mac only because the owner is at it, the polling summary, Codex setting and rules for every
-// board, in hub/views.mjs settingsView's words from GET /_hub/api/settings.
-// Each toggle and snooze posts to /_hub/settings/notifications and saves at once. The rules editor saves through POST
-// /_hub/settings/rules and marks [data-dirty] while an edit is unsaved, so the shell asks before leaving then. The
-// data refreshes every 30 seconds while nothing is being edited.
+// HubSettings: the hub settings view-hub.js mounts below the Hub page's health and status, as collapsed rows that
+// expand in place (docs/adr/0074-hub-settings-expand-in-place-and-board-settings-open-in-a-modal.md), in hub/views.mjs
+// settingsView's words from GET /_hub/api/settings. Each toggle and snooze posts to /_hub/settings/notifications and saves
+// at once. The rules editor saves through POST /_hub/settings/rules and marks [data-dirty] while an edit is unsaved, so
+// the shell asks before leaving then. The data refreshes every 30 seconds while nothing is being edited.
 (function () {
   // The last data, which a return to the view paints at once.
   let last = null;
@@ -29,54 +28,39 @@
     return `${onRow}\n${snoozeRow}\n${weekendRow}`;
   }
 
-  function html(d, { flash, device }) {
-    const { row, tile, CHEVRON, deviceRow } = HubUI;
-    const banner = d.snoozed ? `<div class="banner" role="status">${tile('snooze', '#a855f7')}<span class="text"><span class="title">${esc(d.snoozed.title)}</span><span class="sub wrap">${esc(d.snoozed.sub)}</span></span>`
-      + `<button class="btn quiet" type="button" data-snooze-open aria-haspopup="dialog">Extend</button><form method="post" action="${ACTION}"><button class="btn quiet" name="snooze" value="off">End</button></form></div>` : '';
-    return `${HubUI.flash(flash)}${banner}
-<h2 class="label"${d.snoozed ? '' : ' style="margin-top:4px"'}>Notifications</h2>
-<div class="group">
-${deviceRow(device.state(d.device))}
-${notificationRows(d)}
-${d.presence ? row({ icon: tile('laptop', 'var(--color-quiet)'), title: esc(d.presence.title), sub: esc(d.presence.sub), wrap: true }) : ''}
-</div>
-<p class="note">Pushes come only when something needs you. Questions go at once unless held overnight, snoozed or for the weekend; then they wait and go when the hold ends. Urgent pushes go through those holds. Needs you, the badge and the daily wakes carry on either way.</p>
-<h2 class="label">Polling</h2>
-<div class="group">${row({ icon: tile('clock', '#3b82f6'), title: 'Polling', sub: esc(d.polling), wrap: true, trail: CHEVRON, href: '/_hub/settings/polling' })}</div>
-<p class="note">Polling sets the windows, the overnight hold and the daily wakes.</p>
-<h2 class="label" id="codex">Codex</h2>
-<div class="group"><div class="block">
-<form class="segments" method="post" action="/_hub/settings/codex" role="group" aria-labelledby="codex" aria-describedby="codexDescription codexNote">
-${d.codex.choices.map((c) => `<button type="submit" name="value" value="${esc(c.value)}" aria-pressed="${c.on}">${esc(c.label)}</button>`).join('')}
-</form>
-<p class="note" id="codexDescription" role="status">${esc(d.codex.description)}</p>
-</div></div>
-<p class="note" id="codexNote">${esc(d.codex.note)}</p>`;
-  }
+  const sections = [['notifications', 'Notifications'], ['polling', 'Polling'], ['codex', 'Codex share'], ['rules', 'Rules for every board'], ['closed', 'Closed boards']];
+  const markup = () => `<div class="hs-flash"></div>${sections.map(([id, title]) => `<details class="hub-setting" id="${id}"><summary><span class="text"><span class="title">${title}</span><span class="sub" data-summary="${id}">Loading…</span></span><span class="chev" aria-hidden="true">›</span></summary><div class="setting-content" data-content="${id}">${id === 'rules' ? '<div id="hubRules"></div><p class="note">Standing instructions every board’s session sees each time it wakes. A board’s own rules are in its Settings.</p>' : ''}</div></details>`).join('')}<div class="hs-sheet"></div>`;
 
-  (globalThis.AppViews ||= {})['hub-settings'] = {
-    className: 'hub-view view-hub-settings',
-    title: () => 'Hub Settings',
-    markup: () => `${BoardUI.header({ lead: 'back', backHref: '/_hub/', backLabel: 'Back to the hub', title: 'Settings', time: 'now', logoSrc: '/_hub/kickflip.png', settingsHref: '/_hub/settings' })}
-<main class="has-top"><div class="hs-top"></div>
-<h2 class="label" id="rules">Rules for every board</h2>
-<div id="hubRules"></div>
-<p class="note">Standing instructions every board's Claude session sees each time it wakes. Saving tells each one, and it says what changes. A board's own rules are in that board's Settings.</p>
-<div class="hs-sheet"></div></main>`,
-
+  globalThis.HubSettings = {
+    markup,
     create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
-      const top = B.$('.hs-top');
+      const top = B.$('.hs-flash');
       const sheetBox = B.$('.hs-sheet');
       const rulesBox = B.$('#hubRules');
       let flash = null;
       let rules = null;
       let rulesJSON = '';
-      let scrolled = !ctx.view?.hash;
+      let requestedHash = ctx.view?.hash;
+      let scrolled = !requestedHash;
       const open = () => B.$('#snoozeSheet');
 
       function paint() {
         if (!last) return;
-        top.innerHTML = html(last, { flash, device }) + `<h2 class="label">Closed boards</h2><div class="group">${(last.closed || []).length ? last.closed.map((b) => `<div class="row"><span class="body"><span class="text"><span class="title">${esc(b.title)}</span><span class="sub wrap">Folder kept on this Mac · /${esc(b.route)}</span></span><button class="btn" type="button" data-reopen="${esc(b.route)}"${reopening ? ' disabled' : ''}>${reopening === b.route ? 'Reopening…' : 'Reopen'}</button></span></div>`).join('') : '<p class="note">No closed boards.</p>'}</div>`;
+        const { row, tile, CHEVRON, deviceRow } = HubUI;
+        top.innerHTML = HubUI.flash(flash);
+        B.$('[data-content="notifications"]').innerHTML = `${last.snoozed ? `<div class="banner" role="status"><span>${esc(last.snoozed.title)} · ${esc(last.snoozed.sub)}</span><button class="btn quiet" type="button" data-snooze-open>Extend</button><form method="post" action="${ACTION}"><button class="btn quiet" name="snooze" value="off">End</button></form></div>` : ''}<div class="group">${deviceRow(device.state(last.device))}${notificationRows(last)}${last.presence ? row({ icon: tile('laptop', 'var(--color-quiet)'), title: esc(last.presence.title), sub: esc(last.presence.sub), wrap: true }) : ''}</div>`;
+        B.$('[data-content="polling"]').innerHTML = `<div class="group">${row({ icon: tile('clock', '#3b82f6'), title: 'Windows, overnight hold, daily wakes', sub: esc(last.polling), wrap: true, trail: CHEVRON, href: '/_hub/settings/polling' })}</div>`;
+        B.$('[data-content="codex"]').innerHTML = `<div class="group"><div class="block"><form class="segments" method="post" action="/_hub/settings/codex" role="group" aria-labelledby="codexLabel" aria-describedby="codexDescription codexNote">${last.codex.choices.map((c) => `<button type="submit" name="value" value="${esc(c.value)}" aria-pressed="${c.on}">${esc(c.label)}</button>`).join('')}</form><p class="note" id="codexDescription" role="status">${esc(last.codex.description)}</p></div></div><p class="note" id="codexNote">${esc(last.codex.note)}</p>`;
+        B.$('#codex summary .title').setAttribute('id', 'codexLabel');
+        B.$('[data-content="closed"]').innerHTML = `<div class="group">${(last.closed || []).length ? last.closed.map((b) => `<div class="row"><span class="body"><span class="text"><span class="title">${esc(b.title)}</span><span class="sub wrap">Folder kept on this Mac · /${esc(b.route)}</span></span><button class="btn" type="button" data-reopen="${esc(b.route)}"${reopening ? ' disabled' : ''}>${reopening === b.route ? 'Reopening…' : 'Reopen'}</button></span></div>`).join('') : '<p class="note">No closed boards.</p>'}</div>`;
+        const summaries = {
+          notifications: [last.on.on ? 'Pushes on' : 'Pushes off', last.snoozed?.title, last.weekends.on ? 'Off on weekends' : '', deviceSummary()].filter(Boolean).join(' · '),
+          polling: last.polling,
+          codex: last.codex.choices.find((c) => c.on)?.label || 'Off',
+          rules: last.rules.length ? `${last.rules.length} rule${last.rules.length === 1 ? '' : 's'}` : 'None yet',
+          closed: last.closed?.length ? `${last.closed.length} closed` : 'No closed boards',
+        };
+        for (const [id] of sections) B.$(`[data-summary="${id}"]`).textContent = summaries[id];
         if (!open()?.open) sheetBox.innerHTML = last.sheet ? sheet(last.sheet) : '';
         const json = JSON.stringify(last.rules);
         if (!rules) {
@@ -88,6 +72,8 @@ ${d.codex.choices.map((c) => `<button type="submit" name="value" value="${esc(c.
               const out = await r.json().catch(() => ({}));
               if (!r.ok) throw new Error(out.error || 'Could not save. Is the Mac awake?');
               const n = out.events.length;
+              last.rules = out.rules;
+              B.$('[data-summary="rules"]').textContent = out.rules.length ? `${out.rules.length} rule${out.rules.length === 1 ? '' : 's'}` : 'None yet';
               rulesJSON = JSON.stringify(out.rules);
               return { rules: out.rules, message: !out.changed ? 'Nothing changed.' : `Saved. Sent to ${n} board${n === 1 ? '' : 's'}${out.failed.length ? `; ${out.failed.length} could not take it.` : '.'}` };
             },
@@ -97,16 +83,41 @@ ${d.codex.choices.map((c) => `<button type="submit" name="value" value="${esc(c.
           rules.set(last.rules);
           rulesJSON = json;
         }
-        if (!scrolled && deviceShown) { scrolled = true; root.querySelector(ctx.view.hash)?.scrollIntoView(); }
+        if (!scrolled && deviceShown) reveal(requestedHash);
       }
 
-      // The device row shows a moment after the data and pushes the rules down, so the hash scroll waits for it.
+      // hub-kit.js device() titles its row 'This device' only where this device can take pushes.
+      function deviceSummary() {
+        const d = device.state('');
+        if (!d) return '';
+        if (d.title !== 'This device') return d.title;
+        return d.sub?.startsWith('On') ? 'This device on' : 'This device off';
+      }
+
+      function reveal(hash) {
+        const id = { push: 'notifications', 'closed-boards': 'closed' }[hash?.slice(1)] || hash?.slice(1);
+        if (!sections.some(([section]) => section === id)) { scrolled = true; return; }
+        const section = B.$(`#${id}`);
+        section.open = true;
+        section.scrollIntoView?.({ block: 'start' });
+        scrolled = true;
+      }
+      B.revealSettings = () => reveal(requestedHash);
+      B.on(window, 'hashchange', () => {
+        requestedHash = AppRouter.viewOf(location.href)?.hash || location.hash;
+        reveal(requestedHash);
+      });
       let deviceShown = false;
       let reopening = null;
+      let unfit = null;
+      B.atUnmount(() => { unfit?.(); open()?.close(); });
       const device = HubKit.device(B, { paint, changed: () => ctx.sidebarChanged?.() });
       device.ready.then(() => { deviceShown = true; if (B.alive()) paint(); });
+      B.on(root, 'close', (e) => { if (e.target.id === 'snoozeSheet') { unfit?.(); unfit = null; } }, true);
       B.on(root, 'click', (e) => {
-        if (e.target.closest?.('[data-snooze-open]')) open()?.showModal();
+        if (e.target.closest?.('[data-snooze-open]')) {
+          if (open()) { unfit?.(); unfit = BoardDialogs.fitSheet(open()); open().showModal(); }
+        }
         else if (e.target === open()) open().close();
       });
       B.on(root, 'click', async (e) => {
@@ -133,20 +144,23 @@ ${d.codex.choices.map((c) => `<button type="submit" name="value" value="${esc(c.
         else on.checked = true;
       });
       const forms = HubKit.forms(B, {
+        accepts: (action) => action !== '/_hub/push/flush',
         answer(out) {
           last = out;
           flash = null;
           if (open()?.open) open().close();
+          unfit?.(); unfit = null;
           paint();
           ctx.sidebarChanged?.();
         },
         fail(message) {
           flash = { text: message, error: true };
           if (open()?.open) open().close();
+          unfit?.(); unfit = null;
           paint();
         },
       });
-      HubKit.live(B, {
+      B.refreshSettings = HubKit.live(B, {
         url: () => '/_hub/api/settings',
         paint(d) {
           if (!d) { if (!last) top.innerHTML = '<p class="note">Offline. Is the Mac awake?</p>'; return; }

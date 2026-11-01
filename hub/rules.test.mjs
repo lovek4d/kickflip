@@ -203,7 +203,7 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
       assert.equal(fs.readFileSync(file, 'utf8'), unchanged);
     }
     const redirect = await postCodex('value=always', false);
-    assert.deepEqual([redirect.status, redirect.headers.get('location')], [303, '/_hub/settings']);
+    assert.deepEqual([redirect.status, redirect.headers.get('location')], [303, '/_hub/#codex']);
     const refused = await postCodex('value=bad', false);
     assert.equal(refused.status, 400);
     assert.equal(await refused.text(), 'codex-share takes auto, always, or off');

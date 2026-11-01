@@ -9,7 +9,7 @@ While the owner is at the Mac, an `action` push goes to the desktop subscription
 - **Nothing held back catches up.** A push the phone didn't get while the owner was at the Mac is never sent to it later: the owner saw it on the desktop, and the board's unread marks and Needs you keep the rest.
 - **A queued push goes by the presence when it is sent**, not when it was queued ([0030](0030-pushes-go-by-kind-and-each-arrives-on-its-own.md)).
 
-Hub Settings shows which applies now: "At the Mac", with pushes going to the Mac only, or "Away from the Mac", with pushes going to every device.
+The hub page’s Notifications row shows which applies now: "At the Mac", with pushes going to the Mac only, or "Away from the Mac", with pushes going to every device.
 
 Off, snooze, weekends and the overnight hold ([0032](0032-notifications-can-be-off-snoozed-or-off-on-weekends.md)) gate a push first; presence only picks where one that goes is sent.
 

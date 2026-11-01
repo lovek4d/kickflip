@@ -117,10 +117,10 @@ A --file argument of - reads stdin.
   settings set auto-merge on|off                         on: monitor merges an approved PR once CI is green and
                                                          the merge state is CLEAN. off (the default): the card
                                                          shows the owner a Merge button, and monitor merges on its
-                                                         card-merge event. The Settings page's toggle writes it too
+                                                         card-merge event. Board Settings' toggle writes it too
   install <wave>/<id> --site <route>                     asks the hub to run this board's install script; prints
                                                          started and exits while the build runs. Only the owner
-                                                         sets the script, on this board's Settings page. The hub
+                                                         sets the script, in this board's Settings. The hub
                                                          records its builder, output log and result in the thread
   builder start <wave>/<id> [--agent <name>] [--kind <opus|codex|sonnet|install|…>] [--label <who>]
          [--progress <text>] [--eta <ISO time>]          one record per agent on the item; --agent defaults to main.

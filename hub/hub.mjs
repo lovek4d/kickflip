@@ -9,7 +9,7 @@
 //   /_hub/stream      the shell's one event stream: `change {route}` for each board's change signal and `sidebar` with
 //                     /_hub/sidebar.json's data when it changes (stream.mjs)
 //   /_hub/, /_hub/settings, /_hub/settings/polling
-//                     the hub page, Hub Settings and Polling, views of the shell; any GET of them gets the shell
+//                     the hub page (both paths) and Polling, views of the shell; any GET of them gets the shell
 //   /_hub/api/hub, /_hub/api/settings, /_hub/api/polling?w=HH:MM
 //                     those views' data and words (views.mjs)
 //   /_hub/sidebar.json what the sidebar shows (board/public/ui-sidebar.js): {total, start,
@@ -691,10 +691,10 @@ async function hubRoute(req, res, url) {
     let r;
     try { r = await setNotifications(change); } catch (e) {
       if (e.status !== 400) throw e;
-      return json ? sendJSON(400, { error: SNOOZE_REFUSED }) : redirect(res, '/_hub/settings?refused=snooze');
+      return json ? sendJSON(400, { error: SNOOZE_REFUSED }) : redirect(res, '/_hub/?refused=snooze#notifications');
     }
     if (r.dropped) log(`notifications off: dropped ${r.dropped} queued push${r.dropped === 1 ? '' : 'es'}`);
-    return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/settings');
+    return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#notifications');
   }
   if (p === '/_hub/settings/codex' && req.method === 'POST') {
     const f = new URLSearchParams(await readBody(req));
@@ -702,7 +702,7 @@ async function hubRoute(req, res, url) {
       if (e.status !== 400) throw e;
       return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
     }
-    return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/settings');
+    return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#codex');
   }
   // One schedule.mjs editPolling change {op, w, value}.
   if (p === '/_hub/settings/polling' && req.method === 'POST') {

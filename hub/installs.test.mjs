@@ -58,7 +58,7 @@ after(() => fs.rmSync(home, { recursive: true, force: true }));
 
 test('installs refuse an unset or invalid script, an unknown card and caller-selected commands without opening a record', async (t) => {
   config({ install_script: '' });
-  await assert.rejects(start(), /Settings page/);
+  await assert.rejects(start(), /board’s Settings first/);
   for (const install_script of ['relative.sh', script, site]) {
     config({ install_script });
     await assert.rejects(start(), /Install script must/);

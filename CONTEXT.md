@@ -19,7 +19,7 @@ The one server on the Mac that answers the tailnet address, lists every site, fo
 _Avoid_: portal, gateway
 
 **Sidebar**:
-The list of every site beside each board and hub page: Hub and Settings, then Turn on notifications when needed, then Pages (sites that aren't boards), then Boards with their status words, lane chips and waiting counts. The last row of Boards is **New board**, a + tile opening a sheet that chooses a GitHub repo first, then its branch, Name and optional What it’s for. Start is the confirm: the hub starts the board’s session itself once the request passes its checks; a muted, non-link row reads **Cloning…**, then **Starting…** until its route joins. When claude fails to start, or after 15 minutes without a join, it reads **Didn’t start**, with Dismiss, and with the clone or session error line when there is one ([0069](docs/adr/0069-the-hub-starts-a-new-boards-session.md)). Settings carries notification problems in its sub line and stays selected on Hub Settings and its child pages, including Polling. Boards and Pages stay apart wherever sites are listed. The header's logo toggles it at every width; it carries no count. From 900px it is a rail, which its own logo collapses out of sight until the header's logo brings it back; narrower, it is a drawer. Its header reads Kickflip. Below 900px every page header is a bottom bar, and the drawer header sits at its foot under New board; desktop headers stay at the top ([0070](docs/adr/0070-phone-headers-sit-at-the-bottom.md)). In the **app shell** it is mounted once, beside every view, Settings and framed pages included, and a site's row swaps the view in place. `/` opens this device's **last board**, which the app shell stores as each board opens, never a page ([0050](docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md), [0055](docs/adr/0055-one-app-for-the-whole-hub.md)).
+The list of every site beside each board and hub page: Hub, then Turn on notifications when needed, then Pages (sites that aren't boards), then Boards with their status words, lane chips and waiting counts. The last row of Boards is **New board**, a + tile opening a sheet that chooses a GitHub repo first, then its branch, Name and optional What it’s for. Start is the confirm: the hub starts the board’s session itself once the request passes its checks; a muted, non-link row reads **Cloning…**, then **Starting…** until its route joins. When claude fails to start, or after 15 minutes without a join, it reads **Didn’t start**, with Dismiss, and with the clone or session error line when there is one ([0069](docs/adr/0069-the-hub-starts-a-new-boards-session.md)). Hub carries notification problems in its sub line and stays selected on the hub page and Polling. Boards and Pages stay apart wherever sites are listed. The header's logo toggles it at every width; it carries no count. From 900px it is a rail, which its own logo collapses out of sight until the header's logo brings it back; narrower, it is a drawer. Its header reads Kickflip. Below 900px every page header is a bottom bar, and the drawer header sits at its foot under New board; desktop headers stay at the top ([0070](docs/adr/0070-phone-headers-sit-at-the-bottom.md)). In the **app shell** it is mounted once, beside every view and framed page, and a site's row swaps the view in place. `/` opens this device's **last board**, which the app shell stores as each board opens, never a page ([0050](docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md), [0055](docs/adr/0055-one-app-for-the-whole-hub.md)).
 _Avoid_: hub home, switcher, nav
 
 **Switch mode**:
@@ -31,7 +31,7 @@ The one page a browser's load of `/`, a hub page or any site's page gets, `board
 _Avoid_: SPA, wrapper, frame
 
 **View**:
-One page's content in the app shell, mounted when its URL opens and unmounted, with every listener, timer and stream it added, when another takes its place. A board is a view, and so are its Settings, Waiting on you and Notes, and the **hub page**, **Hub Settings** and Polling; a board left and opened again paints from its **last visit**, live when its stream sent no change since. Any other page, another site's or a board's prototype, is a **frame view**: the page in a frame beside the board header, or its own when it draws that header, with Open alone ↗ to load it by itself.
+One page's content in the app shell, mounted when its URL opens and unmounted, with every listener, timer and stream it added, when another takes its place. A board is a view, and so are its Waiting on you and Notes, and the **hub page** and Polling; Settings opens over its board as a modal; a board left and opened again paints from its **last visit**, live when its stream sent no change since. Any other page, another site's or a board's prototype, is a **frame view**: the page in a frame beside the board header, or its own when it draws that header, with Open alone ↗ to load it by itself.
 _Avoid_: screen, tab, page (a page is its own document)
 
 **Page tree**:
@@ -39,7 +39,7 @@ The levels back climbs in the app shell: a board, its Waiting on you, then a sep
 _Avoid_: nav stack, breadcrumbs
 
 **Hub page**:
-The hub's status page, `/_hub/`, which the sidebar's Hub row opens: the **pending prompts** of sessions that own no board, each site's health with each board's hub links and watcher, each session's remembered Always allow rules read-only under its board, polling and notifications ([0050](docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md), [0060](docs/adr/0060-background-sessions-prompts-come-to-the-phone.md)).
+The hub's status page, `/_hub/`, which the sidebar's Hub row opens: the **pending prompts** of sessions that own no board, each site's health with each board's hub links and watcher, each session's remembered Always allow rules read-only under its board, polling status, then the expandable **hub settings** ([0050](docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md), [0060](docs/adr/0060-background-sessions-prompts-come-to-the-phone.md)).
 _Avoid_: dashboard, console, hub home
 
 **Board registry**:
@@ -88,12 +88,16 @@ _Avoid_: active, online, desktop app active
 The hub's one schedule, a list of windows with their minutes: on each slot it checks GitHub, wakes a board's owning session with `github-change` when a PR on its cards changed, pushes once for each board that isn't listening, then sends the queued pushes. At each daily wake time it also sends each board one `check-github {reason: "morning"}`, changed or not. With hold pushes overnight on, pushes queued in the last window wait for the first window's start ([0025](docs/adr/0025-the-hub-polls-github-and-sends-pushes-on-one-interval.md)).
 _Avoid_: push schedule, send-at-once hours, cron
 
-**Hub Settings**:
-The page opened by the hub pages' gear and the sidebar's Settings row, `/_hub/settings`: first this device's notifications, push notifications on or off, snooze, off on weekends, whether the owner is **at the Mac**, a Polling row opening the page that edits the polling interval, hold pushes overnight and daily wakes, then the **Codex setting** and the rules for every board. A board's gear opens that board's own Settings, which holds its repo and branch, auto-merge toggle, reviewers and its own rules, then Close board with a typed-name confirmation. Hub Settings also lists **closed boards** with Reopen.
-_Avoid_: preferences, hub config
+**Hub settings**:
+The five collapsed rows below the **hub page**’s health and status: Notifications, Polling, Codex share, Rules for every board and Closed boards. Each has a one-line summary and expands in place. Old Hub Settings links open that row on the hub page ([0074](docs/adr/0074-hub-settings-expand-in-place-and-board-settings-open-in-a-modal.md)).
+_Avoid_: Hub Settings page, preferences, hub config
+
+**Board Settings**:
+The centred modal opened from a board header’s gear, at every width, which scrolls inside on a phone. It contains only that board’s settings: repo and branch, auto-merge, install script, reviewers, rules and Close board with typed-name confirmation. Closing returns to the same board and open card without another history entry ([0074](docs/adr/0074-hub-settings-expand-in-place-and-board-settings-open-in-a-modal.md)).
+_Avoid_: Settings page
 
 **Codex setting**:
-The one choice on Hub Settings for every board: Auto has Codex build and review, with Opus builders taking over while Codex is out of usage until it resets; Always on has Codex build and review, with that work paused while Codex is out of usage until a usage-reset check succeeds; Off, also when unset, means no Codex. A session's own `/codex-share` overrides it for that session ([0066](docs/adr/0066-one-codex-setting-for-every-board.md)).
+The one choice in the hub page’s Codex share row for every board: Auto has Codex build and review, with Opus builders taking over while Codex is out of usage until it resets; Always on has Codex build and review, with that work paused while Codex is out of usage until a usage-reset check succeeds; Off, also when unset, means no Codex. A session's own `/codex-share` overrides it for that session ([0066](docs/adr/0066-one-codex-setting-for-every-board.md)).
 _Avoid_: Codex rule, board Codex toggle
 
 **Waiting count**:
@@ -111,7 +115,7 @@ A site built from the board template that shows one or more waves as cards in la
 _Avoid_: dashboard, kanban
 
 **Closed board**:
-A board whose session and server have stopped and whose sidebar row is gone, with its folder, cards, threads and notes kept on this Mac. Hub Settings lists it under Closed boards; Reopen restores it and resumes its recorded session. Open PRs stay on GitHub, and running builder records end with a note ([0072](docs/adr/0072-a-closed-board-keeps-its-folder-and-can-be-reopened.md)).
+A board whose session and server have stopped and whose sidebar row is gone, with its folder, cards, threads and notes kept on this Mac. The hub page lists it under Closed boards; Reopen restores it and resumes its recorded session. Open PRs stay on GitHub, and running builder records end with a note ([0072](docs/adr/0072-a-closed-board-keeps-its-folder-and-can-be-reopened.md)).
 _Avoid_: deleted board, archived board
 
 **Hub links**:
@@ -127,7 +131,7 @@ A set of work items built and reviewed together, with its reviewers and follow-u
 _Avoid_: batch, sprint, epic
 
 **Reviewers**:
-The people who get a board's PR links once they are ready, and the weekday digest. Each board keeps its own in `board.json`, which its Settings page lists, and a new wave copies them into its own `reviewers`.
+The people who get a board's PR links once they are ready, and the weekday digest. Each board keeps its own in `board.json`, which its Settings modal lists, and a new wave copies them into its own `reviewers`.
 _Avoid_: approvers, watchers
 
 **Finished wave**:
@@ -194,7 +198,7 @@ The button names (`BUTTON`: the action buttons, `github` and `merge`) and the ac
 _Avoid_: Open items, Action needed (the badge)
 
 **Auto-merge**:
-A board setting, `auto_merge` in its `board.json`, off unless set: on, monitor merges a PR once it is approved, CI is green and its merge state is CLEAN; off, the card shows the owner Action needed and a Merge button, which reads "Merging…" until the PR merges or Claude says in the thread why it didn't. The board's Settings page toggles it, and the watcher prints it with every wake as `setting auto-merge on|off`. A setting, not a **rule**, since the board itself acts on it ([0052](docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md)).
+A board setting, `auto_merge` in its `board.json`, off unless set: on, monitor merges a PR once it is approved, CI is green and its merge state is CLEAN; off, the card shows the owner Action needed and a Merge button, which reads "Merging…" until the PR merges or Claude says in the thread why it didn't. The board's Settings modal toggles it, and the watcher prints it with every wake as `setting auto-merge on|off`. A setting, not a **rule**, since the board itself acts on it ([0052](docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md)).
 _Avoid_: merge rule, merge policy
 
 **Review on GitHub**:
@@ -310,11 +314,11 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `app.html` | The app shell: the sidebar, the view's slot, and its scripts and CSS from `/_hub/app/`, with a board's loads started in its `<head>`; the hub serves it for a browser's load of `/` or any site's page, and every load of a hub page, with the sidebar and its data written in (`hub/shell.mjs` `pageOf`), and the board server for a board's four view paths without them (`shellHtml`) |
 | `router.js` | `AppRouter`: every hub URL as a view and each view as its URL (`ui.test.mjs` tests both), the views the shell mounts in place, framed pages included, and catching taps on links to them and back and forward, with `{idx}` in each history entry and `pushed` on one a push opened; a back arrow goes one step back by them. On the **page tree** each entry also carries `up`, how many of its parents sit under it, which the router writes on every way in, and the arrow goes up a level. It frames the paths `hub/shell.mjs` `pageOf` answers with the shell, which `hub/shell.test.mjs` checks |
 | `shell.js` | `AppShell`: the sidebar mounted once, one view at a time, asking before leaving an unsaved edit, `/`'s pick of a board, the hub's one stream and which left boards are unchanged, a framed page's URL and title copied to the top, a push tap from `hub/sw.js` or a framed page's view URL (`AppShell.open`) routed in place, and registering `hub/sw.js`, which opens the shell while the Mac is asleep |
-| `view-settings.js` | Board Settings as a view: auto-merge, install script, reviewers, rules and Close board with its typed-name sheet |
+| `view-settings.js` | Board Settings as a modal over its board, which shell.js mounts: repo and branch, auto-merge, install script, reviewers, rules and Close board with its typed-name sheet |
 | `view-questions.js` | Waiting on you as a view: a topic's questions, their takes framed with `?take=` in a fitting grid or a chooser above one full-width frame, and one Send, which stays while the topic has a question open and otherwise opens the next topic with one, or goes back to the board |
 | `view-notes.js` | One item's notes as a view, from `GET /api/notes`; the server redirects `plan.html` to `notes.html` |
-| `view-hub.js` | The **hub page** as a view, from `/_hub/api/hub`, refreshed every 30 seconds while it shows; pending prompts of sessions with no board, Send now and this device's Turn on |
-| `view-hub-settings.js` | **Hub Settings** as a view, from `/_hub/api/settings`: notifications, the snooze sheet and the Polling summary row first, then the Codex setting, Closed boards with Reopen and the rules for every board |
+| `view-hub.js` | The **hub page** as a view, from `/_hub/api/hub`, refreshed every 30 seconds while it shows; pending prompts of sessions with no board, Send now, then `view-hub-settings.js` below its status |
+| `view-hub-settings.js` | Expandable **hub settings** on the hub page, from `/_hub/api/settings`: Notifications and its snooze sheet, Polling, Codex share, Rules for every board and Closed boards with Reopen |
 | `view-polling.js` | Polling as a view, from `/_hub/api/polling`: the day bar, whose taps pick a window without asking the hub, each window's edits, the overnight hold, the daily wakes and Send now |
 | `ui-hub.js` | `HubUI`, the hub views' pure renderers: rows, tiles, the flash, the Now row and this device's row |
 | `hub-kit.js` | `HubKit`, what the hub views share: `live` (load, the header's time and ↻, the 30-second refresh), `forms` (posting a hub form for JSON, and saving a toggle or time on change) and `device` (this device's push subscription) |
@@ -331,7 +335,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `prototype-switcher.js` | A prototype page's ‹ take › pill, its keys and `?variant=`, one take alone with `?take=`, and with `?q=` the pick and note that answer the card's question, then the next open question in its place as a Send moves on, or with none left the board, handed to the app shell when the page is framed in it, with the board’s Sent notice in that top window; uses the shell’s `BoardUI` or loads its question helpers when opened alone; `prototype-switcher.test.mjs` tests its controls and a pick through `mount`, while `ui.test.mjs` owns the move-on rule |
 | `app-core.js` | The view's shared helpers: drafts, seen marks, hiding, and `steady`, which runs a repaint keeping the box being typed in, else the open card's title row, still on screen, and its focus and cursor; re-exports `dialogs.js` as `B.confirm` and `notice` |
 | `dialogs.js` | `BoardDialogs.confirm` and `notice`, which every board page's dialogs go through, and `fitSheet`, the ask and New board sheets' shared phone keyboard handling; loaded on every page |
-| `rules-editor.js` | `RulesEditor`, the rules list on board Settings and hub Settings, with its own CSS; `ui.test.mjs` tests its pure parts |
+| `rules-editor.js` | `RulesEditor`, the rules list on Board Settings and the Hub page, with its own CSS; `ui.test.mjs` tests its pure parts |
 | `app-threads.js` | Loading a thread, once at a time per card; an open card's thread, its reply box, quick replies and Done |
 | `app-cards.js` | Cards, their open detail with the details list ending in Notes ↗ · Install ↗ · Review on GitHub ↗ when present, and the workflow row: a follow-up's Build, Merge, Hold and the **action button** with each one's confirmation; the install link's rebuilding confirmation; the bump icon's confirmation; an ask's detail shows only its action button; the thread's Done confirmation and send |
 | `app-lanes.js` | Lanes, the Answered, older and finished-wave folds, the wave bars and filter, and Plan a wave |

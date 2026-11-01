@@ -50,7 +50,7 @@ export function removeRule(list, id) {
   return { rules: list.filter((r) => r !== old), rule: old };
 }
 
-// A Settings page's save: `incoming` is the list it shows, [{id?, text}] in order, and `base` the ids it loaded. A
+// A rules editor's save: `incoming` is the list it shows, [{id?, text}] in order, and `base` the ids it loaded. A
 // rule keeps its id, author and time unless its text changed; one without a known id is the owner's new rule. A
 // rule added elsewhere since the page loaded (not in base) stays, after the page's.
 // → {rules, changes: {added: [text], edited: [{from, to}], removed: [text]}}

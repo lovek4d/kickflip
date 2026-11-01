@@ -49,7 +49,7 @@ ${form('', w.from, `<button class="btn quiet" name="op" value="split"${w.split ?
   (globalThis.AppViews ||= {}).polling = {
     className: 'hub-view view-polling',
     title: () => 'Polling',
-    markup: () => `${BoardUI.header({ lead: 'back', backHref: '/_hub/settings', backLabel: 'Settings', title: 'Polling', time: 'now', logoSrc: '/_hub/kickflip.png', settingsHref: '/_hub/settings' })}
+    markup: () => `${BoardUI.header({ lead: 'back', backHref: '/_hub/#polling', backLabel: 'Back to the hub', title: 'Polling', time: 'now', logoSrc: '/_hub/kickflip.png', settingsHref: null })}
 <main class="has-top"></main>`,
 
     create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {

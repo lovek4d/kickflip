@@ -57,7 +57,7 @@
 //               Existing links to another clone and real folders elsewhere are refused; move them explicitly first
 //   web-ts push --kind action|prompt|fault --title <t> [--body <b>] [--url </route/path>] [--tag <tag>]
 //               [--now | --urgent]
-//               notify every device that turned on notifications on hub Settings; a tap opens --url.
+//               notify every device that turned on notifications on the Hub page; a tap opens --url.
 //               --kind says what waits on the owner (../hub/push.mjs PUSH_KINDS): action, a card's Action needed
 //               appearing or changing; prompt, a background session's prompt; fault, something only the owner
 //               can fix. A push without one is refused (exit 2): news stays on the board.
@@ -74,7 +74,7 @@
 //               window's minutes, when it ends, the next check, whether pushes are held now, until when
 //               ("never" while off) and why (off, snoozed, weekend or overnight), and the notifications settings
 //   web-ts notifications [on | off | snooze <length> | unsnooze | weekends on|off]
-//               sets the hub Settings Notifications controls and prints them; off drops the queued pushes.
+//               sets the Hub page's Notifications controls and prints them; off drops the queued pushes.
 //               A snooze length is a hub/schedule.mjs snoozeEnd choice. Without a change it only prints them
 //   web-ts codex-share [auto|always|off]
 //               prints the Codex setting for every board; with a value, saves it and prints it. Missing means off.
@@ -518,8 +518,8 @@ const commands = {
     const { clock, holdLine } = await import(path.join(SKILL, 'hub', 'schedule.mjs'));
     if (args.now && args.urgent) fail('pass --now or --urgent, not both', 2);
     const r = await deliver({ title: args.title, body: args.body || '', url: args.url || '/', tag: args.tag }, { kind: args.kind, urgent: !!args.urgent, immediate: !!args.now });
-    if (r.noDevice) fail('no device has turned on notifications; open hub Settings (/_hub/settings) in the Home Screen app and tap Turn on', 3);
-    if (r.dropped) return out('dropped (notifications are off on hub Settings)');
+    if (r.noDevice) fail('no device has turned on notifications; open Hub → Notifications (/_hub/#notifications) in the Home Screen app and tap Turn on', 3);
+    if (r.dropped) return out('dropped (notifications are off on the Hub page)');
     if (r.queued) {
       const { count, replaced, nextFlushAt, hold, sendFailed } = r.queued;
       const why = !args.now ? '' : hold ? `${holdLine(hold)}; ` : sendFailed ? 'no device took it now; ' : '';

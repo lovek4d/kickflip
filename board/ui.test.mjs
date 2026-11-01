@@ -204,7 +204,7 @@ test('every page header has a logo, a back arrow where needed, the title and dis
   assert.match(logo, /^<header class="top"><div class="brand"><a class="hub" href="\/_hub\/" aria-label="Boards"><img src="kickflip\.png" alt=""><\/a><h1>iOS &lt;Orchestrator&gt;<\/h1><\/div>/);
   assert.match(logo, /<button class="ghost spinning" id="refresh" type="button" disabled/);
   assert.match(logo, /<span class="muted" id="status">…<\/span>/);
-  assert.match(logo, /<a href="settings\.html" id="settingsLink" class="ghost icon"[^>]*aria-disabled="true" tabindex="-1">/);
+  assert.match(logo, /<a href="settings\.html" id="settingsLink" class="ghost icon"[^>]*aria-disabled="true" tabindex="-1" aria-haspopup="dialog">/);
   assert.equal(text(logo), 'iOS <Orchestrator> …');
 
   const back = ui.header({ lead: 'back', backHref: '/', backLabel: 'Back to Claude', title: 'Settings', logoSrc: '/_hub/kickflip.png', settingsHref: '/_hub/settings', time: 'now' });
@@ -220,36 +220,39 @@ test('every page header has a logo, a back arrow where needed, the title and dis
   assert.doesNotMatch(logo, /<script>/);
 });
 
-test("the Kickflip sidebar lists Hub and Settings, notifications, Pages, then Boards with New board last", () => {
+test("the Kickflip sidebar lists Hub, notifications, Pages, then Boards with New board last", () => {
   const site = (route, board, count, sub = '') => ({ route, title: route.toUpperCase(), board, count, icon: `<i data-r="${route}"></i>`, sub });
   const data = {
     sites: [site('ios', true, 2, '<b>2 need you</b>'), site('learn', false, 1), site('shop', true, 0), site('hub', true, 3)],
     hub: { tone: 'ok', word: 'Healthy', detail: '4 of 4 sites up' }, notifications: { state: 'on', text: 'On' }, polling: { text: 'Every 15 min · next 4:45pm' },
   };
   const html = ui.sidebar(data, { here: 'ios', device: 'on' });
-  assert.equal(text(html), 'Kickflip Hub Healthy 4 of 4 sites up Settings Notifications, polling and rules Pages LEARN Boards IOS 2 need you SHOP HUB New board');
+  assert.equal(text(html), 'Kickflip Hub Healthy 4 of 4 sites up Pages LEARN Boards IOS 2 need you SHOP HUB New board');
   const utility = (html) => /<section class="sb-utility"[^>]*>(.*?)<\/section>/.exec(html)[1];
-  assert.deepEqual([...utility(html).matchAll(/href="([^"]+)"/g)].map((m) => m[1]), ['/_hub/', '/_hub/settings']);
+  assert.deepEqual([...utility(html).matchAll(/href="([^"]+)"/g)].map((m) => m[1]), ['/_hub/']);
   assert.match(html, /^<header class="top"><div class="brand"><a class="hub" href="\/_hub\/" aria-label="Hide boards" title="Hide boards" data-sidebar-close=""><img src="\/_hub\/kickflip\.png" alt=""><\/a><h2>Kickflip<\/h2><\/div><div class="nav"><button type="button" class="sb-close" data-sidebar-close aria-label="Close boards"><svg [^>]*>.*?<\/svg><\/button><\/div><\/header>/);
   assert.doesNotMatch(html, /<h1|id="refresh"|settingsLink/);
   assert.match(html, /<a class="sb-row on" href="\/ios\/" aria-current="page"><i data-r="ios"><\/i>/);
   assert.match(html, /href="\/_hub\/"[^>]*>.*Hub<\/span>/);
   assert.equal(ui.othersWaiting(data, 'ios'), 4);
   assert.equal(ui.othersWaiting(data, '_hub'), 6);
+  const turnOn = utility(ui.sidebar(data, { device: 'off' }));
+  assert.match(text(turnOn), /Turn on notifications Off on this device/);
+  assert.match(turnOn, /href="\/_hub\/#notifications"/);
+  assert.doesNotMatch(turnOn, />Settings</);
   for (const [device, notifications, status, urgent] of [
-    ['off', data.notifications, 'Off on this device', true],
-    ['blocked', data.notifications, 'Blocked on this device', true],
-    ['on', { state: 'off', text: 'Off' }, 'Off', true],
-    ['on', { state: 'held', text: 'Snoozed until 6pm' }, 'Snoozed until 6pm', false],
-    ['on', { state: 'held', text: 'Off on weekends' }, 'Off on weekends', false],
+    ['blocked', data.notifications, 'Notifications blocked on this device', true],
+    ['on', { state: 'off', text: 'Off' }, 'Notifications off', true],
+    ['on', { state: 'held', text: 'Snoozed until 6pm' }, 'Notifications snoozed until 6pm', false],
+    ['on', { state: 'held', text: 'Off on weekends' }, 'Notifications off on weekends', false],
   ]) {
-    const settings = utility(ui.sidebar({ ...data, notifications }, { device }));
-    assert.match(text(settings), new RegExp(`Settings ${status}`));
-    assert.equal(settings.includes('word t-needs'), urgent);
+    const hubRow = utility(ui.sidebar({ ...data, notifications }, { device }));
+    assert.match(text(hubRow), new RegExp(`^Hub Healthy 4 of 4 sites up ${status}`));
+    assert.equal(hubRow.includes('word t-needs'), urgent);
   }
   for (const here of ['_hub', '_hub/', '_hub/settings', '_hub/settings/polling']) {
     const selected = [...ui.sidebar(data, { here }).matchAll(/<a class="sb-row on" href="([^"]+)" aria-current="page"/g)].map((m) => m[1]);
-    assert.deepEqual(selected, [here.startsWith('_hub/settings') ? '/_hub/settings' : '/_hub/'], here);
+    assert.deepEqual(selected, ['/_hub/'], here);
   }
   assert.match(ui.sidebar({ sites: [] }), /data-new-board aria-haspopup="dialog"/);
 });
@@ -267,7 +270,7 @@ test('pending boards have muted non-link rows, failed starts can be dismissed, a
   assert.ok(html.indexOf('data-starting="old"') < html.indexOf('data-new-board'));
   assert.ok(html.indexOf('>Pages<') < html.indexOf('>Boards<'));
   assert.match(html, /data-new-board[\s\S]*?<\/button><\/div><\/section><\/div>/);
-  assert.deepEqual(plain(ui.switchKeys(data)).map((r) => r.href), ['/page/', '/_hub/', '/_hub/settings']);
+  assert.deepEqual(plain(ui.switchKeys(data)).map((r) => r.href), ['/page/', '/_hub/']);
 });
 
 test('pending board folders use home labels with a directory boundary and tolerate cached data without home', () => {
@@ -289,13 +292,13 @@ test("switch mode numbers the first nine boards in sidebar order, and gives ever
   const keys = (sites) => plain(ui.switchKeys({ sites })).map((k) => [k.title, k.num ?? null, k.letter ?? null]);
   assert.deepEqual(keys(live), [
     ['Backend Audit', '1', 'b'], ['Hub Orchestrator', '2', 'h'], ['iOS Orchestrator', '3', 'i'], ['Shipyard Orchestrator', '4', 's'], ['Software Pipeline', '5', 'o'],
-    ['Sync V2.1 course', null, 'y'], ['Hub', null, 'u'], ['Settings', null, 'e'],
+    ['Sync V2.1 course', null, 'y'], ['Hub', null, 'u'],
   ]);
 
   const added = [...live.slice(0, 2), site('inkwell', 'Inkwell', '2026-10-30T10:00:00Z'), ...live.slice(2)];
   assert.deepEqual(keys(added), [
     ['Backend Audit', '1', 'b'], ['Hub Orchestrator', '2', 'h'], ['Inkwell', '3', 'n'], ['iOS Orchestrator', '4', 'i'], ['Shipyard Orchestrator', '5', 's'], ['Software Pipeline', '6', 'o'],
-    ['Sync V2.1 course', null, 'y'], ['Hub', null, 'u'], ['Settings', null, 'e'],
+    ['Sync V2.1 course', null, 'y'], ['Hub', null, 'u'],
   ]);
 
   const many = [site('a0', 'Zed One'), site('a1', 'Zed Two', '2026-10-21T00:00:00Z'), ...Array.from({ length: 8 }, (_, i) => site(`a${i + 2}`, `Q${i + 2}`, '2026-10-22T00:00:00Z'))];
@@ -305,8 +308,8 @@ test("switch mode numbers the first nine boards in sidebar order, and gives ever
   const html = ui.sidebar({ sites: live }, { here: 'ios-orchestrator', device: 'off', switching: true });
   assert.match(html, /href="\/ios-orchestrator\/"[^>]*><span class="icon"[^>]*><svg><\/svg><span class="ks-key">3<\/span><\/span><span class="sb-text"><span class="sb-title"><span class="ks-u">i<\/span>OS Orchestrator</);
   assert.match(html, /href="\/learn\/"[^>]*><span class="icon"[^>]*><svg><\/svg><span class="ks-key">y<\/span><\/span><span class="sb-text"><span class="sb-title">S<span class="ks-u">y<\/span>nc V2\.1 course</);
-  assert.match(html, /<span class="sb-title">S<span class="ks-u">e<\/span>ttings</);
-  assert.match(text(html), /^Kickflip u H u b e S e ttings Off on this device Turn on notifications Off on this device Pages /);
+  assert.doesNotMatch(html, /href="\/_hub\/settings"/);
+  assert.match(text(html), /^Kickflip u H u b Turn on notifications Off on this device Pages /);
   assert.match(html, /class="ks-hint"/);
   assert.doesNotMatch(ui.sidebar({ sites: live }, { here: 'ios-orchestrator' }), /ks-/);
 });
@@ -356,8 +359,8 @@ test("the app's router reads every hub URL as a view and writes each view back a
     ['/orch/questions.html#q-1', { kind: 'questions', route: 'orch', id: 'q-1' }],
     ['/orch/notes.html?item=w%2FA1', { kind: 'notes', route: 'orch', item: 'w/A1' }],
     ['/_hub/', { kind: 'hub' }],
-    ['/_hub/settings', { kind: 'hub-settings', hash: '' }],
-    ['/_hub/settings#rules', { kind: 'hub-settings', hash: '#rules' }],
+    ['/_hub/settings', { kind: 'hub', hash: '#notifications' }],
+    ['/_hub/settings#rules', { kind: 'hub', hash: '#rules' }],
     ['/_hub/settings/polling', { kind: 'polling', w: null }],
     ['/_hub/settings/polling?w=09%3A00', { kind: 'polling', w: '09:00' }],
     ['/orch/prototype-sidebar.html?q=q1&from=push', { kind: 'frame', route: 'orch', url: '/orch/prototype-sidebar.html?q=q1&from=push' }],
@@ -367,11 +370,14 @@ test("the app's router reads every hub URL as a view and writes each view back a
   ];
   for (const [url, view] of table) {
     assert.deepEqual(read(url), view, url);
-    assert.equal(urlOf(view), url, url);
+    assert.equal(urlOf(view), url === '/_hub/settings' ? '/_hub/#notifications' : url.replace('/_hub/settings#', '/_hub/#'), url);
   }
   assert.deepEqual(read('/orch/plan.html?item=w%2FA1'), { kind: 'notes', route: 'orch', item: 'w/A1' });
   assert.deepEqual(read('/orch/questions.html?from=push#q-1'), { kind: 'questions', route: 'orch', id: 'q-1' });
   assert.deepEqual(read('/orch/notes.html?item=w%2FA1&from=push'), { kind: 'notes', route: 'orch', item: 'w/A1' });
+  assert.deepEqual(read('/_hub/settings?from=push#notifications'), { kind: 'hub', hash: '#notifications' });
+  assert.deepEqual(read('/_hub/settings#closed'), { kind: 'hub', hash: '#closed' });
+  assert.deepEqual(read('/_hub/#rules'), { kind: 'hub', hash: '#rules' });
   assert.equal(viewOf('https://elsewhere.example/orch/', { boards: new Set(['orch']), base }), null);
   for (const url of ['/orch/uploads/1-shot.png', '/orch/api/board', '/learn', '/_hub/kickflip.png', '/sw.js']) assert.equal(read(url), null, url);
   assert.deepEqual(table.filter(([, view]) => mounted(view)).map(([url]) => url),

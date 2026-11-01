@@ -585,7 +585,7 @@ export async function removeRuleFrom(site, id, { hub = false }) {
   return changeRules(site, hub, (list) => removeRule(list, id));
 }
 
-// The board Settings page's save (server.mjs POST /api/rules). → {file, rules, changes}
+// Board Settings' save (server.mjs POST /api/rules). → {file, rules, changes}
 export const saveBoardRules = (site, incoming, base) => writeBoardRules(site, (list) => applyRules(list, incoming, base));
 
 export async function addTopic(site, { id, title, summary }) {

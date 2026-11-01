@@ -16,3 +16,5 @@ Considered:
 - each prototype page's `backHref` pointing at its question, which every existing page would need edited and which leaves history as it came;
 - telling a card's Waiting on you from the board's URL, which stays plain when a card is opened by a tap, rather than from where the link was tapped;
 - a pick stacking the next question on top, so back stepped through every question picked.
+
+Board Settings is a modal over its board ([0074](0074-hub-settings-expand-in-place-and-board-settings-open-in-a-modal.md)), outside the page tree. Opening it replaces the current URL, and closing replaces it with the underlying board URL, preserving its open card; neither adds a history entry. Browser back continues to the preceding page. Hub settings expand within Hub, so Hub’s existing back behaviour stays.

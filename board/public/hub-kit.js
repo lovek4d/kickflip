@@ -13,8 +13,8 @@
     let at = 0;
     let loaded = false;
     async function load() {
-      refresh.disabled = true;
-      refresh.classList.add('spinning');
+      if (refresh) refresh.disabled = true;
+      refresh?.classList.add('spinning');
       try {
         const r = await fetch(url(), { cache: 'no-store', headers: { accept: 'application/json' } });
         if (!r.ok) throw new Error(String(r.status));
@@ -22,22 +22,22 @@
         if (!B.alive()) return;
         at = Date.now();
         paint(data);
-        status.textContent = 'now';
+        if (status) status.textContent = 'now';
       } catch {
         if (!B.alive()) return;
         if (!loaded) paint(null);
-        status.innerHTML = BoardUI.statusLine(undefined, { link: 'offline' });
+        if (status) status.innerHTML = BoardUI.statusLine(undefined, { link: 'offline' });
       }
       loaded = true;
-      refresh.disabled = false;
-      refresh.classList.remove('spinning');
+      if (refresh) refresh.disabled = false;
+      refresh?.classList.remove('spinning');
       const gear = B.$('#settingsLink');
-      gear.removeAttribute('aria-disabled');
-      gear.removeAttribute('tabindex');
+      gear?.removeAttribute('aria-disabled');
+      gear?.removeAttribute('tabindex');
     }
     B.on(refresh, 'click', load);
     const tick = () => {
-      if (document.hidden || busy()) { if (at) status.textContent = age(Date.now() - at); return; }
+      if (document.hidden || busy()) { if (at && status) status.textContent = age(Date.now() - at); return; }
       load();
     };
     B.every(every, tick);
@@ -49,14 +49,15 @@
   const FAILED = 'Could not save. Is the Mac awake?';
   // Every form in the view that posts to /_hub/ posts for JSON in place of loading a page: answer(body, action) takes
   // the hub's answer, fail(message) a refusal. A checkbox marked data-submit saves on change, and a time input marked
-  // data-autosave once its picker closes, so turning an iOS wheel doesn't save each value it passes.
+  // data-autosave once its picker closes, so turning an iOS wheel doesn't save each value it passes. accepts(action)
+  // limits it to some of those forms, since the Hub page and its hub settings each wire their own over one root.
   // → {busy()}, true while a post is out
-  function forms(B, { answer, fail }) {
+  function forms(B, { answer, fail, accepts = () => true }) {
     let sending = false;
     B.on(B.root, 'submit', async (e) => {
       const form = e.target;
       const action = form.getAttribute?.('action') || '';
-      if (!action.startsWith('/_hub/')) return;
+      if (!action.startsWith('/_hub/') || !accepts(action)) return;
       e.preventDefault();
       if (sending) return;
       const body = new URLSearchParams(new FormData(form));
@@ -74,10 +75,14 @@
     const save = (el) => { if (el.value && el.value !== el.defaultValue && el.checkValidity()) el.form.requestSubmit(); };
     B.on(B.root, 'change', (e) => {
       const el = e.target;
+      if (el.form && !accepts(el.form.getAttribute('action') || '')) return;
       if (el.matches?.('input[data-submit]')) el.form.requestSubmit();
       else if (el.matches?.('input[data-autosave]') && document.activeElement !== el) save(el);
     });
-    B.on(B.root, 'focusout', (e) => { if (e.target.matches?.('input[data-autosave]')) save(e.target); });
+    B.on(B.root, 'focusout', (e) => {
+      const el = e.target;
+      if (el.matches?.('input[data-autosave]') && accepts(el.form?.getAttribute('action') || '')) save(el);
+    });
     return { busy: () => sending };
   }
 

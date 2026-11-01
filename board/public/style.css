@@ -518,3 +518,16 @@ main > * { transition: opacity .25s ease; }
   .sheet.keyboard-sheet { --sheet-limit: max(80px, calc(var(--vh, 100dvh) + var(--kb, 0px) - max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px))) - max(12px, env(safe-area-inset-top)))); }
   .confirm-sheet { padding-bottom: calc(10px + var(--app-bottom, 0px) + env(safe-area-inset-bottom)); }
 }
+
+.settings-modal { position: fixed; inset: max(12px, env(safe-area-inset-top)) 0 calc(12px + max(var(--kb, 0px), var(--app-bottom, 0px))); margin: auto; width: min(680px, calc(100% - 24px));
+  height: fit-content; max-width: none; max-height: max(120px, calc(var(--vh, 100dvh) - max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px))) - 24px - env(safe-area-inset-top)));
+  padding: 0; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); color: var(--text);
+  overflow: hidden; box-shadow: 0 20px 70px #0004; }
+.settings-modal[open] { display: flex; flex-direction: column; }
+.settings-modal::backdrop { background: #0006; touch-action: none; }
+.settings-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.settings-head h2 { margin: 0; font-size: 18px; }
+.settings-head p { margin: 4px 0 0; }
+.settings-body { overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding: 0 20px 16px; }
+.settings-body input { font-size: 16px; }
+.settings-footer { display: flex; justify-content: flex-end; padding: 12px 20px; border-top: 1px solid var(--line); }
