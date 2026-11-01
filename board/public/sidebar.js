@@ -10,6 +10,8 @@
 // row's key (ui-sidebar.js switchKeys), opening the drawer or showing a collapsed rail until it ends; the next key opens
 // that row through open(href). Escape, a click, a held modifier, typing in a field or 3 seconds with no key end it
 // with nothing opened. A key it uses is defaultPrevented, so the board's other shortcuts skip it.
+// The shortcuts sheet: h pressed twice within a second, on a device with a fine pointer that hovers, under the same
+// rules as s, shows or hides ui-sidebar.js shortcuts in a centred sheet over the dimmed page; Escape closes it.
 // mount({here, data, open}): open(href) shows a row's page, by default by loading it.
 // → {setHere(route), setData(data), checkDevice(), close(), toggle(), keydown(e), pointerdown()}, toggle doing what the
 // logo does, checkDevice reading this device's push subscription again, and keydown and pointerdown taking a framed
@@ -19,6 +21,8 @@
   // app.html reads it before the first paint, so a collapsed rail never shows for a moment.
   const COLLAPSED_KEY = 'hub:sidebarCollapsed';
   const RAIL = '(min-width: 900px)';
+  // A phone has no keys to press, so it never shows the shortcuts sheet.
+  const DESKTOP = '(hover: hover) and (pointer: fine)';
   const TWICE_MS = 1000;
   // sidebar.css .ks-bar drains over the same time.
   const IDLE_MS = 3000;
@@ -42,7 +46,7 @@
     const aside = document.getElementById('sidebar');
     const scrim = document.getElementById('sidebarScrim');
     // ui.js replaces the BoardUI global when it loads after this, so the renderers are held here.
-    const { sidebar, othersWaiting, switchKeys } = globalThis.BoardUI || {};
+    const { sidebar, othersWaiting, switchKeys, shortcuts } = globalThis.BoardUI || {};
     const none = { setHere() {}, setData() {}, checkDevice() {}, close() {}, toggle() {}, keydown() {}, pointerdown() {} };
     if (!aside || !sidebar) return none;
     if (!data) { try { data = JSON.parse(read(DATA_KEY) || 'null'); } catch { data = null; } }
@@ -171,9 +175,37 @@
     // A framed page's event comes from another window, so its target is checked by duck type, not instanceof.
     const inField = (t) => Boolean(t?.closest?.(FIELD));
     const dialogOpen = (t) => Boolean(document.querySelector('dialog[open]') || t?.ownerDocument?.querySelector?.('dialog[open]'));
+
+    // help: {el, previous} while the shortcuts sheet shows, previous holding the focus to give back.
+    let help = null;
+    let lastH = -Infinity;
+    function closeHelp() {
+      if (!help) return;
+      const { el, previous } = help;
+      help = null;
+      if (el.open) el.close();
+      el.remove();
+      if (previous?.isConnected) previous.focus({ preventScroll: true });
+    }
+    function toggleHelp() {
+      if (help) { closeHelp(); return; }
+      const el = document.createElement('dialog');
+      el.setAttribute('id', 'shortcutsSheet');
+      el.setAttribute('class', 'sheet shortcuts-sheet');
+      el.setAttribute('aria-labelledby', 'shortcutsTitle');
+      el.innerHTML = shortcuts();
+      el.addEventListener('cancel', (e) => { e.preventDefault(); closeHelp(); });
+      el.addEventListener('close', closeHelp);
+      el.addEventListener('click', (e) => { if (e.target === el) closeHelp(); });
+      help = { el, previous: document.activeElement };
+      document.body.appendChild(el);
+      el.showModal();
+    }
+
     function keydown(e) {
       if (MODIFIERS.has(e.key) || e.isComposing || e.defaultPrevented) return;
       const mods = e.metaKey || e.ctrlKey || e.altKey || e.shiftKey;
+      if (help && e.key === 'Escape') { e.preventDefault(); closeHelp(); return; }
       if (switching) {
         if (e.key === 'Escape') { e.preventDefault(); endSwitch(); return; }
         if (mods || inField(e.target)) { endSwitch(); return; }
@@ -184,10 +216,19 @@
         if (row) openRow(row.href);
         return;
       }
-      if (e.key !== 's' && e.key !== 'S') { lastS = -Infinity; return; }
-      if (e.repeat) return;
-      if (mods || inField(e.target) || dialogOpen(e.target) || !data) { lastS = -Infinity; return; }
+      const key = e.key.toLowerCase();
+      if (key !== 's') lastS = -Infinity;
+      if (key !== 'h') lastH = -Infinity;
+      if ((key !== 's' && key !== 'h') || e.repeat) return;
+      if (mods || inField(e.target)) { lastS = lastH = -Infinity; return; }
       const now = Date.now();
+      if (key === 'h') {
+        if (!matchMedia(DESKTOP).matches || (!help && dialogOpen(e.target))) { lastH = -Infinity; return; }
+        if (now - lastH <= TWICE_MS) { lastH = -Infinity; e.preventDefault(); toggleHelp(); return; }
+        lastH = now;
+        return;
+      }
+      if (dialogOpen(e.target) || !data) { lastS = -Infinity; return; }
       if (now - lastS <= TWICE_MS) { e.preventDefault(); startSwitch(); return; }
       lastS = now;
     }

@@ -1375,6 +1375,58 @@ test("s s shows each sidebar row's key and the next key opens that row through t
   board.unmount();
 });
 
+test("h h on a desktop shows the shortcuts sheet listing each shortcut's keys, and h h again or Escape closes it; it stays shut from a text field, with a modifier, between other keys, with another dialog open, or on a phone", () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const { win } = page;
+  const { Element } = miniDom(page.Target, win.document);
+  win.Element = Element;
+  const { body } = win.document;
+  const aside = body.appendChild(new Element('aside'));
+  const scrim = body.appendChild(new Element('div'));
+  Object.assign(win.document, { getElementById: (id) => ({ sidebar: aside, sidebarScrim: scrim })[id] || null,
+    querySelector: (sel) => body.querySelector(sel), querySelectorAll: (sel) => body.querySelectorAll(sel) });
+  const desktop = { matches: true };
+  win.matchMedia = (q) => (q === '(hover: hover) and (pointer: fine)' ? desktop : Object.assign(new page.Target(), { matches: false }));
+  win.Sidebar.mount({ here: 'shop', data: { sites: [{ route: 'shop', title: 'Shop', board: true, icon: '' }] } });
+
+  const field = body.appendChild(new Element('textarea'));
+  const press = (key, ev = {}) => page.fire(win.document, 'keydown', { key, target: body, ...ev });
+  const twice = (ev) => { press('h', ev); return press('h', ev); };
+  const sheet = () => body.querySelector('#shortcutsSheet');
+
+  assert.equal(twice().defaultPrevented, true);
+  assert.equal(sheet().open, true);
+  assert.deepEqual([...sheet().querySelectorAll('.sc-group')].map((g) => [g.querySelector('h3').textContent,
+    [...g.querySelectorAll('.sc-row')].map((r) => [r.querySelector('.sc-what').firstChild.textContent, [...r.querySelectorAll('kbd')].map((k) => k.textContent).join(' ')])]), [
+    ['Anywhere', [['Switch boards and pages', 's s'], ['This help', 'h h'], ['Close', 'Esc']]],
+    ['On a board', [['New card', 'n n']]],
+    ['Writing', [['Send', '⌘ ↵']]],
+  ]);
+  assert.equal(press('Escape').defaultPrevented, true);
+  assert.equal(sheet(), null);
+  twice();
+  assert.ok(sheet());
+  twice();
+  assert.equal(sheet(), null);
+
+  twice({ target: field });
+  twice({ metaKey: true });
+  press('H', { shiftKey: true });
+  press('H', { shiftKey: true });
+  press('h');
+  press('s');
+  press('h');
+  assert.equal(sheet(), null);
+  const other = body.appendChild(new Element('dialog'));
+  other.open = true;
+  twice();
+  assert.equal(sheet(), null);
+  other.remove();
+  desktop.matches = false;
+  twice();
+  assert.equal(sheet(), null);
+});
+
 function boardOnDom({ open = [], seen = {}, board, threads, confirm = false, realDialogs = false }) {
   const page = fakePage(memoryStorage([['site:board-a:openItems', JSON.stringify(open)], ['site:board-a:seenThreads', JSON.stringify(seen)]]).localStorage);
   const { Element } = miniDom(page.Target, page.win.document);

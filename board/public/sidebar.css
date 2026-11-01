@@ -158,3 +158,21 @@
 .sidebar .sb-usage .u-one { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .sidebar .sb-usage .u-line { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sidebar .sb-usage .u-name { color: var(--text); font-weight: 600; }
+
+/* The shortcuts sheet (sidebar.js, h h): centred near the top of the window over the dimmed page, never on a phone. */
+.sheet.shortcuts-sheet { inset: 12vh 0 auto; max-width: 440px; max-height: 76vh; padding: 0; border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.18); }
+.sheet.shortcuts-sheet[open] { animation: fade-in .16s ease-out; }
+.shortcuts-sheet .sheet-body { padding: 14px 18px; }
+.shortcuts-sheet .sheet-head h2 { font-size: 16px; }
+.shortcuts-sheet .sc-group { margin-top: 12px; }
+.shortcuts-sheet .sc-group h3 { margin: 0 0 4px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.shortcuts-sheet .sc-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px; padding: 3px 0; }
+.shortcuts-sheet .sc-what { min-width: 0; }
+.shortcuts-sheet .sc-sub { display: block; font-size: 12px; color: var(--muted); }
+.shortcuts-sheet .sc-keys { flex: none; display: inline-flex; align-items: center; gap: 4px; }
+.shortcuts-sheet .sc-key { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; padding: 0 6px; box-sizing: border-box;
+  border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; background: var(--chip); color: var(--text);
+  font: 600 12.5px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+.shortcuts-sheet .sc-foot { margin: 14px 0 0; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .sheet.shortcuts-sheet[open] { animation: none; } }

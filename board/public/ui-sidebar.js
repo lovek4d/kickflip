@@ -99,6 +99,26 @@
     return repo === home ? '~' : repo.startsWith(`${home}/`) ? `~${repo.slice(home.length)}` : repo;
   }
 
+  // The shortcuts sheet's rows (sidebar.js opens it on h h), grouped by where each key works. A new shortcut is added
+  // here; the code that answers its key lives with the view it acts on.
+  const SHORTCUTS = [
+    { group: 'Anywhere', rows: [
+      { keys: ['s', 's'], what: 'Switch boards and pages', sub: 'Then the key on a row' },
+      { keys: ['h', 'h'], what: 'This help' },
+      { keys: ['Esc'], what: 'Close', sub: 'The help, a sheet, the drawer or switch mode' },
+    ] },
+    { group: 'On a board', rows: [{ keys: ['n', 'n'], what: 'New card' }] },
+    { group: 'Writing', rows: [{ keys: ['⌘', '↵'], what: 'Send', sub: 'Ctrl ↵ off a Mac' }] },
+  ];
+  // The shortcuts sheet's content, inside its <dialog aria-labelledby="shortcutsTitle">.
+  function shortcuts() {
+    const keycaps = (keys) => `<span class="sc-keys">${keys.map((k) => `<kbd class="sc-key">${esc(k)}</kbd>`).join('')}</span>`;
+    const rowHtml = (r) => `<div class="sc-row"><span class="sc-what">${esc(r.what)}${r.sub ? `<span class="sc-sub">${esc(r.sub)}</span>` : ''}</span>${keycaps(r.keys)}</div>`;
+    return `<div class="sheet-body"><div class="sheet-head"><h2 id="shortcutsTitle">Keyboard shortcuts</h2></div>`
+      + SHORTCUTS.map((g) => `<section class="sc-group" aria-label="${esc(g.group)}"><h3>${esc(g.group)}</h3>${g.rows.map(rowHtml).join('')}</section>`).join('')
+      + '<p class="sc-foot">Press h twice anywhere to open this. Esc to close.</p></div>';
+  }
+
   // data: /_hub/sidebar.json. here: a site's route or a hub page's path without its leading slash. device: this device's push
   // subscription as sidebar.js finds it, 'on' | 'off' | 'blocked' | 'install' (iOS outside the Home Screen app), or
   // null while unknown or unsupported. switching: switch mode shows, each row with its key and the hint at the foot.
@@ -141,5 +161,5 @@
       + (switching ? '<div class="ks-hint" role="status"><b>Switch:</b> press a key · Esc to cancel<i class="ks-bar"></i></div>' : '');
   }
 
-  Object.assign(globalThis.BoardUI ||= {}, { sidebar, othersWaiting, switchKeys, repoLabel, usageProducts, usageNames, usageClock, usageTone, usageBar, usageWords });
+  Object.assign(globalThis.BoardUI ||= {}, { sidebar, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, usageTone, usageBar, usageWords });
 })();
