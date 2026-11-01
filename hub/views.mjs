@@ -34,7 +34,8 @@ function pollingNow(st, poll, now) {
 // One site's row on the hub page: a word for the site, then each of its board links that isn't passing. links is the
 // board's boards.mjs linksOf, or undefined for a site that isn't a board.
 export function siteHealth(r, links) {
-  if (r.state !== 'up') return { tone: r.state === 'down' ? 'down' : 'wait', word: r.state === 'down' ? 'Down · restarting' : capital(r.state), lines: [] };
+  const down = { port: 'Down · not answering', files: 'Down · folder missing' }[r.serves] || 'Down · restarting';
+  if (r.state !== 'up') return { tone: r.state === 'down' ? 'down' : 'wait', word: r.state === 'down' ? down : capital(r.state), lines: [] };
   if (!links) return { tone: 'ok', word: 'Up', lines: [] };
   const off = links.filter((l) => !l.ok);
   const broken = off.filter((l) => l.state === 'broken');

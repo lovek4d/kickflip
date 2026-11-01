@@ -55,8 +55,12 @@ _Avoid_: quota, live usage
 _Avoid_: board list, wave boards and file boards (as separate code paths)
 
 **Site**:
-A route on the hub (`/<route>`) served by one owning Claude session.
+A route on the hub (`/<route>`) served by one owning Claude session, or by none for a **plain page**.
 _Avoid_: app, page (a site has several pages)
+
+**Plain page**:
+A site joined with `kickflip join <route>` and `--port` (a server its session runs, which reads Down while nothing answers) or `--dir` (files the hub serves itself), without `--session`. It has no owning session, events, watcher or Needs you badge, and shows under Pages like any site that isn't a board. `--watch --session <id>` joins a site with all of those ([0087](docs/adr/0087-a-page-joins-without-a-session.md)).
+_Avoid_: minimal site, unwatched site
 
 **Owner**:
 Love, the person the sites serve. The word for the session that serves a site is **owning session**.

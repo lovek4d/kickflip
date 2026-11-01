@@ -37,7 +37,8 @@
 //   /_hub/needs.json  {total, sites: {<route>: {count, working, summary, lanes, building} | null}}: total is the
 //                     Home Screen badge; ?fresh=1 skips the cache
 //   /<route>/...      forwarded to that site's port with the /<route> prefix
-//                     removed (X-Forwarded-Prefix carries it), unless it is a page load the shell takes
+//                     removed (X-Forwarded-Prefix carries it), unless it is a page load the shell takes; a site with a
+//                     dir and no port is a plain page whose files the hub serves itself (files.mjs)
 //   /sw.js, /manifest.webmanifest, /_hub/icon-*.png
 //                     the Home Screen app and its service worker (scope /), which shows pushes and keeps the shell
 //                     and its files to open while the Mac can't be reached; the shell's response carries
@@ -76,7 +77,9 @@
 // Routes that parse JSON require application/json; settings forms and raw uploads keep their own types.
 // /_hub/install also requires loopback and refuses Origin and forwarded headers.
 // It also runs every site: it starts each manifest entry's `cmd`, restarts it
-// when it exits, restarts it when its entry changes, and stops every one before it exits itself. On each slot of the
+// when it exits, restarts it when its entry changes, and stops every one before it exits itself. A site with a port and
+// no `cmd` runs its own server: the hub only probes it, and it reads Down while nothing answers
+// (docs/adr/0087-a-page-joins-without-a-session.md). On each slot of the
 // polling interval (schedule.mjs), and once a minute after it starts, it checks
 // GitHub (github.mjs), pushes once for each board that is deaf (boards.mjs
 // checkListening, listenState), then sends the queued pushes unless schedule.mjs heldUntil holds them;
@@ -127,6 +130,7 @@ import { hubStream } from './stream.mjs';
 import { usageReader, codexLoggedIn } from './usage.mjs';
 import { InstallError, startInstall, stopInstalls } from './installs.mjs';
 import { migrateOnStart } from '../bin/install.mjs';
+import { serveFiles } from './files.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const COLORS = path.join(HUB_DIR, '..', 'shared', 'colors.css');
@@ -175,6 +179,11 @@ const children = new Set();
 let shuttingDown = false;
 const KILL_AFTER = 5000;
 const keyOf = (s) => JSON.stringify([s.cmd, s.cwd || s.dir, s.port, s.env || {}, s.restart_at || 0]);
+const runs = (s) => Array.isArray(s?.cmd) && s.cmd.length > 0 && Boolean(s.port);
+// How a site is served: 'cmd', a server the hub runs; 'port', one it only forwards to; 'files', its dir served by the hub.
+const servesOf = (s) => (runs(s) ? 'cmd' : s?.port ? 'port' : 'files');
+// route -> whether a 'port' site answered its last probe.
+const answering = new Map();
 
 function pidFile(route) { return path.join(RUN, route + '.pid'); }
 
@@ -257,9 +266,12 @@ async function reconcile() {
   for (const route of [...procs.keys()]) {
     if (closingResponses.has(route)) continue;
     if (!routeRecord(sites, route)) { log(`${route} left the manifest; stopping it`); stop(route); procs.delete(route); }
+    else if (!runs(routeRecord(sites, route))) { log(`${route} no longer has a command; stopping it`); stop(route); procs.delete(route); }
   }
+  for (const route of [...answering.keys()]) if (servesOf(routeRecord(sites, route)) !== 'port') answering.delete(route);
+  for (const [route, site] of Object.entries(sites)) if (servesOf(site) === 'port') answering.set(route, await probe(site.port));
   for (const [route, site] of Object.entries(sites)) {
-    if (!Array.isArray(site.cmd) || !site.cmd.length || !site.port) continue;
+    if (!runs(site)) continue;
     if (first) killStale(route, site);
     const p = procs.get(route);
     if (p && p.child && p.key !== keyOf(site)) {
@@ -409,13 +421,18 @@ function changedAt(route, site) {
   return at;
 }
 
+const isFolder = (dir) => { try { return typeof dir === 'string' && fs.statSync(dir).isDirectory(); } catch { return false; } };
+
 function status() {
   const { sites } = loadManifest();
   return Object.entries(sites).sort(([a], [b]) => a.localeCompare(b)).map(([route, s]) => {
     const p = procs.get(route) || {};
-    const state = p.child ? (p.up ? 'up' : 'starting') : (p.state === 'crashed' ? 'down' : (p.state || 'starting'));
+    const serves = servesOf(s);
+    const state = serves === 'files' ? (isFolder(s.dir) ? 'up' : 'down')
+      : serves === 'port' ? (answering.has(route) ? (answering.get(route) ? 'up' : 'down') : 'starting')
+        : p.child ? (p.up ? 'up' : 'starting') : (p.state === 'crashed' ? 'down' : (p.state || 'starting'));
     return {
-      route, title: s.title || route, description: s.description || '', icon: s.icon || null, color: s.color || null, port: s.port, state,
+      route, title: s.title || route, description: s.description || '', icon: s.icon || null, color: s.color || null, port: s.port ?? null, serves, state,
       exitCode: p.exitCode ?? null, owner: s.owner || null, changedAt: changedAt(route, s) || null, created: s.created || null,
       log: path.join(LOGS, route + '.log'),
     };
@@ -437,9 +454,9 @@ async function fetchNeeds(port) {
     return readNeeds(await r.json());
   } catch { return null; }
 }
-// fresh: true refetches every site's answer, a Set of routes only those.
+// fresh: true refetches every site's answer, a Set of routes only those. A site with no owning session is never asked.
 async function waitingCounts(rows, { fresh = false } = {}) {
-  const up = rows.filter((r) => r.state === 'up');
+  const up = rows.filter((r) => r.state === 'up' && r.owner && r.port);
   for (const r of up) {
     const c = needsCache.get(r.route);
     if (fresh === true || fresh?.has?.(r.route) || !c || Date.now() - c.at >= NEEDS_TTL) needsCache.set(r.route, { at: Date.now(), needs: fetchNeeds(r.port) });
@@ -850,11 +867,15 @@ const row = ({ icon = '', title, sub = '' }) => `<div class="row">${icon}<span c
 function downPage(route, site) {
   const p = procs.get(route) || {};
   const exit = p.exitCode !== undefined && p.exitCode !== null ? ` (last exit: ${p.exitCode})` : '';
-  const [tone, said] = p.child ? ['wait', 'started · waiting for it to answer'] : ['down', `down · restarting${exit}`];
+  const serves = servesOf(site);
+  const [tone, said] = serves === 'port' ? ['down', `down · nothing answers on port ${site.port}`]
+    : serves === 'files' ? ['down', 'down · its folder is missing']
+      : p.child ? ['wait', 'started · waiting for it to answer'] : ['down', `down · restarting${exit}`];
+  const lede = serves === 'cmd' ? 'The hub runs every site and restarts one that stops.' : serves === 'port' ? 'Its session runs this server, so it comes back when that session starts it again.' : 'The hub serves this page from a folder that is no longer there.';
   return `${head(`${site.title || route} is down`, '<meta http-equiv="refresh" content="5">')}
 <a class="back" href="/_hub/">‹ Hub</a>
 <h1>${esc(site.title || route)} isn't answering</h1>
-<p class="lede">The hub runs every site and restarts one that stops.</p>
+<p class="lede">${esc(lede)}</p>
 <h2 class="label">Site</h2>
 <div class="group">${row({ icon: siteIcon(route, site), title: esc(site.title || route), sub: `<span class="st ${tone}">${esc(said)}</span>` })}</div>
 <p class="note">This page retries every 5 seconds.</p>
@@ -903,11 +924,18 @@ const server = http.createServer((req, res) => {
 
   const prefix = '/' + route;
   const rest = req.url.slice(prefix.length) || '/';
+  // The same URL is the shell for a page load and the page itself for its frame, so neither may answer the other.
+  const vary = pageOf({ pathname: url.pathname, dest: 'document', sites }) === 'shell';
+  if (servesOf(site) === 'files') {
+    if (!isFolder(site.dir)) { res.writeHead(502, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); res.end(downPage(route, site)); return; }
+    serveFiles(req, res, { dir: site.dir, rest, prefix, headers: vary ? { vary: 'sec-fetch-dest' } : {} })
+      .catch((e) => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
+    return;
+  }
   const headers = { ...req.headers, 'x-forwarded-prefix': prefix, 'x-forwarded-host': req.headers['x-forwarded-host'] || req.headers.host, 'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'https' };
   const up = http.request({ host: '127.0.0.1', port: site.port, method: req.method, path: rest, headers }, (r) => {
     const h = { ...r.headers };
-    // The same URL is the shell for a page load and the page itself for its frame, so neither may answer the other.
-    if (pageOf({ pathname: url.pathname, dest: 'document', sites }) === 'shell') h.vary = [h.vary, 'sec-fetch-dest'].filter(Boolean).join(', ');
+    if (vary) h.vary = [h.vary, 'sec-fetch-dest'].filter(Boolean).join(', ');
     if (typeof h.location === 'string' && h.location.startsWith('/') && !h.location.startsWith('//') && !h.location.startsWith(prefix + '/') && h.location !== prefix) h.location = prefix + h.location;
     res.writeHead(r.statusCode, h);
     r.pipe(res);
@@ -928,7 +956,7 @@ const server = http.createServer((req, res) => {
 server.on('upgrade', (req, socket, head) => {
   const route = requestURL(req).pathname.split('/')[1];
   const site = routeRecord(loadManifest().sites, route);
-  if (!site) { socket.destroy(); return; }
+  if (!site?.port) { socket.destroy(); return; }
   const rest = req.url.slice(route.length + 1) || '/';
   const up = net.connect(site.port, '127.0.0.1', () => {
     const lines = [`${req.method} ${rest} HTTP/${req.httpVersion}`];

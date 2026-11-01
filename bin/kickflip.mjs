@@ -5,10 +5,20 @@
 //               fixable (by --fix), yours (with the command to run), optional or note. Changes nothing.
 //               --fix runs install's steps, then reports again. --json prints {items:[{group,item,state,detail,fix}]}.
 //               Exit 1 when anything is fixable or yours
-//   kickflip join <route> --session <id> [--label <name>] [--title <t>] [--description <d>]
-//               [--dir <path>] [--cmd '<json array>'] [--port <n>] [--watch <file,file>]
+//   kickflip join <route> (--port <n> | --dir <folder> [--cmd '<json array>' [--port <n>]])
+//               [--title <t>] [--description <d>] [--icon <key>] [--color <css hex>]
+//               a plain page: no session, owner, watcher or needs (docs/adr/0087-a-page-joins-without-a-session.md).
+//               --port forwards /<route>/ to a server the session already runs, which reads Down while it doesn't
+//               answer; --dir alone has the hub serve the folder's files; --cmd has the hub run that command in --dir
+//               (default the cwd) on --port or a free one. Prints {route, url, serves, port|dir, answering?, hub}.
+//               A rejoin changes how the page is served only when one of those flags is given. Exit 3 when a
+//               session owns the route
+//   kickflip join <route> --session <id> [--watch [<file,file>]] [--label <name>] [--title <t>] [--description <d>]
+//               [--dir <path>] [--cmd '<json array>'] [--port <n>]
 //               [--filter <regex>] [--template board [--items <waves|file>]] [--force]
 //               [--icon <key>] [--color <css hex>] [--repo <dir>] [--model <m>] [--hub | --no-hub]
+//               a site with an owning session: events, the watcher, Needs you. --watch is optional with --session;
+//               with files it watches those (relative to the dir) in place of data/events.jsonl
 //               --hub makes this board the hub board, as `set --hub` does; a join without either keeps the flag
 //               --template board runs the shared board (../board/server.mjs) from the site dir,
 //               writing its board.json; --items is "waves" (default) or a wave.json-format file.
@@ -53,7 +63,8 @@
 //               changes an existing site's icon or color without joining; '' clears one. --hub makes the board the
 //               hub board, whose session `hub` opens (`hub: true` in its entry), clearing the flag from any other
 //               site; --no-hub clears it. Exit 2 for --hub on a site that isn't a board
-//   kickflip leave <route> --session <id> [--force]
+//   kickflip leave <route> [--session <id>] [--force]
+//               removes the entry and keeps its files; --session (or --force) only for a route a session owns
 //   kickflip restart <route>
 //   kickflip logs <route> [--lines <n>]
 //   kickflip install [--dry-run] | uninstall
@@ -126,6 +137,7 @@ for (let i = 0; i < rest.length; i++) {
   if (a.startsWith('--')) {
     const k = a.slice(2);
     if (k === 'fix' || k === 'force' || k === 'json' || k === 'urgent' || k === 'now' || k === 'keep-queue' || k === 'hub' || k === 'no-hub' || k === 'dry-run') args[k] = true;
+    else if (k === 'watch' && (i + 1 >= rest.length || rest[i + 1].startsWith('--'))) args[k] = true;
     else args[k] = rest[++i];
   } else args._.push(a);
 }
@@ -232,6 +244,61 @@ async function hubStatus() {
   } catch { return null; }
 }
 
+const isFolder = (dir) => { try { return fs.statSync(dir).isDirectory(); } catch { return false; } };
+
+// A plain page (docs/adr/0087-a-page-joins-without-a-session.md): the entry has no owner, watch or filter, so no session
+// is woken, nothing is watched and the hub never asks it for needs.
+async function joinPage(route) {
+  checkLook();
+  const port = args.port === undefined ? undefined : Number(args.port);
+  if (port !== undefined && !(Number.isInteger(port) && port > 0 && port < 65536)) fail('--port takes a port number', 2);
+  if (port === HUB_PORT) fail(`--port ${port} is the hub's own port`, 2);
+  let cmd;
+  if (args.cmd !== undefined) {
+    try { cmd = JSON.parse(args.cmd); } catch { cmd = null; }
+    if (!Array.isArray(cmd) || !cmd.length || !cmd.every((a) => typeof a === 'string')) fail('--cmd takes a JSON array of strings, such as \'["/abs/node","/abs/server.mjs"]\'', 2);
+  }
+  const dir = args.dir === undefined ? undefined : path.resolve(args.dir);
+  if (dir !== undefined && !cmd && port === undefined && !isFolder(dir)) fail(`--dir ${dir} is not a folder`, 2);
+  const result = await withLock(async () => {
+    const m = readManifest();
+    if (routeRecord(m.closed, route)) fail('That board is closed; use kickflip reopen ' + route, 2);
+    if (routeRecord(m.starting, route)) fail(`/${route} is a board that is starting; pick another route`, 2);
+    const existing = routeRecord(m.sites, route);
+    if (existing?.owner?.session) {
+      out({ error: 'owned', route, owner: existing.owner, hint: 'a session owns this route: pick another route, or that session leaves it first' });
+      throw new Exit('', 3);
+    }
+    if (!existing && port === undefined && dir === undefined && !cmd) fail('join needs --port <n> (a server this session runs) or --dir <folder> (files the hub serves), or --session <id> for a watched site', 2);
+    const now = new Date().toISOString();
+    const site = existing ? { ...existing } : { created: now };
+    delete site.watch;
+    delete site.filter;
+    if (port !== undefined || dir !== undefined || cmd) {
+      const served = cmd ? { cmd, dir: dir || existing?.dir || process.cwd(), port: port ?? (existing?.cmd ? existing.port : undefined) ?? await freePort(m) }
+        : port !== undefined ? { port, ...(dir ? { dir } : {}) } : { dir };
+      for (const k of ['cmd', 'dir', 'port', 'cwd', 'env']) delete site[k];
+      Object.assign(site, served);
+    }
+    if (args.title) site.title = args.title;
+    if (args.description) site.description = args.description;
+    applyLook(site);
+    site.title ||= route;
+    site.updated = now;
+    m.sites = { ...m.sites, [route]: site };
+    await writeManifest(m);
+    return site;
+  });
+  const serves = result.cmd ? 'cmd' : result.port ? 'port' : 'files';
+  const hub = await hubStatus();
+  out({
+    route, url: siteUrl(route), serves,
+    ...(result.port ? { port: result.port } : {}), ...(result.dir ? { dir: result.dir } : {}),
+    ...(serves === 'port' ? { answering: await connects(result.port) } : {}),
+    hub: hub ? 'running' : 'NOT running: run `kickflip doctor --fix`',
+  });
+}
+
 const commands = {
   async doctor() {
     if (args['dry-run'] && !args.fix) fail('--dry-run needs --fix', 2);
@@ -242,7 +309,11 @@ const commands = {
   async join() {
     const route = args._[0];
     if (!validRoute(route)) fail('join needs a route: lowercase letters, digits and dashes', 2);
-    if (!args.session) fail('join needs --session <id> (this session\'s id)', 2);
+    if (!args.session) {
+      const watched = ['watch', 'template', 'filter', 'label', 'model', 'repo', 'hub', 'force'].find((k) => args[k] !== undefined);
+      if (watched) fail(`--${watched} needs --session <id> (this session's id)`, 2);
+      return joinPage(route);
+    }
     if (args.template && args.template !== 'board') fail('--template takes "board"', 2);
     checkLook();
     checkHub();
@@ -287,7 +358,7 @@ const commands = {
       }
       if (args.title) site.title = args.title;
       if (args.description) site.description = args.description;
-      if (args.watch) site.watch = args.watch.split(',').map((s) => s.trim()).filter(Boolean);
+      if (typeof args.watch === 'string') site.watch = args.watch.split(',').map((s) => s.trim()).filter(Boolean);
       if (args.filter !== undefined) site.filter = args.filter || undefined;
       applyLook(site);
       applyHub(m, route, site);
@@ -343,11 +414,11 @@ const commands = {
   async leave() {
     const route = args._[0];
     if (!route) fail('leave needs a route', 2);
-    if (!args.session && !args.force) fail('leave needs --session <id>, or --force', 2);
     await withLock(async () => {
       const m = readManifest();
       const s = routeRecord(m.sites, route);
       if (!s) fail('no site at /' + route);
+      if (s.owner?.session && !args.session && !args.force) fail('a session owns /' + route + '; leave needs --session <id>, or --force', 2);
       if (s.owner?.session && s.owner.session !== args.session && !args.force) {
         out({ error: 'owned', route, owner: s.owner }); throw new Exit('', 3);
       }

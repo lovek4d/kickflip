@@ -91,9 +91,12 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   }
   if (!sites.length) add('sites', 'ok', 'none');
   for (const site of sites) {
-    const detail = `${site.state}  port ${site.port}  owner ${site.owner?.label || site.owner?.session || '-'}  ${site.title || ''}`.trimEnd();
+    const where = site.port ? `port ${site.port}` : `files ${site.dir}`;
+    const detail = `${site.state}  ${where}  owner ${site.owner?.label || site.owner?.session || '-'}  ${site.title || ''}`.trimEnd();
     if (site.state === 'up') add('/' + site.route, 'ok', detail);
     else if (!hub) add('/' + site.route, 'fixable', detail, FIX);
+    else if (site.serves === 'port') add('/' + site.route, 'note', `${detail}; its session runs this server, not the hub`);
+    else if (site.serves === 'files') add('/' + site.route, 'note', `${detail}; its folder is missing`);
     else add('/' + site.route, 'note', `${detail}; the hub restarts it, see kickflip logs ${site.route}`);
   }
   return items;
