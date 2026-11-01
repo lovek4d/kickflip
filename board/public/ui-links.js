@@ -3,8 +3,6 @@
 // the ui-*.js files that render text.
 (function () {
   const { esc, record } = globalThis.BoardUI;
-  // domain.mjs buildBoard gives a wave without a repo this one.
-  const DEFAULT_REPO = 'acme/app';
   // The Linear id shape store.mjs accepts for a follow-up, which an internal ref shares.
   const LINEAR_ID = /^([A-Z][A-Z0-9]*)-\d+$/;
   const linearUrl = (id) => `https://linear.app/acme/issue/${id}`;
@@ -12,8 +10,8 @@
 
   // What a renderer needs to link text shown on item `key` (null for none): each ref to its card's key, the Linear
   // teams the board uses, that item's repo for a bare #n, and `base`, which a page other than the board sets to './'
-  // so a card link opens the board. A ref shaped like INT-<n> or PROD-<n> links from anywhere; a wave's own short id,
-  // such as B1, links only from that wave's cards, since a plan for another wave reuses those names.
+  // so a card link opens the board. A ref shaped like a Linear id, such as INT-<n>, links from anywhere; a wave's own
+  // short id, such as B1, links only from that wave's cards, since a plan for another wave reuses those names.
   function linkContext(items = [], key = null, { base = '' } = {}) {
     const wave = key && !key.startsWith('ask:') ? key.slice(0, key.indexOf('/')) : null;
     const byRef = new Map();
@@ -26,8 +24,8 @@
       const pick = list.length === 1 ? list[0] : list.find((i) => i.wave === wave);
       if (pick) refs[ref] = pick.key;
     }
-    const teams = ['PROD'];
-    const repos = Object.assign(Object.create(null), { [DEFAULT_REPO.split('/')[1]]: DEFAULT_REPO });
+    const teams = [];
+    const repos = Object.create(null);
     for (const i of items) {
       if (i.repo) repos[i.repo.split('/')[1]] = i.repo;
       if (i.internal) continue;

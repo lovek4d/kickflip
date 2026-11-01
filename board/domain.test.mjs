@@ -658,14 +658,14 @@ test("an internal card's ref reads INT-<n> with no repo, and each card lists whe
     fromWaves: false, owner, threads, events,
     waves: [
       { slug: 'site', wave: { internal: true, items: [{ id: 'S3', title: 'Three' }, { id: 'INT-14', title: 'Fourteen' }] } },
-      { slug: 'w', wave: { items: [{ id: 'B5', title: 'Five' }] } },
+      { slug: 'w', wave: { items: [{ id: 'B5', title: 'Five', pr: 5 }] } },
     ],
   });
-  const byKey = Object.fromEntries(b.items.map((i) => [i.key, [i.ref, i.othersAt, i.repo]]));
+  const byKey = Object.fromEntries(b.items.map((i) => [i.key, [i.ref, i.othersAt, i.repo, i.pr]]));
   assert.deepEqual(byKey, {
-    'site/S3': ['INT-3', ['2026-10-23T09:00:00Z', '2026-10-23T09:10:00Z', '2026-10-23T09:30:00Z'], null],
-    'site/INT-14': ['INT-14', [], null],
-    'w/B5': ['B5', [], 'acme/app'],
+    'site/S3': ['INT-3', ['2026-10-23T09:00:00Z', '2026-10-23T09:10:00Z', '2026-10-23T09:30:00Z'], null, null],
+    'site/INT-14': ['INT-14', [], null, null],
+    'w/B5': ['B5', [], null, null],
   });
   assert.deepEqual(b.needs.map((n) => n.title), ['INT-3: Three']);
   assert.equal(b.ownerTopics.find((t) => t.id === 'item:site/S3').title, 'INT-3: Three');

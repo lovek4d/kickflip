@@ -33,7 +33,6 @@ const LINK_FAULTS = path.join(WEB, 'link-faults.json');
 export const HUB_CODE = path.join(WEB, 'hub-code.json');
 const SUBS = path.join(WEB, 'push', 'subs.json');
 const TOPICS = path.join(CLAUDE, 'slack-bridge', 'topics');
-export const DEFAULT_REPO = 'acme/app';
 const FINISHED = ['merged', 'dropped'];
 const NO_SINCE = '1970-01-01T00:00:00Z';
 // bin/wait-events.mjs exits on each event and the session relaunches it, so a recent exit still counts as running.
@@ -103,11 +102,15 @@ function wavesOf(dir, cfg, kind) {
   return slugs.map((slug) => ({ slug, wave: readJSON(path.join(WAVES, slug, 'wave.json'), null) })).filter((w) => isWave(w.wave));
 }
 
-// [{slug, wave}] → each card's open PR: [{wave, id, pr, repo, since, install}], since being the item's gh_since.
+// [{slug, wave}] → each card's open PR: [{wave, id, pr, repo, since, install}], since being the item's gh_since. A card
+// whose board has no github and whose wave has no repo has no PR to poll.
 export function prsOf(waves, github) {
-  return waves.flatMap(({ slug, wave }) => wave.items.filter((it) => Number.isInteger(it?.pr) && !FINISHED.includes(it.status))
-    .map((it) => ({ wave: slug, id: it.id, pr: it.pr, repo: github || wave.repo || DEFAULT_REPO, since: it.gh_since || NO_SINCE,
-      install: Boolean(it.install?.url) })));
+  return waves.flatMap(({ slug, wave }) => {
+    const repo = github || wave.repo;
+    if (!repo) return [];
+    return wave.items.filter((it) => Number.isInteger(it?.pr) && !FINISHED.includes(it.status))
+      .map((it) => ({ wave: slug, id: it.id, pr: it.pr, repo, since: it.gh_since || NO_SINCE, install: Boolean(it.install?.url) }));
+  });
 }
 
 function boardOf(route, s) {

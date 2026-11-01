@@ -4,7 +4,7 @@ import os from 'node:os';
 import { execFile, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
-import { DEFAULT_REPO, listBoards, readManifest } from './boards.mjs';
+import { listBoards, readManifest } from './boards.mjs';
 import { installScriptError } from '../board/install-script.mjs';
 import { appendThread, recordedWorktree, startBuilder, stopBuilder } from '../board/store.mjs';
 
@@ -27,12 +27,13 @@ async function installWorktree(board, key, manifest) {
   const candidate = record?.path || wave?.items.find((it) => it.id === id)?.worktree;
   if (typeof candidate !== 'string' || !candidate || candidate.split(path.sep).includes('..')) return '';
   let repo = record?.repo;
-  if (!repo) {
+  const github = (board.github || wave?.repo || '').toLowerCase();
+  if (!repo && github) {
     const dirs = [board.owner?.repo, board.dir, ...Object.values(manifest?.sites || {}).map((s) => s.owner?.repo)];
     for (const dir of new Set(dirs.filter((d) => typeof d === 'string' && path.isAbsolute(d)))) {
       try {
         const remote = /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/.exec(await git(dir, 'remote', 'get-url', 'origin'));
-        if (remote?.[1].toLowerCase() === (board.github || wave?.repo || DEFAULT_REPO).toLowerCase()) {
+        if (remote?.[1].toLowerCase() === github) {
           repo = await git(dir, 'rev-parse', '--show-toplevel');
           break;
         }

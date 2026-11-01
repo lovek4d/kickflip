@@ -133,7 +133,7 @@ function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, threa
     merging, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, from: null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || null,
     branch: it.branch || pr?.headRefName || null,
     linear: (it.linear || []).map(linearRef),
-    pr: it.pr ? { number: it.pr, url: `https://github.com/${repo}/pull/${it.pr}`, ...(pr || {}) } : null,
+    pr: it.pr && repo ? { number: it.pr, url: `https://github.com/${repo}/pull/${it.pr}`, ...(pr || {}) } : null,
     reviewers: reviewers.map((r) => r.name), review: reviewOf(reviewers, pr, sentAt), inReviewSince,
     slack: permalink(bridgeItem?.thread_ts), threadCount: thread.length + events.length, lastTs, othersAt,
     grilling: Boolean(lastGrill && !lastGrill.reply),
@@ -378,9 +378,9 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
 // An event marked working needs its reply loaded, or it counts as still working.
 export function buildBoard(snapshot) {
   const { bridge = {}, owner = {}, topicItems = {}, events = [], threads = {}, prs = {}, working = {} } = snapshot;
-  const domain = bridge.config?.slack_domain || 'acme';
+  const domain = bridge.config?.slack_domain;
   const selfDM = bridge.config?.self_dm;
-  const permalink = (ts) => (ts && selfDM ? `https://${domain}.slack.com/archives/${selfDM}/p${ts.replace('.', '')}` : null);
+  const permalink = (ts) => (ts && selfDM && domain ? `https://${domain}.slack.com/archives/${selfDM}/p${ts.replace('.', '')}` : null);
   const now = snapshot.now ?? Date.now();
   const itemEvents = events.filter((e) => e.data?.key && ITEM_EVENTS.includes(e.kind));
   const withdrawn = new Set(events.filter((e) => e.kind === 'ask-withdrawn' && !e.data?.key).map((e) => e.data?.id));
@@ -402,7 +402,7 @@ export function buildBoard(snapshot) {
   const items = [];
   const threadStates = new Map();
   for (const { slug, wave, agents: records = {} } of snapshot.waves) {
-    const repo = snapshot.github || wave.repo || 'acme/app';
+    const repo = snapshot.github || wave.repo || null;
     waves.push({ slug, title: wave.title || slug, status: wave.status || null, internal: Boolean(wave.internal), finished: null, watched: !snapshot.fromWaves || (snapshot.watched || []).includes(slug), reviewers: (wave.reviewers || []).map((r) => r.name) });
     wave.items.forEach((it, order) => {
       const key = `${slug}/${it.id}`;
@@ -415,7 +415,7 @@ export function buildBoard(snapshot) {
       for (const m of msgs) if (m.eventId) threadStates.set(m.eventId, m.state);
       items.push(workItem({
         slug, wave, it, order, repo,
-        pr: it.pr ? routeRecord(prs, `${repo}#${it.pr}`) || null : null,
+        pr: it.pr && repo ? routeRecord(prs, `${repo}#${it.pr}`) || null : null,
         ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
         thread: lines,
         events: [...itemEvents.filter((e) => e.data.key === key || askKeys.has(e.data.key)), ...askIds.map((id) => asks.get(id))],

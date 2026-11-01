@@ -63,7 +63,7 @@ test('the registry lists every board site, over the waves or its own file, with 
   assert.deepEqual(shop.prs.map((p) => [p.wave, p.id, p.pr, p.repo]), [['shop', 'S1', 722, 'o/r'], ['shop', 'S2', 11, 'o/r']]);
   assert.deepEqual(shop.reviewers, []);
   const bare = listBoards({ sites: { bare: { dir: site('bare'), port: 1, cmd: boardCmd('bare') } } });
-  assert.deepEqual(bare.map((b) => [b.title, b.prs[0].wave, b.prs[0].repo]), [['bare', 'items', 'acme/app']]);
+  assert.deepEqual(bare.map((b) => [b.title, b.waves.map((w) => w.slug), b.prs]), [['bare', ['items'], []]]);
   assert.deepEqual(listBoards({}), []);
 });
 

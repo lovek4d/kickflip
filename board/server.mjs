@@ -332,10 +332,10 @@ async function snapshot() {
   const items = await itemSnapshot();
   const { waves, threads: threadLines } = items;
   const prs = Object.create(null);
-  await Promise.all(waves.flatMap(({ wave }) => wave.items.filter((it) => it.pr).map(async (it) => {
-    const repo = items.github || wave.repo || 'acme/app';
-    prs[`${repo}#${it.pr}`] = await prState(repo, it.pr);
-  })));
+  await Promise.all(waves.flatMap(({ wave }) => {
+    const repo = items.github || wave.repo;
+    return repo ? wave.items.filter((it) => it.pr).map(async (it) => { prs[`${repo}#${it.pr}`] = await prState(repo, it.pr); }) : [];
+  }));
   const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'item-message']);
   const working = await readWorking(here);
   const pageEvents = await Promise.all((await shownEvents()).map((e) => (needsReply.has(e.kind) || routeRecord(working, e.id) ? withReply(e) : { ...e, reply: null })));
