@@ -1,5 +1,5 @@
 {
   "name": "web-ts-hooks",
   "version": "1.0.0",
-  "description": "Closes the board builder records a stopped subagent left open (join-web-ts board/bin/builder-stop-hook.mjs)."
+  "description": "Applies the hub's Codex sharing setting on session start and prompts, and closes board builder records when a subagent stops."
 }

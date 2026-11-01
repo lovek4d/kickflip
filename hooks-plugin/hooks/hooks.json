@@ -1,5 +1,25 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$HOME/.claude/skills/join-web-ts/hooks-plugin/hooks/codex-share-auto.mjs\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$HOME/.claude/skills/join-web-ts/hooks-plugin/hooks/codex-share-auto.mjs\""
+          }
+        ]
+      }
+    ],
     "SubagentStop": [
       {
         "hooks": [

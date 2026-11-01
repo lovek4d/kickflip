@@ -53,8 +53,9 @@
 //   web-ts restart <route>
 //   web-ts logs <route> [--lines <n>]
 //   web-ts install | uninstall
-//               install links the running clone and its hooks-plugin into ~/.claude/skills, then starts the hub.
-//               Existing links to another clone and real folders elsewhere are refused; move them explicitly first
+//               install links the clone, hooks plugin and status line, configures Claude settings, then starts the hub.
+//               Conflicting skill links and real paths are refused. A dangling status-line link can be replaced.
+//               uninstall also removes kickflip's status-line link; Claude settings and skill links are kept
 //   web-ts push --kind action|prompt|fault --title <t> [--body <b>] [--url </route/path>] [--tag <tag>]
 //               [--now | --urgent]
 //               notify every device that turned on notifications on the Hub page; a tap opens --url.
@@ -96,7 +97,7 @@ import { ICON_KEYS } from '../hub/icons.mjs';
 import { liveSessions } from '../hub/live.mjs';
 import { isBoardSite, writeManifest } from '../hub/boards.mjs';
 import { routeRecord, validRoute } from '../hub/routes.mjs';
-import { installLinks, storedPath } from './install.mjs';
+import { installLinks, installClaudeSettings, uninstallStatusLine, storedPath } from './install.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 
 const SKILL = cloneRoot();
@@ -461,7 +462,8 @@ const commands = {
   async install() {
     let links;
     try { links = installLinks(); } catch (e) { fail(e.message); }
-    for (const { link, target, created } of links) out(`${created ? 'linked' : 'checked'} ${link} -> ${target}`);
+    for (const { link, target, created, replaced } of links) out(`${created || replaced ? 'linked' : 'checked'} ${link} -> ${target}`);
+    for (const note of installClaudeSettings()) out(note);
     const hubEntry = storedPath(path.join(SKILL, 'hub', 'hub.mjs'));
     fs.mkdirSync(HOME, { recursive: true });
     fs.mkdirSync(path.dirname(PLIST), { recursive: true });
@@ -502,6 +504,7 @@ const commands = {
   },
 
   async uninstall() {
+    if (uninstallStatusLine()) out(`removed ${path.join(os.homedir(), '.claude', 'statusline.sh')}`);
     const uid = String(process.getuid());
     try { execFileSync('launchctl', ['bootout', `gui/${uid}/${LABEL}`], { stdio: 'ignore' }); } catch {}
     try { fs.unlinkSync(PLIST); } catch {}

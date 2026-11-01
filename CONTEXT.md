@@ -7,7 +7,7 @@ Pages on Love's tailnet that Claude sessions serve, so the owner can follow and 
 ### Hub and sites
 
 **Kickflip clone**:
-The Git checkout that supplies the running app's code, in any folder such as `~/dev/kickflip`, linked into Claude Code's skills by install. It is separate from the live state in `~/.claude/web-ts/` ([0071](docs/adr/0071-kickflip-runs-from-a-linked-clone.md)).
+The Git checkout that supplies the running app's code, in any folder such as `~/dev/kickflip`, linked into Claude Code's skills by install. It is separate from the live state in `~/.claude/web-ts/` ([0071](docs/adr/0071-kickflip-runs-from-a-linked-clone.md)). Install supplies kickflip's status line and hooks as well as the skill links, so setup is independent of the owner's dotfiles ([0080](docs/adr/0080-kickflip-installs-its-own-status-line-and-hooks.md)).
 _Avoid_: live skill folder
 
 **Board repo**:
