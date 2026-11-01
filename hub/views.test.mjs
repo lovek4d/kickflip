@@ -113,10 +113,11 @@ test('Hub Settings shows the Codex setting, defaulting to Off, with the meaning 
   }
 });
 
-test('Hub settings expand in Notifications, Polling, Codex, Rules and Closed boards order, turns this device on, and saves each Codex choice or shows a refusal', async () => {
+test('Hub settings modals keep summaries, turn this device on, and save each Codex choice or show a refusal', async () => {
   const document = {};
   const { Element } = miniDom(class {}, document);
   const root = new Element('div');
+  document.body = root;
   const listeners = [];
   const posts = [];
   const now = t(10);
@@ -132,13 +133,15 @@ test('Hub settings expand in Notifications, Polling, Codex, Rules and Closed boa
     subscribe: async () => { subscribed = true; return subscription; },
   } };
   const context = vm.createContext({
-    URLSearchParams,
+    URL, URLSearchParams,
+    location: new URL('https://mac.ts.net/_hub/'), history: { replaceState() {} },
+    BoardDialogs: { fitSheet: () => () => {}, confirm: async () => false },
     atob: (s) => Buffer.from(s, 'base64').toString('binary'),
     navigator: { userAgent: 'Mac', serviceWorker: { getRegistration: async () => registration, register: async () => registration, ready: Promise.resolve(registration) } },
     PushManager: class {},
     Notification: { permission: 'default', requestPermission: () => { requested = true; return Promise.resolve('granted'); } },
     FormData: class { *[Symbol.iterator]() {} },
-    BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardView: { page: (root, site, run) => { const B = { root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }; run(B); return B; } },
     RulesEditor: { mount: () => ({ set() {} }) },
     fetch: async (url, opts) => {
       posts.push({ url, opts });
@@ -147,35 +150,39 @@ test('Hub settings expand in Notifications, Polling, Codex, Rules and Closed boa
       return { ok: !refused, json: async () => refused ? { error: 'Could not save Codex setting.' } : data(opts.body.get('value')) };
     },
   });
-  for (const file of ['ui-hub.js', 'ui-page-header.js', 'hub-kit.js', 'view-hub-settings.js']) {
+  for (const file of ['ui-hub.js', 'ui-page-header.js', 'hub-kit.js', 'router.js', 'view-hub-settings.js']) {
     vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
   }
   context.HubKit.live = (B, options) => { live = options; };
   const view = context.HubSettings;
   root.innerHTML = view.markup();
   context.window = context;
-  assert.equal(root.querySelectorAll('details[open]').length, 0);
-  view.create(root, '/_hub', { view: { hash: '#rules' }, sidebarChanged: () => sidebarChanges++ });
+  assert.equal(root.querySelectorAll('details').length, 0);
+  const B = view.create(root, '/_hub', { view: { hash: '#rules' }, sidebarChanged: () => sidebarChanges++ });
   live.paint(data());
   await new Promise((r) => setImmediate(r));
-  assert.equal(root.querySelector('#rules').open, true);
-  assert.ok(root.querySelectorAll('details').filter((d) => d.id !== 'rules').every((d) => !d.open));
+  const modal = root.querySelector('#hubSettingsModal');
+  assert.equal(modal.open, true);
+  assert.equal(root.querySelector('#hubSettingsTitle').textContent, 'Rules for every board');
   assert.equal(root.querySelectorAll('[data-summary]').length, 5);
   assert.equal(root.querySelector('[data-summary=codex]').textContent, 'Off');
   const rulesBox = root.querySelector('#hubRules');
   rulesBox.setAttribute('data-dirty', '');
-  root.querySelector('#notifications').open = true;
   live.paint(data());
   assert.equal(root.querySelector('#hubRules'), rulesBox);
-  assert.equal(rulesBox.hasAttribute('data-dirty'), true);
-  assert.equal(root.querySelector('#notifications').open, true);
-  assert.equal(root.querySelector('#rules').open, true);
-  assert.deepEqual(root.querySelectorAll('summary .title').map((h) => h.textContent), ['Notifications', 'Polling', 'Codex share', 'Rules for every board', 'Closed boards']);
+  assert.equal(await B.openSettings({ hash: '#notifications' }), false);
+  rulesBox.removeAttribute('data-dirty');
+  await B.openSettings({ hash: '#notifications' });
+  assert.deepEqual(root.querySelectorAll('.hub-setting .title').map((h) => h.textContent), ['Notifications', 'Polling', 'Codex share', 'Rules for every board', 'Closed boards']);
   assert.deepEqual(root.querySelectorAll('form input[name="set"]').map((input) => input.value), ['on', 'weekends']);
-  assert.ok(root.querySelector('[data-snooze-open]'));
+  const snooze = root.querySelector('[data-snooze-open]');
+  assert.ok(snooze);
+  for (const l of listeners.filter((l) => l.target === root && l.type === 'click')) l.fn({ target: snooze });
+  assert.equal(root.querySelector('#snoozeSheet').open, true);
+  assert.equal(modal.open, true);
+  root.querySelector('#snoozeSheet').close();
   assert.match(root.textContent, /Away from the Mac/);
-  const polling = root.querySelector('a[href="/_hub/settings/polling"]');
-  assert.match(polling.textContent, /3 windows, 58 checks a day/);
+  assert.doesNotMatch(modal.textContent, /Pushes wait, then go|Turn off to drop|unlocked and used/);
   const enable = root.querySelector('[data-device="on"]');
   assert.equal(enable.textContent, 'Turn on');
   for (const l of listeners.filter((l) => l.target === root && l.type === 'click')) l.fn({ target: enable });
@@ -184,8 +191,9 @@ test('Hub settings expand in Notifications, Polling, Codex, Rules and Closed boa
   assert.equal(subscribed, true);
   assert.equal(sidebarChanges, 1);
   assert.equal(root.querySelector('[data-device="test"]').textContent, 'Test');
-  assert.match(root.textContent, /On · checks every 15 min/);
+  assert.equal(root.querySelector('#push .val').textContent, 'On');
   assert.ok(posts.some(({ url, opts }) => url === '/_hub/push/subscribe' && JSON.parse(opts.body).endpoint === 'https://push.example/device'));
+  await B.openSettings({ hash: '#codex' });
   const selected = () => root.querySelector('.segments button[aria-pressed="true"]').value;
   const submit = (value) => {
     const form = root.querySelector('.segments');
@@ -194,17 +202,15 @@ test('Hub settings expand in Notifications, Polling, Codex, Rules and Closed boa
       submitter: { name: button.getAttribute('name'), value: button.value }, preventDefault() {} });
   };
   assert.equal(selected(), 'off');
-  assert.equal(root.querySelector('#codexDescription').textContent, 'No Codex.');
+  assert.equal(root.querySelector('#codexDescription'), null);
   assert.deepEqual(root.querySelectorAll('.segments button').map((b) => b.textContent), ['Always on', 'Auto', 'Off']);
-  assert.equal(root.querySelector('.segments').getAttribute('aria-labelledby'), 'codexLabel');
-  assert.match(root.querySelector('#codexNote').textContent, /every board.*\/codex-share overrides/);
+  assert.equal(root.querySelector('.segments').getAttribute('aria-label'), 'Codex share');
+  assert.equal(root.querySelector('#codexNote'), null);
   for (const value of ['always', 'off', 'auto']) {
     await submit(value);
     assert.equal(selected(), value);
-    assert.equal(root.querySelector('#notifications').open, true);
-    assert.equal(root.querySelector('#hubRules'), rulesBox);
+    assert.equal(modal.open, true);
     assert.equal(root.querySelector('[data-summary=codex]').textContent, data(value).codex.choices.find((c) => c.on).label);
-    assert.equal(root.querySelector('#codexDescription').textContent, data(value).codex.description);
     const { url, opts } = posts.at(-1);
     assert.equal(url, '/_hub/settings/codex');
     assert.equal(opts.method, 'POST');

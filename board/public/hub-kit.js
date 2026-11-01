@@ -1,4 +1,4 @@
-// What the hub's views (view-hub.js, view-hub-settings.js, view-polling.js) share, each through the view's B
+// What the hub page and settings modals share, each through the view's B
 // (app.js BoardView.page), so unmounting the view stops it all: loading and refreshing the view's data, posting its
 // forms for JSON, and this device's notifications row.
 (function () {
@@ -55,6 +55,7 @@
   function forms(B, { answer, fail, accepts = () => true }) {
     let sending = false;
     B.on(B.root, 'submit', async (e) => {
+      if (e.defaultPrevented) return;
       const form = e.target;
       const action = form.getAttribute?.('action') || '';
       if (!action.startsWith('/_hub/') || !accepts(action)) return;

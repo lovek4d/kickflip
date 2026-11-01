@@ -99,7 +99,7 @@ test('splitPoint halves a window on a quarter hour, past midnight too, and refus
   assert.equal(splitPoint(eight, 0), null);
 });
 
-test('editPolling turns each Polling page change into settings to save and the window to show', () => {
+test('editPolling turns each Polling modal change into settings to save and the window to show', () => {
   const edit = (op, w, value, s = DEFAULTS) => editPolling(s, { op, w, value });
   const starts = (r) => validate(r.input).settings.windows.map((w) => `${w.from}/${w.every_minutes}`);
   assert.deepEqual(starts(edit('from', '18:00', '19:00')), ['08:00/15', '19:00/30', '22:00/60']);

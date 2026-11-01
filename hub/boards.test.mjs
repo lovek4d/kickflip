@@ -645,6 +645,25 @@ test('object property names work as page routes and as new boards through HTTP a
   } finally { write(manifestFile, original); fs.rmSync(path.join(reposDir(), 'int180-http-test'), { recursive: true, force: true }); }
 });
 
+test('a no-JS Polling edit redirects to Hub with Polling open and the edited window selected', async () => {
+  const file = claude('web-ts', 'settings.json');
+  const original = fs.readFileSync(file);
+  try {
+    const r = await fetch(`${base}/_hub/settings/polling`, {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'op=every&w=00%3A00&value=60', redirect: 'manual',
+    });
+    assert.equal(r.status, 303);
+    assert.equal(r.headers.get('location'), '/_hub/?w=00%3A00#polling');
+    const landing = await fetch(base + r.headers.get('location'));
+    assert.equal(landing.status, 200);
+    assert.equal(landing.headers.get('x-app-shell'), '1');
+    const data = await (await fetch(`${base}/_hub/api/polling?w=00%3A00`)).json();
+    assert.equal(data.select, '00:00');
+    assert.equal(data.windows.find((w) => w.from === '00:00').every.find((c) => c.on).minutes, 60);
+  } finally { fs.writeFileSync(file, original); }
+});
+
 test('a starting hub flags hub-orchestrator as the hub board once, only while no site has the flag', async () => {
   const other = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'boards-migrate-')));
   const file = path.join(other, '.claude', 'web-ts', 'manifest.json');

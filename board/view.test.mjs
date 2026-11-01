@@ -334,7 +334,7 @@ test("the board's Settings, Waiting on you and Notes views, mounted then unmount
   page.win.fetch = () => { fetches++; return Promise.reject(new Error('offline')); };
   const loaded = page.left();
   const views = page.win.AppViews;
-  assert.deepEqual(Object.keys(views).sort(), ['frame', 'hub', 'notes', 'polling', 'questions', 'settings']);
+  assert.deepEqual(Object.keys(views).sort(), ['frame', 'hub', 'notes', 'questions', 'settings']);
   for (const [kind, view] of [['settings', {}], ['questions', { id: 'q1' }], ['notes', { item: 'w/A1' }]]) {
     assert.equal(typeof views[kind].markup({ kind, route: 'board-a', ...view }), 'string', kind);
     const v = views[kind].create(new page.El(), 'https://mac.ts.net/board-a', { view: { kind, route: 'board-a', ...view }, reload() {} });
@@ -510,7 +510,7 @@ test('Hub Settings lists closed boards, keeps a refused reopen available, then r
     }
     return { ok: true, json: async () => structuredClone(d) };
   };
-  const view = page.win.HubSettings.create(root, 'https://mac.ts.net/_hub', { sidebarChanged: () => changed++ });
+  const view = page.win.HubSettings.create(root, 'https://mac.ts.net/_hub', { view: { hash: '#closed' }, sidebarChanged: () => changed++ });
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   view.mount();
   await settle();
@@ -534,7 +534,7 @@ test("the hub page, Hub Settings and Polling, mounted then unmounted, load their
   const urls = [];
   page.win.fetch = (url) => { urls.push(url); return Promise.reject(new Error('offline')); };
   const loaded = page.left();
-  for (const [kind, view] of [['hub', { hash: '#rules' }], ['polling', { w: '09:00' }]]) {
+  for (const [kind, view] of [['hub', { hash: '#rules' }], ['hub', { hash: '#polling', w: '09:00' }]]) {
     const views = page.win.AppViews;
     assert.match(views[kind].markup({ kind, ...view }), /<main class="has-top">/, kind);
     const v = views[kind].create(new page.El(), 'https://mac.ts.net/_hub', { view: { kind, ...view }, reload() {}, sidebarChanged() {} });
@@ -725,11 +725,13 @@ test("the page header's logo toggles the sidebar at every width: from 900px it c
   assert.equal(html.classList.contains('sb-collapsed'), true);
 });
 
-async function shellPage(path) {
+async function shellPage(path, { fetch } = {}) {
   const page = fakePage(memoryStorage().localStorage);
   const { win } = page;
   const doc = win.document;
+  if (fetch) win.fetch = fetch;
   const { Element } = miniDom(page.Target, doc);
+  doc.head = new Element('head');
   Object.defineProperty(Element.prototype, 'className', { get() { return this.getAttribute('class') || ''; }, set(value) { this.setAttribute('class', value); } });
   Object.defineProperty(Element.prototype, 'href', { get() { return new URL(this.getAttribute('href'), win.location.href).href; } });
   doc.body.innerHTML = '<aside id="sidebar" class="sidebar"></aside><div id="sidebarScrim"></div><script id="sidebarData" type="application/json"></script>';
@@ -759,9 +761,6 @@ async function shellPage(path) {
   win.HashChangeEvent = class { constructor(type) { this.type = type; } };
   win.dispatchEvent = (e) => page.fire(win, e.type, e);
   win.top = win;
-  for (const kind of ['hub', 'polling']) {
-    win.AppViews[kind].create = () => ({ B: { state: {} }, mount() {}, unmount() {} });
-  }
   vm.runInContext(fs.readFileSync(new URL('./public/shell.js', import.meta.url), 'utf8'), win);
   let boardUnmounts = 0;
   win.BoardView.create = () => ({ B: { state: {} }, mount() {}, unmount() { boardUnmounts++; } });
@@ -781,7 +780,9 @@ test('the Hub row stays selected on old Settings URLs, hub sections, Polling and
     assert.deepEqual(selected(), ['/_hub/']);
     win.AppShell.open('/_hub/settings/polling?w=18%3A00');
     assert.deepEqual(selected(), ['/_hub/']);
+    win.AppShell.open('/shop/');
     win.history.back();
+    await new Promise((r) => setImmediate(r));
     assert.deepEqual(selected(), ['/_hub/']);
     tap(doc.querySelector('.sb-utility a[href="/_hub/"]'));
     assert.deepEqual(selected(), ['/_hub/']);
@@ -1788,54 +1789,127 @@ test('old board settings deep links open the board and modal, and Escape and Don
 });
 
 test('leaving a board with its settings open releases the modal and returning with back restores the modal over the board', async () => {
-  const { win, doc, page, boardUnmounts } = await shellPage('/shop/settings.html');
+  const { win, doc, boardUnmounts } = await shellPage('/shop/settings.html');
   const modal = doc.querySelector('#boardSettingsModal');
-  const before = page.left();
   win.AppShell.open('/_hub/');
   assert.equal(doc.querySelector('#boardSettingsModal'), null);
   assert.equal(modal.open, false);
   assert.equal(boardUnmounts(), 1);
-  assert.ok(page.left().listeners < before.listeners);
+  assert.equal(doc.querySelector('.view-settings'), null);
   win.history.back();
   await new Promise((r) => setImmediate(r));
   assert.ok(doc.querySelector('.view-board'));
   assert.ok(doc.querySelector('#boardSettingsModal').open);
 });
 
-test('legacy hub section links expand and scroll only known rows, keeping expanded rows and the rules editor', async () => {
+test('a stored Polling link opens Hub with its window selected, and modal links and dismissal preserve history', async () => {
+  const requests = [];
+  const settings = { on: { on: true }, weekends: { on: false }, codex: { choices: [] }, rules: [], closed: [] };
+  const polling = {
+    select: '08:00', now: { title: 'Checks every 15 min', lines: [], count: 0 },
+    windows: ['08:00', '18:00'].map((from) => ({ from, range: from, every: [], ends: '10:00pm', checks: '4 checks', split: true, remove: true })),
+    day: { segments: [], pins: [], now: '50%' }, hold: { on: true }, wakes: [],
+  };
+  const { win, doc, page, entries, tap } = await shellPage('/_hub/settings/polling?w=18%3A00&from=push', {
+    fetch: async (url) => {
+      requests.push(url);
+      if (url.startsWith('/_hub/api/polling')) return { ok: true, json: async () => structuredClone(polling) };
+      if (url === '/_hub/api/settings') return { ok: true, json: async () => structuredClone(settings) };
+      return new Promise(() => {});
+    },
+  });
+  const settle = () => new Promise((r) => setImmediate(r));
+  await settle();
+  const modal = doc.querySelector('#hubSettingsModal');
+  assert.equal(modal.open, true);
+  assert.equal(doc.querySelector('.top h1').textContent, 'Hub');
+  assert.equal(doc.querySelector('#hubSettingsTitle').textContent, 'Polling');
+  assert.equal(doc.querySelector('input[type=time]').value, '18:00');
+  assert.ok(requests.includes('/_hub/api/polling?w=18%3A00'));
+  assert.equal(win.location.pathname, '/_hub/');
+  assert.equal(win.location.hash, '#polling');
+  assert.equal(win.history.state.pushed, true);
+  const count = entries().length;
+  const dismiss = modal.querySelector('.settings-footer button');
+  page.fire(doc.querySelector('.hub-settings'), 'click', { target: dismiss });
+  assert.equal(modal.open, false);
+  assert.equal(doc.activeElement, doc.querySelector('#polling'));
+  assert.equal(win.location.href, 'https://mac.ts.net/_hub/');
+  assert.equal(entries().length, count);
+  for (const href of ['/_hub/settings', '/_hub/settings#notifications', '/_hub/#codex', '/_hub/settings/polling?w=08%3A00']) {
+    const link = doc.createElement('a');
+    link.setAttribute('href', href);
+    tap(link); await settle();
+    assert.equal(modal.open, true);
+    assert.equal(entries().length, count);
+  }
+  assert.equal(doc.querySelector('input[type=time]').value, '08:00');
+  win.AppShell.open('/_hub/settings#rules'); await settle();
+  const editor = doc.querySelector('#hubRules');
+  editor.setAttribute('data-dirty', '');
+  const rulesURL = win.location.href;
+  win.AppShell.open('/_hub/#codex'); await settle();
+  assert.equal(doc.querySelector('#hubRules'), editor);
+  assert.equal(win.location.href, rulesURL);
+  win.AppShell.open('/shop/'); await settle();
+  assert.equal(doc.querySelector('#hubRules'), editor);
+  win.BoardDialogs.confirm = async () => true;
+  win.AppShell.open('/_hub/settings/polling?w=08%3A00'); await settle();
+  assert.equal(doc.querySelector('#hubRules'), null);
+  assert.equal(entries().length, count);
+  win.AppShell.open('/shop/');
+  assert.equal(doc.querySelector('#hubSettingsModal'), null);
+  win.history.back(); await settle();
+  assert.equal(doc.querySelector('#hubSettingsModal').open, true);
+  assert.equal(doc.querySelector('#hubSettingsTitle').textContent, 'Polling');
+});
+
+test('legacy hub links open one modal, guard dirty rules on every dismissal, restore focus and clean up', async () => {
   const page = fakePage(memoryStorage().localStorage);
   const { Element } = miniDom(page.Target, page.win.document);
-  page.win.addEventListener = page.win.addEventListener.bind(page.win);
-  page.win.removeEventListener = page.win.removeEventListener.bind(page.win);
-  const scrolled = [];
-  Element.prototype.scrollIntoView = function () { scrolled.push(this.id); };
   page.win.document.getElementById = () => true;
   const root = page.win.document.body.appendChild(new Element('div'));
   root.innerHTML = page.win.HubSettings.markup();
   const data = { on: { on: true }, weekends: { on: false }, codex: { choices: [] }, rules: [], closed: [] };
   page.win.fetch = async () => ({ ok: true, json: async () => structuredClone(data) });
+  page.win.RulesEditor.mount = () => ({ set() {} });
+  const baseline = page.left();
   const view = page.win.HubSettings.create(root, '/_hub', { view: { hash: '#closed' } });
   view.mount();
-  await new Promise((r) => setImmediate(r));
-  assert.equal(root.querySelector('#closed').open, true);
-  assert.deepEqual(scrolled, ['closed']);
+  const settle = () => new Promise((r) => setImmediate(r));
+  await settle();
+  const modal = root.querySelector('#hubSettingsModal');
+  assert.equal(modal.open, true);
+  assert.equal(page.win.document.activeElement.id, 'hubSettingsTitle');
+  for (const [hash, title] of [['#rules', 'Rules for every board'], ['#push', 'Notifications'], ['#codex', 'Codex share'], ['#closed-boards', 'Closed boards']]) {
+    page.win.location = new URL(`https://mac.ts.net/_hub/settings${hash}`);
+    page.fire(vm.runInContext('window', page.win), 'hashchange');
+    await settle();
+    assert.equal(root.querySelector('#hubSettingsTitle').textContent, title);
+    assert.equal(modal.open, true);
+    assert.equal(root.querySelectorAll('details').length, 0);
+  }
+  await view.B.openSettings({ hash: '#rules' });
   const editor = root.querySelector('#hubRules');
   editor.setAttribute('data-dirty', '');
-  for (const [hash, id] of [['#rules', 'rules'], ['#push', 'notifications'], ['#polling', 'polling'], ['#codex', 'codex']]) {
-    page.win.location = new URL(`https://mac.ts.net/_hub/settings${hash}`);
-    page.fire(page.win, 'hashchange');
-    assert.equal(root.querySelector(`#${id}`).open, true);
-    assert.equal(scrolled.at(-1), id);
-    assert.equal(root.querySelector('#closed').open, true);
+  let confirms = 0;
+  page.win.BoardDialogs.confirm = async () => { confirms++; return false; };
+  const dismissers = [
+    () => page.fire(modal, 'cancel'),
+    () => page.fire(root, 'click', { target: modal, clientX: -1, clientY: -1 }),
+    ...root.querySelectorAll('[data-settings-dismiss]').map((button) => () => page.fire(root, 'click', { target: button })),
+  ];
+  for (const dismiss of dismissers) {
+    dismiss(); await settle();
+    assert.equal(modal.open, true);
     assert.equal(root.querySelector('#hubRules'), editor);
-    assert.equal(editor.hasAttribute('data-dirty'), true);
   }
-  const count = scrolled.length;
-  page.win.location = new URL('https://mac.ts.net/_hub/settings#[');
-  page.fire(page.win, 'hashchange');
-  assert.equal(scrolled.length, count);
-  page.win.location = new URL('https://mac.ts.net/_hub/settings');
-  page.fire(page.win, 'hashchange');
-  assert.equal(scrolled.at(-1), 'notifications');
+  assert.equal(confirms, 4);
+  page.win.BoardDialogs.confirm = async () => true;
+  dismissers[0](); await settle();
+  assert.equal(modal.open, false);
+  assert.equal(page.win.document.activeElement, root.querySelector('#rules'));
+  assert.equal(root.querySelector('[data-dirty]'), null);
   view.unmount();
+  assert.deepEqual(page.left(), baseline);
 });

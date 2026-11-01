@@ -1,4 +1,4 @@
-/* The hub's views (view-hub.js, view-hub-settings.js, view-polling.js), whose root carries .hub-view, and the hub's
+/* The hub page and settings modals (view-hub.js, view-hub-settings.js, view-polling.js), whose root carries .hub-view, and the hub's
    down page (hub/hub.mjs), whose <html> does; served as /_hub/app/hub.css and /_hub/hub.css. Every rule is under
    .hub-view, since style.css uses the same short class names. The app shell links it after style.css, so a rule here
    wins a tie, and the header is style.css's alone, as on every view; each style.css rule that would reach these rows
@@ -108,14 +108,11 @@
 }
 
 .hub-view .hub-settings { margin-top: 24px; }
-.hub-view .hub-setting { border: 1px solid var(--line); border-radius: 12px; margin: 10px 0; background: var(--panel); scroll-margin-top: 76px; }
-.hub-view .hub-setting > summary { list-style: none; display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; }
-.hub-view .hub-setting > summary::-webkit-details-marker { display: none; }
-.hub-view .hub-setting > summary .text { flex: 1; min-width: 0; }
-.hub-view .hub-setting > summary .title { display: block; font-weight: 600; }
-.hub-view .hub-setting > summary .sub { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hub-view .hub-setting[open] > summary .chev { transform: rotate(90deg); }
-.hub-view .setting-content { padding: 0 12px 12px; }
-@media (max-width: 899px) {
-  .hub-view .hub-setting { scroll-margin-top: calc(env(safe-area-inset-top) + 12px); }
-}
+.hub-view .hub-setting { width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 16px; font: inherit; text-align: left; color: var(--text); cursor: pointer; border: 1px solid var(--line); border-radius: 12px; margin: 10px 0; background: var(--panel); }
+.hub-view .hub-setting .text { flex: 1; min-width: 0; }
+.hub-view .hub-setting .title { font-weight: 600; }
+.hub-view .hub-setting .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hub-view .hub-modal .settings-body { padding-top: 2px; }
+.hub-view .hub-modal .setting-content > .label:first-child { margin-top: 14px; }
+.hub-view .hub-modal .setting-content > .group:first-child, .hub-view .hub-modal .setting-content > .banner:first-child { margin-top: 16px; }
+.hub-view .hub-modal .rules-box { margin-top: 14px; }

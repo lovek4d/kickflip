@@ -1,4 +1,4 @@
-// The rows and tiles of the hub's views (view-hub.js, view-hub-settings.js, view-polling.js), which hub.css styles
+// The rows and tiles of the hub page and settings modals (view-hub.js, view-hub-settings.js, view-polling.js), which hub.css styles
 // under .hub-view. Pure: each lays out words hub/views.mjs wrote, and title and sub are HTML.
 (function () {
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -28,11 +28,11 @@
 
   // This device's notifications (hub-kit.js device): state is {title, sub, action: {label, act, quiet, disabled}} or
   // null while unknown, which keeps the row hidden.
-  function deviceRow(state) {
+  function deviceRow(state, { compact = false } = {}) {
     if (!state) return `<div class="row" id="push" hidden>${tile('bell', '#ef4444')}</div>`;
     const a = state.action;
     const button = a ? `<button type="button" class="${a.quiet ? 'btn quiet' : 'btn'}" data-device="${esc(a.act)}"${a.disabled ? ' disabled' : ''}>${esc(a.label)}</button>` : '';
-    return `<div class="row" id="push">${tile('bell', '#ef4444')}<span class="body"><span class="text"><span class="title">${esc(state.title)}</span><span class="sub wrap">${esc(state.sub)}</span></span>${button}</span></div>`;
+    return `<div class="row" id="push">${tile('bell', '#ef4444')}<span class="body"><span class="text"><span class="title">${esc(state.title)}</span>${compact ? '' : `<span class="sub wrap">${esc(state.sub)}</span>`}</span>${compact && state.title === 'This device' ? `<span class="val">${state.sub?.startsWith('On') ? 'On' : 'Off'}</span>` : ''}${button}</span></div>`;
   }
 
   globalThis.HubUI = { esc, tile, CHEVRON, row, flash, nowRow, deviceRow };

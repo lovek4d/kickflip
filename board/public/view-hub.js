@@ -1,6 +1,6 @@
 // The hub page, /_hub/, a view of the app shell (shell.js): Needs you for the pending prompts of sessions that own no
 // board, the hub's health, each site's health and board links,
-// polling status, then expandable hub settings. Health comes from GET /_hub/api/hub.
+// polling status, then hub settings summary rows (ADR 0075). Health comes from GET /_hub/api/hub.
 // Its data refreshes every 30 seconds while it shows (hub-kit.js live).
 (function () {
   // The last data, which a return to the view paints at once.
@@ -57,7 +57,7 @@ ${sitesHtml(d.groups)}${d.remembered?.length ? `<h2 class="label">Sessions witho
       B.atUnmount(() => settings.unmount());
       B.on(B.$('#refresh'), 'click', () => settings.B.refreshSettings?.());
       let flash = null;
-      let positioned = false;
+      B.openSettings = (...args) => settings.B.openSettings(...args);
       const foot = B.$('.hub-foot');
       const paint = () => {
         if (!last) return;
@@ -82,7 +82,6 @@ ${sitesHtml(d.groups)}${d.remembered?.length ? `<h2 class="label">Sessions witho
           last = d;
           paint();
           badge(Number(d.total) || 0);
-          if (!positioned) { positioned = true; settings.B.revealSettings?.(); }
         },
         busy: () => forms.busy() || Boolean(root.querySelector('[data-dirty]')) || Boolean(root.querySelector('dialog[open]')),
       });

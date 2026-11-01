@@ -363,8 +363,8 @@ test("the app's router reads every hub URL as a view and writes each view back a
     ['/_hub/', { kind: 'hub' }],
     ['/_hub/settings', { kind: 'hub', hash: '#notifications' }],
     ['/_hub/settings#rules', { kind: 'hub', hash: '#rules' }],
-    ['/_hub/settings/polling', { kind: 'polling', w: null }],
-    ['/_hub/settings/polling?w=09%3A00', { kind: 'polling', w: '09:00' }],
+    ['/_hub/settings/polling', { kind: 'hub', hash: '#polling' }],
+    ['/_hub/settings/polling?w=09%3A00', { kind: 'hub', hash: '#polling', w: '09:00' }],
     ['/orch/prototype-sidebar.html?q=q1&from=push', { kind: 'frame', route: 'orch', url: '/orch/prototype-sidebar.html?q=q1&from=push' }],
     ['/orch/shots-gallery.html', { kind: 'frame', route: 'orch', url: '/orch/shots-gallery.html' }],
     ['/learn/', { kind: 'frame', route: 'learn', url: '/learn/' }],
@@ -372,7 +372,7 @@ test("the app's router reads every hub URL as a view and writes each view back a
   ];
   for (const [url, view] of table) {
     assert.deepEqual(read(url), view, url);
-    assert.equal(urlOf(view), url === '/_hub/settings' ? '/_hub/#notifications' : url.replace('/_hub/settings#', '/_hub/#'), url);
+    assert.equal(urlOf(view), url === '/_hub/settings' ? '/_hub/#notifications' : url.startsWith('/_hub/settings/polling') ? '/_hub/' + (view.w ? `?w=${encodeURIComponent(view.w)}` : '') + '#polling' : url.replace('/_hub/settings#', '/_hub/#'), url);
   }
   assert.deepEqual(read('/orch/plan.html?item=w%2FA1'), { kind: 'notes', route: 'orch', item: 'w/A1' });
   assert.deepEqual(read('/orch/questions.html?from=push#q-1'), { kind: 'questions', route: 'orch', id: 'q-1' });

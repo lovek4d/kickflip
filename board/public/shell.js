@@ -1,6 +1,6 @@
 // The app shell (app.html; docs/adr/0055-one-app-for-the-whole-hub.md): the sidebar, mounted once, beside one view at a
 // time. A board's view is BoardView (app.js); Waiting on you and Notes are AppViews.questions and .notes,
-// the hub pages AppViews.hub and .polling, and every other page AppViews.frame. Board Settings mounts over the board
+// the Hub page AppViews.hub with its settings modals, and every other page AppViews.frame. Board Settings mounts over the board
 // as a modal. Each page is {className, title(view, {siteTitle}), markup(view, {siteTitle}), create(root,
 // siteRoot, ctx)}; a hub page's siteRoot is /_hub. Following a link to any of them, the sidebar's included, swaps the
 // view in place through router.js; a link to anything that isn't a page loads it. Leaving a view whose root holds
@@ -154,7 +154,7 @@ window.AppShell = (function () {
         v = BoardView.create(root, siteRoot, { signal: signalFor(route), live });
       } else {
         v = page.create(root, siteRoot, { view, siteTitle, boards, open: openHere, toggleSidebar: sidebar.toggle, keydown: sidebar.keydown, pointerdown: sidebar.pointerdown,
-          reload: () => go(current.view, location.href, 'reload'), up: () => router.up(),
+          reload: () => go(AppRouter.viewOf(location.href, { boards: boards() }), location.href, 'reload'), closeSidebar: sidebar.close, up: () => router.up(),
           loaded: (url, title) => { if (current?.v === v) framed(url, title); }, sidebarChanged: refreshSidebar });
       }
       current = { view, route, root, v };
@@ -205,6 +205,12 @@ window.AppShell = (function () {
           router.replace(href);
           showSettings();
           return true;
+        });
+      }
+      if (view.kind === 'hub' && current?.view.kind === 'hub' && how !== 'reload') {
+        return Promise.resolve(current.v.B.openSettings(view)).then((shown) => {
+          if (shown) { current.view = view; sidebar.close(); }
+          return shown;
         });
       }
       const stays = how !== 'reload' && current && sameView(current.view, view);

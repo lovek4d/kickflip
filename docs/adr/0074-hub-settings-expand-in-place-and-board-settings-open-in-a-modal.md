@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0075
+---
+
 # Hub settings expand in place and board settings open in a modal
+
+Superseded in part by [0075](0075-hub-settings-open-as-modals.md): Hub’s rows open modals, Polling’s editor included, and no hub settings row expands in place. The board settings modal below still holds.
 
 The owner picked take B of `prototype-settings-2.html`: hub settings belong below Hub’s existing health and status, while each board’s settings belong over that board. Separate Settings pages and a combined Board/Hub dialog split context or mix scopes.
 

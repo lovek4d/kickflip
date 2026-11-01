@@ -7,15 +7,15 @@
 //   settings {route}            /<route>/settings.html, a request to open the modal over that board
 //   questions {route, id}       /<route>/questions.html#<id>
 //   notes {route, item}         /<route>/notes.html?item=<key>, and plan.html, which the board redirects there
-//   hub {hash}, polling {w}
-//                               /_hub/ (also /_hub/settings), /_hub/settings/polling?w=<HH:MM>
+//   hub {hash, w}              /_hub/ with a settings modal named by hash; legacy /_hub/settings and
+//                               /_hub/settings/polling?w=<HH:MM> open the same modals (ADR 0075)
 //   frame {route, url}          any other page under a route, a folder or an .html file: other sites, prototypes and
 //                               every other board page, shown in a frame
 // Any other URL, such as an image or another origin, is no view (null) and loads as itself.
 // A push's from=push mark (entryOf) is no part of the view, so a push link reads as the view its page shows.
 globalThis.AppRouter = (function () {
   // The kinds the shell mounts in place; a link to any other kind loads its page.
-  const MOUNTED = new Set(['board', 'settings', 'questions', 'notes', 'hub', 'polling', 'frame']);
+  const MOUNTED = new Set(['board', 'settings', 'questions', 'notes', 'hub', 'frame']);
   // A page's path under its route. hub/shell.mjs pageOf takes the same rule, so the hub answers a page load of every view
   // this mounts with the shell; hub/shell.test.mjs checks the two agree.
   const isPagePath = (rest) => rest === '' || rest.endsWith('/') || /\.html?$/.test(rest);
@@ -27,9 +27,10 @@ globalThis.AppRouter = (function () {
     if (base && u.origin !== new URL(base).origin) return null;
     const p = u.pathname;
     if (p === '/') return { kind: 'start' };
-    if (p === '/_hub/') return u.hash ? { kind: 'hub', hash: u.hash } : { kind: 'hub' };
-    if (p === '/_hub/settings') return { kind: 'hub', hash: u.hash || '#notifications' };
-    if (p === '/_hub/settings/polling') return { kind: 'polling', w: u.searchParams.get('w') };
+    if (['/_hub/', '/_hub/settings', '/_hub/settings/polling'].includes(p)) {
+      const hash = p === '/_hub/settings/polling' ? '#polling' : u.hash || (p === '/_hub/settings' ? '#notifications' : '');
+      return { kind: 'hub', ...(hash ? { hash } : {}), ...(hash === '#polling' && u.searchParams.get('w') ? { w: u.searchParams.get('w') } : {}) };
+    }
     const m = /^\/([^/]+)\/(.*)$/.exec(p);
     let route = null;
     try { route = m && decodeURIComponent(m[1]); } catch { return null; }
@@ -56,8 +57,7 @@ globalThis.AppRouter = (function () {
       case 'settings': return `${r}settings.html`;
       case 'questions': return `${r}questions.html${view.id ? `#${encodeURIComponent(view.id)}` : ''}`;
       case 'notes': return `${r}notes.html${view.item ? `?item=${encodeURIComponent(view.item)}` : ''}`;
-      case 'hub': return `/_hub/${view.hash || ''}`;
-      case 'polling': return `/_hub/settings/polling${view.w ? `?w=${encodeURIComponent(view.w)}` : ''}`;
+      case 'hub': return `/_hub/${view.w ? `?w=${encodeURIComponent(view.w)}` : ''}${view.hash || ''}`;
       default: return view.url;
     }
   }
@@ -186,6 +186,7 @@ globalThis.AppRouter = (function () {
       // A link to another card on this board, or another question on Waiting on you, only moves the hash, which the
       // view follows itself. On Waiting on you it takes this entry's place, so back still goes to the board.
       if (url.pathname === location.pathname && url.search === location.search && url.hash && url.hash !== location.hash) {
+        if (view.kind === 'hub') { e.preventDefault(); go(view, url.href, 'push'); return; }
         if (view.kind !== 'questions') return;
         e.preventDefault();
         write('replace', url.href);

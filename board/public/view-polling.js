@@ -1,5 +1,5 @@
-// Polling, /_hub/settings/polling?w=<HH:MM>, a view of the app shell (shell.js): the day's windows, the overnight hold
-// and the daily wakes, in hub/views.mjs pollingView's words from GET /_hub/api/polling. ?w= names the window shown,
+// HubPolling, the editor inside Hub’s Polling modal (ADR 0075): the day’s windows, overnight hold
+// and daily wakes, in hub/views.mjs pollingView's words from GET /_hub/api/polling. ?w= names the window shown,
 // which a tap on the day bar changes in place. Each change posts to /_hub/settings/polling and saves at once.
 (function () {
   // The last data, which a return to the view paints at once.
@@ -10,7 +10,7 @@
   const form = (op, w, inner, attrs = '') => `<form method="post" action="${ACTION}"${attrs}>${op ? `<input type="hidden" name="op" value="${op}">` : ''}<input type="hidden" name="w" value="${esc(w)}">${inner}</form>`;
 
   function dayBar(day, sel) {
-    const segs = day.segments.map((g) => `<a class="seg${g.w === sel ? ' sel' : ''}${g.held ? ' held' : ''}" href="${esc(AppRouter.urlOf({ kind: 'polling', w: g.w }))}" data-w="${esc(g.w)}" style="left:${g.left};width:${g.width};--k:${g.shade}"`
+    const segs = day.segments.map((g) => `<a class="seg${g.w === sel ? ' sel' : ''}${g.held ? ' held' : ''}" href="${esc(AppRouter.urlOf({ kind: 'hub', hash: '#polling', w: g.w }))}" data-w="${esc(g.w)}" style="left:${g.left};width:${g.width};--k:${g.shade}"`
       + ` aria-label="${esc(g.aria)}"${g.w === sel ? ' aria-current="true"' : ''}>${g.label ? `<span>${esc(g.label)}</span>` : ''}</a>`).join('');
     const pins = day.pins.map((p) => `<span class="pin" style="left:${p.left}" title="${esc(p.title)}" aria-hidden="true">▼</span>`).join('');
     const ticks = ['12am', '6am', '12pm', '6pm', '12am'].map((t, i) => `<span style="left:${i * 25}%">${t}</span>`).join('');
@@ -28,32 +28,24 @@
     const wakeChips = d.wakes.map((t) => `<button class="btn quiet" name="value" value="${esc(t.value)}" aria-label="Remove the ${esc(t.label)} wake">${esc(t.label)} ✕</button>`).join('');
     return `${HubUI.flash(flash)}<h2 class="label" style="margin-top:4px">Now</h2>
 <div class="group">${nowRow(d.now)}</div>
-<p class="note">Each check looks at every open PR on a board's card on GitHub, wakes a board's session when one changed, then sends the queued pushes. Times are this Mac's.</p>
 <h2 class="label" id="day">Your day</h2>
 <div class="group"><div class="block">${dayBar(d.day, w.from)}</div></div>
-<p class="note">Tap a stretch of the bar to change it. Each window runs until the next one starts.</p>
 <h2 class="label" id="window">${esc(w.range)}</h2>
 <div class="group">
 ${form('from', w.from, `<label class="body"><span class="text title">Starts</span><input type="time" name="value" value="${esc(w.from)}" required data-autosave></label>`, ' class="row field"')}
-${row({ title: 'Ends', sub: 'Where the next window starts', trail: `<span class="val">${esc(w.ends)}</span>` })}
+${row({ title: 'Ends', trail: `<span class="val">${esc(w.ends)}</span>` })}
 ${form('every', w.from, `<span class="title">Checks every</span><span class="chips">${chips}</span><span class="sub" style="margin-top:6px">${esc(w.checks)}</span>`, ' class="block"')}
 ${form('', w.from, `<button class="btn quiet" name="op" value="split"${w.split ? '' : ' disabled'}>Split in two</button><button class="btn quiet danger" name="op" value="remove"${w.remove ? '' : ' disabled'}>Remove</button>`, ' class="block split"')}
 </div>
 <h2 class="label" id="quiet">Quiet times</h2>
-<div class="group">${form('hold', w.from, `${tile('moon', '#6366f1')}<label class="body"><span class="text"><span class="title">Hold pushes overnight</span><span class="sub wrap">${esc(d.hold.sub)}</span></span><input type="checkbox" name="value" value="on" class="toggle" data-submit${d.hold.on ? ' checked' : ''}></label>`, ' class="row field"')}</div>
+<div class="group">${form('hold', w.from, `${tile('moon', '#6366f1')}<label class="body"><span class="text"><span class="title">Hold pushes overnight</span></span><input type="checkbox" name="value" value="on" class="toggle" data-submit${d.hold.on ? ' checked' : ''}></label>`, ' class="row field"')}</div>
 <h2 class="label" id="wakes">Daily wakes</h2>
-<div class="group"><div class="block"><span class="sub wrap">At each time, once a day, every board's session checks GitHub even when nothing changed, so the reviewer digests go out.</span>
-<div class="chips">${wakeChips ? form('wake-remove', w.from, wakeChips) : ''}${form('wake-add', w.from, '<input type="time" name="value" required aria-label="New wake time"><button class="btn quiet">+ Add</button>', ' class="field"')}</div></div></div>`;
+<div class="group"><div class="block"><div class="chips" style="margin-top:0">${wakeChips ? form('wake-remove', w.from, wakeChips) : ''}${form('wake-add', w.from, '<input type="time" name="value" required aria-label="New wake time"><button class="btn quiet">+ Add</button>', ' class="field"')}</div></div></div>`;
   }
 
-  (globalThis.AppViews ||= {}).polling = {
-    className: 'hub-view view-polling',
-    title: () => 'Polling',
-    markup: () => `${BoardUI.header({ lead: 'back', backHref: '/_hub/#polling', backLabel: 'Back to the hub', title: 'Polling', time: 'now', logoSrc: '/_hub/kickflip.png', settingsHref: null })}
-<main class="has-top"></main>`,
-
+  globalThis.HubPolling = {
     create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
-      const main = B.$('main');
+      const main = root;
       let sel = ctx.view?.w || null;
       let flash = null;
       const shown = () => (last.windows.some((x) => x.from === sel) ? sel : last.select);
@@ -61,9 +53,10 @@ ${form('', w.from, `<button class="btn quiet" name="op" value="split"${w.split ?
       // The shown window lives in the URL, so a reload or a shared link shows it too.
       const select = (w) => {
         sel = w;
-        history.replaceState(history.state, '', AppRouter.urlOf({ kind: 'polling', w }));
+        history.replaceState(history.state, '', AppRouter.urlOf({ kind: 'hub', hash: '#polling', w }));
         paint();
       };
+      B.selectWindow = select;
       B.on(root, 'click', (e) => {
         const seg = e.target.closest?.('a.seg[data-w]');
         if (!seg || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -74,6 +67,7 @@ ${form('', w.from, `<button class="btn quiet" name="op" value="split"${w.split ?
         answer(out, action) {
           if (action === ACTION) { last = out; flash = null; select(out.select); }
           else { flash = { text: out.message, error: !out.ok }; load(); }
+          ctx.changed?.();
           ctx.sidebarChanged?.();
         },
         fail(message) { flash = { text: message, error: true }; paint(); },

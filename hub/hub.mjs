@@ -535,13 +535,11 @@ const head = (title, extra = '') => `<!doctype html><html lang="en" class="hub-v
 <meta name="apple-mobile-web-app-title" content="Claude">${extra}<link rel="stylesheet" href="/_hub/colors.css?v=${colorsVersion()}"><link rel="stylesheet" href="/_hub/hub.css"></head><body><main>`;
 
 // ---------- hub views ----------
-// The hub's pages are views of the app shell (board/public/view-hub.js, view-hub-settings.js, view-polling.js), which
+// The hub page and its settings modals live in the app shell (board/public/view-hub.js, view-hub-settings.js, view-polling.js), which
 // take their words from views.mjs through /_hub/api/*. A form POST that asks for JSON gets the view's data back; any
 // other gets a 303 back to the page.
 const wantsJSON = (req) => /\bapplication\/json\b/.test(req.headers.accept || '');
 const pollState = () => ({ running: Boolean(polls.running), nextAt: nextPollAt(), last: polls.last });
-// Each change on the Polling page posts op and w (the selected window's start); a 303 lands back at `anchor`.
-const POLLING_ANCHOR = { from: 'day', every: 'day', split: 'day', remove: 'day', hold: 'quiet', 'wake-add': 'wakes', 'wake-remove': 'wakes' };
 
 async function hubData(req) {
   await prunePrompts();
@@ -717,7 +715,7 @@ async function hubRoute(req, res, url) {
       if (e.status !== 400) throw e;
       return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
     }
-    return json ? sendJSON(200, pollingData(edit.select)) : redirect(res, `/_hub/settings/polling?w=${encodeURIComponent(edit.select)}#${POLLING_ANCHOR[op]}`);
+    return json ? sendJSON(200, pollingData(edit.select)) : redirect(res, `/_hub/?w=${encodeURIComponent(edit.select)}#polling`);
   }
   if (p === '/_hub/settings/rules' && req.method === 'POST') {
     let body, saved;

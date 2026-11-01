@@ -1,5 +1,5 @@
 // The hub's own views' data (docs/adr/0055-one-app-for-the-whole-hub.md): what GET /_hub/api/hub, /_hub/api/settings
-// and /_hub/api/polling answer, with every word the hub page, its hub settings and Polling show. hub.mjs reads the state
+// and /_hub/api/polling answer, with every word the hub page and its settings modals show. hub.mjs reads the state
 // these take; board/public/view-hub.js, view-hub-settings.js and view-polling.js only lay the words out.
 // st is a push.mjs queueStatus(now) result throughout, and poll the hub's poll state {running, nextAt, last}, last
 // being the last github.mjs checkGitHub result.
@@ -26,7 +26,7 @@ export function pollLine({ running = false, nextAt, last = null }, now) {
   return `${next} · last ${clock(new Date(last.at), now)}, ${what}`;
 }
 
-// The Now row the hub page and Polling share: what polling does now, the last and next check, the queue and Send now.
+// The Now row the hub page and Polling modal share: what polling does now, the last and next check, the queue and Send now.
 function pollingNow(st, poll, now) {
   return { title: capital(nowLine(st, now)), lines: [pollLine(poll, now), queuedLine(st, now)], count: st.count };
 }

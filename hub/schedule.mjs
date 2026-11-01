@@ -145,7 +145,7 @@ export function splitPoint(s, i) {
   return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 }
 
-// One change from the Polling page to settings `s`: { input } to save, with `select` the window start to show next,
+// One change from the Polling modal to settings `s`: { input } to save, with `select` the window start to show next,
 // or { error }. op is `from` (value HH:MM), `every` (value minutes), `split` or `remove` on the window starting at
 // `w`; `hold` (value 'on' or not); or `wake-add` / `wake-remove` (value HH:MM). validate checks the input.
 export function editPolling(s, { op, w, value }) {
@@ -172,7 +172,7 @@ export function editPolling(s, { op, w, value }) {
     case 'hold': input.hold_overnight = value === 'on'; return { input, select };
     case 'wake-add': input.wakes.push(value); return { input, select };
     case 'wake-remove': input.wakes = input.wakes.filter((x) => x !== value); return { input, select };
-    default: return { error: 'That change is not one the Polling page makes.' };
+    default: return { error: 'That change is not one the Polling modal makes.' };
   }
 }
 
