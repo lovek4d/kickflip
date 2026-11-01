@@ -234,7 +234,7 @@ The link on a device-app card that installs its build on the owner's phone, last
 _Avoid_: download, TestFlight (a different channel), build link
 
 **Install script**:
-The script the owner chooses on a board's Settings to build its cards' device installs. The hub runs it from the Mac's GUI session, where signing can use the unlocked login keychain, and reports each build in the card's thread ([0067](docs/adr/0067-the-hub-runs-a-boards-install-script.md)).
+The script the owner chooses on a board's Settings to build its cards' device installs. The hub runs it from the Mac's GUI session, where signing can use the unlocked login keychain, and reports each build in the card's thread ([0090](docs/adr/0090-the-hub-runs-a-boards-install-script.md)).
 _Avoid_: install command, session install runner
 
 **Notes**:
