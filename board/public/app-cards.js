@@ -143,7 +143,7 @@ BoardView.part((B) => {
       sendingHold.set(key, act === 'hold');
       redrawActions(key);
       try { await B.site.send('card-hold', { key, hold: act === 'hold' }); }
-      catch { toast(`Could not ${act}. Is the Mac awake?`); }
+      catch { toast(`Could not ${act}. Is the host awake?`); }
       sendingHold.delete(key);
       B.loadBoard();
       return;
@@ -153,7 +153,7 @@ BoardView.part((B) => {
       sendingMerge.add(key);
       redrawActions(key);
       try { await B.site.send('card-merge', { key }); }
-      catch { toast('Could not send. Is the Mac awake?'); }
+      catch { toast('Could not send. Is the host awake?'); }
       sendingMerge.delete(key);
       B.loadBoard();
       return;
@@ -163,7 +163,7 @@ BoardView.part((B) => {
       B.sendingDone.add(key);
       B.syncDone(key);
       try { await (it.kind === 'ask' ? B.site.send('ask-done', { id: it.id }) : B.site.send('card-done', { key })); }
-      catch { toast('Could not close. Is the Mac awake?'); }
+      catch { toast('Could not close. Is the host awake?'); }
       B.sendingDone.delete(key);
       await B.loadBoard();
       B.syncDone(key);
@@ -176,7 +176,7 @@ BoardView.part((B) => {
       if (act === 'bump') { await B.site.send('card-bump', { key }); toast('Moved to the top'); }
       else if (act === 'nudge') { await B.site.send('builder-nudge', { key }); b.textContent = 'Sent'; toast('Nudge sent'); }
       else { await B.site.send(act === 'grill' ? 'grill-more' : 'build-followup', { key }); B.loadThread(key, { force: true }); }
-    } catch { toast('Could not send. Is the Mac awake?'); }
+    } catch { toast('Could not send. Is the host awake?'); }
     B.loadBoard();
   });
 

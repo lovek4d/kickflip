@@ -3,16 +3,23 @@ import os from 'node:os';
 import path from 'node:path';
 import { cloneRoot as runningClone } from '../shared/repos.mjs';
 import { codexStatus } from '../shared/codex.mjs';
-import { inspectLinks, ownsStatusLine, hubStatus, tailscaleRoot, runCommand, runInstall, LOGIN_LABEL } from './install.mjs';
+import { hubService, runCommand } from '../shared/service.mjs';
+import { inspectLinks, ownsStatusLine, hubStatus, tailscaleRoot, runInstall } from './install.mjs';
 
 const FIX = 'kickflip doctor --fix';
 const MARKS = { ok: 'ok', fixable: 'fixable', yours: 'yours', optional: 'optional', note: 'note' };
 const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+// Homebrew on macOS; elsewhere apt, with Tailscale's own script since most distributions don't ship it.
+const INSTALL = {
+  darwin: { git: 'xcode-select --install', gh: 'brew install gh', tailscale: 'brew install --cask tailscale' },
+  other: { git: 'sudo apt install git', gh: 'sudo apt install gh', tailscale: 'curl -fsSL https://tailscale.com/install.sh | sh' },
+};
 
 // → [{group: prereqs|setup|hub, item, state, detail, fix}]. state is ok; fixable, which `doctor --fix` sets up; yours,
 // which only the person can fix with the fix command; optional, yours but not needed for the hub; or note, which the
 // hub handles itself. Reads only: runs the read commands through run(command, argv, {env}) and asks the hub on port.
-export async function doctorReport({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, fetch = globalThis.fetch } = {}) {
+export async function doctorReport({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, platform = process.platform, fetch = globalThis.fetch } = {}) {
+  const hints = INSTALL[platform === 'darwin' ? 'darwin' : 'other'];
   const items = [];
   let group;
   const add = (item, state, detail, fix = null) => items.push({ group, item, state, detail, fix: state === 'ok' || state === 'note' ? null : fix });
@@ -28,16 +35,16 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   };
 
   group = 'prereqs';
-  installed('git', 'git', ['--version'], 'xcode-select --install');
+  installed('git', 'git', ['--version'], hints.git);
   installed('node on Claude’s PATH', 'node', ['--version'], `add ${quote(path.dirname(process.execPath))} to PATH in your shell profile, then restart Claude Code`, `not on this session’s PATH (${env.PATH || 'empty'})`);
-  const gh = installed('gh', 'gh', ['--version'], 'brew install gh');
+  const gh = installed('gh', 'gh', ['--version'], hints.gh);
   const ghAuth = gh && execute('gh', ['auth', 'status']).status === 0;
   add('gh signed in', ghAuth ? 'ok' : 'yours', ghAuth ? 'signed in' : gh ? 'not signed in' : 'needs gh', 'gh auth login');
-  const ts = installed('Tailscale', 'tailscale', ['version'], 'brew install --cask tailscale');
+  const ts = installed('Tailscale', 'tailscale', ['version'], hints.tailscale);
   const tsStatus = ts ? json(execute('tailscale', ['status', '--json'])) : null;
   const signedIn = tsStatus?.BackendState === 'Running';
   add('Tailscale signed in', signedIn ? 'ok' : 'yours', signedIn ? `signed in${tsStatus.Self?.DNSName ? ' as ' + tsStatus.Self.DNSName.replace(/\.$/, '') : ''}` : ts ? 'not connected' : 'needs Tailscale', 'tailscale up');
-  const codex = codexStatus({ home, env });
+  const codex = codexStatus({ home, env, platform });
   add('Codex', codex.usable ? 'ok' : 'optional', codex.usable ? 'installed and logged in' : `${codex.reason}; Codex builds and reviews need it`, codex.fix);
 
   group = 'setup';
@@ -61,10 +68,10 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   else if (!Object.hasOwn(settings, 'statusLine')) add(statusLine, 'fixable', 'missing', FIX);
   else if (ownsStatusLine(settings.statusLine, home)) add(statusLine, 'ok', 'runs ~/.claude/statusline.sh');
   else add(statusLine, 'yours', 'another tool’s status line is selected', `remove statusLine from ${quote(settingsFile)}, then ${FIX}`);
-  const plist = path.join(home, 'Library', 'LaunchAgents', LOGIN_LABEL + '.plist');
-  const login = execute('launchctl', ['print', `gui/${uid}/${LOGIN_LABEL}`]);
-  const running = fs.existsSync(plist) && login.status === 0 && /\bstate = running\b/.test(login.stdout || '');
-  add('hub login item', running ? 'ok' : 'fixable', running ? 'running' : fs.existsSync(plist) ? 'not running' : 'not installed', FIX);
+  const service = hubService({ platform, home, uid, env, run });
+  const login = service.status();
+  add(service.item, login.running ? 'ok' : service.manager ? 'fixable' : 'yours', login.detail, service.manager ? FIX : `run ${service.restartCommand} under a service manager of your own`);
+  for (const note of service.notes()) add(note.item, note.state, note.detail, note.fix);
 
   group = 'hub';
   const hub = await hubStatus({ port, fetch });
@@ -77,7 +84,7 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   } catch {}
   const mounts = serve.paths.filter((route) => route !== '/');
   // doctor --fix maps / with `tailscale serve`, which needs Tailscale signed in first.
-  add('tailscale /', pointsAtHub ? 'ok' : signedIn ? 'fixable' : 'yours', `${serve.root || 'nothing'}${pointsAtHub ? '' : ` (expected the hub on ${port})`}${mounts.length ? '; other mounts: ' + mounts.join(', ') : ''}`, signedIn ? FIX : ts ? 'tailscale up' : 'brew install --cask tailscale');
+  add('tailscale /', pointsAtHub ? 'ok' : signedIn ? 'fixable' : 'yours', `${serve.root || 'nothing'}${pointsAtHub ? '' : ` (expected the hub on ${port})`}${mounts.length ? '; other mounts: ' + mounts.join(', ') : ''}`, signedIn ? FIX : ts ? 'tailscale up' : hints.tailscale);
 
   let sites = hub?.sites;
   if (!sites) {

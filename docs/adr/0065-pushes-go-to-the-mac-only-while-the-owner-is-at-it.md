@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0093
+---
+
 # Pushes go to the Mac only while the owner is at it
+
+Superseded in part by [0093](0093-the-hub-runs-under-the-hosts-service-manager.md): "At the Mac" reads "At the host", and on a Linux host, which has no `ioreg`, the owner always reads away.
 
 **At the Mac** means the screen is unlocked and a key or the pointer was used in the last 3 minutes, whatever app is in front. `hub/presence.mjs` reads both from `ioreg` with no permission: `CGSSessionScreenIsLocked` from `ioreg -n Root -d1` (absent or `No` while unlocked) and `HIDIdleTime` from `ioreg -c IOHIDSystem`. A reading is reused for 5 seconds. When `ioreg` fails, the owner counts as away, so a push still reaches the phone.
 

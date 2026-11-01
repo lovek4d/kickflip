@@ -12,7 +12,7 @@
       const load = loadLinear;
       loadLinear = null;
       linear = { loading: true };
-      load().catch((e) => ({ set: true, error: e.message || 'Is the Mac awake?' })).then((next) => {
+      load().catch((e) => ({ set: true, error: e.message || 'Is the host awake?' })).then((next) => {
         if (destroyed) return;
         linear = next; pickDefaults(); render(); change(read(), valid(), { loaded: true });
       });
@@ -260,7 +260,7 @@
         const d = await request(`/_hub/repos${fresh ? '?fresh=1' : ''}`);
         if (closed || generation !== version) return;
         if (!d.signedIn) {
-          content.innerHTML = '<h3>GitHub isn’t connected</h3><p>gh isn’t signed in on the Mac running Kickflip. Sign in there to see your repos.</p><code>gh auth login</code><p><button type="button" data-check-auth>Check again</button></p>';
+          content.innerHTML = '<h3>GitHub isn’t connected</h3><p>gh isn’t signed in on the host running Kickflip. Sign in there to see your repos.</p><code>gh auth login</code><p><button type="button" data-check-auth>Check again</button></p>';
           return;
         }
         repos = d.repos;

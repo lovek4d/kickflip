@@ -22,7 +22,7 @@ globalThis.PromptAnswers = (function () {
         if (r.status === 404) notify('That prompt has expired.');
         else if (r.status === 409) notify('That prompt was already answered.');
         else if (!r.ok) notify((await r.json().catch(() => null))?.error || 'Could not send.');
-      } catch { notify('Could not send. Is the Mac awake?'); }
+      } catch { notify('Could not send. Is the host awake?'); }
       sending.delete(p.id);
       paint();
       after();

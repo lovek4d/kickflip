@@ -1,6 +1,7 @@
-// Whether the owner is at the Mac (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md): the screen
+// Whether the owner is at the host (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md): the screen
 // is unlocked and a key or the pointer was used in the last 3 minutes, whatever app is in front. Both readings come
-// from ioreg, which needs no permission, so the launchd hub and a session's CLI read the same.
+// from macOS ioreg, which needs no permission, so the hub's service and a session's CLI read the same. A host without
+// ioreg, such as Linux, fails the reading, so the owner always reads away there.
 import { execFile } from 'node:child_process';
 
 export const IDLE_LIMIT_MS = 3 * 60_000;
@@ -10,7 +11,7 @@ const ioreg = (args) => new Promise((resolve, reject) => {
 });
 
 // run(args) → ioreg's output for those args. Resolves {atMac, locked, idleMs}, or {atMac: false, error} when a
-// reading fails, so a Mac that can't be read counts as away and pushes keep reaching the phone.
+// reading fails, so a host that can't be read counts as away and pushes keep reaching the phone.
 export async function readPresence(run = ioreg) {
   try {
     const [root, hid] = await Promise.all([run(['-n', 'Root', '-d1']), run(['-c', 'IOHIDSystem'])]);

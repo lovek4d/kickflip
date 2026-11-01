@@ -83,7 +83,7 @@ ${sitesHtml(d.groups)}${d.remembered?.length ? `<h2 class="label">Sessions witho
       const load = HubKit.live(B, {
         url: () => '/_hub/api/hub',
         paint(d) {
-          if (!d) { if (!last) main.innerHTML = '<p class="note">Offline. Is the Mac awake?</p>'; return; }
+          if (!d) { if (!last) main.innerHTML = '<p class="note">Offline. Is the host awake?</p>'; return; }
           last = d;
           paint();
           badge(Number(d.total) || 0);

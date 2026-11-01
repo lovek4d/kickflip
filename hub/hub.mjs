@@ -44,7 +44,7 @@
 //                     dir and no port is a plain page whose files the hub serves itself (files.mjs)
 //   /sw.js, /manifest.webmanifest, /_hub/icon-*.png
 //                     the Home Screen app and its service worker (scope /), which shows pushes and keeps the shell
-//                     and its files to open while the Mac can't be reached; the shell's response carries
+//                     and its files to open while the host can't be reached; the shell's response carries
 //                     X-App-Shell: 1, and a request with X-App-Shell: 1 is a page load (shell.mjs destOf)
 //   /_hub/colors.css  ../shared/colors.css, the colours the shell and the down page link; ?v=colorsVersion() caches for a year
 //   /_hub/kickflip.png the header's image and every page's tab icon (/favicon.ico redirects to it), and /_hub/hub.css the down page's CSS, read from ../board/public
@@ -93,8 +93,8 @@
 // board's session once a day (github.mjs sendWakes)
 // (docs/adr/0025-the-hub-polls-github-and-sends-pushes-on-one-interval.md). Every feature that serves
 // boards takes them from boards.mjs listBoards, the one board registry
-// (docs/adr/0040-one-board-registry-for-every-hub-feature.md). launchd keeps the
-// hub itself running (see ../SKILL.md, `kickflip install`).
+// (docs/adr/0040-one-board-registry-for-every-hub-feature.md). The host's service manager keeps the
+// hub itself running (../shared/service.mjs, `kickflip install`).
 // After each poll it records when each board's hub links first failed (boards.mjs recordLinkFaults). As it starts it
 // records the hash of its own code (boards.mjs recordHubCode), so the hub link (boards.mjs hubLink) can tell when the
 // files changed under it (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md), and flags `hub-orchestrator`
@@ -675,7 +675,7 @@ async function hubRoute(req, res, url) {
     const host = (req.headers.host || '').replace(/:\d+$/, '');
     if (!local.includes(req.socket.remoteAddress) || !['127.0.0.1', 'localhost', '[::1]'].includes(host)
       || req.headers.origin || Object.keys(req.headers).some((h) => h === 'forwarded' || h.startsWith('x-forwarded-'))) {
-      return sendJSON(403, { error: 'Install builds can only be started from the Mac over loopback.' });
+      return sendJSON(403, { error: 'Install builds can only be started from the host over loopback.' });
     }
     let input;
     try { input = await readJSONBody(req); } catch (e) { return sendJSON(e.status || 400, { error: 'Send the board route and card key as JSON.' }); }

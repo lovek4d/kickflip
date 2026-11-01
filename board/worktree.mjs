@@ -12,6 +12,7 @@ import { BoardError } from './store.mjs';
 import { hubCode, listBoards } from '../hub/boards.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { storedPath } from '../bin/install.mjs';
+import { hubService } from '../shared/service.mjs';
 
 const KICKFLIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'kickflip.mjs');
 export const skillRepo = cloneRoot;
@@ -120,16 +121,19 @@ function tapFailures(tap) {
   return failures;
 }
 
-// Restarts the hub ('hub') or one board server ('board', route). KICKFLIP_RESTART_CMD='["<cmd>", …]' replaces both,
-// with what to restart appended, so a test never reaches launchd or a real board.
+// Restarts the hub ('hub') through its service (../shared/service.mjs) or one board server ('board', route).
+// KICKFLIP_RESTART_CMD='["<cmd>", …]' replaces both, with what to restart appended, so a test never reaches the
+// host's service manager or a real board.
 export function restartRunner(what, route) {
   let cmd;
   if (process.env.KICKFLIP_RESTART_CMD) {
     try { cmd = JSON.parse(process.env.KICKFLIP_RESTART_CMD); } catch {}
     if (!Array.isArray(cmd) || !cmd.length || !cmd.every((a) => typeof a === 'string')) fail('KICKFLIP_RESTART_CMD must be a JSON array of strings');
     cmd = [...cmd, what, ...(route ? [route] : [])];
+  } else if (what === 'hub') {
+    return hubService().restart();
   } else {
-    cmd = what === 'hub' ? ['launchctl', 'kickstart', '-k', `gui/${process.getuid()}/local.claude.kickflip-hub`] : [process.execPath, KICKFLIP, 'restart', route];
+    cmd = [process.execPath, KICKFLIP, 'restart', route];
   }
   const r = spawnSync(cmd[0], cmd.slice(1), { encoding: 'utf8' });
   return r.status === 0 ? null : (r.stderr || r.error?.message || `exit ${r.status}`).trim().split('\n')[0];

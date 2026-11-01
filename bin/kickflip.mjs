@@ -68,13 +68,15 @@
 //   kickflip restart <route>
 //   kickflip logs <route> [--lines <n>]
 //   kickflip install [--dry-run] | uninstall
-//               install is the first-run name for doctor --fix. It first moves a Mac set up under the web-ts names to
+//               install is the first-run name for doctor --fix. It first moves a host set up under the web-ts names to
 //               the kickflip ones (./install.mjs migrateHome), then links the clone, hooks plugin and status line,
-//               configures Claude settings, starts the hub's login item in place of the running one, including one
-//               under the old label, and maps Tailscale / to the hub.
+//               configures Claude settings, starts the hub's service in place of the running one (../shared/service.mjs:
+//               a launchd login item on macOS, including one under the old label; a systemd user unit on Linux),
+//               and maps Tailscale / to the hub.
 //               Conflicting skill links and real paths are refused. A dangling status-line link can be replaced.
 //               --dry-run prints what install would move, link and start, and changes nothing.
-//               uninstall also removes kickflip's status-line link; Claude settings and skill links are kept
+//               uninstall stops the hub and removes its service, kickflip's status-line link and Tailscale /;
+//               Claude settings and skill links are kept
 //   kickflip push --kind action|prompt|fault --title <t> [--body <b>] [--url </route/path>] [--tag <tag>]
 //               [--now | --urgent]
 //               notify every device that turned on notifications on the Hub page; a tap opens --url.
@@ -116,7 +118,8 @@ import { ICON_KEYS } from '../hub/icons.mjs';
 import { liveSessions } from '../hub/live.mjs';
 import { isBoardSite, writeManifest } from '../hub/boards.mjs';
 import { routeRecord, validRoute } from '../hub/routes.mjs';
-import { migrateOnStart, uninstallStatusLine, storedPath, LOGIN_LABEL } from './install.mjs';
+import { migrateOnStart, uninstallStatusLine, storedPath } from './install.mjs';
+import { hubService } from '../shared/service.mjs';
 import { runDoctor } from './doctor.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 
@@ -126,7 +129,6 @@ const MANIFEST = path.join(HOME, 'manifest.json');
 const LOGS = path.join(HOME, 'logs');
 const HUB_PORT = Number(process.env.KICKFLIP_HUB_PORT || 4500);
 const FIRST_SITE_PORT = 4600;
-const PLIST = path.join(os.homedir(), 'Library', 'LaunchAgents', LOGIN_LABEL + '.plist');
 const COLOR_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
 const [cmd, ...rest] = process.argv.slice(2);
@@ -529,11 +531,10 @@ const commands = {
 
   async uninstall() {
     if (uninstallStatusLine()) out(`removed ${path.join(os.homedir(), '.claude', 'statusline.sh')}`);
-    const uid = String(process.getuid());
-    try { execFileSync('launchctl', ['bootout', `gui/${uid}/${LOGIN_LABEL}`], { stdio: 'ignore' }); } catch {}
-    try { fs.unlinkSync(PLIST); } catch {}
+    const service = hubService();
+    service.remove();
     try { execFileSync('tailscale', ['serve', '--https=443', '--set-path=/', 'off'], { stdio: 'ignore' }); } catch {}
-    out('hub stopped and removed from login items; tailscale / unmapped. The manifest and sites are kept in ' + HOME);
+    out(`hub stopped and removed from ${service.manager ?? 'the host'}; tailscale / unmapped. The manifest and sites are kept in ${HOME}`);
   },
 
   async push() {

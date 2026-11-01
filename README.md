@@ -1,10 +1,10 @@
 # Kickflip
 
-Kickflip puts your Claude Code sessions' work on your phone. One hub on your Mac serves pages over your Tailscale network: a sidebar of every site, and boards that show each session's work as cards, with the questions waiting on you and a push notification when something needs you. Sessions write to their boards, and you follow and steer them from your phone.
+Kickflip puts your Claude Code sessions' work on your phone. One hub on your host, a Mac or a Linux machine, serves pages over your Tailscale network: a sidebar of every site, and boards that show each session's work as cards, with the questions waiting on you and a push notification when something needs you. Sessions write to their boards, and you follow and steer them from your phone.
 
 ## Install
 
-Follow [Install on a new Mac](SKILL.md#install-on-a-new-mac) in SKILL.md.
+Follow [Install on a new host](SKILL.md#install-on-a-new-host) in SKILL.md.
 
 ## License
 

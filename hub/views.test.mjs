@@ -68,11 +68,11 @@ test('Hub Settings says whether pushes go, when a snooze ends and what each snoo
   assert.deepEqual(v.snooze.choices.map((c) => [c.value, c.label, c.until]), [['3h', '3h', 'until 1:00pm'], ['6h', '6h', 'until 4:00pm'],
     ['1d', '1d', 'until 10:00am tomorrow'], ['monday', 'Monday', 'until 8:00am Mon Oct 19']]);
   assert.deepEqual(plain(v.rules), [{ id: 'r1', text: 'Be brief' }]);
-  assert.deepEqual(plain(v.presence), { title: 'Away from the Mac', sub: 'Pushes go to every device. At the Mac means unlocked and used in the last 3 minutes.' });
+  assert.deepEqual(plain(v.presence), { title: 'Away from the host', sub: 'Pushes go to every device. At the host means unlocked and used in the last 3 minutes.' });
   assert.deepEqual(plain(settingsView({ now, st: status(now, DEFAULTS), route: { atMac: true, desktops: 1 } }).presence),
-    { title: 'At the Mac', sub: 'Pushes go to the Mac only. Prompts, faults and urgent pushes still reach the phone.' });
+    { title: 'At the host', sub: 'Pushes go to the host only. Prompts, faults and urgent pushes still reach the phone.' });
   assert.deepEqual(plain(settingsView({ now, st: status(now, DEFAULTS), route: { atMac: true, desktops: 0 } }).presence),
-    { title: 'At the Mac', sub: 'No notifications on the Mac, so pushes still go to the phone.' });
+    { title: 'At the host', sub: 'No notifications on the host, so pushes still go to the phone.' });
 
   const snoozed = settingsView({ now, st: status(now, notify(DEFAULTS, { snoozed_until: t(12).toISOString() }), 2) });
   assert.deepEqual(plain(snoozed.snoozed), { title: 'Snoozed until 12:00pm' });
@@ -94,9 +94,9 @@ test("the hub page's Codex share says what each choice means while Codex is usab
   const sidebar = { sites: [], hub: {}, notifications: {}, total: 0, usage: { claude: null, codex: null } };
   const view = (extra = {}) => hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar, rows: [], ...extra }).codex;
   const unusable = (v) => [v.usable, v.tag, v.share, v.choices.find((c) => c.on).value, v.description, v.fix, v.note];
-  assert.deepEqual(unusable(view()), [false, 'Not installed', 'off', 'off', "Codex isn't installed on this Mac.", 'brew install --cask codex', null]);
+  assert.deepEqual(unusable(view()), [false, 'Not installed', 'off', 'off', "Codex isn't installed on the host.", 'brew install --cask codex', null]);
   assert.deepEqual(unusable(view({ codex: NOT_INSTALLED })), unusable(view()));
-  assert.deepEqual(unusable(view({ codex: LOGGED_OUT })), [false, 'Not logged in', 'off', 'off', "Codex isn't logged in on this Mac.", 'codex login', null]);
+  assert.deepEqual(unusable(view({ codex: LOGGED_OUT })), [false, 'Not logged in', 'off', 'off', "Codex isn't logged in on the host.", 'codex login', null]);
   const meanings = {
     always: 'Codex builds and reviews; while Codex is out of usage, that work pauses until a usage-reset check succeeds.',
     auto: 'Codex builds and reviews; while Codex is out of usage, Opus builders take over until it resets.',
@@ -195,7 +195,7 @@ test('Hub settings modals keep summaries, turn this device on and snooze inline,
   assert.equal(root.querySelector('.snooze-custom .btn').textContent, 'Custom');
   assert.equal(root.querySelectorAll('dialog').length, 1);
   assert.equal(modal.open, true);
-  assert.match(root.textContent, /Away from the Mac/);
+  assert.match(root.textContent, /Away from the host/);
   assert.doesNotMatch(modal.textContent, /Pushes wait, then go|Turn off to drop|unlocked and used/);
   const enable = root.querySelector('[data-device="on"]');
   assert.equal(enable.textContent, 'Turn on');
@@ -408,8 +408,8 @@ test("the hub page's Usage card opens Codex's block with Codex share, bars under
   };
 
   for (const [status, tag, words, fix] of [
-    [NOT_INSTALLED, 'Not installed', "Codex isn't installed on this Mac.", 'brew install --cask codex'],
-    [LOGGED_OUT, 'Not logged in', "Codex isn't logged in on this Mac.", 'codex login'],
+    [NOT_INSTALLED, 'Not installed', "Codex isn't installed on the host.", 'brew install --cask codex'],
+    [LOGGED_OUT, 'Not logged in', "Codex isn't logged in on the host.", 'codex login'],
   ]) {
     live.paint(hub('off', status));
     assert.equal(codex().textContent, `Codex${tag}Always onAutoOff${words}${fix}`);

@@ -4,9 +4,10 @@ import path from 'node:path';
 
 export const CODEX_SHARE_VALUES = ['auto', 'always', 'off'];
 
+// Codex has a Homebrew cask but no apt package; npm installs it anywhere else.
 const UNUSABLE = {
-  'not installed': { words: "Codex isn't installed on this Mac.", fix: 'brew install --cask codex' },
-  'not logged in': { words: "Codex isn't logged in on this Mac.", fix: 'codex login' },
+  'not installed': (platform) => ({ words: "Codex isn't installed on the host.", fix: platform === 'darwin' ? 'brew install --cask codex' : 'npm i -g @openai/codex' }),
+  'not logged in': () => ({ words: "Codex isn't logged in on the host.", fix: 'codex login' }),
 };
 
 const executable = (file) => {
@@ -18,9 +19,9 @@ export const codexOnPath = (env = process.env) => (env.PATH || '').split(path.de
 
 // Codex is usable when installed and logged in (~/.codex/auth.json); running out of usage doesn't count.
 // → {usable, reason: null | 'not installed' | 'not logged in', words, fix}: words and fix say why and what to run.
-export function codexStatus({ home = os.homedir(), env = process.env, installed = codexOnPath(env) } = {}) {
+export function codexStatus({ home = os.homedir(), env = process.env, installed = codexOnPath(env), platform = process.platform } = {}) {
   const reason = !installed ? 'not installed' : !fs.existsSync(path.join(home, '.codex', 'auth.json')) ? 'not logged in' : null;
-  return reason ? { usable: false, reason, ...UNUSABLE[reason] } : { usable: true, reason: null, words: null, fix: null };
+  return reason ? { usable: false, reason, ...UNUSABLE[reason](platform) } : { usable: true, reason: null, words: null, fix: null };
 }
 
 // The hub reads this on every sidebar poll, so the PATH lookup is kept cacheMs; fresh: true looks again.

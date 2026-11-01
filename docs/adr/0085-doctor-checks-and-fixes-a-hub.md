@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0093
+---
+
 # Doctor checks and fixes a hub
+
+Superseded in part by [0093](0093-the-hub-runs-under-the-hosts-service-manager.md): the login item is the hub's service, a systemd user unit on Linux with a linger note, and install hints name apt off macOS.
 
 The owner picked option A of `doctor-shape` on hub/INT-196: one check and one fix path, under two names.
 

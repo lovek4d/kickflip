@@ -50,7 +50,7 @@
       <h2 id="closeBoardTitle">Close this board?</h2>
       <p id="closeBoardName"></p>
       <ul><li>Stop the board’s session.</li><li>Stop its server.</li><li>Remove its sidebar row and manifest entry.</li></ul>
-      <p>Keep its folder, cards, threads and notes on this Mac. Reopen later from Hub → Closed boards.</p>
+      <p>Keep its folder, cards, threads and notes on the host. Reopen later from Hub → Closed boards.</p>
       <div class="close-board-warning" id="closeBoardWarning"></div>
       <label for="closeBoardTyped">Type <strong id="closeBoardTypeName"></strong> to confirm.<input id="closeBoardTyped" autocomplete="off" autocapitalize="off" spellcheck="false" required></label>
       <p class="muted small" id="closeBoardError" role="status"></p>
@@ -98,7 +98,7 @@
         ...(d.builders || []).map((b) => `<li>${esc(b.label)} — ${esc(b.key)}</li>`)];
       $('#closeBoardWarning').innerHTML = warnings.length ? `<h3>This board still has active work</h3><ul>${warnings.join('')}</ul><p>Running builder records will be closed with a note. PRs stay open on GitHub; this board stops polling them.</p>` : '';
     };
-    loadClosure().catch(() => { if (B.alive()) $('#closeBoardReason').textContent = 'Could not load Close board. Is the Mac awake?'; });
+    loadClosure().catch(() => { if (B.alive()) $('#closeBoardReason').textContent = 'Could not load Close board. Is the host awake?'; });
     B.on(closeRow, 'click', async () => {
       if (closing || closeRow.disabled) return;
       closeRow.disabled = true;
@@ -112,7 +112,7 @@
         unfit = BoardDialogs.fitSheet(closeSheet);
         closeSheet.showModal();
         typed.focus();
-      } catch { $('#closeBoardReason').textContent = 'Could not load Close board. Is the Mac awake?'; closeRow.disabled = false; }
+      } catch { $('#closeBoardReason').textContent = 'Could not load Close board. Is the host awake?'; closeRow.disabled = false; }
     });
     B.on(typed, 'input', () => { closeConfirm.disabled = closing || typed.value !== closure?.title; });
     B.on($('#closeBoardCancel'), 'click', () => closeSheet.close());
@@ -132,7 +132,7 @@
         ctx.sidebarChanged?.();
         ctx.open(out.next || '/_hub/');
       } catch (error) {
-        if (B.alive()) $('#closeBoardError').textContent = error.message || 'Could not close board. Is the Mac awake?';
+        if (B.alive()) $('#closeBoardError').textContent = error.message || 'Could not close board. Is the host awake?';
       } finally {
         closing = false;
         closeConfirm.disabled = typed.value !== closure?.title;
@@ -194,7 +194,7 @@
         if (!B.alive()) return;
         savedTickets = out.settings.tickets;
         ticketsStatus.textContent = 'Saved.';
-      } catch (e) { if (B.alive()) ticketsStatus.textContent = e.message || 'Could not save. Is the Mac awake?'; }
+      } catch (e) { if (B.alive()) ticketsStatus.textContent = e.message || 'Could not save. Is the host awake?'; }
       finally { savingTickets = false; if (B.alive()) syncTickets(); }
     });
     let current = [];
@@ -213,7 +213,7 @@
       if (!B.alive()) return;
       current = d.reviewers || [];
       render();
-    }).catch(() => { if (B.alive()) $('#list').innerHTML = '<p class="muted">Offline. Is the Mac awake?</p>'; });
+    }).catch(() => { if (B.alive()) $('#list').innerHTML = '<p class="muted">Offline. Is the host awake?</p>'; });
 
     B.on($('#list'), 'click', (ev) => {
       const b = ev.target.closest('button[data-name]');
@@ -238,7 +238,7 @@
         await site.send('reviewers', { add: [...add], remove: [...remove] });
         add.clear(); remove.clear(); render();
         status.textContent = 'Sent. Claude updates the list and replies below.';
-      } catch { status.textContent = 'Could not send. Is the Mac awake?'; }
+      } catch { status.textContent = 'Could not send. Is the host awake?'; }
     });
     B.watch((events) => {
       $('#replies').innerHTML = events.map((e) => `<div class="reply">${e.reply ? (e.reply.html ?? '') : '<span class="muted small">Waiting for Claude…</span>'}</div>`).join('');
@@ -256,13 +256,13 @@
         change(_value, _valid, { loaded } = {}) { if (!loaded) ticketsTouched = true; syncTickets(); }, createProject: async (team, name) => {
           const r = await fetch('/_hub/linear/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ team, name }) });
           const out = await r.json().catch(() => ({}));
-          if (!r.ok) throw new Error(out.error || 'Could not create the project. Is the Mac awake?');
+          if (!r.ok) throw new Error(out.error || 'Could not create the project. Is the host awake?');
           return out;
         } });
       autoMergeStatus.textContent = '';
       autoMerge.checked = d.settings?.auto_merge === true;
       autoMerge.disabled = false;
-    }).catch(() => { autoMergeStatus.textContent = ticketsStatus.textContent = 'Offline. Is the Mac awake?'; });
+    }).catch(() => { autoMergeStatus.textContent = ticketsStatus.textContent = 'Offline. Is the host awake?'; });
     B.on(autoMerge, 'change', async () => {
       const want = autoMerge.checked;
       if (want && !(await BoardDialogs.confirm('Turn on auto-merge? Claude merges each approved PR on this board once CI is green and it merges cleanly, without asking you.'))) {
@@ -279,7 +279,7 @@
         autoMergeStatus.textContent = autoMerge.checked ? 'Saved. Claude merges approved, green PRs itself.' : 'Saved. Approved, green PRs wait for your Merge.';
       } catch (e) {
         autoMerge.checked = !want;
-        autoMergeStatus.textContent = e.message || 'Could not save. Is the Mac awake?';
+        autoMergeStatus.textContent = e.message || 'Could not save. Is the host awake?';
       }
       autoMerge.disabled = false;
     });
@@ -294,7 +294,7 @@
       installScript.value = savedScript = d.install_script || '';
       installScript.disabled = false;
       installStatus.textContent = '';
-    }).catch(() => { installStatus.textContent = 'Offline. Is the Mac awake?'; });
+    }).catch(() => { installStatus.textContent = 'Offline. Is the host awake?'; });
     B.on(installScript, 'input', () => {
       const dirty = installScript.value !== savedScript;
       installSave.disabled = !dirty;
@@ -312,7 +312,7 @@
         savedScript = out.install_script;
         installForm.removeAttribute('data-dirty');
         installStatus.textContent = savedScript ? 'Saved.' : 'Install builds are off.';
-      } catch (e) { installStatus.textContent = e.message || 'Could not save. Is the Mac awake?'; }
+      } catch (e) { installStatus.textContent = e.message || 'Could not save. Is the host awake?'; }
       installScript.disabled = false;
       installSave.disabled = installScript.value === savedScript;
     });
@@ -327,11 +327,11 @@
         async save(body) {
           const r = await fetch(site.url('api/rules'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
           const out = await r.json().catch(() => ({}));
-          if (!r.ok) throw new Error(out.error || 'Could not save. Is the Mac awake?');
+          if (!r.ok) throw new Error(out.error || 'Could not save. Is the host awake?');
           return { rules: out.rules, message: out.id ? 'Saved. Claude acknowledges it below.' : 'Nothing changed.' };
         },
       });
-    }).catch(() => { $('#rules').innerHTML = '<p class="muted">Offline. Is the Mac awake?</p>'; });
+    }).catch(() => { $('#rules').innerHTML = '<p class="muted">Offline. Is the host awake?</p>'; });
     B.watch((events) => {
       $('#rulesReplies').innerHTML = (events || []).slice(0, 3).map((e) => `<div class="reply">${e.reply ? (e.reply.html ?? '') : '<span class="muted small">Waiting for Claude…</span>'}</div>`).join('');
     }, { kind: 'rules' });

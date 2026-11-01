@@ -4,10 +4,10 @@
   // The header's short time beside refresh: `at` is when the page last got fresh data (nextFresh), and watcher is
   // /api/board's checks.watcher (docs/adr/0021-the-board-shows-github-checks-and-watcher-health.md). link is 'online',
   // 'offline' (the last board load failed) or 'reconnecting' (a refresh tap is retrying it).
-  const statusLine = (at, { link = 'online', watcher } = {}) => (link === 'offline' ? `<span class="link-state offline" title="Offline: can't reach the Mac">${at ? shortSince(at) : 'offline'}</span>`
+  const statusLine = (at, { link = 'online', watcher } = {}) => (link === 'offline' ? `<span class="link-state offline" title="Offline: can't reach the host">${at ? shortSince(at) : 'offline'}</span>`
     : link === 'reconnecting' ? '<span class="link-state">Reconnecting…</span>'
     : watcher === 'stopped' ? '<span class="claude late" title="Claude not listening">not listening</span>'
-    : at ? `<span class="fresh" title="Updated ${since(at)}: the last change from the Mac, or your last refresh">${shortSince(at)}</span>` : '');
+    : at ? `<span class="fresh" title="Updated ${since(at)}: the last change from the host, or your last refresh">${shortSince(at)}</span>` : '');
   // What the page shows, for telling whether a change signal brought anything new; generatedAt changes on every load.
   const freshSig = (board, threads, openKeys) => JSON.stringify([{ ...board, generatedAt: null }, [...openKeys].sort().map((k) => [k, threads.get(k) ?? null])]);
   // fresh is {at, sig}: the header's time and what the page showed then. via is 'refresh' (a ↻ tap), 'signal' (the

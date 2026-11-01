@@ -100,7 +100,7 @@ test('the header reads the time since the last change signal or refresh, and the
   assert.equal(text(ui.statusLine(ago(2), { watcher: 'running' })), '2 h');
   assert.equal(ui.statusLine(null), '');
   assert.match(ui.statusLine(fresh, { watcher: 'stopped' }), /^<span class="claude late" title="Claude not listening">not listening<\/span>$/);
-  assert.match(ui.statusLine(fresh, { watcher: 'stopped', link: 'offline' }), /^<span class="link-state offline" title="Offline: can't reach the Mac">1 min<\/span>$/);
+  assert.match(ui.statusLine(fresh, { watcher: 'stopped', link: 'offline' }), /^<span class="link-state offline" title="Offline: can't reach the host">1 min<\/span>$/);
   assert.equal(text(ui.statusLine(fresh, { link: 'reconnecting' })), 'Reconnecting…');
   assert.match(ui.statusLine(undefined, { link: 'offline' }), /^<span class="link-state offline"[^>]*>offline<\/span>$/);
   assert.equal(text(ui.githubLine(checks)), 'GitHub 4 min');

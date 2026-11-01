@@ -1,13 +1,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { cloneRoot as runningClone } from '../shared/repos.mjs';
+import { hubService, runCommand } from '../shared/service.mjs';
 
-export const LOGIN_LABEL = 'local.claude.kickflip-hub';
-const OLD_LOGIN_LABEL = 'local.claude.web-ts-hub';
-
-// Moves a Mac set up under the web-ts names to the kickflip ones (docs/adr/0084-kickflip-is-the-only-name.md): the
+// Moves a host set up under the web-ts names to the kickflip ones (docs/adr/0084-kickflip-is-the-only-name.md): the
 // state folder, keeping a link at its old path; a kickflip skill link beside join-web-ts; the hooks plugin link; and
 // the status line through the new skill link. Each step runs only while its old shape is there, so a rerun does
 // nothing. → {steps, conflicts}: lines saying what moved, or with dryRun what would, and what blocks a move.
@@ -71,44 +68,6 @@ function replaceWithLink(file, target) {
     // A process still on the old path can recreate it as an empty folder between the move and the link.
     try { fs.rmdirSync(file); fs.renameSync(tmp, file); } catch { fs.unlinkSync(tmp); throw e; }
   }
-}
-
-export function runCommand(command, argv, { env = process.env } = {}) {
-  const r = spawnSync(command, argv, { encoding: 'utf8', env, timeout: 10000 });
-  return { status: r.status ?? 1, stdout: r.stdout || '', error: (r.error?.message || r.stderr || `exit ${r.status}`).trim().split('\n')[0] };
-}
-
-const launchctl = (argv) => runCommand('launchctl', argv);
-
-// Writes the hub's login item and starts it in place of the running one, including one under the old label. When the
-// new one won't start, the old one is put back and started. run(argv) runs launchctl → {status, error}. → note lines.
-export async function installLoginItem({ plist, launchAgentsDir = path.join(os.homedir(), 'Library', 'LaunchAgents'), uid = process.getuid(), run = launchctl, wait = (ms) => new Promise((r) => setTimeout(r, ms)), dryRun = false }) {
-  const domain = `gui/${uid}`;
-  const file = path.join(launchAgentsDir, `${LOGIN_LABEL}.plist`);
-  const old = path.join(launchAgentsDir, `${OLD_LOGIN_LABEL}.plist`);
-  let oldPlist = null;
-  try { oldPlist = fs.readFileSync(old, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
-  const notes = [];
-  if (dryRun) {
-    if (oldPlist !== null) notes.push(`would stop ${domain}/${OLD_LOGIN_LABEL} and remove ${old}`);
-    return [...notes, `would write ${file} and start ${domain}/${LOGIN_LABEL}`];
-  }
-  fs.mkdirSync(launchAgentsDir, { recursive: true });
-  fs.writeFileSync(file, plist);
-  if (oldPlist !== null) {
-    run(['bootout', `${domain}/${OLD_LOGIN_LABEL}`]);
-    fs.unlinkSync(old);
-    notes.push(`stopped ${domain}/${OLD_LOGIN_LABEL} and removed ${old}`);
-  }
-  run(['bootout', `${domain}/${LOGIN_LABEL}`]);
-  await wait(500);
-  const started = run(['bootstrap', domain, file]);
-  if (started.status === 0) return [...notes, `started ${domain}/${LOGIN_LABEL} from ${file}`];
-  if (oldPlist === null) throw new Error(started.error);
-  fs.writeFileSync(old, oldPlist);
-  fs.rmSync(file, { force: true });
-  const restored = run(['bootstrap', domain, old]);
-  throw new Error(`${started.error}; ${restored.status === 0 ? `restarted ${domain}/${OLD_LOGIN_LABEL} from ${old}` : `could not restart ${domain}/${OLD_LOGIN_LABEL} either (${restored.error})`}`);
 }
 
 export function storedPath(realPath, { home = os.homedir(), skillsDir = path.join(home, '.claude', 'skills'), cloneRoot = runningClone() } = {}) {
@@ -200,46 +159,29 @@ export function tailscaleRoot(config) {
   return { root: handlers.find(([route]) => route === '/')?.[1]?.Proxy || null, paths: [...new Set(handlers.map(([route]) => route))] };
 }
 
-export async function runInstall({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), fetch = globalThis.fetch, dryRun = false, log = console.log } = {}) {
+export async function runInstall({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, platform = process.platform, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), fetch = globalThis.fetch, dryRun = false, log = console.log } = {}) {
   const state = path.join(home, '.claude', 'kickflip');
   const migration = migrateHome({ home, dryRun });
   for (const step of migration.steps) log(step);
   if (migration.conflicts.length) throw new Error(migration.conflicts.join('\n'));
-  const loginOptions = { launchAgentsDir: path.join(home, 'Library', 'LaunchAgents'), uid, run: (argv) => run('launchctl', argv, { env }), wait, dryRun };
+  const service = hubService({ platform, home, uid, env, run });
   if (dryRun) {
     try {
       for (const { link, target, created, replaced } of installLinks({ home, cloneRoot, dryRun })) log(`would ${created || replaced ? 'link' : 'check'} ${link} -> ${target}`);
     } catch (e) { log(`would refuse: ${e.message}`); }
     log(`would merge statusLine and remove stale hooks in ${path.join(home, '.claude', 'settings.json')}`);
-    for (const note of await installLoginItem(loginOptions)) log(note);
+    for (const note of await service.install(null, { wait, dryRun })) log(note);
     log(`would map tailscale / to the hub on ${port} and remove old site mounts`);
     return;
   }
   for (const { link, target, created, replaced } of installLinks({ home, cloneRoot })) log(`${created || replaced ? 'linked' : 'checked'} ${link} -> ${target}`);
   for (const note of installClaudeSettings({ home })) log(note);
   const node = fs.existsSync('/opt/homebrew/bin/node') ? '/opt/homebrew/bin/node' : process.execPath;
-  const hubEntry = storedPath(path.join(cloneRoot, 'hub', 'hub.mjs'), { home, cloneRoot });
+  const entry = storedPath(path.join(cloneRoot, 'hub', 'hub.mjs'), { home, cloneRoot });
   fs.mkdirSync(state, { recursive: true });
   const hubLog = path.join(state, 'hub.log');
-  const xml = (value) => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-  const plist = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>${LOGIN_LABEL}</string>
-  <key>ProgramArguments</key>
-  <array><string>${xml(node)}</string><string>${xml(hubEntry)}</string></array>
-  <key>WorkingDirectory</key><string>${xml(state)}</string>
-  <key>EnvironmentVariables</key>
-  <dict><key>PATH</key><string>${xml(path.dirname(node))}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string><key>KICKFLIP_HUB_PORT</key><string>${port}</string></dict>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>${xml(hubLog)}</string>
-  <key>StandardErrorPath</key><string>${xml(hubLog)}</string>
-</dict>
-</plist>
-`;
-  for (const note of await installLoginItem({ ...loginOptions, plist })) log(note);
+  const definition = service.definition({ node, entry, state, port, log: hubLog });
+  for (const note of await service.install(definition, { wait })) log(note);
   let up = false;
   for (let i = 0; i < 30 && !up; i++) {
     await wait(300);

@@ -1,6 +1,6 @@
 // Which Claude Code sessions are running. Claude Code writes ~/.claude/sessions/<pid>.json {pid, sessionId, cwd,
 // procStart, kind ("interactive" | "bg"), name, …} for each running session, and can leave one behind when it dies.
-// A record counts as live while its pid runs and, since macOS reuses pids, that process started when procStart says.
+// A record counts as live while its pid runs and, since pids get reused, that process started when procStart says.
 // procStart is `ps -o lstart=` text in UTC.
 import fs from 'node:fs';
 import path from 'node:path';

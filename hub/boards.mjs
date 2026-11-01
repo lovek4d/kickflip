@@ -19,6 +19,7 @@ import { liveSessions } from './live.mjs';
 import { withFileLock } from './locks.mjs';
 import { dropSessionPrompts, readPrompts, savePrompts, withPromptsLock } from './prompts.mjs';
 import { storedPath } from '../bin/install.mjs';
+import { hubService } from '../shared/service.mjs';
 
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLAUDE = path.join(os.homedir(), '.claude');
@@ -192,7 +193,7 @@ export async function sendToBoards(boards, kind, data) {
 
 // ---------- listening ----------
 // Whether a watcher (bin/wait-events.mjs) runs for the board, from data/watcher.json {pid, since, exited_at}: its pid
-// alive and running wait-events.mjs, since macOS reuses pids, or an exit within the relaunch grace.
+// alive and running wait-events.mjs, since pids get reused, or an exit within the relaunch grace.
 export function watcherRunning(dir, now = Date.now()) {
   const w = readJSON(path.join(dir, 'data', 'watcher.json'), null);
   if (!Number.isInteger(w?.pid)) return false;
@@ -411,7 +412,7 @@ export function recordHubCode() {
   return code;
 }
 
-const RESTART_HUB = 'launchctl kickstart -k gui/$(id -u)/local.claude.kickflip-hub';
+const RESTART_HUB = hubService().restartCommand;
 export const hubCodeState = () => ({ running: readJSON(HUB_CODE, null)?.hash, onDisk: hubCode().hash });
 // The hub's own link, so linksOf leaves it out (docs/adr/0064-every-builder-works-in-a-worktree.md).
 // → {link: 'hub', ok, detail}

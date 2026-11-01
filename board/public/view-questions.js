@@ -361,7 +361,7 @@
         await loading;
         if (await load(false)) moveOn(from, pills, what);
         else if (B.alive()) { sentLine = what; $('#qstatus').textContent = what; $('#qstatus').classList.add('sent'); }
-      } catch { st.textContent = sent ? `Sent ${sent} of ${list.length}. Is the Mac awake?` : 'Could not send. Is the Mac awake?'; }
+      } catch { st.textContent = sent ? `Sent ${sent} of ${list.length}. Is the host awake?` : 'Could not send. Is the host awake?'; }
     });
     // Each composer painted raises a bubbling attach-change (attach.js).
     B.on(root, 'attach-change', updateBar);

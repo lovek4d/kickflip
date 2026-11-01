@@ -35,7 +35,7 @@ export function startingBoards(manifest, now = Date.now()) {
 }
 // "none" is the value that turns isolation off; Claude Code drops any other value and isolates. The PermissionRequest
 // hook sends the session's prompts to the phone, and its timeout stays a minute past the hook's own wait
-// (docs/adr/0060-background-sessions-prompts-come-to-the-phone.md). launchd's PATH may have no node, hence execPath.
+// (docs/adr/0060-background-sessions-prompts-come-to-the-phone.md). The hub service's PATH may have no node, hence execPath.
 export const PROMPT_HOOK_TIMEOUT_S = WAIT_MS / 1000 + 60;
 export const BG_SETTINGS = JSON.stringify({
   worktree: { bgIsolation: 'none' },
@@ -53,7 +53,7 @@ export function withSessionLock(route, fn) {
     () => fn({ resume: (options) => resumeRecordedSession(route, options) }), { staleAfter: 120_000, timeout: 90_000 });
 }
 
-// launchd gives the hub a PATH without ~/.local/bin, where the Claude Code installer puts claude.
+// The hub's service gives it a PATH without ~/.local/bin, where the Claude Code installer puts claude.
 export function claudeBin() {
   if (process.env.KICKFLIP_CLAUDE) return process.env.KICKFLIP_CLAUDE;
   const local = path.join(os.homedir(), '.local', 'bin', 'claude');

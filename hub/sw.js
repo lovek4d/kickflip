@@ -1,12 +1,12 @@
 // The hub's service worker, served at /sw.js with scope /. Push messages come
 // from push.mjs as {title, body, url, tag, badge}; url is a path on the hub, and badge, when
 // present, is the Home Screen app badge count.
-// It keeps the app shell and its files, network first, so the app opens from the last copy while the Mac is asleep
+// It keeps the app shell and its files, network first, so the app opens from the last copy while the host is asleep
 // (docs/adr/0055-one-app-for-the-whole-hub.md). Nothing else is cached: API calls, streams, uploads and frames always
 // go to the network.
 const CACHE = 'hub-app';
 const SHELL = new URL('/', self.registration.scope).href;
-// A sleeping Mac over Tailscale leaves a request hanging rather than failing, so a saved copy answers after this long.
+// A sleeping host over Tailscale leaves a request hanging rather than failing, so a saved copy answers after this long.
 const NETWORK_WAIT_MS = 3000;
 
 // The paths hub/shell.mjs pageOf answers with the shell on a page load; hub/sw.test.mjs checks they agree.

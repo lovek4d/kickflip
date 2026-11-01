@@ -75,7 +75,7 @@ ${form('', w.from, `<button class="btn quiet" name="op" value="split"${w.split ?
       const load = HubKit.live(B, {
         url: () => `/_hub/api/polling${sel ? `?w=${encodeURIComponent(sel)}` : ''}`,
         paint(d) {
-          if (!d) { if (!last) main.innerHTML = '<p class="note">Offline. Is the Mac awake?</p>'; return; }
+          if (!d) { if (!last) main.innerHTML = '<p class="note">Offline. Is the host awake?</p>'; return; }
           last = d;
           paint();
         },

@@ -16,7 +16,7 @@ import { wakesDue, localDay } from './schedule.mjs';
 import { GITHUB_STATE as STATE, WAKE_STATE, listBoards, appendEvent, prKey, readJSON, saveJSON } from './boards.mjs';
 
 const MONITOR_GH = path.join(os.homedir(), '.claude', 'skills', 'monitor', 'monitor-gh.sh');
-// launchd starts the hub without Homebrew on PATH, and monitor-gh.sh needs gh and jq from it.
+// The hub's service starts it with a bare PATH, without Homebrew's on macOS, and monitor-gh.sh needs gh and jq.
 const CHILD_PATH = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
 export const CHANGE_KINDS = ['ci', 'review', 'comments', 'merged', 'mergeable', 'draft', 'head'];
 

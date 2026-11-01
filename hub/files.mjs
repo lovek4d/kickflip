@@ -18,7 +18,7 @@ const plain = (res, code, text, extra = {}) => {
 
 // rest is the request's path and query under the route; prefix is /<route>. A folder serves its index.html, and one
 // asked for without its trailing slash redirects to it, so the page's relative links resolve. A path with a part
-// starting with "." is refused, so a project folder's .git or .env never leaves the Mac. headers are added to a file's
+// starting with "." is refused, so a project folder's .git or .env never leaves the host. headers are added to a file's
 // response.
 export async function serveFiles(req, res, { dir, rest, prefix, headers = {} }) {
   if (req.method !== 'GET' && req.method !== 'HEAD') return plain(res, 405, 'A page served from its files takes only GET.', { allow: 'GET, HEAD' });

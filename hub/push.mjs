@@ -1,6 +1,6 @@
 // Web Push for every hub site, with no dependencies. The hub serves the
 // subscribe side (hub.mjs); every push goes through deliver(), which refuses a push that isn't one of PUSH_KINDS and
-// queues one unless it is urgent or immediate. While the owner is at the Mac (presence.mjs), an action push reaches
+// queues one unless it is urgent or immediate. While the owner is at the host (presence.mjs), an action push reaches
 // the desktop subscriptions only, unless urgent or no desktop has subscribed
 // (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md).
 // The queue goes out through flushQueue() after each GitHub check on the polling interval (schedule.mjs) and at the end
@@ -67,7 +67,7 @@ export function subscriptions() {
   return readSubs().map((s) => ({ host: new URL(s.endpoint).host, agent: s.agent, added: s.added }));
 }
 
-// A subscription with no user agent counts as a phone, so it never loses pushes while the owner is at the Mac.
+// A subscription with no user agent counts as a phone, so it never loses pushes while the owner is at the host.
 const onPhone = (sub) => !sub.agent || /iPhone|iPad|Android/.test(sub.agent);
 
 async function reach(kind, urgent = false) {

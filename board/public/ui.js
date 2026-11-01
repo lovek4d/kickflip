@@ -216,7 +216,7 @@
         const body = await r.text().then((t) => JSON.parse(t)).catch(() => undefined);
         if (body !== undefined && r.status < 500) return { ok: r.ok, status: r.status, body };
         failure = new Error(r.status >= 500 ? `the board answered ${r.status}` : 'the board did not answer with JSON');
-      } catch { failure = new Error('Offline. Is the Mac awake?'); }
+      } catch { failure = new Error('Offline. Is the host awake?'); }
       if (waited >= limit) throw failure;
       onWait(waited);
       await sleep(delay);

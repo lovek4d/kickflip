@@ -115,11 +115,11 @@ test('codex-share prints the setting in effect, refuses a change while Codex is 
     assert.match(help.stdout, /off: no Codex\. While Codex isn't installed or logged in, the setting reads off and a change is refused\./);
     assert.equal(cli().stdout, 'off\n');
     const notInstalled = cli('always');
-    assert.deepEqual([notInstalled.status, notInstalled.stdout, notInstalled.stderr], [1, '', "kickflip: Codex isn't installed on this Mac. Run brew install --cask codex, then choose again.\n"]);
+    assert.deepEqual([notInstalled.status, notInstalled.stdout, notInstalled.stderr], [1, '', "kickflip: Codex isn't installed on the host. Run brew install --cask codex, then choose again.\n"]);
     fs.writeFileSync(path.join(bin, 'codex'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
     assert.equal(cli().stdout, 'off\n');
     const loggedOut = cli('always');
-    assert.deepEqual([loggedOut.status, loggedOut.stdout, loggedOut.stderr], [1, '', "kickflip: Codex isn't logged in on this Mac. Run codex login, then choose again.\n"]);
+    assert.deepEqual([loggedOut.status, loggedOut.stdout, loggedOut.stderr], [1, '', "kickflip: Codex isn't logged in on the host. Run codex login, then choose again.\n"]);
     assert.equal(fs.existsSync(file), false);
     fs.mkdirSync(path.dirname(auth));
     fs.writeFileSync(auth, '{}');
@@ -204,7 +204,7 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
     });
     const file = path.join(web, 'settings.json');
     const before = JSON.parse(fs.readFileSync(file, 'utf8'));
-    const notInstalled = "Codex isn't installed on this Mac. Run brew install --cask codex, then choose again.";
+    const notInstalled = "Codex isn't installed on the host. Run brew install --cask codex, then choose again.";
     assert.deepEqual(await codexNow(), [false, 'Not installed', 'off']);
     const refusedInstall = await postCodex('value=always');
     assert.deepEqual([refusedInstall.status, await refusedInstall.json()], [409, { error: notInstalled }]);
@@ -213,7 +213,7 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
     fs.writeFileSync(path.join(bin, 'codex'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
     assert.deepEqual(await codexNow(), [false, 'Not installed', 'off']);
     const refusedLogin = await postCodex('value=always');
-    assert.deepEqual([refusedLogin.status, await refusedLogin.json()], [409, { error: "Codex isn't logged in on this Mac. Run codex login, then choose again." }]);
+    assert.deepEqual([refusedLogin.status, await refusedLogin.json()], [409, { error: "Codex isn't logged in on the host. Run codex login, then choose again." }]);
     assert.deepEqual(await codexNow(), [false, 'Not logged in', 'off']);
     assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), before);
     fs.mkdirSync(path.join(home, '.codex'));

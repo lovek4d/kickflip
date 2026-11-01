@@ -74,7 +74,7 @@
           const typed = B.$('#linearKey')?.value || '';
           const l = last.linear;
           const remove = l.set ? `<form method="post" action="/_hub/settings/linear"><input type="hidden" name="remove" value="1"><button type="button" class="btn quiet danger" data-linear-remove>Remove</button></form>` : '';
-          content.innerHTML = `<div class="group">${row({ icon: tile('key', l.set ? '#5e6ad2' : '#6b7280'), title: esc(l.title), sub: esc(l.sub), wrap: !l.set, trail: remove })}<form class="block lk-form" method="post" action="/_hub/settings/linear"><input id="linearKey" name="key" type="password" required placeholder="${l.set ? 'Paste a new key to replace it' : 'Paste a Linear API key'}" aria-label="Linear API key" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn">Save</button></form></div><p class="note">Stays on this Mac. Boards use it to list teams and projects, create issues and move the ones that are yours. Without a key, each board’s session does that through its Linear MCP.</p>`;
+          content.innerHTML = `<div class="group">${row({ icon: tile('key', l.set ? '#5e6ad2' : '#6b7280'), title: esc(l.title), sub: esc(l.sub), wrap: !l.set, trail: remove })}<form class="block lk-form" method="post" action="/_hub/settings/linear"><input id="linearKey" name="key" type="password" required placeholder="${l.set ? 'Paste a new key to replace it' : 'Paste a Linear API key'}" aria-label="Linear API key" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn">Save</button></form></div><p class="note">Stays on the host. Boards use it to list teams and projects, create issues and move the ones that are yours. Without a key, each board’s session does that through its Linear MCP.</p>`;
           B.$('#linearKey').value = typed;
         } else if (active === 'closed') {
           content.innerHTML = `<div class="group">${(last.closed || []).length ? last.closed.map((b) => `<div class="row"><span class="body"><span class="text"><span class="title">${esc(b.title)}</span><span class="sub wrap">/${esc(b.route)}</span></span><button class="btn" type="button" data-reopen="${esc(b.route)}"${reopening ? ' disabled' : ''}>${reopening === b.route ? 'Reopening…' : 'Reopen'}</button></span></div>`).join('') : '<p class="note">No closed boards.</p>'}</div>`;
@@ -98,7 +98,7 @@
             async save(body) {
               const r = await fetch('/_hub/settings/rules', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
               const out = await r.json().catch(() => ({}));
-              if (!r.ok) throw new Error(out.error || 'Could not save. Is the Mac awake?');
+              if (!r.ok) throw new Error(out.error || 'Could not save. Is the host awake?');
               const n = out.events.length;
               last.rules = out.rules;
               B.$('[data-summary="rules"]').textContent = out.rules.length ? `${out.rules.length} rule${out.rules.length === 1 ? '' : 's'}` : 'None yet';
@@ -212,7 +212,7 @@
           last.closed = (last.closed || []).filter((b) => b.route !== out.route);
           ctx.sidebarChanged?.();
           flash = { text: 'Board reopened. Its recorded session is resuming.' };
-        } catch (error) { flash = { text: error.message || 'Could not reopen board. Is the Mac awake?', error: true }; }
+        } catch (error) { flash = { text: error.message || 'Could not reopen board. Is the host awake?', error: true }; }
         reopening = null;
         if (B.alive()) paint();
       });
@@ -242,7 +242,7 @@
       B.refreshSettings = HubKit.live(B, {
         url: () => '/_hub/api/settings',
         paint(d) {
-          if (!d) { if (!last) top.innerHTML = '<p class="note">Offline. Is the Mac awake?</p>'; return; }
+          if (!d) { if (!last) top.innerHTML = '<p class="note">Offline. Is the host awake?</p>'; return; }
           last = d;
           paint();
         },

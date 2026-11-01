@@ -117,7 +117,7 @@
         list = rows(r.rules);
         editing = null;
         status.textContent = r.message || 'Saved.';
-      } catch (e) { status.textContent = (e && e.message) || 'Could not save. Is the Mac awake?'; }
+      } catch (e) { status.textContent = (e && e.message) || 'Could not save. Is the host awake?'; }
       draw();
     });
     return { set(rules) { list = rows(rules); editing = null; draw(); } };

@@ -1,6 +1,6 @@
 // The polling interval: when the hub checks GitHub and then sends the queued pushes
 // (docs/adr/0025-the-hub-polls-github-and-sends-pushes-on-one-interval.md). Pure functions of
-// this Mac's clock and the `polling` settings (shape in DEFAULTS); push.mjs and hub.mjs apply them.
+// the host's clock and the `polling` settings (shape in DEFAULTS); push.mjs and hub.mjs apply them.
 // Each window runs from its `from` until the next window's, wrapping past midnight. Its slots fall
 // every `every_minutes` counted from its `from`, and the next window's `from` is always a slot.
 // hold_overnight holds non-urgent pushes through the last window, the one before the first window's
@@ -229,7 +229,7 @@ const SNOOZE_AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]
 
 // When a snooze chosen at `now` ends: `<n>m`, `<n>h`, `<n>d` or `<n>w`; `tonight`, the next start of the evening
 // window (the second-to-last, or the second of two); `morning`, the next start of the first window; `monday`, the
-// next Monday at the first window's start; or an ISO date and time, this Mac's time when it has no offset.
+// next Monday at the first window's start; or an ISO date and time, the host's time when it has no offset.
 // Durations are elapsed time: a day is 24 hours, including across daylight saving changes.
 // null for any other choice, an end not after `now` or more than 30 days on, or `tonight` with one window.
 export function snoozeEnd(now, choice, s) {
@@ -264,7 +264,7 @@ export function nextSlot(t, s) {
   return slot < w.endsAt ? slot : w.endsAt;
 }
 
-// This Mac's calendar day of `d`, "2026-10-23".
+// The host's calendar day of `d`, "2026-10-23".
 export function localDay(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }

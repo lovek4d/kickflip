@@ -149,7 +149,7 @@ BoardView.part((B) => {
       BoardAttach.clear(id, B.site.root);
       btn.disabled = false;
       loadThread(f.dataset.reply, { force: true });
-    } catch { B.notice('Could not send. Is the Mac awake?'); btn.disabled = false; }
+    } catch { B.notice('Could not send. Is the host awake?'); btn.disabled = false; }
   });
   // Send waits while a composer's files upload, the ask's included (attach.js attach-change).
   B.on(B.root, 'attach-change', (ev) => {

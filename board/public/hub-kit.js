@@ -46,7 +46,7 @@
     return load;
   }
 
-  const FAILED = 'Could not save. Is the Mac awake?';
+  const FAILED = 'Could not save. Is the host awake?';
   // Every form in the view that posts to /_hub/ posts for JSON in place of loading a page: answer(body, action) takes
   // the hub's answer, fail(message) a refusal. A checkbox marked data-submit saves on change, and a time input marked
   // data-autosave once its picker closes, so turning an iOS wheel doesn't save each value it passes. accepts(action, form)

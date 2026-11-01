@@ -181,7 +181,7 @@
         const topic = topics.find((t) => t.id === answered.topic);
         name = topic ? ui.topicName(topic) : '';
         await site.send('owner-answer', { id: answered.id, question: answered.question, choice: state.option.id, label: answerLabel(state.option), note: text.value.trim() });
-      } catch { busy = false; paint(); note('Could not send. Is the Mac awake?'); return; }
+      } catch { busy = false; paint(); note('Could not send. Is the host awake?'); return; }
       try { localStorage.removeItem(draftKey(qid)); } catch { /* nothing kept */ }
       text.value = '';
       busy = false;

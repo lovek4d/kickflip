@@ -81,7 +81,7 @@ BoardView.part((B) => {
       if (!(await B.confirm('Claude groups these follow-ups into a small wave and asks you about the plan in Needs you. Nothing builds until you answer. Start?'))) return;
       pb.disabled = true;
       try { await B.site.send('plan-followups', { keys: pb.dataset.plan.split(' ') }); pb.textContent = 'Planning… its questions appear in Needs you'; }
-      catch { B.notice('Could not send. Is the Mac awake?'); pb.disabled = false; }
+      catch { B.notice('Could not send. Is the host awake?'); pb.disabled = false; }
       return;
     }
     const wb = ev.target.closest('button[data-wave]');

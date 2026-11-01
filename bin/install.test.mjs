@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { runInstall, installLinks, installClaudeSettings, installLoginItem, migrateHome, uninstallStatusLine, storedPath } from './install.mjs';
+import { runInstall, installLinks, installClaudeSettings, migrateHome, uninstallStatusLine, storedPath } from './install.mjs';
+import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { freePorts } from '../shared/test-helpers.mjs';
 import { boardAt } from '../hub/boards.mjs';
@@ -359,7 +360,8 @@ test('the login item replaces the old label, and puts the old one back when the 
   const file = path.join(agents, 'local.claude.kickflip-hub.plist');
   fs.writeFileSync(old, 'old plist');
   const calls = [];
-  const options = (bootstrap) => ({ plist: 'new plist', launchAgentsDir: agents, uid: 501, wait: async () => {}, run: (argv) => { calls.push(argv.join(' ')); return argv[0] === 'bootstrap' ? bootstrap(argv) : { status: 3, error: 'not loaded' }; } });
+  const installLoginItem = ({ run, wait, dryRun }) => hubService({ platform: 'darwin', home, uid: 501, run: (command, argv) => run(argv) }).install('new plist', { wait, dryRun });
+  const options = (bootstrap) => ({ wait: async () => {}, run: (argv) => { calls.push(argv.join(' ')); return argv[0] === 'bootstrap' ? bootstrap(argv) : { status: 3, error: 'not loaded' }; } });
   assert.deepEqual(await installLoginItem({ ...options(() => ({ status: 0 })), dryRun: true }), [`would stop gui/501/local.claude.web-ts-hub and remove ${old}`, `would write ${file} and start gui/501/local.claude.kickflip-hub`]);
   assert.deepEqual(calls, []);
   assert.deepEqual(fs.readdirSync(agents), [path.basename(old)]);
@@ -782,6 +784,44 @@ test('the shared install steps run migration, links, settings, launchd and Tails
   const plist = fs.readFileSync(path.join(home, 'Library', 'LaunchAgents', 'local.claude.kickflip-hub.plist'), 'utf8');
   assert.ok(plist.includes(path.join(skills, 'kickflip', 'hub', 'hub.mjs')));
   assert.match(plist, /<key>KICKFLIP_HUB_PORT<\/key><string>19460<\/string>/);
+});
+
+test('on Linux the shared install steps start a systemd user unit in place of a login item', async () => {
+  const calls = [];
+  await runInstall({ home, cloneRoot: root, port: 19460, uid: 1000, platform: 'linux', wait: async () => {}, log: () => {},
+    fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
+    run: (command, argv) => {
+      calls.push([command, ...argv].join(' '));
+      return { status: 0, stdout: argv.join(' ') === 'serve status --json' ? '{}' : '' };
+    },
+  });
+  assert.deepEqual(calls, [
+    'systemctl --user daemon-reload',
+    'systemctl --user enable kickflip-hub.service',
+    'systemctl --user restart kickflip-hub.service',
+    'tailscale serve --bg 19460',
+    'tailscale serve status --json',
+  ]);
+  const unit = fs.readFileSync(path.join(home, '.config', 'systemd', 'user', 'kickflip-hub.service'), 'utf8');
+  assert.match(unit, /^ExecStart=".+" "(.+)"$/m);
+  assert.equal(/^ExecStart=".+" "(.+)"$/m.exec(unit)[1], path.join(skills, 'kickflip', 'hub', 'hub.mjs'));
+  assert.match(unit, /^Environment=KICKFLIP_HUB_PORT=19460$/m);
+  assert.equal(fs.existsSync(path.join(home, 'Library')), false);
+});
+
+test('on Linux doctor names apt, npm for Codex, and the systemd service with its linger note', async () => {
+  const bin = path.join(home, 'linux-bin');
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, 'systemctl'), '#!/bin/sh\necho inactive\nexit 3\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, 'loginctl'), '#!/bin/sh\necho Linger=no\n', { mode: 0o755 });
+  const items = await doctorReport({ home, cloneRoot: root, port: 1, uid: 1000, platform: 'linux', env: { PATH: bin }, fetch: async () => { throw new Error('offline'); } });
+  assert.deepEqual(['git', 'gh', 'Tailscale', 'Codex', 'tailscale /'].map((name) => pick(items, name).fix),
+    ['sudo apt install git', 'sudo apt install gh', 'curl -fsSL https://tailscale.com/install.sh | sh', 'npm i -g @openai/codex', 'curl -fsSL https://tailscale.com/install.sh | sh']);
+  assert.equal(pick(items, 'hub login item'), undefined);
+  assert.deepEqual(pick(items, 'hub service'), { group: 'setup', item: 'hub service', state: 'fixable', detail: 'not installed', fix: 'kickflip doctor --fix' });
+  assert.deepEqual(pick(items, 'hub without a login'), { group: 'setup', item: 'hub without a login', state: 'optional', detail: 'the hub stops when your last login session ends', fix: 'sudo loginctl enable-linger "$USER"' });
+  assert.equal(pick(items, 'macOS-only parts').state, 'note');
+  assert.ok(!doctorLines(items).some((line) => /\bbrew\b|launchctl/.test(line)));
 });
 
 test('doctor --fix --dry-run and install preview all steps without runners, network or HOME writes', async () => {

@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0093
+---
+
 # Codex share follows whether Codex is usable
+
+Superseded in part by [0093](0093-the-hub-runs-under-the-hosts-service-manager.md): the reason says "on the host", and off macOS the install command is `npm i -g @openai/codex`.
 
 The owner settled `codex-usable-2` A on hub/INT-205: Codex share is Auto when Codex is usable and nobody chose, and Off, greyed out, while Codex can't be used, so a new hub uses Codex without a visit to the Usage card and never hands work to a Codex that can't run.
 
