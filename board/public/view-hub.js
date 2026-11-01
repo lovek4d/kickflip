@@ -1,4 +1,4 @@
-// The hub page, /_hub/, a view of the app shell (shell.js): the Usage card with Codex share, Needs you for the pending
+// The hub page, /_hub/, a view of the app shell (shell.js): a banner while pushes are held or snoozed, the Usage card with Codex share, Needs you for the pending
 // prompts of sessions that own no board, the hub's health, each site's health and board links,
 // polling status, then hub settings summary rows (ADR 0075). Health comes from GET /_hub/api/hub.
 // Its data refreshes every 30 seconds while it shows (hub-kit.js live).
@@ -29,7 +29,7 @@
   function html(d, { flash, prompts }) {
     const { row, tile, nowRow } = HubUI;
     const usage = HubUI.usageCard(d.usage, d.codex);
-    return `${HubUI.flash(flash)}${usage}${promptsHtml(d.prompts || [], prompts)}<h2 class="label"${usage ? '' : ' style="margin-top:4px"'}>Health</h2>
+    return `${HubUI.flash(flash)}${HubUI.holdBanner(d.hold)}${usage}${promptsHtml(d.prompts || [], prompts)}<h2 class="label"${usage ? '' : ' style="margin-top:4px"'}>Health</h2>
 <div class="group">${row({ icon: tile('power', { ok: '#22c55e', wait: '#f59e0b' }[d.hub.tone] || '#ef4444'), title: 'Hub', sub: `<span class="st ${esc(d.hub.tone)}">${esc(d.hub.word)}</span> · ${esc(d.hub.detail)}`, wrap: true })}
 ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/kickflip &lt;route&gt;</code>.' }) : ''}</div>
 ${sitesHtml(d.groups)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, events (its session and a watcher run, or the hub can wake it), daily wakes, pushes and reviewer links. One that just broke reads settling first.</p>
@@ -53,7 +53,8 @@ ${sitesHtml(d.groups)}${d.remembered?.length ? `<h2 class="label">Sessions witho
 
     create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
       const main = B.$('.hub-status');
-      const settings = HubSettings.create(B.$('.hub-settings'), siteRoot, ctx);
+      // A change in the Notifications modal can start or end the hold the banner shows.
+      const settings = HubSettings.create(B.$('.hub-settings'), siteRoot, { ...ctx, sidebarChanged: () => { ctx.sidebarChanged?.(); load(); } });
       settings.mount();
       B.atUnmount(() => settings.unmount());
       B.on(B.$('#refresh'), 'click', () => settings.B.refreshSettings?.());
@@ -72,9 +73,9 @@ ${sitesHtml(d.groups)}${d.remembered?.length ? `<h2 class="label">Sessions witho
         after: () => load(),
       });
       const forms = HubKit.forms(B, {
-        accepts: (action) => action === '/_hub/push/flush' || action === '/_hub/settings/codex',
+        accepts: (action, form) => action === '/_hub/push/flush' || action === '/_hub/settings/codex' || Boolean(form?.closest?.('.hold-banner')),
         answer(out, action) {
-          if (action === '/_hub/settings/codex') { last = out; flash = null; paint(); } else { flash = { text: out.message, error: !out.ok }; load(); }
+          if (action === '/_hub/settings/codex') { last = out; flash = null; paint(); } else if (action === '/_hub/push/flush') { flash = { text: out.message, error: !out.ok }; load(); } else { flash = null; load(); settings.B.refreshSettings?.(); }
           ctx.sidebarChanged?.();
         },
         fail(message) { flash = { text: message, error: true }; paint(); },

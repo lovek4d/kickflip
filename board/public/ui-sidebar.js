@@ -13,6 +13,7 @@
     pulse: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
     close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
   };
   const tile = (key, color) => `<span class="icon sm solid" style="--c:${color}" aria-hidden="true">${svg(ICONS[key])}</span>`;
   const word = (tone, text) => `<span class="dot t-${tone}" aria-hidden="true"></span><span class="word t-${tone}">${esc(text)}</span>`;
@@ -78,13 +79,14 @@
 
   // key: the row's switchKeys entry while switch mode shows, else undefined. The tile carries a board's number, or any
   // other row's letter, and the title marks its letter; sidebar.css shows them in place of the glyph under .ks-on.
-  function row({ href, icon, title, sub = '', extra = '', on = false, cls = '', key }) {
+  // mark: HTML after the title, such as Hub's moon.
+  function row({ href, icon, title, sub = '', extra = '', mark = '', on = false, cls = '', key }) {
     const shown = key && (key.board ? key.num : key.letter);
     const tileHtml = shown ? icon.replace(/<\/span>$/, `<span class="ks-key">${esc(shown)}</span></span>`) : icon;
     const chars = [...title];
     const titleHtml = key?.letter ? `${esc(chars.slice(0, key.at).join(''))}<span class="ks-u">${esc(chars[key.at])}</span>${esc(chars.slice(key.at + 1).join(''))}` : esc(title);
     return `<a class="sb-row${on ? ' on' : ''}${cls ? ` ${cls}` : ''}" href="${esc(href)}"${on ? ' aria-current="page"' : ''}>${tileHtml}`
-      + `<span class="sb-text"><span class="sb-title">${titleHtml}</span>${sub ? `<span class="sb-sub">${sub}</span>` : ''}${extra}</span></a>`;
+      + `<span class="sb-text"><span class="sb-title">${titleHtml}${mark}</span>${sub ? `<span class="sb-sub">${sub}</span>` : ''}${extra}</span></a>`;
   }
 
   // What waits on the owner on every site but `here`: the count on the logo that opens the drawer.
@@ -119,8 +121,10 @@
     const n = data?.notifications || {};
     const lower = (text) => String(text || '').replace(/^\w/, (c) => c.toLowerCase());
     const notify = device === 'blocked' ? word('needs', 'Notifications blocked on this device')
-      : n.state === 'off' ? word('needs', `Notifications ${lower(n.text || 'Off')}`)
-      : n.state === 'held' ? esc(`Notifications ${lower(n.text)}`) : '';
+      : n.state === 'off' ? word('needs', `Notifications ${lower(n.text || 'Off')}`) : '';
+    // A phone shows no title tooltip, so there the moon only marks the hold; the hub page's banner says it.
+    const held = esc(`Notifications ${lower(n.text)}`);
+    const moon = n.state === 'held' ? `<span class="sb-moon" role="img" aria-label="${held}" title="${held}">${svg(ICONS.moon, 13)}</span>` : '';
     const subs = {
       '/_hub/': (hub ? `<span class="sb-status">${word(hub.tone, hub.word)}<span>${esc(hub.detail)}</span></span>` : '')
         + (notify ? `<span class="sb-status">${notify}</span>` : ''),
@@ -130,7 +134,7 @@
     return header({ lead: 'logo', title: 'Kickflip', level: 2, controls: false, trail: close, logoSrc: '/_hub/kickflip.png',
       leadAttrs: { 'aria-label': 'Hide boards', title: 'Hide boards', 'data-sidebar-close': '' } })
       + `<div class="sb-scroll"><section class="sb-utility" aria-label="Hub"><div class="sb-group">`
-      + UTILITY.map((f) => row({ ...f, on: f.href.replace(/\/$/, '') === selected, sub: subs[f.href], ...(f.href === '/_hub/' && usage ? { extra: usage, cls: 'sb-hub-usage' } : {}), key: keys?.get(f.href) })).join('')
+      + UTILITY.map((f) => row({ ...f, on: f.href.replace(/\/$/, '') === selected, sub: subs[f.href], mark: f.href === '/_hub/' ? moon : '', ...(f.href === '/_hub/' && usage ? { extra: usage, cls: 'sb-hub-usage' } : {}), key: keys?.get(f.href) })).join('')
       + `</div>${turnOn}</section>`
       + (pages.length ? `<section class="sb-pages" aria-label="Pages"><div class="sb-label">Pages</div><div class="sb-group">${pages.map(siteRow).join('')}</div></section>` : '')
       + `<section class="sb-boards" aria-label="Boards"><div class="sb-label">Boards</div><div class="sb-group">${boards.map(siteRow).join('')}${pending}${newBoard}</div></section></div>`

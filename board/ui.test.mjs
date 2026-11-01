@@ -240,15 +240,19 @@ test("the Kickflip sidebar lists Hub, notifications, Pages, then Boards with New
   assert.match(text(turnOn), /Turn on notifications Off on this device/);
   assert.match(turnOn, /href="\/_hub\/#notifications"/);
   assert.doesNotMatch(turnOn, />Settings</);
-  for (const [device, notifications, status, urgent] of [
-    ['blocked', data.notifications, 'Notifications blocked on this device', true],
-    ['on', { state: 'off', text: 'Off' }, 'Notifications off', true],
-    ['on', { state: 'held', text: 'Snoozed until 6pm' }, 'Notifications snoozed until 6pm', false],
-    ['on', { state: 'held', text: 'Off on weekends' }, 'Notifications off on weekends', false],
+  const weekend = { state: 'held', text: 'Held for the weekend until 8:00am tomorrow' };
+  for (const [device, notifications, status, urgent, moon] of [
+    ['blocked', data.notifications, ' Notifications blocked on this device', true, null],
+    ['on', { state: 'off', text: 'Off' }, ' Notifications off', true, null],
+    ['on', { state: 'held', text: 'Snoozed until 6pm' }, '', false, 'Notifications snoozed until 6pm'],
+    ['on', weekend, '', false, 'Notifications held for the weekend until 8:00am tomorrow'],
+    ['blocked', weekend, ' Notifications blocked on this device', true, 'Notifications held for the weekend until 8:00am tomorrow'],
   ]) {
     const hubRow = utility(ui.sidebar({ ...data, notifications }, { device }));
-    assert.match(text(hubRow), new RegExp(`^Hub Healthy 4 of 4 sites up ${status}`));
+    assert.equal(text(hubRow), `Hub Healthy 4 of 4 sites up${status}`);
     assert.equal(hubRow.includes('word t-needs'), urgent);
+    const mark = /<span class="sb-title">Hub<span class="sb-moon" role="img" aria-label="([^"]*)" title="([^"]*)"><svg /.exec(hubRow);
+    assert.deepEqual(mark && [mark[1], mark[2]], moon && [moon, moon]);
   }
   for (const here of ['_hub', '_hub/', '_hub/settings', '_hub/settings/polling']) {
     const selected = [...ui.sidebar(data, { here }).matchAll(/<a class="sb-row on" href="([^"]+)" aria-current="page"/g)].map((m) => m[1]);

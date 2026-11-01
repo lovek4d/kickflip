@@ -75,6 +75,11 @@
 .hub-view .actions { margin-top:1.2rem; display:flex; justify-content:flex-end; }
 .hub-view .flash { animation:none; margin-top:1rem; padding:10px 12px; border-radius:10px; background:var(--panel); border:1px solid var(--line); color:var(--color-success); }
 .hub-view .flash.error { color:var(--color-danger); }
+.hub-view .hold-banner { display:flex; align-items:center; gap:10px; margin:4px 0 14px; padding:8px 8px 8px 12px; min-height:46px; border-radius:10px; border:1px solid color-mix(in srgb, var(--color-notice) 45%, transparent); background:color-mix(in srgb, var(--color-notice) 11%, var(--panel)); font-size:13.5px; line-height:1.35; }
+.hub-view .hold-banner > svg { flex:none; color:var(--color-notice); }
+.hub-view .hold-banner > span { flex:1; min-width:0; }
+.hub-view .hold-banner form { flex:none; margin:0; }
+.hub-view .hold-banner .btn { min-height:32px; }
 .hub-view .snooze-head { display:flex; align-items:center; gap:10px; }
 .hub-view .snooze-chips { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:6px; margin-top:10px; }
 .hub-view .snooze-choices { display:contents; }

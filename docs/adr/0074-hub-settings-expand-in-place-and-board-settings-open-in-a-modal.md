@@ -10,7 +10,7 @@ Superseded in part by [0081](0081-a-board-has-one-ticket-source.md): Board Setti
 
 The owner picked take B of `prototype-settings-2.html`: hub settings belong below Hub’s existing health and status, while each board’s settings belong over that board. Separate Settings pages and a combined Board/Hub dialog split context or mix scopes.
 
-- The sidebar starts with Hub and has no Settings row. Hub stays selected on the hub page and Polling, and its sub line shows when notifications are off, held or snoozed, or blocked on this device. Turn on notifications opens Hub’s Notifications row.
+- The sidebar starts with Hub and has no Settings row. Hub stays selected on the hub page and Polling, and its sub line shows when notifications are off or blocked on this device. A moon after its name marks pushes held or snoozed. Turn on notifications opens Hub’s Notifications row.
 - Hub keeps health and status first, followed by five collapsed rows with one-line summaries: Notifications, Polling, Codex share, Rules for every board and Closed boards. Each expands in place. Polling’s row opens its existing schedule editor.
 - `/_hub/settings` opens Hub with Notifications expanded; `/_hub/settings#<section>` and `/_hub/#<section>` expand and scroll to that row. Notification pushes and stored links keep working through the same router. These rows preserve Hub’s existing back behaviour.
 - The board header’s gear opens a centred modal at every width, with its own scroll area on a phone. It contains only the board’s own controls: its repo and branch ([0073](0073-a-new-board-chooses-a-repo-and-branch.md)), auto-merge, install script, reviewers, rules and Close board. Hub rules are edited on Hub.

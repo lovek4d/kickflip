@@ -23,6 +23,9 @@
   // flash: {text, error} or null, a form's answer shown above the view.
   const flash = (f) => (f ? `<div class="flash${f.error ? ' error' : ''}" role="${f.error ? 'alert' : 'status'}">${esc(f.text)}</div>` : '');
 
+  // hold: hub/views.mjs hubView's hold, or null for no banner. Its End form posts snooze=off, which view-hub.js sends.
+  const holdBanner = (hold) => (hold ? `<div class="hold-banner"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TILE_PATHS.moon}</svg><span>${esc(hold.text)}</span>${hold.end ? '<form method="post" action="/_hub/settings/notifications"><button class="btn quiet" name="snooze" value="off">End snooze</button></form>' : ''}</div>` : '');
+
   // What polling does now, the last and next check and the queue, with Send now: hub/views.mjs pollingNow's words.
   const nowRow = (now, icon = '') => row({ icon, title: esc(now.title), sub: now.lines.map((l) => `<span class="sub wrap">${esc(l)}</span>`).join(''),
     trail: `<form method="post" action="/_hub/push/flush"><button class="btn quiet" ${now.count ? '' : 'disabled'}>Send now</button></form>` });
@@ -62,5 +65,5 @@
     return `<section class="usage"><h2 class="label" style="margin-top:4px">Usage</h2><div class="group">${blocks}</div>${note}</section>`;
   }
 
-  globalThis.HubUI = { esc, tile, CHEVRON, row, flash, nowRow, deviceRow, usageCard };
+  globalThis.HubUI = { esc, tile, CHEVRON, row, flash, holdBanner, nowRow, deviceRow, usageCard };
 })();

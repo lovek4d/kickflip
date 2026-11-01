@@ -64,6 +64,8 @@ const codexView = (share, login) => ({
 // hubHealth); rows: hub.mjs status() rows; links: Map of route to linksOf; code: {running, onDisk}, the hub's code hashes
 // (boards.mjs); host: the address the page was loaded from; rules: the hub rules; codexShare: push.mjs readCodexShare();
 // codexLogin: usage.mjs codexLoggedIn(). Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js).
+// hold, for the page's banner, is null unless pushes are held or snoozed; its text matches the sidebar moon's tooltip,
+// and end is true when End can lift it, which only a snooze allows.
 export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code = {}, host = '', rules = [], remembered = new Map(), codexShare = 'off', codexLogin = false }) {
   const boards = new Set(sidebar.sites.filter((x) => x.board).map((x) => x.route));
   const codeLine = code.running && code.running === code.onDisk ? ` · runs the code in its files (${code.onDisk})` : '';
@@ -78,6 +80,7 @@ export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code 
     empty: rows.length === 0,
     polling: { ...pollingNow(st, poll, now), summary: pollingSummary(st.settings) },
     notifications: { on: st.settings.notifications.on, text: sidebar.notifications.text, device: nowLine(st, now) },
+    hold: st.hold && st.hold.why !== 'off' ? { text: `Notifications ${holdLine(st.hold, now)}`, end: st.hold.why === 'snoozed' } : null,
     rules: rules.length ? plural(rules.length, 'rule') : 'None yet',
     sites: plural(rows.length, 'site'),
     host,

@@ -49,7 +49,7 @@
   const FAILED = 'Could not save. Is the Mac awake?';
   // Every form in the view that posts to /_hub/ posts for JSON in place of loading a page: answer(body, action) takes
   // the hub's answer, fail(message) a refusal. A checkbox marked data-submit saves on change, and a time input marked
-  // data-autosave once its picker closes, so turning an iOS wheel doesn't save each value it passes. accepts(action)
+  // data-autosave once its picker closes, so turning an iOS wheel doesn't save each value it passes. accepts(action, form)
   // limits it to some of those forms, since the Hub page and its hub settings each wire their own over one root.
   // → {busy()}, true while a post is out
   function forms(B, { answer, fail, accepts = () => true }) {
@@ -58,7 +58,7 @@
       if (e.defaultPrevented) return;
       const form = e.target;
       const action = form.getAttribute?.('action') || '';
-      if (!action.startsWith('/_hub/') || !accepts(action)) return;
+      if (!action.startsWith('/_hub/') || !accepts(action, form)) return;
       e.preventDefault();
       if (sending) return;
       const body = new URLSearchParams(new FormData(form));
@@ -76,13 +76,13 @@
     const save = (el) => { if (el.value && el.value !== el.defaultValue && el.checkValidity()) el.form.requestSubmit(); };
     B.on(B.root, 'change', (e) => {
       const el = e.target;
-      if (el.form && !accepts(el.form.getAttribute('action') || '')) return;
+      if (el.form && !accepts(el.form.getAttribute('action') || '', el.form)) return;
       if (el.matches?.('input[data-submit]')) el.form.requestSubmit();
       else if (el.matches?.('input[data-autosave]') && document.activeElement !== el) save(el);
     });
     B.on(B.root, 'focusout', (e) => {
       const el = e.target;
-      if (el.matches?.('input[data-autosave]') && accepts(el.form?.getAttribute('action') || '')) save(el);
+      if (el.matches?.('input[data-autosave]') && accepts(el.form?.getAttribute('action') || '', el.form)) save(el);
     });
     return { busy: () => sending };
   }

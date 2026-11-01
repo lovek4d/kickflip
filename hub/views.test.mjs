@@ -301,6 +301,12 @@ test("the hub page lists Boards and Pages apart with each site's health and link
   assert.deepEqual(plain(v.polling), { title: 'Checks every 30 min until 10:00pm', lines: ['Next check 7:30pm', '1 push queued; next send 7:30pm.'], count: 1,
     summary: '3 windows, 58 checks a day · held overnight · wakes 8:00am, 9:00am' });
   assert.deepEqual(plain(v.notifications), { on: true, text: 'On', device: 'checks every 30 min until 10:00pm' });
+  assert.equal(v.hold, null);
+  const held = (at, s) => plain(hubView({ now: at, st: status(at, s), poll: poll(at), sidebar, rows }).hold);
+  assert.deepEqual(held(t(10), notify(DEFAULTS, { snoozed_until: t(15).toISOString() })), { text: 'Notifications snoozed until 3:00pm', end: true });
+  assert.deepEqual(held(t(12, 0, 17), notify(DEFAULTS, { weekends_off: true })), { text: 'Notifications held for the weekend until 8:00am Mon Oct 19', end: false });
+  assert.deepEqual(held(t(23), DEFAULTS), { text: 'Notifications held overnight until 8:00am tomorrow', end: false });
+  assert.equal(held(t(10), notify(DEFAULTS, { on: false, snoozed_until: t(15).toISOString() })), null);
   assert.deepEqual([v.rules, v.sites, v.host, v.total, v.empty], ['2 rules', '5 sites', 'mac.ts.net', 3, false]);
   const none = hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar: { ...sidebar, sites: [] }, rows: [] });
   assert.deepEqual([none.groups, none.empty, none.rules, none.sites], [[], true, 'None yet', '0 sites']);
@@ -422,4 +428,54 @@ test("the hub page's Usage card holds Codex share under Codex's bars, keeps Code
   await submit('auto');
   assert.equal(selected(), 'off');
   assert.equal(root.querySelector('[role="alert"]').textContent, 'codex-share takes auto, always, or off');
+});
+
+test("the hub page leads with a banner while pushes are held or snoozed, and its End snooze lifts a snooze", async () => {
+  const document = {};
+  const { Element } = miniDom(class {}, document);
+  const root = new Element('div');
+  const listeners = [];
+  const posts = [];
+  let live;
+  let loads = 0;
+  let settingsRefreshes = 0;
+  let sidebarChanges = 0;
+  let settingsCtx;
+  const now = t(10);
+  const page = (n) => plain(hubView({ now, st: status(now, notify(DEFAULTS, n)), poll: poll(now), rows: [], sidebar: { sites: [], hub: {}, notifications: {}, total: 0 } }));
+  const context = vm.createContext({
+    URLSearchParams, document, navigator: {},
+    FormData: class { *[Symbol.iterator]() {} },
+    BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    HubSettings: { create: (el, site, ctx) => { settingsCtx = ctx; return { B: { refreshSettings: () => settingsRefreshes++ }, mount() {}, unmount() {} }; } },
+    BoardUI: { header: () => '' },
+    PromptAnswers: { wire: () => ({ shows: () => true }) },
+    fetch: async (url, opts) => { posts.push({ url, opts }); return { ok: true, json: async () => ({}) }; },
+  });
+  for (const file of ['ui-sidebar.js', 'ui-hub.js', 'hub-kit.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
+  context.HubKit.live = (B, opts) => { live = opts; return () => { loads++; }; };
+  root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
+  context.AppViews.hub.create(root, '/_hub', { sidebarChanged: () => sidebarChanges++ });
+  const banner = () => root.querySelector('.hub-status .hold-banner');
+
+  live.paint(page({}));
+  assert.equal(banner(), null);
+
+  const weekend = plain(hubView({ now: t(12, 0, 17), st: status(t(12, 0, 17), notify(DEFAULTS, { weekends_off: true })), poll: poll(now), rows: [], sidebar: { sites: [], hub: {}, notifications: {}, total: 0 } }));
+  live.paint(weekend);
+  assert.equal(banner().textContent, 'Notifications held for the weekend until 8:00am Mon Oct 19');
+  assert.equal(banner().querySelectorAll('button, form').length, 0);
+  assert.equal(root.querySelector('.hub-status').firstChild, banner());
+
+  live.paint(page({ snoozed_until: t(15).toISOString() }));
+  assert.match(banner().textContent, /^Notifications snoozed until 3:00pm\s*End snooze$/);
+  const form = banner().querySelector('form');
+  const button = form.querySelector('button');
+  await listeners.find((l) => l.target === root && l.type === 'submit').fn({ target: form, submitter: { name: button.getAttribute('name'), value: button.value }, preventDefault() {} });
+  const { url, opts } = posts.at(-1);
+  assert.deepEqual([url, opts.method, opts.headers.accept, opts.body.toString()], ['/_hub/settings/notifications', 'POST', 'application/json', 'snooze=off']);
+  assert.deepEqual([loads, settingsRefreshes, sidebarChanges], [1, 1, 1]);
+
+  settingsCtx.sidebarChanged();
+  assert.deepEqual([loads, sidebarChanges], [2, 2]);
 });
