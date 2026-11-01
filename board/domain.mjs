@@ -37,7 +37,8 @@ const STALE_AFTER = 7 * DAY;
 
 const slackTime = (ts) => (ts ? new Date(Number(String(ts).split('.')[0]) * 1000).toISOString() : null);
 
-const linearRef = (id, tickets) => ({ id, url: `https://linear.app/${tickets?.workspace || 'acme'}/issue/${id}` });
+// board/public/ui-links.js links Linear ids in text from these urls, so a board with no workspace links none.
+const linearRef = (id, tickets) => ({ id, url: tickets?.workspace ? `https://linear.app/${tickets.workspace}/issue/${id}` : null });
 // Internal items keep their stored ids, which key threads, builder records and events; S<n> reads <prefix>-<n>, INT
 // without an internal ticket source. Other ids read as stored, so a changed prefix never relabels them.
 const internalRef = (id, prefix) => String(id).replace(/^S(\d+)$/, `${prefix || 'INT'}-$1`);

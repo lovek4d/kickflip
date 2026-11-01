@@ -946,7 +946,7 @@ test('New board chooses a searchable repo before board details, defaults its bra
     assert.match(control.textContent, /through its Linear MCP/);
     assert.equal(control.querySelector('[data-tk="projectText"]').value, 'Backend audit');
     assert.equal(start.disabled, true);
-    for (const [name, value] of [['workspaceText', 'acme'], ['teamText', 'prod']]) {
+    for (const [name, value] of [['workspaceText', 'acme'], ['teamText', 'eng']]) {
       const input = control.querySelector(`[data-tk="${name}"]`);
       input.value = value; page.fire(control, 'input', { target: input });
     }
@@ -1195,13 +1195,13 @@ test('the shared Tickets control stages Board Settings changes, validates the pr
   await tick();
   assert.match(control.textContent, /A Linear key on Hub/);
   assert.equal(save.disabled, true);
-  for (const [name, value] of [['workspaceText', 'acme'], ['teamText', 'prod'], ['projectText', 'Audit']]) {
+  for (const [name, value] of [['workspaceText', 'acme'], ['teamText', 'eng'], ['projectText', 'Audit']]) {
     const input = control.querySelector(`[data-tk="${name}"]`);
     input.value = value; page.fire(control, 'input', { target: input });
   }
   assert.equal(save.disabled, false);
   page.fire(form, 'submit'); await tick();
-  assert.deepEqual(posts.at(-1), { tickets: { source: 'linear', workspace: 'acme', team: 'PROD', project: 'Audit' } });
+  assert.deepEqual(posts.at(-1), { tickets: { source: 'linear', workspace: 'acme', team: 'ENG', project: 'Audit' } });
   view.unmount();
 });
 
@@ -1209,19 +1209,19 @@ test('the shared Tickets control shows Linear teams and projects with a supplied
   const page = repoPage(true);
   const root = page.doc.body.appendChild(new page.Element('div'));
   let name = 'Audit';
-  const control = page.win.BoardDialogs.ticketsControl(root, { isNew: true, title: () => name, linear: { set: true, workspace: 'another', teams: [{ key: 'PROD', name: 'Product' }], projects: [{ team: 'PROD', id: 'p1', name: 'Existing' }] } });
+  const control = page.win.BoardDialogs.ticketsControl(root, { isNew: true, title: () => name, linear: { set: true, workspace: 'another', teams: [{ key: 'ENG', name: 'Engineering' }], projects: [{ team: 'ENG', id: 'p1', name: 'Existing' }] } });
   page.fire(root, 'click', { target: root.querySelector('[data-tk-source="linear"]') });
   assert.equal(root.querySelector('[data-tk="project"]').value, '__new');
   assert.equal(root.querySelector('[data-tk="newName"]').value, 'Audit');
   name = 'Renamed'; control.nameChanged();
   assert.equal(root.querySelector('[data-tk="newName"]').value, 'Renamed');
   assert.equal(root.querySelector('[data-tk-create]'), null);
-  assert.deepEqual(JSON.parse(JSON.stringify(control.read())), { source: 'linear', workspace: 'another', team: 'PROD', new_project: 'Renamed' });
+  assert.deepEqual(JSON.parse(JSON.stringify(control.read())), { source: 'linear', workspace: 'another', team: 'ENG', new_project: 'Renamed' });
   assert.equal(control.valid(), true);
   const project = root.querySelector('[data-tk="project"]');
   project.value = 'p1'; page.fire(root, 'change', { target: project });
   assert.equal(control.valid(), true);
-  assert.deepEqual(JSON.parse(JSON.stringify(control.read())), { source: 'linear', workspace: 'another', team: 'PROD', project: 'p1' });
+  assert.deepEqual(JSON.parse(JSON.stringify(control.read())), { source: 'linear', workspace: 'another', team: 'ENG', project: 'p1' });
   control.destroy();
 });
 
@@ -1231,7 +1231,7 @@ test("Board Settings' Tickets control loads Linear once it is the source and cre
   const loads = [], made = [], changes = [];
   let refuse = true;
   const control = page.win.BoardDialogs.ticketsControl(root, { value: { source: 'internal', prefix: 'INT' }, title: () => 'Audit',
-    loadLinear: async () => { loads.push(1); return { set: true, workspace: 'Acme', url_key: 'acme', teams: [{ key: 'PROD', name: 'Product' }, { key: 'OPS', name: 'Ops' }], projects: [{ team: 'PROD', id: 'p1', name: 'Existing' }] }; },
+    loadLinear: async () => { loads.push(1); return { set: true, workspace: 'Acme', url_key: 'acme', teams: [{ key: 'ENG', name: 'Engineering' }, { key: 'OPS', name: 'Ops' }], projects: [{ team: 'ENG', id: 'p1', name: 'Existing' }] }; },
     createProject: async (team, projectName) => { if (refuse) throw new Error('Linear: name taken'); made.push([team, projectName]); return { id: 'p2', name: projectName, team }; },
     change: (value, valid) => changes.push([value, valid]) });
   assert.equal(loads.length, 0);
@@ -1239,8 +1239,8 @@ test("Board Settings' Tickets control loads Linear once it is the source and cre
   assert.match(root.textContent, /Loading Linear/);
   await tick();
   assert.equal(loads.length, 1);
-  assert.match(root.textContent, /A new card gets a PROD issue in Existing, in the Acme workspace/);
-  assert.deepEqual(JSON.parse(JSON.stringify(control.read())), { source: 'linear', workspace: 'acme', team: 'PROD', project: 'p1' });
+  assert.match(root.textContent, /A new card gets a ENG issue in Existing, in the Acme workspace/);
+  assert.deepEqual(JSON.parse(JSON.stringify(control.read())), { source: 'linear', workspace: 'acme', team: 'ENG', project: 'p1' });
   const team = root.querySelector('[data-tk="team"]');
   team.value = 'OPS'; page.fire(root, 'change', { target: team });
   const project = root.querySelector('[data-tk="project"]');

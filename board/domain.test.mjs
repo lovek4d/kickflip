@@ -19,7 +19,7 @@ function board({ agents = {}, pr = greenDraft, owner = {}, events = [], topicIte
         repo: 'o/r',
         reviewers: [{ name: 'Ann', github: 'ann' }],
         items: [{ id: 'A1', title: 'One', pr: 7, held, ...item }],
-        followups: [{ id: 'PROD-1', title: 'Later', filed: '2026-10-22T00:00:00Z' }],
+        followups: [{ id: 'ENG-1', title: 'Later', filed: '2026-10-22T00:00:00Z' }],
       },
     }],
     prs: { 'o/r#7': pr },
@@ -202,7 +202,7 @@ test("a card lists each agent oldest first, its line is the newest status line s
 
 test('lanes follow the PR, with CI that is running on a draft or red on any PR in In Progress, and an open follow-up sits in Todo', () => {
   const lanes = (pr) => Object.fromEntries(board({ pr }).items.map((i) => [i.key, i.lane]));
-  assert.deepEqual(lanes({ ...greenDraft, checks: { state: 'pending' } }), { 'w/A1': 'progress', 'w/PROD-1': 'todo' });
+  assert.deepEqual(lanes({ ...greenDraft, checks: { state: 'pending' } }), { 'w/A1': 'progress', 'w/ENG-1': 'todo' });
   assert.equal(lanes({ ...greenDraft, checks: { state: 'fail' } })['w/A1'], 'progress');
   assert.equal(lanes({ ...greenDraft, isDraft: false })['w/A1'], 'review');
   assert.equal(lanes({ ...greenDraft, isDraft: false, checks: { state: 'pending' } })['w/A1'], 'review');
@@ -211,7 +211,7 @@ test('lanes follow the PR, with CI that is running on a draft or red on any PR i
   assert.equal(lanes({ ...greenDraft, state: 'MERGED' })['w/A1'], 'done');
   const done = buildBoard({ fromWaves: false, waves: [{ slug: 's', wave: { items: [{ id: 'S1', title: 'One', status: 'done', next: 'Builds after S0' }] } }] }).items[0];
   assert.deepEqual([done.lane, done.next, done.actionButton], ['done', null, null]);
-  assert.equal(board().items.find((i) => i.key === 'w/PROD-1').actionButton, 'grill');
+  assert.equal(board().items.find((i) => i.key === 'w/ENG-1').actionButton, 'grill');
 });
 
 test('a review waits with its age, and parks in Stale after a week', () => {
@@ -550,13 +550,13 @@ test("every card not in Done can be closed, and a card-done reads closing until 
     { id: 'A3', title: 'Three' },
     { id: 'A4', title: 'Four', status: 'done', status_at: '2026-10-23T11:20:00Z' },
   ];
-  const followups = [{ id: 'PROD-1', title: 'f', filed: '2026-10-22' }, { id: 'PROD-2', title: 'g', filed: '2026-10-22' }, { id: 'PROD-3', title: 'h', filed: '2026-10-22', done: true }];
-  const events = [close('w/A1', '2026-10-23T11:00:00Z'), close('w/A2', '2026-10-23T11:10:00Z'), close('w/A4', '2026-10-23T11:10:00Z'), close('w/PROD-2', '2026-10-23T11:10:00Z')];
+  const followups = [{ id: 'ENG-1', title: 'f', filed: '2026-10-22' }, { id: 'ENG-2', title: 'g', filed: '2026-10-22' }, { id: 'ENG-3', title: 'h', filed: '2026-10-22', done: true }];
+  const events = [close('w/A1', '2026-10-23T11:00:00Z'), close('w/A2', '2026-10-23T11:10:00Z'), close('w/A4', '2026-10-23T11:10:00Z'), close('w/ENG-2', '2026-10-23T11:10:00Z')];
   const b = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [{ slug: 'w', agents: runningBuilders('A1', 'A2'), wave: { items, followups } }], events });
   const cards = Object.fromEntries(b.items.map((i) => [i.id, [i.lane, i.finishable, i.closing]]));
   assert.deepEqual(cards, {
     A1: ['progress', true, true], A2: ['progress', true, false], A3: ['todo', true, false], A4: ['done', false, false],
-    'PROD-1': ['todo', true, false], 'PROD-2': ['todo', true, true], 'PROD-3': ['done', false, false],
+    'ENG-1': ['todo', true, false], 'ENG-2': ['todo', true, true], 'ENG-3': ['done', false, false],
   });
 });
 
@@ -590,10 +590,10 @@ test('a bumped card that has not started, or is running, tops its lane, the late
   assert.deepEqual(cards([bump('w/A1', at1), bump('w/A2', at2), bump('w/A1', '2026-10-23T11:30:00Z')]).slice(2, 4).map(([key]) => key), ['w/A1', 'w/A2']);
   const draft = buildBoard({ fromWaves: false, prs: { 'o/r#7': greenDraft }, waves: [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'D1', title: 'Draft', pr: 7 }] } }], events: [bump('w/D1', at1)] }).items[0];
   assert.deepEqual([draft.lane, draft.waitsOn, draft.bumpable, draft.bumpedAt], ['review', 'ready', false, null]);
-  const followups = [{ id: 'PROD-1', title: 'f', filed: at1 }, { id: 'PROD-2', title: 'g', filed: at1 }, { id: 'PROD-3', title: 'h', filed: at1, done: true }];
-  const fb = buildBoard({ fromWaves: false, waves: [{ slug: 'w', wave: { items: [{ id: 'A1', title: 'One' }], followups } }], events: [bump('w/PROD-2', at2), bump('w/PROD-3', at2)] });
+  const followups = [{ id: 'ENG-1', title: 'f', filed: at1 }, { id: 'ENG-2', title: 'g', filed: at1 }, { id: 'ENG-3', title: 'h', filed: at1, done: true }];
+  const fb = buildBoard({ fromWaves: false, waves: [{ slug: 'w', wave: { items: [{ id: 'A1', title: 'One' }], followups } }], events: [bump('w/ENG-2', at2), bump('w/ENG-3', at2)] });
   assert.deepEqual(fb.items.map((i) => [i.key, i.lane, i.bumpable, i.bumpedAt]), [
-    ['w/PROD-2', 'todo', true, at2], ['w/A1', 'todo', true, null], ['w/PROD-1', 'todo', true, null], ['w/PROD-3', 'done', false, null],
+    ['w/ENG-2', 'todo', true, at2], ['w/A1', 'todo', true, null], ['w/ENG-1', 'todo', true, null], ['w/ENG-3', 'done', false, null],
   ]);
 });
 
@@ -625,7 +625,7 @@ test("every lane lists its newest card first, and a card with no activity after 
     { id: 'T1', title: 't' }, { id: 'T2', title: 't', status: 'planned' },
     { id: 'D1', title: 'd', pr: 5 }, { id: 'D2', title: 'd', pr: 6 }, { id: 'D3', title: 'd', status: 'done', merged_at: at(8) },
   ];
-  const followups = [{ id: 'PROD-1', title: 'f', filed: at(2) }, { id: 'PROD-2', title: 'f', filed: at(3) }];
+  const followups = [{ id: 'ENG-1', title: 'f', filed: at(2) }, { id: 'ENG-2', title: 'f', filed: at(3) }];
   const agents = { P1: { main: { started: at(8), progress_at: at(9) } }, P2: { main: { started: at(1) } } };
   const events = [
     { id: 'a1', ts: at(7), kind: 'ask', data: { text: 'one' }, reply: null },
@@ -640,7 +640,7 @@ test("every lane lists its newest card first, and a card with no activity after 
     review: ['R2', 'R1'],
     stale: ['S2', 'S1'],
     progress: ['P1', 'P2'],
-    todo: ['ask:a1', 'ask:a2', 'T2', 'T1', 'PROD-2', 'PROD-1'],
+    todo: ['ask:a1', 'ask:a2', 'T2', 'T1', 'ENG-2', 'ENG-1'],
     done: ['ask:a4', 'ask:a3', 'D3', 'D2', 'D1'],
   });
 });
@@ -675,7 +675,7 @@ test('a card badges only a ticket from its board source, keeps another source\'s
   const waves = [
     { slug: 'w', wave: { internal: true, items: [{ id: 'S3', title: 'Legacy' }, { id: 'INT-14', title: 'Hub card' }, { id: 'C4', title: 'Internal', ticket: 'INT-4' },
       { id: 'C5', title: 'Issue', ticket: '#5' }, { id: 'C6', title: 'Linear', ticket: 'ENG-6' }], followups: [{ id: 'F7', title: 'Follow', ticket: 'INT-7' }] } },
-    { slug: 'prod', wave: { items: [{ id: 'P1', title: 'Audit', linear: ['PROD-9'] }] } },
+    { slug: 'web', wave: { items: [{ id: 'P1', title: 'Audit', linear: ['WEB-9'] }] } },
   ];
   const build = (tickets) => buildBoard({ tickets, github: 'owner/repo', waves, events: [askAt('a1', '2026-10-23T09:00:00Z')] });
   const badges = (board) => Object.fromEntries(board.items.filter((i) => i.kind !== 'ask').map((i) => [i.id, i.ticket && [i.ticket.id, i.ticket.url]]));
@@ -691,9 +691,10 @@ test('a card badges only a ticket from its board source, keeps another source\'s
   const linear = build({ source: 'linear', workspace: 'new-workspace', team: 'ENG', project: 'Audit' });
   assert.deepEqual(badges(linear), { S3: null, 'INT-14': null, C4: own('INT-4'), C5: own('#5'), C6: ['ENG-6', 'https://linear.app/new-workspace/issue/ENG-6'], F7: own('INT-7'), P1: null });
   assert.equal(linear.items.find((i) => i.kind === 'ask').ticket, undefined);
-  assert.deepEqual(build({ source: 'github' }).items.find((i) => i.id === 'P1').linear, [{ id: 'PROD-9', url: 'https://linear.app/acme/issue/PROD-9' }]);
-  const legacy = buildBoard({ tickets: { source: 'linear', workspace: 'new-workspace', team: 'PROD', project: 'Audit' }, waves: [{ slug: 'w', wave: { items: [{ id: 'A1', title: 'Old', linear: ['PROD-9', 'PROD-10'] }] } }] });
-  assert.deepEqual(legacy.items[0].linear.map((l) => l.url), ['https://linear.app/new-workspace/issue/PROD-9', 'https://linear.app/new-workspace/issue/PROD-10']);
+  assert.deepEqual([build(undefined), build({ source: 'github' }), linear].map((b) => b.items.find((i) => i.id === 'P1').linear),
+    [[{ id: 'WEB-9', url: null }], [{ id: 'WEB-9', url: null }], [{ id: 'WEB-9', url: 'https://linear.app/new-workspace/issue/WEB-9' }]]);
+  const legacy = buildBoard({ tickets: { source: 'linear', workspace: 'new-workspace', team: 'ENG', project: 'Audit' }, waves: [{ slug: 'w', wave: { items: [{ id: 'A1', title: 'Old', linear: ['ENG-9', 'ENG-10'] }] } }] });
+  assert.deepEqual(legacy.items[0].linear.map((l) => l.url), ['https://linear.app/new-workspace/issue/ENG-9', 'https://linear.app/new-workspace/issue/ENG-10']);
 });
 
 test('a card lists each unfinished dep it is blocked by, a Done one none; an unstarted one sits in Todo, a started one stays In Progress unless held', () => {
@@ -768,11 +769,11 @@ test('Done keeps the last 7 days open and folds older work cards and follow-ups 
   const at = (d) => new Date(now - d * 86400000).toISOString();
   const prs = { 'o/r#1': { state: 'MERGED', mergedAt: at(2) }, 'o/r#2': { state: 'MERGED', mergedAt: at(9) }, 'o/r#3': { state: 'MERGED', mergedAt: at(30) } };
   const items = [{ id: 'A1', title: 'a', pr: 1 }, { id: 'A2', title: 'b', pr: 2 }, { id: 'A3', title: 'c', pr: 3 }, { id: 'A4', title: 'd' }];
-  const followups = [{ id: 'PROD-1', title: 'f', filed: at(12), done: true }, { id: 'PROD-2', title: 'g', filed: at(1), done: true }];
+  const followups = [{ id: 'ENG-1', title: 'f', filed: at(12), done: true }, { id: 'ENG-2', title: 'g', filed: at(1), done: true }];
   const events = [{ id: 'a1', ts: at(1), kind: 'ask', data: { text: 'q' }, reply: { html: 'ok' } }, { id: 'a2', ts: at(10), kind: 'ask', data: { text: 'r' }, reply: { html: 'ok' } }];
   const b = buildBoard({ now, fromWaves: false, prs, events, waves: [{ slug: 'w', wave: { repo: 'o/r', items, followups } }] });
   assert.deepEqual(b.items.filter((i) => i.lane === 'done').map((i) => [i.key, i.fold]), [
-    ['w/PROD-2', null], ['ask:a1', 'asks'], ['w/A1', null], ['w/A2', 'older'], ['ask:a2', 'asks'], ['w/PROD-1', 'older'], ['w/A3', 'older'],
+    ['w/ENG-2', null], ['ask:a1', 'asks'], ['w/A1', null], ['w/A2', 'older'], ['ask:a2', 'asks'], ['w/ENG-1', 'older'], ['w/A3', 'older'],
   ]);
 });
 
@@ -782,7 +783,7 @@ test('a wave whose every item and follow-up is merged, done or dropped is finish
   const prs = { 'o/r#1': { state: 'MERGED', mergedAt: at(1) }, 'o/r#2': { state: 'CLOSED', updatedAt: at(3) }, 'o/r#3': { state: 'MERGED', mergedAt: at(20) } };
   const waves = (open) => [
     { slug: 'x', wave: { repo: 'o/r', items: [{ id: 'X1', title: 'a', pr: 1 }, { id: 'X2', title: 'b', pr: 2 }, { id: 'X3', title: 'c', status: 'dropped' }, { id: 'X4', title: 'd', pr: 3 }],
-      followups: [{ id: 'PROD-1', title: 'f', filed: at(2), done: true }, { id: 'PROD-2', title: 'g', filed: at(2), done: !open }] } },
+      followups: [{ id: 'ENG-1', title: 'f', filed: at(2), done: true }, { id: 'ENG-2', title: 'g', filed: at(2), done: !open }] } },
     { slug: 'site', wave: { internal: true, items: [{ id: 'S1', title: 's', status: 'done' }] } },
     { slug: 'open', agents: runningBuilders('O2'), wave: { items: [{ id: 'O1', title: 'o', status: 'merged' }, { id: 'O2', title: 'p', status: 'building' }] } },
     { slug: 'empty', wave: { items: [] } },
@@ -791,14 +792,14 @@ test('a wave whose every item and follow-up is merged, done or dropped is finish
   assert.deepEqual(b.waves.map((w) => [w.slug, w.finished]), [['x', { merged: 4, dropped: 2 }], ['site', { merged: 1, dropped: 0 }], ['open', null], ['empty', null]]);
   assert.deepEqual(b.items.map((i) => [i.key, i.lane, i.fold]), [
     ['open/O2', 'progress', null],
-    ['x/X1', 'done', 'wave:x'], ['x/PROD-2', 'done', 'wave:x'], ['x/PROD-1', 'done', 'wave:x'], ['x/X2', 'done', 'wave:x'], ['x/X4', 'done', 'wave:x'],
+    ['x/X1', 'done', 'wave:x'], ['x/ENG-2', 'done', 'wave:x'], ['x/ENG-1', 'done', 'wave:x'], ['x/X2', 'done', 'wave:x'], ['x/X4', 'done', 'wave:x'],
     ['x/X3', 'done', 'wave:x'], ['open/O1', 'done', null], ['site/S1', 'done', 'wave:site'],
   ]);
   const reopened = buildBoard({ now, fromWaves: false, prs, waves: waves(true) });
   assert.deepEqual(reopened.waves.map((w) => [w.slug, w.finished]), [['x', null], ['site', { merged: 1, dropped: 0 }], ['open', null], ['empty', null]]);
   assert.deepEqual(reopened.items.filter((i) => i.wave === 'x').map((i) => [i.key, i.lane, i.fold]), [
-    ['x/PROD-2', 'todo', null],
-    ['x/X1', 'done', null], ['x/PROD-1', 'done', null], ['x/X2', 'done', null], ['x/X4', 'done', 'older'], ['x/X3', 'done', null],
+    ['x/ENG-2', 'todo', null],
+    ['x/X1', 'done', null], ['x/ENG-1', 'done', null], ['x/X2', 'done', null], ['x/X4', 'done', 'older'], ['x/X3', 'done', null],
   ]);
 });
 

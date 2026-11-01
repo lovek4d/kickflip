@@ -32,7 +32,7 @@
   };
   const questionLink = (url) => !url ? ''
     : isPrototype(url) ? `<a class="pill proto" href="${esc(url)}">See the prototypes →</a>`
-    : `<div class="small" style="margin-bottom:8px"><a href="${esc(url)}"${opensHere(url) ? '' : ' target="_blank" rel="noopener"'}>${esc(url.replace(/^https:\/\/(linear\.app\/acme\/issue|github\.com)\//, ''))} ↗</a></div>`;
+    : `<div class="small" style="margin-bottom:8px"><a href="${esc(url)}"${opensHere(url) ? '' : ' target="_blank" rel="noopener"'}>${esc(url.replace(/^https:\/\/(linear\.app\/[^/]+\/issue|github\.com)\//, ''))} ↗</a></div>`;
 
   // A question's takes show inline (docs/adr/0048-a-questions-takes-show-inline.md): an option with `diagram` draws
   // it with its `practice`, and on a question whose url is a prototype page any other option shows that page's take.

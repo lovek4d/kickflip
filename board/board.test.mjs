@@ -40,7 +40,7 @@ async function withDevice(fn) {
   try { await fn(b, device.received); } finally { await device.close(); }
 }
 
-const wave = () => ({ title: 'W', items: [{ id: 'A1', title: 'One', next: 'Old' }], followups: [{ id: 'PROD-1', title: 'Later', filed: '2026-10-22' }] });
+const wave = () => ({ title: 'W', items: [{ id: 'A1', title: 'One', next: 'Old' }], followups: [{ id: 'ENG-1', title: 'Later', filed: '2026-10-22' }] });
 const question = (id, extra = {}) => ({ id, topic: 'site', question: 'Keep it?', options: [{ id: 'A', label: 'Keep', recommended: true }, { id: 'B', label: 'Drop' }], ...extra });
 
 beforeEach(() => {
@@ -198,12 +198,12 @@ test('tickets validate prefixes and link or create in the board source through t
   await saveBoardSettings(site('audit'), { tickets: { source: 'internal', prefix: 'OPS' } });
   assert.equal(await cli('item', 'add', 'audit/D4', '--title', 'Four'), 0);
   assert.equal(read(site('audit', 'data', 'wave.json')).items.at(-1).ticket, 'OPS-1');
-  await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'another', team: 'PROD', project: 'Audit' } });
+  await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'another', team: 'ENG', project: 'Audit' } });
   assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five', '--ticket', 'OTHER-1'), 1);
-  assert.match(err.at(-1), /match PROD-<number>/);
-  assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five', '--ticket', 'PROD-2918'), 0);
-  assert.equal(await cli('item', 'set', 'audit/E5', '--ticket', 'PROD-2919'), 0);
-  assert.equal(await cli('followup', 'add', 'audit', '--id', 'follow', '--title', 'Follow', '--ticket', 'PROD-2920'), 0);
+  assert.match(err.at(-1), /match ENG-<number>/);
+  assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five', '--ticket', 'ENG-2918'), 0);
+  assert.equal(await cli('item', 'set', 'audit/E5', '--ticket', 'ENG-2919'), 0);
+  assert.equal(await cli('followup', 'add', 'audit', '--id', 'follow', '--title', 'Follow', '--ticket', 'ENG-2920'), 0);
   assert.equal(calls.length, 0);
   const waveFile = site('audit', 'data', 'wave.json');
   write(waveFile, { ...read(waveFile), repo: 'o/r' });
@@ -253,7 +253,7 @@ test('internal ticket creation uses the next number across all board waves, incl
   assert.equal(board('item', 'add', 'internal/INT-200', '--site', 'orch', '--title', 'Hub card').code, 0);
   assert.equal(board('item', 'add', 'internal/S201', '--site', 'orch', '--title', 'Legacy card').code, 0);
   assert.deepEqual(read(at('waves', 'internal', 'wave.json')).items.slice(-2).map((it) => it.ticket), ['INT-200', 'INT-201']);
-  write(at('waves', 'w', 'wave.json'), { ...read(at('waves', 'w', 'wave.json')), items: [...read(at('waves', 'w', 'wave.json')).items, { id: 'P9', title: 'Linear', linear: ['PROD-900'] }] });
+  write(at('waves', 'w', 'wave.json'), { ...read(at('waves', 'w', 'wave.json')), items: [...read(at('waves', 'w', 'wave.json')).items, { id: 'P9', title: 'Linear', linear: ['ENG-900'] }] });
   assert.equal(board('item', 'add', 'w/E5', '--site', 'orch', '--title', 'Five').code, 0);
   assert.equal(read(at('waves', 'w', 'wave.json')).items.at(-1).ticket, 'INT-202');
 });
@@ -288,25 +288,25 @@ async function ticketCli(t) {
 
 test("a Linear board creates and checks issues through Hub's key, and each card moves only its owner's or kickflip's ticket, one way", async (t) => {
   const { saveBoardSettings, main, out, err, world, linear, gh, ghAnswers, cli, item } = await ticketCli(t);
-  await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'acme', team: 'PROD', project: 'proj-audit' } });
+  await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'acme', team: 'ENG', project: 'proj-audit' } });
   write(site('audit', 'data', 'notes.md'), '# Why it matters');
   assert.equal(await cli('item', 'add', 'audit/B2', '--title', 'Two', '--notes-file', 'notes.md'), 0);
-  assert.deepEqual([item('B2').ticket, item('B2').ticket_created], ['PROD-101', true]);
-  assert.deepEqual(world.issues['PROD-101'].input, { teamId: 'team-prod', projectId: 'proj-audit', title: 'Two', description: '# Why it matters' });
-  world.issues['PROD-8'] = { team: 'OPS', assignee: 'user-me', state: 'o-todo' };
-  world.issues['PROD-9'] = { team: 'PROD', assignee: 'someone', state: 's-todo' };
-  world.issues['PROD-10'] = { team: 'PROD', assignee: 'user-me', state: 's-todo' };
-  for (const [ticket, message] of [['PROD-50', 'Linear has no issue PROD-50.'], ['PROD-8', "PROD-8 is in Linear's OPS team, not PROD."], ['OPS-1', 'Ticket must match PROD-<number>.']]) {
+  assert.deepEqual([item('B2').ticket, item('B2').ticket_created], ['ENG-101', true]);
+  assert.deepEqual(world.issues['ENG-101'].input, { teamId: 'team-eng', projectId: 'proj-audit', title: 'Two', description: '# Why it matters' });
+  world.issues['ENG-8'] = { team: 'OPS', assignee: 'user-me', state: 'o-todo' };
+  world.issues['ENG-9'] = { team: 'ENG', assignee: 'someone', state: 's-todo' };
+  world.issues['ENG-10'] = { team: 'ENG', assignee: 'user-me', state: 's-todo' };
+  for (const [ticket, message] of [['ENG-50', 'Linear has no issue ENG-50.'], ['ENG-8', "ENG-8 is in Linear's OPS team, not ENG."], ['OPS-1', 'Ticket must match ENG-<number>.']]) {
     assert.equal(await cli('item', 'add', 'audit/C3', '--title', 'Three', '--ticket', ticket), 1);
     assert.equal(err.at(-1), message);
   }
-  assert.equal(await cli('item', 'add', 'audit/C3', '--title', 'Three', '--ticket', 'PROD-9'), 0);
-  assert.equal(await cli('item', 'add', 'audit/D4', '--title', 'Four', '--ticket', 'PROD-10'), 0);
-  assert.deepEqual([item('C3').ticket, item('C3').ticket_created, item('D4').ticket], ['PROD-9', undefined, 'PROD-10']);
+  assert.equal(await cli('item', 'add', 'audit/C3', '--title', 'Three', '--ticket', 'ENG-9'), 0);
+  assert.equal(await cli('item', 'add', 'audit/D4', '--title', 'Four', '--ticket', 'ENG-10'), 0);
+  assert.deepEqual([item('C3').ticket, item('C3').ticket_created, item('D4').ticket], ['ENG-9', undefined, 'ENG-10']);
   const stateOf = (id) => world.teams[0].states.find((s) => s.id === world.issues[id].state).name;
   const moves = [
-    ['B2', ['--status', 'building'], 'PROD-101', 'In Progress'], ['B2', ['--pr', '5'], 'PROD-101', 'In Review'], ['B2', ['--status', 'done'], 'PROD-101', 'Done'],
-    ['D4', ['--status', 'fixing'], 'PROD-10', 'In Progress'], ['D4', ['--status', 'merged'], 'PROD-10', 'Done'],
+    ['B2', ['--status', 'building'], 'ENG-101', 'In Progress'], ['B2', ['--pr', '5'], 'ENG-101', 'In Review'], ['B2', ['--status', 'done'], 'ENG-101', 'Done'],
+    ['D4', ['--status', 'fixing'], 'ENG-10', 'In Progress'], ['D4', ['--status', 'merged'], 'ENG-10', 'Done'],
   ];
   for (const [id, flags, ticket, state] of moves) {
     assert.equal(await cli('item', 'set', `audit/${id}`, ...flags), 0);
@@ -314,17 +314,17 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
     assert.equal(stateOf(ticket), state);
   }
   assert.equal(await cli('item', 'set', 'audit/B2', '--status', 'building'), 0);
-  assert.equal(stateOf('PROD-101'), 'Done');
+  assert.equal(stateOf('ENG-101'), 'Done');
   assert.equal(await cli('item', 'set', 'audit/C3', '--status', 'building'), 0);
-  assert.equal(out.at(-1), 'ticket PROD-9: left as it is, not assigned to you');
-  assert.deepEqual([item('C3').status, stateOf('PROD-9')], ['building', 'Todo']);
+  assert.equal(out.at(-1), 'ticket ENG-9: left as it is, not assigned to you');
+  assert.deepEqual([item('C3').status, stateOf('ENG-9')], ['building', 'Todo']);
   const before = linear.calls.length;
   for (const flags of [['--status', 'checking'], ['--status', 'planned'], ['--held'], ['--next', 'Then this']]) assert.equal(await cli('item', 'set', 'audit/C3', ...flags), 0);
   assert.equal(linear.calls.length, before);
   assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five'), 0);
   const offline = async () => { throw new Error('offline'); };
   assert.equal(await main(['--site', 'audit', 'item', 'set', 'audit/E5', '--status', 'building'], { linearFetch: offline }), 0);
-  assert.equal(out.at(-1), 'ticket PROD-102: could not move to In Progress (Could not reach Linear: offline)');
+  assert.equal(out.at(-1), 'ticket ENG-102: could not move to In Progress (Could not reach Linear: offline)');
   assert.equal(item('E5').status, 'building');
 
   const waveFile = site('audit', 'data', 'wave.json');
@@ -351,75 +351,75 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
 test("a Linear board without Hub's key records each card and asks the session, in ticket lines, to create, link and move its issues through the Linear MCP", async (t) => {
   const { saveBoardSettings, out, err, linear, cli, item } = await ticketCli(t);
   fs.rmSync(at('kickflip', 'linear.json'));
-  await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'acme', team: 'PROD', project: 'Backend Audit' } });
+  await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'acme', team: 'ENG', project: 'Backend Audit' } });
   assert.equal(await cli('item', 'add', 'audit/B2', '--title', 'Two', '--notes', 'Why'), 0);
-  assert.equal(out.at(-1), 'ticket: create the Linear issue "Two" in team PROD, project Backend Audit, through your Linear MCP, then run board.mjs --site audit item set audit/B2 --ticket <id>');
+  assert.equal(out.at(-1), 'ticket: create the Linear issue "Two" in team ENG, project Backend Audit, through your Linear MCP, then run board.mjs --site audit item set audit/B2 --ticket <id>');
   assert.deepEqual([item('B2').status, item('B2').ticket], ['planned', undefined]);
   assert.equal(await cli('item', 'set', 'audit/B2', '--ticket', 'OPS-4'), 1);
-  assert.match(err.at(-1), /match PROD-<number>/);
-  assert.equal(await cli('item', 'set', 'audit/B2', '--ticket', 'PROD-4'), 0);
-  assert.equal(item('B2').ticket, 'PROD-4');
+  assert.match(err.at(-1), /match ENG-<number>/);
+  assert.equal(await cli('item', 'set', 'audit/B2', '--ticket', 'ENG-4'), 0);
+  assert.equal(item('B2').ticket, 'ENG-4');
   assert.equal(await cli('followup', 'add', 'audit', '--id', 'later', '--title', 'Later work'), 0);
-  assert.equal(out.at(-1), 'ticket: create the Linear issue "Later work" in team PROD, project Backend Audit, through your Linear MCP, then run board.mjs --site audit followup set audit later --ticket <id>');
-  assert.equal(await cli('followup', 'set', 'audit', 'later', '--ticket', 'PROD-5'), 0);
-  assert.equal(read(site('audit', 'data', 'wave.json')).followups.find((f) => f.id === 'later').ticket, 'PROD-5');
+  assert.equal(out.at(-1), 'ticket: create the Linear issue "Later work" in team ENG, project Backend Audit, through your Linear MCP, then run board.mjs --site audit followup set audit later --ticket <id>');
+  assert.equal(await cli('followup', 'set', 'audit', 'later', '--ticket', 'ENG-5'), 0);
+  assert.equal(read(site('audit', 'data', 'wave.json')).followups.find((f) => f.id === 'later').ticket, 'ENG-5');
   write(site('audit', 'data', 'events.jsonl'), JSON.stringify({ id: 'e1', kind: 'ask', data: { text: 'Ask' } }) + '\n');
   const waveFile = site('audit', 'data', 'wave.json');
   write(waveFile, { ...read(waveFile), items: [...read(waveFile).items, { id: 'D4', title: 'Asked' }] });
   assert.equal(await cli('item', 'set', 'audit/D4', '--from-ask', 'e1'), 0);
-  assert.equal(out.at(-1), 'ticket: create the Linear issue "Asked" in team PROD, project Backend Audit, through your Linear MCP, then run board.mjs --site audit item set audit/D4 --ticket <id>');
+  assert.equal(out.at(-1), 'ticket: create the Linear issue "Asked" in team ENG, project Backend Audit, through your Linear MCP, then run board.mjs --site audit item set audit/D4 --ticket <id>');
   for (const [flags, state] of [[['--status', 'building'], 'In Progress'], [['--pr', '9'], 'In Review'], [['--status', 'done'], 'Done']]) {
     assert.equal(await cli('item', 'set', 'audit/B2', ...flags), 0);
-    assert.equal(out.at(-1), `ticket PROD-4: move to ${state} through the Linear MCP if it's assigned to you`);
+    assert.equal(out.at(-1), `ticket ENG-4: move to ${state} through the Linear MCP if it's assigned to you`);
   }
-  write(waveFile, { ...read(waveFile), items: [{ id: 'E5', title: 'Fix login (PROD-2918)' }, { id: 'F6', title: 'No id yet' }, { id: 'G7', title: 'Done', status: 'done' }], followups: [] });
+  write(waveFile, { ...read(waveFile), items: [{ id: 'E5', title: 'Fix login (ENG-2918)' }, { id: 'F6', title: 'No id yet' }, { id: 'G7', title: 'Done', status: 'done' }], followups: [] });
   out.length = 0;
   assert.equal(await cli('tickets', 'backfill'), 0);
   assert.deepEqual(out, [
-    'audit/E5 linked PROD-2918',
-    'audit/F6 ticket: create the Linear issue "No id yet" in team PROD, project Backend Audit, through your Linear MCP, then run board.mjs --site audit item set audit/F6 --ticket <id>',
+    'audit/E5 linked ENG-2918',
+    'audit/F6 ticket: create the Linear issue "No id yet" in team ENG, project Backend Audit, through your Linear MCP, then run board.mjs --site audit item set audit/F6 --ticket <id>',
     'backfill: linked 1, created 0, failed 0, 1 to create through the Linear MCP',
   ]);
-  assert.deepEqual(['E5', 'F6', 'G7'].map((id) => item(id).ticket), ['PROD-2918', undefined, undefined]);
+  assert.deepEqual(['E5', 'F6', 'G7'].map((id) => item(id).ticket), ['ENG-2918', undefined, undefined]);
   assert.equal(linear.calls.length, 0);
 });
 
 test('tickets backfill links ids from open cards’ titles that belong to the source, creates the rest, leaves done cards, and changes nothing on a dry run', async (t) => {
   const { saveBoardSettings, out, world, linear, cli, item } = await ticketCli(t);
-  world.issues['PROD-2918'] = { team: 'PROD', assignee: null, state: 's-todo' };
-  world.issues['PROD-2919'] = { team: 'PROD', assignee: null, state: 's-todo' };
+  world.issues['ENG-2918'] = { team: 'ENG', assignee: null, state: 's-todo' };
+  world.issues['ENG-2919'] = { team: 'ENG', assignee: null, state: 's-todo' };
   const waveFile = site('audit', 'data', 'wave.json');
   write(waveFile, { ...read(waveFile), items: [
-    { id: 'A1', title: 'Fix login (PROD-2918)' },
-    { id: 'B2', title: 'Merged PROD-77', status: 'merged' },
+    { id: 'A1', title: 'Fix login (ENG-2918)' },
+    { id: 'B2', title: 'Merged ENG-77', status: 'merged' },
     { id: 'C3', title: 'Watch OPS-3 too', status: 'building' },
-    { id: 'D4', title: 'Has one', ticket: 'PROD-5' },
-    { id: 'E5', title: 'Legacy', linear: ['PROD-2919'] },
-    { id: 'F6', title: 'Gone PROD-4040' },
+    { id: 'D4', title: 'Has one', ticket: 'ENG-5' },
+    { id: 'E5', title: 'Legacy', linear: ['ENG-2919'] },
+    { id: 'F6', title: 'Gone ENG-4040' },
     { id: 'G7', title: 'Dropped', status: 'dropped' },
   ] });
   assert.equal(await cli('tickets', 'backfill'), 1);
-  await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'acme', team: 'PROD', project: 'Backend Audit' } });
+  await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'acme', team: 'ENG', project: 'Backend Audit' } });
   const before = fs.readFileSync(waveFile, 'utf8');
   out.length = 0;
   assert.equal(await cli('tickets', 'backfill', '--dry-run'), 0);
   assert.deepEqual(out, [
-    'audit/A1 would link PROD-2918', 'audit/C3 would get a new ticket', 'audit/E5 would link PROD-2919', 'audit/F6 would link PROD-4040',
-    'audit/PROD-1 would get a new ticket', 'backfill (dry run): would link 3, create 2',
+    'audit/A1 would link ENG-2918', 'audit/C3 would get a new ticket', 'audit/E5 would link ENG-2919', 'audit/F6 would link ENG-4040',
+    'audit/ENG-1 would get a new ticket', 'backfill (dry run): would link 3, create 2',
   ]);
   assert.equal(fs.readFileSync(waveFile, 'utf8'), before);
   assert.equal(linear.calls.length, 0);
   out.length = 0;
   assert.equal(await cli('tickets', 'backfill'), 0);
   assert.deepEqual(out, [
-    'audit/A1 linked PROD-2918', 'audit/C3 created PROD-101', 'audit/E5 linked PROD-2919', 'audit/F6 failed: Linear has no issue PROD-4040.',
-    'audit/PROD-1 created PROD-102', 'backfill: linked 2, created 2, failed 1',
+    'audit/A1 linked ENG-2918', 'audit/C3 created ENG-101', 'audit/E5 linked ENG-2919', 'audit/F6 failed: Linear has no issue ENG-4040.',
+    'audit/ENG-1 created ENG-102', 'backfill: linked 2, created 2, failed 1',
   ]);
   assert.deepEqual(['A1', 'B2', 'C3', 'D4', 'E5', 'F6', 'G7'].map((id) => [item(id).ticket, item(id).ticket_created]), [
-    ['PROD-2918', undefined], [undefined, undefined], ['PROD-101', true], ['PROD-5', undefined], ['PROD-2919', undefined], [undefined, undefined], [undefined, undefined],
+    ['ENG-2918', undefined], [undefined, undefined], ['ENG-101', true], ['ENG-5', undefined], ['ENG-2919', undefined], [undefined, undefined], [undefined, undefined],
   ]);
-  assert.deepEqual(read(waveFile).followups[0].ticket, 'PROD-102');
-  assert.equal(world.issues['PROD-101'].input.projectId, 'proj-audit');
+  assert.deepEqual(read(waveFile).followups[0].ticket, 'ENG-102');
+  assert.equal(world.issues['ENG-101'].input.projectId, 'proj-audit');
 });
 
 test('an Internal ticket another card holds is refused, and backfill gives a card that only mentions one a new ticket', () => {
@@ -437,7 +437,7 @@ test('an Internal ticket another card holds is refused, and backfill gives a car
   fs.writeFileSync(site('orch', 'board.json'), JSON.stringify({ title: 'Orch', items: 'waves', tickets: { source: 'internal', prefix: 'INT' } }));
   const done = board('tickets', 'backfill', '--site', 'orch');
   assert.equal(done.code, 0, done.err);
-  assert.deepEqual(done.out.trim().split('\n'), ['w/A1 created INT-2', 'w/D4 created INT-3', 'w/E5 linked INT-9', 'w/PROD-1 created INT-10', 'backfill: linked 1, created 3, failed 0']);
+  assert.deepEqual(done.out.trim().split('\n'), ['w/A1 created INT-2', 'w/D4 created INT-3', 'w/E5 linked INT-9', 'w/ENG-1 created INT-10', 'backfill: linked 1, created 3, failed 0']);
 });
 
 test('working marks a known ask started and refuses an unknown one', () => {
@@ -747,12 +747,12 @@ test('item set --install records a device build with when it was built, takes on
 });
 
 test('a follow-up is filed with a date and leaves its lane when done', () => {
-  assert.equal(board('followup', 'add', 'audit', '--site', 'audit', '--id', 'PROD-7', '--title', 'Tidy', '--from', 'A1').code, 0);
-  assert.equal(board('followup', 'add', 'audit', '--site', 'audit', '--id', 'PROD-7', '--title', 'Again').code, 1);
+  assert.equal(board('followup', 'add', 'audit', '--site', 'audit', '--id', 'ENG-7', '--title', 'Tidy', '--from', 'A1').code, 0);
+  assert.equal(board('followup', 'add', 'audit', '--site', 'audit', '--id', 'ENG-7', '--title', 'Again').code, 1);
   assert.equal(board('followup', 'add', 'audit', '--site', 'audit', '--id', 'bad/id', '--title', 'Tidy').code, 1);
-  assert.equal(board('followup', 'done', 'audit', 'PROD-1', '--site', 'audit').code, 0);
+  assert.equal(board('followup', 'done', 'audit', 'ENG-1', '--site', 'audit').code, 0);
   const { followups } = read(site('audit', 'data', 'wave.json'));
-  assert.deepEqual(followups.map((f) => [f.id, Boolean(f.done)]), [['PROD-1', true], ['PROD-7', false]]);
+  assert.deepEqual(followups.map((f) => [f.id, Boolean(f.done)]), [['ENG-1', true], ['ENG-7', false]]);
   assert.match(followups[1].filed, /^\d{4}-\d{2}-\d{2}$/);
   assert.equal(followups[1].from, 'A1');
   assert.equal(followups[1].ticket, 'INT-1');
@@ -767,7 +767,7 @@ test("closing a card resolves its answered questions, refuses while one has no a
     question('q3', { ...on('w/A1'), resolved: 'Old.', resolved_at: '2026-10-23T12:00:00Z' }),
     question('q4'),
     question('q5', on('w/A2')), question('q6', on('w/A2')), question('q7', on('w/A2')),
-    question('q8', on('w/PROD-1')), question('q9', on('w/PROD-1')),
+    question('q8', on('w/ENG-1')), question('q9', on('w/ENG-1')),
   ] });
   fs.appendFileSync(site('orch', 'data', 'events.jsonl'), ['q1', 'q2', 'q3', 'q4', 'q5', 'q8'].map((id) =>
     JSON.stringify({ id: `a-${id}`, ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id, choice: 'A' } }) + '\n').join(''));
@@ -784,7 +784,7 @@ test("closing a card resolves its answered questions, refuses while one has no a
   const unchanged = () => assert.deepEqual([fs.readFileSync(at('waves', 'w', 'wave.json'), 'utf8'), fs.readFileSync(site('orch', 'data', 'owner.json'), 'utf8')], before);
   for (const [args, err] of [
     [['item', 'set', 'w/A2', '--status', 'dropped'], /^--status dropped: w\/A2 has open questions q6, q7 with no answer yet; pass --force/],
-    [['followup', 'done', 'w', 'PROD-1'], /^followup done: w\/PROD-1 has an open question q9 with no answer yet; pass --force/],
+    [['followup', 'done', 'w', 'ENG-1'], /^followup done: w\/ENG-1 has an open question q9 with no answer yet; pass --force/],
     [['item', 'set', 'w/A2', '--next', 'Later', '--force'], /^--force goes with --status done, merged, dropped/],
   ]) {
     const r = board(...args, '--site', 'orch');
@@ -795,7 +795,7 @@ test("closing a card resolves its answered questions, refuses while one has no a
   }
 
   assert.equal(board('item', 'set', 'w/A2', '--status', 'dropped', '--force', '--site', 'orch').code, 0);
-  const forced = board('followup', 'done', 'w', 'PROD-1', '--force', '--site', 'orch');
+  const forced = board('followup', 'done', 'w', 'ENG-1', '--force', '--site', 'orch');
   assert.equal(forced.code, 0, forced.err);
   assert.deepEqual(forced.out.split('\n').filter((l) => l.startsWith('resolved')), ['resolved: q8', 'resolved: q9']);
   const wave = read(at('waves', 'w', 'wave.json'));

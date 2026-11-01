@@ -621,7 +621,7 @@ test("a question's link opens in place on this hub, and outside the board anywhe
   } finally { delete context.location; }
   const linear = ui.questionCard({ ...question, url: 'https://linear.app/acme/issue/INT-1' });
   assert.match(linear, /href="https:\/\/linear\.app\/acme\/issue\/INT-1" target="_blank"/);
-  assert.match(text(linear), /INT-1 ↗/);
+  assert.match(linear, /target="_blank" rel="noopener">INT-1 ↗<\/a>/);
 });
 
 test('a resolved question says how it was resolved', () => {
@@ -813,7 +813,7 @@ test('a pending prototype request offers a bump unless it is already the latest 
 
 const lines = (html) => html.split('<div class="line').slice(1).map((l) => text('<div class="line' + l));
 const workCard = { kind: 'work', key: 'w/B5', id: 'B5', ref: 'B5', title: 'Five', internal: false, held: false, risky: false, threadCount: 4,
-  linear: [{ id: 'PROD-1', url: 'https://linear.app/x/PROD-1' }], pr: { ...openPR, isDraft: true }, reviewers: ['Jamie'], review: { Jamie: { state: 'unsent' } },
+  linear: [{ id: 'ENG-1', url: 'https://linear.app/x/ENG-1' }], pr: { ...openPR, isDraft: true }, reviewers: ['Jamie'], review: { Jamie: { state: 'unsent' } },
   questions: null, builder: null, working: false, next: 'Waiting for PR reviewers' };
 
 test('ticket badges use the board source, link internally or externally, and leave asks without a ticket', () => {
@@ -823,29 +823,29 @@ test('ticket badges use the board source, link internally or externally, and lea
     assert.match(html, new RegExp(`>${id.replace('#', '#')}<`));
     assert.ok(html.includes(`href="${url}"`));
     assert.equal(html.includes('target="_blank"', 0) && html.indexOf('target="_blank"') < html.indexOf('</a>'), source !== 'internal');
-    assert.doesNotMatch(html, /PROD-1/);
+    assert.doesNotMatch(html, /ENG-1/);
     assert.doesNotMatch(ui.workLines({ ...card, kind: 'ask', isNew: false }), new RegExp(`>${id}<`));
   }
-  assert.match(ui.workLines({ ...workCard, linear: [...workCard.linear, { id: 'PROD-2', url: 'https://linear.app/another/issue/PROD-2' }] }), /PROD-1.*PROD-2/);
+  assert.match(ui.workLines({ ...workCard, linear: [...workCard.linear, { id: 'ENG-2', url: 'https://linear.app/another/issue/ENG-2' }] }), /ENG-1.*ENG-2/);
   const foreign = ui.workLines({ ...workCard, ticket: { id: 'INT-4', url: null, source: null } });
   assert.match(foreign, /<span class="chip tone-quiet"[^>]*>INT-4<\/span>/);
-  assert.doesNotMatch(foreign, /PROD-1|#4/);
+  assert.doesNotMatch(foreign, /ENG-1|#4/);
 });
 
 test('a work card reads its title, then its next step or builder, its chips led by its unread messages, and last its Blocked by chips', () => {
-  assert.deepEqual(lines(ui.workLines(workCard, { unread: 2 })), ['PROD-1 Five', 'Next: Waiting for PR reviewers', '2 new repo#7 ● CI ✓ J ✗']);
-  assert.deepEqual(lines(ui.workLines({ ...workCard, next: null, pr: null, reviewers: [] }, { unread: 1 })), ['PROD-1 Five', '1 new']);
+  assert.deepEqual(lines(ui.workLines(workCard, { unread: 2 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', '2 new repo#7 ● CI ✓ J ✗']);
+  assert.deepEqual(lines(ui.workLines({ ...workCard, next: null, pr: null, reviewers: [] }, { unread: 1 })), ['ENG-1 Five', '1 new']);
   assert.match(ui.workLines(workCard, { unread: 1 }), /<div class="line2 meta"><span class="chip unread"[^>]* aria-label="1 unread message">1 new<\/span>/);
   assert.match(ui.workLines(workCard, { unread: 3 }), /aria-label="3 unread messages">3 new</);
   assert.doesNotMatch(text(ui.workLines(workCard)), /B5|msg|unread/);
   const busy = { ...workCard, held: true, risky: true, builder: { progress: 'Running tests', at: null } };
-  assert.deepEqual(lines(ui.workLines(busy)), ['PROD-1 Five', 'Running tests', 'repo#7 ● CI ✓ J ✗ held risky']);
-  const internal = { ...workCard, key: 'site/S3', id: 'S3', ref: 'INT-3', internal: true, pr: null, linear: [{ id: 'PROD-9', url: 'u' }], next: null };
+  assert.deepEqual(lines(ui.workLines(busy)), ['ENG-1 Five', 'Running tests', 'repo#7 ● CI ✓ J ✗ held risky']);
+  const internal = { ...workCard, key: 'site/S3', id: 'S3', ref: 'INT-3', internal: true, pr: null, linear: [{ id: 'ENG-9', url: 'u' }], next: null };
   assert.deepEqual(lines(ui.workLines(internal)), ['INT-3 Five']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, questions: { open: 1, first: 'q1' }, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
-    ['PROD-1 Five', 'Next: Waiting for PR reviewers', 'Action needed repo#7 ● CI ✓ J ✗']);
+    ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'Action needed repo#7 ● CI ✓ J ✗']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, questions: { open: 1, first: 'q1' }, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } }, { unread: 3 })),
-    ['PROD-1 Five', 'Next: Waiting for PR reviewers', '3 new Action needed repo#7 ● CI ✓ J ✗']);
+    ['ENG-1 Five', 'Next: Waiting for PR reviewers', '3 new Action needed repo#7 ● CI ✓ J ✗']);
   const blocked = { ...internal, lane: 'todo', deps: ['S1', 'S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }] };
   assert.deepEqual(lines(ui.workLines(blocked)), ['INT-3 Five', 'blocked by INT-2']);
   assert.match(ui.workLines(blocked), /href="#item=site%2FS2"/);
@@ -853,21 +853,21 @@ test('a work card reads its title, then its next step or builder, its chips led 
   assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [], next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
     ['INT-3 Five', 'Next: Answer 1 question', 'Action needed']);
   const waiting = { ...workCard, lane: 'todo', deps: ['S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }], bumpedAt: ago(1) };
-  assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['PROD-1 Five', 'Next: Waiting for PR reviewers', '1 new repo#7 ● CI ✓ J ✗ bumped', 'blocked by INT-2']);
+  assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', '1 new repo#7 ● CI ✓ J ✗ bumped', 'blocked by INT-2']);
   const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: 'Task', title: 'Fix it', internal: false, linear: [], pr: null, deps: [], blockedBy: [], working: true };
   assert.deepEqual(lines(ui.workLines(ask)), ['Task Fix it', 'Working on it']);
   assert.deepEqual(lines(ui.workLines(ask, { unread: 2 })), ['Task Fix it', 'Working on it', '2 new']);
   assert.deepEqual(lines(ui.workLines({ ...internal, waitsOn: 'checking', working: true, next: 'Verify it' })), ['INT-3 Five', 'Orchestrator review']);
-  const followup = { ...workCard, kind: 'followup', key: 'w/PROD-7', id: 'PROD-7', ref: 'PROD-7', linear: [{ id: 'PROD-7', url: 'u' }], pr: null, reviewers: [], next: null, lane: 'todo', deps: [], blockedBy: [] };
-  assert.deepEqual(lines(ui.workLines(followup)), ['PROD-7 Five', 'follow-up']);
-  assert.match(ui.workLines(followup), /<a class="chip tone-normal" href="u"[^>]*>PROD-7<\/a>.*<span class="chip tone-quiet">follow-up<\/span>/s);
+  const followup = { ...workCard, kind: 'followup', key: 'w/ENG-7', id: 'ENG-7', ref: 'ENG-7', linear: [{ id: 'ENG-7', url: 'u' }], pr: null, reviewers: [], next: null, lane: 'todo', deps: [], blockedBy: [] };
+  assert.deepEqual(lines(ui.workLines(followup)), ['ENG-7 Five', 'follow-up']);
+  assert.match(ui.workLines(followup), /<a class="chip tone-normal" href="u"[^>]*>ENG-7<\/a>.*<span class="chip tone-quiet">follow-up<\/span>/s);
 });
 
 test('a Todo age uses muted secondary text on its own line below the title', () => {
   const card = { ...workCard, lane: 'todo', pr: null, reviewers: [], next: null };
-  assert.deepEqual(lines(ui.workLines(card)), ['PROD-1 Five']);
+  assert.deepEqual(lines(ui.workLines(card)), ['ENG-1 Five']);
   const html = ui.workLines({ ...card, todoAge: '3 days ago', held: true });
-  assert.deepEqual(lines(html), ['PROD-1 Five', '3 days ago', 'held']);
+  assert.deepEqual(lines(html), ['ENG-1 Five', '3 days ago', 'held']);
   assert.match(html, /<div class="line1 title">.*Five<\/div>\s*<div class="line3 sub">3 days ago<\/div>/);
   assert.doesNotMatch(html, /tone-notice/);
 });
@@ -876,7 +876,7 @@ test("a card with an install shows its Install link last among its badges, openi
   const url = 'itms-services://?action=download-manifest&url=https://m/x/manifest.plist';
   const install = { url, label: null, builtAt: ago(2), sha: 'abc1234', older: false };
   const asking = { ...workCard, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' }, install };
-  assert.deepEqual(lines(ui.workLines(asking)), ['PROD-1 Five', 'Next: Waiting for PR reviewers', 'Action needed repo#7 ● CI ✓ J ✗ Install']);
+  assert.deepEqual(lines(ui.workLines(asking)), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'Action needed repo#7 ● CI ✓ J ✗ Install']);
   const html = ui.workLines({ ...workCard, install });
   assert.equal(lines(html)[2], 'repo#7 ● CI ✓ J ✗ Install');
   const link = /<a class="chip tone-ready" href="([^"]*)"[^>]*>Install<\/a>/.exec(html);
@@ -919,9 +919,9 @@ test('the install chip and details link share rebuilding, first build, older bui
 });
 
 test('Todo offers to plan a wave from its follow-ups once it holds two, with their keys', () => {
-  const todo = [{ key: 'w/A1', kind: 'work' }, { key: 'w/PROD-1', kind: 'followup' }, { key: 'v/PROD-2', kind: 'followup' }];
+  const todo = [{ key: 'w/A1', kind: 'work' }, { key: 'w/ENG-1', kind: 'followup' }, { key: 'v/ENG-2', kind: 'followup' }];
   const html = ui.planButton(todo);
-  assert.equal(/data-plan="([^"]*)"/.exec(html)[1], 'w/PROD-1 v/PROD-2');
+  assert.equal(/data-plan="([^"]*)"/.exec(html)[1], 'w/ENG-1 v/ENG-2');
   assert.equal(text(html), 'Plan a wave from these 2 follow-ups →');
   assert.equal(ui.planButton(todo.slice(0, 2)), '');
 });
@@ -1061,21 +1061,21 @@ const anchors = (html) => [...html.matchAll(/<a href="([^"]*)"([^>]*)>([\s\S]*?)
 const boardItems = [
   { key: 'site/S54', wave: 'site', kind: 'work', ref: 'INT-54', internal: true, linear: [], repo: null },
   { key: 'site/INT-56', wave: 'site', kind: 'followup', ref: 'INT-56', internal: true, linear: [{ id: 'INT-56' }], repo: null },
-  { key: 'att/A1', wave: 'att', kind: 'work', ref: 'A1', internal: false, linear: [{ id: 'PROD-2310' }], repo: 'acme/app' },
+  { key: 'att/A1', wave: 'att', kind: 'work', ref: 'A1', internal: false, linear: [{ id: 'ENG-2310', url: 'https://linear.app/acme/issue/ENG-2310' }], repo: 'acme/app' },
   { key: 'att/A2', wave: 'att', kind: 'work', ref: 'A2', internal: false, linear: [], repo: 'acme/app' },
-  { key: 'att/PROD-2467', wave: 'att', kind: 'followup', ref: 'PROD-2467', internal: false, linear: [{ id: 'PROD-2467' }], repo: 'acme/app' },
-  { key: 'elig/A1', wave: 'elig', kind: 'work', ref: 'A1', internal: false, linear: [{ id: 'ENG-7' }], repo: 'o/r' },
+  { key: 'att/ENG-2467', wave: 'att', kind: 'followup', ref: 'ENG-2467', internal: false, linear: [{ id: 'ENG-2467', url: 'https://linear.app/acme/issue/ENG-2467' }], repo: 'acme/app' },
+  { key: 'elig/A1', wave: 'elig', kind: 'work', ref: 'A1', internal: false, linear: [{ id: 'OPS-7', url: 'https://linear.app/acme/issue/OPS-7' }], repo: 'o/r' },
   { key: 'ask:e9', wave: null, kind: 'ask', ref: 'Ask', internal: false, linear: [], repo: null },
 ];
-const refLine = 'INT-54 shipped, INT-99 did not. PROD-2310, ENG-7 and PROD-2467 next, then A1. See acme/app#3116, app#3050, foo#4 and #2988, not #ffffff, #000000 or UTF-8. https://github.com/o/r/pull/1#issuecomment-2 and (https://x.test/a_(b)).';
+const refLine = 'INT-54 shipped, INT-99 did not. ENG-2310, OPS-7 and ENG-2467 next, then A1. See acme/app#3116, app#3050, foo#4 and #2988, not #ffffff, #000000 or UTF-8. https://github.com/o/r/pull/1#issuecomment-2 and (https://x.test/a_(b)).';
 
 test('a thread line links each ref the board knows to its card, Linear ids and PRs to their pages, and bare URLs, leaving the text as written', () => {
   const html = ui.threadMessages([{ ts: ago(1), who: 'claude', text: refLine }], ui.linkContext(boardItems, 'att/A1'));
   assert.deepEqual(anchors(html), [
     ['#item=site%2FS54', 'INT-54', false],
-    ['https://linear.app/acme/issue/PROD-2310', 'PROD-2310', true],
-    ['https://linear.app/acme/issue/ENG-7', 'ENG-7', true],
-    ['#item=att%2FPROD-2467', 'PROD-2467', false],
+    ['https://linear.app/acme/issue/ENG-2310', 'ENG-2310', true],
+    ['https://linear.app/acme/issue/OPS-7', 'OPS-7', true],
+    ['#item=att%2FENG-2467', 'ENG-2467', false],
     ['#item=att%2FA1', 'A1', false],
     ['https://github.com/acme/app/pull/3116', 'acme/app#3116', true],
     ['https://github.com/acme/app/pull/3050', 'app#3050', true],
@@ -1084,6 +1084,18 @@ test('a thread line links each ref the board knows to its card, Linear ids and P
     ['https://x.test/a_(b)', 'https://x.test/a_(b)', true],
   ]);
   assert.ok(shown(html).includes(refLine));
+});
+
+test("a Linear id links in its board's own workspace, and a board without a workspace shows it unlinked", () => {
+  const line = [{ ts: ago(1), who: 'claude', text: 'ENG-2310 and ENG-12 next' }];
+  const items = (url) => [{ key: 'w/A1', wave: 'w', kind: 'work', ref: 'A1', internal: false, linear: [{ id: 'ENG-2310', url }], repo: null }];
+  assert.deepEqual(anchors(ui.threadMessages(line, ui.linkContext(items('https://linear.app/other-co/issue/ENG-2310'), 'w/A1'))), [
+    ['https://linear.app/other-co/issue/ENG-2310', 'ENG-2310', true], ['https://linear.app/other-co/issue/ENG-12', 'ENG-12', true],
+  ]);
+  const bare = ui.threadMessages(line, ui.linkContext(items(null), 'w/A1'));
+  assert.deepEqual(anchors(bare), []);
+  assert.ok(shown(bare).includes('ENG-2310 and ENG-12 next'));
+  assert.match(ui.linearChips({ linear: [{ id: 'ENG-2310', url: null }] }), /^<span class="chip tone-normal"[^>]*>ENG-2310<\/span>$/);
 });
 
 test("a bare #n links only in a thread whose item has a repo, and a wave's short id links only from that wave's cards", () => {
@@ -1122,7 +1134,7 @@ test('an HTML line and a reply link refs in their text but leave existing links 
   const links = ui.linkContext(boardItems, 'site/S54');
   const html = ui.threadMessages([
     { ts: ago(2), who: 'claude', html: '<p>See <a href="https://x.test/">INT-54 notes</a> &amp; INT-54 at https://x.test/b?c=1&amp;d=2 &rarr; done</p><pre>INT-54</pre>' },
-    { ts: ago(1), who: 'love', text: 'Is INT-56 filed?', eventId: 'e1', reply: { html: '<p>Yes, INT-56 &mdash; see PROD-2310.</p>' }, state: 'replied' },
+    { ts: ago(1), who: 'love', text: 'Is INT-56 filed?', eventId: 'e1', reply: { html: '<p>Yes, INT-56 &mdash; see ENG-2310.</p>' }, state: 'replied' },
   ], links);
   assert.deepEqual(anchors(html), [
     ['https://x.test/', 'INT-54 notes', false],
@@ -1130,7 +1142,7 @@ test('an HTML line and a reply link refs in their text but leave existing links 
     ['https://x.test/b?c=1&amp;d=2', 'https://x.test/b?c=1&d=2', true],
     ['#item=site%2FINT-56', 'INT-56', false],
     ['#item=site%2FINT-56', 'INT-56', false],
-    ['https://linear.app/acme/issue/PROD-2310', 'PROD-2310', true],
+    ['https://linear.app/acme/issue/ENG-2310', 'ENG-2310', true],
   ]);
   assert.match(html, /&rarr; done<\/p><pre>INT-54<\/pre>/);
   assert.match(html, /INT-56<\/a> &mdash; see/);
@@ -1138,10 +1150,10 @@ test('an HTML line and a reply link refs in their text but leave existing links 
 
 test('a question card and a full plan link refs too, to the board page from another page', () => {
   const onPage = ui.linkContext(boardItems, 'site/S54', { base: './' });
-  const q = { ...question, question: 'Keep INT-54?', context: 'See PROD-2310', state: 'replied', answers: [{ ts: ago(1), choice: 'A', note: 'Like INT-56', reply: { html: '<p>Done in INT-54</p>' } }] };
+  const q = { ...question, question: 'Keep INT-54?', context: 'See ENG-2310', state: 'replied', answers: [{ ts: ago(1), choice: 'A', note: 'Like INT-56', reply: { html: '<p>Done in INT-54</p>' } }] };
   assert.deepEqual(anchors(ui.questionCard(q, { links: onPage })), [
     ['./#item=site%2FS54', 'INT-54', false],
-    ['https://linear.app/acme/issue/PROD-2310', 'PROD-2310', true],
+    ['https://linear.app/acme/issue/ENG-2310', 'ENG-2310', true],
     ['./#item=site%2FINT-56', 'INT-56', false],
     ['./#item=site%2FS54', 'INT-54', false],
   ]);

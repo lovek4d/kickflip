@@ -171,8 +171,8 @@ test('invalid repo identities, branches, fields and reserved routes are refused 
     { github: '../escape' }, { github: 'o/../../escape' }, { github: '/tmp/escape' }, { github: 'owner/repo;ls' }, { github: '-owner/repo' },
     { github: 'https://github.com/o/r' }, { github: 'o/.git' }, { github: null }, { repo: home },
     { branch: '-main' }, { branch: '../main' }, { branch: 'a.lock' }, { branch: 'a/.hidden' }, { branch: 'a@{b' }, { branch: 'a b' }, { branch: 'a\\b' }, { branch: null },
-    { purpose: 'p'.repeat(241) }, { purpose: null }, { tickets: { source: 'internal', prefix: 'BAD1' } }, { tickets: { source: 'other' } }, { tickets: { source: 'linear', team: 'PROD' } },
-    { tickets: { source: 'linear', workspace: 'acme', team: 'PROD', new_project: ' ' } }, { tickets: { source: 'linear', workspace: 'acme', team: 'prod', new_project: 'Board' } }]) {
+    { purpose: 'p'.repeat(241) }, { purpose: null }, { tickets: { source: 'internal', prefix: 'BAD1' } }, { tickets: { source: 'other' } }, { tickets: { source: 'linear', team: 'ENG' } },
+    { tickets: { source: 'linear', workspace: 'acme', team: 'ENG', new_project: ' ' } }, { tickets: { source: 'linear', workspace: 'acme', team: 'eng', new_project: 'Board' } }]) {
     await assert.rejects(requestBoard({ ...input('New board'), ...change }, { run, live, repos }), { status: 400 });
   }
   assert.deepEqual(readManifest(), manifest);

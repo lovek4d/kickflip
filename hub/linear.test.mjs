@@ -23,41 +23,41 @@ test('the client reads the viewer and teams, creates projects and issues, and fi
   const linear = fakeLinear(world);
   const client = linearClient(world.key, { fetch: linear.fetch });
   assert.deepEqual(await client.viewer(), { viewer: { id: 'user-me', name: 'Love' }, workspace: 'Acme', url_key: 'acme' });
-  assert.deepEqual((await client.teams()).map((t) => [t.key, t.name, t.projects.map((p) => p.name)]), [['PROD', 'Product', ['Backend Audit']], ['OPS', 'Ops', []]]);
+  assert.deepEqual((await client.teams()).map((t) => [t.key, t.name, t.projects.map((p) => p.name)]), [['ENG', 'Engineering', ['Backend Audit']], ['OPS', 'Ops', []]]);
   const project = await client.createProject('OPS', 'Hub board');
   assert.deepEqual([project.name, project.team], ['Hub board', 'OPS']);
   assert.deepEqual(linear.calls.at(-1).variables.input, { name: 'Hub board', teamIds: ['team-ops'] });
-  const byId = await client.createIssue({ team: 'PROD', project: 'proj-audit', title: 'Rate limits', description: 'Why' });
-  const byName = await client.createIssue({ team: 'PROD', project: 'backend audit', title: 'Second' });
-  assert.deepEqual([byId.identifier, world.issues[byId.identifier].input], ['PROD-102', { teamId: 'team-prod', projectId: 'proj-audit', title: 'Rate limits', description: 'Why' }]);
+  const byId = await client.createIssue({ team: 'ENG', project: 'proj-audit', title: 'Rate limits', description: 'Why' });
+  const byName = await client.createIssue({ team: 'ENG', project: 'backend audit', title: 'Second' });
+  assert.deepEqual([byId.identifier, world.issues[byId.identifier].input], ['ENG-102', { teamId: 'team-eng', projectId: 'proj-audit', title: 'Rate limits', description: 'Why' }]);
   assert.equal(world.issues[byName.identifier].input.projectId, 'proj-audit');
-  await assert.rejects(client.createIssue({ team: 'PROD', project: 'Nope', title: 'x' }), /no project Nope/);
+  await assert.rejects(client.createIssue({ team: 'ENG', project: 'Nope', title: 'x' }), /no project Nope/);
   await assert.rejects(client.createIssue({ team: 'ZZZ', project: 'x', title: 'x' }), /no team ZZZ/);
-  assert.deepEqual(await client.issue('PROD-102'), { identifier: 'PROD-102', team: 'PROD', assignee: null, state: { id: 's-todo', name: 'Todo', type: 'unstarted' } });
-  assert.equal(await client.issue('PROD-9999'), null);
+  assert.deepEqual(await client.issue('ENG-102'), { identifier: 'ENG-102', team: 'ENG', assignee: null, state: { id: 's-todo', name: 'Todo', type: 'unstarted' } });
+  assert.equal(await client.issue('ENG-9999'), null);
   await assert.rejects(linearClient('wrong', { fetch: linear.fetch }).viewer(), { message: 'Linear refused the key.', status: 400 });
   await assert.rejects(linearClient(world.key, { fetch: async () => { throw new Error('offline'); } }).viewer(), /Could not reach Linear: offline/);
 });
 
 test("a card's target maps to the team's workflow state by type and name, and a closed issue never reopens", async () => {
   const world = linearWorld();
-  const [pad, ops] = world.teams;
-  assert.deepEqual(['started', 'review', 'done', 'planned'].map((t) => stateFor(pad.states, t)?.name ?? null), ['In Progress', 'In Review', 'Done', null]);
+  const [eng, ops] = world.teams;
+  assert.deepEqual(['started', 'review', 'done', 'planned'].map((t) => stateFor(eng.states, t)?.name ?? null), ['In Progress', 'In Review', 'Done', null]);
   assert.deepEqual(['started', 'review', 'done'].map((t) => stateFor(ops.states, t)?.name ?? null), ['Doing', null, 'Shipped']);
   const reviewFirst = [{ id: 'r', name: 'Code Review', type: 'started', position: 1 }, { id: 'w', name: 'Working', type: 'started', position: 2 }];
   assert.deepEqual([stateFor(reviewFirst, 'started').id, stateFor(reviewFirst, 'review').id], ['w', 'r']);
-  world.issues['PROD-1'] = { team: 'PROD', assignee: 'user-me', state: 's-todo' };
+  world.issues['ENG-1'] = { team: 'ENG', assignee: 'user-me', state: 's-todo' };
   world.issues['OPS-2'] = { team: 'OPS', assignee: 'user-me', state: 'o-todo' };
   const client = linearClient(world.key, { fetch: fakeLinear(world).fetch });
-  assert.equal(await client.moveIssue('PROD-1', 'started'), 'In Progress');
-  assert.equal(await client.moveIssue('PROD-1', 'started'), null);
-  assert.equal(await client.moveIssue('PROD-1', 'review'), 'In Review');
-  assert.equal(await client.moveIssue('PROD-1', 'done'), 'Done');
-  assert.equal(await client.moveIssue('PROD-1', 'started'), null);
-  assert.equal(world.issues['PROD-1'].state, 's-done');
+  assert.equal(await client.moveIssue('ENG-1', 'started'), 'In Progress');
+  assert.equal(await client.moveIssue('ENG-1', 'started'), null);
+  assert.equal(await client.moveIssue('ENG-1', 'review'), 'In Review');
+  assert.equal(await client.moveIssue('ENG-1', 'done'), 'Done');
+  assert.equal(await client.moveIssue('ENG-1', 'started'), null);
+  assert.equal(world.issues['ENG-1'].state, 's-done');
   assert.equal(await client.moveIssue('OPS-2', 'review'), null);
   assert.equal(world.issues['OPS-2'].state, 'o-todo');
-  await assert.rejects(client.moveIssue('PROD-404', 'done'), /no issue PROD-404/);
+  await assert.rejects(client.moveIssue('ENG-404', 'done'), /no issue ENG-404/);
 });
 
 test('the key is saved only once Linear accepts it, in a mode 600 file, and its status names the workspace without the key', async (t) => {
@@ -104,10 +104,10 @@ test("the hub saves the Linear key from its settings form, serves only the works
   assert.equal(fs.statSync(path.join(web, 'linear.json')).mode & 0o777, 0o600);
   const listed = await (await fetch(`${base}/_hub/api/linear`)).text();
   assert.doesNotMatch(listed, /lin_api/);
-  assert.deepEqual(JSON.parse(listed), { set: true, workspace: 'Acme', url_key: 'acme', teams: [{ key: 'PROD', name: 'Product' }, { key: 'OPS', name: 'Ops' }],
-    projects: [{ id: 'proj-audit', name: 'Backend Audit', team: 'PROD' }] });
+  assert.deepEqual(JSON.parse(listed), { set: true, workspace: 'Acme', url_key: 'acme', teams: [{ key: 'ENG', name: 'Engineering' }, { key: 'OPS', name: 'Ops' }],
+    projects: [{ id: 'proj-audit', name: 'Backend Audit', team: 'ENG' }] });
   const create = (body, type = 'application/json') => fetch(`${base}/_hub/linear/projects`, { method: 'POST', headers: { 'content-type': type }, body: JSON.stringify(body) });
-  assert.equal((await create({ team: 'prod', name: 'x' })).status, 400);
+  assert.equal((await create({ team: 'eng', name: 'x' })).status, 400);
   assert.equal((await create({ team: 'OPS', name: 'Hub' }, 'text/plain')).status, 403);
   assert.deepEqual(await (await create({ team: 'OPS', name: 'Hub board' })).json(), { id: 'proj-101', name: 'Hub board', team: 'OPS' });
   assert.equal((await form('remove=1')).status, 200);

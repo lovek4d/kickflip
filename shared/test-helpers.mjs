@@ -92,7 +92,7 @@ export const linearWorld = () => ({
   viewer: { id: 'user-me', name: 'Love' },
   org: { name: 'Acme', urlKey: 'acme' },
   teams: [
-    { id: 'team-prod', key: 'PROD', name: 'Product', projects: [{ id: 'proj-audit', name: 'Backend Audit' }], states: [
+    { id: 'team-eng', key: 'ENG', name: 'Engineering', projects: [{ id: 'proj-audit', name: 'Backend Audit' }], states: [
       { id: 's-todo', name: 'Todo', type: 'unstarted', position: 1 }, { id: 's-prog', name: 'In Progress', type: 'started', position: 2 },
       { id: 's-rev', name: 'In Review', type: 'started', position: 3 }, { id: 's-done', name: 'Done', type: 'completed', position: 4 },
       { id: 's-cancel', name: 'Canceled', type: 'canceled', position: 5 }] },
