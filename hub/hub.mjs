@@ -44,7 +44,8 @@
 //   otherwise:
 //   /_hub/settings/notifications POST set=on|weekends with value=on (absent for off), or snooze=<push.mjs
 //                     setNotifications choice | off> → /_hub/api/settings's JSON, or 400 {error} when refused
-//                     (303 to ?refused=snooze)
+//                     (303 to ?refused=snooze). Custom posts a UTC ISO date-time; snoozeEnd refuses an end not
+//                     after now or more than 30 days on.
 //   /_hub/settings/codex POST value=auto|always|off → /_hub/api/settings's JSON, or 400 {error}
 //   /_hub/settings/polling POST one schedule.mjs editPolling change {op, w, value} → /_hub/api/polling's JSON for the
 //                     window to show, or 400 {error}

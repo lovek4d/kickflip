@@ -230,6 +230,7 @@ const SNOOZE_AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]
 // When a snooze chosen at `now` ends: `<n>m`, `<n>h`, `<n>d` or `<n>w`; `tonight`, the next start of the evening
 // window (the second-to-last, or the second of two); `morning`, the next start of the first window; `monday`, the
 // next Monday at the first window's start; or an ISO date and time, this Mac's time when it has no offset.
+// Durations are elapsed time: a day is 24 hours, including across daylight saving changes.
 // null for any other choice, an end not after `now` or more than 30 days on, or `tonight` with one window.
 export function snoozeEnd(now, choice, s) {
   const c = String(choice);
@@ -243,8 +244,7 @@ export function snoozeEnd(now, choice, s) {
     const m = /^([1-9]\d{0,3})([mhdw])$/.exec(c);
     if (!m) return null;
     const k = Number(m[1]);
-    end = m[2] === 'd' || m[2] === 'w' ? new Date(now.getFullYear(), now.getMonth(), now.getDate() + k * (m[2] === 'w' ? 7 : 1), now.getHours(), now.getMinutes(), now.getSeconds())
-      : new Date(now.getTime() + k * (m[2] === 'h' ? 3_600_000 : 60_000));
+    end = new Date(now.getTime() + k * ({ m: 60_000, h: 3_600_000, d: 86_400_000, w: 7 * 86_400_000 })[m[2]]);
   }
   return end && end > now && end - now <= MAX_SNOOZE_MS ? end : null;
 }

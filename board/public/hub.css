@@ -75,20 +75,17 @@
 .hub-view .actions { margin-top:1.2rem; display:flex; justify-content:flex-end; }
 .hub-view .flash { animation:none; margin-top:1rem; padding:10px 12px; border-radius:10px; background:var(--panel); border:1px solid var(--line); color:var(--color-success); }
 .hub-view .flash.error { color:var(--color-danger); }
-.hub-view button.row { width:100%; font:inherit; text-align:left; background:none; border:0; border-radius:0; cursor:pointer; }
-.hub-view button.row:active:not(:disabled) { background:var(--chip); }
-@media (hover: hover) { .hub-view button.row:hover:not(:disabled) { background:color-mix(in srgb, var(--chip) 60%, transparent); } }
-.hub-view button.row:disabled { cursor:default; color:var(--muted); opacity:.5; }
-.hub-view .banner { display:flex; align-items:center; gap:10px; margin-top:4px; padding:10px 12px; border-radius:10px; background:color-mix(in srgb, #a855f7 14%, var(--panel)); border:1px solid color-mix(in srgb, #a855f7 35%, var(--line)); }
-.hub-view .banner .title { font-weight:600; white-space:normal; }
-.hub-view dialog.sheet { position:fixed; inset:auto 0 0; box-shadow:none; animation:none; margin:auto auto 0; padding:0; border:0; width:min(40rem, 100%); max-width:100%; max-height:calc(100dvh - 24px - env(safe-area-inset-top)); overflow:auto; background:var(--bg); color:var(--text); border-radius:14px 14px 0 0; }
-.hub-view dialog.sheet::backdrop { background:#0006; animation:none; }
-.hub-view .sheet form { padding:0; }
-.hub-view .sheet-body { padding:8px max(12px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
-.hub-view .sheet .grab { width:36px; height:5px; border-radius:3px; background:var(--line); margin:4px auto 10px; }
-.hub-view .sheet h2 { font-size:15px; margin:0 4px 8px; }
-.hub-view .sheet .field input[type=datetime-local] { flex:1 1 auto; width:auto; text-align:left; }
-.hub-view .sheet .cancel { display:block; width:100%; margin-top:8px; padding:12px; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--accent); font:inherit; font-weight:600; cursor:pointer; }
+.hub-view .snooze-head { display:flex; align-items:center; gap:10px; }
+.hub-view .snooze-chips { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:6px; margin-top:10px; }
+.hub-view .snooze-choices { display:contents; }
+.hub-view .snooze-chips .btn { display:block; min-height:40px; padding:6px 4px; text-align:center; white-space:nowrap; }
+.hub-view .snooze-custom { position:relative; margin:0; }
+.hub-view .snooze-custom .btn { display:grid; place-items:center; height:100%; }
+.hub-view .snooze-custom input[type=datetime-local] { position:absolute; inset:0; width:100%; height:100%; min-height:0; padding:0; margin:0; border:0; background:transparent; color:transparent; opacity:.011; font-size:16px; cursor:pointer; }
+.hub-view .snooze-custom input::-webkit-calendar-picker-indicator { position:absolute; inset:0; width:auto; height:auto; opacity:0; cursor:pointer; }
+.hub-view .snooze-custom:focus-within { outline:2px solid var(--accent); outline-offset:2px; border-radius:7px; }
+.hub-view .snooze-on .title { font-weight:600; white-space:normal; }
+@media (min-width: 900px) { .hub-view .snooze-chips { grid-template-columns:repeat(5, minmax(0, 1fr)); } }
 .hub-view code { font-family:var(--mono); font-size:.85em; white-space:nowrap; }
 .hub-view footer { color:var(--muted); font-size:12px; margin:1.8rem 2px 0; }
 .hub-view .host { font-family:var(--mono); font-size:11px; overflow-wrap:anywhere; }
@@ -103,8 +100,6 @@
 
 @media (max-width: 899px) {
   .hub-view main.has-top { padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: calc(40px + var(--app-bottom, 0px) + env(safe-area-inset-bottom)); }
-  .hub-view dialog.sheet { bottom: max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px)));
-    max-height: calc(var(--vh, 100dvh) - max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px))) - 24px - env(safe-area-inset-top)); }
 }
 
 .hub-view .hub-settings { margin-top: 24px; }
@@ -114,5 +109,5 @@
 .hub-view .hub-setting .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hub-view .hub-modal .settings-body { padding-top: 2px; }
 .hub-view .hub-modal .setting-content > .label:first-child { margin-top: 14px; }
-.hub-view .hub-modal .setting-content > .group:first-child, .hub-view .hub-modal .setting-content > .banner:first-child { margin-top: 16px; }
+.hub-view .hub-modal .setting-content > .group:first-child { margin-top: 16px; }
 .hub-view .hub-modal .rules-box { margin-top: 14px; }

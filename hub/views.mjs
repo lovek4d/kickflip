@@ -3,7 +3,7 @@
 // these take; board/public/view-hub.js, view-hub-settings.js and view-polling.js only lay the words out.
 // st is a push.mjs queueStatus(now) result throughout, and poll the hub's poll state {running, nextAt, last}, last
 // being the last github.mjs checkGitHub result.
-import { clock, windowAt, holdLine, checksIn, checksADay, holdsOvernight, daySegments, splitPoint, snoozeEnd, localDay } from './schedule.mjs';
+import { clock, windowAt, holdLine, checksIn, checksADay, holdsOvernight, daySegments, splitPoint, snoozeEnd } from './schedule.mjs';
 import { siteIcon } from './icons.mjs';
 
 export const capital = (t) => t.charAt(0).toUpperCase() + t.slice(1);
@@ -68,15 +68,9 @@ export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code 
 }
 
 // Each value is a schedule.mjs snoozeEnd choice.
-const SNOOZE_CHOICES = [['1h', '1 hour'], ['3h', '3 hours'], ['tonight', 'Until tonight'], ['morning', 'Until morning'], ['monday', 'Until Monday'], ['1w', '1 week']];
+const SNOOZE_CHOICES = [['3h', '3h'], ['6h', '6h'], ['1d', '1d'], ['monday', 'Monday']];
 export const SNOOZE_REFUSED = 'That snooze ends in the past or more than 30 days on. Pick another time.';
 
-// The value a datetime-local input takes for `d` on this Mac's clock, "2026-10-23T15:30".
-const localInput = (d) => `${localDay(d)}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-function timeLeft(until, now) {
-  const m = Math.max(1, Math.round((until - now) / 60_000));
-  return m < 60 ? `${m} min left` : m < 1440 ? `${Math.round(m / 60)} h left` : `${plural(Math.round(m / 1440), 'day')} left`;
-}
 const snoozedUntil = (n, now) => (n.on && n.snoozed_until && new Date(n.snoozed_until) > now ? new Date(n.snoozed_until) : null);
 
 const CODEX_CHOICES = [
@@ -86,9 +80,8 @@ const CODEX_CHOICES = [
 ];
 
 // The hub page's hub settings: the on/off, snooze and weekend controls (docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md),
-// the polling summary, Codex setting and hub rules. The snooze sheet is null while notifications are off; Until tonight shows only
-// while it ends today, and while snoozed the sheet extends the snooze, so a choice ending no later than now's snooze
-// is disabled. route is push.mjs pushRoute(): where an action push goes now
+// the polling summary, Codex setting and hub rules. The snooze chips (docs/adr/0076-snooze-is-five-chips-in-notifications.md)
+// are null while off or snoozed. route is push.mjs pushRoute(): where an action push goes now
 // (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md).
 export function settingsView({ now, st, rules = [], codexShare = 'off', route = { atMac: false, desktops: 0 } }) {
   const s = st.settings;
@@ -96,9 +89,7 @@ export function settingsView({ now, st, rules = [], codexShare = 'off', route = 
   const [first, last] = [s.windows[0], s.windows.at(-1)];
   const until = snoozedUntil(n, now);
   const queued = st.count ? ` The ${st.count} queued push${st.count === 1 ? ' is' : 'es are'} dropped now.` : '';
-  const choices = SNOOZE_CHOICES.map(([value, label]) => ({ value, label, end: snoozeEnd(now, value, s) }))
-    .filter((c) => c.end && (c.value !== 'tonight' || localDay(c.end) === localDay(now)))
-    .map(({ value, label, end }) => ({ value, label, until: `until ${clock(end, now)}`, disabled: Boolean(until && end <= until) }));
+  const choices = SNOOZE_CHOICES.map(([value, label]) => ({ value, label, until: `until ${clock(snoozeEnd(now, value, s), now)}` }));
   return {
     codexShare,
     codex: {
@@ -106,7 +97,7 @@ export function settingsView({ now, st, rules = [], codexShare = 'off', route = 
       description: CODEX_CHOICES.find((c) => c.value === codexShare).description,
       note: "Applies to every board. A session's own /codex-share overrides it for that session.",
     },
-    snoozed: until ? { title: `Snoozed until ${clock(until, now)}`, sub: `${timeLeft(until, now)} · urgent pushes still go` } : null,
+    snoozed: until ? { title: `Snoozed until ${clock(until, now)}` } : null,
     device: nowLine(st, now),
     on: {
       on: n.on,
@@ -116,10 +107,9 @@ export function settingsView({ now, st, rules = [], codexShare = 'off', route = 
     presence: !n.on ? null : !route.atMac ? { title: 'Away from the Mac', sub: 'Pushes go to every device. At the Mac means unlocked and used in the last 3 minutes.' }
       : route.desktops ? { title: 'At the Mac', sub: 'Pushes go to the Mac only. Prompts, faults and urgent pushes still reach the phone.' }
       : { title: 'At the Mac', sub: 'No notifications on the Mac, so pushes still go to the phone.' },
-    snooze: n.on ? { sub: until ? `Until ${clock(until, now)}` : 'Pushes wait, then go. Urgent ones still go.', value: until ? 'On' : 'Off' } : null,
+    snooze: n.on && !until ? { choices } : null,
     weekends: { on: n.weekends_off, sub: `Pushes wait from Friday ${timeOfDay(last.from)} until Monday ${timeOfDay(first.from)}. Urgent ones still go.` },
     polling: pollingSummary(s),
-    sheet: n.on ? { title: until ? 'Extend snooze' : 'Snooze pushes', choices, min: localInput(until || now), max: localInput(new Date(now.getTime() + 30 * 86_400_000)) } : null,
     rules,
   };
 }

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts } from '../shared/test-helpers.mjs';
+import { SNOOZE_REFUSED } from './views.mjs';
 import { ruleText, rulesOf, addRule, editRule, removeRule, applyRules, changed, ruleLines, RULE_MAX, RuleError } from './rules.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -135,7 +136,7 @@ test('codex-share prints, sets and refuses values while preserving the other hub
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test("hub Settings edits the hub rules, and a save that changes them sends every board a rules event", async () => {
+test("hub Settings edits the hub rules, and a save that changes them sends every board a rules event", async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-rules-'));
   const [port, sitePort] = await freePorts(2);
   const siteDir = path.join(home, '.claude', 'web-ts', 'sites', 'orch');
@@ -146,7 +147,7 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
   fs.writeFileSync(path.join(web, 'manifest.json'), JSON.stringify({ version: 1, sites: {
     orch: { dir: siteDir, port: sitePort, cmd: [process.execPath, path.join(HUB_DIR, '..', 'board', 'server.mjs'), siteDir] },
   } }));
-  const hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: String(port) } });
+  const hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: String(port), WEB_TS_CLAUDE: '/usr/bin/false' } });
   const base = `http://127.0.0.1:${port}`;
   try {
     await new Promise((resolve, reject) => {
@@ -213,6 +214,37 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
     assert.equal(notify.status, 200);
     assert.equal((await notify.json()).codexShare, 'always');
     assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).codexShare, 'always');
+    await t.test('custom snooze refuses past, invalid and over-30-day ends, saves a valid ISO end and ends it', async () => {
+      const postNotification = (body, json = true) => fetch(`${base}/_hub/settings/notifications`, {
+        method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...(json ? { accept: 'application/json' } : {}) },
+        body: new URLSearchParams(body), redirect: 'manual',
+      });
+      await postNotification({ set: 'weekends' });
+      const before = fs.readFileSync(file, 'utf8');
+      const past = new Date(Date.now() - 60_000).toISOString();
+      for (const snooze of [past, new Date(Date.now() + 31 * 86_400_000).toISOString(), 'invalid']) {
+        const refused = await postNotification({ snooze });
+        assert.equal(refused.status, 400);
+        assert.deepEqual(await refused.json(), { error: SNOOZE_REFUSED });
+        assert.equal(fs.readFileSync(file, 'utf8'), before);
+      }
+      const redirect = await postNotification({ snooze: past }, false);
+      assert.deepEqual([redirect.status, redirect.headers.get('location')], [303, '/_hub/?refused=snooze#notifications']);
+      const until = new Date(Date.now() + 3_600_000).toISOString();
+      const valid = await postNotification({ snooze: until });
+      assert.equal(valid.status, 200);
+      const out = await valid.json();
+      assert.equal(out.snooze, null);
+      assert.match(out.snoozed.title, /^Snoozed until /);
+      assert.equal(out.codexShare, 'always');
+      assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).notifications.snoozed_until, until);
+      const sidebar = await (await fetch(`${base}/_hub/sidebar.json`)).json();
+      assert.deepEqual(sidebar.notifications, { state: 'held', text: out.snoozed.title });
+      const ended = await postNotification({ snooze: 'off' });
+      assert.equal(ended.status, 200);
+      assert.equal((await ended.json()).snoozed, null);
+      assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).notifications.snoozed_until, null);
+    });
   } finally {
     if (hub.exitCode === null && hub.signalCode === null) {
       const exited = new Promise((resolve) => hub.once('exit', resolve));

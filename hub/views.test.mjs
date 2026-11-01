@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { miniDom } from '../board/mini-dom.mjs';
-import { DEFAULTS, windowAt, hold, flushAt } from './schedule.mjs';
+import { DEFAULTS, windowAt, hold, flushAt, snoozeEnd } from './schedule.mjs';
 import { hubView, settingsView, pollingView, pollLine, siteHealth, flushView } from './views.mjs';
 
 const t = (h, m = 0, day = 14, s = 0) => new Date(2026, 9, day, h, m, s);
@@ -58,14 +58,11 @@ test('Hub Settings says whether pushes go, when a snooze ends and what each snoo
   assert.equal(v.snoozed, null);
   assert.deepEqual(plain(v.on), { on: true, sub: 'On. Turn off to drop every push, urgent ones too.',
     confirm: 'Turn off notifications? Every push is dropped until you turn them back on, urgent ones too. Needs you and the badge still update.' });
-  assert.deepEqual(plain(v.snooze), { sub: 'Pushes wait, then go. Urgent ones still go.', value: 'Off' });
   assert.deepEqual(plain(v.weekends), { on: false, sub: 'Pushes wait from Friday 10:00pm until Monday 8:00am. Urgent ones still go.' });
   assert.equal(v.polling, '3 windows, 58 checks a day · held overnight · wakes 8:00am, 9:00am');
   assert.equal(v.device, 'checks every 15 min until 6:00pm');
-  assert.equal(v.sheet.title, 'Snooze pushes');
-  assert.deepEqual(v.sheet.choices.map((c) => [c.value, c.until, c.disabled]), [['1h', 'until 11:00am', false], ['3h', 'until 1:00pm', false],
-    ['tonight', 'until 6:00pm', false], ['morning', 'until 8:00am tomorrow', false], ['monday', 'until 8:00am Mon Oct 19', false], ['1w', 'until 10:00am Wed Oct 21', false]]);
-  assert.deepEqual([v.sheet.min, new Date(v.sheet.max) - now], ['2026-10-14T10:00', 30 * 86_400_000]);
+  assert.deepEqual(v.snooze.choices.map((c) => [c.value, c.label, c.until]), [['3h', '3h', 'until 1:00pm'], ['6h', '6h', 'until 4:00pm'],
+    ['1d', '1d', 'until 10:00am tomorrow'], ['monday', 'Monday', 'until 8:00am Mon Oct 19']]);
   assert.deepEqual(plain(v.rules), [{ id: 'r1', text: 'Be brief' }]);
   assert.deepEqual(plain(v.presence), { title: 'Away from the Mac', sub: 'Pushes go to every device. At the Mac means unlocked and used in the last 3 minutes.' });
   assert.deepEqual(plain(settingsView({ now, st: status(now, DEFAULTS), route: { atMac: true, desktops: 1 } }).presence),
@@ -74,19 +71,16 @@ test('Hub Settings says whether pushes go, when a snooze ends and what each snoo
     { title: 'At the Mac', sub: 'No notifications on the Mac, so pushes still go to the phone.' });
 
   const snoozed = settingsView({ now, st: status(now, notify(DEFAULTS, { snoozed_until: t(12).toISOString() }), 2) });
-  assert.deepEqual(plain(snoozed.snoozed), { title: 'Snoozed until 12:00pm', sub: '2 h left · urgent pushes still go' });
-  assert.deepEqual(plain(snoozed.snooze), { sub: 'Until 12:00pm', value: 'On' });
+  assert.deepEqual(plain(snoozed.snoozed), { title: 'Snoozed until 12:00pm' });
+  assert.equal(snoozed.snooze, null);
   assert.equal(snoozed.device, 'checks every 15 min until 6:00pm; snoozed until 12:00pm');
-  assert.equal(snoozed.sheet.title, 'Extend snooze');
-  assert.deepEqual(snoozed.sheet.choices.slice(0, 2).map((c) => [c.value, c.disabled]), [['1h', true], ['3h', false]]);
-  assert.equal(snoozed.sheet.min, '2026-10-14T12:00');
   assert.match(snoozed.on.confirm, / The 2 queued pushes are dropped now\. /);
 
   const evening = settingsView({ now: t(19), st: status(t(19), DEFAULTS) });
-  assert.deepEqual(evening.sheet.choices.map((c) => c.value), ['1h', '3h', 'morning', 'monday', '1w']);
+  assert.deepEqual(evening.snooze.choices.map((c) => c.value), ['3h', '6h', '1d', 'monday']);
 
   const off = settingsView({ now, st: status(now, notify(DEFAULTS, { on: false, snoozed_until: t(12).toISOString() })) });
-  assert.deepEqual([off.snoozed, off.snooze, off.sheet, off.presence], [null, null, null, null]);
+  assert.deepEqual([off.snoozed, off.snooze, off.presence], [null, null, null]);
   assert.deepEqual([off.on.on, off.on.sub], [false, 'Off. Every push is dropped, urgent ones too. Needs you and the badge still update.']);
   assert.equal(off.device, 'checks every 15 min until 6:00pm; notifications are off');
 });
@@ -113,7 +107,7 @@ test('Hub Settings shows the Codex setting, defaulting to Off, with the meaning 
   }
 });
 
-test('Hub settings modals keep summaries, turn this device on, and save each Codex choice or show a refusal', async () => {
+test('Hub settings modals keep summaries, turn this device on, snooze inline and save each Codex choice or show a refusal', async () => {
   const document = {};
   const { Element } = miniDom(class {}, document);
   const root = new Element('div');
@@ -121,7 +115,7 @@ test('Hub settings modals keep summaries, turn this device on, and save each Cod
   const listeners = [];
   const posts = [];
   const now = t(10);
-  const data = (codexShare) => settingsView({ now, st: status(now, DEFAULTS), codexShare });
+  const data = (codexShare, notifications = ON) => settingsView({ now, st: status(now, notify(DEFAULTS, notifications)), codexShare });
   let refused = false;
   let live;
   let subscribed = false;
@@ -133,20 +127,29 @@ test('Hub settings modals keep summaries, turn this device on, and save each Cod
     subscribe: async () => { subscribed = true; return subscription; },
   } };
   const context = vm.createContext({
-    URL, URLSearchParams,
+    URL, URLSearchParams, document,
+    Date: class extends Date { static now() { return now.getTime(); } },
     location: new URL('https://mac.ts.net/_hub/'), history: { replaceState() {} },
     BoardDialogs: { fitSheet: () => () => {}, confirm: async () => false },
     atob: (s) => Buffer.from(s, 'base64').toString('binary'),
     navigator: { userAgent: 'Mac', serviceWorker: { getRegistration: async () => registration, register: async () => registration, ready: Promise.resolve(registration) } },
     PushManager: class {},
     Notification: { permission: 'default', requestPermission: () => { requested = true; return Promise.resolve('granted'); } },
-    FormData: class { *[Symbol.iterator]() {} },
+    FormData: class {
+      constructor(form) { this.form = form; }
+      *[Symbol.iterator]() { for (const el of this.form.querySelectorAll('input[name]')) yield [el.getAttribute('name'), el.value]; }
+    },
     BoardView: { page: (root, site, run) => { const B = { root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }; run(B); return B; } },
     RulesEditor: { mount: () => ({ set() {} }) },
     fetch: async (url, opts) => {
       posts.push({ url, opts });
       if (url === '/_hub/push/key') return { json: async () => ({ key: 'AQID' }) };
       if (url === '/_hub/push/subscribe') return { json: async () => ({ ok: true }) };
+      if (url === '/_hub/settings/notifications') {
+        const choice = opts.body.get('snooze');
+        const end = choice === 'off' ? null : snoozeEnd(now, choice, DEFAULTS);
+        return { ok: true, json: async () => data('off', { ...ON, snoozed_until: end?.toISOString() || null }) };
+      }
       return { ok: !refused, json: async () => refused ? { error: 'Could not save Codex setting.' } : data(opts.body.get('value')) };
     },
   });
@@ -175,12 +178,10 @@ test('Hub settings modals keep summaries, turn this device on, and save each Cod
   await B.openSettings({ hash: '#notifications' });
   assert.deepEqual(root.querySelectorAll('.hub-setting .title').map((h) => h.textContent), ['Notifications', 'Polling', 'Codex share', 'Rules for every board', 'Closed boards']);
   assert.deepEqual(root.querySelectorAll('form input[name="set"]').map((input) => input.value), ['on', 'weekends']);
-  const snooze = root.querySelector('[data-snooze-open]');
-  assert.ok(snooze);
-  for (const l of listeners.filter((l) => l.target === root && l.type === 'click')) l.fn({ target: snooze });
-  assert.equal(root.querySelector('#snoozeSheet').open, true);
+  assert.deepEqual(root.querySelectorAll('.snooze-choices button').map((b) => b.textContent), ['3h', '6h', '1d', 'Monday']);
+  assert.equal(root.querySelector('.snooze-custom .btn').textContent, 'Custom');
+  assert.equal(root.querySelectorAll('dialog').length, 1);
   assert.equal(modal.open, true);
-  root.querySelector('#snoozeSheet').close();
   assert.match(root.textContent, /Away from the Mac/);
   assert.doesNotMatch(modal.textContent, /Pushes wait, then go|Turn off to drop|unlocked and used/);
   const enable = root.querySelector('[data-device="on"]');
@@ -193,6 +194,44 @@ test('Hub settings modals keep summaries, turn this device on, and save each Cod
   assert.equal(root.querySelector('[data-device="test"]').textContent, 'Test');
   assert.equal(root.querySelector('#push .val').textContent, 'On');
   assert.ok(posts.some(({ url, opts }) => url === '/_hub/push/subscribe' && JSON.parse(opts.body).endpoint === 'https://push.example/device'));
+  const submitForm = (form, button) => listeners.find((l) => l.target === root && l.type === 'submit').fn({ target: form,
+    submitter: button && { name: button.getAttribute('name'), value: button.value }, preventDefault() {} });
+  const endSnooze = async () => {
+    assert.equal(root.querySelector('.snooze-chips'), null);
+    const form = root.querySelector('.snooze-on form');
+    assert.equal(form.querySelector('button').textContent, 'End');
+    await submitForm(form, form.querySelector('button'));
+    assert.ok(root.querySelector('.snooze-chips'));
+  };
+  for (const choice of ['3h', '6h', '1d', 'monday']) {
+    const form = root.querySelector('.snooze-choices');
+    await submitForm(form, form.querySelector(`button[value="${choice}"]`));
+    assert.equal(posts.at(-1).opts.body.toString(), `snooze=${choice}`);
+    assert.match(root.querySelector('.snooze-on .title').textContent, /^Snoozed until /);
+    assert.match(root.querySelector('[data-summary=notifications]').textContent, /Snoozed until/);
+    assert.equal(modal.open, true);
+    await endSnooze();
+  }
+  const input = root.querySelector('[data-snooze-at]');
+  assert.equal(input.value, '2026-10-14T11:00');
+  assert.equal(input.min, '2026-10-14T10:01');
+  assert.equal(new Date(input.max) - now, 30 * 86_400_000);
+  input.form = root.querySelector('.snooze-custom');
+  input.checkValidity = () => true;
+  let saving;
+  input.form.requestSubmit = () => { saving = submitForm(input.form); };
+  input.value = '2026-10-15T15:30';
+  input.focus();
+  const beforeCustom = posts.length;
+  for (const l of listeners.filter((l) => l.target === root && l.type === 'change')) await l.fn({ target: input });
+  assert.equal(posts.length, beforeCustom, 'spinning the wheel does not submit or tear down the picker');
+  assert.equal(root.querySelector('[data-snooze-at]'), input);
+  document.activeElement = null;
+  for (const l of listeners.filter((l) => l.target === root && l.type === 'focusout')) l.fn({ target: input });
+  await saving;
+  assert.equal(posts.at(-1).opts.body.get('snooze'), t(15, 30, 15).toISOString());
+  assert.equal(root.querySelector('.snooze-on .title').textContent, 'Snoozed until 3:30pm tomorrow');
+  await endSnooze();
   await B.openSettings({ hash: '#codex' });
   const selected = () => root.querySelector('.segments button[aria-pressed="true"]').value;
   const submit = (value) => {

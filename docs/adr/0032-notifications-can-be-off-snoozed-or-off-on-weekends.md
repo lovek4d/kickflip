@@ -1,10 +1,12 @@
 ---
-status: superseded in part by ADR-0006
+status: superseded in part by ADR-0006 and ADR-0076
 ---
 
 # Notifications can be off, snoozed, or off on weekends
 
 Superseded in part by [0006](0006-pushes-only-when-something-waits-on-the-owner.md): there is no morning digest push. Off, snooze and weekends below still gate every push.
+
+Superseded in part by [0076](0076-snooze-is-five-chips-in-notifications.md): Snooze is five inline chips in the Notifications modal, with a native Custom picker and End in its row; the sheet, its choice list and Extend are gone. The 30-day limit still holds.
 
 The hub page’s expandable Notifications row (`/_hub/#notifications`) has three controls. They are stored as `notifications` (`{on, weekends_off, snoozed_until}`) beside `polling` in `~/.claude/web-ts/settings.json`, and `hub/schedule.mjs` `validate` checks them. `web-ts notifications` sets them from the terminal, and `web-ts polling` prints them.
 

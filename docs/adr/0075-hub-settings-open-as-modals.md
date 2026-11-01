@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0076
+---
+
 # Hub settings open as modals
+
+Superseded in part by [0076](0076-snooze-is-five-chips-in-notifications.md): Snooze stays inline in Notifications instead of opening a sheet over its modal. The settings modals below still hold.
 
 The owner picked take A of `prototype-hub-modals.html`: Hub’s five settings rows keep their one-line summaries and open centred modals. Controls show a label and value, without explanation lines. This keeps Hub’s health and status in place and gives the Polling schedule editor the same treatment as the other settings.
 

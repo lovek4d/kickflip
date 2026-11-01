@@ -231,6 +231,7 @@ test('validate defaults the notifications and rejects bad ones', () => {
 test('snoozeEnd turns a snooze choice into when it ends', () => {
   assert.deepEqual(snoozeEnd(t(12), '1h', DEFAULTS), t(13));
   assert.deepEqual(snoozeEnd(t(12), '3h', DEFAULTS), t(15));
+  assert.deepEqual(snoozeEnd(t(12), '6h', DEFAULTS), t(18));
   assert.deepEqual(snoozeEnd(t(12), '90m', DEFAULTS), t(13, 30));
   assert.deepEqual(snoozeEnd(t(12), '1d', DEFAULTS), t(12, 0, 15));
   assert.deepEqual(snoozeEnd(t(12), '3d', DEFAULTS), t(12, 0, 17));
@@ -253,7 +254,7 @@ test('snoozeEnd ends tonight, Monday, in weeks or at a chosen time, within 30 da
   assert.deepEqual(snoozeEnd(t(9, 0, 19), 'monday', DEFAULTS), t(8, 0, 26));
   assert.deepEqual(snoozeEnd(t(12), 'monday', four), t(7, 0, 19));
   assert.deepEqual(snoozeEnd(t(12), '1w', DEFAULTS), t(12, 0, 21));
-  assert.deepEqual(snoozeEnd(t(12), '4w', DEFAULTS), t(12, 0, 42));
+  assert.equal(snoozeEnd(t(12), '4w', DEFAULTS) - t(12), 28 * 86_400_000);
   assert.equal(snoozeEnd(t(12), '5w', DEFAULTS), null);
   assert.deepEqual(snoozeEnd(t(12), '2026-10-15T09:30', DEFAULTS), t(9, 30, 15));
   assert.deepEqual(snoozeEnd(t(12), t(15).toISOString(), DEFAULTS), t(15));
@@ -262,6 +263,18 @@ test('snoozeEnd ends tonight, Monday, in weeks or at a chosen time, within 30 da
   assert.equal(snoozeEnd(t(12), '2026-11-20T12:00', DEFAULTS), null);
   assert.equal(snoozeEnd(t(12), '2026-13-01T09:00', DEFAULTS), null);
   assert.equal(snoozeEnd(t(12), '2026-10-15', DEFAULTS), null);
+});
+
+test('a day snooze is exactly 24 hours across daylight saving changes', () => {
+  const before = process.env.TZ;
+  try {
+    process.env.TZ = 'America/Los_Angeles';
+    for (const now of [new Date(2026, 2, 7, 12, 10, 0, 123), new Date(2026, 9, 31, 12, 10, 0, 123)]) {
+      assert.equal(snoozeEnd(now, '1d', DEFAULTS) - now, 86_400_000);
+    }
+  } finally {
+    if (before === undefined) delete process.env.TZ; else process.env.TZ = before;
+  }
 });
 
 test('clock formats local times relative to today', () => {
