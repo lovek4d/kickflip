@@ -1290,7 +1290,7 @@ test('Board Settings shows repo and branch, changes them as JSON and closes the 
   assert.equal(closed, 1);
 });
 
-test("s s shows each sidebar row's key and the next key opens that row through the shell; Escape, a click, a held modifier or 3 s with no key end it with nothing opened; s s does nothing in a text field or with a dialog open; on a drawer it opens the drawer and closes it again; and its keys never count toward the board's n n", () => {
+test("s s shows each sidebar row's key and the Boards label's hint, and the next key opens that row through the shell; Escape, a click, a held modifier or 3 s with no key end it with nothing opened; s s does nothing in a text field or with a dialog open; on a drawer it opens the drawer and closes it again; and its keys never count toward the board's n n", () => {
   const page = fakePage(memoryStorage().localStorage);
   const { win } = page;
   win.Element = page.El;
@@ -1310,7 +1310,7 @@ test("s s shows each sidebar row's key and the next key opens that row through t
   const board = win.BoardView.create(new page.El(), 'https://mac.ts.net/hub-orchestrator');
   board.mount();
   const opened = [];
-  win.Sidebar.mount({ here: 'hub-orchestrator', data, open: (href) => opened.push(href) });
+  const sidebar = win.Sidebar.mount({ here: 'hub-orchestrator', data, open: (href) => opened.push(href) });
 
   const body = new page.El();
   const field = Object.assign(new page.El(), { closest: (sel) => (sel.includes('textarea') ? field : null) });
@@ -1329,7 +1329,12 @@ test("s s shows each sidebar row's key and the next key opens that row through t
   assert.deepEqual(opened, ['/ios/', '/hub-orchestrator/']);
 
   sw();
+  assert.match(aside.innerHTML, /<section class="sb-boards" aria-label="Boards"><div class="sb-label ks-label"><span class="ks-label-text">Boards<\/span><span class="ks-label-hint" role="status">– press a key to switch<i class="ks-bar"><\/i><\/span><\/div><div class="sb-group">/);
+  assert.doesNotMatch(aside.innerHTML, /ks-hint/);
   assert.equal(press('Escape').defaultPrevented, true);
+  assert.equal(switching(), false);
+  sidebar.setData(data);
+  assert.doesNotMatch(aside.innerHTML, /ks-label-hint|ks-bar/);
   sw();
   page.fire(win.document, 'pointerdown', { target: body });
   assert.equal(switching(), false);

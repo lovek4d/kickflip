@@ -121,7 +121,7 @@
 
   // data: /_hub/sidebar.json. here: a site's route or a hub page's path without its leading slash. device: this device's push
   // subscription as sidebar.js finds it, 'on' | 'off' | 'blocked' | 'install' (iOS outside the Home Screen app), or
-  // null while unknown or unsupported. switching: switch mode shows, each row with its key and the hint at the foot.
+  // null while unknown or unsupported. switching: switch mode shows, each row with its key and the hint on the Boards label.
   function sidebar(data, { here = '', device = null, switching = false } = {}) {
     const sites = data?.sites || [];
     const keys = switching ? new Map(switchKeys(data).map((k) => [k.href, k])) : null;
@@ -150,6 +150,7 @@
         + (notify ? `<span class="sb-status">${notify}</span>` : ''),
     };
     const selected = here.startsWith('_hub') ? '/_hub' : `/${here.replace(/\/$/, '')}`;
+    const hint = switching ? '<span class="ks-label-hint" role="status">– press a key to switch<i class="ks-bar"></i></span>' : '';
     const close = `<div class="nav"><button type="button" class="sb-close" data-sidebar-close aria-label="Close boards">${svg(ICONS.close, 20)}</button></div>`;
     return header({ lead: 'logo', title: 'Kickflip', level: 2, controls: false, trail: close, logoSrc: '/_hub/kickflip.png',
       leadAttrs: { 'aria-label': 'Hide boards', title: 'Hide boards', 'data-sidebar-close': '' } })
@@ -157,8 +158,8 @@
       + UTILITY.map((f) => row({ ...f, on: f.href.replace(/\/$/, '') === selected, sub: subs[f.href], mark: f.href === '/_hub/' ? moon : '', ...(f.href === '/_hub/' && usage ? { extra: usage, cls: 'sb-hub-usage' } : {}), key: keys?.get(f.href) })).join('')
       + `</div>${turnOn}</section>`
       + (pages.length ? `<section class="sb-pages" aria-label="Pages"><div class="sb-label">Pages</div><div class="sb-group">${pages.map(siteRow).join('')}</div></section>` : '')
-      + `<section class="sb-boards" aria-label="Boards"><div class="sb-label">Boards</div><div class="sb-group">${boards.map(siteRow).join('')}${pending}${newBoard}</div></section></div>`
-      + (switching ? '<div class="ks-hint" role="status"><b>Switch:</b> press a key · Esc to cancel<i class="ks-bar"></i></div>' : '');
+      + `<section class="sb-boards" aria-label="Boards"><div class="sb-label ks-label"><span class="ks-label-text">Boards</span>${hint}</div>`
+      + `<div class="sb-group">${boards.map(siteRow).join('')}${pending}${newBoard}</div></section></div>`;
   }
 
   Object.assign(globalThis.BoardUI ||= {}, { sidebar, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, usageTone, usageBar, usageWords });

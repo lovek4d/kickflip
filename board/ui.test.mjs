@@ -316,8 +316,8 @@ test("switch mode numbers the first nine boards in sidebar order, and gives ever
   assert.match(html, /href="\/learn\/"[^>]*><span class="icon"[^>]*><svg><\/svg><span class="ks-key">y<\/span><\/span><span class="sb-text"><span class="sb-title">S<span class="ks-u">y<\/span>nc V2\.1 course</);
   assert.doesNotMatch(html, /href="\/_hub\/settings"/);
   assert.match(text(html), /^Kickflip u H u b Turn on notifications Off on this device Pages /);
-  assert.match(html, /class="ks-hint"/);
-  assert.doesNotMatch(ui.sidebar({ sites: live }, { here: 'ios-orchestrator' }), /ks-/);
+  assert.match(html, /<div class="sb-label ks-label"><span class="ks-label-text">Boards<\/span><span class="ks-label-hint" role="status">– press a key to switch<i class="ks-bar"><\/i><\/span><\/div>/);
+  assert.doesNotMatch(ui.sidebar({ sites: live }, { here: 'ios-orchestrator' }), /ks-(?!label(-text)?")/);
 });
 
 test("a back arrow goes one step back after a page on this hub, and to its href after a push, on that push's reloads, or with nothing before it", () => {

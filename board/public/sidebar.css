@@ -87,20 +87,34 @@
 @media (prefers-color-scheme: dark) { .sidebar .icon:not(.solid) { color: color-mix(in srgb, var(--c) 70%, #fff); } }
 .sidebar .icon svg { display: block; }
 
-/* Switch mode (sidebar.js): while .ks-on, each row's key in its tile in place of its glyph, the title's letter
-   underlined, and the hint whose bar drains over the 3 seconds switch mode waits for a key. Its marks stay in the
-   markup until the next paint, hidden. */
-.sidebar .ks-key, .sidebar .ks-hint { display: none; }
+/* Switch mode (sidebar.js): while .ks-on, each row's key in its tile in place of its glyph, the title's letter in
+   builder orange, and the Boards label's hint with a bar that drains over the 3 seconds switch mode waits for a key.
+   Its marks stay in the markup until the next paint, so they fade out on toasts.js timing; @starting-style fades them in.
+   Nothing in the hint takes space, so no row moves when switch mode starts or ends. */
+.sidebar .ks-key { display: none; }
 .sidebar.ks-on .icon:has(.ks-key) { font-size: 0; }
 .sidebar.ks-on .icon:has(.ks-key) > svg { display: none; }
 .sidebar.ks-on .ks-key { display: block; font: 700 15px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
-.sidebar.ks-on .ks-u { text-decoration: underline var(--accent); text-decoration-thickness: 2px; text-underline-offset: 3px; text-decoration-skip-ink: none; }
-.sidebar.ks-on .ks-hint { display: block; flex: none; margin: 0;
-  padding: 9px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
-.sidebar .ks-hint b { color: var(--text); font-weight: 600; }
-.sidebar .ks-bar { display: block; height: 2px; margin-top: 7px; border-radius: 2px; background: var(--accent); transform-origin: 0 50%; animation: ks-drain 3s linear forwards; }
+.sidebar .ks-label { position: relative; display: flex; align-items: baseline; gap: .45em; white-space: nowrap; }
+.sidebar .ks-label-hint { font-weight: 400; letter-spacing: 0; text-transform: none;
+  opacity: 0; visibility: hidden; transition: opacity 200ms linear, visibility 0s linear 200ms; }
+.sidebar.ks-on .ks-label-hint { opacity: 1; visibility: visible; transition: opacity 150ms linear; }
+@starting-style { .sidebar.ks-on .ks-label-hint { opacity: 0; } }
+/* The label is the bar's containing block: left 0 is the BOARDS text's edge, and right -8px crosses the label's 8px
+   side margin (.sb-label) to the rows' right edge. The bar sits in the label's 4px bottom margin. */
+.sidebar .ks-bar { position: absolute; left: 0; right: -8px; top: 100%; height: 2px; margin-top: 1px; background: var(--color-notice);
+  transform-origin: 0 50%; animation: ks-drain 3s linear forwards; }
 @keyframes ks-drain { to { transform: scaleX(0); } }
-@media (prefers-reduced-motion: reduce) { .sidebar .ks-bar { animation: none; } }
+.sidebar .ks-u { transition: color 200ms linear; }
+.sidebar.ks-on .ks-u { color: var(--color-notice); transition: color 150ms linear; }
+@starting-style { .sidebar.ks-on .ks-u { color: inherit; } }
+@media (prefers-reduced-motion: reduce) {
+  .sidebar .ks-bar { animation: none; }
+  .sidebar .ks-label-hint { transition: opacity 100ms linear, visibility 0s linear 100ms; }
+  .sidebar.ks-on .ks-label-hint { transition: opacity 80ms linear; }
+  .sidebar .ks-u { transition: color 100ms linear; }
+  .sidebar.ks-on .ks-u { transition: color 80ms linear; }
+}
 
 /* A site's status (hub/home.mjs statusLine): the lane chips wrap on their own line, and the status word goes below them. */
 .sidebar .sb-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
@@ -138,7 +152,6 @@
   .sidebar > .top { position: static; order: 2; margin-bottom: 0; border-bottom: 0; border-top: 1px solid var(--line);
     padding-top: 4px; padding-bottom: max(4px, env(safe-area-inset-bottom)); }
   .sidebar .sb-scroll { padding-top: max(8px, env(safe-area-inset-top)); padding-bottom: 6px; }
-  .sidebar.ks-on .ks-hint { padding-bottom: 10px; }
 }
 
 .sidebar .u-tone-ok { --u: var(--accent); }

@@ -27,7 +27,7 @@ The list of every site beside each board and hub page: Hub, then Turn on notific
 _Avoid_: hub home, switcher, nav
 
 **Switch mode**:
-The sidebar showing each linked row's key after s is pressed twice outside a text field: the first nine boards' numbers on their tiles, and every linked row's letter from its name, underlined. The next key opens that row in place; Escape, a click or 3 seconds with no key ends it. Boards claim letters first, in the order they joined the hub, so a new board never takes another board's letter ([0056](docs/adr/0056-switch-mode-letters-come-from-names-in-join-order.md)).
+The sidebar showing each linked row's key after s is pressed twice outside a text field: the first nine boards' numbers on their tiles, and every linked row's letter from its name, in builder orange, while the Boards label reads "Boards – press a key to switch" over a bar that drains, and no row moves. The next key opens that row in place; Escape, a click or 3 seconds with no key ends it. Boards claim letters first, in the order they joined the hub, so a new board never takes another board's letter ([0056](docs/adr/0056-switch-mode-letters-come-from-names-in-join-order.md)).
 _Avoid_: shortcuts, hotkeys, jump mode
 
 **Shortcuts sheet**:
