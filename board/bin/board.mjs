@@ -47,7 +47,23 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          Waiting on you shows fitting takes in a grid, or a chooser above one full-width take if any scrolls or fills the screen.
          diagram, with practice: rows of 1-4 boxes [[{text, tone?, to?}]], tone quiet|info|notice|
          danger|success, to the next row's box indexes (default all); practice: ["<line>", …]
+         A prototype url's topic must be recorded (prototype add), its option ids the recorded take keys in
+         order, and every take file written; a hand-written prototype-*.html is refused. An unresolved
+         question on the same topic that links the same prototype is resolved, noting "Replaced by
+         <new id>", and printed as "replaced: <old id>".
   question resolve <id> --note <text>                    sets resolved and resolved_at
+  prototype add <topic> --title <t> --take <K>:<label>   records a prototype in data/prototypes.json: the board
+         [--take <K>:<label> …] [--card <wave>/<id>]     serves prototype-<topic>.html from its one template, with
+                                                         the title, a back arrow to --card (else the board), the
+                                                         take pill and a stage. topic: a-z, 0-9 and "-"; K: one
+                                                         capital letter, in take order; a label never starts with
+                                                         "A. ", since the pill shows it alone. Prints each take
+                                                         file to write,
+                                                         public/prototypes/<topic>/<K>.js, which exports
+                                                         render(stage, kit) (board/public/prototype-kit.js lists kit)
+  prototype list                                         one line per recorded prototype
+  prototype rm <topic>                                   drops the record, keeping its take files; refuses while an
+                                                         open question links it
   item set <wave>/<id> [--status <s> | --clear-status]   edits the item in its wave file
          [--next <t> | --clear-next] [--pr <n>]          status: ${ITEM_STATUSES.join(', ')}
                                                          an empty --next "" clears it, as --clear-next does
@@ -193,6 +209,7 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
 
 class UsageError extends Error {}
 const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree', 'dry-run']);
+const REPEATED = new Set(['take']);
 const KICKFLIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'bin', 'kickflip.mjs');
 
 function pushCommand() {
@@ -226,6 +243,11 @@ function parse(argv) {
     const a = argv[i];
     if (!a.startsWith('--')) { rest.push(a); continue; }
     const name = a.slice(2);
+    if (REPEATED.has(name)) {
+      if (i + 1 >= argv.length) throw new UsageError(`--${name} needs a value`);
+      (flags[name] ||= []).push(argv[++i]);
+      continue;
+    }
     if (Object.hasOwn(flags, name)) throw new UsageError(`--${name} is given twice`);
     if (BOOLEAN.has(name)) flags[name] = true;
     else if (i + 1 < argv.length) flags[name] = argv[++i];
@@ -282,6 +304,9 @@ const COMMANDS = {
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
   'question add': [[], ['file'], (site, _, f) => store.addQuestions(site, readJSONInput(f.file))],
   'question resolve': [['id'], ['note'], (site, [id], f) => store.resolveQuestion(site, id, f.note)],
+  'prototype add': [['topic'], ['title', 'take', 'card'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take })],
+  'prototype list': [[], [], (site) => store.listPrototypes(site)],
+  'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
   'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'from-ask', 'held', 'unheld', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force', 'ticket'], (site, [key], f, options) =>
     store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, fromAsk: f['from-ask'], held: f.held, unheld: f.unheld, notesFile: notesFileOf(f), deps: f.deps,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, force: f.force, ticket: f.ticket }, options)],

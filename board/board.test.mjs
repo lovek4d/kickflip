@@ -480,7 +480,7 @@ test('thread refuses an unknown item, an empty text, an unknown channel and inva
 
 test('question add appends valid questions and rejects the whole file otherwise', () => {
   const drawn = (more = {}) => ({ id: 'A', label: 'Keep', diagram: [[{ text: 'Hub' }, { text: 'Board', tone: 'info', to: [0] }], [{ text: 'Owner', tone: 'success' }]], practice: ['One place to change.'], ...more });
-  write(site('orch', 'public', 'prototype-site.html'), '<script src="prototype-switcher.js"></script><script>PrototypeSwitcher.mount({takes: {A: "Keep", B: "Drop"}, render(take) {}});</script>');
+  recordPrototype();
   write(path.join(home, 'q.json'), [question('q1', { url: 'prototype-site.html?q=q1' }), question('q2', { topic: 'item:w/A1', urgent: true, url: 'https://linear.app/x/issue/INT-1', options: [drawn(), { id: 'B', label: 'Drop' }] }), question('q4', { topic: 'item:ask:e1' })]);
   assert.equal(board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')).code, 0);
   assert.deepEqual(read(site('orch', 'data', 'owner.json')).items.map((q) => [q.id, q.url]), [['q1', 'prototype-site.html?q=q1'], ['q2', 'https://linear.app/x/issue/INT-1'], ['q4', undefined]]);
@@ -515,7 +515,12 @@ test('question add appends valid questions and rejects the whole file otherwise'
   assert.deepEqual(read(site('orch', 'data', 'owner.json')).items.map((q) => q.id), ['q1', 'q2', 'q4']);
 });
 
-const prototypePage = (takes = '{A: "Keep", B: "Drop"}') => `<script src="prototype-switcher.js"></script><script>PrototypeSwitcher.mount({takes: ${takes}, render(take) {}});</script>`;
+const takePath = (topic, key) => site('orch', 'public', 'prototypes', topic, `${key}.js`);
+function recordPrototype(topic = 'site', takes = ['A:Keep', 'B:Drop'], files = true) {
+  const r = board('prototype', 'add', topic, '--site', 'orch', '--title', 'Site', ...takes.flatMap((t) => ['--take', t]));
+  assert.equal(r.code, 0, r.err);
+  if (files) for (const t of takes) write(takePath(topic, t[0]), 'export function render(stage) {}');
+}
 const addPrototypeQuestion = (url = 'prototype-site.html?q=q1', extra = {}) => {
   write(path.join(home, 'q.json'), question('q1', { url, ...extra }));
   return board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json'));
@@ -525,77 +530,93 @@ const prototypeRefusal = (result, line) => {
   assert.deepEqual(read(site('orch', 'data', 'owner.json')).items, []);
 };
 
-test('question add refuses a prototype url missing ?q=', () => {
-  prototypeRefusal(addPrototypeQuestion('prototype-site.html#q=q1'), 'question q1.url must be prototype-site.html?q=q1 so the pill can pick');
+test('prototype add records a topic and prints the take files to write; list shows it and rm drops it, keeping the files', () => {
+  const r = board('prototype', 'add', 'hub-moon', '--site', 'orch', '--title', 'Hub moon', '--card', 'w/A1', '--take', 'A:Moon with hover text', '--take', 'B:Moon with tap bubble');
+  assert.deepEqual(r, { code: 0, err: '', out: [`prototype add → ${site('orch', 'data', 'prototypes.json')}`, 'page prototype-hub-moon.html', `take A ${takePath('hub-moon', 'A')}`, `take B ${takePath('hub-moon', 'B')}`, ''].join('\n') });
+  const [record] = read(site('orch', 'data', 'prototypes.json')).prototypes;
+  assert.deepEqual({ ...record, at: undefined }, { topic: 'hub-moon', title: 'Hub moon', card: 'w/A1', takes: [{ key: 'A', label: 'Moon with hover text' }, { key: 'B', label: 'Moon with tap bubble' }], at: undefined });
+  assert.equal(board('prototype', 'list', '--site', 'orch').out, 'hub-moon · Hub moon · A: Moon with hover text, B: Moon with tap bubble · w/A1\n');
+  write(takePath('hub-moon', 'A'), 'export function render() {}');
+  assert.equal(board('prototype', 'rm', 'hub-moon', '--site', 'orch').code, 0);
+  assert.equal(board('prototype', 'list', '--site', 'orch').out, 'no prototypes recorded\n');
+  assert.ok(fs.existsSync(takePath('hub-moon', 'A')));
 });
 
-test('question add refuses a prototype url with the wrong ?q=', () => {
+test('prototype add refuses a bad topic, key or label, no takes, a repeated key, an unknown card, a recorded topic and a hand-written page', () => {
+  recordPrototype('taken');
+  write(site('orch', 'public', 'prototype-old.html'), '<p>Hand-written</p>');
+  const before = read(site('orch', 'data', 'prototypes.json'));
+  const refusals = [
+    [['Bad_Topic', '--take', 'A:Keep'], 'a prototype topic uses only a-z, 0-9 and "-", not "Bad_Topic"'],
+    [['t', '--take', 'a:Keep'], '--take takes KEY:"Label" with KEY one capital letter, not "a:Keep"'],
+    [['t', '--take', 'AB:Keep'], '--take takes KEY:"Label" with KEY one capital letter, not "AB:Keep"'],
+    [['t', '--take', 'A:A. Keep'], '--take A\'s label starts with "A. "; the take pill shows the label alone, so drop the letter'],
+    [['t', '--take', 'A: '], '--take A\'s label must be non-empty text'],
+    [['t'], 'prototype add needs a --take KEY:"Label" for each take'],
+    [['t', '--take', 'A:Keep', '--take', 'A:Drop'], '--take A is given twice'],
+    [['t', '--take', 'A:Keep', '--card', 'w/Z9'], 'wave "w" has no item "Z9"'],
+    [['taken', '--take', 'A:Keep'], 'prototype taken is already recorded; run prototype rm taken first, or pick another topic'],
+    [['old', '--take', 'A:Keep'], 'public/prototype-old.html is a hand-written page that questions may link; pick another topic'],
+  ];
+  for (const [args, line] of refusals) {
+    assert.deepEqual(board('prototype', 'add', ...args, '--site', 'orch', '--title', 'T'), { code: 1, out: '', err: line + '\n' }, line);
+  }
+  assert.deepEqual(read(site('orch', 'data', 'prototypes.json')), before);
+});
+
+test('prototype rm refuses while an open question links the prototype', () => {
+  recordPrototype();
+  assert.equal(addPrototypeQuestion().code, 0);
+  assert.deepEqual(board('prototype', 'rm', 'site', '--site', 'orch'), { code: 1, out: '', err: 'prototype site backs open question q1; resolve it first\n' });
+  assert.equal(board('question', 'resolve', 'q1', '--site', 'orch', '--note', 'Picked A.').code, 0);
+  assert.equal(board('prototype', 'rm', 'site', '--site', 'orch').code, 0);
+});
+
+test('question add refuses a prototype url missing or with the wrong ?q=', () => {
+  recordPrototype();
+  prototypeRefusal(addPrototypeQuestion('prototype-site.html#q=q1'), 'question q1.url must be prototype-site.html?q=q1 so the pill can pick');
   prototypeRefusal(addPrototypeQuestion('prototype-site.html?q=other#q=q1'), 'question q1.url must be prototype-site.html?q=q1 so the pill can pick');
 });
 
-test('question add refuses a missing prototype file', () => {
-  prototypeRefusal(addPrototypeQuestion(), "question q1.url file must exist in the site's public/: prototype-site.html");
+test('question add refuses a hand-written or unrecorded prototype page, naming prototype add', () => {
+  write(site('orch', 'public', 'prototype-site.html'), '<script src="prototype-switcher.js"></script><script>PrototypeSwitcher.mount({takes: {A: "Keep", B: "Drop"}, render(take) {}});</script>');
+  prototypeRefusal(addPrototypeQuestion(), 'question q1.url names prototype-site.html, which is not a recorded prototype; record it with board.mjs prototype add site --title "…" --take A:"…", then write its take files');
 });
 
-test('question add requires the prototype to load and mount the shared switcher', () => {
-  for (const source of [
-    '<main>No switcher</main>',
-    '<script>PrototypeSwitcher.mount({takes: {A: "Keep", B: "Drop"}});</script>',
-    '<script src="prototype-switcher.js"></script><script>// PrototypeSwitcher.mount({takes: {A: "Keep", B: "Drop"}});\n</script>',
-  ]) {
-    write(site('orch', 'public', 'prototype-site.html'), source);
-    prototypeRefusal(addPrototypeQuestion(), 'question q1.url page must load prototype-switcher.js and call PrototypeSwitcher.mount');
-  }
-});
-
-test('question add refuses an option that is not a prototype take key', () => {
-  write(site('orch', 'public', 'prototype-site.html'), prototypePage('{A: "B: is only a label", extra: {B: "Nested"}}'));
-  prototypeRefusal(addPrototypeQuestion(), 'question q1.options id "B" must be a take key in prototype-site.html\'s takes object');
-});
-
-test('question add refuses takes it cannot read as a literal object passed to mount', () => {
-  for (const takes of ['takes', 'getTakes()', '{...takes, A: "Keep", B: "Drop"}', '{[key]: "Keep", B: "Drop"}', '{A: "Keep", B: "Drop"} || other', '{A: "Keep", B: }']) {
-    write(site('orch', 'public', 'prototype-site.html'), prototypePage(takes));
-    prototypeRefusal(addPrototypeQuestion(), 'question q1.url takes must be an object literal passed to PrototypeSwitcher.mount, inline or as one const');
-  }
-  for (const declared of ['const unrelated = {takes: {A: "Keep", B: "Drop"}};', 'let takes = {A: "Keep", B: "Drop"};', 'const takes = {A: "Keep", B: "Drop"} || other;',
-    'const takes = {A: "Keep"}; const takes = {B: "Drop"};', 'const takes = make({A: "Keep", B: "Drop"});']) {
-    write(site('orch', 'public', 'prototype-site.html'), `<script src="prototype-switcher.js"></script><script>${declared} PrototypeSwitcher.mount({takes});</script>`);
-    prototypeRefusal(addPrototypeQuestion(), 'question q1.url takes must be an object literal passed to PrototypeSwitcher.mount, inline or as one const');
-  }
-});
-
-test('question add accepts literal prototype takes, comments, nested values and extra takes', () => {
-  write(site('orch', 'public', 'prototype-site.html'), `<script src='./prototype-switcher.js?v=1'></script><script>
-    PrototypeSwitcher.mount({initial: 'A', render(take) {}, takes: {
-      /* labels can contain punctuation */ A: 'Keep, with a }', 'B': "Drop: \\"it\\"", // second take
-      extra: {nested: [1, 2]}, 'with-hyphen': 'Another',
-    }});
-  </script>`);
+test('question add refuses options that are not the recorded takes in order, and a take with no file yet', () => {
+  recordPrototype('site', ['A:Keep', 'B:Drop'], false);
+  const swapped = [{ id: 'B', label: 'Drop' }, { id: 'A', label: 'Keep', recommended: true }];
+  prototypeRefusal(addPrototypeQuestion(undefined, { options: swapped }), 'question q1.options ids B, A must be prototype-site.html\'s takes in order: A, B');
+  prototypeRefusal(addPrototypeQuestion(undefined, { options: [{ id: 'A', label: 'Keep' }] }), 'question q1.options ids A must be prototype-site.html\'s takes in order: A, B');
+  write(takePath('site', 'A'), 'export function render() {}');
+  prototypeRefusal(addPrototypeQuestion(), `question q1.url take B has no file yet; write ${takePath('site', 'B')}`);
+  write(takePath('site', 'B'), 'export function render() {}');
   const url = 'prototype-site.html?variant=B&q=q1#top';
   const result = addPrototypeQuestion(url);
   assert.equal(result.code, 0, result.err);
   assert.equal(read(site('orch', 'data', 'owner.json')).items[0].url, url);
 });
 
-test('question add reads takes from the one const that mount names', () => {
-  const owner = read(site('orch', 'data', 'owner.json'));
-  for (const mount of ['PrototypeSwitcher.mount({ takes: TAKES, initial: "A", render });', 'const takes = TAKES; PrototypeSwitcher.mount({ takes: TAKES });']) {
-    write(site('orch', 'public', 'prototype-site.html'), `<script src="prototype-switcher.js"></script><script>(() => {\n  const esc = (v) => String(v).replace(/[&<>"']/g, (c) => c);\n  const note = (on) => \`\${on ? \`Don't\` : ''}\`;\n  const TAKES = { A: 'A. Keep', B: 'B. Drop' }\n  const render = () => {};\n  ${mount}\n})();</script>`);
-    write(site('orch', 'data', 'owner.json'), owner);
-    const result = addPrototypeQuestion();
-    assert.equal(result.code, 0, result.err);
-  }
-  write(site('orch', 'public', 'prototype-site.html'), '<script src="prototype-switcher.js"></script><script>const takes = { A: "Keep" }; PrototypeSwitcher.mount({ takes, render() {} });</script>');
-  write(site('orch', 'data', 'owner.json'), owner);
-  prototypeRefusal(addPrototypeQuestion(), 'question q1.options id "B" must be a take key in prototype-site.html\'s takes object');
-});
-
-test('question add checks absolute prototype urls against the site public folder too', () => {
-  prototypeRefusal(addPrototypeQuestion('https://example.com/orch/prototype-site.html?q=other'), 'question q1.url must be prototype-site.html?q=q1 so the pill can pick');
-  write(site('orch', 'public', 'prototype-site.html'), prototypePage());
+test('question add checks absolute prototype urls against the recorded prototypes too', () => {
+  prototypeRefusal(addPrototypeQuestion('https://example.com/orch/prototype-site.html?q=q1'), 'question q1.url names prototype-site.html, which is not a recorded prototype; record it with board.mjs prototype add site --title "…" --take A:"…", then write its take files');
+  recordPrototype();
   const result = addPrototypeQuestion('https://example.com/orch/prototype-site.html?q=q1');
   assert.equal(result.code, 0, result.err);
+});
+
+test('a question re-asked on the same topic with the same prototype resolves the unresolved one it replaces', () => {
+  recordPrototype();
+  recordPrototype('other');
+  const add = (q) => { write(path.join(home, 'q.json'), q); return board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')); };
+  const on = (id, topic, page) => question(id, { topic, url: `prototype-${page}.html?q=${id}` });
+  assert.equal(add(on('done', 'item:w/A1', 'site')).code, 0);
+  assert.equal(board('question', 'resolve', 'done', '--site', 'orch', '--note', 'Picked A.').code, 0);
+  for (const q of [on('moon', 'item:w/A1', 'site'), on('elsewhere', 'site', 'site'), on('different', 'item:w/A1', 'other')]) assert.deepEqual(add(q).out.split('\n').slice(1), ['']);
+  const r = add(on('moon-2', 'item:w/A1', 'site'));
+  assert.deepEqual(r, { code: 0, err: '', out: `question add → ${site('orch', 'data', 'owner.json')}\nreplaced: moon\n` });
+  const owner = read(site('orch', 'data', 'owner.json')).items;
+  assert.deepEqual(owner.map((q) => [q.id, q.resolved ?? null]), [['done', 'Picked A.'], ['moon', 'Replaced by moon-2'], ['elsewhere', null], ['different', null], ['moon-2', null]]);
+  assert.ok(!Number.isNaN(Date.parse(owner[1].resolved_at)));
 });
 
 test('question add leaves non-prototype urls unchanged', () => {

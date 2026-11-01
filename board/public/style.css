@@ -441,7 +441,7 @@ main > * { transition: opacity .25s ease; }
    its question into the full-width layout never flashes cut off. */
 .view-questions .take-shot { position: relative; display: block; margin-top: 8px; height: 360px; border: 1px solid var(--line); border-radius: 10px;
   overflow: hidden; transition: height .15s ease; }
-.view-questions .take-shot iframe { width: 100%; height: 100%; border: 0; pointer-events: none; background: var(--bg); }
+.view-questions .take-shot iframe { width: 100%; height: 100%; border: 0; background: var(--bg); }
 .view-questions .take-shot.measuring { transition: none; }
 .view-questions .take-shot.measuring iframe { visibility: hidden; }
 .view-questions .take-shot.measuring::before { content: 'Loading take…'; position: absolute; inset: 0; display: grid; place-items: center;
@@ -453,7 +453,6 @@ main > * { transition: opacity .25s ease; }
 .view-questions .take-choices .opt[aria-current="true"] { border-color: var(--accent); }
 .view-questions .takes-full .take { padding: 0; border: 0; }
 .view-questions .takes-full .take-shot { margin-top: 0; transition: none; }
-.view-questions .takes-full .take-shot iframe { pointer-events: auto; }
 
 /* A take with nothing to see: boxes and arrows, then what it means in practice. */
 .view-questions .flow { margin: 10px 0 4px; }

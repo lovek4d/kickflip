@@ -46,15 +46,15 @@ test('once answered, the picked take reads Picked and every other take offers Ch
 });
 
 test("the pill shows the take's name and the pick control for its state", () => {
-  const pill = (pick, busy) => sw.pillHtml({ name: 'A. Named <chips>', pick, busy });
-  assert.equal(text(pill({ kind: 'none' })), '‹ A. Named &lt;chips&gt; ›');
+  const pill = (pick, busy) => sw.pillHtml({ name: 'Named <chips>', pick, busy });
+  assert.equal(text(pill({ kind: 'none' })), '‹ Named &lt;chips&gt; ›');
   assert.doesNotMatch(pill({ kind: 'none' }), /data-ps="pick"/);
   assert.match(pill(sw.pickState(question, 'A')), /<button type="button" class="ps-pick" data-ps="pick">Pick this<\/button>/);
   assert.match(pill(sw.pickState(answered('B'), 'A')), />Change pick<\/button>/);
   assert.match(pill(sw.pickState(answered('A'), 'A')), /<span class="ps-picked">Picked<\/span>/);
   assert.doesNotMatch(pill(sw.pickState(answered('A'), 'A')), /data-ps="pick"/);
   assert.match(pill(sw.pickState(question, 'A'), true), /data-ps="pick" disabled>Sending…/);
-  const name = 'A. A long take name with "quotes" & <details> '.repeat(8);
+  const name = 'A long take name with "quotes" & <details> '.repeat(8);
   const html = sw.pillHtml({ name });
   const escaped = name.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
   assert.ok(html.includes(`<span class="ps-name" title="${escaped}">${escaped}</span>`));
@@ -129,7 +129,7 @@ function prototypePage(url, { framed = false, owner, next = owner[1] || null }) 
     script.onload();
   };
   vm.runInContext(fs.readFileSync(new URL('./public/prototype-switcher.js', import.meta.url), 'utf8'), win);
-  const mounted = win.PrototypeSwitcher.mount({ takes: { A: 'A. Named chips', B: 'B. One stepper' }, initial: 'A', render: (take) => rendered.push(take) });
+  const mounted = win.PrototypeSwitcher.mount({ takes: { A: 'Named chips', B: 'One stepper' }, initial: 'A', render: (take) => rendered.push(take) });
   const pill = listeners.find((l) => l.type === 'click')?.target;
   const settle = () => new Promise((r) => setTimeout(r, 0));
   const pick = async () => {
@@ -137,7 +137,7 @@ function prototypePage(url, { framed = false, owner, next = owner[1] || null }) 
     for (const l of listeners.filter((x) => x.target === pill && x.type === 'click')) l.fn({ target: { closest: () => ({ dataset: { ps: 'pick' } }) } });
     await settle();
   };
-  return { pick, sent, moves, noticesAtMove, decisions, loaded, styles, rendered, classes, controls, replacements, take: mounted.take, fetches: () => fetches, notice: () => shared.BoardUI.sentNotice.take('orch'), localNotice: () => win.sessionStorage.getItem('sent:orch') };
+  return { pick, pillName: () => /<span class="ps-name"[^>]*>([^<]*)</.exec(controls[0]?.parts['.ps-pill']?.innerHTML || '')?.[1], sent, moves, noticesAtMove, decisions, loaded, styles, rendered, classes, controls, replacements, take: mounted.take, current: () => win.PrototypeSwitcher.current, fetches: () => fetches, notice: () => shared.BoardUI.sentNotice.take('orch'), localNotice: () => win.sessionStorage.getItem('sent:orch') };
 }
 
 test('a pick on a prototype page sends the answer, then moves on to the next open question in its place, or with none left to the board, through the app shell around a framed page', async () => {
@@ -145,6 +145,7 @@ test('a pick on a prototype page sends the answer, then moves on to the next ope
   for (const framed of [false, true]) {
     const page = prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1', { framed, owner });
     await page.pick();
+    assert.equal(page.pillName(), 'Named chips');
     assert.deepEqual(plain(page.sent), [['owner-answer', { id: 'q1', question: 'Which snooze?', choice: 'A', label: 'A. Named chips', note: '' }]]);
     assert.deepEqual(plain(page.moves), [framed ? ['app', 'https://mac.ts.net/orch/questions.html#q2', { replace: true }] : ['load', 'https://mac.ts.net/orch/questions.html#q2']]);
     assert.deepEqual(page.decisions.map(([qs, pills, answered]) => [qs.map((q) => q.id), pills.map((t) => t.id), answered.id]), [[['q1', 'q2'], ['item:w/A1'], 'q1']]);
@@ -178,4 +179,11 @@ test('a take embedded by Waiting on you renders only that take without fetching 
   assert.deepEqual(page.loaded, []);
   assert.match(page.styles, /\.ps-embed header\.top \{ display:none; \}/);
   assert.match(page.styles, /\.ps-embed main \{ padding-bottom:12px !important; \}/);
+  page.current().go('A');
+  page.current().go('Z');
+  assert.deepEqual(page.rendered, ['B', 'A']);
+  assert.equal(page.current().take, 'A');
+  assert.deepEqual(page.replacements.map((args) => String(args[2])), ['https://mac.ts.net/orch/prototype-snooze.html?q=q1&take=A']);
+  assert.equal(page.fetches(), 0);
+  assert.deepEqual(page.moves, []);
 });

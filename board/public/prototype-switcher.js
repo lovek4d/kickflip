@@ -5,6 +5,8 @@
 // take stays in ?variant=. With ?q=<owner question id>, the pill offers the take as that question's answer: a take
 // is pickable when an option's id equals its key. Pick sends the owner-answer event questions.html sends, with the
 // note typed above the pill, then moves on through BoardUI.nextQuestion (ui-questions.js).
+// PrototypeSwitcher.current is the mounted switcher, whose go(key) shows another take in place; Waiting on you uses it
+// to switch its full-width frame without a reload (view-questions.js inPlace).
 // With ?take=<key> the page shows that take alone, with no header or pill, as questions.html frames it
 // (docs/adr/0048-a-questions-takes-show-inline.md); a page hides its own extras under html.ps-embed. There main's
 // bottom padding, kept clear for the pill, shrinks to 12px whatever the page sets, since questions.html sizes the frame
@@ -100,10 +102,20 @@
     const site = globalThis.ClaudeSite;
     if (!document.getElementById('ps-style')) document.head.insertAdjacentHTML('beforeend', `<style id="ps-style">${CSS}</style>`);
     if (params.has('take')) {
-      const only = startTake(keys, params.get('take'), initial);
+      let only = startTake(keys, params.get('take'), initial);
       document.documentElement.classList.add('ps-embed');
       render(only);
-      return { take: only, go() {} };
+      const embedded = {
+        takes: keys,
+        get take() { return only; },
+        go(next) {
+          if (!keys.includes(next) || next === only) return;
+          only = next;
+          const u = new URL(location.href); u.searchParams.set('take', only); history.replaceState(history.state, '', u);
+          render(only);
+        },
+      };
+      return (globalThis.PrototypeSwitcher.current = embedded);
     }
     let take = startTake(keys, params.get('variant'), initial);
     let question = null;
@@ -207,7 +219,7 @@
 
     go(take);
     load();
-    return { get take() { return take; }, go };
+    return (globalThis.PrototypeSwitcher.current = { takes: keys, get take() { return take; }, go });
   }
 
   globalThis.PrototypeSwitcher = { takeAt, startTake, pickedChoice, pickState, answerLabel, pillHtml, mount };

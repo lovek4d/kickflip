@@ -306,6 +306,39 @@ test("the board, its Settings, Waiting on you and Notes serve the app shell, wit
   } finally { fs.rmSync(path.join(pub, 'prototype-hdr.html')); }
 });
 
+test('a recorded prototype is the one template with its record filled in, and nothing else is served from it', async () => {
+  const pub = path.join(site, 'public');
+  const takes = path.join(pub, 'prototypes', 'moon');
+  fs.mkdirSync(takes, { recursive: true });
+  fs.writeFileSync(path.join(takes, 'A.js'), 'export function render(stage) {}');
+  fs.writeFileSync(path.join(pub, 'prototype-written.html'), '<p>Hand-written</p>');
+  fs.writeFileSync(path.join(site, 'data', 'prototypes.json'), JSON.stringify({ prototypes: [
+    { topic: 'moon', title: 'Moon </script><b>', card: 't/P1', takes: [{ key: 'A', label: 'Tap <it>' }, { key: 'B', label: 'Hover' }] },
+    { topic: 'plain', title: 'Plain', takes: [{ key: 'A', label: 'Only' }] },
+  ] }));
+  try {
+    const page = await (await fetch(`${base}/prototype-moon.html?take=A&q=q1`)).text();
+    assert.match(page, /<title>Moon &lt;\/script&gt;&lt;b&gt; · prototype<\/title>/);
+    assert.match(page, /<header class="top"><div class="brand"><a class="back" href="\.\/#item=t%2FP1" aria-label="Back to the board">[\s\S]*<h1>Moon &lt;\/script&gt;&lt;b&gt; · prototype<\/h1>/);
+    const json = /<script id="prototypeData" type="application\/json">(.*?)<\/script>/.exec(page)[1];
+    assert.doesNotMatch(json, /</);
+    const data = JSON.parse(json);
+    assert.equal(data.title, 'Moon </script><b>');
+    assert.deepEqual(data.takes.map((t) => [t.key, t.label, /^prototypes\/moon\/A\.js\?v=[\w-]+$/.test(t.src ?? ''), t.file]), [['A', 'Tap <it>', true, 'prototypes/moon/A.js'], ['B', 'Hover', false, 'prototypes/moon/B.js']]);
+    assert.match(page, /<main class="proto-main"><div id="stage"><\/div><\/main>/);
+    assert.match(page, /#stage \{[^}]*contain: layout paint; transform: translateZ\(0\); isolation: isolate; overflow-x: clip;/);
+    for (const script of ['claude.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-hub.js', 'ui-cards.js', 'prototype-switcher.js', 'prototype-kit.js']) assert.match(page, new RegExp(`<script src="${script.replace('.', '\\.')}\\?v=`), script);
+    const plain = await (await fetch(`${base}/prototype-plain.html`)).text();
+    assert.match(plain, /<a class="back" href="\.\/" aria-label="Back to the board">/);
+    assert.equal(await (await fetch(`${base}/prototype-written.html`)).text(), '<p>Hand-written</p>');
+    for (const p of ['/prototype-missing.html', '/prototype.html']) assert.equal((await fetch(base + p)).status, 404, p);
+  } finally {
+    fs.rmSync(path.join(site, 'data', 'prototypes.json'));
+    fs.rmSync(path.join(pub, 'prototypes'), { recursive: true });
+    fs.rmSync(path.join(pub, 'prototype-written.html'));
+  }
+});
+
 const raw = (p, headers = {}) => new Promise((resolve, reject) => {
   http.get(base + p, { headers }, (r) => {
     const chunks = [];

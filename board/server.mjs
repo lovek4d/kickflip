@@ -3,7 +3,7 @@
 // runs it with PORT and PREFIX (/<route>) set, and strips the prefix before forwarding.
 // It writes page events, hidden events and uploads; agent sessions write the other files
 // below through bin/board.mjs (store.mjs):
-//   reply, thread, topic add, question add|resolve, item set|relate-ask, ask progress|done, followup add|done,
+//   reply, thread, topic add, question add|resolve, prototype add|rm, item set|relate-ask, ask progress|done, followup add|done,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder).
 // <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, install_script}. install_script is the
 // owner-set absolute script path the hub runs for a card's device install, saved only on this board's Settings.
@@ -24,6 +24,8 @@
 //   GET  /, /settings.html, /questions.html, /notes.html
 //                                the app shell, public/app.html, whose views these pages are (../hub/shell.mjs shellHtml;
 //                                docs/adr/0055-one-app-for-the-whole-hub.md). /index.html redirects to /
+//   GET  /prototype-<topic>.html a topic recorded in data/prototypes.json is public/prototype.html with its record
+//                                filled in (prototypePage); /prototype.html itself is 404
 //   GET  /...                    the site's public/, then this template's public/, then the
 //                                starter's, then ../shared for colors.css (directories serve index.html; in .html, each <!--header {…}-->
 //                                becomes public/ui-page-header.js's header({…}), then {{title}} board.json's title).
@@ -103,7 +105,7 @@ import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { buildBoard, ITEM_EVENTS, needsAnswer, refOf, threadOf } from './domain.mjs';
 import { createReadStream, watch as watchFiles } from 'node:fs';
-import { BoardError, boardConfig, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readInstallScript, readNotes, readWorking, readUpload, saveBoardRules, saveBoardSettings, saveInstallScript, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, boardConfig, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readInstallScript, readNotes, readWorking, readUpload, saveBoardRules, saveBoardSettings, saveInstallScript, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -459,6 +461,27 @@ async function staticFile(rel) {
   return null;
 }
 
+// A recorded prototype's page is the template with its record filled in; a topic not recorded falls through to the
+// site's own files, so questions on hand-written pages keep opening them.
+const PROTOTYPE_TEMPLATE = path.join(template, 'public', 'prototype.html');
+async function recordedPrototype(p) {
+  const topic = /^\/prototype-([a-z0-9-]+)\.html$/.exec(p)?.[1];
+  return topic ? (await readPrototypes(here)).find((r) => r.topic === topic) || null : null;
+}
+// Inside <script type="application/json">, so "<" is escaped and the record can't close the element.
+const scriptJSON = (v) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+async function prototypePage(proto) {
+  const takes = await Promise.all(proto.takes.map(async (t) => {
+    const src = `prototypes/${proto.topic}/${t.key}.js`;
+    const st = await fs.stat(takeFile(here, proto.topic, t.key)).catch(() => null);
+    return { key: t.key, label: t.label, src: st?.isFile() ? `${src}?v=${versionOf(st)}` : null, file: src };
+  }));
+  const title = `${proto.title} · prototype`;
+  const header = { lead: 'back', backHref: proto.card ? `./#item=${encodeURIComponent(proto.card)}` : './', title, controls: false };
+  const fill = { prototypeTitle: esc(title), prototypeHeader: `<!--header ${scriptJSON(header).replace(/>/g, '\\u003e')}-->`, prototypeData: scriptJSON({ topic: proto.topic, title: proto.title, takes }) };
+  return (await fs.readFile(PROTOTYPE_TEMPLATE, 'utf8')).replace(/\{\{(prototypeTitle|prototypeHeader|prototypeData)\}\}/g, (_, k) => fill[k]);
+}
+
 async function upload(req, res) {
   try {
     const name = decodeURIComponent(String(req.headers['x-filename'] || ''));
@@ -611,11 +634,12 @@ const server = http.createServer(async (req, res) => {
     if (p === '/index.html') { res.writeHead(302, { location: `./${url.search}`, 'cache-control': 'no-store' }).end(); return; }
 
     const shell = VIEW_PAGES.has(p.slice(1));
-    const file = shell ? null : await staticFile(decodeURIComponent(p));
+    const proto = shell ? null : await recordedPrototype(p);
+    const file = shell ? null : proto ? PROTOTYPE_TEMPLATE : p === '/prototype.html' ? null : await staticFile(decodeURIComponent(p));
     if (!shell && !file) { res.writeHead(404).end(); return; }
     const ext = shell ? '.html' : path.extname(file).toLowerCase();
     const st = shell ? null : await fs.stat(file);
-    let body = shell ? Buffer.from(shellHtml({ touchIcon: await touchIcon() })) : await fs.readFile(file);
+    let body = shell ? Buffer.from(shellHtml({ touchIcon: await touchIcon() })) : proto ? Buffer.from(await prototypePage(proto)) : await fs.readFile(file);
     if (!shell && ext === '.html') body = (await pageHeaders(body.toString('utf8'))).replaceAll('{{title}}', esc((await config()).title)).replaceAll('{{touchIcon}}', await touchIcon());
     if (!shell && ext === '.html') body = Buffer.from(await versionAssets(body, p));
     const etag = ext === '.html' ? `W/"${crypto.createHash('sha1').update(body).digest('base64url').slice(0, 20)}"` : `W/"${versionOf(st)}"`;

@@ -648,129 +648,76 @@ function checkOptions(options, name) {
   if (options.filter((o) => o.recommended).length > 1) fail(`${name} recommends more than one option`);
 }
 
-// A script's tokens with strings, templates and regex literals whole and comments dropped, so a quote inside a
-// regex such as esc's /[&<>"']/g, or an apostrophe in a nested template, cannot shift the tokens after it.
-const BEFORE_REGEX = new Set(['return', 'typeof', 'case', 'do', 'else', 'in', 'of', 'new', 'delete', 'void', 'throw', 'instanceof', 'yield', 'await']);
-const WORD = /[\w$]+|\.\.\./y;
-function jsTokens(code) {
-  const tokens = [];
-  // Inside a template's ${…} (nested), returns the index just past its closing brace and emits nothing.
-  function scan(i, nested) {
-    let depth = 0, prev;
-    const push = (t) => { prev = t; if (!nested) tokens.push(t); };
-    while (i < code.length) {
-      const c = code[i];
-      if (/\s/.test(c)) { i++; continue; }
-      if (code.startsWith('//', i)) { const e = code.indexOf('\n', i); i = e < 0 ? code.length : e; continue; }
-      if (code.startsWith('/*', i)) { const e = code.indexOf('*/', i + 2); i = e < 0 ? code.length : e + 2; continue; }
-      let j = i + 1;
-      if (c === '"' || c === "'") {
-        while (j < code.length && code[j] !== c && code[j] !== '\n') j += code[j] === '\\' ? 2 : 1;
-        push(code.slice(i, ++j));
-      } else if (c === '`') {
-        while (j < code.length && code[j] !== '`') j = code[j] === '\\' ? j + 2 : code.startsWith('${', j) ? scan(j + 2, true) : j + 1;
-        push(code.slice(i, ++j));
-      } else if (c === '/' && (prev === undefined || BEFORE_REGEX.has(prev) || !/^[\w$)\]}"'`]/.test(prev))) {
-        for (let inClass = false; j < code.length && code[j] !== '\n' && (inClass || code[j] !== '/'); j++) {
-          if (code[j] === '\\') j++;
-          else if (code[j] === '[') inClass = true;
-          else if (code[j] === ']') inClass = false;
-        }
-        for (j++; /[a-z]/i.test(code[j] || ''); j++);
-        push(code.slice(i, j));
-      } else {
-        WORD.lastIndex = i;
-        const word = WORD.exec(code);
-        if (word) j = i + word[0].length;
-        else if (nested && c === '{') depth++;
-        else if (nested && c === '}' && depth-- === 0) return j;
-        push(code.slice(i, j));
-      }
-      i = j;
-    }
-    return i;
+// A prototype is a topic recorded here, served as prototype-<topic>.html from one template (board/public/prototype.html,
+// board/server.mjs), whose takes are the site's public/prototypes/<topic>/<KEY>.js (docs/adr/0089-the-board-serves-every-prototype-from-one-template.md).
+const prototypesFile = (site) => path.join(site, 'data', 'prototypes.json');
+export const takeFile = (site, topic, key) => path.join(site, 'public', 'prototypes', topic, `${key}.js`);
+export async function readPrototypes(site) {
+  const list = site ? (await readJSON(prototypesFile(site), {})).prototypes : null;
+  return Array.isArray(list) ? list : [];
+}
+const prototypeTopic = (v) => (typeof v === 'string' && /^[a-z0-9-]+$/.test(v) ? v : fail(`a prototype topic uses only a-z, 0-9 and "-", not "${v}"`));
+function prototypeTake(spec) {
+  const m = /^([^:]*):(.*)$/s.exec(spec);
+  if (!m || !/^[A-Z]$/.test(m[1])) fail(`--take takes KEY:"Label" with KEY one capital letter, not "${spec}"`);
+  const label = text(m[2], `--take ${m[1]}'s label`);
+  if (/^[A-Z]\.\s/.test(label)) fail(`--take ${m[1]}'s label starts with "${label.slice(0, 3)}"; the take pill shows the label alone, so drop the letter`);
+  return { key: m[1], label };
+}
+const pageTopic = (url) => /^prototype-(.+)\.html$/.exec(path.posix.basename(String(url || '').split(/[?#]/)[0]))?.[1];
+
+export async function addPrototype(site, { topic, title, card, takes = [] }) {
+  needSite(site);
+  prototypeTopic(topic);
+  text(title, '--title');
+  if (!takes.length) fail('prototype add needs a --take KEY:"Label" for each take');
+  const parsed = takes.map(prototypeTake);
+  const twice = parsed.find((t, i) => parsed.findIndex((u) => u.key === t.key) !== i);
+  if (twice) fail(`--take ${twice.key} is given twice`);
+  if (card !== undefined) await loadItem(site, card);
+  const list = await readPrototypes(site);
+  if (list.some((p) => p.topic === topic)) fail(`prototype ${topic} is already recorded; run prototype rm ${topic} first, or pick another topic`);
+  if (await fs.stat(path.join(site, 'public', `prototype-${topic}.html`)).then(() => true, () => false)) {
+    fail(`public/prototype-${topic}.html is a hand-written page that questions may link; pick another topic`);
   }
-  scan(0, false);
-  return tokens;
+  const record = { topic, title: title.trim(), ...(card === undefined ? {} : { card }), takes: parsed, at: new Date().toISOString() };
+  await writeJSON(prototypesFile(site), { prototypes: [...list, record] });
+  return { file: prototypesFile(site), lines: [`page prototype-${topic}.html`, ...parsed.map((t) => `take ${t.key} ${takeFile(site, topic, t.key)}`)] };
 }
 
-// Read take keys without running prototype code.
-function prototypeTakes(source, field) {
-  const scripts = [...source.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)];
-  const loadsSwitcher = scripts.some((s) => {
-    const src = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(s[1]);
-    return src && /(?:^|\/)prototype-switcher\.js(?:[?#]|$)/.test(src[1] ?? src[2] ?? src[3]);
-  });
-  const tokens = scripts.flatMap((s) => jsTokens(s[2]));
-  const mount = tokens.findIndex((t, i) => t === 'PrototypeSwitcher' && tokens[i + 1] === '.' && tokens[i + 2] === 'mount' && tokens[i + 3] === '(');
-  if (!loadsSwitcher || mount < 0) fail(`${field} page must load prototype-switcher.js and call PrototypeSwitcher.mount`);
-  const literal = () => fail(`${field} takes must be an object literal passed to PrototypeSwitcher.mount, inline or as one const`);
-  const close = { '{': '}', '[': ']', '(': ')' };
-  // Skip a value (or an options member) up to its next top-level comma or closing brace.
-  const endOfValue = (start) => {
-    const stack = [];
-    for (let i = start; i < tokens.length; i++) {
-      const t = tokens[i];
-      if (!stack.length && (t === ',' || t === '}')) return i;
-      if (Object.hasOwn(close, t)) stack.push(close[t]);
-      else if (['}', ']', ')'].includes(t) && stack.pop() !== t) literal();
-    }
-    literal();
-  };
-  // The keys of the object literal opening at tokens[at], and the index of its closing brace.
-  const objectKeys = (at) => {
-    at++;
-    const keys = new Set();
-    while (tokens[at] !== '}') {
-      const key = tokens[at];
-      if (!key || !/^(?:[\w$]+|"[^"\\]*"|'[^'\\]*')$/.test(key) || tokens[at + 1] !== ':') literal();
-      keys.add(/^['"]/.test(key) ? key.slice(1, -1) : key);
-      const end = endOfValue(at + 2);
-      if (end === at + 2) literal();
-      at = tokens[end] === ',' ? end + 1 : end;
-    }
-    return { keys, end: at };
-  };
-  const isTakes = (i) => ['takes', '"takes"', "'takes'"].includes(tokens[i]) && tokens[i + 1] === ':' || tokens[i] === 'takes' && [',', '}'].includes(tokens[i + 1]);
-  if (tokens[mount + 4] !== '{') literal();
-  let at = mount + 5;
-  while (!isTakes(at)) {
-    if (tokens[at] === '}' || at >= tokens.length) literal();
-    at = endOfValue(at);
-    if (tokens[at] !== ',') literal();
-    at++;
-  }
-  const value = tokens[at + 1] === ':' ? at + 2 : at;
-  if (tokens[value] === '{') {
-    const { keys, end } = objectKeys(value);
-    if (![',', '}'].includes(tokens[end + 1])) literal();
-    return keys;
-  }
-  // `takes: TAKES` or `{ takes }` names one `const` holding a plain object literal.
-  const name = tokens[value];
-  if (!/^[A-Za-z_$][\w$]*$/.test(name) || ![',', '}'].includes(tokens[value + 1])) literal();
-  const declared = tokens.flatMap((t, i) => (t === 'const' && tokens[i + 1] === name && tokens[i + 2] === '=' ? [i + 3] : []));
-  if (declared.length !== 1 || tokens[declared[0]] !== '{') literal();
-  const { keys, end } = objectKeys(declared[0]);
-  const next = tokens[end + 1];
-  if (next !== undefined && next !== ';' && next !== '}' && !/^[A-Za-z_$]/.test(next)) literal();
-  return keys;
+export async function listPrototypes(site) {
+  needSite(site);
+  const list = await readPrototypes(site);
+  return { lines: list.length ? list.map((p) => `${p.topic} · ${p.title} · ${p.takes.map((t) => `${t.key}: ${t.label}`).join(', ')}${p.card ? ` · ${p.card}` : ''}`) : ['no prototypes recorded'] };
+}
+
+// The take files stay, so a topic recorded again keeps them.
+export async function removePrototype(site, topic) {
+  needSite(site);
+  const list = await readPrototypes(site);
+  if (!list.some((p) => p.topic === topic)) fail(`no prototype "${topic}" is recorded`);
+  const owner = await readJSON(ownerFile(site), { items: [] });
+  const open = (owner.items || []).filter((q) => !q.resolved && pageTopic(q.url) === topic).map((q) => q.id);
+  if (open.length) fail(`prototype ${topic} backs open question ${open.join(', ')}; resolve ${open.length === 1 ? 'it' : 'them'} first`);
+  await writeJSON(prototypesFile(site), { prototypes: list.filter((p) => p.topic !== topic) });
+  return prototypesFile(site);
 }
 
 async function checkPrototype(site, q, name) {
   const page = q.url?.split(/[?#]/)[0];
   if (!page || !path.posix.basename(page).startsWith('prototype-')) return;
-  // Absolute URLs still name a prototype in this site's public folder; local URLs are relative to it.
-  const file = /^https?:\/\//.test(page) ? path.posix.basename(page) : page;
+  const file = path.posix.basename(page);
   const query = q.url.split('#')[0].split('?').slice(1).join('?');
   const field = `${name}.url`;
   if (new URLSearchParams(query).get('q') !== q.id) fail(`${field} must be ${file}?q=${q.id} so the pill can pick`);
-  let source;
-  try { source = await fs.readFile(path.join(site, 'public', file), 'utf8'); }
-  catch { fail(`${field} file must exist in the site's public/: ${file}`); }
-  const keys = prototypeTakes(source, field);
-  for (const option of q.options) {
-    if (!keys.has(option.id)) fail(`${name}.options id "${option.id}" must be a take key in ${file}'s takes object`);
+  const topic = pageTopic(page);
+  const recorded = (await readPrototypes(site)).find((p) => p.topic === topic);
+  if (!recorded) fail(`${field} names ${file}, which is not a recorded prototype; record it with board.mjs prototype add ${topic} --title "…" --take A:"…", then write its take files`);
+  const keys = recorded.takes.map((t) => t.key);
+  const ids = q.options.map((o) => o.id);
+  if (ids.join() !== keys.join()) fail(`${name}.options ids ${ids.join(', ')} must be ${file}'s takes in order: ${keys.join(', ')}`);
+  for (const key of keys) {
+    if (!(await fs.stat(takeFile(site, topic, key)).then((s) => s.isFile(), () => false))) fail(`${field} take ${key} has no file yet; write ${takeFile(site, topic, key)}`);
   }
 }
 
@@ -799,8 +746,20 @@ export async function addQuestions(site, input) {
     checkOptions(q.options, name);
     await checkPrototype(site, q, name);
   }
+  // A question re-asked on the same card and prototype replaces the open one, so the owner never answers both.
+  const at = new Date().toISOString();
+  const replaced = [];
+  for (const q of questions) {
+    const topic = pageTopic(q.url);
+    if (!topic) continue;
+    for (const old of items) {
+      if (old.resolved || old.topic !== q.topic || pageTopic(old.url) !== topic) continue;
+      Object.assign(old, { resolved: `Replaced by ${q.id}`, resolved_at: at });
+      replaced.push(old.id);
+    }
+  }
   await writeJSON(ownerFile(site), { ...owner, topics: owner.topics || [], items: [...items, ...questions] });
-  return ownerFile(site);
+  return { file: ownerFile(site), lines: replaced.map((id) => `replaced: ${id}`) };
 }
 
 async function markResolved(site, owner, ids, note) {

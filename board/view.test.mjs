@@ -1967,6 +1967,25 @@ test('Waiting on you measures a fitting grid, then uses one growing full-size fr
   load('A', () => 1400);
   assert.deepEqual(scrolls, [[0, 300], [0, 300]]);
   assert.equal(shot('A').style.height, '1402px');
+  const frameA = shot('A').querySelector('iframe');
+  const went = [];
+  frameA.contentWindow.PrototypeSwitcher = { current: { takes: ['A', 'B', 'C'], go: (k) => went.push(k) } };
+  const choose = (id) => {
+    const input = v.root.querySelector(`.take-choices input[value="${id}"]`);
+    input.type = 'radio';
+    v.page.fire(v.root, 'change', { target: input });
+  };
+  const current = () => v.root.querySelectorAll('.take-choices .opt').filter((o) => o.getAttribute('aria-current') === 'true').map((o) => o.querySelector('input').getAttribute('value'));
+  choose('C');
+  assert.deepEqual(went, ['C']);
+  assert.deepEqual(v.root.querySelectorAll('iframe'), [frameA]);
+  assert.equal(v.root.querySelector('.takes-full .take').dataset.opt, 'C');
+  assert.deepEqual(current(), ['C']);
+  assert.deepEqual(scrolls, [[0, 300], [0, 300]]);
+  choose('A');
+  assert.deepEqual(went, ['C', 'A']);
+  assert.equal(shot('A').querySelector('iframe'), frameA);
+  assert.deepEqual(current(), ['A']);
   assert.doesNotMatch(v.root.innerHTML, /Open full size|take-open|take-full|variant=/);
   assert.equal(v.root.querySelector('textarea').value, 'Keep this note');
   v.page.fire(vm.runInContext('window', v.page.win), 'hashchange');

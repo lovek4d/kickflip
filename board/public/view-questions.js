@@ -129,7 +129,8 @@
     function fitTake(shot) {
       const frame = shot.querySelector('iframe');
       const sec = shot.closest('section.q');
-      const key = fitKey(sec.dataset.q, shot.closest('.take').dataset.opt);
+      // A switch in place (inPlace) changes the take a frame shows, and so the key its size is kept under.
+      const key = () => fitKey(sec.dataset.q, shot.closest('.take').dataset.opt);
       const full = Boolean(shot.closest('.takes-full'));
       let watcher = null;
       let probing = false;
@@ -141,7 +142,7 @@
           return doc?.body && doc.location.href !== 'about:blank' ? Math.ceil(doc.body.getBoundingClientRect().height) : null;
         } catch { return null; }
       };
-      const sizeNow = () => { const f = fits.get(key); return f?.w === window.innerWidth ? { ...f } : { w: window.innerWidth }; };
+      const sizeNow = () => { const f = fits.get(key()); return f?.w === window.innerWidth ? { ...f } : { w: window.innerWidth }; };
       const fillsFrame = (h) => Math.abs(h - frame.clientHeight) <= 1;
       // A page as tall as its frame is grown once: a page sized by its content keeps its height, a full-screen one
       // follows the frame.
@@ -153,7 +154,7 @@
           probing = false;
           const h = measure();
           if (h === null || !shot.isConnected || !B.alive()) return;
-          fits.set(key, { ...sizeNow(), fills: fillsFrame(h) });
+          fits.set(key(), { ...sizeNow(), fills: fillsFrame(h) });
           apply();
         }));
       };
@@ -170,7 +171,7 @@
         const height = size.fills ? screenH() : h + 2;
         if (full) size.fullH = height;
         else { size.h = height; size.scrolls = size.fills || h > window.innerHeight * 0.8; }
-        fits.set(key, size);
+        fits.set(key(), size);
         const q = byId(sec.dataset.q);
         if (!full && size.scrolls && q.options.every((o) => !o.diagram && !o.practice)) {
           repaintTakes(sec);
@@ -292,10 +293,27 @@
       const b = ev.target.closest && ev.target.closest('[data-topic]');
       if (b) { soloId = null; topicId = b.dataset.topic; sentLine = ''; shown = ''; render(); scrollTo(0, 0); }
     });
+    // The full-width frame shows another take without reloading, where its page's switcher can
+    // (prototype-switcher.js current.go), so the page keeps its place. → false when it can't.
+    function inPlace(full, choice) {
+      const take = full.querySelector('.take');
+      const frame = take?.querySelector('iframe');
+      let sw = null;
+      try { sw = frame?.contentWindow?.PrototypeSwitcher?.current; } catch { sw = null; }
+      if (!sw?.go || !sw.takes?.includes(choice)) return false;
+      sw.go(choice);
+      take.dataset.opt = choice;
+      for (const label of full.querySelectorAll('.take-choices .opt')) {
+        if (label.querySelector('input')?.value === choice) label.setAttribute('aria-current', 'true');
+        else label.removeAttribute('aria-current');
+      }
+      return true;
+    }
     B.on(root, 'change', (ev) => {
       const sec = ev.target.closest('section.q'); if (!sec || ev.target.type !== 'radio') return;
       const d = getDraft(sec.dataset.q); d.choice = ev.target.value; setDraft(sec.dataset.q, d); updateBar();
       const full = sec.querySelector('.takes-full');
+      if (full && inPlace(full, d.choice)) return;
       if (full) {
         const top = frameTop(full.querySelector('.take-shot'));
         repaintTakes(sec);

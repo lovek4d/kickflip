@@ -557,6 +557,8 @@ test("a question on a prototype page sets its takes in one grid with no carousel
   assert.deepEqual(frames(proto), ['prototype-hub-snooze.html?q=q1&take=A#top', 'prototype-hub-snooze.html?q=q1&take=B#top']);
   assert.doesNotMatch(proto, /loading="lazy"/);
   assert.deepEqual(shots(proto), [['take-shot measuring', ''], ['take-shot measuring', '']]);
+  assert.deepEqual([...proto.matchAll(/<iframe [^>]*>/g)].map((m) => /tabindex="-1"|aria-hidden/.test(m[0])), [false, false]);
+  assert.doesNotMatch(fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8'), /\.take-shot iframe \{[^}]*pointer-events: none/);
   assert.doesNotMatch(proto, /Open full size|take-full|take-open|variant=/);
   assert.doesNotMatch(proto, /See the prototypes|target="_blank"|<label class="opt">[\s\S]*<label class="opt">[\s\S]*<label class="opt">/);
   context.location = { origin: 'https://mac.tail.ts.net', href: 'https://mac.tail.ts.net/orch/' };

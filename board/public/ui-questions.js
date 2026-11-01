@@ -64,7 +64,7 @@
     const size = fit(o.id);
     const h = full ? size?.fullH : size?.h;
     // Every take loads so one outside the viewport can still decide the question's layout.
-    return `<div class="take-shot${h ? '' : ' measuring'}"${h ? ` style="height:${Math.round(h)}px"` : ''}><iframe src="${esc(withParam(q.url, 'take', o.id))}" tabindex="${full ? 0 : -1}"${full ? '' : ' aria-hidden="true"'} title="${esc(o.label)}"></iframe></div>`;
+    return `<div class="take-shot${h ? '' : ' measuring'}"${h ? ` style="height:${Math.round(h)}px"` : ''}><iframe src="${esc(withParam(q.url, 'take', o.id))}" title="${esc(o.label)}"></iframe></div>`;
   }
   function takes(q, chosen, links, fit) {
     const name = 'c-' + q.id;
