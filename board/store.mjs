@@ -11,6 +11,7 @@ import { appendEvent, listBoards } from '../hub/boards.mjs';
 import { reviseQueued, flushQueue, queueStatus } from '../hub/push.mjs';
 import { holdLine } from '../hub/schedule.mjs';
 import { routeRecord } from '../hub/routes.mjs';
+import { storedPath } from '../bin/install.mjs';
 import { RuleError, rulesOf, addRule, editRule, removeRule, applyRules, readHubRules, writeHubRules } from '../hub/rules.mjs';
 
 export class BoardError extends Error {}
@@ -520,9 +521,10 @@ export function saveInstallScript(site, changes) {
     const error = installScriptError(changes.install_script);
     if (error) fail(error);
   }
+  const installScript = storedPath(changes.install_script);
   return writeBoardJSON(site, (cfg) => ({
-    set: { install_script: changes.install_script }, install_script: changes.install_script,
-    changed: (cfg.install_script ?? '') !== changes.install_script,
+    set: { install_script: installScript }, install_script: installScript,
+    changed: (cfg.install_script ?? '') !== installScript,
   }));
 }
 // changes {auto_merge: boolean} → {file, settings, changed}; changed lists the keys whose value moved.

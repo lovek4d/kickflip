@@ -18,6 +18,7 @@ import { DEFAULTS, windowAt } from './schedule.mjs';
 import { liveSessions } from './live.mjs';
 import { withFileLock } from './locks.mjs';
 import { dropSessionPrompts, readPrompts, savePrompts, withPromptsLock } from './prompts.mjs';
+import { storedPath } from '../bin/install.mjs';
 
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLAUDE = path.join(os.homedir(), '.claude');
@@ -56,6 +57,15 @@ export const withManifestLock = (fn) => withFileLock(MANIFEST, fn);
 // Call under the manifest lock. Clear both sessions before publishing an ownership change, even with the hub down.
 export function writeManifest(m) {
   return withPromptsLock(() => {
+    const sites = [...Object.values(m.sites || {}), ...Object.values(m.closed || {}).map((entry) => entry.site)];
+    for (const site of sites.filter(Boolean)) {
+      if (site.dir) site.dir = storedPath(site.dir);
+      if (Array.isArray(site.cmd)) site.cmd = site.cmd.map((arg) => storedPath(arg));
+      if (site.owner?.repo) site.owner.repo = storedPath(site.owner.repo);
+    }
+    for (const owner of Object.values(m.starting || {})) {
+      if (owner.repo) owner.repo = storedPath(owner.repo);
+    }
     const previous = readManifest();
     const owner = (manifest, route) => routeRecord(manifest.sites, route)?.owner || routeRecord(manifest.starting, route);
     const routes = new Set([...Object.keys(previous.sites || {}), ...Object.keys(m.sites || {}),

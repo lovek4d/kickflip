@@ -66,8 +66,8 @@ const liveRecord = (sessionId, cwd) => {
   return c;
 };
 
-const cli = (args, { cwd = repo, input = '' } = {}) => new Promise((resolve) => {
-  const child = spawn(process.execPath, [path.join(SKILL, 'bin', 'web-ts.mjs'), ...args], {
+const cli = (args, { cwd = repo, input = '', entry = SKILL } = {}) => new Promise((resolve) => {
+  const child = spawn(process.execPath, [path.join(entry, 'bin', 'web-ts.mjs'), ...args], {
     cwd, env: { ...process.env, HOME: home, WEB_TS_CLAUDE: fakeClaude, WEB_TS_HUB_PORT: '1', CLAUDECODE: '1' },
   });
   let stdout = '';
@@ -479,4 +479,38 @@ test('hub uses an injected runner and refuses a live owner or a missing recorded
   assert.equal(calls().length, before);
   assert.equal((await cli(['hub', '--repo', otherRepo])).status, 0);
   assert.deepEqual([calls().at(-1).argv.slice(0, 2), calls().at(-1).cwd], [['--resume', 's-hub'], otherRepo]);
+});
+
+test('join, start and resume keep clone paths under the installed link across a clone move', async () => {
+  const clone = path.join(home, 'dev', 'kickflip clone');
+  for (const dir of ['bin', 'board', 'hub', 'shared', 'hooks-plugin']) fs.cpSync(path.join(SKILL, dir), path.join(clone, dir), { recursive: true, filter: (file) => !file.endsWith('.test.mjs') });
+  const { installLinks } = await import('../bin/install.mjs');
+  const [{ link }] = installLinks({ home, cloneRoot: clone });
+  const dir = path.join(clone, 'test-board');
+  const pendingRepo = path.join(clone, '.repos', 'owner', 'project');
+  const entry = { dir, port: 0, cmd: [process.execPath, path.join(clone, 'board', 'server.mjs'), dir], owner: { session: 's-linked', repo: clone } };
+  write(web('manifest.json'), { sites: { linked: entry }, starting: { pending: { repo: pendingRepo } }, closed: { saved: { site: structuredClone(entry) } } });
+  json(await cli(['join', 'linked', '--session', 's-linked', '--template', 'board', '--items', path.join(clone, 'cards.json')], { cwd: clone, entry: link }));
+  const saved = manifest();
+  const storedDir = path.join(link, 'test-board');
+  const storedCmd = [saved.sites.linked.cmd[0], path.join(link, 'board', 'server.mjs'), storedDir];
+  assert.deepEqual(saved.sites.linked.cmd, storedCmd);
+  assert.deepEqual([saved.sites.linked.dir, saved.sites.linked.owner.repo, saved.starting.pending.repo], [storedDir, link, path.join(link, '.repos', 'owner', 'project')]);
+  assert.deepEqual([saved.closed.saved.site.dir, saved.closed.saved.site.cmd, saved.closed.saved.site.owner.repo], [storedDir, [process.execPath, ...storedCmd.slice(1)], link]);
+  assert.equal(read(path.join(storedDir, 'board.json')).items, path.join(link, 'cards.json'));
+  const started = json(await cli(['start', 'linked', '--repo', clone], { entry: link }));
+  assert.equal(started.repo, link);
+  assert.equal(manifest().sites.linked.owner.repo, link);
+  const hook = JSON.parse(calls().at(-1).argv[calls().at(-1).argv.indexOf('--settings') + 1]).hooks.PermissionRequest[0].hooks[0];
+  assert.equal(hook.command, `"${process.execPath}" "${path.join(link, 'hub', 'permission-hook.mjs')}"`);
+  const resumed = json(await cli(['resume', 'linked'], { entry: link }));
+  assert.equal(resumed.repo, link);
+  assert.ok(calls().at(-1).argv.at(-1).includes(`node ${path.join(link, 'bin', 'web-ts.mjs')} join linked`));
+  const moved = clone + '-moved';
+  fs.renameSync(clone, moved);
+  fs.unlinkSync(link);
+  fs.symlinkSync(moved, link);
+  assert.ok(fs.statSync(saved.sites.linked.cmd[1]).isFile());
+  json(await cli(['join', 'linked', '--session', resumed.session, '--template', 'board'], { cwd: moved, entry: link }));
+  assert.deepEqual(manifest().sites.linked.cmd, storedCmd);
 });

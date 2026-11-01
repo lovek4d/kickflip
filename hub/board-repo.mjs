@@ -1,6 +1,7 @@
 import { readManifest, withManifestLock, writeManifest, isBoardSite, listBoards, appendEvent } from './boards.mjs';
 import { routeRecord } from './routes.mjs';
 import { repoService, validateGithub, validateBranch, runRepo, githubFromOrigin } from './repos.mjs';
+import { storedPath } from '../bin/install.mjs';
 
 export { githubFromOrigin } from './repos.mjs';
 
@@ -8,7 +9,7 @@ const refuse = (message, status = 400) => { throw Object.assign(new Error(messag
 export function boardRepo(route, manifest = readManifest()) {
   const site = routeRecord(manifest.sites, route);
   if (!isBoardSite(site)) refuse('Board not found.', 404);
-  return { github: site.github || '', branch: site.branch || '', repo: site.owner?.repo || '' };
+  return { github: site.github || '', branch: site.branch || '', repo: storedPath(site.owner?.repo || '') };
 }
 
 export async function changeBoardRepo(route, input, { repos = repoService(), event = appendEvent } = {}) {
@@ -16,7 +17,7 @@ export async function changeBoardRepo(route, input, { repos = repoService(), eve
   if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some((k) => !['github', 'branch'].includes(k))) refuse('Send only github and branch.');
   const github = validateGithub(input.github);
   const branch = validateBranch(input.branch);
-  const repo = await repos.ensure(github, branch);
+  const repo = storedPath(await repos.ensure(github, branch));
   return withManifestLock(async () => {
     const manifest = readManifest();
     const previous = boardRepo(route, manifest);

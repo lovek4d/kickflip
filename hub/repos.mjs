@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { reposDir } from '../shared/repos.mjs';
 import { withFileLock } from './locks.mjs';
+import { storedPath } from '../bin/install.mjs';
 
 const refuse = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 export function validateGithub(github) {
@@ -99,7 +100,7 @@ export function repoService({ run = runRepo, base = reposDir(), now = Date.now }
       }
       return { ...cache.value, repos: cache.value.repos.map((repo) => {
         const clone = repoPath(repo.github, base);
-        const shared = Object.entries(manifest.sites || {}).filter(([, s]) => s.github?.toLowerCase() === repo.github.toLowerCase() && typeof s.owner?.repo === 'string' && path.resolve(s.owner.repo).toLowerCase() === clone.toLowerCase()).map(([route, s]) => ({ route, title: s.title || route }));
+        const shared = Object.entries(manifest.sites || {}).filter(([, s]) => s.github?.toLowerCase() === repo.github.toLowerCase() && typeof s.owner?.repo === 'string' && storedPath(path.resolve(s.owner.repo)).toLowerCase() === storedPath(clone).toLowerCase()).map(([route, s]) => ({ route, title: s.title || route }));
         return { ...repo, clone, cloned: fs.lstatSync(path.join(clone, '.git'), { throwIfNoEntry: false })?.isDirectory() || false, shared };
       }) };
     },

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { installLinks } from './install.mjs';
+import { installLinks, storedPath } from './install.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 
 let home;
@@ -19,8 +19,25 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
 
 const install = (options = {}) => installLinks({ home, cloneRoot: root, ...options });
-const targets = () => [root, path.join(root, 'hooks-plugin')];
+const targets = () => [root, path.join(skills, 'join-web-ts', 'hooks-plugin')];
 const links = () => ['join-web-ts', 'web-ts-hooks'].map((name) => path.join(skills, name));
+
+test('stored paths name the link for the clone and its descendants and preserve other paths', () => {
+  install();
+  const stored = (file) => storedPath(file, { home, cloneRoot: root });
+  assert.equal(stored(root), links()[0]);
+  assert.equal(stored(path.join(root, 'board', 'server.mjs')), path.join(links()[0], 'board', 'server.mjs'));
+  assert.equal(stored(path.join(root, '.repos', 'owner', 'project')), path.join(links()[0], '.repos', 'owner', 'project'));
+  for (const file of [home, root + '-other/server.mjs', links()[0], 'relative.mjs', 'node', '', undefined]) assert.equal(stored(file), file);
+  assert.equal(storedPath(path.join(root, 'bin'), { cloneRoot: root, skillsDir: path.join(home, 'unlinked skills') }), path.join(root, 'bin'));
+  assert.equal(storedPath(root, { cloneRoot: root, skillsDir: path.relative(process.cwd(), skills) }), links()[0]);
+  const moved = root + '-moved';
+  fs.renameSync(root, moved);
+  fs.unlinkSync(links()[0]);
+  fs.symlinkSync(moved, links()[0]);
+  assert.equal(storedPath(path.join(moved, 'board', 'server.mjs'), { home, cloneRoot: moved }), path.join(links()[0], 'board', 'server.mjs'));
+  assert.equal(fs.realpathSync(links()[1]), path.join(moved, 'hooks-plugin'));
+});
 
 test('install creates both links in a fresh HOME and a second install checks them', () => {
   const first = install();
@@ -38,7 +55,11 @@ test('install accepts correct relative links and a clone root reached through a 
   const alias = path.join(home, 'alias');
   fs.symlinkSync(root, alias);
   assert.ok(install({ cloneRoot: alias }).every(({ created }) => !created));
-  assert.deepEqual(links().map((link) => fs.realpathSync(link)), targets());
+  assert.deepEqual(links().map((link) => fs.realpathSync(link)), [root, path.join(root, 'hooks-plugin')]);
+  fs.unlinkSync(links()[1]);
+  fs.symlinkSync(path.join(root, 'hooks-plugin'), links()[1]);
+  assert.ok(install().every(({ created }) => !created));
+  assert.equal(fs.readlinkSync(links()[1]), path.join(root, 'hooks-plugin'));
 });
 
 test('install accepts an injectable skills directory', () => {

@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { BoardError } from './store.mjs';
 import { hubCode, listBoards } from '../hub/boards.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
+import { storedPath } from '../bin/install.mjs';
 
 const WEB_TS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'web-ts.mjs');
 export const skillRepo = cloneRoot;
@@ -39,7 +40,7 @@ export function makeWorktree(id, { repo = skillRepo(), base = 'main', remote = f
   fs.mkdirSync(path.dirname(dir), { recursive: true });
   const r = git(root, 'worktree', 'add', '--quiet', '-b', id, dir, ref);
   if (!r.ok) fail(`--worktree: git worktree add failed: ${r.err}`);
-  return { path: dir, branch: id, repo: root };
+  return { path: storedPath(dir), branch: id, repo: storedPath(root) };
 }
 
 function testFiles(dir) {

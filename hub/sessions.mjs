@@ -20,8 +20,9 @@ import { RESUME_STATE, carryCursor, hubBoard, isListening, listBoards, oldestUnh
 import { liveSessions, sessionRecords, processStarts, verifiedProcess } from './live.mjs';
 import { deliver } from './push.mjs';
 import { WAIT_MS } from './prompts.mjs';
+import { storedPath } from '../bin/install.mjs';
 
-const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const SKILL_DIR = storedPath(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'));
 export const RESUME_AFTER = 3 * 60_000;
 export const COMEBACK_WAIT = 5 * 60_000;
 export const STARTING_WAIT = 15 * 60_000;
@@ -212,7 +213,7 @@ export async function startSession(route, { manifest = readManifest(), repo, mod
   if (r.status !== 0) throw new SessionError(`claude --bg failed (${r.status}): ${(r.stderr || r.stdout).trim().slice(0, 300)}`, 'failed');
   const { session, confirmed } = await startedId(r.stdout);
   if (!session) throw new SessionError(`claude --bg started a session but no session record names it yet; find it with claude agents (${r.stdout.trim().slice(0, 300)})`, 'failed');
-  return { route, session, confirmed, repo: dir, model: model || rec?.model || null, name, argv: [claudeBin(), ...argv], output: r.stdout.trim() };
+  return { route, session, confirmed, repo: storedPath(dir), model: model || rec?.model || null, name, argv: [claudeBin(), ...argv], output: r.stdout.trim() };
 }
 
 // `claude --resume <id> --bg` for the route's recorded session, in its folder (resumeArgv), then records the id it

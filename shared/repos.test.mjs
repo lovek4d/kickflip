@@ -34,26 +34,32 @@ test('the clone paths and default builder repo work directly and through install
     fs.writeFileSync(installer, "import { installLinks } from './bin/install.mjs';\ninstallLinks();\n");
     run(process.execPath, [installer]);
     const linked = path.join(home, '.claude', 'skills', 'join-web-ts');
+    const script = path.join(root, 'install.sh');
+    const site = path.join(home, 'board');
+    fs.writeFileSync(script, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
     const probe = path.join(root, 'paths-probe.mjs');
     fs.writeFileSync(probe, [
       "import { cloneRoot, reposDir } from './shared/repos.mjs';",
       "import { skillRepo } from './board/worktree.mjs';",
       "import { BG_SETTINGS, hubArgv } from './hub/sessions.mjs';",
+      "import { saveInstallScript } from './board/store.mjs';",
       "import './board/domain.mjs';",
+      `await saveInstallScript(${JSON.stringify(site)}, { install_script: ${JSON.stringify(script)} });`,
       "console.log(JSON.stringify({ root: cloneRoot(), repos: reposDir(), repo: skillRepo(), settings: BG_SETTINGS, hub: hubArgv({route: 'hub'}) }));",
     ].join('\n'));
     for (const entry of [root, linked]) {
       const found = JSON.parse(run(process.execPath, [path.join(entry, 'paths-probe.mjs')]));
       assert.deepEqual([found.root, found.repos, found.repo], [root, path.join(root, '.repos'), root]);
-      assert.ok(found.settings.includes(path.join(root, 'hub', 'permission-hook.mjs')));
-      assert.ok(found.hub.at(-1).includes(path.join(root, 'docs', 'hub-session.md')));
+      assert.ok(found.settings.includes(path.join(linked, 'hub', 'permission-hook.mjs')));
+      assert.ok(found.hub.at(-1).includes(path.join(linked, 'docs', 'hub-session.md')));
+      assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8')).install_script, path.join(linked, 'install.sh'));
       assert.match(run(process.execPath, [path.join(entry, 'bin', 'web-ts.mjs')]), /web-ts install/);
       const wave = path.join(home, '.claude', 'waves', 'w');
       fs.mkdirSync(wave, { recursive: true });
       fs.writeFileSync(path.join(wave, 'wave.json'), JSON.stringify({ title: 'W', items: [{ id: 'A1', title: 'One' }] }));
       assert.match(run(process.execPath, [path.join(entry, 'board', 'bin', 'board.mjs'), 'builder', 'start', 'w/A1', '--worktree']), /worktree:/);
       const record = JSON.parse(fs.readFileSync(path.join(wave, 'agents', 'A1.json'), 'utf8'));
-      assert.equal(record.worktree.repo, root);
+      assert.equal(record.worktree.repo, linked);
       run('git', ['-C', root, 'worktree', 'remove', record.worktree.path]);
       run('git', ['-C', root, 'branch', '-D', 'A1']);
       fs.rmSync(path.join(wave, 'agents'), { recursive: true });

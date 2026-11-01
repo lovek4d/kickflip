@@ -96,7 +96,7 @@ import { ICON_KEYS } from '../hub/icons.mjs';
 import { liveSessions } from '../hub/live.mjs';
 import { isBoardSite, writeManifest } from '../hub/boards.mjs';
 import { routeRecord, validRoute } from '../hub/routes.mjs';
-import { installLinks } from './install.mjs';
+import { installLinks, storedPath } from './install.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 
 const SKILL = cloneRoot();
@@ -287,7 +287,7 @@ const commands = {
         const cfgFile = path.join(site.dir, 'board.json');
         const cfg = fs.existsSync(cfgFile) ? JSON.parse(fs.readFileSync(cfgFile, 'utf8')) : {};
         cfg.title = args.title || cfg.title || route;
-        cfg.items = args.items || cfg.items || 'waves';
+        cfg.items = storedPath(args.items || cfg.items || 'waves');
         fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2) + '\n');
         site.cmd = [nodeBin(), path.join(SKILL, 'board', 'server.mjs'), site.dir];
         created = !existing;
@@ -462,8 +462,7 @@ const commands = {
     let links;
     try { links = installLinks(); } catch (e) { fail(e.message); }
     for (const { link, target, created } of links) out(`${created ? 'linked' : 'checked'} ${link} -> ${target}`);
-    // The login item starts the hub through the skill link, so moving the clone and relinking it keeps launchd's path.
-    const hubEntry = path.join(links[0].link, 'hub', 'hub.mjs');
+    const hubEntry = storedPath(path.join(SKILL, 'hub', 'hub.mjs'));
     fs.mkdirSync(HOME, { recursive: true });
     fs.mkdirSync(path.dirname(PLIST), { recursive: true });
     const hubLog = path.join(HOME, 'hub.log');
