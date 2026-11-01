@@ -18,6 +18,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { validate, pollingOf, flushAt, hold, windowAt, notifications, snoozeEnd } from './schedule.mjs';
 import { presence } from './presence.mjs';
+import { CODEX_SHARE_VALUES, codexStatus, effectiveCodexShare } from '../shared/codex.mjs';
 
 const DIR = path.join(os.homedir(), '.claude', 'kickflip', 'push');
 const VAPID = path.join(DIR, 'vapid.json');
@@ -153,14 +154,13 @@ export function writeSettingsFile(value) {
   fs.renameSync(tmp, SETTINGS);
 }
 
-const CODEX_SHARE_VALUES = ['auto', 'always', 'off'];
-export function readCodexShare() {
-  const value = readSettingsFile().codexShare;
-  return CODEX_SHARE_VALUES.includes(value) ? value : 'off';
-}
+// status: a shared/codex.mjs codexStatus. → the Codex setting in effect, shared/codex.mjs effectiveCodexShare.
+export const readCodexShare = (status = codexStatus()) => effectiveCodexShare(readSettingsFile().codexShare, status);
 
-export function setCodexShare(value) {
+// Throws {status: 400} for a value that isn't a choice, and {status: 409} with the fix while Codex isn't usable.
+export function setCodexShare(value, status = codexStatus()) {
   if (!CODEX_SHARE_VALUES.includes(value)) throw Object.assign(new Error('codex-share takes auto, always, or off'), { status: 400 });
+  if (!status.usable) throw Object.assign(new Error(`${status.words} Run ${status.fix}, then choose again.`), { status: 409 });
   writeSettingsFile({ ...readSettingsFile(), codexShare: value });
   return value;
 }

@@ -11,7 +11,7 @@ The Git checkout that supplies the running app's code, in any folder such as `~/
 _Avoid_: live skill folder
 
 **Doctor**:
-The hub setup check, `kickflip doctor`: each prerequisite, installed piece and site is ok, fixable by kickflip, the owner's to fix with the printed command, optional (the Codex login) or a note (a down site the hub restarts). `doctor --fix` runs the same setup as first-run `install` and checks again; another tool's status line stays the owner's choice ([0085](docs/adr/0085-doctor-checks-and-fixes-a-hub.md)).
+The hub setup check, `kickflip doctor`: each prerequisite, installed piece and site is ok, fixable by kickflip, the owner's to fix with the printed command, optional (Codex installed and logged in) or a note (a down site the hub restarts). `doctor --fix` runs the same setup as first-run `install` and checks again; another tool's status line stays the owner's choice ([0085](docs/adr/0085-doctor-checks-and-fixes-a-hub.md)).
 _Avoid_: status (the former CLI command)
 
 **Board repo**:
@@ -47,7 +47,7 @@ The hub's status page, `/_hub/`, which the sidebar's Hub row opens: a banner whi
 _Avoid_: dashboard, console, hub home
 
 **Usage reading**:
-The last reported Claude or Codex usage for its 5-hour and weekly windows, with reset times and when read. The sidebar’s Hub row shows each tool’s 5-hour bar and the hub page shows both windows; a reading older than its window reads “last seen” with a grey striped bar, otherwise a window whose reset passed reads as reset. Claude appears after its status line reports usage. Codex's bars show only while logged in with **Codex setting** enabled; the hub page keeps Codex's block either way, reading Not logged in or Not used while off ([0082](docs/adr/0082-the-sidebar-shows-claude-and-codex-usage-under-hub.md), [0086](docs/adr/0086-codex-share-sits-in-the-usage-card.md)).
+The last reported Claude or Codex usage for its 5-hour and weekly windows, with reset times and when read. The sidebar’s Hub row shows each tool’s 5-hour bar and the hub page shows both windows; a reading older than its window reads “last seen” with a grey striped bar, otherwise a window whose reset passed reads as reset. Claude appears after its status line reports usage. Codex's bars show only while the **Codex setting** in effect isn't Off; the hub page keeps Codex's block either way, opening with the setting's control ([0082](docs/adr/0082-the-sidebar-shows-claude-and-codex-usage-under-hub.md), [0086](docs/adr/0086-codex-share-sits-in-the-usage-card.md), [0092](docs/adr/0092-codex-share-follows-whether-codex-is-usable.md)).
 _Avoid_: quota, live usage
 
 **Board registry**:
@@ -109,7 +109,7 @@ The centred modal opened from a board header’s gear, at every width, which scr
 _Avoid_: Settings page
 
 **Codex setting**:
-The one choice for every board, made in Codex’s block of the hub page’s Usage card ([0086](docs/adr/0086-codex-share-sits-in-the-usage-card.md)): Auto has Codex build and review, with Opus builders taking over while Codex is out of usage until it resets; Always on has Codex build and review, with that work paused while Codex is out of usage until a usage-reset check succeeds; Off, also when unset, means no Codex. A session's own `/codex-share` overrides it for that session ([0066](docs/adr/0066-one-codex-setting-for-every-board.md)).
+The one choice for every board, made in Codex’s block of the hub page’s Usage card ([0086](docs/adr/0086-codex-share-sits-in-the-usage-card.md)): Auto has Codex build and review, with Opus builders taking over while Codex is out of usage until it resets; Always on has Codex build and review, with that work paused while Codex is out of usage until a usage-reset check succeeds; Off means no Codex. Unset means Auto. While Codex isn't usable, installed and logged in, the setting in effect is Off whatever is stored, and the control is greyed out; running out of usage doesn't make Codex unusable ([0092](docs/adr/0092-codex-share-follows-whether-codex-is-usable.md)). A session's own `/codex-share` overrides it for that session ([0066](docs/adr/0066-one-codex-setting-for-every-board.md)).
 _Avoid_: Codex rule, board Codex toggle
 
 **Waiting count**:

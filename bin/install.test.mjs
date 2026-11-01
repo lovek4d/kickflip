@@ -249,27 +249,40 @@ test('uninstall removes only kickflip status-line links, including its dangling 
   assert.equal(fs.readFileSync(statusline(), 'utf8'), 'keep');
 });
 
-test('plugin keeps builder-stop and runs the Codex share hook for both events through the skills link', () => {
+test('plugin keeps builder-stop and runs the Codex share hook for both events through the skills link, Off while Codex is not usable and Auto when unset', () => {
   installLinks({ home, cloneRoot: cloneRoot() });
   const plugin = JSON.parse(fs.readFileSync(path.join(cloneRoot(), 'hooks-plugin', 'hooks', 'hooks.json'), 'utf8'));
   assert.match(plugin.hooks.SubagentStop[0].hooks[0].command, /kickflip\/board\/bin\/builder-stop-hook.mjs/);
   assert.equal(plugin.hooks.SubagentStop[0].hooks[0].async, true);
   const hubSettings = path.join(home, '.claude', 'kickflip', 'settings.json');
   fs.mkdirSync(path.dirname(hubSettings), { recursive: true });
+  const bin = path.join(home, 'bin');
+  fs.mkdirSync(bin);
+  fs.symlinkSync(process.execPath, path.join(bin, 'node'));
+  const auth = path.join(home, '.codex', 'auth.json');
+  const said = { auto: /Opus builders take over until it resets/, always: /pause that work until the usage-reset probe answers/ };
   for (const event of ['UserPromptSubmit', 'SessionStart']) {
     const { command } = plugin.hooks[event][0].hooks[0];
     assert.match(command, /\$HOME\/\.claude\/skills\/kickflip\//);
-    for (const mode of [undefined, 'auto', 'always', 'off', 'unknown', 'broken']) {
-      if (mode === undefined) fs.rmSync(hubSettings, { force: true });
-      else fs.writeFileSync(hubSettings, mode === 'broken' ? '{' : JSON.stringify({ codexShare: mode }));
-      const result = spawnSync('/bin/sh', ['-c', command], { input: '{}', env: { ...process.env, HOME: home }, encoding: 'utf8' });
-      assert.equal(result.status, 0, result.stderr);
-      assert.equal(result.stderr, '');
-      if (mode === 'auto' || mode === 'always') {
-        assert.equal(result.stdout.split('\n').length, 2);
-        assert.match(result.stdout, /unless this session's codex-share-mode file says otherwise/);
-        assert.match(result.stdout, mode === 'auto' ? /Opus builders take over until it resets/ : /pause that work until the usage-reset probe answers/);
-      } else assert.equal(result.stdout, '');
+    for (const usable of ['not installed', 'not logged in', 'usable']) {
+      fs.rmSync(path.join(bin, 'codex'), { force: true });
+      fs.rmSync(path.dirname(auth), { recursive: true, force: true });
+      if (usable !== 'not installed') fs.writeFileSync(path.join(bin, 'codex'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+      if (usable === 'usable') { fs.mkdirSync(path.dirname(auth)); fs.writeFileSync(auth, '{}'); }
+      for (const mode of [undefined, 'auto', 'always', 'off', 'unknown', 'broken']) {
+        if (mode === undefined) fs.rmSync(hubSettings, { force: true });
+        else fs.writeFileSync(hubSettings, mode === 'broken' ? '{' : JSON.stringify({ codexShare: mode }));
+        const result = spawnSync('/bin/sh', ['-c', command], { input: '{}', env: { ...process.env, HOME: home, PATH: bin }, encoding: 'utf8' });
+        assert.equal(result.status, 0, result.stderr);
+        assert.equal(result.stderr, '');
+        const share = usable !== 'usable' || mode === 'off' ? 'off' : mode === 'always' ? 'always' : 'auto';
+        if (share === 'off') assert.equal(result.stdout, '', `${usable} ${mode}`);
+        else {
+          assert.equal(result.stdout.split('\n').length, 2);
+          assert.match(result.stdout, /unless this session's codex-share-mode file says otherwise/);
+          assert.match(result.stdout, said[share], `${usable} ${mode}`);
+        }
+      }
     }
   }
 });
@@ -499,7 +512,9 @@ function healthyDoctor() {
     ['launchctl print gui/501/local.claude.kickflip-hub', 'state = running'],
   ].map(([key, stdout]) => [key, { status: 0, stdout }]));
   const calls = [];
-  const env = { PATH: '/doctor-bin', HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false' };
+  const env = { PATH: path.join(home, 'doctor-bin'), HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false' };
+  fs.mkdirSync(env.PATH);
+  fs.writeFileSync(path.join(env.PATH, 'codex'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
   const options = { home, cloneRoot: root, port, uid: 501, env,
     run: (command, argv, passed) => {
       assert.equal(passed.env, env);
@@ -522,7 +537,7 @@ test('doctor reports every healthy item and the old hub, Tailscale and site deta
   const { options, calls } = healthyDoctor();
   const items = await doctorReport(options);
   assert.deepEqual(items.map(({ group, item }) => `${group} ${item}`), [
-    'prereqs git', 'prereqs node on Claude’s PATH', 'prereqs gh', 'prereqs gh signed in', 'prereqs Tailscale', 'prereqs Tailscale signed in', 'prereqs Codex login',
+    'prereqs git', 'prereqs node on Claude’s PATH', 'prereqs gh', 'prereqs gh signed in', 'prereqs Tailscale', 'prereqs Tailscale signed in', 'prereqs Codex',
     'setup kickflip skill link', 'setup kickflip-hooks link', 'setup ~/.claude/statusline.sh', 'setup settings.json statusLine', 'setup hub login item',
     'hub hub', 'hub tailscale /', 'hub /shop',
   ]);
@@ -580,15 +595,16 @@ for (const [name, command, fix] of [
   });
 }
 
-test('doctor marks a missing Codex login optional, with its command, and still exits 0', async () => {
+test('doctor marks Codex optional while it is not installed or not logged in, with the command for each, and still exits 0', async () => {
   const { options } = healthyDoctor();
   fs.unlinkSync(path.join(home, '.codex', 'auth.json'));
-  const { items, exitCode } = await runDoctor({ ...options, write: () => {} });
-  const item = pick(items, 'Codex login');
-  assert.equal(item.state, 'optional');
-  assert.equal(item.fix, 'codex login');
-  assert.equal(exitCode, 0);
-  assert.deepEqual(doctorLines([item]), [`optional Codex login: ${item.detail}`, '         → codex login']);
+  for (const [detail, fix] of [['not logged in', 'codex login'], ['not installed', 'brew install --cask codex']]) {
+    if (fix !== 'codex login') fs.unlinkSync(path.join(options.env.PATH, 'codex'));
+    const { items, exitCode } = await runDoctor({ ...options, write: () => {} });
+    const item = pick(items, 'Codex');
+    assert.deepEqual([item.state, item.detail, item.fix, exitCode], ['optional', `${detail}; Codex builds and reviews need it`, fix, 0]);
+    assert.deepEqual(doctorLines([item]), [`optional Codex: ${item.detail}`, `         → ${fix}`]);
+  }
 });
 
 test('doctor reports foreign status-line files, links and choices as yours, preserving them', async () => {

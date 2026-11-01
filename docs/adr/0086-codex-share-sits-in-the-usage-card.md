@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0092
+---
+
 # Codex share sits in the Usage card
+
+Superseded in part by [0092](0092-codex-share-follows-whether-codex-is-usable.md): the control opens Codex's block above its bars, with no caption, and while Codex isn't installed or logged in it shows greyed out on Off with the fix to run.
 
 The owner picked take B of `codex-share-place` on hub/INT-199: the Always on / Auto / Off control sits in the Hub page's Usage card, in Codex's block under its bars, so the choice sits beside the usage it spends. Hub settings lose the Codex share row and its modal.
 

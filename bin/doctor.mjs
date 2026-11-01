@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { cloneRoot as runningClone } from '../shared/repos.mjs';
+import { codexStatus } from '../shared/codex.mjs';
 import { inspectLinks, ownsStatusLine, hubStatus, tailscaleRoot, runCommand, runInstall, LOGIN_LABEL } from './install.mjs';
 
 const FIX = 'kickflip doctor --fix';
@@ -36,8 +37,8 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   const tsStatus = ts ? json(execute('tailscale', ['status', '--json'])) : null;
   const signedIn = tsStatus?.BackendState === 'Running';
   add('Tailscale signed in', signedIn ? 'ok' : 'yours', signedIn ? `signed in${tsStatus.Self?.DNSName ? ' as ' + tsStatus.Self.DNSName.replace(/\.$/, '') : ''}` : ts ? 'not connected' : 'needs Tailscale', 'tailscale up');
-  const codex = fs.existsSync(path.join(home, '.codex', 'auth.json'));
-  add('Codex login', codex ? 'ok' : 'optional', codex ? 'signed in' : 'not signed in; Codex builds and reviews need it', 'codex login');
+  const codex = codexStatus({ home, env });
+  add('Codex', codex.usable ? 'ok' : 'optional', codex.usable ? 'installed and logged in' : `${codex.reason}; Codex builds and reviews need it`, codex.fix);
 
   group = 'setup';
   const linkItems = ['kickflip skill link', 'kickflip-hooks link', '~/.claude/statusline.sh'];

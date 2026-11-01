@@ -5,6 +5,7 @@
 // being the last github.mjs checkGitHub result.
 import { clock, windowAt, holdLine, checksIn, checksADay, holdsOvernight, daySegments, splitPoint, snoozeEnd } from './schedule.mjs';
 import { siteIcon } from './icons.mjs';
+import { codexStatus } from '../shared/codex.mjs';
 
 export const capital = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 export const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -51,22 +52,26 @@ const CODEX_CHOICES = [
   { value: 'off', label: 'Off', description: 'No Codex.' },
 ];
 
-// The Usage card's Codex block: login is whether ~/.codex/auth.json exists; while logged out the block shows no control.
-const codexView = (share, login) => ({
-  login,
+// The Usage card's Codex block (docs/adr/0092-codex-share-follows-whether-codex-is-usable.md). share is the setting in
+// effect and status a shared/codex.mjs codexStatus; while Codex isn't usable, tag, description and fix say why and
+// what to run, and the choices are disabled.
+const codexView = (share, status) => ({
+  usable: status.usable,
+  tag: status.usable ? null : capital(status.reason),
   share,
   choices: CODEX_CHOICES.map(({ value, label }) => ({ value, label, on: value === share })),
-  description: CODEX_CHOICES.find((c) => c.value === share).description,
-  note: "Applies to every board. A session's own /codex-share overrides it for that session.",
+  description: status.usable ? CODEX_CHOICES.find((c) => c.value === share).description : status.words,
+  fix: status.fix,
+  note: status.usable ? "Applies to every board. A session's own /codex-share overrides it for that session." : null,
 });
 
 // sidebar: the /_hub/sidebar.json data, whose hub detail already says when the hub runs older code (home.mjs
 // hubHealth); rows: hub.mjs status() rows; links: Map of route to linksOf; code: {running, onDisk}, the hub's code hashes
-// (boards.mjs); host: the address the page was loaded from; rules: the hub rules; codexShare: push.mjs readCodexShare();
-// codexLogin: usage.mjs codexLoggedIn(). Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js).
+// (boards.mjs); host: the address the page was loaded from; rules: the hub rules; codexShare: push.mjs readCodexShare(codex);
+// codex: a shared/codex.mjs codexStatus. Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js).
 // hold, for the page's banner, is null unless pushes are held or snoozed; its text matches the sidebar moon's tooltip,
 // and end is true when End can lift it, which only a snooze allows.
-export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code = {}, host = '', rules = [], remembered = new Map(), codexShare = 'off', codexLogin = false }) {
+export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code = {}, host = '', rules = [], remembered = new Map(), codexShare = 'off', codex = codexStatus({ installed: false }) }) {
   const boards = new Set(sidebar.sites.filter((x) => x.board).map((x) => x.route));
   const codeLine = code.running && code.running === code.onDisk ? ` · runs the code in its files (${code.onDisk})` : '';
   const site = (r) => ({ route: r.route, title: r.title, icon: siteIcon(r.route, r), href: `/${encodeURIComponent(r.route)}/`, ...siteHealth(r, links.get(r.route)), remembered: remembered.get(r.route) || [] });
@@ -76,7 +81,7 @@ export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code 
     hub: { tone: sidebar.hub.tone, word: sidebar.hub.word, detail: `${sidebar.hub.detail}${codeLine}` },
     groups,
     usage: sidebar.usage,
-    codex: codexView(codexShare, codexLogin),
+    codex: codexView(codexShare, codex),
     empty: rows.length === 0,
     polling: { ...pollingNow(st, poll, now), summary: pollingSummary(st.settings) },
     notifications: { on: st.settings.notifications.on, text: sidebar.notifications.text, device: nowLine(st, now) },

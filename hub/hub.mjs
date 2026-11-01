@@ -56,7 +56,8 @@
 //                     setNotifications choice | off> → /_hub/api/settings's JSON, or 400 {error} when refused
 //                     (303 to ?refused=snooze). Custom posts a UTC ISO date-time; snoozeEnd refuses an end not
 //                     after now or more than 30 days on.
-//   /_hub/settings/codex POST value=auto|always|off → /_hub/api/hub's JSON, or 400 {error}
+//   /_hub/settings/codex POST value=auto|always|off → /_hub/api/hub's JSON, or 400 {error}, or 409 {error} with the
+//                     fix while Codex isn't installed or logged in, checked afresh
 //   /_hub/settings/linear POST key=<Linear personal API key>, saved once Linear accepts it, or remove=1
 //                     → /_hub/api/settings's JSON, whose `linear` names only the workspace, or 400 {error} (linear.mjs)
 //   /_hub/settings/polling POST one schedule.mjs editPolling change {op, w, value} → /_hub/api/polling's JSON for the
@@ -132,7 +133,8 @@ import { boardClosure, closeBoard, closedBoards, reopenBoard } from './close-boa
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { BOARD_PUBLIC, appFile, colorsVersion, destOf, fileVersion, pageOf, shellHtml } from './shell.mjs';
 import { hubStream } from './stream.mjs';
-import { usageReader, codexLoggedIn } from './usage.mjs';
+import { usageReader } from './usage.mjs';
+import { codexStatusReader } from '../shared/codex.mjs';
 import { InstallError, startInstall, stopInstalls } from './installs.mjs';
 import { migrateOnStart } from '../bin/install.mjs';
 import { serveFiles } from './files.mjs';
@@ -158,6 +160,7 @@ try { const route = await migrateHubFlag(); if (route) log(`manifest: flagged /$
 try { const routes = await migrateBoardRepos(); if (routes.length) log(`manifest: recorded GitHub repos for ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('board repo migration failed:', e.message); }
 const repos = repoService();
 const readUsage = usageReader();
+const readCodex = codexStatusReader();
 
 // ---------- manifest ----------
 let manifest = { version: 1, sites: {} };
@@ -511,7 +514,7 @@ async function sidebarState({ fresh = false } = {}) {
     total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links, hubLink(code)),
     home: fs.realpathSync(os.homedir()),
     starting: startingBoards(manifest, now.getTime()),
-    usage: readUsage({ codexShare: readCodexShare() }),
+    usage: readUsage({ codexShare: readCodexShare(readCodex()) }),
     notifications: !held ? { state: 'on', text: 'On' } : held.why === 'off' ? { state: 'off', text: 'Off' } : { state: 'held', text: capital(holdLine(held, now)) },
   };
   return { data, links, rows, code };
@@ -586,7 +589,7 @@ async function hubData(req) {
   return {
     ...hubView({
       now, st: queueStatus(now), poll: pollState(), sidebar: data, rows, links, rules: readHubRules(),
-      code, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(), codexLogin: codexLoggedIn(),
+      code, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), codex: readCodex(),
       remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])),
     }),
     prompts: pendingFor(null).map(shown),
@@ -736,9 +739,9 @@ async function hubRoute(req, res, url) {
   }
   if (p === '/_hub/settings/codex' && req.method === 'POST') {
     const f = new URLSearchParams(await readBody(req));
-    try { setCodexShare(f.get('value')); } catch (e) {
-      if (e.status !== 400) throw e;
-      return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
+    try { setCodexShare(f.get('value'), readCodex({ fresh: true })); } catch (e) {
+      if (e.status !== 400 && e.status !== 409) throw e;
+      return json ? sendJSON(e.status, { error: e.message }) : send(e.status, 'text/plain; charset=utf-8', e.message);
     }
     return json ? sendJSON(200, await hubData(req)) : redirect(res, '/_hub/');
   }

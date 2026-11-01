@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { miniDom } from '../board/mini-dom.mjs';
 import { DEFAULTS, windowAt, hold, flushAt, snoozeEnd } from './schedule.mjs';
 import { hubView, settingsView, pollingView, pollLine, siteHealth, flushView } from './views.mjs';
+import { codexStatus } from '../shared/codex.mjs';
 
 const t = (h, m = 0, day = 14, s = 0) => new Date(2026, 9, day, h, m, s);
 const ON = { on: true, weekends_off: false, snoozed_until: null };
@@ -13,6 +14,9 @@ const notify = (s, n) => ({ ...s, notifications: { ...ON, ...n } });
 const status = (now, s, count = 0) => ({ settings: s, window: windowAt(now, s), hold: hold(now, s), count, nextFlushAt: count ? flushAt(now, s) : null });
 const poll = (now, last = null) => ({ running: false, nextAt: new Date(now.getTime() + 30 * 60_000), last });
 const plain = (v) => JSON.parse(JSON.stringify(v));
+const USABLE = { usable: true, reason: null, words: null, fix: null };
+const NOT_INSTALLED = codexStatus({ installed: false });
+const LOGGED_OUT = codexStatus({ installed: true, home: '/nonexistent' });
 
 test('pollLine says when the next check runs and what the last one found', () => {
   const now = t(19);
@@ -85,20 +89,22 @@ test('Hub Settings says whether pushes go, when a snooze ends and what each snoo
   assert.equal(off.device, 'checks every 15 min until 6:00pm; notifications are off');
 });
 
-test("the hub page's Codex share defaults to Off, says what each choice means and whether Codex is logged in, and Hub Settings no longer carries it", () => {
+test("the hub page's Codex share says what each choice means while Codex is usable, why not and what to run while it isn't, and Hub Settings no longer carries it", () => {
   const now = t(10);
   const sidebar = { sites: [], hub: {}, notifications: {}, total: 0, usage: { claude: null, codex: null } };
   const view = (extra = {}) => hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar, rows: [], ...extra }).codex;
-  assert.deepEqual([view().share, view().login, view().description], ['off', false, 'No Codex.']);
-  assert.equal(view({ codexLogin: true }).login, true);
+  const unusable = (v) => [v.usable, v.tag, v.share, v.choices.find((c) => c.on).value, v.description, v.fix, v.note];
+  assert.deepEqual(unusable(view()), [false, 'Not installed', 'off', 'off', "Codex isn't installed on this Mac.", 'brew install --cask codex', null]);
+  assert.deepEqual(unusable(view({ codex: NOT_INSTALLED })), unusable(view()));
+  assert.deepEqual(unusable(view({ codex: LOGGED_OUT })), [false, 'Not logged in', 'off', 'off', "Codex isn't logged in on this Mac.", 'codex login', null]);
   const meanings = {
     always: 'Codex builds and reviews; while Codex is out of usage, that work pauses until a usage-reset check succeeds.',
     auto: 'Codex builds and reviews; while Codex is out of usage, Opus builders take over until it resets.',
     off: 'No Codex.',
   };
   for (const [codexShare, description] of Object.entries(meanings)) {
-    const v = view({ codexShare, codexLogin: true });
-    assert.equal(v.share, codexShare);
+    const v = view({ codexShare, codex: USABLE });
+    assert.deepEqual([v.usable, v.tag, v.share, v.fix], [true, null, codexShare, null]);
     assert.deepEqual(v.choices.map((c) => [c.value, c.label, c.on]), [
       ['always', 'Always on', codexShare === 'always'], ['auto', 'Auto', codexShare === 'auto'], ['off', 'Off', codexShare === 'off'],
     ]);
@@ -349,7 +355,8 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   const labels = root.querySelectorAll('.hub-status .label').map((el) => el.textContent);
   assert.deepEqual(labels.slice(0, 2), ['Usage', 'Health']);
   assert.match(root.querySelector('.usage').textContent, /Claude.*5-hour.*42%/);
-  assert.equal(root.querySelector('.usage').querySelectorAll('button, details, dialog').length, 0);
+  assert.equal(root.querySelector('.usage').querySelectorAll('details, dialog').length, 0);
+  assert.ok(root.querySelector('.usage').querySelectorAll('button').every((el) => el.hasAttribute('disabled')));
   const lists = root.querySelectorAll('.remembered');
   assert.equal(lists.length, 2);
   assert.match(lists[0].textContent, /Always allow · session s-alpha/);
@@ -362,7 +369,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   assert.equal(root.querySelector('.remembered'), null);
 });
 
-test("the hub page's Usage card holds Codex share under Codex's bars, keeps Codex while off, and saves each choice or shows a refusal", async () => {
+test("the hub page's Usage card opens Codex's block with Codex share, bars under it unless Off, greys it out while Codex isn't usable, and saves each choice or shows a refusal", async () => {
   const document = {};
   const { Element } = miniDom(class {}, document);
   const root = new Element('div');
@@ -373,8 +380,8 @@ test("the hub page's Usage card holds Codex share under Codex's bars, keeps Code
   let sidebarChanges = 0;
   const now = t(19);
   const reading = { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null };
-  const hub = (codexShare, codexLogin = true) => plain(hubView({ now, st: status(now, DEFAULTS), poll: poll(now), rows: [], codexShare, codexLogin,
-    sidebar: { sites: [], hub: {}, notifications: {}, total: 0, usage: { claude: reading, codex: codexLogin && codexShare !== 'off' ? reading : null } } }));
+  const hub = (codexShare, codex = USABLE) => plain(hubView({ now, st: status(now, DEFAULTS), poll: poll(now), rows: [], codexShare, codex,
+    sidebar: { sites: [], hub: {}, notifications: {}, total: 0, usage: { claude: reading, codex: codex.usable && codexShare !== 'off' ? reading : null } } }));
   const context = vm.createContext({
     URLSearchParams, document, navigator: {},
     FormData: class { *[Symbol.iterator]() {} },
@@ -400,13 +407,23 @@ test("the hub page's Usage card holds Codex share under Codex's bars, keeps Code
       submitter: { name: button.getAttribute('name'), value: button.value }, preventDefault() {} });
   };
 
-  live.paint(hub('auto', false));
-  assert.match(codex().textContent, /^Codex\s*Not logged in\s*Run codex login on the Mac\.$/);
-  assert.equal(root.querySelector('.usage').querySelectorAll('button, form').length, 0);
+  for (const [status, tag, words, fix] of [
+    [NOT_INSTALLED, 'Not installed', "Codex isn't installed on this Mac.", 'brew install --cask codex'],
+    [LOGGED_OUT, 'Not logged in', "Codex isn't logged in on this Mac.", 'codex login'],
+  ]) {
+    live.paint(hub('off', status));
+    assert.equal(codex().textContent, `Codex${tag}Always onAutoOff${words}${fix}`);
+    assert.equal(codex().querySelector('.u-share-fix code').textContent, fix);
+    assert.equal(codex().querySelector('.segments').getAttribute('aria-disabled'), 'true');
+    assert.deepEqual(codex().querySelectorAll('.segments button').map((b) => b.hasAttribute('disabled')), [true, true, true]);
+    assert.equal(selected(), 'off');
+    assert.equal(codex().querySelectorAll('.u-bar, .u-share-note').length, 0);
+  }
 
   live.paint(hub('off'));
-  assert.match(codex().textContent, /^Codex\s*Not used while off\s*Codex share/);
-  assert.equal(codex().querySelectorAll('.u-bar').length, 0);
+  assert.match(codex().textContent, /^CodexAlways onAutoOffNo Codex\./);
+  assert.equal(codex().querySelector('.u-asof'), null);
+  assert.equal(codex().querySelectorAll('.u-bar, .u-share-fix, [disabled], [aria-disabled]').length, 0);
   assert.equal(selected(), 'off');
   assert.deepEqual(codex().querySelectorAll('.segments button').map((b) => b.textContent), ['Always on', 'Auto', 'Off']);
   assert.equal(codex().querySelector('.segments').getAttribute('aria-label'), 'Codex share');
@@ -421,7 +438,7 @@ test("the hub page's Usage card holds Codex share under Codex's bars, keeps Code
     assert.equal(selected(), value);
     assert.equal(codex().querySelector('.u-share-desc').textContent, hub(value).codex.description);
     assert.equal(codex().querySelectorAll('.u-bar').length, value === 'off' ? 0 : 2);
-    assert.match(codex().textContent, value === 'off' ? /Not used while off/ : /^Codex\s*read .*5-hour\s*42% · resets/);
+    assert.match(codex().textContent, value === 'off' ? /^CodexAlways onAutoOffNo Codex\./ : /^Codexread [^]*?Always onAutoOff[^]*?overrides it for that session\.5-hour42% · resets/);
   }
   assert.equal(sidebarChanges, 3);
   refused = true;

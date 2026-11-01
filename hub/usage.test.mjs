@@ -29,14 +29,12 @@ function fixture(t) {
     return target;
   };
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  return { file, claude, log, login: () => write(file('.codex', 'auth.json'), {}),
-    read: usageReader({ home: dir, now: () => time }), advance: (ms) => { time += ms; } };
+  return { file, claude, log, read: usageReader({ home: dir, now: () => time }), advance: (ms) => { time += ms; } };
 }
 
-test('missing files hide Claude and Codex; a logged-in Codex without rollouts has no reading', (t) => {
-  assert.deepEqual(usageReader({ now: () => NOW })({ codexShare: 'auto' }), { claude: null, codex: null });
+test('missing files hide Claude; Codex with share on but without rollouts has no reading', (t) => {
+  assert.deepEqual(usageReader({ now: () => NOW })(), { claude: null, codex: null });
   const f = fixture(t);
-  f.login();
   assert.deepEqual(f.read({ codexShare: 'always' }), { claude: null, codex: { at: null, five_hour: null, seven_day: null } });
 });
 
@@ -69,22 +67,17 @@ test('a reading older than its window is stale, including when its recorded rese
   assert.equal(f.read().claude.seven_day.state, 'stale');
 });
 
-test('Codex requires a login and share on, even when a cached reading exists', (t) => {
+test('Codex requires share on, even when a cached reading exists', (t) => {
   const f = fixture(t);
   f.log('a');
-  assert.equal(f.read({ codexShare: 'auto' }).codex, null);
-  f.login();
   assert.equal(f.read().codex, null);
-  assert.equal(f.read({ codexShare: 'off' }).codex, null);
   assert.equal(f.read({ codexShare: 'auto' }).codex.five_hour.used_percentage, 20);
+  assert.equal(f.read({ codexShare: 'off' }).codex, null);
   assert.equal(f.read({ codexShare: 'always' }).codex.five_hour.used_percentage, 20);
-  fs.unlinkSync(f.file('.codex', 'auth.json'));
-  assert.equal(f.read({ codexShare: 'auto' }).codex, null);
 });
 
 test('Codex takes the highest readings in the newest window, allowing three minutes of reset drift', (t) => {
   const f = fixture(t);
-  f.login();
   f.log('old-window', { primary: 99, secondary: 100, reset: NOW - HOUR });
   f.log('high-primary', { primary: 42, secondary: 10, mtime: NOW - 1000 });
   f.log('high-week', { primary: 30, secondary: 57, reset: NOW + HOUR - 180_000 });
@@ -95,7 +88,6 @@ test('Codex takes the highest readings in the newest window, allowing three minu
 
 test('Codex reads only the six newest rollouts by mtime, and the last limits in each', (t) => {
   const f = fixture(t);
-  f.login();
   f.log('excluded', { primary: 99, reset: NOW + 2 * HOUR, mtime: NOW - 10_000 });
   for (let i = 0; i < 6; i++) f.log(`new-${i}`, { primary: 10 + i, mtime: NOW - i });
   const file = f.log('last', { primary: 100, mtime: NOW + 1 });
@@ -108,7 +100,6 @@ test('Codex reads only the six newest rollouts by mtime, and the last limits in 
 
 test('Codex scans cache briefly, while window reset state updates on every read', (t) => {
   const f = fixture(t);
-  f.login();
   f.log('a', { reset: NOW + 30_000 });
   assert.equal(f.read({ codexShare: 'auto' }).codex.five_hour.used_percentage, 20);
   f.log('a', { primary: 80, reset: NOW + HOUR });
@@ -120,7 +111,6 @@ test('Codex scans cache briefly, while window reset state updates on every read'
 
 test('malformed JSON, missing limits and partial rollout lines leave no reading', (t) => {
   const f = fixture(t);
-  f.login();
   write(f.file('.claude', 'kickflip', 'usage.json'), '{');
   const file = f.log('invalid');
   write(file, '{"payload":{"rate_limits":{"primary":{"used_percent":42}}}}\n{"rate_limits":\n');
@@ -131,14 +121,12 @@ test('malformed JSON, missing limits and partial rollout lines leave no reading'
 
 test('Codex can find limits beyond the short tail and ignores newer unrelated lines', (t) => {
   const f = fixture(t);
-  f.login();
   f.log('long', { primary: 48, text: JSON.stringify({ message: 'x'.repeat(300 * 1024) }) + '\n' });
   assert.equal(f.read({ codexShare: 'auto' }).codex.five_hour.used_percentage, 48);
 });
 
 test('Codex readings become stale per window after their rollout mtime', (t) => {
   const f = fixture(t);
-  f.login();
   f.log('old', { mtime: NOW - 5 * HOUR - 1 });
   const r = f.read({ codexShare: 'auto' }).codex;
   assert.equal(r.at, iso(NOW - 5 * HOUR - 1));

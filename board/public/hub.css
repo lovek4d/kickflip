@@ -133,10 +133,15 @@
 .hub-view .u-win > :last-child { color: var(--muted); text-align: right; }
 .hub-view .u-block .u-bar { height: 6px; border-radius: 3px; }
 .hub-view .u-asof { color: var(--muted); font-size: 12px; }
-.hub-view .u-share { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
-.hub-view .u-share-label { margin: 0 2px 6px; font-size: 13px; font-weight: 600; }
+.hub-view .u-share { margin-top: 8px; }
+.hub-view .u-codex-bars { margin-top: 14px; padding-top: 4px; border-top: 1px solid var(--line); }
+.hub-view .segments.is-disabled { opacity: .55; }
+.hub-view .segments.is-disabled button { cursor: not-allowed; }
+.hub-view .segments.is-disabled button[aria-pressed="true"] { border-color: var(--muted); background: var(--panel); color: var(--text); }
 .hub-view .u-share-desc { margin: 8px 2px 0; color: var(--muted); font-size: 13px; }
 .hub-view .u-share-note { margin: 4px 2px 0; color: var(--muted); font-size: 12px; }
+.hub-view .u-share-fix { margin: 6px 2px 0; }
+.hub-view .u-share-fix code { display: inline-block; padding: 3px 7px; border-radius: 6px; background: var(--chip); color: var(--text); font-size: 12.5px; user-select: all; }
 .hub-view .lk-form { display:flex; gap:8px; align-items:center; }
 .hub-view .lk-form input { flex:1; min-width:0; font:16px var(--mono); color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:.3rem .6rem; min-height:2.75rem; }
 .hub-view .lk-form input::placeholder { font-family:var(--sans); }

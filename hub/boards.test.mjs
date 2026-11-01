@@ -160,8 +160,8 @@ before(async () => {
   write(path.join(home, 'gh', '722.json'), gh());
   write(path.join(home, 'bin', 'gh'), '#!/bin/sh\nexit 1\n');
   write(path.join(home, 'bin', 'git'), '#!/bin/sh\nexit 1\n');
-  fs.chmodSync(path.join(home, 'bin', 'gh'), 0o755);
-  fs.chmodSync(path.join(home, 'bin', 'git'), 0o755);
+  write(path.join(home, 'bin', 'codex'), '#!/bin/sh\nexit 1\n');
+  for (const bin of ['gh', 'git', 'codex']) fs.chmodSync(path.join(home, 'bin', bin), 0o755);
   for (const route of ['orch', 'shop']) write(site(route, 'data', 'events.jsonl'), JSON.stringify({ id: `e-${route}`, ts: ago(30), kind: 'ask', data: {} }) + '\n');
   write(site('shop', 'data', '.watch-cursor-s-shop.json'), { 'data/events.jsonl': 0 });
   orchWatcher = sleeper();
@@ -376,7 +376,7 @@ test("each board serves its hub links, and the slack link passes once every revi
   assert.equal(linkState((await (await fetch(`${base}/orch/api/links`)).json()).links).slack, true);
 });
 
-test("sidebar and Hub page serve usage, the shell keeps it inside Hub, the sidebar's Codex follows login and share, and the Hub page's Codex follows login", async () => {
+test("sidebar and Hub page serve usage, the shell keeps it inside Hub, and Codex share is Off until Codex is logged in, then Auto or the choice made earlier", async () => {
   const settingsFile = claude('kickflip', 'settings.json');
   const settings = read(settingsFile);
   const usageFile = claude('kickflip', 'usage.json');
@@ -385,10 +385,15 @@ test("sidebar and Hub page serve usage, the shell keeps it inside Hub, the sideb
   const at = new Date(now).toISOString();
   const resets = new Date(now + 3600_000).toISOString();
   const get = async (url) => (await fetch(base + url)).json();
+  const codex = async () => {
+    const [sidebar, hub] = [await get('/_hub/sidebar.json'), await get('/_hub/api/hub')];
+    assert.deepEqual(hub.usage, sidebar.usage);
+    return [sidebar.usage.codex, hub.codex.usable, hub.codex.tag, hub.codex.share];
+  };
+  const NO_READING = { at: null, five_hour: null, seven_day: null };
   try {
     assert.deepEqual((await get('/_hub/sidebar.json')).usage, { claude: null, codex: null });
-    const none = (await get('/_hub/api/hub')).codex;
-    assert.deepEqual([none.login, none.share], [false, 'off']);
+    assert.deepEqual(await codex(), [null, false, 'Not logged in', 'off']);
     write(usageFile, { claude: { at, five_hour: { used_percentage: 42, resets_at: resets } } });
     const expected = { claude: { at, five_hour: { used_percentage: 42, resets_at: resets, state: 'live' }, seven_day: null }, codex: null };
     assert.deepEqual((await get('/_hub/sidebar.json')).usage, expected);
@@ -396,18 +401,15 @@ test("sidebar and Hub page serve usage, the shell keeps it inside Hub, the sideb
     const shell = await (await fetch(base + '/_hub/')).text();
     assert.match(shell, /<a class="sb-row on sb-hub-usage" href="\/_hub\/"[^>]*>[^]*?<span class="sb-usage">[^]*?Claude[^]*?42%[^]*?<\/a>/);
     write(path.join(codexDir, 'auth.json'), {});
+    assert.deepEqual(await codex(), [NO_READING, true, null, 'auto']);
     write(settingsFile, { ...settings, codexShare: 'off' });
-    assert.equal((await get('/_hub/sidebar.json')).usage.codex, null);
-    const off = await get('/_hub/api/hub');
-    assert.deepEqual([off.usage.codex, off.codex.login, off.codex.share, off.codex.choices.find((c) => c.on).value], [null, true, 'off', 'off']);
-    write(settingsFile, { ...settings, codexShare: 'auto' });
-    assert.deepEqual((await get('/_hub/sidebar.json')).usage.codex, { at: null, five_hour: null, seven_day: null });
-    const auto = await get('/_hub/api/hub');
-    assert.deepEqual([auto.usage.codex, auto.codex.login, auto.codex.share], [{ at: null, five_hour: null, seven_day: null }, true, 'auto']);
+    assert.deepEqual(await codex(), [null, true, null, 'off']);
+    write(settingsFile, { ...settings, codexShare: 'always' });
+    assert.deepEqual(await codex(), [NO_READING, true, null, 'always']);
     fs.unlinkSync(path.join(codexDir, 'auth.json'));
-    assert.equal((await get('/_hub/sidebar.json')).usage.codex, null);
-    const loggedOut = await get('/_hub/api/hub');
-    assert.deepEqual([loggedOut.usage.codex, loggedOut.codex.login, loggedOut.codex.share], [null, false, 'auto']);
+    assert.deepEqual(await codex(), [null, false, 'Not logged in', 'off']);
+    write(path.join(codexDir, 'auth.json'), {});
+    assert.deepEqual(await codex(), [NO_READING, true, null, 'always']);
   } finally {
     write(settingsFile, settings);
     fs.rmSync(usageFile, { force: true });

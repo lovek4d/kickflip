@@ -96,7 +96,11 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
     installClaudeSettings({ home: scratch });
     write(path.join(scratch, 'Library', 'LaunchAgents', 'local.claude.kickflip-hub.plist'), 'plist');
   }
-  if (healthy) write(path.join(scratch, '.codex', 'auth.json'), '{}');
+  if (healthy) {
+    write(path.join(scratch, '.codex', 'auth.json'), '{}');
+    write(path.join(scratch, 'doctor-bin', 'codex'), '#!/bin/sh\nexit 1\n');
+    fs.chmodSync(path.join(scratch, 'doctor-bin', 'codex'), 0o755);
+  }
   const source = `
     import fs from 'node:fs';
     import cp from 'node:child_process';
@@ -120,7 +124,7 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
   return {
     scratch,
     calls: () => fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [],
-    run: (...args) => cli(args, { env: { HOME: scratch, PATH: '/doctor-bin', KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false' }, preload: 'data:text/javascript,' + encodeURIComponent(source) }),
+    run: (...args) => cli(args, { env: { HOME: scratch, PATH: path.join(scratch, 'doctor-bin'), KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false' }, preload: 'data:text/javascript,' + encodeURIComponent(source) }),
   };
 }
 

@@ -98,30 +98,39 @@ test('writing the hub rules keeps every other key of settings.json, and a settin
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test('codex-share prints, sets and refuses values while preserving the other hub settings', () => {
+test('codex-share prints the setting in effect, refuses a change while Codex is not installed or logged in, and sets values preserving the other hub settings', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-share-'));
-  const cli = (...args) => spawnSync(process.execPath, [path.join(HUB_DIR, '..', 'bin', 'kickflip.mjs'), 'codex-share', ...args], {
-    env: { ...process.env, HOME: home }, encoding: 'utf8',
-  });
+  const bin = path.join(home, 'bin');
+  fs.mkdirSync(bin);
+  const env = { ...process.env, HOME: home, PATH: bin };
+  const cli = (...args) => spawnSync(process.execPath, [path.join(HUB_DIR, '..', 'bin', 'kickflip.mjs'), 'codex-share', ...args], { env, encoding: 'utf8' });
   const file = path.join(home, '.claude', 'kickflip', 'settings.json');
+  const auth = path.join(home, '.codex', 'auth.json');
   try {
-    const help = spawnSync(process.execPath, [path.join(HUB_DIR, '..', 'bin', 'kickflip.mjs')], {
-      env: { ...process.env, HOME: home }, encoding: 'utf8',
-    });
+    const help = spawnSync(process.execPath, [path.join(HUB_DIR, '..', 'bin', 'kickflip.mjs')], { env, encoding: 'utf8' });
     assert.equal(help.status, 0);
-    assert.match(help.stdout, /Missing means off\./);
-    assert.match(help.stdout, /auto: Codex builds and reviews; while Codex is out of usage, Opus builders take over until it resets\./);
+    assert.match(help.stdout, /prints the Codex setting in effect for every board; with a value, saves it and prints it\./);
+    assert.match(help.stdout, /auto \(also when unset\): Codex builds and reviews; while Codex is out of usage, Opus builders take over until it resets\./);
     assert.match(help.stdout, /always \(Always on\): Codex builds and reviews; while Codex is out of usage, that work pauses until a usage-reset check succeeds\./);
-    assert.match(help.stdout, /off \(also when unset\): no Codex\./);
+    assert.match(help.stdout, /off: no Codex\. While Codex isn't installed or logged in, the setting reads off and a change is refused\./);
     assert.equal(cli().stdout, 'off\n');
+    const notInstalled = cli('always');
+    assert.deepEqual([notInstalled.status, notInstalled.stdout, notInstalled.stderr], [1, '', "kickflip: Codex isn't installed on this Mac. Run brew install --cask codex, then choose again.\n"]);
+    fs.writeFileSync(path.join(bin, 'codex'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    assert.equal(cli().stdout, 'off\n');
+    const loggedOut = cli('always');
+    assert.deepEqual([loggedOut.status, loggedOut.stdout, loggedOut.stderr], [1, '', "kickflip: Codex isn't logged in on this Mac. Run codex login, then choose again.\n"]);
     assert.equal(fs.existsSync(file), false);
+    fs.mkdirSync(path.dirname(auth));
+    fs.writeFileSync(auth, '{}');
+    assert.equal(cli().stdout, 'auto\n');
     const first = cli('always');
     assert.deepEqual([first.status, first.stdout, first.stderr], [0, 'always\n', '']);
     assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { codexShare: 'always' });
     const other = { polling: { windows: [{ from: '00:00', every_minutes: 120 }] }, notifications: { on: false }, rules: saved, other_key: { keep: true } };
     fs.writeFileSync(file, JSON.stringify(other));
-    assert.deepEqual([cli().status, cli().stdout], [0, 'off\n']);
-    for (const value of ['off', 'always', 'auto']) {
+    assert.deepEqual([cli().status, cli().stdout], [0, 'auto\n']);
+    for (const value of ['off', 'auto', 'always']) {
       const r = cli(value);
       assert.deepEqual([r.status, r.stdout, r.stderr], [0, `${value}\n`, '']);
       assert.equal(cli().stdout, `${value}\n`);
@@ -133,6 +142,11 @@ test('codex-share prints, sets and refuses values while preserving the other hub
       assert.deepEqual([r.status, r.stdout, r.stderr], [2, '', 'kickflip: codex-share takes auto, always, or off\n']);
       assert.equal(fs.readFileSync(file, 'utf8'), before);
     }
+    fs.unlinkSync(auth);
+    assert.equal(cli().stdout, 'off\n');
+    fs.writeFileSync(auth, '{}');
+    assert.equal(cli().stdout, 'always\n');
+    assert.equal(fs.readFileSync(file, 'utf8'), before);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
@@ -147,7 +161,9 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
   fs.writeFileSync(path.join(web, 'manifest.json'), JSON.stringify({ version: 1, sites: {
     orch: { dir: siteDir, port: sitePort, cmd: [process.execPath, path.join(HUB_DIR, '..', 'board', 'server.mjs'), siteDir] },
   } }));
-  const hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false' } });
+  const bin = path.join(home, 'bin');
+  fs.mkdirSync(bin);
+  const hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin` } });
   const base = `http://127.0.0.1:${port}`;
   try {
     await new Promise((resolve, reject) => {
@@ -182,12 +198,27 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
     assert.match((await bad.json()).error, /non-empty/);
 
     const getHub = async () => (await fetch(`${base}/_hub/api/hub`)).json();
-    assert.equal((await getHub()).codex.share, 'off');
+    const codexNow = async () => { const { codex } = await getHub(); return [codex.usable, codex.tag, codex.share]; };
     const postCodex = (body, json = true) => fetch(`${base}/_hub/settings/codex`, {
       method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...(json ? { accept: 'application/json' } : {}) }, body, redirect: 'manual',
     });
     const file = path.join(web, 'settings.json');
     const before = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const notInstalled = "Codex isn't installed on this Mac. Run brew install --cask codex, then choose again.";
+    assert.deepEqual(await codexNow(), [false, 'Not installed', 'off']);
+    const refusedInstall = await postCodex('value=always');
+    assert.deepEqual([refusedInstall.status, await refusedInstall.json()], [409, { error: notInstalled }]);
+    const refusedForm = await postCodex('value=always', false);
+    assert.deepEqual([refusedForm.status, await refusedForm.text()], [409, notInstalled]);
+    fs.writeFileSync(path.join(bin, 'codex'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    assert.deepEqual(await codexNow(), [false, 'Not installed', 'off']);
+    const refusedLogin = await postCodex('value=always');
+    assert.deepEqual([refusedLogin.status, await refusedLogin.json()], [409, { error: "Codex isn't logged in on this Mac. Run codex login, then choose again." }]);
+    assert.deepEqual(await codexNow(), [false, 'Not logged in', 'off']);
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), before);
+    fs.mkdirSync(path.join(home, '.codex'));
+    fs.writeFileSync(path.join(home, '.codex', 'auth.json'), '{}');
+    assert.deepEqual(await codexNow(), [true, null, 'auto']);
     for (const value of ['always', 'off', 'auto']) {
       const r = await postCodex(`value=${value}`);
       assert.equal(r.status, 200);

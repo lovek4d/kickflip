@@ -97,10 +97,10 @@
 //               sets the Hub page's Notifications controls and prints them; off drops the queued pushes.
 //               A snooze length is a hub/schedule.mjs snoozeEnd choice. Without a change it only prints them
 //   kickflip codex-share [auto|always|off]
-//               prints the Codex setting for every board; with a value, saves it and prints it. Missing means off.
-//               auto: Codex builds and reviews; while Codex is out of usage, Opus builders take over until it resets.
+//               prints the Codex setting in effect for every board; with a value, saves it and prints it.
+//               auto (also when unset): Codex builds and reviews; while Codex is out of usage, Opus builders take over until it resets.
 //               always (Always on): Codex builds and reviews; while Codex is out of usage, that work pauses until a usage-reset check succeeds.
-//               off (also when unset): no Codex.
+//               off: no Codex. While Codex isn't installed or logged in, the setting reads off and a change is refused.
 //   kickflip poll-now [--keep-queue]
 //               asks the hub for one poll now (GitHub check, github-change events,
 //               checked.json, then the queue unless --keep-queue) and prints its result
@@ -590,7 +590,7 @@ const commands = {
     if (rest.length > 1 || (rest.length && args._.length !== 1)) fail(bad, 2);
     const { readCodexShare, setCodexShare } = await import(path.join(SKILL, 'hub', 'push.mjs'));
     if (!rest.length) return out(readCodexShare());
-    try { out(setCodexShare(rest[0])); } catch (e) { if (e.status === 400) fail(e.message, 2); throw e; }
+    try { out(setCodexShare(rest[0])); } catch (e) { if (e.status === 400) fail(e.message, 2); if (e.status === 409) fail(e.message); throw e; }
   },
 
   async 'poll-now'() {

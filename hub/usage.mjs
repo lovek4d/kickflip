@@ -88,8 +88,7 @@ function readingOf(reading, now) {
   return { at, five_hour: window('five_hour'), seven_day: window('seven_day') };
 }
 
-export const codexLoggedIn = (home = os.homedir()) => fs.existsSync(path.join(home, '.codex', 'auth.json'));
-
+// codexShare: the setting in effect (push.mjs readCodexShare), which is Off while Codex isn't usable.
 export function usageReader({ home = os.homedir(), now = Date.now, cacheMs = 60_000 } = {}) {
   const sessions = path.join(home, '.codex', 'sessions');
   let cached = null;
@@ -97,7 +96,7 @@ export function usageReader({ home = os.homedir(), now = Date.now, cacheMs = 60_
   return ({ codexShare = 'off' } = {}) => {
     const time = now();
     const claude = readingOf(readJson(path.join(home, '.claude', 'kickflip', 'usage.json'))?.claude, time);
-    if (codexShare === 'off' || !codexLoggedIn(home)) return { claude, codex: null };
+    if (codexShare === 'off') return { claude, codex: null };
     if (time - checked >= cacheMs) {
       cached = scanCodex(sessions);
       checked = time;
