@@ -8,7 +8,7 @@
   markup: (view, { siteTitle = '' } = {}) => `<dialog class="settings-modal" id="boardSettingsModal" aria-labelledby="boardSettingsTitle"><div class="settings-head"><div><h2 id="boardSettingsTitle" tabindex="-1">Board settings</h2><p class="muted small">${BoardUI.esc(siteTitle)}</p></div><button type="button" class="ghost" data-settings-dismiss aria-label="Close board settings">✕</button></div>
 <div class="set settings-body">
   <h2>Repo</h2>
-  <button type="button" class="who repo-row" id="boardRepo" aria-haspopup="dialog" disabled><span id="boardRepoValue">Loading…</span><span class="muted small">Change ›</span></button>
+  <button type="button" class="who repo-row" id="boardRepo" aria-haspopup="dialog" disabled><span id="boardRepoValue">Loading…</span><span class="muted small" id="boardRepoChange">Change ›</span></button>
   <p class="muted small" id="boardRepoStatus"></p>
   <h2>Merging</h2>
   <label class="who" for="autoMerge">
@@ -50,7 +50,7 @@
       <div class="close-board-warning" id="closeBoardWarning"></div>
       <label for="closeBoardTyped">Type <strong id="closeBoardTypeName"></strong> to confirm.<input id="closeBoardTyped" autocomplete="off" autocapitalize="off" spellcheck="false" required></label>
       <p class="muted small" id="closeBoardError" role="status"></p>
-      <div class="row"><button type="button" id="closeBoardCancel">Cancel</button><button class="danger" type="submit" id="closeBoardConfirm" disabled>Close board</button></div>
+      <div class="row sheet-actions"><button type="button" id="closeBoardCancel">Cancel</button><button class="danger" type="submit" id="closeBoardConfirm" disabled>Close board</button></div>
     </form>
   </dialog>
 </div><div class="settings-footer"><button type="button" data-settings-dismiss>Done</button></div></dialog>`,
@@ -141,6 +141,12 @@
     get(repoURL).then(({ body }) => {
       if (!B.alive()) return;
       repo = body;
+      if (repo.hub) {
+        $('#boardRepoValue').textContent = 'Kickflip’s own clone';
+        $('#boardRepoChange').hidden = true;
+        $('#boardRepoStatus').textContent = `${repo.repo} · The hub board’s builders branch from its main.`;
+        return;
+      }
       showRepo();
       $('#boardRepo').disabled = false;
     }).catch(() => { $('#boardRepoValue').textContent = 'Could not load repo.'; });

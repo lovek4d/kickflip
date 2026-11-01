@@ -206,7 +206,11 @@ main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
    page can't scroll; either moves a sheet pinned to the bottom and shows the board below it. */
 html:has(dialog:modal) { overflow: hidden; }
 .sheet::backdrop { background: rgba(0,0,0,.35); touch-action: none; }
-.sheet form { padding: 10px 16px max(12px, env(safe-area-inset-bottom)); }
+/* A phone sheet sits above the bottom bar, which already pads the safe area (--app-bottom). */
+.sheet form { padding: 10px 16px max(12px, calc(env(safe-area-inset-bottom) - var(--app-bottom, 0px))); }
+/* A sheet's last row of buttons stays in view at the foot of its scrolling content. Sticking stops at the scroll
+   area's bottom padding, so the shadow covers what scrolls through that padding. */
+.sheet-actions { position: sticky; bottom: 0; z-index: 1; padding-top: 8px; background: var(--panel); box-shadow: 0 40px 0 var(--panel); }
 .sheet.kb form { padding-bottom: 10px; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .sheet-head h2 { font-size: 15px; margin: 0; }
@@ -222,7 +226,7 @@ html:has(dialog:modal) { overflow: hidden; }
   .sheet.keyboard-sheet::after { content: ''; position: absolute; top: calc(100% - 1px); left: -1px; right: -1px;
     height: 100vh; height: 100lvh; background: var(--panel); pointer-events: none; }
   .sheet.keyboard-sheet form { margin: 0; max-height: var(--sheet-limit); overflow-y: auto; overscroll-behavior: contain;
-    border-radius: 15px 15px 0 0; padding-bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--kb, 0px)); }
+    border-radius: 15px 15px 0 0; padding-bottom: calc(max(12px, calc(env(safe-area-inset-bottom) - var(--app-bottom, 0px))) + var(--kb, 0px)); }
   .sheet.keyboard-sheet.kb form { padding-bottom: calc(10px + var(--kb, 0px)); }
   #askText { font-size: 16px; }
 }
@@ -358,7 +362,7 @@ main > * { transition: opacity .25s ease; }
 /* ADR 0040: the GitHub mark opens the Hub links sheet, with a red dot while a link is broken; a new board's setup checklist */
 .lane-github .gh-links { position: relative; display: inline-flex; align-items: center; padding: 4px; margin: -4px -2px -4px -4px; font-size: inherit; line-height: 1; color: inherit; }
 .lane-github .links-dot { position: absolute; top: 1px; right: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--color-danger); box-shadow: 0 0 0 1.5px var(--bg); }
-.sheet .sheet-body { padding: 10px 16px max(12px, env(safe-area-inset-bottom)); }
+.sheet .sheet-body { padding: 10px 16px max(12px, calc(env(safe-area-inset-bottom) - var(--app-bottom, 0px))); }
 .hub-links { list-style: none; margin: 0; padding: 0; }
 .hub-links li { display: flex; align-items: baseline; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); min-width: 0; }
 .hub-links li:first-child { border-top: 0; }

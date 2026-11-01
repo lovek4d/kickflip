@@ -20,6 +20,7 @@
 //   /_hub/repos      GET the signed-in owner's and orgs' repos with clone/share metadata
 //   /_hub/branches   GET ?github=owner/repo lists branches and the repo default
 //   /_hub/board-repo/<route> GET repo and branch; POST {github, branch} prepares the clone and sends repo-changed
+//                     (board-repo.mjs); the hub board's GET names kickflip's clone and its POST is refused
 //   /_hub/new-board  POST {name, github, branch, purpose} → {route}: a starting reservation, then the board's session starts
 //                     without holding the response; DELETE /_hub/new-board/<route> dismisses a start that failed
 //                     or timed out (new-board.mjs)

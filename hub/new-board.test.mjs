@@ -277,7 +277,7 @@ test('origin migration runs once, skips the hub board, preserves configured repo
   assert.deepEqual(await migrateBoardRepos({ run }), ['one', 'local']);
   assert.deepEqual(boardRepo('one'), { github: 'Owner/Project', branch: 'trunk', repo: '/project' });
   assert.deepEqual(boardRepo('local'), { github: 'Owner/Project', branch: 'develop', repo: '/local' });
-  assert.deepEqual(boardRepo('hub'), { github: '', branch: '', repo: '/project' });
+  assert.equal(readManifest().sites.hub.github, undefined);
   assert.equal(readManifest().sites.two.github, 'kept/repo');
   assert.equal(readManifest().sites.other.github, undefined);
   const count = calls.length;
@@ -289,9 +289,17 @@ test('origin migration runs once, skips the hub board, preserves configured repo
 });
 
 test('Settings clone changes update repo, branch and session folder and notify the board through an event', async () => {
-  saveJSON(manifestFile, { sites: { settings: { ...board, github: 'old/repo', branch: 'main', owner: { session: 's1', repo: '/old' } } } });
+  saveJSON(manifestFile, { sites: { settings: { ...board, github: 'old/repo', branch: 'main', owner: { session: 's1', repo: '/old' } },
+    hub: { ...board, hub: true, owner: { session: 's2', repo: '/session' } } } });
   const events = [];
   const event = async (board, kind, data) => { events.push([board.route, kind, data]); return 'e1'; };
+  const hubSite = structuredClone(readManifest().sites.hub);
+  const clones = cloneCalls.length;
+  assert.deepEqual(boardRepo('hub'), { hub: true, github: '', branch: '', repo: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..') });
+  await assert.rejects(changeBoardRepo('hub', { github: 'owner/settings', branch: 'develop' }, { repos, event }), { status: 409 });
+  assert.deepEqual(readManifest().sites.hub, hubSite);
+  assert.equal(cloneCalls.length, clones);
+  assert.deepEqual(events, []);
   const out = await changeBoardRepo('settings', { github: 'owner/settings', branch: 'develop' }, { repos, event });
   assert.deepEqual(out, { github: 'owner/settings', branch: 'develop', repo: path.join(base, 'owner/settings'), id: 'e1' });
   assert.equal(readManifest().sites.settings.owner.session, 's1');

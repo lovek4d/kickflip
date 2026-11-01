@@ -2,6 +2,7 @@ import { readManifest, withManifestLock, writeManifest, isBoardSite, listBoards,
 import { routeRecord } from './routes.mjs';
 import { repoService, validateGithub, validateBranch, runRepo, githubFromOrigin } from './repos.mjs';
 import { storedPath } from '../bin/install.mjs';
+import { cloneRoot } from '../shared/repos.mjs';
 
 export { githubFromOrigin } from './repos.mjs';
 
@@ -9,18 +10,26 @@ const refuse = (message, status = 400) => { throw Object.assign(new Error(messag
 export function boardRepo(route, manifest = readManifest()) {
   const site = routeRecord(manifest.sites, route);
   if (!isBoardSite(site)) refuse('Board not found.', 404);
+  // The hub board's builders branch from the running kickflip clone's main (board/bin/board.mjs builder start).
+  if (site.hub === true) return { hub: true, github: '', branch: '', repo: storedPath(cloneRoot()) };
   return { github: site.github || '', branch: site.branch || '', repo: storedPath(site.owner?.repo || '') };
 }
 
+function changeable(route, manifest) {
+  const current = boardRepo(route, manifest);
+  if (current.hub) refuse('The hub board works on kickflip’s own clone, so its repo can’t change.', 409);
+  return current;
+}
+
 export async function changeBoardRepo(route, input, { repos = repoService(), event = appendEvent } = {}) {
-  boardRepo(route);
+  changeable(route);
   if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some((k) => !['github', 'branch'].includes(k))) refuse('Send only github and branch.');
   const github = validateGithub(input.github);
   const branch = validateBranch(input.branch);
   const repo = storedPath(await repos.ensure(github, branch));
   return withManifestLock(async () => {
     const manifest = readManifest();
-    const previous = boardRepo(route, manifest);
+    const previous = changeable(route, manifest);
     const site = routeRecord(manifest.sites, route);
     Object.assign(site, { github, branch, updated: new Date().toISOString() });
     site.owner = { ...site.owner, repo };

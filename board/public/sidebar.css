@@ -58,7 +58,7 @@
 #newBoardSheet .nb-clone { display: block; margin-top: 6px; overflow-wrap: anywhere; font-size: 12px; }
 #newBoardSheet [hidden] { display: none; }
 #newBoardSheet .nb-help { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; font-weight: 400; }
-#newBoardSheet .nb-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; padding-bottom: 2px; }
+#newBoardSheet .nb-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; padding-bottom: 2px; }
 #newBoardSheet .nb-actions button { min-height: 44px; }
 #newBoardSheet .nb-next { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
 #newBoardSheet .nb-error { color: var(--color-danger); font-size: 13px; }
