@@ -11,7 +11,7 @@ import { appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { reviseQueued, flushQueue, queueStatus } from '../hub/push.mjs';
 import { holdLine } from '../hub/schedule.mjs';
 import { routeRecord } from '../hub/routes.mjs';
-import { ticketSource, ticketIn, resolveTicket } from './tickets.mjs';
+import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleTickets } from './tickets.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { storedPath } from '../bin/install.mjs';
 import { RuleError, rulesOf, addRule, editRule, removeRule, applyRules, readHubRules, writeHubRules } from '../hub/rules.mjs';
@@ -964,9 +964,12 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (ask) item.from_ask = ask;
   if (built) item.install = built;
   if (built === null) delete item.install;
-  if (ticket !== undefined || (ask && !item.ticket && !item.linear?.length)) item.ticket = await assignTicket(site, wave, item, ticket, options, source.dir);
+  if (ticket !== undefined || (ask && !item.ticket && !item.linear?.length)) await assignTicket(site, key, wave, item, ticket, options, source.dir);
   await writeJSON(source.file, wave);
   const resolved = await resolve();
+  const target = ticketTarget({ status, pr });
+  const moved = target && await moveTicket(await boardSource(site), item, target, { ...options, repo: boardRepoOf(site, wave) });
+  if (moved) resolved.push(moved);
   // A builder that forgot builder done would keep the card In Progress after it was handed back.
   if (pr !== undefined || HANDED_BACK.includes(status)) await closeBuilders(source.dir, item.id, FINISHED.includes(status));
   // An ask is in one card's thread: becoming this item moves it out of a card it was folded into.
@@ -990,24 +993,32 @@ async function depList(site, slug, deps) {
   return list;
 }
 
-async function assignTicket(site, wave, item, ticket, options, dir) {
+const boardRepoOf = (site, wave) => (site && listBoards().find((b) => samePath(b.dir, site))?.github) || wave.repo;
+const boardSource = async (site) => storedTickets((await boardConfig(site)).tickets);
+
+// Sets item.ticket from the board's source, and ticket_created when kickflip made it. self is the card's <wave>/<id>:
+// an Internal ticket another card holds is refused.
+async function assignTicket(site, self, wave, item, ticket, options, dir) {
   try {
     const cfg = await boardConfig(site);
     const source = ticketSource(cfg.tickets || { source: 'internal' });
     const ownId = (w, it) => (w.internal === true ? String(it.id).replace(/^S(\d+)$/, `${source.prefix}-$1`) : null);
     if (ticket === undefined && source.source === 'internal' && ticketIn(source, ownId(wave, item))) ticket = ownId(wave, item);
     let max = 0;
-    if (source.source === 'internal' && ticket === undefined) {
+    if (source.source === 'internal') {
       for (const entry of await itemSources(site)) {
         const w = await readJSON(entry.file, {});
         for (const it of [...(w.items || []), ...(w.followups || [])]) {
-          for (const id of [it.ticket, ownId(w, it)]) max = Math.max(max, ticketIn(source, id) || 0);
+          const ids = [it.ticket, ownId(w, it)];
+          max = Math.max(max, ...ids.map((id) => ticketIn(source, id) || 0));
+          if (ticket !== undefined && `${entry.slug}/${it.id}` !== self && ids.includes(ticket)) throw Object.assign(new BoardError(`${ticket} is already the ticket of ${entry.slug}/${it.id}`), { held: true });
         }
       }
     }
-    const repo = (site && listBoards().find((b) => samePath(b.dir, site))?.github) || wave.repo;
-    const body = ticket === undefined && source.source === 'github' && item.plan ? await fs.readFile(await planPath(dir, item.plan), 'utf8') : item.notes || '';
-    return await resolveTicket(source, { ticket, title: item.title, body, repo, next: max + 1 }, options);
+    const body = ticket === undefined && source.source !== 'internal' && item.plan ? await fs.readFile(await planPath(dir, item.plan), 'utf8') : item.notes || '';
+    const r = await resolveTicket(source, { ticket, title: item.title, body, repo: boardRepoOf(site, wave), next: max + 1 }, options);
+    item.ticket = r.ticket;
+    if (r.created && source.source !== 'internal') item.ticket_created = true; else delete item.ticket_created;
   } catch (e) { if (e instanceof BoardError) throw e; fail(e.message); }
 }
 
@@ -1028,7 +1039,7 @@ async function createItem(site, key, { title, notes, deps, notesFile, ticket }, 
   if (deps !== undefined) item.deps = await depList(site, slug, deps);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
   item.status = item.deps?.length ? 'waiting' : 'planned';
-  item.ticket = await assignTicket(site, wave, item, ticket, options, source.dir);
+  await assignTicket(site, key, wave, item, ticket, options, source.dir);
   wave.items.push(item);
   await writeJSON(source.file, wave);
   return source.file;
@@ -1040,10 +1051,59 @@ async function createFollowup(site, slug, { id, title, from, ticket }, options) 
   const followups = wave.followups || [];
   if (followups.some((f) => f.id === id)) fail(`wave "${slug}" already has follow-up ${id}`);
   const item = { id, title: text(title, '--title'), ...(from === undefined ? {} : { from: text(from, '--from') }), filed: new Date().toISOString().slice(0, 10) };
-  item.ticket = await assignTicket(site, wave, item, ticket, options, source.dir);
+  await assignTicket(site, `${slug}/${id}`, wave, item, ticket, options, source.dir);
   followups.push(item);
   await writeJSON(source.file, { ...wave, followups });
   return source.file;
+}
+
+// `tickets backfill`: each open card and follow-up with no ticket links the first id in its title, or in its legacy
+// `linear` list, that belongs to the board's source, else gets a new ticket. An Internal id another card holds is only
+// a mention, so that card gets a new one. Done cards are left alone. dryRun writes nothing and calls no source.
+// → {file, lines}: one line per card, then a count.
+export const backfillTickets = (site, { dryRun = false } = {}, options) => ticketWrite(needSite(site), () => backfill(site, dryRun, options));
+async function backfill(site, dryRun, options) {
+  const source = (await boardSource(site)) || fail('this board has no ticket source yet; pick one in Board settings first');
+  const held = new Set();
+  const waves = [];
+  for (const entry of await itemSources(site)) {
+    const wave = await readJSON(entry.file, null);
+    if (!Array.isArray(wave?.items)) continue;
+    waves.push({ entry, wave });
+    for (const it of [...wave.items, ...(wave.followups || [])]) {
+      if (it.ticket) held.add(it.ticket);
+      if (wave.internal === true && source.source === 'internal') held.add(String(it.id).replace(/^S(\d+)$/, `${source.prefix}-$1`));
+    }
+  }
+  const lines = [];
+  const counts = { linked: 0, created: 0, failed: 0 };
+  for (const { entry, wave } of waves) {
+    for (const it of [...wave.items, ...(wave.followups || [])]) {
+      const followup = !wave.items.includes(it);
+      if (it.ticket || (followup ? it.done : FINISHED.includes(it.status))) continue;
+      const key = `${entry.slug}/${it.id}`;
+      const found = [...titleTickets(source, it.title), ...(it.linear || []).filter((id) => ticketIn(source, id))]
+        .find((id) => source.source !== 'internal' || !held.has(id));
+      if (dryRun) {
+        counts[found ? 'linked' : 'created']++;
+        lines.push(`${key} would ${found ? `link ${found}` : 'get a new ticket'}`);
+        continue;
+      }
+      try {
+        await assignTicket(site, key, wave, it, found, options, entry.dir);
+        await writeJSON(entry.file, wave);
+        held.add(it.ticket);
+        counts[found ? 'linked' : 'created']++;
+        lines.push(`${key} ${found ? 'linked' : 'created'} ${it.ticket}`);
+      } catch (e) {
+        if (!(e instanceof BoardError)) throw e;
+        counts.failed++;
+        lines.push(`${key} failed: ${e.message}`);
+      }
+    }
+  }
+  const total = dryRun ? `would link ${counts.linked}, create ${counts.created}` : `linked ${counts.linked}, created ${counts.created}, failed ${counts.failed}`;
+  return { lines: [...lines, `backfill${dryRun ? ' (dry run)' : ''}: ${total}`] };
 }
 
 export async function finishFollowup(site, slug, id, { force } = {}) {

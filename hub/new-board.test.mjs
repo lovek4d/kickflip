@@ -15,6 +15,8 @@ const { boardRepo, changeBoardRepo, migrateBoardRepos, githubFromOrigin } = awai
 const { startingBoards, STARTING_WAIT, BG_SETTINGS } = await import('./sessions.mjs');
 const { routeFromName, ROUTE_RE } = await import('./routes.mjs');
 const { saveJSON, readManifest, listBoards, prsOf } = await import('./boards.mjs');
+const { linearClient } = await import('./linear.mjs');
+const { fakeLinear, linearWorld } = await import('../shared/test-helpers.mjs');
 const manifestFile = path.join(home, '.claude', 'kickflip', 'manifest.json');
 const sessionsDir = path.join(home, '.claude', 'sessions');
 fs.mkdirSync(sessionsDir, { recursive: true });
@@ -169,7 +171,8 @@ test('invalid repo identities, branches, fields and reserved routes are refused 
     { github: '../escape' }, { github: 'o/../../escape' }, { github: '/tmp/escape' }, { github: 'owner/repo;ls' }, { github: '-owner/repo' },
     { github: 'https://github.com/o/r' }, { github: 'o/.git' }, { github: null }, { repo: home },
     { branch: '-main' }, { branch: '../main' }, { branch: 'a.lock' }, { branch: 'a/.hidden' }, { branch: 'a@{b' }, { branch: 'a b' }, { branch: 'a\\b' }, { branch: null },
-    { purpose: 'p'.repeat(241) }, { purpose: null }, { tickets: { source: 'internal', prefix: 'BAD1' } }, { tickets: { source: 'other' } }, { tickets: { source: 'linear', team: 'PROD' } }]) {
+    { purpose: 'p'.repeat(241) }, { purpose: null }, { tickets: { source: 'internal', prefix: 'BAD1' } }, { tickets: { source: 'other' } }, { tickets: { source: 'linear', team: 'PROD' } },
+    { tickets: { source: 'linear', workspace: 'acme', team: 'PROD', new_project: ' ' } }, { tickets: { source: 'linear', workspace: 'acme', team: 'prod', new_project: 'Board' } }]) {
     await assert.rejects(requestBoard({ ...input('New board'), ...change }, { run, live, repos }), { status: 400 });
   }
   assert.deepEqual(readManifest(), manifest);
@@ -183,6 +186,21 @@ test('invalid repo identities, branches, fields and reserved routes are refused 
   assert.equal(validateBranch('release/next'), 'release/next');
   assert.equal(repoPath('org/.github', base), path.join(base, 'org/.github'));
   assert.equal(repoPath('org/-repo', base), path.join(base, 'org/-repo'));
+});
+
+test("a New board on Linear's New project… creates that project in its team on Start and keeps its id, unless the route is taken", async () => {
+  saveJSON(manifestFile, { sites: { taken: board } });
+  const { run } = claude();
+  const world = linearWorld();
+  const linear = linearClient(world.key, { fetch: fakeLinear(world).fetch });
+  const tickets = { source: 'linear', workspace: 'acme', team: 'OPS', new_project: ' Fresh board ' };
+  await assert.rejects(requestBoard({ ...input('Taken'), tickets }, { run, live, repos, linear }), { status: 400 });
+  assert.deepEqual(world.teams[1].projects, []);
+  const request = await requestBoard({ ...input('Fresh board'), tickets }, { run, live, repos, linear });
+  await request.started;
+  assert.deepEqual(world.teams[1].projects, [{ id: 'proj-101', name: 'Fresh board' }]);
+  assert.deepEqual(readManifest().starting['fresh-board'].tickets, { source: 'linear', workspace: 'acme', team: 'OPS', project: 'proj-101' });
+  await assert.rejects(requestBoard({ ...input('No key'), tickets }, { run, live, repos }), { status: 400, message: 'Add a Linear key on Hub first.' });
 });
 
 test('clone paths refuse symlink escapes through .repos, owner, repo and ancestors', async () => {

@@ -3,6 +3,7 @@ import { readManifest, withManifestLock, writeManifest } from './boards.mjs';
 import { ROUTE_RE, routeFromName, routeRecord } from './routes.mjs';
 import { repoService, validateGithub, validateBranch } from './repos.mjs';
 import { STARTING_WAIT, startSession } from './sessions.mjs';
+import { savedClient } from './linear.mjs';
 
 const refuse = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 
@@ -16,8 +17,19 @@ function details(input) {
   if (!ROUTE_RE.test(route)) refuse('Name must contain a letter or digit for its route.');
   const github = validateGithub(input.github);
   const branch = validateBranch(input.branch);
-  return { route, title, github, branch, tickets: ticketSource(input.tickets === undefined ? { source: 'internal' } : input.tickets), purpose: (input.purpose || '').trim().replace(/\s+/g, ' ') };
+  let tickets = input.tickets === undefined ? { source: 'internal' } : input.tickets;
+  let newProject;
+  if (tickets?.source === 'linear' && typeof tickets === 'object' && Object.hasOwn(tickets, 'new_project')) {
+    const { new_project: name, ...rest } = tickets;
+    newProject = typeof name === 'string' ? name.trim() : '';
+    if (!newProject || newProject.length > 80) refuse('Name the new Linear project.');
+    tickets = { ...rest, project: newProject };
+  }
+  return { route, title, github, branch, tickets: ticketSource(tickets), newProject, purpose: (input.purpose || '').trim().replace(/\s+/g, ' ') };
 }
+
+const taken = (manifest, route) => Object.hasOwn(manifest.sites || {}, route) || Object.hasOwn(manifest.starting || {}, route) || Object.hasOwn(manifest.closed || {}, route);
+const TAKEN = 'That board route already exists. Reopen it from Closed boards if it is closed.';
 
 // The new session runs these join flags through its shell, so each value must stay one quoted word.
 const quote = (s) => `'${s.replaceAll("'", "'\\''")}'`;
@@ -42,15 +54,23 @@ async function recordStart(route, outcome) {
 }
 
 // Reserves the route on a Starting row, then starts the board's session in the background
-// (docs/adr/0069-the-hub-starts-a-new-boards-session.md). run and live go to sessions.mjs startSession.
+// (docs/adr/0069-the-hub-starts-a-new-boards-session.md). run and live go to sessions.mjs startSession. Tickets with
+// new_project create that Linear project first, through linear (linear.mjs savedClient by default).
 // → {route, started}: started settles once the outcome is on the Starting row, as {session} or {error}, and never rejects.
-export async function requestBoard(input, { run, live, repos = repoService(), changed = () => {} } = {}) {
+export async function requestBoard(input, { run, live, repos = repoService(), changed = () => {}, linear } = {}) {
   const board = details(input);
-  const { route, title, github, branch, tickets } = board;
+  const { route, title, github, branch, newProject } = board;
+  let { tickets } = board;
   const repo = repos.path(github);
+  if (newProject !== undefined) {
+    if (taken(readManifest(), route)) refuse(TAKEN);
+    const client = linear || savedClient() || refuse('Add a Linear key on Hub first.');
+    try { tickets = { ...tickets, project: (await client.createProject(tickets.team, newProject)).id }; }
+    catch (e) { refuse(e.message, e.status || 502); }
+  }
   await withManifestLock(async () => {
     const manifest = readManifest();
-    if (Object.hasOwn(manifest.sites || {}, route) || Object.hasOwn(manifest.starting || {}, route) || Object.hasOwn(manifest.closed || {}, route)) refuse('That board route already exists. Reopen it from Closed boards if it is closed.');
+    if (taken(manifest, route)) refuse(TAKEN);
     manifest.starting = { ...manifest.starting, [route]: { title, repo, github, branch, tickets, phase: repos.cloned(github) ? 'starting' : 'cloning', asked_at: new Date().toISOString() } };
     await writeManifest(manifest);
   });

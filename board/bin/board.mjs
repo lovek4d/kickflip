@@ -19,8 +19,12 @@ board.json says where the board's waves live. Without --site, waves come from ~/
 Paths resolve under $HOME, so HOME=<dir> points every command at a copy.
 A --file argument of - reads stdin.
 item add and followup add create a ticket in the board’s source unless --ticket <id> links one.
-Internal defaults to INT; GitHub creates an issue from the title and notes; Linear needs --ticket in phase 1.
+Internal defaults to INT; GitHub and Linear create an issue from the title and notes, Linear in the board's team and
+project through Hub's Linear key. A linked ticket must exist in the source; an Internal one no other card holds.
 Asks have no ticket; item set --from-ask creates one when the card has none.
+A card moves its ticket one way: --status building or fixing → In Progress, --pr → In Review, --status done or
+merged → Done (a GitHub issue closes), only for a ticket assigned to the owner or created by kickflip. A ticket that
+can't move prints one "ticket <id>: …" line; the card's change still stands.
 
   reply <eventId> (--html <text> | --file <path>)        data/replies/<eventId>.html
   working <eventId>                                      marks an ask or thread message started; the page
@@ -106,6 +110,11 @@ Asks have no ticket; item set --from-ask creates one when the card has none.
                                                          pushes are held (overnight, snoozed, the weekend or off)
   followup add <wave> --id <id> --title <t> [--from <item id>] [--ticket <id>]
   followup done <wave> <id> [--force]                    closes the follow-up's card as item set --status done does
+  tickets backfill [--dry-run]                           gives every open card and follow-up without a ticket one: the first
+                                                         id in its title (or legacy linear list) from the board's
+                                                         source is linked, else a new ticket is made. Done cards are
+                                                         left alone. Prints each card's result; --dry-run changes and
+                                                         calls nothing
   reviewers set --file <json>                            the board's reviewers in board.json, replacing them:
                                                          [{name, slack_user, dm, github}], as in wave.json.
                                                          The settings page lists them; new waves copy them
@@ -179,7 +188,7 @@ Asks have no ticket; item set --from-ask creates one when the card has none.
          KICKFLIP_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/kickflip.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
-const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree']);
+const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree', 'dry-run']);
 const KICKFLIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'bin', 'kickflip.mjs');
 
 function pushCommand() {
@@ -279,6 +288,7 @@ const COMMANDS = {
   'ask unfold': [['eventId'], [], (site, [id]) => store.unfoldAsk(site, id)],
   'ask move': [['eventId'], ['to'], (site, [id], f) => store.moveAsk(site, id, f.to)],
   'followup add': [['wave'], ['id', 'title', 'from', 'ticket'], (site, [wave], f, options) => store.addFollowup(site, wave, f, options)],
+  'tickets backfill': [[], ['dry-run'], (site, _, f, options) => store.backfillTickets(site, { dryRun: f['dry-run'] }, options)],
   'followup done': [['wave', 'id'], ['force'], (site, [wave, id], f) => store.finishFollowup(site, wave, id, { force: f.force })],
   'reviewers set': [[], ['file'], (site, _, f) => store.setReviewers(site, readJSONInput(f.file))],
   'reviewers add': [[], ['file'], (site, _, f) => store.addReviewers(site, readJSONInput(f.file))],

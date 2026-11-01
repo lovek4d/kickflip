@@ -121,7 +121,7 @@ window.AppShell = (function () {
       root.className = 'view-settings';
       root.innerHTML = AppViews.settings.markup({}, { siteTitle: titleOf(current.route) });
       current.root.appendChild(root);
-      const v = AppViews.settings.create(root, '/' + encodeURIComponent(current.route), { dismiss: dismissSettings, open: openHere, sidebarChanged: refreshSidebar });
+      const v = AppViews.settings.create(root, '/' + encodeURIComponent(current.route), { dismiss: dismissSettings, open: openHere, sidebarChanged: refreshSidebar, siteTitle: titleOf(current.route) });
       settings = { root, v };
       v.mount();
     }

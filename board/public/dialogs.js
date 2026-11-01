@@ -1,35 +1,79 @@
 // Native confirmations cannot label their actions on iOS; labelled confirmations use a modal sheet.
 // Load before any page script that asks (docs/adr/0023-a-card-can-be-held-and-every-card-button-confirms.md).
 (function () {
-  function ticketsControl(root, { value = { source: 'internal', prefix: 'INT' }, repo = () => '', title = () => '', linear = {}, isNew = false, change = () => {} } = {}) {
+  // linear: Hub's /_hub/api/linear answer, or loadLinear() fetches it the first time Linear is the source. A New board's
+  // "New project…" reads as new_project, which the hub creates on Start; Board Settings creates it with createProject.
+  function ticketsControl(root, { value = { source: 'internal', prefix: 'INT' }, repo = () => '', title = () => '', linear = {}, loadLinear, isNew = false, change = () => {}, createProject } = {}) {
     const { esc } = BoardUI;
     const draft = { prefix: 'INT', ...value };
+    let creating = false, createError = '', destroyed = false;
+    const fetchLinear = () => {
+      if (!loadLinear || draft.source !== 'linear') return;
+      const load = loadLinear;
+      loadLinear = null;
+      linear = { loading: true };
+      load().catch((e) => ({ set: true, error: e.message || 'Is the Mac awake?' })).then((next) => {
+        if (destroyed) return;
+        linear = next; pickDefaults(); render(); change(read(), valid(), { loaded: true });
+      });
+    };
+    const workspace = () => linear.url_key ?? linear.workspace ?? draft.workspace;
+    const newName = () => (draft.newName ?? title()).trim();
     const read = () => draft.source === 'internal' ? { source: 'internal', prefix: draft.prefix || 'INT' }
       : draft.source === 'github' ? { source: 'github' }
-      : { source: 'linear', workspace: linear.workspace || draft.workspace, team: draft.team, project: draft.project };
+      : draft.project === '__new' && isNew ? { source: 'linear', workspace: workspace(), team: draft.team, new_project: newName() }
+      : { source: 'linear', workspace: workspace(), team: draft.team, project: draft.project };
     const valid = () => draft.source === 'internal' ? /^[A-Z]{2,6}$/.test(draft.prefix || 'INT')
-      : draft.source === 'github' ? Boolean(repo()) : Boolean(linear.set && draft.team && draft.project && draft.project !== '__new');
+      : draft.source === 'github' ? Boolean(repo())
+      : Boolean(linear.set && !linear.error && draft.team && draft.project && (draft.project !== '__new' || (isNew && newName())));
+    const pickDefaults = () => {
+      if (draft.source !== 'linear' || !linear.set) return;
+      if (!linear.teams?.some((t) => t.key === draft.team)) draft.team = linear.teams?.[0]?.key;
+      draft.project ||= isNew ? '__new' : linear.projects?.find((p) => p.team === draft.team)?.id;
+    };
+    function linearDetail() {
+      if (linear.loading) return '<p class="muted small" role="status">Loading Linear…</p>';
+      if (!linear.set) return '<a class="who tk-hublink" href="/_hub/#linear"><span>Add a Linear key on Hub<span class="muted small sub">Linear lists its teams and projects with your API key, kept on this Mac.</span></span><span aria-hidden="true">›</span></a>';
+      if (linear.error) return `<p class="muted small" role="alert">Couldn’t list Linear’s teams: ${esc(linear.error)}</p>`;
+      const project = linear.projects?.find((p) => p.id === draft.project);
+      const team = esc(draft.team || '');
+      const note = draft.project === '__new'
+        ? (isNew ? `<p class="muted small">Start creates the project in the ${team} team on Linear.</p>` : `<p class="muted small">Creates the project in the ${team} team on Linear.</p>`)
+        : `<p class="muted small">A new card gets a ${team} issue in ${esc(project?.name || draft.project || '')}, in the ${esc(linear.workspace || workspace())} workspace from Hub’s key. Its badge opens it in Linear.</p>`;
+      return `<div class="tk-grid"><label class="tk-field"><span>Team</span><select data-tk="team">${(linear.teams || []).map((t) => `<option value="${esc(t.key)}"${t.key === draft.team ? ' selected' : ''}>${esc(t.key)} · ${esc(t.name)}</option>`).join('')}</select></label><label class="tk-field"><span>Project</span><select data-tk="project">${(linear.projects || []).filter((p) => p.team === draft.team).map((p) => `<option value="${esc(p.id)}"${p.id === draft.project ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}<option value="__new"${draft.project === '__new' ? ' selected' : ''}>New project…</option></select></label></div>${draft.project === '__new' ? `<div class="tk-new"><input data-tk="newName" value="${esc(draft.newName ?? title())}" aria-label="New Linear project name" placeholder="Project name" maxlength="80" autocomplete="off">${isNew ? '' : `<button type="button" data-tk-create${creating ? ' disabled' : ''}>${creating ? 'Creating…' : 'Create'}</button>`}</div>` : ''}${createError ? `<p class="muted small" role="alert">${esc(createError)}</p>` : ''}${note}`;
+    }
     function render() {
       const segment = `<div class="tk-seg" role="group" aria-label="Ticket source">${[['linear', 'Linear'], ['github', 'GitHub issues'], ['internal', 'Internal']].map(([source, name]) => `<button type="button" data-tk-source="${source}" aria-pressed="${draft.source === source}">${name}</button>`).join('')}</div>`;
       let detail;
       if (draft.source === 'internal') detail = `<label class="tk-field"><span>Prefix</span><input data-tk="prefix" value="${esc(draft.prefix)}" placeholder="INT" maxlength="6" pattern="[A-Z]{2,6}" title="2–6 uppercase letters" autocapitalize="characters" autocomplete="off" spellcheck="false"></label><p class="muted small" data-tk-example>Cards number ${esc(draft.prefix || 'INT')}-1, ${esc(draft.prefix || 'INT')}-2… on this board. The badge opens the card.</p>`;
       else if (draft.source === 'github') detail = `<div class="who tk-static"><span>Issues in ${esc(repo())}<span class="muted small sub">${isNew ? 'The repo chosen above' : 'The board’s repo, set above'}. A new card opens an issue there; its badge reads #41.</span></span></div>`;
-      else if (!linear.set) detail = '<a class="who tk-hublink" href="/_hub/#linear"><span>Add a Linear key on Hub<span class="muted small sub">Linear lists its teams and projects with your API key, kept on this Mac.</span></span><span aria-hidden="true">›</span></a>';
-      else detail = `<div class="tk-grid"><label class="tk-field"><span>Team</span><select data-tk="team">${(linear.teams || []).map((t) => `<option value="${esc(t.key)}"${t.key === draft.team ? ' selected' : ''}>${esc(t.key)} · ${esc(t.name)}</option>`).join('')}</select></label><label class="tk-field"><span>Project</span><select data-tk="project">${(linear.projects || []).filter((p) => p.team === draft.team).map((p) => `<option value="${esc(p.id)}"${p.id === draft.project ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}<option value="__new"${draft.project === '__new' ? ' selected' : ''}>New project…</option></select></label></div>${draft.project === '__new' ? `<div class="tk-new"><input data-tk="newName" value="${esc(draft.newName ?? title())}" aria-label="New Linear project name" placeholder="Project name" autocomplete="off"><button type="button" disabled>Create</button></div>` : ''}`;
+      else detail = linearDetail();
       root.innerHTML = `${segment}<div class="tk-detail">${detail}</div>`;
-      if (draft.source === 'linear' && linear.set) {
+      if (draft.source === 'linear' && linear.set && !linear.error && !linear.loading) {
         root.querySelector('[data-tk="team"]').value = draft.team || '';
         root.querySelector('[data-tk="project"]').value = draft.project || '';
       }
     }
-    const click = (e) => {
+    const click = async (e) => {
+      if (e.target.closest('[data-tk-create]')) {
+        const name = newName();
+        if (!name || creating || !createProject) return;
+        creating = true; createError = ''; render();
+        try {
+          const made = await createProject(draft.team, name);
+          linear.projects = [...(linear.projects || []), made];
+          draft.project = made.id;
+          delete draft.newName;
+        } catch (error) { createError = error.message || 'Could not create the project.'; }
+        creating = false;
+        render(); change(read(), valid());
+        return;
+      }
       const button = e.target.closest('[data-tk-source]');
       if (!button) return;
       draft.source = button.dataset.tkSource;
-      if (draft.source === 'linear') {
-        draft.team ||= linear.teams?.[0]?.key;
-        draft.project ||= isNew ? '__new' : linear.projects?.find((p) => p.team === draft.team)?.id;
-      }
+      fetchLinear();
+      pickDefaults();
       render(); root.querySelector(`[data-tk-source="${draft.source}"]`).focus(); change(read(), valid());
     };
     const input = (e) => {
@@ -38,16 +82,17 @@
       draft[field] = field === 'prefix' ? e.target.value.toUpperCase() : e.target.value;
       if (field === 'prefix') e.target.value = draft.prefix;
       if (field === 'team') draft.project = isNew ? '__new' : linear.projects?.find((p) => p.team === draft.team)?.id;
-      if (field === 'team' || field === 'project') render();
+      if (field === 'team' || field === 'project') { createError = ''; render(); }
       if (field === 'prefix') root.querySelector('[data-tk-example]').textContent = `Cards number ${draft.prefix || 'INT'}-1, ${draft.prefix || 'INT'}-2… on this board. The badge opens the card.`;
       change(read(), valid());
     };
     root.addEventListener('click', click);
     root.addEventListener('input', input);
     root.addEventListener('change', input);
+    fetchLinear();
     render();
     return { read, valid, render, nameChanged() { const field = root.querySelector('[data-tk="newName"]'); if (field && draft.newName === undefined) field.value = title(); },
-      destroy() { root.removeEventListener('click', click); root.removeEventListener('input', input); root.removeEventListener('change', input); } };
+      destroy() { destroyed = true; root.removeEventListener('click', click); root.removeEventListener('input', input); root.removeEventListener('change', input); } };
   }
   let close = null;
   function sheet(message, { ok, cancel = 'Cancel', signal }) {
@@ -133,7 +178,7 @@
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const draft = { name: '', purpose: '', github: '', branch: '', tickets: { source: 'internal', prefix: 'INT' } };
     let tickets;
-    let repos = [], pasted, selected, edited = false, sending = false, closed = false, generation = 0, lookupTimer;
+    let repos = [], pasted, selected, edited = false, sending = false, closed = false, generation = 0, lookupTimer, linear;
     const controller = new AbortController();
     el.innerHTML = `<form class="nb-form"><div class="sheet-head"><h2 id="newBoardTitle" tabindex="-1" autofocus>${current ? 'Change repo' : 'New board'}</h2><button type="button" data-cancel-new aria-label="Close sheet">✕</button></div><div data-repo-content></div><p class="nb-error" role="alert" hidden></p><div class="nb-actions sheet-actions"><button type="button" data-cancel-new>Cancel</button><button type="submit" class="primary" hidden disabled>${current ? 'Use repo' : 'Start'}</button></div></form>`;
     const content = el.querySelector('[data-repo-content]');
@@ -220,7 +265,8 @@
       content.innerHTML = `<button type="button" data-back-repos>‹ Back</button><p class="nb-next">${current ? 'Repo details' : '2 · Board details'}</p><div class="nb-selected"><strong>${esc(github)}</strong><span class="nb-help">${selected.private ? 'Private' : 'Public'}</span><p>${selected.cloned ? shared ? `Shared with ${esc(shared)}` : 'Already cloned in .repos' : 'Clones to'}<code class="nb-clone">${esc(selected.clone)}</code></p></div><label class="nb-field"><span>Default branch for this board</span><select name="branch" disabled><option value="">Loading branches…</option></select><span class="nb-help" data-branch-help></span></label><p class="nb-next">Each board’s builders work in separate worktrees off this clone. Sharing the clone doesn’t share their working files.</p>${current ? '<p class="nb-next">New builders and GitHub links will use the selected repo.</p>' : `<label class="nb-field"><span>Name</span><input name="name" type="text" value="${esc(draft.name)}" required maxlength="60" autocomplete="off"></label><label class="nb-field"><span>What it’s for</span><input name="purpose" type="text" value="${esc(draft.purpose)}" maxlength="240"><span class="nb-help">One line to get the board started. Optional.</span></label><p class="nb-next">The hub ${selected.cloned ? 'reuses the clone' : 'clones the repo'} and starts your board. You can keep using your other boards.</p>`}`;
       if (!current) {
         content.querySelectorAll('.nb-next')[content.querySelectorAll('.nb-next').length - 1].insertAdjacentHTML('beforebegin', '<div class="nb-field tk-section" role="group" aria-labelledby="nbTicketsLabel"><span id="nbTicketsLabel">Tickets</span><span class="nb-help">Where this board’s cards get their tickets. You can change it in Board settings.</span><div data-board-tickets></div></div>');
-        tickets = ticketsControl(content.querySelector('[data-board-tickets]'), { value: draft.tickets, repo: () => draft.github, title: () => draft.name.trim(), isNew: true, change(value) { draft.tickets = value; sync(); } });
+        tickets = ticketsControl(content.querySelector('[data-board-tickets]'), { value: draft.tickets, ...(linear ? { linear } : { loadLinear: async () => { linear = await request('/_hub/api/linear'); return linear; } }),
+          repo: () => draft.github, title: () => draft.name.trim(), isNew: true, change(value) { draft.tickets = value; sync(); } });
       }
       start.hidden = false;
       sync();

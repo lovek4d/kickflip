@@ -251,7 +251,14 @@
     get(site.url('api/settings'), waitIn('#autoMergeStatus')).then(({ body: d }) => {
       if (!B.alive()) return;
       savedTickets = d.settings?.tickets || null;
-      tickets = BoardDialogs.ticketsControl($('#boardTickets'), { value: savedTickets || { source: 'internal', prefix: 'INT' }, repo: () => repo.github || '', title: () => ctx.siteTitle || '', change() { ticketsTouched = true; syncTickets(); } });
+      tickets = BoardDialogs.ticketsControl($('#boardTickets'), { value: savedTickets || { source: 'internal', prefix: 'INT' }, repo: () => repo.github || '', title: () => ctx.siteTitle || '',
+        loadLinear: async () => (await get('/_hub/api/linear')).body,
+        change(_value, _valid, { loaded } = {}) { if (!loaded) ticketsTouched = true; syncTickets(); }, createProject: async (team, name) => {
+          const r = await fetch('/_hub/linear/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ team, name }) });
+          const out = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(out.error || 'Could not create the project. Is the Mac awake?');
+          return out;
+        } });
       autoMergeStatus.textContent = '';
       autoMerge.checked = d.settings?.auto_merge === true;
       autoMerge.disabled = false;

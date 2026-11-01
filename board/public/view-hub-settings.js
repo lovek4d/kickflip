@@ -38,7 +38,7 @@
     return `${onRow}\n${snoozeRow(d)}\n${weekendRow}`;
   }
 
-  const sections = [['notifications', 'Notifications'], ['polling', 'Polling'], ['rules', 'Rules for every board'], ['closed', 'Closed boards']];
+  const sections = [['notifications', 'Notifications'], ['polling', 'Polling'], ['linear', 'Linear'], ['rules', 'Rules for every board'], ['closed', 'Closed boards']];
   const sectionOf = (hash) => {
     const id = { push: 'notifications', 'closed-boards': 'closed' }[hash?.slice(1)] || hash?.slice(1);
     return sections.some(([section]) => section === id) ? id : null;
@@ -70,6 +70,12 @@
           content.innerHTML = `<div class="group">${deviceRow(device.state(last.device), { compact: true })}${notificationRows(last)}${last.presence ? row({ icon: tile('laptop', 'var(--color-quiet)'), title: esc(last.presence.title) }) : ''}</div>`;
           const input = B.$('[data-snooze-at]');
           if (input) customBounds(input, true);
+        } else if (active === 'linear') {
+          const typed = B.$('#linearKey')?.value || '';
+          const l = last.linear;
+          const remove = l.set ? `<form method="post" action="/_hub/settings/linear"><input type="hidden" name="remove" value="1"><button type="button" class="btn quiet danger" data-linear-remove>Remove</button></form>` : '';
+          content.innerHTML = `<div class="group">${row({ icon: tile('key', l.set ? '#5e6ad2' : '#6b7280'), title: esc(l.title), sub: esc(l.sub), wrap: !l.set, trail: remove })}<form class="block lk-form" method="post" action="/_hub/settings/linear"><input id="linearKey" name="key" type="password" required placeholder="${l.set ? 'Paste a new key to replace it' : 'Paste a Linear API key'}" aria-label="Linear API key" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn">Save</button></form></div><p class="note">Stays on this Mac. Boards use it to list teams and projects, create issues and move the ones that are yours.</p>`;
+          B.$('#linearKey').value = typed;
         } else if (active === 'closed') {
           content.innerHTML = `<div class="group">${(last.closed || []).length ? last.closed.map((b) => `<div class="row"><span class="body"><span class="text"><span class="title">${esc(b.title)}</span><span class="sub wrap">/${esc(b.route)}</span></span><button class="btn" type="button" data-reopen="${esc(b.route)}"${reopening ? ' disabled' : ''}>${reopening === b.route ? 'Reopening…' : 'Reopen'}</button></span></div>`).join('') : '<p class="note">No closed boards.</p>'}</div>`;
         }
@@ -77,6 +83,7 @@
         const summaries = {
           notifications: [last.on.on ? 'Pushes on' : 'Pushes off', last.snoozed?.title, last.weekends.on ? 'Off on weekends' : '', deviceSummary()].filter(Boolean).join(' · '),
           polling: last.polling,
+          linear: last.linear?.summary || 'No key',
           rules: last.rules.length ? `${last.rules.length} rule${last.rules.length === 1 ? '' : 's'}` : 'None yet',
           closed: last.closed?.length ? `${last.closed.length} closed` : 'No closed boards',
         };
@@ -208,6 +215,10 @@
         } catch (error) { flash = { text: error.message || 'Could not reopen board. Is the Mac awake?', error: true }; }
         reopening = null;
         if (B.alive()) paint();
+      });
+      B.on(root, 'click', async (e) => {
+        const remove = e.target.closest?.('[data-linear-remove]');
+        if (remove && await BoardDialogs.confirm('Remove the Linear key? Boards on Linear can’t create issues or move tickets until you add one again.', { ok: 'Remove' }) && B.alive()) remove.closest('form').requestSubmit();
       });
       B.on(root, 'change', async (e) => {
         const on = e.target;

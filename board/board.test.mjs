@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startFakeDevice } from '../hub/fake-device.mjs';
-import { freePorts } from '../shared/test-helpers.mjs';
+import { freePorts, fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
 import http from 'node:http';
 
 const bin = (name) => path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', name);
@@ -200,12 +200,12 @@ test('tickets validate prefixes and link or create in the board source through t
   assert.equal(read(site('audit', 'data', 'wave.json')).items.at(-1).ticket, 'OPS-1');
   await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'another', team: 'PROD', project: 'Audit' } });
   assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five'), 1);
-  assert.equal(err.at(-1), 'The Linear key comes in phase 2; pass --ticket <id>.');
+  assert.equal(err.at(-1), 'Add a Linear key on Hub first.');
   assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five', '--ticket', 'OTHER-1'), 1);
-  assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five', '--ticket', 'PROD-2918'), 0);
-  assert.equal(await cli('item', 'set', 'audit/E5', '--ticket', 'PROD-2919'), 0);
+  assert.match(err.at(-1), /match PROD-<number>/);
+  assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five', '--ticket', 'PROD-2918'), 1);
   assert.equal(await cli('followup', 'add', 'audit', '--id', 'follow', '--title', 'Follow'), 1);
-  assert.equal(await cli('followup', 'add', 'audit', '--id', 'follow', '--title', 'Follow', '--ticket', 'PROD-2920'), 0);
+  assert.equal(err.at(-1), 'Add a Linear key on Hub first.');
   assert.equal(calls.length, 0);
   const waveFile = site('audit', 'data', 'wave.json');
   write(waveFile, { ...read(waveFile), repo: 'o/r' });
@@ -258,6 +258,152 @@ test('internal ticket creation uses the next number across all board waves, incl
   write(at('waves', 'w', 'wave.json'), { ...read(at('waves', 'w', 'wave.json')), items: [...read(at('waves', 'w', 'wave.json')).items, { id: 'P9', title: 'Linear', linear: ['PROD-900'] }] });
   assert.equal(board('item', 'add', 'w/E5', '--site', 'orch', '--title', 'Five').code, 0);
   assert.equal(read(at('waves', 'w', 'wave.json')).items.at(-1).ticket, 'INT-202');
+});
+
+async function ticketCli(t) {
+  const { saveBoardSettings } = await import('./store.mjs');
+  const { main } = await import('./bin/board.mjs');
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  t.after(() => { if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome; });
+  const out = [], err = [];
+  t.mock.method(console, 'log', (...args) => out.push(args.join(' ')));
+  t.mock.method(console, 'error', (...args) => err.push(args.join(' ')));
+  const world = linearWorld();
+  const linear = fakeLinear(world);
+  write(at('kickflip', 'linear.json'), { key: world.key, workspace: 'Acme', url_key: 'acme', viewer: world.viewer });
+  const gh = [];
+  const ghAnswers = { view: { state: 'OPEN', assignees: [{ login: 'someone' }] }, login: 'love' };
+  const run = async (cmd, argv) => {
+    gh.push(argv);
+    const repo = argv[argv.indexOf('--repo') + 1];
+    if (argv[0] === 'api') return { status: 0, stdout: `${ghAnswers.login}\n` };
+    if (argv[1] === 'view' && argv.includes('state,assignees')) return { status: 0, stdout: JSON.stringify(ghAnswers.view) };
+    if (argv[1] === 'view') return { status: 0, stdout: JSON.stringify({ number: Number(argv[2]), url: `https://github.com/${repo}/issues/${argv[2]}` }) };
+    if (argv[1] === 'close') return { status: 0, stdout: '' };
+    return { status: 0, stdout: `https://github.com/${repo}/issues/42\n` };
+  };
+  const cli = (...args) => main(['--site', 'audit', ...args], { linearFetch: linear.fetch, run });
+  const item = (id) => read(site('audit', 'data', 'wave.json')).items.find((it) => it.id === id);
+  return { saveBoardSettings, main, out, err, world, linear, gh, ghAnswers, cli, item };
+}
+
+test("a Linear board creates and checks issues through Hub's key, and each card moves only its owner's or kickflip's ticket, one way", async (t) => {
+  const { saveBoardSettings, main, out, err, world, linear, gh, ghAnswers, cli, item } = await ticketCli(t);
+  await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'acme', team: 'PROD', project: 'proj-audit' } });
+  write(site('audit', 'data', 'notes.md'), '# Why it matters');
+  assert.equal(await cli('item', 'add', 'audit/B2', '--title', 'Two', '--notes-file', 'notes.md'), 0);
+  assert.deepEqual([item('B2').ticket, item('B2').ticket_created], ['PROD-101', true]);
+  assert.deepEqual(world.issues['PROD-101'].input, { teamId: 'team-prod', projectId: 'proj-audit', title: 'Two', description: '# Why it matters' });
+  world.issues['PROD-8'] = { team: 'OPS', assignee: 'user-me', state: 'o-todo' };
+  world.issues['PROD-9'] = { team: 'PROD', assignee: 'someone', state: 's-todo' };
+  world.issues['PROD-10'] = { team: 'PROD', assignee: 'user-me', state: 's-todo' };
+  for (const [ticket, message] of [['PROD-50', 'Linear has no issue PROD-50.'], ['PROD-8', "PROD-8 is in Linear's OPS team, not PROD."], ['OPS-1', 'Ticket must match PROD-<number>.']]) {
+    assert.equal(await cli('item', 'add', 'audit/C3', '--title', 'Three', '--ticket', ticket), 1);
+    assert.equal(err.at(-1), message);
+  }
+  assert.equal(await cli('item', 'add', 'audit/C3', '--title', 'Three', '--ticket', 'PROD-9'), 0);
+  assert.equal(await cli('item', 'add', 'audit/D4', '--title', 'Four', '--ticket', 'PROD-10'), 0);
+  assert.deepEqual([item('C3').ticket, item('C3').ticket_created, item('D4').ticket], ['PROD-9', undefined, 'PROD-10']);
+  const stateOf = (id) => world.teams[0].states.find((s) => s.id === world.issues[id].state).name;
+  const moves = [
+    ['B2', ['--status', 'building'], 'PROD-101', 'In Progress'], ['B2', ['--pr', '5'], 'PROD-101', 'In Review'], ['B2', ['--status', 'done'], 'PROD-101', 'Done'],
+    ['D4', ['--status', 'fixing'], 'PROD-10', 'In Progress'], ['D4', ['--status', 'merged'], 'PROD-10', 'Done'],
+  ];
+  for (const [id, flags, ticket, state] of moves) {
+    assert.equal(await cli('item', 'set', `audit/${id}`, ...flags), 0);
+    assert.equal(out.at(-1), `ticket ${ticket}: moved to ${state}`);
+    assert.equal(stateOf(ticket), state);
+  }
+  assert.equal(await cli('item', 'set', 'audit/B2', '--status', 'building'), 0);
+  assert.equal(stateOf('PROD-101'), 'Done');
+  assert.equal(await cli('item', 'set', 'audit/C3', '--status', 'building'), 0);
+  assert.equal(out.at(-1), 'ticket PROD-9: left as it is, not assigned to you');
+  assert.deepEqual([item('C3').status, stateOf('PROD-9')], ['building', 'Todo']);
+  const before = linear.calls.length;
+  for (const flags of [['--status', 'checking'], ['--status', 'planned'], ['--held'], ['--next', 'Then this']]) assert.equal(await cli('item', 'set', 'audit/C3', ...flags), 0);
+  assert.equal(linear.calls.length, before);
+  assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five'), 0);
+  const offline = async () => { throw new Error('offline'); };
+  assert.equal(await main(['--site', 'audit', 'item', 'set', 'audit/E5', '--status', 'building'], { linearFetch: offline }), 0);
+  assert.equal(out.at(-1), 'ticket PROD-102: could not move to In Progress (Could not reach Linear: offline)');
+  assert.equal(item('E5').status, 'building');
+
+  const waveFile = site('audit', 'data', 'wave.json');
+  write(waveFile, { ...read(waveFile), repo: 'o/r' });
+  await saveBoardSettings(site('audit'), { tickets: { source: 'github' } });
+  assert.equal(await cli('item', 'add', 'audit/F6', '--title', 'Six'), 0);
+  assert.equal(await cli('item', 'add', 'audit/G7', '--title', 'Seven', '--ticket', '#41'), 0);
+  gh.length = 0;
+  for (const id of ['F6', 'G7']) assert.equal(await cli('item', 'set', `audit/${id}`, '--status', 'building'), 0);
+  assert.equal(await cli('item', 'set', 'audit/G7', '--pr', '7'), 0);
+  assert.deepEqual(gh, []);
+  assert.equal(await cli('item', 'set', 'audit/F6', '--status', 'done'), 0);
+  assert.equal(out.at(-1), 'ticket #42: closed');
+  assert.deepEqual(gh, [['issue', 'close', '42', '--repo', 'o/r']]);
+  assert.equal(await cli('item', 'set', 'audit/G7', '--status', 'merged'), 0);
+  assert.equal(out.at(-1), 'ticket #41: left as it is, not assigned to you');
+  assert.equal(gh.some((argv) => argv[1] === 'close' && argv[2] === '41'), false);
+  ghAnswers.view = { state: 'OPEN', assignees: [{ login: 'Love' }] };
+  assert.equal(await cli('item', 'set', 'audit/G7', '--status', 'done'), 0);
+  assert.equal(out.at(-1), 'ticket #41: closed');
+  assert.deepEqual(gh.at(-1), ['issue', 'close', '41', '--repo', 'o/r']);
+});
+
+test('tickets backfill links ids from open cards’ titles that belong to the source, creates the rest, leaves done cards, and changes nothing on a dry run', async (t) => {
+  const { saveBoardSettings, out, world, linear, cli, item } = await ticketCli(t);
+  world.issues['PROD-2918'] = { team: 'PROD', assignee: null, state: 's-todo' };
+  world.issues['PROD-2919'] = { team: 'PROD', assignee: null, state: 's-todo' };
+  const waveFile = site('audit', 'data', 'wave.json');
+  write(waveFile, { ...read(waveFile), items: [
+    { id: 'A1', title: 'Fix login (PROD-2918)' },
+    { id: 'B2', title: 'Merged PROD-77', status: 'merged' },
+    { id: 'C3', title: 'Watch OPS-3 too', status: 'building' },
+    { id: 'D4', title: 'Has one', ticket: 'PROD-5' },
+    { id: 'E5', title: 'Legacy', linear: ['PROD-2919'] },
+    { id: 'F6', title: 'Gone PROD-4040' },
+    { id: 'G7', title: 'Dropped', status: 'dropped' },
+  ] });
+  assert.equal(await cli('tickets', 'backfill'), 1);
+  await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'acme', team: 'PROD', project: 'Backend Audit' } });
+  const before = fs.readFileSync(waveFile, 'utf8');
+  out.length = 0;
+  assert.equal(await cli('tickets', 'backfill', '--dry-run'), 0);
+  assert.deepEqual(out, [
+    'audit/A1 would link PROD-2918', 'audit/C3 would get a new ticket', 'audit/E5 would link PROD-2919', 'audit/F6 would link PROD-4040',
+    'audit/PROD-1 would get a new ticket', 'backfill (dry run): would link 3, create 2',
+  ]);
+  assert.equal(fs.readFileSync(waveFile, 'utf8'), before);
+  assert.equal(linear.calls.length, 0);
+  out.length = 0;
+  assert.equal(await cli('tickets', 'backfill'), 0);
+  assert.deepEqual(out, [
+    'audit/A1 linked PROD-2918', 'audit/C3 created PROD-101', 'audit/E5 linked PROD-2919', 'audit/F6 failed: Linear has no issue PROD-4040.',
+    'audit/PROD-1 created PROD-102', 'backfill: linked 2, created 2, failed 1',
+  ]);
+  assert.deepEqual(['A1', 'B2', 'C3', 'D4', 'E5', 'F6', 'G7'].map((id) => [item(id).ticket, item(id).ticket_created]), [
+    ['PROD-2918', undefined], [undefined, undefined], ['PROD-101', true], ['PROD-5', undefined], ['PROD-2919', undefined], [undefined, undefined], [undefined, undefined],
+  ]);
+  assert.deepEqual(read(waveFile).followups[0].ticket, 'PROD-102');
+  assert.equal(world.issues['PROD-101'].input.projectId, 'proj-audit');
+});
+
+test('an Internal ticket another card holds is refused, and backfill gives a card that only mentions one a new ticket', () => {
+  assert.equal(board('item', 'add', 'w/B2', '--site', 'orch', '--title', 'Two').code, 0);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items.at(-1).ticket, 'INT-1');
+  const refused = board('item', 'set', 'w/A1', '--site', 'orch', '--ticket', 'INT-1');
+  assert.deepEqual([refused.code, refused.err], [1, 'INT-1 is already the ticket of w/B2\n']);
+  assert.equal(board('item', 'add', 'w/C3', '--site', 'orch', '--title', 'Three', '--ticket', 'INT-1').code, 1);
+  assert.equal(board('followup', 'add', 'w', '--site', 'orch', '--id', 'F', '--title', 'F', '--ticket', 'INT-1').code, 1);
+  assert.equal(board('item', 'set', 'w/B2', '--site', 'orch', '--ticket', 'INT-1').code, 0);
+  write(at('waves', 'w', 'wave.json'), { ...read(at('waves', 'w', 'wave.json')), items: [...read(at('waves', 'w', 'wave.json')).items, { id: 'D4', title: 'Follow-up to INT-1' }, { id: 'E5', title: 'Revisit INT-9' }] });
+  const backfill = board('tickets', 'backfill', '--site', 'orch');
+  assert.equal(backfill.code, 1);
+  assert.match(backfill.err, /no ticket source/);
+  fs.writeFileSync(site('orch', 'board.json'), JSON.stringify({ title: 'Orch', items: 'waves', tickets: { source: 'internal', prefix: 'INT' } }));
+  const done = board('tickets', 'backfill', '--site', 'orch');
+  assert.equal(done.code, 0, done.err);
+  assert.deepEqual(done.out.trim().split('\n'), ['w/A1 created INT-2', 'w/D4 created INT-3', 'w/E5 linked INT-9', 'w/PROD-1 created INT-10', 'backfill: linked 1, created 3, failed 0']);
 });
 
 test('working marks a known ask started and refuses an unknown one', () => {

@@ -117,7 +117,9 @@ test('Hub settings modals keep summaries, turn this device on and snooze inline,
   const listeners = [];
   const posts = [];
   const now = t(10);
-  const data = (notifications = ON) => settingsView({ now, st: status(now, notify(DEFAULTS, notifications)) });
+  let linear = { set: false };
+  const data = (notifications = ON) => settingsView({ now, st: status(now, notify(DEFAULTS, notifications)), linear });
+  let confirmed = false;
   let live;
   let subscribed = false;
   let requested = false;
@@ -131,7 +133,7 @@ test('Hub settings modals keep summaries, turn this device on and snooze inline,
     URL, URLSearchParams, document,
     Date: class extends Date { static now() { return now.getTime(); } },
     location: new URL('https://mac.ts.net/_hub/'), history: { replaceState() {} },
-    BoardDialogs: { fitSheet: () => () => {}, confirm: async () => false },
+    BoardDialogs: { fitSheet: () => () => {}, confirm: async () => confirmed },
     atob: (s) => Buffer.from(s, 'base64').toString('binary'),
     navigator: { userAgent: 'Mac', serviceWorker: { getRegistration: async () => registration, register: async () => registration, ready: Promise.resolve(registration) } },
     PushManager: class {},
@@ -146,6 +148,11 @@ test('Hub settings modals keep summaries, turn this device on and snooze inline,
       posts.push({ url, opts });
       if (url === '/_hub/push/key') return { json: async () => ({ key: 'AQID' }) };
       if (url === '/_hub/push/subscribe') return { json: async () => ({ ok: true }) };
+      if (url === '/_hub/settings/linear') {
+        if (opts.body.get('key') === 'bad') return { ok: false, json: async () => ({ error: 'Linear refused the key.' }) };
+        linear = opts.body.has('remove') ? { set: false } : { set: true, workspace: 'Acme', url_key: 'acme' };
+        return { ok: true, json: async () => data() };
+      }
       if (url === '/_hub/settings/notifications') {
         const choice = opts.body.get('snooze');
         const end = choice === 'off' ? null : snoozeEnd(now, choice, DEFAULTS);
@@ -168,7 +175,7 @@ test('Hub settings modals keep summaries, turn this device on and snooze inline,
   const modal = root.querySelector('#hubSettingsModal');
   assert.equal(modal.open, true);
   assert.equal(root.querySelector('#hubSettingsTitle').textContent, 'Rules for every board');
-  assert.equal(root.querySelectorAll('[data-summary]').length, 4);
+  assert.equal(root.querySelectorAll('[data-summary]').length, 5);
   const rulesBox = root.querySelector('#hubRules');
   rulesBox.setAttribute('data-dirty', '');
   live.paint(data());
@@ -176,7 +183,7 @@ test('Hub settings modals keep summaries, turn this device on and snooze inline,
   assert.equal(await B.openSettings({ hash: '#notifications' }), false);
   rulesBox.removeAttribute('data-dirty');
   await B.openSettings({ hash: '#notifications' });
-  assert.deepEqual(root.querySelectorAll('.hub-setting .title').map((h) => h.textContent), ['Notifications', 'Polling', 'Rules for every board', 'Closed boards']);
+  assert.deepEqual(root.querySelectorAll('.hub-setting .title').map((h) => h.textContent), ['Notifications', 'Polling', 'Linear', 'Rules for every board', 'Closed boards']);
   assert.deepEqual(root.querySelectorAll('form input[name="set"]').map((input) => input.value), ['on', 'weekends']);
   assert.deepEqual(root.querySelectorAll('.snooze-choices button').map((b) => b.textContent), ['3h', '6h', '1d', 'Monday']);
   assert.equal(root.querySelector('.snooze-custom .btn').textContent, 'Custom');
@@ -235,6 +242,34 @@ test('Hub settings modals keep summaries, turn this device on and snooze inline,
   await B.openSettings({ hash: '#codex' });
   assert.equal(modal.open, false);
   assert.equal(root.querySelector('.segments'), null);
+  await B.openSettings({ hash: '#linear' });
+  assert.equal(root.querySelector('#hubSettingsTitle').textContent, 'Linear');
+  assert.equal(root.querySelector('[data-summary=linear]').textContent, 'No key');
+  assert.equal(root.querySelector('[data-linear-remove]'), null);
+  const keyForm = root.querySelector('.lk-form');
+  const saveKey = async (value) => {
+    root.querySelector('#linearKey').value = value;
+    await listeners.find((l) => l.target === root && l.type === 'submit').fn({ target: root.querySelector('.lk-form'), preventDefault() {} });
+  };
+  assert.equal(keyForm.getAttribute('action'), '/_hub/settings/linear');
+  await saveKey('bad');
+  assert.equal(root.querySelector('[role="alert"]').textContent, 'Linear refused the key.');
+  await saveKey('lin_api_secret123');
+  assert.equal(posts.at(-1).opts.body.toString(), 'key=lin_api_secret123');
+  assert.equal(root.querySelector('[data-summary=linear]').textContent, 'Key set · Acme workspace');
+  assert.match(root.querySelector('.setting-content').textContent, /Acme workspace/);
+  assert.doesNotMatch(root.innerHTML, /secret123/);
+  const remove = root.querySelector('[data-linear-remove]');
+  const clickRemove = () => Promise.all(listeners.filter((l) => l.target === root && l.type === 'click').map((l) => l.fn({ target: remove })));
+  await clickRemove();
+  assert.equal(posts.at(-1).url, '/_hub/settings/linear');
+  assert.equal(root.querySelector('[data-summary=linear]').textContent, 'Key set · Acme workspace');
+  confirmed = true;
+  remove.closest('form').requestSubmit = () => listeners.find((l) => l.target === root && l.type === 'submit').fn({ target: remove.closest('form'), preventDefault() {} });
+  await clickRemove();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(posts.at(-1).opts.body.toString(), 'remove=1');
+  assert.equal(root.querySelector('[data-summary=linear]').textContent, 'No key');
 });
 
 test("the hub page lists Boards and Pages apart with each site's health and links, and says what the hub runs, polls and holds", () => {

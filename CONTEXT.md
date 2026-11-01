@@ -101,7 +101,7 @@ The hub's one schedule, a list of windows with their minutes: on each slot it ch
 _Avoid_: push schedule, send-at-once hours, cron
 
 **Hub settings**:
-The four summary rows below the **hub page**’s health and status: Notifications, Polling, Rules for every board and Closed boards. Each opens its controls in a centred modal with its own scroll area, including Polling’s schedule editor. Old Hub Settings links open the matching modal over Hub ([0075](docs/adr/0075-hub-settings-open-as-modals.md)).
+The five summary rows below the **hub page**’s health and status: Notifications, Polling, Linear, Rules for every board and Closed boards. Each opens its controls in a centred modal with its own scroll area, including Polling’s schedule editor. Old Hub Settings links open the matching modal over Hub ([0075](docs/adr/0075-hub-settings-open-as-modals.md)).
 _Avoid_: Hub Settings page, preferences, hub config
 
 **Board Settings**:
@@ -156,12 +156,16 @@ In Todo, including while held, a card with a known creation time shows a muted "
 _Avoid_: task (a **new task** is the owner's), ticket (the identity of its work in the board’s ticket source)
 
 **Ticket**:
-The identity of a work item or follow-up in its board’s **ticket source**, shown as a badge that opens the internal card, GitHub issue or Linear issue. A ticket id belongs to its source: one stored under another source shows as its own id, unlinked. An ask has no ticket; filing it as work creates or links one ([0081](docs/adr/0081-a-board-has-one-ticket-source.md)).
+The identity of a work item or follow-up in its board’s **ticket source**, shown as a badge that opens the internal card, GitHub issue or Linear issue. A ticket id belongs to its source: one stored under another source shows as its own id, unlinked. An ask has no ticket; filing it as work creates or links one ([0081](docs/adr/0081-a-board-has-one-ticket-source.md)). A card moves its ticket one way, building to In Progress, a PR to In Review and done to Done, when the owner is assigned it or kickflip created it; a ticket never moves its card ([0088](docs/adr/0088-kickflip-reaches-linear-with-a-key-on-the-mac.md)).
 _Avoid_: card (the board’s work item), task
 
 **Ticket source**:
-The board’s one choice for every card’s tickets: Internal with a prefix (INT by default), GitHub issues in the board’s repo, or a Linear workspace, team and project. New board and Board Settings share the choice ([0081](docs/adr/0081-a-board-has-one-ticket-source.md)).
+The board’s one choice for every card’s tickets: Internal with a prefix (INT by default), GitHub issues in the board’s repo, or a Linear workspace, team and project, listed through Hub’s **Linear key**. New board and Board Settings share the choice ([0081](docs/adr/0081-a-board-has-one-ticket-source.md)).
 _Avoid_: integration, tracker, GitHub project
+
+**Linear key**:
+The owner’s Linear personal API key, pasted in Hub settings and kept only on this Mac; pages learn only whether it is set and its workspace. kickflip lists teams and projects, creates projects and issues, and moves tickets with it ([0088](docs/adr/0088-kickflip-reaches-linear-with-a-key-on-the-mac.md)).
+_Avoid_: Linear token, API secret
 
 **Internal item**:
 A work item about the sites themselves rather than the product. Its legacy ref `S<n>` reads `INT-<n>`, or the board’s internal prefix when set.
@@ -338,7 +342,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `view-questions.js` | Waiting on you as a view: a topic's questions, their takes framed with `?take=` in a fitting grid or a chooser above one full-width frame, and one Send, which stays while the topic has a question open and otherwise opens the next topic with one, or goes back to the board |
 | `view-notes.js` | One item's notes as a view, from `GET /api/notes`; the server redirects `plan.html` to `notes.html` |
 | `view-hub.js` | The **hub page** as a view, from `/_hub/api/hub`, refreshed every 30 seconds while it shows; the Usage card, whose Codex share posts `/_hub/settings/codex`, pending prompts of sessions with no board, Send now, then `view-hub-settings.js` below its status |
-| `view-hub-settings.js` | Summary rows opening **hub settings** modals over the hub page, from `/_hub/api/settings`: Notifications with inline Snooze chips and a native Custom picker, Polling, Rules for every board and Closed boards with Reopen |
+| `view-hub-settings.js` | Summary rows opening **hub settings** modals over the hub page, from `/_hub/api/settings`: Notifications with inline Snooze chips and a native Custom picker, Polling, Linear (the masked key, its workspace and Remove), Rules for every board and Closed boards with Reopen |
 | `view-polling.js` | The editor in Hub’s Polling modal, from `/_hub/api/polling`: the day bar, whose taps pick a window without asking the hub, each window's edits, the overnight hold, the daily wakes and Send now |
 | `ui-hub.js` | `HubUI`, the hub views' pure renderers: rows, tiles, the flash, the Now row, this device's row and the Usage card |
 | `hub-kit.js` | `HubKit`, what the hub views share: `live` (load, the header's time and ↻, the 30-second refresh), `forms` (posting a hub form for JSON, and saving a toggle or time on change) and `device` (this device's push subscription) |

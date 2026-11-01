@@ -21,13 +21,16 @@
 //                     null without a reading, else {used_percentage, resets_at, state: live|reset|stale} (usage.mjs).
 //                     Reset windows read 0%; stale means older than that window. Codex scans cache for 60 seconds.
 //                     /_hub/api/hub carries the same usage field.
+//   /_hub/api/linear GET {set, workspace, url_key, teams: [{key, name}], projects: [{id, name, team}]} through Hub's Linear
+//                     key, {set: false} without one, or with error when Linear can't be reached
+//   /_hub/linear/projects POST {team, name} creates a Linear project in that team → {id, name, team}
 //   /_hub/repos      GET the signed-in owner's and orgs' repos with clone/share metadata
 //   /_hub/repo       GET ?github=owner/repo checks a pasted GitHub repo, including one outside the list;
 //                     returns one repo row with listed: false, or 404 when unreachable (repos.mjs)
 //   /_hub/branches   GET ?github=owner/repo lists branches and the repo default
 //   /_hub/board-repo/<route> GET repo and branch; POST {github, branch} prepares the clone and sends repo-changed
 //                     (board-repo.mjs); the hub board's GET names kickflip's clone and its POST is refused
-//   /_hub/new-board  POST {name, github, branch, purpose} → {route}: a starting reservation, then the board's session starts
+//   /_hub/new-board  POST {name, github, branch, purpose, tickets} → {route}: a starting reservation, then the board's session starts
 //                     without holding the response; DELETE /_hub/new-board/<route> dismisses a start that failed
 //                     or timed out (new-board.mjs)
 //   /_hub/close-board/<route> GET the board's title, hub flag, open PRs and running builder records
@@ -54,6 +57,8 @@
 //                     (303 to ?refused=snooze). Custom posts a UTC ISO date-time; snoozeEnd refuses an end not
 //                     after now or more than 30 days on.
 //   /_hub/settings/codex POST value=auto|always|off → /_hub/api/hub's JSON, or 400 {error}
+//   /_hub/settings/linear POST key=<Linear personal API key>, saved once Linear accepts it, or remove=1
+//                     → /_hub/api/settings's JSON, whose `linear` names only the workspace, or 400 {error} (linear.mjs)
 //   /_hub/settings/polling POST one schedule.mjs editPolling change {op, w, value} → /_hub/api/polling's JSON for the
 //                     window to show, or 400 {error}
 //   /_hub/push/flush  POST sends the queued pushes now → {sent, count, ok, message}
@@ -98,7 +103,7 @@
 // docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md).
 // Every 15 seconds it drops the pending prompts whose hook has gone (prompts.mjs expired).
 // State lives in ~/.claude/kickflip: manifest.json, logs/<route>.log, run/<route>.pid, github-state.json, wake-state.json,
-// deaf-state.json, link-faults.json, hub-code.json, resume-state.json, prompts.json.
+// deaf-state.json, link-faults.json, hub-code.json, resume-state.json, prompts.json, linear.json.
 import http from 'node:http';
 import net from 'node:net';
 import { spawn, execFileSync } from 'node:child_process';
@@ -131,6 +136,7 @@ import { usageReader, codexLoggedIn } from './usage.mjs';
 import { InstallError, startInstall, stopInstalls } from './installs.mjs';
 import { migrateOnStart } from '../bin/install.mjs';
 import { serveFiles } from './files.mjs';
+import { LinearError, linearStatus, removeLinearKey, saveLinearKey, savedClient } from './linear.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const COLORS = path.join(HUB_DIR, '..', 'shared', 'colors.css');
@@ -587,7 +593,7 @@ async function hubData(req) {
     remembered: rememberedFor(null),
   };
 }
-const settingsData = async () => { const now = new Date(); return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), route: await pushRoute() }), closed: closedBoards() }; };
+const settingsData = async () => { const now = new Date(); return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), route: await pushRoute(), linear: linearStatus() }), closed: closedBoards() }; };
 const pollingData = (select) => { const now = new Date(); return pollingView({ now, st: queueStatus(now), poll: pollState(), select }); };
 
 const redirect = (res, location) => { res.writeHead(303, { location, 'cache-control': 'no-store' }); res.end(); };
@@ -735,6 +741,36 @@ async function hubRoute(req, res, url) {
       return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
     }
     return json ? sendJSON(200, await hubData(req)) : redirect(res, '/_hub/');
+  }
+  if (p === '/_hub/settings/linear' && req.method === 'POST') {
+    const f = new URLSearchParams(await readBody(req, 4 * 1024));
+    try {
+      if (f.has('remove')) removeLinearKey(); else await saveLinearKey(f.get('key'));
+    } catch (e) {
+      if (!(e instanceof LinearError)) throw e;
+      return json ? sendJSON(e.status, { error: e.message }) : send(e.status, 'text/plain; charset=utf-8', e.message);
+    }
+    log(`linear: key ${f.has('remove') ? 'removed' : 'saved'}`);
+    return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#linear');
+  }
+  if (p === '/_hub/api/linear' && req.method === 'GET') {
+    const linear = savedClient();
+    if (!linear) return sendJSON(200, { set: false });
+    try {
+      const teams = await linear.teams();
+      return sendJSON(200, { ...linearStatus(), teams: teams.map(({ key, name }) => ({ key, name })),
+        projects: teams.flatMap((t) => t.projects.map((pr) => ({ id: pr.id, name: pr.name, team: t.key }))) });
+    } catch (e) { if (!(e instanceof LinearError)) throw e; return sendJSON(200, { ...linearStatus(), error: e.message }); }
+  }
+  if (p === '/_hub/linear/projects' && req.method === 'POST') {
+    const linear = savedClient();
+    if (!linear) return sendJSON(400, { error: 'Add a Linear key on Hub first.' });
+    let input;
+    try { input = await readJSONBody(req, 4 * 1024); } catch (e) { return sendJSON(e.status || 400, { error: 'Send the team and project name as JSON.' }); }
+    const name = typeof input.name === 'string' ? input.name.trim() : '';
+    if (!name || name.length > 80 || typeof input.team !== 'string' || !/^[A-Z][A-Z0-9]*$/.test(input.team)) return sendJSON(400, { error: 'Name the project and its team.' });
+    try { return sendJSON(200, await linear.createProject(input.team, name)); }
+    catch (e) { if (!(e instanceof LinearError)) throw e; return sendJSON(e.status, { error: e.message }); }
   }
   // One schedule.mjs editPolling change {op, w, value}.
   if (p === '/_hub/settings/polling' && req.method === 'POST') {

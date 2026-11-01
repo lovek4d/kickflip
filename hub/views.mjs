@@ -92,10 +92,11 @@ export const SNOOZE_REFUSED = 'That snooze ends in the past or more than 30 days
 const snoozedUntil = (n, now) => (n.on && n.snoozed_until && new Date(n.snoozed_until) > now ? new Date(n.snoozed_until) : null);
 
 // The hub page's hub settings: the on/off, snooze and weekend controls (docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md),
-// the polling summary and hub rules. The snooze chips (docs/adr/0076-snooze-is-five-chips-in-notifications.md)
-// are null while off or snoozed. route is push.mjs pushRoute(): where an action push goes now
-// (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md).
-export function settingsView({ now, st, rules = [], route = { atMac: false, desktops: 0 } }) {
+// the polling summary, hub rules and the Linear key, of which only whether it is set and its workspace are shown
+// (linear.mjs linearStatus; docs/adr/0088-kickflip-reaches-linear-with-a-key-on-the-mac.md). The snooze chips
+// (docs/adr/0076-snooze-is-five-chips-in-notifications.md) are null while off or snoozed. route is push.mjs pushRoute():
+// where an action push goes now (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md).
+export function settingsView({ now, st, rules = [], route = { atMac: false, desktops: 0 }, linear = { set: false } }) {
   const s = st.settings;
   const n = s.notifications;
   const [first, last] = [s.windows[0], s.windows.at(-1)];
@@ -117,6 +118,9 @@ export function settingsView({ now, st, rules = [], route = { atMac: false, desk
     weekends: { on: n.weekends_off, sub: `Pushes wait from Friday ${timeOfDay(last.from)} until Monday ${timeOfDay(first.from)}. Urgent ones still go.` },
     polling: pollingSummary(s),
     rules,
+    linear: linear.set
+      ? { set: true, title: `${linear.workspace} workspace`, sub: 'Key ••••••••', summary: `Key set · ${linear.workspace} workspace` }
+      : { set: false, title: 'No key', sub: 'Paste a personal API key from Linear’s Settings → Security & access.', summary: 'No key' },
   };
 }
 

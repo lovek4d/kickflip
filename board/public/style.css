@@ -545,7 +545,8 @@ main > * { transition: opacity .25s ease; }
 @media (min-width: 560px) { .tk-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); } }
 .tk-field { display: block; min-width: 0; }
 .tk-field > span { display: block; margin: 0 0 4px; font-size: 12px; font-weight: 600; }
-.tk-field :is(select, input) { display: block; width: 100%; min-width: 0; min-height: 44px; font-size: 16px; }
+.tk-field :is(select, input), .tk-new input { display: block; width: 100%; min-width: 0; min-height: 44px; padding: 8px 10px; box-sizing: border-box;
+  color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 16px; }
 .tk-new { display: flex; gap: 6px; margin-top: 8px; }
 .tk-new input { flex: 1; min-width: 0; font-size: 16px; }
 .tk-detail > p { margin: 8px 0; }
