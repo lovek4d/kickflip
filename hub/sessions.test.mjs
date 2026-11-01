@@ -6,6 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { installLinks, installClaudeSettings } from '../bin/install.mjs';
 
 const SKILL = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sessions-')));
@@ -66,9 +67,9 @@ const liveRecord = (sessionId, cwd) => {
   return c;
 };
 
-const cli = (args, { cwd = repo, input = '', entry = SKILL } = {}) => new Promise((resolve) => {
-  const child = spawn(process.execPath, [path.join(entry, 'bin', 'kickflip.mjs'), ...args], {
-    cwd, env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: fakeClaude, KICKFLIP_HUB_PORT: '1', CLAUDECODE: '1' },
+const cli = (args, { cwd = repo, input = '', entry = SKILL, env = {}, preload } = {}) => new Promise((resolve) => {
+  const child = spawn(process.execPath, [...(preload ? ['--import', preload] : []), path.join(entry, 'bin', 'kickflip.mjs'), ...args], {
+    cwd, env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: fakeClaude, KICKFLIP_HUB_PORT: '1', CLAUDECODE: '1', ...env },
   });
   let stdout = '';
   let stderr = '';
@@ -83,6 +84,99 @@ after(() => {
   for (const c of sleepers) c.kill();
   try { for (const pid of fs.readFileSync(fakeLog + '.pids', 'utf8').trim().split('\n')) { try { process.kill(Number(pid)); } catch {} } } catch {}
   fs.rmSync(home, { recursive: true, force: true });
+});
+
+function doctorCLI(name, { healthy = false, installed = false } = {}) {
+  const scratch = path.join(home, name);
+  fs.mkdirSync(scratch);
+  const log = path.join(scratch, 'commands.jsonl');
+  const port = 19460;
+  if (installed) {
+    installLinks({ home: scratch, cloneRoot: SKILL });
+    installClaudeSettings({ home: scratch });
+    write(path.join(scratch, 'Library', 'LaunchAgents', 'local.claude.kickflip-hub.plist'), 'plist');
+  }
+  if (healthy) write(path.join(scratch, '.codex', 'auth.json'), '{}');
+  const source = `
+    import fs from 'node:fs';
+    import cp from 'node:child_process';
+    import { syncBuiltinESMExports } from 'node:module';
+    cp.spawnSync = (command, argv, options) => {
+      fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify([command, ...argv]) + '\\n');
+      if (!['git', 'node', 'gh', 'tailscale', 'launchctl'].includes(command)) throw new Error('unexpected command: ' + command);
+      if (!${healthy}) return { status: 1, stdout: '', stderr: 'unavailable' };
+      let stdout = command + ' version';
+      if (command === 'launchctl') stdout = 'state = running';
+      if (command === 'tailscale' && argv[0] === 'status') stdout = JSON.stringify({ BackendState: 'Running' });
+      if (command === 'tailscale' && argv[0] === 'serve' && argv[1] === 'status') stdout = JSON.stringify({ Web: { host: { Handlers: { '/': { Proxy: 'http://127.0.0.1:${port}' } } } } });
+      return { status: 0, stdout, stderr: '' };
+    };
+    syncBuiltinESMExports();
+    globalThis.fetch = async (url) => {
+      if (url !== 'http://127.0.0.1:${port}/_hub/status.json') throw new Error('unexpected URL: ' + url);
+      return { ok: ${healthy}, json: async () => ({ sites: [] }) };
+    };
+  `;
+  return {
+    scratch,
+    calls: () => fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [],
+    run: (...args) => cli(args, { env: { HOME: scratch, PATH: '/doctor-bin', KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false' }, preload: 'data:text/javascript,' + encodeURIComponent(source) }),
+  };
+}
+
+test('doctor CLI reports all-ok as text and JSON with exit 0; status is removed from commands and help', async () => {
+  const fixture = doctorCLI('doctor-ok', { healthy: true, installed: true });
+  const report = await fixture.run('doctor');
+  assert.equal(report.status, 0, report.stderr);
+  assert.ok(report.stdout.trim().split('\n').every((line) => line.startsWith('ok ')));
+  const result = json(await fixture.run('doctor', '--json'));
+  assert.ok(result.items.length > 0);
+  assert.ok(result.items.every((item) => item.state === 'ok'));
+  assert.equal(fixture.calls().filter((call) => call[0] === 'gh' && call[1] === 'auth' && call[2] === 'status').length, 2);
+  const removed = await fixture.run('status');
+  assert.equal(removed.status, 2);
+  assert.match(removed.stdout, /kickflip doctor/);
+  assert.doesNotMatch(removed.stdout, /kickflip status/);
+});
+
+test('doctor CLI exits 1 on a broken HOME, prints commands, and leaves old state unmigrated', async () => {
+  const fixture = doctorCLI('doctor-broken');
+  const old = path.join(fixture.scratch, '.claude', 'web-ts');
+  write(path.join(old, 'manifest.json'), { sites: {} });
+  const report = await fixture.run('doctor');
+  assert.equal(report.status, 1, report.stderr);
+  assert.match(report.stdout, /^yours +gh signed in: needs gh\n +→ gh auth login$/m);
+  assert.match(report.stdout, /^fixable +kickflip skill link: missing -> .*\n +→ kickflip doctor --fix$/m);
+  const structured = await fixture.run('doctor', '--json');
+  assert.equal(structured.status, 1);
+  assert.ok(JSON.parse(structured.stdout).items.some((item) => item.state === 'yours'));
+  assert.ok(fs.lstatSync(old).isDirectory());
+  assert.equal(fs.existsSync(path.join(fixture.scratch, '.claude', 'kickflip')), false);
+  assert.equal(fs.existsSync(path.join(fixture.scratch, '.claude', 'settings.json')), false);
+});
+
+test('doctor --fix and install CLI run the same setup once and finish with a JSON report', async () => {
+  for (const [name, args] of [['doctor-fix', ['doctor', '--fix']], ['doctor-install', ['install']]]) {
+    const fixture = doctorCLI(name, { healthy: true });
+    const result = await fixture.run(...args, '--json');
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(JSON.parse(result.stdout).items.every((item) => item.state === 'ok'));
+    const calls = fixture.calls();
+    assert.equal(calls.filter(([command, sub]) => command === 'launchctl' && sub === 'bootstrap').length, 1);
+    assert.equal(calls.filter(([command, sub, flag]) => command === 'tailscale' && sub === 'serve' && flag === '--bg').length, 1);
+    assert.ok(fs.existsSync(path.join(fixture.scratch, '.claude', 'settings.json')));
+  }
+});
+
+test('doctor --fix --dry-run and install --dry-run CLI write no setup and invoke no service', async () => {
+  for (const [name, args] of [['doctor-dry', ['doctor', '--fix']], ['install-dry', ['install']]]) {
+    const fixture = doctorCLI(name);
+    const result = await fixture.run(...args, '--dry-run');
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /would map tailscale \/ to the hub on 19460/);
+    assert.deepEqual(fixture.calls(), []);
+    assert.deepEqual(fs.readdirSync(fixture.scratch), []);
+  }
 });
 
 test('join records the session and its folder: --repo, else the live session\'s cwd, else the recorded one, else where join ran; a rejoin, or a --force takeover, keeps the label, model and folder it leaves out', async () => {

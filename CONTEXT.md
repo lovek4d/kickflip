@@ -10,6 +10,10 @@ Pages on Love's tailnet that Claude sessions serve, so the owner can follow and 
 The Git checkout that supplies the running app's code, in any folder such as `~/dev/kickflip`, linked into Claude Code's skills by install. It is separate from the live state in `~/.claude/kickflip/` ([0071](docs/adr/0071-kickflip-runs-from-a-linked-clone.md)). Install supplies kickflip's status line and hooks as well as the skill links, so setup is independent of the owner's dotfiles ([0080](docs/adr/0080-kickflip-installs-its-own-status-line-and-hooks.md)).
 _Avoid_: live skill folder
 
+**Doctor**:
+The hub setup check, `kickflip doctor`: each prerequisite, installed piece and site is ok, fixable by kickflip, the owner's to fix with the printed command, optional (the Codex login) or a note (a down site the hub restarts). `doctor --fix` runs the same setup as first-run `install` and checks again; another tool's status line stays the owner's choice ([0085](docs/adr/0085-doctor-checks-and-fixes-a-hub.md)).
+_Avoid_: status (the former CLI command)
+
 **Board repo**:
 A project's shared checkout under the kickflip clone's `.repos/<owner>/<repo>`, chosen from the GitHub list or a pasted GitHub link or `owner/name` when making a board ([0078](docs/adr/0078-a-pasted-github-link-picks-any-reachable-repo.md)). Each board keeps its own branch, and its builders work in separate worktrees based on that branch ([0073](docs/adr/0073-a-new-board-chooses-a-repo-and-branch.md)).
 _Avoid_: repo folder (for the repo choice)

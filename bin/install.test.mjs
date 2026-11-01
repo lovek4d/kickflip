@@ -4,10 +4,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { installLinks, installClaudeSettings, installLoginItem, migrateHome, uninstallStatusLine, storedPath } from './install.mjs';
+import { runInstall, installLinks, installClaudeSettings, installLoginItem, migrateHome, uninstallStatusLine, storedPath } from './install.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { freePorts } from '../shared/test-helpers.mjs';
 import { boardAt } from '../hub/boards.mjs';
+import { doctorReport, doctorLines, runDoctor } from './doctor.mjs';
 
 let home;
 let root;
@@ -372,7 +373,7 @@ test('the install command moves an old-named Mac before launchd, and --dry-run c
   fs.mkdirSync(agents, { recursive: true });
   fs.writeFileSync(path.join(agents, 'local.claude.web-ts-hub.plist'), 'old plist');
   const run = (...flags) => spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'install', ...flags], {
-    env: { ...process.env, HOME: home, PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
+    env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
   });
   const dry = run('--dry-run');
   assert.equal(dry.status, 0, dry.stderr);
@@ -430,7 +431,7 @@ test('the install command refuses conflicting links before touching launchd or h
   const link = path.join(skills, 'kickflip');
   fs.symlinkSync(root, link);
   const result = spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'install', '--force'], {
-    env: { ...process.env, HOME: home, PATH: path.join(home, 'no-bin') }, encoding: 'utf8',
+    env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
   });
   assert.equal(result.status, 1, result.stderr);
   assert.match(result.stderr, /^kickflip: refusing to replace link/);
@@ -440,13 +441,11 @@ test('the install command refuses conflicting links before touching launchd or h
 });
 
 test('the install command configures links and settings before launchd and reports reruns', () => {
-  // An empty PATH prevents launchctl and tailscale from running. Install stops at bootstrap,
-  // before its first connection attempt, after making the setup we want to inspect.
   fs.mkdirSync(path.dirname(statusline()), { recursive: true });
   fs.symlinkSync(path.join(home, 'old-dotfiles-statusline'), statusline());
   writeSettings({ keep: 'untouched', hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'python3 ~/.claude/hooks/no-paths.py' }] }] } });
   const run = () => spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'install'], {
-    env: { ...process.env, HOME: home, PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
+    env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
   });
   const first = run();
   assert.equal(first.status, 1);
@@ -461,7 +460,7 @@ test('the install command configures links and settings before launchd and repor
   const second = run();
   assert.equal(second.status, 1);
   assert.equal(second.stdout.split('\n').filter((line) => line.startsWith('checked ')).length, 3);
-  assert.doesNotMatch(second.stdout, /linked |set statusLine|removed stale/);
+  assert.doesNotMatch(second.stdout, /^(?:linked |set statusLine|removed stale)/m);
   assert.equal(fs.statSync(settingsFile()).ino, inode);
 });
 
@@ -470,11 +469,314 @@ test('the uninstall command removes the owned status-line link and preserves ski
   configure();
   const before = fs.readFileSync(settingsFile(), 'utf8');
   const result = spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'uninstall'], {
-    env: { ...process.env, HOME: home, PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
+    env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
   });
   assert.equal(result.status, 0, result.stderr);
   assert.ok(result.stdout.startsWith(`removed ${statusline()}\n`));
   assert.equal(fs.existsSync(statusline()), false);
   assert.ok(skillLinks().every((link) => fs.existsSync(link)));
   assert.equal(fs.readFileSync(settingsFile(), 'utf8'), before);
+});
+
+function healthyDoctor() {
+  install();
+  configure();
+  fs.mkdirSync(path.join(home, '.codex'));
+  fs.writeFileSync(path.join(home, '.codex', 'auth.json'), '{}');
+  const plist = path.join(home, 'Library', 'LaunchAgents', 'local.claude.kickflip-hub.plist');
+  fs.mkdirSync(path.dirname(plist), { recursive: true });
+  fs.writeFileSync(plist, 'plist');
+  const port = 19460;
+  const site = { route: 'shop', state: 'up', port: 19461, owner: { label: 'Shop owner', session: 's-shop' }, title: 'Shop board' };
+  const responses = new Map([
+    ['git --version', 'git version 2.50.0'],
+    ['node --version', 'v24.0.0'],
+    ['gh --version', 'gh version 2.80.0'],
+    ['gh auth status', 'Logged in'],
+    ['tailscale version', '1.90.0'],
+    ['tailscale status --json', JSON.stringify({ BackendState: 'Running', Self: { DNSName: 'mac.tail.ts.net.' } })],
+    ['tailscale serve status --json', JSON.stringify({ Web: { 'mac.tail.ts.net:443': { Handlers: { '/': { Proxy: `http://127.0.0.1:${port}` } } } } })],
+    ['launchctl print gui/501/local.claude.kickflip-hub', 'state = running'],
+  ].map(([key, stdout]) => [key, { status: 0, stdout }]));
+  const calls = [];
+  const env = { PATH: '/doctor-bin', HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false' };
+  const options = { home, cloneRoot: root, port, uid: 501, env,
+    run: (command, argv, passed) => {
+      assert.equal(passed.env, env);
+      const key = [command, ...argv].join(' ');
+      calls.push(key);
+      assert.ok(responses.has(key), key);
+      return responses.get(key);
+    },
+    fetch: async (url) => {
+      assert.equal(url, `http://127.0.0.1:${port}/_hub/status.json`);
+      return { ok: true, json: async () => ({ sites: [site] }) };
+    },
+  };
+  return { options, responses, calls, plist, site };
+}
+
+const pick = (items, name) => items.find((entry) => entry.item === name);
+
+test('doctor reports every healthy item and the old hub, Tailscale and site details without running login tools', async () => {
+  const { options, calls } = healthyDoctor();
+  const items = await doctorReport(options);
+  assert.deepEqual(items.map(({ group, item }) => `${group} ${item}`), [
+    'prereqs git', 'prereqs node on Claude’s PATH', 'prereqs gh', 'prereqs gh signed in', 'prereqs Tailscale', 'prereqs Tailscale signed in', 'prereqs Codex login',
+    'setup kickflip skill link', 'setup kickflip-hooks link', 'setup ~/.claude/statusline.sh', 'setup settings.json statusLine', 'setup hub login item',
+    'hub hub', 'hub tailscale /', 'hub /shop',
+  ]);
+  assert.ok(items.every((item) => item.state === 'ok' && item.fix === null));
+  assert.deepEqual(doctorLines(items).slice(-3), [
+    'ok       hub: running on 127.0.0.1:19460',
+    'ok       tailscale /: http://127.0.0.1:19460',
+    'ok       /shop: up  port 19461  owner Shop owner  Shop board',
+  ]);
+  assert.ok(calls.includes('gh auth status'));
+  assert.ok(!calls.some((call) => /^(?:codex|claude) | login$| bootstrap | bootout /.test(call)));
+  assert.deepEqual(await runDoctor({ ...options, write: () => {} }), { items, exitCode: 0 });
+});
+
+for (const name of ['kickflip skill link', 'kickflip-hooks link', '~/.claude/statusline.sh', 'settings.json statusLine', 'hub login item', 'hub', 'tailscale /']) {
+  test(`doctor marks ${name} fixable and gives the shared fix command`, async () => {
+    const { options, responses, plist } = healthyDoctor();
+    if (name === 'kickflip skill link') fs.unlinkSync(skillLinks()[0]);
+    if (name === 'kickflip-hooks link') fs.unlinkSync(skillLinks()[1]);
+    if (name === '~/.claude/statusline.sh') fs.unlinkSync(statusline());
+    if (name === 'settings.json statusLine') fs.unlinkSync(settingsFile());
+    if (name === 'hub login item') fs.unlinkSync(plist);
+    if (name === 'hub') options.fetch = async () => { throw new Error('offline'); };
+    if (name === 'tailscale /') responses.set('tailscale serve status --json', { status: 0, stdout: '{}' });
+    const { items, exitCode } = await runDoctor({ ...options, write: () => {} });
+    const item = pick(items, name);
+    assert.equal(item.state, 'fixable');
+    assert.equal(exitCode, 1);
+    const lines = doctorLines([item]);
+    assert.ok(lines[0].startsWith(`fixable  ${name}: `));
+    assert.equal(lines[1], '         → kickflip doctor --fix');
+  });
+}
+
+for (const [name, command, fix] of [
+  ['git', 'git --version', 'xcode-select --install'],
+  ['node on Claude’s PATH', 'node --version', 'restart Claude Code'],
+  ['gh', 'gh --version', 'brew install gh'],
+  ['gh signed in', 'gh auth status', 'gh auth login'],
+  ['Tailscale', 'tailscale version', 'brew install --cask tailscale'],
+  ['Tailscale signed in', 'tailscale status --json', 'tailscale up'],
+]) {
+  test(`doctor marks ${name} yours and gives the person's command`, async () => {
+    const { options, responses } = healthyDoctor();
+    responses.set(command, { status: 1, stdout: '', error: 'unavailable' });
+    const { items, exitCode } = await runDoctor({ ...options, write: () => {} });
+    const item = pick(items, name);
+    assert.equal(item.state, 'yours');
+    assert.ok(item.fix.includes(fix));
+    if (name === 'node on Claude’s PATH') assert.match(item.detail, /\/doctor-bin/);
+    assert.equal(exitCode, 1);
+    const lines = doctorLines([item]);
+    assert.ok(lines[0].startsWith(`yours    ${name}: `));
+    assert.equal(lines[1], `         → ${item.fix}`);
+  });
+}
+
+test('doctor marks a missing Codex login optional, with its command, and still exits 0', async () => {
+  const { options } = healthyDoctor();
+  fs.unlinkSync(path.join(home, '.codex', 'auth.json'));
+  const { items, exitCode } = await runDoctor({ ...options, write: () => {} });
+  const item = pick(items, 'Codex login');
+  assert.equal(item.state, 'optional');
+  assert.equal(item.fix, 'codex login');
+  assert.equal(exitCode, 0);
+  assert.deepEqual(doctorLines([item]), [`optional Codex login: ${item.detail}`, '         → codex login']);
+});
+
+test('doctor reports foreign status-line files, links and choices as yours, preserving them', async () => {
+  const { options } = healthyDoctor();
+  const foreign = path.join(home, 'other-statusline');
+  fs.writeFileSync(foreign, 'keep');
+  for (const isLink of [false, true]) {
+    fs.unlinkSync(statusline());
+    if (isLink) fs.symlinkSync(foreign, statusline());
+    else fs.writeFileSync(statusline(), 'keep');
+    const item = pick(await doctorReport(options), '~/.claude/statusline.sh');
+    assert.equal(item.state, 'yours');
+    assert.match(item.detail, isLink ? /^links to .*other-statusline, not kickflip$/ : /^a real file, not kickflip’s link$/);
+    assert.ok(item.fix.startsWith(isLink ? 'rm ' : 'mv '));
+    assert.match(item.fix, /kickflip doctor --fix$/);
+    assert.equal(fs.readFileSync(statusline(), 'utf8'), 'keep');
+    assert.throws(() => install(), /refusing to replace/);
+  }
+  writeSettings({ statusLine: { type: 'command', command: 'other-tool' }, keep: 1 });
+  const before = fs.readFileSync(settingsFile(), 'utf8');
+  const item = pick(await doctorReport(options), 'settings.json statusLine');
+  assert.equal(item.state, 'yours');
+  assert.match(item.fix, /remove statusLine from.*settings.json.*doctor --fix/);
+  assert.equal(fs.readFileSync(settingsFile(), 'utf8'), before);
+});
+
+test('doctor agrees with install about foreign skill links and replaceable status lines', async () => {
+  const { options } = healthyDoctor();
+  for (const [i, name] of ['kickflip skill link', 'kickflip-hooks link'].entries()) {
+    const link = skillLinks()[i];
+    fs.unlinkSync(link);
+    fs.symlinkSync(path.join(home, 'missing'), link);
+    const item = pick(await doctorReport(options), name);
+    assert.equal(item.state, 'yours');
+    assert.match(item.fix, /^rm /);
+    assert.throws(() => install(), /refusing to replace link/);
+    fs.unlinkSync(link);
+    fs.symlinkSync(targets()[i], link);
+    install();
+  }
+  const proto = path.join(home, '.claude', 'kickflip', 'sites', 'hub', 'prototype.mjs');
+  fs.mkdirSync(path.dirname(proto), { recursive: true });
+  fs.writeFileSync(proto, 'prototype');
+  for (const target of [proto, path.join(home, 'missing')]) {
+    fs.unlinkSync(statusline());
+    fs.symlinkSync(target, statusline());
+    assert.equal(pick(await doctorReport(options), '~/.claude/statusline.sh').state, 'fixable');
+    assert.equal(install()[2].replaced, true);
+  }
+});
+
+test('doctor keeps reporting after bad settings, stopped login items, malformed Tailscale or a failed hub response', async () => {
+  const { options, responses } = healthyDoctor();
+  for (const value of ['{broken', 'null', '[]']) {
+    fs.writeFileSync(settingsFile(), value);
+    assert.equal(pick(await doctorReport(options), 'settings.json statusLine').state, 'yours');
+  }
+  for (const stdout of ['state = waiting', 'state = exited']) {
+    responses.set('launchctl print gui/501/local.claude.kickflip-hub', { status: 0, stdout });
+    assert.equal(pick(await doctorReport(options), 'hub login item').state, 'fixable');
+  }
+  responses.set('tailscale status --json', { status: 0, stdout: '{bad' });
+  assert.equal(pick(await doctorReport(options), 'Tailscale signed in').state, 'yours');
+  responses.set('tailscale status --json', { status: 1, stdout: JSON.stringify({ BackendState: 'Running' }) });
+  assert.equal(pick(await doctorReport(options), 'Tailscale signed in').state, 'yours');
+  for (const response of [{ ok: false, json: async () => ({ sites: [] }) }, { ok: true, json: async () => ({ unrelated: true }) }]) {
+    options.fetch = async () => response;
+    assert.equal(pick(await doctorReport(options), 'hub').state, 'fixable');
+  }
+});
+
+test('doctor checks the root proxy destination, preserves other mount details and requires Tailscale sign-in first', async () => {
+  const { options, responses } = healthyDoctor();
+  for (const proxy of ['http://remote.example:19460', 'http://127.0.0.1:19460/wrong', 'http://127.0.0.1:19460/?wrong', 'http://127.0.0.1:4501']) {
+    responses.set('tailscale serve status --json', { status: 0, stdout: JSON.stringify({ Web: { host: { Handlers: { '/': { Proxy: proxy }, '/old': { Proxy: 'http://127.0.0.1:19461' } } } } }) });
+    const item = pick(await doctorReport(options), 'tailscale /');
+    assert.equal(item.state, 'fixable');
+    assert.match(item.detail, /other mounts: \/old/);
+  }
+  responses.set('tailscale status --json', { status: 0, stdout: JSON.stringify({ BackendState: 'NeedsLogin' }) });
+  const item = pick(await doctorReport(options), 'tailscale /');
+  assert.equal(item.state, 'yours');
+  assert.equal(item.fix, 'tailscale up');
+});
+
+test('doctor notes a down site the running hub restarts, and marks sites fixable from the manifest while the hub is down', async () => {
+  const { options, site } = healthyDoctor();
+  site.state = 'down';
+  site.owner = { session: 'session-fallback' };
+  const report = await runDoctor({ ...options, write: () => {} });
+  const down = pick(report.items, '/shop');
+  assert.equal(down.state, 'note');
+  assert.equal(down.fix, null);
+  assert.equal(down.detail, 'down  port 19461  owner session-fallback  Shop board; the hub restarts it, see kickflip logs shop');
+  assert.equal(report.exitCode, 0);
+  const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
+  fs.mkdirSync(path.dirname(manifest), { recursive: true });
+  fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: site } }));
+  options.fetch = async () => { throw new Error('offline'); };
+  const fallback = pick(await doctorReport(options), '/shop');
+  assert.equal(fallback.state, 'fixable');
+  assert.match(fallback.detail, /^hub not running/);
+  fs.writeFileSync(manifest, '{bad');
+  assert.equal(pick(await doctorReport(options), 'site manifest').state, 'yours');
+});
+
+test('doctor --json emits only {items} with the same exit codes', async () => {
+  const { options } = healthyDoctor();
+  const output = [];
+  const ok = await runDoctor({ ...options, json: true, write: (line) => output.push(line) });
+  assert.equal(output.length, 1);
+  assert.deepEqual(JSON.parse(output[0]), { items: ok.items });
+  assert.deepEqual(Object.keys(ok.items[0]), ['group', 'item', 'state', 'detail', 'fix']);
+  assert.equal(ok.exitCode, 0);
+  fs.unlinkSync(settingsFile());
+  output.length = 0;
+  const broken = await runDoctor({ ...options, json: true, write: (line) => output.push(line) });
+  assert.deepEqual(JSON.parse(output[0]), { items: broken.items });
+  assert.equal(broken.exitCode, 1);
+});
+
+test('doctor --fix invokes install once then prints its new report, even after an install failure', async () => {
+  const { options } = healthyDoctor();
+  fs.unlinkSync(statusline());
+  const output = [];
+  let count = 0;
+  const installSteps = async (passed) => {
+    assert.equal(passed.home, home);
+    assert.equal(passed.dryRun, false);
+    count++;
+    install();
+  };
+  const result = await runDoctor({ ...options, fix: true, install: installSteps, write: (line) => output.push(line) });
+  assert.equal(count, 1);
+  assert.equal(result.exitCode, 0);
+  assert.equal(output.length, 1);
+  assert.match(output[0], /^ok {7}~\/.claude\/statusline.sh: linked/m);
+  const errors = [];
+  const failed = await runDoctor({ ...options, fix: true, json: true, install: async () => { throw new Error('refused'); }, write: (line) => output.push(line), error: (line) => errors.push(line) });
+  assert.equal(failed.exitCode, 1);
+  assert.deepEqual(errors, ['kickflip: refused']);
+  assert.deepEqual(JSON.parse(output.at(-1)), { items: failed.items });
+});
+
+test('the shared install steps run migration, links, settings, launchd and Tailscale once with injected services', async () => {
+  const state = oldShape(home, root);
+  fs.writeFileSync(path.join(state, 'manifest.json'), JSON.stringify({ sites: { shop: { port: 19461 } } }));
+  const calls = [];
+  const waits = [];
+  const logs = [];
+  const port = 19460;
+  await runInstall({ home, cloneRoot: root, port, uid: 501, wait: async (ms) => waits.push(ms), log: (line) => logs.push(line),
+    fetch: async (url) => {
+      assert.equal(url, `http://127.0.0.1:${port}/_hub/status.json`);
+      return { ok: true, json: async () => ({ sites: [] }) };
+    },
+    run: (command, argv) => {
+      calls.push([command, ...argv]);
+      assert.equal(fs.lstatSync(state).isSymbolicLink(), true);
+      assert.equal(fs.realpathSync(skillLinks()[0]), root);
+      assert.equal(readSettings().statusLine.command, statusline());
+      if (argv.join(' ') === 'serve status --json') return { status: 0, stdout: JSON.stringify({ Web: { host: { Handlers: { '/': { Proxy: `http://127.0.0.1:${port}` }, '/shop/': {}, '/unrelated': {} } } } }) };
+      return { status: 0 };
+    },
+  });
+  assert.deepEqual(calls, [
+    ['launchctl', 'bootout', 'gui/501/local.claude.kickflip-hub'],
+    ['launchctl', 'bootstrap', 'gui/501', path.join(home, 'Library', 'LaunchAgents', 'local.claude.kickflip-hub.plist')],
+    ['tailscale', 'serve', '--bg', '19460'],
+    ['tailscale', 'serve', 'status', '--json'],
+    ['tailscale', 'serve', '--https=443', '--set-path=/shop/', 'off'],
+  ]);
+  assert.deepEqual(waits, [500, 300]);
+  assert.equal(logs.filter((line) => line.startsWith('moved ')).length, 1);
+  const plist = fs.readFileSync(path.join(home, 'Library', 'LaunchAgents', 'local.claude.kickflip-hub.plist'), 'utf8');
+  assert.ok(plist.includes(path.join(skills, 'kickflip', 'hub', 'hub.mjs')));
+  assert.match(plist, /<key>KICKFLIP_HUB_PORT<\/key><string>19460<\/string>/);
+});
+
+test('doctor --fix --dry-run and install preview all steps without runners, network or HOME writes', async () => {
+  oldShape(home, root);
+  const before = fs.readdirSync(skills).sort();
+  const output = [];
+  const result = await runDoctor({ fix: true, dryRun: true, home, cloneRoot: root, port: 19460, write: (line) => output.push(line), run: () => assert.fail('ran command'), fetch: () => assert.fail('fetched'), wait: () => assert.fail('waited') });
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(fs.readdirSync(skills).sort(), before);
+  assert.ok(fs.lstatSync(path.join(home, '.claude', 'web-ts')).isDirectory());
+  assert.equal(fs.existsSync(settingsFile()), false);
+  assert.equal(fs.existsSync(path.join(home, 'Library')), false);
+  assert.ok(output.some((line) => line.startsWith('would map tailscale /')));
 });

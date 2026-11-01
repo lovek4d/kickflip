@@ -73,10 +73,12 @@ function replaceWithLink(file, target) {
   }
 }
 
-const launchctl = (argv) => {
-  const r = spawnSync('launchctl', argv, { encoding: 'utf8' });
-  return { status: r.status ?? 1, error: (r.error?.message || r.stderr || `exit ${r.status}`).trim().split('\n')[0] };
-};
+export function runCommand(command, argv, { env = process.env } = {}) {
+  const r = spawnSync(command, argv, { encoding: 'utf8', env, timeout: 10000 });
+  return { status: r.status ?? 1, stdout: r.stdout || '', error: (r.error?.message || r.stderr || `exit ${r.status}`).trim().split('\n')[0] };
+}
+
+const launchctl = (argv) => runCommand('launchctl', argv);
 
 // Writes the hub's login item and starts it in place of the running one, including one under the old label. When the
 // new one won't start, the old one is put back and started. run(argv) runs launchctl → {status, error}. → note lines.
@@ -120,23 +122,24 @@ export function storedPath(realPath, { home = os.homedir(), skillsDir = path.joi
   return linked ? path.join(link, relative) : realPath;
 }
 
-export function installLinks({ home = os.homedir(), skillsDir = path.join(home, '.claude', 'skills'), cloneRoot = runningClone(), dryRun = false } = {}) {
+export function inspectLinks({ home = os.homedir(), skillsDir = path.join(home, '.claude', 'skills'), cloneRoot = runningClone() } = {}) {
   const root = fs.realpathSync(cloneRoot);
   const links = [['kickflip', root], ['kickflip-hooks', path.join(root, 'hooks-plugin')]].map(([name, source]) => {
     if (!fs.statSync(source, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`not a directory: ${source}`);
     const target = name === 'kickflip' ? source : path.resolve(skillsDir, 'kickflip', 'hooks-plugin');
     const link = path.resolve(skillsDir, name);
     const existing = fs.lstatSync(link, { throwIfNoEntry: false });
+    let refusal;
     if (existing) {
       let real;
       try { real = fs.realpathSync(link); } catch (e) { if (e.code !== 'ENOENT') throw e; }
       if (existing.isSymbolicLink()) {
-        if (real !== fs.realpathSync(source)) throw new Error(`refusing to replace link ${link} -> ${fs.readlinkSync(link)}; remove that link explicitly, then rerun install`);
+        if (real !== fs.realpathSync(source)) refusal = `refusing to replace link ${link} -> ${fs.readlinkSync(link)}; remove that link explicitly, then rerun kickflip doctor --fix`;
       } else if (!existing.isDirectory() || real !== fs.realpathSync(source)) {
-        throw new Error(`refusing to replace real path ${link}; move it aside explicitly, then rerun install`);
+        refusal = `refusing to replace real path ${link}; move it aside explicitly, then rerun kickflip doctor --fix`;
       }
     }
-    return { link, target, created: !existing };
+    return { link, target, created: !existing, ...(refusal ? { refusal } : {}) };
   });
   const source = path.join(root, 'bin', 'statusline.mjs');
   if (!fs.statSync(source, { throwIfNoEntry: false })?.isFile()) throw new Error(`not a file: ${source}`);
@@ -144,27 +147,115 @@ export function installLinks({ home = os.homedir(), skillsDir = path.join(home, 
   const target = path.resolve(skillsDir, 'kickflip', 'bin', 'statusline.mjs');
   const existing = fs.lstatSync(statusline, { throwIfNoEntry: false });
   let replace = false;
+  let refusal;
   if (existing) {
-    if (!existing.isSymbolicLink()) throw new Error(`refusing to replace real path ${statusline}; move it aside explicitly, then rerun install`);
-    let real;
-    try { real = fs.realpathSync(statusline); } catch (e) { if (e.code !== 'ENOENT') throw e; }
-    // A site's status-line prototype stands in only until kickflip's own is installed.
-    const sites = path.join(home, '.claude', 'kickflip', 'sites');
-    let sitesReal = sites;
-    try { sitesReal = fs.realpathSync(sites); } catch {}
-    const prototype = Boolean(real) && [sites, sitesReal].some((dir) => real.startsWith(dir + path.sep));
-    if (real && real !== fs.realpathSync(source) && !prototype) throw new Error(`refusing to replace link ${statusline} -> ${fs.readlinkSync(statusline)}; remove that link explicitly, then rerun install`);
-    replace = prototype || path.resolve(path.dirname(statusline), fs.readlinkSync(statusline)) !== target || !real;
+    if (!existing.isSymbolicLink()) refusal = `refusing to replace real path ${statusline}; move it aside explicitly, then rerun kickflip doctor --fix`;
+    else {
+      let real;
+      try { real = fs.realpathSync(statusline); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+      // A site's status-line prototype stands in only until kickflip's own is installed.
+      const sites = path.join(home, '.claude', 'kickflip', 'sites');
+      let sitesReal = sites;
+      try { sitesReal = fs.realpathSync(sites); } catch {}
+      const prototype = Boolean(real) && [sites, sitesReal].some((dir) => real.startsWith(dir + path.sep));
+      if (real && real !== fs.realpathSync(source) && !prototype) refusal = `refusing to replace link ${statusline} -> ${fs.readlinkSync(statusline)}; remove that link explicitly, then rerun kickflip doctor --fix`;
+      replace = prototype || path.resolve(path.dirname(statusline), fs.readlinkSync(statusline)) !== target || !real;
+    }
   }
-  links.push({ link: statusline, target, created: !existing, ...(replace ? { replaced: true } : {}) });
+  links.push({ link: statusline, target, created: !existing, ...(replace ? { replaced: true } : {}), ...(refusal ? { refusal } : {}) });
+  return links;
+}
+
+export function installLinks({ home = os.homedir(), skillsDir = path.join(home, '.claude', 'skills'), cloneRoot = runningClone(), dryRun = false } = {}) {
+  const links = inspectLinks({ home, skillsDir, cloneRoot });
+  const refused = links.find((entry) => entry.refusal);
+  if (refused) throw new Error(refused.refusal);
   if (dryRun) return links;
   fs.mkdirSync(skillsDir, { recursive: true });
-  fs.mkdirSync(path.dirname(statusline), { recursive: true });
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
   for (const { link, target, created, replaced } of links) {
     if (replaced) fs.unlinkSync(link);
-    if (created || replaced) fs.symlinkSync(target, link, link === statusline ? 'file' : 'dir');
+    if (created || replaced) fs.symlinkSync(target, link, link === path.join(home, '.claude', 'statusline.sh') ? 'file' : 'dir');
   }
   return links;
+}
+
+export function ownsStatusLine(statusLine, home = os.homedir()) {
+  const command = path.join(home, '.claude', 'statusline.sh');
+  const ownCommands = [command, `"${command}"`, `'${command.replaceAll("'", "'\\''")}'`, '~/.claude/statusline.sh', '$HOME/.claude/statusline.sh', '"$HOME/.claude/statusline.sh"', '${HOME}/.claude/statusline.sh', '"${HOME}/.claude/statusline.sh"'];
+  return statusLine?.type === 'command' && ownCommands.includes(statusLine.command);
+}
+
+export async function hubStatus({ port = Number(process.env.KICKFLIP_HUB_PORT || 4500), fetch = globalThis.fetch } = {}) {
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/_hub/status.json`, { signal: AbortSignal.timeout(1500) });
+    if (!r.ok) return null;
+    const hub = await r.json();
+    return Array.isArray(hub?.sites) ? hub : null;
+  } catch { return null; }
+}
+
+export function tailscaleRoot(config) {
+  const handlers = Object.values(config?.Web || {}).flatMap((web) => Object.entries(web.Handlers || {}));
+  return { root: handlers.find(([route]) => route === '/')?.[1]?.Proxy || null, paths: [...new Set(handlers.map(([route]) => route))] };
+}
+
+export async function runInstall({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), fetch = globalThis.fetch, dryRun = false, log = console.log } = {}) {
+  const state = path.join(home, '.claude', 'kickflip');
+  const migration = migrateHome({ home, dryRun });
+  for (const step of migration.steps) log(step);
+  if (migration.conflicts.length) throw new Error(migration.conflicts.join('\n'));
+  const loginOptions = { launchAgentsDir: path.join(home, 'Library', 'LaunchAgents'), uid, run: (argv) => run('launchctl', argv, { env }), wait, dryRun };
+  if (dryRun) {
+    try {
+      for (const { link, target, created, replaced } of installLinks({ home, cloneRoot, dryRun })) log(`would ${created || replaced ? 'link' : 'check'} ${link} -> ${target}`);
+    } catch (e) { log(`would refuse: ${e.message}`); }
+    log(`would merge statusLine and remove stale hooks in ${path.join(home, '.claude', 'settings.json')}`);
+    for (const note of await installLoginItem(loginOptions)) log(note);
+    log(`would map tailscale / to the hub on ${port} and remove old site mounts`);
+    return;
+  }
+  for (const { link, target, created, replaced } of installLinks({ home, cloneRoot })) log(`${created || replaced ? 'linked' : 'checked'} ${link} -> ${target}`);
+  for (const note of installClaudeSettings({ home })) log(note);
+  const node = fs.existsSync('/opt/homebrew/bin/node') ? '/opt/homebrew/bin/node' : process.execPath;
+  const hubEntry = storedPath(path.join(cloneRoot, 'hub', 'hub.mjs'), { home, cloneRoot });
+  fs.mkdirSync(state, { recursive: true });
+  const hubLog = path.join(state, 'hub.log');
+  const xml = (value) => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${LOGIN_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array><string>${xml(node)}</string><string>${xml(hubEntry)}</string></array>
+  <key>WorkingDirectory</key><string>${xml(state)}</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>${xml(path.dirname(node))}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string><key>KICKFLIP_HUB_PORT</key><string>${port}</string></dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>${xml(hubLog)}</string>
+  <key>StandardErrorPath</key><string>${xml(hubLog)}</string>
+</dict>
+</plist>
+`;
+  for (const note of await installLoginItem({ ...loginOptions, plist })) log(note);
+  let up = false;
+  for (let i = 0; i < 30 && !up; i++) {
+    await wait(300);
+    up = Boolean(await hubStatus({ port, fetch }));
+  }
+  if (!up) throw new Error('hub did not start; see ' + hubLog);
+  const mapped = run('tailscale', ['serve', '--bg', String(port)], { env });
+  if (mapped.status !== 0) throw new Error(mapped.error || 'tailscale serve failed');
+  const served = run('tailscale', ['serve', 'status', '--json'], { env });
+  let config;
+  try { config = JSON.parse(served.stdout); } catch { return; }
+  let sites = {};
+  try { sites = JSON.parse(fs.readFileSync(path.join(state, 'manifest.json'), 'utf8')).sites || {}; } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  for (const route of tailscaleRoot(config).paths) {
+    if (route !== '/' && Object.hasOwn(sites, route.replace(/^\//, '').replace(/\/$/, ''))) run('tailscale', ['serve', '--https=443', '--set-path=' + route, 'off'], { env });
+  }
 }
 
 export function installClaudeSettings({ home = os.homedir() } = {}) {
@@ -186,9 +277,7 @@ export function installClaudeSettings({ home = os.homedir() } = {}) {
     changed = true;
     notes.push(`set statusLine in ${file} -> ${shellCommand}`);
   } else {
-    const current = settings.statusLine?.command;
-    const ownCommands = [command, `"${command}"`, `'${command.replaceAll("'", "'\\''")}'`, '~/.claude/statusline.sh', '$HOME/.claude/statusline.sh', '"$HOME/.claude/statusline.sh"', '${HOME}/.claude/statusline.sh', '"${HOME}/.claude/statusline.sh"'];
-    if (settings.statusLine?.type !== 'command' || !ownCommands.includes(current)) notes.push(`kept existing statusLine in ${file}; it points elsewhere`);
+    if (!ownsStatusLine(settings.statusLine, home)) notes.push(`kept existing statusLine in ${file}; it points elsewhere`);
   }
   const missing = path.join(home, '.claude', 'hooks', 'no-paths.py');
   if (!fs.existsSync(missing) && settings.hooks && typeof settings.hooks === 'object') {

@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 // kickflip: manage the shared site manifest the hub (../hub/hub.mjs) serves.
-//   kickflip status [--json]
+//   kickflip doctor [--fix [--dry-run]] [--json]
+//               one line per prereq, installed piece, the hub, Tailscale / and each site (./doctor.mjs): ok,
+//               fixable (by --fix), yours (with the command to run), optional or note. Changes nothing.
+//               --fix runs install's steps, then reports again. --json prints {items:[{group,item,state,detail,fix}]}.
+//               Exit 1 when anything is fixable or yours
 //   kickflip join <route> --session <id> [--label <name>] [--title <t>] [--description <d>]
 //               [--dir <path>] [--cmd '<json array>'] [--port <n>] [--watch <file,file>]
 //               [--filter <regex>] [--template board [--items <waves|file>]] [--force]
@@ -53,9 +57,10 @@
 //   kickflip restart <route>
 //   kickflip logs <route> [--lines <n>]
 //   kickflip install [--dry-run] | uninstall
-//               install first moves a Mac set up under the web-ts names to the kickflip ones (./install.mjs migrateHome),
-//               then links the clone, hooks plugin and status line, configures Claude settings, and starts the hub's
-//               login item in place of the running one, including one under the old label.
+//               install is the first-run name for doctor --fix. It first moves a Mac set up under the web-ts names to
+//               the kickflip ones (./install.mjs migrateHome), then links the clone, hooks plugin and status line,
+//               configures Claude settings, starts the hub's login item in place of the running one, including one
+//               under the old label, and maps Tailscale / to the hub.
 //               Conflicting skill links and real paths are refused. A dangling status-line link can be replaced.
 //               --dry-run prints what install would move, link and start, and changes nothing.
 //               uninstall also removes kickflip's status-line link; Claude settings and skill links are kept
@@ -100,7 +105,8 @@ import { ICON_KEYS } from '../hub/icons.mjs';
 import { liveSessions } from '../hub/live.mjs';
 import { isBoardSite, writeManifest } from '../hub/boards.mjs';
 import { routeRecord, validRoute } from '../hub/routes.mjs';
-import { installLinks, installClaudeSettings, installLoginItem, migrateHome, migrateOnStart, uninstallStatusLine, storedPath, LOGIN_LABEL } from './install.mjs';
+import { migrateOnStart, uninstallStatusLine, storedPath, LOGIN_LABEL } from './install.mjs';
+import { runDoctor } from './doctor.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 
 const SKILL = cloneRoot();
@@ -113,14 +119,13 @@ const PLIST = path.join(os.homedir(), 'Library', 'LaunchAgents', LOGIN_LABEL + '
 const COLOR_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
 const [cmd, ...rest] = process.argv.slice(2);
-// install moves the old names itself, so --dry-run can leave them.
-if (cmd !== 'install') migrateOnStart();
+if (!['install', 'doctor'].includes(cmd)) migrateOnStart();
 const args = Object.assign(Object.create(null), { _: [] });
 for (let i = 0; i < rest.length; i++) {
   const a = rest[i];
   if (a.startsWith('--')) {
     const k = a.slice(2);
-    if (k === 'force' || k === 'json' || k === 'urgent' || k === 'now' || k === 'keep-queue' || k === 'hub' || k === 'no-hub' || k === 'dry-run') args[k] = true;
+    if (k === 'fix' || k === 'force' || k === 'json' || k === 'urgent' || k === 'now' || k === 'keep-queue' || k === 'hub' || k === 'no-hub' || k === 'dry-run') args[k] = true;
     else args[k] = rest[++i];
   } else args._.push(a);
 }
@@ -227,30 +232,11 @@ async function hubStatus() {
   } catch { return null; }
 }
 
-function tailscaleRoot() {
-  try {
-    const s = JSON.parse(execFileSync('tailscale', ['serve', 'status', '--json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
-    const handlers = Object.values(s.Web || {})[0]?.Handlers || {};
-    return { root: handlers['/']?.Proxy || null, paths: Object.keys(handlers) };
-  } catch { return { root: null, paths: [] }; }
-}
-
 const commands = {
-  async status() {
-    const m = readManifest();
-    const hub = await hubStatus();
-    const ts = tailscaleRoot();
-    const installed = fs.existsSync(PLIST);
-    const report = {
-      hub: { installed, running: !!hub, port: HUB_PORT, plist: PLIST, log: path.join(HOME, 'hub.log') },
-      tailscale: { host: tailnetHost(), root: ts.root, mounts: ts.paths, pointsAtHub: !!ts.root && ts.root.endsWith(':' + HUB_PORT) },
-      sites: hub ? hub.sites : Object.entries(m.sites).map(([route, s]) => ({ route, title: s.title, port: s.port, state: 'hub not running', owner: s.owner })),
-    };
-    if (args.json) return out(report);
-    out(`hub: ${report.hub.running ? 'running' : 'NOT running'}${installed ? '' : ' (not installed: run `kickflip install`)'} on 127.0.0.1:${HUB_PORT}`);
-    out(`tailscale /: ${ts.root || 'nothing'}${report.tailscale.pointsAtHub ? '' : '  (expected the hub on ' + HUB_PORT + ')'}${ts.paths.filter((p) => p !== '/').length ? '; other mounts: ' + ts.paths.filter((p) => p !== '/').join(', ') : ''}`);
-    if (!report.sites.length) out('no sites');
-    for (const s of report.sites) out(`  /${s.route}  ${s.state}  port ${s.port}  owner ${s.owner?.label || s.owner?.session || '-'}  ${s.title || ''}`);
+  async doctor() {
+    if (args['dry-run'] && !args.fix) fail('--dry-run needs --fix', 2);
+    const { exitCode } = await runDoctor({ fix: Boolean(args.fix), dryRun: Boolean(args['dry-run']), json: Boolean(args.json) });
+    process.exitCode = exitCode;
   },
 
   async join() {
@@ -342,7 +328,7 @@ const commands = {
       createdFromStarter: result.created, previousOwner: result.previousOwner,
       log: path.join(LOGS, route + '.log'),
       watcher: `${nodeBin()} ${path.join(SKILL, 'bin', 'wait-events.mjs')} ${route} ${args.session}`,
-      hub: hub ? 'running' : 'NOT running: run `kickflip install`',
+      hub: hub ? 'running' : 'NOT running: run `kickflip doctor --fix`',
       ...(handshake ? { handshake } : {}),
       ...(poll ? { poll } : {}),
     });
@@ -466,54 +452,8 @@ const commands = {
   },
 
   async install() {
-    const dryRun = Boolean(args['dry-run']);
-    let migration;
-    try { migration = migrateHome({ dryRun }); } catch (e) { fail(`moving the web-ts names failed: ${e.message}`); }
-    for (const step of migration.steps) out(step);
-    if (migration.conflicts.length) fail(migration.conflicts.join('\n'));
-    if (dryRun) {
-      try {
-        for (const { link, target, created, replaced } of installLinks({ dryRun })) out(`would ${created || replaced ? 'link' : 'check'} ${link} -> ${target}`);
-      } catch (e) { out(`would refuse: ${e.message}`); }
-      for (const note of await installLoginItem({ dryRun })) out(note);
-      return;
-    }
-    let links;
-    try { links = installLinks(); } catch (e) { fail(e.message); }
-    for (const { link, target, created, replaced } of links) out(`${created || replaced ? 'linked' : 'checked'} ${link} -> ${target}`);
-    for (const note of installClaudeSettings()) out(note);
-    const hubEntry = storedPath(path.join(SKILL, 'hub', 'hub.mjs'));
-    fs.mkdirSync(HOME, { recursive: true });
-    const hubLog = path.join(HOME, 'hub.log');
-    const plist = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>${LOGIN_LABEL}</string>
-  <key>ProgramArguments</key>
-  <array><string>${nodeBin()}</string><string>${hubEntry}</string></array>
-  <key>WorkingDirectory</key><string>${HOME}</string>
-  <key>EnvironmentVariables</key>
-  <dict><key>PATH</key><string>${path.dirname(nodeBin())}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>${hubLog}</string>
-  <key>StandardErrorPath</key><string>${hubLog}</string>
-</dict>
-</plist>
-`;
-    try { for (const note of await installLoginItem({ plist, launchAgentsDir: path.dirname(PLIST) })) out(note); } catch (e) { fail(e.message); }
-    let up = false;
-    for (let i = 0; i < 30 && !up; i++) { await new Promise((r) => setTimeout(r, 300)); up = await connects(HUB_PORT); }
-    if (!up) fail('hub did not start; see ' + hubLog);
-    execFileSync('tailscale', ['serve', '--bg', String(HUB_PORT)], { stdio: 'ignore' });
-    const m = readManifest();
-    for (const p of tailscaleRoot().paths) {
-      if (p !== '/' && routeRecord(m.sites, p.replace(/^\//, '').replace(/\/$/, ''))) {
-        try { execFileSync('tailscale', ['serve', '--https=443', '--set-path=' + p, 'off'], { stdio: 'ignore' }); } catch {}
-      }
-    }
-    await commands.status();
+    args.fix = true;
+    await commands.doctor();
   },
 
   async uninstall() {
