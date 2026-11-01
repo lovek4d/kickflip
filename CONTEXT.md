@@ -316,12 +316,16 @@ _Avoid_: unread, queued
 A page that shows each option of one owner question as it would ship, built from the board's real components fed fake data. An agent records it with `board.mjs prototype add <topic>` in the site's `data/prototypes.json`, with its title, card and takes, and writes only the take files; the board serves `prototype-<topic>.html` from its one template, `board/public/prototype.html`. `question add` accepts a prototype url only for a recorded topic whose takes are the question's options in order ([0089](docs/adr/0089-the-board-serves-every-prototype-from-one-template.md)).
 _Avoid_: mockup, demo page
 
+**Confirm round**:
+One more prototype of the final version, with its question, after the owner answers a prototype question with a note that changes the take. A card builds only once an answer to its prototype questions comes back with no note, or the note itself says go and the session quotes it with `item set --confirmed` ([0091](docs/adr/0091-a-prototype-answer-with-a-note-gets-a-confirm-round.md)).
+_Avoid_: re-grill, final check
+
 **Prototype request**:
 The owner asking, from a card's thread, for throwaway prototype pages to compare options. Each prototype comes with an open question on its card, and the page's switcher can send the pick; until the owner picks, the card carries Action needed and keeps its lane, Todo while it hasn't started ([0015](docs/adr/0015-prototypes-come-on-request.md), [0059](docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md)).
 _Avoid_: mockup request, preview
 
 **Take**:
-One option of an owner question shown as what it would be: a framed prototype, or a diagram of boxes and arrows with what it means in practice. A prototype's take is a key (one capital letter), a label and a file, `public/prototypes/<topic>/<KEY>.js`, whose `render(stage, kit)` draws it into the page's stage. Waiting on you keeps takes in option order with the recommended one tagged: small takes share a grid, while a question with any scrolling or full-screen prototype shows a choice row above one full-width take, which a choice switches in place, followed by the note and Send ([0048](docs/adr/0048-a-questions-takes-show-inline.md), [0089](docs/adr/0089-the-board-serves-every-prototype-from-one-template.md)).
+One option of an owner question shown as what it would be: a framed prototype, or a diagram of boxes and arrows with what it means in practice. A prototype's take is a key (one capital letter), a label and a file, `public/prototypes/<topic>/<KEY>.js`, whose `render(stage, kit)` draws it into the page's stage. Waiting on you keeps takes in option order with the recommended one tagged: small takes share a grid, while a question with a single take, or with any scrolling or full-screen prototype, shows a choice row above one full-width take, which a choice switches in place, followed by the note and Send ([0048](docs/adr/0048-a-questions-takes-show-inline.md), [0089](docs/adr/0089-the-board-serves-every-prototype-from-one-template.md)).
 _Avoid_: variant (the switcher's URL parameter, not the word), mockup
 
 **Kit**:

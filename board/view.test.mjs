@@ -2018,6 +2018,24 @@ test('Waiting on you measures a fitting grid, then uses one growing full-size fr
   assert.deepEqual(v.page.left(), v.idle);
 });
 
+test('Waiting on you shows a one-take question in the full-width frame at its page height before any measuring', async () => {
+  const q = { id: 'q1', topic: 'item:w/T1', source: '', question: 'This one?', context: '', url: 'prototype-final.html?q=q1', options: [{ id: 'A', label: 'Final', recommended: true }], answers: [], state: 'open' };
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Final' }], questions: [q], at: 'q1' });
+  v.page.win.innerWidth = 1280;
+  await v.settle();
+  assert.ok(v.root.querySelector('.takes.takes-full'));
+  assert.deepEqual(v.root.querySelectorAll('.take-choices input').map((o) => o.getAttribute('value')), ['A']);
+  const shot = v.root.querySelector('.takes-full .take[data-opt="A"] .take-shot');
+  const frame = shot.querySelector('iframe');
+  frame.contentDocument = { location: { href: 'https://mac.ts.net/board-a/prototype-final.html?q=q1&take=A' }, body: { getBoundingClientRect: () => ({ height: 1200 }) } };
+  frame.contentWindow = { ResizeObserver: class { observe() {} disconnect() {} } };
+  v.page.fire(frame, 'load');
+  assert.equal(shot.style.height, '1202px');
+  assert.equal(v.root.querySelectorAll('iframe').length, 1);
+  assert.ok(v.root.querySelector('.takes-full'));
+  v.unmount();
+});
+
 test('the board gear opens a board-only modal over the same board, closes without history entries and keeps back to Hub', async () => {
   const { win, doc, page, entries, position, boardUnmounts } = await shellPage('/_hub/');
   win.AppShell.open('/shop/#item=w%2FA1');

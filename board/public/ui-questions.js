@@ -56,7 +56,7 @@
   const practice = (lines, links) => `<div class="practice"><b>In practice</b><ul>${lines.map((l) => `<li>${linkText(l, links)}</li>`).join('')}</ul></div>`;
 
   const fullTakes = (q, fit) => isPrototype(q.url) && q.options.every((o) => !o.diagram && !o.practice)
-    && q.options.some((o) => fit(o.id)?.scrolls);
+    && (q.options.length === 1 || q.options.some((o) => fit(o.id)?.scrolls));
   // Grid heights decide the layout; fullH measures the chosen take at the full content width.
   function takeBody(q, o, links, fit, full = false) {
     if (o.diagram) return diagram(o.diagram) + practice(o.practice || [], links);

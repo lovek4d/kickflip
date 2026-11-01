@@ -44,7 +44,8 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
           for a New card not sorted yet.
          url is http(s), or a site page such as prototype-<topic>.html?q=<id>, stored as given.
          Prototype options keep take order, ids matching take keys; recommended: true tags the recommendation.
-         Waiting on you shows fitting takes in a grid, or a chooser above one full-width take if any scrolls or fills the screen.
+         Waiting on you shows fitting takes in a grid, or a chooser above one full-width take for a single take or if any
+         scrolls or fills the screen.
          diagram, with practice: rows of 1-4 boxes [[{text, tone?, to?}]], tone quiet|info|notice|
          danger|success, to the next row's box indexes (default all); practice: ["<line>", …]
          A prototype url's topic must be recorded (prototype add), its option ids the recorded take keys in
@@ -87,7 +88,11 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          an https:// .apk URL for Android. --install-sha is the
                                                          PR head it was built from: the button reads "older build"
                                                          once the PR moves past it. Hidden once the card is Done
-         --status building refuses while the item is held or a dep isn't done, merged or dropped;
+         --status building refuses while the item is held or a dep isn't done, merged or dropped,
+         and while the newest owner answer to its questions that link a prototype-*.html page has a
+         note: post the final version with prototype add and question add first.
+         [--confirmed "<owner's words>"] passes when that note itself says go: the words must quote
+         it, and they go in a thread line on the card;
          done, merged and dropped print "unblocked: <wave>/<id>" and append card-unblocked {key}
          once per unblocking, including held cards: start each unheld card next.
          building and fixing count as working only while a builder record on the card is open.
@@ -261,7 +266,7 @@ function parse(argv) {
  * the path itself (a reply once read "/private/tmp/…/exp-reply.html"), so it is refused: one
  * token that names an existing file, or that looks like a path to a document.
  */
-const TEXT_FLAGS = ['html', 'text', 'note', 'notes', 'summary', 'title', 'body', 'next', 'progress', 'install-label'];
+const TEXT_FLAGS = ['html', 'text', 'note', 'notes', 'summary', 'title', 'body', 'next', 'progress', 'install-label', 'confirmed'];
 const DOC_PATH = /^(?:\/|~\/|\.{1,2}\/)\S*\.(?:html?|md|json|txt)$/;
 
 function looksLikePath(value) {
@@ -307,9 +312,9 @@ const COMMANDS = {
   'prototype add': [['topic'], ['title', 'take', 'card'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take })],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'from-ask', 'held', 'unheld', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force', 'ticket'], (site, [key], f, options) =>
+  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'from-ask', 'held', 'unheld', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force', 'ticket', 'confirmed'], (site, [key], f, options) =>
     store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, fromAsk: f['from-ask'], held: f.held, unheld: f.unheld, notesFile: notesFileOf(f), deps: f.deps,
-      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, force: f.force, ticket: f.ticket }, options)],
+      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, force: f.force, ticket: f.ticket, confirmed: f.confirmed }, options)],
   'item add': [['wave/id'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket }, options)],
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
   'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],

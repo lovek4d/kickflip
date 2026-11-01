@@ -1380,6 +1380,45 @@ test('a held item emits its unblocking but never starts until --unheld resumes i
   assert.equal(board('item', 'set', 'd/A2', '--status', 'building', '--site', 'orch').code, 0);
 });
 
+test('item set --status building waits on a confirm round after a prototype answer with a note, until a clean answer or --confirmed quoting the note', () => {
+  const card = (id, url, extra = {}) => question(id, { topic: 'item:w/A1', ...(url ? { url: `${url}?q=${id}` } : {}), ...extra });
+  write(site('orch', 'data', 'owner.json'), { topics: [{ id: 'site', title: 'Site' }], items: [
+    card('q1', 'prototype-old.html'), card('q2', 'prototype-old.html'), card('q3', ''), card('q4', 'prototype-old.html', { topic: 'site' }),
+  ] });
+  let n = 0;
+  const answer = (id, note) => addEvents({ id: `a${++n}`, ts: `2026-11-01T10:${String(n).padStart(2, '0')}:00Z`, kind: 'owner-answer', data: { id, choice: 'A', ...(note === undefined ? {} : { note }) } });
+  const start = (...extra) => board('item', 'set', 'w/A1', '--status', 'building', '--site', 'orch', ...extra);
+  const status = () => read(at('waves', 'w', 'wave.json')).items[0].status;
+  const thread = () => (fs.existsSync(site('orch', 'data', 'threads', 'w__A1.jsonl')) ? lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map((m) => m.text) : []);
+
+  answer('q1', 'B, but with the moon on the left');
+  answer('q3', '');
+  answer('q4', '');
+  assert.deepEqual(start(), { code: 1, out: '', err: 'w/A1 waits on a confirm round: the owner\'s answer to q1 has a note ("B, but with the moon on the left"); post the final version with prototype add and question add, or pass --confirmed "<the owner\'s words>" when that note says go\n' });
+  assert.equal(status(), undefined);
+  assert.equal(start('--confirmed', 'send it').code, 1);
+  assert.equal(start('--confirmed', 'send it').err, '--confirmed must quote the owner\'s note on q1: "B, but with the moon on the left"\n');
+  answer('q2', '  ');
+  assert.equal(start().code, 0);
+  assert.equal(status(), 'building');
+  assert.deepEqual(thread(), []);
+
+  assert.equal(board('item', 'set', 'w/A1', '--clear-status', '--site', 'orch').code, 0);
+  answer('q2', 'Looks right,\nsend it');
+  assert.equal(start().code, 1);
+  assert.equal(board('item', 'set', 'w/A1', '--next', 'Go', '--confirmed', 'send it', '--site', 'orch').err, '--confirmed goes with --status building\n');
+  assert.equal(start('--confirmed', 'SEND IT').code, 0);
+  assert.equal(status(), 'building');
+  assert.deepEqual(thread(), ['Building on the owner\'s go in their answer to q2: "SEND IT"']);
+
+  write(at('waves', 'w', 'wave.json'), { title: 'W', items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two' }] });
+  write(site('orch', 'data', 'owner.json'), { topics: [], items: [{ ...card('p1', ''), topic: 'item:w/A2' }, { ...card('p2', 'https://example.com/spec.html'), topic: 'item:w/A2' }] });
+  answer('p1', 'Change the copy');
+  answer('p2', 'Tighter spacing');
+  assert.equal(board('item', 'set', 'w/A2', '--status', 'building', '--site', 'orch').code, 0);
+  assert.equal(board('item', 'set', 'w/A1', '--status', 'building', '--confirmed', 'go', '--site', 'orch').err, 'w/A1 has no prototype answer with a note to confirm; drop --confirmed\n');
+});
+
 test("thread writes in an ask's thread and refuses an unknown ask", () => {
   assert.equal(board('thread', 'ask:e1', '--site', 'orch', '--text', 'Answered here.').code, 0);
   assert.deepEqual(lines(site('orch', 'data', 'threads', 'ask__e1.jsonl')).map(({ ts, ...m }) => m), [{ who: 'claude', text: 'Answered here.' }]);

@@ -792,6 +792,30 @@ async function closeQuestions(site, key, by, force) {
   };
 }
 
+// docs/adr/0091-a-prototype-answer-with-a-note-gets-a-confirm-round.md
+// → {id, note} of the newest owner answer to the card's questions that link a prototype page, when it has a note; else null.
+async function unconfirmedPrototype(site, key) {
+  const owner = await readJSON(ownerFile(site), { items: [] });
+  const ids = new Set((owner.items || []).filter((q) => q.topic === `item:${key}` && pageTopic(q.url)).map((q) => q.id));
+  const last = (await readLines(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'owner-answer' && ids.has(e.data?.id)).at(-1);
+  const note = String(last?.data?.note || '').replace(/\s+/g, ' ').trim();
+  return note ? { id: last.data.id, note } : null;
+}
+
+// → the thread line --confirmed writes once the card builds, or null; refuses a start the gate holds.
+async function confirmGate(site, key, confirmed) {
+  const open = site ? await unconfirmedPrototype(site, key) : null;
+  if (confirmed === undefined) {
+    if (open) fail(`${key} waits on a confirm round: the owner's answer to ${open.id} has a note ("${clip(open.note)}"); post the final version with prototype add and question add, or pass --confirmed "<the owner's words>" when that note says go`);
+    return null;
+  }
+  const words = text(confirmed, '--confirmed').replace(/\s+/g, ' ');
+  if (!open) fail(`${key} has no prototype answer with a note to confirm; drop --confirmed`);
+  if (!open.note.toLowerCase().includes(words.toLowerCase())) fail(`--confirmed must quote the owner's note on ${open.id}: "${clip(open.note)}"`);
+  return `Building on the owner's go in their answer to ${open.id}: "${words}"`;
+}
+const clip = (s) => (s.length > 120 ? `${s.slice(0, 119)}…` : s);
+
 async function checkAsk(site, eventId, name = '--from-ask') {
   domId(eventId, name);
   const known = (await readLines(path.join(needSite(site), 'data', 'events.jsonl'))).some((e) => e.id === eventId && e.kind === 'ask');
@@ -879,8 +903,9 @@ function installOf({ install, installSha, installLabel, clearInstall }) {
 // → the wave file, and when a dep finishes the items it unblocked as `unblocked: <key>` lines; closing
 // (done, merged, dropped) adds a `resolved: <id>` line per question it resolved (closeQuestions).
 // notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`.
-async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, install, installSha, installLabel, clearInstall, title, force }, options) {
+async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, install, installSha, installLabel, clearInstall, title, force, confirmed }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
+  if (confirmed !== undefined && status !== 'building') fail('--confirmed goes with --status building');
   if (force && !FINISHED.includes(status)) fail(`--force goes with --status ${FINISHED.join(', ')}`);
   if (next !== undefined && clearNext) fail('pass --next or --clear-next, not both');
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
@@ -907,6 +932,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     const blockers = await unfinishedDeps(site, parseKey(key).wave, item);
     if (blockers.length) fail(`${key} is blocked by ${blockers.join(', ')}; start it once ${blockers.length === 1 ? 'that is' : 'those are'} done or merged`);
   }
+  const confirmLine = status === 'building' ? await confirmGate(site, key, confirmed) : null;
   const resolve = FINISHED.includes(status) ? await closeQuestions(site, key, `--status ${status}`, force) : async () => [];
   if (clearStatus) delete item.status;
   // A card-done newer than status_at reads "Closing…" (domain.mjs workItem).
@@ -926,6 +952,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   const mcpLine = ticket !== undefined || (ask && !item.ticket && !item.linear?.length) ? await assignTicket(site, key, wave, item, ticket, options, source.dir, setTicketCommand(site, key)) : null;
   await writeJSON(source.file, wave);
   const resolved = await resolve();
+  if (confirmLine) resolved.push(...(await appendThread(site, key, { text: confirmLine })).lines);
   if (mcpLine) resolved.push(mcpLine);
   const target = ticketTarget({ status, pr });
   const moved = target && await moveTicket(await boardSource(site), item, target, { ...options, repo: boardRepoOf(site, wave) });
