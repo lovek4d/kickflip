@@ -498,7 +498,7 @@ test('Hub Settings lists closed boards, keeps a refused reopen available, then r
   page.win.document.getElementById = () => true;
   const root = page.win.document.body.appendChild(new Element('div'));
   root.innerHTML = page.win.HubSettings.markup();
-  const d = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, codex: { choices: [], description: '', note: '' }, rules: [],
+  const d = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [],
     closed: [{ route: 'shop', title: 'The <Shop>' }] };
   const posts = [];
   let refuse = true;
@@ -2015,7 +2015,7 @@ test('leaving a board with its settings open releases the modal and returning wi
 
 test('a stored Polling link opens Hub with its window selected, and modal links and dismissal preserve history', async () => {
   const requests = [];
-  const settings = { on: { on: true }, weekends: { on: false }, codex: { choices: [] }, rules: [], closed: [] };
+  const settings = { on: { on: true }, weekends: { on: false }, rules: [], closed: [] };
   const polling = {
     select: '08:00', now: { title: 'Checks every 15 min', lines: [], count: 0 },
     windows: ['08:00', '18:00'].map((from) => ({ from, range: from, every: [], ends: '10:00pm', checks: '4 checks', split: true, remove: true })),
@@ -2047,7 +2047,7 @@ test('a stored Polling link opens Hub with its window selected, and modal links 
   assert.equal(doc.activeElement, doc.querySelector('#polling'));
   assert.equal(win.location.href, 'https://mac.ts.net/_hub/');
   assert.equal(entries().length, count);
-  for (const href of ['/_hub/settings', '/_hub/settings#notifications', '/_hub/#codex', '/_hub/settings/polling?w=08%3A00']) {
+  for (const href of ['/_hub/settings', '/_hub/settings#notifications', '/_hub/#rules', '/_hub/settings/polling?w=08%3A00']) {
     const link = doc.createElement('a');
     link.setAttribute('href', href);
     tap(link); await settle();
@@ -2059,7 +2059,7 @@ test('a stored Polling link opens Hub with its window selected, and modal links 
   const editor = doc.querySelector('#hubRules');
   editor.setAttribute('data-dirty', '');
   const rulesURL = win.location.href;
-  win.AppShell.open('/_hub/#codex'); await settle();
+  win.AppShell.open('/_hub/#notifications'); await settle();
   assert.equal(doc.querySelector('#hubRules'), editor);
   assert.equal(win.location.href, rulesURL);
   win.AppShell.open('/shop/'); await settle();
@@ -2081,7 +2081,7 @@ test('legacy hub links open one modal, guard dirty rules on every dismissal, res
   page.win.document.getElementById = () => true;
   const root = page.win.document.body.appendChild(new Element('div'));
   root.innerHTML = page.win.HubSettings.markup();
-  const data = { on: { on: true }, weekends: { on: false }, codex: { choices: [] }, rules: [], closed: [] };
+  const data = { on: { on: true }, weekends: { on: false }, rules: [], closed: [] };
   page.win.fetch = async () => ({ ok: true, json: async () => structuredClone(data) });
   page.win.RulesEditor.mount = () => ({ set() {} });
   const baseline = page.left();
@@ -2092,7 +2092,7 @@ test('legacy hub links open one modal, guard dirty rules on every dismissal, res
   const modal = root.querySelector('#hubSettingsModal');
   assert.equal(modal.open, true);
   assert.equal(page.win.document.activeElement.id, 'hubSettingsTitle');
-  for (const [hash, title] of [['#rules', 'Rules for every board'], ['#push', 'Notifications'], ['#codex', 'Codex share'], ['#closed-boards', 'Closed boards']]) {
+  for (const [hash, title] of [['#rules', 'Rules for every board'], ['#push', 'Notifications'], ['#closed-boards', 'Closed boards']]) {
     page.win.location = new URL(`https://mac.ts.net/_hub/settings${hash}`);
     page.fire(vm.runInContext('window', page.win), 'hashchange');
     await settle();

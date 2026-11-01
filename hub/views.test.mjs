@@ -85,29 +85,31 @@ test('Hub Settings says whether pushes go, when a snooze ends and what each snoo
   assert.equal(off.device, 'checks every 15 min until 6:00pm; notifications are off');
 });
 
-test('Hub Settings shows the Codex setting, defaulting to Off, with the meaning of each choice', () => {
+test("the hub page's Codex share defaults to Off, says what each choice means and whether Codex is logged in, and Hub Settings no longer carries it", () => {
   const now = t(10);
-  const view = (extra = {}) => settingsView({ now, st: status(now, DEFAULTS), ...extra });
-  assert.equal(view().codexShare, 'off');
-  assert.equal(view().codex.choices.find((c) => c.on).value, 'off');
-  assert.equal(view().codex.description, 'No Codex.');
+  const sidebar = { sites: [], hub: {}, notifications: {}, total: 0, usage: { claude: null, codex: null } };
+  const view = (extra = {}) => hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar, rows: [], ...extra }).codex;
+  assert.deepEqual([view().share, view().login, view().description], ['off', false, 'No Codex.']);
+  assert.equal(view({ codexLogin: true }).login, true);
   const meanings = {
     always: 'Codex builds and reviews; while Codex is out of usage, that work pauses until a usage-reset check succeeds.',
     auto: 'Codex builds and reviews; while Codex is out of usage, Opus builders take over until it resets.',
     off: 'No Codex.',
   };
   for (const [codexShare, description] of Object.entries(meanings)) {
-    const v = view({ codexShare });
-    assert.equal(v.codexShare, codexShare);
-    assert.deepEqual(v.codex.choices.map((c) => [c.value, c.label, c.on]), [
+    const v = view({ codexShare, codexLogin: true });
+    assert.equal(v.share, codexShare);
+    assert.deepEqual(v.choices.map((c) => [c.value, c.label, c.on]), [
       ['always', 'Always on', codexShare === 'always'], ['auto', 'Auto', codexShare === 'auto'], ['off', 'Off', codexShare === 'off'],
     ]);
-    assert.equal(v.codex.description, description);
-    assert.equal(v.codex.note, "Applies to every board. A session's own /codex-share overrides it for that session.");
+    assert.equal(v.description, description);
+    assert.equal(v.note, "Applies to every board. A session's own /codex-share overrides it for that session.");
   }
+  const settings = settingsView({ now, st: status(now, DEFAULTS) });
+  assert.deepEqual([settings.codex, settings.codexShare], [undefined, undefined]);
 });
 
-test('Hub settings modals keep summaries, turn this device on, snooze inline and save each Codex choice or show a refusal', async () => {
+test('Hub settings modals keep summaries, turn this device on and snooze inline, with no Codex share row or modal', async () => {
   const document = {};
   const { Element } = miniDom(class {}, document);
   const root = new Element('div');
@@ -115,8 +117,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline and
   const listeners = [];
   const posts = [];
   const now = t(10);
-  const data = (codexShare, notifications = ON) => settingsView({ now, st: status(now, notify(DEFAULTS, notifications)), codexShare });
-  let refused = false;
+  const data = (notifications = ON) => settingsView({ now, st: status(now, notify(DEFAULTS, notifications)) });
   let live;
   let subscribed = false;
   let requested = false;
@@ -148,9 +149,9 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline and
       if (url === '/_hub/settings/notifications') {
         const choice = opts.body.get('snooze');
         const end = choice === 'off' ? null : snoozeEnd(now, choice, DEFAULTS);
-        return { ok: true, json: async () => data('off', { ...ON, snoozed_until: end?.toISOString() || null }) };
+        return { ok: true, json: async () => data({ ...ON, snoozed_until: end?.toISOString() || null }) };
       }
-      return { ok: !refused, json: async () => refused ? { error: 'Could not save Codex setting.' } : data(opts.body.get('value')) };
+      return { ok: false, json: async () => ({}) };
     },
   });
   for (const file of ['ui-hub.js', 'ui-page-header.js', 'hub-kit.js', 'router.js', 'view-hub-settings.js']) {
@@ -167,8 +168,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline and
   const modal = root.querySelector('#hubSettingsModal');
   assert.equal(modal.open, true);
   assert.equal(root.querySelector('#hubSettingsTitle').textContent, 'Rules for every board');
-  assert.equal(root.querySelectorAll('[data-summary]').length, 5);
-  assert.equal(root.querySelector('[data-summary=codex]').textContent, 'Off');
+  assert.equal(root.querySelectorAll('[data-summary]').length, 4);
   const rulesBox = root.querySelector('#hubRules');
   rulesBox.setAttribute('data-dirty', '');
   live.paint(data());
@@ -176,7 +176,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline and
   assert.equal(await B.openSettings({ hash: '#notifications' }), false);
   rulesBox.removeAttribute('data-dirty');
   await B.openSettings({ hash: '#notifications' });
-  assert.deepEqual(root.querySelectorAll('.hub-setting .title').map((h) => h.textContent), ['Notifications', 'Polling', 'Codex share', 'Rules for every board', 'Closed boards']);
+  assert.deepEqual(root.querySelectorAll('.hub-setting .title').map((h) => h.textContent), ['Notifications', 'Polling', 'Rules for every board', 'Closed boards']);
   assert.deepEqual(root.querySelectorAll('form input[name="set"]').map((input) => input.value), ['on', 'weekends']);
   assert.deepEqual(root.querySelectorAll('.snooze-choices button').map((b) => b.textContent), ['3h', '6h', '1d', 'Monday']);
   assert.equal(root.querySelector('.snooze-custom .btn').textContent, 'Custom');
@@ -233,33 +233,8 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline and
   assert.equal(root.querySelector('.snooze-on .title').textContent, 'Snoozed until 3:30pm tomorrow');
   await endSnooze();
   await B.openSettings({ hash: '#codex' });
-  const selected = () => root.querySelector('.segments button[aria-pressed="true"]').value;
-  const submit = (value) => {
-    const form = root.querySelector('.segments');
-    const button = form.querySelector(`button[value="${value}"]`);
-    return listeners.find((l) => l.target === root && l.type === 'submit').fn({ target: form,
-      submitter: { name: button.getAttribute('name'), value: button.value }, preventDefault() {} });
-  };
-  assert.equal(selected(), 'off');
-  assert.equal(root.querySelector('#codexDescription'), null);
-  assert.deepEqual(root.querySelectorAll('.segments button').map((b) => b.textContent), ['Always on', 'Auto', 'Off']);
-  assert.equal(root.querySelector('.segments').getAttribute('aria-label'), 'Codex share');
-  assert.equal(root.querySelector('#codexNote'), null);
-  for (const value of ['always', 'off', 'auto']) {
-    await submit(value);
-    assert.equal(selected(), value);
-    assert.equal(modal.open, true);
-    assert.equal(root.querySelector('[data-summary=codex]').textContent, data(value).codex.choices.find((c) => c.on).label);
-    const { url, opts } = posts.at(-1);
-    assert.equal(url, '/_hub/settings/codex');
-    assert.equal(opts.method, 'POST');
-    assert.equal(opts.headers.accept, 'application/json');
-    assert.equal(opts.body.toString(), `value=${value}`);
-  }
-  refused = true;
-  await submit('off');
-  assert.equal(selected(), 'auto');
-  assert.equal(root.querySelector('[role="alert"]').textContent, 'Could not save Codex setting.');
+  assert.equal(modal.open, false);
+  assert.equal(root.querySelector('.segments'), null);
 });
 
 test("the hub page lists Boards and Pages apart with each site's health and links, and says what the hub runs, polls and holds", () => {
@@ -344,4 +319,72 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   assert.match(lists[1].textContent, /s-alone.*WebSearch/);
   live.paint({ ...data, groups: data.groups.map((g) => ({ ...g, sites: g.sites.map((s) => ({ ...s, remembered: [] })) })) });
   assert.equal(root.querySelector('.remembered'), null);
+});
+
+test("the hub page's Usage card holds Codex share under Codex's bars, keeps Codex while off, and saves each choice or shows a refusal", async () => {
+  const document = {};
+  const { Element } = miniDom(class {}, document);
+  const root = new Element('div');
+  const listeners = [];
+  const posts = [];
+  let live;
+  let refused = false;
+  let sidebarChanges = 0;
+  const now = t(19);
+  const reading = { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null };
+  const hub = (codexShare, codexLogin = true) => plain(hubView({ now, st: status(now, DEFAULTS), poll: poll(now), rows: [], codexShare, codexLogin,
+    sidebar: { sites: [], hub: {}, notifications: {}, total: 0, usage: { claude: reading, codex: codexLogin && codexShare !== 'off' ? reading : null } } }));
+  const context = vm.createContext({
+    URLSearchParams, document, navigator: {},
+    FormData: class { *[Symbol.iterator]() {} },
+    BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
+    BoardUI: { header: () => '' },
+    PromptAnswers: { wire: () => ({ shows: () => true }) },
+    fetch: async (url, opts) => {
+      posts.push({ url, opts });
+      return { ok: !refused, json: async () => refused ? { error: 'codex-share takes auto, always, or off' } : hub(opts.body.get('value')) };
+    },
+  });
+  for (const file of ['ui-sidebar.js', 'ui-hub.js', 'hub-kit.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
+  context.HubKit.live = (B, opts) => { live = opts; return () => {}; };
+  root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
+  context.AppViews.hub.create(root, '/_hub', { sidebarChanged: () => sidebarChanges++ });
+  const codex = () => root.querySelectorAll('.usage .u-block').at(-1);
+  const selected = () => codex().querySelector('.segments button[aria-pressed="true"]').value;
+  const submit = (value) => {
+    const form = codex().querySelector('.segments');
+    const button = form.querySelector(`button[value="${value}"]`);
+    return listeners.find((l) => l.target === root && l.type === 'submit').fn({ target: form,
+      submitter: { name: button.getAttribute('name'), value: button.value }, preventDefault() {} });
+  };
+
+  live.paint(hub('auto', false));
+  assert.match(codex().textContent, /^Codex\s*Not logged in\s*Run codex login on the Mac\.$/);
+  assert.equal(root.querySelector('.usage').querySelectorAll('button, form').length, 0);
+
+  live.paint(hub('off'));
+  assert.match(codex().textContent, /^Codex\s*Not used while off\s*Codex share/);
+  assert.equal(codex().querySelectorAll('.u-bar').length, 0);
+  assert.equal(selected(), 'off');
+  assert.deepEqual(codex().querySelectorAll('.segments button').map((b) => b.textContent), ['Always on', 'Auto', 'Off']);
+  assert.equal(codex().querySelector('.segments').getAttribute('aria-label'), 'Codex share');
+  assert.equal(codex().querySelector('.u-share-desc').textContent, 'No Codex.');
+  assert.equal(codex().querySelector('.u-share-note').textContent, "Applies to every board. A session's own /codex-share overrides it for that session.");
+  assert.deepEqual(root.querySelectorAll('.usage .u-head .title').map((el) => el.textContent), ['Claude', 'Codex']);
+
+  for (const value of ['auto', 'always', 'off']) {
+    await submit(value);
+    const { url, opts } = posts.at(-1);
+    assert.deepEqual([url, opts.method, opts.headers.accept, opts.body.toString()], ['/_hub/settings/codex', 'POST', 'application/json', `value=${value}`]);
+    assert.equal(selected(), value);
+    assert.equal(codex().querySelector('.u-share-desc').textContent, hub(value).codex.description);
+    assert.equal(codex().querySelectorAll('.u-bar').length, value === 'off' ? 0 : 2);
+    assert.match(codex().textContent, value === 'off' ? /Not used while off/ : /^Codex\s*read .*5-hour\s*42% · resets/);
+  }
+  assert.equal(sidebarChanges, 3);
+  refused = true;
+  await submit('auto');
+  assert.equal(selected(), 'off');
+  assert.equal(root.querySelector('[role="alert"]').textContent, 'codex-share takes auto, always, or off');
 });

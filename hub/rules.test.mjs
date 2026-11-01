@@ -181,8 +181,8 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
     assert.equal(bad.status, 400);
     assert.match((await bad.json()).error, /non-empty/);
 
-    const getSettings = async () => (await fetch(`${base}/_hub/api/settings`)).json();
-    assert.equal((await getSettings()).codexShare, 'off');
+    const getHub = async () => (await fetch(`${base}/_hub/api/hub`)).json();
+    assert.equal((await getHub()).codex.share, 'off');
     const postCodex = (body, json = true) => fetch(`${base}/_hub/settings/codex`, {
       method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...(json ? { accept: 'application/json' } : {}) }, body, redirect: 'manual',
     });
@@ -192,8 +192,9 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
       const r = await postCodex(`value=${value}`);
       assert.equal(r.status, 200);
       const out = await r.json();
-      assert.equal(out.codexShare, value);
-      assert.deepEqual(out, await getSettings());
+      assert.equal(out.codex.share, value);
+      assert.equal(out.codex.choices.find((c) => c.on).value, value);
+      assert.deepEqual(out.codex, (await getHub()).codex);
       assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { ...before, codexShare: value });
     }
     const unchanged = fs.readFileSync(file, 'utf8');
@@ -204,7 +205,7 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
       assert.equal(fs.readFileSync(file, 'utf8'), unchanged);
     }
     const redirect = await postCodex('value=always', false);
-    assert.deepEqual([redirect.status, redirect.headers.get('location')], [303, '/_hub/#codex']);
+    assert.deepEqual([redirect.status, redirect.headers.get('location')], [303, '/_hub/']);
     const refused = await postCodex('value=bad', false);
     assert.equal(refused.status, 400);
     assert.equal(await refused.text(), 'codex-share takes auto, always, or off');
@@ -212,7 +213,6 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
       method: 'POST', headers: { accept: 'application/json' }, body: 'set=weekends&value=on',
     });
     assert.equal(notify.status, 200);
-    assert.equal((await notify.json()).codexShare, 'always');
     assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).codexShare, 'always');
     await t.test('custom snooze refuses past, invalid and over-30-day ends, saves a valid ISO end and ends it', async () => {
       const postNotification = (body, json = true) => fetch(`${base}/_hub/settings/notifications`, {
@@ -236,7 +236,6 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
       const out = await valid.json();
       assert.equal(out.snooze, null);
       assert.match(out.snoozed.title, /^Snoozed until /);
-      assert.equal(out.codexShare, 'always');
       assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).notifications.snoozed_until, until);
       const sidebar = await (await fetch(`${base}/_hub/sidebar.json`)).json();
       assert.deepEqual(sidebar.notifications, { state: 'held', text: out.snoozed.title });

@@ -52,7 +52,7 @@
 //                     setNotifications choice | off> → /_hub/api/settings's JSON, or 400 {error} when refused
 //                     (303 to ?refused=snooze). Custom posts a UTC ISO date-time; snoozeEnd refuses an end not
 //                     after now or more than 30 days on.
-//   /_hub/settings/codex POST value=auto|always|off → /_hub/api/settings's JSON, or 400 {error}
+//   /_hub/settings/codex POST value=auto|always|off → /_hub/api/hub's JSON, or 400 {error}
 //   /_hub/settings/polling POST one schedule.mjs editPolling change {op, w, value} → /_hub/api/polling's JSON for the
 //                     window to show, or 400 {error}
 //   /_hub/push/flush  POST sends the queued pushes now → {sent, count, ok, message}
@@ -124,7 +124,7 @@ import { boardClosure, closeBoard, closedBoards, reopenBoard } from './close-boa
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { BOARD_PUBLIC, appFile, colorsVersion, destOf, fileVersion, pageOf, shellHtml } from './shell.mjs';
 import { hubStream } from './stream.mjs';
-import { usageReader } from './usage.mjs';
+import { usageReader, codexLoggedIn } from './usage.mjs';
 import { InstallError, startInstall, stopInstalls } from './installs.mjs';
 import { migrateOnStart } from '../bin/install.mjs';
 
@@ -563,14 +563,14 @@ async function hubData(req) {
   return {
     ...hubView({
       now, st: queueStatus(now), poll: pollState(), sidebar: data, rows, links, rules: readHubRules(),
-      code, host: req.headers['x-forwarded-host'] || req.headers.host || '',
+      code, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(), codexLogin: codexLoggedIn(),
       remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])),
     }),
     prompts: pendingFor(null).map(shown),
     remembered: rememberedFor(null),
   };
 }
-const settingsData = async () => { const now = new Date(); return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), codexShare: readCodexShare(), route: await pushRoute() }), closed: closedBoards() }; };
+const settingsData = async () => { const now = new Date(); return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), route: await pushRoute() }), closed: closedBoards() }; };
 const pollingData = (select) => { const now = new Date(); return pollingView({ now, st: queueStatus(now), poll: pollState(), select }); };
 
 const redirect = (res, location) => { res.writeHead(303, { location, 'cache-control': 'no-store' }); res.end(); };
@@ -717,7 +717,7 @@ async function hubRoute(req, res, url) {
       if (e.status !== 400) throw e;
       return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
     }
-    return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#codex');
+    return json ? sendJSON(200, await hubData(req)) : redirect(res, '/_hub/');
   }
   // One schedule.mjs editPolling change {op, w, value}.
   if (p === '/_hub/settings/polling' && req.method === 'POST') {

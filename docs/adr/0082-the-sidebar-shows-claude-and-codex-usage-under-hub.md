@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0086
+---
+
 # The sidebar shows Claude and Codex usage under Hub
+
+Superseded in part by [0086](0086-codex-share-sits-in-the-usage-card.md): the Hub page's Usage card keeps Codex's block while share is off or Codex is logged out, without bars.
 
 The owner picked take B of `usage-bar` on hub/INT-187, after checking the live prototype's numbers against Claude's /usage and Codex's /status: two thin bars under the sidebar's Hub row, Claude and Codex, each its 5-hour window.
 

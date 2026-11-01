@@ -44,11 +44,26 @@ export function siteHealth(r, links) {
   return { tone: broken.length ? 'down' : off.length ? 'wait' : 'ok', word, lines: off.map((l) => ({ link: l.link, detail: `${l.state === 'broken' ? '' : 'settling: '}${l.detail}` })) };
 }
 
+const CODEX_CHOICES = [
+  { value: 'always', label: 'Always on', description: 'Codex builds and reviews; while Codex is out of usage, that work pauses until a usage-reset check succeeds.' },
+  { value: 'auto', label: 'Auto', description: 'Codex builds and reviews; while Codex is out of usage, Opus builders take over until it resets.' },
+  { value: 'off', label: 'Off', description: 'No Codex.' },
+];
+
+// The Usage card's Codex block: login is whether ~/.codex/auth.json exists; while logged out the block shows no control.
+const codexView = (share, login) => ({
+  login,
+  share,
+  choices: CODEX_CHOICES.map(({ value, label }) => ({ value, label, on: value === share })),
+  description: CODEX_CHOICES.find((c) => c.value === share).description,
+  note: "Applies to every board. A session's own /codex-share overrides it for that session.",
+});
+
 // sidebar: the /_hub/sidebar.json data, whose hub detail already says when the hub runs older code (home.mjs
 // hubHealth); rows: hub.mjs status() rows; links: Map of route to linksOf; code: {running, onDisk}, the hub's code hashes
-// (boards.mjs); host: the address the page was loaded from; rules: the hub rules. Boards and Pages stay apart, as in
-// the sidebar (board/public/ui-sidebar.js).
-export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code = {}, host = '', rules = [], remembered = new Map() }) {
+// (boards.mjs); host: the address the page was loaded from; rules: the hub rules; codexShare: push.mjs readCodexShare();
+// codexLogin: usage.mjs codexLoggedIn(). Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js).
+export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code = {}, host = '', rules = [], remembered = new Map(), codexShare = 'off', codexLogin = false }) {
   const boards = new Set(sidebar.sites.filter((x) => x.board).map((x) => x.route));
   const codeLine = code.running && code.running === code.onDisk ? ` · runs the code in its files (${code.onDisk})` : '';
   const site = (r) => ({ route: r.route, title: r.title, icon: siteIcon(r.route, r), href: `/${encodeURIComponent(r.route)}/`, ...siteHealth(r, links.get(r.route)), remembered: remembered.get(r.route) || [] });
@@ -58,6 +73,7 @@ export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code 
     hub: { tone: sidebar.hub.tone, word: sidebar.hub.word, detail: `${sidebar.hub.detail}${codeLine}` },
     groups,
     usage: sidebar.usage,
+    codex: codexView(codexShare, codexLogin),
     empty: rows.length === 0,
     polling: { ...pollingNow(st, poll, now), summary: pollingSummary(st.settings) },
     notifications: { on: st.settings.notifications.on, text: sidebar.notifications.text, device: nowLine(st, now) },
@@ -74,17 +90,11 @@ export const SNOOZE_REFUSED = 'That snooze ends in the past or more than 30 days
 
 const snoozedUntil = (n, now) => (n.on && n.snoozed_until && new Date(n.snoozed_until) > now ? new Date(n.snoozed_until) : null);
 
-const CODEX_CHOICES = [
-  { value: 'always', label: 'Always on', description: 'Codex builds and reviews; while Codex is out of usage, that work pauses until a usage-reset check succeeds.' },
-  { value: 'auto', label: 'Auto', description: 'Codex builds and reviews; while Codex is out of usage, Opus builders take over until it resets.' },
-  { value: 'off', label: 'Off', description: 'No Codex.' },
-];
-
 // The hub page's hub settings: the on/off, snooze and weekend controls (docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md),
-// the polling summary, Codex setting and hub rules. The snooze chips (docs/adr/0076-snooze-is-five-chips-in-notifications.md)
+// the polling summary and hub rules. The snooze chips (docs/adr/0076-snooze-is-five-chips-in-notifications.md)
 // are null while off or snoozed. route is push.mjs pushRoute(): where an action push goes now
 // (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md).
-export function settingsView({ now, st, rules = [], codexShare = 'off', route = { atMac: false, desktops: 0 } }) {
+export function settingsView({ now, st, rules = [], route = { atMac: false, desktops: 0 } }) {
   const s = st.settings;
   const n = s.notifications;
   const [first, last] = [s.windows[0], s.windows.at(-1)];
@@ -92,12 +102,6 @@ export function settingsView({ now, st, rules = [], codexShare = 'off', route = 
   const queued = st.count ? ` The ${st.count} queued push${st.count === 1 ? ' is' : 'es are'} dropped now.` : '';
   const choices = SNOOZE_CHOICES.map(([value, label]) => ({ value, label, until: `until ${clock(snoozeEnd(now, value, s), now)}` }));
   return {
-    codexShare,
-    codex: {
-      choices: CODEX_CHOICES.map(({ value, label }) => ({ value, label, on: value === codexShare })),
-      description: CODEX_CHOICES.find((c) => c.value === codexShare).description,
-      note: "Applies to every board. A session's own /codex-share overrides it for that session.",
-    },
     snoozed: until ? { title: `Snoozed until ${clock(until, now)}` } : null,
     device: nowLine(st, now),
     on: {

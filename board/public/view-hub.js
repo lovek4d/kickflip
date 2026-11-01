@@ -1,5 +1,5 @@
-// The hub page, /_hub/, a view of the app shell (shell.js): Needs you for the pending prompts of sessions that own no
-// board, the hub's health, each site's health and board links,
+// The hub page, /_hub/, a view of the app shell (shell.js): the Usage card with Codex share, Needs you for the pending
+// prompts of sessions that own no board, the hub's health, each site's health and board links,
 // polling status, then hub settings summary rows (ADR 0075). Health comes from GET /_hub/api/hub.
 // Its data refreshes every 30 seconds while it shows (hub-kit.js live).
 (function () {
@@ -28,7 +28,7 @@
 
   function html(d, { flash, prompts }) {
     const { row, tile, nowRow } = HubUI;
-    const usage = HubUI.usageCard(d.usage);
+    const usage = HubUI.usageCard(d.usage, d.codex);
     return `${HubUI.flash(flash)}${usage}${promptsHtml(d.prompts || [], prompts)}<h2 class="label"${usage ? '' : ' style="margin-top:4px"'}>Health</h2>
 <div class="group">${row({ icon: tile('power', { ok: '#22c55e', wait: '#f59e0b' }[d.hub.tone] || '#ef4444'), title: 'Hub', sub: `<span class="st ${esc(d.hub.tone)}">${esc(d.hub.word)}</span> · ${esc(d.hub.detail)}`, wrap: true })}
 ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/kickflip &lt;route&gt;</code>.' }) : ''}</div>
@@ -72,8 +72,11 @@ ${sitesHtml(d.groups)}${d.remembered?.length ? `<h2 class="label">Sessions witho
         after: () => load(),
       });
       const forms = HubKit.forms(B, {
-        accepts: (action) => action === '/_hub/push/flush',
-        answer(out) { flash = { text: out.message, error: !out.ok }; load(); ctx.sidebarChanged?.(); },
+        accepts: (action) => action === '/_hub/push/flush' || action === '/_hub/settings/codex',
+        answer(out, action) {
+          if (action === '/_hub/settings/codex') { last = out; flash = null; paint(); } else { flash = { text: out.message, error: !out.ok }; load(); }
+          ctx.sidebarChanged?.();
+        },
         fail(message) { flash = { text: message, error: true }; paint(); },
       });
       const load = HubKit.live(B, {

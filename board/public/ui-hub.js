@@ -35,20 +35,30 @@
     return `<div class="row" id="push">${tile('bell', '#ef4444')}<span class="body"><span class="text"><span class="title">${esc(state.title)}</span>${compact ? '' : `<span class="sub wrap">${esc(state.sub)}</span>`}</span>${compact && state.title === 'This device' ? `<span class="val">${state.sub?.startsWith('On') ? 'On' : 'Off'}</span>` : ''}${button}</span></div>`;
   }
 
-  function usageCard(data) {
-    if (!data) return '';
+  // The Codex share control under Codex's bars: codex is hub/views.mjs hubView's codex, and its form posts to
+  // /_hub/settings/codex, which view-hub.js sends.
+  const codexShare = (codex) => `<div class="u-share"><div class="u-share-label">Codex share</div><form class="segments" method="post" action="/_hub/settings/codex" role="group" aria-label="Codex share">${codex.choices.map((c) => `<button type="submit" name="value" value="${esc(c.value)}" aria-pressed="${c.on}">${esc(c.label)}</button>`).join('')}</form><p class="u-share-desc">${esc(codex.description)}</p><p class="u-share-note">${esc(codex.note)}</p></div>`;
+
+  // data is the usage reading; codex, when given, draws Codex's block even without a reading: logged out, or not used
+  // while share is off, and adds the Codex share control while logged in.
+  function usageCard(data, codex) {
     const { usageProducts, usageNames, usageClock, usageTone, usageBar, usageWords } = BoardUI;
     const products = usageProducts(data);
+    if (codex && !products.includes('codex')) products.push('codex');
     if (!products.length) return '';
+    const head = (name, tag) => `<div class="u-head"><span class="title">${name}</span><span class="u-asof">${esc(tag)}</span></div>`;
     const blocks = products.map((p) => {
-      const r = data[p];
+      if (p === 'codex' && codex && !codex.login) return `<div class="block u-block">${head(usageNames.codex, 'Not logged in')}<p class="u-share-desc">Run <code>codex login</code> on the Mac.</p></div>`;
+      if (p === 'codex' && codex?.share === 'off') return `<div class="block u-block">${head(usageNames.codex, 'Not used while off')}${codexShare(codex)}</div>`;
+      const r = data?.[p] || { at: null };
       const asof = !r.at ? 'no reading' : `${r.five_hour?.state === 'stale' ? 'last seen' : 'read'} ${usageClock(r.at)}`;
       const windows = [['5-hour', 'five_hour'], ['Week', 'seven_day']].map(([label, key]) =>
         `<div class="u-tone-${usageTone(r[key])}"><div class="u-win"><span>${label}</span><span>${usageWords(r, key)}</span></div>${usageBar(r[key])}</div>`).join('');
-      return `<div class="block u-block"><div class="u-head"><span class="title">${usageNames[p]}</span><span class="u-asof">${esc(asof)}</span></div>${windows}</div>`;
+      return `<div class="block u-block">${head(usageNames[p], asof)}${windows}${p === 'codex' && codex ? codexShare(codex) : ''}</div>`;
     }).join('');
-    const source = [data.claude && 'Claude Code’s status line, which every busy session redraws', data.codex && 'Codex’s newest session logs'].filter(Boolean).join(', and ');
-    return `<section class="usage"><h2 class="label" style="margin-top:4px">Usage</h2><div class="group">${blocks}</div><p class="note">From ${source}. A window whose reset time passed reads as reset.</p></section>`;
+    const source = [data?.claude && 'Claude Code’s status line, which every busy session redraws', data?.codex && 'Codex’s newest session logs'].filter(Boolean).join(', and ');
+    const note = source ? `<p class="note">From ${source}. A window whose reset time passed reads as reset.</p>` : '';
+    return `<section class="usage"><h2 class="label" style="margin-top:4px">Usage</h2><div class="group">${blocks}</div>${note}</section>`;
   }
 
   globalThis.HubUI = { esc, tile, CHEVRON, row, flash, nowRow, deviceRow, usageCard };

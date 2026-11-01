@@ -43,7 +43,7 @@ The hub's status page, `/_hub/`, which the sidebar's Hub row opens: **usage read
 _Avoid_: dashboard, console, hub home
 
 **Usage reading**:
-The last reported Claude or Codex usage for its 5-hour and weekly windows, with reset times and when read. The sidebar’s Hub row shows each tool’s 5-hour bar and the hub page shows both windows; a reading older than its window reads “last seen” with a grey striped bar, otherwise a window whose reset passed reads as reset. Claude appears after its status line reports usage, and Codex only while logged in with **Codex setting** enabled ([0082](docs/adr/0082-the-sidebar-shows-claude-and-codex-usage-under-hub.md)).
+The last reported Claude or Codex usage for its 5-hour and weekly windows, with reset times and when read. The sidebar’s Hub row shows each tool’s 5-hour bar and the hub page shows both windows; a reading older than its window reads “last seen” with a grey striped bar, otherwise a window whose reset passed reads as reset. Claude appears after its status line reports usage. Codex's bars show only while logged in with **Codex setting** enabled; the hub page keeps Codex's block either way, reading Not logged in or Not used while off ([0082](docs/adr/0082-the-sidebar-shows-claude-and-codex-usage-under-hub.md), [0086](docs/adr/0086-codex-share-sits-in-the-usage-card.md)).
 _Avoid_: quota, live usage
 
 **Board registry**:
@@ -93,7 +93,7 @@ The hub's one schedule, a list of windows with their minutes: on each slot it ch
 _Avoid_: push schedule, send-at-once hours, cron
 
 **Hub settings**:
-The five summary rows below the **hub page**’s health and status: Notifications, Polling, Codex share, Rules for every board and Closed boards. Each opens its controls in a centred modal with its own scroll area, including Polling’s schedule editor. Old Hub Settings links open the matching modal over Hub ([0075](docs/adr/0075-hub-settings-open-as-modals.md)).
+The four summary rows below the **hub page**’s health and status: Notifications, Polling, Rules for every board and Closed boards. Each opens its controls in a centred modal with its own scroll area, including Polling’s schedule editor. Old Hub Settings links open the matching modal over Hub ([0075](docs/adr/0075-hub-settings-open-as-modals.md)).
 _Avoid_: Hub Settings page, preferences, hub config
 
 **Board Settings**:
@@ -101,7 +101,7 @@ The centred modal opened from a board header’s gear, at every width, which scr
 _Avoid_: Settings page
 
 **Codex setting**:
-The one choice in the hub page’s Codex share row for every board: Auto has Codex build and review, with Opus builders taking over while Codex is out of usage until it resets; Always on has Codex build and review, with that work paused while Codex is out of usage until a usage-reset check succeeds; Off, also when unset, means no Codex. A session's own `/codex-share` overrides it for that session ([0066](docs/adr/0066-one-codex-setting-for-every-board.md)).
+The one choice for every board, made in Codex’s block of the hub page’s Usage card ([0086](docs/adr/0086-codex-share-sits-in-the-usage-card.md)): Auto has Codex build and review, with Opus builders taking over while Codex is out of usage until it resets; Always on has Codex build and review, with that work paused while Codex is out of usage until a usage-reset check succeeds; Off, also when unset, means no Codex. A session's own `/codex-share` overrides it for that session ([0066](docs/adr/0066-one-codex-setting-for-every-board.md)).
 _Avoid_: Codex rule, board Codex toggle
 
 **Waiting count**:
@@ -329,10 +329,10 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `view-settings.js` | Board Settings as a modal over its board, which shell.js mounts: repo and branch (Change uses the same list and GitHub link search as New board), ticket source, auto-merge, install script, reviewers, rules and Close board with its typed-name sheet |
 | `view-questions.js` | Waiting on you as a view: a topic's questions, their takes framed with `?take=` in a fitting grid or a chooser above one full-width frame, and one Send, which stays while the topic has a question open and otherwise opens the next topic with one, or goes back to the board |
 | `view-notes.js` | One item's notes as a view, from `GET /api/notes`; the server redirects `plan.html` to `notes.html` |
-| `view-hub.js` | The **hub page** as a view, from `/_hub/api/hub`, refreshed every 30 seconds while it shows; pending prompts of sessions with no board, Send now, then `view-hub-settings.js` below its status |
-| `view-hub-settings.js` | Summary rows opening **hub settings** modals over the hub page, from `/_hub/api/settings`: Notifications with inline Snooze chips and a native Custom picker, Polling, Codex share, Rules for every board and Closed boards with Reopen |
+| `view-hub.js` | The **hub page** as a view, from `/_hub/api/hub`, refreshed every 30 seconds while it shows; the Usage card, whose Codex share posts `/_hub/settings/codex`, pending prompts of sessions with no board, Send now, then `view-hub-settings.js` below its status |
+| `view-hub-settings.js` | Summary rows opening **hub settings** modals over the hub page, from `/_hub/api/settings`: Notifications with inline Snooze chips and a native Custom picker, Polling, Rules for every board and Closed boards with Reopen |
 | `view-polling.js` | The editor in Hub’s Polling modal, from `/_hub/api/polling`: the day bar, whose taps pick a window without asking the hub, each window's edits, the overnight hold, the daily wakes and Send now |
-| `ui-hub.js` | `HubUI`, the hub views' pure renderers: rows, tiles, the flash, the Now row and this device's row |
+| `ui-hub.js` | `HubUI`, the hub views' pure renderers: rows, tiles, the flash, the Now row, this device's row and the Usage card |
 | `hub-kit.js` | `HubKit`, what the hub views share: `live` (load, the header's time and ↻, the 30-second refresh), `forms` (posting a hub form for JSON, and saving a toggle or time on change) and `device` (this device's push subscription) |
 | `view-frame.js` | Any other page as a frame view: the frame beside the board header with Open alone ↗, hiding that header for a page that draws its own, whose logo then toggles the sidebar; each load's URL and title to the shell, and taps on links to other views sent to it, a prototype's back arrow included, which the shell takes up the **page tree** before the page's own script can |
 | `sidebar.css` | The sidebar's rail, its collapse, the drawer and switch mode, plus the shared New board dialog; linked after `colors.css` |
