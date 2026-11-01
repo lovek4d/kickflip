@@ -188,7 +188,7 @@ test('invalid repo identities, branches, fields and reserved routes are refused 
   assert.equal(repoPath('org/-repo', base), path.join(base, 'org/-repo'));
 });
 
-test("a New board on Linear's New project… creates that project in its team on Start and keeps its id, unless the route is taken", async () => {
+test("a New board on Linear's New project… creates that project in its team on Start and keeps its id, unless the route is taken, or keeps its name without a key", async () => {
   saveJSON(manifestFile, { sites: { taken: board } });
   const { run } = claude();
   const world = linearWorld();
@@ -200,7 +200,8 @@ test("a New board on Linear's New project… creates that project in its team on
   await request.started;
   assert.deepEqual(world.teams[1].projects, [{ id: 'proj-101', name: 'Fresh board' }]);
   assert.deepEqual(readManifest().starting['fresh-board'].tickets, { source: 'linear', workspace: 'acme', team: 'OPS', project: 'proj-101' });
-  await assert.rejects(requestBoard({ ...input('No key'), tickets }, { run, live, repos }), { status: 400, message: 'Add a Linear key on Hub first.' });
+  await (await requestBoard({ ...input('No key'), tickets }, { run, live, repos })).started;
+  assert.deepEqual(readManifest().starting['no-key'].tickets, { source: 'linear', workspace: 'acme', team: 'OPS', project: 'Fresh board' });
 });
 
 test('clone paths refuse symlink escapes through .repos, owner, repo and ancestors', async () => {

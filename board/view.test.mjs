@@ -943,8 +943,14 @@ test('New board chooses a searchable repo before board details, defaults its bra
     assert.equal(start.disabled, false);
     page.fire(control, 'click', { target: control.querySelector('[data-tk-source="linear"]') });
     await tick();
-    assert.match(control.textContent, /Add a Linear key on Hub/);
+    assert.match(control.textContent, /through its Linear MCP/);
+    assert.equal(control.querySelector('[data-tk="projectText"]').value, 'Backend audit');
     assert.equal(start.disabled, true);
+    for (const [name, value] of [['workspaceText', 'acme'], ['teamText', 'prod']]) {
+      const input = control.querySelector(`[data-tk="${name}"]`);
+      input.value = value; page.fire(control, 'input', { target: input });
+    }
+    assert.equal(start.disabled, false);
     page.fire(control, 'click', { target: control.querySelector(`[data-tk-source="${wide ? 'internal' : 'github'}"]`) });
     if (!wide) assert.match(control.textContent, /Issues in owner\/project/);
     field('branch').value = 'release/next';
@@ -1187,8 +1193,15 @@ test('the shared Tickets control stages Board Settings changes, validates the pr
   assert.deepEqual(posts.at(-1), { tickets: { source: 'github' } });
   page.fire(control, 'click', { target: control.querySelector('[data-tk-source="linear"]') });
   await tick();
-  assert.match(control.textContent, /Add a Linear key on Hub/);
+  assert.match(control.textContent, /A Linear key on Hub/);
   assert.equal(save.disabled, true);
+  for (const [name, value] of [['workspaceText', 'acme'], ['teamText', 'prod'], ['projectText', 'Audit']]) {
+    const input = control.querySelector(`[data-tk="${name}"]`);
+    input.value = value; page.fire(control, 'input', { target: input });
+  }
+  assert.equal(save.disabled, false);
+  page.fire(form, 'submit'); await tick();
+  assert.deepEqual(posts.at(-1), { tickets: { source: 'linear', workspace: 'acme', team: 'PROD', project: 'Audit' } });
   view.unmount();
 });
 

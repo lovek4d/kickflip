@@ -25,6 +25,9 @@ Asks have no ticket; item set --from-ask creates one when the card has none.
 A card moves its ticket one way: --status building or fixing → In Progress, --pr → In Review, --status done or
 merged → Done (a GitHub issue closes), only for a ticket assigned to the owner or created by kickflip. A ticket that
 can't move prints one "ticket <id>: …" line; the card's change still stands.
+A Linear board without Hub's key hands Linear to the session: a linked id is checked on its pattern alone, and a card
+needing an issue, or a ticket to move, prints a "ticket" line saying what to do through your Linear MCP, such as
+creating the issue and running item set <wave>/<id> --ticket <id> (followup set for a follow-up).
 
   reply <eventId> (--html <text> | --file <path>)        data/replies/<eventId>.html
   working <eventId>                                      marks an ask or thread message started; the page
@@ -110,6 +113,7 @@ can't move prints one "ticket <id>: …" line; the card's change still stands.
                                                          pushes are held (overnight, snoozed, the weekend or off)
   followup add <wave> --id <id> --title <t> [--from <item id>] [--ticket <id>]
   followup done <wave> <id> [--force]                    closes the follow-up's card as item set --status done does
+  followup set <wave> <id> --ticket <id>                links the follow-up's ticket in the board's source
   tickets backfill [--dry-run]                           gives every open card and follow-up without a ticket one: the first
                                                          id in its title (or legacy linear list) from the board's
                                                          source is linked, else a new ticket is made. Done cards are
@@ -290,6 +294,7 @@ const COMMANDS = {
   'followup add': [['wave'], ['id', 'title', 'from', 'ticket'], (site, [wave], f, options) => store.addFollowup(site, wave, f, options)],
   'tickets backfill': [[], ['dry-run'], (site, _, f, options) => store.backfillTickets(site, { dryRun: f['dry-run'] }, options)],
   'followup done': [['wave', 'id'], ['force'], (site, [wave, id], f) => store.finishFollowup(site, wave, id, { force: f.force })],
+  'followup set': [['wave', 'id'], ['ticket'], (site, [wave, id], f) => store.setFollowupTicket(site, wave, id, f.ticket)],
   'reviewers set': [[], ['file'], (site, _, f) => store.setReviewers(site, readJSONInput(f.file))],
   'reviewers add': [[], ['file'], (site, _, f) => store.addReviewers(site, readJSONInput(f.file))],
   'reviewers remove': [['...name'], [], (site, names) => store.removeReviewers(site, names)],

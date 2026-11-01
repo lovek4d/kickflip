@@ -55,16 +55,17 @@ async function recordStart(route, outcome) {
 
 // Reserves the route on a Starting row, then starts the board's session in the background
 // (docs/adr/0069-the-hub-starts-a-new-boards-session.md). run and live go to sessions.mjs startSession. Tickets with
-// new_project create that Linear project first, through linear (linear.mjs savedClient by default).
+// new_project create that Linear project first, through linear (linear.mjs savedClient by default); without a key the
+// project keeps its name, and the board's session creates it through its Linear MCP.
 // → {route, started}: started settles once the outcome is on the Starting row, as {session} or {error}, and never rejects.
 export async function requestBoard(input, { run, live, repos = repoService(), changed = () => {}, linear } = {}) {
   const board = details(input);
   const { route, title, github, branch, newProject } = board;
   let { tickets } = board;
   const repo = repos.path(github);
-  if (newProject !== undefined) {
+  const client = newProject === undefined ? null : linear || savedClient();
+  if (client) {
     if (taken(readManifest(), route)) refuse(TAKEN);
-    const client = linear || savedClient() || refuse('Add a Linear key on Hub first.');
     try { tickets = { ...tickets, project: (await client.createProject(tickets.team, newProject)).id }; }
     catch (e) { refuse(e.message, e.status || 502); }
   }

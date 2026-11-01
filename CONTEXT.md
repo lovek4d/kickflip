@@ -160,11 +160,11 @@ The identity of a work item or follow-up in its board’s **ticket source**, sho
 _Avoid_: card (the board’s work item), task
 
 **Ticket source**:
-The board’s one choice for every card’s tickets: Internal with a prefix (INT by default), GitHub issues in the board’s repo, or a Linear workspace, team and project, listed through Hub’s **Linear key**. New board and Board Settings share the choice ([0081](docs/adr/0081-a-board-has-one-ticket-source.md)).
+The board’s one choice for every card’s tickets: Internal with a prefix (INT by default), GitHub issues in the board’s repo, or a Linear workspace, team and project, listed through Hub’s **Linear key** when one is set and typed otherwise. New board and Board Settings share the choice ([0081](docs/adr/0081-a-board-has-one-ticket-source.md)).
 _Avoid_: integration, tracker, GitHub project
 
 **Linear key**:
-The owner’s Linear personal API key, pasted in Hub settings and kept only on this Mac; pages learn only whether it is set and its workspace. kickflip lists teams and projects, creates projects and issues, and moves tickets with it ([0088](docs/adr/0088-kickflip-reaches-linear-with-a-key-on-the-mac.md)).
+The owner’s Linear personal API key, pasted in Hub settings and kept only on this Mac; pages learn only whether it is set and its workspace. kickflip lists teams and projects, creates projects and issues, and moves tickets with it. The key is optional: without it, `board.mjs` prints `ticket` lines and the board’s session does that work through its Linear MCP ([0088](docs/adr/0088-kickflip-reaches-linear-with-a-key-on-the-mac.md)).
 _Avoid_: Linear token, API secret
 
 **Internal item**:

@@ -199,13 +199,11 @@ test('tickets validate prefixes and link or create in the board source through t
   assert.equal(await cli('item', 'add', 'audit/D4', '--title', 'Four'), 0);
   assert.equal(read(site('audit', 'data', 'wave.json')).items.at(-1).ticket, 'OPS-1');
   await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'another', team: 'PROD', project: 'Audit' } });
-  assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five'), 1);
-  assert.equal(err.at(-1), 'Add a Linear key on Hub first.');
   assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five', '--ticket', 'OTHER-1'), 1);
   assert.match(err.at(-1), /match PROD-<number>/);
-  assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five', '--ticket', 'PROD-2918'), 1);
-  assert.equal(await cli('followup', 'add', 'audit', '--id', 'follow', '--title', 'Follow'), 1);
-  assert.equal(err.at(-1), 'Add a Linear key on Hub first.');
+  assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five', '--ticket', 'PROD-2918'), 0);
+  assert.equal(await cli('item', 'set', 'audit/E5', '--ticket', 'PROD-2919'), 0);
+  assert.equal(await cli('followup', 'add', 'audit', '--id', 'follow', '--title', 'Follow', '--ticket', 'PROD-2920'), 0);
   assert.equal(calls.length, 0);
   const waveFile = site('audit', 'data', 'wave.json');
   write(waveFile, { ...read(waveFile), repo: 'o/r' });
@@ -348,6 +346,42 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
   assert.equal(await cli('item', 'set', 'audit/G7', '--status', 'done'), 0);
   assert.equal(out.at(-1), 'ticket #41: closed');
   assert.deepEqual(gh.at(-1), ['issue', 'close', '41', '--repo', 'o/r']);
+});
+
+test("a Linear board without Hub's key records each card and asks the session, in ticket lines, to create, link and move its issues through the Linear MCP", async (t) => {
+  const { saveBoardSettings, out, err, linear, cli, item } = await ticketCli(t);
+  fs.rmSync(at('kickflip', 'linear.json'));
+  await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'acme', team: 'PROD', project: 'Backend Audit' } });
+  assert.equal(await cli('item', 'add', 'audit/B2', '--title', 'Two', '--notes', 'Why'), 0);
+  assert.equal(out.at(-1), 'ticket: create the Linear issue "Two" in team PROD, project Backend Audit, through your Linear MCP, then run board.mjs --site audit item set audit/B2 --ticket <id>');
+  assert.deepEqual([item('B2').status, item('B2').ticket], ['planned', undefined]);
+  assert.equal(await cli('item', 'set', 'audit/B2', '--ticket', 'OPS-4'), 1);
+  assert.match(err.at(-1), /match PROD-<number>/);
+  assert.equal(await cli('item', 'set', 'audit/B2', '--ticket', 'PROD-4'), 0);
+  assert.equal(item('B2').ticket, 'PROD-4');
+  assert.equal(await cli('followup', 'add', 'audit', '--id', 'later', '--title', 'Later work'), 0);
+  assert.equal(out.at(-1), 'ticket: create the Linear issue "Later work" in team PROD, project Backend Audit, through your Linear MCP, then run board.mjs --site audit followup set audit later --ticket <id>');
+  assert.equal(await cli('followup', 'set', 'audit', 'later', '--ticket', 'PROD-5'), 0);
+  assert.equal(read(site('audit', 'data', 'wave.json')).followups.find((f) => f.id === 'later').ticket, 'PROD-5');
+  write(site('audit', 'data', 'events.jsonl'), JSON.stringify({ id: 'e1', kind: 'ask', data: { text: 'Ask' } }) + '\n');
+  const waveFile = site('audit', 'data', 'wave.json');
+  write(waveFile, { ...read(waveFile), items: [...read(waveFile).items, { id: 'D4', title: 'Asked' }] });
+  assert.equal(await cli('item', 'set', 'audit/D4', '--from-ask', 'e1'), 0);
+  assert.equal(out.at(-1), 'ticket: create the Linear issue "Asked" in team PROD, project Backend Audit, through your Linear MCP, then run board.mjs --site audit item set audit/D4 --ticket <id>');
+  for (const [flags, state] of [[['--status', 'building'], 'In Progress'], [['--pr', '9'], 'In Review'], [['--status', 'done'], 'Done']]) {
+    assert.equal(await cli('item', 'set', 'audit/B2', ...flags), 0);
+    assert.equal(out.at(-1), `ticket PROD-4: move to ${state} through the Linear MCP if it's assigned to you`);
+  }
+  write(waveFile, { ...read(waveFile), items: [{ id: 'E5', title: 'Fix login (PROD-2918)' }, { id: 'F6', title: 'No id yet' }, { id: 'G7', title: 'Done', status: 'done' }], followups: [] });
+  out.length = 0;
+  assert.equal(await cli('tickets', 'backfill'), 0);
+  assert.deepEqual(out, [
+    'audit/E5 linked PROD-2918',
+    'audit/F6 ticket: create the Linear issue "No id yet" in team PROD, project Backend Audit, through your Linear MCP, then run board.mjs --site audit item set audit/F6 --ticket <id>',
+    'backfill: linked 1, created 0, failed 0, 1 to create through the Linear MCP',
+  ]);
+  assert.deepEqual(['E5', 'F6', 'G7'].map((id) => item(id).ticket), ['PROD-2918', undefined, undefined]);
+  assert.equal(linear.calls.length, 0);
 });
 
 test('tickets backfill links ids from open cards’ titles that belong to the source, creates the rest, leaves done cards, and changes nothing on a dry run', async (t) => {

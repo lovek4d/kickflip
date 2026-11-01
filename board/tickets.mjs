@@ -45,11 +45,12 @@ export function ticketBadge(source, id, { repo, key } = {}) {
   return { id: ref, url: `https://linear.app/${source.workspace}/issue/${ref}`, source: 'linear' };
 }
 
-const linearOf = (linearFetch) => savedClient({ fetch: linearFetch }) || refuse('Add a Linear key on Hub first.');
 const linearCall = async (fn) => { try { return await fn(); } catch (e) { refuse(e.message); } };
 
 // → {ticket, created}: created when kickflip made the ticket rather than linking one (store.mjs keeps it as
-// ticket_created, which lets moveTicket move it).
+// ticket_created, which lets moveTicket move it). A Linear board without Hub's key links an id on its pattern alone,
+// and to create one answers {ticket: null, mcp: true}: the board's session makes it through its Linear MCP
+// (docs/adr/0088-kickflip-reaches-linear-with-a-key-on-the-mac.md).
 export async function resolveTicket(source, { ticket, title, body = '', repo, next }, { run = runRepo, linearFetch } = {}) {
   if (source.source === 'internal') {
     if (ticket !== undefined && !ticketIn(source, ticket)) refuse(`Ticket must match ${source.prefix}-<number>.`);
@@ -57,7 +58,8 @@ export async function resolveTicket(source, { ticket, title, body = '', repo, ne
   }
   if (source.source === 'linear') {
     if (ticket !== undefined && !ticketIn(source, ticket)) refuse(`Ticket must match ${source.team}-<number>.`);
-    const linear = linearOf(linearFetch);
+    const linear = savedClient({ fetch: linearFetch });
+    if (!linear) return ticket === undefined ? { ticket: null, created: false, mcp: true } : { ticket, created: false };
     if (ticket === undefined) {
       const issue = await linearCall(() => linear.createIssue({ team: source.team, project: source.project, title, description: body }));
       return { ticket: issue.identifier, created: true };
@@ -114,7 +116,7 @@ export async function moveTicket(source, item, target, { repo, run = runRepo, li
   try {
     if (source.source === 'linear') {
       const linear = savedClient({ fetch: linearFetch });
-      if (!linear) return `ticket ${id}: not moved, Hub has no Linear key`;
+      if (!linear) return `ticket ${id}: move to ${TARGET_WORDS[target]} through the Linear MCP${item.ticket_created ? '' : " if it's assigned to you"}`;
       if (!item.ticket_created) {
         const issue = await linear.issue(id);
         if (!issue) return `ticket ${id}: not moved, Linear has no such issue`;
@@ -138,3 +140,6 @@ export async function moveTicket(source, item, target, { repo, run = runRepo, li
     return `ticket ${id}: closed`;
   } catch (e) { return why(e); }
 }
+
+// The line that asks a board's session to make a Linear issue through its MCP and link it with link (a board.mjs command).
+export const mcpCreateLine = (source, title, link) => `ticket: create the Linear issue "${title}" in team ${source.team}, project ${source.project}, through your Linear MCP, then run ${link} --ticket <id>`;

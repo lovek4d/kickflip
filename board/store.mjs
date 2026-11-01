@@ -11,7 +11,7 @@ import { appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { reviseQueued, flushQueue, queueStatus } from '../hub/push.mjs';
 import { holdLine } from '../hub/schedule.mjs';
 import { routeRecord } from '../hub/routes.mjs';
-import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleTickets } from './tickets.mjs';
+import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleTickets, mcpCreateLine } from './tickets.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { storedPath } from '../bin/install.mjs';
 import { RuleError, rulesOf, addRule, editRule, removeRule, applyRules, readHubRules, writeHubRules } from '../hub/rules.mjs';
@@ -964,9 +964,10 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (ask) item.from_ask = ask;
   if (built) item.install = built;
   if (built === null) delete item.install;
-  if (ticket !== undefined || (ask && !item.ticket && !item.linear?.length)) await assignTicket(site, key, wave, item, ticket, options, source.dir);
+  const mcpLine = ticket !== undefined || (ask && !item.ticket && !item.linear?.length) ? await assignTicket(site, key, wave, item, ticket, options, source.dir, setTicketCommand(site, key)) : null;
   await writeJSON(source.file, wave);
   const resolved = await resolve();
+  if (mcpLine) resolved.push(mcpLine);
   const target = ticketTarget({ status, pr });
   const moved = target && await moveTicket(await boardSource(site), item, target, { ...options, repo: boardRepoOf(site, wave) });
   if (moved) resolved.push(moved);
@@ -997,8 +998,9 @@ const boardRepoOf = (site, wave) => (site && listBoards().find((b) => samePath(b
 const boardSource = async (site) => storedTickets((await boardConfig(site)).tickets);
 
 // Sets item.ticket from the board's source, and ticket_created when kickflip made it. self is the card's <wave>/<id>:
-// an Internal ticket another card holds is refused.
-async function assignTicket(site, self, wave, item, ticket, options, dir) {
+// an Internal ticket another card holds is refused. → null, or the line asking the session to make a Linear issue
+// through its MCP and link it with link, the board.mjs command that sets this card's ticket.
+async function assignTicket(site, self, wave, item, ticket, options, dir, link) {
   try {
     const cfg = await boardConfig(site);
     const source = ticketSource(cfg.tickets || { source: 'internal' });
@@ -1017,8 +1019,10 @@ async function assignTicket(site, self, wave, item, ticket, options, dir) {
     }
     const body = ticket === undefined && source.source !== 'internal' && item.plan ? await fs.readFile(await planPath(dir, item.plan), 'utf8') : item.notes || '';
     const r = await resolveTicket(source, { ticket, title: item.title, body, repo: boardRepoOf(site, wave), next: max + 1 }, options);
+    if (r.mcp) { delete item.ticket; delete item.ticket_created; return mcpCreateLine(source, item.title, link); }
     item.ticket = r.ticket;
     if (r.created && source.source !== 'internal') item.ticket_created = true; else delete item.ticket_created;
+    return null;
   } catch (e) { if (e instanceof BoardError) throw e; fail(e.message); }
 }
 
@@ -1039,10 +1043,10 @@ async function createItem(site, key, { title, notes, deps, notesFile, ticket }, 
   if (deps !== undefined) item.deps = await depList(site, slug, deps);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
   item.status = item.deps?.length ? 'waiting' : 'planned';
-  await assignTicket(site, key, wave, item, ticket, options, source.dir);
+  const line = await assignTicket(site, key, wave, item, ticket, options, source.dir, setTicketCommand(site, key));
   wave.items.push(item);
   await writeJSON(source.file, wave);
-  return source.file;
+  return { file: source.file, lines: line ? [line] : [] };
 }
 
 async function createFollowup(site, slug, { id, title, from, ticket }, options) {
@@ -1051,15 +1055,30 @@ async function createFollowup(site, slug, { id, title, from, ticket }, options) 
   const followups = wave.followups || [];
   if (followups.some((f) => f.id === id)) fail(`wave "${slug}" already has follow-up ${id}`);
   const item = { id, title: text(title, '--title'), ...(from === undefined ? {} : { from: text(from, '--from') }), filed: new Date().toISOString().slice(0, 10) };
-  await assignTicket(site, `${slug}/${id}`, wave, item, ticket, options, source.dir);
+  const line = await assignTicket(site, `${slug}/${id}`, wave, item, ticket, options, source.dir, setTicketCommand(site, `${slug}/${id}`, true));
   followups.push(item);
   await writeJSON(source.file, { ...wave, followups });
-  return source.file;
+  return { file: source.file, lines: line ? [line] : [] };
 }
+
+// `followup set <wave> <id> --ticket <id>`: links a follow-up's ticket, as item set --ticket does a card's.
+export const setFollowupTicket = (site, slug, id, ticket) => ticketWrite(site, async () => {
+  const { source, wave } = await loadWave(site, slug);
+  const f = (wave.followups || []).find((x) => x.id === id) || fail(`wave "${slug}" has no follow-up "${id}"`);
+  await assignTicket(site, `${slug}/${id}`, wave, f, text(ticket, '--ticket'), undefined, source.dir);
+  await writeJSON(source.file, wave);
+  return source.file;
+});
+
+const setTicketCommand = (site, key, followup = false) => {
+  const where = site ? `--site ${path.basename(site)} ` : '';
+  return followup ? `board.mjs ${where}followup set ${key.replace('/', ' ')}` : `board.mjs ${where}item set ${key}`;
+};
 
 // `tickets backfill`: each open card and follow-up with no ticket links the first id in its title, or in its legacy
 // `linear` list, that belongs to the board's source, else gets a new ticket. An Internal id another card holds is only
-// a mention, so that card gets a new one. Done cards are left alone. dryRun writes nothing and calls no source.
+// a mention, so that card gets a new one. Done cards are left alone. dryRun writes nothing and calls no source. A Linear
+// board without Hub's key links ids on their pattern and prints a create line for each of the rest.
 // → {file, lines}: one line per card, then a count.
 export const backfillTickets = (site, { dryRun = false } = {}, options) => ticketWrite(needSite(site), () => backfill(site, dryRun, options));
 async function backfill(site, dryRun, options) {
@@ -1076,7 +1095,7 @@ async function backfill(site, dryRun, options) {
     }
   }
   const lines = [];
-  const counts = { linked: 0, created: 0, failed: 0 };
+  const counts = { linked: 0, created: 0, failed: 0, mcp: 0 };
   for (const { entry, wave } of waves) {
     for (const it of [...wave.items, ...(wave.followups || [])]) {
       const followup = !wave.items.includes(it);
@@ -1090,7 +1109,8 @@ async function backfill(site, dryRun, options) {
         continue;
       }
       try {
-        await assignTicket(site, key, wave, it, found, options, entry.dir);
+        const mcp = await assignTicket(site, key, wave, it, found, options, entry.dir, setTicketCommand(site, key, wave.items.includes(it) === false));
+        if (mcp) { counts.mcp++; lines.push(`${key} ${mcp}`); continue; }
         await writeJSON(entry.file, wave);
         held.add(it.ticket);
         counts[found ? 'linked' : 'created']++;
@@ -1102,7 +1122,8 @@ async function backfill(site, dryRun, options) {
       }
     }
   }
-  const total = dryRun ? `would link ${counts.linked}, create ${counts.created}` : `linked ${counts.linked}, created ${counts.created}, failed ${counts.failed}`;
+  const total = dryRun ? `would link ${counts.linked}, create ${counts.created}`
+    : `linked ${counts.linked}, created ${counts.created}, failed ${counts.failed}${counts.mcp ? `, ${counts.mcp} to create through the Linear MCP` : ''}`;
   return { lines: [...lines, `backfill${dryRun ? ' (dry run)' : ''}: ${total}`] };
 }
 

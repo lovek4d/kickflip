@@ -19,12 +19,16 @@
     };
     const workspace = () => linear.url_key ?? linear.workspace ?? draft.workspace;
     const newName = () => (draft.newName ?? title()).trim();
+    const typed = () => !linear.set && !linear.loading;
+    const typedProject = () => (draft.project && draft.project !== '__new' ? draft.project : isNew ? title() : '').trim();
     const read = () => draft.source === 'internal' ? { source: 'internal', prefix: draft.prefix || 'INT' }
       : draft.source === 'github' ? { source: 'github' }
+      : typed() ? { source: 'linear', workspace: draft.workspace || '', team: draft.team || '', project: typedProject() }
       : draft.project === '__new' && isNew ? { source: 'linear', workspace: workspace(), team: draft.team, new_project: newName() }
       : { source: 'linear', workspace: workspace(), team: draft.team, project: draft.project };
     const valid = () => draft.source === 'internal' ? /^[A-Z]{2,6}$/.test(draft.prefix || 'INT')
       : draft.source === 'github' ? Boolean(repo())
+      : typed() ? /^[a-z\d][a-z\d-]*$/i.test(draft.workspace || '') && /^[A-Z][A-Z0-9]*$/.test(draft.team || '') && Boolean(typedProject())
       : Boolean(linear.set && !linear.error && draft.team && draft.project && (draft.project !== '__new' || (isNew && newName())));
     const pickDefaults = () => {
       if (draft.source !== 'linear' || !linear.set) return;
@@ -33,7 +37,7 @@
     };
     function linearDetail() {
       if (linear.loading) return '<p class="muted small" role="status">Loading Linear…</p>';
-      if (!linear.set) return '<a class="who tk-hublink" href="/_hub/#linear"><span>Add a Linear key on Hub<span class="muted small sub">Linear lists its teams and projects with your API key, kept on this Mac.</span></span><span aria-hidden="true">›</span></a>';
+      if (!linear.set) return `<div class="tk-grid"><label class="tk-field"><span>Workspace</span><input data-tk="workspaceText" value="${esc(draft.workspace || '')}" placeholder="acme" autocapitalize="off" autocomplete="off" spellcheck="false"></label><label class="tk-field"><span>Team</span><input data-tk="teamText" value="${esc(draft.team || '')}" placeholder="PROD" autocapitalize="characters" autocomplete="off" spellcheck="false"></label></div><label class="tk-field"><span>Project</span><input data-tk="projectText" value="${esc(typedProject())}" placeholder="Project name" autocomplete="off"></label><p class="muted small">The board’s session creates and moves its issues through its Linear MCP, and creates the project if it’s new. <a href="/_hub/#linear">A Linear key on Hub</a> adds team and project lists and lets kickflip do it itself.</p>`;
       if (linear.error) return `<p class="muted small" role="alert">Couldn’t list Linear’s teams: ${esc(linear.error)}</p>`;
       const project = linear.projects?.find((p) => p.id === draft.project);
       const team = esc(draft.team || '');
@@ -79,6 +83,13 @@
     const input = (e) => {
       const field = e.target.dataset.tk;
       if (!field) return;
+      if (field.endsWith('Text')) {
+        const name = field.slice(0, -4);
+        draft[name] = name === 'team' ? e.target.value.toUpperCase().trim() : e.target.value.trim();
+        if (name === 'team') e.target.value = draft.team;
+        change(read(), valid());
+        return;
+      }
       draft[field] = field === 'prefix' ? e.target.value.toUpperCase() : e.target.value;
       if (field === 'prefix') e.target.value = draft.prefix;
       if (field === 'team') draft.project = isNew ? '__new' : linear.projects?.find((p) => p.team === draft.team)?.id;
@@ -91,7 +102,12 @@
     root.addEventListener('change', input);
     fetchLinear();
     render();
-    return { read, valid, render, nameChanged() { const field = root.querySelector('[data-tk="newName"]'); if (field && draft.newName === undefined) field.value = title(); },
+    return { read, valid, render, nameChanged() {
+        const field = root.querySelector('[data-tk="newName"]');
+        if (field && draft.newName === undefined) field.value = title();
+        const typedField = root.querySelector('[data-tk="projectText"]');
+        if (typedField && !draft.project) typedField.value = title();
+      },
       destroy() { destroyed = true; root.removeEventListener('click', click); root.removeEventListener('input', input); root.removeEventListener('change', input); } };
   }
   let close = null;
