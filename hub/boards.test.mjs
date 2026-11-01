@@ -159,7 +159,9 @@ before(async () => {
   write(path.join(home, 'gh', '11.json'), gh());
   write(path.join(home, 'gh', '722.json'), gh());
   write(path.join(home, 'bin', 'gh'), '#!/bin/sh\nexit 1\n');
+  write(path.join(home, 'bin', 'git'), '#!/bin/sh\nexit 1\n');
   fs.chmodSync(path.join(home, 'bin', 'gh'), 0o755);
+  fs.chmodSync(path.join(home, 'bin', 'git'), 0o755);
   for (const route of ['orch', 'shop']) write(site(route, 'data', 'events.jsonl'), JSON.stringify({ id: `e-${route}`, ts: ago(30), kind: 'ask', data: {} }) + '\n');
   write(site('shop', 'data', '.watch-cursor-s-shop.json'), { 'data/events.jsonl': 0 });
   orchWatcher = sleeper();
@@ -493,6 +495,9 @@ test("New board validates through HTTP, reports a failed clone and preserves rep
     assert.equal(sidebarData.home, canonicalHome);
     assert.equal(sidebarData.repos, undefined);
     assert.deepEqual(await (await fetch(`${base}/_hub/repos`)).json(), { signedIn: false, repos: [] });
+    const missingRepo = await fetch(`${base}/_hub/repo?github=outside/missing`);
+    assert.equal(missingRepo.status, 404);
+    assert.deepEqual(await missingRepo.json(), { error: "Not found, or you don't have access." });
     for (const input of [
       { ...request, extra: true }, { ...request, name: '' }, { ...request, name: '   ' }, { ...request, name: 'n'.repeat(61) },
       { ...request, name: null }, { ...request, name: '!!!' }, { ...request, name: 'ORCH' }, { ...request, name: 'Reserved' },

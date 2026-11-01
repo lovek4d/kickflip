@@ -18,6 +18,8 @@
 //                     (home.mjs; docs/adr/0010-sites-report-what-waits-through-claude-needs.md)
 //                     starting lists pending boards and their clone/start phase (sessions.mjs)
 //   /_hub/repos      GET the signed-in owner's and orgs' repos with clone/share metadata
+//   /_hub/repo       GET ?github=owner/repo checks a pasted GitHub repo, including one outside the list;
+//                     returns one repo row with listed: false, or 404 when unreachable (repos.mjs)
 //   /_hub/branches   GET ?github=owner/repo lists branches and the repo default
 //   /_hub/board-repo/<route> GET repo and branch; POST {github, branch} prepares the clone and sends repo-changed
 //                     (board-repo.mjs); the hub board's GET names kickflip's clone and its POST is refused
@@ -111,7 +113,7 @@ import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './r
 import { siteIcon } from './icons.mjs';
 import { readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
 import { checkSessions, startingBoards } from './sessions.mjs';
-import { repoService } from './repos.mjs';
+import { repoService, repoLookupRoute } from './repos.mjs';
 import { boardRepo, changeBoardRepo, migrateBoardRepos } from './board-repo.mjs';
 import { requestBoard, dismissBoard } from './new-board.mjs';
 import { boardClosure, closeBoard, closedBoards, reopenBoard } from './close-board.mjs';
@@ -601,6 +603,7 @@ async function hubRoute(req, res, url) {
     try { return sendJSON(200, await repos.branches(url.searchParams.get('github'))); }
     catch (e) { return sendJSON(e.status || 502, { error: e.message }); }
   }
+  if (p === '/_hub/repo' && req.method === 'GET') return repoLookupRoute(url, { repos, manifest: loadManifest(), sendJSON });
   const repoRoute = /^\/_hub\/board-repo\/([a-z0-9-]+)$/.exec(p);
   if (repoRoute && ['GET', 'POST'].includes(req.method)) {
     try {

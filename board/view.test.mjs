@@ -995,6 +995,136 @@ test('the repo sheet names gh auth login when signed out, retries authentication
   sheet.close();
 });
 
+test('pasted unlisted repos use the normal branch and save steps in New board and Change repo', async () => {
+  for (const current of [undefined, { github: 'owner/project', branch: 'main' }]) {
+    const page = repoPage();
+    const { win, doc } = page;
+    const urls = [], saved = [];
+    const repo = { ...repoList[0], github: 'outside/project', listed: false, private: false };
+    let finish;
+    win.fetch = async (url) => {
+      urls.push(url);
+      if (url === '/_hub/repos') return repoResponse({ signedIn: true, repos: repoList });
+      if (url.startsWith('/_hub/repo?')) return new Promise((resolve) => { finish = () => resolve(repoResponse(repo)); });
+      assert.equal(url, '/_hub/branches?github=outside%2Fproject');
+      return repoResponse({ defaultBranch: 'canary', branches: ['canary', 'release'] });
+    };
+    win.BoardDialogs.repoSheet({ current, save: async (input) => saved.push(JSON.parse(JSON.stringify(input))) });
+    await tick();
+    const sheet = doc.getElementById('newBoardSheet');
+    const form = sheet.querySelector('form');
+    const input = sheet.querySelector('[name="search"]');
+    input.value = 'https://github.com/outside/project/tree/canary';
+    page.fire(form, 'input', { target: input });
+    assert.match(sheet.querySelector('[data-repo-results]').textContent, /Checking…/);
+    finish();
+    await tick();
+    assert.match(sheet.querySelector('[data-repo-results]').textContent, /From your link.*outside\/project.*Not in your list.*Public/);
+    const row = sheet.querySelector('[data-repo="outside/project"]');
+    page.fire(form, 'click', { target: row });
+    await tick();
+    assert.equal(sheet.querySelector('[name="branch"]').value, 'canary');
+    assert.equal(sheet.querySelector('[type="submit"]').disabled, false);
+    page.fire(form, 'submit');
+    await tick();
+    assert.deepEqual(saved, [current ? { github: 'outside/project', branch: 'canary' } : { github: 'outside/project', branch: 'canary', name: 'project', purpose: '' }]);
+    assert.deepEqual(urls, ['/_hub/repos', '/_hub/repo?github=outside%2Fproject', '/_hub/branches?github=outside%2Fproject']);
+    assert.equal(doc.getElementById('newBoardSheet'), null);
+  }
+});
+
+test('repo links highlight listed rows, reject other hosts locally, and lookup failures replace the list', async () => {
+  const page = repoPage();
+  const { win, doc } = page;
+  const urls = [];
+  win.fetch = async (url) => {
+    urls.push(url);
+    if (url === '/_hub/repos') return repoResponse({ signedIn: true, repos: repoList });
+    return { ok: false, json: async () => ({ error: "Not found, or you don't have access." }) };
+  };
+  win.BoardDialogs.repoSheet({ save: async () => {} });
+  await tick();
+  const sheet = doc.getElementById('newBoardSheet');
+  const form = sheet.querySelector('form');
+  const search = (value) => {
+    const input = sheet.querySelector('[name="search"]');
+    input.value = value;
+    page.fire(form, 'input', { target: input });
+  };
+  for (const link of ['https://github.com/OWNER/project', 'https://github.com/owner/project.git', 'git@github.com:owner/project.git',
+    'ssh://git@github.com/owner/project.git', 'https://github.com/owner/project/tree/main',
+    'https://github.com/owner/project/pull/12', 'https://github.com/owner/project/blob/main/a?plain=1#L2']) {
+    search(link);
+    assert.match(sheet.textContent, /Already in your list/);
+    assert.ok(sheet.querySelector('.nb-repo-highlight[data-repo="owner/project"]'));
+  }
+  for (const link of ['https://gitlab.com/o/r.git', 'git@bitbucket.org:o/r.git', 'ssh://git@gitlab.com/o/r', 'https://github.com.evil.test/o/r']) {
+    search(link);
+    assert.equal(sheet.querySelector('[data-repo-results] [role="alert"] .nb-why').textContent, 'Only GitHub repos work here.');
+    assert.equal(sheet.querySelector('[data-repo]'), null);
+  }
+  assert.deepEqual(urls, ['/_hub/repos']);
+  search('https://github.com/outside/missing');
+  await tick();
+  assert.equal(sheet.querySelector('[data-repo-results] [role="alert"]').textContent, "outside/missingNot found, or you don't have access.");
+  assert.equal(sheet.querySelector('[data-repo]'), null);
+  search('project');
+  assert.ok(sheet.querySelector('[data-repo="owner/project"]'));
+  assert.doesNotMatch(sheet.textContent, /From your link|Not in your list/);
+  sheet.close();
+});
+
+test('bare repo lookups debounce, cancel when edited or closed, and ignore stale success and failure responses', async () => {
+  const page = repoPage();
+  const { win, doc } = page;
+  const timers = new Map(), pending = new Map(), urls = [];
+  let id = 0;
+  win.setTimeout = (fn, ms) => { timers.set(++id, { fn, ms }); return id; };
+  win.clearTimeout = (id) => timers.delete(id);
+  win.fetch = async (url) => {
+    urls.push(url);
+    if (url === '/_hub/repos') return repoResponse({ signedIn: true, repos: repoList });
+    return new Promise((resolve) => pending.set(new URL(url, 'https://test').searchParams.get('github'), resolve));
+  };
+  win.BoardDialogs.repoSheet({ save: async () => {} });
+  await tick();
+  const sheet = doc.getElementById('newBoardSheet');
+  const form = sheet.querySelector('form');
+  const search = (value) => {
+    const input = sheet.querySelector('[name="search"]');
+    input.value = value;
+    page.fire(form, 'input', { target: input });
+  };
+  search('owner/project');
+  assert.equal(timers.size, 0, 'matching bare identities stay ordinary search');
+  search('outside/first');
+  assert.equal(timers.size, 1);
+  assert.deepEqual(urls, ['/_hub/repos']);
+  search('outside/second');
+  assert.equal(timers.size, 1);
+  const timer = [...timers.values()][0];
+  assert.equal(timer.ms, 500);
+  timers.clear(); timer.fn();
+  search('https://github.com/outside/third');
+  pending.get('outside/third')(repoResponse({ ...repoList[0], github: 'outside/third', listed: false }));
+  await tick();
+  pending.get('outside/second')({ ok: false, json: async () => ({ error: 'stale failure' }) });
+  await tick();
+  assert.match(sheet.textContent, /From your link.*outside\/third/);
+  assert.doesNotMatch(sheet.textContent, /stale failure/);
+  search('https://github.com/outside/late');
+  search('tools');
+  pending.get('outside/late')(repoResponse({ ...repoList[0], github: 'outside/late', listed: false }));
+  await tick();
+  assert.ok(sheet.querySelector('[data-repo="org/tools"]'));
+  assert.doesNotMatch(sheet.textContent, /From your link/);
+  search('outside/cancel');
+  assert.equal(timers.size, 1);
+  sheet.close();
+  assert.equal(timers.size, 0);
+  assert.equal(urls.some((url) => url.includes('cancel') || url.includes('first')), false);
+});
+
 test('Board Settings shows repo and branch, changes them as JSON and closes the repo sheet when unmounted', async () => {
   const page = fakePage(memoryStorage().localStorage);
   const root = new page.El();

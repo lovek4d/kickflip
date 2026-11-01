@@ -84,7 +84,7 @@
     el.setAttribute('aria-labelledby', 'newBoardTitle');
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const draft = { name: '', purpose: '', github: '', branch: '' };
-    let repos = [], selected, edited = false, sending = false, closed = false, generation = 0;
+    let repos = [], pasted, selected, edited = false, sending = false, closed = false, generation = 0, lookupTimer;
     const controller = new AbortController();
     el.innerHTML = `<form class="nb-form"><div class="sheet-head"><h2 id="newBoardTitle" tabindex="-1" autofocus>${current ? 'Change repo' : 'New board'}</h2><button type="button" data-cancel-new aria-label="Close sheet">✕</button></div><div data-repo-content></div><p class="nb-error" role="alert" hidden></p><div class="nb-actions sheet-actions"><button type="button" data-cancel-new>Cancel</button><button type="submit" class="primary" hidden disabled>${current ? 'Use repo' : 'Start'}</button></div></form>`;
     const content = el.querySelector('[data-repo-content]');
@@ -100,12 +100,47 @@
     };
     const fail = (e) => { if (!closed) { error.textContent = e.message; error.hidden = false; } };
     function sync() { start.disabled = sending || !draft.github || !draft.branch || (!current && !draft.name.trim()); }
+    const row = (r, highlighted = false) => `<button type="button" class="nb-repo${highlighted ? ' nb-repo-highlight' : ''}" data-repo="${esc(r.github)}"><strong>${esc(r.github)}</strong>${r.listed === false ? '<span class="nb-repo-tag">Not in your list</span>' : ''}<span class="nb-help">${r.private ? 'Private' : 'Public'} · <time datetime="${esc(r.pushedAt)}">${r.pushedAt ? `Pushed ${esc(new Date(r.pushedAt).toLocaleString())}` : r.listed === false ? 'Last push unknown' : 'No pushes yet'}</time></span><span class="nb-help">${esc(r.description)}</span><span class="nb-local">${r.cloned ? `✓ In .repos${r.shared.length ? ` · shared with ${esc(r.shared.map((b) => b.title).join(', '))}` : ' · already cloned'}` : 'Not cloned in .repos'}</span></button>`;
+    const results = (html) => { el.querySelector('[data-repo-results]').innerHTML = html; };
     function rows(query = '') {
       const list = repos.filter((r) => `${r.github} ${r.description}`.toLowerCase().includes(query.trim().toLowerCase()));
-      el.querySelector('[data-repo-results]').innerHTML = `<p class="nb-help" role="status">${list.length} of ${repos.length} repos · Newest push first</p><div class="nb-repo-list">${list.map((r) => `<button type="button" class="nb-repo" data-repo="${esc(r.github)}"><strong>${esc(r.github)}</strong><span class="nb-help">${r.private ? 'Private' : 'Public'} · <time datetime="${esc(r.pushedAt)}">${r.pushedAt ? `Pushed ${esc(new Date(r.pushedAt).toLocaleString())}` : 'No pushes yet'}</time></span><span class="nb-help">${esc(r.description)}</span><span class="nb-local">${r.cloned ? `✓ In .repos${r.shared.length ? ` · shared with ${esc(r.shared.map((b) => b.title).join(', '))}` : ' · already cloned'}` : 'Not cloned in .repos'}</span></button>`).join('')}</div>${list.length ? '' : '<p class="nb-help">No matching repos. Try an owner or repo name.</p>'}`;
+      results(`<p class="nb-help" role="status">${list.length} of ${repos.length} repos · Newest push first</p><div class="nb-repo-list">${list.map((r) => row(r)).join('')}</div>${list.length ? '' : '<p class="nb-help">No matching repos. Try an owner or repo name.</p>'}`);
+    }
+    function search(value) {
+      const version = ++generation;
+      clearTimeout(lookupTimer);
+      pasted = null;
+      const q = value.trim();
+      const host = /^(?:[a-z][a-z\d+.-]*:\/\/(?:[^@/\s]+@)?|[^@/\s]+@)([^/:?#\s]+)/i.exec(q);
+      const reason = (name, message) => results(`<div class="nb-box nb-box-no" role="alert"><span><strong>${esc(name)}</strong><span class="nb-why">${esc(message)}</span></span></div>`);
+      if (host && !/^(?:www\.)?github\.com$/i.test(host[1])) {
+        reason(q.replace(/^[a-z][a-z\d+.-]*:\/\//i, '').replace(/^[^@/\s]+@/, '').replace(/:/, '/').replace(/\.git$/i, ''), 'Only GitHub repos work here.');
+        return;
+      }
+      const link = /^(?:https?:\/\/(?:www\.)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([^/\s?#]+\/[^/\s?#]+)(?:\/[^\s]*)?(?:[?#][^\s]*)?$/i.exec(q);
+      const bare = /^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?\/[a-z\d_.-]{1,100}$/i.test(q);
+      if (!link && !host && !bare) { rows(q); return; }
+      if (host && !link) { reason(q, 'That link doesn’t name a repo. Use github.com/owner/name.'); return; }
+      if (bare && repos.some((r) => `${r.github} ${r.description}`.toLowerCase().includes(q.toLowerCase()))) { rows(q); return; }
+      const github = link ? link[1].replace(/\.git$/i, '') : q;
+      const listed = repos.find((r) => r.github.toLowerCase() === github.toLowerCase());
+      if (listed) { results(`<p class="nb-help" role="status">Already in your list</p><div class="nb-repo-list">${row(listed, true)}</div>`); return; }
+      results(`<p class="nb-help" role="status">Checking the hub can reach it…</p><div class="nb-box"><span class="nb-spin" aria-hidden="true"></span><span><strong>${esc(github)}</strong><span class="nb-help">Checking…</span></span></div>`);
+      const check = async () => {
+        try {
+          const repo = await request(`/_hub/repo?github=${encodeURIComponent(github)}`);
+          if (closed || generation !== version) return;
+          pasted = repo;
+          results(`<p class="nb-help" role="status">From your link</p><div class="nb-repo-list">${row(repo)}</div>`);
+        } catch (e) { if (!closed && generation === version) reason(github, e.message); }
+      };
+      if (bare) lookupTimer = setTimeout(check, 500);
+      else check();
     }
     async function picker(fresh = false) {
       const version = ++generation;
+      clearTimeout(lookupTimer);
+      pasted = null;
       selected = null;
       start.hidden = true;
       error.hidden = true;
@@ -118,14 +153,15 @@
           return;
         }
         repos = d.repos;
-        content.innerHTML = '<p class="nb-next">1 · Choose a repo</p><p>Choose the GitHub repo this board will work on.</p><label class="nb-field"><span>Search accessible repos</span><input name="search" type="search" placeholder="Search owner or repo…" autocomplete="off" spellcheck="false"></label><div data-repo-results></div>';
+        content.innerHTML = '<p class="nb-next">1 · Choose a repo</p><p>Choose the GitHub repo this board will work on.</p><label class="nb-field"><span>Search repos or paste a GitHub link</span><input name="search" type="search" placeholder="Search or paste owner/name…" autocomplete="off" autocapitalize="off" spellcheck="false"></label><div data-repo-results></div>';
         rows();
       } catch (e) { fail(e); content.innerHTML = '<button type="button" data-check-auth>Try again</button>'; }
     }
     async function pick(github) {
-      selected = repos.find((r) => r.github === github);
+      selected = repos.find((r) => r.github === github) || (pasted?.github === github ? pasted : null);
       if (!selected) return;
       const version = ++generation;
+      clearTimeout(lookupTimer);
       draft.github = github;
       draft.branch = '';
       if (!edited) draft.name = github.split('/')[1];
@@ -155,7 +191,7 @@
       else { const row = e.target.closest('[data-repo]'); if (row) pick(row.dataset.repo); }
     });
     form.addEventListener('input', (e) => {
-      if (e.target.getAttribute('name') === 'search') { rows(e.target.value); return; }
+      if (e.target.getAttribute('name') === 'search') { search(e.target.value); return; }
       if (e.target.getAttribute('name') === 'name') { draft.name = e.target.value; edited = true; }
       if (e.target.getAttribute('name') === 'purpose') draft.purpose = e.target.value;
       sync();
@@ -184,6 +220,7 @@
     el.addEventListener('close', () => {
       if (closed) return;
       closed = true;
+      clearTimeout(lookupTimer);
       controller.abort();
       stopFitting();
       el.remove();

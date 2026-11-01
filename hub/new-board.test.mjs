@@ -106,8 +106,9 @@ test('failed clones leave no clone or temporary directory and never start claude
   saveJSON(manifestFile, { sites: {} });
   const { calls, run } = claude();
   const service = repoService({ base, run: async (command, argv) => {
-    fs.mkdirSync(argv[3], { recursive: true });
-    fs.writeFileSync(path.join(argv[3], 'partial'), 'partial');
+    const dest = argv.at(-1);
+    fs.mkdirSync(dest, { recursive: true });
+    fs.writeFileSync(path.join(dest, 'partial'), 'partial');
     return { status: 1, stdout: '', stderr: 'clone failed\nmore details' };
   } });
   const r = await requestBoard(input('Failed clone', 'owner/failed'), { run, live, repos: service });
