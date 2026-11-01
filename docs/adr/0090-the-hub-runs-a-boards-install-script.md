@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0093
+---
+
 # The hub runs a board's install script
+
+Superseded in part by [0093](0093-the-hub-runs-under-the-hosts-service-manager.md): the hub runs under the host's service manager, a LaunchAgent on macOS or a systemd user unit on Linux; signing with the login keychain still needs macOS.
 
 Claude sessions the hub resumes run in macOS launchd's Background session. There, codesign cannot reach the login keychain unlocked in the GUI session and can fail with errSecInternalComponent even after the owner unlocks it. The hub's LaunchAgent runs in the GUI session, so the hub runs device install builds on the board's behalf.
 
