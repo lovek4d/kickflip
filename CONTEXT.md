@@ -105,7 +105,7 @@ The badge on a site's row in the sidebar: how many things the site's `GET /_clau
 _Avoid_: unread count, inbox
 
 **Status word**:
-The coloured word that leads a site's sub line in the sidebar when something urgent holds, most urgent first: Down, Not listening (a board that is neither **listening** nor **asleep**), Starting, Working, "N need you", Asleep (muted) or Building. Lane chips with the site's open-card counts follow it; a calm site shows only the chips ([0037](docs/adr/0037-the-hub-home-shows-status-not-descriptions.md)).
+The coloured word that leads a site's sub line in the sidebar when something urgent holds, most urgent first: Down, Not listening (a board that is neither **listening** nor **asleep**), Starting, "N need you", Working, Asleep (muted) or Building. Lane chips with the site's open-card counts follow it; a calm site shows only the chips ([0037](docs/adr/0037-the-hub-home-shows-status-not-descriptions.md), [0077](docs/adr/0077-need-you-outranks-working.md)).
 _Avoid_: activity line, subtitle
 
 ### Boards

@@ -2,27 +2,27 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { siteStatus, laneChips, readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
 
-test('the status word is the most urgent of down, not listening, starting, working, need you, asleep and building', () => {
+test('the status word is the most urgent of down, not listening, starting, need you, working, asleep and building', () => {
   const up = { state: 'up', working: 1, count: 2, lanes: { review: 1, progress: 0, todo: 0 }, building: true };
   const word = (s) => siteStatus(s)?.word ?? null;
   assert.equal(word({ ...up, state: 'down', listen: 'deaf' }), 'Down');
   assert.equal(word({ ...up, state: 'starting', listen: 'deaf' }), 'Not listening');
   assert.equal(word({ ...up, listen: 'deaf' }), 'Not listening');
   assert.equal(siteStatus({ state: 'up', listen: 'deaf' }).tone, 'down');
-  assert.equal(word({ ...up, listen: 'listening' }), 'Working');
-  assert.equal(word({ ...up, listen: 'asleep' }), 'Working');
-  assert.equal(word({ ...up, working: 0, listen: 'asleep' }), '2 need you');
+  assert.equal(word({ ...up, listen: 'listening' }), '2 need you');
+  assert.equal(word({ ...up, listen: 'asleep' }), '2 need you');
+  assert.equal(word({ ...up, count: 0, listen: 'asleep' }), 'Working');
   assert.deepEqual(siteStatus({ ...up, working: 0, count: 0, listen: 'asleep' }), { tone: 'asleep', word: 'Asleep' });
   assert.equal(word({ ...up, state: 'down' }), 'Down');
   assert.equal(word({ ...up, state: 'starting' }), 'Starting');
-  assert.equal(word(up), 'Working');
-  assert.equal(word({ ...up, working: 0 }), '2 need you');
+  assert.equal(word(up), '2 need you');
+  assert.equal(word({ ...up, count: 0 }), 'Working');
   assert.equal(word({ ...up, working: 0, count: 0 }), 'Building');
   assert.equal(word({ ...up, working: 0, count: 0, building: false }), null);
   assert.equal(word({ state: 'up' }), null);
   assert.deepEqual(
-    ['down', 'starting'].map((state) => siteStatus({ state }).tone).concat(siteStatus(up).tone, siteStatus({ state: 'up', count: 1 }).tone, siteStatus({ state: 'up', building: true }).tone),
-    ['down', 'starting', 'working', 'needs', 'building'],
+    ['down', 'starting'].map((state) => siteStatus({ state }).tone).concat(siteStatus(up).tone, siteStatus({ state: 'up', working: 1 }).tone, siteStatus({ state: 'up', building: true }).tone),
+    ['down', 'starting', 'needs', 'working', 'building'],
   );
 });
 

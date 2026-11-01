@@ -28,8 +28,8 @@ export function siteStatus({ state, working, count: waiting, building, listen } 
   if (listen === 'deaf') return { tone: 'down', word: 'Not listening' };
   if (state === 'starting') return { tone: 'starting', word: 'Starting' };
   if (state === 'stopped') return { tone: 'starting', word: 'Stopped' };
-  if (working) return { tone: 'working', word: 'Working' };
   if (waiting) return { tone: 'needs', word: `${waiting} need you` };
+  if (working) return { tone: 'working', word: 'Working' };
   if (listen === 'asleep') return { tone: 'asleep', word: 'Asleep' };
   if (building) return { tone: 'building', word: 'Building' };
   return null;

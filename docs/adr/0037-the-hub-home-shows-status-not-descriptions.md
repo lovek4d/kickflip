@@ -1,5 +1,5 @@
 ---
-status: superseded in part by ADR-0050 and ADR-0061
+status: superseded in part by ADR-0050, ADR-0061 and ADR-0077
 ---
 
 # The hub home shows status, not descriptions
@@ -7,6 +7,8 @@ status: superseded in part by ADR-0050 and ADR-0061
 Superseded in part by [0050](0050-a-sidebar-of-every-board-replaces-the-hub-home.md): the hub home page is gone, and these rows, with their status word and lane chips, are the sidebar's site rows. They show no time since the site changed and no chevron.
 
 Since [0061](0061-a-boards-session-wakes-when-an-event-arrives.md), a deaf board, one that isn't listening and that the hub can't wake, reads Not listening, in the danger colour, after Down and ahead of Starting (owner, `not-listening-look` on hub/INT-133). A board the hub can wake reads a muted Asleep after "N need you" and ahead of Building (owner, `idle-board-status` on hub/INT-133).
+
+Superseded in part by [0077](0077-need-you-outranks-working.md): "N need you" outranks Working, so the order is Down, Not listening, Starting, Stopped, "N need you", Working, Asleep, Building.
 
 Each site's row on the hub home page says what the site is doing, never what it is. The title is enough to know the site, so its manifest description no longer shows there.
 
