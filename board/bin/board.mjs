@@ -17,6 +17,9 @@ Writes a web-ts board's data files. --site <route> picks ~/.claude/web-ts/sites/
 board.json says where the board's waves live. Without --site, waves come from ~/.claude/waves.
 Paths resolve under $HOME, so HOME=<dir> points every command at a copy.
 A --file argument of - reads stdin.
+item add and followup add create a ticket in the board’s source unless --ticket <id> links one.
+Internal defaults to INT; GitHub creates an issue from the title and notes; Linear needs --ticket in phase 1.
+Asks have no ticket; item set --from-ask creates one when the card has none.
 
   reply <eventId> (--html <text> | --file <path>)        data/replies/<eventId>.html
   working <eventId>                                      marks an ask or thread message started; the page
@@ -46,6 +49,7 @@ A --file argument of - reads stdin.
                                                          a card it was folded into
          [--held | --unheld]                             --held sets held: true, for the owner's card-hold;
                                                          --unheld clears it and a held status
+         [--ticket <id>]                                links a ticket in the board’s source
          [--title <t>]                                   renames the card
          [--notes-file <file>]                           the item's notes: a .md file inside its wave's folder,
                                                          named relative to it, holding the session's understanding
@@ -72,8 +76,8 @@ A --file argument of - reads stdin.
          item:<wave>/<id>) that has an answer, noting "Closed with the card", and prints "resolved: <id>"
          for each. It refuses while one has no answer yet; [--force] closes it and resolves that one too
   item add <wave>/<id> --title <t> [--notes <t>]          a new card, planned (waiting when it has --deps); never
-         [--deps <id>,<wave>/<id>] [--notes-file <file>] hand-edit wave.json to add one. Refuses an id the wave has.
-                                                         --plan is an alias of --notes-file
+         [--ticket <id>] [--deps <id>,<wave>/<id>]       hand-edit wave.json to add one. Refuses an id the wave has.
+         [--notes-file <file>]                           --plan is an alias of --notes-file
   item relate-ask <eventId> <wave>/<id> --summary <t>   folds an ask about an existing item into it: the ask's
                                                          card goes, its message and thread show in the item's
                                                          thread marked Moved, then the summary line. Again with
@@ -99,7 +103,7 @@ A --file argument of - reads stdin.
                                                          --idle: the board shows no open PR, so never late.
                                                          Then sends the queued pushes, each on its own, unless
                                                          pushes are held (overnight, snoozed, the weekend or off)
-  followup add <wave> --id <PROD-1> --title <t> [--from <item id>]
+  followup add <wave> --id <id> --title <t> [--from <item id>] [--ticket <id>]
   followup done <wave> <id> [--force]                    closes the follow-up's card as item set --status done does
   reviewers set --file <json>                            the board's reviewers in board.json, replacing them:
                                                          [{name, slack_user, dm, github}], as in wave.json.
@@ -264,16 +268,16 @@ const COMMANDS = {
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
   'question add': [[], ['file'], (site, _, f) => store.addQuestions(site, readJSONInput(f.file))],
   'question resolve': [['id'], ['note'], (site, [id], f) => store.resolveQuestion(site, id, f.note)],
-  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'from-ask', 'held', 'unheld', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force'], (site, [key], f) =>
+  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'from-ask', 'held', 'unheld', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force', 'ticket'], (site, [key], f, options) =>
     store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, fromAsk: f['from-ask'], held: f.held, unheld: f.unheld, notesFile: notesFileOf(f), deps: f.deps,
-      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, force: f.force })],
-  'item add': [['wave/id'], ['title', 'notes', 'deps', 'notes-file', 'plan'], (site, [key], f) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f) })],
+      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, force: f.force, ticket: f.ticket }, options)],
+  'item add': [['wave/id'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket }, options)],
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
   'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],
   'ask done': [['eventId'], [], (site, [id]) => store.markAsk(site, id, 'done')],
   'ask unfold': [['eventId'], [], (site, [id]) => store.unfoldAsk(site, id)],
   'ask move': [['eventId'], ['to'], (site, [id], f) => store.moveAsk(site, id, f.to)],
-  'followup add': [['wave'], ['id', 'title', 'from'], (site, [wave], f) => store.addFollowup(site, wave, f)],
+  'followup add': [['wave'], ['id', 'title', 'from', 'ticket'], (site, [wave], f, options) => store.addFollowup(site, wave, f, options)],
   'followup done': [['wave', 'id'], ['force'], (site, [wave, id], f) => store.finishFollowup(site, wave, id, { force: f.force })],
   'reviewers set': [[], ['file'], (site, _, f) => store.setReviewers(site, readJSONInput(f.file))],
   'reviewers add': [[], ['file'], (site, _, f) => store.addReviewers(site, readJSONInput(f.file))],
@@ -329,7 +333,7 @@ const COMMANDS = {
   push: [[], ['kind', 'title', 'body', 'url', 'tag', 'urgent', 'now'], (site, _, f) => push(site, f)],
 };
 
-export async function main(argv) {
+export async function main(argv, options = {}) {
   try {
     const { flags, rest } = parse(argv);
     const name = routeRecord(COMMANDS, `${rest[0]} ${rest[1]}`) ? `${rest[0]} ${rest[1]}` : rest[0];
@@ -345,7 +349,7 @@ export async function main(argv) {
     if (unknown.length) throw new UsageError(`${name} does not take ${unknown.map((k) => '--' + k).join(', ')}`);
     checkInputs(allowed, opts);
     const site = route === undefined ? null : await store.siteDir(route);
-    const result = await run(site, args, opts);
+    const result = await run(site, args, opts, options);
     const { file, lines = [] } = typeof result === 'object' && result ? result : { file: result };
     // A read, such as rules list, names no file and prints only its lines.
     if (name.startsWith('builder ')) console.log(`${name.slice(8)} ${args[0]}`);
@@ -359,7 +363,7 @@ export async function main(argv) {
   }
 }
 
-if (import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) {
   const argv = process.argv.slice(2);
   if (!argv.length || argv.includes('--help') || argv[0] === 'help') console.log(USAGE);
   else process.exitCode = await main(argv);

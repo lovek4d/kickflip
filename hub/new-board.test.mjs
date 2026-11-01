@@ -73,7 +73,7 @@ test('new repo requests clone before starting a session and store the board bran
   const rec = readManifest().starting['bob-s-audit'];
   assert.equal(started.session, rec.session);
   assert.ok(fs.existsSync(path.join(sessionsDir, `${rec.session}.json`)));
-  assert.deepEqual(rec, { title: "Bob's audit", repo, github: 'owner/new-project', branch: 'release/next', phase: 'starting', asked_at: pending.asked_at, session: rec.session, label: "Bob's audit", since: rec.since });
+  assert.deepEqual(rec, { title: "Bob's audit", repo, github: 'owner/new-project', branch: 'release/next', tickets: { source: 'internal', prefix: 'INT' }, phase: 'starting', asked_at: pending.asked_at, session: rec.session, label: "Bob's audit", since: rec.since });
   assert.ok(fs.existsSync(path.join(repo, '.git')));
   const at = Date.parse(rec.asked_at);
   assert.deepEqual(startingBoards(readManifest(), at), [{ route: 'bob-s-audit', title: "Bob's audit", repo, phase: 'starting', askedAt: rec.asked_at, failed: false }]);
@@ -169,7 +169,7 @@ test('invalid repo identities, branches, fields and reserved routes are refused 
     { github: '../escape' }, { github: 'o/../../escape' }, { github: '/tmp/escape' }, { github: 'owner/repo;ls' }, { github: '-owner/repo' },
     { github: 'https://github.com/o/r' }, { github: 'o/.git' }, { github: null }, { repo: home },
     { branch: '-main' }, { branch: '../main' }, { branch: 'a.lock' }, { branch: 'a/.hidden' }, { branch: 'a@{b' }, { branch: 'a b' }, { branch: 'a\\b' }, { branch: null },
-    { purpose: 'p'.repeat(241) }, { purpose: null }]) {
+    { purpose: 'p'.repeat(241) }, { purpose: null }, { tickets: { source: 'internal', prefix: 'BAD1' } }, { tickets: { source: 'other' } }, { tickets: { source: 'linear', team: 'PROD' } }]) {
     await assert.rejects(requestBoard({ ...input('New board'), ...change }, { run, live, repos }), { status: 400 });
   }
   assert.deepEqual(readManifest(), manifest);
@@ -318,12 +318,13 @@ test('join transfers the reserved repo and branch before or after the start resu
   for (const recorded of [false, true]) {
     const route = recorded ? 'joined-after' : 'joined-before';
     const clone = path.join(base, 'owner/project');
-    saveJSON(manifestFile, { sites: {}, starting: { [route]: { title: route, github: 'owner/project', branch: 'develop', repo: clone, ...(recorded ? { session: 'joined-id' } : {}) } } });
+    saveJSON(manifestFile, { sites: {}, starting: { [route]: { title: route, github: 'owner/project', branch: 'develop', repo: clone, tickets: { source: 'internal', prefix: 'OPS' }, ...(recorded ? { session: 'joined-id' } : {}) } } });
     const run = (args) => {
       const result = spawnSync(process.execPath, [bin, 'join', route, '--session', 'joined-id', '--port', '4613', ...args], { encoding: 'utf8', env: { ...process.env, WEB_TS_HUB_PORT: '1' } });
       assert.equal(result.status, 0, result.stderr);
     };
-    run(['--cmd', JSON.stringify(board.cmd), '--repo', clone]);
+    run(['--template', 'board', '--cmd', JSON.stringify(board.cmd), '--repo', clone]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(readManifest().sites[route].dir, 'board.json'))).tickets, { source: 'internal', prefix: 'OPS' });
     assert.deepEqual(boardRepo(route), { github: 'owner/project', branch: 'develop', repo: clone });
     assert.equal(readManifest().starting, undefined);
     run([]);

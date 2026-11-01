@@ -116,6 +116,8 @@ test('reply answers a known event and refuses an unknown one', () => {
   assert.equal(r.code, 1);
   assert.match(r.err, /no event "e9"/);
   assert.equal(fs.existsSync(site('orch', 'data', 'replies', 'e9.html')), false);
+  assert.deepEqual(read(at('waves', 'w', 'wave.json')), wave());
+  assert.equal(lines(site('orch', 'data', 'events.jsonl')).some((e) => e.ticket), false);
 });
 
 test('reply refuses a file path passed as --html, which would post the path itself', () => {
@@ -152,9 +154,9 @@ test('item add records creation on a planned card, waiting when it has deps, and
   assert.equal(summed.code, 2);
   assert.match(summed.err, /item add does not take --summary/);
   assert.equal(board('item', 'add', 'w/B2', '--site', 'orch', '--title', 'Two', '--notes', 'Why').code, 0);
-  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'B2', title: 'Two', notes: 'Why', status: 'planned' });
+  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'B2', title: 'Two', notes: 'Why', status: 'planned', ticket: 'INT-1' });
   assert.equal(board('item', 'add', 'w/C3', '--site', 'orch', '--title', 'Three', '--deps', 'A1,B2').code, 0);
-  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'C3', title: 'Three', deps: ['A1', 'B2'], status: 'waiting' });
+  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'C3', title: 'Three', deps: ['A1', 'B2'], status: 'waiting', ticket: 'INT-2' });
   const taken = board('item', 'add', 'w/A1', '--site', 'orch', '--title', 'Again');
   assert.equal(taken.code, 1);
   assert.match(taken.err, /already has an item "A1"/);
@@ -163,8 +165,99 @@ test('item add records creation on a planned card, waiting when it has deps, and
   assert.match(dep.err, /no item "Z9"/);
   assert.equal(read(at('waves', 'w', 'wave.json')).items.length, 3);
   assert.equal(board('item', 'add', 'audit/E5', '--site', 'audit', '--title', 'Five').code, 0);
-  assert.deepEqual(withoutCreated(read(site('audit', 'data', 'wave.json')).items.at(-1)), { id: 'E5', title: 'Five', status: 'planned' });
+  assert.deepEqual(withoutCreated(read(site('audit', 'data', 'wave.json')).items.at(-1)), { id: 'E5', title: 'Five', status: 'planned', ticket: 'INT-1' });
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].created, undefined);
+});
+
+test('tickets validate prefixes and link or create in the board source through the CLI and an injected GitHub runner', async (t) => {
+  const { saveBoardSettings } = await import('./store.mjs');
+  const { main } = await import('./bin/board.mjs');
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  t.after(() => { if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome; });
+  const out = [], err = [], calls = [];
+  t.mock.method(console, 'log', (...args) => out.push(args.join(' ')));
+  t.mock.method(console, 'error', (...args) => err.push(args.join(' ')));
+  const cfg = read(site('audit', 'board.json'));
+  for (const prefix of ['I', 'TOOLONG', 'AB2', 'ab', ' AB', null]) await assert.rejects(async () => saveBoardSettings(site('audit'), { tickets: { source: 'internal', prefix } }), /2–6 uppercase letters/);
+  assert.deepEqual(read(site('audit', 'board.json')), cfg);
+  await saveBoardSettings(site('audit'), { tickets: { source: 'internal', prefix: '' } });
+  assert.deepEqual(read(site('audit', 'board.json')).tickets, { source: 'internal', prefix: 'INT' });
+  const cli = (...args) => main(['--site', 'audit', ...args], { run: async (cmd, argv) => {
+    calls.push([cmd, argv]);
+    const repo = argv[argv.indexOf('--repo') + 1];
+    if (argv[1] === 'view') return { status: 0, stdout: JSON.stringify({ number: 41, url: `https://github.com/${repo}/issues/41` }) };
+    return { status: 0, stdout: `https://github.com/${repo}/issues/42\n` };
+  } });
+  assert.equal(await cli('item', 'add', 'audit/B2', '--title', 'Two', '--ticket', 'INT-19'), 0);
+  assert.equal(await cli('item', 'set', 'audit/A1', '--ticket', 'NO-20'), 1);
+  assert.match(err.at(-1), /match INT/);
+  assert.equal(await cli('item', 'set', 'audit/A1', '--ticket', 'INT-20'), 0);
+  assert.equal(await cli('item', 'add', 'audit/C3', '--title', 'Three'), 0);
+  assert.equal(read(site('audit', 'data', 'wave.json')).items.at(-1).ticket, 'INT-21');
+  await saveBoardSettings(site('audit'), { tickets: { source: 'internal', prefix: 'OPS' } });
+  assert.equal(await cli('item', 'add', 'audit/D4', '--title', 'Four'), 0);
+  assert.equal(read(site('audit', 'data', 'wave.json')).items.at(-1).ticket, 'OPS-1');
+  await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'another', team: 'PROD', project: 'Audit' } });
+  assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five'), 1);
+  assert.equal(err.at(-1), 'The Linear key comes in phase 2; pass --ticket <id>.');
+  assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five', '--ticket', 'OTHER-1'), 1);
+  assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five', '--ticket', 'PROD-2918'), 0);
+  assert.equal(await cli('item', 'set', 'audit/E5', '--ticket', 'PROD-2919'), 0);
+  assert.equal(await cli('followup', 'add', 'audit', '--id', 'follow', '--title', 'Follow'), 1);
+  assert.equal(await cli('followup', 'add', 'audit', '--id', 'follow', '--title', 'Follow', '--ticket', 'PROD-2920'), 0);
+  assert.equal(calls.length, 0);
+  const waveFile = site('audit', 'data', 'wave.json');
+  write(waveFile, { ...read(waveFile), repo: 'o/r' });
+  await saveBoardSettings(site('audit'), { tickets: { source: 'github' } });
+  assert.equal(await cli('item', 'add', 'audit/F6', '--title', 'Six', '--ticket', '#41'), 0);
+  assert.equal(await cli('item', 'set', 'audit/F6', '--ticket', '41'), 0);
+  assert.equal(await cli('item', 'add', 'audit/G7', '--title', 'Seven', '--notes', 'Why this matters'), 0);
+  write(site('audit', 'data', 'notes.md'), '# Full notes');
+  assert.equal(await cli('item', 'add', 'audit/H8', '--title', 'Eight', '--notes-file', 'notes.md'), 0);
+  write(site('audit', 'data', 'events.jsonl'), JSON.stringify({ id: 'e1', kind: 'ask', data: { text: 'Ask' } }) + '\n');
+  write(waveFile, { ...read(waveFile), items: [...read(waveFile).items, { id: 'I9', title: 'From ask', notes: 'Asked why' }] });
+  assert.equal(await cli('item', 'set', 'audit/I9', '--from-ask', 'e1'), 0);
+  assert.equal(await cli('followup', 'add', 'audit', '--id', 'github-follow', '--title', 'Another follow'), 0);
+  assert.deepEqual(calls, [
+    ['gh', ['issue', 'view', '41', '--repo', 'o/r', '--json', 'number,url']],
+    ['gh', ['issue', 'view', '41', '--repo', 'o/r', '--json', 'number,url']],
+    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'Seven', '--body', 'Why this matters']],
+    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'Eight', '--body', '# Full notes']],
+    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'From ask', '--body', 'Asked why']],
+    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'Another follow', '--body', '']],
+  ]);
+  assert.equal(read(waveFile).items.at(-1).ticket, '#42');
+  const before = fs.readFileSync(waveFile, 'utf8');
+  for (const response of [{ status: 1, stderr: 'No such issue' }, { status: 0, stdout: JSON.stringify({ number: 41, url: 'https://github.com/other/repo/issues/41' }) }]) {
+    assert.equal(await main(['--site', 'audit', 'item', 'set', 'audit/F6', '--ticket', '#41'], { run: async () => response }), 1);
+    assert.equal(fs.readFileSync(waveFile, 'utf8'), before);
+  }
+  write(at('web-ts', 'manifest.json'), { sites: { audit: { dir: site('audit'), cmd: [process.execPath, fileURLToPath(new URL('./server.mjs', import.meta.url))], github: 'board/chosen' } } });
+  const script = `import assert from 'node:assert/strict';
+    import { main } from ${JSON.stringify(new URL('./bin/board.mjs', import.meta.url).href)};
+    process.exitCode = await main(['--site', 'audit', 'item', 'set', 'audit/F6', '--ticket', '#41'], { run: async (cmd, argv) => {
+      assert.equal(cmd, 'gh');
+      assert.deepEqual(argv, ['issue', 'view', '41', '--repo', 'board/chosen', '--json', 'number,url']);
+      return { status: 0, stdout: JSON.stringify({ number: 41, url: 'https://github.com/board/chosen/issues/41' }) };
+    } });`;
+  const linked = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', env: { ...process.env, HOME: home, WEB_TS_CLAUDE: '/usr/bin/false' } });
+  assert.equal(linked.status, 0, linked.stderr);
+});
+
+test('internal ticket creation uses the next number across all board waves, including legacy S ids and concurrent additions', async () => {
+  write(at('waves', 'internal', 'wave.json'), { internal: true, items: [{ id: 'S80', title: 'Legacy' }, { id: 'INT-92', title: 'Later' }] });
+  assert.equal(board('item', 'add', 'w/B2', '--site', 'orch', '--title', 'Two').code, 0);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items.at(-1).ticket, 'INT-93');
+  const added = await Promise.all(['C3', 'D4'].map((id) => runAsync('board.mjs', ['item', 'add', `w/${id}`, '--site', 'orch', '--title', id])));
+  assert.deepEqual(added.map((r) => r.code), [0, 0]);
+  assert.deepEqual(read(at('waves', 'w', 'wave.json')).items.slice(-2).map((it) => it.ticket).sort(), ['INT-94', 'INT-95']);
+  assert.equal(board('item', 'add', 'internal/INT-200', '--site', 'orch', '--title', 'Hub card').code, 0);
+  assert.equal(board('item', 'add', 'internal/S201', '--site', 'orch', '--title', 'Legacy card').code, 0);
+  assert.deepEqual(read(at('waves', 'internal', 'wave.json')).items.slice(-2).map((it) => it.ticket), ['INT-200', 'INT-201']);
+  write(at('waves', 'w', 'wave.json'), { ...read(at('waves', 'w', 'wave.json')), items: [...read(at('waves', 'w', 'wave.json')).items, { id: 'P9', title: 'Linear', linear: ['PROD-900'] }] });
+  assert.equal(board('item', 'add', 'w/E5', '--site', 'orch', '--title', 'Five').code, 0);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items.at(-1).ticket, 'INT-202');
 });
 
 test('working marks a known ask started and refuses an unknown one', () => {
@@ -362,6 +455,9 @@ test('item set edits the item in a waves board and in a file board', () => {
   }
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e9').code, 1);
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e1').code, 0);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].ticket, 'INT-1');
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e1').code, 0);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].ticket, 'INT-1');
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].from_ask, 'e1');
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'checking', '--next', '').code, 0);
   assert.deepEqual([read(at('waves', 'w', 'wave.json')).items[0].status, 'next' in read(at('waves', 'w', 'wave.json')).items[0]], ['checking', false]);
@@ -452,12 +548,13 @@ test('item set --install records a device build with when it was built, takes on
 test('a follow-up is filed with a date and leaves its lane when done', () => {
   assert.equal(board('followup', 'add', 'audit', '--site', 'audit', '--id', 'PROD-7', '--title', 'Tidy', '--from', 'A1').code, 0);
   assert.equal(board('followup', 'add', 'audit', '--site', 'audit', '--id', 'PROD-7', '--title', 'Again').code, 1);
-  assert.equal(board('followup', 'add', 'audit', '--site', 'audit', '--id', 'tidy', '--title', 'Tidy').code, 1);
+  assert.equal(board('followup', 'add', 'audit', '--site', 'audit', '--id', 'bad/id', '--title', 'Tidy').code, 1);
   assert.equal(board('followup', 'done', 'audit', 'PROD-1', '--site', 'audit').code, 0);
   const { followups } = read(site('audit', 'data', 'wave.json'));
   assert.deepEqual(followups.map((f) => [f.id, Boolean(f.done)]), [['PROD-1', true], ['PROD-7', false]]);
   assert.match(followups[1].filed, /^\d{4}-\d{2}-\d{2}$/);
   assert.equal(followups[1].from, 'A1');
+  assert.equal(followups[1].ticket, 'INT-1');
 });
 
 test("closing a card resolves its answered questions, refuses while one has no answer, changing nothing, and --force closes it anyway", () => {

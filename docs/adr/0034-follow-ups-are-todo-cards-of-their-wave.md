@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0081
+---
+
 # Follow-ups are Todo cards of their wave
+
+Superseded in part by [0081](0081-a-board-has-one-ticket-source.md): a follow-up's ticket comes from its board's ticket source, not always Linear. Its lane and its place in its wave below still hold.
 
 A follow-up, a Linear ticket filed from a wave's `followups`, sits in Todo until it is done, then in Done. It shows a quiet "Follow-up" badge next to its ref chip. There is no Follow-ups lane. Its card keeps the Build button, which sends `build-followup {key}`: Claude replies with a short plan, then builds it as a draft like any other item (round `site-v3`, question v3-followup-start, option A). It can be bumped like any Todo card ([0019](0019-a-card-that-hasnt-started-can-be-bumped.md)). Todo lists it after that lane's work cards unless it is bumped, because its filed date would otherwise put it above planned work that has no activity yet.
 

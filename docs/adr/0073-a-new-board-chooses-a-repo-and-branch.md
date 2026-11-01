@@ -1,10 +1,12 @@
 ---
-status: superseded in part by ADR-0078
+status: superseded in part by ADR-0078 and ADR-0081
 ---
 
 # A new board chooses a repo and branch
 
 Superseded in part by [0078](0078-a-pasted-github-link-picks-any-reachable-repo.md): the picker also takes a pasted GitHub link or `owner/name` for a repo outside the list. The list, clones and branches below still hold.
+
+Superseded in part by [0081](0081-a-board-has-one-ticket-source.md): board details also choose the board's ticket source, starting at Internal · INT.
 
 New board starts with the GitHub repo, then its branch and board details. The owner picked take B of `prototype-repo-pick-2.html`: the repo gives the board its starting name and default branch, while the name can change and the purpose is optional. Choosing from accessible repos replaces typing an existing local folder and makes the clone and sharing visible before Start.
 

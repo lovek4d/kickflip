@@ -12,6 +12,7 @@
 
 import { routeRecord } from '../hub/routes.mjs';
 import fs from 'node:fs';
+import { ticketBadge } from './tickets.mjs';
 import vm from 'node:vm';
 
 // A page script with no exports, which the page loads as is, so node runs it the same way.
@@ -36,10 +37,15 @@ const STALE_AFTER = 7 * DAY;
 
 const slackTime = (ts) => (ts ? new Date(Number(String(ts).split('.')[0]) * 1000).toISOString() : null);
 
-const linearRef = (id) => ({ id, url: `https://linear.app/acme/issue/${id}` });
-// Internal items keep their stored ids, which key threads, builder records and events; S<n> reads INT-<n>.
-const internalRef = (id) => String(id).replace(/^S(\d+)$/, 'INT-$1');
-export const refOf = (wave, id) => (wave.internal === true ? internalRef(id) : id);
+const linearRef = (id, tickets) => ({ id, url: `https://linear.app/${tickets?.workspace || 'acme'}/issue/${id}` });
+// Internal items keep their stored ids, which key threads, builder records and events; S<n> reads <prefix>-<n>, INT
+// without an internal ticket source. Other ids read as stored, so a changed prefix never relabels them.
+const internalRef = (id, prefix) => String(id).replace(/^S(\d+)$/, `${prefix || 'INT'}-$1`);
+export const refOf = (wave, id, tickets) => (wave.internal === true ? internalRef(id, tickets?.prefix) : id);
+// A board without a source reads stored tickets as Internal · INT. A stored ticket from another source keeps its own
+// id, unlinked (docs/adr/0081-a-board-has-one-ticket-source.md).
+const ticketOf = (tickets, stored, id, at) => ticketBadge(tickets || (stored ? { source: 'internal', prefix: 'INT' } : null), id, at)
+  || (stored ? { id: String(stored), url: null, source: null } : null);
 
 // The lane before owner waits are placed: In Progress while Claude acts next, In Review while the reviewers do.
 // buildBoard places a card that only the owner can move on (docs/adr/0045-the-lane-follows-who-acts-next.md).
@@ -94,7 +100,7 @@ const REVIEW_NEXT = { reviewers: 'Waiting for PR reviewers', merge: 'Approved, m
 const OWNER_MERGE_NEXT = { waiting: 'Approved, Merge shows once CI and the merge state allow', ready: 'Approved and green: tap Merge', merging: 'Merging' };
 const FIX_CI = 'Fix the failing CI';
 
-function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, thread, events, working, topicItem, bridgeItem, permalink, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge }) {
+function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, thread, events, working, topicItem, bridgeItem, permalink, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, tickets }) {
   const key = `${slug}/${it.id}`;
   const reviewers = wave.reviewers || [];
   const sentAt = Object.fromEntries([
@@ -122,7 +128,7 @@ function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, threa
   const merging = waitsOn === 'merge' && Boolean(mergeAt) && String(mergeAt) > lastClaudeAt;
   const reviewNext = waitsOn === 'merge' && !autoMerge ? OWNER_MERGE_NEXT[merging ? 'merging' : 'waiting'] : REVIEW_NEXT[waitsOn];
   return {
-    key, kind: 'work', order, wave: slug, waveTitle: wave.title || slug, id: it.id, ref: refOf(wave, it.id), title: it.title, status: it.status || null,
+    key, kind: 'work', order, wave: slug, waveTitle: wave.title || slug, id: it.id, ref: refOf(wave, it.id, tickets), title: it.title, status: it.status || null,
     created: it.created || null,
     internal: wave.internal === true, repo: wave.internal === true && !wave.repo ? null : repo,
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, agents, eta, working,
@@ -132,7 +138,10 @@ function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, threa
     finishable: lane !== 'done', closing: lane !== 'done' && Boolean(closedAt) && String(closedAt) > String(it.status_at || ''),
     merging, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, from: null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || null,
     branch: it.branch || pr?.headRefName || null,
-    linear: (it.linear || []).map(linearRef),
+    ticket: tickets?.source === 'linear' && !it.ticket && it.linear?.length ? null
+      : ticketOf(tickets, it.ticket, it.ticket || (wave.internal ? refOf(wave, it.id, tickets) : it.linear?.[0]), { repo, key }),
+    ticketSource: tickets?.source || null,
+    linear: (it.linear || []).map((id) => tickets?.source === 'linear' ? ticketBadge(tickets, id, { key, repo }) || linearRef(id, tickets) : linearRef(id, tickets)),
     pr: it.pr && repo ? { number: it.pr, url: `https://github.com/${repo}/pull/${it.pr}`, ...(pr || {}) } : null,
     reviewers: reviewers.map((r) => r.name), review: reviewOf(reviewers, pr, sentAt), inReviewSince,
     slack: permalink(bridgeItem?.thread_ts), threadCount: thread.length + events.length, lastTs, othersAt,
@@ -213,13 +222,14 @@ function placeOwnerWait(it, questionById, autoMerge) {
 const started = (it) => it.agents.length > 0 || Boolean(it.questions && it.questions.answered + it.questions.replied + it.questions.resolved > 0);
 
 // An open follow-up is a Todo card of its wave (docs/adr/0034-follow-ups-are-todo-cards-of-their-wave.md).
-function followUp({ slug, wave, f, order, repo, bumpedAt, closedAt }) {
+function followUp({ slug, wave, f, order, repo, bumpedAt, closedAt, tickets }) {
   return {
     key: `${slug}/${f.id}`, kind: 'followup', order, wave: slug, waveTitle: wave.title || slug, id: f.id, ref: f.id, title: f.title, status: null,
     repo: wave.internal === true && !wave.repo ? null : repo, finishable: !f.done, closing: !f.done && Boolean(closedAt),
     lane: f.done ? 'done' : 'todo', waitsOn: null, builder: null, agents: [], eta: null, working: false, inReviewSince: null,
     deps: [], held: false, risky: false, bumpable: !f.done, bumpedAt: f.done ? null : bumpedAt || null, manualSteps: [], fromAsk: null, from: f.from || null, next: null, hasNotes: false, branch: null,
-    linear: [linearRef(f.id)], pr: null, reviewers: [], review: {},
+    ticket: ticketOf(tickets, f.ticket, f.ticket || f.id, { repo, key: `${slug}/${f.id}` }),
+    linear: [linearRef(f.id, tickets)], pr: null, reviewers: [], review: {},
     slack: null, threadCount: 0, lastTs: null, othersAt: [], grilling: false, updatedAt: f.filed || null, ask: null, fold: null, action: null,
   };
 }
@@ -391,6 +401,7 @@ export function buildBoard(snapshot) {
   const cardDones = latest('card-done', 'key');
   const cardMerges = latest('card-merge', 'key');
   const autoMerge = snapshot.autoMerge === true;
+  const tickets = snapshot.tickets;
   const cardHolds = new Map(events.filter((e) => e.kind === 'card-hold').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((e) => [e.data?.key, e]));
   const madeFrom = new Map();
   const askLinks = snapshot.askLinks || {};
@@ -410,7 +421,7 @@ export function buildBoard(snapshot) {
       const askIds = [it.from_ask, ...folded].filter((id) => asks.has(id));
       const askKeys = new Set(askIds.map((id) => `ask:${id}`));
       const lines = [...(routeRecord(threads, key) || []), ...askIds.flatMap((id) => routeRecord(threads, `ask:${id}`) || [])];
-      if (it.from_ask) madeFrom.set(it.from_ask, [...(madeFrom.get(it.from_ask) || []), { key, ref: refOf(wave, it.id), became: true }]);
+      if (it.from_ask) madeFrom.set(it.from_ask, [...(madeFrom.get(it.from_ask) || []), { key, ref: refOf(wave, it.id, tickets), became: true }]);
       const msgs = threadOf(key, { lines, events, owner, working, fromAsk: it.from_ask || null, moved: folded });
       for (const m of msgs) if (m.eventId) threadStates.set(m.eventId, m.state);
       items.push(workItem({
@@ -421,10 +432,10 @@ export function buildBoard(snapshot) {
         events: [...itemEvents.filter((e) => e.data.key === key || askKeys.has(e.data.key)), ...askIds.map((id) => asks.get(id))],
         working: msgs.some((m) => m.state === 'working'),
         topicItem: routeRecord(topicItems, key), bridgeItem: routeRecord(bridge.items, key), permalink, now, bumpedAt: cardBumps.get(key), holdAsk: cardHolds.get(key), closedAt: cardDones.get(key),
-        mergeAt: cardMerges.get(key), autoMerge,
+        mergeAt: cardMerges.get(key), autoMerge, tickets,
       }));
     });
-    (wave.followups || []).forEach((f, n) => items.push(followUp({ slug, wave, f, order: wave.items.length + n, repo, bumpedAt: cardBumps.get(`${slug}/${f.id}`), closedAt: cardDones.get(`${slug}/${f.id}`) })));
+    (wave.followups || []).forEach((f, n) => items.push(followUp({ slug, wave, f, order: wave.items.length + n, repo, bumpedAt: cardBumps.get(`${slug}/${f.id}`), closedAt: cardDones.get(`${slug}/${f.id}`), tickets })));
   }
   const works = new Map(items.map((i) => [i.key, i]));
   // An ask that became work or was folded into a card shows in that card's thread instead of as a card of its own; old

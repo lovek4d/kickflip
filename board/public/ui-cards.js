@@ -16,7 +16,8 @@
     const label = open.label ? { title: open.label, attrs: { ...EXTERNAL, 'aria-label': `${name}: ${open.label}` } } : { attrs: EXTERNAL };
     return `${badge(open.tone, `${esc(name)}${open.mark}`, { href: pr.url, ...label })}${st}${ci}${codex}`;
   }
-  const linearChips = (it) => it.linear.map((l) => badge('normal', esc(l.id), { href: l.url, title: `${l.id} in Linear`, attrs: EXTERNAL })).join('');
+  const linearChips = (it) => (it.linear || []).map((l) => badge('normal', esc(l.id), { href: l.url, title: `${l.id} in Linear`, attrs: EXTERNAL })).join('');
+  const ticketChip = (it) => !it.ticket ? '' : !it.ticket.url ? badge('quiet', esc(it.ticket.id), { title: `${it.ticket.id} · not from this board’s ticket source` }) : badge(it.ticket.source === 'internal' ? 'quiet' : 'normal', esc(it.ticket.id), { href: it.ticket.url, title: `${it.ticket.id}${it.ticket.source === 'internal' ? ' · this board’s own ticket' : it.ticket.source === 'github' ? ' on GitHub' : ' in Linear'}`, attrs: it.ticket.source === 'internal' ? {} : EXTERNAL });
   const REVIEW = {
     approved: { tone: 'ready', mark: '✓', label: 'approved' },
     changes: { tone: 'danger', mark: '✗', label: 'asked for changes' },
@@ -95,7 +96,7 @@
   const ASK_STATE = { waiting: 'Waiting', working: `<span class="working">${workingLine}</span>` };
   const askLine = (ask) => `${ask.from ? `Moved from ${esc(ask.from)} · ` : ''}${esc(time(ask.askedAt))} · ${ask.edited ? 'Edited · ' : ''}${ASK_STATE[ask.state] || ''}`;
   function workLines(it, { unread = 0, top = false } = {}) {
-    const ids = it.kind === 'ask' ? askChip(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
+    const ids = it.kind === 'ask' ? askChip(it) : it.ticket ? ticketChip(it) : it.ticketSource === 'linear' ? linearChips(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
     const blocked = (it.blockedBy || []).map((d) => badge('notice', `blocked by ${esc(d.ref)}`, { href: `#item=${encodeURIComponent(d.key)}` })).join('');
     const ready = !blocked && !it.action && it.deps?.length && it.lane === 'todo' ? badge('ready', 'ready to start') : '';
     const chips = `${stalledChip(it)}${unreadChip(unread)}${actionChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('normal', 'bumped') : ''}${ready}${installChip(it)}`;
@@ -117,5 +118,5 @@
     return keys.length > 1 ? `<button class="link" data-plan="${esc(keys.join(' '))}">Plan a wave from these ${keys.length} follow-ups →</button>` : '';
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, linearChips, REVIEW, reviewAge, reviewChips, pendingQuestions, actionChip, REBUILDING_ASK, installChip, installButton, mergeButton, builderLine, unreadCount, workLines, askChip, askActions, askLine, planButton });
+  Object.assign(globalThis.BoardUI, { prChips, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionChip, REBUILDING_ASK, installChip, installButton, mergeButton, builderLine, unreadCount, workLines, askChip, askActions, askLine, planButton });
 })();

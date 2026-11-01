@@ -322,7 +322,7 @@ async function itemSnapshot() {
   await Promise.all(waves.flatMap(({ slug, wave }) => wave.items.map(async (it) => {
     threadLines[`${slug}/${it.id}`] = await readLines(threadFile(`${slug}/${it.id}`));
   })));
-  return { github: boardAt(here)?.github, fromWaves, autoMerge: settingsOf(cfg).auto_merge, waves, threads: threadLines };
+  return { github: boardAt(here)?.github, fromWaves, autoMerge: settingsOf(cfg).auto_merge, tickets: settingsOf(cfg).tickets, waves, threads: threadLines };
 }
 
 // Reads every source buildBoard needs: wave files and their builder records,
@@ -416,13 +416,14 @@ async function itemOf(key) {
 // The work items an ask became (their from_ask) or was related to (data/ask-links.json), as domain.mjs threadOf's links.
 async function askLinksOf(askId) {
   const related = routeRecord(await readAskLinks(here), askId);
+  const { tickets } = settingsOf(await config());
   const links = [];
   for (const s of await itemSources(here)) {
     const wave = await readJSON(s.file, null);
     for (const it of Array.isArray(wave?.items) ? wave.items : []) {
       const key = `${s.slug}/${it.id}`;
-      if (it.from_ask === askId) links.unshift({ key, ref: refOf(wave, it.id), became: true });
-      else if (key === related) links.push({ key, ref: refOf(wave, it.id), became: false });
+      if (it.from_ask === askId) links.unshift({ key, ref: refOf(wave, it.id, tickets), became: true });
+      else if (key === related) links.push({ key, ref: refOf(wave, it.id, tickets), became: false });
     }
   }
   return links;
@@ -558,7 +559,7 @@ const server = http.createServer(async (req, res) => {
       const key = String(url.searchParams.get('item') || '');
       try {
         const { wave, item, markdown } = await readNotes(here, key);
-        return json(res, 200, { key, ref: refOf(wave, item.id), title: item.title, markdown });
+        return json(res, 200, { key, ref: refOf(wave, item.id, settingsOf(await config()).tickets), title: item.title, markdown });
       } catch (e) { if (e instanceof BoardError) return json(res, 404, { error: e.message }); throw e; }
     }
     if (p === '/_claude/events' && req.method === 'POST') {

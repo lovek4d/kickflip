@@ -1,3 +1,4 @@
+import { ticketSource } from '../board/tickets.mjs';
 import { readManifest, withManifestLock, writeManifest } from './boards.mjs';
 import { ROUTE_RE, routeFromName, routeRecord } from './routes.mjs';
 import { repoService, validateGithub, validateBranch } from './repos.mjs';
@@ -7,7 +8,7 @@ const refuse = (message, status = 400) => { throw Object.assign(new Error(messag
 
 function details(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)
-    || Object.keys(input).some((k) => !['name', 'github', 'branch', 'purpose'].includes(k))) refuse('Send only name, github, branch and purpose.');
+    || Object.keys(input).some((k) => !['name', 'github', 'branch', 'purpose', 'tickets'].includes(k))) refuse('Send only name, github, branch, purpose and tickets.');
   if (typeof input.name !== 'string' || !input.name.trim() || input.name.length > 60) refuse('Name must be 1–60 characters.');
   if (input.purpose !== undefined && (typeof input.purpose !== 'string' || input.purpose.length > 240)) refuse('Purpose must be at most 240 characters.');
   const title = input.name.trim().replace(/\s+/g, ' ');
@@ -15,7 +16,7 @@ function details(input) {
   if (!ROUTE_RE.test(route)) refuse('Name must contain a letter or digit for its route.');
   const github = validateGithub(input.github);
   const branch = validateBranch(input.branch);
-  return { route, title, github, branch, purpose: (input.purpose || '').trim().replace(/\s+/g, ' ') };
+  return { route, title, github, branch, tickets: ticketSource(input.tickets === undefined ? { source: 'internal' } : input.tickets), purpose: (input.purpose || '').trim().replace(/\s+/g, ' ') };
 }
 
 // The new session runs these join flags through its shell, so each value must stay one quoted word.
@@ -45,12 +46,12 @@ async function recordStart(route, outcome) {
 // → {route, started}: started settles once the outcome is on the Starting row, as {session} or {error}, and never rejects.
 export async function requestBoard(input, { run, live, repos = repoService(), changed = () => {} } = {}) {
   const board = details(input);
-  const { route, title, github, branch } = board;
+  const { route, title, github, branch, tickets } = board;
   const repo = repos.path(github);
   await withManifestLock(async () => {
     const manifest = readManifest();
     if (Object.hasOwn(manifest.sites || {}, route) || Object.hasOwn(manifest.starting || {}, route) || Object.hasOwn(manifest.closed || {}, route)) refuse('That board route already exists. Reopen it from Closed boards if it is closed.');
-    manifest.starting = { ...manifest.starting, [route]: { title, repo, github, branch, phase: repos.cloned(github) ? 'starting' : 'cloning', asked_at: new Date().toISOString() } };
+    manifest.starting = { ...manifest.starting, [route]: { title, repo, github, branch, tickets, phase: repos.cloned(github) ? 'starting' : 'cloning', asked_at: new Date().toISOString() } };
     await writeManifest(manifest);
   });
   const started = (async () => {

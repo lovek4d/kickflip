@@ -933,6 +933,18 @@ test('New board chooses a searchable repo before board details, defaults its bra
     field('purpose').value = 'Review changes';
     page.fire(form, 'input', { target: field('name') });
     page.fire(form, 'input', { target: field('purpose') });
+    const control = sheet.querySelector('[data-board-tickets]');
+    assert.equal(control.querySelector('[data-tk="prefix"]').value, 'INT');
+    const prefix = control.querySelector('[data-tk="prefix"]');
+    prefix.value = 'A1'; page.fire(control, 'input', { target: prefix });
+    assert.equal(start.disabled, true);
+    prefix.value = ''; page.fire(control, 'input', { target: prefix });
+    assert.equal(start.disabled, false);
+    page.fire(control, 'click', { target: control.querySelector('[data-tk-source="linear"]') });
+    assert.match(control.textContent, /Add a Linear key on Hub/);
+    assert.equal(start.disabled, true);
+    page.fire(control, 'click', { target: control.querySelector(`[data-tk-source="${wide ? 'internal' : 'github'}"]`) });
+    if (!wide) assert.match(control.textContent, /Issues in owner\/project/);
     field('branch').value = 'release/next';
     page.fire(form, 'change', { target: field('branch') });
     page.fire(form, 'submit');
@@ -946,7 +958,7 @@ test('New board chooses a searchable repo before board details, defaults its bra
     assert.equal(posted.length, 2);
     finish();
     await tick();
-    assert.deepEqual(posted.at(-1), ['/_hub/new-board', 'POST', { name: 'Backend audit', github: 'owner/project', branch: 'release/next', purpose: 'Review changes' }, 'application/json']);
+    assert.deepEqual(posted.at(-1), ['/_hub/new-board', 'POST', { name: 'Backend audit', github: 'owner/project', branch: 'release/next', purpose: 'Review changes', tickets: wide ? { source: 'internal', prefix: 'INT' } : { source: 'github' } }, 'application/json']);
     assert.equal(doc.getElementById('newBoardSheet'), null);
     assert.match(aside.querySelector('[data-starting="backend-audit"]').textContent, /Cloning….*Backend audit/);
     assert.equal(aside.querySelector('a[href="/backend-audit/"]'), null);
@@ -1027,7 +1039,7 @@ test('pasted unlisted repos use the normal branch and save steps in New board an
     assert.equal(sheet.querySelector('[type="submit"]').disabled, false);
     page.fire(form, 'submit');
     await tick();
-    assert.deepEqual(saved, [current ? { github: 'outside/project', branch: 'canary' } : { github: 'outside/project', branch: 'canary', name: 'project', purpose: '' }]);
+    assert.deepEqual(saved, [current ? { github: 'outside/project', branch: 'canary' } : { github: 'outside/project', branch: 'canary', name: 'project', purpose: '', tickets: { source: 'internal', prefix: 'INT' } }]);
     assert.deepEqual(urls, ['/_hub/repos', '/_hub/repo?github=outside%2Fproject', '/_hub/branches?github=outside%2Fproject']);
     assert.equal(doc.getElementById('newBoardSheet'), null);
   }
@@ -1123,6 +1135,75 @@ test('bare repo lookups debounce, cancel when edited or closed, and ignore stale
   sheet.close();
   assert.equal(timers.size, 0);
   assert.equal(urls.some((url) => url.includes('cancel') || url.includes('first')), false);
+});
+
+test('the shared Tickets control stages Board Settings changes, validates the prefix and saves JSON', async () => {
+  const page = repoPage(true);
+  const { doc, Element } = page;
+  const root = doc.body.appendChild(new Element('div'));
+  root.innerHTML = page.win.AppViews.settings.markup();
+  let settings = { auto_merge: false }, refuse = false;
+  const posts = [];
+  page.win.fetch = async (url, options = {}) => {
+    if (url.endsWith('/api/settings')) {
+      if (options.method === 'POST') {
+        posts.push(JSON.parse(options.body));
+        if (refuse) return { ok: false, json: async () => ({ error: 'Try again.' }) };
+        settings = { ...settings, ...JSON.parse(options.body) };
+      }
+      return repoResponse({ settings });
+    }
+    if (url.includes('board-repo')) return repoResponse({ github: 'owner/project', branch: 'main' });
+    return repoResponse({});
+  };
+  const view = page.win.AppViews.settings.create(root, 'https://mac.ts.net/orch', {});
+  view.mount(); await tick();
+  const control = root.querySelector('#boardTickets');
+  const form = root.querySelector('#ticketsForm');
+  const save = root.querySelector('#ticketsSave');
+  assert.equal(save.disabled, true);
+  page.fire(control, 'click', { target: control.querySelector('[data-tk-source="internal"]') });
+  assert.equal(save.disabled, false);
+  page.fire(form, 'submit'); await tick();
+  assert.deepEqual(posts.at(-1), { tickets: { source: 'internal', prefix: 'INT' } });
+  const prefix = control.querySelector('[data-tk="prefix"]');
+  prefix.value = 'I'; page.fire(control, 'input', { target: prefix });
+  assert.equal(save.disabled, true);
+  assert.equal(form.hasAttribute('data-dirty'), true);
+  prefix.value = 'ops'; page.fire(control, 'input', { target: prefix });
+  assert.equal(prefix.value, 'OPS');
+  assert.equal(save.disabled, false);
+  refuse = true; page.fire(form, 'submit'); await tick();
+  assert.equal(root.querySelector('#ticketsStatus').textContent, 'Try again.');
+  assert.equal(form.hasAttribute('data-dirty'), true);
+  refuse = false; page.fire(form, 'submit'); await tick();
+  assert.deepEqual(posts.at(-1), { tickets: { source: 'internal', prefix: 'OPS' } });
+  assert.equal(form.hasAttribute('data-dirty'), false);
+  page.fire(control, 'click', { target: control.querySelector('[data-tk-source="github"]') });
+  assert.match(control.textContent, /Issues in owner\/project/);
+  page.fire(form, 'submit'); await tick();
+  assert.deepEqual(posts.at(-1), { tickets: { source: 'github' } });
+  page.fire(control, 'click', { target: control.querySelector('[data-tk-source="linear"]') });
+  assert.match(control.textContent, /Add a Linear key on Hub/);
+  assert.equal(save.disabled, true);
+  view.unmount();
+});
+
+test('the shared Tickets control shows Linear teams and projects with a supplied key and names a new project after the board', () => {
+  const page = repoPage(true);
+  const root = page.doc.body.appendChild(new page.Element('div'));
+  let name = 'Audit';
+  const control = page.win.BoardDialogs.ticketsControl(root, { isNew: true, title: () => name, linear: { set: true, workspace: 'another', teams: [{ key: 'PROD', name: 'Product' }], projects: [{ team: 'PROD', id: 'p1', name: 'Existing' }] } });
+  page.fire(root, 'click', { target: root.querySelector('[data-tk-source="linear"]') });
+  assert.equal(root.querySelector('[data-tk="project"]').value, '__new');
+  assert.equal(root.querySelector('[data-tk="newName"]').value, 'Audit');
+  name = 'Renamed'; control.nameChanged();
+  assert.equal(root.querySelector('[data-tk="newName"]').value, 'Renamed');
+  const project = root.querySelector('[data-tk="project"]');
+  project.value = 'p1'; page.fire(root, 'change', { target: project });
+  assert.equal(control.valid(), true);
+  assert.deepEqual(JSON.parse(JSON.stringify(control.read())), { source: 'linear', workspace: 'another', team: 'PROD', project: 'p1' });
+  control.destroy();
 });
 
 test('Board Settings shows repo and branch, changes them as JSON and closes the repo sheet when unmounted', async () => {

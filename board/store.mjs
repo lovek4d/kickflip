@@ -11,6 +11,8 @@ import { appendEvent, listBoards } from '../hub/boards.mjs';
 import { reviseQueued, flushQueue, queueStatus } from '../hub/push.mjs';
 import { holdLine } from '../hub/schedule.mjs';
 import { routeRecord } from '../hub/routes.mjs';
+import { ticketSource, ticketIn, resolveTicket } from './tickets.mjs';
+import { withFileLock } from '../hub/locks.mjs';
 import { storedPath } from '../bin/install.mjs';
 import { RuleError, rulesOf, addRule, editRule, removeRule, applyRules, readHubRules, writeHubRules } from '../hub/rules.mjs';
 
@@ -505,9 +507,14 @@ const writeBoardRules = (site, change) => writeBoardJSON(site, (cfg) => {
   return { set: { rules: result.rules }, ...result };
 });
 
-// A board's settings in board.json, each off when absent (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md).
-// auto_merge: monitor merges an approved, green, clean PR itself; off, the card waits on the owner's Merge.
-export const settingsOf = (cfg) => ({ auto_merge: cfg?.auto_merge === true });
+const storedTickets = (value) => { try { return value ? ticketSource(value) : null; } catch { return null; } };
+// A board's settings in board.json (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md): auto_merge, off
+// when absent, and tickets, its one ticket source, absent when unset or invalid
+// (docs/adr/0081-a-board-has-one-ticket-source.md).
+export const settingsOf = (cfg) => {
+  const tickets = storedTickets(cfg?.tickets);
+  return { auto_merge: cfg?.auto_merge === true, ...(tickets ? { tickets } : {}) };
+};
 export async function readBoardSettings(site) {
   return settingsOf(await readJSON(path.join(needSite(site), 'board.json'), {}));
 }
@@ -527,26 +534,30 @@ export function saveInstallScript(site, changes) {
     changed: (cfg.install_script ?? '') !== installScript,
   }));
 }
-// changes {auto_merge: boolean} → {file, settings, changed}; changed lists the keys whose value moved.
+// changes {auto_merge: boolean, tickets: source} → {file, settings, changed}; changed lists the keys whose value moved.
 export function saveBoardSettings(site, changes) {
-  onlyKeys(changes, ['auto_merge'], 'the settings');
+  onlyKeys(changes, ['auto_merge', 'tickets'], 'the settings');
   if (!Object.keys(changes).length) fail('the settings name nothing to change');
-  for (const [k, v] of Object.entries(changes)) bool(v, k);
+  changes = { ...changes };
+  for (const [k, v] of Object.entries(changes)) {
+    if (k === 'tickets') { try { changes.tickets = ticketSource(v); } catch (e) { fail(e.message); } }
+    else bool(v, k);
+  }
   return writeBoardJSON(site, (cfg) => {
     const before = settingsOf(cfg);
     const settings = { ...before, ...changes };
-    return { set: changes, settings, changed: Object.keys(changes).filter((k) => before[k] !== settings[k]) };
+    return { set: changes, settings, changed: Object.keys(changes).filter((k) => JSON.stringify(before[k]) !== JSON.stringify(settings[k])) };
   });
 }
 // The CLI's `settings set <name> on|off`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
   const key = String(name).replace(/-/g, '_');
-  if (routeRecord(settingsOf({}), key) === undefined) fail(`no board setting "${name}"; settings are ${Object.keys(settingsOf({})).map((k) => k.replace(/_/g, '-')).join(', ')}`);
+  if (key !== 'auto_merge') fail(`no board setting "${name}"; settings are ${Object.keys(settingsOf({})).map((k) => k.replace(/_/g, '-')).join(', ')}`);
   if (!['on', 'off'].includes(value)) fail(`settings set ${name} takes on or off, not "${value}"`);
   const { file, settings } = await saveBoardSettings(site, { [key]: value === 'on' });
   return { file, lines: [`${name} ${settings[key] ? 'on' : 'off'}`] };
 }
-export const settingsLines = (settings) => Object.entries(settings).map(([k, v]) => `setting ${k.replace(/_/g, '-')} ${v ? 'on' : 'off'}`);
+export const settingsLines = (settings) => Object.entries(settings).map(([k, v]) => `setting ${k.replace(/_/g, '-')} ${k === 'tickets' ? JSON.stringify(v) : v ? 'on' : 'off'}`);
 
 // change(list) → {rules, rule} from hub/rules.mjs; → {file, lines} naming the rule's id.
 async function changeRules(site, hub, change) {
@@ -909,14 +920,14 @@ function installOf({ install, installSha, installLabel, clearInstall }) {
 // → the wave file, and when a dep finishes the items it unblocked as `unblocked: <key>` lines; closing
 // (done, merged, dropped) adds a `resolved: <id>` line per question it resolved (closeQuestions).
 // notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`.
-export async function setItem(site, key, { status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, install, installSha, installLabel, clearInstall, title, force }) {
+async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, install, installSha, installLabel, clearInstall, title, force }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
   if (force && !FINISHED.includes(status)) fail(`--force goes with --status ${FINISHED.join(', ')}`);
   if (next !== undefined && clearNext) fail('pass --next or --clear-next, not both');
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   if (held && unheld) fail('pass --held or --unheld, not both');
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, built, title].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --from-ask, --held, --unheld, --notes-file, --deps, --install, --clear-install or --title');
+  if ([status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, built, title, ticket].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --from-ask, --held, --unheld, --notes-file, --deps, --install, --clear-install, --title or --ticket');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   const { source, wave, item } = await loadItem(site, key);
@@ -953,6 +964,7 @@ export async function setItem(site, key, { status, clearStatus, next, clearNext,
   if (ask) item.from_ask = ask;
   if (built) item.install = built;
   if (built === null) delete item.install;
+  if (ticket !== undefined || (ask && !item.ticket && !item.linear?.length)) item.ticket = await assignTicket(site, wave, item, ticket, options, source.dir);
   await writeJSON(source.file, wave);
   const resolved = await resolve();
   // A builder that forgot builder done would keep the card In Progress after it was handed back.
@@ -978,8 +990,35 @@ async function depList(site, slug, deps) {
   return list;
 }
 
+async function assignTicket(site, wave, item, ticket, options, dir) {
+  try {
+    const cfg = await boardConfig(site);
+    const source = ticketSource(cfg.tickets || { source: 'internal' });
+    const ownId = (w, it) => (w.internal === true ? String(it.id).replace(/^S(\d+)$/, `${source.prefix}-$1`) : null);
+    if (ticket === undefined && source.source === 'internal' && ticketIn(source, ownId(wave, item))) ticket = ownId(wave, item);
+    let max = 0;
+    if (source.source === 'internal' && ticket === undefined) {
+      for (const entry of await itemSources(site)) {
+        const w = await readJSON(entry.file, {});
+        for (const it of [...(w.items || []), ...(w.followups || [])]) {
+          for (const id of [it.ticket, ownId(w, it)]) max = Math.max(max, ticketIn(source, id) || 0);
+        }
+      }
+    }
+    const repo = (site && listBoards().find((b) => path.resolve(b.dir) === path.resolve(site))?.github) || wave.repo;
+    const body = ticket === undefined && source.source === 'github' && item.plan ? await fs.readFile(await planPath(dir, item.plan), 'utf8') : item.notes || '';
+    return await resolveTicket(source, { ticket, title: item.title, body, repo, next: max + 1 }, options);
+  } catch (e) { if (e instanceof BoardError) throw e; fail(e.message); }
+}
+
+const ticketWrite = (site, fn) => withFileLock(path.join(site || wavesDir(), 'tickets'), fn, { heartbeat: true });
+export const setItem = (site, key, changes, options) => (changes.ticket !== undefined || changes.fromAsk !== undefined
+  ? ticketWrite(site, () => changeItem(site, key, changes, options)) : changeItem(site, key, changes, options));
+export const addItem = (site, key, details, options) => ticketWrite(site, () => createItem(site, key, details, options));
+export const addFollowup = (site, slug, details, options) => ticketWrite(site, () => createFollowup(site, slug, details, options));
+
 // → the wave file. A new card starts unstarted: planned, or waiting when it names deps.
-export async function addItem(site, key, { title, notes, deps, notesFile }) {
+async function createItem(site, key, { title, notes, deps, notesFile, ticket }, options) {
   const { wave: slug, id } = parseKey(key);
   domId(id, 'the item id');
   const { source, wave } = await loadWave(site, slug);
@@ -989,17 +1028,20 @@ export async function addItem(site, key, { title, notes, deps, notesFile }) {
   if (deps !== undefined) item.deps = await depList(site, slug, deps);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
   item.status = item.deps?.length ? 'waiting' : 'planned';
+  item.ticket = await assignTicket(site, wave, item, ticket, options, source.dir);
   wave.items.push(item);
   await writeJSON(source.file, wave);
   return source.file;
 }
 
-export async function addFollowup(site, slug, { id, title, from }) {
+async function createFollowup(site, slug, { id, title, from, ticket }, options) {
   const { source, wave } = await loadWave(site, slug);
-  if (!/^[A-Z][A-Z0-9]*-\d+$/.test(id || '')) fail(`--id takes a Linear issue id such as PROD-123, not "${id}"`);
+  domId(id, '--id');
   const followups = wave.followups || [];
   if (followups.some((f) => f.id === id)) fail(`wave "${slug}" already has follow-up ${id}`);
-  followups.push({ id, title: text(title, '--title'), ...(from === undefined ? {} : { from: text(from, '--from') }), filed: new Date().toISOString().slice(0, 10) });
+  const item = { id, title: text(title, '--title'), ...(from === undefined ? {} : { from: text(from, '--from') }), filed: new Date().toISOString().slice(0, 10) };
+  item.ticket = await assignTicket(site, wave, item, ticket, options, source.dir);
+  followups.push(item);
   await writeJSON(source.file, { ...wave, followups });
   return source.file;
 }

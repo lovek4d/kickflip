@@ -289,6 +289,8 @@ const commands = {
         const cfg = fs.existsSync(cfgFile) ? JSON.parse(fs.readFileSync(cfgFile, 'utf8')) : {};
         cfg.title = args.title || cfg.title || route;
         cfg.items = storedPath(args.items || cfg.items || 'waves');
+        const pending = routeRecord(m.starting, route);
+        if (!existing && pending?.tickets && (!pending.session || pending.session === args.session)) cfg.tickets = pending.tickets;
         fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2) + '\n');
         site.cmd = [nodeBin(), path.join(SKILL, 'board', 'server.mjs'), site.dir];
         created = !existing;

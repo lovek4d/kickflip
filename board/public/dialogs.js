@@ -1,6 +1,54 @@
 // Native confirmations cannot label their actions on iOS; labelled confirmations use a modal sheet.
 // Load before any page script that asks (docs/adr/0023-a-card-can-be-held-and-every-card-button-confirms.md).
 (function () {
+  function ticketsControl(root, { value = { source: 'internal', prefix: 'INT' }, repo = () => '', title = () => '', linear = {}, isNew = false, change = () => {} } = {}) {
+    const { esc } = BoardUI;
+    const draft = { prefix: 'INT', ...value };
+    const read = () => draft.source === 'internal' ? { source: 'internal', prefix: draft.prefix || 'INT' }
+      : draft.source === 'github' ? { source: 'github' }
+      : { source: 'linear', workspace: linear.workspace || draft.workspace, team: draft.team, project: draft.project };
+    const valid = () => draft.source === 'internal' ? /^[A-Z]{2,6}$/.test(draft.prefix || 'INT')
+      : draft.source === 'github' ? Boolean(repo()) : Boolean(linear.set && draft.team && draft.project && draft.project !== '__new');
+    function render() {
+      const segment = `<div class="tk-seg" role="group" aria-label="Ticket source">${[['linear', 'Linear'], ['github', 'GitHub issues'], ['internal', 'Internal']].map(([source, name]) => `<button type="button" data-tk-source="${source}" aria-pressed="${draft.source === source}">${name}</button>`).join('')}</div>`;
+      let detail;
+      if (draft.source === 'internal') detail = `<label class="tk-field"><span>Prefix</span><input data-tk="prefix" value="${esc(draft.prefix)}" placeholder="INT" maxlength="6" pattern="[A-Z]{2,6}" title="2–6 uppercase letters" autocapitalize="characters" autocomplete="off" spellcheck="false"></label><p class="muted small" data-tk-example>Cards number ${esc(draft.prefix || 'INT')}-1, ${esc(draft.prefix || 'INT')}-2… on this board. The badge opens the card.</p>`;
+      else if (draft.source === 'github') detail = `<div class="who tk-static"><span>Issues in ${esc(repo())}<span class="muted small sub">${isNew ? 'The repo chosen above' : 'The board’s repo, set above'}. A new card opens an issue there; its badge reads #41.</span></span></div>`;
+      else if (!linear.set) detail = '<a class="who tk-hublink" href="/_hub/#linear"><span>Add a Linear key on Hub<span class="muted small sub">Linear lists its teams and projects with your API key, kept on this Mac.</span></span><span aria-hidden="true">›</span></a>';
+      else detail = `<div class="tk-grid"><label class="tk-field"><span>Team</span><select data-tk="team">${(linear.teams || []).map((t) => `<option value="${esc(t.key)}"${t.key === draft.team ? ' selected' : ''}>${esc(t.key)} · ${esc(t.name)}</option>`).join('')}</select></label><label class="tk-field"><span>Project</span><select data-tk="project">${(linear.projects || []).filter((p) => p.team === draft.team).map((p) => `<option value="${esc(p.id)}"${p.id === draft.project ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}<option value="__new"${draft.project === '__new' ? ' selected' : ''}>New project…</option></select></label></div>${draft.project === '__new' ? `<div class="tk-new"><input data-tk="newName" value="${esc(draft.newName ?? title())}" aria-label="New Linear project name" placeholder="Project name" autocomplete="off"><button type="button" disabled>Create</button></div>` : ''}`;
+      root.innerHTML = `${segment}<div class="tk-detail">${detail}</div>`;
+      if (draft.source === 'linear' && linear.set) {
+        root.querySelector('[data-tk="team"]').value = draft.team || '';
+        root.querySelector('[data-tk="project"]').value = draft.project || '';
+      }
+    }
+    const click = (e) => {
+      const button = e.target.closest('[data-tk-source]');
+      if (!button) return;
+      draft.source = button.dataset.tkSource;
+      if (draft.source === 'linear') {
+        draft.team ||= linear.teams?.[0]?.key;
+        draft.project ||= isNew ? '__new' : linear.projects?.find((p) => p.team === draft.team)?.id;
+      }
+      render(); root.querySelector(`[data-tk-source="${draft.source}"]`).focus(); change(read(), valid());
+    };
+    const input = (e) => {
+      const field = e.target.dataset.tk;
+      if (!field) return;
+      draft[field] = field === 'prefix' ? e.target.value.toUpperCase() : e.target.value;
+      if (field === 'prefix') e.target.value = draft.prefix;
+      if (field === 'team') draft.project = isNew ? '__new' : linear.projects?.find((p) => p.team === draft.team)?.id;
+      if (field === 'team' || field === 'project') render();
+      if (field === 'prefix') root.querySelector('[data-tk-example]').textContent = `Cards number ${draft.prefix || 'INT'}-1, ${draft.prefix || 'INT'}-2… on this board. The badge opens the card.`;
+      change(read(), valid());
+    };
+    root.addEventListener('click', click);
+    root.addEventListener('input', input);
+    root.addEventListener('change', input);
+    render();
+    return { read, valid, render, nameChanged() { const field = root.querySelector('[data-tk="newName"]'); if (field && draft.newName === undefined) field.value = title(); },
+      destroy() { root.removeEventListener('click', click); root.removeEventListener('input', input); root.removeEventListener('change', input); } };
+  }
   let close = null;
   function sheet(message, { ok, cancel = 'Cancel', signal }) {
     close?.(false);
@@ -83,7 +131,8 @@
     el.setAttribute('class', 'sheet');
     el.setAttribute('aria-labelledby', 'newBoardTitle');
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    const draft = { name: '', purpose: '', github: '', branch: '' };
+    const draft = { name: '', purpose: '', github: '', branch: '', tickets: { source: 'internal', prefix: 'INT' } };
+    let tickets;
     let repos = [], pasted, selected, edited = false, sending = false, closed = false, generation = 0, lookupTimer;
     const controller = new AbortController();
     el.innerHTML = `<form class="nb-form"><div class="sheet-head"><h2 id="newBoardTitle" tabindex="-1" autofocus>${current ? 'Change repo' : 'New board'}</h2><button type="button" data-cancel-new aria-label="Close sheet">✕</button></div><div data-repo-content></div><p class="nb-error" role="alert" hidden></p><div class="nb-actions sheet-actions"><button type="button" data-cancel-new>Cancel</button><button type="submit" class="primary" hidden disabled>${current ? 'Use repo' : 'Start'}</button></div></form>`;
@@ -99,7 +148,7 @@
       return d;
     };
     const fail = (e) => { if (!closed) { error.textContent = e.message; error.hidden = false; } };
-    function sync() { start.disabled = sending || !draft.github || !draft.branch || (!current && !draft.name.trim()); }
+    function sync() { start.disabled = sending || !draft.github || !draft.branch || (!current && (!draft.name.trim() || !tickets?.valid())); }
     const row = (r, highlighted = false) => `<button type="button" class="nb-repo${highlighted ? ' nb-repo-highlight' : ''}" data-repo="${esc(r.github)}"><strong>${esc(r.github)}</strong>${r.listed === false ? '<span class="nb-repo-tag">Not in your list</span>' : ''}<span class="nb-help">${r.private ? 'Private' : 'Public'} · <time datetime="${esc(r.pushedAt)}">${r.pushedAt ? `Pushed ${esc(new Date(r.pushedAt).toLocaleString())}` : r.listed === false ? 'Last push unknown' : 'No pushes yet'}</time></span><span class="nb-help">${esc(r.description)}</span><span class="nb-local">${r.cloned ? `✓ In .repos${r.shared.length ? ` · shared with ${esc(r.shared.map((b) => b.title).join(', '))}` : ' · already cloned'}` : 'Not cloned in .repos'}</span></button>`;
     const results = (html) => { el.querySelector('[data-repo-results]').innerHTML = html; };
     function rows(query = '') {
@@ -138,6 +187,7 @@
       else check();
     }
     async function picker(fresh = false) {
+      tickets?.destroy();
       const version = ++generation;
       clearTimeout(lookupTimer);
       pasted = null;
@@ -168,6 +218,10 @@
       error.hidden = true;
       const shared = selected.shared.map((b) => b.title).join(', ');
       content.innerHTML = `<button type="button" data-back-repos>‹ Back</button><p class="nb-next">${current ? 'Repo details' : '2 · Board details'}</p><div class="nb-selected"><strong>${esc(github)}</strong><span class="nb-help">${selected.private ? 'Private' : 'Public'}</span><p>${selected.cloned ? shared ? `Shared with ${esc(shared)}` : 'Already cloned in .repos' : 'Clones to'}<code class="nb-clone">${esc(selected.clone)}</code></p></div><label class="nb-field"><span>Default branch for this board</span><select name="branch" disabled><option value="">Loading branches…</option></select><span class="nb-help" data-branch-help></span></label><p class="nb-next">Each board’s builders work in separate worktrees off this clone. Sharing the clone doesn’t share their working files.</p>${current ? '<p class="nb-next">New builders and GitHub links will use the selected repo.</p>' : `<label class="nb-field"><span>Name</span><input name="name" type="text" value="${esc(draft.name)}" required maxlength="60" autocomplete="off"></label><label class="nb-field"><span>What it’s for</span><input name="purpose" type="text" value="${esc(draft.purpose)}" maxlength="240"><span class="nb-help">One line to get the board started. Optional.</span></label><p class="nb-next">The hub ${selected.cloned ? 'reuses the clone' : 'clones the repo'} and starts your board. You can keep using your other boards.</p>`}`;
+      if (!current) {
+        content.querySelectorAll('.nb-next')[content.querySelectorAll('.nb-next').length - 1].insertAdjacentHTML('beforebegin', '<div class="nb-field tk-section" role="group" aria-labelledby="nbTicketsLabel"><span id="nbTicketsLabel">Tickets</span><span class="nb-help">Where this board’s cards get their tickets. You can change it in Board settings.</span><div data-board-tickets></div></div>');
+        tickets = ticketsControl(content.querySelector('[data-board-tickets]'), { value: draft.tickets, repo: () => draft.github, title: () => draft.name.trim(), isNew: true, change(value) { draft.tickets = value; sync(); } });
+      }
       start.hidden = false;
       sync();
       try {
@@ -192,7 +246,7 @@
     });
     form.addEventListener('input', (e) => {
       if (e.target.getAttribute('name') === 'search') { search(e.target.value); return; }
-      if (e.target.getAttribute('name') === 'name') { draft.name = e.target.value; edited = true; }
+      if (e.target.getAttribute('name') === 'name') { draft.name = e.target.value; edited = true; tickets?.nameChanged(); }
       if (e.target.getAttribute('name') === 'purpose') draft.purpose = e.target.value;
       sync();
     });
@@ -210,7 +264,7 @@
       sync();
       error.hidden = true;
       try {
-        await save(current ? { github: draft.github, branch: draft.branch } : { name: draft.name.trim(), purpose: draft.purpose.trim(), github: draft.github, branch: draft.branch }, selected);
+        await save(current ? { github: draft.github, branch: draft.branch } : { name: draft.name.trim(), purpose: draft.purpose.trim(), github: draft.github, branch: draft.branch, tickets: tickets.read() }, selected);
         sending = false;
         el.close();
       } catch (e) { sending = false; fail(e); sync(); }
@@ -220,6 +274,7 @@
     el.addEventListener('close', () => {
       if (closed) return;
       closed = true;
+      tickets?.destroy();
       clearTimeout(lookupTimer);
       controller.abort();
       stopFitting();
@@ -237,5 +292,5 @@
   const confirm = (message, labels) => (labels?.signal?.aborted ? Promise.resolve(false)
     : labels?.ok ? sheet(message, labels) : Promise.resolve(window.confirm(message)));
   const notice = (message) => { window.alert(message); return Promise.resolve(); };
-  globalThis.BoardDialogs = { confirm, notice, fitSheet, repoSheet };
+  globalThis.BoardDialogs = { confirm, notice, fitSheet, repoSheet, ticketsControl };
 })();

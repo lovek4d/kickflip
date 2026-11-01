@@ -462,6 +462,14 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
     for (const bad of [{ auto_merge: 'yes' }, { auto_deploy: true }, {}, ['x']]) assert.equal((await save(bad)).status, 400, JSON.stringify(bad));
     assert.equal((await settingsEvents()).length, 1);
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8')).auto_merge, true);
+    fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', ticket: 'INT-3' }, { id: 'B2', title: 'Two', ticket: 'OPS-4' }] }));
+    const internal = await (await save({ tickets: { source: 'internal', prefix: 'OPS' } })).json();
+    assert.deepEqual(internal.settings.tickets, { source: 'internal', prefix: 'OPS' });
+    const cards = (await (await fetch(`${base}/api/board`)).json()).items;
+    assert.deepEqual(['A1', 'B2'].map((id) => cards.find((i) => i.id === id).ticket), [{ id: 'INT-3', url: null, source: null }, { id: 'OPS-4', url: '#item=t%2FB2', source: 'internal' }]);
+    assert.equal((await (await save({ tickets: { source: 'internal', prefix: 'OPS' } })).json()).id, null);
+    assert.equal((await save({ tickets: { source: 'internal', prefix: 'bad1' } })).status, 400);
+    assert.deepEqual((await settingsEvents()).find((e) => e.tickets), { tickets: { source: 'internal', prefix: 'OPS' } });
   } finally {
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
   }

@@ -814,6 +814,22 @@ const workCard = { kind: 'work', key: 'w/B5', id: 'B5', ref: 'B5', title: 'Five'
   linear: [{ id: 'PROD-1', url: 'https://linear.app/x/PROD-1' }], pr: { ...openPR, isDraft: true }, reviewers: ['Jamie'], review: { Jamie: { state: 'unsent' } },
   questions: null, builder: null, working: false, next: 'Waiting for PR reviewers' };
 
+test('ticket badges use the board source, link internally or externally, and leave asks without a ticket', () => {
+  for (const [source, id, url] of [['internal', 'OPS-9', '#item=w%2FB5'], ['github', '#9', 'https://github.com/o/r/issues/9'], ['linear', 'ENG-9', 'https://linear.app/another/issue/ENG-9']]) {
+    const card = { ...workCard, ticket: { source, id, url } };
+    const html = ui.workLines(card);
+    assert.match(html, new RegExp(`>${id.replace('#', '#')}<`));
+    assert.ok(html.includes(`href="${url}"`));
+    assert.equal(html.includes('target="_blank"', 0) && html.indexOf('target="_blank"') < html.indexOf('</a>'), source !== 'internal');
+    assert.doesNotMatch(html, /PROD-1/);
+    assert.doesNotMatch(ui.workLines({ ...card, kind: 'ask', isNew: false }), new RegExp(`>${id}<`));
+  }
+  assert.match(ui.workLines({ ...workCard, linear: [...workCard.linear, { id: 'PROD-2', url: 'https://linear.app/another/issue/PROD-2' }] }), /PROD-1.*PROD-2/);
+  const foreign = ui.workLines({ ...workCard, ticket: { id: 'INT-4', url: null, source: null } });
+  assert.match(foreign, /<span class="chip tone-quiet"[^>]*>INT-4<\/span>/);
+  assert.doesNotMatch(foreign, /PROD-1|#4/);
+});
+
 test('a work card reads its title, then its next step or builder, its chips led by its unread messages, and last its Blocked by chips', () => {
   assert.deepEqual(lines(ui.workLines(workCard, { unread: 2 })), ['PROD-1 Five', 'Next: Waiting for PR reviewers', '2 new repo#7 ● CI ✓ J ✗']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, next: null, pr: null, reviewers: [] }, { unread: 1 })), ['PROD-1 Five', '1 new']);

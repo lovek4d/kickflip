@@ -10,6 +10,10 @@
   <h2>Repo</h2>
   <button type="button" class="who repo-row" id="boardRepo" aria-haspopup="dialog" disabled><span id="boardRepoValue">Loading…</span><span class="muted small" id="boardRepoChange">Change ›</span></button>
   <p class="muted small" id="boardRepoStatus"></p>
+  <h2>Tickets</h2>
+  <p class="muted small">Every card on this board has a ticket from here. A new card gets a new ticket unless you name one.</p>
+  <form id="ticketsForm" class="tk-section"><div id="boardTickets">Loading…</div><button type="submit" id="ticketsSave" disabled>Save</button></form>
+  <p class="muted small" id="ticketsStatus" role="status"></p>
   <h2>Merging</h2>
   <label class="who" for="autoMerge">
     <span><span>Auto-merge approved PRs</span>
@@ -137,10 +141,13 @@
     B.atUnmount(() => { unfit?.(); closeSheet.close(); });
     const repoURL = `/_hub/board-repo/${encodeURIComponent(B.route)}`;
     let repo = {}, closeRepo = () => {};
+    let tickets, savedTickets, savingTickets = false, ticketsTouched = false;
     const showRepo = () => { $('#boardRepoValue').textContent = repo.github ? `${repo.github} · ${repo.branch || 'Branch not recorded'}` : 'No GitHub repo'; };
     get(repoURL).then(({ body }) => {
       if (!B.alive()) return;
       repo = body;
+      tickets?.render();
+      if (tickets) syncTickets();
       if (repo.hub) {
         $('#boardRepoValue').textContent = 'Kickflip’s own clone';
         $('#boardRepoChange').hidden = true;
@@ -157,11 +164,39 @@
         if (!r.ok) throw new Error(out.error || 'Could not save repo.');
         repo = out;
         if (!B.alive()) return;
+        tickets?.render();
+        if (tickets) syncTickets();
         showRepo();
         $('#boardRepoStatus').textContent = 'Saved. The board’s session has been told.';
       } });
     });
     B.atUnmount(() => closeRepo());
+    B.atUnmount(() => tickets?.destroy());
+    const ticketsForm = $('#ticketsForm');
+    const ticketsSave = $('#ticketsSave');
+    const ticketsStatus = $('#ticketsStatus');
+    function syncTickets() {
+      const dirty = ticketsTouched && JSON.stringify(tickets.read()) !== JSON.stringify(savedTickets);
+      if (dirty) ticketsForm.setAttribute('data-dirty', '');
+      else ticketsForm.removeAttribute('data-dirty');
+      ticketsSave.disabled = savingTickets || !dirty || !tickets.valid();
+    }
+    B.on(ticketsForm, 'submit', async (e) => {
+      e.preventDefault();
+      if (!tickets || ticketsSave.disabled || savingTickets) return;
+      savingTickets = true;
+      const value = tickets.read();
+      syncTickets();
+      try {
+        const r = await fetch(site.url('api/settings'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tickets: value }) });
+        const out = await r.json();
+        if (!r.ok) throw new Error(out.error || 'Could not save tickets.');
+        if (!B.alive()) return;
+        savedTickets = out.settings.tickets;
+        ticketsStatus.textContent = 'Saved.';
+      } catch (e) { if (B.alive()) ticketsStatus.textContent = e.message || 'Could not save. Is the Mac awake?'; }
+      finally { savingTickets = false; if (B.alive()) syncTickets(); }
+    });
     let current = [];
     const add = new Set();
     const remove = new Set();
@@ -214,10 +249,13 @@
     const autoMerge = $('#autoMerge');
     const autoMergeStatus = $('#autoMergeStatus');
     get(site.url('api/settings'), waitIn('#autoMergeStatus')).then(({ body: d }) => {
+      if (!B.alive()) return;
+      savedTickets = d.settings?.tickets || null;
+      tickets = BoardDialogs.ticketsControl($('#boardTickets'), { value: savedTickets || { source: 'internal', prefix: 'INT' }, repo: () => repo.github || '', title: () => ctx.siteTitle || '', change() { ticketsTouched = true; syncTickets(); } });
       autoMergeStatus.textContent = '';
       autoMerge.checked = d.settings?.auto_merge === true;
       autoMerge.disabled = false;
-    }).catch(() => { autoMergeStatus.textContent = 'Offline. Is the Mac awake?'; });
+    }).catch(() => { autoMergeStatus.textContent = ticketsStatus.textContent = 'Offline. Is the Mac awake?'; });
     B.on(autoMerge, 'change', async () => {
       const want = autoMerge.checked;
       if (want && !(await BoardDialogs.confirm('Turn on auto-merge? Claude merges each approved PR on this board once CI is green and it merges cleanly, without asking you.'))) {

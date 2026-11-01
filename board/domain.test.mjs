@@ -671,6 +671,31 @@ test("an internal card's ref reads INT-<n> with no repo, and each card lists whe
   assert.equal(b.ownerTopics.find((t) => t.id === 'item:site/S3').title, 'INT-3: Three');
 });
 
+test('a card badges only a ticket from its board source, keeps another source\'s id unlinked, and links Linear in its workspace', () => {
+  const waves = [
+    { slug: 'w', wave: { internal: true, items: [{ id: 'S3', title: 'Legacy' }, { id: 'INT-14', title: 'Hub card' }, { id: 'C4', title: 'Internal', ticket: 'INT-4' },
+      { id: 'C5', title: 'Issue', ticket: '#5' }, { id: 'C6', title: 'Linear', ticket: 'ENG-6' }], followups: [{ id: 'F7', title: 'Follow', ticket: 'INT-7' }] } },
+    { slug: 'prod', wave: { items: [{ id: 'P1', title: 'Audit', linear: ['PROD-9'] }] } },
+  ];
+  const build = (tickets) => buildBoard({ tickets, github: 'owner/repo', waves, events: [askAt('a1', '2026-10-23T09:00:00Z')] });
+  const badges = (board) => Object.fromEntries(board.items.filter((i) => i.kind !== 'ask').map((i) => [i.id, i.ticket && [i.ticket.id, i.ticket.url]]));
+  const own = (id) => [id, null];
+  const card = (id) => [`#item=${encodeURIComponent(id)}`];
+  assert.deepEqual(badges(build(undefined)), { S3: null, 'INT-14': null, C4: ['INT-4', ...card('w/C4')], C5: own('#5'), C6: own('ENG-6'), F7: ['INT-7', ...card('w/F7')], P1: null });
+  assert.deepEqual(badges(build({ source: 'internal', prefix: 'INT' })),
+    { S3: ['INT-3', ...card('w/S3')], 'INT-14': ['INT-14', ...card('w/INT-14')], C4: ['INT-4', ...card('w/C4')], C5: own('#5'), C6: own('ENG-6'), F7: ['INT-7', ...card('w/F7')], P1: null });
+  const ops = build({ source: 'internal', prefix: 'OPS' });
+  assert.deepEqual(badges(ops), { S3: ['OPS-3', ...card('w/S3')], 'INT-14': null, C4: own('INT-4'), C5: own('#5'), C6: own('ENG-6'), F7: own('INT-7'), P1: null });
+  assert.deepEqual(['S3', 'INT-14'].map((id) => ops.items.find((i) => i.id === id).ref), ['OPS-3', 'INT-14']);
+  assert.deepEqual(badges(build({ source: 'github' })), { S3: null, 'INT-14': null, C4: own('INT-4'), C5: ['#5', 'https://github.com/owner/repo/issues/5'], C6: own('ENG-6'), F7: own('INT-7'), P1: null });
+  const linear = build({ source: 'linear', workspace: 'new-workspace', team: 'ENG', project: 'Audit' });
+  assert.deepEqual(badges(linear), { S3: null, 'INT-14': null, C4: own('INT-4'), C5: own('#5'), C6: ['ENG-6', 'https://linear.app/new-workspace/issue/ENG-6'], F7: own('INT-7'), P1: null });
+  assert.equal(linear.items.find((i) => i.kind === 'ask').ticket, undefined);
+  assert.deepEqual(build({ source: 'github' }).items.find((i) => i.id === 'P1').linear, [{ id: 'PROD-9', url: 'https://linear.app/acme/issue/PROD-9' }]);
+  const legacy = buildBoard({ tickets: { source: 'linear', workspace: 'new-workspace', team: 'PROD', project: 'Audit' }, waves: [{ slug: 'w', wave: { items: [{ id: 'A1', title: 'Old', linear: ['PROD-9', 'PROD-10'] }] } }] });
+  assert.deepEqual(legacy.items[0].linear.map((l) => l.url), ['https://linear.app/new-workspace/issue/PROD-9', 'https://linear.app/new-workspace/issue/PROD-10']);
+});
+
 test('a card lists each unfinished dep it is blocked by, a Done one none; an unstarted one sits in Todo, a started one stays In Progress unless held', () => {
   const items = [
     { id: 'S10', title: 'Ten', status: 'done' },
