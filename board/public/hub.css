@@ -111,3 +111,20 @@
 .hub-view .hub-modal .setting-content > .label:first-child { margin-top: 14px; }
 .hub-view .hub-modal .setting-content > .group:first-child { margin-top: 16px; }
 .hub-view .hub-modal .rules-box { margin-top: 14px; }
+
+.hub-view .u-tone-ok { --u: var(--accent); }
+.hub-view .u-tone-high { --u: var(--color-notice); }
+.hub-view .u-tone-full { --u: var(--color-danger); }
+.hub-view .u-tone-stale, .hub-view .u-tone-none { --u: var(--muted); }
+.hub-view .u-bar { display: block; height: 4px; border-radius: 2px; background: var(--chip); overflow: hidden; }
+.hub-view .u-bar > i { display: block; height: 100%; border-radius: inherit; background: var(--u); }
+.hub-view .u-tone-stale .u-bar, .hub-view .u-tone-none .u-bar { background: repeating-linear-gradient(135deg, var(--chip) 0 4px, color-mix(in srgb, var(--muted) 22%, var(--chip)) 4px 6px); }
+.hub-view .u-num { color: var(--u); font-weight: 600; font-variant-numeric: tabular-nums; }
+.hub-view .u-tone-ok .u-num { color: inherit; font-weight: 400; }
+
+.hub-view .u-block .u-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.hub-view .u-block .u-head .title { font-weight: 600; }
+.hub-view .u-win { display: flex; justify-content: space-between; gap: 8px; margin: 8px 0 5px; font-size: 13px; }
+.hub-view .u-win > :last-child { color: var(--muted); text-align: right; }
+.hub-view .u-block .u-bar { height: 6px; border-radius: 3px; }
+.hub-view .u-asof { color: var(--muted); font-size: 12px; }

@@ -57,6 +57,7 @@ export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code 
   return {
     hub: { tone: sidebar.hub.tone, word: sidebar.hub.word, detail: `${sidebar.hub.detail}${codeLine}` },
     groups,
+    usage: sidebar.usage,
     empty: rows.length === 0,
     polling: { ...pollingNow(st, poll, now), summary: pollingSummary(st.settings) },
     notifications: { on: st.settings.notifications.on, text: sidebar.notifications.text, device: nowLine(st, now) },

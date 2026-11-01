@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const context = vm.createContext({});
-for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-sidebar.js']) {
+for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-sidebar.js', 'ui-hub.js']) {
   vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
 }
 const ui = context.BoardUI;
@@ -1180,4 +1180,35 @@ test('the GitHub mark opens the Hub links sheet, with a red dot while a link is 
   assert.equal(ui.setupCard(null), '');
   const setup = ui.setupCard({ events: false, github: true });
   assert.equal(text(setup), 'Connecting this board Waiting for Claude to answer the hello GitHub checks reach this board');
+});
+
+test('usage stays within the Hub link and its card shows both windows, reset, stale and missing readings', () => {
+  const at = new Date().toISOString();
+  const resets_at = new Date(Date.now() + 3600_000).toISOString();
+  const live = (used_percentage) => ({ used_percentage, resets_at, state: 'live' });
+  const usage = { claude: { at, five_hour: live(75), seven_day: live(90) }, codex: { at, five_hour: live(42), seven_day: null } };
+  const html = ui.sidebar({ usage }, { here: '_hub/' });
+  const hub = /<a class="sb-row on sb-hub-usage"[^>]*>([^]*?)<\/a>/.exec(html)[1];
+  assert.equal((hub.match(/class="u-bar"/g) || []).length, 2);
+  assert.match(text(hub), /Hub Claude 75% · resets .* Codex 42% · resets/);
+  assert.doesNotMatch(hub, /<a|<button|popover|dialog/);
+  const card = context.HubUI.usageCard(usage);
+  assert.match(text(card), /^Usage Claude read .*5-hour 75% · resets .*Week 90% · resets .*Codex read .*No reading/);
+  assert.match(card, /u-tone-high/);
+  assert.match(card, /u-tone-full/);
+  assert.doesNotMatch(card, /Raw readings|<button|<details/);
+  usage.claude.five_hour = { ...live(0), state: 'reset' };
+  assert.match(text(ui.sidebar({ usage })), /Claude · reset /);
+  assert.match(text(context.HubUI.usageCard(usage)), /5-hour Reset /);
+  usage.claude.five_hour = { ...live(95), state: 'stale' };
+  const stale = ui.sidebar({ usage });
+  assert.match(text(stale), /Claude · last seen/);
+  assert.match(stale, /u-tone-stale/);
+  assert.doesNotMatch(stale, /95%/);
+  assert.match(text(context.HubUI.usageCard(usage)), /95% at/);
+  usage.claude = null;
+  assert.doesNotMatch(ui.sidebar({ usage }), /u-name">Claude/);
+  assert.doesNotMatch(context.HubUI.usageCard(usage), /title">Claude/);
+  assert.equal(context.HubUI.usageCard({ claude: null, codex: null }), '');
+  assert.deepEqual([74, 75, 89, 90].map((n) => ui.usageTone(live(n))), ['ok', 'high', 'high', 'full']);
 });

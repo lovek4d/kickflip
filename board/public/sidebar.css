@@ -137,3 +137,21 @@
   .sidebar .sb-scroll { padding-top: max(8px, env(safe-area-inset-top)); padding-bottom: 6px; }
   .sidebar.ks-on .ks-hint { padding-bottom: 10px; }
 }
+
+.sidebar .u-tone-ok { --u: var(--accent); }
+.sidebar .u-tone-high { --u: var(--color-notice); }
+.sidebar .u-tone-full { --u: var(--color-danger); }
+.sidebar .u-tone-stale, .sidebar .u-tone-none { --u: var(--muted); }
+.sidebar .u-bar { display: block; height: 4px; border-radius: 2px; background: var(--chip); overflow: hidden; }
+.sidebar .u-bar > i { display: block; height: 100%; border-radius: inherit; background: var(--u); }
+.sidebar .u-tone-stale .u-bar, .sidebar .u-tone-none .u-bar { background: repeating-linear-gradient(135deg, var(--chip) 0 4px, color-mix(in srgb, var(--muted) 22%, var(--chip)) 4px 6px); }
+.sidebar .u-num { color: var(--u); font-weight: 600; font-variant-numeric: tabular-nums; }
+.sidebar .u-tone-ok .u-num { color: inherit; font-weight: 400; }
+
+.sidebar .sb-row.sb-hub-usage { align-items: flex-start; padding-top: 8px; padding-bottom: 10px; }
+.sidebar .sb-hub-usage > .icon { margin-top: 2px; }
+.sidebar .sb-hub-usage:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.sidebar .sb-usage { display: flex; flex-direction: column; gap: 7px; margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.3; }
+.sidebar .sb-usage .u-one { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sidebar .sb-usage .u-line { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar .sb-usage .u-name { color: var(--text); font-weight: 600; }

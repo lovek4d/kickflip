@@ -35,5 +35,21 @@
     return `<div class="row" id="push">${tile('bell', '#ef4444')}<span class="body"><span class="text"><span class="title">${esc(state.title)}</span>${compact ? '' : `<span class="sub wrap">${esc(state.sub)}</span>`}</span>${compact && state.title === 'This device' ? `<span class="val">${state.sub?.startsWith('On') ? 'On' : 'Off'}</span>` : ''}${button}</span></div>`;
   }
 
-  globalThis.HubUI = { esc, tile, CHEVRON, row, flash, nowRow, deviceRow };
+  function usageCard(data) {
+    if (!data) return '';
+    const { usageProducts, usageNames, usageClock, usageTone, usageBar, usageWords } = BoardUI;
+    const products = usageProducts(data);
+    if (!products.length) return '';
+    const blocks = products.map((p) => {
+      const r = data[p];
+      const asof = !r.at ? 'no reading' : `${r.five_hour?.state === 'stale' ? 'last seen' : 'read'} ${usageClock(r.at)}`;
+      const windows = [['5-hour', 'five_hour'], ['Week', 'seven_day']].map(([label, key]) =>
+        `<div class="u-tone-${usageTone(r[key])}"><div class="u-win"><span>${label}</span><span>${usageWords(r, key)}</span></div>${usageBar(r[key])}</div>`).join('');
+      return `<div class="block u-block"><div class="u-head"><span class="title">${usageNames[p]}</span><span class="u-asof">${esc(asof)}</span></div>${windows}</div>`;
+    }).join('');
+    const source = [data.claude && 'Claude Code’s status line, which every busy session redraws', data.codex && 'Codex’s newest session logs'].filter(Boolean).join(', and ');
+    return `<section class="usage"><h2 class="label" style="margin-top:4px">Usage</h2><div class="group">${blocks}</div><p class="note">From ${source}. A window whose reset time passed reads as reset.</p></section>`;
+  }
+
+  globalThis.HubUI = { esc, tile, CHEVRON, row, flash, nowRow, deviceRow, usageCard };
 })();

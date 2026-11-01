@@ -376,6 +376,37 @@ test("each board serves its hub links, and the slack link passes once every revi
   assert.equal(linkState((await (await fetch(`${base}/orch/api/links`)).json()).links).slack, true);
 });
 
+test('sidebar and Hub page serve usage, the shell keeps it inside Hub, and visibility follows login and share', async () => {
+  const settingsFile = claude('web-ts', 'settings.json');
+  const settings = read(settingsFile);
+  const usageFile = claude('web-ts', 'usage.json');
+  const codexDir = path.join(home, '.codex');
+  const now = Date.now();
+  const at = new Date(now).toISOString();
+  const resets = new Date(now + 3600_000).toISOString();
+  const get = async (url) => (await fetch(base + url)).json();
+  try {
+    assert.deepEqual((await get('/_hub/sidebar.json')).usage, { claude: null, codex: null });
+    write(usageFile, { claude: { at, five_hour: { used_percentage: 42, resets_at: resets } } });
+    const expected = { claude: { at, five_hour: { used_percentage: 42, resets_at: resets, state: 'live' }, seven_day: null }, codex: null };
+    assert.deepEqual((await get('/_hub/sidebar.json')).usage, expected);
+    assert.deepEqual((await get('/_hub/api/hub')).usage, expected);
+    const shell = await (await fetch(base + '/_hub/')).text();
+    assert.match(shell, /<a class="sb-row on sb-hub-usage" href="\/_hub\/"[^>]*>[^]*?<span class="sb-usage">[^]*?Claude[^]*?42%[^]*?<\/a>/);
+    write(path.join(codexDir, 'auth.json'), {});
+    write(settingsFile, { ...settings, codexShare: 'off' });
+    assert.equal((await get('/_hub/sidebar.json')).usage.codex, null);
+    write(settingsFile, { ...settings, codexShare: 'auto' });
+    assert.deepEqual((await get('/_hub/sidebar.json')).usage.codex, { at: null, five_hour: null, seven_day: null });
+    fs.unlinkSync(path.join(codexDir, 'auth.json'));
+    assert.equal((await get('/_hub/sidebar.json')).usage.codex, null);
+  } finally {
+    write(settingsFile, settings);
+    fs.rmSync(usageFile, { force: true });
+    fs.rmSync(codexDir, { recursive: true, force: true });
+  }
+});
+
 test('while the hub runs older code than its files, the Hub row and Health card say so once and no board shows it', async () => {
   const running = read(HUB_CODE);
   assert.equal(running.hash, hubCode().hash);

@@ -16,6 +16,36 @@
   };
   const tile = (key, color) => `<span class="icon sm solid" style="--c:${color}" aria-hidden="true">${svg(ICONS[key])}</span>`;
   const word = (tone, text) => `<span class="dot t-${tone}" aria-hidden="true"></span><span class="word t-${tone}">${esc(text)}</span>`;
+  const usageProducts = (data) => ['claude', 'codex'].filter((p) => data?.[p]);
+  const usageNames = { claude: 'Claude', codex: 'Codex' };
+  function usageClock(iso) {
+    const d = new Date(iso ?? '');
+    if (!Number.isFinite(d.getTime())) return '—';
+    const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s?([AP])M/i, (_, x) => `${x.toLowerCase()}m`);
+    return new Date().toDateString() === d.toDateString() ? time : `${d.toLocaleDateString([], { weekday: 'short' })} ${time}`;
+  }
+  const usageTone = (w) => !w ? 'none' : w.state === 'stale' ? 'stale' : w.used_percentage >= 90 ? 'full' : w.used_percentage >= 75 ? 'high' : 'ok';
+  const usageBar = (w) => `<span class="u-bar" aria-hidden="true"><i style="width:${w?.state === 'stale' ? 0 : Math.max(0, Math.min(100, w?.used_percentage || 0))}%"></i></span>`;
+  function usageWords(reading, key) {
+    const w = reading[key];
+    if (!w) return 'No reading';
+    if (w.state === 'stale') return `${Math.round(w.used_percentage)}% at ${esc(usageClock(reading.at))}`;
+    if (w.state === 'reset') return `Reset ${esc(usageClock(w.resets_at))}`;
+    return `<span class="u-num">${Math.round(w.used_percentage)}%</span> · resets ${esc(usageClock(w.resets_at))}`;
+  }
+  function sidebarUsage(data) {
+    const products = usageProducts(data);
+    return products.length ? `<span class="sb-usage">${products.map((p) => {
+      const r = data[p];
+      const w = r.five_hour;
+      const name = `<span class="u-name">${usageNames[p]}</span>`;
+      const words = !w ? `${name} · no reading yet`
+        : w.state === 'stale' ? `${name} · last seen ${esc(usageClock(r.at))}`
+          : w.state === 'reset' ? `${name} · reset ${esc(usageClock(w.resets_at))}`
+            : `${name} ${usageWords(r, 'five_hour')}`;
+      return `<span class="u-one u-tone-${usageTone(w)}"><span class="u-line">${words}</span>${usageBar(w)}</span>`;
+    }).join('')}</span>` : '';
+  }
   // The utility rows, in the order they show.
   const UTILITY = [
     { href: '/_hub/', title: 'Hub', icon: tile('pulse', '#64748b') },
@@ -48,13 +78,13 @@
 
   // key: the row's switchKeys entry while switch mode shows, else undefined. The tile carries a board's number, or any
   // other row's letter, and the title marks its letter; sidebar.css shows them in place of the glyph under .ks-on.
-  function row({ href, icon, title, sub = '', on = false, cls = '', key }) {
+  function row({ href, icon, title, sub = '', extra = '', on = false, cls = '', key }) {
     const shown = key && (key.board ? key.num : key.letter);
     const tileHtml = shown ? icon.replace(/<\/span>$/, `<span class="ks-key">${esc(shown)}</span></span>`) : icon;
     const chars = [...title];
     const titleHtml = key?.letter ? `${esc(chars.slice(0, key.at).join(''))}<span class="ks-u">${esc(chars[key.at])}</span>${esc(chars.slice(key.at + 1).join(''))}` : esc(title);
     return `<a class="sb-row${on ? ' on' : ''}${cls ? ` ${cls}` : ''}" href="${esc(href)}"${on ? ' aria-current="page"' : ''}>${tileHtml}`
-      + `<span class="sb-text"><span class="sb-title">${titleHtml}</span>${sub ? `<span class="sb-sub">${sub}</span>` : ''}</span></a>`;
+      + `<span class="sb-text"><span class="sb-title">${titleHtml}</span>${sub ? `<span class="sb-sub">${sub}</span>` : ''}${extra}</span></a>`;
   }
 
   // What waits on the owner on every site but `here`: the count on the logo that opens the drawer.
@@ -84,6 +114,7 @@
     const turnOn = device === 'off' ? row({ href: '/_hub/#notifications', icon: tile('bell', '#ef4444'), title: 'Turn on notifications', sub: 'Off on this device', cls: 'sb-turnon' })
       : device === 'install' ? row({ href: '/_hub/#notifications', icon: tile('bell', '#ef4444'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })
       : '';
+    const usage = sidebarUsage(data?.usage);
     const hub = data?.hub;
     const n = data?.notifications || {};
     const lower = (text) => String(text || '').replace(/^\w/, (c) => c.toLowerCase());
@@ -99,12 +130,12 @@
     return header({ lead: 'logo', title: 'Kickflip', level: 2, controls: false, trail: close, logoSrc: '/_hub/kickflip.png',
       leadAttrs: { 'aria-label': 'Hide boards', title: 'Hide boards', 'data-sidebar-close': '' } })
       + `<div class="sb-scroll"><section class="sb-utility" aria-label="Hub"><div class="sb-group">`
-      + UTILITY.map((f) => row({ ...f, on: f.href.replace(/\/$/, '') === selected, sub: subs[f.href], key: keys?.get(f.href) })).join('')
+      + UTILITY.map((f) => row({ ...f, on: f.href.replace(/\/$/, '') === selected, sub: subs[f.href], ...(f.href === '/_hub/' && usage ? { extra: usage, cls: 'sb-hub-usage' } : {}), key: keys?.get(f.href) })).join('')
       + `</div>${turnOn}</section>`
       + (pages.length ? `<section class="sb-pages" aria-label="Pages"><div class="sb-label">Pages</div><div class="sb-group">${pages.map(siteRow).join('')}</div></section>` : '')
       + `<section class="sb-boards" aria-label="Boards"><div class="sb-label">Boards</div><div class="sb-group">${boards.map(siteRow).join('')}${pending}${newBoard}</div></section></div>`
       + (switching ? '<div class="ks-hint" role="status"><b>Switch:</b> press a key · Esc to cancel<i class="ks-bar"></i></div>' : '');
   }
 
-  Object.assign(globalThis.BoardUI ||= {}, { sidebar, othersWaiting, switchKeys, repoLabel });
+  Object.assign(globalThis.BoardUI ||= {}, { sidebar, othersWaiting, switchKeys, repoLabel, usageProducts, usageNames, usageClock, usageTone, usageBar, usageWords });
 })();

@@ -318,17 +318,22 @@ test('the hub page shows each session\'s remembered rules under its board, escap
     PromptAnswers: { wire: () => ({ shows: () => true }) },
     HubKit: { device: () => ({ state: () => null }), forms: () => ({}), live: (B, opts) => { live = opts; } },
   });
-  for (const file of ['ui-hub.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
+  for (const file of ['ui-sidebar.js', 'ui-hub.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
   root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
   context.AppViews.hub.create(root, '/_hub', {});
   const now = t(19);
   const sessions = [{ session: 's-alpha', rules: ['Bash(echo "<img>")', 'Write(//r/a)', 'WebFetch(domain:docs.x.dev)'] }];
   const data = hubView({ now, st: status(now, DEFAULTS), poll: poll(now),
-    sidebar: { sites: [{ route: 'alpha', board: true }, { route: 'beta', board: true }], hub: {}, notifications: {}, total: 0 },
+    sidebar: { sites: [{ route: 'alpha', board: true }, { route: 'beta', board: true }], hub: {}, notifications: {}, total: 0,
+      usage: { claude: { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null }, codex: null } },
     rows: [{ route: 'alpha', title: 'Alpha', state: 'up' }, { route: 'beta', title: 'Beta', state: 'up' }], remembered: new Map([['alpha', sessions]]),
   });
   assert.deepEqual(data.groups[0].sites.map((s) => s.remembered), [sessions, []]);
   live.paint({ ...data, remembered: [{ session: 's-alone', rules: ['WebSearch'] }] });
+  const labels = root.querySelectorAll('.hub-status .label').map((el) => el.textContent);
+  assert.deepEqual(labels.slice(0, 2), ['Usage', 'Health']);
+  assert.match(root.querySelector('.usage').textContent, /Claude.*5-hour.*42%/);
+  assert.equal(root.querySelector('.usage').querySelectorAll('button, details, dialog').length, 0);
   const lists = root.querySelectorAll('.remembered');
   assert.equal(lists.length, 2);
   assert.match(lists[0].textContent, /Always allow · session s-alpha/);

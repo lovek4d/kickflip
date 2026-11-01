@@ -17,6 +17,10 @@
 //                     notifications: {state, text}}, each site's row from its GET /_claude/needs
 //                     (home.mjs; docs/adr/0010-sites-report-what-waits-through-claude-needs.md)
 //                     starting lists pending boards and their clone/start phase (sessions.mjs)
+//                     usage: {claude, codex}, each null when hidden, else {at, five_hour, seven_day}; windows are
+//                     null without a reading, else {used_percentage, resets_at, state: live|reset|stale} (usage.mjs).
+//                     Reset windows read 0%; stale means older than that window. Codex scans cache for 60 seconds.
+//                     /_hub/api/hub carries the same usage field.
 //   /_hub/repos      GET the signed-in owner's and orgs' repos with clone/share metadata
 //   /_hub/repo       GET ?github=owner/repo checks a pasted GitHub repo, including one outside the list;
 //                     returns one repo row with listed: false, or 404 when unreachable (repos.mjs)
@@ -120,6 +124,7 @@ import { boardClosure, closeBoard, closedBoards, reopenBoard } from './close-boa
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { BOARD_PUBLIC, appFile, colorsVersion, destOf, fileVersion, pageOf, shellHtml } from './shell.mjs';
 import { hubStream } from './stream.mjs';
+import { usageReader } from './usage.mjs';
 import { InstallError, startInstall, stopInstalls } from './installs.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -137,6 +142,7 @@ try { const code = recordHubCode(); log(`hub code ${code.hash} (${code.files.len
 try { const route = await migrateHubFlag(); if (route) log(`manifest: flagged /${route} as the hub board`); } catch (e) { log('hub board migration failed:', e.message); }
 try { const routes = await migrateBoardRepos(); if (routes.length) log(`manifest: recorded GitHub repos for ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('board repo migration failed:', e.message); }
 const repos = repoService();
+const readUsage = usageReader();
 
 // ---------- manifest ----------
 let manifest = { version: 1, sites: {} };
@@ -477,6 +483,7 @@ async function sidebarState({ fresh = false } = {}) {
     total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links, hubLink(code)),
     home: fs.realpathSync(os.homedir()),
     starting: startingBoards(manifest, now.getTime()),
+    usage: readUsage({ codexShare: readCodexShare() }),
     notifications: !held ? { state: 'on', text: 'On' } : held.why === 'off' ? { state: 'off', text: 'Off' } : { state: 'held', text: capital(holdLine(held, now)) },
   };
   return { data, links, rows, code };
