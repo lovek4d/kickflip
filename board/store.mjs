@@ -637,6 +637,132 @@ function checkOptions(options, name) {
   if (options.filter((o) => o.recommended).length > 1) fail(`${name} recommends more than one option`);
 }
 
+// A script's tokens with strings, templates and regex literals whole and comments dropped, so a quote inside a
+// regex such as esc's /[&<>"']/g, or an apostrophe in a nested template, cannot shift the tokens after it.
+const BEFORE_REGEX = new Set(['return', 'typeof', 'case', 'do', 'else', 'in', 'of', 'new', 'delete', 'void', 'throw', 'instanceof', 'yield', 'await']);
+const WORD = /[\w$]+|\.\.\./y;
+function jsTokens(code) {
+  const tokens = [];
+  // Inside a template's ${…} (nested), returns the index just past its closing brace and emits nothing.
+  function scan(i, nested) {
+    let depth = 0, prev;
+    const push = (t) => { prev = t; if (!nested) tokens.push(t); };
+    while (i < code.length) {
+      const c = code[i];
+      if (/\s/.test(c)) { i++; continue; }
+      if (code.startsWith('//', i)) { const e = code.indexOf('\n', i); i = e < 0 ? code.length : e; continue; }
+      if (code.startsWith('/*', i)) { const e = code.indexOf('*/', i + 2); i = e < 0 ? code.length : e + 2; continue; }
+      let j = i + 1;
+      if (c === '"' || c === "'") {
+        while (j < code.length && code[j] !== c && code[j] !== '\n') j += code[j] === '\\' ? 2 : 1;
+        push(code.slice(i, ++j));
+      } else if (c === '`') {
+        while (j < code.length && code[j] !== '`') j = code[j] === '\\' ? j + 2 : code.startsWith('${', j) ? scan(j + 2, true) : j + 1;
+        push(code.slice(i, ++j));
+      } else if (c === '/' && (prev === undefined || BEFORE_REGEX.has(prev) || !/^[\w$)\]}"'`]/.test(prev))) {
+        for (let inClass = false; j < code.length && code[j] !== '\n' && (inClass || code[j] !== '/'); j++) {
+          if (code[j] === '\\') j++;
+          else if (code[j] === '[') inClass = true;
+          else if (code[j] === ']') inClass = false;
+        }
+        for (j++; /[a-z]/i.test(code[j] || ''); j++);
+        push(code.slice(i, j));
+      } else {
+        WORD.lastIndex = i;
+        const word = WORD.exec(code);
+        if (word) j = i + word[0].length;
+        else if (nested && c === '{') depth++;
+        else if (nested && c === '}' && depth-- === 0) return j;
+        push(code.slice(i, j));
+      }
+      i = j;
+    }
+    return i;
+  }
+  scan(0, false);
+  return tokens;
+}
+
+// Read take keys without running prototype code.
+function prototypeTakes(source, field) {
+  const scripts = [...source.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)];
+  const loadsSwitcher = scripts.some((s) => {
+    const src = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(s[1]);
+    return src && /(?:^|\/)prototype-switcher\.js(?:[?#]|$)/.test(src[1] ?? src[2] ?? src[3]);
+  });
+  const tokens = scripts.flatMap((s) => jsTokens(s[2]));
+  const mount = tokens.findIndex((t, i) => t === 'PrototypeSwitcher' && tokens[i + 1] === '.' && tokens[i + 2] === 'mount' && tokens[i + 3] === '(');
+  if (!loadsSwitcher || mount < 0) fail(`${field} page must load prototype-switcher.js and call PrototypeSwitcher.mount`);
+  const literal = () => fail(`${field} takes must be an object literal passed to PrototypeSwitcher.mount, inline or as one const`);
+  const close = { '{': '}', '[': ']', '(': ')' };
+  // Skip a value (or an options member) up to its next top-level comma or closing brace.
+  const endOfValue = (start) => {
+    const stack = [];
+    for (let i = start; i < tokens.length; i++) {
+      const t = tokens[i];
+      if (!stack.length && (t === ',' || t === '}')) return i;
+      if (Object.hasOwn(close, t)) stack.push(close[t]);
+      else if (['}', ']', ')'].includes(t) && stack.pop() !== t) literal();
+    }
+    literal();
+  };
+  // The keys of the object literal opening at tokens[at], and the index of its closing brace.
+  const objectKeys = (at) => {
+    at++;
+    const keys = new Set();
+    while (tokens[at] !== '}') {
+      const key = tokens[at];
+      if (!key || !/^(?:[\w$]+|"[^"\\]*"|'[^'\\]*')$/.test(key) || tokens[at + 1] !== ':') literal();
+      keys.add(/^['"]/.test(key) ? key.slice(1, -1) : key);
+      const end = endOfValue(at + 2);
+      if (end === at + 2) literal();
+      at = tokens[end] === ',' ? end + 1 : end;
+    }
+    return { keys, end: at };
+  };
+  const isTakes = (i) => ['takes', '"takes"', "'takes'"].includes(tokens[i]) && tokens[i + 1] === ':' || tokens[i] === 'takes' && [',', '}'].includes(tokens[i + 1]);
+  if (tokens[mount + 4] !== '{') literal();
+  let at = mount + 5;
+  while (!isTakes(at)) {
+    if (tokens[at] === '}' || at >= tokens.length) literal();
+    at = endOfValue(at);
+    if (tokens[at] !== ',') literal();
+    at++;
+  }
+  const value = tokens[at + 1] === ':' ? at + 2 : at;
+  if (tokens[value] === '{') {
+    const { keys, end } = objectKeys(value);
+    if (![',', '}'].includes(tokens[end + 1])) literal();
+    return keys;
+  }
+  // `takes: TAKES` or `{ takes }` names one `const` holding a plain object literal.
+  const name = tokens[value];
+  if (!/^[A-Za-z_$][\w$]*$/.test(name) || ![',', '}'].includes(tokens[value + 1])) literal();
+  const declared = tokens.flatMap((t, i) => (t === 'const' && tokens[i + 1] === name && tokens[i + 2] === '=' ? [i + 3] : []));
+  if (declared.length !== 1 || tokens[declared[0]] !== '{') literal();
+  const { keys, end } = objectKeys(declared[0]);
+  const next = tokens[end + 1];
+  if (next !== undefined && next !== ';' && next !== '}' && !/^[A-Za-z_$]/.test(next)) literal();
+  return keys;
+}
+
+async function checkPrototype(site, q, name) {
+  const page = q.url?.split(/[?#]/)[0];
+  if (!page || !path.posix.basename(page).startsWith('prototype-')) return;
+  // Absolute URLs still name a prototype in this site's public folder; local URLs are relative to it.
+  const file = /^https?:\/\//.test(page) ? path.posix.basename(page) : page;
+  const query = q.url.split('#')[0].split('?').slice(1).join('?');
+  const field = `${name}.url`;
+  if (new URLSearchParams(query).get('q') !== q.id) fail(`${field} must be ${file}?q=${q.id} so the pill can pick`);
+  let source;
+  try { source = await fs.readFile(path.join(site, 'public', file), 'utf8'); }
+  catch { fail(`${field} file must exist in the site's public/: ${file}`); }
+  const keys = prototypeTakes(source, field);
+  for (const option of q.options) {
+    if (!keys.has(option.id)) fail(`${name}.options id "${option.id}" must be a take key in ${file}'s takes object`);
+  }
+}
+
 // A question file holds one question or an array of them; all are checked before any is added.
 export async function addQuestions(site, input) {
   needSite(site);
@@ -660,6 +786,7 @@ export async function addQuestions(site, input) {
     optional(q.url, (v) => pageUrl(v, `${name}.url`));
     optional(q.urgent, (v) => bool(v, `${name}.urgent`));
     checkOptions(q.options, name);
+    await checkPrototype(site, q, name);
   }
   await writeJSON(ownerFile(site), { ...owner, topics: owner.topics || [], items: [...items, ...questions] });
   return ownerFile(site);
