@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startFakeDevice } from '../hub/fake-device.mjs';
+import { freePorts } from '../shared/test-helpers.mjs';
 import http from 'node:http';
 
 const bin = (name) => path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', name);
@@ -540,7 +541,7 @@ test('builder start --worktree makes a worktree on a new branch from main, keeps
   assert.equal(board('builder', 'start', 'w/A1', '--repo', repo).code, 2);
 });
 
-test('builder start stores the installed link for the kickflip fallback repo', async () => {
+test('builder start stores the installed link for the kickflip fallback repo, which the hub board uses even with a GitHub repo set', async () => {
   const clone = scratchRepo();
   const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   for (const dir of ['bin', 'board', 'hub', 'shared', 'hooks-plugin']) fs.cpSync(path.join(source, dir), path.join(clone, dir), { recursive: true, filter: (file) => !file.endsWith('.test.mjs') });
@@ -548,10 +549,30 @@ test('builder start stores the installed link for the kickflip fallback repo', a
   git(clone, 'commit', '--quiet', '-m', 'kickflip fixture');
   const { installLinks } = await import('../bin/install.mjs');
   const [{ link }] = installLinks({ home, cloneRoot: clone });
-  const result = spawnSync(process.execPath, [path.join(link, 'board', 'bin', 'board.mjs'), 'builder', 'start', 'w/A1', '--worktree'], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
+  const [hubPort] = await freePorts();
+  const start = (...args) => spawnSync(process.execPath, [path.join(link, 'board', 'bin', 'board.mjs'), ...args, 'builder', 'start', 'w/A1', '--worktree'], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: String(hubPort) }, encoding: 'utf8' });
+  const result = start();
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo: link });
   assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(clone, 'rev-parse', 'main'));
+
+  git(clone, 'worktree', 'remove', worktree());
+  git(clone, 'branch', '--quiet', '-D', 'A1');
+  const project = path.join(home, 'project');
+  fs.mkdirSync(project);
+  git(project, 'init', '--quiet', '-b', 'main');
+  git(project, 'config', 'user.name', 'Test');
+  git(project, 'config', 'user.email', 'test@example.com');
+  commit(project, 'project.txt', 'project');
+  git(project, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+  const manifest = read(at('web-ts', 'manifest.json'));
+  Object.assign(manifest.sites.orch, { hub: true, github: 'owner/project', branch: 'main', owner: { repo: project } });
+  write(at('web-ts', 'manifest.json'), manifest);
+  const hub = start('--site', 'orch');
+  assert.equal(hub.status, 0, hub.stderr);
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo: link });
+  assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(clone, 'rev-parse', 'main'));
+  assert.deepEqual(branches(project), ['main']);
 });
 
 test('a board builder uses its shared clone and selected remote branch without changing the clone checkout', () => {

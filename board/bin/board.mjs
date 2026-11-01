@@ -7,7 +7,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as store from '../store.mjs';
 import { makeWorktree, land, skillRepo, worktreesDir } from '../worktree.mjs';
 import { ITEM_STATUSES } from '../domain.mjs';
-import { boardAt } from '../../hub/boards.mjs';
+import { boardAt, readManifest } from '../../hub/boards.mjs';
+import { boardRepo } from '../../hub/board-repo.mjs';
 import { pushKindError } from '../../hub/push.mjs';
 
 export const USAGE = `usage: node board.mjs <command> [--site <route>] ...
@@ -301,10 +302,12 @@ const COMMANDS = {
   'settings set': [['name', 'on|off'], [], (site, [name, value]) => store.setBoardSetting(site, name, value)],
   'builder start': [['wave/id'], ['label', 'progress', 'dir', 'agent', 'kind', 'eta', 'worktree', 'repo'], (site, [key], { worktree, repo, ...f }) => {
     if (repo !== undefined && !worktree) throw new UsageError('--repo goes with --worktree');
-    const board = site ? boardAt(site) : null;
-    const source = repo ?? (board?.github ? board.owner?.repo : undefined);
-    const remote = Boolean(board?.github);
-    const base = remote ? board.branch || 'main' : 'main';
+    const manifest = readManifest();
+    const board = site ? boardAt(site, manifest) : null;
+    const chosen = board ? boardRepo(board.route, manifest) : {};
+    const remote = Boolean(chosen.github);
+    const source = repo ?? (remote ? chosen.repo || undefined : undefined);
+    const base = remote ? chosen.branch || 'main' : 'main';
     return store.startBuilder(site, key, { ...f, worktree: worktree && (() => makeWorktree(key.split('/')[1], { repo: source, base, remote })) });
   }],
   'builder progress': [['wave/id', '...text?'], ['text', 'dir', 'agent', 'eta', 'clear-eta'], (site, [key, ...words], f) => {
