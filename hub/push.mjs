@@ -6,10 +6,10 @@
 // The queue goes out through flushQueue() after each GitHub check on the polling interval (schedule.mjs) and at the end
 // of each monitor tick (`board.mjs checked`), each push as its own notification
 // (docs/adr/0030-pushes-go-by-kind-and-each-arrives-on-its-own.md).
-// State lives in ~/.claude/web-ts/push: vapid.json (the signing key),
+// State lives in ~/.claude/kickflip/push: vapid.json (the signing key),
 // subs.json (one entry per phone or browser that enabled notifications, with
 // the hub origin it subscribed from and its user agent) and queue.json (pushes waiting to go). The polling interval's
-// settings are `polling` in ~/.claude/web-ts/settings.json, with `notifications` beside it.
+// settings are `polling` in ~/.claude/kickflip/settings.json, with `notifications` beside it.
 // A subscription the push service reports gone (404 or 410) is dropped.
 // Payload encryption is RFC 8291 (aes128gcm); the Authorization header is RFC 8292 (VAPID).
 import crypto from 'node:crypto';
@@ -19,12 +19,12 @@ import os from 'node:os';
 import { validate, pollingOf, flushAt, hold, windowAt, notifications, snoozeEnd } from './schedule.mjs';
 import { presence } from './presence.mjs';
 
-const DIR = path.join(os.homedir(), '.claude', 'web-ts', 'push');
+const DIR = path.join(os.homedir(), '.claude', 'kickflip', 'push');
 const VAPID = path.join(DIR, 'vapid.json');
 const SUBS = path.join(DIR, 'subs.json');
 const QUEUE = path.join(DIR, 'queue.json');
 const QUEUE_LOCK = QUEUE + '.lock';
-const SETTINGS = path.join(os.homedir(), '.claude', 'web-ts', 'settings.json');
+const SETTINGS = path.join(os.homedir(), '.claude', 'kickflip', 'settings.json');
 
 const b64u = (buf) => Buffer.from(buf).toString('base64url');
 const unb64u = (s) => Buffer.from(s, 'base64url');
@@ -100,7 +100,7 @@ function encrypt(sub, payload) {
 function authorization(sub) {
   const jwk = vapidKey();
   const head = b64u(JSON.stringify({ typ: 'JWT', alg: 'ES256' }));
-  const claims = b64u(JSON.stringify({ aud: new URL(sub.endpoint).origin, exp: Math.floor(Date.now() / 1000) + 12 * 3600, sub: sub.origin || 'mailto:web-ts@localhost' }));
+  const claims = b64u(JSON.stringify({ aud: new URL(sub.endpoint).origin, exp: Math.floor(Date.now() / 1000) + 12 * 3600, sub: sub.origin || 'mailto:kickflip@localhost' }));
   const sig = crypto.sign('sha256', Buffer.from(`${head}.${claims}`), { key: crypto.createPrivateKey({ key: jwk, format: 'jwk' }), dsaEncoding: 'ieee-p1363' });
   return `vapid t=${head}.${claims}.${b64u(sig)}, k=${publicKey()}`;
 }
@@ -108,7 +108,7 @@ function authorization(sub) {
 // The Home Screen badge count from the hub's /_hub/needs.json, or undefined when the hub doesn't answer.
 async function badgeTotal() {
   try {
-    const r = await fetch(`http://127.0.0.1:${Number(process.env.WEB_TS_HUB_PORT || 4500)}/_hub/needs.json?fresh=1`, { signal: AbortSignal.timeout(4000) });
+    const r = await fetch(`http://127.0.0.1:${Number(process.env.KICKFLIP_HUB_PORT || 4500)}/_hub/needs.json?fresh=1`, { signal: AbortSignal.timeout(4000) });
     const { total } = await r.json();
     return Number.isInteger(total) ? total : undefined;
   } catch { return undefined; }
@@ -141,7 +141,7 @@ async function sendTo(subs, message) {
 const delivered = (results) => results.some((r) => r.status >= 200 && r.status < 300);
 
 // ---------- polling interval ----------
-// The whole of ~/.claude/web-ts/settings.json, or {} when it is missing or unreadable.
+// The whole of ~/.claude/kickflip/settings.json, or {} when it is missing or unreadable.
 export function readSettingsFile() {
   try { return JSON.parse(fs.readFileSync(SETTINGS, 'utf8')); } catch { return {}; }
 }

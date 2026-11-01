@@ -1,7 +1,7 @@
 // Pending prompts: a permission prompt or an AskUserQuestion from a background board session, which its
 // PermissionRequest hook (permission-hook.mjs) hands to the hub and the owner answers in that board's Needs you
 // (docs/adr/0060-background-sessions-prompts-come-to-the-phone.md). The hub and ownership commands write
-// ~/.claude/web-ts/prompts.json {prompts: {<id>: record}, remembered: {<session>: {route, ownerSince, runtime, rules}}};
+// ~/.claude/kickflip/prompts.json {prompts: {<id>: record}, remembered: {<session>: {route, ownerSince, runtime, rules}}};
 // a board server reads its own route's pending prompts from it.
 // A record: {id, session, route (null when no board's owner is that session), title (the board's, else the cwd),
 // cwd, tool, action, detail, rule, questions, at, deadline, seen, answer: null | {choice, answers?, message?, at}}.
@@ -13,7 +13,7 @@ import crypto from 'node:crypto';
 import { withFileLock } from './locks.mjs';
 import { routeRecord } from './routes.mjs';
 
-const PROMPTS = path.join(os.homedir(), '.claude', 'web-ts', 'prompts.json');
+const PROMPTS = path.join(os.homedir(), '.claude', 'kickflip', 'prompts.json');
 // How long the owner has to answer before the hook denies with a note. BG_SETTINGS's hook timeout must stay above it,
 // since Claude Code leaves a timed-out hook's session on a dialog nobody sees.
 export const WAIT_MS = 10 * 60_000;

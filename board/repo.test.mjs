@@ -10,7 +10,7 @@ test('hub polling, server PR fetches and cards follow manifest repo changes and 
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'board-repo-')));
   const site = path.join(home, 'site');
   const bin = path.join(home, 'bin');
-  const manifestFile = path.join(home, '.claude/web-ts/manifest.json');
+  const manifestFile = path.join(home, '.claude/kickflip/manifest.json');
   const log = path.join(home, 'gh.jsonl');
   fs.mkdirSync(site);
   fs.mkdirSync(bin);

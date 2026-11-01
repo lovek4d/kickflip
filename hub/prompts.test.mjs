@@ -21,7 +21,7 @@ const freePort = () => new Promise((resolve, reject) => { const s = http.createS
 function runHook(input, port, preload) {
   return new Promise((resolve) => {
     const t = Date.now();
-    const child = spawn(process.execPath, [...(preload ? ['--import', `data:text/javascript,${encodeURIComponent(preload)}`] : []), HOOK], { env: { ...process.env, WEB_TS_HUB_PORT: String(port) } });
+    const child = spawn(process.execPath, [...(preload ? ['--import', `data:text/javascript,${encodeURIComponent(preload)}`] : []), HOOK], { env: { ...process.env, KICKFLIP_HUB_PORT: String(port) } });
     let out = '';
     child.stdout.on('data', (d) => { out += d; });
     child.on('close', (status) => resolve({ status, out: out ? JSON.parse(out) : null, ms: Date.now() - t }));
@@ -161,13 +161,13 @@ test('an owner change away and back while the hub is down invalidates remembered
 });
 
 test('join clears boardless rules and prompts for both owners while the hub is stopped, even after a takeover back', () => {
-  const web = (...parts) => path.join(home, '.claude', 'web-ts', ...parts);
+  const web = (...parts) => path.join(home, '.claude', 'kickflip', ...parts);
   const dir = web('sites', 'shop');
   const join = (session) => {
-    execFileSync(process.execPath, [path.join(HUB_DIR, '..', 'bin', 'web-ts.mjs'), 'join', 'shop',
+    execFileSync(process.execPath, [path.join(HUB_DIR, '..', 'bin', 'kickflip.mjs'), 'join', 'shop',
       '--session', session, '--force', '--dir', dir, '--port', '4600',
       '--cmd', JSON.stringify([process.execPath, path.join(HUB_DIR, '..', 'board', 'server.mjs'), dir])],
-    { env: { ...process.env, WEB_TS_HUB_PORT: '1' }, stdio: 'pipe' });
+    { env: { ...process.env, KICKFLIP_HUB_PORT: '1' }, stdio: 'pipe' });
   };
   for (const returns of [false, true]) {
     write(web('manifest.json'), { version: 1, sites: {} });
@@ -196,7 +196,7 @@ test('join clears boardless rules and prompts for both owners while the hub is s
 });
 
 test('ownership writes clear both sessions across routes and boardless prompts, while a same-owner rejoin keeps them', async () => {
-  const web = (...parts) => path.join(home, '.claude', 'web-ts', ...parts);
+  const web = (...parts) => path.join(home, '.claude', 'kickflip', ...parts);
   const store = { prompts: {}, remembered: {} };
   for (const session of ['old', 'new', 'unrelated']) {
     store.remembered[session] = { route: null, runtime: live, rules: [{ toolName: 'Bash', ruleContent: 'npm test' }] };
@@ -225,7 +225,7 @@ test('ownership writes clear both sessions across routes and boardless prompts, 
 });
 
 test('hub prompt mutations and ownership writes share a lock and cannot restore cleared rules or pending prompts', async () => {
-  const web = (...parts) => path.join(home, '.claude', 'web-ts', ...parts);
+  const web = (...parts) => path.join(home, '.claude', 'kickflip', ...parts);
   write(web('manifest.json'), { sites: { shop: { owner: board.owner } } });
   savePrompts({ prompts: {}, remembered: {} });
   let entered;
@@ -374,7 +374,7 @@ let hub;
 let port;
 let base;
 function startHub() {
-  hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: String(port), WEB_TS_CLAUDE: '/usr/bin/false' } });
+  hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false' } });
   return new Promise((resolve, reject) => {
     let out = '';
     hub.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) resolve(); });
@@ -399,7 +399,7 @@ const answer = (id, body) => fetch(`${base}/_hub/prompts/${id}/answer`, { method
 test("a session that owns no board waits on the hub page by its folder and counts in the badge; a question needs a pick on each, and its answer still reaches the hook after the hub restarts", async () => {
   port = await freePort();
   base = `http://127.0.0.1:${port}`;
-  write(path.join(home, '.claude', 'web-ts', 'manifest.json'), { version: 1, sites: {} });
+  write(path.join(home, '.claude', 'kickflip', 'manifest.json'), { version: 1, sites: {} });
   await startHub();
   const total = async () => (await (await fetch(`${base}/_hub/needs.json`)).json()).total;
   const two = { ...question, session_id: 's-nobody', cwd: path.join(home, 'work'), tool_input: { questions: [...question.tool_input.questions, { question: 'Size?', header: '', multiSelect: false, options: [{ label: 'S', description: '' }] }] } };
@@ -426,7 +426,7 @@ test('a remembered match bypasses prompts and push, survives a hub restart, and 
   await stopHub();
   port = await freePort();
   base = `http://127.0.0.1:${port}`;
-  const web = (...parts) => path.join(home, '.claude', 'web-ts', ...parts);
+  const web = (...parts) => path.join(home, '.claude', 'kickflip', ...parts);
   const dir = web('sites', 'shop');
   const manifestFile = web('manifest.json');
   const manifest = { version: 1, sites: { shop: { title: 'Shop', dir, port: await freePort(),

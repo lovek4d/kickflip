@@ -17,19 +17,19 @@ const owner = ({ locked = false, idleSeconds }) => {
 };
 const atTheMac = () => owner({ idleSeconds: 20 });
 const away = () => owner({ idleSeconds: 3600 });
-const pushFile = (name) => path.join(home, '.claude', 'web-ts', 'push', name);
+const pushFile = (name) => path.join(home, '.claude', 'kickflip', 'push', name);
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value)); };
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const seen = () => device.received.map(({ title, body, url, tag }) => ({ title, body, url, tag }));
 const NOON = 'new Date(2026, 9, 14, 12)';
 const NIGHT = 'new Date(2026, 9, 14, 23)';
 const SATURDAY = 'new Date(2026, 9, 17, 12)';
-const settingsFile = () => path.join(home, '.claude', 'web-ts', 'settings.json');
+const settingsFile = () => path.join(home, '.claude', 'kickflip', 'settings.json');
 
 function inChild(code) {
   const script = `const push = await import(${JSON.stringify(PUSH)}); const out = await (async () => { ${code} })(); console.log(JSON.stringify(out ?? null));`;
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: String(device.port), PATH: `${bin}:${process.env.PATH}` } });
+    const child = spawn(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(device.port), PATH: `${bin}:${process.env.PATH}` } });
     let out = '';
     let err = '';
     child.stdout.on('data', (d) => { out += d; });

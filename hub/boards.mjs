@@ -22,7 +22,7 @@ import { storedPath } from '../bin/install.mjs';
 
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLAUDE = path.join(os.homedir(), '.claude');
-const WEB = path.join(CLAUDE, 'web-ts');
+const WEB = path.join(CLAUDE, 'kickflip');
 const WAVES = path.join(CLAUDE, 'waves');
 const MANIFEST = path.join(WEB, 'manifest.json');
 export const GITHUB_STATE = path.join(WEB, 'github-state.json');
@@ -49,7 +49,7 @@ export function saveJSON(file, value) {
 }
 export const readManifest = () => readJSON(MANIFEST, { sites: {} });
 
-// Runs fn while holding the manifest's lock, the directory manifest.json.lock that bin/web-ts.mjs takes too. A lock
+// Runs fn while holding the manifest's lock, the directory manifest.json.lock that bin/kickflip.mjs takes too. A lock
 // older than 30 seconds is a dead holder's and is taken over. Throws with code 'ELOCKED' after 10 seconds.
 export const withManifestLock = (fn) => withFileLock(MANIFEST, fn);
 
@@ -128,7 +128,7 @@ export function listBoards(manifest = readManifest()) {
   return Object.entries(manifest?.sites || {}).filter(([, s]) => isBoardSite(s)).map(([route, s]) => boardOf(route, s));
 }
 
-// The board whose manifest entry has `hub: true`, which bin/web-ts.mjs `set --hub` and `join --hub` keep on at most one
+// The board whose manifest entry has `hub: true`, which bin/kickflip.mjs `set --hub` and `join --hub` keep on at most one
 // site (docs/adr/0068-the-hub-session-is-a-dev-time-role.md). → a board, or undefined when no board has it
 export function hubBoard(manifest = readManifest()) {
   const found = Object.entries(manifest?.sites || {}).find(([, s]) => s?.hub === true && isBoardSite(s));
@@ -153,9 +153,15 @@ export function migrateHubFlag() {
   });
 }
 
+// Saved site folders can name ~/.claude/web-ts, a link to ~/.claude/kickflip (docs/adr/0084-kickflip-is-the-only-name.md).
+export function samePath(a, b) {
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+  return path.resolve(a) === path.resolve(b) || real(a) === real(b);
+}
+
 // The board served from `dir`, for its own server; null when the manifest has no board there.
 export function boardAt(dir, manifest = readManifest()) {
-  const found = Object.entries(manifest?.sites || {}).find(([, s]) => isBoardSite(s) && path.resolve(s.dir) === path.resolve(dir));
+  const found = Object.entries(manifest?.sites || {}).find(([, s]) => isBoardSite(s) && samePath(s.dir, dir));
   return found ? boardOf(...found) : null;
 }
 
@@ -267,7 +273,7 @@ export function oldestUnheard(board) {
 }
 
 // One push per board per outage when an event has waited DEAF_AFTER while the board is deaf (listenState); an asleep
-// board waits for the hub's wake, which pushes on its own when it fails. Its listening again ends the outage (~/.claude/web-ts/deaf-state.json {<route>: {at, since}}). The hub runs it after each
+// board waits for the hub's wake, which pushes on its own when it fails. Its listening again ends the outage (~/.claude/kickflip/deaf-state.json {<route>: {at, since}}). The hub runs it after each
 // GitHub check. → {pushed: [route], failed: [message]}
 export async function checkListening({ manifest, now = new Date(), running = liveSessions() } = {}) {
   const state = Object.assign(Object.create(null), readJSON(DEAF_STATE, {}));
@@ -405,7 +411,7 @@ export function recordHubCode() {
   return code;
 }
 
-const RESTART_HUB = 'launchctl kickstart -k gui/$(id -u)/local.claude.web-ts-hub';
+const RESTART_HUB = 'launchctl kickstart -k gui/$(id -u)/local.claude.kickflip-hub';
 export const hubCodeState = () => ({ running: readJSON(HUB_CODE, null)?.hash, onDisk: hubCode().hash });
 // The hub's own link, so linksOf leaves it out (docs/adr/0064-every-builder-works-in-a-worktree.md).
 // → {link: 'hub', ok, detail}
@@ -434,7 +440,7 @@ function everyFor(since, now, settings) {
 }
 
 // Adds state ('ok' | 'settling' | 'broken') and, for a fault, since: when it was first seen, from faults
-// ({<link>: ISO time}), or ~/.claude/web-ts/link-faults.json {<route>: {<link>: ISO time}} when faults is undefined,
+// ({<link>: ISO time}), or ~/.claude/kickflip/link-faults.json {<route>: {<link>: ISO time}} when faults is undefined,
 // which this then updates.
 function settle(route, links, { settings, now, faults }) {
   const stored = faults === undefined;

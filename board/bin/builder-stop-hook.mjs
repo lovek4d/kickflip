@@ -73,6 +73,7 @@ async function main() {
   if (typeof transcript !== 'string' || !transcript) throw new Error('no agent_transcript_path on stdin');
   const starts = startsInTranscript(fs.readFileSync(transcript, 'utf8'));
   if (!starts.length) return;
+  (await import('../../bin/install.mjs')).migrateOnStart();
   const store = await import('../store.mjs');
   for (const s of starts) {
     try {

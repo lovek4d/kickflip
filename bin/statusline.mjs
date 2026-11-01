@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { migrateOnStart } from './install.mjs';
 
 process.stdout.on('error', () => {});
 
@@ -51,7 +52,7 @@ function windowOf(window) {
 function saveUsage(input) {
   const limits = input.rate_limits;
   if (!limits || typeof limits !== 'object' || Array.isArray(limits)) return;
-  const file = path.join(os.homedir(), '.claude', 'web-ts', 'usage.json');
+  const file = path.join(os.homedir(), '.claude', 'kickflip', 'usage.json');
   let previous = {};
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -85,7 +86,7 @@ try {
       .filter(([, value]) => value != null).map(([name, value]) => `${name} ${value}%`).join(' · ');
     const line = [shortDir(cwd), branchOf(cwd), model, ctx == null ? '' : `${ctx}% ctx`, usage].filter(Boolean).join('  ');
     // Wait for stdout to flush before doing filesystem work; errors stay off both streams.
-    process.stdout.write(line + '\n', () => { try { saveUsage(input); } catch {} });
+    process.stdout.write(line + '\n', () => { try { migrateOnStart(); saveUsage(input); } catch {} });
   }
 } catch { /* Invalid input and every other error leave the status line alone. */ }
 process.exitCode = 0;

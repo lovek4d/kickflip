@@ -13,9 +13,9 @@ import { hubCode, listBoards } from '../hub/boards.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { storedPath } from '../bin/install.mjs';
 
-const WEB_TS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'web-ts.mjs');
+const KICKFLIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'kickflip.mjs');
 export const skillRepo = cloneRoot;
-export const worktreesDir = () => path.join(os.homedir(), '.claude', 'web-ts', 'worktrees');
+export const worktreesDir = () => path.join(os.homedir(), '.claude', 'kickflip', 'worktrees');
 const fail = (msg) => { throw new BoardError(msg); };
 
 function git(cwd, ...args) {
@@ -67,7 +67,7 @@ export function nodeTests(dir) {
   const result = { ok: r.status === 0, pass: count('pass'), fail: count('fail') };
   if (!result.ok) {
     const output = (r.stdout || '') + (r.stderr || '') + (r.error ? `\n${r.error.message}\n` : '');
-    const logs = path.join(os.homedir(), '.claude', 'web-ts', 'logs');
+    const logs = path.join(os.homedir(), '.claude', 'kickflip', 'logs');
     try {
       fs.mkdirSync(logs, { recursive: true });
       const log = path.join(logs, `land-${randomUUID()}.tap`);
@@ -120,16 +120,16 @@ function tapFailures(tap) {
   return failures;
 }
 
-// Restarts the hub ('hub') or one board server ('board', route). WEB_TS_RESTART_CMD='["<cmd>", …]' replaces both,
+// Restarts the hub ('hub') or one board server ('board', route). KICKFLIP_RESTART_CMD='["<cmd>", …]' replaces both,
 // with what to restart appended, so a test never reaches launchd or a real board.
 export function restartRunner(what, route) {
   let cmd;
-  if (process.env.WEB_TS_RESTART_CMD) {
-    try { cmd = JSON.parse(process.env.WEB_TS_RESTART_CMD); } catch {}
-    if (!Array.isArray(cmd) || !cmd.length || !cmd.every((a) => typeof a === 'string')) fail('WEB_TS_RESTART_CMD must be a JSON array of strings');
+  if (process.env.KICKFLIP_RESTART_CMD) {
+    try { cmd = JSON.parse(process.env.KICKFLIP_RESTART_CMD); } catch {}
+    if (!Array.isArray(cmd) || !cmd.length || !cmd.every((a) => typeof a === 'string')) fail('KICKFLIP_RESTART_CMD must be a JSON array of strings');
     cmd = [...cmd, what, ...(route ? [route] : [])];
   } else {
-    cmd = what === 'hub' ? ['launchctl', 'kickstart', '-k', `gui/${process.getuid()}/local.claude.web-ts-hub`] : [process.execPath, WEB_TS, 'restart', route];
+    cmd = what === 'hub' ? ['launchctl', 'kickstart', '-k', `gui/${process.getuid()}/local.claude.kickflip-hub`] : [process.execPath, KICKFLIP, 'restart', route];
   }
   const r = spawnSync(cmd[0], cmd.slice(1), { encoding: 'utf8' });
   return r.status === 0 ? null : (r.stderr || r.error?.message || `exit ${r.status}`).trim().split('\n')[0];

@@ -10,10 +10,11 @@ import { ITEM_STATUSES } from '../domain.mjs';
 import { boardAt, readManifest } from '../../hub/boards.mjs';
 import { boardRepo } from '../../hub/board-repo.mjs';
 import { pushKindError } from '../../hub/push.mjs';
+import { migrateOnStart } from '../../bin/install.mjs';
 
 export const USAGE = `usage: node board.mjs <command> [--site <route>] ...
 
-Writes a web-ts board's data files. --site <route> picks ~/.claude/web-ts/sites/<route>, and its
+Writes a kickflip board's data files. --site <route> picks ~/.claude/kickflip/sites/<route>, and its
 board.json says where the board's waves live. Without --site, waves come from ~/.claude/waves.
 Paths resolve under $HOME, so HOME=<dir> points every command at a copy.
 A --file argument of - reads stdin.
@@ -132,7 +133,7 @@ Asks have no ticket; item set --from-ask creates one when the card has none.
                                                          --kind install: a build of the card's install, whose
                                                          Install chip reads Rebuilding… (or Building…) meanwhile
          [--worktree [--repo <dir>]]                     --worktree: a git worktree for the builder at
-                                                         ~/.claude/web-ts/worktrees/<id> on a new branch <id> from
+                                                         ~/.claude/kickflip/worktrees/<id> on a new branch <id> from
                                                          the board's branch of its clone (--repo overrides the clone), kept on
                                                          the record and printed as "worktree: <path>". Refuses when
                                                          that path or branch exists
@@ -146,25 +147,25 @@ Asks have no ticket; item set --from-ask creates one when the card has none.
                                                          when the card has no open builder records left
          builder takes --dir <dir> for a wave file in <dir>; its records go in <dir>/agents
   land <wave>/<id> [--repo <dir>] [--dir <dir>]          brings the worktree its builder record keeps (else
-                                                         ~/.claude/web-ts/worktrees/<id> of --repo) into main, one line
+                                                         ~/.claude/kickflip/worktrees/<id> of --repo) into main, one line
                                                          per step: refuses while it has uncommitted changes or adds no
                                                          commit; rebases onto main when main moved, refusing on a
                                                          conflict with the rebase undone; refuses unless its full
                                                          node --test suite passes, naming each failing test and
-                                                         saving the TAP output under ~/.claude/web-ts/logs;
+                                                         saving the TAP output under ~/.claude/kickflip/logs;
                                                          fast-forwards main in the repo;
                                                          restarts the hub when its code changed, else each board
                                                          server when board/ changed; removes the worktree and its
-                                                         branch. Never pushes. WEB_TS_RESTART_CMD='["<cmd>"]' replaces
+                                                         branch. Never pushes. KICKFLIP_RESTART_CMD='["<cmd>"]' replaces
                                                          the restarts, called with hub or board <route>
-  push --kind action|prompt|fault --title <t>            runs web-ts push with these flags, adding
+  push --kind action|prompt|fault --title <t>            runs kickflip push with these flags, adding
        [--body <b>] [--url </route/path>]                "· and N replies" to the body for the replies
        [--tag <tag>] [--now | --urgent]                  written since the site's last push through this
                                                          command (none before its first). For an item, tag it
                                                          ask-<eventId> or item-<wave>/<id>; a card whose action
                                                          changes pushes again under its tag. It records the
-                                                         push in data/push-state.json only when web-ts push
-                                                         succeeds, and exits with web-ts push's code.
+                                                         push in data/push-state.json only when kickflip push
+                                                         succeeds, and exits with kickflip push's code.
                                                          --kind: action when a card's Action needed appears or
                                                          changes, fault for what only the owner can fix. Refused
                                                          without one: news stays on the board.
@@ -175,19 +176,19 @@ Asks have no ticket; item set --from-ask creates one when the card has none.
                                                          prototypes asked for. --urgent: a production fault only;
                                                          it beats those holds. While notifications are off every
                                                          push is dropped, urgent too
-         WEB_TS_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/web-ts.mjs push\`; the flags follow it`;
+         KICKFLIP_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/kickflip.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
 const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree']);
-const WEB_TS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'bin', 'web-ts.mjs');
+const KICKFLIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'bin', 'kickflip.mjs');
 
 function pushCommand() {
-  if (!process.env.WEB_TS_PUSH_CMD) return [process.execPath, WEB_TS, 'push'];
+  if (!process.env.KICKFLIP_PUSH_CMD) return [process.execPath, KICKFLIP, 'push'];
   try {
-    const cmd = JSON.parse(process.env.WEB_TS_PUSH_CMD);
+    const cmd = JSON.parse(process.env.KICKFLIP_PUSH_CMD);
     if (Array.isArray(cmd) && cmd.length && cmd.every((a) => typeof a === 'string')) return cmd;
   } catch {}
-  throw new store.BoardError('WEB_TS_PUSH_CMD must be a JSON array of strings');
+  throw new store.BoardError('KICKFLIP_PUSH_CMD must be a JSON array of strings');
 }
 
 async function push(site, f) {
@@ -201,7 +202,7 @@ async function push(site, f) {
   const [cmd, ...pre] = pushCommand();
   const args = [...pre, ...Object.entries(flags).flatMap(([k, v]) => (v === undefined ? [] : [`--${k}`, v])), ...(f.urgent ? ['--urgent'] : []), ...(f.now ? ['--now'] : [])];
   const r = spawnSync(cmd, args, { stdio: 'inherit' });
-  if (r.status !== 0) throw Object.assign(new store.BoardError(`web-ts push failed (${r.error?.message || `exit ${r.status ?? r.signal}`}); the push was not recorded`), { exitCode: r.status || 1 });
+  if (r.status !== 0) throw Object.assign(new store.BoardError(`kickflip push failed (${r.error?.message || `exit ${r.status ?? r.signal}`}); the push was not recorded`), { exitCode: r.status || 1 });
   return store.recordPush(site, at);
 }
 
@@ -291,7 +292,7 @@ const COMMANDS = {
     if (!site) throw new store.BoardError('install needs --site <route>');
     store.parseKey(key);
     try {
-      const r = await fetch(`http://127.0.0.1:${process.env.WEB_TS_HUB_PORT || 4500}/_hub/install`, {
+      const r = await fetch(`http://127.0.0.1:${process.env.KICKFLIP_HUB_PORT || 4500}/_hub/install`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ route: path.basename(site), key }), signal: AbortSignal.timeout(10_000),
       });
@@ -364,6 +365,7 @@ export async function main(argv, options = {}) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) {
+  migrateOnStart();
   const argv = process.argv.slice(2);
   if (!argv.length || argv.includes('--help') || argv[0] === 'help') console.log(USAGE);
   else process.exitCode = await main(argv);

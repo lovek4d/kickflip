@@ -6,7 +6,7 @@ import path from 'node:path';
 
 process.stdout.on('error', () => {});
 try {
-  const { codexShare } = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'web-ts', 'settings.json'), 'utf8'));
+  const { codexShare } = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'kickflip', 'settings.json'), 'utf8'));
   if (codexShare === 'auto') {
     console.log("The hub's Codex setting is auto: unless this session's codex-share-mode file says otherwise, run as codex-share auto. Hand implementation and review to Codex as ~/.claude/skills/codex-share/SKILL.md describes (read it first); while Codex is out of usage, Opus builders take over until it resets. Say so in one line the first time it applies in this session.");
   } else if (codexShare === 'always') {

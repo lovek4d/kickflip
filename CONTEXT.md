@@ -1,4 +1,4 @@
-# Web-ts hub and boards
+# Kickflip hub and boards
 
 Pages on Love's tailnet that Claude sessions serve, so the owner can follow and steer their work from a phone. The hub lists the sites and sends pushes. A board is a site that shows a session's work as cards.
 
@@ -7,7 +7,7 @@ Pages on Love's tailnet that Claude sessions serve, so the owner can follow and 
 ### Hub and sites
 
 **Kickflip clone**:
-The Git checkout that supplies the running app's code, in any folder such as `~/dev/kickflip`, linked into Claude Code's skills by install. It is separate from the live state in `~/.claude/web-ts/` ([0071](docs/adr/0071-kickflip-runs-from-a-linked-clone.md)). Install supplies kickflip's status line and hooks as well as the skill links, so setup is independent of the owner's dotfiles ([0080](docs/adr/0080-kickflip-installs-its-own-status-line-and-hooks.md)).
+The Git checkout that supplies the running app's code, in any folder such as `~/dev/kickflip`, linked into Claude Code's skills by install. It is separate from the live state in `~/.claude/kickflip/` ([0071](docs/adr/0071-kickflip-runs-from-a-linked-clone.md)). Install supplies kickflip's status line and hooks as well as the skill links, so setup is independent of the owner's dotfiles ([0080](docs/adr/0080-kickflip-installs-its-own-status-line-and-hooks.md)).
 _Avoid_: live skill folder
 
 **Board repo**:
@@ -59,11 +59,11 @@ Love, the person the sites serve. The word for the session that serves a site is
 _Avoid_: user, admin
 
 **Board session**:
-A board's owning session as the manifest records it in the site's owner: its id, its folder (`repo`, where `claude --resume` finds it) and an optional model. `web-ts start` launches one in the background; `web-ts resume` brings it back and records the id it comes back under. A rejoin keeps the label, model and folder it leaves out.
+A board's owning session as the manifest records it in the site's owner: its id, its folder (`repo`, where `claude --resume` finds it) and an optional model. `kickflip start` launches one in the background; `kickflip resume` brings it back and records the id it comes back under. A rejoin keeps the label, model and folder it leaves out.
 _Avoid_: orchestrator process, agent
 
 **Hub session**:
-The dev-time session that builds the app from inside: the owning session of the **hub board**, the one board whose manifest entry has `hub: true` (`web-ts set <route> --hub`), opened in the owner's terminal by `web-ts hub`. Code finds the hub board by that flag, never by its route. The product needs only the hub server, with boards added in the app, and no feature depends on this session ([0068](docs/adr/0068-the-hub-session-is-a-dev-time-role.md)).
+The dev-time session that builds the app from inside: the owning session of the **hub board**, the one board whose manifest entry has `hub: true` (`kickflip set <route> --hub`), opened in the owner's terminal by `kickflip hub`. Code finds the hub board by that flag, never by its route. The product needs only the hub server, with boards added in the app, and no feature depends on this session ([0068](docs/adr/0068-the-hub-session-is-a-dev-time-role.md)).
 _Avoid_: hub server, permanent orchestrator
 
 **Live**:
@@ -242,7 +242,7 @@ A builder still recorded as running whose last progress, or start before its fir
 _Avoid_: stuck, hung, failed
 
 **Worktree**:
-The git worktree a builder works in, never the folder the session, a running app or the hub uses. A board's is `~/.claude/web-ts/worktrees/<card id>` on branch `<card id>` from its chosen repo branch, or the running kickflip clone's main for the hub board or a board without a GitHub repo (`hub/board-repo.mjs` decides which), made by `board.mjs builder start --worktree` and kept on the builder record; the owning session checks and commits there, then **lands** it (`board.mjs land`): rebased onto main, tested, fast-forwarded into the live folder's main, the hub or board servers restarted, the worktree and branch removed. A repo card's comes from wave-build ([0064](docs/adr/0064-every-builder-works-in-a-worktree.md)).
+The git worktree a builder works in, never the folder the session, a running app or the hub uses. A board's is `~/.claude/kickflip/worktrees/<card id>` on branch `<card id>` from its chosen repo branch, or the running kickflip clone's main for the hub board or a board without a GitHub repo (`hub/board-repo.mjs` decides which), made by `board.mjs builder start --worktree` and kept on the builder record; the owning session checks and commits there, then **lands** it (`board.mjs land`): rebased onto main, tested, fast-forwarded into the live folder's main, the hub or board servers restarted, the worktree and branch removed. A repo card's comes from wave-build ([0064](docs/adr/0064-every-builder-works-in-a-worktree.md)).
 _Avoid_: copy, checkout, live folder (for the builder's)
 
 ### Talking with the owner

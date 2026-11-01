@@ -1,24 +1,130 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { cloneRoot as runningClone } from '../shared/repos.mjs';
+
+export const LOGIN_LABEL = 'local.claude.kickflip-hub';
+const OLD_LOGIN_LABEL = 'local.claude.web-ts-hub';
+
+// Moves a Mac set up under the web-ts names to the kickflip ones (docs/adr/0084-kickflip-is-the-only-name.md): the
+// state folder, keeping a link at its old path; a kickflip skill link beside join-web-ts; the hooks plugin link; and
+// the status line through the new skill link. Each step runs only while its old shape is there, so a rerun does
+// nothing. → {steps, conflicts}: lines saying what moved, or with dryRun what would, and what blocks a move.
+export function migrateHome({ home = os.homedir(), skillsDir = path.join(home, '.claude', 'skills'), dryRun = false } = {}) {
+  const steps = [];
+  const conflicts = [];
+  const lstat = (p) => fs.lstatSync(p, { throwIfNoEntry: false });
+  const act = (done, planned, fn) => {
+    if (dryRun) { steps.push(`would ${planned}`); return; }
+    fn();
+    steps.push(done);
+  };
+
+  const oldState = path.join(home, '.claude', 'web-ts');
+  const state = path.join(home, '.claude', 'kickflip');
+  if (lstat(oldState)?.isDirectory()) {
+    if (lstat(state)) conflicts.push(`${oldState} and ${state} are both folders; merge them by hand, then leave a link at ${oldState}`);
+    else act(`moved ${oldState} -> ${state}, linked from the old path`, `move ${oldState} -> ${state} and link the old path to it`, () => {
+      // A rename keeps every open file and watch in the folder working; another process may have moved it first.
+      try { fs.renameSync(oldState, state); } catch (e) { if (!lstat(state) || lstat(oldState)?.isDirectory()) throw e; }
+      replaceWithLink(oldState, 'kickflip');
+    });
+  }
+
+  const oldSkill = path.join(skillsDir, 'join-web-ts');
+  const skill = path.join(skillsDir, 'kickflip');
+  const oldSkillStat = lstat(oldSkill);
+  if (oldSkillStat && !lstat(skill)) {
+    const target = oldSkillStat.isSymbolicLink() ? path.resolve(skillsDir, fs.readlinkSync(oldSkill)) : oldSkill;
+    act(`linked ${skill} -> ${target}`, `link ${skill} -> ${target}`, () => fs.symlinkSync(target, skill, 'dir'));
+  }
+
+  const oldHooks = path.join(skillsDir, 'web-ts-hooks');
+  const hooks = path.join(skillsDir, 'kickflip-hooks');
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return null; } };
+  const clonePlugin = real(path.join(oldSkillStat ? oldSkill : skill, 'hooks-plugin'));
+  // Two links to one plugin would load its hooks twice in every new session.
+  if (lstat(oldHooks)?.isSymbolicLink() && clonePlugin && real(oldHooks) === clonePlugin) {
+    const target = path.join(skill, 'hooks-plugin');
+    if (!lstat(hooks)) act(`linked ${hooks} -> ${target}`, `link ${hooks} -> ${target}`, () => fs.symlinkSync(target, hooks, 'dir'));
+    act(`removed ${oldHooks}`, `remove ${oldHooks}`, () => fs.unlinkSync(oldHooks));
+  }
+
+  const statusline = path.join(home, '.claude', 'statusline.sh');
+  if (lstat(statusline)?.isSymbolicLink() && path.resolve(path.dirname(statusline), fs.readlinkSync(statusline)) === path.join(oldSkill, 'bin', 'statusline.mjs') && (oldSkillStat || lstat(skill))) {
+    const target = path.join(skill, 'bin', 'statusline.mjs');
+    act(`linked ${statusline} -> ${target}`, `link ${statusline} -> ${target}`, () => replaceWithLink(statusline, target));
+  }
+  return { steps, conflicts };
+}
+
+// For entry points: moves the old names before anything reads or creates state under the new ones.
+export function migrateOnStart() {
+  try { return migrateHome(); } catch (e) { return { steps: [], conflicts: [e.message] }; }
+}
+
+function replaceWithLink(file, target) {
+  const tmp = `${file}.${process.pid}.${Date.now()}.link`;
+  fs.symlinkSync(target, tmp);
+  try { fs.renameSync(tmp, file); } catch (e) {
+    // A process still on the old path can recreate it as an empty folder between the move and the link.
+    try { fs.rmdirSync(file); fs.renameSync(tmp, file); } catch { fs.unlinkSync(tmp); throw e; }
+  }
+}
+
+const launchctl = (argv) => {
+  const r = spawnSync('launchctl', argv, { encoding: 'utf8' });
+  return { status: r.status ?? 1, error: (r.error?.message || r.stderr || `exit ${r.status}`).trim().split('\n')[0] };
+};
+
+// Writes the hub's login item and starts it in place of the running one, including one under the old label. When the
+// new one won't start, the old one is put back and started. run(argv) runs launchctl → {status, error}. → note lines.
+export async function installLoginItem({ plist, launchAgentsDir = path.join(os.homedir(), 'Library', 'LaunchAgents'), uid = process.getuid(), run = launchctl, wait = (ms) => new Promise((r) => setTimeout(r, ms)), dryRun = false }) {
+  const domain = `gui/${uid}`;
+  const file = path.join(launchAgentsDir, `${LOGIN_LABEL}.plist`);
+  const old = path.join(launchAgentsDir, `${OLD_LOGIN_LABEL}.plist`);
+  let oldPlist = null;
+  try { oldPlist = fs.readFileSync(old, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  const notes = [];
+  if (dryRun) {
+    if (oldPlist !== null) notes.push(`would stop ${domain}/${OLD_LOGIN_LABEL} and remove ${old}`);
+    return [...notes, `would write ${file} and start ${domain}/${LOGIN_LABEL}`];
+  }
+  fs.mkdirSync(launchAgentsDir, { recursive: true });
+  fs.writeFileSync(file, plist);
+  if (oldPlist !== null) {
+    run(['bootout', `${domain}/${OLD_LOGIN_LABEL}`]);
+    fs.unlinkSync(old);
+    notes.push(`stopped ${domain}/${OLD_LOGIN_LABEL} and removed ${old}`);
+  }
+  run(['bootout', `${domain}/${LOGIN_LABEL}`]);
+  await wait(500);
+  const started = run(['bootstrap', domain, file]);
+  if (started.status === 0) return [...notes, `started ${domain}/${LOGIN_LABEL} from ${file}`];
+  if (oldPlist === null) throw new Error(started.error);
+  fs.writeFileSync(old, oldPlist);
+  fs.rmSync(file, { force: true });
+  const restored = run(['bootstrap', domain, old]);
+  throw new Error(`${started.error}; ${restored.status === 0 ? `restarted ${domain}/${OLD_LOGIN_LABEL} from ${old}` : `could not restart ${domain}/${OLD_LOGIN_LABEL} either (${restored.error})`}`);
+}
 
 export function storedPath(realPath, { home = os.homedir(), skillsDir = path.join(home, '.claude', 'skills'), cloneRoot = runningClone() } = {}) {
   if (typeof realPath !== 'string' || !path.isAbsolute(realPath)) return realPath;
   const relative = path.relative(cloneRoot, realPath);
   if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return realPath;
   // A worktree or a scratch HOME has no link to this clone; naming the link there would store a dangling path or another checkout's code.
-  const link = path.resolve(skillsDir, 'join-web-ts');
+  const link = path.resolve(skillsDir, 'kickflip');
   let linked = false;
   try { linked = fs.realpathSync(link) === fs.realpathSync(cloneRoot); } catch {}
   return linked ? path.join(link, relative) : realPath;
 }
 
-export function installLinks({ home = os.homedir(), skillsDir = path.join(home, '.claude', 'skills'), cloneRoot = runningClone() } = {}) {
+export function installLinks({ home = os.homedir(), skillsDir = path.join(home, '.claude', 'skills'), cloneRoot = runningClone(), dryRun = false } = {}) {
   const root = fs.realpathSync(cloneRoot);
-  const links = [['join-web-ts', root], ['web-ts-hooks', path.join(root, 'hooks-plugin')]].map(([name, source]) => {
+  const links = [['kickflip', root], ['kickflip-hooks', path.join(root, 'hooks-plugin')]].map(([name, source]) => {
     if (!fs.statSync(source, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`not a directory: ${source}`);
-    const target = name === 'join-web-ts' ? source : path.resolve(skillsDir, 'join-web-ts', 'hooks-plugin');
+    const target = name === 'kickflip' ? source : path.resolve(skillsDir, 'kickflip', 'hooks-plugin');
     const link = path.resolve(skillsDir, name);
     const existing = fs.lstatSync(link, { throwIfNoEntry: false });
     if (existing) {
@@ -35,7 +141,7 @@ export function installLinks({ home = os.homedir(), skillsDir = path.join(home, 
   const source = path.join(root, 'bin', 'statusline.mjs');
   if (!fs.statSync(source, { throwIfNoEntry: false })?.isFile()) throw new Error(`not a file: ${source}`);
   const statusline = path.join(home, '.claude', 'statusline.sh');
-  const target = path.resolve(skillsDir, 'join-web-ts', 'bin', 'statusline.mjs');
+  const target = path.resolve(skillsDir, 'kickflip', 'bin', 'statusline.mjs');
   const existing = fs.lstatSync(statusline, { throwIfNoEntry: false });
   let replace = false;
   if (existing) {
@@ -43,7 +149,7 @@ export function installLinks({ home = os.homedir(), skillsDir = path.join(home, 
     let real;
     try { real = fs.realpathSync(statusline); } catch (e) { if (e.code !== 'ENOENT') throw e; }
     // A site's status-line prototype stands in only until kickflip's own is installed.
-    const sites = path.join(home, '.claude', 'web-ts', 'sites');
+    const sites = path.join(home, '.claude', 'kickflip', 'sites');
     let sitesReal = sites;
     try { sitesReal = fs.realpathSync(sites); } catch {}
     const prototype = Boolean(real) && [sites, sitesReal].some((dir) => real.startsWith(dir + path.sep));
@@ -51,6 +157,7 @@ export function installLinks({ home = os.homedir(), skillsDir = path.join(home, 
     replace = prototype || path.resolve(path.dirname(statusline), fs.readlinkSync(statusline)) !== target || !real;
   }
   links.push({ link: statusline, target, created: !existing, ...(replace ? { replaced: true } : {}) });
+  if (dryRun) return links;
   fs.mkdirSync(skillsDir, { recursive: true });
   fs.mkdirSync(path.dirname(statusline), { recursive: true });
   for (const { link, target, created, replaced } of links) {
@@ -121,7 +228,7 @@ export function uninstallStatusLine({ home = os.homedir(), skillsDir = path.join
   const link = path.join(home, '.claude', 'statusline.sh');
   if (!fs.lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink()) return false;
   const target = path.resolve(path.dirname(link), fs.readlinkSync(link));
-  let owned = target === path.resolve(skillsDir, 'join-web-ts', 'bin', 'statusline.mjs');
+  let owned = target === path.resolve(skillsDir, 'kickflip', 'bin', 'statusline.mjs');
   try { owned ||= fs.realpathSync(link) === fs.realpathSync(path.join(cloneRoot, 'bin', 'statusline.mjs')); } catch {}
   if (!owned) return false;
   fs.unlinkSync(link);

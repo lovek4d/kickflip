@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0084
+---
+
 # Kickflip runs from a clone linked into Claude Code's skills
+
+Superseded in part by [0084](0084-kickflip-is-the-only-name.md): the skill link, hooks link and state folder are named kickflip, and install moves this Mac's `~/.claude/web-ts` folder once, leaving a link at the old path.
 
 Kickflip is cloned into any folder, for example `~/dev/kickflip`, and that clone is the code that runs. The owner chose this layout in `install-layout`: `web-ts install` links `~/.claude/skills/join-web-ts` to the running clone and `~/.claude/skills/web-ts-hooks` through `join-web-ts/hooks-plugin/`, then installs the hub's login item and Tailscale mapping. This gives a new Mac an install path and keeps the Git checkout independent of Claude Code's skill discovery. No copy of the code is installed elsewhere.
 

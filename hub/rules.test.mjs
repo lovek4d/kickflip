@@ -84,7 +84,7 @@ function inHome(home, code) {
 test('writing the hub rules keeps every other key of settings.json, and a settings.json that does not parse is refused', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'rules-'));
   try {
-    const file = path.join(home, '.claude', 'web-ts', 'settings.json');
+    const file = path.join(home, '.claude', 'kickflip', 'settings.json');
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const other = { polling: { windows: [{ from: '08:00', every_minutes: 15 }], hold_overnight: true }, notifications: { on: true }, other_key: 'kept' };
     fs.writeFileSync(file, JSON.stringify(other));
@@ -100,12 +100,12 @@ test('writing the hub rules keeps every other key of settings.json, and a settin
 
 test('codex-share prints, sets and refuses values while preserving the other hub settings', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-share-'));
-  const cli = (...args) => spawnSync(process.execPath, [path.join(HUB_DIR, '..', 'bin', 'web-ts.mjs'), 'codex-share', ...args], {
+  const cli = (...args) => spawnSync(process.execPath, [path.join(HUB_DIR, '..', 'bin', 'kickflip.mjs'), 'codex-share', ...args], {
     env: { ...process.env, HOME: home }, encoding: 'utf8',
   });
-  const file = path.join(home, '.claude', 'web-ts', 'settings.json');
+  const file = path.join(home, '.claude', 'kickflip', 'settings.json');
   try {
-    const help = spawnSync(process.execPath, [path.join(HUB_DIR, '..', 'bin', 'web-ts.mjs')], {
+    const help = spawnSync(process.execPath, [path.join(HUB_DIR, '..', 'bin', 'kickflip.mjs')], {
       env: { ...process.env, HOME: home }, encoding: 'utf8',
     });
     assert.equal(help.status, 0);
@@ -130,7 +130,7 @@ test('codex-share prints, sets and refuses values while preserving the other hub
     const before = fs.readFileSync(file, 'utf8');
     for (const args of [['on'], [''], ['Auto'], ['toString'], ['--help'], ['auto', 'off'], ['auto', '--json']]) {
       const r = cli(...args);
-      assert.deepEqual([r.status, r.stdout, r.stderr], [2, '', 'web-ts: codex-share takes auto, always, or off\n']);
+      assert.deepEqual([r.status, r.stdout, r.stderr], [2, '', 'kickflip: codex-share takes auto, always, or off\n']);
       assert.equal(fs.readFileSync(file, 'utf8'), before);
     }
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
@@ -139,15 +139,15 @@ test('codex-share prints, sets and refuses values while preserving the other hub
 test("hub Settings edits the hub rules, and a save that changes them sends every board a rules event", async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-rules-'));
   const [port, sitePort] = await freePorts(2);
-  const siteDir = path.join(home, '.claude', 'web-ts', 'sites', 'orch');
-  const web = path.join(home, '.claude', 'web-ts');
+  const siteDir = path.join(home, '.claude', 'kickflip', 'sites', 'orch');
+  const web = path.join(home, '.claude', 'kickflip');
   fs.mkdirSync(path.join(siteDir, 'data'), { recursive: true });
   fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ title: 'Orch', items: 'waves' }));
   fs.writeFileSync(path.join(web, 'settings.json'), JSON.stringify({ polling: { windows: [{ from: '00:00', every_minutes: 120 }], hold_overnight: false, wakes: [] }, notifications: { on: true, weekends_off: false, snoozed_until: null }, other_key: 'kept' }));
   fs.writeFileSync(path.join(web, 'manifest.json'), JSON.stringify({ version: 1, sites: {
     orch: { dir: siteDir, port: sitePort, cmd: [process.execPath, path.join(HUB_DIR, '..', 'board', 'server.mjs'), siteDir] },
   } }));
-  const hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: String(port), WEB_TS_CLAUDE: '/usr/bin/false' } });
+  const hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false' } });
   const base = `http://127.0.0.1:${port}`;
   try {
     await new Promise((resolve, reject) => {

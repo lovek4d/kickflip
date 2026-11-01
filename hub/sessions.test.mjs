@@ -13,7 +13,7 @@ process.env.HOME = home;
 const { checkSessions, RESUME_AFTER, COMEBACK_WAIT, BG_SETTINGS } = await import('./sessions.mjs');
 const { WAIT_MS } = await import('./prompts.mjs');
 
-const web = (...p) => path.join(home, '.claude', 'web-ts', ...p);
+const web = (...p) => path.join(home, '.claude', 'kickflip', ...p);
 const write = (file, v) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof v === 'string' ? v : JSON.stringify(v)); };
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const manifest = () => read(web('manifest.json'));
@@ -28,7 +28,7 @@ const fakeClaude = path.join(home, 'bin', 'claude');
 const agentsFile = path.join(home, 'agents.json');
 const copyNext = path.join(home, 'copy-next');
 const foregroundExit = path.join(home, 'foreground-exit');
-process.env.WEB_TS_CLAUDE = fakeClaude;
+process.env.KICKFLIP_CLAUDE = fakeClaude;
 write(fakeClaude, `#!${process.execPath}
 const fs = require('node:fs');
 const { spawn, spawnSync } = require('node:child_process');
@@ -67,8 +67,8 @@ const liveRecord = (sessionId, cwd) => {
 };
 
 const cli = (args, { cwd = repo, input = '', entry = SKILL } = {}) => new Promise((resolve) => {
-  const child = spawn(process.execPath, [path.join(entry, 'bin', 'web-ts.mjs'), ...args], {
-    cwd, env: { ...process.env, HOME: home, WEB_TS_CLAUDE: fakeClaude, WEB_TS_HUB_PORT: '1', CLAUDECODE: '1' },
+  const child = spawn(process.execPath, [path.join(entry, 'bin', 'kickflip.mjs'), ...args], {
+    cwd, env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: fakeClaude, KICKFLIP_HUB_PORT: '1', CLAUDECODE: '1' },
   });
   let stdout = '';
   let stderr = '';
@@ -107,7 +107,7 @@ test('start runs claude --bg in the folder, in auto mode with isolation off, and
   assert.ok(Date.now() - t < 10_000, 'start returns while what claude --bg left behind still runs');
   const [call] = calls();
   const { id } = call;
-  assert.deepEqual(call.argv, ['--bg', '--name', 'Shop', '--permission-mode', 'auto', '--settings', BG_SETTINGS, '--model', 'opus', '/join-web-ts shop Pick up INT-9']);
+  assert.deepEqual(call.argv, ['--bg', '--name', 'Shop', '--permission-mode', 'auto', '--settings', BG_SETTINGS, '--model', 'opus', '/kickflip shop Pick up INT-9']);
   const settings = JSON.parse(BG_SETTINGS);
   assert.deepEqual(Object.keys(settings), ['worktree', 'hooks']);
   assert.deepEqual([settings.worktree, Object.keys(settings.hooks)], [{ bgIsolation: 'none' }, ['PermissionRequest']]);
@@ -128,7 +128,7 @@ test('start on a route with no site waits in starting until that session joins',
   write(web('manifest.json'), m);
   const r = json(await cli(['start', 'fresh', '--repo', otherRepo]));
   const call = calls()[before];
-  assert.deepEqual([call.argv.at(-1), call.cwd, call.argv.includes('--model')], ['/join-web-ts fresh', otherRepo, false]);
+  assert.deepEqual([call.argv.at(-1), call.cwd, call.argv.includes('--model')], ['/kickflip fresh', otherRepo, false]);
   assert.deepEqual(manifest().starting.fresh, { ...manifest().starting.fresh, session: r.session, repo: otherRepo });
   assert.deepEqual([manifest().starting.fresh.title, manifest().starting.fresh.asked_at, call.argv[2]], [pending.title, pending.asked_at, pending.title]);
   assert.equal(manifest().sites.fresh, undefined);
@@ -151,7 +151,7 @@ test('resume runs claude --resume <id> --bg in the recorded folder, and start an
   assert.match(refusals[0].stderr, /is live \(in a terminal, pid \d+\)/);
   assert.equal(calls().length, before + 1);
   const none = await cli(['resume', 'nowhere']);
-  assert.deepEqual([none.status, none.stderr.trim()], [1, 'web-ts: /nowhere has no recorded session']);
+  assert.deepEqual([none.status, none.stderr.trim()], [1, 'kickflip: /nowhere has no recorded session']);
 });
 
 test('sessions prints one line per board: route, session, live or not, folder', async () => {
@@ -423,7 +423,7 @@ test('hub starts fresh with no owner, in --repo or the cwd, with the join prompt
     assert.equal(r.status, 0, r.stderr);
     const [call] = calls().slice(before);
     assert.equal(call.argv.length, 1);
-    assert.ok(call.argv[0].startsWith('/join-web-ts dev-hub --hub\n'));
+    assert.ok(call.argv[0].startsWith('/kickflip dev-hub --hub\n'));
     assert.match(call.argv[0], /You are the hub session/);
     assert.ok(call.argv[0].includes(path.join(SKILL, 'docs', 'hub-session.md')));
     assert.equal(call.cwd, options.dir);
@@ -440,7 +440,7 @@ test('hub exits 2 with one line telling the owner to flag or join a hub board wh
     const r = await cli(['hub']);
     assert.equal(r.status, 2);
     assert.equal(r.stdout, '');
-    assert.equal(r.stderr, 'web-ts: No hub board is flagged; flag one with web-ts set <route> --hub, or join one with web-ts join hub-orchestrator --template board --hub --session <id>\n');
+    assert.equal(r.stderr, 'kickflip: No hub board is flagged; flag one with kickflip set <route> --hub, or join one with kickflip join hub-orchestrator --template board --hub --session <id>\n');
   }
   assert.equal(calls().length, before);
 });
@@ -505,7 +505,7 @@ test('join, start and resume keep clone paths under the installed link across a 
   assert.equal(hook.command, `"${process.execPath}" "${path.join(link, 'hub', 'permission-hook.mjs')}"`);
   const resumed = json(await cli(['resume', 'linked'], { entry: link }));
   assert.equal(resumed.repo, link);
-  assert.ok(calls().at(-1).argv.at(-1).includes(`node ${path.join(link, 'bin', 'web-ts.mjs')} join linked`));
+  assert.ok(calls().at(-1).argv.at(-1).includes(`node ${path.join(link, 'bin', 'kickflip.mjs')} join linked`));
   const moved = clone + '-moved';
   fs.renameSync(clone, moved);
   fs.unlinkSync(link);

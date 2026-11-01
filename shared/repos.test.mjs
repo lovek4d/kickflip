@@ -33,7 +33,7 @@ test('the clone paths and default builder repo work directly and through install
     const installer = path.join(root, 'install-probe.mjs');
     fs.writeFileSync(installer, "import { installLinks } from './bin/install.mjs';\ninstallLinks();\n");
     run(process.execPath, [installer]);
-    const linked = path.join(home, '.claude', 'skills', 'join-web-ts');
+    const linked = path.join(home, '.claude', 'skills', 'kickflip');
     const script = path.join(root, 'install.sh');
     const site = path.join(home, 'board');
     fs.writeFileSync(script, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
@@ -53,7 +53,7 @@ test('the clone paths and default builder repo work directly and through install
       assert.ok(found.settings.includes(path.join(linked, 'hub', 'permission-hook.mjs')));
       assert.ok(found.hub.at(-1).includes(path.join(linked, 'docs', 'hub-session.md')));
       assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8')).install_script, path.join(linked, 'install.sh'));
-      assert.match(run(process.execPath, [path.join(entry, 'bin', 'web-ts.mjs')]), /web-ts install/);
+      assert.match(run(process.execPath, [path.join(entry, 'bin', 'kickflip.mjs')]), /kickflip install/);
       const wave = path.join(home, '.claude', 'waves', 'w');
       fs.mkdirSync(wave, { recursive: true });
       fs.writeFileSync(path.join(wave, 'wave.json'), JSON.stringify({ title: 'W', items: [{ id: 'A1', title: 'One' }] }));

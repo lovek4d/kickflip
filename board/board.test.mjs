@@ -12,19 +12,19 @@ import http from 'node:http';
 const bin = (name) => path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', name);
 let home;
 const at = (...p) => path.join(home, '.claude', ...p);
-const site = (route, ...p) => at('web-ts', 'sites', route, ...p);
+const site = (route, ...p) => at('kickflip', 'sites', route, ...p);
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value)); };
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const lines = (file) => fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
 
 function run(script, args, input, env = {}) {
-  const r = spawnSync(process.execPath, [bin(script), ...args], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: '1', ...env }, input, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [bin(script), ...args], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: '1', ...env }, input, encoding: 'utf8' });
   return { code: r.status, out: r.stdout, err: r.stderr };
 }
 const board = (...args) => run('board.mjs', args);
 function runAsync(script, args, env = {}) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [bin(script), ...args], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: '1', ...env } });
+    const child = spawn(process.execPath, [bin(script), ...args], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: '1', ...env } });
     let out = '';
     let err = '';
     child.stdout.on('data', (d) => { out += d; });
@@ -34,9 +34,9 @@ function runAsync(script, args, env = {}) {
 }
 async function withDevice(fn) {
   const device = await startFakeDevice();
-  write(at('web-ts', 'push', 'subs.json'), [device.subscription]);
-  write(at('web-ts', 'settings.json'), { polling: { windows: [{ from: '00:00', every_minutes: 15 }], hold_overnight: true, wakes: [] } });
-  const b = (...args) => runAsync('board.mjs', args, { WEB_TS_HUB_PORT: String(device.port) });
+  write(at('kickflip', 'push', 'subs.json'), [device.subscription]);
+  write(at('kickflip', 'settings.json'), { polling: { windows: [{ from: '00:00', every_minutes: 15 }], hold_overnight: true, wakes: [] } });
+  const b = (...args) => runAsync('board.mjs', args, { KICKFLIP_HUB_PORT: String(device.port) });
   try { await fn(b, device.received); } finally { await device.close(); }
 }
 
@@ -98,7 +98,7 @@ test('install posts only the route and key to the hub, prints started, and repor
   });
   await new Promise((resolve, reject) => hub.once('error', reject).listen(0, '127.0.0.1', resolve));
   try {
-    const env = { WEB_TS_HUB_PORT: String(hub.address().port) };
+    const env = { KICKFLIP_HUB_PORT: String(hub.address().port) };
     const run = () => runAsync('board.mjs', ['--site', 'orch', 'install', 'w/A1'], env);
     assert.deepEqual(await run(), { code: 0, out: 'started\n', err: '' });
     assert.deepEqual(seen, [['POST', '/_hub/install', { route: 'orch', key: 'w/A1' }]]);
@@ -233,7 +233,7 @@ test('tickets validate prefixes and link or create in the board source through t
     assert.equal(await main(['--site', 'audit', 'item', 'set', 'audit/F6', '--ticket', '#41'], { run: async () => response }), 1);
     assert.equal(fs.readFileSync(waveFile, 'utf8'), before);
   }
-  write(at('web-ts', 'manifest.json'), { sites: { audit: { dir: site('audit'), cmd: [process.execPath, fileURLToPath(new URL('./server.mjs', import.meta.url))], github: 'board/chosen' } } });
+  write(at('kickflip', 'manifest.json'), { sites: { audit: { dir: site('audit'), cmd: [process.execPath, fileURLToPath(new URL('./server.mjs', import.meta.url))], github: 'board/chosen' } } });
   const script = `import assert from 'node:assert/strict';
     import { main } from ${JSON.stringify(new URL('./bin/board.mjs', import.meta.url).href)};
     process.exitCode = await main(['--site', 'audit', 'item', 'set', 'audit/F6', '--ticket', '#41'], { run: async (cmd, argv) => {
@@ -241,7 +241,7 @@ test('tickets validate prefixes and link or create in the board source through t
       assert.deepEqual(argv, ['issue', 'view', '41', '--repo', 'board/chosen', '--json', 'number,url']);
       return { status: 0, stdout: JSON.stringify({ number: 41, url: 'https://github.com/board/chosen/issues/41' }) };
     } });`;
-  const linked = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', env: { ...process.env, HOME: home, WEB_TS_CLAUDE: '/usr/bin/false' } });
+  const linked = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false' } });
   assert.equal(linked.status, 0, linked.stderr);
 });
 
@@ -701,16 +701,16 @@ function scratchRepo() {
   write(path.join(repo, 'ok.test.mjs'), "import test from 'node:test';\ntest('ok', () => {});\n");
   git(repo, 'add', '-A');
   git(repo, 'commit', '--quiet', '-m', 'base');
-  write(at('web-ts', 'manifest.json'), { sites: {
+  write(at('kickflip', 'manifest.json'), { sites: {
     orch: { dir: site('orch'), port: 1, cmd: ['node', '/x/board/server.mjs'] },
     audit: { dir: site('audit'), port: 2, cmd: ['node', '/x/board/server.mjs'] },
   } });
   return repo;
 }
-const worktree = () => at('web-ts', 'worktrees', 'A1');
+const worktree = () => at('kickflip', 'worktrees', 'A1');
 const restarts = () => (fs.existsSync(path.join(home, 'restarts')) ? fs.readFileSync(path.join(home, 'restarts'), 'utf8').trim().split('\n') : []);
 const land = () => run('board.mjs', ['land', 'w/A1'], undefined, {
-  WEB_TS_RESTART_CMD: JSON.stringify([process.execPath, '-e', "require('fs').appendFileSync(process.argv[1], process.argv.slice(2).join(' ') + '\\n')", path.join(home, 'restarts')]),
+  KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', "require('fs').appendFileSync(process.argv[1], process.argv.slice(2).join(' ') + '\\n')", path.join(home, 'restarts')]),
 });
 const branches = (repo) => git(repo, 'branch', '--format=%(refname:short)').split('\n');
 
@@ -743,7 +743,7 @@ test('builder start stores the installed link for the kickflip fallback repo, wh
   const { installLinks } = await import('../bin/install.mjs');
   const [{ link }] = installLinks({ home, cloneRoot: clone });
   const [hubPort] = await freePorts();
-  const start = (...args) => spawnSync(process.execPath, [path.join(link, 'board', 'bin', 'board.mjs'), ...args, 'builder', 'start', 'w/A1', '--worktree'], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: String(hubPort) }, encoding: 'utf8' });
+  const start = (...args) => spawnSync(process.execPath, [path.join(link, 'board', 'bin', 'board.mjs'), ...args, 'builder', 'start', 'w/A1', '--worktree'], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(hubPort) }, encoding: 'utf8' });
   const result = start();
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo: link });
@@ -758,9 +758,9 @@ test('builder start stores the installed link for the kickflip fallback repo, wh
   git(project, 'config', 'user.email', 'test@example.com');
   commit(project, 'project.txt', 'project');
   git(project, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
-  const manifest = read(at('web-ts', 'manifest.json'));
+  const manifest = read(at('kickflip', 'manifest.json'));
   Object.assign(manifest.sites.orch, { hub: true, github: 'owner/project', branch: 'main', owner: { repo: project } });
-  write(at('web-ts', 'manifest.json'), manifest);
+  write(at('kickflip', 'manifest.json'), manifest);
   const hub = start('--site', 'orch');
   assert.equal(hub.status, 0, hub.stderr);
   assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo: link });
@@ -781,9 +781,9 @@ test('a board builder uses its shared clone and selected remote branch without c
   git(repo, 'checkout', '--quiet', 'main');
   commit(origin, 'pushed.txt', 'pushed after the clone');
   const head = git(origin, 'rev-parse', 'HEAD');
-  const manifest = read(at('web-ts', 'manifest.json'));
+  const manifest = read(at('kickflip', 'manifest.json'));
   Object.assign(manifest.sites.orch, { github: 'owner/project', branch: 'develop', owner: { repo } });
-  write(at('web-ts', 'manifest.json'), manifest);
+  write(at('kickflip', 'manifest.json'), manifest);
   const r = board('--site', 'orch', 'builder', 'start', 'w/A1', '--worktree');
   assert.equal(r.code, 0, r.err);
   assert.equal(git(worktree(), 'rev-parse', 'HEAD'), head);
@@ -819,7 +819,7 @@ test('land refuses a worktree with uncommitted changes, with no commit beyond ma
   assert.doesNotMatch(failing.err, /fourth error line/);
   const log = failing.err.match(/Full test output: (.+)\n/)?.[1];
   assert.ok(log);
-  assert.equal(path.dirname(log), at('web-ts', 'logs'));
+  assert.equal(path.dirname(log), at('kickflip', 'logs'));
   const tap = fs.readFileSync(log, 'utf8');
   assert.match(tap, /^TAP version 13\n/);
   assert.match(tap, /not ok .*bad fixture/);
@@ -930,9 +930,9 @@ test('the SubagentStop hook closes the builder records its agent started and lef
   const transcript = path.join(home, 'agent.jsonl');
   write(transcript, [
     'not json',
-    toolUse('t1', 'node ~/.claude/skills/join-web-ts/board/bin/board.mjs --site orch builder start w/A1 --kind build --label "Opus builder"; ls', ago(5 * 60 * 1000)),
+    toolUse('t1', 'node ~/.claude/skills/kickflip/board/bin/board.mjs --site orch builder start w/A1 --kind build --label "Opus builder"; ls', ago(5 * 60 * 1000)),
     toolResult('t1', ago(1000)),
-    toolUse('t2', 'B="node ~/.claude/skills/join-web-ts/board/bin/board.mjs --site orch"; eval "$B builder start w/A1 --agent bench --kind codex"', ago(1000)),
+    toolUse('t2', 'B="node ~/.claude/skills/kickflip/board/bin/board.mjs --site orch"; eval "$B builder start w/A1 --agent bench --kind codex"', ago(1000)),
     toolUse('t3', '$B builder start audit/A1 --site audit', ago(1000)),
   ].join('\n') + '\n');
   for (const _ of [1, 2]) {
@@ -973,11 +973,11 @@ test('a refusal exits non-zero with one line naming the bad flag, and changes no
   assert.deepEqual(read(at('waves', 'w', 'wave.json')), wave());
 });
 
-test('push adds the replies written since the last push to the body, and records the push only when web-ts push succeeds', () => {
+test('push adds the replies written since the last push to the body, and records the push only when kickflip push succeeds', () => {
   const stub = path.join(home, 'stub.mjs');
   const calls = path.join(home, 'calls.jsonl');
   write(stub, "import fs from 'node:fs'; fs.appendFileSync(process.env.STUB_CALLS, JSON.stringify(process.argv.slice(2)) + '\\n'); process.exit(Number(process.env.STUB_EXIT || 0));");
-  const push = (exit, ...args) => run('board.mjs', ['push', '--site', 'orch', ...args], undefined, { WEB_TS_PUSH_CMD: JSON.stringify([process.execPath, stub, 'push']), STUB_CALLS: calls, STUB_EXIT: String(exit) });
+  const push = (exit, ...args) => run('board.mjs', ['push', '--site', 'orch', ...args], undefined, { KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, stub, 'push']), STUB_CALLS: calls, STUB_EXIT: String(exit) });
   const state = site('orch', 'data', 'push-state.json');
   const reply = (id, msAgo) => {
     write(site('orch', 'data', 'replies', `${id}.html`), '<p>Done.</p>');
@@ -1012,8 +1012,8 @@ test('push adds the replies written since the last push to the body, and records
 });
 
 test("a Claude thread line or reply rewrites its item's queued push to the latest message, and a sent push stays sent", () => {
-  write(at('web-ts', 'push', 'subs.json'), [{ endpoint: 'https://push.invalid/device', keys: { p256dh: 'x', auth: 'y' }, origin: 'https://hub.invalid' }]);
-  const queueFile = at('web-ts', 'push', 'queue.json');
+  write(at('kickflip', 'push', 'subs.json'), [{ endpoint: 'https://push.invalid/device', keys: { p256dh: 'x', auth: 'y' }, origin: 'https://hub.invalid' }]);
+  const queueFile = at('kickflip', 'push', 'queue.json');
   const queue = () => Object.fromEntries(read(queueFile).items.map((i) => [i.tag, i.body]));
   fs.appendFileSync(site('orch', 'data', 'events.jsonl'), JSON.stringify({ id: 'm1', ts: '2026-10-23T10:05:00Z', kind: 'item-message', data: { key: 'w/A1' } }) + '\n');
   const lastPush = () => write(site('orch', 'data', 'push-state.json'), { last_push: new Date(Date.now() - 60_000).toISOString() });
@@ -1046,8 +1046,8 @@ test("a Claude thread line or reply rewrites its item's queued push to the lates
   assert.deepEqual(read(queueFile).items, []);
 });
 
-test('a push without an allowed kind is refused with one line, by board.mjs and web-ts push alike, and nothing goes', () => withDevice(async (b, received) => {
-  const webTs = (...args) => runAsync(path.join('..', '..', 'bin', 'web-ts.mjs'), ['push', ...args], { WEB_TS_HUB_PORT: '9' });
+test('a push without an allowed kind is refused with one line, by board.mjs and kickflip push alike, and nothing goes', () => withDevice(async (b, received) => {
+  const webTs = (...args) => runAsync(path.join('..', '..', 'bin', 'kickflip.mjs'), ['push', ...args], { KICKFLIP_HUB_PORT: '9' });
   for (const r of [
     await b('push', '--site', 'orch', '--title', 'Answered: keep it?', '--now'),
     await b('push', '--site', 'orch', '--kind', 'info', '--title', '2 PRs merged'),
@@ -1059,7 +1059,7 @@ test('a push without an allowed kind is refused with one line, by board.mjs and 
     assert.equal(r.err.trim().split('\n').length, 1, r.err);
   }
   assert.deepEqual(received, []);
-  assert.equal(fs.existsSync(at('web-ts', 'push', 'queue.json')), false);
+  assert.equal(fs.existsSync(at('kickflip', 'push', 'queue.json')), false);
   assert.equal(fs.existsSync(site('orch', 'data', 'push-state.json')), false);
 }));
 
@@ -1080,7 +1080,7 @@ test("after a thread's push has gone, Claude's lines and replies there push noth
     ['item-w/A1', 'A1 asks: Which layout?', 'Grid · List', `${url}&reply`],
     ['item-w/A1', 'A1 asks: Which colour?', 'Blue · Red · and 2 replies', `${url}&reply`],
   ]);
-  assert.deepEqual(read(at('web-ts', 'push', 'queue.json')).items, []);
+  assert.deepEqual(read(at('kickflip', 'push', 'queue.json')).items, []);
 }));
 
 test('checked sends the queued pushes at the end of a tick, each as its own notification', () => withDevice(async (b, received) => {
@@ -1089,7 +1089,7 @@ test('checked sends the queued pushes at the end of a tick, each as its own noti
   assert.equal(received.length, 0);
   assert.equal((await b('checked', '--site', 'orch', '--every', '15')).code, 0);
   assert.deepEqual(received.map(({ title, tag, url }) => [title, tag, url]), [['A2 waits on Merge', undefined, '/orch/'], ['A1 waits on Ready', 'item-w/A1', '/orch/#item=w%2FA1&reply']]);
-  assert.deepEqual(read(at('web-ts', 'push', 'queue.json')).items, []);
+  assert.deepEqual(read(at('kickflip', 'push', 'queue.json')).items, []);
 }));
 
 test('item set refuses to start a blocked item, and finishing a dep prints, threads and emits each unblocking once', () => {
@@ -1203,7 +1203,7 @@ test('item relate-ask folds an ask into an item with one summary line, ask unfol
 
 function boardsManifest() {
   const entry = (route) => ({ dir: site(route), port: 1, cmd: [process.execPath, '/skill/board/server.mjs', site(route)] });
-  write(at('web-ts', 'manifest.json'), { sites: { orch: entry('orch'), audit: entry('audit'), notes: { dir: site('notes'), port: 1, cmd: [process.execPath, 'server.mjs'] } } });
+  write(at('kickflip', 'manifest.json'), { sites: { orch: entry('orch'), audit: entry('audit'), notes: { dir: site('notes'), port: 1, cmd: [process.execPath, 'server.mjs'] } } });
 }
 const addEvents = (...events) => fs.appendFileSync(site('orch', 'data', 'events.jsonl'), events.map((e) => JSON.stringify(e) + '\n').join(''));
 
@@ -1371,7 +1371,7 @@ test("settings prints the board's settings as JSON, off when absent, and setting
 
 test("rules add, edit and remove keep a board's rules in its board.json and the hub's in settings.json, and list prints both", () => {
   const settings = { polling: { windows: [{ from: '08:00', every_minutes: 15 }], hold_overnight: true }, other_key: 'kept' };
-  write(at('web-ts', 'settings.json'), settings);
+  write(at('kickflip', 'settings.json'), settings);
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', reviewers: [{ name: 'Ann', slack_user: 'U1', dm: 'D1', github: 'ann' }] });
   assert.deepEqual([board('rules', 'list', '--site', 'orch').out], ['']);
   const added = board('rules', 'add', '--site', 'orch', '--text', 'Ask before\n  touching main');
@@ -1380,14 +1380,14 @@ test("rules add, edit and remove keep a board's rules in its board.json and the 
   const hubId = /^id (\S+)$/m.exec(board('rules', 'add', '--hub', '--by', 'claude', '--text', 'Screenshots in every PR').out)[1];
   const cfg = read(site('orch', 'board.json'));
   assert.deepEqual([cfg.title, cfg.reviewers.length, cfg.rules.map((r) => [r.id, r.text, r.by])], ['Orch', 1, [[boardId, 'Ask before touching main', 'owner']]]);
-  assert.deepEqual({ ...read(at('web-ts', 'settings.json')), rules: undefined }, { ...settings, rules: undefined });
+  assert.deepEqual({ ...read(at('kickflip', 'settings.json')), rules: undefined }, { ...settings, rules: undefined });
   const list = board('rules', 'list', '--site', 'orch');
   assert.equal(list.out, `hub ${hubId} claude Screenshots in every PR\nboard ${boardId} owner Ask before touching main\n`);
   assert.equal(board('rules', 'list').out, `hub ${hubId} claude Screenshots in every PR\n`);
 
   assert.equal(board('rules', 'edit', boardId, '--site', 'orch', '--text', 'Ask first').code, 0);
   assert.equal(board('rules', 'edit', hubId, '--hub', '--text', 'Screenshots always').code, 0);
-  assert.deepEqual(read(at('web-ts', 'settings.json')).rules.map((r) => [r.text, r.by]), [['Screenshots always', 'claude']]);
+  assert.deepEqual(read(at('kickflip', 'settings.json')).rules.map((r) => [r.text, r.by]), [['Screenshots always', 'claude']]);
   assert.match(board('rules', 'remove', hubId, '--site', 'orch').err, /it is a hub rule, so pass --hub/);
   assert.match(board('rules', 'remove', boardId, '--hub', '--site', 'orch').err, /it is a board rule, so drop --hub/);
   assert.equal(board('rules', 'remove', boardId, '--site', 'orch').code, 0);
@@ -1414,5 +1414,5 @@ test('rules refuse a board rule without --site, an empty text, an unknown author
     assert.match(r.err, err, args.join(' '));
   }
   assert.equal(read(site('orch', 'board.json')).rules, undefined);
-  assert.equal(fs.existsSync(at('web-ts', 'settings.json')), false);
+  assert.equal(fs.existsSync(at('kickflip', 'settings.json')), false);
 });

@@ -1,6 +1,6 @@
 // Rules: the owner's standing instructions to the sessions that own boards
 // (docs/adr/0039-rules-live-on-settings-at-hub-and-board-level.md). A rule is {id, text, by, at}; by is "owner", or
-// "claude" when Claude codified it on the owner's word. Hub rules are `rules` in ~/.claude/web-ts/settings.json and
+// "claude" when Claude codified it on the owner's word. Hub rules are `rules` in ~/.claude/kickflip/settings.json and
 // apply to every board; a board's own are `rules` in its board.json. bin/wait-events.mjs prints both after each event.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -88,7 +88,7 @@ export const readHubRules = () => rulesOf(readSettingsFile());
 // Rewrites `rules` alone; every other key of settings.json stays as it is on disk now. readSettingsFile reads a
 // broken file as {}, so one that doesn't parse is refused rather than replaced.
 export function writeHubRules(rules) {
-  const file = path.join(os.homedir(), '.claude', 'web-ts', 'settings.json');
+  const file = path.join(os.homedir(), '.claude', 'kickflip', 'settings.json');
   let raw = null;
   try { raw = fs.readFileSync(file, 'utf8'); } catch {}
   if (raw !== null) { try { JSON.parse(raw); } catch { fail(`${file} is not valid JSON; fix it before changing the hub rules`); } }

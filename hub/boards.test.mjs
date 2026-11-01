@@ -17,7 +17,7 @@ process.env.HOME = home;
 const { listBoards, linksOf, hubLink, oldestUnheard, hubCode, HUB_CODE, listenState, checkListening, RESUME_STATE } = await import('./boards.mjs');
 
 const claude = (...p) => path.join(home, '.claude', ...p);
-const site = (route, ...p) => claude('web-ts', 'sites', route, ...p);
+const site = (route, ...p) => claude('kickflip', 'sites', route, ...p);
 const write = (file, v) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof v === 'string' ? v : JSON.stringify(v)); };
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const events = (route, kind) => { try { return fs.readFileSync(site(route, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.kind === kind); } catch { return []; } };
@@ -32,7 +32,7 @@ const liveSession = (sessionId) => {
 };
 
 const [port, orchPort, shopPort, plainPort, stubbornPort, latePort, napPort, hubPort, hubBoardPort, devPort, closePort] = await freePorts(11);
-process.env.WEB_TS_HUB_PORT = String(port);
+process.env.KICKFLIP_HUB_PORT = String(port);
 const base = `http://127.0.0.1:${port}`;
 const boardCmd = (route) => [process.execPath, path.join(SKILL, 'board', 'server.mjs'), site(route)];
 const NOW_SINCE = ago(60);
@@ -47,7 +47,7 @@ write(site('shop', 'board.json'), { title: 'Shop', items: 'data/wave.json', slug
 write(site('shop', 'data', 'wave.json'), { repo: 'o/r', items: [{ id: 'S1', pr: 722 }, { id: 'S2', pr: 11 }] });
 write(site('bare', 'board.json'), { items: 'data/items.json' });
 write(site('bare', 'data', 'items.json'), { items: [{ id: 'B1', pr: 5 }] });
-write(claude('web-ts', 'manifest.json'), { version: 1, sites: {
+write(claude('kickflip', 'manifest.json'), { version: 1, sites: {
   orch: { dir: site('orch'), port: orchPort, cmd: boardCmd('orch'), watch: ['data/events.jsonl'], owner: { session: 's-orch', since: NOW_SINCE } },
   shop: { dir: site('shop'), port: shopPort, cmd: boardCmd('shop'), watch: ['data/events.jsonl'], owner: { session: 's-shop', since: NOW_SINCE } },
   plain: { dir: site('plain'), port: plainPort, cmd: ['/bin/sleep', '600'] },
@@ -86,7 +86,7 @@ test('linksOf names each hub link that reaches a board and each that does not', 
   assert.equal(hubLink({ running: 'h1', onDisk: 'h1' }).ok, true);
   assert.equal(hubLink({ running: undefined, onDisk: 'h1' }).ok, false);
   assert.deepEqual(hubLink({ running: 'h0', onDisk: 'h1' }), { link: 'hub', ok: false,
-    detail: 'The hub runs older code than its files; restart it with launchctl kickstart -k gui/$(id -u)/local.claude.web-ts-hub' });
+    detail: 'The hub runs older code than its files; restart it with launchctl kickstart -k gui/$(id -u)/local.claude.kickflip-hub' });
   const slack = linksOf(orch, { ...ok, topics: { 'w1/A1': { review_link_ts: { Ann: '1.1' } } } })[4];
   assert.deepEqual([slack.ok, slack.detail], [false, '#11 has no link for Bea.']);
   assert.equal(linksOf(orch, { ...ok, topics: {}, github: { ...github, prs: { 'o/r#11': { at: 'T', state: 'OPEN', isDraft: true } } } })[4].ok, true);
@@ -143,7 +143,7 @@ const api = async (route) => (await fetch(`${base}/${route}/api/board`)).json();
 const linkState = (links) => Object.fromEntries(links.map((l) => [l.link, l.ok]));
 const pushes = () => device.received.map(({ title, url, tag }) => ({ title, url, tag }));
 const cli = (script, args) => new Promise((resolve) => {
-  const child = spawn(process.execPath, [script, ...args], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: String(port) } });
+  const child = spawn(process.execPath, [script, ...args], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port) } });
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', (d) => { stdout += d; });
@@ -153,8 +153,8 @@ const cli = (script, args) => new Promise((resolve) => {
 
 before(async () => {
   device = await startFakeDevice();
-  write(claude('web-ts', 'push', 'subs.json'), [device.subscription]);
-  write(claude('web-ts', 'settings.json'), { polling: { windows: [{ from: '00:00', every_minutes: 120 }], hold_overnight: false, wakes: ['00:00'] }, notifications: { on: true, weekends_off: false } });
+  write(claude('kickflip', 'push', 'subs.json'), [device.subscription]);
+  write(claude('kickflip', 'settings.json'), { polling: { windows: [{ from: '00:00', every_minutes: 120 }], hold_overnight: false, wakes: ['00:00'] }, notifications: { on: true, weekends_off: false } });
   write(claude('skills', 'monitor', 'monitor-gh.sh'), 'echo "$1" >> "$HOME/gh/calls"\ncat "$HOME/gh/$1.json"\n');
   write(path.join(home, 'gh', '11.json'), gh());
   write(path.join(home, 'gh', '722.json'), gh());
@@ -168,7 +168,7 @@ before(async () => {
   orchSession = liveSession('s-orch');
   write(site('orch', 'data', 'watcher.json'), { pid: orchWatcher.pid, since: ago(1) });
 
-  hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, WEB_TS_HUB_PORT: String(port), WEB_TS_CLAUDE: '/usr/bin/false', PATH: `${path.join(home, 'bin')}:${process.env.PATH}` } });
+  hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', PATH: `${path.join(home, 'bin')}:${process.env.PATH}` } });
   await new Promise((resolve, reject) => {
     let out = '';
     hub.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) resolve(); });
@@ -193,7 +193,7 @@ after(async () => {
 });
 
 test('hub writes refuse cross-site requests before handling forms, JSON or deletes', async () => {
-  const settings = claude('web-ts', 'settings.json');
+  const settings = claude('kickflip', 'settings.json');
   const before = fs.readFileSync(settings, 'utf8');
   for (const headers of [
     { 'sec-fetch-site': 'cross-site' },
@@ -230,7 +230,7 @@ test('hub writes refuse cross-site requests before handling forms, JSON or delet
 });
 
 test('closing a board through the hub requires JSON, same-origin access and its exact name, retains its folder and stops its server after answering', async () => {
-  const file = claude('web-ts', 'manifest.json');
+  const file = claude('kickflip', 'manifest.json');
   const original = read(file);
   const route = 'close-me';
   const dir = site(route);
@@ -246,7 +246,7 @@ test('closing a board through the hub requires JSON, same-origin access and its 
       if ((await fetch(`${base}/${route}/_claude/health`)).ok) break;
       await new Promise((r) => setTimeout(r, 100));
     }
-    const pid = Number(fs.readFileSync(claude('web-ts', 'run', `${route}.pid`), 'utf8'));
+    const pid = Number(fs.readFileSync(claude('kickflip', 'run', `${route}.pid`), 'utf8'));
     const body = { route, name: 'Close Me' };
     const before = read(file);
     for (const h of [{ ...headers, origin: 'https://other.example' }, { ...headers, 'sec-fetch-site': 'cross-site' }, { 'content-type': 'text/plain' }]) {
@@ -271,7 +271,7 @@ test('closing a board through the hub requires JSON, same-origin access and its 
     assert.equal(settings.closed.find((b) => b.route === route).title, 'Close Me');
     const sidebar = await (await fetch(`${base}/_hub/sidebar.json`)).json();
     assert.equal(sidebar.sites.some((b) => b.route === route), false);
-    for (let i = 0; i < 80 && fs.existsSync(claude('web-ts', 'run', `${route}.pid`)); i++) await new Promise((r) => setTimeout(r, 100));
+    for (let i = 0; i < 80 && fs.existsSync(claude('kickflip', 'run', `${route}.pid`)); i++) await new Promise((r) => setTimeout(r, 100));
     assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
     assert.ok(fs.existsSync(site(route, 'data', 'items.json')));
     const reopened = await post('/_hub/reopen-board', { route });
@@ -312,7 +312,7 @@ test('one check polls each open PR on either board once, writes both checked.jso
   assert.deepEqual([r.watched, r.failed, r.changes], [2, [], []]);
   assert.deepEqual([...r.checked].sort(), ['orch', 'shop']);
   assert.deepEqual(fs.readFileSync(path.join(home, 'gh', 'calls'), 'utf8').trim().split('\n').sort(), ['11', '722']);
-  const state = read(claude('web-ts', 'github-state.json'));
+  const state = read(claude('kickflip', 'github-state.json'));
   assert.deepEqual([state.prs['o/r#11'].at, state.prs['o/r#722'].at], [r.at, r.at]);
   assert.deepEqual([...state.lastCheck.boards].sort(), ['orch', 'shop']);
   for (const route of ['orch', 'shop']) assert.equal(read(site(route, 'data', 'checked.json')).every, 120);
@@ -339,7 +339,7 @@ test("a GitHub change goes to every board showing that PR, and a head move only 
   assert.deepEqual(pushed.changes.map((c) => [c.pr, c.changes]), [[11, ['head']]]);
   assert.equal(events('orch', 'github-change').length, 1);
   assert.deepEqual(events('shop', 'github-change').at(-1).data.prs, [{ wave: 'shop', id: 'S2', pr: 11, changes: ['head'] }]);
-  assert.equal(read(claude('web-ts', 'github-state.json')).prs['o/r#722'].head, 'fed');
+  assert.equal(read(claude('kickflip', 'github-state.json')).prs['o/r#722'].head, 'fed');
   assert.deepEqual((await poll()).changes, [], 'a quiet poll does not repeat the head event');
 
   write(site('shop', 'data', 'wave.json'), { repo: 'o/r', items: [{ id: 'S1', pr: 722 },
@@ -377,9 +377,9 @@ test("each board serves its hub links, and the slack link passes once every revi
 });
 
 test('sidebar and Hub page serve usage, the shell keeps it inside Hub, and visibility follows login and share', async () => {
-  const settingsFile = claude('web-ts', 'settings.json');
+  const settingsFile = claude('kickflip', 'settings.json');
   const settings = read(settingsFile);
-  const usageFile = claude('web-ts', 'usage.json');
+  const usageFile = claude('kickflip', 'usage.json');
   const codexDir = path.join(home, '.codex');
   const now = Date.now();
   const at = new Date(now).toISOString();
@@ -433,7 +433,7 @@ test('while the hub runs older code than its files, the Hub row and Health card 
 test("the daily wake reaches both boards", async () => {
   for (let i = 0; i < 100 && !(events('orch', 'check-github').length && events('shop', 'check-github').length); i++) await new Promise((r) => setTimeout(r, 200));
   for (const route of ['orch', 'shop']) assert.deepEqual(events(route, 'check-github').map((e) => e.data), [{ reason: 'morning' }]);
-  assert.deepEqual([...read(claude('web-ts', 'wake-state.json')).last.routes].sort(), ['orch', 'shop']);
+  assert.deepEqual([...read(claude('kickflip', 'wake-state.json')).last.routes].sort(), ['orch', 'shop']);
 });
 
 test('listening again ends the outage, a watcher whose session is not running does not, and the next one pushes again', async () => {
@@ -441,11 +441,11 @@ test('listening again ends the outage, a watcher whose session is not running do
   write(site('shop', 'data', 'watcher.json'), { pid: w.pid, since: ago(0) });
   try {
     assert.deepEqual((await poll()).deaf.pushed, []);
-    assert.ok(read(claude('web-ts', 'deaf-state.json')).shop);
+    assert.ok(read(claude('kickflip', 'deaf-state.json')).shop);
     const s = liveSession('s-shop');
     try { assert.deepEqual((await poll()).deaf.pushed, []); } finally { s.kill(); }
   } finally { w.kill(); }
-  assert.deepEqual(read(claude('web-ts', 'deaf-state.json')), {});
+  assert.deepEqual(read(claude('kickflip', 'deaf-state.json')), {});
   write(site('shop', 'data', 'watcher.json'), { pid: w.pid, since: ago(20), exited_at: ago(10) });
   assert.deepEqual((await poll()).deaf.pushed, ['shop']);
   assert.equal(device.received.filter((p) => p.tag === 'deaf-shop').length, 2);
@@ -476,7 +476,7 @@ test('a board whose stopped session the hub can wake is asleep and pushes nothin
 
 test('the handshake says hello without a push; the board shows its checklist until the session acks the hello', async () => {
   const before = pushes().length;
-  const r = await cli(path.join(SKILL, 'bin', 'web-ts.mjs'), ['handshake', 'shop']);
+  const r = await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['handshake', 'shop']);
   assert.equal(r.status, 0, r.stderr);
   const { hello } = JSON.parse(r.stdout);
   assert.deepEqual(events('shop', 'hello').map((e) => [e.id, e.data.title]), [[hello, 'Shop']]);
@@ -487,25 +487,25 @@ test('the handshake says hello without a push; the board shows its checklist unt
   assert.equal((await board('--site', 'shop', 'hello-ack', hello)).status, 0);
   assert.equal((await api('shop')).setup, null);
   assert.ok(read(site('shop', 'data', 'handshake.json')).done_at);
-  assert.equal((await cli(path.join(SKILL, 'bin', 'web-ts.mjs'), ['handshake', 'plain'])).status, 2);
+  assert.equal((await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['handshake', 'plain'])).status, 2);
 });
 
 test("joining a board polls at once, so the new board's GitHub link passes without waiting for the next slot, and records when it joined, which a later join keeps and the sidebar serves", async () => {
   const before = Date.now();
-  const r = await cli(path.join(SKILL, 'bin', 'web-ts.mjs'), ['join', 'fresh', '--session', 's-fresh', '--template', 'board', '--title', 'Fresh']);
+  const r = await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['join', 'fresh', '--session', 's-fresh', '--template', 'board', '--title', 'Fresh']);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(JSON.parse(r.stdout).poll, 'reached this board');
-  assert.ok(read(claude('web-ts', 'github-state.json')).lastCheck.boards.includes('fresh'));
-  const { created } = read(claude('web-ts', 'manifest.json')).sites.fresh;
+  assert.ok(read(claude('kickflip', 'github-state.json')).lastCheck.boards.includes('fresh'));
+  const { created } = read(claude('kickflip', 'manifest.json')).sites.fresh;
   assert.ok(Date.parse(created) >= before - 1000 && Date.parse(created) <= Date.now(), created);
-  assert.equal((await cli(path.join(SKILL, 'bin', 'web-ts.mjs'), ['join', 'fresh', '--session', 's-fresh', '--title', 'Fresher'])).status, 0);
-  assert.equal(read(claude('web-ts', 'manifest.json')).sites.fresh.created, created);
+  assert.equal((await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['join', 'fresh', '--session', 's-fresh', '--title', 'Fresher'])).status, 0);
+  assert.equal(read(claude('kickflip', 'manifest.json')).sites.fresh.created, created);
   const sites = (await (await fetch(`${base}/_hub/sidebar.json?fresh=1`)).json()).sites;
   assert.deepEqual(sites.map((s) => [s.route, s.created]), [['fresh', created], ['orch', null], ['plain', null], ['shop', null]]);
 });
 
 test("New board validates through HTTP, reports a failed clone and preserves repo and branch through pending join/timeout transitions", async () => {
-  const manifestFile = claude('web-ts', 'manifest.json');
+  const manifestFile = claude('kickflip', 'manifest.json');
   const original = read(manifestFile);
   const canonicalHome = fs.realpathSync(home);
   const repo = path.join(reposDir(), 'int180-http-test/project');
@@ -571,7 +571,7 @@ test("New board validates through HTTP, reports a failed clone and preserves rep
     assert.equal((await sidebar()).sites.some((s) => s.route === pending.route), false);
     assert.equal((await post(request)).status, 400);
     const dismiss = (route) => fetch(`${base}/_hub/new-board/${route}`, { method: 'DELETE' });
-    const join = await cli(path.join(SKILL, 'bin', 'web-ts.mjs'), ['join', pending.route, '--session', 's-backend', '--template', 'board', '--title', request.name, '--repo', repo]);
+    const join = await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['join', pending.route, '--session', 's-backend', '--template', 'board', '--title', request.name, '--repo', repo]);
     assert.equal(join.status, 0, join.stderr);
     const joined = await sidebar();
     assert.equal(joined.starting.some((s) => s.route === pending.route), false);
@@ -599,7 +599,7 @@ test("New board validates through HTTP, reports a failed clone and preserves rep
 test("a board session's permission prompt pushes, waits in that board's Needs you and the badge, and Always allow reaches its hook as a rule for the session", async () => {
   const input = { session_id: 's-orch', cwd: home, hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'npm test', description: 'Run tests' } };
   const hook = new Promise((resolve) => {
-    const child = spawn(process.execPath, [path.join(HUB_DIR, 'permission-hook.mjs')], { env: { ...process.env, WEB_TS_HUB_PORT: String(port) } });
+    const child = spawn(process.execPath, [path.join(HUB_DIR, 'permission-hook.mjs')], { env: { ...process.env, KICKFLIP_HUB_PORT: String(port) } });
     let out = '';
     child.stdout.on('data', (d) => { out += d; });
     child.on('close', (status) => resolve({ status, out }));
@@ -628,7 +628,7 @@ test("a board session's permission prompt pushes, waits in that board's Needs yo
 });
 
 test('object property names work as page routes and as new boards through HTTP and the CLI', async () => {
-  const manifestFile = claude('web-ts', 'manifest.json');
+  const manifestFile = claude('kickflip', 'manifest.json');
   const original = read(manifestFile);
   const routes = ['constructor', 'tostring', 'hasownproperty', 'valueof'];
   const names = ['Constructor', 'toString', 'hasOwnProperty', 'valueOf'];
@@ -655,7 +655,7 @@ test('object property names work as page routes and as new boards through HTTP a
       assert.deepEqual(await response.json(), { route });
       const pending = (await get('/_hub/sidebar.json')).starting.find((s) => s.route === route);
       assert.equal(pending.title, names[i]);
-      const joined = await cli(path.join(SKILL, 'bin', 'web-ts.mjs'), ['join', route, '--session', sessions[i], '--template', 'board', '--title', names[i], '--repo', repo]);
+      const joined = await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['join', route, '--session', sessions[i], '--template', 'board', '--title', names[i], '--repo', repo]);
       assert.equal(joined.status, 0, joined.stderr);
       write(site(route, 'board.json'), { title: names[i], slug: route, items: 'data/items.json' });
       write(site(route, 'data', 'items.json'), { items: [{ id: 'constructor', title: 'Review', status: 'planned' }] });
@@ -671,7 +671,7 @@ test('object property names work as page routes and as new boards through HTTP a
     const checked = await poll();
     assert.ok(routes.every((route) => checked.checked.includes(route)));
     const downSince = () => {
-      try { const state = read(claude('web-ts', 'resume-state.json')); return routes.filter((route) => Object.hasOwn(state, route) && Number.isFinite(Date.parse(state[route].down_since))); } catch { return []; }
+      try { const state = read(claude('kickflip', 'resume-state.json')); return routes.filter((route) => Object.hasOwn(state, route) && Number.isFinite(Date.parse(state[route].down_since))); } catch { return []; }
     };
     for (let n = 0; n < 200 && downSince().length < routes.length; n++) await new Promise((r) => setTimeout(r, 100));
     assert.deepEqual(downSince(), routes);
@@ -682,7 +682,7 @@ test('object property names work as page routes and as new boards through HTTP a
 });
 
 test('a no-JS Polling edit redirects to Hub with Polling open and the edited window selected', async () => {
-  const file = claude('web-ts', 'settings.json');
+  const file = claude('kickflip', 'settings.json');
   const original = fs.readFileSync(file);
   try {
     const r = await fetch(`${base}/_hub/settings/polling`, {
@@ -702,10 +702,10 @@ test('a no-JS Polling edit redirects to Hub with Polling open and the edited win
 
 test('a starting hub flags hub-orchestrator as the hub board once, only while no site has the flag', async () => {
   const other = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'boards-migrate-')));
-  const file = path.join(other, '.claude', 'web-ts', 'manifest.json');
+  const file = path.join(other, '.claude', 'kickflip', 'manifest.json');
   const board = (name, at) => ({ dir: path.join(other, name), port: at, cmd: [process.execPath, path.join(SKILL, 'board', 'server.mjs'), path.join(other, name)] });
   const startHub = async () => {
-    const h = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: other, WEB_TS_HUB_PORT: String(hubPort), WEB_TS_CLAUDE: '/usr/bin/false' } });
+    const h = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: other, KICKFLIP_HUB_PORT: String(hubPort), KICKFLIP_CLAUDE: '/usr/bin/false' } });
     await new Promise((resolve, reject) => {
       let out = '';
       h.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) resolve(); });
@@ -734,17 +734,17 @@ test('a starting hub flags hub-orchestrator as the hub board once, only while no
 });
 
 test('stopping the hub stops every site it started, one that ignores SIGTERM and one that joined just before, and starts none', async () => {
-  const sitesDir = claude('web-ts', 'sites');
+  const sitesDir = claude('kickflip', 'sites');
   const siteProcs = () => execFileSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf8' }).split('\n').filter((l) => l.includes(sitesDir)).map((l) => Number(l.trim().split(' ')[0]));
   const node = (route, script) => [process.execPath, '-e', script, site(route)];
-  const manifest = read(claude('web-ts', 'manifest.json'));
+  const manifest = read(claude('kickflip', 'manifest.json'));
   manifest.sites.stubborn = { dir: home, port: stubbornPort, cmd: node('stubborn', "process.on('SIGTERM', () => {}); console.log('ready'); setInterval(() => {}, 1000)") };
-  write(claude('web-ts', 'manifest.json'), manifest);
-  const log = claude('web-ts', 'logs', 'stubborn.log');
+  write(claude('kickflip', 'manifest.json'), manifest);
+  const log = claude('kickflip', 'logs', 'stubborn.log');
   for (let i = 0; i < 100 && !(fs.existsSync(log) && fs.readFileSync(log, 'utf8').includes('ready')); i++) await new Promise((r) => setTimeout(r, 100));
   assert.match(fs.readFileSync(log, 'utf8'), /ready/);
   manifest.sites.late = { dir: home, port: latePort, cmd: node('late', 'setInterval(() => {}, 1000)') };
-  write(claude('web-ts', 'manifest.json'), manifest);
+  write(claude('kickflip', 'manifest.json'), manifest);
   const exited = new Promise((resolve) => hub.once('exit', resolve));
   hub.kill('SIGTERM');
   await exited;

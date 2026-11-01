@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// web-ts hub: one loopback server that Tailscale sends every request to.
+// kickflip hub: one loopback server that Tailscale sends every request to.
 //   /                 the app shell (board/public/app.html), which opens this device's last board, else the board with
 //                     the most waiting; a browser's page load of any site's page, such as /<route>/,
 //                     /<route>/settings.html or /learn/, gets the shell too (shell.mjs pageOf)
@@ -60,7 +60,7 @@
 //                     applyRules) and, when anything changed, sends every board a `rules {scope: "hub", added, edited,
 //                     removed}` event (boards.mjs sendToBoards). → {rules, events, failed}; a bad list → 400 {error}
 //   /_hub/poll        POST runs one poll now, or joins the running one, and returns its result as JSON;
-//                     {"flush": false} skips sending the queue (`web-ts poll-now`)
+//                     {"flush": false} skips sending the queue (`kickflip poll-now`)
 //   /_hub/install     POST {route, key}, loopback only: starts the board's owner-set install_script with key and
 //                     its builder's worktree path; returns {status: 'started'} without waiting (installs.mjs)
 //   /_hub/prompts     POST a PermissionRequest hook's input (permission-hook.mjs) → {id, deadline}: a pending prompt in
@@ -85,7 +85,7 @@
 // (docs/adr/0025-the-hub-polls-github-and-sends-pushes-on-one-interval.md). Every feature that serves
 // boards takes them from boards.mjs listBoards, the one board registry
 // (docs/adr/0040-one-board-registry-for-every-hub-feature.md). launchd keeps the
-// hub itself running (see ../SKILL.md, `web-ts install`).
+// hub itself running (see ../SKILL.md, `kickflip install`).
 // After each poll it records when each board's hub links first failed (boards.mjs recordLinkFaults). As it starts it
 // records the hash of its own code (boards.mjs recordHubCode), so the hub link (boards.mjs hubLink) can tell when the
 // files changed under it (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md), and flags `hub-orchestrator`
@@ -94,7 +94,7 @@
 // while that session wasn't running, and pushes once when that doesn't bring it back (sessions.mjs checkSessions;
 // docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md).
 // Every 15 seconds it drops the pending prompts whose hook has gone (prompts.mjs expired).
-// State lives in ~/.claude/web-ts: manifest.json, logs/<route>.log, run/<route>.pid, github-state.json, wake-state.json,
+// State lives in ~/.claude/kickflip: manifest.json, logs/<route>.log, run/<route>.pid, github-state.json, wake-state.json,
 // deaf-state.json, link-faults.json, hub-code.json, resume-state.json, prompts.json.
 import http from 'node:http';
 import net from 'node:net';
@@ -126,18 +126,23 @@ import { BOARD_PUBLIC, appFile, colorsVersion, destOf, fileVersion, pageOf, shel
 import { hubStream } from './stream.mjs';
 import { usageReader } from './usage.mjs';
 import { InstallError, startInstall, stopInstalls } from './installs.mjs';
+import { migrateOnStart } from '../bin/install.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const COLORS = path.join(HUB_DIR, '..', 'shared', 'colors.css');
 
-const HOME = path.join(os.homedir(), '.claude', 'web-ts');
+const log = (...a) => console.log(new Date().toISOString(), ...a);
+const migration = migrateOnStart();
+for (const step of migration.steps) log(`migration: ${step}`);
+for (const conflict of migration.conflicts) log(`migration failed: ${conflict}`);
+
+const HOME = path.join(os.homedir(), '.claude', 'kickflip');
 const MANIFEST = path.join(HOME, 'manifest.json');
 const LOGS = path.join(HOME, 'logs');
 const RUN = path.join(HOME, 'run');
-const PORT = Number(process.env.WEB_TS_HUB_PORT || 4500);
+const PORT = Number(process.env.KICKFLIP_HUB_PORT || 4500);
 for (const d of [HOME, LOGS, RUN]) fs.mkdirSync(d, { recursive: true });
 
-const log = (...a) => console.log(new Date().toISOString(), ...a);
 try { const code = recordHubCode(); log(`hub code ${code.hash} (${code.files.length} files)`); } catch (e) { log('could not record the hub code hash:', e.message); }
 try { const route = await migrateHubFlag(); if (route) log(`manifest: flagged /${route} as the hub board`); } catch (e) { log('hub board migration failed:', e.message); }
 try { const routes = await migrateBoardRepos(); if (routes.length) log(`manifest: recorded GitHub repos for ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('board repo migration failed:', e.message); }
@@ -188,7 +193,7 @@ function start(route, site) {
   const p = procs.get(route) || { restarts: 0 };
   const out = fs.openSync(path.join(LOGS, route + '.log'), 'a');
   const [cmd, ...args] = site.cmd;
-  const env = { ...process.env, ...(site.env || {}), PORT: String(site.port), PREFIX: '/' + route, WEB_TS_ROUTE: route };
+  const env = { ...process.env, ...(site.env || {}), PORT: String(site.port), PREFIX: '/' + route, KICKFLIP_ROUTE: route };
   fs.writeSync(out, `\n--- ${new Date().toISOString()} hub starting: ${site.cmd.join(' ')} (port ${site.port})\n`);
   let child;
   try {

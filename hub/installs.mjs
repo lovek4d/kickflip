@@ -43,7 +43,7 @@ async function installWorktree(board, key, manifest) {
   if (!record?.path && !repo) return '';
   if (record?.path && !path.isAbsolute(candidate)) return '';
   try {
-    const roots = [path.join(fs.realpathSync(os.homedir()), '.claude', 'web-ts', 'worktrees')];
+    const roots = [path.join(fs.realpathSync(os.homedir()), '.claude', 'kickflip', 'worktrees')];
     if (typeof repo === 'string' && path.isAbsolute(repo)) {
       try { roots.push(path.join(fs.realpathSync(repo), '.claude', 'worktrees')); } catch {}
     }

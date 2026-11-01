@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$HOME/.claude/skills/join-web-ts/hooks-plugin/hooks/codex-share-auto.mjs\""
+            "command": "node \"$HOME/.claude/skills/kickflip/hooks-plugin/hooks/codex-share-auto.mjs\""
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$HOME/.claude/skills/join-web-ts/hooks-plugin/hooks/codex-share-auto.mjs\""
+            "command": "node \"$HOME/.claude/skills/kickflip/hooks-plugin/hooks/codex-share-auto.mjs\""
           }
         ]
       }
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$HOME/.claude/skills/join-web-ts/board/bin/builder-stop-hook.mjs\"",
+            "command": "node \"$HOME/.claude/skills/kickflip/board/bin/builder-stop-hook.mjs\"",
             "async": true
           }
         ]

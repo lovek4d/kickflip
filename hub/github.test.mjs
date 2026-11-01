@@ -103,7 +103,7 @@ test('the poll routes head changes per card on both kinds of board and remembers
   assert.deepEqual(events(waveDir).at(-1).data.prs, [{ wave: 'w', id: 'A1', pr: 7, changes: ['head'] }]);
   assert.deepEqual(events(fileDir).at(-1).data.prs, [{ wave: 'own', id: 'S1', pr: 7, changes: ['head'] }]);
   assert.deepEqual(fs.readFileSync(path.join(home, 'calls'), 'utf8').trim().split('\n'), ['7', '8', '7', '8']);
-  const state = JSON.parse(fs.readFileSync(claude('web-ts', 'github-state.json'), 'utf8'));
+  const state = JSON.parse(fs.readFileSync(claude('kickflip', 'github-state.json'), 'utf8'));
   assert.equal(state.prs['o/r#8'].head, 'new');
   assert.deepEqual((await poll()).events, []);
   result(7, 'newer', { pending: 0 });
@@ -127,7 +127,7 @@ test('the poll retries an install head change after its delivery fails, without 
     write(path.join(dir, 'board.json'), { items: 'data/wave.json', slug: 'w' });
     write(path.join(dir, 'data/wave.json'), { repo: 'o/r', items: [{ id: 'A1', pr: 7, install }] });
   }
-  const stateFile = claude('web-ts', 'github-state.json');
+  const stateFile = claude('kickflip', 'github-state.json');
   write(stateFile, { prs: { 'o/r#7': sum() } });
   write(claude('skills', 'monitor', 'monitor-gh.sh'), 'cat "$HOME/gh/$1.json"\n');
   write(path.join(home, 'gh', '7.json'), gh({ head: 'new' }));

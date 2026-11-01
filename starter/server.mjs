@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Site server from the web-ts starter kit. The hub runs it with PORT and
+// Site server from the kickflip starter kit. The hub runs it with PORT and
 // PREFIX (/<route>) set, and strips the prefix before forwarding; requests
 // that still carry it (local testing) are served the same.
 //   GET  /...                    files from ./public (directories serve index.html)

@@ -94,7 +94,7 @@ export function usageReader({ home = os.homedir(), now = Date.now, cacheMs = 60_
   let checked = -Infinity;
   return ({ codexShare = 'off' } = {}) => {
     const time = now();
-    const claude = readingOf(readJson(path.join(home, '.claude', 'web-ts', 'usage.json'))?.claude, time);
+    const claude = readingOf(readJson(path.join(home, '.claude', 'kickflip', 'usage.json'))?.claude, time);
     if (codexShare === 'off' || !fs.existsSync(path.join(home, '.codex', 'auth.json'))) return { claude, codex: null };
     if (time - checked >= cacheMs) {
       cached = scanCodex(sessions);

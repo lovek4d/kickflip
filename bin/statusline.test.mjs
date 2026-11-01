@@ -11,7 +11,7 @@ let home;
 beforeEach(() => { home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-statusline-'))); });
 afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
 const env = () => ({ ...process.env, HOME: home, GIT_CONFIG_NOSYSTEM: '1' });
-const usageFile = () => path.join(home, '.claude', 'web-ts', 'usage.json');
+const usageFile = () => path.join(home, '.claude', 'kickflip', 'usage.json');
 const run = (input, overrides = {}) => {
   const result = spawnSync(process.execPath, [script], {
     input: typeof input === 'string' ? input : JSON.stringify(input), encoding: 'utf8', env: env(), ...overrides,

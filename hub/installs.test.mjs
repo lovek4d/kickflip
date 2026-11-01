@@ -14,7 +14,7 @@ const { listBoards } = await import('./boards.mjs');
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value)); };
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
-const web = (...parts) => path.join(home, '.claude', 'web-ts', ...parts);
+const web = (...parts) => path.join(home, '.claude', 'kickflip', ...parts);
 let site, source, script, manifest, gate;
 const thread = (key = 'w/A1') => {
   try { return fs.readFileSync(path.join(site, 'data', 'threads', key.replace('/', '__') + '.jsonl'), 'utf8').trim().split('\n').map(JSON.parse); } catch { return []; }
@@ -259,7 +259,7 @@ test('the hub install route starts asynchronously and refuses forwarded, browser
 const timer = setInterval(() => { if (fs.existsSync(${JSON.stringify(gate)})) clearInterval(timer); }, 10);`);
   write(web('manifest.json'), manifest);
   write(web('settings.json'), { polling: { windows: [{ from: '00:00', every_minutes: 120 }], hold_overnight: false, wakes: [] } });
-  const hub = spawn(process.execPath, [path.join(root, 'hub', 'hub.mjs')], { env: { ...process.env, WEB_TS_HUB_PORT: String(port) } });
+  const hub = spawn(process.execPath, [path.join(root, 'hub', 'hub.mjs')], { env: { ...process.env, KICKFLIP_HUB_PORT: String(port) } });
   let stderr = '';
   hub.stderr.on('data', (chunk) => { stderr += chunk; });
   const exited = new Promise((resolve) => hub.once('exit', resolve));

@@ -15,7 +15,7 @@ const { boardRepo, changeBoardRepo, migrateBoardRepos, githubFromOrigin } = awai
 const { startingBoards, STARTING_WAIT, BG_SETTINGS } = await import('./sessions.mjs');
 const { routeFromName, ROUTE_RE } = await import('./routes.mjs');
 const { saveJSON, readManifest, listBoards, prsOf } = await import('./boards.mjs');
-const manifestFile = path.join(home, '.claude', 'web-ts', 'manifest.json');
+const manifestFile = path.join(home, '.claude', 'kickflip', 'manifest.json');
 const sessionsDir = path.join(home, '.claude', 'sessions');
 fs.mkdirSync(sessionsDir, { recursive: true });
 const base = path.join(home, '.repos');
@@ -69,7 +69,7 @@ test('new repo requests clone before starting a session and store the board bran
   release();
   const started = await request.started;
   assert.deepEqual(calls, [{ cwd: repo, argv: ['--bg', '--name', "Bob's audit", '--permission-mode', 'auto', '--settings', BG_SETTINGS,
-    `/join-web-ts bob-s-audit --template board --title 'Bob'\\''s audit' --description 'Review $HOME changes'`] }]);
+    `/kickflip bob-s-audit --template board --title 'Bob'\\''s audit' --description 'Review $HOME changes'`] }]);
   const rec = readManifest().starting['bob-s-audit'];
   assert.equal(started.session, rec.session);
   assert.ok(fs.existsSync(path.join(sessionsDir, `${rec.session}.json`)));
@@ -95,7 +95,7 @@ test('concurrent boards share one clone without switching its branch and need no
   await Promise.all(requests.map((r) => r.started));
   assert.equal(cloneCalls.length - before, 1);
   assert.deepEqual(calls.map((c) => c.cwd), [path.join(base, 'owner/shared'), path.join(base, 'owner/shared')]);
-  assert.equal(calls[0].argv.at(-1), "/join-web-ts shared-0 --template board --title 'Shared 0'");
+  assert.equal(calls[0].argv.at(-1), "/kickflip shared-0 --template board --title 'Shared 0'");
   assert.deepEqual(Object.values(readManifest().starting).map((r) => r.branch), ['main', 'develop']);
   const another = await requestBoard(input('Shared again', 'owner/shared'), { run, live, repos });
   assert.ok((await another.started).session);
@@ -314,13 +314,13 @@ test('Settings clone changes update repo, branch and session folder and notify t
 });
 
 test('join transfers the reserved repo and branch before or after the start result, and rejoin keeps the selected session folder', () => {
-  const bin = fileURLToPath(new URL('../bin/web-ts.mjs', import.meta.url));
+  const bin = fileURLToPath(new URL('../bin/kickflip.mjs', import.meta.url));
   for (const recorded of [false, true]) {
     const route = recorded ? 'joined-after' : 'joined-before';
     const clone = path.join(base, 'owner/project');
     saveJSON(manifestFile, { sites: {}, starting: { [route]: { title: route, github: 'owner/project', branch: 'develop', repo: clone, tickets: { source: 'internal', prefix: 'OPS' }, ...(recorded ? { session: 'joined-id' } : {}) } } });
     const run = (args) => {
-      const result = spawnSync(process.execPath, [bin, 'join', route, '--session', 'joined-id', '--port', '4613', ...args], { encoding: 'utf8', env: { ...process.env, WEB_TS_HUB_PORT: '1' } });
+      const result = spawnSync(process.execPath, [bin, 'join', route, '--session', 'joined-id', '--port', '4613', ...args], { encoding: 'utf8', env: { ...process.env, KICKFLIP_HUB_PORT: '1' } });
       assert.equal(result.status, 0, result.stderr);
     };
     run(['--template', 'board', '--cmd', JSON.stringify(board.cmd), '--repo', clone]);

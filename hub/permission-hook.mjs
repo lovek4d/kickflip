@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // A Claude Code PermissionRequest hook for the background sessions the hub starts and resumes (sessions.mjs
-// BG_SETTINGS): it hands the prompt to the hub on 127.0.0.1 (WEB_TS_HUB_PORT, else 4500), waits for the owner's answer
+// BG_SETTINGS): it hands the prompt to the hub on 127.0.0.1 (KICKFLIP_HUB_PORT, else 4500), waits for the owner's answer
 // in Needs you, and prints it as the decision (docs/adr/0060-background-sessions-prompts-come-to-the-phone.md).
 // A hook that times out or prints no decision leaves the session on a dialog nobody sees, so every path prints one
 // and exits 0 before BG_SETTINGS's timeout: a deny with a note when the hub can't be reached, drops the prompt or
 // the owner doesn't answer by the hub's deadline.
 import fs from 'node:fs';
 
-const BASE = `http://127.0.0.1:${Number(process.env.WEB_TS_HUB_PORT || 4500)}`;
+const BASE = `http://127.0.0.1:${Number(process.env.KICKFLIP_HUB_PORT || 4500)}`;
 // The longest this waits, whatever deadline the hub gives; prompts.mjs WAIT_MS.
 const WAIT_CAP = 10 * 60_000;
 const HARD_STOP = WAIT_CAP + 30_000;

@@ -2,7 +2,7 @@
 // Its PRs are every open PR on any board's card, from the board registry, boards.mjs listBoards
 // (docs/adr/0040-one-board-registry-for-every-hub-feature.md). Each PR runs the monitor skill's monitor-gh.sh once,
 // however many boards show it, and its summary is compared with the last one accepted, kept by repo#pr in
-// ~/.claude/web-ts/github-state.json. Each board's `github-change` event lists its eligible changed cards,
+// ~/.claude/kickflip/github-state.json. Each board's `github-change` event lists its eligible changed cards,
 // waking its owning session to run a monitor tick. A `head` change goes only to a card that
 // carries an install, so its session rebuilds it
 // (docs/adr/0051-a-device-app-card-carries-an-install-link.md). Each board gets data/checked.json after a check that reached
@@ -160,7 +160,7 @@ export async function checkGitHub({ every, manifest }) {
 
 // The wakes due at `now` (schedule.mjs wakesDue): every board gets one `check-github {reason: "morning"}`
 // event, so its owning session runs a monitor tick, which runs the Slack bridge's daily steps. Each wake's last send
-// day is kept in ~/.claude/web-ts/wake-state.json, so a restart never sends one twice in a day, with `last` {at, due,
+// day is kept in ~/.claude/kickflip/wake-state.json, so a restart never sends one twice in a day, with `last` {at, due,
 // routes, failed} for boards.mjs linksOf. A wake no board took stays due. settings: the polling settings.
 // → {due: [hhmm], events: [{route, id}], failed: [message]}
 export async function sendWakes({ now = new Date(), settings, manifest }) {

@@ -1,10 +1,10 @@
 // Board sessions the hub can start and wake. The manifest records each site's session in its `owner`
 // {session, label, since, repo, model?}: repo is the folder the session runs in, where `claude --resume` finds it. A
-// session `web-ts start` launched for a route with no site yet waits in the manifest's `starting` {<route>: owner}
+// session `kickflip start` launched for a route with no site yet waits in the manifest's `starting` {<route>: owner}
 // until its join moves it into the site. A New board request (new-board.mjs) records {title, repo, asked_at} there
 // first, then the hub's start merges its owner in, or `error` when claude failed. Board sessions start in the background (`claude --bg`) in auto mode, with
 // worktree.bgIsolation "none" so it stays in the repo folder, since its builders make their own worktrees, and with
-// the hook that brings its prompts to the owner's phone. `web-ts hub` runs the hub board's session in the owner's terminal.
+// the hook that brings its prompts to the owner's phone. `kickflip hub` runs the hub board's session in the owner's terminal.
 // checkSessions is the hub's wake (docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md): when an event lands
 // for a board whose owner session isn't running, the session is resumed at once; a board not listening for
 // RESUME_AFTER with an event its session hasn't heard is resumed as a fallback. Either happens once per outage, and if
@@ -49,13 +49,13 @@ export class SessionError extends Error {
 
 export function withSessionLock(route, fn) {
   if (!validRoute(route)) throw new SessionError('Choose a board route.', 'none');
-  return withFileLock(path.join(os.homedir(), '.claude', 'web-ts', 'session-locks', route),
+  return withFileLock(path.join(os.homedir(), '.claude', 'kickflip', 'session-locks', route),
     () => fn({ resume: (options) => resumeRecordedSession(route, options) }), { staleAfter: 120_000, timeout: 90_000 });
 }
 
 // launchd gives the hub a PATH without ~/.local/bin, where the Claude Code installer puts claude.
 export function claudeBin() {
-  if (process.env.WEB_TS_CLAUDE) return process.env.WEB_TS_CLAUDE;
+  if (process.env.KICKFLIP_CLAUDE) return process.env.KICKFLIP_CLAUDE;
   const local = path.join(os.homedir(), '.local', 'bin', 'claude');
   return fs.existsSync(local) ? local : 'claude';
 }
@@ -122,8 +122,8 @@ export function runForegroundClaude(argv, { cwd }) {
 }
 
 const common = ({ name, model }) => ['--name', name, '--permission-mode', 'auto', '--settings', BG_SETTINGS, ...(model ? ['--model', model] : [])];
-export const startArgv = ({ route, name, model, prompt }) => ['--bg', ...common({ name, model }), `/join-web-ts ${route}${prompt ? ` ${prompt}` : ''}`];
-export const resumePrompt = (route, id) => `The hub resumed this session because /${route} had nobody listening. Rejoin the board as session ${id} (join-web-ts steps 3 and 5): rerun \`node ${path.join(SKILL_DIR, 'bin', 'web-ts.mjs')} join ${route} --session ${id}\`, relaunch its watcher as a background task, then go on with what its events ask. If your session id (the folder above your scratchpad) isn't ${id}, rejoin with yours and --force.`;
+export const startArgv = ({ route, name, model, prompt }) => ['--bg', ...common({ name, model }), `/kickflip ${route}${prompt ? ` ${prompt}` : ''}`];
+export const resumePrompt = (route, id) => `The hub resumed this session because /${route} had nobody listening. Rejoin the board as session ${id} (kickflip steps 3 and 5): rerun \`node ${path.join(SKILL_DIR, 'bin', 'kickflip.mjs')} join ${route} --session ${id}\`, relaunch its watcher as a background task, then go on with what its events ask. If your session id (the folder above your scratchpad) isn't ${id}, rejoin with yours and --force.`;
 // A background session resumed with any flag starts as a copy under a new id, so one goes without them and keeps the
 // options it started with; a session that never ran in the background gets them (Claude Code's `note:` line says which).
 export const resumeArgv = ({ id, route, name, model, background }) => ['--resume', id, '--bg', ...(background ? [] : common({ name, model })), resumePrompt(route, id)];
@@ -131,13 +131,13 @@ export const resumeArgv = ({ id, route, name, model, background }) => ['--resume
 const hubPrompt = (route) => `You are the hub session. Read \`${path.join(SKILL_DIR, 'docs', 'hub-session.md')}\`, then rejoin /${route} and relaunch its watcher.`;
 export const hubArgv = ({ route, id, model }) => [
   ...(id ? ['--resume', id] : []), ...(model ? ['--model', model] : []),
-  id ? `${hubPrompt(route)} If your session id (the folder above your scratchpad) isn't ${id}, rejoin with yours and --force.` : `/join-web-ts ${route} --hub\n${hubPrompt(route)}`,
+  id ? `${hubPrompt(route)} If your session id (the folder above your scratchpad) isn't ${id}, rejoin with yours and --force.` : `/kickflip ${route} --hub\n${hubPrompt(route)}`,
 ];
 
 // `repo` is the folder for a fresh session, or for a recorded session whose folder the manifest lacks.
 export async function hubSession({ manifest = readManifest(), repo, run = runForegroundClaude, live = liveSessions } = {}) {
   const board = hubBoard(manifest);
-  if (!board) throw new SessionError('No hub board is flagged; flag one with web-ts set <route> --hub, or join one with web-ts join hub-orchestrator --template board --hub --session <id>', 'hub');
+  if (!board) throw new SessionError('No hub board is flagged; flag one with kickflip set <route> --hub, or join one with kickflip join hub-orchestrator --template board --hub --session <id>', 'hub');
   const owner = board.owner?.session ? board.owner : null;
   if (owner && !owner.repo && !repo) throw new SessionError(`/${board.route}'s session ${owner.session} has no folder recorded; pass --repo <its folder>`, 'none');
   refuseLive(owner, live);
@@ -199,10 +199,10 @@ async function moveOwner(route, { from, to, mark }) {
 }
 
 // A new background session for the route, in repo (else the recorded session's folder, else the cwd), whose first
-// prompt is `/join-web-ts <route>` plus prompt. Refuses while the route's recorded session is live. Writes nothing.
+// prompt is `/kickflip <route>` plus prompt. Refuses while the route's recorded session is live. Writes nothing.
 // → {route, session, confirmed, repo, model, name, argv, output}
 export async function startSession(route, { manifest = readManifest(), repo, model, prompt, run = runClaude, live = liveSessions } = {}) {
-  if (routeRecord(manifest.closed, route)) throw new SessionError(`/${route} is closed; use web-ts reopen ${route}`, 'none');
+  if (routeRecord(manifest.closed, route)) throw new SessionError(`/${route} is closed; use kickflip reopen ${route}`, 'none');
   const rec = sessionOf(manifest, route);
   refuseLive(rec, live);
   const dir = path.resolve(repo || rec?.repo || process.cwd());
@@ -225,10 +225,10 @@ export function resumeSession(route, options = {}) {
 }
 
 async function resumeRecordedSession(route, { manifest = readManifest(), run = runClaude, live = liveSessions, mark = null } = {}) {
-  if (routeRecord(readManifest().closed, route)) throw new SessionError(`/${route} is closed; use web-ts reopen ${route}`, 'none');
+  if (routeRecord(readManifest().closed, route)) throw new SessionError(`/${route} is closed; use kickflip reopen ${route}`, 'none');
   const rec = sessionOf(manifest, route);
   if (!rec) throw new SessionError(`/${route} has no recorded session`, 'none');
-  if (!rec.repo) throw new SessionError(`/${route}'s session ${rec.session} has no folder recorded; its session records one by rejoining (web-ts join, --repo)`, 'none');
+  if (!rec.repo) throw new SessionError(`/${route}'s session ${rec.session} has no folder recorded; its session records one by rejoining (kickflip join, --repo)`, 'none');
   refuseLive(rec, live);
   const background = await isBackground(rec.session, { run, cwd: rec.repo });
   const argv = resumeArgv({ id: rec.session, route, name: rec.title, model: rec.model, background });
@@ -260,7 +260,7 @@ export function resumeStep(entry, { listening, live, recorded, counts, waiting, 
   return { action: 'none', entry: e };
 }
 
-// The hub's wake over every board (resumeStep), keeping ~/.claude/web-ts/resume-state.json {<route>: entry}.
+// The hub's wake over every board (resumeStep), keeping ~/.claude/kickflip/resume-state.json {<route>: entry}.
 // → {resumed: [route], pushed: [route], failed: [message]}
 export async function checkSessions({
   manifest = readManifest(), now = new Date(), live = liveSessions,
@@ -284,7 +284,7 @@ export async function checkSessions({
     } else if (action === 'push') {
       const body = entry.error ? `The hub couldn't resume it: ${entry.error}`
         : isLive ? "Its session is running but hasn't relaunched its watcher."
-          : `It still isn't listening after the hub resumed it. Try web-ts resume ${board.route}, or claude agents.`;
+          : `It still isn't listening after the hub resumed it. Try kickflip resume ${board.route}, or claude agents.`;
       try {
         await push({ title: `${board.title}'s session didn't come back`, body, url: `/${board.route}/`, tag: `resume-${board.route}` }, { kind: 'fault', immediate: true, at: now });
         out.pushed.push(board.route);

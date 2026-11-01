@@ -28,7 +28,7 @@ function errorLine(message) {
   return line.length > 200 ? `${line.slice(0, 199)}…` : line;
 }
 
-// Records the start's outcome on the route's Starting row: its session as `web-ts start` records one, or `error`. A
+// Records the start's outcome on the route's Starting row: its session as `kickflip start` records one, or `error`. A
 // route that has joined or been dismissed meanwhile is left alone.
 async function recordStart(route, outcome) {
   await withManifestLock(async () => {

@@ -12,12 +12,12 @@ const { boardClosure, closeBoard, closedBoards, reopenBoard } = await import('./
 const { readManifest, saveJSON, listBoards, hubBoard, withManifestLock } = await import('./boards.mjs');
 const { checkSessions, resumeSession, runSessionStop, stopSession } = await import('./sessions.mjs');
 const { requestBoard } = await import('./new-board.mjs');
-const web = (...p) => path.join(home, '.claude', 'web-ts', ...p);
+const web = (...p) => path.join(home, '.claude', 'kickflip', ...p);
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value)); };
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const id = '12345678-1234-1234-1234-123456789abc';
 const boardServer = fileURLToPath(new URL('../board/server.mjs', import.meta.url));
-const cliFile = fileURLToPath(new URL('../bin/web-ts.mjs', import.meta.url));
+const cliFile = fileURLToPath(new URL('../bin/kickflip.mjs', import.meta.url));
 const live = () => new Map();
 function fixture({ hub = false, waves = false } = {}) {
   const dir = web('sites', 'shop');
@@ -118,7 +118,7 @@ test('closed routes are reserved against new boards, starts and joins, and CLI c
   const fake = path.join(home, 'fake-claude');
   write(fake, `#!${process.execPath}\nconsole.log(process.argv[2] === 'agents' ? JSON.stringify([{sessionId: '${id}', kind: 'background'}]) : 'backgrounded · 12345678 · Shop');\n`);
   fs.chmodSync(fake, 0o755);
-  const reopened = JSON.parse(execFileSync(process.execPath, [cliFile, 'reopen', 'shop'], { encoding: 'utf8', env: { ...process.env, WEB_TS_CLAUDE: fake } }));
+  const reopened = JSON.parse(execFileSync(process.execPath, [cliFile, 'reopen', 'shop'], { encoding: 'utf8', env: { ...process.env, KICKFLIP_CLAUDE: fake } }));
   assert.deepEqual(reopened, { route: 'shop', session: id });
 });
 

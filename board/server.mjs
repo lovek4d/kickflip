@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Shared board server for web-ts sites: node board/server.mjs <site dir>. The hub
+// Shared board server for kickflip sites: node board/server.mjs <site dir>. The hub
 // runs it with PORT and PREFIX (/<route>) set, and strips the prefix before forwarding.
 // It writes page events, hidden events and uploads; agent sessions write the other files
 // below through bin/board.mjs (store.mjs):
@@ -583,7 +583,7 @@ const server = http.createServer(async (req, res) => {
       let saved;
       try { saved = await saveInstallScript(here, body); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
       if (saved.changed) {
-        const web = path.join(os.homedir(), '.claude', 'web-ts');
+        const web = path.join(os.homedir(), '.claude', 'kickflip');
         await fs.mkdir(web, { recursive: true });
         await fs.appendFile(path.join(web, 'hub.log'), `${new Date().toISOString()} install script ${here}: ${JSON.stringify(saved.install_script)}\n`);
       }

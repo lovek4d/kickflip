@@ -1,5 +1,5 @@
 // The board's data files and the only code that writes them, uploads included. A site is a directory under
-// ~/.claude/web-ts/sites; `site` null means a board over ~/.claude/waves alone. Every write
+// ~/.claude/kickflip/sites; `site` null means a board over ~/.claude/waves alone. Every write
 // is validated first, JSON files are replaced by rename, and JSONL files are appended to.
 import fs from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { ITEM_STATUSES, ownerQuestion, refOf } from './domain.mjs';
 import { installScriptError } from './install-script.mjs';
-import { appendEvent, listBoards } from '../hub/boards.mjs';
+import { appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { reviseQueued, flushQueue, queueStatus } from '../hub/push.mjs';
 import { holdLine } from '../hub/schedule.mjs';
 import { routeRecord } from '../hub/routes.mjs';
@@ -19,7 +19,7 @@ import { RuleError, rulesOf, addRule, editRule, removeRule, applyRules, readHubR
 export class BoardError extends Error {}
 const fail = (msg) => { throw new BoardError(msg); };
 
-export const sitesDir = () => path.join(os.homedir(), '.claude', 'web-ts', 'sites');
+export const sitesDir = () => path.join(os.homedir(), '.claude', 'kickflip', 'sites');
 export const wavesDir = () => path.join(os.homedir(), '.claude', 'waves');
 
 export const readJSON = async (f, fallback) => { try { return JSON.parse(await fs.readFile(f, 'utf8')); } catch { return fallback; } };
@@ -382,7 +382,7 @@ export async function moveAsk(site, eventId, route) {
   const boards = listBoards();
   const target = boards.find((b) => b.route === route)
     || fail(`--to ${route}: no board at /${route} in the hub's manifest; the boards are ${boards.map((b) => b.route).join(', ') || 'none'}`);
-  if (path.resolve(target.dir) === path.resolve(site)) fail(`--to ${route}: that is this board`);
+  if (samePath(target.dir, site)) fail(`--to ${route}: that is this board`);
   const state = await askNotNew(site, eventId, events);
   if (state?.why) fail(state.why);
   const edited = events.filter((e) => e.kind === 'ask-edited' && e.data?.id === eventId && typeof e.data?.text === 'string')
@@ -485,7 +485,7 @@ export function removeReviewers(site, names) {
 // Rules: the hub's in settings.json and this board's in board.json `rules` (../hub/rules.mjs;
 // docs/adr/0039-rules-live-on-settings-at-hub-and-board-level.md). The settings page and the CLI both write board.json,
 // so board rule and setting writes run one at a time.
-const hubSettingsFile = () => path.join(os.homedir(), '.claude', 'web-ts', 'settings.json');
+const hubSettingsFile = () => path.join(os.homedir(), '.claude', 'kickflip', 'settings.json');
 const ruleCall = (fn) => { try { return fn(); } catch (e) { if (e instanceof RuleError) fail(e.message); throw e; } };
 export const readBoardRules = async (site) => rulesOf(await readJSON(path.join(site, 'board.json'), {}));
 
@@ -1005,7 +1005,7 @@ async function assignTicket(site, wave, item, ticket, options, dir) {
         }
       }
     }
-    const repo = (site && listBoards().find((b) => path.resolve(b.dir) === path.resolve(site))?.github) || wave.repo;
+    const repo = (site && listBoards().find((b) => samePath(b.dir, site))?.github) || wave.repo;
     const body = ticket === undefined && source.source === 'github' && item.plan ? await fs.readFile(await planPath(dir, item.plan), 'utf8') : item.notes || '';
     return await resolveTicket(source, { ticket, title: item.title, body, repo, next: max + 1 }, options);
   } catch (e) { if (e instanceof BoardError) throw e; fail(e.message); }

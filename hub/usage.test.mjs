@@ -17,7 +17,7 @@ function fixture(t) {
   const dir = fs.mkdtempSync(path.join(home, 'case-'));
   let time = NOW;
   const file = (...p) => path.join(dir, ...p);
-  const claude = (over = {}) => write(file('.claude', 'web-ts', 'usage.json'), { claude: {
+  const claude = (over = {}) => write(file('.claude', 'kickflip', 'usage.json'), { claude: {
     at: iso(NOW), five_hour: { used_percentage: 42, resets_at: iso(NOW + HOUR) },
     seven_day: { used_percentage: 75, resets_at: iso(NOW + 24 * HOUR) }, ...over,
   }, codex: { five_hour: { used_percentage: 99 } } });
@@ -121,7 +121,7 @@ test('Codex scans cache briefly, while window reset state updates on every read'
 test('malformed JSON, missing limits and partial rollout lines leave no reading', (t) => {
   const f = fixture(t);
   f.login();
-  write(f.file('.claude', 'web-ts', 'usage.json'), '{');
+  write(f.file('.claude', 'kickflip', 'usage.json'), '{');
   const file = f.log('invalid');
   write(file, '{"payload":{"rate_limits":{"primary":{"used_percent":42}}}}\n{"rate_limits":\n');
   assert.deepEqual(f.read({ codexShare: 'auto' }), { claude: null, codex: { at: null, five_hour: null, seven_day: null } });

@@ -7,13 +7,13 @@ import { execFileSync } from 'node:child_process';
 
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'repo-reuse-')));
 process.env.HOME = home;
-process.env.WEB_TS_CLAUDE = '/usr/bin/false';
+process.env.KICKFLIP_CLAUDE = '/usr/bin/false';
 const { repoService, runRepo, githubFromInput, githubFromOrigin, repoLookupRoute } = await import('./repos.mjs');
 const { requestBoard } = await import('./new-board.mjs');
 const { changeBoardRepo } = await import('./board-repo.mjs');
 const { saveJSON, readManifest } = await import('./boards.mjs');
 const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
-const manifestFile = path.join(home, '.claude/web-ts/manifest.json');
+const manifestFile = path.join(home, '.claude/kickflip/manifest.json');
 const board = { dir: path.join(home, 'board'), cmd: ['node', '/app/board/server.mjs'], github: 'old/project', branch: 'main', owner: { repo: '/old' } };
 const manifest = { sites: { board } };
 const origin = 'https://github.com/owner/project.git';

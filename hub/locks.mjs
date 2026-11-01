@@ -10,7 +10,7 @@ export async function withFileLock(file, fn, { staleAfter = 30_000, timeout = 10
     try { fs.mkdirSync(lock); break; } catch (e) {
       if (e.code !== 'EEXIST') throw e;
       try { if (Date.now() - fs.statSync(lock).mtimeMs > staleAfter) { fs.rmdirSync(lock); continue; } } catch {}
-      if (Date.now() > deadline) throw Object.assign(new Error(`${path.basename(file)} is locked by another web-ts; try again`), { code: 'ELOCKED' });
+      if (Date.now() > deadline) throw Object.assign(new Error(`${path.basename(file)} is locked by another kickflip; try again`), { code: 'ELOCKED' });
       await new Promise((r) => setTimeout(r, 100));
     }
   }

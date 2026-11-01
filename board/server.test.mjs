@@ -178,9 +178,9 @@ test('a watcher that just exited on an event still counts as listening, until it
   const procStart = execFileSync('ps', ['-o', 'lstart=', '-p', String(session.pid)], { encoding: 'utf8', env: { ...process.env, TZ: 'UTC' } }).trim();
   fs.mkdirSync(path.join(home, '.claude', 'sessions'), { recursive: true });
   fs.writeFileSync(path.join(home, '.claude', 'sessions', `${session.pid}.json`), JSON.stringify({ pid: session.pid, sessionId: 's1', cwd: home, procStart, kind: 'bg' }));
-  fs.mkdirSync(path.join(home, '.claude', 'web-ts'), { recursive: true });
+  fs.mkdirSync(path.join(home, '.claude', 'kickflip'), { recursive: true });
   const cmd = [process.execPath, path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site];
-  fs.writeFileSync(path.join(home, '.claude', 'web-ts', 'manifest.json'), JSON.stringify({ sites: { t: { dir: site, port: 1, cmd, owner: { session: 's1' } } } }));
+  fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'manifest.json'), JSON.stringify({ sites: { t: { dir: site, port: 1, cmd, owner: { session: 's1' } } } }));
   fs.writeFileSync(path.join(site, 'data', 'checked.json'), JSON.stringify({ at: new Date().toISOString(), every: 30 }));
   const watcher = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'wait-events.mjs'), 't', 's1'], { env: { ...process.env, HOME: home } });
   const out = [];
@@ -406,7 +406,7 @@ test('a page asks for each script and stylesheet by a version that changes with 
 
 test("the settings page's rules save writes board.json, keeps its other keys and rules added since the page loaded, and wakes Claude with what changed", async () => {
   const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
-  const web = path.join(home, '.claude', 'web-ts');
+  const web = path.join(home, '.claude', 'kickflip');
   fs.mkdirSync(web, { recursive: true });
   fs.writeFileSync(path.join(web, 'settings.json'), JSON.stringify({ rules: [{ id: 'h1', text: 'Hub rule', by: 'owner', at: '2026-10-24T00:00:00Z' }] }));
   const kept = { id: 'r1', text: 'Ask first', by: 'claude', at: '2026-10-24T00:00:00Z' };
@@ -481,7 +481,7 @@ test('Board Settings saves and clears a validated install script, preserving boa
   fs.writeFileSync(script, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
   const save = (body) => fetch(`${base}/api/install-script`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  const log = path.join(home, '.claude', 'web-ts', 'hub.log');
+  const log = path.join(home, '.claude', 'kickflip', 'hub.log');
   const beforeLog = fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '';
   const eventFile = path.join(site, 'data', 'events.jsonl');
   const events = fs.existsSync(eventFile) ? fs.readFileSync(eventFile, 'utf8') : '';
@@ -511,7 +511,7 @@ test('Board Settings saves and clears a validated install script, preserving boa
 
 test('the watcher prints the hub rules, then the board rules, then the board settings, after the event lines', async () => {
   const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
-  const web = path.join(home, '.claude', 'web-ts');
+  const web = path.join(home, '.claude', 'kickflip');
   fs.mkdirSync(web, { recursive: true });
   fs.writeFileSync(path.join(web, 'manifest.json'), JSON.stringify({ sites: { t: { dir: site } } }));
   fs.writeFileSync(path.join(web, 'settings.json'), JSON.stringify({ polling: {}, rules: [{ id: 'h1', text: 'Screenshots in every PR', by: 'owner', at: 'x' }] }));
