@@ -1,26 +1,22 @@
 // The hub's GitHub check, run once per polling slot (docs/adr/0025-the-hub-polls-github-and-sends-pushes-on-one-interval.md).
 // Its PRs are every open PR on any board's card, from the board registry, boards.mjs listBoards
-// (docs/adr/0040-one-board-registry-for-every-hub-feature.md). Each PR runs the monitor skill's monitor-gh.sh once,
+// (docs/adr/0040-one-board-registry-for-every-hub-feature.md). Each PR and login is fetched once,
 // however many boards show it, and its summary is compared with the last one accepted, kept by repo#pr in
 // ~/.claude/kickflip/github-state.json. Each board's `github-change` event lists its eligible changed cards,
-// waking its owning session to run a monitor tick. Each board gets data/checked.json after a check that reached
+// waking its owning session to run its GitHub tick (SKILL.md). Each board gets data/checked.json after a check that reached
 // GitHub for every PR it shows, in the idle form when it shows none. sendWakes sends the polling interval's daily wakes
 // to every board, changed or not.
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
-import { execFile } from 'node:child_process';
+import { fetchPR, reportOf, githubLogin } from './pr-report.mjs';
 import { wakesDue, localDay } from './schedule.mjs';
 import { GITHUB_STATE as STATE, WAKE_STATE, listBoards, appendEvent, prKey, readJSON, saveJSON } from './boards.mjs';
 
-const MONITOR_GH = path.join(os.homedir(), '.claude', 'skills', 'monitor', 'monitor-gh.sh');
-// The hub's service starts it with a bare PATH, without Homebrew's on macOS, and monitor-gh.sh needs gh and jq.
-const CHILD_PATH = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
 export const CHANGE_KINDS = ['ci', 'review', 'comments', 'merged', 'mergeable', 'draft'];
 
 const known = (v) => (v && v !== 'UNKNOWN' ? v : null);
 
-// monitor-gh.sh's output → the fields a change is read from. The newest event is the newest comment or review
+// The PR report → the fields a change is read from. The newest event is the newest comment or review
 // after the item's gh_since, so it clears once the session handles it.
 export function summarize(out) {
   const events = Array.isArray(out.events) ? out.events : [];
@@ -60,15 +56,6 @@ export function carry(prev, next) {
   return kept;
 }
 
-function runMonitorGh({ pr, repo, since }) {
-  return new Promise((resolve, reject) => {
-    execFile('/bin/zsh', [MONITOR_GH, String(pr), since], { env: { ...process.env, PATH: CHILD_PATH, MONITOR_REPO: repo }, timeout: 90_000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err) return reject(new Error(`${repo}#${pr}: ${String(stderr || err.message).trim().split('\n')[0].slice(0, 200)}`));
-      try { resolve(JSON.parse(stdout)); } catch (e) { reject(new Error(`${repo}#${pr}: unreadable output (${e.message})`)); }
-    });
-  });
-}
-
 // The shape board/store.mjs writeChecked writes; board/domain.mjs checksOf reads it. every null is the idle form.
 function writeChecked(dir, every) {
   const file = path.join(dir, 'data', 'checked.json');
@@ -88,18 +75,39 @@ export async function checkGitHub({ every, manifest }) {
   state.prs ||= {};
   state.acknowledged ||= {};
   const boards = listBoards(manifest);
-  // One fetch per PR, from the earliest gh_since of the cards that show it, so no board misses a comment.
-  const prs = new Map();
-  for (const p of boards.flatMap((b) => b.prs)) {
-    const seen = prs.get(prKey(p));
-    if (!seen || p.since < seen.since) prs.set(prKey(p), p);
-  }
   const failed = [];
+  let fallback = null;
+  if (boards.some((b) => !b.githubLogin && b.prs.length)) {
+    try { fallback = await githubLogin(); } catch (e) { failed.push(e.message); }
+  }
+  const fetchKey = (p, me) => JSON.stringify([prKey(p), me]);
+  const prs = new Map();
+  const requests = new Map();
+  const variants = new Map();
+  for (const board of boards) {
+    board.me = board.githubLogin || fallback;
+    for (const p of board.prs) {
+      const key = prKey(p);
+      prs.set(key, p);
+      const labels = variants.get(key) || new Set();
+      labels.add(board.me);
+      variants.set(key, labels);
+      if (!board.me) continue;
+      const request = fetchKey(p, board.me);
+      const seen = requests.get(request);
+      if (!seen || p.since < seen.since) requests.set(request, { ...p, me: board.me });
+    }
+  }
   const fetched = {};
-  const found = {};
-  for (const [key, p] of prs) {
-    try { fetched[key] = summarize(await runMonitorGh(p)); } catch (e) { fetched[key] = null; failed.push(e.message); continue; }
-    found[key] = [];
+  const summaries = new Map();
+  const found = Object.fromEntries([...prs.keys()].map((key) => [key, []]));
+  for (const [request, p] of requests) {
+    try {
+      const next = summarize(reportOf(await fetchPR(p), p));
+      fetched[request] = next;
+      if (!summaries.has(prKey(p))) summaries.set(prKey(p), next);
+    }
+    catch (e) { fetched[request] = null; failed.push(e.message); }
   }
   const events = [];
   const checked = [];
@@ -109,12 +117,13 @@ export async function checkGitHub({ every, manifest }) {
       const key = prKey(p);
       const recipient = JSON.stringify([board.route, p.wave, p.id]);
       const previous = state.acknowledged[key]?.[recipient] || state.prs[key];
-      const changes = fetched[key] ? changesBetween(previous, fetched[key]) : [];
+      const next = fetched[fetchKey(p, board.me)];
+      const changes = next ? changesBetween(previous, next) : [];
       if (changes.length) found[key] = CHANGE_KINDS.filter((k) => found[key].includes(k) || changes.includes(k));
-      return { p, key, recipient, previous, changes };
+      return { p, key, recipient, previous, next, changes };
     });
     const changed = cards.filter((c) => c.changes.length);
-    let reached = board.prs.every((p) => fetched[prKey(p)]);
+    let reached = cards.every((c) => c.next);
     let accepted = true;
     if (changed.length) {
       try {
@@ -126,24 +135,25 @@ export async function checkGitHub({ every, manifest }) {
       }
     }
     // Retain each recipient's accepted summary while another delivery is outstanding, so retries don't repeat
-    // accepted changes while another board's delivery is retried.
-    for (const { key, recipient, previous, changes } of cards) {
-      if (fetched[key] && (accepted || !changes.length)) {
+    // accepted changes while another board's delivery is retried, or when logins label the same PR differently.
+    for (const { key, recipient, previous, next, changes } of cards) {
+      if (next && (accepted || !changes.length)) {
         state.acknowledged[key] ||= {};
-        state.acknowledged[key][recipient] = carry(previous, fetched[key]);
+        state.acknowledged[key][recipient] = carry(previous, next);
       }
     }
     if (!reached) continue;
     try { writeChecked(board.dir, board.prs.length ? every : null); checked.push(board.route); } catch (e) { failed.push(`${board.route}: could not write checked.json (${e.message})`); }
   }
   const changes = [];
-  for (const [key, next] of Object.entries(fetched)) {
+  for (const [key, p] of prs) {
+    const next = summaries.get(key);
     if (!next || undelivered.has(key)) continue;
     if (found[key].length) {
-      changes.push({ repo: prs.get(key).repo, pr: prs.get(key).pr, changes: found[key] });
+      changes.push({ repo: p.repo, pr: p.pr, changes: found[key] });
     }
     state.prs[key] = { ...carry(state.prs[key], next), at };
-    delete state.acknowledged[key];
+    if (variants.get(key).size === 1) delete state.acknowledged[key];
   }
   for (const key of Object.keys(state.acknowledged)) if (!prs.has(key)) delete state.acknowledged[key];
   state.lastCheck = { at, watched: prs.size, failed: failed.length, changed: changes.length, boards: checked };
@@ -152,7 +162,7 @@ export async function checkGitHub({ every, manifest }) {
 }
 
 // The wakes due at `now` (schedule.mjs wakesDue): every board gets one `check-github {reason: "morning"}`
-// event, so its owning session runs a monitor tick, which runs the Slack bridge's daily steps. Each wake's last send
+// event, so its owning session runs a GitHub tick. Each wake's last send
 // day is kept in ~/.claude/kickflip/wake-state.json, so a restart never sends one twice in a day, with `last` {at, due,
 // routes, failed} for boards.mjs linksOf. A wake no board took stays due. settings: the polling settings.
 // → {due: [hhmm], events: [{route, id}], failed: [message]}

@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { reposDir } from '../shared/repos.mjs';
 import { startFakeDevice } from './fake-device.mjs';
 import { withFileLock } from './locks.mjs';
+import { PR_VIEW_FIELDS } from './pr-report.mjs';
+import { fakeGh, prView, writePR, writeUser, calls } from '../shared/fake-gh.mjs';
 import { freePorts, until } from '../shared/test-helpers.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -24,7 +26,6 @@ const writeManifestFile = (m) => withManifestLock(() => saveJSON(claude('kickfli
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const events = (route, kind) => { try { return fs.readFileSync(site(route, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.kind === kind); } catch { return []; } };
 const ago = (min) => new Date(Date.now() - min * 60_000).toISOString();
-const gh = (over = {}) => ({ state: 'OPEN', isDraft: false, reviewDecision: 'REVIEW_REQUIRED', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', head: 'abc', failing: [], pending: 0, events: [], ...over });
 const sleeper = () => spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', 'wait-events.mjs'], { stdio: 'ignore' });
 const liveSession = (sessionId) => {
   const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
@@ -154,13 +155,13 @@ const cli = (script, args) => new Promise((resolve) => {
 });
 
 before(async () => {
+  fakeGh(home);
+  writeUser(home, { login: 'owner' });
   device = await startFakeDevice();
   write(claude('kickflip', 'push', 'subs.json'), [device.subscription]);
   write(claude('kickflip', 'settings.json'), { polling: { windows: [{ from: '00:00', every_minutes: 120 }], hold_overnight: false, wakes: ['00:00'] }, notifications: { on: true, weekends_off: false } });
-  write(claude('skills', 'monitor', 'monitor-gh.sh'), 'echo "$1" >> "$HOME/gh/calls"\ncat "$HOME/gh/$1.json"\n');
-  write(path.join(home, 'gh', '11.json'), gh());
-  write(path.join(home, 'gh', '722.json'), gh());
-  write(path.join(home, 'bin', 'gh'), '#!/bin/sh\nexit 1\n');
+  writePR(home, 11, prView());
+  writePR(home, 722, prView());
   write(path.join(home, 'bin', 'git'), '#!/bin/sh\nexit 1\n');
   write(path.join(home, 'bin', 'codex'), '#!/bin/sh\nexit 1\n');
   for (const bin of ['gh', 'git', 'codex']) fs.chmodSync(path.join(home, 'bin', bin), 0o755);
@@ -310,7 +311,7 @@ test('one check polls each open PR on either board once, writes both checked.jso
   const r = await poll();
   assert.deepEqual([r.watched, r.failed, r.changes], [2, [], []]);
   assert.deepEqual([...r.checked].sort(), ['orch', 'shop']);
-  assert.deepEqual(fs.readFileSync(path.join(home, 'gh', 'calls'), 'utf8').trim().split('\n').sort(), ['11', '722']);
+  assert.deepEqual(calls(home).filter((a) => a[0] === 'pr' && a[6] === PR_VIEW_FIELDS).map((a) => a[2]).sort(), ['11', '722']);
   const state = read(claude('kickflip', 'github-state.json'));
   assert.deepEqual([state.prs['o/r#11'].at, state.prs['o/r#722'].at], [r.at, r.at]);
   assert.deepEqual([...state.lastCheck.boards].sort(), ['orch', 'shop']);
@@ -320,8 +321,8 @@ test('one check polls each open PR on either board once, writes both checked.jso
 });
 
 test("a GitHub change goes to every board showing that PR, and pushes alone never wake sessions to build", async () => {
-  write(path.join(home, 'gh', '11.json'), gh({ reviewDecision: 'APPROVED' }));
-  write(path.join(home, 'gh', '722.json'), gh({ failing: ['build'] }));
+  writePR(home, 11, prView({ reviewDecision: 'APPROVED' }));
+  writePR(home, 722, prView({ failing: ['build'] }));
   const r = await poll();
   assert.deepEqual(r.changes.map((c) => [c.pr, c.changes]).sort(), [[11, ['review']], [722, ['ci']]]);
   assert.deepEqual(events('orch', 'github-change').map((e) => e.data.prs), [[{ wave: 'w1', id: 'A1', pr: 11, changes: ['review'] }]]);
@@ -332,8 +333,8 @@ test("a GitHub change goes to every board showing that PR, and pushes alone neve
   assert.equal(device.received.length, 1);
 
   write(site('shop', 'data', 'wave.json'), { repo: 'o/r', items: [{ id: 'S1', pr: 722 }, { id: 'S2', pr: 11, install: { url: 'itms-services://x', sha: 'ABC' } }] });
-  write(path.join(home, 'gh', '11.json'), gh({ reviewDecision: 'APPROVED', head: 'def', pending: 2 }));
-  write(path.join(home, 'gh', '722.json'), gh({ failing: ['build'], head: 'fed', pending: 2 }));
+  writePR(home, 11, prView({ reviewDecision: 'APPROVED', head: 'def', pending: 2 }));
+  writePR(home, 722, prView({ failing: ['build'], head: 'fed', pending: 2 }));
   const pushed = await poll();
   assert.deepEqual(pushed.changes, []);
   assert.equal(events('orch', 'github-change').length, 1);
@@ -345,7 +346,7 @@ test("a GitHub change goes to every board showing that PR, and pushes alone neve
     { id: 'S2', pr: 11, install: { url: 'itms-services://x', sha: 'new' } }, { id: 'S3', pr: 11 },
     { id: 'S4', pr: 11, install: { url: 'https://m/app.apk' } },
   ] });
-  write(path.join(home, 'gh', '11.json'), gh({ reviewDecision: 'APPROVED', head: 'new', pending: 2 }));
+  writePR(home, 11, prView({ reviewDecision: 'APPROVED', head: 'new', pending: 2 }));
   await poll();
   assert.equal(events('shop', 'github-change').length, 1);
 });

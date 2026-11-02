@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { startFakeDevice } from '../hub/fake-device.mjs';
 import { freePorts, fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
 import http from 'node:http';
+import { fakeGh, prView, writePR, writeIssueComments, writeUser, calls } from '../shared/fake-gh.mjs';
 
 const bin = (name) => path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', name);
 let home;
@@ -1701,11 +1702,22 @@ test("settings prints the board's settings as JSON, off when absent, and setting
   assert.equal(board('settings', 'set', 'auto-merge', 'off', '--site', 'orch').code, 0);
   assert.equal(cfg().auto_merge, false);
 
+  const login = board('settings', 'set', 'github-login', 'owner', '--site', 'orch');
+  assert.equal(login.code, 0);
+  assert.match(login.out, /^github-login owner$/m);
+  assert.equal(cfg().github_login, 'owner');
+  assert.equal(JSON.parse(board('settings', '--site', 'orch').out).github_login, 'owner');
+  assert.match(board('settings', 'set', 'github-login', '', '--site', 'orch').out, /^github-login unset$/m);
+  assert.ok(!('github_login' in cfg()));
+  for (const invalid of ['-owner', 'a_b', 'a'.repeat(40)]) {
+    assert.equal(board('settings', 'set', 'github-login', invalid, '--site', 'orch').code, 1);
+  }
+
   const bad = [
     [['settings'], 1, /needs --site/],
     [['settings', 'set', 'auto-merge', 'yes', '--site', 'orch'], 1, /takes on or off/],
     [['settings', 'set', 'auto-deploy', 'on', '--site', 'orch'], 1, /no board setting "auto-deploy"; settings are auto-merge/],
-    [['settings', 'set', 'auto-merge', '--site', 'orch'], 2, /settings set takes <name> <on\|off>/],
+    [['settings', 'set', 'auto-merge', '--site', 'orch'], 2, /settings set takes <name> <value>/],
   ];
   for (const [args, code, err] of bad) {
     const r = board(...args);
@@ -1801,4 +1813,54 @@ test('main set publishes an install with the same URL and sha checks as card ins
   assert.equal(board('--site', 'orch', 'main', 'set', '--install', 'https://m/app.apk', '--install-sha', 'main').code, 1);
   assert.equal(board('--site', 'orch', 'main', 'set').code, 1);
   assert.equal(board('main', 'set', '--install', 'https://m/app.apk').code, 1);
+});
+
+
+test('github-login settings lines and API validation support set and clear', async () => {
+  const { settingsOf, settingsLines, saveBoardSettings } = await import('./store.mjs');
+  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting github-login owner']);
+  assert.ok(!('github_login' in settingsOf({ github_login: 'bad login' })));
+  await saveBoardSettings(site('orch'), { github_login: 'owner' });
+  await saveBoardSettings(site('orch'), { github_login: null });
+  assert.ok(!('github_login' in read(site('orch', 'board.json'))));
+});
+
+test('item set records a UTC gh-since and pr prints the board report through gh', () => {
+  const since = '2026-10-23T11:00:00Z';
+  assert.equal(board('item', 'set', 'w/A1', '--gh-since', since).code, 0);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].gh_since, since);
+  for (const invalid of ['tomorrow', '2026-10-23', '2026-10-23T11:00:00+00:00', '2026-99-23T11:00:00Z']) {
+    assert.match(board('item', 'set', 'w/A1', '--gh-since', invalid).err, /ISO-8601 UTC/);
+  }
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].gh_since, since);
+  const dir = path.join(home, 'fake-gh');
+  const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
+  writePR(dir, 7, prView());
+  writeUser(dir, { login: 'owner' });
+  writeIssueComments(dir, 7, [{ id: 1, user: { login: 'owner' }, created_at: '2026-10-23T12:00:00Z', body: 'Please fix', html_url: 'https://github.com/o/r/issues/7#issuecomment-1' }]);
+  const pr = () => run('board.mjs', ['--site', 'orch', 'pr', 'w/A1'], undefined, env);
+  assert.match(pr().err, /has no PR/);
+  const w = read(at('waves', 'w', 'wave.json'));
+  w.items[0].pr = 7;
+  write(at('waves', 'w', 'wave.json'), w);
+  assert.match(pr().err, /has no repo/);
+  w.repo = 'wave/repo';
+  write(at('waves', 'w', 'wave.json'), w);
+  write(at('kickflip', 'manifest.json'), { sites: { orch: { dir: site('orch'), github: 'board/repo', cmd: [process.execPath, bin('../server.mjs')] } } });
+  assert.equal(board('--site', 'orch', 'settings', 'set', 'github-login', 'owner').code, 0);
+  const result = pr();
+  assert.equal(result.code, 0, result.err);
+  assert.equal(result.out.trim().split('\n').length, 1);
+  assert.equal(JSON.parse(result.out).events[0].who, 'user');
+  assert.equal(JSON.parse(result.out).pr, 7);
+  assert.ok(calls(dir).some((a) => a[0] === 'pr' && a[4] === 'board/repo'));
+  assert.ok(calls(dir).some((a) => a[3]?.endsWith(`comments?since=${encodeURIComponent(since)}`)));
+  assert.ok(!calls(dir).some((a) => a[1] === 'user'));
+  assert.equal(board('--site', 'orch', 'settings', 'set', 'github-login', '').code, 0);
+  assert.equal(pr().code, 0);
+  assert.equal(calls(dir).filter((a) => a[1] === 'user').length, 1);
+  fs.rmSync(at('kickflip', 'manifest.json'));
+  const fallback = pr();
+  assert.equal(fallback.code, 0, fallback.err);
+  assert.equal(calls(dir).filter((a) => a[0] === 'pr').at(-1)[4], 'wave/repo');
 });

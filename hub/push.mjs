@@ -4,7 +4,7 @@
 // the desktop subscriptions only, unless urgent or no desktop has subscribed
 // (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md).
 // The queue goes out through flushQueue() after each GitHub check on the polling interval (schedule.mjs) and at the end
-// of each monitor tick (`board.mjs checked`), each push as its own notification
+// of each GitHub tick (`board.mjs checked`), each push as its own notification
 // (docs/adr/0030-pushes-go-by-kind-and-each-arrives-on-its-own.md).
 // State lives in ~/.claude/kickflip/push: vapid.json (the signing key),
 // subs.json (one entry per phone or browser that enabled notifications, with

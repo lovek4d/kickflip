@@ -4,8 +4,9 @@
 // not-listening push. So a board over the waves and a board over its own file get every link the same way, and a
 // new feature can't forget one kind. linksOf says whether each link reaches a board, for its Hub links sheet.
 // A board: {route, dir, port, title, kind: 'waves' | 'file', waves: [{slug, wave}], prs: [{wave, id, pr, repo, since}],
-// reviewers: [name], owner, watch, filter}. prs are the open PRs on any of its cards: every item with a PR that isn't
-// merged or dropped, with no monitor.json opt-in; a card showing a PR is the opt-in.
+// githubLogin: board.json github_login or null, reviewers: [name], owner, watch, filter}. prs are the open PRs on any
+// of its cards: every item with a PR that isn't merged or dropped, with no monitor.json opt-in; a card showing a PR is
+// the opt-in.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -120,6 +121,7 @@ function boardOf(route, s) {
   const waves = wavesOf(s.dir, cfg, kind);
   return {
     route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, waves, prs: prsOf(waves, s.github), github: s.github, branch: s.branch, auto_build: cfg.auto_build === true,
+    githubLogin: typeof cfg.github_login === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(cfg.github_login) ? cfg.github_login : null,
     reviewers: names(cfg.reviewers), owner: s.owner || null, watch: Array.isArray(s.watch) && s.watch.length ? s.watch : ['data/events.jsonl'], filter: s.filter || null,
   };
 }

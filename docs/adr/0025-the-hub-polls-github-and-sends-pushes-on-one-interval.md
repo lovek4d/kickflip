@@ -1,10 +1,11 @@
 ---
-status: superseded in part by ADR-0006
+status: superseded in part by ADR-0006 and ADR-0103
 ---
 
 # The hub polls GitHub and sends pushes on one polling interval
 
 Superseded in part by [0006](0006-pushes-only-when-something-waits-on-the-owner.md): only `action`, `prompt` and `fault` pushes exist. Questions, steps and prototypes skip the queue in the day, and the daily wakes run the reviewers' Slack digests, with no morning push. The polling interval, the poll's steps and the overnight hold below still hold.
+Superseded in part by [0103](0103-the-hub-reads-github-itself.md): the poll runs kickflip's hub/pr-report.mjs, not the monitor skill's monitor-gh.sh, and the woken session runs SKILL.md's GitHub tick.
 
 One **polling interval** sets when the hub checks GitHub and when it sends queued pushes. It is `polling` in `~/.claude/web-ts/settings.json`, edited on the hub's Polling page (`/_hub/settings/polling`, opened from the hub page’s expanded Polling row at `/_hub/#polling`): a list of windows, each `{from, every_minutes}`, running until the next window's `from` and wrapping past midnight. The defaults are every 15 minutes from 8am, every 30 from 6pm and every 60 from 10pm. A window's slots fall every `every_minutes` from its `from`, and each window's start is a slot. `hub/schedule.mjs` owns the rules and the validation (HH:MM starts, 5 to 120 minutes, distinct starts). An old `push` block migrates on read, and the hub rewrites it as `polling` when it starts.
 

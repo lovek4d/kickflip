@@ -13,6 +13,7 @@ import { holdLine } from '../hub/schedule.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleTickets, mcpCreateLine } from './tickets.mjs';
 import { withFileLock } from '../hub/locks.mjs';
+import { fetchPR, reportOf, githubLogin } from '../hub/pr-report.mjs';
 import { storedPath } from '../bin/install.mjs';
 import { RuleError, rulesOf, addRule, editRule, removeRule, applyRules, readHubRules, writeHubRules } from '../hub/rules.mjs';
 
@@ -507,41 +508,49 @@ const writeBoardRules = (site, change) => writeBoardJSON(site, (cfg) => {
   return { set: { rules: result.rules }, ...result };
 });
 
+const validGithubLogin = (value) => typeof value === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(value);
 const storedTickets = (value) => { try { return value ? ticketSource(value) : null; } catch { return null; } };
 // A board's settings in board.json (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md): auto_merge and
-// auto_build, off when absent, and tickets, its one ticket source, absent when unset or invalid
+// auto_build, off when absent, tickets, its one ticket source, and github_login, absent when unset or invalid
 // (docs/adr/0081-a-board-has-one-ticket-source.md).
 export const settingsOf = (cfg) => {
   const tickets = storedTickets(cfg?.tickets);
-  return { auto_merge: cfg?.auto_merge === true, auto_build: cfg?.auto_build === true, ...(tickets ? { tickets } : {}) };
+  return { auto_merge: cfg?.auto_merge === true, auto_build: cfg?.auto_build === true, ...(tickets ? { tickets } : {}), ...(validGithubLogin(cfg?.github_login) ? { github_login: cfg.github_login } : {}) };
 };
 export async function readBoardSettings(site) {
   return settingsOf(await readJSON(path.join(needSite(site), 'board.json'), {}));
 }
-// changes {auto_merge?: boolean, auto_build?: boolean, tickets?: source} → {file, settings, changed}; changed lists the keys whose value moved.
+// changes {auto_merge?: boolean, auto_build?: boolean, tickets?: source, github_login?: login | null} → {file, settings, changed}; changed lists the keys whose value moved.
 export function saveBoardSettings(site, changes) {
-  onlyKeys(changes, ['auto_merge', 'auto_build', 'tickets'], 'the settings');
+  onlyKeys(changes, ['auto_merge', 'auto_build', 'tickets', 'github_login'], 'the settings');
   if (!Object.keys(changes).length) fail('the settings name nothing to change');
   changes = { ...changes };
   for (const [k, v] of Object.entries(changes)) {
     if (k === 'tickets') { try { changes.tickets = ticketSource(v); } catch (e) { fail(e.message); } }
-    else bool(v, k);
+    else if (k === 'github_login') {
+      if (v === '' || v === null) changes.github_login = undefined;
+      else if (!validGithubLogin(v)) fail('github_login must be a GitHub login');
+    } else bool(v, k);
   }
   return writeBoardJSON(site, (cfg) => {
     const before = settingsOf(cfg);
-    const settings = { ...before, ...changes };
+    const settings = settingsOf({ ...cfg, ...changes });
     return { set: changes, settings, changed: Object.keys(changes).filter((k) => JSON.stringify(before[k]) !== JSON.stringify(settings[k])) };
   });
 }
-// The CLI's `settings set <name> on|off`; names are the board.json keys with "-" for "_".
+// The CLI's `settings set <name> <value>`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
   const key = String(name).replace(/-/g, '_');
-  if (!['auto_merge', 'auto_build'].includes(key)) fail(`no board setting "${name}"; settings are ${Object.keys(settingsOf({})).map((k) => k.replace(/_/g, '-')).join(', ')}`);
+  if (!['auto_merge', 'auto_build', 'github_login'].includes(key)) fail(`no board setting "${name}"; settings are ${['auto_merge', 'auto_build', 'github_login'].map((k) => k.replace(/_/g, '-')).join(', ')}`);
+  if (key === 'github_login') {
+    const { file, settings } = await saveBoardSettings(site, { github_login: value });
+    return { file, lines: [`github-login ${settings.github_login || 'unset'}`] };
+  }
   if (!['on', 'off'].includes(value)) fail(`settings set ${name} takes on or off, not "${value}"`);
   const { file, settings } = await saveBoardSettings(site, { [key]: value === 'on' });
   return { file, lines: [`${name} ${settings[key] ? 'on' : 'off'}`] };
 }
-export const settingsLines = (settings) => Object.entries(settings).map(([k, v]) => `setting ${k.replace(/_/g, '-')} ${k === 'tickets' ? JSON.stringify(v) : v ? 'on' : 'off'}`);
+export const settingsLines = (settings) => Object.entries(settings).map(([k, v]) => `setting ${k.replace(/_/g, '-')} ${k === 'tickets' ? JSON.stringify(v) : k === 'github_login' ? v : v ? 'on' : 'off'}`);
 
 // change(list) → {rules, rule} from hub/rules.mjs; → {file, lines} naming the rule's id.
 async function changeRules(site, hub, change) {
@@ -928,7 +937,7 @@ export async function setMainInstall(site, { install, installSha }) {
 // → the wave file, and when a dep finishes the items it unblocked as `unblocked: <key>` lines; closing
 // (done, merged, dropped) adds a `resolved: <id>` line per question it resolved (closeQuestions).
 // notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`.
-async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, install, installSha, installLabel, clearInstall, title, force, confirmed }, options) {
+async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, ghSince, fromAsk, held, unheld, notesFile, deps, install, installSha, installLabel, clearInstall, title, force, confirmed }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
   if (confirmed !== undefined && status !== 'building') fail('--confirmed goes with --status building');
   if (force && !FINISHED.includes(status)) fail(`--force goes with --status ${FINISHED.join(', ')}`);
@@ -936,7 +945,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   if (held && unheld) fail('pass --held or --unheld, not both');
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([status, clearStatus, next, clearNext, pr, fromAsk, held, unheld, notesFile, deps, built, title, ticket].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --from-ask, --held, --unheld, --notes-file, --deps, --install, --clear-install, --title or --ticket');
+  if ([status, clearStatus, next, clearNext, pr, ghSince, fromAsk, held, unheld, notesFile, deps, built, title, ticket].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --gh-since, --from-ask, --held, --unheld, --notes-file, --deps, --install, --clear-install, --title or --ticket');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   const { source, wave, item } = await loadItem(site, key);
@@ -970,6 +979,10 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (pr !== undefined) {
     item.pr = /^[1-9]\d*$/.test(String(pr)) ? Number(pr) : fail('--pr takes a PR number');
     clearBuildingStatus(item);
+  }
+  if (ghSince !== undefined) {
+    if (typeof ghSince !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(ghSince) || Number.isNaN(Date.parse(ghSince))) fail('--gh-since takes an ISO-8601 UTC time such as 2026-10-23T11:00:00Z');
+    item.gh_since = ghSince;
   }
   if (ask) item.from_ask = ask;
   if (built) item.install = built;
@@ -1007,7 +1020,20 @@ async function depList(site, slug, deps) {
   return list;
 }
 
-const boardRepoOf = (site, wave) => (site && listBoards().find((b) => samePath(b.dir, site))?.github) || wave.repo;
+export const boardRepoOf = (site, wave) => (site && listBoards().find((b) => samePath(b.dir, site))?.github) || wave.repo;
+
+export async function prReport(site, key) {
+  const { wave, item } = await loadItem(site, key);
+  if (!Number.isInteger(item.pr) || item.pr <= 0) fail(`${key} has no PR`);
+  const repo = boardRepoOf(site, wave);
+  if (!repo) fail(`${key} has no repo`);
+  const since = item.gh_since || '1970-01-01T00:00:00Z';
+  try {
+    const me = settingsOf(await boardConfig(site)).github_login || await githubLogin();
+    return reportOf(await fetchPR({ repo, pr: item.pr, since }), { pr: item.pr, since, me });
+  } catch (e) { fail(e.message); }
+}
+
 const boardSource = async (site) => storedTickets((await boardConfig(site)).tickets);
 
 // Sets item.ticket from the board's source, and ticket_created when kickflip made it. self is the card's <wave>/<id>:

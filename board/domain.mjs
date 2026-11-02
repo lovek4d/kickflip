@@ -166,7 +166,7 @@ const mergeable = (pr) => pr?.state === 'OPEN' && !pr.isDraft && pr.reviewDecisi
 
 // What the owner acts on next, or null: {kind, url, label}, url relative to the site root. kind is pick (a prototype
 // question), questions, ready (a green draft's Ready on GitHub), done (an ask's Done in its thread), steps (manual
-// steps on an approved PR, which monitor never merges itself) or merge (the open card's Merge, while the board's
+// steps on an approved PR, which the session never merges on its own) or merge (the open card's Merge, while the board's
 // auto-merge is off). A held card waits on nobody.
 function actionOf(it, questionById, autoMerge) {
   if (it.held || it.lane === 'done') return null;
@@ -382,7 +382,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
 //   prs: {"<repo>#<n>": pr}, threads: {<key>: [line]}, events: [event with reply, hidden ones left out],
 //   working: {<event id>: ts}, checked: data/checked.json, listen, watcher: data/watcher.json, askLinks: {<ask event id>: <wave>/<id>},
 //   askProgress: {<ask event id>: {state: progress|done, at, next, moved}}, owner: owner.json, bridge: slack-bridge state.json,
-//   autoMerge: board.json's auto_merge (true leaves merging to monitor, so no card gets the owner's Merge),
+//   autoMerge: board.json's auto_merge (true leaves merging to the GitHub tick, so no card gets the owner's Merge),
 //   threads also holds each ask's lines under ask:<event id>;
 //   topicItems: merged topic items, prompts: this board's pending prompts (../hub/prompts.mjs shown), now: ms}
 // moved maps ask:<event id> to the work item whose thread holds that ask.

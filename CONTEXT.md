@@ -237,8 +237,11 @@ While the card carries **Action needed**, the button that clears it is orange, i
 The button names (`BUTTON`: the action buttons, `github` and `merge`) and the action kinds (`ACTION_KIND`) are two frozen enums in `board/public/ui-enums.js`, which the page loads as a script and `board/domain.mjs` runs in a vm context; code compares against their members, never a bare string.
 _Avoid_: Open items, Action needed (the badge)
 
+**GitHub tick**:
+The session's steps for PR comments, CI, review, conflicts and merging, defined in SKILL.md. The hub polls GitHub with Node and gh, then wakes the board on a change; the tick reads each card with `board.mjs pr` and records the newest handled event with `item set --gh-since`. The owner's monitor skill is optional ([0103](docs/adr/0103-the-hub-reads-github-itself.md)).
+
 **Auto-merge**:
-A board setting, `auto_merge` in its `board.json`, off unless set: on, monitor merges a PR once it is approved, CI is green and its merge state is CLEAN; off, the card shows the owner Action needed and a Merge button, which reads "Merging…" until the PR merges or Claude says in the thread why it didn't. The board's Settings modal toggles it, and the watcher prints it with every wake as `setting auto-merge on|off`. A setting, not a **rule**, since the board itself acts on it ([0052](docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md)).
+A board setting, `auto_merge` in its `board.json`, off unless set: on, the session's GitHub tick merges a PR once it is approved, CI is green and its merge state is CLEAN; off, the card shows the owner Action needed and a Merge button, which reads "Merging…" until the PR merges or Claude says in the thread why it didn't. The board's Settings modal toggles it, and the watcher prints it with every wake as `setting auto-merge on|off`. A setting, not a **rule**, since the board itself acts on it ([0052](docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md)).
 _Avoid_: merge rule, merge policy
 
 **Review on GitHub**:

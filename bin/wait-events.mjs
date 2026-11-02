@@ -9,7 +9,8 @@
 //   rule hub <text>           each hub rule (settings.json `rules`), then
 //   rule board <text>         each of the board's own (board.json `rules`): the owner's standing instructions,
 //                             printed with every wake (docs/adr/0039-rules-live-on-settings-at-hub-and-board-level.md), then
-//   setting <name> on|off     each board setting from board.json, such as auto-merge, absent ones off
+//   setting <name> <value>    each board setting from board.json: auto-merge and auto-build on|off,
+//                             github-login <login> and tickets <json> when set
 //                             (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md), then
 //   usage paused <iso> <window> <used>%  while Claude is paused, after rules/settings; hub work events wait for reset
 //   link <name> <detail>      each hub link that doesn't reach the board (../hub/boards.mjs linksOf), the list its

@@ -68,10 +68,14 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
   prototype list                                         one line per recorded prototype
   prototype rm <topic>                                   drops the record, keeping its take files; refuses while an
                                                          open question links it
+  pr <wave>/<id>                                         one JSON line: the card's PR state, checks and new events,
+                                                         using the board's repo, github-login and the card's gh_since
   item set <wave>/<id> [--status <s> | --clear-status]   edits the item in its wave file
          [--next <t> | --clear-next] [--pr <n>]          status: ${ITEM_STATUSES.join(', ')}
                                                          an empty --next "" clears it, as --clear-next does
                                                          naming another unfinished card requires it in --deps
+         [--gh-since <ISO time>]                         records the last handled GitHub event, an ISO-8601 UTC
+                                                         time such as 2026-10-23T11:00:00Z, stored as given
          [--from-ask <eventId>]                          the ask it came from: its New card gives way to this item,
                                                          whose thread opens with the ask and its thread; it leaves
                                                          a card it was folded into
@@ -133,7 +137,7 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          session hears the board, which clears the setup checklist's
                                                          Events step. Refuses an older hello than the newest
   checked [--every <minutes> | --idle]                   data/checked.json: GitHub was just checked, next in
-                                                         <minutes> (default 30); run it at the end of each monitor tick.
+                                                         <minutes> (default 30); run it at the end of each GitHub tick.
                                                          --idle: the board shows no open PR, so never late.
                                                          Then sends the queued pushes, each on its own, unless
                                                          pushes are held (overnight, snoozed, the weekend or off)
@@ -157,17 +161,22 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          --by claude when you codify one on the owner's word
   rules edit <id> --text <t> [--hub]                     rewords a rule, keeping who added it
   rules remove <id> [--hub]                              refuses an id the list doesn't have
-  settings                                               the board's settings as JSON, each false when board.json
-                                                         leaves it out: {"auto_merge": false, "auto_build": false}
-  settings set auto-merge on|off                         on: monitor merges an approved PR once CI is green and
+  settings                                               the board's settings as JSON; flags default off, optional
+                                                         settings appear when set: {"auto_merge": false,
+                                                         "auto_build": false, "github_login": "owner"}
+  settings set auto-merge on|off                         on: the session merges an approved PR once CI is green and
                                                          the merge state is CLEAN. off (the default): the card
-                                                         shows the owner a Merge button, and monitor merges on its
+                                                         shows the owner a Merge button, and the session merges on its
                                                          card-merge event. Board Settings' toggle writes it too
   build <wave>/<id> --site <route>                       asks the hub to run this card's .kickflip/build; prints
                                                          started and exits. install is an alias. The hub records
                                                          data/try/<id>.log and writes failures to the thread.
                                                          Web Visit opens https://<host>:<try port>/ at its root
   main set --install <url> [--install-sha <sha>]          publishes main's app install to data/main.json
+  settings set github-login <login>                      the GitHub account Claude posts as on this board. Its
+                                                         comments carrying <!-- claude-bridge --> are Claude’s own
+                                                         and dropped; its other comments are the owner’s. Unset,
+                                                         the hub asks gh api user. Pass "" to clear it
   settings set auto-build on|off                         on: each push builds its card. Off by default.
                                                          Main builds after every merge either way
   builder start <wave>/<id> [--agent <name>] [--kind <opus|codex|sonnet|install|…>] [--label <who>]
@@ -309,6 +318,7 @@ function notesFileOf(f) {
 
 // name: [positional args, allowed flags, run(site, args, flags) → message]
 const COMMANDS = {
+  pr: [['wave/id'], [], async (site, [key]) => ({ lines: [JSON.stringify(await store.prReport(site, key))] })],
   reply: [['eventId'], ['html', 'file'], (site, [id], f) => {
     if ((f.html === undefined) === (f.file === undefined)) throw new UsageError('reply takes --html or --file');
     return store.writeReply(site, id, f.html ?? readInput(f.file));
@@ -320,8 +330,8 @@ const COMMANDS = {
   'prototype add': [['topic'], ['title', 'take', 'card'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take })],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'from-ask', 'held', 'unheld', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force', 'ticket', 'confirmed'], (site, [key], f, options) =>
-    store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, fromAsk: f['from-ask'], held: f.held, unheld: f.unheld, notesFile: notesFileOf(f), deps: f.deps,
+  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'gh-since', 'from-ask', 'held', 'unheld', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force', 'ticket', 'confirmed'], (site, [key], f, options) =>
+    store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, ghSince: f['gh-since'], fromAsk: f['from-ask'], held: f.held, unheld: f.unheld, notesFile: notesFileOf(f), deps: f.deps,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, force: f.force, ticket: f.ticket, confirmed: f.confirmed }, options)],
   'item add': [['wave/id'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket }, options)],
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
@@ -358,7 +368,7 @@ const COMMANDS = {
     }
   }],
   'main set': [[], ['install', 'install-sha'], (site, _, f) => store.setMainInstall(site, { install: f.install, installSha: f['install-sha'] })],
-  'settings set': [['name', 'on|off'], [], (site, [name, value]) => store.setBoardSetting(site, name, value)],
+  'settings set': [['name', 'value'], [], (site, [name, value]) => store.setBoardSetting(site, name, value)],
   'builder start': [['wave/id'], ['label', 'progress', 'dir', 'agent', 'kind', 'eta', 'worktree', 'repo'], (site, [key], { worktree, repo, ...f }) => {
     if (repo !== undefined && !worktree) throw new UsageError('--repo goes with --worktree');
     const manifest = readManifest();
