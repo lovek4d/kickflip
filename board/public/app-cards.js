@@ -2,7 +2,7 @@
 // app-core.js and app-threads.js.
 BoardView.part((B) => {
   const { $, store, state, markSeen, seen, toast, links } = B;
-  const { esc, REVIEW, reviewAge, unreadCount, workLines, linkText, mergeButton, installButton, REBUILDING_ASK, BUTTON } = BoardUI;
+  const { esc, REVIEW, reviewAge, unreadCount, workLines, linkText, mergeButton, installButton, tryButton, tryWords, BUTTON } = BoardUI;
 
   function detail(it) {
     if (it.kind === 'ask') {
@@ -73,7 +73,7 @@ BoardView.part((B) => {
       : holding != null ? `<button disabled>${holding ? 'Holding…' : 'Resuming…'}</button>`
       : it.held ? ask('resume', 'Resume') : ask('hold', 'Hold');
     const build = it.kind === 'followup' && it.lane !== 'done' ? `<button class="build" data-confirm="build" data-key="${key}">Build</button>` : '';
-    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${build}${mergeButton(it, sendingMerge.has(it.key))}${hold}${actionButton(it)}`)}</div>`;
+    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${build}${mergeButton(it, sendingMerge.has(it.key))}${hold}${actionButton(it)}${tryButton(it)}`)}</div>`;
   }
 
   // board/domain.mjs actionButtonOf picks the button and resolvedBy its colour (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md).
@@ -125,11 +125,27 @@ BoardView.part((B) => {
   }
 
   B.on(B.root, 'click', async (ev) => {
-    const a = ev.target.closest('a[data-install-confirm]');
-    if (!a) return;
+    const log = ev.target.closest('[data-try-log]');
+    if (log && state.openItems.has(log.dataset.tryLog)) {
+      ev.preventDefault();
+      const card = log.closest('details.item');
+      card?.querySelector('.thread')?.scrollIntoView({ block: 'start' });
+      return;
+    }
+    const button = ev.target.closest('button[data-try]');
+    if (!button) return;
     ev.preventDefault();
-    const { message, ...labels } = REBUILDING_ASK;
-    if (await B.confirm(message, labels) && B.alive()) location.href = a.getAttribute('href');
+    if (button.dataset.tip) { toast(button.dataset.tip); return; }
+    const key = button.dataset.try;
+    const it = state.board.items.find((i) => i.key === key);
+    if (!it || !(await B.confirm(`${tryWords(it.try?.kind).go} ${it.ref}? The hub runs its build script.`)) || !B.alive()) return;
+    button.disabled = true;
+    try {
+      const r = await fetch(B.site.url('api/try'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }) });
+      const out = await r.json();
+      if (!r.ok) throw new Error(out.error || 'The hub refused the build.');
+    } catch (error) { toast(error.message || 'Could not start. Is the host awake?'); }
+    if (B.alive()) B.loadBoard();
   });
 
   B.on(B.root, 'click', async (ev) => {

@@ -21,13 +21,12 @@
     <input type="checkbox" class="toggle" id="autoMerge" disabled>
   </label>
   <p class="muted small" id="autoMergeStatus"></p>
-  <h2>Device installs</h2>
-  <p class="muted small">The hub runs this script to build a card's install. Use an absolute path to a file you own, writable only by you. Leave it empty to turn install builds off.</p>
-  <form class="add" id="installForm">
-    <input id="installScript" aria-label="Install script path" placeholder="/absolute/path/to/install.sh" autocomplete="off" disabled>
-    <button type="submit" id="installSave" disabled>Save</button>
-  </form>
-  <p class="muted small" id="installStatus"></p>
+  <h2>Builds</h2>
+  <label class="who" for="autoBuild"><span><span>Auto-build cards</span>
+    <span class="muted small sub" id="autoBuildSub">${BoardUI.esc(BoardUI.tryWords('web').autoSub)}</span></span>
+    <input type="checkbox" class="toggle" id="autoBuild" disabled></label>
+  <p class="muted small" id="autoBuildStatus" role="status"></p>
+  <p class="muted small">The hub runs <code>.kickflip/build</code> from each card’s branch and from main. Claude wrote it when it set up this board; if builds break, file a card.</p>
   <h2>Reviewers</h2>
   <p class="muted small">Everyone here gets each PR link on this board once it's ready, and the weekday digest. Someone you add also gets the links of PRs already in review.</p>
   <div id="list"><p class="muted small">Loading…</p></div>
@@ -197,6 +196,7 @@
       } catch (e) { if (B.alive()) ticketsStatus.textContent = e.message || 'Could not save. Is the host awake?'; }
       finally { savingTickets = false; if (B.alive()) syncTickets(); }
     });
+    let buildKind = 'web';
     let current = [];
     const add = new Set();
     const remove = new Set();
@@ -211,6 +211,8 @@
 
     get(site.url('api/board'), waitIn('#list')).then(({ body: d }) => {
       if (!B.alive()) return;
+      buildKind = d.kind || 'web';
+      $('#autoBuildSub').textContent = BoardUI.tryWords(buildKind).autoSub;
       current = d.reviewers || [];
       render();
     }).catch(() => { if (B.alive()) $('#list').innerHTML = '<p class="muted">Offline. Is the host awake?</p>'; });
@@ -262,6 +264,8 @@
       autoMergeStatus.textContent = '';
       autoMerge.checked = d.settings?.auto_merge === true;
       autoMerge.disabled = false;
+      $('#autoBuild').checked = d.settings?.auto_build === true;
+      $('#autoBuild').disabled = false;
     }).catch(() => { autoMergeStatus.textContent = ticketsStatus.textContent = 'Offline. Is the host awake?'; });
     B.on(autoMerge, 'change', async () => {
       const want = autoMerge.checked;
@@ -284,37 +288,22 @@
       autoMerge.disabled = false;
     });
 
-    const installForm = $('#installForm');
-    const installScript = $('#installScript');
-    const installSave = $('#installSave');
-    const installStatus = $('#installStatus');
-    let savedScript = '';
-    get(site.url('api/install-script'), waitIn('#installStatus')).then(({ body: d }) => {
-      if (!B.alive()) return;
-      installScript.value = savedScript = d.install_script || '';
-      installScript.disabled = false;
-      installStatus.textContent = '';
-    }).catch(() => { installStatus.textContent = 'Offline. Is the host awake?'; });
-    B.on(installScript, 'input', () => {
-      const dirty = installScript.value !== savedScript;
-      installSave.disabled = !dirty;
-      if (dirty) installForm.setAttribute('data-dirty', '');
-      else installForm.removeAttribute('data-dirty');
-    });
-    B.on(installForm, 'submit', async (ev) => {
-      ev.preventDefault();
-      installSave.disabled = true;
-      installScript.disabled = true;
+    B.on($('#autoBuild'), 'change', async () => {
+      const toggle = $('#autoBuild');
+      const want = toggle.checked;
+      toggle.disabled = true;
       try {
-        const r = await fetch(site.url('api/install-script'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ install_script: installScript.value }) });
+        const r = await fetch(site.url('api/settings'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ auto_build: want }) });
         const out = await r.json();
         if (!r.ok) throw new Error(out.error);
-        savedScript = out.install_script;
-        installForm.removeAttribute('data-dirty');
-        installStatus.textContent = savedScript ? 'Saved.' : 'Install builds are off.';
-      } catch (e) { installStatus.textContent = e.message || 'Could not save. Is the host awake?'; }
-      installScript.disabled = false;
-      installSave.disabled = installScript.value === savedScript;
+        if (!B.alive()) return;
+        toggle.checked = out.settings.auto_build === true;
+        $('#autoBuildStatus').textContent = BoardUI.tryWords(buildKind).saved(toggle.checked);
+      } catch (e) {
+        if (!B.alive()) return;
+        toggle.checked = !want;
+        $('#autoBuildStatus').textContent = e.message || 'Could not save. Is the host awake?';
+      } finally { if (B.alive()) toggle.disabled = false; }
     });
 
     // Saving writes board.json through POST api/rules, whose `rules {scope: "board"}` event wakes Claude to acknowledge

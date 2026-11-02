@@ -363,54 +363,43 @@ test("the board's Settings, Waiting on you and Notes views, mounted then unmount
   }
 });
 
-test('Board Settings loads the install script, keeps refused edits unsaved, and saves or clears the path', async () => {
-  const page = fakePage(memoryStorage().localStorage);
-  const root = new page.El();
-  root.querySelector('#installScript').disabled = true;
-  root.querySelector('#installSave').disabled = true;
-  let saved = '/owner/install.sh';
-  let refuse = false;
-  const posts = [];
-  page.win.fetch = async (url, opts = {}) => {
-    let body = {};
-    if (url.endsWith('/api/install-script')) {
-      if (opts.method === 'POST') {
-        posts.push([url, JSON.parse(opts.body)]);
-        if (refuse) return { ok: false, json: async () => ({ error: 'Install script must be an absolute path.' }) };
-        saved = JSON.parse(opts.body).install_script;
+test('Board Settings saves auto-build immediately, uses kind-specific words and restores the toggle on refusal', async () => {
+  for (const kind of ['web', 'app']) {
+    const page = fakePage(memoryStorage().localStorage);
+    const root = new page.El();
+    let saved = false, refuse = false;
+    const posts = [];
+    page.win.fetch = async (url, opts = {}) => {
+      let body = url.endsWith('/api/board') ? { kind } : {};
+      if (url.endsWith('/api/settings')) {
+        if (opts.method === 'POST') {
+          posts.push([url, JSON.parse(opts.body)]);
+          if (refuse) return { ok: false, json: async () => ({ error: 'Cannot save' }) };
+          saved = JSON.parse(opts.body).auto_build;
+        }
+        body = { settings: { auto_build: saved } };
       }
-      body = { install_script: saved };
-    }
-    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
-  };
-  const view = page.win.AppViews.settings.create(root, '/orch', { reload() {} });
-  view.mount();
-  await new Promise((resolve) => setImmediate(resolve));
-  const input = root.querySelector('#installScript');
-  const form = root.querySelector('#installForm');
-  const button = root.querySelector('#installSave');
-  const status = root.querySelector('#installStatus');
-  assert.deepEqual([input.value, input.disabled, button.disabled], ['/owner/install.sh', false, true]);
-  input.value = 'relative.sh';
-  page.fire(input, 'input');
-  assert.equal(form.getAttribute('data-dirty'), '');
-  refuse = true;
-  page.fire(form, 'submit');
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(status.textContent, 'Install script must be an absolute path.');
-  assert.equal(form.getAttribute('data-dirty'), '');
-  assert.equal(button.disabled, false);
-  refuse = false;
-  for (const value of ['/owner/new install.sh', '']) {
-    input.value = value;
-    page.fire(input, 'input');
-    page.fire(form, 'submit');
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.deepEqual([saved, input.disabled, button.disabled, form.getAttribute('data-dirty')], [value, false, true, null]);
-    assert.deepEqual(posts.at(-1), ['https://mac.ts.net/orch/api/install-script', { install_script: value }]);
+      return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
+    };
+    const view = page.win.AppViews.settings.create(root, '/orch', {});
+    view.mount();
+    await tick();
+    const toggle = root.querySelector('#autoBuild');
+    assert.equal(toggle.disabled, false);
+    assert.match(root.querySelector('#autoBuildSub').textContent, kind === 'web' ? /hub serves/ : /hub builds/);
+    toggle.checked = true;
+    page.fire(toggle, 'change');
+    await tick();
+    assert.deepEqual(posts.at(-1), ['https://mac.ts.net/orch/api/settings', { auto_build: true }]);
+    assert.equal(root.querySelector('#autoBuildStatus').textContent, kind === 'web' ? 'Saved. Each push serves its card.' : 'Saved. Each push builds its card.');
+    refuse = true;
+    toggle.checked = false;
+    page.fire(toggle, 'change');
+    await tick();
+    assert.equal(toggle.checked, true);
+    assert.equal(root.querySelector('#autoBuildStatus').textContent, 'Cannot save');
+    view.unmount();
   }
-  assert.equal(status.textContent, 'Install builds are off.');
-  view.unmount();
 });
 
 test('Board Settings warns about active work, requires the exact board name and waits for the close response before opening the hub', async () => {
@@ -1779,60 +1768,56 @@ test("an open card shows its workflow buttons below a final details line of Note
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['grill-more', { key: 'w/A2' }], ['ask-done', { id: 'a1' }]]);
 });
 
-test('the install chip and details link confirm with labelled actions while rebuilding, then become current when the install lands', async () => {
-  const install = { url: 'https://m/app.apk', sha: 'old', older: true };
-  const cards = [workCard('R1', { lane: 'progress', install, builder: { kind: 'install' } }),
-    workCard('B1', { lane: 'progress', builder: { kind: 'install' } })];
-  const b = boardOnDom({ open: ['w/R1', 'w/B1'], board: boardOf(cards), threads: {} });
+test('a running badge replaces its install link without confirmation and becomes current after completion', async () => {
+  const install = { url: 'https://m/app.apk', sha: 'abcdef1', older: true };
+  const b = boardOnDom({ open: ['w/R1'], board: boardOf([workCard('R1', { lane: 'progress', install, builder: { kind: 'install' } })]), threads: {} });
   await b.settle();
-  const row = (id) => b.root.querySelector(`details[data-key="w/${id}"]`);
-  assert.equal(row('B1').querySelector('summary .chip.tone-notice').textContent, 'Building…');
-  assert.equal(row('B1').querySelector('.grid .external-links .install').textContent, 'Building…');
-  assert.equal(row('B1').querySelector('.grid .external-links .install').getAttribute('href'), null);
-  const href = b.page.win.location.href;
-  for (const sel of ['summary a[data-install-confirm]', '.grid .external-links a[data-install-confirm]']) {
-    const link = row('R1').querySelector(sel);
-    assert.equal(link.textContent, sel.startsWith('summary') ? 'Rebuilding…' : 'Rebuilding… ↗');
-    b.page.fire(b.root, 'click', { target: link });
-    await b.settle();
-    assert.equal(b.page.win.location.href, href);
-  }
-  assert.deepEqual(b.confirms, Array(2).fill('Currently rebuilding with latest changes. Install the existing older build now?'));
-  assert.deepEqual(b.confirmLabels, Array(2).fill({ ok: 'Install older build', cancel: 'Cancel' }));
-  const allowed = boardOnDom({ open: ['w/R1'], board: boardOf(cards), threads: {}, confirm: true });
-  await allowed.settle();
-  for (const sel of ['summary a[data-install-confirm]', '.grid .external-links a[data-install-confirm]']) {
-    const link = allowed.root.querySelector(sel);
-    allowed.page.win.location.href = href;
-    const event = allowed.page.fire(allowed.root, 'click', { target: link });
-    assert.equal(event.defaultPrevented, true);
-    await allowed.settle();
-    assert.equal(allowed.page.win.location.href, install.url);
-  }
-  await b.change({ board: boardOf([workCard('R1', { lane: 'review', install: { ...install, sha: 'new', older: false } }), cards[1]]) });
-  assert.equal(row('R1').querySelector('summary .chip.tone-ready').textContent, 'Install');
-  assert.equal(row('R1').querySelector('.grid .external-links .install').textContent, 'Install ↗');
-  assert.equal(row('R1').querySelector('[data-install-confirm]'), null);
+  assert.equal(b.root.querySelector('.external-links .install').textContent, 'Building…');
+  assert.equal(b.root.querySelector('.external-links .install').getAttribute('href'), null);
+  assert.equal(b.root.querySelector('[data-install-confirm]'), null);
+  assert.deepEqual(b.confirms, []);
+  await b.change({ board: boardOf([workCard('R1', { install: { ...install, older: false } })]) });
+  assert.equal(b.root.querySelector('.external-links .install').textContent, 'Install ↗');
 });
 
-test('an install confirmation closes on view unmount and cannot navigate after leaving, including an accepted answer still awaiting its continuation', async () => {
-  for (const accept of [false, true]) {
-    const install = { url: 'https://m/app.apk', older: true };
-    const b = boardOnDom({ open: ['w/R1'], board: boardOf([workCard('R1', { lane: 'progress', install, builder: { kind: 'install' } })]), threads: {}, realDialogs: true });
-    await b.settle();
-    const href = b.page.win.location.href;
-    b.page.fire(b.root, 'click', { target: b.root.querySelector('.external-links a[data-install-confirm]') });
-    const sheet = b.doc.body.querySelector('dialog.confirm-sheet');
-    assert.ok(sheet?.open);
-    if (accept) b.page.fire(sheet, 'click', { target: sheet.querySelector('[data-answer="ok"]') });
-    b.view.unmount();
-    assert.equal(sheet.open, false);
-    assert.equal(b.doc.body.querySelector('dialog.confirm-sheet'), null);
-    b.root.remove();
-    await b.settle();
-    assert.equal(b.page.win.location.href, href);
-    assert.deepEqual(b.sent, []);
-  }
+test('a card try button confirms, posts through the site URL and reloads; disabled buttons only toast', async () => {
+  const card = workCard('R1', { ref: 'INT-41', holdable: true, try: { kind: 'web', script: true, changes: true } });
+  const b = boardOnDom({ open: ['w/R1'], board: boardOf([card]), threads: {}, confirm: true });
+  await b.settle();
+  const original = b.page.win.fetch;
+  const posts = [];
+  b.page.win.fetch = async (url, opts = {}) => {
+    if (url.endsWith('/api/try')) { posts.push([url, JSON.parse(opts.body)]); return { ok: false, json: async () => ({ error: 'Already running' }) }; }
+    return original(url, opts);
+  };
+  const workflow = b.root.querySelector('.workflow');
+  assert.equal(workflow.children.at(-1).textContent, 'Serve');
+  b.page.fire(b.root, 'click', { target: workflow.querySelector('[data-try]') });
+  await b.settle();
+  assert.deepEqual(b.confirms, ['Serve INT-41? The hub runs its build script.']);
+  assert.deepEqual(posts, [['https://mac.ts.net/board-a/api/try', { key: 'w/R1' }]]);
+  assert.match(b.root.textContent, /Already running/);
+  await b.change({ board: boardOf([{ ...card, try: { ...card.try, changes: false } }]) });
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('[data-try]') });
+  await b.settle();
+  assert.match(b.root.textContent, /No changes to serve: this card’s branch matches main./);
+  assert.equal(posts.length, 1);
+});
+
+test('main paints above the lanes and failures on open cards scroll to their thread', async () => {
+  const data = { ...boardOf([workCard('R1', { try: { kind: 'web', state: 'failed', script: true, changes: true } })]), main: { kind: 'web', state: 'ready', slug: 'o/r', branch: 'main', sha: 'abcdef1', at: new Date().toISOString(), url: '/orch/try/main/' } };
+  const b = boardOnDom({ open: ['w/R1'], board: data, threads: {} });
+  await b.settle();
+  assert.match(b.root.querySelector('#tryMain').textContent, /o\/r · main@abcdef1.*Visit ↗/);
+  assert.ok(b.root.innerHTML.indexOf('id="tryMain"') < b.root.innerHTML.indexOf('id="lanes"'));
+  assert.equal(b.root.querySelector('#tryMain button'), null);
+  const scrolled = [];
+  b.root.querySelector('details.item').scrollIntoView = () => scrolled.push('card');
+  b.root.querySelector('.thread').scrollIntoView = () => scrolled.push('thread');
+  b.page.win.location.hash = '#item=w%2FR1';
+  const event = b.page.fire(b.root, 'click', { target: b.root.querySelector('.external-links [data-try-log]') });
+  assert.equal(event.defaultPrevented, true);
+  assert.deepEqual(scrolled, ['thread']);
 });
 
 test('labelled confirmations use the modal bottom sheet, preserve text, cancel safely and leave native callers working', async () => {
@@ -2395,7 +2380,7 @@ test('old board settings deep links open the board and modal, and Escape and Don
   assert.ok(board);
   assert.ok(modal?.open);
   assert.equal(entries().length, 1);
-  const dirty = modal.querySelector('#installForm');
+  const dirty = modal.querySelector('#ticketsForm');
   dirty.setAttribute('data-dirty', '');
   let asks = 0;
   win.BoardDialogs.confirm = async () => { asks++; return false; };

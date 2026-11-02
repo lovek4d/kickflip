@@ -147,6 +147,7 @@ window.BoardView = (function () {
       steady(() => {
         B.renderHeader(d);
         B.renderWaves(d);
+        BoardUI.setHTML($('#tryMain'), BoardUI.mainBar(d.main));
         const live = d.items.filter((i) => !state.withdrawnAsks.has(i.id));
         const shown = state.waveFilter ? live.filter((i) => i.wave === state.waveFilter) : live;
         for (const el of $$('details.item[open]')) state.openItems.add(el.dataset.key);
@@ -180,7 +181,7 @@ window.BoardView = (function () {
     // A card link whose hash is already the page's fires no hashchange, so its tap opens the card here.
     B.on(B.root, 'click', (ev) => {
       const a = ev.target.closest?.('a[href^="#item="]');
-      if (!a || a.getAttribute('href') !== location.hash || !state.board) return;
+      if (!a || ev.defaultPrevented || a.getAttribute('href') !== location.hash || !state.board) return;
       ev.preventDefault();
       readHash(); render(); scrollToFocus();
     });
@@ -299,6 +300,7 @@ window.BoardView = (function () {
   <section id="answers" class="answer-banner" hidden></section>
   <section id="waiting" class="waiting" hidden></section>
   <div id="waves" class="waves"></div>
+  <div id="tryMain"></div>
   <div id="lanes"></div>
 </main>
 <button id="compose" class="fab" type="button" aria-label="New task" title="New task (press n twice)" aria-haspopup="dialog" aria-expanded="false"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>

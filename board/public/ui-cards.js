@@ -43,25 +43,41 @@
     const external = it.action.kind === ACTION_KIND.ready ? EXTERNAL : {};
     return badge('notice', 'Action needed', { href: it.action.url, title: it.action.label, attrs: { ...external, 'aria-label': `Action needed: ${it.action.label}` } });
   }
-  // docs/adr/0051-a-device-app-card-carries-an-install-link.md
-  const installing = (it) => it.lane !== 'done' && it.builder?.kind === BUILDER_KIND.install;
-  const REBUILDING_ASK = { message: 'Currently rebuilding with latest changes. Install the existing older build now?', ok: 'Install older build', cancel: 'Cancel' };
+  const tryWords = (kind) => kind === 'app' ? {
+    go: 'Build', going: 'Building…', done: 'Install', failed: 'Build failed',
+    none: 'No changes to build: this card’s branch matches main.',
+    current: 'Nothing new to build: Install already has this card’s latest push.',
+    busy: 'Building now. The badge turns back into Install when the new build is ready.',
+    autoSub: 'On: the hub builds each card after each push. Off: a card waits for your Build. Main builds again after every merge either way.',
+    saved: (on) => on ? 'Saved. Each push builds its card.' : 'Saved. Cards wait for your Build.',
+  } : {
+    go: 'Serve', going: 'Serving…', done: 'Visit', failed: 'Serve failed',
+    none: 'No changes to serve: this card’s branch matches main.',
+    current: 'Nothing new to serve: Visit already shows this card’s latest push.',
+    busy: 'Serving now. The badge turns back into Visit when the new server is up.',
+    autoSub: 'On: the hub serves each card after each push. Off: a card waits for your Serve. Main serves again after every merge either way.',
+    saved: (on) => on ? 'Saved. Each push serves its card.' : 'Saved. Cards wait for your Serve.',
+  };
+  const spinner = '<span class="try-spin" aria-hidden="true"></span>';
+  function tryOf(it) {
+    if (it.lane === 'done') return null;
+    const t = it.try || (it.install ? { kind: 'app', state: 'ready', stale: it.install.older, sha: it.install.sha, url: it.install.url } : null);
+    return it.builder?.kind === BUILDER_KIND.install ? { ...t, kind: t?.kind || 'app', state: 'running' } : t;
+  }
   function installState(it) {
-    const inst = it.install;
-    if (!inst) return installing(it) ? { tone: 'notice', label: 'Building…', title: 'Building the first install', attrs: { 'aria-disabled': 'true' } } : null;
-    const label = inst.label || 'Install';
-    const built = [inst.builtAt && `built ${time(inst.builtAt)}`, inst.sha && `from ${inst.sha.slice(0, 7)}`].filter(Boolean).join(' ');
-    if (installing(it)) {
-      return { tone: 'notice', label: 'Rebuilding…', href: inst.url, title: built ? `Older build, ${built}` : 'Older build',
-        attrs: { 'data-install-confirm': it.key, 'aria-label': 'Rebuilding. Tap to install the older build' } };
-    }
-    const title = [built && built[0].toUpperCase() + built.slice(1), inst.older && 'the PR has newer commits'].filter(Boolean).join('; ');
-    return { tone: inst.older ? 'quiet' : 'ready', label: inst.older ? `${label} · older build` : label,
-      href: inst.url, title: title || null, attrs: { 'aria-label': `${label}${inst.older ? ', an older build' : ''}` } };
+    const t = tryOf(it);
+    if (!t) return null;
+    const words = tryWords(t.kind);
+    if (t.state === 'running') return { tone: 'notice', html: spinner + esc(words.going), attrs: { role: 'status' } };
+    if (t.state === 'failed') return { tone: 'danger', html: `${esc(words.failed)} ↗`, href: `#item=${encodeURIComponent(it.key)}`,
+      title: 'The build script stopped with an error. Tap for its log in the card’s thread.', attrs: { 'data-try-log': it.key } };
+    if (t.state !== 'ready' || !t.url) return null;
+    return { tone: t.stale ? 'quiet' : 'ready', html: `${esc(words.done)}${t.stale ? ' (stale)' : ''} ↗`, href: t.url,
+      title: t.sha ? `Built from ${t.sha}${t.stale ? '; the branch has newer commits' : ''}` : null, attrs: t.kind === 'web' ? EXTERNAL : {} };
   }
   function installChip(it) {
     const s = installState(it);
-    return s ? badge(s.tone, esc(s.label), s) : '';
+    return s ? badge(s.tone, s.html, { href: s.href, title: s.title, attrs: s.attrs }) : '';
   }
   function installButton(it) {
     const s = installState(it);
@@ -69,7 +85,23 @@
     const attrs = Object.entries({ href: s.href, title: s.title, ...s.attrs }).filter(([, v]) => v != null)
       .map(([k, v]) => ` ${k}="${esc(v)}"`).join('');
     const tag = s.href ? 'a' : 'span';
-    return `<${tag} class="install tone-${s.tone}"${attrs}>${esc(s.label)}${s.href ? ' ↗' : ''}</${tag}>`;
+    return `<${tag} class="install tone-${s.tone}"${attrs}>${s.html}</${tag}>`;
+  }
+  function tryButton(it) {
+    const t = tryOf(it);
+    if (it.kind !== 'work' || !t?.script) return '';
+    const words = tryWords(t.kind);
+    const reason = !t.changes ? words.none : t.state === 'running' ? words.busy : t.state === 'ready' && !t.stale ? words.current : '';
+    return `<button type="button" data-try="${esc(it.key)}"${reason ? ` aria-disabled="true" title="${esc(reason)}" data-tip="${esc(reason)}"` : ''}>${t.state === 'failed' && !reason ? 'Retry' : words.go}</button>`;
+  }
+  const BRANCH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7"/><path d="M18 10.5c0 4-6 3-11 6"/></svg>';
+  function mainBar(main) {
+    if (!main) return '';
+    const words = tryWords(main.kind);
+    const chip = main.state === 'running' ? badge('notice', spinner + esc(words.going), { attrs: { role: 'status' } })
+      : main.state === 'failed' ? badge('danger', esc(words.failed), { title: 'The build script stopped with an error. Its log is data/try/main.log in the board’s folder.' })
+      : main.state === 'ready' && main.url ? badge('ready', `${words.done} ↗`, { href: main.url, attrs: main.kind === 'web' ? EXTERNAL : {} }) : '';
+    return `<div class="tb-main" role="region" aria-label="Main’s version">${BRANCH}<div class="tb-main-text">${esc(main.slug)} · <strong>${esc(main.branch)}</strong>@<code>${esc(main.sha)}</code> · ${esc(ago(main.at))}</div><div class="meta">${chip}</div></div>`;
   }
   // The open card's Merge, while the board's auto-merge is off: it confirms, then sends card-merge, and reads "Merging…"
   // while it is sent or waits on the session (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md).
@@ -118,5 +150,5 @@
     return keys.length > 1 ? `<button class="link" data-plan="${esc(keys.join(' '))}">Plan a wave from these ${keys.length} follow-ups →</button>` : '';
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionChip, REBUILDING_ASK, installChip, installButton, mergeButton, builderLine, unreadCount, workLines, askChip, askActions, askLine, planButton });
+  Object.assign(globalThis.BoardUI, { prChips, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionChip, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, unreadCount, workLines, askChip, askActions, askLine, planButton });
 })();

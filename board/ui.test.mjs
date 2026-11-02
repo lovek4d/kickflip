@@ -876,49 +876,67 @@ test('a Todo age uses muted secondary text on its own line below the title', () 
   assert.doesNotMatch(html, /tone-notice/);
 });
 
-test("a card with an install shows its Install link last among its badges, opening in place, and marks an older build", () => {
+test('an app install badge opens in place and uses the agreed current and stale words', () => {
   const url = 'itms-services://?action=download-manifest&url=https://m/x/manifest.plist';
-  const install = { url, label: null, builtAt: ago(2), sha: 'abc1234', older: false };
-  const asking = { ...workCard, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' }, install };
-  assert.deepEqual(lines(ui.workLines(asking)), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'Action needed repo#7 ● CI ✓ J ✗ Install']);
+  const install = { url, sha: 'abc1234', older: false };
   const html = ui.workLines({ ...workCard, install });
-  assert.equal(lines(html)[2], 'repo#7 ● CI ✓ J ✗ Install');
-  const link = /<a class="chip tone-ready" href="([^"]*)"[^>]*>Install<\/a>/.exec(html);
-  assert.equal(link?.[1], url.replaceAll('&', '&amp;'));
-  assert.doesNotMatch(link[0], /target=/);
-  assert.match(ui.workLines({ ...workCard, install: { ...install, label: 'Install beta', older: true } }), /<a class="chip tone-quiet" href="[^"]*"[^>]*>Install beta · older build<\/a>/);
+  assert.equal(lines(html)[2], 'repo#7 ● CI ✓ J ✗ Install ↗');
+  assert.match(html, /href="itms-services:/);
+  assert.doesNotMatch(ui.installButton({ ...workCard, install }), /target=/);
+  assert.equal(text(ui.installChip({ ...workCard, install: { ...install, older: true } })), 'Install (stale) ↗');
   assert.doesNotMatch(ui.workLines(workCard), /Install/);
 });
 
-test('the install chip and details link share rebuilding, first build, older build and current states', () => {
-  const install = { url: 'https://m/app.apk', sha: 'abc1234', older: true };
-  const building = { ...workCard, builder: { kind: 'install' } };
-  for (const render of [ui.installChip, ui.installButton]) {
-    const arrow = render === ui.installButton ? ' ↗' : '';
-    assert.equal(render(workCard), '');
-    const first = render(building);
-    assert.equal(text(first), 'Building…');
-    assert.match(first, /tone-notice/);
-    assert.match(first, /aria-disabled="true"/);
-    assert.doesNotMatch(first, /href=|data-install-confirm/);
-    for (const older of [false, true]) {
-      const rebuilding = render({ ...building, install: { ...install, older } });
-      assert.equal(text(rebuilding), `Rebuilding…${arrow}`);
-      assert.match(rebuilding, /tone-notice/);
-      assert.match(rebuilding, /data-install-confirm="w\/B5"/);
-      assert.match(rebuilding, /href="https:\/\/m\/app.apk"/);
+test('try badges share ready, stale, running, failed and absent states for both kinds, including legacy builders', () => {
+  for (const kind of ['web', 'app']) for (const render of [ui.installChip, ui.installButton]) {
+    const done = kind === 'web' ? 'Visit' : 'Install';
+    const going = kind === 'web' ? 'Serving…' : 'Building…';
+    const failed = kind === 'web' ? 'Serve failed' : 'Build failed';
+    const card = { ...workCard, try: { kind, state: 'ready', url: '/try/', sha: 'abcdef1' } };
+    assert.equal(text(render(card)), `${done} ↗`);
+    assert.match(render(card), /tone-ready/);
+    assert.equal(/target="_blank"/.test(render(card)), kind === 'web');
+    assert.equal(text(render({ ...card, try: { ...card.try, stale: true } })), `${done} (stale) ↗`);
+    assert.match(render({ ...card, try: { ...card.try, stale: true } }), /tone-quiet.*Built from abcdef1/);
+    for (const busy of [{ ...card, try: { ...card.try, state: 'running' } }, { ...card, builder: { kind: 'install' } }]) {
+      assert.equal(text(render(busy)), going);
+      assert.match(render(busy), /role="status"/);
+      assert.match(render(busy), /try-spin/);
+      assert.doesNotMatch(render(busy), /href=/);
     }
-    for (const kind of ['opus', undefined]) {
-      const older = render({ ...workCard, install, builder: kind ? { kind } : null });
-      assert.match(older, /tone-quiet/);
-      assert.equal(text(older), `Install · older build${arrow}`);
-      assert.doesNotMatch(older, /data-install-confirm/);
-      const current = render({ ...workCard, install: { ...install, older: false } });
-      assert.match(current, /tone-ready/);
-      assert.equal(text(current), `Install${arrow}`);
-      assert.doesNotMatch(current, /target=|class="pill/);
+    const error = render({ ...card, try: { kind, state: 'failed' } });
+    assert.equal(text(error), `${failed} ↗`);
+    assert.match(error, /tone-danger.*href="#item=w%2FB5"/);
+    assert.equal(render({ ...card, try: { kind } }), '');
+    assert.equal(render({ ...card, lane: 'done' }), '');
+  }
+});
+
+test('try buttons explain no changes, running and current runs, and offer Retry after failure only on scripted work cards', () => {
+  for (const kind of ['web', 'app']) {
+    const card = { ...workCard, kind: 'work', try: { kind, script: true, changes: true } };
+    assert.equal(text(ui.tryButton(card)), kind === 'web' ? 'Serve' : 'Build');
+    for (const [change, reason] of [[{ changes: false }, 'No changes to'], [{ state: 'running' }, kind === 'web' ? 'Serving now.' : 'Building now.'], [{ state: 'ready' }, 'Nothing new to']]) {
+      const html = ui.tryButton({ ...card, try: { ...card.try, ...change } });
+      assert.match(html, /aria-disabled="true"/);
+      assert.ok(html.includes(reason));
     }
-    assert.equal(render({ ...building, lane: 'done' }), '');
+    assert.equal(text(ui.tryButton({ ...card, try: { ...card.try, state: 'failed' } })), 'Retry');
+    assert.equal(text(ui.tryButton({ ...card, try: { ...card.try, state: 'ready', stale: true } })), kind === 'web' ? 'Serve' : 'Build');
+    assert.equal(ui.tryButton({ ...card, kind: 'ask' }), '');
+    assert.equal(ui.tryButton({ ...card, try: { ...card.try, script: false } }), '');
+  }
+});
+
+test('main is a slim branch bar with one badge, no control and a failure log title', () => {
+  assert.equal(ui.mainBar(null), '');
+  for (const kind of ['web', 'app']) {
+    const main = { kind, slug: 'owner/repo', branch: 'develop', sha: '1234567', at: ago(2), state: 'ready', url: '/try/main/' };
+    assert.match(ui.mainBar(main), /tb-main.*owner\/repo · <strong>develop<\/strong>@<code>1234567<\/code>/);
+    assert.equal(text(ui.mainBar(main)).includes(kind === 'web' ? 'Visit ↗' : 'Install ↗'), true);
+    assert.match(ui.mainBar({ ...main, state: 'running' }), /role="status"/);
+    assert.doesNotMatch(ui.mainBar({ ...main, state: 'running' }), /href=|<button/);
+    assert.match(ui.mainBar({ ...main, state: 'failed' }), /title="[^"]*data\/try\/main.log[^"]*"/);
   }
 });
 
