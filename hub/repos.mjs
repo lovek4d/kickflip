@@ -67,11 +67,18 @@ export function repoPath(github, base = reposDir()) {
   return dest;
 }
 
-// Error lines reach the page, and git can echo a remote URL with its credentials.
-const firstLine = (r, fallback) => (r.stderr || r.stdout || fallback).trim().split('\n')[0].replace(/(\w+:\/\/)[^/\s@]+@/g, '$1');
+const PROGRESS = /^(?:Cloning into |remote: (?:Enumerating|Counting|Compressing|Total) |Receiving objects:|Resolving deltas:|Updating files:)/;
+// A failed command's error line (docs/adr/0110-a-clone-uses-ghs-token-over-https.md): git prints progress before its
+// fatal: line and may follow it with a blank line and advice. Error lines reach the page, and git can echo a remote
+// URL with its credentials.
+function errorLine(text, fallback) {
+  const paragraphs = String(text || '').split(/\n\s*\n/).map((p) => p.split(/[\r\n]+/).map((l) => l.trim()).filter((l) => l && !PROGRESS.test(l)));
+  return (paragraphs.find((p) => p.length)?.at(-1) || fallback).replace(/(\w+:\/\/)[^/\s@]+@/g, '$1');
+}
+const failure = (r, fallback) => errorLine(r.stderr || r.stdout, fallback);
 const checked = async (run, command, argv, options) => {
   const r = await run(command, argv, options);
-  if (r.status !== 0) refuse(firstLine(r, `${command} failed`), 502);
+  if (r.status !== 0) refuse(failure(r, `${command} failed`), 502);
   return r.stdout;
 };
 const ghJSON = async (run, argv) => JSON.parse(await checked(run, 'gh', argv));
@@ -87,10 +94,14 @@ async function verifyClone(run, dest, github) {
 // The fallback for a public repo gh can't see: with no credential helper or prompt, success means the repo is public,
 // and a private or missing one fails at once instead of waiting on a password prompt.
 const publicGit = (run, argv) => run('git', ['-c', 'credential.helper=', ...argv], { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
+// Git over https with gh's token as its only credential, whatever gh's git_protocol says, and no prompt, so a public
+// repo needs no sign-in and one the token can't reach fails at once.
+export const githubGitArgv = (argv) => ['-c', 'credential.helper=', '-c', 'credential.https://github.com.helper=!gh auth git-credential', ...argv];
+const githubGit = (run, argv) => run('git', githubGitArgv(argv), { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
 
 async function fetchBranch(run, dest, github, branch) {
-  const result = await run('git', ['-C', dest, 'fetch', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`]);
-  if (result.status !== 0) refuse(`Could not fetch branch "${branch}" from ${github}: ${firstLine(result, 'git fetch failed')}`, 502);
+  const result = await githubGit(run, ['-C', dest, 'fetch', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`]);
+  if (result.status !== 0) refuse(`Could not fetch branch "${branch}" from ${github}: ${failure(result, 'git fetch failed')}`, 502);
 }
 
 export function repoService({ run = runRepo, base = reposDir(), now = Date.now } = {}) {
@@ -185,12 +196,8 @@ export function repoService({ run = runRepo, base = reposDir(), now = Date.now }
         }
         const temp = fs.mkdtempSync(path.join(path.resolve(base), '.clone-'));
         try {
-          const clone = await run('gh', ['repo', 'clone', github, path.join(temp, 'repo')]);
-          if (clone.status !== 0) {
-            fs.rmSync(path.join(temp, 'repo'), { recursive: true, force: true });
-            const fallback = await publicGit(run, ['clone', `https://github.com/${github}.git`, path.join(temp, 'repo')]);
-            if (fallback.status !== 0) refuse(firstLine(clone, 'gh failed'), 502);
-          }
+          const clone = await githubGit(run, ['clone', `https://github.com/${github}.git`, path.join(temp, 'repo')]);
+          if (clone.status !== 0) refuse(failure(clone, 'git clone failed'), 502);
           await verifyClone(run, path.join(temp, 'repo'), github);
           await fetchBranch(run, path.join(temp, 'repo'), github, branch);
           repoPath(github, base);

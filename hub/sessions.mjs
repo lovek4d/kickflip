@@ -21,7 +21,7 @@ import { readUsageGate, heldUsageEvent } from '../shared/usage-gate.mjs';
 import { liveSessions, sessionRecords, processStarts, verifiedProcess } from './live.mjs';
 import { deliver } from './push.mjs';
 import { WAIT_MS } from './prompts.mjs';
-import { storedPath } from '../bin/install.mjs';
+import { nodeBin, storedPath } from '../bin/install.mjs';
 
 const SKILL_DIR = storedPath(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'));
 export const RESUME_AFTER = 3 * 60_000;
@@ -36,11 +36,11 @@ export function startingBoards(manifest, now = Date.now()) {
 }
 // "none" is the value that turns isolation off; Claude Code drops any other value and isolates. The PermissionRequest
 // hook sends the session's prompts to the phone, and its timeout stays a minute past the hook's own wait
-// (docs/adr/0060-background-sessions-prompts-come-to-the-phone.md). The hub service's PATH may have no node, hence execPath.
+// (docs/adr/0060-background-sessions-prompts-come-to-the-phone.md). The hub service's PATH may have no node, hence a full path.
 export const PROMPT_HOOK_TIMEOUT_S = WAIT_MS / 1000 + 60;
 export const BG_SETTINGS = JSON.stringify({
   worktree: { bgIsolation: 'none' },
-  hooks: { PermissionRequest: [{ matcher: '*', hooks: [{ type: 'command', command: `"${process.execPath}" "${path.join(SKILL_DIR, 'hub', 'permission-hook.mjs')}"`, timeout: PROMPT_HOOK_TIMEOUT_S }] }] },
+  hooks: { PermissionRequest: [{ matcher: '*', hooks: [{ type: 'command', command: `"${nodeBin()}" "${path.join(SKILL_DIR, 'hub', 'permission-hook.mjs')}"`, timeout: PROMPT_HOOK_TIMEOUT_S }] }] },
 });
 
 export class SessionError extends Error {
@@ -211,7 +211,10 @@ export async function startSession(route, { manifest = readManifest(), repo, mod
   const name = routeRecord(manifest?.sites, route)?.title || routeRecord(manifest?.starting, route)?.title || route;
   const argv = startArgv({ route, name, model: model || rec?.model, prompt });
   const r = await run(argv, { cwd: dir });
-  if (r.status !== 0) throw new SessionError(`claude --bg failed (${r.status}): ${(r.stderr || r.stdout).trim().slice(0, 300)}`, 'failed');
+  if (r.status !== 0) {
+    const output = (r.stderr || '').trim() || (r.stdout || '').trim();
+    throw new SessionError(output ? `claude --bg failed (${r.status}): ${output.slice(0, 300)}` : `claude exited ${r.status} with no output; check \`claude agents\``, 'failed');
+  }
   const { session, confirmed } = await startedId(r.stdout);
   if (!session) throw new SessionError(`claude --bg started a session but no session record names it yet; find it with claude agents (${r.stdout.trim().slice(0, 300)})`, 'failed');
   return { route, session, confirmed, repo: storedPath(dir), model: model || rec?.model || null, name, argv: [claudeBin(), ...argv], output: r.stdout.trim() };

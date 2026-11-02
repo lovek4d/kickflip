@@ -21,7 +21,8 @@
 //               with files it watches those (relative to the dir) in place of data/events.jsonl
 //               --hub makes this board the hub board, as `set --hub` does; a join without either keeps the flag
 //               --template board runs the shared board (../board/server.mjs) from the site dir,
-//               writing its board.json; --items is "waves" (default) or a wave.json-format file.
+//               writing its board.json; --items is "waves" (default) or a wave.json-format file, made with no
+//               items when missing.
 //               It then runs handshake, unless this session already answered the board's hello, and
 //               asks the hub for one poll (as poll-now --keep-queue), so the board's GitHub link passes
 //               without waiting for the next slot. Prints poll: "reached this board", or why not
@@ -127,7 +128,7 @@ import { ICON_KEYS } from '../hub/icons.mjs';
 import { liveSessions } from '../hub/live.mjs';
 import { isBoardSite, writeManifest } from '../hub/boards.mjs';
 import { routeRecord, validRoute } from '../hub/routes.mjs';
-import { migrateOnStart, uninstallStatusLine, storedPath } from './install.mjs';
+import { migrateOnStart, uninstallStatusLine, storedPath, nodeBin } from './install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { runDoctor } from './doctor.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
@@ -177,7 +178,6 @@ function applyHub(m, route, site) {
   for (const [other, s] of Object.entries(m.sites)) if (other !== route && s?.hub) delete s.hub;
   site.hub = true;
 }
-const nodeBin = () => (fs.existsSync('/opt/homebrew/bin/node') ? '/opt/homebrew/bin/node' : process.execPath);
 
 function readManifest() {
   try { const m = JSON.parse(fs.readFileSync(MANIFEST, 'utf8')); m.sites ||= {}; return m; }
@@ -364,6 +364,11 @@ const commands = {
         const pending = routeRecord(m.starting, route);
         if (!existing && pending?.tickets && (!pending.session || pending.session === args.session)) cfg.tickets = pending.tickets;
         fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2) + '\n');
+        const itemsFile = cfg.items === 'waves' ? null : path.resolve(site.dir, cfg.items);
+        if (itemsFile && !fs.existsSync(itemsFile)) {
+          fs.mkdirSync(path.dirname(itemsFile), { recursive: true });
+          fs.writeFileSync(itemsFile, JSON.stringify({ title: cfg.title, items: [] }, null, 2) + '\n');
+        }
         site.cmd = [nodeBin(), path.join(SKILL, 'board', 'server.mjs'), site.dir];
         created = !existing;
       }

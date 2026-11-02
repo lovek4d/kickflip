@@ -1,10 +1,12 @@
 ---
-status: superseded in part by ADR-0073
+status: superseded in part by ADR-0073 and ADR-0110
 ---
 
 # The hub starts a new board's session itself
 
 [0073](0073-a-new-board-chooses-a-repo-and-branch.md) defines the repo-first sheet and shared clone; the hub still starts the session directly.
+
+Superseded in part by [0110](0110-a-clone-uses-ghs-token-over-https.md): a failed clone shows git's real error line rather than its first line, and the join flags add `--items data/wave.json`.
 
 New board's Start is the confirm. Once the request passes its checks, the hub runs the same start that `web-ts start` runs, with no session in between, so New board needs only the hub server, as [0068](0068-the-hub-session-is-a-dev-time-role.md) requires of every feature. The owner picked this (`hub-start` on hub/INT-169): "The hub starts it as soon as the request passes its checks".
 

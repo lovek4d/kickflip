@@ -33,7 +33,7 @@ const TAKEN = 'That board route already exists. Reopen it from Closed boards if 
 
 // The new session runs these join flags through its shell, so each value must stay one quoted word.
 const quote = (s) => `'${s.replaceAll("'", "'\\''")}'`;
-const joinFlags = ({ title, purpose }) => `--template board --title ${quote(title)}${purpose ? ` --description ${quote(purpose)}` : ''}`;
+const joinFlags = ({ title, purpose }) => `--template board --items data/wave.json --title ${quote(title)}${purpose ? ` --description ${quote(purpose)}` : ''}`;
 
 function errorLine(message) {
   const line = String(message).split('\n').map((l) => l.trim()).find(Boolean) || 'claude did not start';

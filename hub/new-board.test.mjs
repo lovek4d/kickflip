@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'new-board-')));
 process.env.HOME = home;
 const { requestBoard, dismissBoard } = await import('./new-board.mjs');
-const { repoService, repoPath, validateBranch, runRepo } = await import('./repos.mjs');
+const { repoService, repoPath, validateBranch, runRepo, githubGitArgv } = await import('./repos.mjs');
 const { boardRepo, changeBoardRepo, migrateBoardRepos, githubFromOrigin } = await import('./board-repo.mjs');
 const { startingBoards, STARTING_WAIT, BG_SETTINGS } = await import('./sessions.mjs');
 const { routeFromName, ROUTE_RE } = await import('./routes.mjs');
@@ -31,15 +31,18 @@ const noEvents = () => {
 const live = () => new Map();
 const input = (name, github = 'owner/project', branch = 'main') => ({ name, github, branch, purpose: '' });
 const cloneCalls = [];
-const repoRun = async (command, argv) => {
-  if (command === 'git') return argv.includes('fetch') ? { status: 0, stdout: '', stderr: '' } : runRepo(command, argv);
+const repoRun = async (command, argv, options) => {
+  assert.equal(command, 'git');
+  if (argv.includes('fetch')) return { status: 0, stdout: '', stderr: '' };
+  if (!argv.includes('clone')) return runRepo(command, argv);
   cloneCalls.push([command, argv]);
-  assert.equal(command, 'gh');
-  assert.deepEqual(argv.slice(0, 2), ['repo', 'clone']);
-  fs.mkdirSync(argv[3], { recursive: true });
-  const init = await runRepo('git', ['-C', argv[3], 'init', '--quiet', '-b', 'main']);
+  assert.equal(options.env.GIT_TERMINAL_PROMPT, '0');
+  const [url, dest] = argv.slice(-2);
+  assert.deepEqual(argv, githubGitArgv(['clone', url, dest]));
+  fs.mkdirSync(dest, { recursive: true });
+  const init = await runRepo('git', ['-C', dest, 'init', '--quiet', '-b', 'main']);
   assert.equal(init.status, 0, init.stderr);
-  const origin = await runRepo('git', ['-C', argv[3], 'remote', 'add', 'origin', `https://github.com/${argv[2]}.git`]);
+  const origin = await runRepo('git', ['-C', dest, 'remote', 'add', 'origin', url]);
   assert.equal(origin.status, 0, origin.stderr);
   return { status: 0, stdout: '', stderr: '' };
 };
@@ -71,7 +74,7 @@ test('new repo requests clone before starting a session and store the board bran
   release();
   const started = await request.started;
   assert.deepEqual(calls, [{ cwd: repo, argv: ['--bg', '--name', "Bob's audit", '--permission-mode', 'auto', '--settings', BG_SETTINGS,
-    `/kickflip bob-s-audit --template board --title 'Bob'\\''s audit' --description 'Review $HOME changes'`] }]);
+    `/kickflip bob-s-audit --template board --items data/wave.json --title 'Bob'\\''s audit' --description 'Review $HOME changes'`] }]);
   const rec = readManifest().starting['bob-s-audit'];
   assert.equal(started.session, rec.session);
   assert.ok(fs.existsSync(path.join(sessionsDir, `${rec.session}.json`)));
@@ -97,7 +100,7 @@ test('concurrent boards share one clone without switching its branch and need no
   await Promise.all(requests.map((r) => r.started));
   assert.equal(cloneCalls.length - before, 1);
   assert.deepEqual(calls.map((c) => c.cwd), [path.join(base, 'owner/shared'), path.join(base, 'owner/shared')]);
-  assert.equal(calls[0].argv.at(-1), "/kickflip shared-0 --template board --title 'Shared 0'");
+  assert.equal(calls[0].argv.at(-1), "/kickflip shared-0 --template board --items data/wave.json --title 'Shared 0'");
   assert.deepEqual(Object.values(readManifest().starting).map((r) => r.branch), ['main', 'develop']);
   const another = await requestBoard(input('Shared again', 'owner/shared'), { run, live, repos });
   assert.ok((await another.started).session);
@@ -111,10 +114,10 @@ test('failed clones leave no clone or temporary directory and never start claude
     const dest = argv.at(-1);
     fs.mkdirSync(dest, { recursive: true });
     fs.writeFileSync(path.join(dest, 'partial'), 'partial');
-    return { status: 1, stdout: '', stderr: 'clone failed\nmore details' };
+    return { status: 128, stdout: '', stderr: `Cloning into '${dest}'...\nremote: Repository not found.\nfatal: repository 'https://github.com/owner/failed.git/' not found\n\nPlease make sure you have the correct access rights\nand the repository exists.\n` };
   } });
   const r = await requestBoard(input('Failed clone', 'owner/failed'), { run, live, repos: service });
-  assert.deepEqual(await r.started, { error: 'clone failed' });
+  assert.deepEqual(await r.started, { error: "fatal: repository 'https://github.com/owner/failed.git/' not found" });
   assert.deepEqual(calls, []);
   assert.equal(fs.existsSync(path.join(base, 'owner/failed')), false);
   assert.equal(fs.readdirSync(base).some((name) => name.startsWith('.clone-')), false);
@@ -128,6 +131,7 @@ test("a claude that fails marks the Starting row Didn't start at once with its f
     [{ status: 1, stdout: '', stderr: 'spawn claude ENOENT' }, /^claude --bg failed \(1\): spawn claude ENOENT$/],
     [{ status: 1, stdout: '', stderr: `Not signed in · run claude /login${'!'.repeat(400)}\nsecond line` }, /^claude --bg failed \(1\): Not signed in · run claude \/login!+…$/],
     [{ status: 0, stdout: 'nothing useful', stderr: '' }, /^claude --bg started a session but no session record names it yet/],
+    [{ status: 1, stdout: '', stderr: '' }, /^claude exited 1 with no output; check `claude agents`$/],
   ];
   for (const [i, [answer, line]] of answers.entries()) {
     saveJSON(manifestFile, { sites });
@@ -342,8 +346,10 @@ test('join transfers the reserved repo and branch before or after the start resu
       const result = spawnSync(process.execPath, [bin, 'join', route, '--session', 'joined-id', '--port', '4613', ...args], { encoding: 'utf8', env: { ...process.env, KICKFLIP_HUB_PORT: '1' } });
       assert.equal(result.status, 0, result.stderr);
     };
-    run(['--template', 'board', '--cmd', JSON.stringify(board.cmd), '--repo', clone]);
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(readManifest().sites[route].dir, 'board.json'))).tickets, { source: 'internal', prefix: 'OPS' });
+    run(['--template', 'board', '--items', 'data/wave.json', '--cmd', JSON.stringify(board.cmd), '--repo', clone]);
+    const siteDir = readManifest().sites[route].dir;
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(siteDir, 'board.json'))).tickets, { source: 'internal', prefix: 'OPS' });
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(siteDir, 'data', 'wave.json'))).items, []);
     assert.deepEqual(boardRepo(route), { github: 'owner/project', branch: 'develop', repo: clone });
     assert.equal(readManifest().starting, undefined);
     run([]);

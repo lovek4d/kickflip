@@ -6,7 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { installLinks, installClaudeSettings } from '../bin/install.mjs';
+import { installLinks, installClaudeSettings, nodeBin } from '../bin/install.mjs';
 import { hubService } from '../shared/service.mjs';
 
 const SKILL = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -217,7 +217,7 @@ test('start runs claude --bg in the folder, in auto mode with isolation off, and
   assert.deepEqual([settings.worktree, Object.keys(settings.hooks)], [{ bgIsolation: 'none' }, ['PermissionRequest']]);
   const [{ matcher, hooks: [hook, ...more] }] = settings.hooks.PermissionRequest;
   assert.deepEqual([matcher, hook.type, more], ['*', 'command', []]);
-  assert.equal(hook.command, `"${process.execPath}" "${path.join(SKILL, 'hub', 'permission-hook.mjs')}"`);
+  assert.equal(hook.command, `"${nodeBin()}" "${path.join(SKILL, 'hub', 'permission-hook.mjs')}"`);
   assert.ok(hook.timeout * 1000 > WAIT_MS, `the hook's timeout ${hook.timeout}s must outlast its wait`);
   assert.deepEqual([call.cwd, call.isolation, call.claudecode], [repo, 'none', null]);
   assert.deepEqual([r.session, r.confirmed, r.repo, r.argv], [id, true, repo, [fakeClaude, ...call.argv]]);
@@ -606,7 +606,7 @@ test('join, start and resume keep clone paths under the installed link across a 
   assert.equal(started.repo, link);
   assert.equal(manifest().sites.linked.owner.repo, link);
   const hook = JSON.parse(calls().at(-1).argv[calls().at(-1).argv.indexOf('--settings') + 1]).hooks.PermissionRequest[0].hooks[0];
-  assert.equal(hook.command, `"${process.execPath}" "${path.join(link, 'hub', 'permission-hook.mjs')}"`);
+  assert.equal(hook.command, `"${nodeBin()}" "${path.join(link, 'hub', 'permission-hook.mjs')}"`);
   const resumed = json(await cli(['resume', 'linked'], { entry: link }));
   assert.equal(resumed.repo, link);
   assert.ok(calls().at(-1).argv.at(-1).includes(`node ${path.join(link, 'bin', 'kickflip.mjs')} join linked`));

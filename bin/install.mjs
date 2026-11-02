@@ -70,6 +70,9 @@ function replaceWithLink(file, target) {
   }
 }
 
+// Homebrew's node link survives `brew upgrade`, which removes the versioned folder process.execPath names.
+export const nodeBin = () => (fs.existsSync('/opt/homebrew/bin/node') ? '/opt/homebrew/bin/node' : process.execPath);
+
 export function storedPath(realPath, { home = os.homedir(), skillsDir = path.join(home, '.claude', 'skills'), cloneRoot = runningClone() } = {}) {
   if (typeof realPath !== 'string' || !path.isAbsolute(realPath)) return realPath;
   const relative = path.relative(cloneRoot, realPath);
@@ -209,7 +212,7 @@ export async function runInstall({ home = os.homedir(), cloneRoot = runningClone
   }
   for (const { link, target, created, replaced } of installLinks({ home, cloneRoot })) log(`${created || replaced ? 'linked' : 'checked'} ${link} -> ${target}`);
   for (const note of installClaudeSettings({ home })) log(note);
-  const node = fs.existsSync('/opt/homebrew/bin/node') ? '/opt/homebrew/bin/node' : process.execPath;
+  const node = nodeBin();
   const entry = storedPath(path.join(cloneRoot, 'hub', 'hub.mjs'), { home, cloneRoot });
   fs.mkdirSync(state, { recursive: true });
   const hubLog = path.join(state, 'hub.log');

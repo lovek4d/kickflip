@@ -127,7 +127,7 @@ test('an unlisted public repo lists branches and prepares a verified clone with 
     calls.push([command, argv]);
     if (command === 'gh') return { status: 1, stderr: 'not signed in' };
     if (argv[2] === 'ls-remote') return { status: 0, stdout: `ref: refs/heads/trunk\tHEAD\n${'a'.repeat(40)}\trefs/heads/release/next\n${'b'.repeat(40)}\trefs/heads/trunk\n${'c'.repeat(40)}\trefs/heads/bad..branch\n` };
-    if (argv[2] === 'clone') { fs.mkdirSync(path.join(argv.at(-1), '.git'), { recursive: true }); return { status: 0 }; }
+    if (argv.includes('clone')) { fs.mkdirSync(path.join(argv.at(-1), '.git'), { recursive: true }); return { status: 0 }; }
     if (argv.includes('rev-parse')) return { status: 0, stdout: argv[1] };
     if (argv.includes('remote')) return { status: 0, stdout: 'https://github.com/outside/public.git' };
     if (argv.includes('fetch')) return { status: 0 };
@@ -139,10 +139,30 @@ test('an unlisted public repo lists branches and prepares a verified clone with 
   assert.equal(result.repo, path.join(base, 'outside/public'));
   const request = await requestBoard({ name: 'Unlisted public', github: 'outside/public', branch: 'trunk' }, { repos, run: async () => ({ status: 1, stderr: 'test session' }) });
   assert.equal((await request.started).error, 'claude --bg failed (1): test session');
-  assert.equal(calls.filter(([command, argv]) => command === 'git' && argv[2] === 'clone').length, 1);
+  assert.equal(calls.filter(([command, argv]) => command === 'git' && argv.includes('clone')).length, 1);
   assert.equal(calls.some(([, argv]) => argv.includes('list')), false);
   assert.ok(calls.some(([, argv]) => argv.includes('+refs/heads/release/next:refs/remotes/origin/release/next')));
   assert.ok(calls.some(([, argv]) => argv.includes('+refs/heads/trunk:refs/remotes/origin/trunk')));
+});
+
+test('a private repo clones and fetches over https with gh\'s token while gh itself is set to clone over SSH', async () => {
+  const base = path.join(home, 'ssh-gh', '.repos');
+  const dest = path.join(base, 'owner/private');
+  const withToken = (argv, options) => argv.includes('credential.https://github.com.helper=!gh auth git-credential') && options?.env?.GIT_TERMINAL_PROMPT === '0';
+  const repos = repoService({ base, run: async (command, argv, options) => {
+    if (command === 'gh') return { status: 128, stderr: "Cloning into 'repo'...\nHost key verification failed.\nfatal: Could not read from remote repository.\n" };
+    if (argv.includes('clone')) {
+      if (!withToken(argv, options) || argv.at(-2) !== 'https://github.com/owner/private.git') return { status: 128, stderr: "Cloning into 'repo'...\nfatal: could not read Username for 'https://github.com': terminal prompts disabled\n" };
+      fs.mkdirSync(path.join(argv.at(-1), '.git'), { recursive: true });
+      return { status: 0 };
+    }
+    if (argv.includes('rev-parse')) return { status: 0, stdout: argv[1] };
+    if (argv.includes('remote')) return { status: 0, stdout: 'https://github.com/owner/private.git' };
+    if (argv.includes('fetch')) return withToken(argv, options) ? { status: 0 } : { status: 128, stderr: "fatal: could not read Username for 'https://github.com': terminal prompts disabled" };
+    assert.fail(`unexpected command ${command} ${argv.join(' ')}`);
+  } });
+  assert.equal(await repos.ensure('owner/private', 'main'), dest);
+  assert.equal(await repos.ensure('owner/private', 'develop'), dest);
 });
 
 for (const kind of ['wrong-origin', 'empty-metadata', 'symlink-metadata', 'gitdir-file', 'wrong-root', 'nested-folder', 'bare-repo']) {

@@ -525,6 +525,8 @@ test('the uninstall command removes the owned status-line link and preserves ski
   assert.equal(fs.readFileSync(settingsFile(), 'utf8'), before);
 });
 
+const CLONE_CONFIG = '-c credential.helper= -c credential.https://github.com.helper=!gh auth git-credential';
+
 function healthyDoctor() {
   install();
   configure();
@@ -540,6 +542,8 @@ function healthyDoctor() {
     ['node --version', 'v24.0.0'],
     ['gh --version', 'gh version 2.80.0'],
     ['gh auth status', 'Logged in'],
+    ['gh repo list --limit 1 --json nameWithOwner --jq .[0].nameWithOwner', 'owner/private\n'],
+    [`git ${CLONE_CONFIG} ls-remote https://github.com/owner/private.git HEAD`, `${'a'.repeat(40)}\tHEAD`],
     ['tailscale version', '1.90.0'],
     ['tailscale status --json', JSON.stringify({ BackendState: 'Running', Self: { DNSName: 'mac.tail.ts.net.' } })],
     ['tailscale serve status --json', JSON.stringify({ Web: { 'mac.tail.ts.net:443': { Handlers: { '/': { Proxy: `http://127.0.0.1:${port}` } } } } })],
@@ -551,7 +555,7 @@ function healthyDoctor() {
   fs.writeFileSync(path.join(env.PATH, 'codex'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
   const options = { home, cloneRoot: root, port, uid: 501, env, platform: 'darwin',
     run: (command, argv, passed) => {
-      assert.equal(passed.env, env);
+      assert.deepEqual(passed.env, command === 'git' && argv.includes('ls-remote') ? { ...env, GIT_TERMINAL_PROMPT: '0' } : env);
       const key = [command, ...argv].join(' ');
       calls.push(key);
       assert.ok(responses.has(key), key);
@@ -571,7 +575,7 @@ test('doctor reports every healthy item and the old hub, Tailscale and site deta
   const { options, calls } = healthyDoctor();
   const items = await doctorReport(options);
   assert.deepEqual(items.map(({ group, item }) => `${group} ${item}`), [
-    'prereqs git', 'prereqs node on Claude’s PATH', 'prereqs gh', 'prereqs gh signed in', 'prereqs Tailscale', 'prereqs Tailscale signed in', 'prereqs Codex',
+    'prereqs git', 'prereqs node on Claude’s PATH', 'prereqs gh', 'prereqs gh signed in', 'prereqs GitHub clone', 'prereqs Tailscale', 'prereqs Tailscale signed in', 'prereqs Codex',
     'setup kickflip skill link', 'setup kickflip-hooks link', 'setup ~/.claude/statusline.sh', 'setup settings.json statusLine', 'setup hub login item',
     'hub hub', 'hub tailscale /', 'hub try ports', 'hub /shop',
   ]);
@@ -583,6 +587,7 @@ test('doctor reports every healthy item and the old hub, Tailscale and site deta
     'ok       /shop: up  port 19461  owner Shop owner  Shop board',
   ]);
   assert.ok(calls.includes('gh auth status'));
+  assert.equal(pick(items, 'GitHub clone').detail, 'git reaches owner/private over https');
   assert.ok(!calls.some((call) => /^(?:codex|claude) | login$| bootstrap | bootout /.test(call)));
   assert.deepEqual(await runDoctor({ ...options, write: () => {} }), { items, exitCode: 0 });
 });
@@ -629,6 +634,18 @@ for (const [name, command, fix] of [
     assert.equal(lines[1], `         → ${item.fix}`);
   });
 }
+
+test('doctor marks GitHub clone yours when git can’t reach GitHub over https, checking a public repo when gh is signed out', async () => {
+  const { options, responses } = healthyDoctor();
+  responses.set(`git ${CLONE_CONFIG} ls-remote https://github.com/owner/private.git HEAD`, { status: 128, stdout: '', error: "fatal: unable to access 'https://github.com/owner/private.git/': Could not resolve host: github.com" });
+  const { items, exitCode } = await runDoctor({ ...options, write: () => {} });
+  assert.deepEqual(pick(items, 'GitHub clone'), { group: 'prereqs', item: 'GitHub clone', state: 'yours',
+    detail: "git can’t reach owner/private over https: fatal: unable to access 'https://github.com/owner/private.git/': Could not resolve host: github.com", fix: 'gh auth refresh -h github.com, then kickflip doctor' });
+  assert.equal(exitCode, 1);
+  responses.set('gh auth status', { status: 1, stdout: '', error: 'not logged in' });
+  responses.set(`git ${CLONE_CONFIG} ls-remote https://github.com/cli/cli.git HEAD`, { status: 0, stdout: `${'a'.repeat(40)}\tHEAD` });
+  assert.deepEqual(pick(await doctorReport(options), 'GitHub clone'), { group: 'prereqs', item: 'GitHub clone', state: 'ok', detail: 'git reaches cli/cli over https', fix: null });
+});
 
 test('doctor marks Codex optional while it is not installed or not logged in, with the command for each, and still exits 0', async () => {
   const { options } = healthyDoctor();

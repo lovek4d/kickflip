@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { isTryPort } from '../hub/try.mjs';
+import { githubGitArgv } from '../hub/repos.mjs';
 import { cloneRoot as runningClone } from '../shared/repos.mjs';
 import { codexStatus } from '../shared/codex.mjs';
 import { hubService, runCommand } from '../shared/service.mjs';
@@ -15,6 +16,8 @@ const INSTALL = {
   darwin: { git: 'xcode-select --install', gh: 'brew install gh' },
   other: { git: 'sudo apt install git', gh: 'sudo apt install gh' },
 };
+// Checked when gh lists no repo of the owner's own.
+const PUBLIC_REPO = 'cli/cli';
 
 // → [{group: prereqs|setup|hub, item, state, detail, fix}]. state is ok; fixable, which `doctor --fix` sets up; yours,
 // which only the person can fix with the fix command; optional, yours but not needed for the hub; or note, which the
@@ -24,8 +27,8 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   const items = [];
   let group;
   const add = (item, state, detail, fix = null) => items.push({ group, item, state, detail, fix: state === 'ok' || state === 'note' ? null : fix });
-  const execute = (command, argv) => {
-    try { return run(command, argv, { env }); } catch (e) { return { status: 1, error: e.message }; }
+  const execute = (command, argv, extraEnv = null) => {
+    try { return run(command, argv, { env: extraEnv ? { ...env, ...extraEnv } : env }); } catch (e) { return { status: 1, error: e.message }; }
   };
   const installed = (item, command, argv, fix, missing = 'not on this session’s PATH') => {
     const r = execute(command, argv);
@@ -35,11 +38,19 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   };
 
   group = 'prereqs';
-  installed('git', 'git', ['--version'], hints.git);
+  const git = installed('git', 'git', ['--version'], hints.git);
   installed('node on Claude’s PATH', 'node', ['--version'], `add ${quote(path.dirname(process.execPath))} to PATH in your shell profile, then restart Claude Code`, `not on this session’s PATH (${env.PATH || 'empty'})`);
   const gh = installed('gh', 'gh', ['--version'], hints.gh);
   const ghAuth = gh && execute('gh', ['auth', 'status']).status === 0;
   add('gh signed in', ghAuth ? 'ok' : 'yours', ghAuth ? 'signed in' : gh ? 'not signed in' : 'needs gh', 'gh auth login');
+  if (git) {
+    const listed = ghAuth ? execute('gh', ['repo', 'list', '--limit', '1', '--json', 'nameWithOwner', '--jq', '.[0].nameWithOwner']) : null;
+    const repo = (listed?.status === 0 && listed.stdout.trim()) || PUBLIC_REPO;
+    const reach = execute('git', githubGitArgv(['ls-remote', `https://github.com/${repo}.git`, 'HEAD']), { GIT_TERMINAL_PROMPT: '0' });
+    add('GitHub clone', reach.status === 0 ? 'ok' : 'yours',
+      reach.status === 0 ? `git reaches ${repo} over https` : `git can’t reach ${repo} over https: ${reach.error}`,
+      ghAuth ? 'gh auth refresh -h github.com, then kickflip doctor' : 'check this machine reaches https://github.com, then kickflip doctor');
+  } else add('GitHub clone', 'yours', 'needs git', hints.git);
   const ts = await tailscaleState({ run: (command, argv) => execute(command, argv), platform, uid, username, port });
   for (const entry of ts.prereqs) add(entry.item, entry.state, entry.detail, entry.fix);
   const codex = codexStatus({ home, env, platform });
