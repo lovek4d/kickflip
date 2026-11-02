@@ -567,6 +567,6 @@ main > * { transition: opacity .25s ease; }
 .external-links .install.tone-danger { color: var(--color-danger); }
 .actions button[aria-disabled="true"] { opacity: .5; cursor: default; }
 .tb-main { margin-top: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); font-size: 13px; }
-.tb-main svg { flex: none; color: var(--muted); }
+.tb-main > svg { flex: none; color: var(--muted); }
 .tb-main-text { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
 .tb-main .meta { justify-content: flex-end; margin-left: auto; }

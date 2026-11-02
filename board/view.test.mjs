@@ -557,7 +557,7 @@ test("a framed page hands each load's URL and title to the shell, hides the shel
   const opened = [];
   const view = { kind: 'frame', route: 'learn', url: '/learn/' };
   const markup = page.win.AppViews.frame.markup(view, { siteTitle: 'Course' });
-  assert.match(markup, />Open alone ↗\uFE0E<\/a>/);
+  assert.match(markup, />Open alone <svg class="link-arrow"[^>]*>[^]*<\/svg><\/a>/);
   assert.match(markup, /<h1>Course<\/h1>.*<a class="alone" href="\/learn\/\?alone=1" target="_blank"/s);
   assert.match(markup, /<iframe class="frame-page" src="\/learn\/"/);
   const root = new page.El();
@@ -1741,8 +1741,13 @@ test("an open card shows its workflow buttons below a final details line of Note
   ];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
   await b.settle();
-  assert.match(b.root.innerHTML, /↗/);
-  assert.doesNotMatch(b.root.innerHTML, /↗(?!\uFE0E)/);
+  assert.doesNotMatch(b.root.innerHTML, /\u2197/);
+  const links = [...b.root.querySelectorAll('.external-links a')];
+  assert.ok(links.length);
+  for (const link of links) {
+    assert.equal(link.querySelectorAll('svg.link-arrow').length, 1);
+    assert.equal(link.querySelector('svg.link-arrow').getAttribute('aria-hidden'), 'true');
+  }
   const row = (key) => b.root.querySelector(`details.item[data-key="${key}"] .detail`);
   const labels = (els) => els.map((el) => el.textContent.trim());
   const shown = (key) => ['.action-row.workflow a, .action-row.workflow button', '.external-links a', '.actions .resolves, .external-links .resolves'].map((selector) => labels(row(key)?.querySelectorAll(selector) || []));
@@ -1753,17 +1758,17 @@ test("an open card shows its workflow buttons below a final details line of Note
     'w/A4': [[], [], []],
     'w/A5': [['Resume', 'Open questions'], [], []],
     'w/P1': [['Open questions'], [], ['Open questions']],
-    'w/D1': [['Grill'], ['Notes ↗\uFE0E', 'Install ↗\uFE0E', 'Review draft on GitHub ↗\uFE0E'], ['Review draft on GitHub ↗\uFE0E']],
-    'w/R1': [['Grill'], ['Install ↗\uFE0E', 'Review on GitHub ↗\uFE0E'], []],
-    'w/S1': [['Grill'], ['Review on GitHub ↗\uFE0E'], ['Review on GitHub ↗\uFE0E']],
-    'w/M1': [['Merge', 'Grill'], ['Review on GitHub ↗\uFE0E'], ['Merge']],
+    'w/D1': [['Grill'], ['Notes', 'Install', 'Review draft on GitHub'], ['Review draft on GitHub']],
+    'w/R1': [['Grill'], ['Install', 'Review on GitHub'], []],
+    'w/S1': [['Grill'], ['Review on GitHub'], ['Review on GitHub']],
+    'w/M1': [['Merge', 'Grill'], ['Review on GitHub'], ['Merge']],
     'ask:a1': [['Mark as done'], [], ['Mark as done']],
     'ask:a2': [[], [], []],
   });
   assert.equal(row('w/A1').querySelector('a.button').getAttribute('href'), 'questions.html#q7');
   const external = row('w/D1').querySelector('.grid .external-links');
   assert.deepEqual(external.querySelectorAll('a').map((a) => a.getAttribute('href')), ['notes.html?item=w%2FD1', install.url, draft.url]);
-  assert.equal(external.textContent, 'Notes ↗\uFE0E · Install ↗\uFE0E · Review draft on GitHub ↗\uFE0E');
+  assert.equal(external.textContent, 'Notes  · Install  · Review draft on GitHub ');
   assert.equal(external.parentNode.children.at(-1), external);
   assert.equal(b.root.querySelector('.action-row.external'), null);
   assert.equal(row('w/D1').querySelector('.actions .install, .actions a[target="_blank"]'), null);
@@ -1785,7 +1790,7 @@ test('a running badge replaces its install link without confirmation and becomes
   assert.equal(b.root.querySelector('[data-install-confirm]'), null);
   assert.deepEqual(b.confirms, []);
   await b.change({ board: boardOf([workCard('R1', { install: { ...install, older: false } })]) });
-  assert.equal(b.root.querySelector('.external-links .install').textContent, 'Install ↗\uFE0E');
+  assert.equal(b.root.querySelector('.external-links .install').textContent, 'Install ');
 });
 
 test('a card try button confirms, posts through the site URL and reloads; disabled buttons only toast', async () => {
@@ -1817,9 +1822,14 @@ test('main paints above the lanes and failures on open cards scroll to their thr
   const b = boardOnDom({ open: ['w/R1'], board: data, threads: {} });
   await b.settle();
   assert.equal(b.root.querySelector('#tryMain a').getAttribute('href'), 'https://mac.ts.net:8500/');
-  assert.match(b.root.querySelector('#tryMain').textContent, /o\/r · main@abcdef1.*Visit ↗\uFE0E/);
-  assert.match(b.root.innerHTML, /↗/);
-  assert.doesNotMatch(b.root.innerHTML, /↗(?!\uFE0E)/);
+  assert.match(b.root.querySelector('#tryMain').textContent, /o\/r · main@abcdef1.*Visit/);
+  assert.doesNotMatch(b.root.innerHTML, /\u2197/);
+  const links = [...b.root.querySelectorAll('.external-links a, #tryMain a.tone-ready')];
+  assert.ok(links.length);
+  for (const link of links) {
+    assert.equal(link.querySelectorAll('svg.link-arrow').length, 1);
+    assert.equal(link.querySelector('svg.link-arrow').getAttribute('aria-hidden'), 'true');
+  }
   assert.ok(b.root.innerHTML.indexOf('id="tryMain"') < b.root.innerHTML.indexOf('id="lanes"'));
   assert.equal(b.root.querySelector('#tryMain button'), null);
   const scrolled = [];
