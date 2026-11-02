@@ -9,6 +9,13 @@ import { fileURLToPath } from 'node:url';
 
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'new-board-')));
 process.env.HOME = home;
+process.env.CLAUDE_CONFIG_DIR = path.join(home, 'claude-config');
+const claudeConfig = path.join(process.env.CLAUDE_CONFIG_DIR, '.claude.json');
+fs.mkdirSync(process.env.CLAUDE_CONFIG_DIR);
+fs.writeFileSync(claudeConfig, '{}');
+const shownConfig = '~/claude-config/.claude.json';
+const config = () => JSON.parse(fs.readFileSync(claudeConfig, 'utf8'));
+const trusted = (dir) => config().projects?.[dir]?.hasTrustDialogAccepted === true;
 const { requestBoard, dismissBoard } = await import('./new-board.mjs');
 const { repoService, repoPath, validateBranch, runRepo, githubGitArgv } = await import('./repos.mjs');
 const { boardRepo, changeBoardRepo, migrateBoardRepos, githubFromOrigin } = await import('./board-repo.mjs');
@@ -62,17 +69,26 @@ after(() => fs.rmSync(home, { recursive: true, force: true }));
 
 test('new repo requests clone before starting a session and store the board branch independently of the clone', async () => {
   saveJSON(manifestFile, { sites });
-  const { calls, run } = claude();
+  const { calls, run: start } = claude();
+  const trustedAtStart = [];
+  const run = (argv, options) => { trustedAtStart.push(trusted(options.cwd)); return start(argv, options); };
   let release;
   const waiting = new Promise((resolve) => { release = resolve; });
   const service = repoService({ base, run: async (...args) => { await waiting; return repoRun(...args); } });
-  const request = await requestBoard({ ...input("Bob's audit", 'owner/new-project', 'release/next'), purpose: 'Review $HOME changes' }, { run, live, repos: service });
   const repo = path.join(base, 'owner', 'new-project');
+  const others = { numStartups: 7, projects: { '/elsewhere': { allowedTools: ['Bash'] }, [repo]: { allowedTools: ['Read'] } } };
+  fs.writeFileSync(claudeConfig, JSON.stringify(others));
+  fs.chmodSync(claudeConfig, 0o640);
+  const request = await requestBoard({ ...input("Bob's audit", 'owner/new-project', 'release/next'), purpose: 'Review $HOME changes' }, { run, live, repos: service });
   const pending = readManifest().starting['bob-s-audit'];
   assert.deepEqual([pending.github, pending.branch, pending.repo, pending.phase], ['owner/new-project', 'release/next', repo, 'cloning']);
   assert.equal(calls.length, 0);
   release();
   const started = await request.started;
+  assert.deepEqual(trustedAtStart, [true]);
+  assert.deepEqual(config(), { numStartups: 7, projects: { '/elsewhere': { allowedTools: ['Bash'] }, [repo]: { allowedTools: ['Read'], hasTrustDialogAccepted: true } } });
+  assert.equal(fs.statSync(claudeConfig).mode & 0o777, 0o640);
+  assert.deepEqual(fs.readdirSync(process.env.CLAUDE_CONFIG_DIR), ['.claude.json']);
   assert.deepEqual(calls, [{ cwd: repo, argv: ['--bg', '--name', "Bob's audit", '--permission-mode', 'auto', '--settings', BG_SETTINGS,
     `/kickflip bob-s-audit --template board --items data/wave.json --title 'Bob'\\''s audit' --description 'Review $HOME changes'`] }]);
   const rec = readManifest().starting['bob-s-audit'];
@@ -148,6 +164,45 @@ test("a claude that fails marks the Starting row Didn't start at once with its f
     assert.deepEqual(await dismissBoard(route), { route });
     assert.equal(readManifest().starting, undefined);
   }
+});
+
+test("a clone Claude Code can't be told to trust reads Didn't start with the reason, and its config is never made or replaced", async (t) => {
+  const repo = path.join(base, 'owner/project');
+  const rename = fs.renameSync;
+  let overwrites = 0;
+  const renames = t.mock.method(fs, 'renameSync', (from, to) => {
+    const before = to === claudeConfig && overwrites > 0 ? fs.readFileSync(claudeConfig) : null;
+    rename(from, to);
+    if (before) { overwrites--; fs.writeFileSync(claudeConfig, before); }
+  });
+  const cases = [
+    { text: null, error: `Couldn't trust this folder for Claude Code: ${shownConfig} doesn't exist; run claude once to make it` },
+    { text: '{"projects": {', error: `Couldn't trust this folder for Claude Code: ${shownConfig} isn't valid JSON` },
+    { text: '[]', error: `Couldn't trust this folder for Claude Code: ${shownConfig} isn't valid JSON` },
+    { text: '{"theme":"dark"}', overwrites: 2, error: `Couldn't trust this folder for Claude Code: a running Claude session overwrote the trust mark in ${shownConfig}; retry` },
+    { text: '{"theme":"dark"}', overwrites: 1 },
+  ];
+  for (const [i, c] of cases.entries()) {
+    saveJSON(manifestFile, { sites });
+    fs.rmSync(claudeConfig, { force: true });
+    if (c.text !== null) fs.writeFileSync(claudeConfig, c.text);
+    overwrites = c.overwrites || 0;
+    renames.mock.resetCalls();
+    const { calls, run } = claude();
+    const { route, started } = await requestBoard(input(`Untrusted ${i}`), { run, live, repos });
+    const outcome = await started;
+    const configRenames = renames.mock.calls.filter((call) => call.arguments[1] === claudeConfig).length;
+    if (c.error) {
+      assert.deepEqual([outcome, calls.length, readManifest().starting[route].error], [{ error: c.error }, 0, c.error]);
+      assert.equal(fs.existsSync(claudeConfig) ? fs.readFileSync(claudeConfig, 'utf8') : null, c.text);
+      assert.equal(configRenames, c.overwrites || 0);
+    } else {
+      assert.ok(outcome.session);
+      assert.deepEqual([config(), configRenames, calls.length], [{ theme: 'dark', projects: { [repo]: { hasTrustDialogAccepted: true } } }, 2, 1]);
+    }
+    assert.deepEqual(fs.readdirSync(process.env.CLAUDE_CONFIG_DIR).filter((name) => name !== '.claude.json'), []);
+  }
+  fs.writeFileSync(claudeConfig, '{}');
 });
 
 test('a session that joins before its start is recorded keeps the joined entry', async () => {

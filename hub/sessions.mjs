@@ -22,6 +22,9 @@ import { liveSessions, sessionRecords, processStarts, verifiedProcess } from './
 import { deliver } from './push.mjs';
 import { WAIT_MS } from './prompts.mjs';
 import { nodeBin, storedPath } from '../bin/install.mjs';
+import { reposDir } from '../shared/repos.mjs';
+import { isClone } from './repos.mjs';
+import { trustFolder } from './trust.mjs';
 
 const SKILL_DIR = storedPath(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'));
 export const RESUME_AFTER = 3 * 60_000;
@@ -200,14 +203,18 @@ async function moveOwner(route, { from, to, mark }) {
 }
 
 // A new background session for the route, in repo (else the recorded session's folder, else the cwd), whose first
-// prompt is `/kickflip <route>` plus prompt. Refuses while the route's recorded session is live. Writes nothing.
+// prompt is `/kickflip <route>` plus prompt. Refuses while the route's recorded session is live. Writes nothing to the
+// manifest. A folder that is a clone under clones (repos.mjs isClone) is first marked trusted for Claude Code (trust.mjs).
 // → {route, session, confirmed, repo, model, name, argv, output}
-export async function startSession(route, { manifest = readManifest(), repo, model, prompt, run = runClaude, live = liveSessions } = {}) {
+export async function startSession(route, { manifest = readManifest(), repo, model, prompt, run = runClaude, live = liveSessions, clones = reposDir() } = {}) {
   if (routeRecord(manifest.closed, route)) throw new SessionError(`/${route} is closed; use kickflip reopen ${route}`, 'none');
   const rec = sessionOf(manifest, route);
   refuseLive(rec, live);
   const dir = path.resolve(repo || rec?.repo || process.cwd());
   if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) throw new SessionError(`no folder at ${dir}`, 'none');
+  if (isClone(dir, clones)) {
+    try { trustFolder(dir); } catch (e) { throw new SessionError(`Couldn't trust this folder for Claude Code: ${e.message}`, 'failed'); }
+  }
   const name = routeRecord(manifest?.sites, route)?.title || routeRecord(manifest?.starting, route)?.title || route;
   const argv = startArgv({ route, name, model: model || rec?.model, prompt });
   const r = await run(argv, { cwd: dir });

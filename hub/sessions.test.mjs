@@ -12,6 +12,7 @@ import { hubService } from '../shared/service.mjs';
 const SKILL = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sessions-')));
 process.env.HOME = home;
+process.env.CLAUDE_CONFIG_DIR = path.join(home, 'claude-config');
 const { checkSessions, RESUME_AFTER, COMEBACK_WAIT, BG_SETTINGS } = await import('./sessions.mjs');
 const { WAIT_MS } = await import('./prompts.mjs');
 
@@ -239,6 +240,29 @@ test('start on a route with no site waits in starting until that session joins',
   assert.match((await cli(['sessions'])).stdout, new RegExp(`^/fresh  ${r.session}  not live  ${otherRepo}  \\(starting: not joined yet\\)$`, 'm'));
   json(await cli(['join', 'fresh', '--session', r.session], { cwd: otherRepo }));
   assert.deepEqual([manifest().sites.fresh.owner.session, manifest().sites.fresh.owner.repo, manifest().starting], [r.session, otherRepo, undefined]);
+});
+
+test("start trusts a clone the hub made under its realpath before claude --bg, so a board that didn't start starts on a retry, and trusts no other folder", async (t) => {
+  const copy = path.join(home, 'installed kickflip');
+  for (const dir of ['bin', 'board', 'hub', 'shared', 'hooks-plugin']) fs.cpSync(path.join(SKILL, dir), path.join(copy, dir), { recursive: true, filter: (file) => !file.endsWith('.test.mjs') });
+  const clone = web('repos', 'ever-cars', 'dev-setup');
+  fs.mkdirSync(path.join(clone, '.git'), { recursive: true });
+  const link = path.join(home, 'dev-setup link');
+  fs.symlinkSync(clone, link);
+  const configFile = path.join(process.env.CLAUDE_CONFIG_DIR, '.claude.json');
+  write(configFile, { theme: 'dark', projects: { [otherRepo]: { allowedTools: ['Read'] } } });
+  const saved = manifest();
+  t.after(() => write(web('manifest.json'), saved));
+  const m = manifest();
+  m.starting = { ...m.starting, 'dev-setup': { title: 'Dev setup', repo: clone, error: 'claude --bg failed (1): Workspace not trusted.', asked_at: new Date().toISOString() } };
+  write(web('manifest.json'), m);
+  const before = calls().length;
+  const r = json(await cli(['start', 'dev-setup', '--repo', link], { entry: copy }));
+  assert.deepEqual([calls().length, calls()[before].cwd, r.session], [before + 1, clone, manifest().starting['dev-setup'].session]);
+  assert.deepEqual(read(configFile), { theme: 'dark', projects: { [otherRepo]: { allowedTools: ['Read'] }, [clone]: { hasTrustDialogAccepted: true } } });
+  const text = fs.readFileSync(configFile, 'utf8');
+  for (const folder of [otherRepo, web('repos', 'ever-cars')]) json(await cli(['start', `plain-${path.basename(folder)}`, '--repo', folder], { entry: copy }));
+  assert.equal(fs.readFileSync(configFile, 'utf8'), text);
 });
 
 test('resume runs claude --resume <id> --bg in the recorded folder, and start and resume refuse a live session', async () => {

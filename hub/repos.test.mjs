@@ -8,6 +8,8 @@ import { execFileSync } from 'node:child_process';
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'repo-reuse-')));
 process.env.HOME = home;
 process.env.KICKFLIP_CLAUDE = '/usr/bin/false';
+process.env.CLAUDE_CONFIG_DIR = home;
+fs.writeFileSync(path.join(home, '.claude.json'), '{}');
 const { repoService, runRepo, githubFromInput, githubFromOrigin, repoLookupRoute } = await import('./repos.mjs');
 const { requestBoard } = await import('./new-board.mjs');
 const { changeBoardRepo } = await import('./board-repo.mjs');

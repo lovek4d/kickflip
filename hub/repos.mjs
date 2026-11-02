@@ -67,6 +67,13 @@ export function repoPath(github, base = reposDir()) {
   return dest;
 }
 
+// Whether dir is, through any symlinks, a clone repoService made under base: <base>/<owner>/<repo> with its own .git.
+export function isClone(dir, base = reposDir()) {
+  let real, parts;
+  try { real = fs.realpathSync(dir); parts = path.relative(fs.realpathSync(base), real).split(path.sep); } catch { return false; }
+  return parts.length === 2 && valid(validateGithub, parts.join('/')) && fs.lstatSync(path.join(real, '.git'), { throwIfNoEntry: false })?.isDirectory() === true;
+}
+
 const PROGRESS = /^(?:Cloning into |remote: (?:Enumerating|Counting|Compressing|Total) |Receiving objects:|Resolving deltas:|Updating files:)/;
 // A failed command's error line (docs/adr/0110-a-clone-uses-ghs-token-over-https.md): git prints progress before its
 // fatal: line and may follow it with a blank line and advice. Error lines reach the page, and git can echo a remote
@@ -147,6 +154,7 @@ export function repoService({ run = runRepo, base = reposDir(), now = Date.now }
     return { signedIn: true, login: user.login, owners, repos: [...repos.values()].sort((a, b) => (b.pushedAt || '').localeCompare(a.pushedAt || '') || a.github.localeCompare(b.github)) };
   }
   return {
+    base: path.resolve(base),
     path: (github) => repoPath(github, base),
     cloned: (github) => fs.lstatSync(path.join(repoPath(github, base), '.git'), { throwIfNoEntry: false })?.isDirectory() || false,
     async list(manifest = {}, { fresh = false } = {}) {

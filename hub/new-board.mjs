@@ -81,7 +81,7 @@ export async function requestBoard(input, { run, live, repos = repoService(), ch
       await repos.ensure(github, branch);
       await recordStart(route, { phase: 'starting' });
       changed();
-      const r = await startSession(route, { repo, prompt: joinFlags(board), run, live });
+      const r = await startSession(route, { repo, prompt: joinFlags(board), run, live, clones: repos.base });
       outcome = { session: r.session, name: r.name, repo: r.repo, model: r.model };
     } catch (e) { outcome = { error: errorLine(e.message) }; }
     try { await recordStart(route, outcome); } catch (e) { return { error: errorLine(`could not record the start: ${e.message}`) }; }

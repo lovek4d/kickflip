@@ -15,7 +15,7 @@ The hub setup check, `kickflip doctor`: each prerequisite, installed piece and s
 _Avoid_: status (the former CLI command)
 
 **Board repo**:
-A project's shared checkout in `<clone>/.repos/<owner>/<repo>` for a clone or `~/.claude/kickflip/repos/<owner>/<repo>` for an installed package, chosen from the GitHub list or a pasted GitHub link or `owner/name` when making a board ([0078](docs/adr/0078-a-pasted-github-link-picks-any-reachable-repo.md)). Each board keeps its own branch, and its builders work in separate worktrees based on that branch ([0073](docs/adr/0073-a-new-board-chooses-a-repo-and-branch.md)).
+A project's shared checkout in `<clone>/.repos/<owner>/<repo>` for a clone or `~/.claude/kickflip/repos/<owner>/<repo>` for an installed package, chosen from the GitHub list or a pasted GitHub link or `owner/name` when making a board ([0078](docs/adr/0078-a-pasted-github-link-picks-any-reachable-repo.md)). Each board keeps its own branch, and its builders work in separate worktrees based on that branch ([0073](docs/adr/0073-a-new-board-chooses-a-repo-and-branch.md)). Before a session starts in it, the hub marks it trusted in Claude Code's `.claude.json`; the New board tap is the consent ([0113](docs/adr/0113-the-hub-trusts-the-clones-it-makes.md)).
 _Avoid_: repo folder (for the repo choice)
 
 **Hub**:
