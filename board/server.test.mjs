@@ -27,6 +27,39 @@ after(() => { child?.kill(); fs.rmSync(home, { recursive: true, force: true }); 
 
 const upload = (body, name, type) => fetch(`${base}/api/upload`, { method: 'POST', headers: { 'x-filename': encodeURIComponent(name), 'content-type': type }, body });
 
+test('an owner answer drops queued question pushes only for this site', async () => {
+  const queue = path.join(home, '.claude', 'kickflip', 'push', 'queue.json');
+  fs.mkdirSync(path.dirname(queue), { recursive: true });
+  const keep = [{ tag: 'q-q1', url: '/audit/prototype-site.html?q=q1' }, { tag: 'unrelated', url: '/site/' }, { tag: 'q-q1', url: '/site-other/' }];
+  fs.writeFileSync(queue, JSON.stringify({ items: [{ tag: 'q-q1', url: '/site/prototype-site.html?q=q1' }, ...keep] }));
+  const r = await fetch(`${base}/_claude/events`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answer', id: 'q1', choice: 'A' }),
+  });
+  assert.equal(r.status, 200);
+  const { id } = await r.json();
+  const events = fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(events.find((e) => e.id === id).data, { id: 'q1', choice: 'A' });
+  assert.deepEqual(JSON.parse(fs.readFileSync(queue, 'utf8')), { items: keep });
+});
+
+test('an owner answer still succeeds when removing its queued push fails', async () => {
+  const queue = path.join(home, '.claude', 'kickflip', 'push', 'queue.json');
+  fs.mkdirSync(path.dirname(queue), { recursive: true });
+  const queued = { items: [{ tag: 'q-q2', url: '/site/' }] };
+  fs.writeFileSync(queue, JSON.stringify(queued));
+  const temp = `${queue}.${child.pid}.tmp`;
+  fs.mkdirSync(temp);
+  try {
+    const r = await fetch(`${base}/_claude/events`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answer', id: 'q2', choice: 'A' }),
+    });
+    assert.equal(r.status, 200);
+    const { id } = await r.json();
+    assert.ok(fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').includes(id));
+    assert.deepEqual(JSON.parse(fs.readFileSync(queue, 'utf8')), queued);
+  } finally { fs.rmdirSync(temp); }
+});
+
 test('board writes refuse cross-site requests and non-JSON bodies before their handlers run', async () => {
   const file = path.join(site, 'data', 'events.jsonl');
   const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;

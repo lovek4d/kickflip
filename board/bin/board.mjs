@@ -48,10 +48,13 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          scrolls or fills the screen.
          diagram, with practice: rows of 1-4 boxes [[{text, tone?, to?}]], tone quiet|info|notice|
          danger|success, to the next row's box indexes (default all); practice: ["<line>", …]
-         A prototype url's topic must be recorded (prototype add), its option ids the recorded take keys in
-         order, and every take file written; a hand-written prototype-*.html is refused. An unresolved
-         question on the same topic that links the same prototype is resolved, noting "Replaced by
-         <new id>", and printed as "replaced: <old id>".
+         A prototype url's topic must be recorded (prototype add), its option ids a non-empty subset of the
+         take keys in take order, without repeats, and every take file written; a hand-written prototype-*.html
+         is refused. On an item: topic, each question answered and still waiting on Claude is resolved,
+         noting "Followed by <new id>", and printed as "resolved: <old id>". Any other unresolved question
+         on the same topic that links the same prototype is resolved, noting "Replaced by <new id>", and
+         printed as "replaced: <old id>". Answering or resolving a question drops its queued push tagged
+         q-<id> on this site.
   question resolve <id> --note <text>                    sets resolved and resolved_at
   prototype add <topic> --title <t> --take <K>:<label>   records a prototype in data/prototypes.json: the board
          [--take <K>:<label> …] [--card <wave>/<id>]     serves prototype-<topic>.html from its one template, with
@@ -80,7 +83,9 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          named relative to it, holding the session's understanding
                                                          of the task so far. The open card's Notes link opens it,
                                                          or without one the item's short notes text. --plan is an
-                                                         alias
+                                                         alias. Resolves answered questions still waiting on
+                                                         Claude, noting "Recorded in the card's notes", and
+                                                         prints "resolved: <id>" for each
          [--deps <id>,<wave>/<id>]                       replaces its blocked-by list; --deps "" clears it
          [--install <url> [--install-sha <sha>]          a device build the owner installs from the card's Install
           [--install-label <text>] | --clear-install]    button, stamped built_at now: itms-services://?action=

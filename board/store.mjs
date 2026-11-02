@@ -9,7 +9,7 @@ import { ITEM_STATUSES, ownerQuestion, refOf } from './domain.mjs';
 import { installScriptError } from './install-script.mjs';
 import { appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason } from '../shared/usage-gate.mjs';
-import { reviseQueued, flushQueue, queueStatus } from '../hub/push.mjs';
+import { dropQueued, reviseQueued, flushQueue, queueStatus } from '../hub/push.mjs';
 import { holdLine } from '../hub/schedule.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleTickets, mcpCreateLine } from './tickets.mjs';
@@ -716,7 +716,8 @@ async function checkPrototype(site, q, name) {
   if (!recorded) fail(`${field} names ${file}, which is not a recorded prototype; record it with board.mjs prototype add ${topic} --title "…" --take A:"…", then write its take files`);
   const keys = recorded.takes.map((t) => t.key);
   const ids = q.options.map((o) => o.id);
-  if (ids.join() !== keys.join()) fail(`${name}.options ids ${ids.join(', ')} must be ${file}'s takes in order: ${keys.join(', ')}`);
+  const order = ids.map((id) => keys.indexOf(id));
+  if (order.some((i, n) => i < 0 || (n > 0 && i < order[n - 1]))) fail(`${name}.options ids ${ids.join(', ')} must be a non-empty subset of ${file}'s takes, in take order: ${keys.join(', ')}`);
   for (const key of keys) {
     if (!(await fs.stat(takeFile(site, topic, key)).then((s) => s.isFile(), () => false))) fail(`${field} take ${key} has no file yet; write ${takeFile(site, topic, key)}`);
   }
@@ -747,26 +748,37 @@ export async function addQuestions(site, input) {
     checkOptions(q.options, name);
     await checkPrototype(site, q, name);
   }
-  // A question re-asked on the same card and prototype replaces the open one, so the owner never answers both.
+  // docs/adr/0095-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
+  const answers = await ownerAnswers(site);
   const at = new Date().toISOString();
   const replaced = [];
+  const resolved = [];
   for (const q of questions) {
     const topic = pageTopic(q.url);
-    if (!topic) continue;
     for (const old of items) {
-      if (old.resolved || old.topic !== q.topic || pageTopic(old.url) !== topic) continue;
-      Object.assign(old, { resolved: `Replaced by ${q.id}`, resolved_at: at });
-      replaced.push(old.id);
+      if (old.topic !== q.topic) continue;
+      if (q.topic.startsWith('item:') && ownerQuestion(old, answers).state === 'answered') {
+        setResolved(owner, [old.id], `Followed by ${q.id}`, at);
+        resolved.push(old.id);
+      } else if (!old.resolved && topic && pageTopic(old.url) === topic) {
+        setResolved(owner, [old.id], `Replaced by ${q.id}`, at);
+        replaced.push(old.id);
+      }
     }
   }
   await writeJSON(ownerFile(site), { ...owner, topics: owner.topics || [], items: [...items, ...questions] });
-  return { file: ownerFile(site), lines: replaced.map((id) => `replaced: ${id}`) };
+  await dropQueued([...replaced, ...resolved].map((id) => `q-${id}`), path.basename(site));
+  return { file: ownerFile(site), lines: [...replaced.map((id) => `replaced: ${id}`), ...resolved.map((id) => `resolved: ${id}`)] };
+}
+
+function setResolved(owner, ids, note, at = new Date().toISOString()) {
+  for (const q of owner.items || []) if (ids.includes(q.id)) Object.assign(q, { resolved: note, resolved_at: at });
 }
 
 async function markResolved(site, owner, ids, note) {
-  const at = new Date().toISOString();
-  for (const q of owner.items || []) if (ids.includes(q.id)) Object.assign(q, { resolved: note, resolved_at: at });
+  setResolved(owner, ids, note);
   await writeJSON(ownerFile(site), owner);
+  await dropQueued(ids.map((id) => `q-${id}`), path.basename(site));
   return ownerFile(site);
 }
 
@@ -777,13 +789,34 @@ export async function resolveQuestion(site, id, note) {
   return markResolved(site, owner, [id], text(note, '--note'));
 }
 
+async function ownerAnswers(site) {
+  const answers = (await readLines(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'owner-answer');
+  return Promise.all(answers.map(async (e) => {
+    const replied = await Promise.all(['html', 'json'].map((ext) => fs.stat(path.join(site, 'data', 'replies', `${e.id}.${ext}`)).then((s) => s.isFile(), () => false)));
+    return { ...e, reply: e.reply || replied.some(Boolean) };
+  }));
+}
+
+async function cardQuestions(site, key) {
+  const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
+  const answers = await ownerAnswers(site);
+  const asked = (owner.items || []).filter((q) => q.topic === `item:${key}`).map((q) => ownerQuestion(q, answers));
+  return { owner, asked };
+}
+
+async function resolveAnswered(site, key, note) {
+  if (!site) return [];
+  const { owner, asked } = await cardQuestions(site, key);
+  const ids = asked.filter((q) => q.state === 'answered').map((q) => q.id);
+  if (ids.length) await markResolved(site, owner, ids, note);
+  return ids.map((id) => `resolved: ${id}`);
+}
+
 // Closing a card resolves its questions (topic item:<key>) that have an answer, and refuses while one has none, naming
 // `by`, unless force. → resolve(): writes the resolutions and returns `resolved: <id>` lines. Changes nothing itself.
 async function closeQuestions(site, key, by, force) {
   if (!site) return async () => [];
-  const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
-  const answers = (await readLines(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'owner-answer');
-  const asked = (owner.items || []).filter((q) => q.topic === `item:${key}`).map((q) => ownerQuestion(q, answers));
+  const { owner, asked } = await cardQuestions(site, key);
   const open = asked.filter((q) => q.state === 'open').map((q) => q.id);
   if (open.length && !force) fail(`${by}: ${key} has ${open.length === 1 ? 'an open question' : 'open questions'} ${open.join(', ')} with no answer yet; pass --force to close the card and resolve ${open.length === 1 ? 'it' : 'them'} too`);
   const ids = asked.filter((q) => q.state !== 'resolved').map((q) => q.id);
@@ -953,6 +986,8 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   const mcpLine = ticket !== undefined || (ask && !item.ticket && !item.linear?.length) ? await assignTicket(site, key, wave, item, ticket, options, source.dir, setTicketCommand(site, key)) : null;
   await writeJSON(source.file, wave);
   const resolved = await resolve();
+  // docs/adr/0095-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
+  if (notesFile !== undefined) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
   if (confirmLine) resolved.push(...(await appendThread(site, key, { text: confirmLine })).lines);
   if (mcpLine) resolved.push(mcpLine);
   const target = ticketTarget({ status, pr });

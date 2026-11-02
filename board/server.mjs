@@ -109,6 +109,7 @@ import { BoardError, boardConfig, readPrototypes, takeFile, finishHandshake, ite
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
+import { dropQueued } from '../hub/push.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
@@ -589,7 +590,11 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const kind = String(body.kind || 'message').slice(0, 64);
       delete body.kind;
-      return json(res, 200, { id: await appendEvent(kind, body) });
+      const id = await appendEvent(kind, body);
+      if (kind === 'owner-answer') {
+        try { await dropQueued([`q-${body.id}`], path.basename(here)); } catch {}
+      }
+      return json(res, 200, { id });
     }
     if (p === '/api/rules' && req.method === 'GET') return json(res, 200, { board: await readBoardRules(here), hub: readHubRules() });
     if (p === '/api/rules' && req.method === 'POST') {

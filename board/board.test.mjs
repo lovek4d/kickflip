@@ -586,15 +586,27 @@ test('question add refuses a hand-written or unrecorded prototype page, naming p
 test('question add refuses options that are not the recorded takes in order, and a take with no file yet', () => {
   recordPrototype('site', ['A:Keep', 'B:Drop'], false);
   const swapped = [{ id: 'B', label: 'Drop' }, { id: 'A', label: 'Keep', recommended: true }];
-  prototypeRefusal(addPrototypeQuestion(undefined, { options: swapped }), 'question q1.options ids B, A must be prototype-site.html\'s takes in order: A, B');
-  prototypeRefusal(addPrototypeQuestion(undefined, { options: [{ id: 'A', label: 'Keep' }] }), 'question q1.options ids A must be prototype-site.html\'s takes in order: A, B');
+  prototypeRefusal(addPrototypeQuestion(undefined, { options: swapped }), 'question q1.options ids B, A must be a non-empty subset of prototype-site.html\'s takes, in take order: A, B');
+  prototypeRefusal(addPrototypeQuestion(undefined, { options: [{ id: 'C', label: 'Other' }] }), 'question q1.options ids C must be a non-empty subset of prototype-site.html\'s takes, in take order: A, B');
+  prototypeRefusal(addPrototypeQuestion(undefined, { options: [{ id: 'A', label: 'Keep' }, { id: 'A', label: 'Again' }] }), 'question q1 has two options with id "A"');
+  prototypeRefusal(addPrototypeQuestion(undefined, { options: [] }), 'question q1.options must be a non-empty array');
   write(takePath('site', 'A'), 'export function render() {}');
-  prototypeRefusal(addPrototypeQuestion(), `question q1.url take B has no file yet; write ${takePath('site', 'B')}`);
+  prototypeRefusal(addPrototypeQuestion(undefined, { options: [{ id: 'A', label: 'Keep' }] }), `question q1.url take B has no file yet; write ${takePath('site', 'B')}`);
   write(takePath('site', 'B'), 'export function render() {}');
   const url = 'prototype-site.html?variant=B&q=q1#top';
   const result = addPrototypeQuestion(url);
   assert.equal(result.code, 0, result.err);
   assert.equal(read(site('orch', 'data', 'owner.json')).items[0].url, url);
+});
+
+test('a prototype question accepts a non-empty subset of takes in their recorded order', () => {
+  recordPrototype('site', ['A:Keep', 'B:Drop', 'C:Change', 'D:Wait']);
+  for (const [n, ids] of [['one', ['A']], ['last', ['D']], ['some', ['B', 'D']]]) {
+    write(path.join(home, 'q.json'), question(n, { url: `prototype-site.html?q=${n}`, options: ids.map((id) => ({ id, label: `Take ${id}` })) }));
+    const r = board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json'));
+    assert.equal(r.code, 0, r.err);
+    assert.deepEqual(read(site('orch', 'data', 'owner.json')).items.at(-1).options.map((o) => o.id), ids);
+  }
 });
 
 test('question add checks absolute prototype urls against the recorded prototypes too', () => {
@@ -631,6 +643,54 @@ test('question add saves none of a batch when a prototype question is invalid', 
   prototypeRefusal(board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')), 'question q1.url must be prototype-site.html?q=q1 so the pill can pick');
 });
 
+test('question add on a card follows answered questions with the first new question, preserving other states and topics', () => {
+  recordPrototype();
+  const on = (id, extra = {}) => question(id, { topic: 'item:w/A1', ...extra });
+  const prototype = (id, extra = {}) => on(id, { url: `prototype-site.html?q=${id}`, ...extra });
+  const file = site('orch', 'data', 'owner.json');
+  write(file, { topics: [{ id: 'site', title: 'Site' }], items: [
+    on('answered'), prototype('answered-prototype'), prototype('open-prototype'), on('open'),
+    prototype('replied'), prototype('resolved', { resolved: 'Already settled', resolved_at: '2026-10-24T00:00:00Z' }),
+    on('other-card', { topic: 'item:w/ENG-1' }), prototype('declared', { topic: 'site' }),
+    on('ask', { topic: 'item:ask:e1' }),
+    on('reopened', { resolved: 'Earlier answer', resolved_at: '2026-10-22T00:00:00Z' }),
+  ] });
+  addEvents(...['answered', 'answered-prototype', 'replied', 'resolved', 'other-card', 'declared', 'ask', 'reopened'].map((id) =>
+    ({ id: `answer-${id}`, ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id, choice: 'A' } })));
+  assert.equal(board('reply', 'answer-replied', '--site', 'orch', '--html', '<p>Acted on it.</p>').code, 0);
+  const before = fs.readFileSync(file, 'utf8');
+  const add = (qs) => run('board.mjs', ['question', 'add', '--site', 'orch', '--file', '-'], JSON.stringify(qs));
+  const refused = add([prototype('first'), question('invalid', { options: [] })]);
+  assert.equal(refused.code, 1);
+  assert.equal(refused.out, '');
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+
+  const r = add([prototype('first'), on('second')]);
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(r.out.trim().split('\n').slice(1), [
+    'replaced: open-prototype', 'replaced: replied', 'resolved: answered', 'resolved: answered-prototype', 'resolved: reopened',
+  ]);
+  const items = read(file).items;
+  for (const id of ['answered', 'answered-prototype', 'reopened']) {
+    const q = items.find((q) => q.id === id);
+    assert.equal(q.resolved, 'Followed by first');
+    assert.ok(Date.parse(q.resolved_at) <= Date.now());
+  }
+  for (const id of ['open-prototype', 'replied']) assert.equal(items.find((q) => q.id === id).resolved, 'Replaced by first');
+  const original = JSON.parse(before).items;
+  for (const id of ['open', 'resolved', 'other-card', 'declared', 'ask']) {
+    assert.deepEqual(items.find((q) => q.id === id), original.find((q) => q.id === id));
+  }
+  const declared = add(on('declared-next', { topic: 'site' }));
+  assert.equal(declared.code, 0, declared.err);
+  assert.deepEqual(declared.out.trim().split('\n').slice(1), []);
+  assert.deepEqual(read(file).items.find((q) => q.id === 'declared'), original.find((q) => q.id === 'declared'));
+  const ask = add(on('ask-next', { topic: 'item:ask:e1' }));
+  assert.equal(ask.code, 0, ask.err);
+  assert.deepEqual(ask.out.trim().split('\n').slice(1), ['resolved: ask']);
+  assert.equal(read(file).items.find((q) => q.id === 'ask').resolved, 'Followed by ask-next');
+});
+
 test('a new topic takes questions, and resolving one records when', () => {
   assert.equal(board('topic', 'add', 'plan', '--site', 'orch', '--title', 'Plan', '--summary', 'The next wave.').code, 0);
   write(path.join(home, 'q.json'), question('q1', { topic: 'plan' }));
@@ -641,6 +701,17 @@ test('a new topic takes questions, and resolving one records when', () => {
   assert.equal(owner.items[0].resolved, 'Kept it.');
   assert.ok(Date.parse(owner.items[0].resolved_at) <= Date.now());
   assert.equal(board('question', 'resolve', 'q9', '--site', 'orch', '--note', 'x').code, 1);
+});
+
+test('resolving a question leaves a missing or empty push queue alone', () => {
+  const queue = at('kickflip', 'push', 'queue.json');
+  write(site('orch', 'data', 'owner.json'), { items: [question('q1')] });
+  assert.equal(board('question', 'resolve', 'q1', '--site', 'orch', '--note', 'Settled').code, 0);
+  assert.equal(fs.existsSync(queue), false);
+  const empty = '{"items":[]}\n';
+  write(queue, empty);
+  assert.equal(board('question', 'resolve', 'q1', '--site', 'orch', '--note', 'Still settled').code, 0);
+  assert.equal(fs.readFileSync(queue, 'utf8'), empty);
 });
 
 test('item set edits the item in a waves board and in a file board', () => {
@@ -720,6 +791,66 @@ test('item set --notes-file, or its alias --plan, names a notes file inside the 
   assert.equal(board('item', 'add', 'w/B2', '--site', 'orch', '--title', 'Two', '--notes-file', 'A1-notes.md').code, 0);
   assert.equal(read(at('waves', 'w', 'wave.json')).items.at(-1).plan, 'A1-notes.md');
 });
+
+test("item set notes resolves only answered questions, and closing in the same call resolves each question once", () => {
+  write(at('waves', 'w', 'notes.md'), '# Settled');
+  const file = site('orch', 'data', 'owner.json');
+  const on = (id, extra = {}) => question(id, { topic: 'item:w/A1', ...extra });
+  const original = [on('answered'), on('open'), on('replied'), on('resolved', { resolved: 'Settled', resolved_at: '2026-10-24T00:00:00Z' }), question('declared'), on('other-card', { topic: 'item:w/ENG-1' })];
+  write(file, { topics: [{ id: 'site', title: 'Site' }], items: original });
+  addEvents(...['answered', 'replied', 'resolved', 'declared', 'other-card'].map((id) =>
+    ({ id: `answer-${id}`, ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id, choice: 'A' } })));
+  assert.equal(board('reply', 'answer-replied', '--site', 'orch', '--html', '<p>Acted on it.</p>').code, 0);
+  const before = [fs.readFileSync(file, 'utf8'), fs.readFileSync(at('waves', 'w', 'wave.json'), 'utf8')];
+  for (const args of [['--title', ' '], ['--status', 'done']]) {
+    const refused = board('item', 'set', 'w/A1', '--site', 'orch', '--notes-file', 'notes.md', ...args);
+    assert.equal(refused.code, 1, refused.err);
+    assert.equal(refused.out, '');
+    assert.deepEqual([fs.readFileSync(file, 'utf8'), fs.readFileSync(at('waves', 'w', 'wave.json'), 'utf8')], before);
+  }
+  for (const flag of ['--notes-file', '--plan']) {
+    write(file, { topics: [{ id: 'site', title: 'Site' }], items: original });
+    const r = board('item', 'set', 'w/A1', '--site', 'orch', flag, 'notes.md');
+    assert.equal(r.code, 0, r.err);
+    assert.deepEqual(r.out.trim().split('\n').slice(1), ['resolved: answered']);
+    const items = read(file).items;
+    assert.equal(items[0].resolved, "Recorded in the card's notes");
+    assert.ok(Date.parse(items[0].resolved_at) <= Date.now());
+    assert.deepEqual(items.slice(1), original.slice(1));
+  }
+  write(file, { topics: [], items: original });
+  const done = board('item', 'set', 'w/A1', '--site', 'orch', '--notes-file', 'notes.md', '--status', 'done', '--force');
+  assert.equal(done.code, 0, done.err);
+  assert.deepEqual(done.out.trim().split('\n').slice(1), ['resolved: answered', 'resolved: open', 'resolved: replied']);
+  assert.deepEqual(read(file).items.slice(0, 3).map((q) => q.resolved), Array(3).fill('Closed with the card'));
+  assert.deepEqual(read(file).items.slice(3), original.slice(3));
+});
+
+for (const action of ['resolve', 'followed', 'replaced', 'notes', 'close', 'followup']) {
+  test(`question pushes leave the shared queue only for this site when ${action} resolves them`, () => {
+    const file = site('orch', 'data', 'owner.json');
+    const queue = at('kickflip', 'push', 'queue.json');
+    const topic = action === 'followup' ? 'item:w/ENG-1' : 'item:w/A1';
+    const q = question('q1', { topic, ...(action === 'replaced' ? { url: 'prototype-site.html?q=q1' } : {}) });
+    write(file, { topics: [], items: [q] });
+    if (action === 'replaced') recordPrototype();
+    else addEvents({ id: 'answer-q1', ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A' } });
+    const keep = [{ tag: 'q-q1', url: '/audit/prototype-site.html?q=q1' }, { tag: 'unrelated', url: '/orch/' }, { tag: 'q-q1', url: '/orch-other/' }, { tag: 'q-q1' }];
+    write(queue, { items: [{ tag: 'q-q1', url: '/orch/prototype-site.html?q=q1' }, { tag: 'q-q1', url: '/orch/#item=w%2FA1' }, ...keep] });
+    let r;
+    if (action === 'resolve') r = board('question', 'resolve', 'q1', '--site', 'orch', '--note', 'Settled');
+    else if (['followed', 'replaced'].includes(action)) {
+      r = run('board.mjs', ['question', 'add', '--site', 'orch', '--file', '-'], JSON.stringify(question('next', { topic, ...(action === 'replaced' ? { url: 'prototype-site.html?q=next' } : {}) })));
+    } else if (action === 'notes') {
+      write(at('waves', 'w', 'notes.md'), '# Settled');
+      r = board('item', 'set', 'w/A1', '--site', 'orch', '--notes-file', 'notes.md');
+    } else if (action === 'close') r = board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'done');
+    else r = board('followup', 'done', 'w', 'ENG-1', '--site', 'orch');
+    assert.equal(r.code, 0, r.err);
+    assert.deepEqual(read(queue), { items: keep });
+    assert.doesNotMatch(r.out, /push|dropped/);
+  });
+}
 
 test('item set --install records a device build with when it was built, takes only https or an iOS manifest link, and --clear-install removes it', () => {
   const ios = 'itms-services://?action=download-manifest&url=https://mac.ts.net/orch/installs/w-A1/manifest.plist';

@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0095
+---
+
 # The board serves every prototype from one template
+
+Superseded in part by [0095](0095-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md): a prototype question may list a subset of the takes, in take order.
 
 The owner asked on hub/INT-203 for prototypes that agents can't get wrong: hand-written `prototype-<topic>.html` pages kept drifting from [0079](0079-question-add-enforces-the-prototype-format.md)'s format, with fixed overlays covering the pill and the shell, links that navigated away, hover-only takes, and takes that showed blank or didn't take taps on Waiting on you. Rather than check more of each page, the board now owns the page and an agent writes only the takes.
 

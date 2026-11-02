@@ -308,6 +308,20 @@ export async function reviseQueued(tag, revise, url) {
   });
 }
 
+// Question ids are unique only within a site; the shared queue needs the route too.
+export async function dropQueued(tags, route) {
+  const wanted = new Set(tags);
+  const matches = (item) => wanted.has(item.tag) && typeof item.url === 'string' && item.url.startsWith(`/${route}/`);
+  if (!readQueue().items.some(matches)) return 0;
+  return withQueueLock(() => {
+    const { items } = readQueue();
+    const kept = items.filter((item) => !matches(item));
+    const dropped = items.length - kept.length;
+    if (dropped) writePrivate(QUEUE, { items: kept });
+    return dropped;
+  });
+}
+
 let flushing = null;
 // Sends each queued push as its own notification (schedule.mjs notifications), to whom reach() picks for its kind at
 // flush time. The queue is emptied before sending, so the hub and a `board.mjs checked` flushing at once never send a

@@ -293,7 +293,7 @@ The one line at the top of a board, above Needs you, naming new tasks Claude ans
 _Avoid_: notification, toast
 
 **Owner question**:
-A multiple-choice question Claude needs the owner to decide, attached to a topic. A builder's judgement call becomes one. One marked **urgent** blocks a build or a merge and shows alone; Claude resolves a question in the step that acts on its answer ([0043](docs/adr/0043-needs-you-gathers-what-waits-and-questions-answer-on-one-page.md)), and closing a card resolves each of its questions that has an answer; one with no answer yet stops the close unless forced.
+A multiple-choice question Claude needs the owner to decide, attached to a topic. A builder's judgement call becomes one. One marked **urgent** blocks a build or a merge and shows alone; Claude resolves a question in the step that acts on its answer ([0043](docs/adr/0043-needs-you-gathers-what-waits-and-questions-answer-on-one-page.md)), and closing a card resolves each of its questions that has an answer; one with no answer yet stops the close unless forced. Adding a question on the same card or setting its notes file resolves answered questions still waiting on Claude; answering or resolving a question drops its queued `q-<id>` push for this site.
 _Avoid_: poll, decision card
 
 **Topic**:
@@ -325,7 +325,7 @@ A New card's message, or the owner's message in a thread, that Claude hasn't ans
 _Avoid_: unread, queued
 
 **Prototype**:
-A page that shows each option of one owner question as it would ship, built from the board's real components fed fake data. An agent records it with `board.mjs prototype add <topic>` in the site's `data/prototypes.json`, with its title, card and takes, and writes only the take files; the board serves `prototype-<topic>.html` from its one template, `board/public/prototype.html`. `question add` accepts a prototype url only for a recorded topic whose takes are the question's options in order ([0089](docs/adr/0089-the-board-serves-every-prototype-from-one-template.md)).
+A page that shows each option of one owner question as it would ship, built from the board's real components fed fake data. An agent records it with `board.mjs prototype add <topic>` in the site's `data/prototypes.json`, with its title, card and takes, and writes only the take files; the board serves `prototype-<topic>.html` from its one template, `board/public/prototype.html`. `question add` accepts a prototype url only for a recorded topic, with option ids a non-empty subset of its take keys in order, without repeats, and every take file written ([0089](docs/adr/0089-the-board-serves-every-prototype-from-one-template.md)).
 _Avoid_: mockup, demo page
 
 **Confirm round**:
