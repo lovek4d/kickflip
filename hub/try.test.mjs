@@ -4,6 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
+import net from 'node:net';
+import { EventEmitter } from 'node:events';
+import { Duplex } from 'node:stream';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { until as waitUntil } from '../shared/test-helpers.mjs';
@@ -14,10 +17,25 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value)); };
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const bin = path.join(home, 'bin');
-for (const name of ['claude', 'gh', 'codex', 'tailscale', 'launchctl', 'systemctl']) {
+for (const name of ['claude', 'gh', 'codex', 'launchctl', 'systemctl']) {
   write(path.join(bin, name), '#!/bin/sh\nexit 1\n');
   fs.chmodSync(path.join(bin, name), 0o700);
 }
+write(path.join(bin, 'tailscale'), `#!${process.execPath}
+const fs = require('node:fs');
+const path = require('node:path');
+const args = process.argv.slice(2);
+fs.appendFileSync(path.join(process.env.HOME, 'tailscale.calls'), args.join(' ') + '\\n');
+if (args.join(' ') === 'serve status --json') {
+  console.error('version warning');
+  console.log(fs.readFileSync(path.join(process.env.HOME, 'tailscale.status'), 'utf8'));
+} else if (args.includes('--bg') && fs.existsSync(path.join(process.env.HOME, 'tailscale.fail'))) {
+  console.error('permission denied by tailscaled'); process.exit(1);
+}
+`);
+fs.chmodSync(path.join(bin, 'tailscale'), 0o700);
+const calls = () => fs.readFileSync(path.join(home, 'tailscale.calls'), 'utf8').trim().split('\n').filter(Boolean);
+const relayOf = (port) => calls().filter((call) => call.startsWith(`serve --bg --https=${port} `)).at(-1)?.split(' ').at(-1);
 process.env.PATH = `${bin}:${process.env.PATH}`;
 const { createTryManager, installWorktree, fetchTryBranches } = await import('./try.mjs');
 const { listBoards } = await import('./boards.mjs');
@@ -38,7 +56,26 @@ const until = (fn) => waitUntil(fn, 'timed out waiting for try state');
 const config = (extra = {}) => write(path.join(site, 'board.json'), { items: 'data/wave.json', slug: 'w', ...extra });
 function commit(dir, name = 'change') { git(dir, 'add', '.'); git(dir, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '--quiet', '-m', name); return git(dir, 'rev-parse', 'HEAD'); }
 
+function fakeRelays(t) {
+  const relays = [];
+  t.mock.method(net, 'createServer', (accept) => {
+    const port = 49000 + relays.length;
+    const relay = Object.assign(new EventEmitter(), {
+      listen(_port, _host, ready) { queueMicrotask(ready); return this; },
+      address: () => ({ port }),
+      close(done) { relay.closed = true; queueMicrotask(done); },
+    });
+    relay.on('connection', accept);
+    relays.push(relay);
+    return relay;
+  });
+  return relays;
+}
+
 beforeEach(() => {
+  write(path.join(home, 'tailscale.calls'), '');
+  write(path.join(home, 'tailscale.status'), {});
+  fs.rmSync(path.join(home, 'tailscale.fail'), { force: true });
   clock = Date.now();
   site = fs.mkdtempSync(path.join(home, 'site-'));
   repo = path.join(site, 'repo');
@@ -70,7 +107,7 @@ test('an app run uses only the fixed script and arguments, worktree cwd and buil
   await until(() => state().cards['w/A1']?.state === 'ready');
   assert.equal(state().kind, 'app');
   assert.equal(state().cards['w/A1'].sha, git(worktree, 'rev-parse', 'HEAD'));
-  assert.deepEqual(read(path.join(worktree, 'called.json')), { args: ['w/A1', worktree], cwd: worktree, board: 'orch', base: '/orch/try/a1/' });
+  assert.deepEqual(read(path.join(worktree, 'called.json')), { args: ['w/A1', worktree], cwd: worktree, board: 'orch' });
   assert.equal(fs.readFileSync(path.join(site, 'data/agents/A1.json'), 'utf8'), record);
   assert.deepEqual(thread(), []);
   const log = path.join(site, 'data/try/A1.log');
@@ -159,7 +196,11 @@ test('a second concurrent start returns 409, while a legacy install_script setti
   await assert.rejects(start(), { status: 409 });
 });
 
-test('a web run is ready only after its port answers, lookups ignore card id case, visits reset idle, and idle removes its state', async () => {
+test('a web run waits for its port, uses the relay to reset idle, and removes its public port on idle', async (t) => {
+  const relays = fakeRelays(t);
+  const peer = () => new Duplex({ read() {}, write(_chunk, _encoding, done) { done(); } });
+  const upstream = peer();
+  t.mock.method(net, 'connect', () => upstream);
   let answering = false;
   manager = createTryManager({ now: () => clock, answers: async () => answering, log() {} });
   setScript("console.log('port 32123'); setInterval(() => {}, 1000);");
@@ -172,15 +213,33 @@ test('a web run is ready only after its port answers, lookups ignore card id cas
   await until(() => state().cards['w/A1'].state === 'ready');
   assert.equal(state().kind, 'web');
   clock += 29 * 60_000;
-  assert.deepEqual(manager.lookup('orch', 'a1', { manifest, visit: true }), { key: 'w/A1', port: 32123 });
+  assert.deepEqual(manager.lookup('orch', 'a1', { manifest }), { key: 'w/A1', port: state().cards['w/A1'].port });
+  assert.equal(state().cards['w/A1'].https, 8500);
+  const socket = peer();
+  relays[0].emit('connection', socket);
   clock += 29 * 60_000;
   await tick();
   assert.equal(state().cards['w/A1'].state, 'ready');
+  socket.push('still here');
+  await new Promise(setImmediate);
+  clock += 29 * 60_000;
+  await tick();
+  assert.equal(state().cards['w/A1'].state, 'ready');
+  upstream.push('response');
+  await new Promise(setImmediate);
+  clock += 29 * 60_000;
+  await tick();
+  assert.equal(state().cards['w/A1'].state, 'ready');
+  const closed = new Promise((resolve) => socket.once('close', resolve));
   clock += 2 * 60_000;
   await tick();
   assert.equal(manager.lookup('orch', 'A1', { manifest }), null);
   assert.equal(state().cards['w/A1']?.state, undefined);
   assert.equal(state().cards['w/A1']?.sha, undefined);
+  assert.ok(calls().includes('serve --https=8500 off'));
+  await closed;
+  assert.ok(upstream.destroyed);
+  assert.ok(relays[0].closed);
   assert.deepEqual(thread(), []);
 });
 
@@ -240,9 +299,9 @@ test('main builds at the remote tip regardless of auto_build, uses a detached wo
   git(repo, 'worktree', 'remove', '--force', dir);
 });
 
-test('a restart clears dead web cards and stops main so the next tick serves it again', () => {
+test('a restart clears dead web cards and stops main so the next tick serves it again', async () => {
   write(path.join(site, 'data/try.json'), { kind: 'web', cards: { 'w/A1': { state: 'ready', port: 1 } }, main: { state: 'ready', port: 2, sha: 'old', script: true } });
-  manager.initialize(manifest);
+  await manager.initialize(manifest);
   assert.deepEqual(state(), { kind: 'web', cards: {}, main: { sha: 'old', script: true } });
 });
 
@@ -254,19 +313,45 @@ test('shutdown stops process groups without failure messages and refuses new sta
   await assert.rejects(start(), /hub is stopping/);
 });
 
-test('a web script runs a real server and can be looked up once it answers', async () => {
+test('a web script serves root paths and upgrades through the relay and keeps its port across a new commit and Retry', async () => {
   const server = http.createServer();
   await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
   await new Promise((resolve) => server.close(resolve));
-  setScript(`require('node:http').createServer((req, res) => res.end('served ' + req.url)).listen(${port}, '127.0.0.1', () => console.log('port ${port}'));`);
+  setScript(`const server = require('node:http').createServer((req, res) => res.end('served ' + req.url));
+  server.on('upgrade', (req, socket) => socket.end('HTTP/1.1 101 Switching Protocols\\r\\nConnection: Upgrade\\r\\nUpgrade: test\\r\\n\\r\\n' + req.url));
+  server.listen(${port}, '127.0.0.1', () => console.log('port ${port}'));`);
   await start();
   await until(() => state().cards['w/A1'].state === 'ready');
   assert.equal(manager.lookup('orch', 'a1', { manifest }).port, port);
-  assert.equal(await (await fetch(`http://127.0.0.1:${port}/nested`)).text(), 'served /nested');
+  assert.equal(state().cards['w/A1'].https, 8500);
+  assert.match(calls().find((call) => call.includes('--bg')), /^serve --bg --https=8500 http:\/\/127\.0\.0\.1:\d+$/);
+  assert.equal(await (await fetch(relayOf(8500) + '/nested')).text(), 'served /nested');
+  const upgraded = await new Promise((resolve, reject) => {
+    const request = http.request(relayOf(8500) + '/socket', { headers: { connection: 'Upgrade', upgrade: 'test' } });
+    request.on('error', reject);
+    request.on('upgrade', (_response, socket, head) => {
+      let body = head.toString();
+      socket.on('data', (chunk) => { body += chunk; });
+      socket.on('end', () => { socket.destroy(); resolve(body); });
+      socket.on('error', reject);
+    });
+    request.end();
+  });
+  assert.equal(upgraded, '/socket');
+  commit(worktree, 'new head');
+  for (let n = 0; n < 2; n++) {
+    await start();
+    await until(() => state().cards['w/A1'].state === 'ready');
+    assert.equal(state().cards['w/A1'].https, 8500);
+    assert.equal(await (await fetch(relayOf(8500) + '/')).text(), 'served /');
+  }
+  await manager.stop();
+  assert.equal(calls().filter((call) => call === 'serve --https=8500 off').length, 3);
 });
 
-test('main never idles out, restarts after hub startup and uses the recorded branch and origin slug', async () => {
+test('main keeps its fixed port across merges and restart, never idles out and uses the recorded branch and origin slug', async (t) => {
+  const relays = fakeRelays(t);
   manager = createTryManager({ now: () => clock, answers: async () => true, log() {} });
   setScript("console.log('port 32123'); setInterval(() => {}, 1000);", repo);
   const sha = commit(repo, 'web main');
@@ -277,16 +362,33 @@ test('main never idles out, restarts after hub startup and uses the recorded bra
   await until(() => state().main?.state === 'ready');
   assert.equal(state().main.slug, 'example/project');
   assert.equal(state().main.branch, 'develop');
+  assert.equal(state().main_port, 8500);
+  assert.equal(state().main.https, 8500);
+  setScript("console.log('port 32124'); setInterval(() => {}, 1000);");
+  await start();
+  await until(() => state().cards['w/A1'].state === 'ready');
+  assert.equal(state().cards['w/A1'].https, 8501);
+  write(path.join(repo, 'file'), 'merged');
+  const merged = commit(repo, 'merge');
+  git(repo, 'update-ref', 'refs/remotes/origin/develop', merged);
+  await tick();
+  await until(() => state().main?.state === 'ready');
+  assert.equal(state().main.sha, merged);
+  assert.equal(state().main.https, 8500);
   clock += 60 * 60_000;
   await tick();
   assert.equal(manager.lookup('orch', 'main', { manifest }).port, 32123);
   await manager.stop();
   manager = createTryManager({ now: () => clock, answers: async () => true, log() {} });
-  manager.initialize(manifest);
+  await manager.initialize(manifest);
   assert.equal(state().main.state, undefined);
   await tick();
   await until(() => state().main?.state === 'ready');
   assert.equal(manager.lookup('orch', 'main', { manifest }).port, 32123);
+  assert.equal(state().main_port, 8500);
+  assert.equal(state().main.https, 8500);
+  await manager.stop();
+  assert.ok(relays.every((relay) => relay.closed));
 });
 
 test('the poll fetches each non-hub board branch into its origin ref without a network service', async () => {
@@ -301,7 +403,7 @@ test('the poll fetches each non-hub board branch into its origin ref without a n
   assert.equal(git(repo, 'rev-parse', 'refs/remotes/origin/develop'), sha);
 });
 
-test('the hub build route enforces loopback and fixed inputs, and proxies served HTTP paths before the shell', async () => {
+test('the hub build route enforces loopback and fixed inputs', async () => {
   const free = async () => {
     const server = http.createServer();
     await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
@@ -311,12 +413,7 @@ test('the hub build route enforces loopback and fixed inputs, and proxies served
   };
   const port = await free();
   const target = await free();
-  setScript(`const server = require('node:http').createServer((req, res) => {
-    if (req.url === '/redirect') { res.writeHead(302, { location: '/next' }); res.end(); }
-    else res.end(JSON.stringify({ path: req.url, prefix: req.headers['x-forwarded-prefix'] }));
-  });
-  server.on('upgrade', (req, socket) => socket.end('HTTP/1.1 101 Switching Protocols\\r\\nConnection: Upgrade\\r\\nUpgrade: test\\r\\n\\r\\n' + JSON.stringify({ path: req.url, prefix: req.headers['x-forwarded-prefix'] })));
-  server.listen(${target}, '127.0.0.1', () => console.log('port ${target}'));`);
+  setScript(`require('node:http').createServer((req, res) => res.end('ok')).listen(${target}, '127.0.0.1', () => console.log('port ${target}'));`);
   const web = path.join(home, '.claude/kickflip');
   write(path.join(web, 'manifest.json'), manifest);
   write(path.join(web, 'settings.json'), { polling: { windows: [{ from: '00:00', every_minutes: 120 }], hold_overnight: false, wakes: [] } });
@@ -342,30 +439,6 @@ test('the hub build route enforces loopback and fixed inputs, and proxies served
     assert.equal(await post({ ...input, key: 'main' }), 400);
     assert.equal(await post(input), 202);
     await until(() => state().cards['w/A1']?.state === 'ready');
-    const base = `http://127.0.0.1:${port}`;
-    const headers = { 'sec-fetch-dest': 'document' };
-    const response = await fetch(base + '/orch/try/a1/nested?x=1', { headers });
-    assert.equal(response.headers.get('x-app-shell'), null);
-    assert.deepEqual(await response.json(), { path: '/nested?x=1', prefix: '/orch/try/a1' });
-    const redirect = await fetch(base + '/orch/try/A1', { redirect: 'manual', headers });
-    assert.equal(redirect.headers.get('location'), '/orch/try/A1/');
-    const inner = await fetch(base + '/orch/try/a1/redirect', { redirect: 'manual', headers });
-    assert.equal(inner.headers.get('location'), '/orch/try/a1/next');
-    const upgraded = await new Promise((resolve, reject) => {
-      const request = http.request({ host: '127.0.0.1', port, path: '/orch/try/a1/socket', headers: { connection: 'Upgrade', upgrade: 'test' } });
-      request.on('error', reject);
-      request.on('upgrade', (_response, socket, head) => {
-        let body = head.toString();
-        socket.on('data', (chunk) => { body += chunk; });
-        socket.on('end', () => { socket.destroy(); resolve(JSON.parse(body)); });
-        socket.on('error', reject);
-      });
-      request.end();
-    });
-    assert.deepEqual(upgraded, { path: '/socket', prefix: '/orch/try/a1' });
-    const down = await fetch(base + '/orch/try/missing/', { headers });
-    assert.equal(down.status, 404);
-    assert.match(await down.text(), /MISSING isn't being served. Tap Serve on its card./);
   } finally { hub.kill('SIGTERM'); await exited; }
 });
 
@@ -424,8 +497,88 @@ test('an automatic validation refusal records one failed head and useful thread 
   await manager.stop();
   write(path.join(site, 'data/try.json'), { kind: 'web', cards: {}, main: { sha: mainSha, state: 'failed', script: true } });
   manager = createTryManager({ log() {} });
-  manager.initialize(manifest);
+  await manager.initialize(manifest);
   await tick();
   assert.equal(state().main.state, 'failed');
   assert.equal(fs.existsSync(path.join(home, '.claude/kickflip/try/orch-main')), false);
+});
+
+test('startup removes only unowned in-range ports and parses stdout despite a version warning', async () => {
+  write(path.join(home, 'tailscale.status'), { TCP: { 443: {}, 8499: {}, 8500: {}, 8599: {}, 8600: {} } });
+  await manager.initialize(manifest);
+  assert.deepEqual(calls(), ['serve status --json', 'serve --https=8500 off', 'serve --https=8599 off']);
+});
+
+test('a failed Tailscale registration fails the run with stderr and removes the port', async (t) => {
+  const relays = fakeRelays(t);
+  manager = createTryManager({ answers: async () => true, log() {} });
+  write(path.join(home, 'tailscale.fail'), 'yes');
+  setScript("console.log('port 32123'); setInterval(() => {}, 1000);");
+  await start();
+  await until(() => thread().length === 1);
+  assert.equal(state().cards['w/A1'].state, 'failed');
+  assert.equal(state().cards['w/A1'].https, undefined);
+  assert.match(thread()[0].text, /Couldn't open try port 8500: permission denied by tailscaled/);
+  assert.ok(relays[0].closed);
+  assert.ok(calls().includes('serve --https=8500 off'));
+  fs.rmSync(path.join(home, 'tailscale.fail'));
+  setScript("require('node:fs').writeFileSync('server.pid', String(process.pid)); console.log('port 32123'); setInterval(() => {}, 1000);");
+  await start();
+  await until(() => state().cards['w/A1'].state === 'ready');
+  assert.equal(state().cards['w/A1'].https, 8500);
+  process.kill(Number(fs.readFileSync(path.join(worktree, 'server.pid'), 'utf8')), 'SIGTERM');
+  await until(() => thread().length === 2);
+  assert.equal(calls().filter((call) => call === 'serve --https=8500 off').length, 2);
+  assert.ok(relays.every((relay) => relay.closed));
+});
+
+test('card ports skip every board’s fixed main port, including closed boards, and release on idle', async (t) => {
+  fakeRelays(t);
+  manager = createTryManager({ now: () => clock, answers: async () => true, log() {} });
+  const other = path.join(home, 'other');
+  write(path.join(other, 'data/try.json'), { main_port: 8500 });
+  manifest.closed = { other: { site: { dir: other } } };
+  write(path.join(site, 'data/try.json'), { kind: 'web', main_port: 8501, cards: {} });
+  setScript("console.log('port 32123'); setInterval(() => {}, 1000);");
+  await start();
+  await until(() => state().cards['w/A1'].state === 'ready');
+  assert.equal(state().cards['w/A1'].https, 8502);
+  clock += 31 * 60_000;
+  await tick();
+  assert.ok(calls().includes('serve --https=8502 off'));
+  assert.equal(state().main_port, 8501);
+  write(path.join(site, 'data/agents/A2.json'), { worktree: { path: worktree, repo } });
+  await start({ key: 'w/A2' });
+  await until(() => state().cards['w/A2'].state === 'ready');
+  assert.equal(state().cards['w/A2'].https, 8502);
+  manifest.sites = {};
+  await tick();
+  assert.equal(calls().filter((call) => call === 'serve --https=8502 off').length, 2);
+  assert.equal(state().cards['w/A2'], undefined);
+});
+
+test('exhausted try ports fail clearly without adding a serve entry', async () => {
+  manager = createTryManager({ answers: async () => true, log() {} });
+  manifest.closed = {};
+  for (let port = 8500; port <= 8599; port++) {
+    const dir = path.join(home, `reserved-${port}`);
+    write(path.join(dir, 'data/try.json'), { main_port: port });
+    manifest.closed[port] = { site: { dir } };
+  }
+  setScript("console.log('port 32123'); setInterval(() => {}, 1000);");
+  await start();
+  await until(() => thread().length === 1);
+  assert.match(thread()[0].text, /No try ports available \(8500–8599\)/);
+  assert.equal(calls().some((call) => call.includes('--bg')), false);
+});
+
+test('startup cleanup failure logs and still allows a build', async () => {
+  const logs = [];
+  manager = createTryManager({ log: (line) => logs.push(line) });
+  write(path.join(home, 'tailscale.status'), 'not json');
+  await manager.initialize(manifest);
+  assert.match(logs[0], /try startup cleanup/);
+  setScript('process.exit(0);');
+  await start();
+  await until(() => state().cards['w/A1'].state === 'ready');
 });

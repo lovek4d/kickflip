@@ -573,12 +573,13 @@ test('doctor reports every healthy item and the old hub, Tailscale and site deta
   assert.deepEqual(items.map(({ group, item }) => `${group} ${item}`), [
     'prereqs git', 'prereqs node on Claude’s PATH', 'prereqs gh', 'prereqs gh signed in', 'prereqs Tailscale', 'prereqs Tailscale signed in', 'prereqs Codex',
     'setup kickflip skill link', 'setup kickflip-hooks link', 'setup ~/.claude/statusline.sh', 'setup settings.json statusLine', 'setup hub login item',
-    'hub hub', 'hub tailscale /', 'hub /shop',
+    'hub hub', 'hub tailscale /', 'hub try ports', 'hub /shop',
   ]);
   assert.ok(items.every((item) => item.state === 'ok' && item.fix === null));
-  assert.deepEqual(doctorLines(items).slice(-3), [
+  assert.deepEqual(doctorLines(items).slice(-4), [
     'ok       hub: running on 127.0.0.1:19460',
     'ok       tailscale /: http://127.0.0.1:19460',
+    'ok       try ports: none',
     'ok       /shop: up  port 19461  owner Shop owner  Shop board',
   ]);
   assert.ok(calls.includes('gh auth status'));
@@ -902,4 +903,38 @@ test('the installed usage hook reminds sessions, denies only new agents while pa
   assert.equal(run('SessionStart'), '');
   fs.writeFileSync(path.join(dir, 'usage.json'), '{');
   assert.equal(run('UserPromptSubmit'), '');
+});
+
+
+test('doctor lists in-range try mappings with board and card or main, while checking only 443 for the hub root', async () => {
+  const { options, responses, site } = healthyDoctor();
+  site.dir = path.join(home, 'shop');
+  fs.mkdirSync(path.join(site.dir, 'data'), { recursive: true });
+  fs.writeFileSync(path.join(site.dir, 'data/try.json'), JSON.stringify({ main_port: 8500, cards: { 'w/A1': { https: 8501 } } }));
+  responses.set('tailscale serve status --json', { status: 0, stdout: JSON.stringify({
+    TCP: { 443: {}, 8500: {}, 8501: {}, 8600: {} },
+    Web: {
+      'mac.ts.net:8500': { Handlers: { '/': { Proxy: 'http://127.0.0.1:5000' } } },
+      'mac.ts.net:8501': { Handlers: { '/': { Proxy: 'http://127.0.0.1:5001' } } },
+      'mac.ts.net:443': { Handlers: { '/': { Proxy: 'http://127.0.0.1:19460' } } },
+    },
+  }) });
+  const items = await doctorReport(options);
+  assert.equal(pick(items, 'tailscale /').state, 'ok');
+  assert.deepEqual(pick(items, 'try ports'), { group: 'hub', item: 'try ports', state: 'ok', detail: '8500 → http://127.0.0.1:5000 (/shop main); 8501 → http://127.0.0.1:5001 (/shop w/A1)', fix: null });
+});
+
+test('Linux doctor requires the current non-root user as Tailscale operator', async () => {
+  const { options, responses, calls } = healthyDoctor();
+  for (const operator of ['someone', 'love', '']) {
+    responses.set('tailscale debug prefs', { status: 0, stdout: JSON.stringify({ OperatorUser: operator }) });
+    const items = await doctorReport({ ...options, platform: 'linux', username: 'love' });
+    const row = pick(items, 'Tailscale operator');
+    assert.equal(row.state, operator === 'love' ? 'ok' : 'yours');
+    assert.equal(row.fix, operator === 'love' ? null : 'sudo tailscale set --operator=$USER');
+  }
+  calls.length = 0;
+  assert.equal(pick(await doctorReport({ ...options, platform: 'linux', uid: 0 }), 'Tailscale operator'), undefined);
+  assert.equal(calls.includes('tailscale debug prefs'), false);
+  assert.equal(pick(await doctorReport(options), 'Tailscale operator'), undefined);
 });

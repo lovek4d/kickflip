@@ -155,7 +155,7 @@ export async function hubStatus({ port = Number(process.env.KICKFLIP_HUB_PORT ||
 }
 
 export function tailscaleRoot(config) {
-  const handlers = Object.values(config?.Web || {}).flatMap((web) => Object.entries(web.Handlers || {}));
+  const handlers = Object.entries(config?.Web || {}).filter(([host]) => !/:\d+$/.test(host) || host.endsWith(':443')).flatMap(([, web]) => Object.entries(web.Handlers || {}));
   return { root: handlers.find(([route]) => route === '/')?.[1]?.Proxy || null, paths: [...new Set(handlers.map(([route]) => route))] };
 }
 

@@ -37,7 +37,6 @@ test("a browser's page load of `/` or of any site's page gets the shell, and any
     [{ pathname: '/hub-orchestrator/prototype-sidebar.html', search: '?q=q1&alone=1', dest: 'document' }, 'forward'],
     [{ pathname: '/hub-orchestrator/shots-gallery.html', dest: 'document' }, 'shell'],
     [{ pathname: '/hub-orchestrator/installs/P2/', dest: 'document' }, 'shell'],
-    ...['/ios/try/INT-41', '/ios/try/int-41/', '/ios/try/main/nested/page.html'].map((pathname) => [{ pathname, dest: 'document' }, 'forward']),
     [{ pathname: '/learn/', dest: 'document' }, 'shell'],
     [{ pathname: '/learn/', dest: 'iframe' }, 'forward'],
     [{ pathname: '/learn/', dest: 'document', search: '?alone=1' }, 'forward'],

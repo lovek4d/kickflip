@@ -444,7 +444,6 @@ export function buildBoard(snapshot) {
   const moved = new Map();
   const tries = snapshot.try || {};
   const kind = ['web', 'app'].includes(tries.kind) ? tries.kind : snapshot.waves.some(({ wave }) => wave.items.some((it) => it.install?.url)) ? 'app' : 'web';
-  const base = `/${snapshot.route || ''}/try/`.replace(/^\/\//, '/');
   for (const it of items) {
     if (it.kind !== 'work' || it.lane === 'done') continue;
     const run = routeRecord(tries.cards, it.key) || {};
@@ -452,12 +451,12 @@ export function buildBoard(snapshot) {
     const sha = kind === 'web' ? run.sha : it.install?.sha;
     const state = it.builder?.kind === BUILDER_KIND.install ? 'running' : run.state || (kind === 'app' && it.install ? 'ready' : null);
     it.try = { kind, state, stale: Boolean(sha && head && !String(head).toLowerCase().startsWith(String(sha).toLowerCase())),
-      url: kind === 'web' ? state === 'ready' ? `${base}${it.id.toLowerCase()}/` : null : it.install?.url || null,
+      url: kind === 'web' ? null : it.install?.url || null, port: kind === 'web' && state === 'ready' ? run.https || null : null,
       sha: sha || null, changes: run.ahead > 0, script: run.script === true };
   }
   const run = tries.main;
   const main = run?.script && run.sha ? { slug: run.slug, branch: run.branch || 'main', sha: run.sha.slice(0, 7), at: run.at,
-    kind, state: run.state || null, url: kind === 'web' ? `${base}main/` : snapshot.main?.install?.url || null } : null;
+    kind, state: run.state || null, url: kind === 'web' ? null : snapshot.main?.install?.url || null, port: kind === 'web' && run.state === 'ready' ? run.https || null : null } : null;
 
   const askProgress = snapshot.askProgress || {};
   const askDones = latest('ask-done', 'id');

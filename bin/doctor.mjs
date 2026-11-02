@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { isTryPort } from '../hub/try.mjs';
 import { cloneRoot as runningClone } from '../shared/repos.mjs';
 import { codexStatus } from '../shared/codex.mjs';
 import { hubService, runCommand } from '../shared/service.mjs';
@@ -18,7 +19,7 @@ const INSTALL = {
 // → [{group: prereqs|setup|hub, item, state, detail, fix}]. state is ok; fixable, which `doctor --fix` sets up; yours,
 // which only the person can fix with the fix command; optional, yours but not needed for the hub; or note, which the
 // hub handles itself. Reads only: runs the read commands through run(command, argv, {env}) and asks the hub on port.
-export async function doctorReport({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, platform = process.platform, fetch = globalThis.fetch } = {}) {
+export async function doctorReport({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, platform = process.platform, username = os.userInfo().username, fetch = globalThis.fetch } = {}) {
   const hints = INSTALL[platform === 'darwin' ? 'darwin' : 'other'];
   const items = [];
   let group;
@@ -44,6 +45,10 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   const tsStatus = ts ? json(execute('tailscale', ['status', '--json'])) : null;
   const signedIn = tsStatus?.BackendState === 'Running';
   add('Tailscale signed in', signedIn ? 'ok' : 'yours', signedIn ? `signed in${tsStatus.Self?.DNSName ? ' as ' + tsStatus.Self.DNSName.replace(/\.$/, '') : ''}` : ts ? 'not connected' : 'needs Tailscale', 'tailscale up');
+  if (ts && platform === 'linux' && uid !== 0) {
+    const operator = json(execute('tailscale', ['debug', 'prefs']))?.OperatorUser;
+    add('Tailscale operator', operator === username ? 'ok' : 'yours', operator === username ? username : `${operator || 'none'} (expected ${username})`, 'sudo tailscale set --operator=$USER');
+  }
   const codex = codexStatus({ home, env, platform });
   add('Codex', codex.usable ? 'ok' : 'optional', codex.usable ? 'installed and logged in' : `${codex.reason}; Codex builds and reviews need it`, codex.fix);
 
@@ -76,7 +81,8 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   group = 'hub';
   const hub = await hubStatus({ port, fetch });
   add('hub', hub ? 'ok' : 'fixable', `${hub ? 'running' : 'not running'} on 127.0.0.1:${port}`, FIX);
-  const serve = ts ? tailscaleRoot(json(execute('tailscale', ['serve', 'status', '--json']))) : { root: null, paths: [] };
+  const serveConfig = ts ? json(execute('tailscale', ['serve', 'status', '--json'])) : null;
+  const serve = tailscaleRoot(serveConfig);
   let pointsAtHub = false;
   try {
     const url = new URL(serve.root);
@@ -97,6 +103,24 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
       sites = [];
     }
   }
+  let manifest = {};
+  try { manifest = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'kickflip', 'manifest.json'), 'utf8')); } catch {}
+  const owners = new Map();
+  const recorded = [...Object.entries(manifest.sites || {}), ...Object.entries(manifest.closed || {}).map(([route, entry]) => [route, entry.site]), ...sites.map((site) => [site.route, site])];
+  for (const [route, site] of recorded) {
+    if (!site?.dir) continue;
+    let state;
+    try { state = JSON.parse(fs.readFileSync(path.join(site.dir, 'data', 'try.json'), 'utf8')); } catch { continue; }
+    if (isTryPort(state.main_port)) owners.set(Number(state.main_port), `/${route} main`);
+    if (isTryPort(state.main?.https)) owners.set(Number(state.main.https), `/${route} main`);
+    for (const [key, card] of Object.entries(state.cards || {})) if (isTryPort(card.https)) owners.set(Number(card.https), `/${route} ${key}`);
+  }
+  const ports = Object.keys(serveConfig?.TCP || {}).filter(isTryPort).sort((a, b) => a - b);
+  add('try ports', 'ok', ports.map((port) => {
+    const web = Object.entries(serveConfig.Web || {}).find(([host]) => host.endsWith(`:${port}`))?.[1];
+    const target = web?.Handlers?.['/']?.Proxy || serveConfig.TCP[port].TCPForward || 'HTTPS';
+    return `${port} → ${target} (${owners.get(Number(port)) || 'unknown'})`;
+  }).join('; ') || 'none');
   if (!sites.length) add('sites', 'ok', 'none');
   for (const site of sites) {
     const where = site.port ? `port ${site.port}` : `files ${site.dir}`;

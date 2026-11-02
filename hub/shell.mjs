@@ -39,7 +39,6 @@ export function pageOf({ method = 'GET', pathname = '/', search = '', dest, site
   const m = /^\/([^/]+)\/(.*)$/.exec(pathname);
   let route = null;
   try { route = m ? decodeURIComponent(m[1]) : null; } catch { route = null; }
-  if (m && /^try(?:\/|$)/.test(m[2])) return 'forward';
   return route !== null && sites.has(route) && isPagePath(m[2]) ? 'shell' : 'forward';
 }
 

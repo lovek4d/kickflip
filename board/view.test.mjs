@@ -67,7 +67,7 @@ function fakePage(localStorage) {
   class MutationObserver { observe() { observers.add(this); } unobserve() {} disconnect() { observers.delete(this); } }
   const win = Object.assign(new Target(), {
     URL, URLSearchParams, AbortController, localStorage, document, CSS: { escape: (s) => s }, navigator: { platform: 'MacIntel' },
-    location: { href: 'https://mac.ts.net/', hash: '', pathname: '/', search: '' }, history: { replaceState() {} }, innerHeight: 844,
+    location: { hostname: 'mac.ts.net', href: 'https://mac.ts.net/', hash: '', pathname: '/', search: '' }, history: { replaceState() {} }, innerHeight: 844,
     scrollX: 0, scrollY: 0, scrollTo(x, y) { this.scrollX = x; this.scrollY = y; },
     visualViewport: Object.assign(new Target(), { height: 844, offsetTop: 0 }),
     matchMedia: (query) => Object.assign(new Target(), { matches: query === '(min-width: 900px)' && win.innerWidth >= 900 }), MutationObserver, ResizeObserver: MutationObserver,
@@ -1808,9 +1808,10 @@ test('a card try button confirms, posts through the site URL and reloads; disabl
 });
 
 test('main paints above the lanes and failures on open cards scroll to their thread', async () => {
-  const data = { ...boardOf([workCard('R1', { try: { kind: 'web', state: 'failed', script: true, changes: true } })]), main: { kind: 'web', state: 'ready', slug: 'o/r', branch: 'main', sha: 'abcdef1', at: new Date().toISOString(), url: '/orch/try/main/' } };
+  const data = { ...boardOf([workCard('R1', { try: { kind: 'web', state: 'failed', script: true, changes: true } })]), main: { kind: 'web', state: 'ready', slug: 'o/r', branch: 'main', sha: 'abcdef1', at: new Date().toISOString(), url: null, port: 8500 } };
   const b = boardOnDom({ open: ['w/R1'], board: data, threads: {} });
   await b.settle();
+  assert.equal(b.root.querySelector('#tryMain a').getAttribute('href'), 'https://mac.ts.net:8500/');
   assert.match(b.root.querySelector('#tryMain').textContent, /o\/r · main@abcdef1.*Visit ↗\uFE0E/);
   assert.match(b.root.innerHTML, /↗/);
   assert.doesNotMatch(b.root.innerHTML, /↗(?!\uFE0E)/);

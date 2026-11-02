@@ -165,7 +165,8 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          card-merge event. Board Settings' toggle writes it too
   build <wave>/<id> --site <route>                       asks the hub to run this card's .kickflip/build; prints
                                                          started and exits. install is an alias. The hub records
-                                                         data/try/<id>.log and writes failures to the thread
+                                                         data/try/<id>.log and writes failures to the thread.
+                                                         Web Visit opens https://<host>:<try port>/ at its root
   main set --install <url> [--install-sha <sha>]          publishes main's app install to data/main.json
   settings set auto-build on|off                         on: each push builds its card. Off by default.
                                                          Main builds after every merge either way

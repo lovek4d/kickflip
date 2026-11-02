@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const context = vm.createContext({});
+const context = vm.createContext({ location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443' } });
 for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-sidebar.js', 'ui-hub.js']) {
   vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
 }
@@ -573,7 +573,7 @@ test("a question on a prototype page sets its takes in one grid with no carousel
     const elsewhere = ui.questionCard({ ...question, url: 'https://elsewhere.example/orch/prototype-hub-snooze.html?q=q1' });
     assert.deepEqual(takeCards(elsewhere), []);
     assert.match(elsewhere, /target="_blank"/);
-  } finally { delete context.location; }
+  } finally { context.location = { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }; }
 });
 
 test('one scrolling take gives the question a chooser in stored order and one full-size frame, defaulting to the recommended take without answering', () => {
@@ -622,7 +622,7 @@ test("a question's link opens in place on this hub, and outside the board anywhe
   context.location = { origin: 'https://mac.tail.ts.net', href: 'https://mac.tail.ts.net/orch/' };
   try {
     assert.doesNotMatch(ui.questionCard({ ...question, url: 'https://mac.tail.ts.net/orch/plan.html?item=w%2FA1' }), /target="_blank"/);
-  } finally { delete context.location; }
+  } finally { context.location = { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }; }
   const linear = ui.questionCard({ ...question, url: 'https://linear.app/acme/issue/INT-1' });
   assert.match(linear, /href="https:\/\/linear\.app\/acme\/issue\/INT-1" target="_blank"/);
   assert.match(linear, /target="_blank" rel="noopener">INT-1 ↗\uFE0E<\/a>/);
@@ -898,9 +898,10 @@ test('try badges share ready, stale, running, failed and absent states for both 
     const done = kind === 'web' ? 'Visit' : 'Install';
     const going = kind === 'web' ? 'Serving…' : 'Building…';
     const failed = kind === 'web' ? 'Serve failed' : 'Build failed';
-    const card = { ...workCard, try: { kind, state: 'ready', url: '/try/', sha: 'abcdef1' } };
+    const card = { ...workCard, try: { kind, state: 'ready', url: kind === 'web' ? null : 'https://m/app.apk', port: kind === 'web' ? 8501 : null, sha: 'abcdef1' } };
     assert.equal(text(render(card)), `${done} ↗\uFE0E`);
     assert.match(render(card), /tone-ready/);
+    assert.ok(render(card).includes(`href="${kind === 'web' ? 'https://mac.ts.net:8501/' : 'https://m/app.apk'}"`));
     assert.equal(/target="_blank"/.test(render(card)), kind === 'web');
     assert.equal(text(render({ ...card, try: { ...card.try, stale: true } })), `${done} (stale) ↗\uFE0E`);
     assert.match(render({ ...card, try: { ...card.try, stale: true } }), /tone-quiet.*Built from abcdef1/);
@@ -937,7 +938,8 @@ test('try buttons explain no changes, running and current runs, and offer Retry 
 test('main is a slim branch bar with one badge, no control and a failure log title', () => {
   assert.equal(ui.mainBar(null), '');
   for (const kind of ['web', 'app']) {
-    const main = { kind, slug: 'owner/repo', branch: 'develop', sha: '1234567', at: ago(2), state: 'ready', url: '/try/main/' };
+    const main = { kind, slug: 'owner/repo', branch: 'develop', sha: '1234567', at: ago(2), state: 'ready', url: kind === 'web' ? null : 'https://m/main.apk', port: kind === 'web' ? 8500 : null };
+    assert.ok(ui.mainBar(main).includes(`href="${kind === 'web' ? 'https://mac.ts.net:8500/' : 'https://m/main.apk'}"`));
     assert.match(ui.mainBar(main), /tb-main.*owner\/repo · <strong>develop<\/strong>@<code>1234567<\/code>/);
     assert.equal(text(ui.mainBar(main)).includes(kind === 'web' ? 'Visit ↗\uFE0E' : 'Install ↗\uFE0E'), true);
     assert.match(ui.mainBar({ ...main, state: 'running' }), /role="status"/);
@@ -1065,7 +1067,7 @@ test("a thread's links to this hub's pages open in place, and only other origins
       ['https://mac.tail.ts.net/orch/prototype-y.html', 'https://mac.tail.ts.net/orch/prototype-y.html', false],
       ['https://elsewhere.example/y', 'https://elsewhere.example/y', true],
     ]);
-  } finally { delete context.location; }
+  } finally { context.location = { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }; }
 });
 
 test('a plan renders headings, lists, emphasis, code and links, escapes raw HTML, and wraps each table in its own scroll box', () => {

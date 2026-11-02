@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
+import net from 'node:net';
 import { execFile, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
@@ -17,6 +18,8 @@ export class BuildError extends Error {
 const execFileAsync = promisify(execFile);
 const git = async (dir, ...args) => (await execFileAsync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 3000 })).stdout.trim();
 const KEYCHAIN = /errSecInternalComponent|keychain[^\n]*\blocked\b|\blocked\b[^\n]*keychain/i;
+export const TRY_PORTS = { first: 8500, last: 8599 };
+export const isTryPort = (port) => /^\d+$/.test(String(port)) && Number(port) >= TRY_PORTS.first && Number(port) <= TRY_PORTS.last;
 const IDLE_MS = 30 * 60_000;
 const scriptAt = (dir) => path.join(dir, '.kickflip', 'build');
 const exists = (file) => fs.existsSync(file);
@@ -73,20 +76,24 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
   const boards = new Map();
   const runs = new Map();
   const starting = new Set();
+  const cardPorts = new Map();
+  const mainPorts = new Map();
   const lastHeads = new Map();
   let stopping = false;
   let ticking = null;
+  let initializing = null;
   const stamp = () => new Date(now()).toISOString();
   function stateOf(board) {
     if (boards.has(board.dir)) return boards.get(board.dir);
     const file = path.join(board.dir, 'data', 'try.json');
     const saved = readJSON(file, { kind: null, main: null, cards: {} });
-    const state = { kind: saved.kind || null, main: saved.main || null, cards: { ...saved.cards } };
+    const state = { ...(isTryPort(saved.main_port) ? { main_port: saved.main_port } : {}), kind: saved.kind || null, main: saved.main || null, cards: { ...saved.cards } };
     const record = { state, file, written: JSON.stringify(saved) };
     boards.set(board.dir, record);
+    if (state.main_port) mainPorts.set(board.dir, state.main_port);
     if (state.kind === 'web') {
       state.cards = {};
-      if (state.main && state.main.state !== 'failed') { delete state.main.state; delete state.main.port; }
+      if (state.main && state.main.state !== 'failed') { delete state.main.state; delete state.main.port; delete state.main.https; }
     } else {
       for (const card of Object.values(state.cards)) if (card.state === 'running') { delete card.state; delete card.sha; }
       if (state.main?.state === 'running') { delete state.main.state; delete state.main.sha; }
@@ -111,9 +118,86 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     Object.assign(entry, change, key !== 'main' && changedState ? { at: stamp() } : {});
     persist(board);
   }
+  function reserveMains(manifest) {
+    const sites = [...Object.values(manifest?.sites || {}), ...Object.values(manifest?.closed || {}).map((entry) => entry.site)];
+    for (const site of sites) {
+      if (!site?.dir) continue;
+      const port = readJSON(path.join(site.dir, 'data', 'try.json'), {}).main_port;
+      if (isTryPort(port)) mainPorts.set(site.dir, Number(port));
+    }
+  }
+  function publicPort(run) {
+    const { board, key } = run;
+    const id = runKey(board, key);
+    const held = key === 'main' ? mainPorts.get(board.dir) : cardPorts.get(id);
+    if (held) return held;
+    const used = new Set([...mainPorts.values(), ...cardPorts.values()]);
+    let port = TRY_PORTS.first;
+    while (used.has(port) && port <= TRY_PORTS.last) port++;
+    if (port > TRY_PORTS.last) throw new Error(`No try ports available (${TRY_PORTS.first}–${TRY_PORTS.last}). Stop a served card and retry.`);
+    if (key === 'main') {
+      mainPorts.set(board.dir, port);
+      stateOf(board).state.main_port = port;
+      persist(board);
+    } else cardPorts.set(id, port);
+    return port;
+  }
+  const tailscale = (args) => execFileAsync('tailscale', args, { encoding: 'utf8', timeout: 10_000 });
+  async function removePort(port) {
+    try { await tailscale(['serve', `--https=${port}`, 'off']); }
+    catch (e) { log(`try port ${port}: could not close port: ${(e.stderr || e.message).trim()}`); }
+  }
+  async function openPort(run) {
+    run.https = publicPort(run);
+    const sockets = run.sockets = new Set();
+    const visit = () => { run.visited = now(); };
+    run.relay = net.createServer((socket) => {
+      visit();
+      const up = net.connect(run.port, '127.0.0.1');
+      for (const peer of [socket, up]) {
+        sockets.add(peer);
+        peer.on('data', visit);
+        peer.on('error', () => { socket.destroy(); up.destroy(); });
+        peer.on('close', () => { sockets.delete(peer); socket.destroy(); up.destroy(); });
+      }
+      socket.pipe(up); up.pipe(socket);
+    });
+    await new Promise((resolve, reject) => {
+      run.relay.once('error', reject);
+      run.relay.listen(0, '127.0.0.1', resolve);
+    });
+    if (run.stopped) return;
+    run.exposed = true;
+    try { await tailscale(['serve', '--bg', `--https=${run.https}`, `http://127.0.0.1:${run.relay.address().port}`]); }
+    catch (e) { throw new Error(`Couldn't open try port ${run.https}: ${(e.stderr || e.message).trim()}`); }
+  }
+  async function closePort(run) {
+    await run.opening?.catch(() => {});
+    if (run.exposed) await removePort(run.https);
+    if (run.relay) {
+      for (const socket of run.sockets) socket.destroy();
+      await new Promise((resolve) => run.relay.close(resolve));
+    }
+    if (!run.keepPort) cardPorts.delete(runKey(run.board, run.key));
+  }
+  function initialize(manifest = readManifest()) {
+    if (initializing) return initializing;
+    reserveMains(manifest);
+    for (const board of listBoards(manifest)) stateOf(board);
+    initializing = (async () => {
+      try {
+        const { stdout } = await tailscale(['serve', 'status', '--json']);
+        const status = JSON.parse(stdout);
+        for (const port of Object.keys(status?.TCP || {})) {
+          if (isTryPort(port) && ![...runs.values()].some((run) => run.https === Number(port))) await removePort(port);
+        }
+      } catch (e) { log(`try startup cleanup: ${(e.stderr || e.message).trim()}`); }
+    })();
+    return initializing;
+  }
   async function failure(run, code, signal, error) {
     const { board, key } = run;
-    update(board, key, { state: 'failed', port: undefined });
+    update(board, key, { state: 'failed', port: undefined, https: undefined });
     if (key === 'main') return;
     const tail = [];
     let keychain = false;
@@ -140,13 +224,14 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     });
     return run.ending;
   }
-  async function stopRun(run) {
+  async function stopRun(run, keepPort = false) {
+    run.keepPort = keepPort;
     run.stopped = true;
     clearTimeout(run.deadline);
     clearInterval(run.poll);
     await terminate(run);
     await run.done;
-    update(run.board, run.key, { state: undefined, port: undefined, ...(!run.ready ? { sha: undefined } : {}) });
+    update(run.board, run.key, { state: undefined, port: undefined, https: undefined, ...(!run.ready ? { sha: undefined } : {}) });
     if (!run.ready) lastHeads.delete(runKey(run.board, run.key));
   }
   async function launch(board, key, worktree, metadata = {}) {
@@ -161,12 +246,13 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     const previous = entryOf(state, key);
     const entry = { ...(key === 'main' ? {} : previous), ...metadata, sha, script: true, state: 'running', ...(key === 'main' ? {} : { at: stamp(), head: sha }) };
     delete entry.port;
+    delete entry.https;
     const logFile = logFileOf(board, key);
     fs.mkdirSync(path.dirname(logFile), { recursive: true });
     const fd = fs.openSync(logFile, 'w', 0o600);
     fs.fchmodSync(fd, 0o600);
     const child = spawn(script, [key, worktree], { cwd: worktree, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, KICKFLIP_BOARD: board.route, KICKFLIP_BASE: `/${board.route}/try/${key.split('/').at(-1).toLowerCase()}/` } });
+      env: { ...process.env, KICKFLIP_BOARD: board.route } });
     if (key === 'main') state.main = entry; else state.cards[key] = entry;
     persist(board);
     const id = runKey(board, key);
@@ -195,10 +281,13 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
         try {
           if (await answers(port)) {
             if (run.stopped || failed || child.exitCode !== null || child.signalCode !== null) return;
+            run.opening = openPort(run);
+            await run.opening;
+            if (run.stopped || failed || child.exitCode !== null || child.signalCode !== null) return;
             run.ready = true;
             run.visited = now();
             state.kind = 'web';
-            update(board, key, { state: 'ready', port });
+            update(board, key, { state: 'ready', port, https: run.https });
             clearInterval(run.poll);
           } else if (now() >= until) fail('Nothing answered on the build script’s port within 60 seconds.');
         } finally { probing = false; }
@@ -216,10 +305,11 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       fs.closeSync(fd);
       (async () => {
         await terminate(run);
+        await closePort(run);
         if (run.stopped) return;
         if (failed || spawnError || code !== 0 || (run.port && !run.ready)) await failure(run, code ?? 1, signal, failed || spawnError || (run.port && !run.ready ? new Error('Build script exited before its port answered.') : null));
         else if (run.ready) {
-          if (key === 'main') { delete state.main.state; delete state.main.port; }
+          if (key === 'main') { delete state.main.state; delete state.main.port; delete state.main.https; }
           else delete state.cards[key];
           persist(board);
         } else {
@@ -235,6 +325,8 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     return { status: 'started' };
   }
   async function start(input, { manifest = readManifest() } = {}) {
+    await initialize(manifest);
+    reserveMains(manifest);
     if (stopping) throw new BuildError('The hub is stopping. Try again after it restarts.', 503);
     if (!input || Array.isArray(input) || typeof input !== 'object' || Object.keys(input).some((k) => !['route', 'key'].includes(k))
       || typeof input.route !== 'string' || typeof input.key !== 'string') throw new BuildError('Send only the board route and card key.');
@@ -247,20 +339,22 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     if (starting.has(id) || (runs.has(id) && !runs.get(id).ready)) throw new BuildError('A build is already running for this card.', 409);
     starting.add(id);
     try {
-      if (runs.has(id)) await stopRun(runs.get(id));
+      if (runs.has(id)) await stopRun(runs.get(id), true);
       const worktree = await installWorktree(board, key, manifest);
       return await launch(board, key, worktree);
-    } finally { starting.delete(id); }
+    } catch (e) { cardPorts.delete(id); throw e; }
+    finally { starting.delete(id); }
   }
-  function lookup(route, id, { manifest = readManifest(), visit = false } = {}) {
+  function lookup(route, id, { manifest = readManifest() } = {}) {
     const board = listBoards(manifest).find((b) => b.route === route);
     if (!board) return null;
     const run = [...runs.values()].find((r) => r.board.dir === board.dir && r.key.split('/').at(-1).toLowerCase() === id.toLowerCase() && r.ready && !r.stopped && r.child.exitCode === null && r.child.signalCode === null);
     if (!run) return null;
-    if (visit) run.visited = now();
     return { key: run.key, port: run.port };
   }
   async function tick({ manifest = readManifest() } = {}) {
+    await initialize(manifest);
+    reserveMains(manifest);
     if (ticking || stopping) return ticking;
     ticking = (async () => {
       const listed = listBoards(manifest);
@@ -325,7 +419,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
           const metadata = { sha, branch, slug: slug || '', at, script };
           starting.add(id);
           try {
-            if (runs.has(id)) await stopRun(runs.get(id));
+            if (runs.has(id)) await stopRun(runs.get(id), true);
             const dir = path.join(os.homedir(), '.claude', 'kickflip', 'try', `${board.route}-main`);
             fs.mkdirSync(path.dirname(dir), { recursive: true });
             if (exists(dir)) await git(dir, 'checkout', '--detach', '--force', sha);
@@ -345,10 +439,10 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
   }
   async function stop() {
     stopping = true;
-    const stopped = Promise.all([...runs.values()].map(stopRun));
+    const stopped = Promise.all([...runs.values()].map((run) => stopRun(run)));
     await Promise.all([stopped, ticking]);
   }
-  return { start, tick, stop, lookup, initialize: (manifest = readManifest()) => { for (const board of listBoards(manifest)) stateOf(board); } };
+  return { start, tick, stop, lookup, initialize };
 }
 
 export async function fetchTryBranches({ manifest = readManifest(), log = console.log } = {}) {
@@ -364,5 +458,4 @@ const manager = createTryManager();
 export const startBuild = (...args) => manager.start(...args);
 export const tryTick = (...args) => manager.tick(...args);
 export const stopTries = () => manager.stop();
-export const servingTry = (...args) => manager.lookup(...args);
 export const initializeTries = (...args) => manager.initialize(...args);

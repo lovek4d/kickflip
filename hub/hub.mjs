@@ -109,7 +109,7 @@
 // docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md).
 // Every 15 seconds it drops the pending prompts whose hook has gone (prompts.mjs expired).
 // On paused → normal it sends every board usage-resumed {window}, keeping usage-gate-state.json across restarts.
-// /<route>/try/<id>/ proxies a board card or main's server, including upgrades, outside the app shell.
+// Each served card and main has its own Tailscale HTTPS port, through a loopback relay (try.mjs).
 // Every 15 seconds try.mjs refreshes card heads, auto-builds cards and rebuilds main; polls fetch non-hub branches.
 // Try worktrees live in ~/.claude/kickflip/try/<route>-main; board data/try.json and data/try/*.log record runs.
 // State lives in ~/.claude/kickflip: manifest.json, logs/<route>.log, run/<route>.pid, github-state.json, wake-state.json,
@@ -145,7 +145,7 @@ import { hubStream } from './stream.mjs';
 import { usageReader, checkUsagePause } from './usage.mjs';
 import { readUsageGate, setPauseAt, setKeepGoing } from '../shared/usage-gate.mjs';
 import { codexStatusReader } from '../shared/codex.mjs';
-import { BuildError, startBuild, stopTries, tryTick, servingTry, initializeTries, fetchTryBranches } from './try.mjs';
+import { BuildError, startBuild, stopTries, tryTick, initializeTries, fetchTryBranches } from './try.mjs';
 import { migrateOnStart } from '../bin/install.mjs';
 import { serveFiles } from './files.mjs';
 import { LinearError, linearStatus, removeLinearKey, saveLinearKey, savedClient } from './linear.mjs';
@@ -368,7 +368,7 @@ function runSessionCheck() {
   }).catch((e) => log('session check failed:', e.message)).finally(() => { sessionCheck.running = null; });
 }
 
-initializeTries(loadManifest());
+await initializeTries(loadManifest());
 
 // ---------- pending prompts ----------
 const STARTED_AT = Date.now();
@@ -972,19 +972,8 @@ const server = http.createServer((req, res) => {
     res.end('Requests must come from the app’s own pages.');
     return;
   }
-  const trying = /^\/([^/]+)\/try\/([^/]+)(\/|$)/.exec(url.pathname);
-  let tryTarget = null;
-  if (trying && listBoards(loadManifest()).some((b) => b.route === trying[1])) {
-    if (!trying[3]) { res.writeHead(302, { location: url.pathname + '/' + url.search }).end(); return; }
-    tryTarget = servingTry(trying[1], trying[2], { manifest: loadManifest(), visit: true });
-    if (!tryTarget) {
-      res.writeHead(404, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-      res.end(`${head('Not being served')}<a class="back" href="/${esc(trying[1])}/">‹ Board</a><h1>${esc(trying[2].toUpperCase())} isn't being served. Tap Serve on its card.</h1></main></body></html>`);
-      return;
-    }
-  }
   const sites = new Set(Object.keys(loadManifest().sites));
-  if (!tryTarget && pageOf({ method: req.method, pathname: url.pathname, search: url.search, dest: destOf(req.headers), sites }) === 'shell') {
+  if (pageOf({ method: req.method, pathname: url.pathname, search: url.search, dest: destOf(req.headers), sites }) === 'shell') {
     const here = url.pathname === '/' ? '' : url.pathname.startsWith('/_hub/') ? url.pathname.slice(1) : decodeURIComponent(url.pathname.split('/')[1]);
     shellPage(here).then((html) => sendText(req, res, 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', vary: 'sec-fetch-dest', 'x-app-shell': '1' }, html))
       .catch((e) => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
@@ -1012,18 +1001,18 @@ const server = http.createServer((req, res) => {
   if (!site) { res.writeHead(404, { 'content-type': 'text/html; charset=utf-8' }); res.end(`${head('No Site')}<a class="back" href="/_hub/">‹ Hub</a><h1>No site at /${esc(route)}</h1></main></body></html>`); return; }
   if (url.pathname === '/' + route) { res.writeHead(302, { location: '/' + route + '/' + url.search }).end(); return; }
 
-  const prefix = tryTarget ? `/${route}/try/${trying[2]}` : '/' + route;
+  const prefix = '/' + route;
   const rest = req.url.slice(prefix.length) || '/';
   // The same URL is the shell for a page load and the page itself for its frame, so neither may answer the other.
   const vary = pageOf({ pathname: url.pathname, dest: 'document', sites }) === 'shell';
-  if (!tryTarget && servesOf(site) === 'files') {
+  if (servesOf(site) === 'files') {
     if (!isFolder(site.dir)) { res.writeHead(502, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); res.end(downPage(route, site)); return; }
     serveFiles(req, res, { dir: site.dir, rest, prefix, headers: vary ? { vary: 'sec-fetch-dest' } : {} })
       .catch((e) => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
     return;
   }
   const headers = { ...req.headers, 'x-forwarded-prefix': prefix, 'x-forwarded-host': req.headers['x-forwarded-host'] || req.headers.host, 'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'https' };
-  const up = http.request({ host: '127.0.0.1', port: tryTarget?.port || site.port, method: req.method, path: rest, headers }, (r) => {
+  const up = http.request({ host: '127.0.0.1', port: site.port, method: req.method, path: rest, headers }, (r) => {
     const h = { ...r.headers };
     if (vary) h.vary = [h.vary, 'sec-fetch-dest'].filter(Boolean).join(', ');
     if (typeof h.location === 'string' && h.location.startsWith('/') && !h.location.startsWith('//') && !h.location.startsWith(prefix + '/') && h.location !== prefix) h.location = prefix + h.location;
@@ -1046,13 +1035,10 @@ const server = http.createServer((req, res) => {
 server.on('upgrade', (req, socket, head) => {
   const route = requestURL(req).pathname.split('/')[1];
   const site = routeRecord(loadManifest().sites, route);
-  const trying = /^\/[^/]+\/try\/([^/]+)\//.exec(requestURL(req).pathname);
-  const isTry = trying && listBoards(loadManifest()).some((b) => b.route === route);
-  const target = isTry ? servingTry(route, trying[1], { manifest: loadManifest(), visit: true }) : site;
-  if (!target?.port) { socket.destroy(); return; }
-  const prefix = isTry ? `/${route}/try/${trying[1]}` : `/${route}`;
+  if (!site?.port) { socket.destroy(); return; }
+  const prefix = `/${route}`;
   const rest = req.url.slice(prefix.length) || '/';
-  const up = net.connect(target.port, '127.0.0.1', () => {
+  const up = net.connect(site.port, '127.0.0.1', () => {
     const lines = [`${req.method} ${rest} HTTP/${req.httpVersion}`];
     for (let i = 0; i < req.rawHeaders.length; i += 2) if (req.rawHeaders[i].toLowerCase() !== 'x-forwarded-prefix') lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`);
     lines.push(`X-Forwarded-Prefix: ${prefix}`);

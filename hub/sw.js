@@ -16,7 +16,7 @@ function isShellPage(url) {
   if (HUB_PAGES.has(url.pathname)) return true;
   if (url.searchParams.has('alone')) return false;
   const m = /^\/([^/]+)\/(.*)$/.exec(url.pathname);
-  return Boolean(m) && m[1] !== '_hub' && !/^try(?:\/|$)/.test(m[2]) && (m[2] === '' || m[2].endsWith('/') || /\.html?$/.test(m[2]));
+  return Boolean(m) && m[1] !== '_hub' && (m[2] === '' || m[2].endsWith('/') || /\.html?$/.test(m[2]));
 }
 const isAsset = (url) => url.pathname.startsWith('/_hub/app/') || url.pathname === '/_hub/colors.css' || url.pathname === '/_hub/kickflip.png';
 // hub/hub.mjs marks the shell it serves with the sidebar written in; a site's own page and the board server's copy

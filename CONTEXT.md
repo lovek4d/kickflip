@@ -250,11 +250,11 @@ The app card's one badge that opens its build on the owner's phone, or the badge
 _Avoid_: download, TestFlight (a different channel), older build
 
 **Build script**:
-The repo's reviewed, executable `.kickflip/build`, run by the hub from each card's worktree and main's hub-owned detached worktree. The hub passes the key (or `main`) and worktree, plus `KICKFLIP_BOARD` and `KICKFLIP_BASE`. Printing `port <n>` and staying alive serves a website; exiting 0 without a port finishes an app build that publishes an install through the board CLI. The last finished run decides the board's kind. The hub writes try state and logs; failed card runs append one thread line, and successful runs none. There is no script path setting ([0099](docs/adr/0099-a-boards-build-script-serves-or-builds-each-card-and-main.md)).
+The repo's reviewed, executable `.kickflip/build`, run by the hub from each card's worktree and main's hub-owned detached worktree. The hub passes the key (or `main`) and worktree, plus `KICKFLIP_BOARD`. Websites serve at their root on their own Tailscale HTTPS port, without a path prefix or `KICKFLIP_BASE` ([0102](docs/adr/0102-a-try-build-serves-on-its-own-tailscale-port.md)). Printing `port <n>` and staying alive serves a website; exiting 0 without a port finishes an app build that publishes an install through the board CLI. The last finished run decides the board's kind. The hub writes try state and logs; failed card runs append one thread line, and successful runs none. There is no script path setting ([0099](docs/adr/0099-a-boards-build-script-serves-or-builds-each-card-and-main.md)).
 _Avoid_: install script, session install runner
 
 **Serve**:
-The rightmost workflow button for a website work card with a build script. It confirms before the hub runs the script. Its one badge reads "Serving…", "Visit ↗", "Visit (stale) ↗" or "Serve failed ↗". A served card lives at `/<board>/try/<id>/`, stops after 30 minutes with no visit and can be served again. Main lives at `/<board>/try/main/` and never idles out. Both paths open the server itself, outside the app shell.
+The rightmost workflow button for a website work card with a build script. It confirms before the hub runs the script. Its one badge reads "Serving…", "Visit ↗", "Visit (stale) ↗" or "Serve failed ↗". A served card opens at `https://<host>:<port>/`, with a port from 8500–8599 kept through re-serves. A loopback relay tracks visits; 30 idle minutes stops the card and releases its port. Main has a fixed port recorded per board, keeps its link across merges and restarts and never idles out. Both open the server itself, outside the app shell ([0102](docs/adr/0102-a-try-build-serves-on-its-own-tailscale-port.md)).
 _Avoid_: preview site, separate page
 
 **Auto-build**:

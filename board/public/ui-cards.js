@@ -59,10 +59,12 @@
     saved: (on) => on ? 'Saved. Each push serves its card.' : 'Saved. Cards wait for your Serve.',
   };
   const spinner = '<span class="try-spin" aria-hidden="true"></span>';
+  const tryURL = (run) => run.kind === 'web' ? run.port ? `https://${location.hostname}:${run.port}/` : null : run.url;
   function tryOf(it) {
     if (it.lane === 'done') return null;
     const t = it.try || (it.install ? { kind: 'app', state: 'ready', stale: it.install.older, sha: it.install.sha, url: it.install.url } : null);
-    return it.builder?.kind === BUILDER_KIND.install ? { ...t, kind: t?.kind || 'app', state: 'running' } : t;
+    const run = t ? { ...t, url: tryURL(t) } : null;
+    return it.builder?.kind === BUILDER_KIND.install ? { ...run, kind: run?.kind || 'app', state: 'running' } : run;
   }
   function installState(it) {
     const t = tryOf(it);
@@ -98,9 +100,10 @@
   function mainBar(main) {
     if (!main) return '';
     const words = tryWords(main.kind);
+    const url = tryURL(main);
     const chip = main.state === 'running' ? badge('notice', spinner + esc(words.going), { attrs: { role: 'status' } })
       : main.state === 'failed' ? badge('danger', esc(words.failed), { title: 'The build script stopped with an error. Its log is data/try/main.log in the board’s folder.' })
-      : main.state === 'ready' && main.url ? badge('ready', `${words.done} ${LINK_ARROW}`, { href: main.url, attrs: main.kind === 'web' ? EXTERNAL : {} }) : '';
+      : main.state === 'ready' && url ? badge('ready', `${words.done} ${LINK_ARROW}`, { href: url, attrs: main.kind === 'web' ? EXTERNAL : {} }) : '';
     return `<div class="tb-main" role="region" aria-label="Main’s version">${BRANCH}<div class="tb-main-text">${esc(main.slug)} · <strong>${esc(main.branch)}</strong>@<code>${esc(main.sha)}</code> · ${esc(ago(main.at))}</div><div class="meta">${chip}</div></div>`;
   }
   // The open card's Merge, while the board's auto-merge is off: it confirms, then sends card-merge, and reads "Merging…"
