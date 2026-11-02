@@ -200,8 +200,8 @@ A color named by what it means, `--color-quiet`, `--color-info`, `--color-notice
 _Avoid_: tone token, theme color, badge color
 
 **Colour rule**:
-A colour says who is waiting: blue (info) when a human is needed, such as an unread review, the owner's next step or a new version to reload; orange (notice) when a builder, reviewer or the machine is working or waiting, never for something the owner must do; red (danger) for danger, such as failed, offline or spending; grey (quiet) for idle, which takes no other colour. Pick a new colour by it ([0096](docs/adr/0096-colour-says-whos-waiting.md)).
-_Avoid_: attention colour, warning colour (for the owner's turn)
+A colour says what waits: blue (info) only for review and notice, something for the human to read or see, such as an unread review or a new version to reload; orange (notice) for attention, an agent or builder waiting on something, such as Action needed, a permission or a pick, or working; red (danger) for danger, such as failed, offline or spending; grey (quiet) for idle, which takes no other colour. Pick a new colour by it ([0096](docs/adr/0096-colour-says-whos-waiting.md)).
+_Avoid_: warning colour (for attention), action colour (for blue)
 
 **Follow-up**:
 Work discovered while building a wave, with a ticket from the board’s source. It is a Todo card of that wave, with a Follow-up badge, until it is done, and an open one keeps its wave unfinished ([0034](docs/adr/0034-follow-ups-are-todo-cards-of-their-wave.md)).

@@ -4,7 +4,7 @@ status: superseded in part by ADR-0096
 
 # One colour constants file shared by the hub and every board
 
-Superseded in part by [0096](0096-colour-says-whos-waiting.md) on which status colour a meaning takes: waiting on the owner is info, and notice is a builder, reviewer or the machine working or waiting.
+Superseded in part by [0096](0096-colour-says-whos-waiting.md) on which status colour a meaning takes: info is only review and notice, something for the owner to read or see.
 
 Every colour lives in `shared/colors.css`: the base palette (`--bg`, `--panel`, `--line`, `--text`, `--muted`, `--accent`, `--ok`, `--warn`, `--bad` and the rest) in light and dark, and the status colours named by what they mean: `--color-quiet`, `--color-info`, `--color-notice`, `--color-danger` and `--color-success`. The board serves it as `colors.css`, which every board page links before `style.css`, versioned like any other asset ([0028](0028-the-board-opens-on-the-last-visit.md)). The hub serves it as `/_hub/colors.css` and links it before each page's inline CSS. Neither `board/public/style.css` nor `hub/hub.mjs` defines a colour of its own, and `board/ui.test.mjs` fails if either one does, or uses a custom property that nothing defines.
 
