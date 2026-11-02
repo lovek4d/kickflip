@@ -179,19 +179,30 @@
       B.atUnmount(() => closeModal(false));
       const device = HubKit.device(B, { paint, changed: () => ctx.sidebarChanged?.() });
       device.ready.then(() => { if (B.alive()) paint(); });
+      let openPicker = null;
       B.on(root, 'click', (e) => {
         const input = e.target.closest?.('[data-snooze-at]');
         if (!input) return;
+        openPicker = input;
         customBounds(input, input.value === input.defaultValue);
         try { input.showPicker(); } catch { /* iOS opens its wheel on the tap itself. */ }
       });
-      // As with Polling's native pickers, wait for the wheel to close before posting and repainting its row.
+      // A chip's pointerdown comes before Custom's focusout; without this reset Custom posts first and the chip's post is dropped.
+      B.on(root, 'pointerdown', (e) => {
+        const input = e.target.closest?.('.snooze-choices button') && B.$('[data-snooze-at]');
+        if (!input) return;
+        openPicker = null;
+        input.value = input.defaultValue;
+      });
+      // Closing an opened picker accepts its suggested time; an unchanged field reached by Tab does nothing.
       const saveCustom = (input) => {
-        if (!input.value || input.value === input.defaultValue || !input.checkValidity()) return;
+        if (!input.value || (input !== openPicker && input.value === input.defaultValue) || !input.checkValidity()) return;
         const at = new Date(input.value);
         if (Number.isNaN(at.getTime())) return;
         input.form.querySelector('[name="snooze"]').value = at.toISOString();
         input.form.requestSubmit();
+        openPicker = null;
+        input.defaultValue = input.value;
       };
       B.on(root, 'change', (e) => {
         if (e.target.matches?.('[data-snooze-at]') && document.activeElement !== e.target) saveCustom(e.target);
