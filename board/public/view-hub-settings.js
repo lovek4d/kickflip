@@ -1,14 +1,14 @@
 // HubSettings: summary rows below Hub’s health and status open centred settings modals (ADR 0075), using
-// settingsView's words from GET /_hub/api/settings. Each toggle and snooze posts to /_hub/settings/notifications and saves
-// at once. The rules editor saves through POST /_hub/settings/rules and marks [data-dirty] while an edit is unsaved, so
-// the shell asks before leaving then. The data refreshes every 30 seconds while nothing is being edited.
+// settingsView's words from GET /_hub/api/settings. Each toggle and snooze posts to /_hub/settings/notifications, and
+// Keep awake to /_hub/settings/keep-awake, and saves at once. The rules editor saves through POST /_hub/settings/rules
+// and marks [data-dirty] while an edit is unsaved, so the shell asks before leaving then. The data refreshes every 30 seconds while nothing is being edited.
 (function () {
   // The last data, which a return to the view paints at once.
   let last = null;
   const { esc } = HubUI;
   const ACTION = '/_hub/settings/notifications';
 
-  // datetime-local speaks the device's clock; the hidden snooze field carries its UTC ISO value to the hub.
+  // datetime-local speaks the device's clock; the picker's hidden field carries its UTC ISO value to the hub.
   const localInput = (d) => {
     const pad = (n) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -20,13 +20,21 @@
     if (reset) input.value = input.defaultValue = localInput(new Date(now + 3_600_000));
   }
 
-  function snoozeRow(d) {
-    const icon = HubUI.tile('snooze', '#a855f7');
-    if (d.snoozed) return `<div class="row snooze-on">${icon}<span class="body"><span class="text title">${esc(d.snoozed.title)}</span><form method="post" action="${ACTION}"><button class="btn quiet" name="snooze" value="off">End</button></form></span></div>`;
-    if (!d.snooze) return '';
-    const chips = d.snooze.choices.map((c) => `<button class="btn quiet" name="snooze" value="${esc(c.value)}" aria-label="${esc(`${c.label}, ${c.until}`)}">${esc(c.label)}</button>`).join('');
-    return `<div class="block" role="group" aria-labelledby="snoozeTitle"><div class="snooze-head">${icon}<span class="title" id="snoozeTitle">Snooze</span></div><div class="snooze-chips"><form class="snooze-choices" method="post" action="${ACTION}">${chips}</form><form class="snooze-custom" method="post" action="${ACTION}"><input type="hidden" name="snooze"><span class="btn quiet" aria-hidden="true">Custom</span><input type="datetime-local" data-snooze-at required aria-label="Custom snooze until a date and time"></form></div></div>`;
+  // The one duration picker Snooze and Keep awake share (hub/duration.mjs): chips that post `name` to `action` at once,
+  // then Custom, whose date and time posts as `name` too. While its setting is on, `on` replaces it with when it ends
+  // and a button that posts `name`=off.
+  function durationPicker({ id, title, icon, action, name, choices, on, button }) {
+    if (on) return `<div class="row dur-on">${icon}<span class="body"><span class="text title">${esc(on.title)}</span><form method="post" action="${action}"><button class="btn quiet" name="${name}" value="off">${button}</button></form></span></div>`;
+    if (!choices) return '';
+    const chips = choices.map((c) => `<button class="btn quiet" name="${name}" value="${esc(c.value)}" aria-label="${esc(`${c.label}, ${c.until}`)}">${esc(c.label)}</button>`).join('');
+    return `<div class="block" role="group" aria-labelledby="${id}Title"><div class="dur-head">${icon}<span class="title" id="${id}Title">${title}</span></div><div class="dur-chips"><form class="dur-choices" method="post" action="${action}">${chips}</form><form class="dur-custom" method="post" action="${action}"><input type="hidden" name="${name}"><span class="btn quiet" aria-hidden="true">Custom</span><input type="datetime-local" data-dur-at required aria-label="Custom ${title.toLowerCase()} until a date and time"></form></div></div>`;
   }
+
+  const snoozeRow = (d) => durationPicker({ id: 'snooze', title: 'Snooze', icon: HubUI.tile('snooze', '#a855f7'), action: ACTION, name: 'snooze',
+    choices: d.snooze?.choices, on: d.snoozed, button: 'End' });
+  // Grey while off and orange while on, as the machine working (docs/adr/0096-colour-says-whos-waiting.md).
+  const awakeRow = (a) => durationPicker({ id: 'awake', title: 'Keep awake', icon: HubUI.tile('coffee', a.on ? 'var(--color-notice)' : 'var(--color-quiet)'),
+    action: '/_hub/settings/keep-awake', name: 'keep_awake', choices: a.choices, on: a.on, button: 'Turn off' });
 
   // The on/off, snooze and weekend rows (docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md).
   function notificationRows(d) {
@@ -38,7 +46,7 @@
     return `${onRow}\n${snoozeRow(d)}\n${weekendRow}`;
   }
 
-  const sections = [['notifications', 'Notifications'], ['polling', 'Polling'], ['linear', 'Linear'], ['rules', 'Rules for every board'], ['closed', 'Closed boards']];
+  const sections = [['notifications', 'Notifications'], ['polling', 'Polling'], ['keep-awake', 'Keep awake'], ['linear', 'Linear'], ['rules', 'Rules for every board'], ['closed', 'Closed boards']];
   const sectionOf = (hash) => {
     const id = { push: 'notifications', 'closed-boards': 'closed' }[hash?.slice(1)] || hash?.slice(1);
     return sections.some(([section]) => section === id) ? id : null;
@@ -68,8 +76,9 @@
         const scrollTop = B.$('.settings-body').scrollTop;
         if (active === 'notifications') {
           content.innerHTML = `<div class="group">${deviceRow(device.state(last.device), { compact: true })}${notificationRows(last)}${last.presence ? row({ icon: tile('laptop', 'var(--color-quiet)'), title: esc(last.presence.title) }) : ''}</div>`;
-          const input = B.$('[data-snooze-at]');
-          if (input) customBounds(input, true);
+        } else if (active === 'keep-awake') {
+          content.innerHTML = last.awake.unsupported ? `<p class="note">${esc(last.awake.unsupported)}.</p>`
+            : `<div class="group">${awakeRow(last.awake)}</div><p class="note">Runs <code>caffeinate -ims</code> on the host so it doesn’t sleep while boards work. The screen can still turn off.</p>`;
         } else if (active === 'linear') {
           const typed = B.$('#linearKey')?.value || '';
           const l = last.linear;
@@ -79,10 +88,14 @@
         } else if (active === 'closed') {
           content.innerHTML = `<div class="group">${(last.closed || []).length ? last.closed.map((b) => `<div class="row"><span class="body"><span class="text"><span class="title">${esc(b.title)}</span><span class="sub wrap">/${esc(b.route)}</span></span><button class="btn" type="button" data-reopen="${esc(b.route)}"${reopening ? ' disabled' : ''}>${reopening === b.route ? 'Reopening…' : 'Reopen'}</button></span></div>`).join('') : '<p class="note">No closed boards.</p>'}</div>`;
         }
+        const input = B.$('[data-dur-at]');
+        if (input) customBounds(input, true);
         B.$('.settings-body').scrollTop = scrollTop;
+        B.$('#keep-awake').disabled = Boolean(last.awake.unsupported);
         const summaries = {
-          notifications: [last.on.on ? 'Pushes on' : 'Pushes off', last.snoozed?.title, last.weekends.on ? 'Off on weekends' : '', deviceSummary()].filter(Boolean).join(' · '),
+          notifications: [last.on.on ? 'Pushes on' : 'Pushes off', last.snoozed?.summary, last.weekends.on ? 'Off on weekends' : '', deviceSummary()].filter(Boolean).join(' · '),
           polling: last.polling,
+          'keep-awake': last.awake.summary,
           linear: last.linear?.summary || 'No key',
           rules: last.rules.length ? `${last.rules.length} rule${last.rules.length === 1 ? '' : 's'}` : 'None yet',
           closed: last.closed?.length ? `${last.closed.length} closed` : 'No closed boards',
@@ -181,7 +194,7 @@
       device.ready.then(() => { if (B.alive()) paint(); });
       let openPicker = null;
       B.on(root, 'click', (e) => {
-        const input = e.target.closest?.('[data-snooze-at]');
+        const input = e.target.closest?.('[data-dur-at]');
         if (!input) return;
         openPicker = input;
         customBounds(input, input.value === input.defaultValue);
@@ -189,7 +202,7 @@
       });
       // A chip's pointerdown comes before Custom's focusout; without this reset Custom posts first and the chip's post is dropped.
       B.on(root, 'pointerdown', (e) => {
-        const input = e.target.closest?.('.snooze-choices button') && B.$('[data-snooze-at]');
+        const input = e.target.closest?.('.dur-choices button') && B.$('[data-dur-at]');
         if (!input) return;
         openPicker = null;
         input.value = input.defaultValue;
@@ -199,16 +212,16 @@
         if (!input.value || (input !== openPicker && input.value === input.defaultValue) || !input.checkValidity()) return;
         const at = new Date(input.value);
         if (Number.isNaN(at.getTime())) return;
-        input.form.querySelector('[name="snooze"]').value = at.toISOString();
+        input.form.querySelector('input[type="hidden"]').value = at.toISOString();
         input.form.requestSubmit();
         openPicker = null;
         input.defaultValue = input.value;
       };
       B.on(root, 'change', (e) => {
-        if (e.target.matches?.('[data-snooze-at]') && document.activeElement !== e.target) saveCustom(e.target);
+        if (e.target.matches?.('[data-dur-at]') && document.activeElement !== e.target) saveCustom(e.target);
       });
       B.on(root, 'focusout', (e) => {
-        if (e.target.matches?.('[data-snooze-at]')) saveCustom(e.target);
+        if (e.target.matches?.('[data-dur-at]')) saveCustom(e.target);
       });
       B.on(root, 'click', async (e) => {
         const button = e.target.closest?.('[data-reopen]');

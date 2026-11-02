@@ -496,7 +496,7 @@ test('Hub Settings lists closed boards, keeps a refused reopen available, then r
   page.win.document.getElementById = () => true;
   const root = page.win.document.body.appendChild(new Element('div'));
   root.innerHTML = page.win.HubSettings.markup();
-  const d = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [],
+  const d = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], awake: { summary: 'Off' },
     closed: [{ route: 'shop', title: 'The <Shop>' }] };
   const posts = [];
   let refuse = true;
@@ -2567,7 +2567,7 @@ test('leaving a board with its settings open releases the modal and returning wi
 
 test('a stored Polling link opens Hub with its window selected, and modal links and dismissal preserve history', async () => {
   const requests = [];
-  const settings = { on: { on: true }, weekends: { on: false }, rules: [], closed: [] };
+  const settings = { on: { on: true }, weekends: { on: false }, rules: [], closed: [], awake: { summary: 'Off' } };
   const polling = {
     select: '08:00', now: { title: 'Checks every 15 min', lines: [], count: 0 },
     windows: ['08:00', '18:00'].map((from) => ({ from, range: from, every: [], ends: '10:00pm', checks: '4 checks', split: true, remove: true })),
@@ -2633,7 +2633,7 @@ test('legacy hub links open one modal, guard dirty rules on every dismissal, res
   page.win.document.getElementById = () => true;
   const root = page.win.document.body.appendChild(new Element('div'));
   root.innerHTML = page.win.HubSettings.markup();
-  const data = { on: { on: true }, weekends: { on: false }, rules: [], closed: [] };
+  const data = { on: { on: true }, weekends: { on: false }, rules: [], closed: [], awake: { summary: 'Off' } };
   page.win.fetch = async () => ({ ok: true, json: async () => structuredClone(data) });
   page.win.RulesEditor.mount = () => ({ set() {} });
   const baseline = page.left();

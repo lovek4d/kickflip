@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0112
+---
+
 # Snooze is six chips in a three-column grid
+
+Superseded in part by [0112](0112-snooze-and-keep-awake-share-one-duration-picker.md): the chips are 1h, 3h, 6h, 1d, Forever and Custom, shared with Keep awake. The grid still holds.
 
 The owner asked on hub/INT-233: "In Snooze add 3 days before Monday for a square 6". Snooze in Hub's Notifications modal offers **3h**, **6h**, **1d**, **3d**, **Monday** and **Custom**.
 

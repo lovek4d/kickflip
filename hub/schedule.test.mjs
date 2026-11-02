@@ -198,6 +198,9 @@ test('heldUntil holds for off, a snooze and the weekend, carrying a hold into th
   assert.equal(heldUntil(t(15), snoozed), null);
   assert.deepEqual(heldUntil(t(21), notify(DEFAULTS, { snoozed_until: t(23).toISOString() })), t(8, 0, 15));
   assert.deepEqual(flushAt(t(12, 7), notify(DEFAULTS, { snoozed_until: t(13, 5).toISOString() })), t(13, 15));
+  const forever = notify(DEFAULTS, { snoozed_until: 'forever', weekends_off: true });
+  assert.deepEqual([t(12), t(23), t(12, 0, sat)].map((at) => hold(at, forever)), Array(3).fill({ until: 'forever', why: 'snoozed' }));
+  assert.equal(flushAt(t(12), forever), 'forever');
   const weekends = notify(DEFAULTS, { weekends_off: true });
   assert.equal(heldUntil(t(21, 0, fri), weekends), null);
   assert.equal(heldUntil(t(22, 1, fri), noHold(weekends)), null);
@@ -220,6 +223,7 @@ test('validate defaults the notifications and rejects bad ones', () => {
   assert.deepEqual(validate({ windows: DEFAULTS.windows }).settings.notifications, ON);
   const set = { on: false, weekends_off: true, snoozed_until: '2026-10-14T20:00:00.000Z' };
   assert.deepEqual(validate(notify(DEFAULTS, set)).settings.notifications, set);
+  assert.equal(validate(notify(DEFAULTS, { snoozed_until: 'forever' })).settings.notifications.snoozed_until, 'forever');
   assert.match(validate(notify(DEFAULTS, { on: 'no' })).error, /Notifications/);
   assert.match(validate(notify(DEFAULTS, { weekends_off: 1 })).error, /weekends/);
   assert.match(validate(notify(DEFAULTS, { snoozed_until: 'soon' })).error, /Snooze/);
@@ -237,6 +241,7 @@ test('snoozeEnd turns a snooze choice into when it ends', () => {
   assert.deepEqual(snoozeEnd(t(12), '3d', DEFAULTS), t(12, 0, 17));
   assert.deepEqual(snoozeEnd(t(12), 'morning', DEFAULTS), t(8, 0, 15));
   assert.deepEqual(snoozeEnd(t(3), 'morning', DEFAULTS), t(8));
+  assert.equal(snoozeEnd(t(12), 'forever', DEFAULTS), 'forever');
   assert.equal(snoozeEnd(t(12), 'soon', DEFAULTS), null);
   assert.equal(snoozeEnd(t(12), '0h', DEFAULTS), null);
   assert.equal(snoozeEnd(t(12), '31d', DEFAULTS), null);

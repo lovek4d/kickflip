@@ -8,6 +8,8 @@
 // wakes are the times of day the hub wakes each board's session once, whether GitHub changed or not.
 // notifications is stored beside `polling` in settings.json, not inside it, and gates pushes only
 // (docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md).
+import { FOREVER, durationEnd, inRange } from './duration.mjs';
+
 export const DEFAULTS = Object.freeze({
   windows: Object.freeze([
     Object.freeze({ from: '08:00', every_minutes: 15 }),
@@ -34,17 +36,16 @@ const atOn = (d, hhmm, dayOffset = 0) => { const [h, m] = hhmm.split(':').map(Nu
 const nextAt = (t, hhmm) => { const d = atOn(t, hhmm); return d > t ? d : atOn(t, hhmm, 1); };
 const lastAt = (t, hhmm) => { const d = atOn(t, hhmm); return d <= t ? d : atOn(t, hhmm, -1); };
 const copy = (s) => ({ windows: s.windows.map((w) => ({ from: w.from, every_minutes: w.every_minutes })), hold_overnight: s.hold_overnight, wakes: [...s.wakes], notifications: { ...s.notifications } });
-const MAX_SNOOZE_MS = 30 * 86_400_000;
 
-// Returns { notifications } with snoozed_until as an ISO time or null, or { error }. Missing fields get the defaults.
+// Returns { notifications } with snoozed_until as an ISO time, FOREVER or null, or { error }. Missing fields get the defaults.
 function validateNotifications(input) {
   const on = input?.on ?? DEFAULTS.notifications.on;
   const weekends = input?.weekends_off ?? DEFAULTS.notifications.weekends_off;
   const until = input?.snoozed_until ?? null;
   if (typeof on !== 'boolean') return { error: 'Notifications must be on or off.' };
   if (typeof weekends !== 'boolean') return { error: 'Off on weekends must be on or off.' };
-  if (until !== null && (typeof until !== 'string' || Number.isNaN(Date.parse(until)))) return { error: 'Snooze must end at a date and time.' };
-  return { notifications: { on, weekends_off: weekends, snoozed_until: until === null ? null : new Date(until).toISOString() } };
+  if (until !== null && until !== FOREVER && (typeof until !== 'string' || Number.isNaN(Date.parse(until)))) return { error: 'Snooze must end at a date and time, or be forever.' };
+  return { notifications: { on, weekends_off: weekends, snoozed_until: until === null || until === FOREVER ? until : new Date(until).toISOString() } };
 }
 
 // Returns { settings } with windows sorted by start, every_minutes as numbers and wakes sorted, or { error }.
@@ -194,10 +195,12 @@ function weekendEnd(t, s) {
   return t - start > HOLD_GRACE_MS && t < end ? end : null;
 }
 
-// Why pushes are held at `t` and until when: { until: Date, why: 'snoozed' | 'weekend' | 'overnight' }, or
-// { until: NEVER, why: 'off' }, or null when a push may go. One hold ending inside another runs on to the later end.
+// Why pushes are held at `t` and until when: { until: Date, why: 'snoozed' | 'weekend' | 'overnight' }, { until: FOREVER,
+// why: 'snoozed' } until the snooze is ended, or { until: NEVER, why: 'off' }, or null when a push may go. One hold
+// ending inside another runs on to the later end.
 export function hold(t, s) {
   if (s.notifications?.on === false) return { until: NEVER, why: 'off' };
+  if (s.notifications?.snoozed_until === FOREVER) return { until: FOREVER, why: 'snoozed' };
   const snooze = s.notifications?.snoozed_until ? new Date(s.notifications.snoozed_until) : null;
   const at = (u) => (snooze > u ? ['snoozed', snooze] : null) || (weekendEnd(u, s) && ['weekend', weekendEnd(u, s)]) || (holdsPushes(u, s) && ['overnight', windowAt(u, s).endsAt]);
   const firstHold = at(t);
@@ -208,30 +211,27 @@ export function hold(t, s) {
 }
 
 // The one gate every push passes, urgent ones only while notifications are off: null when a push may go at `t`,
-// else when held pushes go, or NEVER while notifications are off.
+// else when held pushes go, FOREVER while snoozed until ended, or NEVER while notifications are off.
 export function heldUntil(t, s) {
   return hold(t, s)?.until ?? null;
 }
 
-// When a push queued at `t` goes out: the next slot, or the first slot once a hold on that slot ends; NEVER while off.
+// When a push queued at `t` goes out: the next slot, or the first slot once a hold on that slot ends; NEVER while off,
+// FOREVER while snoozed until ended.
 export function flushAt(t, s) {
   let slot = nextSlot(t, s);
   for (let n = 0; n < 8; n++) {
     const until = heldUntil(slot, s);
-    if (until === NEVER) return NEVER;
+    if (until === NEVER || until === FOREVER) return until;
     if (!until) return slot;
     slot = nextSlot(new Date(until.getTime() - 1), s);
   }
   return slot;
 }
 
-const SNOOZE_AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})?$/;
-
-// When a snooze chosen at `now` ends: `<n>m`, `<n>h`, `<n>d` or `<n>w`; `tonight`, the next start of the evening
-// window (the second-to-last, or the second of two); `morning`, the next start of the first window; `monday`, the
-// next Monday at the first window's start; or an ISO date and time, the host's time when it has no offset.
-// Durations are elapsed time: a day is 24 hours, including across daylight saving changes.
-// null for any other choice, an end not after `now` or more than 30 days on, or `tonight` with one window.
+// When a snooze chosen at `now` ends: a duration.mjs durationEnd choice; `tonight`, the next start of the evening
+// window (the second-to-last, or the second of two); `morning`, the next start of the first window; or `monday`, the
+// next Monday at the first window's start. null for any other choice, or `tonight` with one window.
 export function snoozeEnd(now, choice, s) {
   const c = String(choice);
   const [first, n] = [s.windows[0].from, s.windows.length];
@@ -239,19 +239,14 @@ export function snoozeEnd(now, choice, s) {
   if (c === 'morning') end = nextAt(now, first);
   else if (c === 'tonight') end = n > 1 ? nextAt(now, s.windows[Math.max(1, n - 2)].from) : null;
   else if (c === 'monday') { end = atOn(now, first, (8 - now.getDay()) % 7); if (end <= now) end = atOn(end, first, 7); }
-  else if (SNOOZE_AT_RE.test(c)) end = new Date(c);
-  else {
-    const m = /^([1-9]\d{0,3})([mhdw])$/.exec(c);
-    if (!m) return null;
-    const k = Number(m[1]);
-    end = new Date(now.getTime() + k * ({ m: 60_000, h: 3_600_000, d: 86_400_000, w: 7 * 86_400_000 })[m[2]]);
-  }
-  return end && end > now && end - now <= MAX_SNOOZE_MS ? end : null;
+  else return durationEnd(now, c);
+  return inRange(now, end) ? end : null;
 }
 
 // A hold (see hold) as words: "snoozed until 3:00pm", "held for the weekend until 8:00am Mon Oct 19".
 export function holdLine(h, now = new Date()) {
   if (h.why === 'off') return 'notifications are off';
+  if (h.until === FOREVER) return 'snoozed until you end it';
   const until = clock(h.until, now);
   return h.why === 'snoozed' ? `snoozed until ${until}` : h.why === 'weekend' ? `held for the weekend until ${until}` : `held overnight until ${until}`;
 }
@@ -284,6 +279,9 @@ export function notifications(items) {
   return items.filter((i, k) => !i.tag || newest.get(i.tag) === k)
     .map((i) => ({ id: i.id, title: i.title, body: i.body || '', url: i.url || '/', tag: i.tag || undefined }));
 }
+
+// When queued pushes go, a flushAt result, as words: a clock time, or "once the snooze ends" while snoozed until ended.
+export const sendWords = (at, now = new Date()) => (at === FOREVER ? 'once the snooze ends' : clock(at, now));
 
 // "6:30pm", or "8:00am tomorrow" when `d` falls on a later day than `now`.
 export function clock(d, now = new Date()) {

@@ -51,7 +51,7 @@ The levels back climbs in the app shell: a board, its Waiting on you, then a sep
 _Avoid_: nav stack, breadcrumbs
 
 **Hub page**:
-The hub's status page, `/_hub/`, which the sidebar's Hub row opens: a pause or Keep going banner at the **pause line**, a banner while pushes are held or snoozed, with End snooze on a snooze, then **usage readings**, then the **pending prompts** of sessions that own no board, **Health**, **Integrations**, then **Boards** and **Pages** with each site's health and each board's hub links and watcher, each session's remembered Always allow rules read-only under its board, polling status, then the **hub settings** summary rows ([0050](docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md), [0060](docs/adr/0060-background-sessions-prompts-come-to-the-phone.md)).
+The hub's status page, `/_hub/`, which the sidebar's Hub row opens: a pause or Keep going banner at the **pause line**, a banner while pushes are held or snoozed, with End snooze on a snooze, then **usage readings**, then the **pending prompts** of sessions that own no board, **Health**, which says Keeping awake and until when while Keep awake is on, **Integrations**, then **Boards** and **Pages** with each site's health and each board's hub links and watcher, each session's remembered Always allow rules read-only under its board, polling status, then the **hub settings** summary rows ([0050](docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md), [0060](docs/adr/0060-background-sessions-prompts-come-to-the-phone.md)).
 _Avoid_: dashboard, console, hub home
 
 **Integration readiness**:
@@ -117,7 +117,7 @@ The hub's one schedule, a list of windows with their minutes: on each slot it ch
 _Avoid_: push schedule, send-at-once hours, cron
 
 **Hub settings**:
-The five summary rows below the **hub page**’s health and status: Notifications, Polling, Linear, Rules for every board and Closed boards. Each opens its controls in a centred modal with its own scroll area, including Polling’s schedule editor. Old Hub Settings links open the matching modal over Hub ([0075](docs/adr/0075-hub-settings-open-as-modals.md)).
+The six summary rows below the **hub page**’s health and status: Notifications, Polling, Keep awake, Linear, Rules for every board and Closed boards. Each opens its controls in a centred modal with its own scroll area, including Polling’s schedule editor. Snooze and Keep awake share one duration picker: 1h, 3h, 6h, 1d, Forever and Custom. Keep awake has the hub run `caffeinate -ims` until its end, and is disabled on hosts other than macOS ([0112](docs/adr/0112-snooze-and-keep-awake-share-one-duration-picker.md)). Old Hub Settings links open the matching modal over Hub ([0075](docs/adr/0075-hub-settings-open-as-modals.md)).
 _Avoid_: Hub Settings page, preferences, hub config
 
 **Board Settings**:
@@ -404,7 +404,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `view-questions.js` | Waiting on you as a view: a topic's questions, their takes framed with `?take=` in a fitting grid or a chooser above one full-width frame, which a choice switches in place through the frame's `PrototypeSwitcher.current`, the eye left of Send that asks for a prototype of a question, and one Send, which stays while the topic has a question open and otherwise opens the next topic with one, or goes back to the board |
 | `view-notes.js` | One item's notes, or with `?wave=` a lineup's goal, order and note, as a view, from `GET /api/notes`; the server redirects `plan.html` to `notes.html` |
 | `view-hub.js` | The **hub page** as a view, from `/_hub/api/hub`, refreshed every 30 seconds while it shows; the Usage card, whose Codex share posts `/_hub/settings/codex` and pause line posts `/_hub/settings/pause-at`, with Keep going and Stop banners posting `/_hub/settings/keep-going`, pending prompts of sessions with no board, Send now, then `view-hub-settings.js` below its status |
-| `view-hub-settings.js` | Summary rows opening **hub settings** modals over the hub page, from `/_hub/api/settings`: Notifications with inline Snooze chips and a native Custom picker, Polling, Linear (the masked key, its workspace and Remove), Rules for every board and Closed boards with Reopen |
+| `view-hub-settings.js` | Summary rows opening **hub settings** modals over the hub page, from `/_hub/api/settings`: Notifications with Snooze and Keep awake with their one duration picker (`durationPicker`: chips and a native Custom picker), Polling, Linear (the masked key, its workspace and Remove), Rules for every board and Closed boards with Reopen |
 | `view-polling.js` | The editor in Hub’s Polling modal, from `/_hub/api/polling`: the day bar, whose taps pick a window without asking the hub, each window's edits, the overnight hold, the daily wakes and Send now |
 | `ui-hub.js` | `HubUI`, the hub views' pure renderers: rows, tiles, the flash, the Now row, this device's row, pause banners and the Usage card with the pause line stepper and ticks |
 | `hub-kit.js` | `HubKit`, what the hub views share: `live` (load, the header's time and ↻, the 30-second refresh), `forms` (posting a hub form for JSON, and saving a toggle or time on change) and `device` (this device's push subscription) |

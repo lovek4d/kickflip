@@ -3,7 +3,8 @@
 // these take; integration readiness rows and their words come from readiness.mjs; board/public/view-hub.js, view-hub-settings.js and view-polling.js only lay the words out.
 // st is a push.mjs queueStatus(now) result throughout, and poll the hub's poll state {running, nextAt, last}, last
 // being the last github.mjs checkGitHub result.
-import { clock, windowAt, holdLine, checksIn, checksADay, holdsOvernight, daySegments, splitPoint, snoozeEnd } from './schedule.mjs';
+import { clock, windowAt, holdLine, checksIn, checksADay, holdsOvernight, daySegments, splitPoint, sendWords } from './schedule.mjs';
+import { CHOICES as DURATIONS, FOREVER, durationEnd, endOf } from './duration.mjs';
 import { siteIcon } from './icons.mjs';
 import { codexStatus } from '../shared/codex.mjs';
 
@@ -17,7 +18,7 @@ const pct = (m) => `${((m / 1440) * 100).toFixed(3)}%`;
 export const nowLine = (st, now) => `checks every ${st.window.every_minutes} min until ${clock(st.window.endsAt, now)}${st.hold ? `; ${holdLine(st.hold, now)}` : ''}`;
 export const pollingSummary = (s) => [`${plural(s.windows.length, 'window')}, ${checksADay(s)} checks a day`, holdsOvernight(s) && 'held overnight',
   s.wakes.length ? `wakes ${s.wakes.map(timeOfDay).join(', ')}` : 'no wakes'].filter(Boolean).join(' · ');
-const queuedLine = (st, now) => (st.count ? `${st.count} push${st.count === 1 ? '' : 'es'} queued; next send ${clock(st.nextFlushAt, now)}.` : 'No pushes queued.');
+const queuedLine = (st, now) => (st.count ? `${st.count} push${st.count === 1 ? '' : 'es'} queued; next send ${sendWords(st.nextFlushAt, now)}.` : 'No pushes queued.');
 
 export function pollLine({ running = false, nextAt, last = null }, now) {
   if (running) return 'Checking GitHub now';
@@ -67,10 +68,11 @@ const codexView = (share, status) => ({
 // sidebar: the /_hub/sidebar.json data, whose hub detail already says when the hub runs older code (home.mjs
 // hubHealth); rows: hub.mjs status() rows; links: Map of route to linksOf; code: {running, onDisk}, the hub's code hashes
 // (boards.mjs); host: the address the page was loaded from; rules: the hub rules; codexShare: push.mjs readCodexShare(codex);
-// codex: a shared/codex.mjs codexStatus. Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js).
+// codex: a shared/codex.mjs codexStatus; awake: awake.mjs awakeUntil, which the Health row's Keeping awake shows.
+// Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js).
 // hold, for the page's banner, is null unless pushes are held or snoozed; its text matches the sidebar moon's tooltip,
 // and end is true when End can lift it, which only a snooze allows.
-export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code = {}, host = '', rules = [], remembered = new Map(), integrations = [], codexShare = 'off', codex = codexStatus({ installed: false }) }) {
+export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code = {}, host = '', rules = [], remembered = new Map(), integrations = [], codexShare = 'off', codex = codexStatus({ installed: false }), awake = null }) {
   const boards = new Set(sidebar.sites.filter((x) => x.board).map((x) => x.route));
   const codeLine = code.running && code.running === code.onDisk ? ` · runs the code in its files (${code.onDisk})` : '';
   const site = (r) => ({ route: r.route, title: r.title, icon: siteIcon(r.route, r), href: `/${encodeURIComponent(r.route)}/`, ...siteHealth(r, links.get(r.route)), remembered: remembered.get(r.route) || [] });
@@ -78,6 +80,7 @@ export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code 
     .filter(([, list]) => list.length).map(([label, list]) => ({ label, sites: list.map(site) }));
   return {
     hub: { tone: sidebar.hub.tone, word: sidebar.hub.word, detail: `${sidebar.hub.detail}${codeLine}` },
+    awake: awake && untilWords(awake, now, AWAKE_FOREVER),
     groups,
     integrations,
     usage: sidebar.usage,
@@ -94,26 +97,32 @@ export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code 
   };
 }
 
-// Each value is a schedule.mjs snoozeEnd choice.
-const SNOOZE_CHOICES = [['3h', '3h'], ['6h', '6h'], ['1d', '1d'], ['3d', '3d'], ['monday', 'Monday']];
 export const SNOOZE_REFUSED = 'That snooze ends in the past or more than 30 days on. Pick another time.';
+export const AWAKE_REFUSED = 'That keep awake ends in the past or more than 30 days on. Pick another time.';
+const SNOOZE_FOREVER = 'until you end it';
+const AWAKE_FOREVER = 'until you turn it off';
 
-const snoozedUntil = (n, now) => (n.on && n.snoozed_until && new Date(n.snoozed_until) > now ? new Date(n.snoozed_until) : null);
+const untilWords = (end, now, forever) => (end === FOREVER ? forever : `until ${clock(end, now)}`);
+// The shared duration picker's chips (duration.mjs), each with when it would end if chosen at `now`.
+const durationChoices = (now, forever) => DURATIONS.map(([value, label]) => ({ value, label, until: untilWords(durationEnd(now, value), now, forever) }));
+const snoozedUntil = (n, now) => (n.on ? endOf(n.snoozed_until, now) : null);
 
 // The hub page's hub settings: the on/off, snooze and weekend controls (docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md),
 // the polling summary, hub rules and the Linear key, of which only whether it is set and its workspace are shown
-// (linear.mjs linearStatus; docs/adr/0088-kickflip-reaches-linear-with-a-key-on-the-mac.md). The snooze chips
-// (docs/adr/0100-snooze-is-six-chips-in-a-three-column-grid.md) are null while off or snoozed. route is push.mjs pushRoute():
-// where an action push goes now (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md).
-export function settingsView({ now, st, rules = [], route = { atMac: false, desktops: 0 }, linear = { set: false } }) {
+// (linear.mjs linearStatus; docs/adr/0088-kickflip-reaches-linear-with-a-key-on-the-mac.md), and Keep awake. Snooze and
+// Keep awake share one duration picker (docs/adr/0112-snooze-and-keep-awake-share-one-duration-picker.md), whose
+// choices are null while that setting is on, and Snooze's while notifications are off. route is push.mjs pushRoute():
+// where an action push goes now (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md). awake is
+// {until: awake.mjs awakeUntil, unsupported: awake.mjs awakeUnsupported}.
+export function settingsView({ now, st, rules = [], route = { atMac: false, desktops: 0 }, linear = { set: false }, awake = { until: null, unsupported: null } }) {
   const s = st.settings;
   const n = s.notifications;
   const [first, last] = [s.windows[0], s.windows.at(-1)];
   const until = snoozedUntil(n, now);
   const queued = st.count ? ` The ${st.count} queued push${st.count === 1 ? ' is' : 'es are'} dropped now.` : '';
-  const choices = SNOOZE_CHOICES.map(([value, label]) => ({ value, label, until: `until ${clock(snoozeEnd(now, value, s), now)}` }));
+  const snoozedTitle = until && `Snoozed ${untilWords(until, now, SNOOZE_FOREVER)}`;
   return {
-    snoozed: until ? { title: `Snoozed until ${clock(until, now)}` } : null,
+    snoozed: until ? { title: snoozedTitle, summary: until === FOREVER ? 'Snoozed · forever' : snoozedTitle } : null,
     device: nowLine(st, now),
     on: {
       on: n.on,
@@ -123,7 +132,13 @@ export function settingsView({ now, st, rules = [], route = { atMac: false, desk
     presence: !n.on ? null : !route.atMac ? { title: 'Away from the host', sub: 'Pushes go to every device. At the host means unlocked and used in the last 3 minutes.' }
       : route.desktops ? { title: 'At the host', sub: 'Pushes go to the host only. Prompts, faults and urgent pushes still reach the phone.' }
       : { title: 'At the host', sub: 'No notifications on the host, so pushes still go to the phone.' },
-    snooze: n.on && !until ? { choices } : null,
+    snooze: n.on && !until ? { choices: durationChoices(now, SNOOZE_FOREVER) } : null,
+    awake: {
+      unsupported: awake.unsupported,
+      on: awake.until ? { title: `Keeping awake ${untilWords(awake.until, now, AWAKE_FOREVER)}` } : null,
+      choices: awake.unsupported || awake.until ? null : durationChoices(now, AWAKE_FOREVER),
+      summary: awake.unsupported || (!awake.until ? 'Off' : awake.until === FOREVER ? 'On · forever' : `On until ${clock(awake.until, now)}`),
+    },
     weekends: { on: n.weekends_off, sub: `Pushes wait from Friday ${timeOfDay(last.from)} until Monday ${timeOfDay(first.from)}. Urgent ones still go.` },
     polling: pollingSummary(s),
     rules,

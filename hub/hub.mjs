@@ -59,6 +59,9 @@
 //                     setNotifications choice | off> → /_hub/api/settings's JSON, or 400 {error} when refused
 //                     (303 to ?refused=snooze). Custom posts a UTC ISO date-time; snoozeEnd refuses an end not
 //                     after now or more than 30 days on.
+//   /_hub/settings/keep-awake POST keep_awake=<duration.mjs durationEnd choice | off> → /_hub/api/settings's JSON, or
+//                     400 {error} for an end not after now or more than 30 days on (303 to ?refused=keep-awake), or
+//                     409 {error} off macOS (awake.mjs)
 //   /_hub/settings/codex POST value=auto|always|off → /_hub/api/hub's JSON, or 400 {error}, or 409 {error} with the
 //                     fix while Codex isn't installed or logged in, checked afresh
 //   /_hub/settings/pause-at POST value=50..100 in steps of 5 → /_hub/api/hub's JSON, or 400 {error}; 100 is Off
@@ -109,6 +112,7 @@
 // while that session wasn't running, and pushes once when that doesn't bring it back (sessions.mjs checkSessions;
 // docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md).
 // Every 15 seconds it drops the pending prompts whose hook has gone (prompts.mjs expired).
+// It runs caffeinate while Keep awake is on, and starts it again as it starts while time is left (awake.mjs).
 // On paused → normal it sends every board usage-resumed {window}, keeping usage-gate-state.json across restarts.
 // Each served card and main has its own Tailscale HTTPS port, through a loopback relay (try.mjs).
 // Every 15 seconds try.mjs refreshes card heads, auto-builds cards and rebuilds main; polls fetch non-hub branches.
@@ -128,7 +132,8 @@ import { routeRecord } from './routes.mjs';
 import { publicKey, addSubscription, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, deliver, pushRoute } from './push.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
 import { nextSlot, windowAt, hold, heldUntil, holdLine, editPolling } from './schedule.mjs';
-import { capital, hubView, settingsView, pollingView, flushView, SNOOZE_REFUSED } from './views.mjs';
+import { capital, hubView, settingsView, pollingView, flushView, SNOOZE_REFUSED, AWAKE_REFUSED } from './views.mjs';
+import { caffeinate, setKeepAwake, awakeUntil, awakeUnsupported } from './awake.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
 import { listBoards, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, runningHubCode, migrateHubFlag, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON } from './boards.mjs';
 import { liveSessions } from './live.mjs';
@@ -171,6 +176,8 @@ try { const route = await migrateHubFlag(); if (route) log(`manifest: flagged /$
 try { const routes = await migrateBoardRepos(); if (routes.length) log(`manifest: recorded GitHub repos for ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('board repo migration failed:', e.message); }
 const repos = repoService();
 const readUsage = usageReader();
+const awake = caffeinate({ log });
+awake.apply();
 
 // ---------- manifest ----------
 let manifest = { version: 1, sites: {} };
@@ -413,6 +420,7 @@ setInterval(() => {
   checkUsageGate().catch((e) => log('usage gate failed:', e.message));
   if (!polls.running && Date.now() >= nextPollAt().getTime()) runPoll().catch((e) => log('poll failed:', e.message));
   runWakes();
+  awake.apply();
   prunePrompts().catch((e) => log('prompt expiry failed:', e.message)).finally(runSessionCheck);
 }, 15_000);
 
@@ -421,6 +429,7 @@ function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   clearInterval(reconciling);
+  awake.stop();
   log('hub stopping; stopping sites');
   for (const p of procs.values()) if (p.child) p.stopping = true;
   for (const c of children) signal(c, 'SIGTERM');
@@ -620,14 +629,18 @@ async function hubData(req) {
   return {
     ...hubView({
       now, st: queueStatus(now), poll: pollState(), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
-      code, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), codex: readCodex(),
+      code, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), codex: readCodex(), awake: awakeUntil(now),
       remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])),
     }),
     prompts: pendingFor(null).map(shown),
     remembered: rememberedFor(null),
   };
 }
-const settingsData = async () => { const now = new Date(); return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), route: await pushRoute(), linear: linearStatus() }), closed: closedBoards() }; };
+const settingsData = async () => {
+  const now = new Date();
+  const awake = { until: awakeUntil(now), unsupported: awakeUnsupported() };
+  return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), route: await pushRoute(), linear: linearStatus(), awake }), closed: closedBoards() };
+};
 const pollingData = (select) => { const now = new Date(); return pollingView({ now, st: queueStatus(now), poll: pollState(), select }); };
 
 const redirect = (res, location) => { res.writeHead(303, { location, 'cache-control': 'no-store' }); res.end(); };
@@ -770,6 +783,16 @@ async function hubRoute(req, res, url) {
     }
     if (r.dropped) log(`notifications off: dropped ${r.dropped} queued push${r.dropped === 1 ? '' : 'es'}`);
     return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#notifications');
+  }
+  if (p === '/_hub/settings/keep-awake' && req.method === 'POST') {
+    const f = new URLSearchParams(await readBody(req));
+    try { setKeepAwake(f.get('keep_awake')); } catch (e) {
+      if (e.status === 409) return json ? sendJSON(409, { error: e.message }) : send(409, 'text/plain; charset=utf-8', e.message);
+      if (e.status !== 400) throw e;
+      return json ? sendJSON(400, { error: AWAKE_REFUSED }) : redirect(res, '/_hub/?refused=keep-awake#keep-awake');
+    }
+    awake.apply();
+    return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#keep-awake');
   }
   if (p === '/_hub/settings/codex' && req.method === 'POST') {
     const f = new URLSearchParams(await readBody(req));

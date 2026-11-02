@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { validate, pollingOf, flushAt, hold, windowAt, notifications, snoozeEnd } from './schedule.mjs';
+import { storedEnd } from './duration.mjs';
 import { presence } from './presence.mjs';
 import { CODEX_SHARE_VALUES, codexStatus, effectiveCodexShare } from '../shared/codex.mjs';
 
@@ -204,8 +205,8 @@ export async function setNotifications(change, now = new Date()) {
   if ('weekends_off' in change) next.weekends_off = change.weekends_off;
   if ('snooze' in change) {
     const end = change.snooze === 'off' ? null : snoozeEnd(now, change.snooze, s);
-    if (end === null && change.snooze !== 'off') throw Object.assign(new Error('A snooze must end after now and within 30 days: <n>m, <n>h, <n>d, <n>w, tonight, morning, monday or a date and time; or off.'), { status: 400 });
-    next.snoozed_until = end && end.toISOString();
+    if (end === null && change.snooze !== 'off') throw Object.assign(new Error('A snooze must end after now and within 30 days: <n>m, <n>h, <n>d, <n>w, tonight, morning, monday or a date and time; or forever or off.'), { status: 400 });
+    next.snoozed_until = end && storedEnd(end);
   }
   const { notifications: saved } = saveSettings({ ...s, notifications: next });
   const dropped = saved.on ? 0 : await withQueueLock(() => {

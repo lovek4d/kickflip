@@ -98,7 +98,7 @@
 //   kickflip polling
 //               prints {every, until, next, held, held_until, held_why, notifications}: the current polling
 //               window's minutes, when it ends, the next check, whether pushes are held now, until when
-//               ("never" while off) and why (off, snoozed, weekend or overnight), and the notifications settings
+//               ("never" while off, "forever" while snoozed until ended) and why (off, snoozed, weekend or overnight), and the notifications settings
 //   kickflip notifications [on | off | snooze <length> | unsnooze | weekends on|off]
 //               sets the Hub page's Notifications controls and prints them; off drops the queued pushes.
 //               A snooze length is a hub/schedule.mjs snoozeEnd choice. Without a change it only prints them
@@ -567,7 +567,7 @@ const commands = {
     if (refused) fail(refused, 2);
     if (!args.title) fail('push needs --title', 2);
     if (args.url && !args.url.startsWith('/')) fail('--url is a path on the hub, such as /<route>/page.html', 2);
-    const { clock, holdLine } = await import(path.join(SKILL, 'hub', 'schedule.mjs'));
+    const { sendWords, holdLine } = await import(path.join(SKILL, 'hub', 'schedule.mjs'));
     if (args.now && args.urgent) fail('pass --now or --urgent, not both', 2);
     const r = await deliver({ title: args.title, body: args.body || '', url: args.url || '/', tag: args.tag }, { kind: args.kind, urgent: !!args.urgent, immediate: !!args.now });
     if (r.noDevice) fail('no device has turned on notifications; open Hub → Notifications (/_hub/#notifications) in the Home Screen app and tap Turn on', 3);
@@ -575,7 +575,7 @@ const commands = {
     if (r.queued) {
       const { count, replaced, nextFlushAt, hold, sendFailed } = r.queued;
       const why = !args.now ? '' : hold ? `${holdLine(hold)}; ` : sendFailed ? 'no device took it now; ' : '';
-      out(`queued (${why}${count} in queue${replaced ? '; replaced the queued push with this tag' : ''}); next send ${clock(nextFlushAt)} (${nextFlushAt.toISOString()})`);
+      out(`queued (${why}${count} in queue${replaced ? '; replaced the queued push with this tag' : ''}); next send ${sendWords(nextFlushAt)}${nextFlushAt instanceof Date ? ` (${nextFlushAt.toISOString()})` : ''}`);
       if (!(await hubStatus())) out('warning: the hub is not running, so the queue goes out only once it runs');
       return;
     }
@@ -601,7 +601,7 @@ const commands = {
     const change = what === undefined ? null
       : what === 'on' || what === 'off' ? { on: what === 'on' }
       : what === 'weekends' ? { weekends_off: onOff(value, 'weekends') }
-      : what === 'snooze' ? { snooze: value || fail('snooze takes a length: <n>m, <n>h, <n>d, <n>w, tonight, morning, monday or a date and time', 2) }
+      : what === 'snooze' ? { snooze: value || fail('snooze takes a length: <n>m, <n>h, <n>d, <n>w, tonight, morning, monday, forever or a date and time', 2) }
       : what === 'unsnooze' ? { snooze: 'off' }
       : fail('notifications takes on, off, snooze <length>, unsnooze, or weekends on|off', 2);
     if (!change) return out(readSettings().notifications);
