@@ -94,7 +94,7 @@ test("the hub page's Codex share says what each choice means while Codex is usab
   const sidebar = { sites: [], hub: {}, notifications: {}, total: 0, usage: { claude: null, codex: null } };
   const view = (extra = {}) => hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar, rows: [], ...extra }).codex;
   const unusable = (v) => [v.usable, v.tag, v.share, v.choices.find((c) => c.on).value, v.description, v.fix, v.note];
-  assert.deepEqual(unusable(view()), [false, 'Not installed', 'off', 'off', "Codex isn't installed on the host.", 'brew install --cask codex', null]);
+  assert.deepEqual(unusable(view()), [false, 'Not installed', 'off', 'off', "Codex isn't installed on the host.", process.platform === 'darwin' ? 'brew install --cask codex' : 'npm i -g @openai/codex', null]);
   assert.deepEqual(unusable(view({ codex: NOT_INSTALLED })), unusable(view()));
   assert.deepEqual(unusable(view({ codex: LOGGED_OUT })), [false, 'Not logged in', 'off', 'off', "Codex isn't logged in on the host.", 'codex login', null]);
   const meanings = {
@@ -408,7 +408,7 @@ test("the hub page's Usage card opens Codex's block with Codex share, bars under
   };
 
   for (const [status, tag, words, fix] of [
-    [NOT_INSTALLED, 'Not installed', "Codex isn't installed on the host.", 'brew install --cask codex'],
+    [NOT_INSTALLED, 'Not installed', "Codex isn't installed on the host.", process.platform === 'darwin' ? 'brew install --cask codex' : 'npm i -g @openai/codex'],
     [LOGGED_OUT, 'Not logged in', "Codex isn't logged in on the host.", 'codex login'],
   ]) {
     live.paint(hub('off', status));

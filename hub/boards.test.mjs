@@ -86,7 +86,7 @@ test('linksOf names each hub link that reaches a board and each that does not', 
   assert.equal(hubLink({ running: 'h1', onDisk: 'h1' }).ok, true);
   assert.equal(hubLink({ running: undefined, onDisk: 'h1' }).ok, false);
   assert.deepEqual(hubLink({ running: 'h0', onDisk: 'h1' }), { link: 'hub', ok: false,
-    detail: 'The hub runs older code than its files; restart it with launchctl kickstart -k gui/$(id -u)/local.claude.kickflip-hub' });
+    detail: 'The hub runs older code than its files; restart it with ' + (process.platform === 'darwin' ? 'launchctl kickstart -k gui/$(id -u)/local.claude.kickflip-hub' : 'systemctl --user restart kickflip-hub.service') });
   const slack = linksOf(orch, { ...ok, topics: { 'w1/A1': { review_link_ts: { Ann: '1.1' } } } })[4];
   assert.deepEqual([slack.ok, slack.detail], [false, '#11 has no link for Bea.']);
   assert.equal(linksOf(orch, { ...ok, topics: {}, github: { ...github, prs: { 'o/r#11': { at: 'T', state: 'OPEN', isDraft: true } } } })[4].ok, true);

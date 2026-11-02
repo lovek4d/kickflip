@@ -382,25 +382,29 @@ test('the login item replaces the old label, and puts the old one back when the 
   assert.deepEqual(calls, ['bootout gui/501/local.claude.kickflip-hub', `bootstrap gui/501 ${file}`]);
 });
 
-test('the install command moves an old-named Mac before launchd, and --dry-run changes nothing', () => {
+test('the install command moves an old-named HOME before the hub service, and --dry-run changes nothing', () => {
   const state = oldShape(home, cloneRoot());
   const agents = path.join(home, 'Library', 'LaunchAgents');
   fs.mkdirSync(agents, { recursive: true });
   fs.writeFileSync(path.join(agents, 'local.claude.web-ts-hub.plist'), 'old plist');
+  const serviceFile = hubService({ home }).file;
   const run = (...flags) => spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'install', ...flags], {
     env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
   });
   const dry = run('--dry-run');
   assert.equal(dry.status, 0, dry.stderr);
   assert.match(dry.stdout, /^would move .*\.claude\/web-ts -> .*\.claude\/kickflip/m);
-  assert.match(dry.stdout, /^would stop gui\/\d+\/local\.claude\.web-ts-hub/m);
+  if (process.platform === 'darwin') assert.match(dry.stdout, /^would stop gui\/\d+\/local\.claude\.web-ts-hub/m);
+  else assert.ok(dry.stdout.includes(`would write ${serviceFile}, enable and start kickflip-hub.service`));
+  assert.equal(fs.existsSync(serviceFile), false);
   assert.equal(fs.lstatSync(state).isDirectory(), true);
   assert.deepEqual(fs.readdirSync(skills).sort(), ['join-web-ts', 'web-ts-hooks']);
   assert.deepEqual(fs.readdirSync(agents), ['local.claude.web-ts-hub.plist']);
 
   const result = run();
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /spawnSync launchctl ENOENT; could not restart gui\/\d+\/local\.claude\.web-ts-hub/);
+  assert.match(result.stderr, process.platform === 'darwin' ? /spawnSync launchctl ENOENT; could not restart gui\/\d+\/local\.claude\.web-ts-hub/ : /systemctl --user daemon-reload: spawnSync systemctl ENOENT/);
+  assert.equal(fs.existsSync(serviceFile), process.platform !== 'darwin');
   assert.match(result.stdout, /^moved .*\.claude\/web-ts -> .*\.claude\/kickflip/m);
   assertMigrated(home, cloneRoot());
   assert.deepEqual(fs.readdirSync(agents), ['local.claude.web-ts-hub.plist']);
@@ -455,7 +459,7 @@ test('the install command refuses conflicting links before touching launchd or h
   assert.equal(fs.existsSync(path.join(home, '.claude', 'kickflip')), false);
 });
 
-test('the install command configures links and settings before launchd and reports reruns', () => {
+test('the install command configures links and settings before the hub service and reports reruns', () => {
   fs.mkdirSync(path.dirname(statusline()), { recursive: true });
   fs.symlinkSync(path.join(home, 'old-dotfiles-statusline'), statusline());
   writeSettings({ keep: 'untouched', hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'python3 ~/.claude/hooks/no-paths.py' }] }] } });
@@ -464,7 +468,7 @@ test('the install command configures links and settings before launchd and repor
   });
   const first = run();
   assert.equal(first.status, 1);
-  assert.match(first.stderr, /spawnSync launchctl ENOENT/);
+  assert.match(first.stderr, process.platform === 'darwin' ? /spawnSync launchctl ENOENT/ : /systemctl --user daemon-reload: spawnSync systemctl ENOENT/);
   assert.match(first.stdout, /linked .*skills\/kickflip/);
   assert.match(first.stdout, /linked .*skills\/kickflip-hooks/);
   assert.match(first.stdout, /linked .*statusline.sh -> .*skills\/kickflip\/bin\/statusline.mjs/);
@@ -517,7 +521,7 @@ function healthyDoctor() {
   const env = { PATH: path.join(home, 'doctor-bin'), HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false' };
   fs.mkdirSync(env.PATH);
   fs.writeFileSync(path.join(env.PATH, 'codex'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
-  const options = { home, cloneRoot: root, port, uid: 501, env,
+  const options = { home, cloneRoot: root, port, uid: 501, env, platform: 'darwin',
     run: (command, argv, passed) => {
       assert.equal(passed.env, env);
       const key = [command, ...argv].join(' ');
@@ -758,7 +762,7 @@ test('the shared install steps run migration, links, settings, launchd and Tails
   const waits = [];
   const logs = [];
   const port = 19460;
-  await runInstall({ home, cloneRoot: root, port, uid: 501, wait: async (ms) => waits.push(ms), log: (line) => logs.push(line),
+  await runInstall({ home, cloneRoot: root, port, uid: 501, platform: 'darwin', wait: async (ms) => waits.push(ms), log: (line) => logs.push(line),
     fetch: async (url) => {
       assert.equal(url, `http://127.0.0.1:${port}/_hub/status.json`);
       return { ok: true, json: async () => ({ sites: [] }) };

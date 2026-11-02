@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { installLinks, installClaudeSettings } from '../bin/install.mjs';
+import { hubService } from '../shared/service.mjs';
 
 const SKILL = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sessions-')));
@@ -94,7 +95,7 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
   if (installed) {
     installLinks({ home: scratch, cloneRoot: SKILL });
     installClaudeSettings({ home: scratch });
-    write(path.join(scratch, 'Library', 'LaunchAgents', 'local.claude.kickflip-hub.plist'), 'plist');
+    write(hubService({ home: scratch }).file, 'service');
   }
   if (healthy) {
     write(path.join(scratch, '.codex', 'auth.json'), '{}');
@@ -107,10 +108,12 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
     import { syncBuiltinESMExports } from 'node:module';
     cp.spawnSync = (command, argv, options) => {
       fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify([command, ...argv]) + '\\n');
-      if (!['git', 'node', 'gh', 'tailscale', 'launchctl'].includes(command)) throw new Error('unexpected command: ' + command);
+      if (!['git', 'node', 'gh', 'tailscale', ...(process.platform === 'darwin' ? ['launchctl'] : ['systemctl', 'loginctl'])].includes(command)) throw new Error('unexpected command: ' + command);
       if (!${healthy}) return { status: 1, stdout: '', stderr: 'unavailable' };
       let stdout = command + ' version';
       if (command === 'launchctl') stdout = 'state = running';
+      if (command === 'systemctl' && argv.join(' ') === '--user is-active kickflip-hub.service') stdout = 'active';
+      if (command === 'loginctl' && argv.join(' ') === 'show-user ' + process.getuid() + ' --property=Linger') stdout = 'Linger=yes';
       if (command === 'tailscale' && argv[0] === 'status') stdout = JSON.stringify({ BackendState: 'Running' });
       if (command === 'tailscale' && argv[0] === 'serve' && argv[1] === 'status') stdout = JSON.stringify({ Web: { host: { Handlers: { '/': { Proxy: 'http://127.0.0.1:${port}' } } } } });
       return { status: 0, stdout, stderr: '' };
@@ -128,14 +131,15 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
   };
 }
 
-test('doctor CLI reports all-ok as text and JSON with exit 0; status is removed from commands and help', async () => {
+test('doctor CLI reports healthy setup as text and JSON with exit 0; status is removed from commands and help', async () => {
   const fixture = doctorCLI('doctor-ok', { healthy: true, installed: true });
   const report = await fixture.run('doctor');
   assert.equal(report.status, 0, report.stderr);
-  assert.ok(report.stdout.trim().split('\n').every((line) => line.startsWith('ok ')));
+  assert.ok(report.stdout.trim().split('\n').every((line) => process.platform === 'darwin' ? line.startsWith('ok ') : /^(?:ok |note +macOS-only parts: )/.test(line)));
   const result = json(await fixture.run('doctor', '--json'));
   assert.ok(result.items.length > 0);
-  assert.ok(result.items.every((item) => item.state === 'ok'));
+  assert.ok(result.items.every((item) => item.state === (process.platform !== 'darwin' && item.item === 'macOS-only parts' ? 'note' : 'ok')));
+  if (process.platform === 'linux') assert.equal(result.items.find((item) => item.item === 'macOS-only parts').state, 'note');
   assert.equal(fixture.calls().filter((call) => call[0] === 'gh' && call[1] === 'auth' && call[2] === 'status').length, 2);
   const removed = await fixture.run('status');
   assert.equal(removed.status, 2);
@@ -164,9 +168,11 @@ test('doctor --fix and install CLI run the same setup once and finish with a JSO
     const fixture = doctorCLI(name, { healthy: true });
     const result = await fixture.run(...args, '--json');
     assert.equal(result.status, 0, result.stderr);
-    assert.ok(JSON.parse(result.stdout).items.every((item) => item.state === 'ok'));
+    const { items } = JSON.parse(result.stdout);
+    assert.ok(items.every((item) => item.state === (process.platform !== 'darwin' && item.item === 'macOS-only parts' ? 'note' : 'ok')));
+    if (process.platform === 'linux') assert.equal(items.find((item) => item.item === 'macOS-only parts').state, 'note');
     const calls = fixture.calls();
-    assert.equal(calls.filter(([command, sub]) => command === 'launchctl' && sub === 'bootstrap').length, 1);
+    assert.equal(calls.filter((call) => process.platform === 'darwin' ? call[0] === 'launchctl' && call[1] === 'bootstrap' : call.join(' ') === 'systemctl --user restart kickflip-hub.service').length, 1);
     assert.equal(calls.filter(([command, sub, flag]) => command === 'tailscale' && sub === 'serve' && flag === '--bg').length, 1);
     assert.ok(fs.existsSync(path.join(fixture.scratch, '.claude', 'settings.json')));
   }

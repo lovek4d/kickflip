@@ -115,7 +115,7 @@ test('codex-share prints the setting in effect, refuses a change while Codex is 
     assert.match(help.stdout, /off: no Codex\. While Codex isn't installed or logged in, the setting reads off and a change is refused\./);
     assert.equal(cli().stdout, 'off\n');
     const notInstalled = cli('always');
-    assert.deepEqual([notInstalled.status, notInstalled.stdout, notInstalled.stderr], [1, '', "kickflip: Codex isn't installed on the host. Run brew install --cask codex, then choose again.\n"]);
+    assert.deepEqual([notInstalled.status, notInstalled.stdout, notInstalled.stderr], [1, '', `kickflip: Codex isn't installed on the host. Run ${process.platform === 'darwin' ? 'brew install --cask codex' : 'npm i -g @openai/codex'}, then choose again.\n`]);
     fs.writeFileSync(path.join(bin, 'codex'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
     assert.equal(cli().stdout, 'off\n');
     const loggedOut = cli('always');
@@ -204,7 +204,7 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
     });
     const file = path.join(web, 'settings.json');
     const before = JSON.parse(fs.readFileSync(file, 'utf8'));
-    const notInstalled = "Codex isn't installed on the host. Run brew install --cask codex, then choose again.";
+    const notInstalled = `Codex isn't installed on the host. Run ${process.platform === 'darwin' ? 'brew install --cask codex' : 'npm i -g @openai/codex'}, then choose again.`;
     assert.deepEqual(await codexNow(), [false, 'Not installed', 'off']);
     const refusedInstall = await postCodex('value=always');
     assert.deepEqual([refusedInstall.status, await refusedInstall.json()], [409, { error: notInstalled }]);
