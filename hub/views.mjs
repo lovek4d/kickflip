@@ -47,9 +47,9 @@ export function siteHealth(r, links) {
 }
 
 const CODEX_CHOICES = [
-  { value: 'always', label: 'Always on', description: 'Codex builds and reviews; past the pause line, Opus builders take over until it resets, and while Codex is out of usage that work pauses until a usage-reset check succeeds.' },
-  { value: 'auto', label: 'Auto', description: 'Codex builds and reviews; while Codex is past the pause line or out of usage, Opus builders take over until it resets.' },
-  { value: 'off', label: 'Off', description: 'No Codex.' },
+  { value: 'always', label: 'Always on', description: 'Codex builds and reviews. Work pauses when it runs out.' },
+  { value: 'auto', label: 'Auto', description: "Codex builds and reviews, and Opus takes over while it's out." },
+  { value: 'off', label: 'Off', description: 'Opus builds and reviews.' },
 ];
 
 // The Usage card's Codex block (docs/adr/0092-codex-share-follows-whether-codex-is-usable.md). share is the setting in
@@ -62,7 +62,6 @@ const codexView = (share, status) => ({
   choices: CODEX_CHOICES.map(({ value, label }) => ({ value, label, on: value === share })),
   description: status.usable ? CODEX_CHOICES.find((c) => c.value === share).description : status.words,
   fix: status.fix,
-  note: status.usable ? "Applies to every board. A session's own /codex-share overrides it for that session." : null,
 });
 
 // sidebar: the /_hub/sidebar.json data, whose hub detail already says when the hub runs older code (home.mjs

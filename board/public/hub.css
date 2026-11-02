@@ -138,7 +138,6 @@
 .hub-view .segments.is-disabled button { cursor: not-allowed; }
 .hub-view .segments.is-disabled button[aria-pressed="true"] { border-color: var(--muted); background: var(--panel); color: var(--text); }
 .hub-view .u-share-desc { margin: 8px 2px 0; color: var(--muted); font-size: 13px; }
-.hub-view .u-share-note { margin: 4px 2px 0; color: var(--muted); font-size: 12px; }
 .hub-view .u-share-fix { margin: 6px 2px 0; }
 .hub-view .u-share-fix code { display: inline-block; padding: 3px 7px; border-radius: 6px; background: var(--chip); color: var(--text); font-size: 12.5px; user-select: all; }
 .hub-view .lk-form { display:flex; gap:8px; align-items:center; }

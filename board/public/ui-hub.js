@@ -65,7 +65,7 @@
     const off = !codex.usable;
     const buttons = codex.choices.map((c) => `<button type="submit" name="value" value="${esc(c.value)}" aria-pressed="${c.on}"${off ? ' disabled' : ''}>${esc(c.label)}</button>`).join('');
     return `<div class="u-share"><form class="segments${off ? ' is-disabled' : ''}" method="post" action="/_hub/settings/codex" role="group" aria-label="Codex share"${off ? ' aria-disabled="true"' : ''}>${buttons}</form>`
-      + `<p class="u-share-desc">${esc(codex.description)}</p>${codex.fix ? `<p class="u-share-fix"><code>${esc(codex.fix)}</code></p>` : ''}${codex.note ? `<p class="u-share-note">${esc(codex.note)}</p>` : ''}</div>`;
+      + `<p class="u-share-desc">${esc(codex.description)}</p>${codex.fix ? `<p class="u-share-fix"><code>${esc(codex.fix)}</code></p>` : ''}</div>`;
   }
 
   // data is the usage reading; codex, when given, draws Codex's block even without a reading: the Codex share control

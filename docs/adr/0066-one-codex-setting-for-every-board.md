@@ -1,5 +1,5 @@
 ---
-status: superseded in part by ADR-0086, ADR-0092 and ADR-0080
+status: superseded in part by ADR-0086, ADR-0092, ADR-0080 and ADR-0105
 ---
 
 # One Codex setting for every board
@@ -9,6 +9,8 @@ Superseded in part by [0086](0086-codex-share-sits-in-the-usage-card.md): the co
 Superseded in part by [0092](0092-codex-share-follows-whether-codex-is-usable.md): a missing value means Auto while Codex is usable, and the setting reads Off while Codex isn't installed or logged in.
 
 Superseded in part by [0080](0080-kickflip-installs-its-own-status-line-and-hooks.md): sessions read the setting through the kickflip-hooks plugin's `hooks-plugin/hooks/codex-share-auto.mjs`, in this repo.
+
+Superseded in part by [0105](0105-the-hubs-codex-share-is-the-only-codex-setting.md): no session's own `/codex-share` overrides the hub's setting.
 
 The owner chooses once in the hub page’s Codex share row how every board uses Codex, so boards share one default instead of needing a choice on each board. The Codex setting is `codexShare: "auto" | "always" | "off"` in `~/.claude/web-ts/settings.json`, beside polling, notifications and rules; a write preserves every other key, and a missing value means Off. The three-way control saves each choice at once, and `web-ts codex-share [auto|always|off]` reads or sets the same value.
 

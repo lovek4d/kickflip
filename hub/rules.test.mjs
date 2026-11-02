@@ -112,7 +112,7 @@ test('codex-share prints the setting in effect, refuses a change while Codex is 
     assert.match(help.stdout, /prints the Codex setting in effect for every board; with a value, saves it and prints it\./);
     assert.match(help.stdout, /auto \(also when unset\): Codex builds and reviews; while Codex is past the pause line or out of usage, Opus\n\s+builders take over until it resets\./);
     assert.match(help.stdout, /always \(Always on\): the same past the pause line; while Codex is out of usage, that work pauses until a\n\s+usage-reset check succeeds\./);
-    assert.match(help.stdout, /off: no Codex\. While Codex isn't installed or logged in, the setting reads off and a change is refused\./);
+    assert.match(help.stdout, /off: Opus builds and reviews\. While Codex isn't installed or logged in, the setting reads off and a change is refused\./);
     assert.equal(cli().stdout, 'off\n');
     const notInstalled = cli('always');
     assert.deepEqual([notInstalled.status, notInstalled.stdout, notInstalled.stderr], [1, '', `kickflip: Codex isn't installed on the host. Run ${process.platform === 'darwin' ? 'brew install --cask codex' : 'npm i -g @openai/codex'}, then choose again.\n`]);

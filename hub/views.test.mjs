@@ -93,14 +93,14 @@ test("the hub page's Codex share says what each choice means while Codex is usab
   const now = t(10);
   const sidebar = { sites: [], hub: {}, notifications: {}, total: 0, usage: { claude: null, codex: null } };
   const view = (extra = {}) => hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar, rows: [], ...extra }).codex;
-  const unusable = (v) => [v.usable, v.tag, v.share, v.choices.find((c) => c.on).value, v.description, v.fix, v.note];
-  assert.deepEqual(unusable(view()), [false, 'Not installed', 'off', 'off', "Codex isn't installed on the host.", process.platform === 'darwin' ? 'brew install --cask codex' : 'npm i -g @openai/codex', null]);
+  const unusable = (v) => [v.usable, v.tag, v.share, v.choices.find((c) => c.on).value, v.description, v.fix];
+  assert.deepEqual(unusable(view()), [false, 'Not installed', 'off', 'off', "Codex isn't installed on the host.", process.platform === 'darwin' ? 'brew install --cask codex' : 'npm i -g @openai/codex']);
   assert.deepEqual(unusable(view({ codex: NOT_INSTALLED })), unusable(view()));
-  assert.deepEqual(unusable(view({ codex: LOGGED_OUT })), [false, 'Not logged in', 'off', 'off', "Codex isn't logged in on the host.", 'codex login', null]);
+  assert.deepEqual(unusable(view({ codex: LOGGED_OUT })), [false, 'Not logged in', 'off', 'off', "Codex isn't logged in on the host.", 'codex login']);
   const meanings = {
-    always: 'Codex builds and reviews; past the pause line, Opus builders take over until it resets, and while Codex is out of usage that work pauses until a usage-reset check succeeds.',
-    auto: 'Codex builds and reviews; while Codex is past the pause line or out of usage, Opus builders take over until it resets.',
-    off: 'No Codex.',
+    always: 'Codex builds and reviews. Work pauses when it runs out.',
+    auto: "Codex builds and reviews, and Opus takes over while it's out.",
+    off: 'Opus builds and reviews.',
   };
   for (const [codexShare, description] of Object.entries(meanings)) {
     const v = view({ codexShare, codex: USABLE });
@@ -109,7 +109,6 @@ test("the hub page's Codex share says what each choice means while Codex is usab
       ['always', 'Always on', codexShare === 'always'], ['auto', 'Auto', codexShare === 'auto'], ['off', 'Off', codexShare === 'off'],
     ]);
     assert.equal(v.description, description);
-    assert.equal(v.note, "Applies to every board. A session's own /codex-share overrides it for that session.");
   }
   const settings = settingsView({ now, st: status(now, DEFAULTS) });
   assert.deepEqual([settings.codex, settings.codexShare], [undefined, undefined]);
@@ -452,18 +451,17 @@ test("the hub page's Usage card opens Codex's block with Codex share, bars under
     assert.equal(codex().querySelector('.segments').getAttribute('aria-disabled'), 'true');
     assert.deepEqual(codex().querySelectorAll('.segments button').map((b) => b.hasAttribute('disabled')), [true, true, true]);
     assert.equal(selected(), 'off');
-    assert.equal(codex().querySelectorAll('.u-bar, .u-share-note').length, 0);
+    assert.equal(codex().querySelectorAll('.u-bar').length, 0);
   }
 
   live.paint(hub('off'));
-  assert.match(codex().textContent, /^CodexAlways onAutoOffNo Codex\./);
+  assert.match(codex().textContent, /^CodexAlways onAutoOffOpus builds and reviews\./);
   assert.equal(codex().querySelector('.u-asof'), null);
   assert.equal(codex().querySelectorAll('.u-bar, .u-share-fix, [disabled], [aria-disabled]').length, 0);
   assert.equal(selected(), 'off');
   assert.deepEqual(codex().querySelectorAll('.segments button').map((b) => b.textContent), ['Always on', 'Auto', 'Off']);
   assert.equal(codex().querySelector('.segments').getAttribute('aria-label'), 'Codex share');
-  assert.equal(codex().querySelector('.u-share-desc').textContent, 'No Codex.');
-  assert.equal(codex().querySelector('.u-share-note').textContent, "Applies to every board. A session's own /codex-share overrides it for that session.");
+  assert.equal(codex().querySelector('.u-share-desc').textContent, 'Opus builds and reviews.');
   assert.deepEqual(root.querySelectorAll('.usage .u-head .title').map((el) => el.textContent), ['Claude', 'Codex']);
 
   for (const value of ['auto', 'always', 'off']) {
@@ -473,7 +471,7 @@ test("the hub page's Usage card opens Codex's block with Codex share, bars under
     assert.equal(selected(), value);
     assert.equal(codex().querySelector('.u-share-desc').textContent, hub(value).codex.description);
     assert.equal(codex().querySelectorAll('.u-bar').length, value === 'off' ? 0 : 2);
-    assert.match(codex().textContent, value === 'off' ? /^CodexAlways onAutoOffNo Codex\./ : /^Codexread [^]*?Always onAutoOff[^]*?overrides it for that session\.5-hour42% · resets/);
+    assert.match(codex().textContent, value === 'off' ? /^CodexAlways onAutoOffOpus builds and reviews\./ : /^Codexread [^]*?Always onAutoOff[^]*?(?:runs out|it's out)\.5-hour42% · resets/);
   }
   assert.equal(sidebarChanges, 3);
   refused = true;

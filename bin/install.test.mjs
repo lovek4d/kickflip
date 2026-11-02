@@ -280,7 +280,7 @@ test('plugin keeps builder-stop and runs the Codex share hook for both events th
         if (share === 'off') assert.equal(result.stdout, '', `${usable} ${mode}`);
         else {
           assert.equal(result.stdout.split('\n').length, 2);
-          assert.match(result.stdout, /unless this session's codex-share-mode file says otherwise/);
+          assert.match(result.stdout, share === 'auto' ? /^The hub's Codex setting is auto: run as codex-share auto\. / : /^The hub's Codex setting is always on: run as codex-share on\. /);
           assert.match(result.stdout, said[share], `${usable} ${mode}`);
         }
       }
