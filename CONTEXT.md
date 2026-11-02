@@ -196,8 +196,12 @@ The color of a badge (a status chip on a card or page), picked from one fixed se
 _Avoid_: chip color, badge style, variant
 
 **Status color**:
-A color named by what it means, `--color-quiet`, `--color-info`, `--color-notice`, `--color-danger` or `--color-success`, in `shared/colors.css` beside the base palette, in light and dark. That file is the one set of colors for the hub and every board; no page's CSS defines a color of its own ([0033](docs/adr/0033-one-colour-constants-file-shared-by-the-hub-and-every-board.md)). Working or waiting on attention is notice, done or passing is success, failed or offline is danger, link-like status is info, and inactive is quiet.
+A color named by what it means, `--color-quiet`, `--color-info`, `--color-notice`, `--color-danger` or `--color-success`, in `shared/colors.css` beside the base palette, in light and dark. That file is the one set of colors for the hub and every board; no page's CSS defines a color of its own ([0033](docs/adr/0033-one-colour-constants-file-shared-by-the-hub-and-every-board.md)). Which one a meaning takes follows the **colour rule**; done or passing is success.
 _Avoid_: tone token, theme color, badge color
+
+**Colour rule**:
+A colour says who is waiting: blue (info) when a human is needed, such as an unread review, the owner's next step or a new version to reload; orange (notice) when a builder, reviewer or the machine is working or waiting, never for something the owner must do; red (danger) for danger, such as failed, offline or spending; grey (quiet) for idle, which takes no other colour. Pick a new colour by it ([0096](docs/adr/0096-colour-says-whos-waiting.md)).
+_Avoid_: attention colour, warning colour (for the owner's turn)
 
 **Follow-up**:
 Work discovered while building a wave, with a ticket from the board’s source. It is a Todo card of that wave, with a Follow-up badge, until it is done, and an open one keeps its wave unfinished ([0034](docs/adr/0034-follow-ups-are-todo-cards-of-their-wave.md)).
