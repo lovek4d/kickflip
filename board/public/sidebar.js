@@ -24,7 +24,7 @@
   // A phone has no keys to press, so it never shows the shortcuts sheet.
   const DESKTOP = '(hover: hover) and (pointer: fine)';
   const TWICE_MS = 1000;
-  // sidebar.css .ks-bar drains over the same time.
+  // paint() sets the bar's duration from this and its delay from switching.started.
   const IDLE_MS = 3000;
   const FIELD = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
   const MODIFIERS = new Set(['Shift', 'Meta', 'Control', 'Alt', 'AltGraph', 'CapsLock', 'Fn']);
@@ -66,7 +66,7 @@
       const n = othersWaiting(data, here);
       logo.setAttribute('aria-label', `Boards${update ? ', new version ready' : ''}${n ? `, ${n} waiting on other boards` : ''}`);
     }
-    // switching: {timer, opened} while switch mode shows, opened when it opened the drawer.
+    // switching: {opened, started, timer} while switch mode shows, opened when it opened the drawer, started on performance.now().
     let switching = null;
     let painted = false;
     // A repaint keeps the drawer's scroll, so a new copy doesn't move the list under a finger.
@@ -77,6 +77,11 @@
       // Screen readers announce a role="status" node only when its own content changes, so the node outlives the repaint.
       const held = aside.querySelector('.sb-update');
       aside.innerHTML = sidebar(data, { here, device, switching: Boolean(switching) });
+      if (switching) {
+        const bar = aside.querySelector('.ks-bar');
+        bar.style.animationDelay = `${switching.started - performance.now()}ms`;
+        bar.style.animationDuration = `${IDLE_MS}ms`;
+      }
       const fresh = aside.querySelector('.sb-update');
       if (held) fresh.replaceWith(held);
       const row = updateRow(update);
@@ -177,7 +182,7 @@
     let lastS = -Infinity;
     function startSwitch() {
       lastS = -Infinity;
-      switching = { opened: !rail.matches && !isOpen(), timer: setTimeout(() => endSwitch(), IDLE_MS) };
+      switching = { opened: !rail.matches && !isOpen(), started: performance.now(), timer: setTimeout(() => endSwitch(), IDLE_MS) };
       if (switching.opened) open();
       aside.classList.add('ks-on');
       paint();

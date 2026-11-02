@@ -1541,7 +1541,7 @@ test('Board Settings shows repo and branch, changes them as JSON and closes the 
   assert.equal(closed, 1);
 });
 
-test("s s shows each sidebar row's key and the Boards label's hint, and the next key opens that row through the shell; Escape, a click, a held modifier or 3 s with no key end it with nothing opened; s s does nothing in a text field or with a dialog open; on a drawer it opens the drawer and closes it again; and its keys never count toward the board's n n", () => {
+test("s s shows each sidebar row's key and the Boards label's hint, and the next key opens that row through the shell; Escape, a click, a held modifier or 3 s with no key end it with nothing opened; s s does nothing in a text field or with a dialog open; on a drawer it opens the drawer and closes it again; and its keys never count toward the board's n n; a repaint mid-countdown carries the bar on from where it was", () => {
   const page = fakePage(memoryStorage().localStorage);
   const { win } = page;
   win.Element = page.El;
@@ -1582,6 +1582,11 @@ test("s s shows each sidebar row's key and the Boards label's hint, and the next
 
   sw();
   assert.match(aside.innerHTML, /<section class="sb-boards" aria-label="Boards"><div class="sb-label ks-label"><span class="ks-label-text">Boards<\/span><span class="ks-label-hint" role="status">– press a key to switch<i class="ks-bar"><\/i><\/span><\/div><div class="sb-group">/);
+  assert.equal(aside.querySelector('.ks-bar').style.animationDelay, '0ms');
+  page.advance(1200);
+  sidebar.setData(data);
+  assert.equal(aside.querySelector('.ks-bar').style.animationDelay, '-1200ms');
+  assert.equal(aside.querySelector('.ks-bar').style.animationDuration, '3000ms');
   assert.doesNotMatch(aside.innerHTML, /ks-hint/);
   assert.equal(press('Escape').defaultPrevented, true);
   assert.equal(switching(), false);

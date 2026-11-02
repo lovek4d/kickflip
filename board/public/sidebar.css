@@ -111,7 +111,7 @@ html.sb-update body.has-sidebar > .top .hub::after, html.sb-update body.has-side
 /* The label is the bar's containing block: left 0 is the BOARDS text's edge, and right -8px crosses the label's 8px
    side margin (.sb-label) to the rows' right edge. The bar sits in the label's 4px bottom margin. */
 .sidebar .ks-bar { position: absolute; left: 0; right: -8px; top: 100%; height: 2px; margin-top: 1px; background: var(--accent);
-  transform-origin: 0 50%; animation: ks-drain 3s linear forwards; }
+  transform-origin: 0 50%; animation: ks-drain linear forwards; }
 @keyframes ks-drain { to { transform: scaleX(0); } }
 .sidebar .ks-u { transition: color 200ms linear; }
 .sidebar.ks-on .ks-u { color: var(--accent); transition: color 150ms linear; }
