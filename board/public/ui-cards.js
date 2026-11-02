@@ -133,6 +133,7 @@
   function workLines(it, { unread = 0, top = false } = {}) {
     const ids = it.kind === 'ask' ? askChip(it) : it.ticket ? ticketChip(it) : it.ticketSource === 'linear' ? linearChips(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
     const blocked = (it.blockedBy || []).map((d) => badge('notice', `blocked by ${esc(d.ref)}`, { href: `#item=${encodeURIComponent(d.key)}` })).join('');
+    const wave = it.lineup ? badge('quiet', `${WAVE_ICON}${esc(it.lineup.title)}`, { title: `In the wave ${it.lineup.title}` }) : '';
     const ready = !blocked && !it.action && it.deps?.length && it.lane === 'todo' ? badge('ready', 'ready to start') : '';
     const chips = `${it.todoAge ? badge('quiet', esc(it.todoAge)) : ''}${stalledChip(it)}${unreadChip(unread)}${actionChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('quiet', 'bumped') : ''}${ready}${installChip(it)}`;
     const status = it.isNew && !it.action ? `<div class="line3 sub">${askLine(it.ask)}</div>`
@@ -144,13 +145,14 @@
     return `${cardActions(it, top)}<div class="line1 title">${ids ? `${ids} ` : ''}${esc(it.title)}</div>
       ${status}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
-      ${blocked ? `<div class="line5 meta blocked">${blocked}</div>` : ''}`;
+      ${blocked || wave ? `<div class="line5 meta${blocked ? ' blocked' : ''}">${wave}${blocked}</div>` : ''}`;
   }
+  const WAVE_ICON = '<svg class="wave-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/><path d="M2 16c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/></svg>';
   const askChip = (it) => badge(it.isNew ? 'notice' : 'quiet', it.isNew ? 'New' : 'Task');
   function planButton(items) {
     const keys = items.filter((i) => i.kind === 'followup').map((i) => i.key);
     return keys.length > 1 ? `<button class="link" data-plan="${esc(keys.join(' '))}">Plan a wave from these ${keys.length} follow-ups →</button>` : '';
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionChip, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, unreadCount, workLines, askChip, askActions, askLine, planButton });
+  Object.assign(globalThis.BoardUI, { prChips, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionChip, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, unreadCount, workLines, askChip, askActions, askLine, planButton, WAVE_ICON });
 })();

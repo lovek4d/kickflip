@@ -882,3 +882,34 @@ test('review records use one precedence order and date the card from the item re
   assert.equal(Object.hasOwn(card, 'slack'), false);
   assert.equal(Object.hasOwn(board().waves[0], 'watched'), false);
 });
+
+test("the Waves section lists each open lineup with its goal, order, progress and triage, its cards carry its chip, and a wave file shows as a row only on a board over the waves", () => {
+  const items = [
+    { id: 'INT-1', title: 'One', status: 'done' }, { id: 'INT-2', title: 'Two', status: 'building' }, { id: 'INT-3', title: 'Three', deps: ['INT-2'] },
+    { id: 'INT-4', title: 'Four', status: 'dropped' }, { id: 'INT-5', title: 'Five' }, { id: 'INT-6', title: 'Six', status: 'done' }, { id: 'INT-7', title: 'Loose' },
+  ];
+  const lineups = [
+    { slug: 'mon', title: 'Monitor', goal: 'The monitor runs in kickflip.', items: ['INT-1', 'INT-2', 'INT-3', 'INT-4'] },
+    { slug: 'old', title: 'Old', goal: 'Gone.', items: ['INT-5'], finished_at: '2026-11-01T00:00:00Z' },
+    { slug: 'all-done', title: 'All done', goal: 'Shipped.', items: ['INT-6'] },
+  ];
+  const question = (id, topic) => ({ id, topic, question: 'Split it?', options: [{ id: 'yes', label: 'Yes' }] });
+  const triage = (id, ts, reply = null) => ({ id, ts, kind: 'wave-triage', data: { lineup: 'mon' }, reply });
+  const build = (events, owner = {}, fromWaves = false) => buildBoard({ fromWaves, now: Date.parse('2026-11-02T12:00:00Z'), events, owner,
+    waves: [{ slug: 'hub', wave: { internal: true, items, lineups } }, { slug: 'other', wave: { items: [{ id: 'X1', title: 'Elsewhere' }] } }] });
+
+  const idle = build([]);
+  assert.deepEqual(idle.waveRows, [{ slug: 'mon', title: 'Monitor', goal: 'The monitor runs in kickflip.', merged: 1, total: 4,
+    order: ['INT-1', 'INT-2', 'INT-3', 'INT-4'].map((ref) => ({ key: `hub/${ref}`, ref })), triage: { running: false, questions: 0 } }]);
+  const chip = (id) => idle.items.find((i) => i.id === id).lineup;
+  assert.deepEqual([chip('INT-3'), chip('INT-5'), chip('INT-7')], [{ slug: 'mon', title: 'Monitor' }, { slug: 'old', title: 'Old' }, null]);
+
+  assert.deepEqual(build([triage('t1', '2026-11-02T10:00:00Z')]).waveRows[0].triage, { running: true, questions: 0 });
+  const asked = build([triage('t1', '2026-11-02T10:00:00Z', { html: '2 questions' }), { id: 'a1', ts: '2026-11-02T10:05:00Z', kind: 'owner-answer', data: { id: 'q2', choice: 'yes' } }],
+    { items: [question('q1', 'lineup:mon'), question('q2', 'lineup:mon'), { ...question('q3', 'lineup:mon'), resolved: 'Done', resolved_at: '2026-11-02T09:00:00Z' }] });
+  assert.deepEqual(asked.waveRows[0].triage, { running: false, questions: 2 });
+  assert.deepEqual(asked.needs.map((n) => [n.text, n.lineup, n.url]), [['Monitor · 1 question', 'mon', 'questions.html#q1']]);
+
+  assert.deepEqual(build([], {}, true).waveRows.map((r) => [r.slug, r.goal, r.order?.length, r.triage, `${r.merged}/${r.total}`]),
+    [['mon', 'The monitor runs in kickflip.', 4, { running: false, questions: 0 }, '1/4'], ['hub', null, undefined, null, '2/7'], ['other', null, undefined, null, '0/1']]);
+});

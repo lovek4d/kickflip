@@ -6,7 +6,8 @@
 //   board {route, hash}         /<route>/, hash such as #item=<key>&reply
 //   settings {route}            /<route>/settings.html, a request to open the modal over that board
 //   questions {route, id}       /<route>/questions.html#<id>
-//   notes {route, item}         /<route>/notes.html?item=<key>, and plan.html, which the board redirects there
+//   notes {route, item | wave}  /<route>/notes.html?item=<key> or ?wave=<lineup slug>, and plan.html, which the board
+//                               redirects there
 //   hub {hash, w}              /_hub/ with a settings modal named by hash; legacy /_hub/settings and
 //                               /_hub/settings/polling?w=<HH:MM> open the same modals (ADR 0075)
 //   frame {route, url}          any other page under a route, a folder or an .html file: other sites, prototypes and
@@ -45,7 +46,9 @@ globalThis.AppRouter = (function () {
       try { id = u.hash.length > 1 ? decodeURIComponent(u.hash.slice(1)) : null; } catch { id = u.hash.slice(1); }
       return { kind: 'questions', route, id };
     }
-    if (page === 'notes.html' || page === 'plan.html') return { kind: 'notes', route, item: u.searchParams.get('item') };
+    if (page === 'notes.html' || page === 'plan.html') {
+      return u.searchParams.has('wave') ? { kind: 'notes', route, wave: u.searchParams.get('wave') } : { kind: 'notes', route, item: u.searchParams.get('item') };
+    }
     return frame;
   }
 
@@ -56,7 +59,7 @@ globalThis.AppRouter = (function () {
       case 'board': return r + (view.hash || '');
       case 'settings': return `${r}settings.html`;
       case 'questions': return `${r}questions.html${view.id ? `#${encodeURIComponent(view.id)}` : ''}`;
-      case 'notes': return `${r}notes.html${view.item ? `?item=${encodeURIComponent(view.item)}` : ''}`;
+      case 'notes': return `${r}notes.html${view.wave ? `?wave=${encodeURIComponent(view.wave)}` : view.item ? `?item=${encodeURIComponent(view.item)}` : ''}`;
       case 'hub': return `/_hub/${view.w ? `?w=${encodeURIComponent(view.w)}` : ''}${view.hash || ''}`;
       default: return view.url;
     }

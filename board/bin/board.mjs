@@ -42,8 +42,8 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
   topic add <id> --title <t> [--summary <s>]             a question topic in data/owner.json
   question add --file <json>                             one question or an array of them:
          {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
-          source?, context?, url?, urgent?}; topic is declared, item:<wave>/<id>, or item:ask:<eventId>
-          for a New card not sorted yet.
+          source?, context?, url?, urgent?}; topic is declared, item:<wave>/<id>, item:ask:<eventId>
+          for a New card not sorted yet, or lineup:<slug> for a wave's triage.
          url is http(s), or a site page such as prototype-<topic>.html?q=<id>, stored as given.
          Prototype options keep take order, ids matching take keys; recommended: true tags the recommendation.
          Waiting on you shows fitting takes in a grid, or a chooser above one full-width take for a single take or if any
@@ -147,6 +147,24 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
   followup add <wave> --id <id> --title <t> [--from <item id>] [--ticket <id>]
   followup done <wave> <id> [--force]                    closes the follow-up's card as item set --status done does
   followup set <wave> <id> --ticket <id>                links the follow-up's ticket in the board's source
+  lineup create <slug> --title <t> --goal <t>            a wave, in the owner's words: a named set of cards in
+         --cards <wave>/<id>,… (--note <t> | --file <f>)  build order, all from one wave file. Each card is then
+                                                         blocked by the one before it (its other deps stay), and
+                                                         the note goes to lineup-<slug>.md beside the wave file.
+                                                         The board's Waves section shows it with its goal and
+                                                         order, its cards carry its chip, and Notes opens the
+                                                         goal, the order and the note. Refuses a card already in
+                                                         another open wave. Prints the order
+  lineup add <slug> <wave>/<id> [--after <wave>/<id>]    puts a card in the wave, last unless --after, and chains
+                                                         the order again
+  lineup remove <slug> <wave>/<id>                       takes a card out: it loses its links to the wave's cards,
+                                                         and the card after it is blocked by the one before
+  lineup set <slug> [--title <t>] [--goal <t>]           renames the wave, sets its goal or rewrites its note
+         [--note <t> | --file <f>]
+  lineup finish <slug>                                   the wave leaves the Waves section; its cards keep their
+                                                         links. A wave whose cards are all Done leaves it too
+         The Waves section's Triage sends wave-triage {lineup}; the row reads Triaging… until you reply to that
+         event, then "Triage: N open questions" while questions on topic lineup:<slug> are open or answered
   tickets backfill [--dry-run]                           gives every open card and follow-up without a ticket one: the first
                                                          id in its title (or legacy linear list) from the board's
                                                          source is linked, else a new ticket is made. Done cards are
@@ -331,6 +349,11 @@ function notesFileOf(f) {
   return f['notes-file'] ?? f.plan;
 }
 
+function noteOf(f) {
+  if (f.note !== undefined && f.file !== undefined) throw new UsageError('pass --note or --file, not both');
+  return f.file === undefined ? f.note : readInput(f.file);
+}
+
 // name: [positional args, allowed flags, run(site, args, flags) → message]
 const COMMANDS = {
   pr: [['wave/id'], [], async (site, [key]) => ({ lines: [JSON.stringify(await store.prReport(site, key))] })],
@@ -358,6 +381,11 @@ const COMMANDS = {
   'tickets backfill': [[], ['dry-run'], (site, _, f, options) => store.backfillTickets(site, { dryRun: f['dry-run'] }, options)],
   'followup done': [['wave', 'id'], ['force'], (site, [wave, id], f) => store.finishFollowup(site, wave, id, { force: f.force })],
   'followup set': [['wave', 'id'], ['ticket'], (site, [wave, id], f) => store.setFollowupTicket(site, wave, id, f.ticket)],
+  'lineup create': [['slug'], ['title', 'goal', 'cards', 'note', 'file'], (site, [slug], f) => store.createLineup(site, slug, { title: f.title, goal: f.goal, cards: f.cards, note: noteOf(f) })],
+  'lineup add': [['slug', 'wave/id'], ['after'], (site, [slug, key], f) => store.changeLineup(site, slug, { add: key, after: f.after })],
+  'lineup remove': [['slug', 'wave/id'], [], (site, [slug, key]) => store.changeLineup(site, slug, { remove: key })],
+  'lineup set': [['slug'], ['title', 'goal', 'note', 'file'], (site, [slug], f) => store.changeLineup(site, slug, { title: f.title, goal: f.goal, note: noteOf(f) })],
+  'lineup finish': [['slug'], [], (site, [slug]) => store.finishLineup(site, slug)],
   slack: [[], [], () => ({ lines: [JSON.stringify(readSlack())] })],
   'slack set': [[], ['self-dm', 'user', 'domain', 'timezone'], async (site, _, f) => {
     const fields = { 'self-dm': 'self_dm', user: 'owner_slack_user', domain: 'slack_domain', timezone: 'timezone' };

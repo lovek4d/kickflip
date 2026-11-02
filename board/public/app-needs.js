@@ -23,6 +23,7 @@ BoardView.part((B) => {
     w.innerHTML = needs.length ? `<h2 style="margin:0 0 6px">Needs you · ${needs.length}</h2>
       <ul>${needs.map((line) => (line.prompt ? promptItem(line.prompt, prompts.state(line.prompt))
         : line.key ? `<li><a href="${esc(line.url)}">${esc(line.title)}</a> <span class="muted small">· ${parts(line)}</span></li>`
+          : line.lineup ? `<li><a href="#waves" data-wave-show="${esc(line.lineup)}">${esc(line.title)}</a> <span class="muted small">· ${parts(line)}</span></li>`
           : `<li><a href="${esc(line.url)}">${esc(line.title)}</a> <span class="muted small">${plural(line.questions.open, 'question')}</span></li>`)).join('')}</ul>` : '';
   }
 

@@ -364,6 +364,7 @@ test("the app's router reads every hub URL as a view and writes each view back a
     ['/orch/settings.html', { kind: 'settings', route: 'orch' }],
     ['/orch/questions.html#q-1', { kind: 'questions', route: 'orch', id: 'q-1' }],
     ['/orch/notes.html?item=w%2FA1', { kind: 'notes', route: 'orch', item: 'w/A1' }],
+    ['/orch/notes.html?wave=mon', { kind: 'notes', route: 'orch', wave: 'mon' }],
     ['/_hub/', { kind: 'hub' }],
     ['/_hub/settings', { kind: 'hub', hash: '#notifications' }],
     ['/_hub/settings#rules', { kind: 'hub', hash: '#rules' }],
@@ -387,7 +388,7 @@ test("the app's router reads every hub URL as a view and writes each view back a
   assert.equal(viewOf('https://elsewhere.example/orch/', { boards: new Set(['orch']), base }), null);
   for (const url of ['/orch/uploads/1-shot.png', '/orch/api/board', '/learn', '/_hub/kickflip.png', '/sw.js']) assert.equal(read(url), null, url);
   assert.deepEqual(table.filter(([, view]) => mounted(view)).map(([url]) => url),
-    ['/orch/', '/orch/#item=w%2FA1&reply', '/orch/settings.html', '/orch/questions.html#q-1', '/orch/notes.html?item=w%2FA1',
+    ['/orch/', '/orch/#item=w%2FA1&reply', '/orch/settings.html', '/orch/questions.html#q-1', '/orch/notes.html?item=w%2FA1', '/orch/notes.html?wave=mon',
       '/_hub/', '/_hub/settings', '/_hub/settings#rules', '/_hub/settings/polling', '/_hub/settings/polling?w=09%3A00',
       '/orch/prototype-sidebar.html?q=q1&from=push', '/orch/shots-gallery.html', '/learn/', '/learn/lessons/lesson-2.html#top']);
 });

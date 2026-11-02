@@ -4,6 +4,7 @@
 // It writes page events, hidden events and uploads; agent sessions write the other files
 // below through bin/board.mjs (store.mjs):
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item set|relate-ask, ask progress|done, followup add|done,
+//   lineup create|add|remove|set|finish,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
 // <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, github_login}. auto_build asks the hub to
 // run each card's .kickflip/build after each push; main always builds after a merge.
@@ -18,7 +19,8 @@
 // button opens (board.mjs item set --install); public/installs/ holds its files, served without a login like all of
 // public/, since iOS's installer fetches the manifest and .ipa with no cookies. A builder working on an item has a record in
 // agents/<id>.json (or agents/<id>@<agent>.json for each further agent) beside the wave file. A wave's followups [{id, title, from, filed, done}] are
-// Linear tickets filed along the way; they are Todo cards of their wave until done. domain.mjs
+// Linear tickets filed along the way; they are Todo cards of their wave until done. A wave's lineups [{slug, title, goal,
+// items, finished_at?}] are the owner's waves over its cards (store.mjs createLineup). domain.mjs
 // decides lanes and card state from what this server reads.
 //   GET  /, /settings.html, /questions.html, /notes.html
 //                                the app shell, public/app.html, whose views these pages are (../hub/shell.mjs shellHtml;
@@ -57,6 +59,7 @@
 //   GET  /api/notes?item=w/id    {key, ref, title, markdown}: the item's notes file, only a .md inside its wave's
 //                                folder, or with no file its short notes text (store.mjs readNotes); otherwise 404
 //                                {error}. /api/plan is the same, for pages loaded before the rename
+//   GET  /api/notes?wave=<slug>  {title, markdown}: a lineup's goal, order and note (store.mjs readLineupNotes)
 //   GET  /plan.html?…            redirects to notes.html with the same query, since pushes and threads link it
 //   POST /_claude/events         {kind, ...data} → one line in data/events.jsonl; wakes Claude.
 //                                ask, item-message and owner-answer may carry files: [upload]
@@ -105,7 +108,7 @@ import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { buildBoard, ITEM_EVENTS, needsAnswer, refOf, threadOf } from './domain.mjs';
 import { createReadStream, watch as watchFiles } from 'node:fs';
-import { BoardError, boardConfig, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readNotes, readWorking, readUpload, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, boardConfig, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -326,7 +329,7 @@ async function snapshot() {
     const repo = items.github || wave.repo;
     return repo ? wave.items.filter((it) => it.pr).map(async (it) => { prs[`${repo}#${it.pr}`] = await prState(repo, it.pr); }) : [];
   }));
-  const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'item-message']);
+  const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'item-message', 'wave-triage']);
   const working = await readWorking(here);
   const pageEvents = await Promise.all((await shownEvents()).map((e) => (needsReply.has(e.kind) || routeRecord(working, e.id) ? withReply(e) : { ...e, reply: null })));
   await Promise.all(pageEvents.filter((e) => e.kind === 'ask').map(async (e) => {
@@ -564,6 +567,10 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, needsAnswer(await board()));
     }
     if (p === '/api/thread') return json(res, 200, await thread(String(url.searchParams.get('key') || '')));
+    if (p === '/api/notes' && url.searchParams.has('wave')) {
+      try { return json(res, 200, await readLineupNotes(here, String(url.searchParams.get('wave')), settingsOf(await config()).tickets)); }
+      catch (e) { if (e instanceof BoardError) return json(res, 404, { error: e.message }); throw e; }
+    }
     if (p === '/api/notes' || p === '/api/plan') {
       const key = String(url.searchParams.get('item') || '');
       try {

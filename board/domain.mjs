@@ -373,6 +373,29 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
   return msgs;
 }
 
+// The Waves section's rows: each open lineup, the owner's wave (docs/adr/0109-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md),
+// then on a board over ~/.claude/waves each unfinished wave file. Each lineup card gets `lineup` {slug, title} for its
+// chip, an open lineup's over a finished one's. A lineup is open until finished_at or until all its cards are Done.
+// Triage runs from the newest wave-triage event for it until that event's reply, and its questions use topic
+// lineup:<slug>.
+function waveRowsOf(snapshot, waves, lineups, items, questions, events) {
+  const byKey = new Map(items.map((i) => [i.key, i]));
+  const merged = (cards) => cards.filter((i) => i.lane === 'done' && !droppedCard(i)).length;
+  const open = lineups.map((l) => ({ l, cards: l.keys.map((k) => byKey.get(k)).filter(Boolean) }))
+    .map((x) => ({ ...x, open: !x.l.finished_at && x.cards.some((i) => i.lane !== 'done') }))
+    .sort((a, b) => Number(a.open) - Number(b.open));
+  for (const { l, cards } of open) for (const i of cards) i.lineup = { slug: l.slug, title: l.title };
+  const rows = open.filter((x) => x.open).map(({ l, cards }) => {
+    const last = events.filter((e) => e.kind === 'wave-triage' && e.data?.lineup === l.slug).pop();
+    const pending = questions.filter((q) => q.topic === `lineup:${l.slug}` && (q.state === 'open' || q.state === 'answered')).length;
+    return { slug: l.slug, title: l.title, goal: l.goal, order: cards.map((i) => ({ key: i.key, ref: i.ref })), merged: merged(cards), total: cards.length,
+      triage: { running: Boolean(last && !last.reply), questions: pending } };
+  });
+  if (!snapshot.fromWaves) return rows;
+  return [...rows, ...waves.filter((w) => !w.finished).map((w) => ({ w, cards: items.filter((i) => i.wave === w.slug && i.kind !== 'ask') }))
+    .filter(({ cards }) => cards.length).map(({ w, cards }) => ({ slug: w.slug, title: w.title, goal: null, order: null, merged: merged(cards), total: cards.length, triage: null }))];
+}
+
 // snapshot: {waves: [{slug, wave, agents: {<id>: {<agent>: record}}}], fromWaves,
 //   prs: {"<repo>#<n>": pr}, threads: {<key>: [line]}, events: [event with reply, hidden ones left out],
 //   working: {<event id>: ts}, checked: data/checked.json, listen, watcher: data/watcher.json, askLinks: {<ask event id>: <wave>/<id>},
@@ -473,10 +496,12 @@ export function buildBoard(snapshot) {
     w.finished = finishedOf(cards);
     if (w.finished) for (const i of cards) if (i.lane === 'done') i.fold = waveFold(w.slug);
   }
-  for (const i of items) if (i.kind === 'ask' && i.lane === 'done') i.fold = ASKS_FOLD;
+  for (const i of items) { i.lineup = null; if (i.kind === 'ask' && i.lane === 'done') i.fold = ASKS_FOLD; }
   const declared = new Set((owner.topics || []).map((t) => t.id));
+  const lineups = snapshot.waves.flatMap(({ slug, wave }) => (wave.lineups || []).map((l) => ({ ...l, keys: l.items.map((id) => `${slug}/${id}`) })));
   const topicsOf = () => ownerTopics([...(owner.topics || []), ...items.filter((it) => !declared.has(`item:${it.key}`))
-    .map((it) => ({ id: `item:${it.key}`, title: `${it.ref}: ${it.title}`, summary: 'Questions about this work item.' }))], questions,
+    .map((it) => ({ id: `item:${it.key}`, title: `${it.ref}: ${it.title}`, summary: 'Questions about this work item.' })),
+  ...lineups.filter((l) => !declared.has(`lineup:${l.slug}`)).map((l) => ({ id: `lineup:${l.slug}`, title: l.title, summary: 'Wave triage.' }))], questions,
   new Set(items.filter((it) => it.lane === 'done').map((it) => `item:${it.key}`)));
   const itemTopics = new Map(topicsOf().map((t) => [t.id, t]));
   for (const it of items) {
@@ -507,6 +532,7 @@ export function buildBoard(snapshot) {
   const late = (i) => (i.lane === 'todo' && i.kind === 'followup' ? 1 : 0);
   items.sort((a, b) => LANE_ORDER[a.lane] - LANE_ORDER[b.lane] || unsorted(a) - unsorted(b) || bumped(b).localeCompare(bumped(a)) || late(a) - late(b) || age(a, b) || b.order - a.order || a.key.localeCompare(b.key));
 
+  const waveRows = waveRowsOf(snapshot, waves, lineups, items, questions, events);
   // Built again after the sort, so the item topics follow the lanes' order.
   const topicList = topicsOf();
   const needs = [...promptLines(snapshot.prompts), ...needsOf(items, topicList, questions)];
@@ -532,7 +558,7 @@ export function buildBoard(snapshot) {
   // The page shows those this browser hasn't seen in the answer banner (docs/adr/0016-every-ask-is-a-card.md).
   const answers = items.filter((i) => i.ask?.answerAt).sort((a, b) => b.ask.answerAt.localeCompare(a.ask.answerAt))
     .map((i) => ({ key: i.key, id: i.id, text: i.title, at: i.ask.answerAt }));
-  return { kind, main, waves, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, needs, needsSummary: needsSummary(needs), working: workingCount, checks: checksOf(snapshot, now) };
+  return { kind, main, waves, waveRows, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, needs, needsSummary: needsSummary(needs), working: workingCount, checks: checksOf(snapshot, now) };
 }
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -567,7 +593,8 @@ function needsOf(items, topics, questions) {
   const firstOpen = (ids) => ids.find((id) => questions.find((q) => q.id === id)?.state === 'open') || ids[0];
   const fromTopics = topics.filter((t) => t.state !== 'resolved' && t.open > 0 && !onItems.has(t.id)).map((t) => {
     const url = `questions.html#${firstOpen(t.questions)}`;
-    return { kind: 'Question', title: t.title, text: `${t.title} · ${plural(t.open, 'question')}`, url, topic: t.id, questions: { open: t.open, url }, ready: null };
+    const lineup = /^lineup:(.+)$/.exec(t.id)?.[1] || null;
+    return { kind: 'Question', title: t.title, text: `${t.title} · ${plural(t.open, 'question')}`, url, topic: t.id, lineup, questions: { open: t.open, url }, ready: null };
   });
   const fromItems = items.filter((it) => !it.held).map((it) => {
     const asking = it.questions && it.questions.state !== 'resolved' && it.questions.open > 0 ? { open: it.questions.open, url: `questions.html#${it.questions.first}` } : null;

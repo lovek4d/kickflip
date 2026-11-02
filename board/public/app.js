@@ -150,7 +150,7 @@ window.BoardView = (function () {
         BoardUI.setHTML($('#tryMain'), BoardUI.mainBar(d.main));
         B.renderMainLog(d.main, load);
         const live = d.items.filter((i) => !state.withdrawnAsks.has(i.id));
-        const shown = state.waveFilter ? live.filter((i) => i.wave === state.waveFilter) : live;
+        const shown = state.waveFilter ? live.filter((i) => i.wave === state.waveFilter || i.lineup?.slug === state.waveFilter) : live;
         for (const el of $$('details.item[open]')) state.openItems.add(el.dataset.key);
         for (const it of d.items) if (!it.isNew) markSeen(it, !state.openItems.has(it.key));
         // An open card's thread is renderThread's (app-threads.js), so a lane repaint leaves it as it is.
@@ -301,7 +301,7 @@ window.BoardView = (function () {
   <section id="setup" class="setup" aria-live="polite" hidden></section>
   <section id="answers" class="answer-banner" hidden></section>
   <section id="waiting" class="waiting" hidden></section>
-  <div id="waves" class="waves"></div>
+  <div id="waves"></div>
   <div id="tryMain"></div>
   <div id="lanes"></div>
 </main>

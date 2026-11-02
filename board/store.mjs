@@ -815,6 +815,7 @@ export async function addQuestions(site, input) {
     text(q.topic, `${name}.topic`);
     if (q.topic.startsWith('item:ask:')) await checkAsk(site, q.topic.slice(9), `${name}.topic`);
     else if (q.topic.startsWith('item:')) await loadItem(site, q.topic.slice(5));
+    else if (q.topic.startsWith('lineup:')) await findLineup(site, q.topic.slice(7));
     else if (!topics.has(q.topic)) fail(`topic "${q.topic}" is not declared; add it with: topic add ${q.topic} --title <t>`);
     text(q.question, `${name}.question`);
     for (const k of ['source', 'context']) optional(q[k], (v) => text(v, `${name}.${k}`));
@@ -1256,6 +1257,112 @@ export async function finishFollowup(site, slug, id, { force } = {}) {
   f.done = true;
   await writeJSON(source.file, wave);
   return { file: source.file, lines: await resolve() };
+}
+
+// A lineup is what the owner calls a wave: a named set of one wave file's cards in build order, kept in that file's
+// `lineups` (docs/adr/0109-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md). Its note is lineup-<slug>.md beside
+// the file, and each card is blocked by the one before it.
+export const lineupNoteFile = (slug) => `lineup-${slug}.md`;
+const lineupSlug = (v) => (typeof v === 'string' && /^[a-z0-9-]+$/.test(v) ? v : fail(`a wave's slug uses only a-z, 0-9 and "-", not "${v}"`));
+
+async function findLineup(site, slug) {
+  for (const source of await itemSources(site)) {
+    const wave = await readJSON(source.file, null);
+    const lineup = (wave?.lineups || []).find((l) => l.slug === slug);
+    if (lineup) return { source, wave, lineup };
+  }
+  return fail(`this board has no wave "${slug}"; lineup create makes one`);
+}
+
+// The cards named by <wave>/<id> keys, all in one wave file and none in another open lineup. → their ids
+function lineupCards(source, wave, keys, slug) {
+  return keys.map((key) => {
+    const { wave: from, id } = parseKey(key);
+    if (from !== source.slug) fail(`${key} is not in wave file "${source.slug}"; a wave's cards share one file`);
+    if (!wave.items.some((it) => it.id === id)) fail(`wave "${from}" has no item "${id}"`);
+    const other = (wave.lineups || []).find((l) => l.slug !== slug && !l.finished_at && l.items.includes(id));
+    if (other) fail(`${key} is already in the wave "${other.slug}"; lineup remove ${other.slug} ${key} first`);
+    return id;
+  });
+}
+
+// Each card in members drops its blocked-by links to the others, then each card in order is blocked by the one before.
+function chain(source, wave, members, order) {
+  const inLineup = new Set(members.map((id) => `${source.slug}/${id}`));
+  for (const id of members) {
+    const it = wave.items.find((x) => x.id === id);
+    const deps = (it.deps || []).filter((d) => !inLineup.has(depKey(source.slug, d)));
+    const at = order.indexOf(id);
+    if (at > 0) deps.push(order[at - 1]);
+    if (deps.length) it.deps = deps; else delete it.deps;
+  }
+}
+
+async function writeLineup(source, wave, lineup, note) {
+  if (note !== undefined) await replace(path.join(source.dir, lineupNoteFile(lineup.slug)), `${text(note, 'the note').replace(/\n*$/, '\n')}`);
+  await writeJSON(source.file, wave);
+  return { file: source.file, lines: [`order: ${lineup.items.join(' → ')}`] };
+}
+
+export async function createLineup(site, slug, { title, goal, cards, note }) {
+  lineupSlug(slug);
+  const keys = String(cards ?? '').split(',').map((k) => k.trim()).filter(Boolean);
+  if (!keys.length) fail('--cards takes the cards in build order, as <wave>/<id>,<wave>/<id>');
+  if (note === undefined) fail('lineup create needs the wave note, as --note <text> or --file <path>');
+  const sources = await itemSources(site);
+  if (sources.some((s) => s.slug === slug)) fail(`"${slug}" is a wave file on this board; pick another slug`);
+  for (const s of sources) if (((await readJSON(s.file, null))?.lineups || []).some((l) => l.slug === slug)) fail(`this board already has a wave "${slug}"`);
+  const source = sources.find((s) => s.slug === parseKey(keys[0]).wave) || fail(`this board has no wave "${parseKey(keys[0]).wave}"`);
+  const { wave } = await loadWave(site, source.slug);
+  const items = lineupCards(source, wave, keys, slug);
+  if (new Set(items).size !== items.length) fail('--cards names a card twice');
+  const lineup = { slug, title: text(title, '--title'), goal: text(goal, '--goal'), items, created: new Date().toISOString() };
+  chain(source, wave, items, items);
+  wave.lineups = [...(wave.lineups || []), lineup];
+  return writeLineup(source, wave, lineup, note);
+}
+
+// Adds a card after --after (default last) or removes one, then chains the order again; also renames, sets the goal or
+// rewrites the note.
+export async function changeLineup(site, slug, { add, after, remove, title, goal, note }) {
+  if ([add, remove, title, goal, note].every((v) => v === undefined)) fail('nothing to change: pass --add, --remove, --title, --goal, --note or --file');
+  if (after !== undefined && add === undefined) fail('--after goes with --add');
+  const { source, wave, lineup } = await findLineup(site, slug);
+  if (lineup.finished_at) fail(`the wave "${slug}" is finished`);
+  const before = [...lineup.items];
+  if (add !== undefined) {
+    const [id] = lineupCards(source, wave, [add], slug);
+    if (lineup.items.includes(id)) fail(`${add} is already in the wave "${slug}"`);
+    const at = after === undefined ? lineup.items.length : lineup.items.indexOf(lineupCards(source, wave, [after], slug)[0]) + 1;
+    if (at === 0) fail(`--after ${after} is not in the wave "${slug}"`);
+    lineup.items.splice(at, 0, id);
+  }
+  if (remove !== undefined) {
+    const [id] = lineupCards(source, wave, [remove], slug);
+    if (!lineup.items.includes(id)) fail(`${remove} is not in the wave "${slug}"`);
+    if (lineup.items.length === 1) fail(`${remove} is the wave's last card; lineup finish ${slug} ends the wave`);
+    lineup.items = lineup.items.filter((x) => x !== id);
+  }
+  if (title !== undefined) lineup.title = text(title, '--title');
+  if (goal !== undefined) lineup.goal = text(goal, '--goal');
+  chain(source, wave, [...new Set([...before, ...lineup.items])], lineup.items);
+  return writeLineup(source, wave, lineup, note);
+}
+
+// A finished wave leaves the Waves section; its cards keep their links.
+export async function finishLineup(site, slug) {
+  const { source, wave, lineup } = await findLineup(site, slug);
+  lineup.finished_at = new Date().toISOString();
+  await writeJSON(source.file, wave);
+  return { file: source.file };
+}
+
+// → {title, markdown}: the wave's goal and order, then its note file.
+export async function readLineupNotes(site, slug, tickets) {
+  const { source, wave, lineup } = await findLineup(site, slug);
+  const note = await fs.readFile(path.join(source.dir, lineupNoteFile(slug)), 'utf8').catch(() => '');
+  const order = lineup.items.map((id) => refOf(wave, id, tickets)).join(' → ');
+  return { title: lineup.title, markdown: `**Goal** ${lineup.goal}\n\n**Order** ${order}\n\n${note}` };
 }
 
 // One record per agent on an item: agents/<id>.json for agent main, agents/<id>@<agent>.json for any other

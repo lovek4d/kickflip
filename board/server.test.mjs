@@ -660,3 +660,18 @@ test('a builder nudge is recorded even when the card is no longer stalled', asyn
   const events = await (await fetch(`${base}/_claude/events?kind=builder-nudge`)).json();
   assert.deepEqual(events.map((e) => [e.id, e.data]), [[id, { key: 't/A1' }]]);
 });
+
+test("a wave's triage runs from its wave-triage event until Claude replies, and its notes show its goal, order and note", async () => {
+  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ internal: true, items: [{ id: 'S1', title: 'One' }, { id: 'S2', title: 'Two', deps: ['S1'] }],
+    lineups: [{ slug: 'mon', title: 'Monitor', goal: 'Runs in kickflip.', items: ['S1', 'S2'] }] }));
+  fs.writeFileSync(path.join(site, 'data', 'lineup-mon.md'), 'Why: one PR each.\n');
+  const row = async () => (await (await fetch(`${base}/api/board`)).json()).waveRows[0];
+  assert.deepEqual((await row()).triage, { running: false, questions: 0 });
+  const { id } = await (await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'wave-triage', lineup: 'mon' }) })).json();
+  assert.equal((await row()).triage.running, true);
+  fs.writeFileSync(path.join(site, 'data', 'replies', `${id}.html`), 'No changes.');
+  assert.equal((await row()).triage.running, false);
+  const notes = await fetch(`${base}/api/notes?wave=mon`);
+  assert.deepEqual(await notes.json(), { title: 'Monitor', markdown: '**Goal** Runs in kickflip.\n\n**Order** INT-1 → INT-2\n\nWhy: one PR each.\n' });
+  assert.equal((await fetch(`${base}/api/notes?wave=nope`)).status, 404);
+});

@@ -1,4 +1,5 @@
-// The board view's lanes and wave filter: each lane's header and cards, the "N older" and finished-wave folds, and the wave bars.
+// The board view's lanes and the Waves section above them: each lane's header and cards, the "N older" and finished-wave
+// folds, and the wave rows that filter the lanes and start a wave's triage.
 // Needs app-core.js and app-cards.js.
 BoardView.part((B) => {
   const { $, store, state } = B;
@@ -52,21 +53,35 @@ BoardView.part((B) => {
     }).join('');
   }
 
-  function renderWaves(d) {
-    if (d.waves.some((w) => w.finished && w.slug === state.waveFilter)) { state.waveFilter = null; store.set('wave', null); }
-    const rows = d.waves.map((w) => {
-      const items = d.items.filter((i) => i.wave === w.slug);
-      const merged = items.filter((i) => i.pr?.state === 'MERGED' || (!i.pr && i.lane === 'done')).length;
-      const drafts = items.filter((i) => i.pr?.state === 'OPEN' && i.pr.isDraft).length;
-      const review = items.filter((i) => i.pr?.state === 'OPEN' && !i.pr.isDraft).length;
-      return { w, total: items.length, merged, drafts, review };
-    }).filter((r) => r.total && !r.w.finished);
-    $('#waves').innerHTML = rows.map(({ w, total, merged, drafts, review }) => `<button class="wave ${w.slug === state.waveFilter ? 'on' : ''}" data-wave="${esc(w.slug)}">
-        <span class="wave-name">${esc(w.title)}</span>
-        <span class="muted small">${merged} of ${total} ${w.internal ? 'done' : 'merged'}${review ? ` · ${review} in review` : ''}${drafts ? ` · ${drafts} draft${drafts === 1 ? '' : 's'}` : ''}</span>
-        <span class="bar"><span style="width:${Math.round((merged / total) * 100)}%"></span></span>
-      </button>`).join('');
+  // The Waves section: a lane of one row per open wave (domain.mjs waveRowsOf). Tapping a row shows only its cards;
+  // Notes and Triage, at the row's foot, act without filtering.
+  const triaging = new Set();
+  function triageLink(r) {
+    if (r.triage.running || triaging.has(r.slug)) return '<span class="wv-busy" role="status"><span class="try-spin" aria-hidden="true"></span>Triaging…</span>';
+    if (r.triage.questions) return `<span class="muted">Triage: ${B.plural(r.triage.questions, 'open question')}</span>`;
+    return `<button type="button" class="wv-link" data-triage="${esc(r.slug)}">Triage</button>`;
   }
+  function waveRow(r) {
+    const on = r.slug === state.waveFilter;
+    const links = r.triage ? `<div class="wv-links"><span class="external-link"><a href="notes.html?wave=${encodeURIComponent(r.slug)}">Notes ${BoardUI.LINK_ARROW}</a></span><span class="external-link"><span class="external-separator" aria-hidden="true"> · </span>${triageLink(r)}</span></div>` : '';
+    return `<div class="wv-row${on ? ' on' : ''}" data-wave-row="${esc(r.slug)}">
+        <div class="wv-id"><button type="button" class="wv-name" aria-pressed="${on}">${BoardUI.WAVE_ICON}<span>${esc(r.title)}</span></button><span class="muted small">${r.merged} of ${r.total} merged</span></div>
+        ${r.goal ? `<div class="wv-note"><b>Goal</b> ${esc(r.goal)}</div>` : ''}
+        ${r.order ? `<div class="wv-note"><b>Order</b> ${r.order.map((o) => esc(o.ref)).join(' → ')}</div>` : ''}
+        ${links}
+      </div>`;
+  }
+  function renderWaves(d) {
+    const rows = d.waveRows || [];
+    if (state.waveFilter && !rows.some((r) => r.slug === state.waveFilter)) { state.waveFilter = null; store.set('wave', null); }
+    const open = store.get('lanes', {}).waves ?? true;
+    const shown = rows.find((r) => r.slug === state.waveFilter);
+    BoardUI.setHTML($('#waves'), rows.length ? `<details class="lane" data-lane="waves" ${open ? 'open' : ''}>
+        <summary><span class="lane-name">Waves</span><span class="count">${rows.length}</span></summary>
+        <div class="list">${rows.map(waveRow).join('')}</div>
+      </details>${shown ? `<div class="wv-showing muted small">Showing ${esc(shown.title)} only · <button type="button" class="wv-all">Show all</button></div>` : ''}` : '');
+  }
+  const showWave = (slug) => { state.waveFilter = slug; store.set('wave', slug); B.render(); };
 
   B.on(B.root, 'toggle', (ev) => {
     const el = ev.target;
@@ -84,8 +99,23 @@ BoardView.part((B) => {
       catch { B.notice('Could not send. Is the host awake?'); pb.disabled = false; }
       return;
     }
-    const wb = ev.target.closest('button[data-wave]');
-    if (wb) { state.waveFilter = wb.dataset.wave !== state.waveFilter ? wb.dataset.wave : null; store.set('wave', state.waveFilter); B.render(); }
+    const tb = ev.target.closest('button[data-triage]');
+    if (tb) {
+      const slug = tb.dataset.triage;
+      const row = state.board.waveRows.find((r) => r.slug === slug);
+      if (!(await B.confirm(`Claude reads the code for ${row.title}'s unstarted cards and asks you in Needs you about splitting, merging, adding or closing any. Start?`))) return;
+      triaging.add(slug);
+      B.render();
+      try { await B.site.send('wave-triage', { lineup: slug }); await B.loadBoard(); }
+      catch { B.notice('Could not send. Is the host awake?'); }
+      finally { triaging.delete(slug); B.render(); }
+      return;
+    }
+    const go = ev.target.closest('a[data-wave-show]');
+    if (go) { ev.preventDefault(); showWave(go.dataset.waveShow); $('#waves').scrollIntoView({ block: 'start' }); return; }
+    if (ev.target.closest('.wv-all')) { showWave(null); return; }
+    const row = ev.target.closest('.wv-row');
+    if (row && !ev.target.closest('a')) showWave(row.dataset.waveRow !== state.waveFilter ? row.dataset.waveRow : null);
   });
 
   Object.assign(B, { FOLDS, lanesHtml, renderWaves });

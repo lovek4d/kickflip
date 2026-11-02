@@ -205,7 +205,7 @@ window.AppShell = (function () {
     const openHere = (href) => { if (!opener(href)) location.assign(href); };
 
     // The board and Waiting on you follow their own hash, so a link that only moves it keeps the view.
-    const sameView = (a, b) => a.kind === b.kind && a.route === b.route && (a.kind !== 'notes' || a.item === b.item) && (a.kind !== 'frame' || a.url === b.url);
+    const sameView = (a, b) => a.kind === b.kind && a.route === b.route && (a.kind !== 'notes' || (a.item === b.item && a.wave === b.wave)) && (a.kind !== 'frame' || a.url === b.url);
     const dirty = () => Boolean(current?.root.querySelector('[data-dirty]'));
     addEventListener('beforeunload', (e) => { if (dirty()) { e.preventDefault(); e.returnValue = ''; } });
 

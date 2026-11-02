@@ -2041,3 +2041,40 @@ test('review digest waits without changing the record while Slack is not ready',
   assert.equal(digestCommand([], now).due, true);
   assert.deepEqual(read(file), record);
 });
+
+test('lineup create chains its cards in build order and writes the wave note; add, remove, set and finish keep the order; a wave topic takes triage questions', () => {
+  const file = site('audit', 'data', 'wave.json');
+  write(file, { title: 'W', items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two', deps: ['A9'] }, { id: 'A3', title: 'Three' }, { id: 'A4', title: 'Four' }, { id: 'A9', title: 'Elsewhere' }] });
+  const b = (...args) => board('--site', 'audit', 'lineup', ...args);
+  const deps = () => Object.fromEntries(read(file).items.map((it) => [it.id, it.deps || []]));
+  const made = b('create', 'mon', '--title', 'Monitor', '--goal', 'The monitor runs in kickflip.', '--cards', 'audit/A1,audit/A2,audit/A3', '--note', 'Why: one PR each.');
+  assert.equal(made.code, 0, made.err);
+  assert.match(made.out, /order: A1 → A2 → A3/);
+  assert.deepEqual(deps(), { A1: [], A2: ['A9', 'A1'], A3: ['A2'], A4: [], A9: [] });
+  assert.deepEqual(read(file).lineups.map(({ created, ...l }) => l), [{ slug: 'mon', title: 'Monitor', goal: 'The monitor runs in kickflip.', items: ['A1', 'A2', 'A3'] }]);
+  assert.equal(fs.readFileSync(site('audit', 'data', 'lineup-mon.md'), 'utf8'), 'Why: one PR each.\n');
+
+  assert.match(b('create', 'mon', '--title', 'Again', '--goal', 'G', '--cards', 'audit/A4', '--note', 'N').err, /already has a wave "mon"/);
+  assert.match(b('create', 'audit', '--title', 'File', '--goal', 'G', '--cards', 'audit/A4', '--note', 'N').err, /is a wave file/);
+  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--cards', 'audit/A3,audit/A4', '--note', 'N').err, /already in the wave "mon"/);
+  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--cards', 'audit/A4').err, /needs the wave note/);
+
+  assert.equal(b('add', 'mon', 'audit/A4', '--after', 'audit/A1').code, 0);
+  assert.deepEqual(deps(), { A1: [], A2: ['A9', 'A4'], A3: ['A2'], A4: ['A1'], A9: [] });
+  assert.equal(b('remove', 'mon', 'audit/A2').code, 0);
+  assert.deepEqual(deps(), { A1: [], A2: ['A9'], A3: ['A4'], A4: ['A1'], A9: [] });
+  assert.equal(b('set', 'mon', '--title', 'Monitor in kickflip', '--note', 'Why: smaller.').code, 0);
+  assert.deepEqual(read(file).lineups[0].items, ['A1', 'A4', 'A3']);
+  assert.equal(read(file).lineups[0].title, 'Monitor in kickflip');
+  assert.equal(fs.readFileSync(site('audit', 'data', 'lineup-mon.md'), 'utf8'), 'Why: smaller.\n');
+
+  const q = path.join(home, 'q.json');
+  write(q, question('t1', { topic: 'lineup:mon' }));
+  assert.equal(board('--site', 'audit', 'question', 'add', '--file', q).code, 0);
+  write(q, question('t2', { topic: 'lineup:nope' }));
+  assert.match(board('--site', 'audit', 'question', 'add', '--file', q).err, /no wave "nope"/);
+
+  assert.equal(b('finish', 'mon').code, 0);
+  assert.ok(read(file).lineups[0].finished_at);
+  assert.match(b('add', 'mon', 'audit/A2').err, /is finished/);
+});
