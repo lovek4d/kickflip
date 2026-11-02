@@ -66,7 +66,7 @@ test('Hub Settings says whether pushes go, when a snooze ends and what each snoo
   assert.equal(v.polling, '3 windows, 58 checks a day · held overnight · wakes 8:00am, 9:00am');
   assert.equal(v.device, 'checks every 15 min until 6:00pm');
   assert.deepEqual(v.snooze.choices.map((c) => [c.value, c.label, c.until]), [['3h', '3h', 'until 1:00pm'], ['6h', '6h', 'until 4:00pm'],
-    ['1d', '1d', 'until 10:00am tomorrow'], ['monday', 'Monday', 'until 8:00am Mon Oct 19']]);
+    ['1d', '1d', 'until 10:00am tomorrow'], ['3d', '3d', 'until 10:00am Sat Oct 17'], ['monday', 'Monday', 'until 8:00am Mon Oct 19']]);
   assert.deepEqual(plain(v.rules), [{ id: 'r1', text: 'Be brief' }]);
   assert.deepEqual(plain(v.presence), { title: 'Away from the host', sub: 'Pushes go to every device. At the host means unlocked and used in the last 3 minutes.' });
   assert.deepEqual(plain(settingsView({ now, st: status(now, DEFAULTS), route: { atMac: true, desktops: 1 } }).presence),
@@ -81,7 +81,7 @@ test('Hub Settings says whether pushes go, when a snooze ends and what each snoo
   assert.match(snoozed.on.confirm, / The 2 queued pushes are dropped now\. /);
 
   const evening = settingsView({ now: t(19), st: status(t(19), DEFAULTS) });
-  assert.deepEqual(evening.snooze.choices.map((c) => c.value), ['3h', '6h', '1d', 'monday']);
+  assert.deepEqual(evening.snooze.choices.map((c) => c.value), ['3h', '6h', '1d', '3d', 'monday']);
 
   const off = settingsView({ now, st: status(now, notify(DEFAULTS, { on: false, snoozed_until: t(12).toISOString() })) });
   assert.deepEqual([off.snoozed, off.snooze, off.presence], [null, null, null]);
@@ -191,7 +191,7 @@ test('Hub settings modals keep summaries, turn this device on and snooze inline,
   await B.openSettings({ hash: '#notifications' });
   assert.deepEqual(root.querySelectorAll('.hub-setting .title').map((h) => h.textContent), ['Notifications', 'Polling', 'Linear', 'Rules for every board', 'Closed boards']);
   assert.deepEqual(root.querySelectorAll('form input[name="set"]').map((input) => input.value), ['on', 'weekends']);
-  assert.deepEqual(root.querySelectorAll('.snooze-choices button').map((b) => b.textContent), ['3h', '6h', '1d', 'Monday']);
+  assert.deepEqual(root.querySelectorAll('.snooze-choices button').map((b) => b.textContent), ['3h', '6h', '1d', '3d', 'Monday']);
   assert.equal(root.querySelector('.snooze-custom .btn').textContent, 'Custom');
   assert.equal(root.querySelectorAll('dialog').length, 1);
   assert.equal(modal.open, true);
@@ -216,7 +216,7 @@ test('Hub settings modals keep summaries, turn this device on and snooze inline,
     await submitForm(form, form.querySelector('button'));
     assert.ok(root.querySelector('.snooze-chips'));
   };
-  for (const choice of ['3h', '6h', '1d', 'monday']) {
+  for (const choice of ['3h', '6h', '1d', '3d', 'monday']) {
     const form = root.querySelector('.snooze-choices');
     await submitForm(form, form.querySelector(`button[value="${choice}"]`));
     assert.equal(posts.at(-1).opts.body.toString(), `snooze=${choice}`);

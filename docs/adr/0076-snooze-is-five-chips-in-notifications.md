@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0100
+---
+
 # Snooze is five chips in Notifications
+
+Superseded in part by [0100](0100-snooze-is-six-chips-in-a-three-column-grid.md): Snooze has six chips, 3d added before Monday, in a three-column grid. Custom and the snoozed row below still hold.
 
 The owner picked take A of `prototype-snooze.html` on hub/INT-186, with "options should be 3h 6h 1d Monday Custom". Snooze sits in Hub's Notifications modal as five chips, so one tap snoozes without a second sheet over the modal.
 

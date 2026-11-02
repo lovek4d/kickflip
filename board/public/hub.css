@@ -90,7 +90,6 @@
 .hub-view .snooze-custom input::-webkit-calendar-picker-indicator { position:absolute; inset:0; width:auto; height:auto; opacity:0; cursor:pointer; }
 .hub-view .snooze-custom:focus-within { outline:2px solid var(--accent); outline-offset:2px; border-radius:7px; }
 .hub-view .snooze-on .title { font-weight:600; white-space:normal; }
-@media (min-width: 900px) { .hub-view .snooze-chips { grid-template-columns:repeat(5, minmax(0, 1fr)); } }
 .hub-view code { font-family:var(--mono); font-size:.85em; white-space:nowrap; }
 .hub-view footer { color:var(--muted); font-size:12px; margin:1.8rem 2px 0; }
 .hub-view .host { font-family:var(--mono); font-size:11px; overflow-wrap:anywhere; }

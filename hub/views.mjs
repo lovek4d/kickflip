@@ -95,7 +95,7 @@ export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code 
 }
 
 // Each value is a schedule.mjs snoozeEnd choice.
-const SNOOZE_CHOICES = [['3h', '3h'], ['6h', '6h'], ['1d', '1d'], ['monday', 'Monday']];
+const SNOOZE_CHOICES = [['3h', '3h'], ['6h', '6h'], ['1d', '1d'], ['3d', '3d'], ['monday', 'Monday']];
 export const SNOOZE_REFUSED = 'That snooze ends in the past or more than 30 days on. Pick another time.';
 
 const snoozedUntil = (n, now) => (n.on && n.snoozed_until && new Date(n.snoozed_until) > now ? new Date(n.snoozed_until) : null);
@@ -103,7 +103,7 @@ const snoozedUntil = (n, now) => (n.on && n.snoozed_until && new Date(n.snoozed_
 // The hub page's hub settings: the on/off, snooze and weekend controls (docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md),
 // the polling summary, hub rules and the Linear key, of which only whether it is set and its workspace are shown
 // (linear.mjs linearStatus; docs/adr/0088-kickflip-reaches-linear-with-a-key-on-the-mac.md). The snooze chips
-// (docs/adr/0076-snooze-is-five-chips-in-notifications.md) are null while off or snoozed. route is push.mjs pushRoute():
+// (docs/adr/0100-snooze-is-six-chips-in-a-three-column-grid.md) are null while off or snoozed. route is push.mjs pushRoute():
 // where an action push goes now (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md).
 export function settingsView({ now, st, rules = [], route = { atMac: false, desktops: 0 }, linear = { set: false } }) {
   const s = st.settings;
