@@ -1,8 +1,10 @@
 ---
-status: superseded in part by ADR-0093
+status: superseded in part by ADR-0093 and ADR-0099
 ---
 
 # The hub runs a board's install script
+
+Superseded in part by [0099](0099-a-boards-build-script-serves-or-builds-each-card-and-main.md): the fixed repo build script replaces the owner-set path, and try state, serving, main builds and failure-only thread reports replace install builder records.
 
 Superseded in part by [0093](0093-the-hub-runs-under-the-hosts-service-manager.md): the hub runs under the host's service manager, a LaunchAgent on macOS or a systemd user unit on Linux; signing with the login keychain still needs macOS.
 

@@ -73,8 +73,8 @@
 //                     removed}` event (boards.mjs sendToBoards). → {rules, events, failed}; a bad list → 400 {error}
 //   /_hub/poll        POST runs one poll now, or joins the running one, and returns its result as JSON;
 //                     {"flush": false} skips sending the queue (`kickflip poll-now`)
-//   /_hub/install     POST {route, key}, loopback only: starts the board's owner-set install_script with key and
-//                     its builder's worktree path; returns {status: 'started'} without waiting (installs.mjs)
+//   /_hub/build       POST {route, key}, loopback only: runs <worktree>/.kickflip/build <key> <worktree>
+//                     asynchronously; data/try.json and data/try/<id>.log carry its state (try.mjs)
 //   /_hub/prompts     POST a PermissionRequest hook's input (permission-hook.mjs) → {id, deadline}: a pending prompt in
 //                     prompts.json, on the board whose owner is that session, else the hub page, with a push
 //                     (docs/adr/0060-background-sessions-prompts-come-to-the-phone.md), or {state: 'answered', answer}
@@ -86,7 +86,7 @@
 //   /_hub/prompts/<id> DELETE, the hook giving up at its deadline
 // Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing or proxying (403 plain text).
 // Routes that parse JSON require application/json; settings forms and raw uploads keep their own types.
-// /_hub/install also requires loopback and refuses Origin and forwarded headers.
+// /_hub/build also requires loopback and refuses Origin and forwarded headers.
 // It also runs every site: it starts each manifest entry's `cmd`, restarts it
 // when it exits, restarts it when its entry changes, and stops every one before it exits itself. A site with a port and
 // no `cmd` runs its own server: the hub only probes it, and it reads Down while nothing answers
@@ -109,6 +109,9 @@
 // docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md).
 // Every 15 seconds it drops the pending prompts whose hook has gone (prompts.mjs expired).
 // On paused → normal it sends every board usage-resumed {window}, keeping usage-gate-state.json across restarts.
+// /<route>/try/<id>/ proxies a board card or main's server, including upgrades, outside the app shell.
+// Every 15 seconds try.mjs refreshes card heads, auto-builds cards and rebuilds main; polls fetch non-hub branches.
+// Try worktrees live in ~/.claude/kickflip/try/<route>-main; board data/try.json and data/try/*.log record runs.
 // State lives in ~/.claude/kickflip: manifest.json, logs/<route>.log, run/<route>.pid, github-state.json, wake-state.json,
 // deaf-state.json, link-faults.json, hub-code.json, resume-state.json, prompts.json, linear.json.
 import http from 'node:http';
@@ -142,7 +145,7 @@ import { hubStream } from './stream.mjs';
 import { usageReader, checkUsagePause } from './usage.mjs';
 import { readUsageGate, setPauseAt, setKeepGoing } from '../shared/usage-gate.mjs';
 import { codexStatusReader } from '../shared/codex.mjs';
-import { InstallError, startInstall, stopInstalls } from './installs.mjs';
+import { BuildError, startBuild, stopTries, tryTick, servingTry, initializeTries, fetchTryBranches } from './try.mjs';
 import { migrateOnStart } from '../bin/install.mjs';
 import { serveFiles } from './files.mjs';
 import { LinearError, linearStatus, removeLinearKey, saveLinearKey, savedClient } from './linear.mjs';
@@ -329,6 +332,7 @@ function runPoll({ flush = true } = {}) {
     let result;
     try { result = await checkGitHub({ every: windowAt(startedAt, settings).every_minutes, manifest: loadManifest() }); }
     catch (e) { result = { at: startedAt.toISOString(), watched: 0, failed: [e.message], changes: [], events: [], checked: [] }; }
+    await fetchTryBranches({ manifest: loadManifest(), log });
     if (result.failed.length && Date.now() - polls.errorLoggedAt > ERROR_LOG_MS) {
       polls.errorLoggedAt = Date.now();
       log(`github check: ${result.failed.length} step${result.failed.length === 1 ? '' : 's'} failed, first: ${result.failed[0]} (logged at most hourly)`);
@@ -367,6 +371,8 @@ function runSessionCheck() {
   }).catch((e) => log('session check failed:', e.message)).finally(() => { sessionCheck.running = null; });
 }
 
+initializeTries(loadManifest());
+
 // ---------- pending prompts ----------
 const STARTED_AT = Date.now();
 // id → the resolvers of the hook's poll held open on it.
@@ -401,6 +407,7 @@ async function checkUsageGate() {
 }
 
 setInterval(() => {
+  tryTick({ manifest: loadManifest() }).catch((e) => log('try tick failed:', e.message));
   checkUsageGate().catch((e) => log('usage gate failed:', e.message));
   if (!polls.running && Date.now() >= nextPollAt().getTime()) runPoll().catch((e) => log('poll failed:', e.message));
   runWakes();
@@ -415,11 +422,11 @@ function shutdown() {
   log('hub stopping; stopping sites');
   for (const p of procs.values()) if (p.child) p.stopping = true;
   for (const c of children) signal(c, 'SIGTERM');
-  let installsStopped = false;
-  stopInstalls().finally(() => { installsStopped = true; });
+  let triesStopped = false;
+  stopTries().finally(() => { triesStopped = true; });
   const deadline = Date.now() + KILL_AFTER;
   setInterval(() => {
-    if ((!installsStopped || children.size) && Date.now() < deadline) return;
+    if ((!triesStopped || children.size) && Date.now() < deadline) return;
     for (const c of children) { log(`pid ${c.pid} ignored SIGTERM; killing it`); signal(c, 'SIGKILL'); }
     process.exit(0);
   }, 50);
@@ -694,18 +701,18 @@ async function hubRoute(req, res, url) {
       return sendJSON(200, result);
     } catch (e) { if (e.status) return send(e.status, 'text/plain; charset=utf-8', e.message); throw e; }
   }
-  if (p === '/_hub/install' && req.method === 'POST') {
+  if (p === '/_hub/build' && req.method === 'POST') {
     if (shuttingDown) return sendJSON(503, { error: 'The hub is stopping. Try again after it restarts.' });
     const local = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
     const host = (req.headers.host || '').replace(/:\d+$/, '');
     if (!local.includes(req.socket.remoteAddress) || !['127.0.0.1', 'localhost', '[::1]'].includes(host)
       || req.headers.origin || Object.keys(req.headers).some((h) => h === 'forwarded' || h.startsWith('x-forwarded-'))) {
-      return sendJSON(403, { error: 'Install builds can only be started from the host over loopback.' });
+      return sendJSON(403, { error: 'Builds can only be started from the host over loopback.' });
     }
     let input;
     try { input = await readJSONBody(req); } catch (e) { return sendJSON(e.status || 400, { error: 'Send the board route and card key as JSON.' }); }
-    try { return sendJSON(202, await startInstall(input, { manifest: loadManifest(), log })); }
-    catch (e) { if (e instanceof InstallError) return sendJSON(e.status, { error: e.message }); throw e; }
+    try { return sendJSON(202, await startBuild(input, { manifest: loadManifest(), log })); }
+    catch (e) { if (e instanceof BuildError) return sendJSON(e.status, { error: e.message }); throw e; }
   }
   if (p === '/sw.js') return send(200, 'text/javascript; charset=utf-8', fs.readFileSync(path.join(HUB_DIR, 'sw.js')), { 'service-worker-allowed': '/' });
   if (p === '/manifest.webmanifest') return send(200, 'application/manifest+json', manifestJson());
@@ -968,8 +975,19 @@ const server = http.createServer((req, res) => {
     res.end('Requests must come from the app’s own pages.');
     return;
   }
+  const trying = /^\/([^/]+)\/try\/([^/]+)(\/|$)/.exec(url.pathname);
+  let tryTarget = null;
+  if (trying && listBoards(loadManifest()).some((b) => b.route === trying[1])) {
+    if (!trying[3]) { res.writeHead(302, { location: url.pathname + '/' + url.search }).end(); return; }
+    tryTarget = servingTry(trying[1], trying[2], { manifest: loadManifest(), visit: true });
+    if (!tryTarget) {
+      res.writeHead(404, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(`${head('Not being served')}<a class="back" href="/${esc(trying[1])}/">‹ Board</a><h1>${esc(trying[2].toUpperCase())} isn't being served. Tap Serve on its card.</h1></main></body></html>`);
+      return;
+    }
+  }
   const sites = new Set(Object.keys(loadManifest().sites));
-  if (pageOf({ method: req.method, pathname: url.pathname, search: url.search, dest: destOf(req.headers), sites }) === 'shell') {
+  if (!tryTarget && pageOf({ method: req.method, pathname: url.pathname, search: url.search, dest: destOf(req.headers), sites }) === 'shell') {
     const here = url.pathname === '/' ? '' : url.pathname.startsWith('/_hub/') ? url.pathname.slice(1) : decodeURIComponent(url.pathname.split('/')[1]);
     shellPage(here).then((html) => sendText(req, res, 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', vary: 'sec-fetch-dest', 'x-app-shell': '1' }, html))
       .catch((e) => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
@@ -997,18 +1015,18 @@ const server = http.createServer((req, res) => {
   if (!site) { res.writeHead(404, { 'content-type': 'text/html; charset=utf-8' }); res.end(`${head('No Site')}<a class="back" href="/_hub/">‹ Hub</a><h1>No site at /${esc(route)}</h1></main></body></html>`); return; }
   if (url.pathname === '/' + route) { res.writeHead(302, { location: '/' + route + '/' + url.search }).end(); return; }
 
-  const prefix = '/' + route;
+  const prefix = tryTarget ? `/${route}/try/${trying[2]}` : '/' + route;
   const rest = req.url.slice(prefix.length) || '/';
   // The same URL is the shell for a page load and the page itself for its frame, so neither may answer the other.
   const vary = pageOf({ pathname: url.pathname, dest: 'document', sites }) === 'shell';
-  if (servesOf(site) === 'files') {
+  if (!tryTarget && servesOf(site) === 'files') {
     if (!isFolder(site.dir)) { res.writeHead(502, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); res.end(downPage(route, site)); return; }
     serveFiles(req, res, { dir: site.dir, rest, prefix, headers: vary ? { vary: 'sec-fetch-dest' } : {} })
       .catch((e) => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
     return;
   }
   const headers = { ...req.headers, 'x-forwarded-prefix': prefix, 'x-forwarded-host': req.headers['x-forwarded-host'] || req.headers.host, 'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'https' };
-  const up = http.request({ host: '127.0.0.1', port: site.port, method: req.method, path: rest, headers }, (r) => {
+  const up = http.request({ host: '127.0.0.1', port: tryTarget?.port || site.port, method: req.method, path: rest, headers }, (r) => {
     const h = { ...r.headers };
     if (vary) h.vary = [h.vary, 'sec-fetch-dest'].filter(Boolean).join(', ');
     if (typeof h.location === 'string' && h.location.startsWith('/') && !h.location.startsWith('//') && !h.location.startsWith(prefix + '/') && h.location !== prefix) h.location = prefix + h.location;
@@ -1031,18 +1049,24 @@ const server = http.createServer((req, res) => {
 server.on('upgrade', (req, socket, head) => {
   const route = requestURL(req).pathname.split('/')[1];
   const site = routeRecord(loadManifest().sites, route);
-  if (!site?.port) { socket.destroy(); return; }
-  const rest = req.url.slice(route.length + 1) || '/';
-  const up = net.connect(site.port, '127.0.0.1', () => {
+  const trying = /^\/[^/]+\/try\/([^/]+)\//.exec(requestURL(req).pathname);
+  const isTry = trying && listBoards(loadManifest()).some((b) => b.route === route);
+  const target = isTry ? servingTry(route, trying[1], { manifest: loadManifest(), visit: true }) : site;
+  if (!target?.port) { socket.destroy(); return; }
+  const prefix = isTry ? `/${route}/try/${trying[1]}` : `/${route}`;
+  const rest = req.url.slice(prefix.length) || '/';
+  const up = net.connect(target.port, '127.0.0.1', () => {
     const lines = [`${req.method} ${rest} HTTP/${req.httpVersion}`];
-    for (let i = 0; i < req.rawHeaders.length; i += 2) lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`);
-    lines.push(`X-Forwarded-Prefix: /${route}`);
+    for (let i = 0; i < req.rawHeaders.length; i += 2) if (req.rawHeaders[i].toLowerCase() !== 'x-forwarded-prefix') lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`);
+    lines.push(`X-Forwarded-Prefix: ${prefix}`);
     up.write(lines.join('\r\n') + '\r\n\r\n');
     if (head && head.length) up.write(head);
     up.pipe(socket); socket.pipe(up);
   });
   up.on('error', () => socket.destroy());
   socket.on('error', () => up.destroy());
+  socket.on('close', () => up.destroy());
+  up.on('close', () => socket.destroy());
 });
 
 server.listen(PORT, '127.0.0.1', () => log(`hub on http://127.0.0.1:${PORT}/ (manifest ${MANIFEST})`));

@@ -442,6 +442,23 @@ export function buildBoard(snapshot) {
   // An ask that became work or was folded into a card shows in that card's thread instead of as a card of its own; old
   // links to it open that card.
   const moved = new Map();
+  const tries = snapshot.try || {};
+  const kind = ['web', 'app'].includes(tries.kind) ? tries.kind : snapshot.waves.some(({ wave }) => wave.items.some((it) => it.install?.url)) ? 'app' : 'web';
+  const base = `/${snapshot.route || ''}/try/`.replace(/^\/\//, '/');
+  for (const it of items) {
+    if (it.kind !== 'work' || it.lane === 'done') continue;
+    const run = routeRecord(tries.cards, it.key) || {};
+    const head = run.head || it.pr?.headRefOid;
+    const sha = kind === 'web' ? run.sha : it.install?.sha;
+    const state = it.builder?.kind === BUILDER_KIND.install ? 'running' : run.state || (kind === 'app' && it.install ? 'ready' : null);
+    it.try = { kind, state, stale: Boolean(sha && head && !String(head).toLowerCase().startsWith(String(sha).toLowerCase())),
+      url: kind === 'web' ? state === 'ready' ? `${base}${it.id.toLowerCase()}/` : null : it.install?.url || null,
+      sha: sha || null, changes: run.ahead > 0, script: run.script === true };
+  }
+  const run = tries.main;
+  const main = run?.script && run.sha ? { slug: run.slug, branch: run.branch || 'main', sha: run.sha.slice(0, 7), at: run.at,
+    kind, state: run.state || null, url: kind === 'web' ? `${base}main/` : snapshot.main?.install?.url || null } : null;
+
   const askProgress = snapshot.askProgress || {};
   const askDones = latest('ask-done', 'id');
   const answerEvents = events.filter((e) => e.kind === 'owner-answer');
@@ -524,7 +541,7 @@ export function buildBoard(snapshot) {
   // The page shows those this browser hasn't seen in the answer banner (docs/adr/0016-every-ask-is-a-card.md).
   const answers = items.filter((i) => i.ask?.answerAt).sort((a, b) => b.ask.answerAt.localeCompare(a.ask.answerAt))
     .map((i) => ({ key: i.key, id: i.id, text: i.title, at: i.ask.answerAt }));
-  return { waves, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, needs, needsSummary: needsSummary(needs), working: workingCount, checks: checksOf(snapshot, now) };
+  return { kind, main, waves, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, needs, needsSummary: needsSummary(needs), working: workingCount, checks: checksOf(snapshot, now) };
 }
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;

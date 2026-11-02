@@ -91,8 +91,8 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
           [--install-label <text>] | --clear-install]    button, stamped built_at now: itms-services://?action=
                                                          download-manifest&url=https://…/manifest.plist for iOS,
                                                          an https:// .apk URL for Android. --install-sha is the
-                                                         PR head it was built from: the button reads "older build"
-                                                         once the PR moves past it. Hidden once the card is Done
+                                                         head it was built from: the badge reads "Install (stale)"
+                                                         once the branch moves past it. Hidden once the card is Done
          --status building refuses while the item is held or a dep isn't done, merged or dropped,
          and while the newest owner answer to its questions that link a prototype-*.html page has a
          note: post the final version with prototype add and question add first.
@@ -158,19 +158,21 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
   rules edit <id> --text <t> [--hub]                     rewords a rule, keeping who added it
   rules remove <id> [--hub]                              refuses an id the list doesn't have
   settings                                               the board's settings as JSON, each false when board.json
-                                                         leaves it out: {"auto_merge": false}
+                                                         leaves it out: {"auto_merge": false, "auto_build": false}
   settings set auto-merge on|off                         on: monitor merges an approved PR once CI is green and
                                                          the merge state is CLEAN. off (the default): the card
                                                          shows the owner a Merge button, and monitor merges on its
                                                          card-merge event. Board Settings' toggle writes it too
-  install <wave>/<id> --site <route>                     asks the hub to run this board's install script; prints
-                                                         started and exits while the build runs. Only the owner
-                                                         sets the script, in this board's Settings. The hub
-                                                         records its builder, output log and result in the thread
+  build <wave>/<id> --site <route>                       asks the hub to run this card's .kickflip/build; prints
+                                                         started and exits. install is an alias. The hub records
+                                                         data/try/<id>.log and writes failures to the thread
+  main set --install <url> [--install-sha <sha>]          publishes main's app install to data/main.json
+  settings set auto-build on|off                         on: each push builds its card. Off by default.
+                                                         Main builds after every merge either way
   builder start <wave>/<id> [--agent <name>] [--kind <opus|codex|sonnet|install|…>] [--label <who>]
          [--progress <text>] [--eta <ISO time>]          one record per agent on the item; --agent defaults to main.
                                                          --kind install: a build of the card's install, whose
-                                                         Install chip reads Rebuilding… (or Building…) meanwhile
+                                                         Install badge reads Building… meanwhile
          [--worktree [--repo <dir>]]                     --worktree: a git worktree for the builder at
                                                          ~/.claude/kickflip/worktrees/<id> on a new branch <id> from
                                                          the board's branch of its clone (--repo overrides the clone), kept on
@@ -338,22 +340,23 @@ const COMMANDS = {
   'rules edit': [['id'], ['text', 'hub'], (site, [id], f) => store.editRuleIn(site, id, f)],
   'rules remove': [['id'], ['hub'], (site, [id], f) => store.removeRuleFrom(site, id, f)],
   settings: [[], [], async (site) => ({ lines: [JSON.stringify(await store.readBoardSettings(site))] })],
-  install: [['wave/id'], [], async (site, [key]) => {
-    if (!site) throw new store.BoardError('install needs --site <route>');
+  build: [['wave/id'], [], async (site, [key]) => {
+    if (!site) throw new store.BoardError('build needs --site <route>');
     store.parseKey(key);
     try {
-      const r = await fetch(`http://127.0.0.1:${process.env.KICKFLIP_HUB_PORT || 4500}/_hub/install`, {
+      const r = await fetch(`http://127.0.0.1:${process.env.KICKFLIP_HUB_PORT || 4500}/_hub/build`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ route: path.basename(site), key }), signal: AbortSignal.timeout(10_000),
       });
       const out = await r.json();
-      if (!r.ok) throw new store.BoardError(out.error || 'The hub refused the install build.');
+      if (!r.ok) throw new store.BoardError(out.error || 'The hub refused the build.');
       return { lines: ['started'] };
     } catch (e) {
       if (e instanceof store.BoardError) throw e;
-      throw new store.BoardError(`Could not start the install build: ${e.message}`);
+      throw new store.BoardError(`Could not start the build: ${e.message}`);
     }
   }],
+  'main set': [[], ['install', 'install-sha'], (site, _, f) => store.setMainInstall(site, { install: f.install, installSha: f['install-sha'] })],
   'settings set': [['name', 'on|off'], [], (site, [name, value]) => store.setBoardSetting(site, name, value)],
   'builder start': [['wave/id'], ['label', 'progress', 'dir', 'agent', 'kind', 'eta', 'worktree', 'repo'], (site, [key], { worktree, repo, ...f }) => {
     if (repo !== undefined && !worktree) throw new UsageError('--repo goes with --worktree');
@@ -383,6 +386,8 @@ const COMMANDS = {
   checked: [[], ['every', 'idle'], (site, _, f) => store.writeChecked(site, f.every, { idle: f.idle })],
   push: [[], ['kind', 'title', 'body', 'url', 'tag', 'urgent', 'now'], (site, _, f) => push(site, f)],
 };
+
+COMMANDS.install = COMMANDS.build;
 
 export async function main(argv, options = {}) {
   try {

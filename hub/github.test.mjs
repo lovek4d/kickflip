@@ -6,7 +6,7 @@ import path from 'node:path';
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'github-'));
 process.env.HOME = home;
-const { summarize, changesBetween, cardChanges, carry, checkGitHub } = await import('./github.mjs');
+const { summarize, changesBetween, carry, checkGitHub } = await import('./github.mjs');
 after(() => fs.rmSync(home, { recursive: true, force: true }));
 
 const gh = (over = {}) => ({
@@ -35,8 +35,8 @@ test('changesBetween names each kind of change once, in order', () => {
   assert.deepEqual(changesBetween(prev, sum({ failing: ['build'] })), ['ci']);
   assert.deepEqual(changesBetween(sum({ pending: 3 }), sum({ pending: 1 })), []);
   assert.deepEqual(changesBetween(sum({ pending: 3 }), sum({ pending: 0 })), ['ci']);
-  assert.deepEqual(changesBetween(prev, sum({ head: 'def', pending: 4 })), ['head']);
-  assert.deepEqual(changesBetween(prev, sum({ head: 'def', pending: 0 })), ['ci', 'head']);
+  assert.deepEqual(changesBetween(prev, sum({ head: 'def', pending: 4 })), []);
+  assert.deepEqual(changesBetween(prev, sum({ head: 'def', pending: 0 })), ['ci']);
   assert.deepEqual(changesBetween(prev, sum({ head: 'def', state: 'MERGED' })), ['ci', 'merged']);
   assert.deepEqual(changesBetween(prev, sum({ reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN' })), ['review', 'mergeable']);
   assert.deepEqual(changesBetween(prev, sum({ events: [{ id: 5, at: 't' }] })), ['comments']);
@@ -48,11 +48,9 @@ test('changesBetween names each kind of change once, in order', () => {
   assert.deepEqual(changesBetween(prev, sum({ isDraft: true })), ['draft']);
 });
 
-test("a head move reaches a card only while it carries an install, alongside other changes", () => {
+test("a head move never asks a session to rebuild an install", () => {
   const moved = changesBetween(sum(), sum({ head: 'def4567890' }));
-  const card = (install) => ({ wave: 'w', id: 'A1', pr: 7, install });
-  assert.deepEqual(cardChanges(card(false), moved), ['ci']);
-  assert.deepEqual(cardChanges(card(true), moved), ['ci', 'head']);
+  assert.deepEqual(moved, ['ci']);
   assert.deepEqual(changesBetween(undefined, sum({ head: 'def' })), []);
   assert.deepEqual(changesBetween(sum({ head: null }), sum({ head: 'def' })), ['ci']);
   assert.ok(!changesBetween(sum(), sum({ head: 'def', state: 'CLOSED' })).includes('head'));
@@ -71,7 +69,7 @@ test('an UNKNOWN mergeability is no change, and the last known one carries over 
   assert.equal(carry(undefined, unknown).mergeable, 'UNKNOWN');
 });
 
-test('the poll routes head changes per card on both kinds of board and remembers heads that need no rebuild', async () => {
+test('the poll remembers head changes without waking either kind of board until CI settles', async () => {
   const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value)); };
   const claude = (...parts) => path.join(home, '.claude', ...parts);
   const waveDir = path.join(home, 'waves-board');
@@ -99,9 +97,9 @@ test('the poll routes head changes per card on both kinds of board and remembers
   result(7, 'new');
   result(8, 'new');
   const moved = await poll();
-  assert.deepEqual(moved.changes, [{ repo: 'o/r', pr: 7, changes: ['head'] }]);
-  assert.deepEqual(events(waveDir).at(-1).data.prs, [{ wave: 'w', id: 'A1', pr: 7, changes: ['head'] }]);
-  assert.deepEqual(events(fileDir).at(-1).data.prs, [{ wave: 'own', id: 'S1', pr: 7, changes: ['head'] }]);
+  assert.deepEqual(moved.changes, []);
+  assert.deepEqual(events(waveDir), []);
+  assert.deepEqual(events(fileDir), []);
   assert.deepEqual(fs.readFileSync(path.join(home, 'calls'), 'utf8').trim().split('\n'), ['7', '8', '7', '8']);
   const state = JSON.parse(fs.readFileSync(claude('kickflip', 'github-state.json'), 'utf8'));
   assert.equal(state.prs['o/r#8'].head, 'new');
@@ -109,14 +107,14 @@ test('the poll routes head changes per card on both kinds of board and remembers
   result(7, 'newer', { pending: 0 });
   await poll();
   assert.deepEqual(events(waveDir).at(-1).data.prs, [
-    { wave: 'w', id: 'A1', pr: 7, changes: ['ci', 'head'] }, { wave: 'w', id: 'A2', pr: 7, changes: ['ci'] },
+    { wave: 'w', id: 'A1', pr: 7, changes: ['ci'] }, { wave: 'w', id: 'A2', pr: 7, changes: ['ci'] },
   ]);
   assert.deepEqual(events(fileDir).at(-1).data.prs, [
-    { wave: 'own', id: 'S1', pr: 7, changes: ['ci', 'head'] }, { wave: 'own', id: 'S2', pr: 7, changes: ['ci'] },
+    { wave: 'own', id: 'S1', pr: 7, changes: ['ci'] }, { wave: 'own', id: 'S2', pr: 7, changes: ['ci'] },
   ]);
 });
 
-test('the poll retries an install head change after its delivery fails, without repeating CI delivered to another board', async () => {
+test('the poll retries a failed CI delivery without repeating it on another board', async () => {
   const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value)); };
   const claude = (...parts) => path.join(home, '.claude', ...parts);
   const installDir = path.join(home, 'retry-install');
@@ -145,7 +143,7 @@ test('the poll retries an install head change after its delivery fails, without 
   const retried = await poll();
   assert.deepEqual(retried.failed, []);
   assert.deepEqual(retried.events.map((e) => e.route), ['install']);
-  assert.deepEqual(JSON.parse(fs.readFileSync(blocked, 'utf8')).data.prs, [{ wave: 'w', id: 'A1', pr: 7, changes: ['ci', 'head'] }]);
+  assert.deepEqual(JSON.parse(fs.readFileSync(blocked, 'utf8')).data.prs, [{ wave: 'w', id: 'A1', pr: 7, changes: ['ci'] }]);
   assert.equal(fs.readFileSync(otherEvents, 'utf8'), delivered);
   assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).prs['o/r#7'].head, 'new');
   assert.deepEqual((await poll()).events, []);

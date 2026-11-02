@@ -6,7 +6,6 @@ import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { ITEM_STATUSES, ownerQuestion, refOf } from './domain.mjs';
-import { installScriptError } from './install-script.mjs';
 import { appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason } from '../shared/usage-gate.mjs';
 import { dropQueued, reviseQueued, flushQueue, queueStatus } from '../hub/push.mjs';
@@ -509,35 +508,19 @@ const writeBoardRules = (site, change) => writeBoardJSON(site, (cfg) => {
 });
 
 const storedTickets = (value) => { try { return value ? ticketSource(value) : null; } catch { return null; } };
-// A board's settings in board.json (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md): auto_merge, off
-// when absent, and tickets, its one ticket source, absent when unset or invalid
+// A board's settings in board.json (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md): auto_merge and
+// auto_build, off when absent, and tickets, its one ticket source, absent when unset or invalid
 // (docs/adr/0081-a-board-has-one-ticket-source.md).
 export const settingsOf = (cfg) => {
   const tickets = storedTickets(cfg?.tickets);
-  return { auto_merge: cfg?.auto_merge === true, ...(tickets ? { tickets } : {}) };
+  return { auto_merge: cfg?.auto_merge === true, auto_build: cfg?.auto_build === true, ...(tickets ? { tickets } : {}) };
 };
 export async function readBoardSettings(site) {
   return settingsOf(await readJSON(path.join(needSite(site), 'board.json'), {}));
 }
-export async function readInstallScript(site) {
-  return (await boardConfig(needSite(site))).install_script ?? '';
-}
-
-export function saveInstallScript(site, changes) {
-  onlyKeys(changes, ['install_script'], 'the install script setting');
-  if (changes.install_script !== '') {
-    const error = installScriptError(changes.install_script);
-    if (error) fail(error);
-  }
-  const installScript = storedPath(changes.install_script);
-  return writeBoardJSON(site, (cfg) => ({
-    set: { install_script: installScript }, install_script: installScript,
-    changed: (cfg.install_script ?? '') !== installScript,
-  }));
-}
-// changes {auto_merge: boolean, tickets: source} → {file, settings, changed}; changed lists the keys whose value moved.
+// changes {auto_merge?: boolean, auto_build?: boolean, tickets?: source} → {file, settings, changed}; changed lists the keys whose value moved.
 export function saveBoardSettings(site, changes) {
-  onlyKeys(changes, ['auto_merge', 'tickets'], 'the settings');
+  onlyKeys(changes, ['auto_merge', 'auto_build', 'tickets'], 'the settings');
   if (!Object.keys(changes).length) fail('the settings name nothing to change');
   changes = { ...changes };
   for (const [k, v] of Object.entries(changes)) {
@@ -553,7 +536,7 @@ export function saveBoardSettings(site, changes) {
 // The CLI's `settings set <name> on|off`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
   const key = String(name).replace(/-/g, '_');
-  if (key !== 'auto_merge') fail(`no board setting "${name}"; settings are ${Object.keys(settingsOf({})).map((k) => k.replace(/_/g, '-')).join(', ')}`);
+  if (!['auto_merge', 'auto_build'].includes(key)) fail(`no board setting "${name}"; settings are ${Object.keys(settingsOf({})).map((k) => k.replace(/_/g, '-')).join(', ')}`);
   if (!['on', 'off'].includes(value)) fail(`settings set ${name} takes on or off, not "${value}"`);
   const { file, settings } = await saveBoardSettings(site, { [key]: value === 'on' });
   return { file, lines: [`${name} ${settings[key] ? 'on' : 'off'}`] };
@@ -932,6 +915,14 @@ function installOf({ install, installSha, installLabel, clearInstall }) {
   }
   const sha = installSha === undefined ? undefined : /^[0-9a-f]{7,40}$/i.test(installSha) ? installSha.toLowerCase() : fail(`--install-sha takes a commit sha of 7 to 40 hex digits, not "${installSha}"`);
   return { url: String(install).trim(), ...(installLabel === undefined ? {} : { label: text(installLabel, '--install-label') }), built_at: new Date().toISOString(), ...(sha ? { sha } : {}) };
+}
+
+export async function setMainInstall(site, { install, installSha }) {
+  const built = installOf({ install, installSha });
+  if (!built) fail('main set needs --install <url>');
+  const file = path.join(needSite(site), 'data', 'main.json');
+  await writeJSON(file, { install: built });
+  return { file, lines: ['main install set'] };
 }
 
 // → the wave file, and when a dep finishes the items it unblocked as `unblocked: <key>` lines; closing

@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0099
+---
+
 # A card's external links share the last details line
+
+Superseded in part by [0099](0099-a-boards-build-script-serves-or-builds-each-card-and-main.md): Visit or Install shares the final Links row with Notes and Review, with one inert running badge in place of the former rebuilding confirmation.
 
 An open card's details list ends with **Notes ↗ · Install ↗ · Review on GitHub ↗**, each only when it applies, with Review last. These links share the full width and wrap between links when needed; Hold, Grill, Merge and the other workflow buttons stay in their own row below. This placement keeps the links together without another button row on a phone, following the owner's chosen details-line prototype.
 

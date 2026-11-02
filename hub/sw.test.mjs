@@ -209,6 +209,7 @@ test("API calls, the hub's stream, uploads, posts, other origins and a frame's p
   const w = worker();
   w.network = () => new Response('net', { headers: { 'x-app-shell': '1' } });
   const untouched = [
+    ...['/ios/try/int-41/', '/ios/try/main/page.html'].map((p) => [p, { mode: 'navigate', destination: 'document' }]),
     ['/_hub/stream'], ['/_hub/sidebar.json'], ['/_hub/api/hub'], ['/_hub/needs.json'],
     ['/hub-orchestrator/api/board'], ['/hub-orchestrator/api/thread?key=w/1'], ['/hub-orchestrator/api/stream'],
     ['/hub-orchestrator/_claude/events'], ['/hub-orchestrator/uploads/1-shot.png', { destination: 'image' }],

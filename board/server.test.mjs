@@ -77,7 +77,7 @@ test('board writes refuse cross-site requests and non-JSON bodies before their h
     assert.equal(r.status, 403, JSON.stringify(headers));
     assert.match(r.headers.get('content-type'), /^text\/plain/);
   }
-  for (const p of ['/_claude/events', '/api/settings', '/api/install-script', '/api/rules', '/api/hide']) {
+  for (const p of ['/_claude/events', '/api/settings', '/api/try', '/api/rules', '/api/hide']) {
     for (const headers of [{ 'content-type': 'text/plain' }, { 'content-type': 'application/x-www-form-urlencoded' }, {}]) {
       assert.equal((await fetch(base + p, { method: 'POST', headers, body: '{' })).status, 403, p);
     }
@@ -515,18 +515,21 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
   const save = (body) => fetch(`${base}/api/settings`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const settingsEvents = async () => (await (await fetch(`${base}/_claude/events?kind=settings`)).json()).map((e) => e.data);
   try {
-    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false } });
+    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false } });
     const on = await save({ auto_merge: true });
     assert.equal(on.status, 200);
     const out = await on.json();
-    assert.deepEqual(out.settings, { auto_merge: true });
+    assert.deepEqual(out.settings, { auto_merge: true, auto_build: false });
     assert.match(out.id, /^e/);
     const written = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8'));
     assert.deepEqual([written.title, written.rules.length, written.auto_merge], ['T', 1, true]);
     assert.deepEqual(await settingsEvents(), [{ auto_merge: true }]);
+    assert.equal((await save({ auto_build: true })).status, 200);
+    assert.equal((await (await fetch(`${base}/api/settings`)).json()).settings.auto_build, true);
+    assert.deepEqual((await settingsEvents())[0], { auto_build: true });
     assert.equal((await (await save({ auto_merge: true })).json()).id, null);
-    for (const bad of [{ auto_merge: 'yes' }, { auto_deploy: true }, {}, ['x']]) assert.equal((await save(bad)).status, 400, JSON.stringify(bad));
-    assert.equal((await settingsEvents()).length, 1);
+    for (const bad of [{ auto_merge: 'yes' }, { auto_build: 'yes' }, { auto_deploy: true }, {}, ['x']]) assert.equal((await save(bad)).status, 400, JSON.stringify(bad));
+    assert.equal((await settingsEvents()).length, 2);
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8')).auto_merge, true);
     fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', ticket: 'INT-3' }, { id: 'B2', title: 'Two', ticket: 'OPS-4' }] }));
     const internal = await (await save({ tickets: { source: 'internal', prefix: 'OPS' } })).json();
@@ -541,38 +544,58 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
   }
 });
 
-test('Board Settings saves and clears a validated install script, preserving board.json and logging changes without a thread', async () => {
-  const cfg = { title: 'T', items: 'data/wave.json', slug: 't', auto_merge: true };
-  const script = path.join(home, 'install.sh');
-  fs.writeFileSync(script, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
-  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
-  const save = (body) => fetch(`${base}/api/install-script`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  const log = path.join(home, '.claude', 'kickflip', 'hub.log');
-  const beforeLog = fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '';
-  const eventFile = path.join(site, 'data', 'events.jsonl');
-  const events = fs.existsSync(eventFile) ? fs.readFileSync(eventFile, 'utf8') : '';
+test('try forwards only the board route and key over loopback, returning hub starts and refusals', async () => {
+  const [port] = await freePorts();
+  const seen = [];
+  let refuse = false;
+  const hub = http.createServer(async (req, res) => {
+    let body = '';
+    for await (const chunk of req) body += chunk;
+    seen.push([req.url, JSON.parse(body), req.headers]);
+    res.writeHead(refuse ? 409 : 202, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(refuse ? { error: 'Already running' } : { status: 'started' }));
+  });
+  await new Promise((resolve, reject) => hub.once('error', reject).listen(port, '127.0.0.1', resolve));
+  const [boardPort] = await freePorts();
+  const server = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], {
+    env: { ...process.env, HOME: home, PORT: String(boardPort), PREFIX: '/own-route', KICKFLIP_HUB_PORT: String(port) },
+  });
+  const exited = new Promise((resolve) => server.once('exit', resolve));
   try {
-    assert.deepEqual(await (await fetch(`${base}/api/install-script`)).json(), { install_script: '' });
-    for (const install_script of ['relative.sh', script + '.missing', home]) {
-      const r = await save({ install_script });
-      assert.equal(r.status, 400);
-      assert.match((await r.json()).error, /Install script must/);
-    }
-    fs.chmodSync(script, 0o720);
-    assert.equal((await save({ install_script: script })).status, 400);
-    fs.chmodSync(script, 0o700);
-    for (const body of [{}, { install_script: script, command: 'anything' }]) assert.equal((await save(body)).status, 400);
-    assert.deepEqual(await (await save({ install_script: script })).json(), { install_script: script });
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(site, 'board.json'))), { ...cfg, install_script: script });
-    assert.equal((await (await fetch(`${base}/api/install-script`)).json()).install_script, script);
-    const changed = fs.readFileSync(log, 'utf8');
-    assert.match(changed.slice(beforeLog.length), /install script/);
-    assert.ok(changed.includes(script));
-    await save({ install_script: script });
-    assert.equal(fs.readFileSync(log, 'utf8'), changed);
-    assert.equal((await save({ install_script: '' })).status, 200);
-    assert.equal(fs.existsSync(eventFile) ? fs.readFileSync(eventFile, 'utf8') : '', events);
-  } finally { fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't' })); }
+    await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', reject); });
+    const post = (body) => fetch(`http://127.0.0.1:${boardPort}/api/try`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-host': 'mac.example' }, body: JSON.stringify(body) });
+    assert.equal((await post({ key: 't/A1' })).status, 202);
+    assert.deepEqual(seen[0].slice(0, 2), ['/_hub/build', { route: 'own-route', key: 't/A1' }]);
+    assert.equal(seen[0][2]['x-forwarded-host'], undefined);
+    refuse = true;
+    const refusal = await post({ key: 't/A1' });
+    assert.equal(refusal.status, 409);
+    assert.deepEqual(await refusal.json(), { error: 'Already running' });
+    for (const body of [{ route: 'other', key: 't/A1' }, {}, []]) assert.equal((await post(body)).status, 400);
+  } finally {
+    server.kill(); await exited;
+    await new Promise((resolve) => { hub.closeAllConnections(); hub.close(resolve); });
+  }
+});
+
+test('the board snapshot reads try.json and main.json and ignores the old install_script setting', async () => {
+  const config = path.join(site, 'board.json');
+  const previous = fs.readFileSync(config, 'utf8');
+  try {
+    fs.writeFileSync(config, JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't', install_script: '/ignored' }));
+    fs.writeFileSync(path.join(site, 'data/wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One' }] }));
+    fs.writeFileSync(path.join(site, 'data/try.json'), JSON.stringify({ kind: 'app', main: { sha: 'abcdef123', branch: 'main', slug: 'o/r', at: '2026-11-01', script: true, state: 'ready' }, cards: { 't/A1': { head: 'abc123456', sha: 'abc1234', state: 'running', ahead: 1, script: true } } }));
+    fs.writeFileSync(path.join(site, 'data/main.json'), JSON.stringify({ install: { url: 'https://example.com/main.apk' } }));
+    const board = await (await fetch(`${base}/api/board`)).json();
+    assert.equal(board.main.url, 'https://example.com/main.apk');
+    assert.equal(board.main.sha, 'abcdef1');
+    assert.deepEqual(board.items.find((i) => i.key === 't/A1').try, { kind: 'app', state: 'running', stale: false, url: null, sha: null, changes: true, script: true });
+    assert.equal((await fetch(`${base}/api/install-script`)).status, 404);
+  } finally {
+    fs.writeFileSync(config, previous);
+    fs.rmSync(path.join(site, 'data/try.json'), { force: true });
+    fs.rmSync(path.join(site, 'data/main.json'), { force: true });
+  }
 });
 
 test('the watcher prints the hub rules, then the board rules, then the board settings, after the event lines', async () => {
@@ -595,10 +618,10 @@ test('the watcher prints the hub rules, then the board rules, then the board set
   try {
     const lines = await watch('rules1');
     assert.match(lines[0], /^event data\/events\.jsonl /);
-    assert.deepEqual(lines.slice(1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off']);
+    assert.deepEqual(lines.slice(1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off']);
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, auto_merge: true }));
     fs.rmSync(path.join(web, 'settings.json'));
-    assert.deepEqual((await watch('rules2')).slice(1), ['setting auto-merge on']);
+    assert.deepEqual((await watch('rules2')).slice(1), ['setting auto-merge on', 'setting auto-build off']);
   } finally {
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
     fs.rmSync(path.join(web, 'settings.json'), { force: true });

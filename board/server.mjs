@@ -4,9 +4,9 @@
 // It writes page events, hidden events and uploads; agent sessions write the other files
 // below through bin/board.mjs (store.mjs):
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item set|relate-ask, ask progress|done, followup add|done,
-//   builder start|progress|done (bin/agent.mjs is an alias for builder).
-// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, install_script}. install_script is the
-// owner-set absolute script path the hub runs for a card's device install, saved only on this board's Settings.
+//   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
+// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build}. auto_build asks the hub to
+// run each card's .kickflip/build after each push; main always builds after a merge.
 // auto_merge (false when absent) lets monitor merge
 // an approved, green, clean PR itself; off, the card shows the owner's Merge (store.mjs settingsOf). rules are the owner's standing instructions to this
 // board's session [{id, text, by, at}] (board.mjs rules, hub/rules.mjs). reviewers are the board's own [{name, slack_user, dm,
@@ -76,11 +76,11 @@
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (store.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
-//   GET  /api/settings           the board's settings, {auto_merge} (store.mjs readBoardSettings)
-//   POST /api/settings           {auto_merge: boolean} → board.json, keeping its other keys, and when the value moved a
-//                                `settings {auto_merge}` event, which wakes Claude. → {settings, id}; a bad body → 400 {error}
-//   GET, POST /api/install-script {install_script}: Settings reads or saves the script path; empty clears it.
-//                                Refuses an unsafe file, and logs a change in the hub log without a thread line
+//   GET  /api/settings           the board's settings, {auto_merge, auto_build} (store.mjs readBoardSettings)
+//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean} → board.json, keeping its other keys, and when the value moved a
+//                                `settings {<changed setting>: value}` event, which wakes Claude. → {settings, id}; a bad body → 400 {error}
+//   POST /api/try                {key}: forwards a card build to the hub's loopback /_hub/build
+// data/try.json is the hub's run state; data/main.json holds main's published install link.
 //   GET  /_claude/events         events not hidden, newest first, each with Claude's reply if written
 //   GET  /_claude/needs          {items: [{kind, text, url}], working, summary, lanes: {review, progress, todo}, building}:
 //                                one item per Needs you line, each pending prompt of this board's session among them
@@ -105,7 +105,7 @@ import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { buildBoard, ITEM_EVENTS, needsAnswer, refOf, threadOf } from './domain.mjs';
 import { createReadStream, watch as watchFiles } from 'node:fs';
-import { BoardError, boardConfig, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readInstallScript, readNotes, readWorking, readUpload, saveBoardRules, saveBoardSettings, saveInstallScript, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, boardConfig, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readNotes, readWorking, readUpload, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -348,7 +348,7 @@ async function snapshot() {
   }));
 
   return {
-    ...items, prs, events: pageEvents, working, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
+    ...items, route: prefix.slice(1) || path.basename(here), try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, working, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
     checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
     watched: (await readJSON(path.join(wavesDir(), 'monitor.json'), { waves: [] })).waves || [],
     owner: await readJSON(path.join(data, 'owner.json'), { items: [] }),
@@ -605,17 +605,16 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { rules: saved.rules, id });
     }
     if (p === '/api/settings' && req.method === 'GET') return json(res, 200, { settings: await readBoardSettings(here) });
-    if (p === '/api/install-script' && req.method === 'GET') return json(res, 200, { install_script: await readInstallScript(here) });
-    if (p === '/api/install-script' && req.method === 'POST') {
+    if (p === '/api/try' && req.method === 'POST') {
       const body = await readBody(req);
-      let saved;
-      try { saved = await saveInstallScript(here, body); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
-      if (saved.changed) {
-        const web = path.join(os.homedir(), '.claude', 'kickflip');
-        await fs.mkdir(web, { recursive: true });
-        await fs.appendFile(path.join(web, 'hub.log'), `${new Date().toISOString()} install script ${here}: ${JSON.stringify(saved.install_script)}\n`);
-      }
-      return json(res, 200, { install_script: saved.install_script });
+      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => k !== 'key') || typeof body.key !== 'string') return json(res, 400, { error: 'Send only the card key.' });
+      try {
+        const response = await fetch(`http://127.0.0.1:${process.env.KICKFLIP_HUB_PORT || 4500}/_hub/build`, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ route: prefix.slice(1) || path.basename(here), key: body.key }), signal: AbortSignal.timeout(10_000),
+        });
+        return json(res, response.status, await response.json());
+      } catch (e) { return json(res, 502, { error: `Could not start the build: ${e.message}` }); }
     }
     if (p === '/api/settings' && req.method === 'POST') {
       const body = await readBody(req);

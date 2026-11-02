@@ -3,9 +3,7 @@
 // (docs/adr/0040-one-board-registry-for-every-hub-feature.md). Each PR runs the monitor skill's monitor-gh.sh once,
 // however many boards show it, and its summary is compared with the last one accepted, kept by repo#pr in
 // ~/.claude/kickflip/github-state.json. Each board's `github-change` event lists its eligible changed cards,
-// waking its owning session to run a monitor tick. A `head` change goes only to a card that
-// carries an install, so its session rebuilds it
-// (docs/adr/0051-a-device-app-card-carries-an-install-link.md). Each board gets data/checked.json after a check that reached
+// waking its owning session to run a monitor tick. Each board gets data/checked.json after a check that reached
 // GitHub for every PR it shows, in the idle form when it shows none. sendWakes sends the polling interval's daily wakes
 // to every board, changed or not.
 import fs from 'node:fs';
@@ -18,7 +16,7 @@ import { GITHUB_STATE as STATE, WAKE_STATE, listBoards, appendEvent, prKey, read
 const MONITOR_GH = path.join(os.homedir(), '.claude', 'skills', 'monitor', 'monitor-gh.sh');
 // The hub's service starts it with a bare PATH, without Homebrew's on macOS, and monitor-gh.sh needs gh and jq.
 const CHILD_PATH = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
-export const CHANGE_KINDS = ['ci', 'review', 'comments', 'merged', 'mergeable', 'draft', 'head'];
+export const CHANGE_KINDS = ['ci', 'review', 'comments', 'merged', 'mergeable', 'draft'];
 
 const known = (v) => (v && v !== 'UNKNOWN' ? v : null);
 
@@ -52,12 +50,7 @@ export function changesBetween(prev, next) {
   if (next.state === 'MERGED' && prev.state !== 'MERGED') out.add('merged');
   for (const k of ['mergeable', 'mergeStateStatus']) if (known(prev[k]) && known(next[k]) && prev[k] !== next[k]) out.add('mergeable');
   if (prev.isDraft !== next.isDraft) out.add('draft');
-  if (next.state === 'OPEN' && prev.head && next.head && prev.head !== next.head) out.add('head');
   return CHANGE_KINDS.filter((k) => out.has(k));
-}
-
-export function cardChanges(p, changes) {
-  return changes.filter((k) => k !== 'head' || p.install);
 }
 
 // What to remember for next time: next, keeping the last known mergeability over an UNKNOWN.
@@ -116,7 +109,7 @@ export async function checkGitHub({ every, manifest }) {
       const key = prKey(p);
       const recipient = JSON.stringify([board.route, p.wave, p.id]);
       const previous = state.acknowledged[key]?.[recipient] || state.prs[key];
-      const changes = fetched[key] ? cardChanges(p, changesBetween(previous, fetched[key])) : [];
+      const changes = fetched[key] ? changesBetween(previous, fetched[key]) : [];
       if (changes.length) found[key] = CHANGE_KINDS.filter((k) => found[key].includes(k) || changes.includes(k));
       return { p, key, recipient, previous, changes };
     });
@@ -133,7 +126,7 @@ export async function checkGitHub({ every, manifest }) {
       }
     }
     // Retain each recipient's accepted summary while another delivery is outstanding, so retries don't repeat
-    // accepted changes or lose an install's head change when another board accepts only CI.
+    // accepted changes while another board's delivery is retried.
     for (const { key, recipient, previous, changes } of cards) {
       if (fetched[key] && (accepted || !changes.length)) {
         state.acknowledged[key] ||= {};

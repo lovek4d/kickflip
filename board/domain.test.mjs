@@ -826,3 +826,34 @@ test("the board dates Claude's newest write it can see: a reply, a Claude thread
   assert.equal(claudeAt({ waves: [{ slug: 'w', agents: { A1: { main: { started: at(5) } } }, wave: { items: [{ id: 'A1', title: 'One' }] } }] }), at(5));
   assert.equal(claudeAt({ waves: [{ slug: 'w', agents: { A1: { main: { started: at(30), done: at(2) } } }, wave: { items: [{ id: 'A1', title: 'One' }] } }] }), at(2));
 });
+
+test('try state maps web and app badges using current worktree heads, keeps lanes and installs, and omits Done', () => {
+  const waves = [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'INT-41', pr: 7, install: { url: 'https://m/app.apk', sha: 'abcdef1' } }] } }];
+  const snapshot = { route: 'orch', waves, prs: { 'o/r#7': { ...greenDraft, headRefOid: 'abcdef123' } } };
+  assert.equal(buildBoard(snapshot).kind, 'app');
+  for (const kind of ['web', 'app']) {
+    const current = { sha: 'abcdef1', head: 'abcdef123', ahead: 2, script: true, state: 'ready' };
+    const result = buildBoard({ ...snapshot, try: { kind, cards: { 'w/INT-41': current } } });
+    const item = result.items[0];
+    assert.equal(item.lane, 'review');
+    assert.deepEqual(item.try, { kind, state: 'ready', stale: false, sha: 'abcdef1', changes: true, script: true, url: kind === 'web' ? '/orch/try/int-41/' : 'https://m/app.apk' });
+    assert.equal(item.install.url, 'https://m/app.apk');
+    const stale = buildBoard({ ...snapshot, try: { kind, cards: { 'w/INT-41': { ...current, head: 'fedcba1', state: 'running' } } } }).items[0];
+    assert.equal(stale.try.stale, true);
+    assert.equal(stale.try.state, 'running');
+    assert.equal(stale.try.url, kind === 'web' ? null : 'https://m/app.apk');
+    const done = buildBoard({ ...snapshot, prs: { 'o/r#7': { state: 'MERGED' } }, try: { kind, cards: { 'w/INT-41': current } } }).items[0];
+    assert.equal(done.try, undefined);
+  }
+  assert.equal(buildBoard({ waves: [] }).kind, 'web');
+});
+
+test('main maps the recorded branch, commit time and short sha to its web or published app URL', () => {
+  const run = { slug: 'o/r', branch: 'develop', sha: 'abcdef123456', at: '2026-11-01T00:00:00Z', script: true, state: 'ready' };
+  for (const kind of ['web', 'app']) {
+    const snapshot = { waves: [], route: 'orch', try: { kind, main: run }, main: { install: { url: 'https://m/main.apk' } } };
+    assert.deepEqual(buildBoard(snapshot).main, { slug: run.slug, branch: 'develop', sha: 'abcdef1', at: run.at, kind, state: 'ready', url: kind === 'web' ? '/orch/try/main/' : 'https://m/main.apk' });
+    assert.equal(buildBoard({ ...snapshot, try: { kind, main: { ...run, script: false } } }).main, null);
+  }
+  assert.equal(buildBoard({ waves: [] }).main, null);
+});

@@ -58,7 +58,7 @@ test('the registry lists every board site, over the waves or its own file, with 
   assert.deepEqual(boards.map((b) => [b.route, b.kind, b.title]), [['orch', 'waves', 'Orch'], ['shop', 'file', 'Shop']]);
   const [orch, shop] = boards;
   assert.deepEqual(orch.waves.map((w) => w.slug), ['w1']);
-  assert.deepEqual(orch.prs, [{ wave: 'w1', id: 'A1', pr: 11, repo: 'o/r', since: '2026-10-20T00:00:00Z', install: false }]);
+  assert.deepEqual(orch.prs, [{ wave: 'w1', id: 'A1', pr: 11, repo: 'o/r', since: '2026-10-20T00:00:00Z' }]);
   assert.deepEqual(orch.reviewers, ['Ann']);
   assert.deepEqual(shop.prs.map((p) => [p.wave, p.id, p.pr, p.repo]), [['shop', 'S1', 722, 'o/r'], ['shop', 'S2', 11, 'o/r']]);
   assert.deepEqual(shop.reviewers, []);
@@ -320,7 +320,7 @@ test('one check polls each open PR on either board once, writes both checked.jso
   assert.deepEqual(pushes(), [{ title: "Shop isn't listening", url: '/shop/', tag: 'deaf-shop' }]);
 });
 
-test("a GitHub change goes to every board showing that PR, and a head move only to cards with an install", async () => {
+test("a GitHub change goes to every board showing that PR, and pushes alone never wake sessions to build", async () => {
   write(path.join(home, 'gh', '11.json'), gh({ reviewDecision: 'APPROVED' }));
   write(path.join(home, 'gh', '722.json'), gh({ failing: ['build'] }));
   const r = await poll();
@@ -336,9 +336,9 @@ test("a GitHub change goes to every board showing that PR, and a head move only 
   write(path.join(home, 'gh', '11.json'), gh({ reviewDecision: 'APPROVED', head: 'def', pending: 2 }));
   write(path.join(home, 'gh', '722.json'), gh({ failing: ['build'], head: 'fed', pending: 2 }));
   const pushed = await poll();
-  assert.deepEqual(pushed.changes.map((c) => [c.pr, c.changes]), [[11, ['head']]]);
+  assert.deepEqual(pushed.changes, []);
   assert.equal(events('orch', 'github-change').length, 1);
-  assert.deepEqual(events('shop', 'github-change').at(-1).data.prs, [{ wave: 'shop', id: 'S2', pr: 11, changes: ['head'] }]);
+  assert.equal(events('shop', 'github-change').length, 1);
   assert.equal(read(claude('kickflip', 'github-state.json')).prs['o/r#722'].head, 'fed');
   assert.deepEqual((await poll()).changes, [], 'a quiet poll does not repeat the head event');
 
@@ -348,10 +348,7 @@ test("a GitHub change goes to every board showing that PR, and a head move only 
   ] });
   write(path.join(home, 'gh', '11.json'), gh({ reviewDecision: 'APPROVED', head: 'new', pending: 2 }));
   await poll();
-  assert.deepEqual(events('shop', 'github-change').at(-1).data.prs, [
-    { wave: 'shop', id: 'S2', pr: 11, changes: ['head'] },
-    { wave: 'shop', id: 'S4', pr: 11, changes: ['head'] },
-  ]);
+  assert.equal(events('shop', 'github-change').length, 1);
 });
 
 test('a hub rules save reaches both boards', async () => {

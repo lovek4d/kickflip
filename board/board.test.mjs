@@ -54,36 +54,10 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
 
-test('the install script setting validates the file, preserves other settings and has no CLI setter', async (t) => {
-  const { saveInstallScript } = await import('./store.mjs');
-  const script = path.join(home, 'install.sh');
-  write(script, '#!/bin/sh\nexit 0\n');
-  fs.chmodSync(script, 0o700);
-  const cfg = read(site('orch', 'board.json'));
-  for (const [file, message] of [['relative.sh', /absolute path/], [script + '.missing', /existing regular file/], [home, /regular file/], [null, /absolute path/]]) {
-    await assert.rejects(async () => saveInstallScript(site('orch'), { install_script: file }), message);
-  }
-  for (const mode of [0o720, 0o702]) {
-    fs.chmodSync(script, mode);
-    await assert.rejects(async () => saveInstallScript(site('orch'), { install_script: script }), /writable by group or others/);
-  }
-  fs.chmodSync(script, 0o700);
-  const stat = fs.statSync;
-  const mocked = t.mock.method(fs, 'statSync', (file, ...args) => {
-    const result = stat(file, ...args);
-    if (file === script) result.uid = process.getuid() + 1;
-    return result;
-  });
-  await assert.rejects(async () => saveInstallScript(site('orch'), { install_script: script }), /owned by the current user/);
-  mocked.mock.restore();
-  assert.deepEqual(read(site('orch', 'board.json')), cfg);
-  await saveInstallScript(site('orch'), { install_script: script });
-  assert.deepEqual(read(site('orch', 'board.json')), { ...cfg, install_script: script });
-  await saveInstallScript(site('orch'), { install_script: '' });
-  assert.equal(read(site('orch', 'board.json')).install_script, '');
-  assert.notEqual(board('--site', 'orch', 'settings', 'set', 'install-script', script).code, 0);
-  assert.notEqual(board('--site', 'orch', 'install', 'w/A1', '--script', script).code, 0);
-  assert.match(board('install', 'w/A1').err, /needs --site/);
+test('the fixed build script has no owner path setting or command override', () => {
+  assert.notEqual(board('--site', 'orch', 'settings', 'set', 'install-script', '/tmp/script').code, 0);
+  assert.notEqual(board('--site', 'orch', 'build', 'w/A1', '--script', '/tmp/script').code, 0);
+  assert.match(board('build', 'w/A1').err, /needs --site/);
 });
 
 test('install posts only the route and key to the hub, prints started, and reports refusals plainly', async () => {
@@ -101,7 +75,8 @@ test('install posts only the route and key to the hub, prints started, and repor
     const env = { KICKFLIP_HUB_PORT: String(hub.address().port) };
     const run = () => runAsync('board.mjs', ['--site', 'orch', 'install', 'w/A1'], env);
     assert.deepEqual(await run(), { code: 0, out: 'started\n', err: '' });
-    assert.deepEqual(seen, [['POST', '/_hub/install', { route: 'orch', key: 'w/A1' }]]);
+    assert.deepEqual(seen, [['POST', '/_hub/build', { route: 'orch', key: 'w/A1' }]]);
+    assert.deepEqual(await runAsync('board.mjs', ['--site', 'orch', 'build', 'w/A1'], env), { code: 0, out: 'started\n', err: '' });
     refuse = true;
     assert.deepEqual(await run(), { code: 1, out: '', err: 'An install build is already running for this card.\n' });
   } finally { await new Promise((resolve) => { hub.closeAllConnections(); hub.close(resolve); }); }
@@ -1717,12 +1692,12 @@ test("reviewers set, add and remove keep the board's own reviewers in its board.
 test("settings prints the board's settings as JSON, off when absent, and settings set auto-merge on|off writes board.json keeping its other keys", () => {
   const cfg = () => read(site('orch', 'board.json'));
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] });
-  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false}\n', err: '' });
+  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false}\n', err: '' });
   const on = board('settings', 'set', 'auto-merge', 'on', '--site', 'orch');
   assert.equal(on.code, 0);
   assert.match(on.out, /^auto-merge on$/m);
   assert.deepEqual(cfg(), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }], auto_merge: true });
-  assert.equal(board('settings', '--site', 'orch').out, '{"auto_merge":true}\n');
+  assert.equal(board('settings', '--site', 'orch').out, '{"auto_merge":true,"auto_build":false}\n');
   assert.equal(board('settings', 'set', 'auto-merge', 'off', '--site', 'orch').code, 0);
   assert.equal(cfg().auto_merge, false);
 
@@ -1803,4 +1778,27 @@ test('builder start refuses a Claude pause before making records or a worktree, 
   write(at('kickflip', 'settings.json'), {});
   write(at('kickflip', 'usage.json'), { claude: { ...usage, five_hour: { ...usage.five_hour, used_percentage: 40 } } });
   assert.match(board('--site', 'orch', 'builder', 'start', 'w/A1').err, /Claude's weekly usage is at 96%/);
+});
+
+test('settings set auto-build defaults off, changes on and off, and preserves all other board keys', () => {
+  const cfg = read(site('orch', 'board.json'));
+  assert.equal(JSON.parse(board('--site', 'orch', 'settings').out).auto_build, false);
+  for (const value of ['on', 'off']) {
+    assert.equal(board('--site', 'orch', 'settings', 'set', 'auto-build', value).code, 0);
+    assert.deepEqual(read(site('orch', 'board.json')), { ...cfg, auto_build: value === 'on' });
+  }
+  assert.match(board('--site', 'orch', 'settings', 'set', 'auto-build', 'yes').err, /takes on or off/);
+});
+
+test('main set publishes an install with the same URL and sha checks as card installs', () => {
+  for (const url of ['https://example.com/main.apk', 'itms-services://?action=download-manifest&url=https://m/main.plist']) {
+    assert.equal(board('--site', 'orch', 'main', 'set', '--install', url, '--install-sha', 'ABCDEF1').code, 0);
+    const { built_at, ...install } = read(site('orch', 'data', 'main.json')).install;
+    assert.ok(Date.parse(built_at));
+    assert.deepEqual(install, { url, sha: 'abcdef1' });
+  }
+  assert.equal(board('--site', 'orch', 'main', 'set', '--install', 'http://m/app.apk').code, 1);
+  assert.equal(board('--site', 'orch', 'main', 'set', '--install', 'https://m/app.apk', '--install-sha', 'main').code, 1);
+  assert.equal(board('--site', 'orch', 'main', 'set').code, 1);
+  assert.equal(board('main', 'set', '--install', 'https://m/app.apk').code, 1);
 });

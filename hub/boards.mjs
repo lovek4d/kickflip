@@ -3,7 +3,7 @@
 // GitHub check and its github-change routing (github.mjs), the daily wakes, the rules fan-out, the handshake and the
 // not-listening push. So a board over the waves and a board over its own file get every link the same way, and a
 // new feature can't forget one kind. linksOf says whether each link reaches a board, for its Hub links sheet.
-// A board: {route, dir, port, title, kind: 'waves' | 'file', waves: [{slug, wave}], prs: [{wave, id, pr, repo, since, install}],
+// A board: {route, dir, port, title, kind: 'waves' | 'file', waves: [{slug, wave}], prs: [{wave, id, pr, repo, since}],
 // reviewers: [name], owner, watch, filter}. prs are the open PRs on any of its cards: every item with a PR that isn't
 // merged or dropped, with no monitor.json opt-in; a card showing a PR is the opt-in.
 import fs from 'node:fs';
@@ -103,14 +103,14 @@ function wavesOf(dir, cfg, kind) {
   return slugs.map((slug) => ({ slug, wave: readJSON(path.join(WAVES, slug, 'wave.json'), null) })).filter((w) => isWave(w.wave));
 }
 
-// [{slug, wave}] → each card's open PR: [{wave, id, pr, repo, since, install}], since being the item's gh_since. A card
+// [{slug, wave}] → each card's open PR: [{wave, id, pr, repo, since}], since being the item's gh_since. A card
 // whose board has no github and whose wave has no repo has no PR to poll.
 export function prsOf(waves, github) {
   return waves.flatMap(({ slug, wave }) => {
     const repo = github || wave.repo;
     if (!repo) return [];
     return wave.items.filter((it) => Number.isInteger(it?.pr) && !FINISHED.includes(it.status))
-      .map((it) => ({ wave: slug, id: it.id, pr: it.pr, repo, since: it.gh_since || NO_SINCE, install: Boolean(it.install?.url) }));
+      .map((it) => ({ wave: slug, id: it.id, pr: it.pr, repo, since: it.gh_since || NO_SINCE }));
   });
 }
 
@@ -119,7 +119,7 @@ function boardOf(route, s) {
   const kind = typeof cfg.items === 'string' && cfg.items !== 'waves' ? 'file' : 'waves';
   const waves = wavesOf(s.dir, cfg, kind);
   return {
-    route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, waves, prs: prsOf(waves, s.github), github: s.github, branch: s.branch, install_script: cfg.install_script,
+    route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, waves, prs: prsOf(waves, s.github), github: s.github, branch: s.branch, auto_build: cfg.auto_build === true,
     reviewers: names(cfg.reviewers), owner: s.owner || null, watch: Array.isArray(s.watch) && s.watch.length ? s.watch : ['data/events.jsonl'], filter: s.filter || null,
   };
 }

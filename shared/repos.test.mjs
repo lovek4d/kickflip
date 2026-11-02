@@ -34,17 +34,17 @@ test('the clone paths and default builder repo work directly and through install
     fs.writeFileSync(installer, "import { installLinks } from './bin/install.mjs';\ninstallLinks();\n");
     run(process.execPath, [installer]);
     const linked = path.join(home, '.claude', 'skills', 'kickflip');
-    const script = path.join(root, 'install.sh');
-    const site = path.join(home, 'board');
+    const script = path.join(root, '.kickflip', 'build');
+    fs.mkdirSync(path.dirname(script), { recursive: true });
     fs.writeFileSync(script, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
     const probe = path.join(root, 'paths-probe.mjs');
     fs.writeFileSync(probe, [
       "import { cloneRoot, reposDir } from './shared/repos.mjs';",
       "import { skillRepo } from './board/worktree.mjs';",
       "import { BG_SETTINGS, hubArgv } from './hub/sessions.mjs';",
-      "import { saveInstallScript } from './board/store.mjs';",
+      "import { buildScriptError } from './board/build-script.mjs';",
       "import './board/domain.mjs';",
-      `await saveInstallScript(${JSON.stringify(site)}, { install_script: ${JSON.stringify(script)} });`,
+      `if (buildScriptError(${JSON.stringify(script)})) throw new Error("Invalid build script");`,
       "console.log(JSON.stringify({ root: cloneRoot(), repos: reposDir(), repo: skillRepo(), settings: BG_SETTINGS, hub: hubArgv({route: 'hub'}) }));",
     ].join('\n'));
     for (const entry of [root, linked]) {
@@ -52,7 +52,6 @@ test('the clone paths and default builder repo work directly and through install
       assert.deepEqual([found.root, found.repos, found.repo], [root, path.join(root, '.repos'), root]);
       assert.ok(found.settings.includes(path.join(linked, 'hub', 'permission-hook.mjs')));
       assert.ok(found.hub.at(-1).includes(path.join(linked, 'docs', 'hub-session.md')));
-      assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8')).install_script, path.join(linked, 'install.sh'));
       assert.match(run(process.execPath, [path.join(entry, 'bin', 'kickflip.mjs')]), /kickflip install/);
       const wave = path.join(home, '.claude', 'waves', 'w');
       fs.mkdirSync(wave, { recursive: true });
