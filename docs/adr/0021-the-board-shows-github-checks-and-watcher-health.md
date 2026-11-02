@@ -1,8 +1,10 @@
 ---
-status: superseded in part by ADR-0096
+status: superseded in part by ADR-0104 and ADR-0096
 ---
 
 # The board shows GitHub checks and Claude's activity, with one refresh
+
+Superseded in part by [0104](0104-kickflip-owns-the-reviewer-record.md): the board no longer reads monitor.json to expose an unused wave watched flag; its GitHub check and session watcher health remain.
 
 Superseded in part by [0096](0096-colour-says-whos-waiting.md): "not listening" in the header is red, a fault.
 

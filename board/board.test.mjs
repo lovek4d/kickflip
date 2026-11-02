@@ -1864,3 +1864,122 @@ test('item set records a UTC gh-since and pr prints the board report through gh'
   assert.equal(fallback.code, 0, fallback.err);
   assert.equal(calls(dir).filter((a) => a[0] === 'pr').at(-1)[4], 'wave/repo');
 });
+
+function reviewProbe(source) {
+  const urls = Object.fromEntries(['store', 'domain', 'review'].map((name) => [name, new URL(`./${name}.mjs`, import.meta.url).href]));
+  const script = `import * as store from ${JSON.stringify(urls.store)};
+    import { buildBoard } from ${JSON.stringify(urls.domain)};
+    import { topicItems } from ${JSON.stringify(urls.review)};
+    import { linksOf } from ${JSON.stringify(new URL('../hub/boards.mjs', import.meta.url).href)};
+    const site = ${JSON.stringify(site('orch'))};
+    ${source}`;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', env: { ...process.env, HOME: home } });
+  assert.equal(r.status, 0, r.stderr);
+  return JSON.parse(r.stdout);
+}
+const annReviewer = { name: 'Ann', slack_user: 'U1', dm: 'D1', github: 'ann' };
+const bobReviewer = { name: 'Bob', slack_user: 'U2', dm: 'D2', github: 'bob' };
+
+function reviewState() {
+  return reviewProbe(`
+    const wave = await store.readJSON(${JSON.stringify(at('waves', 'w', 'wave.json'))}, {});
+    const prs = { 'o/r#7': { state: 'OPEN', isDraft: false } };
+    const card = buildBoard({ waves: [{slug: 'w', wave}], prs, topicItems: topicItems() }).items[0];
+    const board = { reviewers: ['Ann', 'Bob'], waves: [{slug: 'w', wave}], prs: [{wave: 'w', id: 'A1', pr: 7, repo: 'o/r'}] };
+    console.log(JSON.stringify({ card, slack: linksOf(board, { github: {prs}, listen: 'listening', settings: {}, wakes: {}, devices: 0, faults: {} }).find((l) => l.link === 'slack') }));
+  `);
+}
+
+test('review sent and the topic fallback drive the same card age, Stale lane and hub Slack link', () => {
+  const sent = String(Math.floor((Date.now() - 8 * 86400000) / 1000)) + '.000100';
+  const w = { ...wave(), repo: 'o/r', reviewers: [annReviewer, bobReviewer] };
+  w.items[0].pr = 7;
+  write(at('waves', 'w', 'wave.json'), w);
+  write(at('slack-bridge', 'topics', 'one.json'), { items: { 'w/A1': { review_link_ts: { Ann: sent, Bob: sent } } } });
+  const fallback = reviewState();
+  assert.equal(fallback.card.review.Ann.state, 'sent');
+  assert.equal(fallback.slack.ok, true);
+  assert.equal(fallback.card.lane, 'stale');
+  fs.rmSync(at('slack-bridge'), { recursive: true });
+  assert.equal(board('review', 'sent', 'w/A1', 'Unknown', '--ts', sent, '--channel', 'D1', '--site', 'orch').code, 1);
+  assert.equal(board('review', 'sent', 'w/A1', 'Ann', '--ts', sent, '--site', 'orch').code, 1);
+  for (const r of w.reviewers) {
+    const result = board('review', 'sent', 'w/A1', r.name, '--ts', sent, '--channel', r.dm, '--site', 'orch');
+    assert.equal(result.code, 0, result.err);
+  }
+  assert.deepEqual(read(at('waves', 'w', 'wave.json')).items[0].review_link_ts.Ann, { ts: sent, channel: 'D1' });
+  const recorded = reviewState();
+  assert.deepEqual(recorded.card.review, fallback.card.review);
+  assert.equal(recorded.card.inReviewSince, fallback.card.inReviewSince);
+  assert.equal(recorded.card.lane, 'stale');
+  assert.equal(recorded.slack.ok, true);
+  for (let i = 0; i < 2; i++) assert.equal(board('review', 'react', 'w/A1', 'Ann', 'git_merged', '--site', 'orch').code, 0);
+  assert.deepEqual(read(at('waves', 'w', 'wave.json')).items[0].review_link_ts.Ann.reactions, ['git_merged']);
+  assert.equal(board('review', 'react', 'w/A1', 'Ann', 'bad emoji', '--site', 'orch').code, 1);
+  assert.equal(board('review', 'react', 'w/A1', 'Nobody', 'git_merged', '--site', 'orch').code, 1);
+  write(at('waves', 'w', 'wave.json'), w);
+  assert.equal(board('review', 'react', 'w/A1', 'Ann', 'git_merged', '--site', 'orch').code, 1);
+});
+
+test('review sent accepts board reviewers on a file board and concurrent writes keep both links', async () => {
+  write(site('audit', 'board.json'), { items: 'data/wave.json', slug: 'audit', reviewers: [annReviewer, bobReviewer] });
+  const results = await Promise.all([annReviewer, bobReviewer].map((r) => runAsync('board.mjs', ['--site', 'audit', 'review', 'sent', 'audit/A1', r.name, '--ts', '1792800000.1', '--channel', r.dm])));
+  for (const r of results) assert.equal(r.code, 0, r.err);
+  assert.deepEqual(read(site('audit', 'data', 'wave.json')).items[0].review_link_ts, { Ann: { ts: '1792800000.1', channel: 'D1' }, Bob: { ts: '1792800000.1', channel: 'D2' } });
+});
+
+test('slack identity imports config once, protects the saved file and lets the session override it', () => {
+  const config = { self_dm: 'DOLD', owner_slack_user: 'UOLD', slack_domain: 'old', timezone: 'America/Los_Angeles', ignored: 'secret' };
+  write(at('slack-bridge', 'state.json'), { config });
+  const expected = { self_dm: 'DOLD', owner_slack_user: 'UOLD', slack_domain: 'old', timezone: 'America/Los_Angeles' };
+  assert.deepEqual(JSON.parse(board('slack').out), expected);
+  assert.equal(fs.statSync(at('kickflip', 'slack.json')).mode & 0o777, 0o600);
+  write(at('slack-bridge', 'state.json'), { config: { ...config, slack_domain: 'changed' } });
+  assert.deepEqual(JSON.parse(board('slack').out), expected);
+  const updated = board('slack', 'set', '--self-dm', 'DNEW', '--user', 'UNEW', '--domain', 'new', '--timezone', 'Asia/Tokyo');
+  assert.equal(updated.code, 0, updated.err);
+  assert.deepEqual(JSON.parse(updated.out), { self_dm: 'DNEW', owner_slack_user: 'UNEW', slack_domain: 'new', timezone: 'Asia/Tokyo' });
+  assert.equal(board('slack', 'set', '--timezone', 'Not/AZone').code, 1);
+  assert.equal(board('slack', 'set', '--self-dm', 'UWRONG').code, 1);
+});
+
+function digestCommand(args, now) {
+  const script = `import {main} from ${JSON.stringify(new URL('./bin/board.mjs', import.meta.url).href)};
+    process.exitCode = await main(${JSON.stringify(['--site', 'orch', 'review', 'digest', ...args])}, {now: new Date(${JSON.stringify(now)})});`;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  return args.length ? r.stdout : JSON.parse(r.stdout);
+}
+
+test('review digest lists the hub-checked PRs awaiting review, dates old links and turns due off after a sent digest', () => {
+  const now = '2026-11-02T17:00:00Z';
+  assert.equal(board('slack', 'set', '--timezone', 'America/Los_Angeles').code, 0);
+  const ts = (hours) => String((Date.parse(now) - hours * 3600000) / 1000);
+  write(site('orch', 'board.json'), { items: 'waves', reviewers: [bobReviewer] });
+  const item = (id, pr, extra = {}) => ({ id, title: id, pr, ...extra });
+  write(at('waves', 'w', 'wave.json'), { repo: 'o/r', reviewers: [annReviewer], items: [
+    item('old', 1, { review_link_ts: { Ann: { ts: ts(73), channel: 'D1' } } }),
+    item('edge', 2, { review_link_ts: { Ann: ts(48) } }),
+    item('recent', 3, { review_sent: { Ann: ts(47) } }),
+    item('approved', 4), item('draft', 5), item('closed', 6), item('unknown', 7), item('done', 10, { status: 'merged' }), item('ci', 13),
+  ] });
+  write(at('waves', 'empty', 'wave.json'), { reviewers: [{ name: 'Cy', slack_user: 'U3', dm: 'D3' }], items: [] });
+  write(at('kickflip', 'github-state.json'), { prs: Object.fromEntries([1, 2, 3, 4, 5, 6, 10, 13].map((pr) => [`o/r#${pr}`, { state: pr === 6 ? 'CLOSED' : 'OPEN', isDraft: pr === 5, reviewDecision: pr === 4 ? 'APPROVED' : 'REVIEW_REQUIRED', ...(pr === 13 ? { failing: ['lint'] } : {}) }])) });
+  const digest = digestCommand([], now);
+  assert.deepEqual([digest.date, digest.due, digest.reviewers.map((r) => r.name)], ['2026-11-02', true, ['Bob', 'Ann']]);
+  assert.deepEqual(digest.reviewers[0].items.map((i) => i.key), ['w/old', 'w/edge', 'w/recent']);
+  const ann = digest.reviewers.find((r) => r.name === 'Ann');
+  assert.deepEqual([ann.slack_user, ann.dm, ann.items.map((i) => i.key)], ['U1', 'D1', ['w/old', 'w/edge', 'w/recent']]);
+  assert.deepEqual(ann.items[0], { key: 'w/old', title: 'old', pr: 1, url: 'https://github.com/o/r/pull/1', sent_ts: ts(73), days_old: 3 });
+  for (const item of ann.items.slice(1)) assert.equal(Object.hasOwn(item, 'days_old'), false);
+  assert.equal(digestCommand([], '2026-11-02T16:59:00Z').due, false);
+  assert.equal(digestCommand([], '2026-11-01T17:00:00Z').due, false);
+  assert.equal(digestCommand([], '2026-11-03T07:30:00Z').date, '2026-11-02');
+  digestCommand(['sent', 'Ann', '--ts', ts(0), '--channel', 'D1', '--items', 'w/old,w/edge,w/recent'], now);
+  assert.deepEqual(read(site('orch', 'data', 'review-digests.json')), { last_date: '2026-11-02', digests: [{ reviewer: 'Ann', dm: 'D1', ts: ts(0), items: ['w/old', 'w/edge', 'w/recent'], reactions: [] }] });
+  assert.equal(digestCommand([], now).due, false);
+  assert.equal(digestCommand([], '2026-11-03T17:00:00Z').due, true);
+  const realClock = board('review', 'digest', '--site', 'orch');
+  assert.equal(realClock.code, 0, realClock.err);
+  assert.ok(Array.isArray(JSON.parse(realClock.out).reviewers));
+});

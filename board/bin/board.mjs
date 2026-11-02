@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readSlack, setSlack } from '../../hub/slack.mjs';
 import { routeRecord } from '../../hub/routes.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -154,6 +155,15 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          The settings page lists them; new waves copy them
   reviewers add --file <json>                            one reviewer or an array; replaces the same name
   reviewers remove <name>...                             refuses a name the board doesn't have
+  slack                                                 Slack identity as JSON; imports slack-bridge config once
+  slack set [--self-dm D..] [--user U..]                 sets hub Slack identity in ~/.claude/kickflip/slack.json
+            [--domain x] [--timezone Area/City]
+  review sent <wave>/<id> <reviewer> --ts <ts>           records the PR link's message in the item
+              --channel <dm>
+  review react <wave>/<id> <reviewer> <emoji>            records a reaction once on that reviewer's link
+  review digest                                         pending reviews as JSON; due weekday mornings from 09:00
+  review digest sent <reviewer> --ts <ts>               records a digest in data/review-digests.json;
+              --channel <dm> --items <key,key>           marks today sent in the Slack identity timezone
   rules list                                             the hub rules, then with --site the board's, one
                                                          "<hub|board> <id> <owner|claude> <text>" line each
   rules add --text <t> [--hub] [--by claude]             a rule in board.json, or with --hub in the hub's
@@ -343,6 +353,16 @@ const COMMANDS = {
   'tickets backfill': [[], ['dry-run'], (site, _, f, options) => store.backfillTickets(site, { dryRun: f['dry-run'] }, options)],
   'followup done': [['wave', 'id'], ['force'], (site, [wave, id], f) => store.finishFollowup(site, wave, id, { force: f.force })],
   'followup set': [['wave', 'id'], ['ticket'], (site, [wave, id], f) => store.setFollowupTicket(site, wave, id, f.ticket)],
+  slack: [[], [], () => ({ lines: [JSON.stringify(readSlack())] })],
+  'slack set': [[], ['self-dm', 'user', 'domain', 'timezone'], async (site, _, f) => {
+    const fields = { 'self-dm': 'self_dm', user: 'owner_slack_user', domain: 'slack_domain', timezone: 'timezone' };
+    try { return { lines: [JSON.stringify(await setSlack(Object.fromEntries(Object.entries(f).map(([k, v]) => [fields[k], v]))))] }; }
+    catch (e) { throw new store.BoardError(e.message); }
+  }],
+  'review sent': [['wave/id', 'reviewer'], ['ts', 'channel'], (site, [key, name], f) => store.reviewSent(site, key, name, f)],
+  'review react': [['wave/id', 'reviewer', 'emoji'], [], (site, [key, name, emoji]) => store.reviewReact(site, key, name, emoji)],
+  'review digest': [[], [], async (site, _, f, options) => ({ lines: [JSON.stringify(await store.reviewDigest(site, options))] })],
+  'review digest sent': [['reviewer'], ['ts', 'channel', 'items'], (site, [name], f, options) => store.reviewDigestSent(site, name, f, options)],
   'reviewers set': [[], ['file'], (site, _, f) => store.setReviewers(site, readJSONInput(f.file))],
   'reviewers add': [[], ['file'], (site, _, f) => store.addReviewers(site, readJSONInput(f.file))],
   'reviewers remove': [['...name'], [], (site, names) => store.removeReviewers(site, names)],
@@ -403,7 +423,7 @@ COMMANDS.install = COMMANDS.build;
 export async function main(argv, options = {}) {
   try {
     const { flags, rest } = parse(argv);
-    const name = routeRecord(COMMANDS, `${rest[0]} ${rest[1]}`) ? `${rest[0]} ${rest[1]}` : rest[0];
+    const name = [3, 2, 1].map((n) => rest.slice(0, n).join(' ')).find((key) => routeRecord(COMMANDS, key));
     const command = routeRecord(COMMANDS, name);
     if (!command) throw new UsageError(rest.length ? `unknown command "${rest.slice(0, 2).join(' ')}"` : 'no command given');
     const [params, allowed, run] = command;

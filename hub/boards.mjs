@@ -21,6 +21,7 @@ import { withFileLock } from './locks.mjs';
 import { dropSessionPrompts, readPrompts, savePrompts, withPromptsLock } from './prompts.mjs';
 import { storedPath } from '../bin/install.mjs';
 import { hubService } from '../shared/service.mjs';
+import { reviewLinks, topicItems } from '../board/review.mjs';
 
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLAUDE = path.join(os.homedir(), '.claude');
@@ -34,7 +35,6 @@ export const RESUME_STATE = path.join(WEB, 'resume-state.json');
 const LINK_FAULTS = path.join(WEB, 'link-faults.json');
 export const HUB_CODE = path.join(WEB, 'hub-code.json');
 const SUBS = path.join(WEB, 'push', 'subs.json');
-const TOPICS = path.join(CLAUDE, 'slack-bridge', 'topics');
 const FINISHED = ['merged', 'dropped'];
 const NO_SINCE = '1970-01-01T00:00:00Z';
 // bin/wait-events.mjs exits on each event and the session relaunches it, so a recent exit still counts as running.
@@ -328,12 +328,6 @@ export async function handshake(route, manifest = readManifest()) {
 // ---------- links ----------
 export const LINKS = ['github', 'events', 'wakes', 'push', 'slack'];
 
-function topicItems() {
-  let files = [];
-  try { files = fs.readdirSync(TOPICS).filter((f) => f.endsWith('.json')); } catch {}
-  return Object.assign({}, ...files.map((f) => readJSON(path.join(TOPICS, f), {}).items || {}));
-}
-
 function githubLink(board, state) {
   const last = state?.lastCheck;
   if (!last?.at) return { link: 'github', ok: false, detail: "The hub hasn't checked GitHub yet." };
@@ -362,14 +356,6 @@ const pushLink = (devices) => (devices
   ? { link: 'push', ok: true, detail: `${plural(devices, 'device')} subscribed.` }
   : { link: 'push', ok: false, detail: 'No device has turned on notifications.' });
 
-// A reviewer's link to a PR is a Slack message ts in its wave's review_link_ts ({<pr>: {<name>: ts}}), the item's
-// review_link_ts or review_sent, or the slack-bridge topic's items[<wave>/<id>].review_link_ts.
-function sentTo(wave, item, key, name, topics) {
-  const sent = item?.review_sent;
-  return Boolean(routeRecord(routeRecord(wave.review_link_ts, item?.pr), name) || routeRecord(routeRecord(wave.review_link_ts, key), name) || routeRecord(item?.review_link_ts, name)
-    || (Array.isArray(sent) ? sent.includes(name) : routeRecord(sent, name)) || routeRecord(routeRecord(topics, key)?.review_link_ts, name));
-}
-
 function slackLink(board, state, topics) {
   const missing = [];
   let inReview = 0;
@@ -379,7 +365,8 @@ function slackLink(board, state, topics) {
     inReview++;
     const { wave } = board.waves.find((w) => w.slug === p.wave);
     const item = wave.items.find((it) => it.id === p.id);
-    const lacking = [...new Set([...board.reviewers, ...names(wave.reviewers)])].filter((n) => !sentTo(wave, item, `${p.wave}/${p.id}`, n, topics));
+    const links = reviewLinks(wave, item, `${p.wave}/${p.id}`, topics);
+    const lacking = [...new Set([...board.reviewers, ...names(wave.reviewers)])].filter((n) => !Object.hasOwn(links, n));
     if (lacking.length) missing.push(`#${p.pr} has no link for ${lacking.join(', ')}`);
   }
   if (missing.length) return { link: 'slack', ok: false, detail: `${missing.join('; ')}.` };

@@ -1,8 +1,10 @@
 ---
-status: superseded in part by ADR-0006
+status: superseded in part by ADR-0104 and ADR-0006
 ---
 
 # One board registry for every hub feature
+
+Superseded in part by [0104](0104-kickflip-owns-the-reviewer-record.md): reviewer links now use kickflip’s shared item-record reader with legacy topic fallback; monitor.json supplies no board watched state.
 
 Superseded in part by [0006](0006-pushes-only-when-something-waits-on-the-owner.md): the handshake sends no test push, and the Connecting checklist shows only the hello and GitHub steps; the pushes link still says whether a device is subscribed. The registry and the links below still hold.
 

@@ -6,7 +6,7 @@ import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { ITEM_STATUSES, ownerQuestion, refOf } from './domain.mjs';
-import { appendEvent, listBoards, samePath } from '../hub/boards.mjs';
+import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason } from '../shared/usage-gate.mjs';
 import { dropQueued, reviseQueued, flushQueue, queueStatus } from '../hub/push.mjs';
 import { holdLine } from '../hub/schedule.mjs';
@@ -14,6 +14,8 @@ import { routeRecord } from '../hub/routes.mjs';
 import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleTickets, mcpCreateLine } from './tickets.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { fetchPR, reportOf, githubLogin } from '../hub/pr-report.mjs';
+import { reviewLinks, topicItems, reviewersOf } from './review.mjs';
+import { slackDay } from '../hub/slack.mjs';
 import { storedPath } from '../bin/install.mjs';
 import { RuleError, rulesOf, addRule, editRule, removeRule, applyRules, readHubRules, writeHubRules } from '../hub/rules.mjs';
 
@@ -446,7 +448,7 @@ export async function finishHandshake(site) {
   if (h && !h.done_at) await writeJSON(handshakeFile(site), { ...h, done_at: new Date().toISOString() });
 }
 
-// The board's own reviewers, in board.json `reviewers`, in the wave.json record format slack-bridge reads.
+// Board and wave reviewers share {name, slack_user, dm, github}.
 const REVIEWER_FIELDS = { name: /^[^\n]{1,40}$/, slack_user: /^U[A-Z0-9]+$/, dm: /^D[A-Z0-9]+$/, github: /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/ };
 const sameName = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
 function checkReviewers(list, name) {
@@ -468,6 +470,85 @@ async function writeReviewers(site, change) {
 }
 
 export const setReviewers = (site, list) => writeReviewers(site, () => checkReviewers(list, 'the reviewer file'));
+
+const linkMessage = (ts, channel) => {
+  if (typeof ts !== 'string' || !/^\d+(?:\.\d+)?$/.test(ts) || Number(ts) <= 0) fail('--ts must be a Slack message timestamp');
+  if (typeof channel !== 'string' || !/^D[A-Z0-9]+$/.test(channel)) fail('--channel must be a DM channel id');
+  return { ts, channel };
+};
+const reviewerOn = (wave, board, name) => reviewersOf(wave, board).find((r) => r.name === name)
+  || fail(`no reviewer "${name}" on this wave or board`);
+
+export const reviewSent = (site, key, name, { ts, channel }) => ticketWrite(site, async () => {
+  const link = linkMessage(ts, channel);
+  const { source, wave, item } = await loadItem(site, key);
+  reviewerOn(wave, (await boardConfig(site)).reviewers, name);
+  item.review_link_ts = { ...item.review_link_ts, [name]: link };
+  await writeJSON(source.file, wave);
+  return source.file;
+});
+
+export const reviewReact = (site, key, name, emoji) => ticketWrite(site, async () => {
+  if (typeof emoji !== 'string' || !/^[\w+-]+$/.test(emoji)) fail('emoji must be a Slack emoji name without colons');
+  const { source, wave, item } = await loadItem(site, key);
+  const reviewer = reviewerOn(wave, (await boardConfig(site)).reviewers, name);
+  const link = reviewLinks(wave, item, key, topicItems())[name];
+  if (!link?.ts) fail(`no review link recorded for ${name} on ${key}`);
+  const previous = routeRecord(item.review_link_ts, name);
+  const reactions = typeof previous === 'object' && Array.isArray(previous?.reactions) ? previous.reactions : [];
+  if (reactions.includes(emoji)) return source.file;
+  item.review_link_ts = { ...item.review_link_ts, [name]: { ...link, channel: link.channel || reviewer.dm, reactions: [...reactions, emoji] } };
+  await writeJSON(source.file, wave);
+  return source.file;
+});
+
+const digestFile = (site) => path.join(needSite(site), 'data', 'review-digests.json');
+export async function reviewDigest(site, { now = new Date() } = {}) {
+  needSite(site);
+  const cfg = await boardConfig(site);
+  const cache = await readJSON(GITHUB_STATE, {});
+  const topics = topicItems();
+  const reviewers = new Map();
+  for (const source of await itemSources(site)) {
+    const wave = await readJSON(source.file, {});
+    const people = reviewersOf(wave, cfg.reviewers);
+    for (const r of people) if (!reviewers.has(r.name)) reviewers.set(r.name, { name: r.name, slack_user: r.slack_user, dm: r.dm, items: [] });
+    const repo = boardRepoOf(site, wave);
+    for (const item of wave.items || []) {
+      if (!Number.isInteger(item.pr) || !repo || ['merged', 'done', 'dropped'].includes(item.status)) continue;
+      const key = `${source.slug}/${item.id}`;
+      // The hub's cached PR state stands in for gh, so this matches domain.mjs laneOf's review lane without a network call.
+      const pr = routeRecord(cache.prs, `${repo}#${item.pr}`);
+      if (pr?.state !== 'OPEN' || pr.isDraft || pr.failing?.length || pr.reviewDecision === 'APPROVED') continue;
+      const links = reviewLinks(wave, item, key, topics);
+      for (const r of people) {
+        const link = routeRecord(links, r.name);
+        const age = link?.ts ? (now.getTime() - Number(link.ts) * 1000) / 86400000 : null;
+        reviewers.get(r.name).items.push({ key, title: item.title, pr: item.pr, url: `https://github.com/${repo}/pull/${item.pr}`,
+          sent_ts: link?.ts || null, ...(age > 2 ? { days_old: Math.floor(age) } : {}) });
+      }
+    }
+  }
+  const { date, morning } = slackDay(now);
+  const sent = await readJSON(digestFile(site), {});
+  return { date, due: morning && sent.last_date !== date, reviewers: [...reviewers.values()].filter((r) => r.items.length) };
+}
+
+export async function reviewDigestSent(site, name, { ts, channel, items }, { now = new Date() } = {}) {
+  const link = linkMessage(ts, channel);
+  const keys = [...new Set(text(items, '--items').split(',').map((key) => key.trim()))];
+  const cfg = await boardConfig(site);
+  for (const key of keys) {
+    const { wave } = await loadItem(site, key);
+    reviewerOn(wave, cfg.reviewers, name);
+  }
+  const file = digestFile(site);
+  return withFileLock(file, async () => {
+    const saved = await readJSON(file, {});
+    await writeJSON(file, { last_date: slackDay(now).date, digests: [...(saved.digests || []), { reviewer: name, dm: link.channel, ts: link.ts, items: keys, reactions: [] }] });
+    return file;
+  });
+}
 
 // One reviewer or an array; each replaces the board's reviewer of the same name, ignoring case, or is added.
 export function addReviewers(site, input) {

@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { reviewLinks } from './review.mjs';
 import { buildBoard, threadOf, needsAnswer } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
@@ -11,7 +12,6 @@ function board({ agents = {}, pr = greenDraft, owner = {}, events = [], topicIte
     topicItems,
     threads,
     fromWaves,
-    watched: ['w'],
     waves: [{
       slug: 'w',
       agents,
@@ -276,7 +276,7 @@ test("an answer to an item's question joins that item's thread", () => {
 
 test('an internal wave marks its items, and one without a PR reaches Done by status', () => {
   const b = buildBoard({
-    fromWaves: true, watched: ['site'],
+    fromWaves: true,
     waves: [
       { slug: 'site', agents: runningBuilders('S2'), wave: { internal: true, items: [{ id: 'S1', title: 'Shared script', status: 'done' }, { id: 'S2', title: 'Uploads', status: 'building' }] } },
       { slug: 'w', wave: { items: [{ id: 'A1', title: 'One' }] } },
@@ -857,4 +857,21 @@ test('main maps the recorded branch, commit time and short sha to its web or pub
     assert.equal(buildBoard({ ...snapshot, try: { kind, main: { ...run, script: false } } }).main, null);
   }
   assert.equal(buildBoard({ waves: [] }).main, null);
+});
+
+test('review records use one precedence order and date the card from the item record', () => {
+  const wave = { review_link_ts: { 7: { Ann: '2.0', Bob: '3.0' }, 'w/A1': { Cy: '4.0' } } };
+  const topicItems = { 'w/A1': { review_link_ts: { Ann: '1.0', Dee: '5.0' } } };
+  const item = { pr: 7, review_link_ts: { Ann: { ts: '1792800000.000100', channel: 'D1', reactions: ['git_merged'] } }, review_sent: { Ann: '6.0', Eve: '7.0' } };
+  assert.deepEqual({ ...reviewLinks(wave, item, 'w/A1', topicItems) }, {
+    Ann: { ts: '1792800000.000100', channel: 'D1' }, Eve: { ts: '7.0' }, Bob: { ts: '3.0' }, Cy: { ts: '4.0' }, Dee: { ts: '5.0' },
+  });
+  assert.deepEqual({ ...reviewLinks({}, { review_sent: ['Ann'] }, 'w/A1') }, { Ann: { ts: null } });
+  assert.deepEqual({ ...reviewLinks({}, { review_link_ts: { Ann: '8.0' } }, 'w/A1') }, { Ann: { ts: '8.0' } });
+  const card = board({ item: { review_link_ts: item.review_link_ts }, topicItems: { 'w/A1': { review_link_ts: { Ann: '1.0' } } }, pr: { ...greenDraft, isDraft: false }, now: Date.parse('2026-11-01T00:00:00Z') }).items[0];
+  assert.deepEqual(card.review.Ann, { state: 'sent', since: '2026-10-24T00:00:00.000Z' });
+  assert.equal(card.inReviewSince, '2026-10-24T00:00:00.000Z');
+  assert.equal(card.lane, 'stale');
+  assert.equal(Object.hasOwn(card, 'slack'), false);
+  assert.equal(Object.hasOwn(board().waves[0], 'watched'), false);
 });

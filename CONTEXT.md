@@ -155,7 +155,7 @@ A set of work items built and reviewed together, with its reviewers and follow-u
 _Avoid_: batch, sprint, epic
 
 **Reviewers**:
-The people who get a board's PR links once they are ready, and the weekday digest. Each board keeps its own in `board.json`, which its Settings modal lists, and a new wave copies them into its own `reviewers`.
+The people who get a board's PR links once they are ready, and the weekday digest. Each board keeps its own in `board.json`, which its Settings modal lists, and a new wave copies them into its own `reviewers`. Kickflip owns the sent links in each item's `review_link_ts: {<name>: {ts, channel, reactions?}}`; one reader supplies the card, Stale age, hub Slack link and digest, with slack-bridge topic files only as a fallback. The session sends through Claude's Slack connector and records with `board.mjs review sent`, `review react` and `review digest sent`. Hub Slack identity lives in `~/.claude/kickflip/slack.json`, read or set by `board.mjs slack`; its timezone sets the weekday 09:00 digest date ([0104](docs/adr/0104-kickflip-owns-the-reviewer-record.md)).
 _Avoid_: approvers, watchers
 
 **Finished wave**:

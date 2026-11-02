@@ -1,8 +1,10 @@
 ---
-status: superseded in part by ADR-0006
+status: superseded in part by ADR-0104 and ADR-0006
 ---
 
 # A PR in review shows its age, and goes Stale after seven days
+
+Superseded in part by [0104](0104-kickflip-owns-the-reviewer-record.md): review age, Stale and weekday digests use kickflip’s item reviewer record; the session sends through Claude’s Slack connector.
 
 Superseded in part by [0006](0006-pushes-only-when-something-waits-on-the-owner.md): a card going Stale and a merge push nothing; the Stale lane and the board show them. The ages, the Stale lane and the reviewer replies below still hold.
 

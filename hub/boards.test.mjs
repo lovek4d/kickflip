@@ -44,7 +44,6 @@ write(claude('waves', 'w1', 'wave.json'), { repo: 'o/r', reviewers: [{ name: 'Be
   { id: 'A1', pr: 11, gh_since: '2026-10-20T00:00:00Z' }, { id: 'A2', pr: 12, status: 'merged' }, { id: 'A3' }, { id: 'A4', pr: 13, status: 'dropped' },
 ] });
 fs.mkdirSync(claude('waves', 'notes'), { recursive: true });
-write(claude('waves', 'monitor.json'), { waves: [] });
 write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', reviewers: [{ name: 'Ann', slack_user: 'U1', dm: 'D1', github: 'ann' }] });
 write(site('shop', 'board.json'), { title: 'Shop', items: 'data/wave.json', slug: 'shop' });
 write(site('shop', 'data', 'wave.json'), { repo: 'o/r', items: [{ id: 'S1', pr: 722 }, { id: 'S2', pr: 11 }] });
@@ -90,6 +89,9 @@ test('linksOf names each hub link that reaches a board and each that does not', 
   assert.equal(hubLink({ running: undefined, onDisk: 'h1' }).ok, false);
   assert.deepEqual(hubLink({ running: 'h0', onDisk: 'h1' }), { link: 'hub', ok: false,
     detail: 'The hub runs older code than its files; restart it with ' + (process.platform === 'darwin' ? 'launchctl kickstart -k gui/$(id -u)/local.claude.kickflip-hub' : 'systemctl --user restart kickflip-hub.service') });
+  const recorded = structuredClone(orch);
+  recorded.waves[0].wave.items[0].review_link_ts = { Ann: { ts: '1.1', channel: 'D1' }, Bea: '1.2' };
+  assert.equal(linksOf(recorded, { ...ok, topics: {} })[4].ok, true);
   const slack = linksOf(orch, { ...ok, topics: { 'w1/A1': { review_link_ts: { Ann: '1.1' } } } })[4];
   assert.deepEqual([slack.ok, slack.detail], [false, '#11 has no link for Bea.']);
   assert.equal(linksOf(orch, { ...ok, topics: {}, github: { ...github, prs: { 'o/r#11': { at: 'T', state: 'OPEN', isDraft: true } } } })[4].ok, true);

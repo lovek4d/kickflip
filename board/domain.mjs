@@ -13,6 +13,7 @@
 import { routeRecord } from '../hub/routes.mjs';
 import fs from 'node:fs';
 import { ticketBadge } from './tickets.mjs';
+import { reviewLinks, reviewTime, reviewersOf } from './review.mjs';
 import vm from 'node:vm';
 
 // A page script with no exports, which the page loads as is, so node runs it the same way.
@@ -34,8 +35,6 @@ export const waveFold = (slug) => `wave:${slug}`;
 export const ASKS_FOLD = 'asks';
 // A PR in review longer than this parks in the Stale lane (docs/adr/0044-a-pr-in-review-shows-its-age-and-goes-stale-after-seven-days.md).
 const STALE_AFTER = 7 * DAY;
-
-const slackTime = (ts) => (ts ? new Date(Number(String(ts).split('.')[0]) * 1000).toISOString() : null);
 
 // board/public/ui-links.js links Linear ids in text from these urls, so a board with no workspace links none.
 const linearRef = (id, tickets) => ({ id, url: tickets?.workspace ? `https://linear.app/${tickets.workspace}/issue/${id}` : null });
@@ -101,13 +100,10 @@ const REVIEW_NEXT = { reviewers: 'Waiting for PR reviewers', merge: 'Approved, m
 const OWNER_MERGE_NEXT = { waiting: 'Approved, Merge shows once CI and the merge state allow', ready: 'Approved and green: tap Merge', merging: 'Merging' };
 const FIX_CI = 'Fix the failing CI';
 
-function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, thread, events, working, topicItem, bridgeItem, permalink, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, tickets }) {
+function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, thread, events, working, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, tickets }) {
   const key = `${slug}/${it.id}`;
-  const reviewers = wave.reviewers || [];
-  const sentAt = Object.fromEntries([
-    ...(Array.isArray(it.review_sent) ? it.review_sent.map((name) => [name, null]) : Object.entries(it.review_sent || {}).map(([name, ts]) => [name, slackTime(ts)])),
-    ...Object.entries(topicItem?.review_link_ts || {}).map(([name, ts]) => [name, slackTime(ts)]),
-  ]);
+  const reviewers = reviewersOf(wave, boardReviewers);
+  const sentAt = Object.fromEntries(Object.entries(reviewLinks(wave, it, key, topicItems)).map(([name, link]) => [name, reviewTime(link.ts)]));
   const inReviewSince = Object.values(sentAt).filter(Boolean).sort()[0] || null;
   const lastTs = [...thread.map((m) => m.ts), ...events.map((e) => e.ts)].sort().pop() || null;
   // A builder status line is progress, not a message: it is never unread and answers no owner message.
@@ -145,7 +141,7 @@ function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, threa
     linear: (it.linear || []).map((id) => tickets?.source === 'linear' ? ticketBadge(tickets, id, { key, repo }) || linearRef(id, tickets) : linearRef(id, tickets)),
     pr: it.pr && repo ? { number: it.pr, url: `https://github.com/${repo}/pull/${it.pr}`, ...(pr || {}) } : null,
     reviewers: reviewers.map((r) => r.name), review: reviewOf(reviewers, pr, sentAt), inReviewSince,
-    slack: permalink(bridgeItem?.thread_ts), threadCount: thread.length + events.length, lastTs, othersAt,
+    threadCount: thread.length + events.length, lastTs, othersAt,
     grilling: Boolean(lastGrill && !lastGrill.reply),
     updatedAt: pr?.mergedAt || pr?.updatedAt || it.merged_at || builder?.at || lastTs || null, ask: null, fold: null, action: null,
     install: lane === 'done' ? null : installOf(it.install, pr),
@@ -231,7 +227,7 @@ function followUp({ slug, wave, f, order, repo, bumpedAt, closedAt, tickets }) {
     deps: [], held: false, risky: false, bumpable: !f.done, bumpedAt: f.done ? null : bumpedAt || null, manualSteps: [], fromAsk: null, from: f.from || null, next: null, hasNotes: false, branch: null,
     ticket: ticketOf(tickets, f.ticket, f.ticket || f.id, { repo, key: `${slug}/${f.id}` }),
     linear: [linearRef(f.id, tickets)], pr: null, reviewers: [], review: {},
-    slack: null, threadCount: 0, lastTs: null, othersAt: [], grilling: false, updatedAt: f.filed || null, ask: null, fold: null, action: null,
+    threadCount: 0, lastTs: null, othersAt: [], grilling: false, updatedAt: f.filed || null, ask: null, fold: null, action: null,
   };
 }
 
@@ -270,7 +266,7 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
     deps: [], held: false, risky: false, bumpable: !handled, bumpedAt: bumped, manualSteps: [], fromAsk: null, from: null, next: inProgress ? mark.next || null : null, hasNotes: false, branch: null,
     finishable: handled && !done, closing: false,
     linear: [], pr: null, reviewers: [], review: {}, inReviewSince: null,
-    slack: null, threadCount: msgs.length, lastTs, othersAt: handled ? othersAt : [], grilling: false, updatedAt: handled ? lastTs : e.ts,
+    threadCount: msgs.length, lastTs, othersAt: handled ? othersAt : [], grilling: false, updatedAt: handled ? lastTs : e.ts,
     ask: { eventId: e.id, state, askedAt: e.ts, bumpedAt: bumped, edited: Boolean(msg.edited), canEdit: !handled, text: msg.text, files, answerAt, from: msg.from || null },
     fold: null, action: null,
   };
@@ -378,20 +374,17 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
   return msgs;
 }
 
-// snapshot: {waves: [{slug, wave, agents: {<id>: {<agent>: record}}}], watched: [slug], fromWaves,
+// snapshot: {waves: [{slug, wave, agents: {<id>: {<agent>: record}}}], fromWaves,
 //   prs: {"<repo>#<n>": pr}, threads: {<key>: [line]}, events: [event with reply, hidden ones left out],
 //   working: {<event id>: ts}, checked: data/checked.json, listen, watcher: data/watcher.json, askLinks: {<ask event id>: <wave>/<id>},
-//   askProgress: {<ask event id>: {state: progress|done, at, next, moved}}, owner: owner.json, bridge: slack-bridge state.json,
+//   askProgress: {<ask event id>: {state: progress|done, at, next, moved}}, owner: owner.json,
 //   autoMerge: board.json's auto_merge (true leaves merging to the GitHub tick, so no card gets the owner's Merge),
 //   threads also holds each ask's lines under ask:<event id>;
 //   topicItems: merged topic items, prompts: this board's pending prompts (../hub/prompts.mjs shown), now: ms}
 // moved maps ask:<event id> to the work item whose thread holds that ask.
 // An event marked working needs its reply loaded, or it counts as still working.
 export function buildBoard(snapshot) {
-  const { bridge = {}, owner = {}, topicItems = {}, events = [], threads = {}, prs = {}, working = {} } = snapshot;
-  const domain = bridge.config?.slack_domain;
-  const selfDM = bridge.config?.self_dm;
-  const permalink = (ts) => (ts && selfDM && domain ? `https://${domain}.slack.com/archives/${selfDM}/p${ts.replace('.', '')}` : null);
+  const { owner = {}, topicItems = {}, events = [], threads = {}, prs = {}, working = {} } = snapshot;
   const now = snapshot.now ?? Date.now();
   const itemEvents = events.filter((e) => e.data?.key && ITEM_EVENTS.includes(e.kind));
   const withdrawn = new Set(events.filter((e) => e.kind === 'ask-withdrawn' && !e.data?.key).map((e) => e.data?.id));
@@ -415,7 +408,7 @@ export function buildBoard(snapshot) {
   const threadStates = new Map();
   for (const { slug, wave, agents: records = {} } of snapshot.waves) {
     const repo = snapshot.github || wave.repo || null;
-    waves.push({ slug, title: wave.title || slug, status: wave.status || null, internal: Boolean(wave.internal), finished: null, watched: !snapshot.fromWaves || (snapshot.watched || []).includes(slug), reviewers: (wave.reviewers || []).map((r) => r.name) });
+    waves.push({ slug, title: wave.title || slug, status: wave.status || null, internal: Boolean(wave.internal), finished: null, reviewers: (wave.reviewers || []).map((r) => r.name) });
     wave.items.forEach((it, order) => {
       const key = `${slug}/${it.id}`;
       const folded = foldedInto.get(key) || [];
@@ -432,7 +425,7 @@ export function buildBoard(snapshot) {
         thread: lines,
         events: [...itemEvents.filter((e) => e.data.key === key || askKeys.has(e.data.key)), ...askIds.map((id) => asks.get(id))],
         working: msgs.some((m) => m.state === 'working'),
-        topicItem: routeRecord(topicItems, key), bridgeItem: routeRecord(bridge.items, key), permalink, now, bumpedAt: cardBumps.get(key), holdAsk: cardHolds.get(key), closedAt: cardDones.get(key),
+        topicItems, boardReviewers: snapshot.reviewers || [], now, bumpedAt: cardBumps.get(key), holdAsk: cardHolds.get(key), closedAt: cardDones.get(key),
         mergeAt: cardMerges.get(key), autoMerge, tickets,
       }));
     });

@@ -12,9 +12,8 @@
 // board's session [{id, text, by, at}] (board.mjs rules, hub/rules.mjs). reviewers are the board's own [{name, slack_user, dm,
 // github}] (board.mjs reviewers), which the settings page lists and new waves copy. items is "waves" (every ~/.claude/waves/*/wave.json,
 // the default) or a wave.json-format file relative to the site dir; slug names a file's items
-// (its keys are <slug>/<id>), defaulting to the file's basename. An item's review_sent is either
-// a list of the reviewers already sent its link, or {<reviewer name>: <Slack message ts>}, which
-// also dates the review so it can go stale. from_ask names the ask event that created the item,
+// (its keys are <slug>/<id>), defaulting to the file's basename. An item's review_link_ts maps
+// reviewer names to {ts, channel, reactions?}; review.mjs also reads older sent-link records. from_ask names the ask event that created the item,
 // and next is Claude's next step for it. install {url, label?, built_at, sha?} is a device build the card's Install
 // button opens (board.mjs item set --install); public/installs/ holds its files, served without a login like all of
 // public/, since iOS's installer fetches the manifest and .ipa with no cookies. A builder working on an item has a record in
@@ -34,7 +33,7 @@
 //                                text response, the API's included, is gzipped when the request accepts it;
 //                                API JSON stays no-store
 //   GET  /api/board              the board's title (board.json's, as the page shows it), its reviewers' names, and lanes of those items, with
-//                                ~/.claude/slack-bridge/{state.json,topics/*.json},
+//                                per-item review_link_ts and legacy ~/.claude/slack-bridge/topics/*.json fallbacks,
 //                                data/owner.json and GitHub (gh, cached for 45 s).
 //                                owner.json: {topics: [{id, title, summary}], items: [{id, topic,
 //                                question, context, url, options, urgent, resolved, resolved_at}]};
@@ -93,10 +92,10 @@
 // Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing (403 plain text).
 // Routes that parse JSON require application/json; /api/upload keeps the file's content type.
 // Claude's reply to event <id> is data/replies/<id>.html, or .json.
+import { topicItems } from './review.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -132,19 +131,6 @@ const roots = [path.join(here, 'public'), path.join(template, 'public'), path.jo
 const data = path.join(here, 'data');
 const events = path.join(data, 'events.jsonl');
 const replies = path.join(data, 'replies');
-const bridgeState = path.join(os.homedir(), '.claude', 'slack-bridge', 'state.json');
-const topicsDir = path.join(os.homedir(), '.claude', 'slack-bridge', 'topics');
-
-async function topicItems() {
-  let files = [];
-  try { files = (await fs.readdir(topicsDir)).filter((f) => f.endsWith('.json')); } catch {}
-  const merged = Object.create(null);
-  for (const f of files) {
-    const t = await readJSON(path.join(topicsDir, f), { items: {} });
-    for (const [key, v] of Object.entries(t.items || {})) merged[key] = { ...merged[key], ...v };
-  }
-  return merged;
-}
 const port = Number(process.env.PORT || 4600);
 const prefix = (process.env.PREFIX || '').replace(/\/+$/, '');
 const types = {
@@ -325,12 +311,12 @@ async function itemSnapshot() {
   await Promise.all(waves.flatMap(({ slug, wave }) => wave.items.map(async (it) => {
     threadLines[`${slug}/${it.id}`] = await readLines(threadFile(`${slug}/${it.id}`));
   })));
-  return { github: boardAt(here)?.github, fromWaves, autoMerge: settingsOf(cfg).auto_merge, tickets: settingsOf(cfg).tickets, waves, threads: threadLines };
+  return { github: boardAt(here)?.github, reviewers: cfg.reviewers || [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, tickets: settingsOf(cfg).tickets, waves, threads: threadLines };
 }
 
 // Reads every source buildBoard needs: wave files and their builder records,
 // PR state from gh, item threads, page events with Claude's replies, owner
-// questions and the slack-bridge state.
+// questions and legacy review-link fallbacks.
 async function snapshot() {
   const items = await itemSnapshot();
   const { waves, threads: threadLines } = items;
@@ -350,9 +336,7 @@ async function snapshot() {
   return {
     ...items, route: prefix.slice(1) || path.basename(here), try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, working, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
     checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
-    watched: (await readJSON(path.join(wavesDir(), 'monitor.json'), { waves: [] })).waves || [],
     owner: await readJSON(path.join(data, 'owner.json'), { items: [] }),
-    bridge: await readJSON(bridgeState, { items: {}, config: {} }),
     topicItems: await topicItems(),
   };
 }

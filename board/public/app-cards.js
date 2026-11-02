@@ -25,7 +25,6 @@ BoardView.part((B) => {
     if (it.status) rows.push(['Status', esc(it.status)]);
     if (it.deps.length) rows.push(['Waits on', esc(it.deps.join(', '))]);
     if (it.manualSteps.length) rows.push(['Manual steps', linkText(it.manualSteps.join('; '), ctx)]);
-    if (it.slack) rows.push(['Slack', `<a href="${esc(it.slack)}" target="_blank" rel="noopener">thread</a>`]);
     if (it.from) rows.push(['Filed from', esc(it.from)]);
     if (it.next) rows.push(['Next', linkText(it.next, ctx)]);
     // docs/adr/0062-notes-is-a-link-in-the-details-list.md

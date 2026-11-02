@@ -1,8 +1,10 @@
 ---
-status: superseded in part by ADR-0006 and ADR-0103
+status: superseded in part by ADR-0104 and ADR-0006 and ADR-0103
 ---
 
 # The hub polls GitHub and sends pushes on one polling interval
+
+Superseded in part by [0104](0104-kickflip-owns-the-reviewer-record.md): morning wakes run kickflip’s reviewer digest steps, with the due date set by hub Slack identity, independently of slack-bridge.
 
 Superseded in part by [0006](0006-pushes-only-when-something-waits-on-the-owner.md): only `action`, `prompt` and `fault` pushes exist. Questions, steps and prototypes skip the queue in the day, and the daily wakes run the reviewers' Slack digests, with no morning push. The polling interval, the poll's steps and the overnight hold below still hold.
 Superseded in part by [0103](0103-the-hub-reads-github-itself.md): the poll runs kickflip's hub/pr-report.mjs, not the monitor skill's monitor-gh.sh, and the woken session runs SKILL.md's GitHub tick.
