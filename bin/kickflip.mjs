@@ -69,14 +69,17 @@
 //   kickflip logs <route> [--lines <n>]
 //   kickflip install [--dry-run] | uninstall
 //               install is the first-run name for doctor --fix. It first moves a host set up under the web-ts names to
-//               the kickflip ones (./install.mjs migrateHome), then links the clone, hooks plugin and status line,
-//               configures Claude settings, starts the hub's service in place of the running one (../shared/service.mjs:
+//               the kickflip ones (./install.mjs migrateHome), then links the running package or clone, hooks plugin
+//               and status line, configures Claude settings, starts the hub's service in place of the running one (../shared/service.mjs:
 //               a launchd login item on macOS, including one under the old label; a systemd user unit on Linux),
 //               and maps Tailscale / to the hub.
 //               Conflicting skill links and real paths are refused. A dangling status-line link can be replaced.
 //               --dry-run prints what install would move, link and start, and changes nothing.
 //               uninstall stops the hub and removes its service, kickflip's status-line link and Tailscale /;
 //               Claude settings and skill links are kept
+//   kickflip update
+//               installs @lovek4d/kickflip@latest globally with npm, then restarts the hub.
+//               A clone refuses (exit 2); update it with git pull
 //   kickflip push --kind action|prompt|fault --title <t> [--body <b>] [--url </route/path>] [--tag <tag>]
 //               [--now | --urgent]
 //               notify every device that turned on notifications on the Hub page; a tap opens --url.
@@ -118,7 +121,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ICON_KEYS } from '../hub/icons.mjs';
 import { liveSessions } from '../hub/live.mjs';
@@ -533,6 +536,16 @@ const commands = {
   async install() {
     args.fix = true;
     await commands.doctor();
+  },
+
+  async update() {
+    if (fs.existsSync(path.join(SKILL, '.git'))) fail(`${SKILL} is a clone; update it with git pull`, 2);
+    const result = spawnSync('npm', ['i', '-g', '@lovek4d/kickflip@latest'], { stdio: 'inherit' });
+    if (result.status !== 0) fail(`npm update failed${result.error ? ': ' + result.error.message : ''}`);
+    const service = hubService();
+    const error = service.restart();
+    if (error) fail(`update finished but the hub did not restart: ${error}; run ${service.restartCommand}`);
+    out('updated kickflip and restarted the hub');
   },
 
   async uninstall() {

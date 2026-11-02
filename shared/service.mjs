@@ -25,7 +25,7 @@ export function hubService({ platform = process.platform, home = os.homedir(), u
   if (platform === 'linux') return systemd({ home, uid, exec });
   const why = `kickflip keeps the hub running with launchd on macOS or systemd on Linux, not on ${platform}`;
   return {
-    manager: null, item: 'hub service', file: null, id: null, restartCommand: 'node hub/hub.mjs from the kickflip clone',
+    manager: null, item: 'hub service', file: null, id: null, restartCommand: 'node hub/hub.mjs from the kickflip folder',
     definition: () => null,
     install: async () => { throw new Error(why); },
     restart: () => why,

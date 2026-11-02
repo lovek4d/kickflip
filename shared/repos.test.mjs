@@ -7,10 +7,19 @@ import { spawnSync } from 'node:child_process';
 import { cloneRoot, reposDir } from './repos.mjs';
 import { skillRepo } from '../board/worktree.mjs';
 
-test('reposDir belongs to the running clone and accepts another root without creating it', () => {
+test('reposDir belongs to a clone or the home state folder for an installed package', () => {
   assert.equal(reposDir(), path.join(cloneRoot(), '.repos'));
   assert.equal(skillRepo(), cloneRoot());
-  assert.equal(reposDir('/scratch/kickflip'), '/scratch/kickflip/.repos');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-repos-'));
+  try {
+    assert.equal(reposDir(root), path.join(os.homedir(), '.claude', 'kickflip', 'repos'));
+    assert.deepEqual(fs.readdirSync(root), []);
+    fs.mkdirSync(path.join(root, '.git'));
+    assert.equal(reposDir(root), path.join(root, '.repos'));
+    assert.deepEqual(fs.readdirSync(root), ['.git']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('the clone paths and default builder repo work directly and through installed links in a temp HOME', () => {

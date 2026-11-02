@@ -119,6 +119,7 @@ test('a service manager missing from PATH fails each step with its error, and an
   await assert.rejects(service('linux').install('unit'), { message: 'systemctl --user daemon-reload: spawnSync systemctl ENOENT' });
   const other = service('freebsd');
   assert.equal(other.manager, null);
+  assert.equal(other.restartCommand, 'node hub/hub.mjs from the kickflip folder');
   await assert.rejects(other.install('x'), /launchd on macOS or systemd on Linux, not on freebsd/);
   assert.match(other.restart(), /not on freebsd/);
   assert.equal(other.status().running, false);

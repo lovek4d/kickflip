@@ -1,0 +1,35 @@
+{
+  "name": "@lovek4d/kickflip",
+  "version": "0.1.0",
+  "description": "Follow and steer Claude Code sessions from your phone.",
+  "license": "SEE LICENSE IN LICENSE",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "kickflip": "bin/kickflip.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "bin/",
+    "board/",
+    "hub/",
+    "shared/",
+    "starter/",
+    "hooks-plugin/",
+    "docs/hub-session.md",
+    "SKILL.md",
+    "CONTEXT.md",
+    "!**/*.test.mjs",
+    "!board/mini-dom.mjs",
+    "!hub/fake-device.mjs",
+    "!shared/test-helpers.mjs"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

@@ -483,6 +483,34 @@ test('the install command configures links and settings before the hub service a
   assert.equal(fs.statSync(settingsFile()).ino, inode);
 });
 
+test('the update command installs the latest package before restarting the hub and refuses a clone', () => {
+  for (const dir of ['bin', 'board', 'hub', 'shared', 'starter', 'hooks-plugin']) {
+    fs.cpSync(path.join(cloneRoot(), dir), path.join(root, dir), { recursive: true, filter: (file) => !file.endsWith('.test.mjs') });
+  }
+  const tools = path.join(home, 'tools');
+  const log = path.join(home, 'calls.log');
+  const manager = process.platform === 'darwin' ? 'launchctl' : 'systemctl';
+  fs.mkdirSync(tools);
+  for (const name of ['npm', manager]) {
+    fs.writeFileSync(path.join(tools, name), `#!/bin/sh\nprintf '%s\\n' '${name}'" $*" >> "$KICKFLIP_TEST_LOG"\nexit 0\n`, { mode: 0o755 });
+  }
+  const run = (folder) => spawnSync(process.execPath, [path.join(folder, 'bin', 'kickflip.mjs'), 'update'], {
+    env: { ...process.env, HOME: home, PATH: tools, KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TEST_LOG: log }, encoding: 'utf8',
+  });
+  const installed = run(root);
+  assert.equal(installed.status, 0, installed.stderr);
+  assert.equal(installed.stdout, 'updated kickflip and restarted the hub\n');
+  assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), [
+    'npm i -g @lovek4d/kickflip@latest',
+    process.platform === 'darwin' ? `launchctl kickstart -k gui/${process.getuid()}/local.claude.kickflip-hub` : 'systemctl --user restart kickflip-hub.service',
+  ]);
+  fs.unlinkSync(log);
+  const clone = run(cloneRoot());
+  assert.equal(clone.status, 2, clone.stderr);
+  assert.ok(clone.stderr.includes(`${cloneRoot()} is a clone; update it with git pull`));
+  assert.equal(fs.existsSync(log), false);
+});
+
 test('the uninstall command removes the owned status-line link and preserves skill links and settings', () => {
   installLinks({ home, cloneRoot: cloneRoot() });
   configure();

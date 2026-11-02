@@ -4,7 +4,14 @@ Kickflip puts your Claude Code sessions' work on your phone. One hub on your hos
 
 ## Install
 
-Follow [Install on a new host](SKILL.md#install-on-a-new-host) in SKILL.md.
+Requires Node 22+.
+
+```sh
+npm i -g @lovek4d/kickflip
+kickflip install
+```
+
+See [Install on a new host](SKILL.md#install-on-a-new-host) in SKILL.md for prerequisites, updates and development from a clone.
 
 ## License
 

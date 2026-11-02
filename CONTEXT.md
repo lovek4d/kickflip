@@ -6,8 +6,8 @@ Pages on Love's tailnet that Claude sessions serve, so the owner can follow and 
 
 ### Hub and sites
 
-**Kickflip clone**:
-The Git checkout that supplies the running app's code, in any folder such as `~/dev/kickflip`, linked into Claude Code's skills by install. It is separate from the live state in `~/.claude/kickflip/` ([0071](docs/adr/0071-kickflip-runs-from-a-linked-clone.md)). Install supplies kickflip's status line and hooks as well as the skill links, so setup is independent of the owner's dotfiles ([0080](docs/adr/0080-kickflip-installs-its-own-status-line-and-hooks.md)).
+**Kickflip folder**:
+The installed npm package or the owner's Git clone used through `npm link`, supplying the running app's code and linked into Claude Code's skills by install. It is separate from the live state in `~/.claude/kickflip/` ([0101](docs/adr/0101-kickflip-ships-as-a-minified-npm-package.md)). Install supplies kickflip's status line and hooks as well as the skill links, so setup is independent of the owner's dotfiles ([0080](docs/adr/0080-kickflip-installs-its-own-status-line-and-hooks.md)).
 _Avoid_: live skill folder
 
 **Doctor**:
@@ -15,7 +15,7 @@ The hub setup check, `kickflip doctor`: each prerequisite, installed piece and s
 _Avoid_: status (the former CLI command)
 
 **Board repo**:
-A project's shared checkout under the kickflip clone's `.repos/<owner>/<repo>`, chosen from the GitHub list or a pasted GitHub link or `owner/name` when making a board ([0078](docs/adr/0078-a-pasted-github-link-picks-any-reachable-repo.md)). Each board keeps its own branch, and its builders work in separate worktrees based on that branch ([0073](docs/adr/0073-a-new-board-chooses-a-repo-and-branch.md)).
+A project's shared checkout in `<clone>/.repos/<owner>/<repo>` for a clone or `~/.claude/kickflip/repos/<owner>/<repo>` for an installed package, chosen from the GitHub list or a pasted GitHub link or `owner/name` when making a board ([0078](docs/adr/0078-a-pasted-github-link-picks-any-reachable-repo.md)). Each board keeps its own branch, and its builders work in separate worktrees based on that branch ([0073](docs/adr/0073-a-new-board-chooses-a-repo-and-branch.md)).
 _Avoid_: repo folder (for the repo choice)
 
 **Hub**:
