@@ -307,6 +307,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       (async () => {
         await terminate(run);
         await closePort(run);
+        run.finished = true;
         if (run.stopped) return;
         if (failed || spawnError || code !== 0 || (run.port && !run.ready)) await failure(run, code ?? 1, signal, failed || spawnError || (run.port && !run.ready ? new Error('Build script exited before its port answered.') : null));
         else if (run.ready) {
@@ -362,7 +363,8 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     const reason = await waiting();
     if (reason) throw new BuildError(reason, 409);
     const id = runKey(board, key);
-    if (starting.has(id) || (runs.has(id) && !runs.get(id).ready)) throw new BuildError(`A build is already running for ${key === 'main' ? 'main' : 'this card'}.`, 409);
+    const current = runs.get(id);
+    if (starting.has(id) || (current && !current.ready && !current.finished)) throw new BuildError(`A build is already running for ${key === 'main' ? 'main' : 'this card'}.`, 409);
     if (key === 'main') {
       const entry = stateOf(board).state.main;
       if (entry?.state === 'running') throw new BuildError('A build is already running for main.', 409);

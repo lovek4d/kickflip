@@ -1,6 +1,7 @@
 import { test, beforeEach, afterEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
@@ -176,15 +177,25 @@ test('worktree resolution keeps traversal, boundary, symlink and repo checks, an
   assert.equal(await installWorktree({ ...listBoards(manifest)[0], github: 'other/repo' }, 'w/A1', manifest), '');
 });
 
-test('a failed run writes one failure with its exit, keychain hint and last five log lines; successful runs write no message', async () => {
+test('a failed run writes one failure with its exit, keychain hint and last five log lines, a retry once it shows failed starts, and successful runs write no message', async (t) => {
   write(path.join(site, 'data/wave.json'), { items: [{ id: 'A1', install: { url: 'https://example.com/app.apk' } }] });
   setScript("console.error('errSecInternalComponent'); console.log('one\\ntwo\\nthree\\nfour\\nfive'); process.exit(7);");
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const append = fsp.appendFile;
+  t.mock.method(fsp, 'appendFile', async (file, ...args) => {
+    if (String(file).includes(`${path.sep}threads${path.sep}`)) await held;
+    return append(file, ...args);
+  });
   await start();
-  await until(() => thread().length === 1);
-  assert.equal(state().cards['w/A1'].state, 'failed');
-  assert.equal(thread()[0].text, 'Build failed (exit 7)\nThe login keychain must be unlocked on the Mac.\none\ntwo\nthree\nfour\nfive');
+  await until(() => state().cards['w/A1']?.state === 'failed');
   setScript('process.exit(0);');
-  await start();
+  const retry = start();
+  await new Promise(setImmediate);
+  release();
+  assert.deepEqual(await retry, { status: 'started' });
+  assert.equal(thread().length, 1);
+  assert.equal(thread()[0].text, 'Build failed (exit 7)\nThe login keychain must be unlocked on the Mac.\none\ntwo\nthree\nfour\nfive');
   await until(() => state().cards['w/A1'].state === 'ready');
   assert.equal(thread().length, 1);
 });
