@@ -867,13 +867,19 @@ test('a work card reads its title, then its next step or builder, its chips led 
   assert.match(ui.workLines(followup), /<a class="chip tone-normal" href="u"[^>]*>ENG-7<\/a>.*<span class="chip tone-quiet">follow-up<\/span>/s);
 });
 
-test('a Todo age uses muted secondary text on its own line below the title', () => {
+test('a Todo age is a quiet badge first in the badges row', () => {
   const card = { ...workCard, lane: 'todo', pr: null, reviewers: [], next: null };
   assert.deepEqual(lines(ui.workLines(card)), ['ENG-1 Five']);
   const html = ui.workLines({ ...card, todoAge: '3 days ago', held: true });
-  assert.deepEqual(lines(html), ['ENG-1 Five', '3 days ago', 'held']);
-  assert.match(html, /<div class="line1 title">.*Five<\/div>\s*<div class="line3 sub">3 days ago<\/div>/);
+  assert.deepEqual(lines(html), ['ENG-1 Five', '3 days ago held']);
+  assert.match(html, /<div class="line2 meta"><span class="chip tone-quiet">3 days ago<\/span>/);
   assert.doesNotMatch(html, /tone-notice/);
+  const ageOnly = ui.workLines({ ...card, todoAge: '3 days ago' });
+  assert.deepEqual(lines(ageOnly), ['ENG-1 Five', '3 days ago']);
+  assert.match(ageOnly, /<div class="line2 meta"><span class="chip tone-quiet">3 days ago<\/span><\/div>/);
+  const unread = ui.workLines({ ...card, todoAge: '3 days ago' }, { unread: 1 });
+  assert.deepEqual(lines(unread), ['ENG-1 Five', '3 days ago 1 new']);
+  assert.match(unread, /<div class="line2 meta"><span class="chip tone-quiet">3 days ago<\/span><span class="chip unread"/);
 });
 
 test('an app install badge opens in place and uses the agreed current and stale words', () => {

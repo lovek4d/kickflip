@@ -131,16 +131,15 @@
     const ids = it.kind === 'ask' ? askChip(it) : it.ticket ? ticketChip(it) : it.ticketSource === 'linear' ? linearChips(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
     const blocked = (it.blockedBy || []).map((d) => badge('notice', `blocked by ${esc(d.ref)}`, { href: `#item=${encodeURIComponent(d.key)}` })).join('');
     const ready = !blocked && !it.action && it.deps?.length && it.lane === 'todo' ? badge('ready', 'ready to start') : '';
-    const chips = `${stalledChip(it)}${unreadChip(unread)}${actionChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('normal', 'bumped') : ''}${ready}${installChip(it)}`;
+    const chips = `${it.todoAge ? badge('quiet', esc(it.todoAge)) : ''}${stalledChip(it)}${unreadChip(unread)}${actionChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('normal', 'bumped') : ''}${ready}${installChip(it)}`;
     const status = it.isNew && !it.action ? `<div class="line3 sub">${askLine(it.ask)}</div>`
       : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Orchestrator review</div>'
       : it.builder ? `<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>${esc(builderLine(it.builder))}</div>`
       : it.working ? `<div class="line3 sub agent">${workingLine}</div>`
       : it.next ? `<div class="line3 sub next">Next: ${esc(it.next)}</div>` : '';
     const eta = it.eta && it.builder ? `<div class="line3 sub eta">${esc(etaLine(it.eta))}</div>` : '';
-    const age = it.todoAge ? `<div class="line3 sub">${esc(it.todoAge)}</div>` : '';
     return `${cardActions(it, top)}<div class="line1 title">${ids ? `${ids} ` : ''}${esc(it.title)}</div>
-      ${status}${eta}${age}
+      ${status}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
       ${blocked ? `<div class="line5 meta blocked">${blocked}</div>` : ''}`;
   }
