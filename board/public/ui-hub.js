@@ -26,6 +26,26 @@
   // hold: hub/views.mjs hubView's hold, or null for no banner. Its End form posts snooze=off, which view-hub.js sends.
   const holdBanner = (hold) => (hold ? `<div class="hold-banner"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TILE_PATHS.moon}</svg><span>${esc(hold.text)}</span>${hold.end ? '<form method="post" action="/_hub/settings/notifications"><button class="btn quiet" name="snooze" value="off">End snooze</button></form>' : ''}</div>` : '');
 
+  function pauseBanner(pause) {
+    if (!pause || pause.state === 'normal') return '';
+    const going = pause.state === 'going';
+    const until = BoardUI.usageClock(pause.resets_at);
+    const icon = going ? '<path d="M3.34 19a10 10 0 1 1 17.32 0"/><path d="m12 14 4-4"/>' : '<circle cx="12" cy="12" r="9"/><path d="M10 9v6"/><path d="M14 9v6"/>';
+    const text = going ? `Past the buffer: spending usage until ${until}`
+      : `Work paused: Claude’s ${pause.window === 'five_hour' ? '5‑hour' : 'weekly'} usage is at ${Math.round(pause.used)}%. Resumes ${pause.window === 'five_hour' ? 'at ' : ''}${until}.`;
+    return `<div class="hold-banner ub-banner ub-${going ? 'going' : 'paused'}" role="status"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg><span>${esc(text)}</span><form method="post" action="/_hub/settings/keep-going"><button class="btn${going ? '' : ' quiet'}" name="value" value="${going ? 'off' : 'on'}">${going ? 'Stop' : 'Keep going'}</button></form></div>`;
+  }
+
+  function bufferControl(pause) {
+    const at = pause.pause_at;
+    const off = at === 100;
+    return `<div class="u-buffer"><div class="ub-row"><span class="ub-label"><span class="title">Pause work at</span><span class="ub-sub">${off ? 'No buffer' : `${100 - at}% buffer`}</span></span>`
+      + `<form class="segments ub-step" method="post" action="/_hub/settings/pause-at" role="group" aria-label="Pause work at"><button name="value" value="${at - 5}" aria-label="Pause 5% sooner"${at <= 50 ? ' disabled' : ''}>−</button>`
+      + `<output class="${off ? 'off' : ''}" aria-live="polite">${off ? 'Off' : `${at}%`}</output>`
+      + `<button name="value" value="${at + 5}" aria-label="Pause 5% later"${off ? ' disabled' : ''}>+</button></form></div>`
+      + `<p class="u-share-desc">${off ? 'Off: work keeps going until usage runs out.' : 'Claude’s new work waits when either window passes this, and resumes at that window’s reset; Codex hands its work to Opus builders.'}</p></div>`;
+  }
+
   // What polling does now, the last and next check and the queue, with Send now: hub/views.mjs pollingNow's words.
   const nowRow = (now, icon = '') => row({ icon, title: esc(now.title), sub: now.lines.map((l) => `<span class="sub wrap">${esc(l)}</span>`).join(''),
     trail: `<form method="post" action="/_hub/push/flush"><button class="btn quiet" ${now.count ? '' : 'disabled'}>Send now</button></form>` });
@@ -50,7 +70,7 @@
 
   // data is the usage reading; codex, when given, draws Codex's block even without a reading: the Codex share control
   // first, then Codex's bars while share isn't Off.
-  function usageCard(data, codex) {
+  function usageCard(data, codex, pause) {
     const { usageProducts, usageNames, usageClock, usageTone, usageBar, usageWords } = BoardUI;
     const products = usageProducts(data);
     if (codex && !products.includes('codex')) products.push('codex');
@@ -58,10 +78,10 @@
     const head = (name, tag) => `<div class="u-head"><span class="title">${name}</span>${tag ? `<span class="u-asof">${esc(tag)}</span>` : ''}</div>`;
     const asof = (r) => (!r.at ? 'no reading' : `${r.five_hour?.state === 'stale' ? 'last seen' : 'read'} ${usageClock(r.at)}`);
     const windows = (r) => [['5-hour', 'five_hour'], ['Week', 'seven_day']].map(([label, key]) =>
-      `<div class="u-tone-${usageTone(r[key])}"><div class="u-win"><span>${label}</span><span>${usageWords(r, key)}</span></div>${usageBar(r[key])}</div>`).join('');
+      `<div class="u-tone-${usageTone(r[key])}${pause?.pause_at < 100 ? ' ub-marked' : ''}"><div class="u-win"><span>${label}</span><span>${usageWords(r, key)}</span></div>${usageBar(r[key]).replace('</span>', `${pause?.pause_at < 100 ? `<span class="ub-mark" style="left:${pause.pause_at}%"></span>` : ''}</span>`)}</div>`).join('');
     const blocks = products.map((p) => {
       const r = data?.[p] || { at: null };
-      if (p !== 'codex' || !codex) return `<div class="block u-block">${head(usageNames[p], asof(r))}${windows(r)}</div>`;
+      if (p !== 'codex' || !codex) return `<div class="block u-block">${head(usageNames[p], asof(r))}${windows(r)}${p === 'claude' && pause ? bufferControl(pause) : ''}</div>`;
       const bars = codex.usable && codex.share !== 'off';
       return `<div class="block u-block">${head(usageNames.codex, codex.tag || (bars ? asof(r) : ''))}${codexShare(codex)}${bars ? `<div class="u-codex-bars">${windows(r)}</div>` : ''}</div>`;
     }).join('');
@@ -70,5 +90,5 @@
     return `<section class="usage"><h2 class="label" style="margin-top:4px">Usage</h2><div class="group">${blocks}</div>${note}</section>`;
   }
 
-  globalThis.HubUI = { esc, tile, CHEVRON, row, flash, holdBanner, nowRow, deviceRow, usageCard };
+  globalThis.HubUI = { esc, tile, CHEVRON, row, flash, holdBanner, pauseBanner, nowRow, deviceRow, usageCard };
 })();

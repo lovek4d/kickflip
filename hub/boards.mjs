@@ -244,7 +244,7 @@ export function carryCursor(board, { from, to = from, mark = null }) {
   saveJSON(cursorPath(board, to), next);
 }
 // The board's watched lines, per file, as bin/wait-events.mjs counts them: its manifest `watch` files, `filter` applied.
-function watchedLines(board) {
+export function watchedLines(board) {
   const re = board.filter ? new RegExp(board.filter) : null;
   return Object.fromEntries(board.watch.map((f) => {
     let lines = [];

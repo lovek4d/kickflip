@@ -1,8 +1,10 @@
 ---
-status: superseded in part by ADR-0093
+status: superseded in part by ADR-0093 and ADR-0094
 ---
 
 # Codex share follows whether Codex is usable
+
+Superseded in part by [0094](0094-work-pauses-at-the-pause-line.md): past the pause line, Codex hands its work to Opus builders under Auto and Always on alike.
 
 Superseded in part by [0093](0093-the-hub-runs-under-the-hosts-service-manager.md): the reason says "on the host", and off macOS the install command is `npm i -g @openai/codex`.
 

@@ -51,12 +51,16 @@ The levels back climbs in the app shell: a board, its Waiting on you, then a sep
 _Avoid_: nav stack, breadcrumbs
 
 **Hub page**:
-The hub's status page, `/_hub/`, which the sidebar's Hub row opens: a banner while pushes are held or snoozed, with End snooze on a snooze, then **usage readings**, then the **pending prompts** of sessions that own no board, each site's health with each board's hub links and watcher, each session's remembered Always allow rules read-only under its board, polling status, then the **hub settings** summary rows ([0050](docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md), [0060](docs/adr/0060-background-sessions-prompts-come-to-the-phone.md)).
+The hub's status page, `/_hub/`, which the sidebar's Hub row opens: a pause or Keep going banner at the **pause line**, a banner while pushes are held or snoozed, with End snooze on a snooze, then **usage readings**, then the **pending prompts** of sessions that own no board, each site's health with each board's hub links and watcher, each session's remembered Always allow rules read-only under its board, polling status, then the **hub settings** summary rows ([0050](docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md), [0060](docs/adr/0060-background-sessions-prompts-come-to-the-phone.md)).
 _Avoid_: dashboard, console, hub home
 
 **Usage reading**:
-The last reported Claude or Codex usage for its 5-hour and weekly windows, with reset times and when read. The sidebar’s Hub row shows each tool’s 5-hour bar and the hub page shows both windows; a reading older than its window reads “last seen” with a grey striped bar, otherwise a window whose reset passed reads as reset. Claude appears after its status line reports usage. Codex's bars show only while the **Codex setting** in effect isn't Off; the hub page keeps Codex's block either way, opening with the setting's control ([0082](docs/adr/0082-the-sidebar-shows-claude-and-codex-usage-under-hub.md), [0086](docs/adr/0086-codex-share-sits-in-the-usage-card.md), [0092](docs/adr/0092-codex-share-follows-whether-codex-is-usable.md)).
+The last reported Claude or Codex usage for its 5-hour and weekly windows, with reset times and when read. The sidebar’s Hub row shows each tool’s 5-hour bar and the hub page shows both windows with the **pause line** tick; a reading older than its window reads “last seen” with a grey striped bar, otherwise a window whose reset passed reads as reset. Claude appears after its status line reports usage. Codex's bars show only while the **Codex setting** in effect isn't Off; the hub page keeps Codex's block either way, opening with the setting's control ([0082](docs/adr/0082-the-sidebar-shows-claude-and-codex-usage-under-hub.md), [0086](docs/adr/0086-codex-share-sits-in-the-usage-card.md), [0092](docs/adr/0092-codex-share-follows-whether-codex-is-usable.md)).
 _Avoid_: quota, live usage
+
+**Pause line**:
+The Usage card's “Pause work at” under Claude's bars: `pauseAt` in `~/.claude/kickflip/settings.json`, 50–100 in steps of 5, default 90 (10% buffer); 100 reads Off. Either live Claude window at or over it pauses new work until that window resets. Running steps finish; builders and new agents wait, watchers hold the hub's work events, and owner messages get a brief “paused until <time>”. Keep going lifts that window's pause until its reset; Stop restores it. Codex hands work to Opus builders at the same line, without pausing. The Hub banner and sidebar and board header status slots show the pause, never the logo. `shared/usage-gate.mjs` owns it; `kickflip usage-gate` prints it ([0094](docs/adr/0094-work-pauses-at-the-pause-line.md)).
+_Avoid_: buffer threshold, quota guard
 
 **Board registry**:
 `hub/boards.mjs`, the only hub code that reads a board's `board.json` and wave files. Every hub feature that serves boards (the GitHub check, wakes, rules, the handshake, the not-listening push) takes its boards from it, so a board over the waves and a board over its own file get the same links ([0040](docs/adr/0040-one-board-registry-for-every-hub-feature.md)).
@@ -117,7 +121,7 @@ The centred modal opened from a board header’s gear, at every width, which scr
 _Avoid_: Settings page
 
 **Codex setting**:
-The one choice for every board, made in Codex’s block of the hub page’s Usage card ([0086](docs/adr/0086-codex-share-sits-in-the-usage-card.md)): Auto has Codex build and review, with Opus builders taking over while Codex is out of usage until it resets; Always on has Codex build and review, with that work paused while Codex is out of usage until a usage-reset check succeeds; Off means no Codex. Unset means Auto. While Codex isn't usable, installed and logged in, the setting in effect is Off whatever is stored, and the control is greyed out; running out of usage doesn't make Codex unusable ([0092](docs/adr/0092-codex-share-follows-whether-codex-is-usable.md)). A session's own `/codex-share` overrides it for that session ([0066](docs/adr/0066-one-codex-setting-for-every-board.md)).
+The one choice for every board, made in Codex’s block of the hub page’s Usage card ([0086](docs/adr/0086-codex-share-sits-in-the-usage-card.md)): Auto and Always on have Codex build and review, with Opus builders taking over while Codex is past the **pause line** until it resets; out of usage, Auto keeps Opus builders on and Always on pauses that work until a usage-reset check succeeds; Off means no Codex. Unset means Auto. While Codex isn't usable, installed and logged in, the setting in effect is Off whatever is stored, and the control is greyed out; running out of usage doesn't make Codex unusable ([0092](docs/adr/0092-codex-share-follows-whether-codex-is-usable.md)). A session's own `/codex-share` overrides it for that session ([0066](docs/adr/0066-one-codex-setting-for-every-board.md)).
 _Avoid_: Codex rule, board Codex toggle
 
 **Waiting count**:
@@ -125,7 +129,7 @@ The badge on a site's row in the sidebar: how many things the site's `GET /_clau
 _Avoid_: unread count, inbox
 
 **Status word**:
-The coloured word that leads a site's sub line in the sidebar when something urgent holds, most urgent first: Down, Not listening (a board that is neither **listening** nor **asleep**), Starting, "N need you", Working, Asleep (muted) or Building. Lane chips with the site's open-card counts follow it; a calm site shows only the chips ([0037](docs/adr/0037-the-hub-home-shows-status-not-descriptions.md), [0077](docs/adr/0077-need-you-outranks-working.md)).
+The coloured word that leads a site's sub line in the sidebar when something urgent holds, most urgent first: Paused while the **pause line** holds, otherwise Down, Not listening (a board that is neither **listening** nor **asleep**), Starting, "N need you", Working, Asleep (muted) or Building. Lane chips with the site's open-card counts follow it; a calm site shows only the chips ([0037](docs/adr/0037-the-hub-home-shows-status-not-descriptions.md), [0077](docs/adr/0077-need-you-outranks-working.md)).
 _Avoid_: activity line, subtitle
 
 ### Boards
@@ -348,6 +352,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 
 | File | Owns |
 | --- | --- |
+| `../shared/usage-gate.mjs` | The pause line, Keep going, Codex handoff and file reader shared by the hub, CLI, hooks, watcher and builder start |
 | `../shared/colors.css` | Every color, served as `colors.css` and linked before `style.css`; the hub serves it as `/_hub/colors.css` |
 | `ui.js` | Shared helpers: escaping, times, reply bodies, attachments, icons and message buttons, badges by tone, `setHTML`, which patches a region in place and keeps the focused field's focus when it moves, and `fetchJSON`, through which the side pages read the API and wait out a board restart |
 | `ui-links.js` | Linking refs, Linear ids, PRs and URLs in written text; load it right after `ui.js` |
@@ -361,16 +366,16 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `view-settings.js` | Board Settings as a modal over its board, which shell.js mounts: repo and branch (Change uses the same list and GitHub link search as New board), ticket source, auto-merge, install script, reviewers, rules and Close board with its typed-name sheet |
 | `view-questions.js` | Waiting on you as a view: a topic's questions, their takes framed with `?take=` in a fitting grid or a chooser above one full-width frame, which a choice switches in place through the frame's `PrototypeSwitcher.current`, and one Send, which stays while the topic has a question open and otherwise opens the next topic with one, or goes back to the board |
 | `view-notes.js` | One item's notes as a view, from `GET /api/notes`; the server redirects `plan.html` to `notes.html` |
-| `view-hub.js` | The **hub page** as a view, from `/_hub/api/hub`, refreshed every 30 seconds while it shows; the Usage card, whose Codex share posts `/_hub/settings/codex`, pending prompts of sessions with no board, Send now, then `view-hub-settings.js` below its status |
+| `view-hub.js` | The **hub page** as a view, from `/_hub/api/hub`, refreshed every 30 seconds while it shows; the Usage card, whose Codex share posts `/_hub/settings/codex` and pause line posts `/_hub/settings/pause-at`, with Keep going and Stop banners posting `/_hub/settings/keep-going`, pending prompts of sessions with no board, Send now, then `view-hub-settings.js` below its status |
 | `view-hub-settings.js` | Summary rows opening **hub settings** modals over the hub page, from `/_hub/api/settings`: Notifications with inline Snooze chips and a native Custom picker, Polling, Linear (the masked key, its workspace and Remove), Rules for every board and Closed boards with Reopen |
 | `view-polling.js` | The editor in Hub’s Polling modal, from `/_hub/api/polling`: the day bar, whose taps pick a window without asking the hub, each window's edits, the overnight hold, the daily wakes and Send now |
-| `ui-hub.js` | `HubUI`, the hub views' pure renderers: rows, tiles, the flash, the Now row, this device's row and the Usage card |
+| `ui-hub.js` | `HubUI`, the hub views' pure renderers: rows, tiles, the flash, the Now row, this device's row, pause banners and the Usage card with the pause line stepper and ticks |
 | `hub-kit.js` | `HubKit`, what the hub views share: `live` (load, the header's time and ↻, the 30-second refresh), `forms` (posting a hub form for JSON, and saving a toggle or time on change) and `device` (this device's push subscription) |
 | `view-frame.js` | Any other page as a frame view: the frame beside the board header with Open alone ↗, hiding that header for a page that draws its own, whose logo then toggles the sidebar; each load's URL and title to the shell, and taps on links to other views sent to it, a prototype's back arrow included, which the shell takes up the **page tree** before the page's own script can |
 | `sidebar.css` | The sidebar's rail, its collapse, the drawer and switch mode, plus the shared New board dialog and the shortcuts sheet; linked after `colors.css` |
 | `hub.css` | The hub views' CSS and the hub's down page's, every rule under `.hub-view`, the class on a hub view's root and on the down page's `<html>`; the shell links it after `style.css`, whose header the hub views share, and the down page as `/_hub/hub.css` |
 | `ui-page-header.js` | `BoardUI.header`, every page's header: the logo (which toggles the sidebar), a back arrow where needed (beside a phone-only logo), the title, then the time and ↻ and the gear, or a page's own trail. On a page of its own, the back arrow's own script goes one step back, or to its href after a push; in the app shell `router.js` does that. Needs nothing else: `server.mjs` renders each page's `<!--header {…}-->` with it, such as a prototype's, and `hub/hub.mjs` the shell's first sidebar, whose head is one too (`ui-sidebar.js`), each in a vm context |
-| `ui-header.js` | The header's time and when it moves, the GitHub status line and its Hub links mark, the Hub links list, the setup checklist, when a refresh asks for a GitHub check, and which board header controls take taps |
+| `ui-header.js` | The header's time, or Paused until from the shell's pause state, and when it moves, the GitHub status line and its Hub links mark, the Hub links list, the setup checklist, when a refresh asks for a GitHub check, and which board header controls take taps |
 | `ui-threads.js` | Thread messages, with link, status and agent lines, the open card's window over them with its Show more, and the reply form's Done |
 | `ui-questions.js` | Owner question cards with their takes inline and diagrams, answer history, prototype status and the Waiting on you topic row; `BoardUI.nextQuestion`, the pure move-on rule shared by Send and a prototype pick, and `sentNotice`, the Sent line the board reads on return |
 | `ui-markdown.js` | The Markdown subset `view-notes.js` renders a card's notes with |

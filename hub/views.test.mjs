@@ -98,8 +98,8 @@ test("the hub page's Codex share says what each choice means while Codex is usab
   assert.deepEqual(unusable(view({ codex: NOT_INSTALLED })), unusable(view()));
   assert.deepEqual(unusable(view({ codex: LOGGED_OUT })), [false, 'Not logged in', 'off', 'off', "Codex isn't logged in on the host.", 'codex login', null]);
   const meanings = {
-    always: 'Codex builds and reviews; while Codex is out of usage, that work pauses until a usage-reset check succeeds.',
-    auto: 'Codex builds and reviews; while Codex is out of usage, Opus builders take over until it resets.',
+    always: 'Codex builds and reviews; past the pause line, Opus builders take over until it resets, and while Codex is out of usage that work pauses until a usage-reset check succeeds.',
+    auto: 'Codex builds and reviews; while Codex is past the pause line or out of usage, Opus builders take over until it resets.',
     off: 'No Codex.',
   };
   for (const [codexShare, description] of Object.entries(meanings)) {
@@ -495,4 +495,50 @@ test("the hub page leads with a banner while pushes are held or snoozed, and its
 
   settingsCtx.sidebarChanged();
   assert.deepEqual([loads, sidebarChanges], [2, 2]);
+});
+
+test('the pause stepper and banner forms save in place, refresh the sidebar and toast Keep going and Stop', async () => {
+  const document = {};
+  const { Element } = miniDom(class {}, document);
+  const root = new Element('div');
+  const listeners = [];
+  const posts = [];
+  const toasts = [];
+  let live;
+  let changed = 0;
+  let gate = { pause_at: 90, state: 'paused', used: 91, window: 'five_hour', resets_at: new Date(Date.now() + 3600_000).toISOString() };
+  const data = () => ({ pause: { ...gate }, usage: { claude: { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at: gate.resets_at, state: 'live' } } }, hub: {}, groups: [], polling: { title: '', lines: [] } });
+  const context = vm.createContext({
+    URLSearchParams, document, navigator: {}, FormData: class { *[Symbol.iterator]() {} },
+    BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), toast: (text) => toasts.push(text), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
+    BoardUI: { header: () => '' }, PromptAnswers: { wire: () => ({ shows: () => true }) },
+    fetch: async (url, opts) => {
+      posts.push([url, opts.method, opts.body.toString()]);
+      if (url.endsWith('/pause-at')) gate.pause_at = Number(opts.body.get('value'));
+      else gate.state = opts.body.get('value') === 'on' ? 'going' : 'paused';
+      return { ok: true, json: async () => data() };
+    },
+  });
+  for (const file of ['ui-sidebar.js', 'ui-hub.js', 'hub-kit.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
+  context.HubKit.live = (B, opts) => { live = opts; return () => {}; };
+  root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
+  context.AppViews.hub.create(root, '/_hub', { sidebarChanged: () => changed++ });
+  live.paint(data());
+  const submit = async (selector, value) => {
+    const form = root.querySelector(selector);
+    const button = form.querySelector(`button[value="${value}"]`);
+    assert.ok(button);
+    await listeners.find((l) => l.target === root && l.type === 'submit').fn({ target: form, submitter: { name: 'value', value }, preventDefault() {} });
+  };
+  await submit('.ub-step', '85');
+  assert.match(root.querySelector('.ub-step output').textContent, /85%/);
+  await submit('.ub-banner form', 'on');
+  assert.ok(root.querySelector('.ub-going'));
+  assert.match(toasts[0], /Keep going: work runs past the buffer until .*\./);
+  await submit('.ub-banner form', 'off');
+  assert.ok(root.querySelector('.ub-paused'));
+  assert.equal(toasts[1], 'Stopped: new work waits again.');
+  assert.equal(changed, 3);
+  assert.deepEqual(posts, [['/_hub/settings/pause-at', 'POST', 'value=85'], ['/_hub/settings/keep-going', 'POST', 'value=on'], ['/_hub/settings/keep-going', 'POST', 'value=off']]);
 });

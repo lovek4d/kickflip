@@ -1,0 +1,13 @@
+# Work pauses at the pause line
+
+The owner settled the usage buffer on hub/INT-211: new Claude work waits at a pause line, leaving usage for the session to stay reachable; Keep going spends past it until the reset. The usage-buffer A prototype's words and look stand, with the same line covering Codex.
+
+- `pauseAt` in `~/.claude/kickflip/settings.json` is 50–100 in steps of 5, default 90 (10% buffer); 100 reads Off and never pauses. `shared/usage-gate.mjs` is the one gate, read through `kickflip usage-gate` as well as the hub, hooks, watcher and builders. Settings writes keep other keys.
+- Either live Claude window, 5-hour first, then weekly, pauses at or over the line. Stale and reset readings don't pause. Work resumes when that window resets; another live window past the line can still pause it.
+- Keep going saves `{window, until}` as `keepGoing`, until that window's reset. It lifts only that Claude pause, lapses at reset and is ignored for another window. Stop deletes it.
+- Pausing refuses `builder start` and new Agent/Task calls. Running steps finish and hand back. Watchers hold `github-change`, `check-github` and `card-unblocked`; the owner's messages and other events still wake sessions, which answer briefly, “paused until <time>”. Held events survive those wakes and report when the pause ends. Session wakes skip held kinds too.
+- SessionStart and UserPromptSubmit print the paused or Keep going context; PreToolUse denies new agents while paused. The watcher prints `usage paused <resets_at> <window> <used>%` after rules and settings. Install's plugin link supplies the hook everywhere it supplies the Codex reminder.
+- Either live Codex window at or over the same line hands Codex's work to Opus builders, under Auto and Always on alike, as Auto does when Codex runs out; it never pauses work. Out of usage, Always on still pauses Codex work until a usage-reset check succeeds. Keep going covers Claude only. Codex is scanned only while its setting in effect isn't Off.
+- The hub's periodic tick keeps `usage-gate-state.json`. A change from paused to normal sends every board `usage-resumed {window}`; going to normal sends nothing. The hub still polls GitHub and serves the owner while work waits.
+- The Usage card puts Pause work at under Claude's bars, with −/value/+ in steps of 5, the buffer and description for both tools. Every Claude and Codex bar in the card gets a tick at the line, except Off. Forms post and redirect like Codex share.
+- Hub's amber pause banner names the window, usage and reset with Keep going; the red banner while going says usage is being spent until the reset, with Stop. Paused fills Hub's and boards' sidebar status words and the board header's time slot. Nothing goes on the logo.

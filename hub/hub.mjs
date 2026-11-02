@@ -21,6 +21,8 @@
 //                     null without a reading, else {used_percentage, resets_at, state: live|reset|stale} (usage.mjs).
 //                     Reset windows read 0%; stale means older than that window. Codex scans cache for 60 seconds.
 //                     /_hub/api/hub carries the same usage field.
+//                     Both carry pause: {pause_at, state: normal|paused|going, window, used, resets_at,
+//                     codex: {past, window, used, resets_at}} (../shared/usage-gate.mjs).
 //   /_hub/api/linear GET {set, workspace, url_key, teams: [{key, name}], projects: [{id, name, team}]} through Hub's Linear
 //                     key, {set: false} without one, or with error when Linear can't be reached
 //   /_hub/linear/projects POST {team, name} creates a Linear project in that team → {id, name, team}
@@ -58,6 +60,8 @@
 //                     after now or more than 30 days on.
 //   /_hub/settings/codex POST value=auto|always|off → /_hub/api/hub's JSON, or 400 {error}, or 409 {error} with the
 //                     fix while Codex isn't installed or logged in, checked afresh
+//   /_hub/settings/pause-at POST value=50..100 in steps of 5 → /_hub/api/hub's JSON, or 400 {error}; 100 is Off
+//   /_hub/settings/keep-going POST value=on|off → /_hub/api/hub's JSON, or 400 {error}; on without a pause → 409 {error}
 //   /_hub/settings/linear POST key=<Linear personal API key>, saved once Linear accepts it, or remove=1
 //                     → /_hub/api/settings's JSON, whose `linear` names only the workspace, or 400 {error} (linear.mjs)
 //   /_hub/settings/polling POST one schedule.mjs editPolling change {op, w, value} → /_hub/api/polling's JSON for the
@@ -103,6 +107,7 @@
 // while that session wasn't running, and pushes once when that doesn't bring it back (sessions.mjs checkSessions;
 // docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md).
 // Every 15 seconds it drops the pending prompts whose hook has gone (prompts.mjs expired).
+// On paused → normal it sends every board usage-resumed {window}, keeping usage-gate-state.json across restarts.
 // State lives in ~/.claude/kickflip: manifest.json, logs/<route>.log, run/<route>.pid, github-state.json, wake-state.json,
 // deaf-state.json, link-faults.json, hub-code.json, resume-state.json, prompts.json, linear.json.
 import http from 'node:http';
@@ -133,7 +138,8 @@ import { boardClosure, closeBoard, closedBoards, reopenBoard } from './close-boa
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { BOARD_PUBLIC, appFile, colorsVersion, destOf, fileVersion, pageOf, shellHtml } from './shell.mjs';
 import { hubStream } from './stream.mjs';
-import { usageReader } from './usage.mjs';
+import { usageReader, checkUsagePause } from './usage.mjs';
+import { readUsageGate, setPauseAt, setKeepGoing } from '../shared/usage-gate.mjs';
 import { codexStatusReader } from '../shared/codex.mjs';
 import { InstallError, startInstall, stopInstalls } from './installs.mjs';
 import { migrateOnStart } from '../bin/install.mjs';
@@ -381,7 +387,20 @@ async function prunePrompts() {
 
 const promptContext = () => ({ running: liveSessions(), boards: listBoards(loadManifest()) });
 
+let checkingUsage = false;
+async function checkUsageGate() {
+  if (checkingUsage) return;
+  checkingUsage = true;
+  try {
+    await checkUsagePause({ gate: readUsageGate(), resume: async (window) => {
+      const out = await sendToBoards(listBoards(loadManifest()), 'usage-resumed', { window });
+      for (const failed of out.failed) log(failed);
+    } });
+  } finally { checkingUsage = false; }
+}
+
 setInterval(() => {
+  checkUsageGate().catch((e) => log('usage gate failed:', e.message));
   if (!polls.running && Date.now() >= nextPollAt().getTime()) runPoll().catch((e) => log('poll failed:', e.message));
   runWakes();
   prunePrompts().catch((e) => log('prompt expiry failed:', e.message)).finally(runSessionCheck);
@@ -515,6 +534,7 @@ async function sidebarState({ fresh = false } = {}) {
     home: fs.realpathSync(os.homedir()),
     starting: startingBoards(manifest, now.getTime()),
     usage: readUsage({ codexShare: readCodexShare(readCodex()) }),
+    pause: readUsageGate(),
     notifications: !held ? { state: 'on', text: 'On' } : held.why === 'off' ? { state: 'off', text: 'Off' } : { state: 'held', text: capital(holdLine(held, now)) },
   };
   return { data, links, rows, code };
@@ -740,6 +760,17 @@ async function hubRoute(req, res, url) {
   if (p === '/_hub/settings/codex' && req.method === 'POST') {
     const f = new URLSearchParams(await readBody(req));
     try { setCodexShare(f.get('value'), readCodex({ fresh: true })); } catch (e) {
+      if (e.status !== 400 && e.status !== 409) throw e;
+      return json ? sendJSON(e.status, { error: e.message }) : send(e.status, 'text/plain; charset=utf-8', e.message);
+    }
+    return json ? sendJSON(200, await hubData(req)) : redirect(res, '/_hub/');
+  }
+  if (['/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(p) && req.method === 'POST') {
+    const f = new URLSearchParams(await readBody(req));
+    try {
+      if (p.endsWith('/pause-at')) setPauseAt(f.get('value')); else setKeepGoing(f.get('value'));
+      await checkUsageGate();
+    } catch (e) {
       if (e.status !== 400 && e.status !== 409) throw e;
       return json ? sendJSON(e.status, { error: e.message }) : send(e.status, 'text/plain; charset=utf-8', e.message);
     }

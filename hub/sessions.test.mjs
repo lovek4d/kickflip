@@ -612,3 +612,28 @@ test('join, start and resume keep clone paths under the installed link across a 
   json(await cli(['join', 'linked', '--session', resumed.session, '--template', 'board'], { cwd: moved, entry: link }));
   assert.deepEqual(manifest().sites.linked.cmd, storedCmd);
 });
+
+test('a paused session wake holds only hub work events, then wakes for an owner or resumed usage', async () => {
+  const dir = path.join(home, 'boards', 'paused');
+  const file = path.join(dir, 'data', 'events.jsonl');
+  write(path.join(dir, 'board.json'), { title: 'Paused' });
+  write(file, '');
+  write(path.join(dir, 'data', '.watch-cursor-paused.json'), { 'data/events.jsonl': 0 });
+  const m = { sites: { paused: { dir, cmd: boardCmd(dir), watch: ['data/events.jsonl'], owner: { session: 'paused', repo, since: new Date(0).toISOString() } } } };
+  const resumed = [];
+  const check = (state = 'paused') => checkSessions({ manifest: m, now: new Date(), live: () => new Map(), listening: () => false, gate: { state }, resume: async (route) => resumed.push(route), push: async () => assert.fail('no push expected') });
+  await check();
+  for (const kind of ['github-change', 'check-github', 'card-unblocked']) fs.appendFileSync(file, JSON.stringify({ kind, ts: new Date().toISOString() }) + '\n');
+  await check();
+  assert.deepEqual(resumed, []);
+  assert.equal(read(web('resume-state.json')).paused.resumed_at, undefined);
+  fs.appendFileSync(file, JSON.stringify({ kind: 'item-message', ts: new Date().toISOString() }) + '\n');
+  await check();
+  assert.deepEqual(resumed, ['paused']);
+  fs.rmSync(web('resume-state.json'));
+  write(file, JSON.stringify({ kind: 'github-change', ts: new Date().toISOString() }) + '\n');
+  await check();
+  fs.appendFileSync(file, JSON.stringify({ kind: 'usage-resumed', ts: new Date().toISOString() }) + '\n');
+  await check('normal');
+  assert.deepEqual(resumed, ['paused', 'paused']);
+});

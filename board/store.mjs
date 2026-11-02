@@ -8,6 +8,7 @@ import os from 'node:os';
 import { ITEM_STATUSES, ownerQuestion, refOf } from './domain.mjs';
 import { installScriptError } from './install-script.mjs';
 import { appendEvent, listBoards, samePath } from '../hub/boards.mjs';
+import { readUsageGate, pauseReason } from '../shared/usage-gate.mjs';
 import { reviseQueued, flushQueue, queueStatus } from '../hub/push.mjs';
 import { holdLine } from '../hub/schedule.mjs';
 import { routeRecord } from '../hub/routes.mjs';
@@ -1148,6 +1149,8 @@ async function statusToThread(site, key, agent = 'main', kind, line, ts) {
 // worktree, when given, makes the builder's worktree once every flag has passed (board/worktree.mjs makeWorktree) and
 // returns {path, branch, repo}, which the record keeps for `board.mjs land`.
 export async function startBuilder(site, key, { label, progress, dir, agent = 'main', kind, eta, worktree }) {
+  const gate = readUsageGate();
+  if (gate.state === 'paused') throw new BoardError(pauseReason(gate));
   const line = optional(progress, (v) => progressLine(site, v, '--progress'));
   const file = await builderFile(site, key, dir, agent);
   const now = new Date().toISOString();

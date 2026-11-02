@@ -28,8 +28,8 @@
 
   function html(d, { flash, prompts }) {
     const { row, tile, nowRow } = HubUI;
-    const usage = HubUI.usageCard(d.usage, d.codex);
-    return `${HubUI.flash(flash)}${HubUI.holdBanner(d.hold)}${usage}${promptsHtml(d.prompts || [], prompts)}<h2 class="label"${usage ? '' : ' style="margin-top:4px"'}>Health</h2>
+    const usage = HubUI.usageCard(d.usage, d.codex, d.pause);
+    return `${HubUI.flash(flash)}${HubUI.pauseBanner(d.pause)}${HubUI.holdBanner(d.hold)}${usage}${promptsHtml(d.prompts || [], prompts)}<h2 class="label"${usage ? '' : ' style="margin-top:4px"'}>Health</h2>
 <div class="group">${row({ icon: tile('power', { ok: '#22c55e', wait: '#f59e0b' }[d.hub.tone] || '#ef4444'), title: 'Hub', sub: `<span class="st ${esc(d.hub.tone)}">${esc(d.hub.word)}</span> · ${esc(d.hub.detail)}`, wrap: true })}
 ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/kickflip &lt;route&gt;</code>.' }) : ''}</div>
 ${sitesHtml(d.groups)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, events (its session and a watcher run, or the hub can wake it), daily wakes, pushes and reviewer links. One that just broke reads settling first.</p>
@@ -73,9 +73,12 @@ ${sitesHtml(d.groups)}${d.remembered?.length ? `<h2 class="label">Sessions witho
         after: () => load(),
       });
       const forms = HubKit.forms(B, {
-        accepts: (action, form) => action === '/_hub/push/flush' || action === '/_hub/settings/codex' || Boolean(form?.closest?.('.hold-banner')),
+        accepts: (action, form) => action === '/_hub/push/flush' || ['/_hub/settings/codex', '/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(action) || Boolean(form?.closest?.('.hold-banner')),
         answer(out, action) {
-          if (action === '/_hub/settings/codex') { last = out; flash = null; paint(); } else if (action === '/_hub/push/flush') { flash = { text: out.message, error: !out.ok }; load(); } else { flash = null; load(); settings.B.refreshSettings?.(); }
+          if (['/_hub/settings/codex', '/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(action)) {
+            last = out; flash = null; paint();
+            if (action.endsWith('/keep-going')) B.toast(out.pause.state === 'going' ? `Keep going: work runs past the buffer until ${BoardUI.usageClock(out.pause.resets_at)}.` : 'Stopped: new work waits again.');
+          } else if (action === '/_hub/push/flush') { flash = { text: out.message, error: !out.ok }; load(); } else { flash = null; load(); settings.B.refreshSettings?.(); }
           ctx.sidebarChanged?.();
         },
         fail(message) { flash = { text: message, error: true }; paint(); },

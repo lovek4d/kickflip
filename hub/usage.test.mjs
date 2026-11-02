@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { usageReader } from './usage.mjs';
+import { usageReader, checkUsagePause } from './usage.mjs';
 
 const originalHome = process.env.HOME;
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-'));
@@ -29,7 +29,7 @@ function fixture(t) {
     return target;
   };
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  return { file, claude, log, read: usageReader({ home: dir, now: () => time }), advance: (ms) => { time += ms; } };
+  return { home: dir, file, claude, log, read: usageReader({ home: dir, now: () => time }), advance: (ms) => { time += ms; } };
 }
 
 test('missing files hide Claude; Codex with share on but without rollouts has no reading', (t) => {
@@ -132,4 +132,25 @@ test('Codex readings become stale per window after their rollout mtime', (t) => 
   assert.equal(r.at, iso(NOW - 5 * HOUR - 1));
   assert.equal(r.five_hour.state, 'stale');
   assert.equal(r.seven_day.state, 'live');
+});
+
+test('the hub remembers the gate across ticks and restarts, wakes after paused and never after going', async (t) => {
+  const f = fixture(t);
+  const woke = [];
+  const check = (state, window = null) => checkUsagePause({ home: f.home, gate: { state, window }, resume: async (window) => woke.push(window) });
+  await check('normal');
+  await check('paused', 'five_hour');
+  assert.deepEqual(woke, []);
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.file('.claude', 'kickflip', 'usage-gate-state.json'), 'utf8')), { state: 'paused', window: 'five_hour' });
+  await check('normal');
+  assert.deepEqual(woke, ['five_hour']);
+  await check('normal');
+  assert.deepEqual(woke, ['five_hour']);
+  await check('paused', 'seven_day');
+  await check('going', 'seven_day');
+  await check('normal');
+  assert.deepEqual(woke, ['five_hour']);
+  await check('paused', 'seven_day');
+  await check('normal');
+  assert.deepEqual(woke, ['five_hour', 'seven_day']);
 });

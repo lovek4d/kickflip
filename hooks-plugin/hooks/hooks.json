@@ -6,6 +6,10 @@
           {
             "type": "command",
             "command": "node \"$HOME/.claude/skills/kickflip/hooks-plugin/hooks/codex-share-auto.mjs\""
+          },
+          {
+            "type": "command",
+            "command": "node \"$HOME/.claude/skills/kickflip/hooks-plugin/hooks/usage-gate.mjs\""
           }
         ]
       }
@@ -16,6 +20,10 @@
           {
             "type": "command",
             "command": "node \"$HOME/.claude/skills/kickflip/hooks-plugin/hooks/codex-share-auto.mjs\""
+          },
+          {
+            "type": "command",
+            "command": "node \"$HOME/.claude/skills/kickflip/hooks-plugin/hooks/usage-gate.mjs\""
           }
         ]
       }
@@ -27,6 +35,17 @@
             "type": "command",
             "command": "node \"$HOME/.claude/skills/kickflip/board/bin/builder-stop-hook.mjs\"",
             "async": true
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$HOME/.claude/skills/kickflip/hooks-plugin/hooks/usage-gate.mjs\""
           }
         ]
       }

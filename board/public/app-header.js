@@ -15,7 +15,7 @@ BoardView.part((B) => {
     $('#setup').innerHTML = setupCard(d.setup);
     if ($('#linksSheet').open) $('#linksList').innerHTML = linksList(d.links);
   }
-  const renderStatus = () => { $('#status').innerHTML = statusLine(state.fresh?.at, { link: state.link, watcher: state.board?.checks?.watcher }); };
+  const renderStatus = () => { $('#status').innerHTML = statusLine(state.fresh?.at, { link: state.link, watcher: state.board?.checks?.watcher, pause: B.pause?.() }); };
   // A board load and its open threads landed; via is ui-header.js nextFresh's.
   function landed(via) {
     state.fresh = nextFresh(state.fresh, { via, at: new Date().toISOString(), sig: freshSig(state.board, state.threadCache, state.openItems) });
@@ -104,5 +104,5 @@ BoardView.part((B) => {
   });
   B.every(5000, () => { if (state.githubPending && !document.hidden) B.loadBoard(); });
 
-  Object.assign(B, { renderHeader, landed, githubHeader, linkUp, linkDown, headerWired });
+  Object.assign(B, { renderHeader, renderStatus, landed, githubHeader, linkUp, linkDown, headerWired });
 });

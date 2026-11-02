@@ -104,3 +104,13 @@ export function usageReader({ home = os.homedir(), now = Date.now, cacheMs = 60_
     return { claude, codex: readingOf(cached || { at: null }, time) };
   };
 }
+
+export async function checkUsagePause({ gate, home = os.homedir(), resume }) {
+  const file = path.join(home, '.claude', 'kickflip', 'usage-gate-state.json');
+  const previous = readJson(file);
+  if (previous?.state === 'paused' && gate.state === 'normal') await resume(previous.window);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(gate) + '\n');
+  fs.renameSync(tmp, file);
+}

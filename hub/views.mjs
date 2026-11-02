@@ -47,8 +47,8 @@ export function siteHealth(r, links) {
 }
 
 const CODEX_CHOICES = [
-  { value: 'always', label: 'Always on', description: 'Codex builds and reviews; while Codex is out of usage, that work pauses until a usage-reset check succeeds.' },
-  { value: 'auto', label: 'Auto', description: 'Codex builds and reviews; while Codex is out of usage, Opus builders take over until it resets.' },
+  { value: 'always', label: 'Always on', description: 'Codex builds and reviews; past the pause line, Opus builders take over until it resets, and while Codex is out of usage that work pauses until a usage-reset check succeeds.' },
+  { value: 'auto', label: 'Auto', description: 'Codex builds and reviews; while Codex is past the pause line or out of usage, Opus builders take over until it resets.' },
   { value: 'off', label: 'Off', description: 'No Codex.' },
 ];
 
@@ -81,6 +81,7 @@ export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code 
     hub: { tone: sidebar.hub.tone, word: sidebar.hub.word, detail: `${sidebar.hub.detail}${codeLine}` },
     groups,
     usage: sidebar.usage,
+    pause: sidebar.pause,
     codex: codexView(codexShare, codex),
     empty: rows.length === 0,
     polling: { ...pollingNow(st, poll, now), summary: pollingSummary(st.settings) },

@@ -100,9 +100,15 @@
 //               A snooze length is a hub/schedule.mjs snoozeEnd choice. Without a change it only prints them
 //   kickflip codex-share [auto|always|off]
 //               prints the Codex setting in effect for every board; with a value, saves it and prints it.
-//               auto (also when unset): Codex builds and reviews; while Codex is out of usage, Opus builders take over until it resets.
-//               always (Always on): Codex builds and reviews; while Codex is out of usage, that work pauses until a usage-reset check succeeds.
+//               auto (also when unset): Codex builds and reviews; while Codex is past the pause line or out of usage, Opus
+//               builders take over until it resets.
+//               always (Always on): the same past the pause line; while Codex is out of usage, that work pauses until a
+//               usage-reset check succeeds.
 //               off: no Codex. While Codex isn't installed or logged in, the setting reads off and a change is refused.
+//   kickflip usage-gate [pause-at <50..100> | keep-going | stop]
+//               prints {pause_at, state, window, used, resets_at, codex: {past, window, used, resets_at}}; a read exits 0.
+//               pause-at saves the line in steps of 5 (default 90, 100 Off); keep-going lifts the current Claude pause
+//               until its window resets; stop restores it. Codex hands work to Opus past the same line.
 //   kickflip poll-now [--keep-queue]
 //               asks the hub for one poll now (GitHub check, github-change events,
 //               checked.json, then the queue unless --keep-queue) and prints its result
@@ -592,6 +598,19 @@ const commands = {
     const { readCodexShare, setCodexShare } = await import(path.join(SKILL, 'hub', 'push.mjs'));
     if (!rest.length) return out(readCodexShare());
     try { out(setCodexShare(rest[0])); } catch (e) { if (e.status === 400) fail(e.message, 2); if (e.status === 409) fail(e.message); throw e; }
+  },
+
+  async 'usage-gate'() {
+    const { readUsageGate, setPauseAt, setKeepGoing } = await import('../shared/usage-gate.mjs');
+    try {
+      if (rest.length) {
+        if (rest[0] === 'pause-at' && rest.length === 2) setPauseAt(rest[1]);
+        else if (rest[0] === 'keep-going' && rest.length === 1) setKeepGoing('on');
+        else if (rest[0] === 'stop' && rest.length === 1) setKeepGoing('off');
+        else fail('usage-gate takes pause-at <50..100>, keep-going, or stop', 2);
+      }
+      out(readUsageGate());
+    } catch (e) { if (e.status) fail(e.message, e.status === 400 ? 2 : 1); throw e; }
   },
 
   async 'poll-now'() {

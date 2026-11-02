@@ -16,7 +16,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { routeRecord, validRoute } from './routes.mjs';
 import { withFileLock } from './locks.mjs';
-import { RESUME_STATE, carryCursor, hubBoard, isListening, listBoards, oldestUnheard, readManifest, readJSON, saveJSON, watchedCounts, withManifestLock, writeManifest } from './boards.mjs';
+import { RESUME_STATE, carryCursor, hubBoard, isListening, listBoards, oldestUnheard, readManifest, readJSON, saveJSON, watchedCounts, watchedLines, watcherCursor, withManifestLock, writeManifest } from './boards.mjs';
+import { readUsageGate, heldUsageEvent } from '../shared/usage-gate.mjs';
 import { liveSessions, sessionRecords, processStarts, verifiedProcess } from './live.mjs';
 import { deliver } from './push.mjs';
 import { WAIT_MS } from './prompts.mjs';
@@ -266,6 +267,7 @@ export async function checkSessions({
   manifest = readManifest(), now = new Date(), live = liveSessions,
   listening = (board, running) => isListening(board, { now: now.getTime(), running }),
   resume = (route, mark) => resumeSession(route, { manifest, live, mark }), push = deliver,
+  gate = readUsageGate({ now }),
 } = {}) {
   const state = readJSON(RESUME_STATE, {});
   const running = live();
@@ -279,6 +281,11 @@ export async function checkSessions({
       listening: heard, live: isLive, recorded: Boolean(rec?.repo), now: now.getTime(),
       counts: heard ? null : watchedCounts(board), waiting: !heard && !isLive && oldestUnheard(board) !== null,
     });
+    if (action === 'resume' && gate.state === 'paused') {
+      const mark = routeRecord(state, board.route)?.mark || watcherCursor(board);
+      const pending = Object.entries(watchedLines(board)).flatMap(([file, lines]) => lines.slice(routeRecord(mark, file) || 0));
+      if (!pending.some((line) => !heldUsageEvent(line))) { action = 'none'; delete entry.resumed_at; }
+    }
     if (action === 'resume') {
       try { await resume(board.route, entry.mark); out.resumed.push(board.route); } catch (e) { entry = { ...entry, error: e.message }; out.failed.push(`${board.route}: could not resume its session (${e.message})`); }
     } else if (action === 'push') {

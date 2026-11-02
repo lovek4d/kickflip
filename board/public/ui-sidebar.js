@@ -125,7 +125,11 @@
   function sidebar(data, { here = '', device = null, switching = false } = {}) {
     const sites = data?.sites || [];
     const keys = switching ? new Map(switchKeys(data).map((k) => [k.href, k])) : null;
-    const siteRow = (s) => row({ href: siteHref(s), icon: s.icon, title: s.title, sub: s.sub ? `<span class="sb-status">${s.sub}</span>` : '', on: s.route === here, key: keys?.get(siteHref(s)) });
+    const paused = data?.pause?.state === 'paused';
+    const siteRow = (s) => {
+      const sub = paused && s.board ? word('wait', 'Paused') + (s.sub || '').replace(/<span class="dot [^"]*"[^>]*><\/span><span class="word [^"]*">[^<]*<\/span>/, '') : s.sub;
+      return row({ href: siteHref(s), icon: s.icon, title: s.title, sub: sub ? `<span class="sb-status">${sub}</span>` : '', on: s.route === here, key: keys?.get(siteHref(s)) });
+    };
     const boards = sites.filter((s) => s.board);
     const pages = sites.filter((s) => !s.board);
     const plus = `<span class="icon sb-plus" aria-hidden="true">${svg(ICONS.plus, 20)}</span>`;
@@ -137,7 +141,7 @@
       : device === 'install' ? row({ href: '/_hub/#notifications', icon: tile('bell', '#ef4444'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })
       : '';
     const usage = sidebarUsage(data?.usage);
-    const hub = data?.hub;
+    const hub = paused ? { tone: 'wait', word: 'Paused', detail: `until ${usageClock(data.pause.resets_at)}` } : data?.hub;
     const n = data?.notifications || {};
     const lower = (text) => String(text || '').replace(/^\w/, (c) => c.toLowerCase());
     const notify = device === 'blocked' ? word('needs', 'Notifications blocked on this device')

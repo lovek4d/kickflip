@@ -25,7 +25,7 @@ const VAPID = path.join(DIR, 'vapid.json');
 const SUBS = path.join(DIR, 'subs.json');
 const QUEUE = path.join(DIR, 'queue.json');
 const QUEUE_LOCK = QUEUE + '.lock';
-const SETTINGS = path.join(os.homedir(), '.claude', 'kickflip', 'settings.json');
+const settingsFile = (home) => path.join(home, '.claude', 'kickflip', 'settings.json');
 
 const b64u = (buf) => Buffer.from(buf).toString('base64url');
 const unb64u = (s) => Buffer.from(s, 'base64url');
@@ -143,11 +143,15 @@ const delivered = (results) => results.some((r) => r.status >= 200 && r.status <
 
 // ---------- polling interval ----------
 // The whole of ~/.claude/kickflip/settings.json, or {} when it is missing or unreadable.
-export function readSettingsFile() {
-  try { return JSON.parse(fs.readFileSync(SETTINGS, 'utf8')); } catch { return {}; }
+export function readSettingsFile(home = os.homedir()) {
+  try {
+    const value = JSON.parse(fs.readFileSync(settingsFile(home), 'utf8'));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch { return {}; }
 }
 // Replaces the whole file; callers spread readSettingsFile() so other keys, such as rules (rules.mjs), survive.
-export function writeSettingsFile(value) {
+export function writeSettingsFile(value, home = os.homedir()) {
+  const SETTINGS = settingsFile(home);
   fs.mkdirSync(path.dirname(SETTINGS), { recursive: true });
   const tmp = `${SETTINGS}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n');
@@ -155,7 +159,7 @@ export function writeSettingsFile(value) {
 }
 
 // status: a shared/codex.mjs codexStatus. → the Codex setting in effect, shared/codex.mjs effectiveCodexShare.
-export const readCodexShare = (status = codexStatus()) => effectiveCodexShare(readSettingsFile().codexShare, status);
+export const readCodexShare = (status = codexStatus(), home = os.homedir()) => effectiveCodexShare(readSettingsFile(home).codexShare, status);
 
 // Throws {status: 400} for a value that isn't a choice, and {status: 409} with the fix while Codex isn't usable.
 export function setCodexShare(value, status = codexStatus()) {

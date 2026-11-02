@@ -146,3 +146,20 @@
 .hub-view .lk-form input { flex:1; min-width:0; font:16px var(--mono); color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:.3rem .6rem; min-height:2.75rem; }
 .hub-view .lk-form input::placeholder { font-family:var(--sans); }
 .hub-view .lk-form input:focus { outline:2px solid var(--accent-soft); border-color:var(--accent); }
+
+.hub-view .ub-banner > button { flex: none; min-height: 32px; }
+.hub-view .hold-banner.ub-going { border-color: color-mix(in srgb, var(--color-danger) 45%, transparent); background: color-mix(in srgb, var(--color-danger) 10%, var(--panel)); }
+.hub-view .hold-banner.ub-going > svg { color: var(--color-danger); }
+
+.hub-view .u-buffer { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.hub-view .ub-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.hub-view .ub-label { min-width: 0; }
+.hub-view .ub-label .title { display: block; font-size: 14px; }
+.hub-view .ub-sub { display: block; color: var(--muted); font-size: 12px; }
+.hub-view .segments.ub-step { flex: none; grid-template-columns: 44px 62px 44px; }
+.hub-view .ub-step button { padding: 0; font-size: 20px; line-height: 1; color: var(--text); }
+.hub-view .ub-step button:disabled { color: var(--muted); opacity: .45; cursor: default; }
+.hub-view .ub-step output { display: grid; place-items: center; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+.hub-view .ub-step output.off { border-color: var(--line); background: var(--panel); color: var(--muted); }
+.hub-view .ub-marked .u-bar { position: relative; }
+.hub-view .ub-marked .u-bar > .ub-mark { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; border-radius: 0; background: var(--text); opacity: .5; }

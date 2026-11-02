@@ -111,7 +111,7 @@ window.BoardView = (function () {
       waveFilter: store.get('wave', null),
     };
     const signal = opts.signal ? (fn) => { if (B.alive()) B.own(opts.signal(fn)); } : null;
-    Object.assign(B, { store, state, signal, live: opts.live || null });
+    Object.assign(B, { store, state, signal, live: opts.live || null, pause: opts.pause });
 
     function mount() {
       if (B.alive()) return;

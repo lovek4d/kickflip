@@ -1656,3 +1656,20 @@ test('rules refuse a board rule without --site, an empty text, an unknown author
   assert.equal(read(site('orch', 'board.json')).rules, undefined);
   assert.equal(fs.existsSync(at('kickflip', 'settings.json')), false);
 });
+
+test('builder start refuses a Claude pause before making records or a worktree, and runs while going or Off', () => {
+  const until = new Date(Date.now() + 3600_000).toISOString();
+  const usage = { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at: until }, seven_day: { used_percentage: 96, resets_at: until } };
+  write(at('kickflip', 'usage.json'), { claude: usage });
+  const r = board('--site', 'orch', 'builder', 'start', 'w/A1', '--worktree');
+  assert.equal(r.code, 1);
+  assert.match(r.err, new RegExp(`Work is paused: Claude's 5-hour usage is at 91%. Resumes at ${until}. The owner can tap Keep going on the Hub page.`));
+  assert.equal(fs.existsSync(at('waves', 'w', 'agents')), false);
+  write(at('kickflip', 'settings.json'), { keepGoing: { window: 'five_hour', until } });
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1').code, 0);
+  write(at('kickflip', 'settings.json'), { pauseAt: 100 });
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--agent', 'two').code, 0);
+  write(at('kickflip', 'settings.json'), {});
+  write(at('kickflip', 'usage.json'), { claude: { ...usage, five_hour: { ...usage.five_hour, used_percentage: 40 } } });
+  assert.match(board('--site', 'orch', 'builder', 'start', 'w/A1').err, /Claude's weekly usage is at 96%/);
+});

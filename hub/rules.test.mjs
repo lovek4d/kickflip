@@ -110,8 +110,8 @@ test('codex-share prints the setting in effect, refuses a change while Codex is 
     const help = spawnSync(process.execPath, [path.join(HUB_DIR, '..', 'bin', 'kickflip.mjs')], { env, encoding: 'utf8' });
     assert.equal(help.status, 0);
     assert.match(help.stdout, /prints the Codex setting in effect for every board; with a value, saves it and prints it\./);
-    assert.match(help.stdout, /auto \(also when unset\): Codex builds and reviews; while Codex is out of usage, Opus builders take over until it resets\./);
-    assert.match(help.stdout, /always \(Always on\): Codex builds and reviews; while Codex is out of usage, that work pauses until a usage-reset check succeeds\./);
+    assert.match(help.stdout, /auto \(also when unset\): Codex builds and reviews; while Codex is past the pause line or out of usage, Opus\n\s+builders take over until it resets\./);
+    assert.match(help.stdout, /always \(Always on\): the same past the pause line; while Codex is out of usage, that work pauses until a\n\s+usage-reset check succeeds\./);
     assert.match(help.stdout, /off: no Codex\. While Codex isn't installed or logged in, the setting reads off and a change is refused\./);
     assert.equal(cli().stdout, 'off\n');
     const notInstalled = cli('always');
@@ -240,6 +240,60 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
     const refused = await postCodex('value=bad', false);
     assert.equal(refused.status, 400);
     assert.equal(await refused.text(), 'codex-share takes auto, always, or off');
+    await t.test('pause line routes save the gate, refuse bad values and redirect forms', async () => {
+      const postGate = (name, body, json = true) => fetch(`${base}/_hub/settings/${name}`, {
+        method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...(json ? { accept: 'application/json' } : {}) }, body, redirect: 'manual',
+      });
+      assert.equal((await getHub()).pause.pause_at, 90);
+      const noPause = await postGate('keep-going', 'value=on');
+      assert.deepEqual([noPause.status, await noPause.json()], [409, { error: 'Nothing is paused.' }]);
+      const reset = new Date(Date.now() + 3600_000).toISOString();
+      fs.writeFileSync(path.join(web, 'usage.json'), JSON.stringify({ claude: { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at: reset } } }));
+      for (const value of [50, 55, 90, 95, 100]) {
+        const r = await postGate('pause-at', `value=${value}`);
+        assert.equal(r.status, 200);
+        const out = await r.json();
+        assert.equal(out.pause.pause_at, value);
+        assert.equal(out.pause.state, value <= 90 ? 'paused' : 'normal');
+        const sidebar = await (await fetch(`${base}/_hub/sidebar.json`)).json();
+        assert.deepEqual(sidebar.pause, out.pause);
+        assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).other_key, 'kept');
+      }
+      await postGate('pause-at', 'value=90');
+      const go = await postGate('keep-going', 'value=on');
+      assert.equal((await go.json()).pause.state, 'going');
+      assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).keepGoing, { window: 'five_hour', until: reset });
+      const twice = await postGate('keep-going', 'value=on');
+      assert.equal(twice.status, 409);
+      const stop = await postGate('keep-going', 'value=off');
+      assert.equal((await stop.json()).pause.state, 'paused');
+      assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).keepGoing, undefined);
+      const unchanged = fs.readFileSync(file, 'utf8');
+      for (const [name, body] of [['pause-at', ''], ['pause-at', 'value=91'], ['pause-at', 'value=90.0'], ['pause-at', 'value=105'], ['keep-going', 'value=yes'], ['keep-going', '']]) {
+        const r = await postGate(name, body);
+        assert.equal(r.status, 400);
+        assert.ok((await r.json()).error);
+        assert.equal(fs.readFileSync(file, 'utf8'), unchanged);
+      }
+      for (const [name, body] of [['keep-going', 'value=on'], ['keep-going', 'value=off'], ['pause-at', 'value=95']]) {
+        const r = await postGate(name, body, false);
+        assert.deepEqual([r.status, r.headers.get('location')], [303, '/_hub/']);
+      }
+      const stateFile = path.join(web, 'usage-gate-state.json');
+      const eventsFile = path.join(siteDir, 'data', 'events.jsonl');
+      const resumed = () => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse).filter((e) => e.kind === 'usage-resumed');
+      const count = resumed().length;
+      fs.writeFileSync(stateFile, JSON.stringify({ state: 'paused', window: 'five_hour' }));
+      fs.writeFileSync(path.join(web, 'usage.json'), JSON.stringify({ claude: { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at: new Date(Date.now() - 1000).toISOString() } } }));
+      const deadline = Date.now() + 20000;
+      while (resumed().length === count && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
+      assert.equal(resumed().length, count + 1);
+      assert.deepEqual(resumed().at(-1).data, { window: 'five_hour' });
+      fs.writeFileSync(stateFile, JSON.stringify({ state: 'going', window: 'five_hour' }));
+      await postGate('pause-at', 'value=90');
+      assert.equal(resumed().length, count + 1);
+      assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).state, 'normal');
+    });
     const notify = await fetch(`${base}/_hub/settings/notifications`, {
       method: 'POST', headers: { accept: 'application/json' }, body: 'set=weekends&value=on',
     });

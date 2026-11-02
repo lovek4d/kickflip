@@ -4,7 +4,8 @@
   // The header's short time beside refresh: `at` is when the page last got fresh data (nextFresh), and watcher is
   // /api/board's checks.watcher (docs/adr/0021-the-board-shows-github-checks-and-watcher-health.md). link is 'online',
   // 'offline' (the last board load failed) or 'reconnecting' (a refresh tap is retrying it).
-  const statusLine = (at, { link = 'online', watcher } = {}) => (link === 'offline' ? `<span class="link-state offline" title="Offline: can't reach the host">${at ? shortSince(at) : 'offline'}</span>`
+  const statusLine = (at, { link = 'online', watcher, pause } = {}) => (pause?.state === 'paused' ? `<span class="late">Paused until ${esc(BoardUI.usageClock(pause.resets_at))}</span>`
+    : link === 'offline' ? `<span class="link-state offline" title="Offline: can't reach the host">${at ? shortSince(at) : 'offline'}</span>`
     : link === 'reconnecting' ? '<span class="link-state">Reconnecting…</span>'
     : watcher === 'stopped' ? '<span class="claude late" title="Claude not listening">not listening</span>'
     : at ? `<span class="fresh" title="Updated ${since(at)}: the last change from the host, or your last refresh">${shortSince(at)}</span>` : '');

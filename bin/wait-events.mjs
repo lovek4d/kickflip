@@ -11,6 +11,7 @@
 //                             printed with every wake (docs/adr/0039-rules-live-on-settings-at-hub-and-board-level.md), then
 //   setting <name> on|off     each board setting from board.json, such as auto-merge, absent ones off
 //                             (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md), then
+//   usage paused <iso> <window> <used>%  while Claude is paused, after rules/settings; hub work events wait for reset
 //   link <name> <detail>      each hub link that doesn't reach the board (../hub/boards.mjs linksOf), the list its
 //                             Hub links sheet shows (docs/adr/0040-one-board-registry-for-every-hub-feature.md), at
 //                             once, while the sheet still reads it settling
@@ -28,6 +29,7 @@ import { readHubRules, rulesOf, ruleLines } from '../hub/rules.mjs';
 import { boardAt, linksOf, hubLink } from '../hub/boards.mjs';
 import { settingsLines, settingsOf } from '../board/store.mjs';
 import { migrateOnStart } from './install.mjs';
+import { readUsageGate, heldUsageEvent } from '../shared/usage-gate.mjs';
 
 const [route, session] = process.argv.slice(2);
 if (!route || !session) { console.error('usage: wait-events.mjs <route> <session-id>'); process.exit(2); }
@@ -79,23 +81,35 @@ for (;;) {
   if (s === undefined) continue;
   if (s === null) { console.log('site-removed'); process.exit(0); }
   if (s.owner?.session && s.owner.session !== session) { console.log('handed-over ' + JSON.stringify(s.owner)); process.exit(0); }
-  const now = matching(s);
-  if (Object.entries(now).some(([f, l]) => l.length > (routeRecord(base, f) || 0))) {
+  const pending = (seen) => Object.fromEntries(Object.entries(seen).map(([f, lines]) => [f, [...(routeRecord(base.$usageHeld, f) || []), ...lines.slice(routeRecord(base, f) || 0)]]));
+  const eligible = (line, gate) => gate.state !== 'paused' || !heldUsageEvent(line);
+  const currentGate = readUsageGate();
+  if (Object.values(pending(matching(s))).some((lines) => lines.some((line) => eligible(line, currentGate)))) {
     await new Promise((r) => setTimeout(r, 2000));
     const seen = matching(s);
-    for (const [f, l] of Object.entries(seen)) for (const line of l.slice(routeRecord(base, f) || 0)) console.log(`event ${f} ${line}`);
+    const gate = readUsageGate();
+    const waiting = pending(seen);
+    if (!Object.values(waiting).some((lines) => lines.some((line) => eligible(line, gate)))) continue;
+    const held = Object.create(null);
+    for (const [f, lines] of Object.entries(waiting)) {
+      held[f] = lines.filter((line) => !eligible(line, gate));
+      for (const line of lines.filter((line) => eligible(line, gate))) console.log(`event ${f} ${line}`);
+    }
     // A board is a site with a board.json; other sites get no rules.
     let board = null;
     try { board = JSON.parse(fs.readFileSync(path.resolve(s.dir, 'board.json'), 'utf8')); } catch (e) { if (e.code !== 'ENOENT') board = {}; }
     if (board) for (const line of ruleLines(readHubRules(), rulesOf(board))) console.log(`rule ${line}`);
     if (board) for (const line of settingsLines(settingsOf(board))) console.log(line);
+    if (gate.state === 'paused') console.log(`usage paused ${gate.resets_at} ${gate.window} ${gate.used}%`);
     // This watcher still runs, so the events link reads as reaching the board. A failure here must not keep the
     // cursor below from moving, or the same events would wake the session again.
     try {
       const self = board && boardAt(s.dir);
       if (self) for (const l of [...linksOf(self, { listen: 'listening' }), hubLink()]) if (!l.ok) console.log(`link ${l.link} ${l.detail}`);
     } catch (e) { console.log(`link registry could not check the links (${e.message})`); }
-    fs.writeFileSync(cursorFile, JSON.stringify(Object.fromEntries(Object.entries(seen).map(([f, l]) => [f, l.length]))));
+    const next = Object.fromEntries(Object.entries(seen).map(([f, l]) => [f, l.length]));
+    if (Object.values(held).some((lines) => lines.length)) next.$usageHeld = held;
+    fs.writeFileSync(cursorFile, JSON.stringify(next));
     process.exit(0);
   }
 }

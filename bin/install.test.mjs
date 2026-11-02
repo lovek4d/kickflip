@@ -261,7 +261,7 @@ test('plugin keeps builder-stop and runs the Codex share hook for both events th
   fs.mkdirSync(bin);
   fs.symlinkSync(process.execPath, path.join(bin, 'node'));
   const auth = path.join(home, '.codex', 'auth.json');
-  const said = { auto: /Opus builders take over until it resets/, always: /pause that work until the usage-reset probe answers/ };
+  const said = { auto: /Opus builders take over until it resets/, always: /Opus builders take over until it resets/ };
   for (const event of ['UserPromptSubmit', 'SessionStart']) {
     const { command } = plugin.hooks[event][0].hooks[0];
     assert.match(command, /\$HOME\/\.claude\/skills\/kickflip\//);
@@ -835,4 +835,39 @@ test('doctor --fix --dry-run and install preview all steps without runners, netw
   assert.equal(fs.existsSync(settingsFile()), false);
   assert.equal(fs.existsSync(path.join(home, 'Library')), false);
   assert.ok(output.some((line) => line.startsWith('would map tailscale /')));
+});
+
+test('the installed usage hook reminds sessions, denies only new agents while paused and stays silent on errors', () => {
+  installLinks({ home, cloneRoot: cloneRoot() });
+  const plugin = JSON.parse(fs.readFileSync(path.join(cloneRoot(), 'hooks-plugin', 'hooks', 'hooks.json'), 'utf8'));
+  const usageHook = (event) => plugin.hooks[event].flatMap((g) => g.hooks).find((h) => h.command.includes('/usage-gate.mjs')).command;
+  assert.equal(plugin.hooks.PreToolUse.find((g) => g.hooks.some((h) => h.command === usageHook('PreToolUse'))).matcher, 'Agent|Task');
+  const until = new Date(Date.now() + 3600_000).toISOString();
+  const dir = path.join(home, '.claude', 'kickflip');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'usage.json'), JSON.stringify({ claude: { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at: until } } }));
+  const bin = path.join(home, 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.symlinkSync(process.execPath, path.join(bin, 'node'));
+  const run = (event, input = {}) => {
+    const result = spawnSync('/bin/sh', ['-c', usageHook(event)], { env: { ...process.env, HOME: home, PATH: bin }, input: typeof input === 'string' ? input : JSON.stringify({ hook_event_name: event, ...input }), encoding: 'utf8' });
+    assert.deepEqual([result.status, result.stderr], [0, '']);
+    return result.stdout;
+  };
+  for (const event of ['SessionStart', 'UserPromptSubmit']) assert.match(run(event), /Running steps finish; start no new work, builders or agents until/);
+  for (const tool_name of ['Agent', 'Task']) {
+    const out = JSON.parse(run('PreToolUse', { tool_name })).hookSpecificOutput;
+    assert.equal(out.hookEventName, 'PreToolUse');
+    assert.equal(out.permissionDecision, 'deny');
+    assert.match(out.permissionDecisionReason, /The owner can tap Keep going on the Hub page/);
+  }
+  assert.equal(run('PreToolUse', { tool_name: 'Bash' }), '');
+  assert.equal(run('PreToolUse', '{'), '');
+  fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ keepGoing: { window: 'five_hour', until } }));
+  assert.match(run('SessionStart'), /Keep going is on: work runs past the pause line until .* spending usage/);
+  assert.equal(run('PreToolUse', { tool_name: 'Agent' }), '');
+  fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ pauseAt: 100 }));
+  assert.equal(run('SessionStart'), '');
+  fs.writeFileSync(path.join(dir, 'usage.json'), '{');
+  assert.equal(run('UserPromptSubmit'), '');
 });

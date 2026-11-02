@@ -79,6 +79,7 @@ window.AppShell = (function () {
       cur.addEventListener('sidebar', (e) => {
         try { data = JSON.parse(e.data); } catch { return; }
         sidebar.setData(data);
+        current?.v?.B?.renderStatus?.();
       });
       cur.addEventListener('error', () => {
         streamUp = false;
@@ -93,7 +94,7 @@ window.AppShell = (function () {
       sidebar.checkDevice();
       try {
         const r = await fetch('/_hub/sidebar.json', { cache: 'no-store' });
-        if (r.ok) { data = await r.json(); sidebar.setData(data); }
+        if (r.ok) { data = await r.json(); sidebar.setData(data); current?.v?.B?.renderStatus?.(); }
       } catch { /* the stream brings the next copy */ }
     }
 
@@ -151,7 +152,7 @@ window.AppShell = (function () {
       if (board) {
         const live = streamUp ? left.get(route) || null : null;
         left.delete(route);
-        v = BoardView.create(root, siteRoot, { signal: signalFor(route), live });
+        v = BoardView.create(root, siteRoot, { signal: signalFor(route), live, pause: () => data?.pause });
       } else {
         v = page.create(root, siteRoot, { view, siteTitle, boards, open: openHere, toggleSidebar: sidebar.toggle, keydown: sidebar.keydown, pointerdown: sidebar.pointerdown,
           reload: () => go(AppRouter.viewOf(location.href, { boards: boards() }), location.href, 'reload'), closeSidebar: sidebar.close, up: () => router.up(),
