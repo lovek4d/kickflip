@@ -316,7 +316,7 @@ try { if (migrateSettings()) log('settings: migrated the push schedule to the po
 const FIRST_POLL_MS = 60_000;
 const ERROR_LOG_MS = 60 * 60_000;
 // running: the poll in progress; startedAt: when the last one began; last: its result.
-const polls = { running: null, startedAt: 0, firstAt: Date.now() + FIRST_POLL_MS, last: null, errorLoggedAt: 0 };
+const polls = { running: null, startedAt: 0, firstAt: Date.now() + FIRST_POLL_MS, last: null, errorLoggedAt: 0, linearErrorLoggedAt: 0 };
 
 const nextPollAt = () => new Date(polls.startedAt ? nextSlot(new Date(polls.startedAt), readSettings()).getTime() : polls.firstAt);
 
@@ -328,13 +328,18 @@ function runPoll({ flush = true } = {}) {
     const settings = readSettings();
     let result;
     try { result = await checkGitHub({ every: windowAt(startedAt, settings).every_minutes, manifest: loadManifest() }); }
-    catch (e) { result = { at: startedAt.toISOString(), watched: 0, failed: [e.message], changes: [], events: [], checked: [] }; }
+    catch (e) { result = { at: startedAt.toISOString(), watched: 0, failed: [e.message], changes: [], events: [], checked: [], linear: { moved: [], failed: [] } }; }
     await fetchTryBranches({ manifest: loadManifest(), log });
     if (result.failed.length && Date.now() - polls.errorLoggedAt > ERROR_LOG_MS) {
       polls.errorLoggedAt = Date.now();
       log(`github check: ${result.failed.length} step${result.failed.length === 1 ? '' : 's'} failed, first: ${result.failed[0]} (logged at most hourly)`);
     }
     if (result.changes.length) log(`github check: ${result.changes.map((c) => `#${c.pr} ${c.changes.join(',')}`).join('; ')} → ${result.events.map((e) => e.route).join(', ') || 'no board'}`);
+    for (const { id, state } of result.linear.moved) log(`linear: ${id} → ${state}`);
+    if (result.linear.failed.length && Date.now() - polls.linearErrorLoggedAt > ERROR_LOG_MS) {
+      polls.linearErrorLoggedAt = Date.now();
+      log(`linear check: ${result.linear.failed.length} step${result.linear.failed.length === 1 ? '' : 's'} failed, first: ${result.linear.failed[0]} (logged at most hourly)`);
+    }
     try { result.deaf = await checkListening({ manifest: loadManifest() }); }
     catch (e) { result.deaf = { pushed: [], failed: [e.message] }; }
     if (result.deaf.pushed.length || result.deaf.failed.length) log(`not listening: pushed ${result.deaf.pushed.join(', ') || 'none'}${result.deaf.failed.length ? `; ${result.deaf.failed.join('; ')}` : ''}`);

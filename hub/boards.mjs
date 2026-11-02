@@ -26,7 +26,7 @@ import { reviewLinks, topicItems } from '../board/review.mjs';
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLAUDE = path.join(os.homedir(), '.claude');
 const WEB = path.join(CLAUDE, 'kickflip');
-const WAVES = path.join(CLAUDE, 'waves');
+export const WAVES = path.join(CLAUDE, 'waves');
 const MANIFEST = path.join(WEB, 'manifest.json');
 export const GITHUB_STATE = path.join(WEB, 'github-state.json');
 export const WAKE_STATE = path.join(WEB, 'wake-state.json');
@@ -122,7 +122,7 @@ function boardOf(route, s) {
   return {
     route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, waves, prs: prsOf(waves, s.github), github: s.github, branch: s.branch, auto_build: cfg.auto_build === true,
     githubLogin: typeof cfg.github_login === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(cfg.github_login) ? cfg.github_login : null,
-    reviewers: names(cfg.reviewers), owner: s.owner || null, watch: Array.isArray(s.watch) && s.watch.length ? s.watch : ['data/events.jsonl'], filter: s.filter || null,
+    tickets: cfg.tickets, reviewers: names(cfg.reviewers), owner: s.owner || null, watch: Array.isArray(s.watch) && s.watch.length ? s.watch : ['data/events.jsonl'], filter: s.filter || null,
   };
 }
 

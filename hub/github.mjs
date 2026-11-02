@@ -8,9 +8,11 @@
 // to every board, changed or not.
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
+import { savedClient } from './linear.mjs';
 import { fetchPR, reportOf, githubLogin } from './pr-report.mjs';
 import { wakesDue, localDay } from './schedule.mjs';
-import { GITHUB_STATE as STATE, WAKE_STATE, listBoards, appendEvent, prKey, readJSON, saveJSON } from './boards.mjs';
+import { GITHUB_STATE as STATE, WAKE_STATE, WAVES, listBoards, appendEvent, prKey, readJSON, saveJSON } from './boards.mjs';
 
 export const CHANGE_KINDS = ['ci', 'review', 'comments', 'merged', 'mergeable', 'draft'];
 
@@ -66,7 +68,7 @@ function writeChecked(dir, every) {
 }
 
 // One check. every: the current polling window's minutes, for checked.json. manifest: the hub's manifest.
-// → {at, watched, failed: [message], changes: [{repo, pr, changes}], events: [{route, id}], checked: [route]}
+// → {at, watched, failed: [message], changes: [{repo, pr, changes}], events: [{route, id}], checked: [route], linear: {moved, failed}}
 // watched counts distinct PRs; github-state.json's lastCheck also names the boards the check reached, for
 // boards.mjs linksOf.
 export async function checkGitHub({ every, manifest }) {
@@ -158,7 +160,56 @@ export async function checkGitHub({ every, manifest }) {
   for (const key of Object.keys(state.acknowledged)) if (!prs.has(key)) delete state.acknowledged[key];
   state.lastCheck = { at, watched: prs.size, failed: failed.length, changed: changes.length, boards: checked };
   saveJSON(STATE, state);
-  return { at, watched: prs.size, failed, changes, events, checked };
+  const linear = { moved: [], failed: [] };
+  // docs/adr/0107-the-hubs-poll-moves-the-owners-linear-tickets.md
+  try { await advanceLinear(boards, fetched, fetchKey, linear); }
+  catch (e) { linear.failed.push(`linear: ${e.message}`); }
+  return { at, watched: prs.size, failed, changes, events, checked, linear };
+}
+
+async function advanceLinear(boards, fetched, fetchKey, result) {
+  const client = savedClient();
+  if (!client) return;
+  const tickets = new Map();
+  for (const board of boards) {
+    const prs = new Map(board.prs.map((p) => [JSON.stringify([p.wave, p.id]), p]));
+    const source = board.kind === 'waves' ? WAVES : board.dir;
+    for (const { slug, wave } of board.waves) {
+      for (const item of wave.items) {
+        if (item.status === 'dropped') continue;
+        const ids = new Set(item.linear || []);
+        if (board.tickets?.source === 'linear' && item.ticket) ids.add(item.ticket);
+        const p = prs.get(JSON.stringify([slug, item.id]));
+        const summary = p && fetched[fetchKey(p, board.me)];
+        const merged = ['merged', 'done'].includes(item.status) || summary?.state === 'MERGED';
+        const carrying = {
+          merged, ready: summary?.state === 'OPEN' && !summary.isDraft,
+          hasPR: Boolean(item.pr) && (merged || summary?.state === 'OPEN'), failed: Boolean(p && !summary),
+        };
+        const key = JSON.stringify([source, slug, item.id]);
+        for (const id of ids) {
+          if (!tickets.has(id)) tickets.set(id, { items: new Map(), scoped: false, created: false });
+          const ticket = tickets.get(id);
+          const previous = ticket.items.get(key);
+          ticket.items.set(key, { ...carrying, failed: carrying.failed || previous?.failed });
+          ticket.scoped ||= Boolean(summary);
+          ticket.created ||= item.ticket === id && Boolean(item.ticket_created);
+        }
+      }
+    }
+  }
+  for (const [id, ticket] of tickets) {
+    const items = [...ticket.items.values()];
+    if (!ticket.scoped || items.some((item) => item.failed)) continue;
+    const target = items.every((item) => item.merged) ? 'done'
+      : items.every((item) => item.merged || item.ready) ? 'review'
+      : items.some((item) => item.hasPR) ? 'started' : null;
+    if (!target) continue;
+    try {
+      const state = await client.advanceIssue(id, target, { owner: client.saved.viewer.id, created: ticket.created });
+      if (state) result.moved.push({ id, state });
+    } catch (e) { result.failed.push(`linear ${id}: ${e.message}`); }
+  }
 }
 
 // The wakes due at `now` (schedule.mjs wakesDue): every board gets one `check-github {reason: "morning"}`

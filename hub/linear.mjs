@@ -85,6 +85,15 @@ export function linearClient(key, { fetch = globalThis.fetch } = {}) {
         return d.issue ? { identifier: d.issue.identifier, team: d.issue.team.key, assignee: d.issue.assignee?.id ?? null, state: d.issue.state } : null;
       } catch (e) { if (e.notFound) return null; throw e; }
     },
+    async advanceIssue(identifier, target, { owner, created } = {}) {
+      const issue = await api.issue(identifier);
+      if (!issue || (issue.assignee !== owner && !created) || stageOf(issue.state) >= { started: 1, review: 2, done: 3 }[target]) return null;
+      const state = stateFor((await team(issue.team)).states.nodes, target);
+      if (!state) return null;
+      const d = await call('mutation($id: String!, $stateId: String!) { issueUpdate(id: $id, input: { stateId: $stateId }) { success } }', { id: identifier, stateId: state.id });
+      if (!d.issueUpdate.success) throw new LinearError('Linear did not move the issue.');
+      return state.name;
+    },
     // → the state's name when the issue moved, else null (already there, closed, or no state fits the target).
     async moveIssue(identifier, target) {
       const issue = await api.issue(identifier);
@@ -98,6 +107,12 @@ export function linearClient(key, { fetch = globalThis.fetch } = {}) {
     },
   };
   return api;
+}
+
+export function stageOf(state) {
+  if (['completed', 'canceled'].includes(state.type)) return 3;
+  if (state.type === 'started') return /review/i.test(state.name) ? 2 : 1;
+  return 0;
 }
 
 // A team's workflow state for a card's target, by Linear's state type and then by name: started is the started-type

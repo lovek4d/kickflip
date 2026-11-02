@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { fakeLinear, linearWorld, freePorts } from '../shared/test-helpers.mjs';
-import { linearClient, linearStatus, readLinearKey, removeLinearKey, saveLinearKey, stateFor } from './linear.mjs';
+import { linearClient, linearStatus, readLinearKey, removeLinearKey, saveLinearKey, stateFor, stageOf } from './linear.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 
@@ -58,6 +58,35 @@ test("a card's target maps to the team's workflow state by type and name, and a 
   assert.equal(await client.moveIssue('OPS-2', 'review'), null);
   assert.equal(world.issues['OPS-2'].state, 'o-todo');
   await assert.rejects(client.moveIssue('ENG-404', 'done'), /no issue ENG-404/);
+});
+
+test('the stage order treats review as later than started and completed or canceled as done', () => {
+  const states = [
+    { type: 'backlog', name: 'Backlog' }, { type: 'triage', name: 'Triage' }, { type: 'unstarted', name: 'Todo' },
+    { type: 'started', name: 'Working' }, { type: 'started', name: 'Code REVIEW' },
+    { type: 'completed', name: 'Shipped' }, { type: 'canceled', name: 'Canceled' },
+  ];
+  assert.deepEqual(states.map(stageOf), [0, 0, 0, 1, 2, 3, 3]);
+});
+
+test('advanceIssue reads once and skips missing, unowned or later issues before looking up team states', async () => {
+  const world = linearWorld();
+  const linear = fakeLinear(world);
+  const client = linearClient(world.key, { fetch: linear.fetch });
+  world.issues['ENG-1'] = { team: 'ENG', assignee: 'someone-else', state: 's-todo' };
+  world.issues['ENG-2'] = { team: 'ENG', assignee: 'user-me', state: 's-rev' };
+  world.issues['ENG-3'] = { team: 'ENG', assignee: 'user-me', state: 's-cancel' };
+  for (const id of ['ENG-404', 'ENG-1', 'ENG-2', 'ENG-3']) {
+    linear.calls.length = 0;
+    assert.equal(await client.advanceIssue(id, 'started', { owner: world.viewer.id }), null);
+    assert.equal(linear.calls.length, 1);
+    assert.ok(linear.calls[0].query.includes('issue(id'));
+  }
+  world.issues['OPS-1'] = { team: 'OPS', assignee: 'user-me', state: 'o-todo' };
+  linear.calls.length = 0;
+  assert.equal(await client.advanceIssue('OPS-1', 'review', { owner: world.viewer.id }), null);
+  assert.equal(linear.calls.length, 2);
+  assert.ok(!linear.calls.some((c) => c.query.includes('issueUpdate')));
 });
 
 test('the key is saved only once Linear accepts it, in a mode 600 file, and its status names the workspace without the key', async (t) => {

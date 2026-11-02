@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fakeGh, prView, writePR, writeUser, calls } from '../shared/fake-gh.mjs';
+import { fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'github-'));
 process.env.HOME = home;
@@ -149,4 +150,181 @@ test('the poll retries a failed CI delivery without repeating it on another boar
   assert.equal(fs.readFileSync(otherEvents, 'utf8'), delivered);
   assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).prs['o/r#7'].head, 'new');
   assert.deepEqual((await poll()).events, []);
+});
+
+async function linearPoll(t, { key = true } = {}) {
+  const world = linearWorld();
+  const linear = fakeLinear(world);
+  const server = await linear.serve();
+  const previous = process.env.KICKFLIP_LINEAR_URL;
+  process.env.KICKFLIP_LINEAR_URL = server.url;
+  const keyFile = path.join(home, '.claude', 'kickflip', 'linear.json');
+  const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value)); };
+  if (key) write(keyFile, { key: world.key, workspace: 'Acme', url_key: 'acme', viewer: world.viewer });
+  t.after(async () => {
+    await server.close();
+    if (previous === undefined) delete process.env.KICKFLIP_LINEAR_URL; else process.env.KICKFLIP_LINEAR_URL = previous;
+    fs.rmSync(keyFile, { force: true });
+  });
+  const root = fs.mkdtempSync(path.join(home, 'linear-poll-'));
+  const manifest = { sites: {} };
+  const board = (route, items, cfg = {}) => {
+    const dir = path.join(root, route);
+    const settings = { items: 'data/wave.json', slug: 'linear', tickets: { source: 'linear' }, ...cfg };
+    write(path.join(dir, 'board.json'), settings);
+    const file = settings.items === 'waves' ? path.join(home, '.claude', 'waves', 'linear', 'wave.json') : path.join(dir, settings.items);
+    const set = (items) => write(file, { repo: 'o/r', items });
+    set(items);
+    manifest.sites[route] = { dir, port: 1, cmd: [process.execPath, new URL('../board/server.mjs', import.meta.url).pathname] };
+    return set;
+  };
+  const issue = (id, state = 's-todo', assignee = world.viewer.id) => { world.issues[id] = { team: 'ENG', state, assignee }; };
+  const updates = () => linear.calls.filter((c) => c.query.includes('issueUpdate'));
+  return { world, linear, board, issue, updates, poll: () => checkGitHub({ every: 15, manifest }) };
+}
+
+test('the poll advances a draft to In Progress, a ready PR to In Review and a merge to Done, idempotently', async (t) => {
+  const { board, issue, poll, world, linear, updates } = await linearPoll(t);
+  board('draft', [{ id: 'A1', pr: 31, ticket: 'ENG-1' }]);
+  issue('ENG-1');
+  for (const [pr, state] of [
+    [{ isDraft: true }, 'In Progress'], [{ isDraft: false }, 'In Review'], [{ state: 'MERGED' }, 'Done'],
+  ]) {
+    writePR(home, 31, prView(pr));
+    const moved = await poll();
+    assert.deepEqual(moved.failed, []);
+    assert.deepEqual(moved.linear, { moved: [{ id: 'ENG-1', state }], failed: [] });
+    const count = updates().length;
+    assert.deepEqual((await poll()).linear, { moved: [], failed: [] });
+    assert.equal(updates().length, count);
+  }
+  assert.equal(world.issues['ENG-1'].state, 's-done');
+  assert.equal(updates().length, 3);
+  assert.equal(linear.calls.filter((c) => c.query.includes('issue(id')).length, 6);
+  assert.ok(!linear.calls.some((c) => c.query.includes('viewer')));
+});
+
+test("the poll leaves someone else's ticket alone without looking up states or mutating", async (t) => {
+  const { board, issue, poll, world, linear, updates } = await linearPoll(t);
+  board('unowned', [{ id: 'A1', pr: 32, linear: ['ENG-2'] }], { tickets: { source: 'internal' } });
+  issue('ENG-2', 's-todo', 'someone-else');
+  writePR(home, 32, prView());
+  assert.deepEqual((await poll()).linear, { moved: [], failed: [] });
+  assert.equal(world.issues['ENG-2'].state, 's-todo');
+  assert.equal(linear.calls.length, 1);
+  assert.equal(updates().length, 0);
+});
+
+test('the poll never moves an In Review or Done ticket backwards for a draft PR', async (t) => {
+  const { board, issue, poll, world, linear, updates } = await linearPoll(t);
+  board('later', [{ id: 'A1', pr: 33, linear: ['ENG-3', 'ENG-4'] }]);
+  issue('ENG-3', 's-rev');
+  issue('ENG-4', 's-done');
+  writePR(home, 33, prView({ isDraft: true }));
+  assert.deepEqual((await poll()).linear, { moved: [], failed: [] });
+  assert.deepEqual([world.issues['ENG-3'].state, world.issues['ENG-4'].state], ['s-rev', 's-done']);
+  assert.equal(linear.calls.length, 2);
+  assert.equal(updates().length, 0);
+});
+
+test('a shared ticket waits for both cards across file boards to be ready and then merged', async (t) => {
+  const { board, issue, poll, world, updates } = await linearPoll(t);
+  const first = board('shared-first', [{ id: 'A1', pr: 34, ticket: 'ENG-5' }]);
+  board('shared-second', [{ id: 'A1', pr: 35, ticket: 'ENG-5' }, { id: 'dropped', status: 'dropped', ticket: 'ENG-5' }]);
+  issue('ENG-5');
+  writePR(home, 34, prView());
+  writePR(home, 35, prView({ isDraft: true }));
+  assert.deepEqual((await poll()).linear.moved, [{ id: 'ENG-5', state: 'In Progress' }]);
+  writePR(home, 35, prView());
+  assert.deepEqual((await poll()).linear.moved, [{ id: 'ENG-5', state: 'In Review' }]);
+  writePR(home, 34, prView({ state: 'MERGED' }));
+  assert.deepEqual((await poll()).linear, { moved: [], failed: [] });
+  assert.equal(world.issues['ENG-5'].state, 's-rev');
+  first([{ id: 'A1', pr: 34, status: 'merged', ticket: 'ENG-5' }]);
+  writePR(home, 35, prView({ state: 'MERGED' }));
+  assert.deepEqual((await poll()).linear.moved, [{ id: 'ENG-5', state: 'Done' }]);
+  assert.equal(updates().length, 3);
+});
+
+test('the poll combines Linear lists and Linear-source tickets once across waves boards, including created tickets', async (t) => {
+  const { board, issue, poll, linear, updates } = await linearPoll(t);
+  const items = [
+    { id: 'A1', pr: 36, linear: ['ENG-6', 'ENG-7'], ticket: 'ENG-7', ticket_created: true },
+    { id: 'A2', pr: 36, ticket: 'ENG-8' },
+  ];
+  board('waves-linear', items, { items: 'waves' });
+  board('waves-internal', items, { items: 'waves', tickets: { source: 'internal' } });
+  board('file-internal', [{ id: 'A1', pr: 36, ticket: 'ENG-9' }], { tickets: { source: 'internal' } });
+  issue('ENG-6');
+  issue('ENG-7', 's-todo', null);
+  issue('ENG-8');
+  issue('ENG-9');
+  writePR(home, 36, prView());
+  assert.deepEqual((await poll()).linear, { moved: [
+    { id: 'ENG-6', state: 'In Review' }, { id: 'ENG-7', state: 'In Review' }, { id: 'ENG-8', state: 'In Review' },
+  ], failed: [] });
+  assert.deepEqual(linear.calls.filter((c) => c.query.includes('issue(id')).map((c) => c.variables.id), ['ENG-6', 'ENG-7', 'ENG-8']);
+  assert.equal(updates().length, 3);
+});
+
+test('an unstarted carrying card blocks review and a closed unmerged PR does not start its ticket', async (t) => {
+  const { board, issue, poll, linear } = await linearPoll(t);
+  board('unstarted', [
+    { id: 'A1', pr: 37, ticket: 'ENG-10' }, { id: 'A2', ticket: 'ENG-10' },
+    { id: 'A3', pr: 38, ticket: 'ENG-11' }, { id: 'A4', status: 'done', ticket: 'ENG-10' },
+  ]);
+  issue('ENG-10');
+  issue('ENG-11');
+  writePR(home, 37, prView());
+  writePR(home, 38, prView({ state: 'CLOSED' }));
+  assert.deepEqual((await poll()).linear, { moved: [{ id: 'ENG-10', state: 'In Progress' }], failed: [] });
+  assert.deepEqual(linear.calls.filter((c) => c.query.includes('issue(id')).map((c) => c.variables.id), ['ENG-10']);
+});
+
+test('a failed PR fetch skips a shared ticket even when its other card was fetched successfully', async (t) => {
+  const { board, issue, poll, linear, updates } = await linearPoll(t);
+  board('failed-pr', [{ id: 'A1', pr: 39, ticket: 'ENG-12' }, { id: 'A2', pr: 40, ticket: 'ENG-12' }]);
+  issue('ENG-12');
+  writePR(home, 39, prView());
+  writePR(home, 40, { fail: true });
+  const result = await poll();
+  assert.equal(result.failed.length, 1);
+  assert.deepEqual(result.linear, { moved: [], failed: [] });
+  assert.equal(linear.calls.length, 0);
+  assert.equal(updates().length, 0);
+  writePR(home, 40, prView());
+  assert.deepEqual((await poll()).linear.moved, [{ id: 'ENG-12', state: 'In Review' }]);
+});
+
+test('Linear failures stay separate from GitHub and retry on an unchanged PR', async (t) => {
+  const { board, issue, poll, world } = await linearPoll(t);
+  board('linear-failure', [{ id: 'A1', pr: 41, ticket: 'ENG-13' }]);
+  issue('ENG-13');
+  writePR(home, 41, prView());
+  const key = world.key;
+  world.key = 'refused';
+  const failed = await poll();
+  assert.deepEqual(failed.failed, []);
+  assert.deepEqual(failed.linear, { moved: [], failed: ['linear ENG-13: Linear refused the key.'] });
+  const state = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'kickflip', 'github-state.json'), 'utf8'));
+  assert.equal(state.lastCheck.at, failed.at);
+  assert.equal(state.lastCheck.failed, 0);
+  world.key = key;
+  assert.deepEqual((await poll()).linear, { moved: [{ id: 'ENG-13', state: 'In Review' }], failed: [] });
+});
+
+test('without a saved key the poll makes no Linear request and keeps GitHub changes and checked boards', async (t) => {
+  const { board, poll, linear } = await linearPoll(t, { key: false });
+  board('no-key', [{ id: 'A1', pr: 42, ticket: 'ENG-14', linear: ['ENG-15'] }]);
+  writePR(home, 42, prView());
+  assert.deepEqual((await poll()).linear, { moved: [], failed: [] });
+  writePR(home, 42, prView({ isDraft: true }));
+  const result = await poll();
+  assert.deepEqual(result.linear, { moved: [], failed: [] });
+  assert.deepEqual(result.failed, []);
+  assert.equal(result.watched, 1);
+  assert.deepEqual(result.changes, [{ repo: 'o/r', pr: 42, changes: ['draft'] }]);
+  assert.deepEqual(result.events.map((e) => e.route), ['no-key']);
+  assert.deepEqual(result.checked, ['no-key']);
+  assert.equal(linear.calls.length, 0);
 });

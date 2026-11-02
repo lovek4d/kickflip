@@ -1,10 +1,12 @@
 ---
-status: superseded in part by ADR-0104
+status: superseded in part by ADR-0104 and ADR-0107
 ---
 
 # The hub reads GitHub itself
 
 Superseded in part by [0104](0104-kickflip-owns-the-reviewer-record.md): kickflip also owns Slack reviewer steps; the optional monitor skill is not needed for reviewer links or digests.
+
+Superseded in part by [0107](0107-the-hubs-poll-moves-the-owners-linear-tickets.md): the hub's poll moves the owner's Linear tickets; monitor's tick no longer needs to.
 
 The hub's PR check is kickflip code, `hub/pr-report.mjs`, run with Node and gh. It needs neither zsh, jq nor the owner's monitor skill. A Linux host with Node and gh can poll the same PRs as a Mac.
 

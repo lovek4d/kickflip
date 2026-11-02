@@ -176,7 +176,7 @@ The board’s one choice for every card’s tickets: Internal with a prefix (INT
 _Avoid_: integration, tracker, GitHub project
 
 **Linear key**:
-The owner’s Linear personal API key, pasted in Hub settings and kept only on the host; pages learn only whether it is set and its workspace. kickflip lists teams and projects, creates projects and issues, and moves tickets with it. The key is optional: without it, `board.mjs` prints `ticket` lines and the board’s session does that work through its Linear MCP ([0088](docs/adr/0088-kickflip-reaches-linear-with-a-key-on-the-mac.md)).
+The owner’s Linear personal API key, pasted in Hub settings and kept only on the host; pages learn only whether it is set and its workspace. kickflip lists teams and projects, creates projects and issues, and moves tickets with it. The hub's poll uses the saved key's viewer as the owner and advances their Linear tickets from PR state, aggregating every carrying card across boards; without a key the poll moves none ([ADR 0107](docs/adr/0107-the-hubs-poll-moves-the-owners-linear-tickets.md)). The key is optional: without it, `board.mjs` prints `ticket` lines and the board’s session does that work through its Linear MCP ([0088](docs/adr/0088-kickflip-reaches-linear-with-a-key-on-the-mac.md)).
 _Avoid_: Linear token, API secret
 
 **Internal item**:
@@ -238,7 +238,7 @@ The button names (`BUTTON`: the action buttons, `github` and `merge`) and the ac
 _Avoid_: Open items, Action needed (the badge)
 
 **GitHub tick**:
-The session's steps for PR comments, CI, review, conflicts and merging, defined in SKILL.md. The hub polls GitHub with Node and gh, then wakes the board on a change; the tick reads each card with `board.mjs pr` and records the newest handled event with `item set --gh-since`. The owner's monitor skill is optional ([0103](docs/adr/0103-the-hub-reads-github-itself.md)).
+The session's steps for PR comments, CI, review, conflicts and merging, defined in SKILL.md. The hub polls GitHub with Node and gh, then wakes the board on a change; the tick reads each card with `board.mjs pr` and records the newest handled event with `item set --gh-since`. With Hub's Linear key set, the poll also moves the owner's Linear tickets from PR state, so the session leaves those moves to the hub; without a key the poll moves none ([ADR 0107](docs/adr/0107-the-hubs-poll-moves-the-owners-linear-tickets.md)). The owner's monitor skill is optional ([0103](docs/adr/0103-the-hub-reads-github-itself.md)).
 
 **Auto-merge**:
 A board setting, `auto_merge` in its `board.json`, off unless set: on, the session's GitHub tick merges a PR once it is approved, CI is green and its merge state is CLEAN; off, the card shows the owner Action needed and a Merge button, which reads "Merging…" until the PR merges or Claude says in the thread why it didn't. The board's Settings modal toggles it, and the watcher prints it with every wake as `setting auto-merge on|off`. A setting, not a **rule**, since the board itself acts on it ([0052](docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md)).
