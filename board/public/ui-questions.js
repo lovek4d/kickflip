@@ -1,6 +1,6 @@
 // Owner questions, for Waiting on you (view-questions.js). Needs ui.js and ui-links.js.
 (function () {
-  const { esc, time, replyBody, attachments, attachButton, linkText, linkHtml, badge, opensHere } = globalThis.BoardUI;
+  const { esc, time, replyBody, attachments, attachButton, linkText, linkHtml, badge, opensHere, LINK_ARROW } = globalThis.BoardUI;
   // A short id such as A or C2 leads the label; a word id such as "inline" would repeat it. prototype-switcher.js answerLabel matches.
   const lead = (o) => (/^[A-Z][0-9]?$/i.test(o.id) ? `${o.id}. ` : '');
   const choiceLabel = (q, id) => { const o = q.options.find((x) => x.id === id); return o ? `${q.multi ? '' : lead(o)}${o.label}` : id || ''; };
@@ -32,7 +32,7 @@
   };
   const questionLink = (url) => !url ? ''
     : isPrototype(url) ? `<a class="pill proto" href="${esc(url)}">See the prototypes →</a>`
-    : `<div class="small" style="margin-bottom:8px"><a href="${esc(url)}"${opensHere(url) ? '' : ' target="_blank" rel="noopener"'}>${esc(url.replace(/^https:\/\/(linear\.app\/[^/]+\/issue|github\.com)\//, ''))} ↗</a></div>`;
+    : `<div class="small" style="margin-bottom:8px"><a href="${esc(url)}"${opensHere(url) ? '' : ' target="_blank" rel="noopener"'}>${esc(url.replace(/^https:\/\/(linear\.app\/[^/]+\/issue|github\.com)\//, ''))} ${LINK_ARROW}</a></div>`;
 
   // A question's takes show inline (docs/adr/0048-a-questions-takes-show-inline.md): an option with `diagram` draws
   // it with its `practice`, and on a question whose url is a prototype page any other option shows that page's take.

@@ -2,7 +2,7 @@
 // app-core.js and app-threads.js.
 BoardView.part((B) => {
   const { $, store, state, markSeen, seen, toast, links } = B;
-  const { esc, REVIEW, reviewAge, unreadCount, workLines, linkText, mergeButton, installButton, tryButton, tryWords, BUTTON } = BoardUI;
+  const { esc, REVIEW, reviewAge, unreadCount, workLines, linkText, mergeButton, installButton, tryButton, tryWords, BUTTON, LINK_ARROW } = BoardUI;
 
   function detail(it) {
     if (it.kind === 'ask') {
@@ -30,9 +30,9 @@ BoardView.part((B) => {
     if (it.next) rows.push(['Next', linkText(it.next, ctx)]);
     // docs/adr/0062-notes-is-a-link-in-the-details-list.md
     const external = [
-      it.hasNotes ? `<a href="notes.html?item=${encodeURIComponent(it.key)}">Notes ↗</a>` : '',
+      it.hasNotes ? `<a href="notes.html?item=${encodeURIComponent(it.key)}">Notes ${LINK_ARROW}</a>` : '',
       installButton(it),
-      pr?.state === 'OPEN' ? `<a${classes(it, BUTTON.github)} href="${esc(pr.url)}" target="_blank" rel="noopener">${pr.isDraft ? 'Review draft on GitHub' : 'Review on GitHub'} ↗</a>` : '',
+      pr?.state === 'OPEN' ? `<a${classes(it, BUTTON.github)} href="${esc(pr.url)}" target="_blank" rel="noopener">${pr.isDraft ? 'Review draft on GitHub' : 'Review on GitHub'} ${LINK_ARROW}</a>` : '',
     ].filter(Boolean);
     const externalRow = external.length ? `<dt class="external-links-label">Links</dt><dd class="external-links">${external.map((html, i) => `<span class="external-link">${i ? '<span class="external-separator" aria-hidden="true"> · </span>' : ''}${html}</span>`).join('')}</dd>` : '';
 

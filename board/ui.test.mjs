@@ -625,7 +625,7 @@ test("a question's link opens in place on this hub, and outside the board anywhe
   } finally { delete context.location; }
   const linear = ui.questionCard({ ...question, url: 'https://linear.app/acme/issue/INT-1' });
   assert.match(linear, /href="https:\/\/linear\.app\/acme\/issue\/INT-1" target="_blank"/);
-  assert.match(linear, /target="_blank" rel="noopener">INT-1 ↗<\/a>/);
+  assert.match(linear, /target="_blank" rel="noopener">INT-1 ↗\uFE0E<\/a>/);
 });
 
 test('a resolved question says how it was resolved', () => {
@@ -726,7 +726,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const open = { ...workCard, pr: null, reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
-  assert.deepEqual(rows(open), [['Wave', 'W'], ['Next', 'Waiting for PR reviewers'], ['Links', 'Notes ↗']]);
+  assert.deepEqual(rows(open), [['Wave', 'W'], ['Next', 'Waiting for PR reviewers'], ['Links', 'Notes ↗\uFE0E']]);
   assert.match(B.detail(open), /href="notes.html\?item=w%2FA1"/);
   assert.doesNotMatch(B.detail(open), /Old short note|A stored summary|view more|<summary[^>]*>Notes|class="actions"[^]*notes\.html/);
   assert.doesNotMatch(B.detail({ ...open, hasNotes: false }), /Notes|notes\.html/);
@@ -736,7 +736,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
     for (const build of [null, install]) {
       for (const state of ['OPEN', 'MERGED', 'CLOSED']) {
         const it = { ...open, hasNotes, install: build, pr: { ...pr, state } };
-        const expected = [hasNotes && 'Notes ↗', build && 'Install ↗', state === 'OPEN' && 'Review on GitHub ↗'].filter(Boolean);
+        const expected = [hasNotes && 'Notes ↗\uFE0E', build && 'Install ↗\uFE0E', state === 'OPEN' && 'Review on GitHub ↗\uFE0E'].filter(Boolean);
         assert.deepEqual(rows(it).filter(([label]) => label === 'Links'), expected.length ? [['Links', expected.join(' · ')]] : []);
         assert.match(B.detail(it), expected.length ? /<dd class="external-links">[^]*<\/dd><\/dl>/ : /<dd>Waiting for PR reviewers<\/dd><\/dl>/);
         assert.doesNotMatch(B.detail(it), /action-row external/);
@@ -880,10 +880,10 @@ test('an app install badge opens in place and uses the agreed current and stale 
   const url = 'itms-services://?action=download-manifest&url=https://m/x/manifest.plist';
   const install = { url, sha: 'abc1234', older: false };
   const html = ui.workLines({ ...workCard, install });
-  assert.equal(lines(html)[2], 'repo#7 ● CI ✓ J ✗ Install ↗');
+  assert.equal(lines(html)[2], 'repo#7 ● CI ✓ J ✗ Install ↗\uFE0E');
   assert.match(html, /href="itms-services:/);
   assert.doesNotMatch(ui.installButton({ ...workCard, install }), /target=/);
-  assert.equal(text(ui.installChip({ ...workCard, install: { ...install, older: true } })), 'Install (stale) ↗');
+  assert.equal(text(ui.installChip({ ...workCard, install: { ...install, older: true } })), 'Install (stale) ↗\uFE0E');
   assert.doesNotMatch(ui.workLines(workCard), /Install/);
 });
 
@@ -893,10 +893,10 @@ test('try badges share ready, stale, running, failed and absent states for both 
     const going = kind === 'web' ? 'Serving…' : 'Building…';
     const failed = kind === 'web' ? 'Serve failed' : 'Build failed';
     const card = { ...workCard, try: { kind, state: 'ready', url: '/try/', sha: 'abcdef1' } };
-    assert.equal(text(render(card)), `${done} ↗`);
+    assert.equal(text(render(card)), `${done} ↗\uFE0E`);
     assert.match(render(card), /tone-ready/);
     assert.equal(/target="_blank"/.test(render(card)), kind === 'web');
-    assert.equal(text(render({ ...card, try: { ...card.try, stale: true } })), `${done} (stale) ↗`);
+    assert.equal(text(render({ ...card, try: { ...card.try, stale: true } })), `${done} (stale) ↗\uFE0E`);
     assert.match(render({ ...card, try: { ...card.try, stale: true } }), /tone-quiet.*Built from abcdef1/);
     for (const busy of [{ ...card, try: { ...card.try, state: 'running' } }, { ...card, builder: { kind: 'install' } }]) {
       assert.equal(text(render(busy)), going);
@@ -905,7 +905,7 @@ test('try badges share ready, stale, running, failed and absent states for both 
       assert.doesNotMatch(render(busy), /href=/);
     }
     const error = render({ ...card, try: { kind, state: 'failed' } });
-    assert.equal(text(error), `${failed} ↗`);
+    assert.equal(text(error), `${failed} ↗\uFE0E`);
     assert.match(error, /tone-danger.*href="#item=w%2FB5"/);
     assert.equal(render({ ...card, try: { kind } }), '');
     assert.equal(render({ ...card, lane: 'done' }), '');
@@ -933,7 +933,7 @@ test('main is a slim branch bar with one badge, no control and a failure log tit
   for (const kind of ['web', 'app']) {
     const main = { kind, slug: 'owner/repo', branch: 'develop', sha: '1234567', at: ago(2), state: 'ready', url: '/try/main/' };
     assert.match(ui.mainBar(main), /tb-main.*owner\/repo · <strong>develop<\/strong>@<code>1234567<\/code>/);
-    assert.equal(text(ui.mainBar(main)).includes(kind === 'web' ? 'Visit ↗' : 'Install ↗'), true);
+    assert.equal(text(ui.mainBar(main)).includes(kind === 'web' ? 'Visit ↗\uFE0E' : 'Install ↗\uFE0E'), true);
     assert.match(ui.mainBar({ ...main, state: 'running' }), /role="status"/);
     assert.doesNotMatch(ui.mainBar({ ...main, state: 'running' }), /href=|<button/);
     assert.match(ui.mainBar({ ...main, state: 'failed' }), /title="[^"]*data\/try\/main.log[^"]*"/);

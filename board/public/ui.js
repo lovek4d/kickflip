@@ -2,6 +2,8 @@
 // string and touches no DOM or storage: ui.test.mjs runs these files in node:vm, where neither exists. Load this first.
 // fetchJSON is the side pages' one way to read the board's API.
 (function () {
+  // A bare ↗ can draw as an emoji tile on iOS; U+FE0E asks for its text glyph.
+  const LINK_ARROW = '↗\uFE0E';
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const record = (records, key) => (Object.hasOwn(records || {}, key) ? records[key] : undefined);
   const time = (iso) => new Date(iso).toLocaleString([], { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -226,6 +228,7 @@
   }
 
   globalThis.BoardUI = {
+    LINK_ARROW,
     esc, record, time, ago, since, etaLine, replyBody, setHTML, fetchJSON, RESTARTING, restartNotice,
     attachments, attachButton, pendingFiles, protoButton, protoNotice, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, BADGE_TONES, badge,
   };

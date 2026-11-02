@@ -1,6 +1,6 @@
 // Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js and ui-enums.js.
 (function () {
-  const { esc, ago, time, etaLine, workingLine, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND } = globalThis.BoardUI;
+  const { esc, ago, time, etaLine, workingLine, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, LINK_ARROW } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   function prChips(it) {
     const pr = it.pr;
@@ -69,10 +69,10 @@
     if (!t) return null;
     const words = tryWords(t.kind);
     if (t.state === 'running') return { tone: 'notice', html: spinner + esc(words.going), attrs: { role: 'status' } };
-    if (t.state === 'failed') return { tone: 'danger', html: `${esc(words.failed)} ↗`, href: `#item=${encodeURIComponent(it.key)}`,
+    if (t.state === 'failed') return { tone: 'danger', html: `${esc(words.failed)} ${LINK_ARROW}`, href: `#item=${encodeURIComponent(it.key)}`,
       title: 'The build script stopped with an error. Tap for its log in the card’s thread.', attrs: { 'data-try-log': it.key } };
     if (t.state !== 'ready' || !t.url) return null;
-    return { tone: t.stale ? 'quiet' : 'ready', html: `${esc(words.done)}${t.stale ? ' (stale)' : ''} ↗`, href: t.url,
+    return { tone: t.stale ? 'quiet' : 'ready', html: `${esc(words.done)}${t.stale ? ' (stale)' : ''} ${LINK_ARROW}`, href: t.url,
       title: t.sha ? `Built from ${t.sha}${t.stale ? '; the branch has newer commits' : ''}` : null, attrs: t.kind === 'web' ? EXTERNAL : {} };
   }
   function installChip(it) {
@@ -100,7 +100,7 @@
     const words = tryWords(main.kind);
     const chip = main.state === 'running' ? badge('notice', spinner + esc(words.going), { attrs: { role: 'status' } })
       : main.state === 'failed' ? badge('danger', esc(words.failed), { title: 'The build script stopped with an error. Its log is data/try/main.log in the board’s folder.' })
-      : main.state === 'ready' && main.url ? badge('ready', `${words.done} ↗`, { href: main.url, attrs: main.kind === 'web' ? EXTERNAL : {} }) : '';
+      : main.state === 'ready' && main.url ? badge('ready', `${words.done} ${LINK_ARROW}`, { href: main.url, attrs: main.kind === 'web' ? EXTERNAL : {} }) : '';
     return `<div class="tb-main" role="region" aria-label="Main’s version">${BRANCH}<div class="tb-main-text">${esc(main.slug)} · <strong>${esc(main.branch)}</strong>@<code>${esc(main.sha)}</code> · ${esc(ago(main.at))}</div><div class="meta">${chip}</div></div>`;
   }
   // The open card's Merge, while the board's auto-merge is off: it confirms, then sends card-merge, and reads "Merging…"

@@ -22,8 +22,8 @@
     className: 'view-frame',
     title: (view, { siteTitle }) => siteTitle,
     markup: (view, { siteTitle }) => {
-      const { esc, header } = BoardUI;
-      const open = `<nav class="nav"><a class="alone" href="${esc(alone(view.url))}" target="_blank" rel="noopener">Open alone ↗</a></nav>`;
+      const { esc, header, LINK_ARROW } = BoardUI;
+      const open = `<nav class="nav"><a class="alone" href="${esc(alone(view.url))}" target="_blank" rel="noopener">Open alone ${LINK_ARROW}</a></nav>`;
       return `${header({ lead: 'logo', title: siteTitle, logoSrc: '/_hub/kickflip.png', controls: false, trail: open })}
 <iframe class="frame-page" src="${esc(view.url)}" title="${esc(siteTitle)}"></iframe>`;
     },
