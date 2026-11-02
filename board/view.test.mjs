@@ -2722,3 +2722,62 @@ test("the Waves section sits above the lanes: tapping a wave's row shows only it
   await b.settle();
   assert.deepEqual(lanes(), ['w/A1', 'w/A2']);
 });
+
+test("every lane's header ends in a grey sort icon whose menu picks Recently touched or Recently created without folding the lane; a pick reorders that lane alone by created, kept for the lane on this device through a repaint, and Escape or a tap outside closes the menu", async () => {
+  const cards = [
+    workCard('R1', { lane: 'review', rank: { created: 0 } }),
+    { ...askCard('n1', 'todo'), isNew: true, ref: 'New', rank: { created: 1 }, ask: { eventId: 'n1', state: 'waiting', askedAt: '2026-10-30T08:00:00.000Z', text: 'Task n1', files: [], canEdit: true } },
+    workCard('T1', { bumpedAt: '2026-10-30T09:00:00.000Z', bumpable: true, rank: { created: 2 } }),
+    workCard('T2', { rank: { created: 4 } }),
+    workCard('T3', { rank: { created: 3 } }),
+    workCard('D1', { lane: 'done', rank: { created: 6 } }),
+    workCard('D2', { lane: 'done', rank: { created: 5 } }),
+  ];
+  const b = boardOnDom({ board: boardOf(cards), threads: {} });
+  await b.settle();
+  const lane = (id) => b.root.querySelector(`#lanes details.lane[data-lane="${id}"]`);
+  const order = (id) => lane(id).querySelectorAll('details.item').map((el) => el.dataset.key);
+  const icon = (id) => lane(id).querySelector('summary button[data-lane-sort]');
+  const menu = () => b.root.querySelector('.lane-sort-menu');
+  assert.deepEqual(['review', 'progress', 'todo', 'done'].map((id) => [icon(id).getAttribute('aria-label'), icon(id).parentNode.children.at(-1) === icon(id)]), [
+    ['Sort In Review, now recently touched', true], ['Sort In Progress, now recently touched', true], ['Sort Todo, now recently touched', true], ['Sort Done, now recently touched', true],
+  ]);
+  assert.equal(icon('review').previousElementSibling.classList.contains('lane-github'), true);
+  assert.deepEqual([order('todo'), order('done')], [['ask:n1', 'w/T1', 'w/T2', 'w/T3'], ['w/D1', 'w/D2']]);
+
+  const opened = lane('todo').open;
+  const tap = b.page.fire(b.root, 'click', { target: icon('todo') });
+  await b.settle();
+  assert.equal(tap.defaultPrevented, true);
+  assert.equal(lane('todo').open, opened);
+  assert.equal(icon('todo').getAttribute('aria-expanded'), 'true');
+  assert.deepEqual(menu().querySelectorAll('button').map((el) => [el.textContent, el.getAttribute('aria-checked'), Boolean(el.querySelector('.tick'))]), [
+    ['Recently touched', 'true', true], ['Recently created', 'false', false],
+  ]);
+  assert.equal(menu().querySelector('.lane-sort-note').textContent, 'Kept for this lane on this device.');
+  assert.equal(b.doc.activeElement, menu().querySelector('[aria-checked="true"]'));
+
+  const pick = b.page.fire(b.root, 'click', { target: menu().querySelector('[data-sort-pick="created"]') });
+  await b.settle();
+  assert.equal(pick.defaultPrevented, true);
+  assert.equal(menu(), null);
+  assert.deepEqual([order('todo'), order('done')], [['ask:n1', 'w/T1', 'w/T3', 'w/T2'], ['w/D1', 'w/D2']]);
+  assert.equal(icon('todo').getAttribute('aria-label'), 'Sort Todo, now recently created');
+  await b.change({ board: { ...boardOf(cards.map((c) => ({ ...c }))), generatedAt: '2026-10-30T10:05:00.000Z' } });
+  assert.deepEqual([order('todo'), order('done')], [['ask:n1', 'w/T1', 'w/T3', 'w/T2'], ['w/D1', 'w/D2']]);
+
+  b.page.fire(b.root, 'click', { target: icon('done') });
+  await b.settle();
+  assert.deepEqual(menu().querySelectorAll('[aria-checked="true"]').map((el) => el.textContent), ['Recently touched']);
+  b.page.fire(b.doc, 'keydown', { key: 'Escape' });
+  await b.settle();
+  assert.equal(menu(), null);
+  assert.equal(b.doc.activeElement, icon('done'));
+  b.page.fire(b.root, 'click', { target: icon('todo') });
+  await b.settle();
+  assert.deepEqual(menu().querySelectorAll('[aria-checked="true"]').map((el) => el.textContent), ['Recently created']);
+  b.page.fire(b.doc, 'click', { target: lane('done').querySelector('details.item') });
+  await b.settle();
+  assert.equal(menu(), null);
+  assert.deepEqual(order('todo'), ['ask:n1', 'w/T1', 'w/T3', 'w/T2']);
+});

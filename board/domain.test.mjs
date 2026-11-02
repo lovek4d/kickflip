@@ -653,21 +653,22 @@ test('a card-hold applies at once unless held_at is newer, including a legacy he
   assert.deepEqual(cards, { A1: [true, true], A2: [false, true], A3: [true, true], A4: [false, true], A5: [false, false] });
 });
 
-test("every lane lists its newest card first, and a card with no activity after them, the last added on top, with Todo's follow-ups after its work", () => {
+test("every lane lists its newest card first, and a card with no activity after them, the last added on top, with Todo's follow-ups after its work; ranked by created instead, the newest made first, New and bumped cards still on top", () => {
   const now = Date.parse('2026-11-10T12:00:00Z');
   const at = (d) => `2026-11-${String(d).padStart(2, '0')}T10:00:00Z`;
+  const made = (d) => `2026-11-${String(d).padStart(2, '0')}T08:00:00Z`;
   const open = (d) => ({ state: 'OPEN', isDraft: false, checks: { state: 'pass' }, reviews: {}, updatedAt: at(d) });
   const merged = (d) => ({ state: 'MERGED', mergedAt: at(d), updatedAt: at(d) });
   const prs = { 'o/r#1': open(3), 'o/r#2': open(5), 'o/r#3': open(4), 'o/r#4': open(6), 'o/r#5': merged(2), 'o/r#6': merged(7) };
   const sent = { Ann: String(Date.parse(at(1)) / 1000) };
   const items = [
-    { id: 'R1', title: 'r', pr: 1 }, { id: 'R2', title: 'r', pr: 2 },
-    { id: 'S1', title: 's', pr: 3, review_sent: sent }, { id: 'S2', title: 's', pr: 4, review_sent: sent },
-    { id: 'P1', title: 'p', status: 'building' }, { id: 'P2', title: 'p', status: 'building' },
-    { id: 'T1', title: 't' }, { id: 'T2', title: 't', status: 'planned' },
-    { id: 'D1', title: 'd', pr: 5 }, { id: 'D2', title: 'd', pr: 6 }, { id: 'D3', title: 'd', status: 'done', merged_at: at(8) },
+    { id: 'R1', title: 'r', pr: 1, created: made(2) }, { id: 'R2', title: 'r', pr: 2, created: made(1) },
+    { id: 'S1', title: 's', pr: 3, review_sent: sent, created: made(3) }, { id: 'S2', title: 's', pr: 4, review_sent: sent, created: made(2) },
+    { id: 'P1', title: 'p', status: 'building', created: made(1) }, { id: 'P2', title: 'p', status: 'building', created: made(2) },
+    { id: 'T1', title: 't', created: made(8) }, { id: 'T2', title: 't', status: 'planned', created: made(4) },
+    { id: 'D1', title: 'd', pr: 5, created: made(2) }, { id: 'D2', title: 'd', pr: 6, created: made(1) }, { id: 'D3', title: 'd', status: 'done', merged_at: at(8), created: made(3) },
   ];
-  const followups = [{ id: 'ENG-1', title: 'f', filed: at(2) }, { id: 'ENG-2', title: 'f', filed: at(3) }];
+  const followups = [{ id: 'ENG-1', title: 'f', filed: at(2) }, { id: 'ENG-2', title: 'f', filed: at(6) }];
   const agents = { P1: { main: { started: at(8), progress_at: at(9) } }, P2: { main: { started: at(1) } } };
   const events = [
     { id: 'a1', ts: at(7), kind: 'ask', data: { text: 'one' }, reply: null },
@@ -675,16 +676,33 @@ test("every lane lists its newest card first, and a card with no activity after 
     { id: 'a3', ts: at(9), kind: 'ask', data: { text: 'three' }, reply: { html: 'ok' } },
     { id: 'a4', ts: at(10), kind: 'ask', data: { text: 'four' }, reply: { html: 'ok' } },
   ];
-  const b = buildBoard({ now, fromWaves: false, prs, events, waves: [{ slug: 'w', agents, wave: { repo: 'o/r', reviewers: [{ name: 'Ann', github: 'ann' }], items, followups } }] });
-  const lanes = {};
-  for (const i of b.items) (lanes[i.lane] ||= []).push(i.key.replace(/^w\//, ''));
-  assert.deepEqual(lanes, {
+  const built = (more = []) => buildBoard({ now, fromWaves: false, prs, events: [...events, ...more], waves: [{ slug: 'w', agents, wave: { repo: 'o/r', reviewers: [{ name: 'Ann', github: 'ann' }], items, followups } }] });
+  const lanesOf = (list) => {
+    const lanes = {};
+    for (const i of list) (lanes[i.lane] ||= []).push(i.key.replace(/^w\//, ''));
+    return lanes;
+  };
+  const byCreated = (b) => lanesOf([...b.items].sort((x, y) => x.rank.created - y.rank.created));
+  const b = built();
+  assert.deepEqual(lanesOf(b.items), {
     review: ['R2', 'R1'],
     stale: ['S2', 'S1'],
     progress: ['P1', 'P2'],
     todo: ['ask:a1', 'ask:a2', 'T2', 'T1', 'ENG-2', 'ENG-1'],
     done: ['ask:a4', 'ask:a3', 'D3', 'D2', 'D1'],
   });
+  assert.deepEqual(byCreated(b), {
+    review: ['R1', 'R2'],
+    stale: ['S1', 'S2'],
+    progress: ['P2', 'P1'],
+    todo: ['ask:a1', 'ask:a2', 'T1', 'ENG-2', 'T2', 'ENG-1'],
+    done: ['ask:a4', 'ask:a3', 'D3', 'D1', 'D2'],
+  });
+  const bumped = built([{ id: 'cb', ts: at(10), kind: 'card-bump', data: { key: 'w/ENG-1' }, reply: null }]);
+  assert.deepEqual([lanesOf(bumped.items).todo, byCreated(bumped).todo], [
+    ['ask:a1', 'ask:a2', 'ENG-1', 'T2', 'T1', 'ENG-2'],
+    ['ask:a1', 'ask:a2', 'ENG-1', 'T1', 'ENG-2', 'T2'],
+  ]);
 });
 
 test("an internal card's ref reads INT-<n> with no repo, and each card lists when others wrote in its thread, leaving out builder status lines", () => {

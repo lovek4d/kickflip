@@ -226,7 +226,7 @@ function followUp({ slug, wave, f, order, repo, bumpedAt, closedAt, tickets }) {
     deps: [], held: false, risky: false, bumpable: !done, bumpedAt: done ? null : bumpedAt || null, manualSteps: [], fromAsk: null, from: f.from || null, next: null, hasNotes: false, branch: null,
     ticket: ticketOf(tickets, f.ticket, f.ticket || f.id, { repo, key: `${slug}/${f.id}` }),
     linear: [linearRef(f.id, tickets)], pr: null, reviewers: [], review: {},
-    threadCount: 0, lastTs: null, othersAt: [], grilling: false, updatedAt: f.filed || null, ask: null, fold: null, action: null,
+    threadCount: 0, lastTs: null, othersAt: [], grilling: false, created: f.filed || null, updatedAt: f.filed || null, ask: null, fold: null, action: null,
   };
 }
 
@@ -265,7 +265,7 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
     deps: [], held: false, risky: false, bumpable: !handled, bumpedAt: bumped, manualSteps: [], fromAsk: null, from: null, next: inProgress ? mark.next || null : null, hasNotes: false, branch: null,
     finishable: handled && !done,
     linear: [], pr: null, reviewers: [], review: {}, inReviewSince: null,
-    threadCount: msgs.length, lastTs, othersAt: handled ? othersAt : [], grilling: false, updatedAt: handled ? lastTs : e.ts,
+    threadCount: msgs.length, lastTs, othersAt: handled ? othersAt : [], grilling: false, created: e.ts, updatedAt: handled ? lastTs : e.ts,
     ask: { eventId: e.id, state, askedAt: e.ts, bumpedAt: bumped, edited: Boolean(msg.edited), canEdit: !handled, text: msg.text, files, answerAt, from: msg.from || null },
     fold: null, action: null,
   };
@@ -547,16 +547,11 @@ export function buildBoard(snapshot) {
     placeOwnerWait(it, questionById, autoMerge);
     if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it)) it.lane = 'progress';
     const days = it.created ? Math.floor((now - Date.parse(it.created)) / DAY) : 0;
-    it.todoAge = it.lane === 'todo' && days >= 2 ? `${days} days ago` : null;
+    it.todoAge = it.lane === 'todo' && it.kind === 'work' && days >= 2 ? `${days} days ago` : null;
   }
-  // docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md
-  // New cards lead Todo, unbumped ones oldest first, so the top one is the next taken (docs/adr/0047-the-plus-makes-a-new-card.md).
-  const bumped = (i) => i.bumpedAt || '';
-  const unsorted = (i) => (i.isNew ? 0 : 1);
-  const age = (a, b) => (a.isNew ? String(a.updatedAt).localeCompare(String(b.updatedAt)) : String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
-  // A follow-up's filed date would otherwise sort it above the Todo work that has no activity yet.
-  const late = (i) => (i.lane === 'todo' && i.kind === 'followup' ? 1 : 0);
-  items.sort((a, b) => LANE_ORDER[a.lane] - LANE_ORDER[b.lane] || unsorted(a) - unsorted(b) || bumped(b).localeCompare(bumped(a)) || late(a) - late(b) || age(a, b) || b.order - a.order || a.key.localeCompare(b.key));
+  // Items arrive in touched order; the page shows a lane in created order from rank.created, as this device chose.
+  [...items].sort(laneOrder('created')).forEach((it, n) => { it.rank = { created: n }; });
+  items.sort(laneOrder('touched'));
 
   const waveRows = waveRowsOf(snapshot, waves, lineups, items, questions, events);
   // Built again after the sort, so the item topics follow the lanes' order.
@@ -585,6 +580,19 @@ export function buildBoard(snapshot) {
   const answers = items.filter((i) => i.ask?.answerAt).sort((a, b) => b.ask.answerAt.localeCompare(a.ask.answerAt))
     .map((i) => ({ key: i.key, id: i.id, text: i.title, at: i.ask.answerAt }));
   return { kind, main, waves, waveRows, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, needs, needsSummary: needsSummary(needs), working: workingCount, checks: checksOf(snapshot, now) };
+}
+
+// The board's order, each lane together, by touched (the card's latest activity) or created (when the card was made).
+// docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md
+// New cards lead Todo, unbumped ones oldest first, so the top one is the next taken (docs/adr/0047-the-plus-makes-a-new-card.md).
+function laneOrder(by) {
+  const bumped = (i) => i.bumpedAt || '';
+  const unsorted = (i) => (i.isNew ? 0 : 1);
+  const key = (i) => String((by === 'created' ? i.created : i.updatedAt) || '');
+  const age = (a, b) => (a.isNew ? String(a.updatedAt).localeCompare(String(b.updatedAt)) : key(b).localeCompare(key(a)));
+  // A follow-up's filed date would otherwise sort it above the Todo work that has no activity yet.
+  const late = (i) => (by === 'touched' && i.lane === 'todo' && i.kind === 'followup' ? 1 : 0);
+  return (a, b) => LANE_ORDER[a.lane] - LANE_ORDER[b.lane] || unsorted(a) - unsorted(b) || bumped(b).localeCompare(bumped(a)) || late(a) - late(b) || age(a, b) || b.order - a.order || a.key.localeCompare(b.key);
 }
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;

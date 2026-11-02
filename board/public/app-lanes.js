@@ -1,5 +1,5 @@
 // The board view's lanes and the Waves section above them: each lane's header and cards, the "N older" and finished-wave
-// folds, and the wave rows that filter the lanes and start a wave's triage.
+// folds, each lane's sort menu, and the wave rows that filter the lanes and start a wave's triage.
 // Needs app-core.js and app-cards.js.
 BoardView.part((B) => {
   const { $, store, state } = B;
@@ -34,11 +34,26 @@ BoardView.part((B) => {
     }).join('');
   }
 
+  // Each lane's order, kept per lane on this device: items arrive touched first, and created uses domain.mjs rank.created.
+  const SORTS = { touched: 'Recently touched', created: 'Recently created' };
+  const SORT_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16"/><path d="m3 8 4-4 4 4"/><path d="M17 20V4"/><path d="m13 16 4 4 4-4"/></svg>';
+  const TICK = '<svg class="tick" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+  let sortMenu = null;
+  const sortOf = (id) => (store.get('laneSort', {})[id] === 'created' ? 'created' : 'touched');
+  function sortControl(lane, by) {
+    const open = sortMenu === lane.id;
+    const menu = open ? `<div class="lane-sort-menu" role="menu" aria-label="Sort ${lane.name}">${Object.entries(SORTS).map(([o, label]) =>
+      `<button type="button" role="menuitemradio" aria-checked="${o === by}" data-sort-pick="${o}"><span>${label}</span>${o === by ? TICK : ''}</button>`).join('')}<p class="lane-sort-note">Kept for this lane on this device.</p></div>` : '';
+    return `<button type="button" class="lane-sort" data-lane-sort="${lane.id}" aria-haspopup="menu" aria-expanded="${open}" aria-label="Sort ${lane.name}, now ${SORTS[by].toLowerCase()}" title="Sort">${SORT_ICON}</button>${menu}`;
+  }
+
   // shown is the board's items after the wave filter and pending deletes.
   function lanesHtml(d, shown) {
     const laneState = store.get('lanes', {});
     return LANES.map((lane) => {
+      const by = sortOf(lane.id);
       const items = shown.filter((i) => i.lane === lane.id);
+      if (by === 'created') items.sort((a, b) => a.rank.created - b.rank.created);
       if (lane.hideEmpty && !items.length) return '';
       const open = laneState[lane.id] ?? lane.open;
       const older = items.filter((i) => i.fold === 'older');
@@ -46,7 +61,7 @@ BoardView.part((B) => {
       const rows = items.filter((i) => !i.fold).map((it) => B.card(it)).join('') + fold('asks', asks, 'Answered')
         + waveFolds(d, items) + fold('older', older, 'Older');
       return `<details class="lane" data-lane="${lane.id}" ${open ? 'open' : ''}>
-        <summary><span class="lane-name">${lane.name}</span><span class="count">${items.length}</span>${lane.id === 'review' ? B.githubHeader(d) : ''}</summary>
+        <summary><span class="lane-name">${lane.name}</span><span class="count">${items.length}</span>${lane.id === 'review' ? B.githubHeader(d) : ''}${sortControl(lane, by)}</summary>
         <div class="list">${rows || '<div class="empty">Nothing here.</div>'}
         ${lane.id === 'todo' ? BoardUI.planButton(items) : ''}</div>
       </details>`;
@@ -81,6 +96,32 @@ BoardView.part((B) => {
         <div class="list">${rows.map(waveRow).join('')}</div>
       </details>${shown ? `<div class="wv-showing muted small">Showing ${esc(shown.title)} only · <button type="button" class="wv-all">Show all</button></div>` : ''}` : '');
   }
+  // The menu sits in the lane's summary, so a tap on it, the icon included, must not fold the lane.
+  const setSortMenu = (id) => { sortMenu = id; B.render(); };
+  B.on(B.root, 'click', (ev) => {
+    if (!ev.target.closest('.lane-sort, .lane-sort-menu')) return;
+    ev.preventDefault();
+    const pick = ev.target.closest('button[data-sort-pick]');
+    if (pick) {
+      store.set('laneSort', { ...store.get('laneSort', {}), [sortMenu]: pick.dataset.sortPick });
+      setSortMenu(null);
+      return;
+    }
+    const icon = ev.target.closest('button[data-lane-sort]');
+    if (icon) {
+      setSortMenu(sortMenu === icon.dataset.laneSort ? null : icon.dataset.laneSort);
+      if (sortMenu) $(`details.lane[data-lane="${sortMenu}"] .lane-sort-menu [aria-checked="true"]`).focus({ preventScroll: true });
+    }
+  });
+  B.on(document, 'click', (ev) => { if (sortMenu && !ev.target.closest?.('.lane-sort, .lane-sort-menu')) setSortMenu(null); });
+  B.on(document, 'keydown', (ev) => {
+    if (ev.key !== 'Escape' || !sortMenu) return;
+    ev.preventDefault();
+    const id = sortMenu;
+    setSortMenu(null);
+    $(`button[data-lane-sort="${id}"]`).focus();
+  });
+
   const showWave = (slug) => { state.waveFilter = slug; store.set('wave', slug); B.render(); };
 
   B.on(B.root, 'toggle', (ev) => {
