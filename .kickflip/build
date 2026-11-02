@@ -1,0 +1,102 @@
+#!/usr/bin/env node
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const net = require('node:net');
+const { spawn } = require('node:child_process');
+const { createInterface } = require('node:readline');
+
+const worktree = path.resolve(process.argv[3] || process.cwd());
+const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-try-'));
+let hub;
+let stopping = false;
+
+process.on('exit', () => fs.rmSync(home, { recursive: true, force: true }));
+function stop() {
+  if (stopping) return;
+  stopping = true;
+  if (hub) hub.kill('SIGTERM');
+  else process.exit(0);
+}
+process.on('SIGTERM', stop);
+process.on('SIGINT', stop);
+
+async function freePort(exclude) {
+  for (;;) {
+    const server = net.createServer();
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const port = server.address().port;
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    // The owner's hub and site range must never be used by a try run.
+    if (port !== exclude && port !== 4500 && (port < 4600 || port > 4699)) return port;
+  }
+}
+
+function writeJSON(file, value) {
+  fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n');
+}
+
+async function main() {
+  const port = await freePort();
+  const sitePort = await freePort(port);
+  const root = path.join(home, '.claude', 'kickflip');
+  const dir = path.join(root, 'sites', 'demo');
+  fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
+  writeJSON(path.join(root, 'manifest.json'), {
+    version: 1,
+    sites: {
+      demo: {
+        dir, port: sitePort, title: 'Demo',
+        cmd: [process.execPath, path.join(worktree, 'board', 'server.mjs'), dir],
+        watch: ['data/events.jsonl'],
+      },
+    },
+  });
+  writeJSON(path.join(dir, 'board.json'), { title: 'Demo', items: 'data/wave.json', slug: 'demo' });
+  writeJSON(path.join(dir, 'data', 'wave.json'), {
+    title: 'Demo',
+    items: [
+      { id: 'D-1', title: 'Add a search box to the board' },
+      { id: 'D-2', title: 'Show when a card last changed', status: 'building' },
+      { id: 'D-3', title: 'Check the board on a small screen', status: 'checking' },
+      { id: 'D-4', title: 'Save the selected board', status: 'done' },
+    ],
+  });
+  fs.writeFileSync(path.join(dir, 'data', 'events.jsonl'), '');
+  writeJSON(path.join(root, 'settings.json'), {
+    polling: { windows: [{ from: '00:00', every_minutes: 120 }], hold_overnight: false, wakes: [] },
+    notifications: { on: false },
+  });
+
+  const bin = path.join(home, 'bin');
+  fs.mkdirSync(bin);
+  for (const name of ['claude', 'gh', 'codex', 'tailscale', 'launchctl', 'systemctl', 'loginctl', 'osascript']) {
+    fs.writeFileSync(path.join(bin, name), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  }
+  hub = spawn(process.execPath, [path.join(worktree, 'hub', 'hub.mjs')], {
+    cwd: worktree,
+    env: {
+      ...process.env, HOME: home, PATH: bin + path.delimiter + (process.env.PATH || ''),
+      KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  hub.stdout.pipe(process.stderr);
+  hub.stderr.pipe(process.stderr);
+  let announced = false;
+  const lines = createInterface({ input: hub.stdout, crlfDelay: Infinity });
+  lines.on('line', (line) => {
+    if (!announced && !stopping && line.includes('hub on')) {
+      announced = true;
+      process.stdout.write(`port ${port}\n`);
+    }
+  });
+  let failed = false;
+  hub.once('error', (error) => { failed = true; console.error(error.message); });
+  hub.once('close', (code) => process.exit(failed ? 1 : code ?? (stopping ? 0 : 1)));
+}
+
+main().catch((error) => { console.error(error.message); process.exit(1); });
