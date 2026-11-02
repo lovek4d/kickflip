@@ -334,7 +334,10 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       const dir = path.join(os.homedir(), '.claude', 'kickflip', 'try', `${board.route}-main`);
       fs.mkdirSync(path.dirname(dir), { recursive: true });
       if (exists(dir)) await git(dir, 'checkout', '--detach', '--force', metadata.sha);
-      else await git(repo, 'worktree', 'add', '--detach', dir, metadata.sha);
+      else {
+        await git(repo, 'worktree', 'prune');
+        await git(repo, 'worktree', 'add', '--detach', dir, metadata.sha);
+      }
       return await launch(board, 'main', dir, metadata);
     } catch (e) {
       if (e.status !== 503) {

@@ -329,11 +329,13 @@ setInterval(() => { if (!require('node:fs').existsSync('hold')) process.exit(8);
   assert.deepEqual(state().main, metadata);
   assert.match(fs.readFileSync(path.join(site, 'data/try/main.log'), 'utf8'), /executable/);
   fs.rmSync(dir, { recursive: true, force: true });
-  await assert.rejects(start({ key: 'main' }), /already registered/);
+  assert.deepEqual(await start({ key: 'main' }), { status: 'started' });
+  assert.equal(state().main.state, 'running');
+  assert.equal(git(dir, 'rev-parse', 'HEAD'), failedSha);
+  await until(() => state().main.state === 'failed');
   assert.deepEqual(state().main, metadata);
-  assert.match(fs.readFileSync(path.join(site, 'data/try/main.log'), 'utf8'), /already registered/);
+  assert.equal(fs.readFileSync(path.join(site, 'data/try/main.log'), 'utf8').trim(), failedSha);
   assert.deepEqual(thread(), []);
-  git(repo, 'worktree', 'prune');
 });
 
 test('a restart clears dead web cards and stops main so the next tick serves it again', async () => {
