@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const net = require('node:net');
-const { spawn } = require('node:child_process');
-const { createInterface } = require('node:readline');
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import net from 'node:net';
+import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
 
 const worktree = path.resolve(process.argv[3] || process.cwd());
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-try-'));
