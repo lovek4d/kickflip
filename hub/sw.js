@@ -4,6 +4,7 @@
 // It keeps the app shell and its files, network first, so the app opens from the last copy while the host is asleep
 // (docs/adr/0055-one-app-for-the-whole-hub.md). Nothing else is cached: API calls, streams, uploads and frames always
 // go to the network.
+// A {forget: 'shell'} message drops the saved shell before the owner's reload and replies on its port.
 const CACHE = 'hub-app';
 const SHELL = new URL('/', self.registration.scope).href;
 // A sleeping host over Tailscale leaves a request hanging rather than failing, so a saved copy answers after this long.
@@ -72,6 +73,14 @@ self.addEventListener('install', (event) => {
   event.waitUntil(saveShell().catch(() => {}));
 });
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+
+self.addEventListener('message', (event) => {
+  if (event.data?.forget !== 'shell') return;
+  event.waitUntil((async () => {
+    await (await caches.open(CACHE)).delete(SHELL);
+    event.ports[0]?.postMessage({ forgot: true });
+  })());
+});
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;

@@ -21,6 +21,7 @@
         const data = await r.json();
         if (!B.alive()) return;
         at = Date.now();
+        globalThis.AppShell?.codeSeen?.(r.headers?.get('x-hub-code'));
         paint(data);
         if (status) status.textContent = 'now';
       } catch {

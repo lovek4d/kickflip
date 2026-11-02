@@ -14,6 +14,7 @@
     close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+    up: '<circle cx="12" cy="12" r="9"/><path d="m8 12 4-4 4 4"/><path d="M12 16V8"/>',
   };
   const tile = (key, color) => `<span class="icon sm solid" style="--c:${color}" aria-hidden="true">${svg(ICONS[key])}</span>`;
   const word = (tone, text) => `<span class="dot t-${tone}" aria-hidden="true"></span><span class="word t-${tone}">${esc(text)}</span>`;
@@ -119,10 +120,16 @@
       + '<p class="sc-foot">Press h twice anywhere to open this. Esc to close.</p></div>';
   }
 
+  function updateRow(update) {
+    return update ? `<button type="button" class="sb-row sb-update-row" data-app-reload${update === 'reloading' ? ' disabled' : ''}>${tile('up', 'var(--accent)')}`
+      + `<span class="sb-text"><span class="sb-title">New version</span></span><span class="sb-go">${update === 'reloading' ? 'Reloading…' : 'Reload'}</span></button>` : '';
+  }
+
   // data: /_hub/sidebar.json. here: a site's route or a hub page's path without its leading slash. device: this device's push
   // subscription as sidebar.js finds it, 'on' | 'off' | 'blocked' | 'install' (iOS outside the Home Screen app), or
   // null while unknown or unsupported. switching: switch mode shows, each row with its key and the hint on the Boards label.
-  function sidebar(data, { here = '', device = null, switching = false } = {}) {
+  // update: null | 'ready' | 'reloading'.
+  function sidebar(data, { here = '', device = null, switching = false, update = null } = {}) {
     const sites = data?.sites || [];
     const keys = switching ? new Map(switchKeys(data).map((k) => [k.href, k])) : null;
     const paused = data?.pause?.state === 'paused';
@@ -158,7 +165,7 @@
     const close = `<div class="nav"><button type="button" class="sb-close" data-sidebar-close aria-label="Close boards">${svg(ICONS.close, 20)}</button></div>`;
     return header({ lead: 'logo', title: 'Kickflip', level: 2, controls: false, trail: close, logoSrc: '/_hub/kickflip.png',
       leadAttrs: { 'aria-label': 'Hide boards', title: 'Hide boards', 'data-sidebar-close': '' } })
-      + `<div class="sb-scroll"><section class="sb-utility" aria-label="Hub"><div class="sb-group">`
+      + `<div class="sb-scroll"><section class="sb-utility" aria-label="Hub"><div class="sb-update" role="status">${updateRow(update)}</div><div class="sb-group">`
       + UTILITY.map((f) => row({ ...f, on: f.href.replace(/\/$/, '') === selected, sub: subs[f.href], mark: f.href === '/_hub/' ? moon : '', ...(f.href === '/_hub/' && usage ? { extra: usage, cls: 'sb-hub-usage' } : {}), key: keys?.get(f.href) })).join('')
       + `</div>${turnOn}</section>`
       + (pages.length ? `<section class="sb-pages" aria-label="Pages"><div class="sb-label">Pages</div><div class="sb-group">${pages.map(siteRow).join('')}</div></section>` : '')
@@ -166,5 +173,5 @@
       + `<div class="sb-group">${boards.map(siteRow).join('')}${pending}${newBoard}</div></section></div>`;
   }
 
-  Object.assign(globalThis.BoardUI ||= {}, { sidebar, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, usageTone, usageBar, usageWords });
+  Object.assign(globalThis.BoardUI ||= {}, { sidebar, updateRow, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, usageTone, usageBar, usageWords });
 })();

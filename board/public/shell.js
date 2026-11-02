@@ -16,6 +16,26 @@ window.AppShell = (function () {
   const read = (k) => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } };
   let opener = null;
   const open = (url, opts) => Boolean(opener?.(url, opts));
+  let bootCode = null;
+  let updateReady = false;
+  let sidebar = null;
+  function codeSeen(hash) {
+    if (!hash) return;
+    if (!bootCode) { bootCode = hash; return; }
+    if (hash !== bootCode && !updateReady) { updateReady = true; sidebar?.setUpdate('ready'); }
+  }
+
+  async function reload() {
+    const controller = navigator.serviceWorker?.controller;
+    if (controller) await new Promise((resolve) => {
+      const channel = new MessageChannel();
+      const done = () => { clearTimeout(timer); channel.port1.close(); channel.port2.close(); resolve(); };
+      const timer = setTimeout(done, 1000);
+      channel.port1.onmessage = done;
+      try { controller.postMessage({ forget: 'shell' }, [channel.port2]); } catch { done(); }
+    });
+    setTimeout(() => location.reload(), 0);
+  }
 
   // The app shell around this page when it is framed in one.
   function outer() {
@@ -33,8 +53,10 @@ window.AppShell = (function () {
     if (!data) {
       try { const r = await fetch('/_hub/sidebar.json', { cache: 'no-store' }); if (r.ok) data = await r.json(); } catch { /* the cached copy */ }
     }
+    // A stored sidebar's code says nothing about the shell that booted, so it adopts the next live hash.
+    bootCode = data?.code || null;
     data ||= read(DATA_KEY);
-    const sidebar = Sidebar.mount({ data, poll: false, open: (href) => { if (!open(href)) location.assign(href); } });
+    sidebar = Sidebar.mount({ data, poll: false, reload, open: (href) => { if (!open(href)) location.assign(href); } });
     const boards = () => new Set((data?.sites || []).filter((s) => s.board).map((s) => s.route));
     const titleOf = (route) => data?.sites?.find((s) => s.route === route)?.title || route;
 
@@ -78,6 +100,7 @@ window.AppShell = (function () {
       });
       cur.addEventListener('sidebar', (e) => {
         try { data = JSON.parse(e.data); } catch { return; }
+        codeSeen(data.code);
         sidebar.setData(data);
         current?.v?.B?.renderStatus?.();
       });
@@ -94,7 +117,7 @@ window.AppShell = (function () {
       sidebar.checkDevice();
       try {
         const r = await fetch('/_hub/sidebar.json', { cache: 'no-store' });
-        if (r.ok) { data = await r.json(); sidebar.setData(data); current?.v?.B?.renderStatus?.(); }
+        if (r.ok) { data = await r.json(); codeSeen(data.code); sidebar.setData(data); current?.v?.B?.renderStatus?.(); }
       } catch { /* the stream brings the next copy */ }
     }
 
@@ -271,5 +294,5 @@ window.AppShell = (function () {
     });
   }
 
-  return { start, open };
+  return { start, open, codeSeen };
 })();

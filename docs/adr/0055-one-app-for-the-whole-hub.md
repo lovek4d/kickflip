@@ -1,10 +1,12 @@
 ---
-status: superseded in part by ADR-0058 and ADR-0074
+status: superseded in part by ADR-0058, ADR-0074 and ADR-0097
 ---
 
 # One app for the whole hub
 
 Superseded in part by [0058](0058-back-follows-the-page-tree.md) on back in the page tree: entries for a board, its Waiting on you and a prototype page carry `up`, the router writes the missing levels into history on every way in, and their back arrow goes up a level. `idx` and `pushed` below still steer every other view's arrow.
+
+Superseded in part by [0097](0097-the-app-reloads-for-new-hub-code-only-on-the-owners-tap.md) on the saved shell: after the New version row's Reload, the worker forgets it, so that load waits for the network.
 
 Every board, each board's pages and the hub's own pages are views of one page, the app shell, so nothing reloads, switching boards included. Sites that aren't boards open in a frame inside it. The shell mounts a board, its Waiting on you and Notes, and the hub page and Polling as views; Board Settings mounts as a modal over its board, and every other site's page, a board's prototypes included, in a frame.
 

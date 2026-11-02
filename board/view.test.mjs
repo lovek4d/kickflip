@@ -2,6 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { freePorts, until } from '../shared/test-helpers.mjs';
 import { miniDom } from './mini-dom.mjs';
 import { buildBoard, BUTTON, ACTION_KIND } from './domain.mjs';
 
@@ -98,7 +103,10 @@ function fakePage(localStorage) {
     frames.clear();
     due.forEach((fn) => fn(now));
   };
-  return { win, El, Target, fire, left, advance, listenerCount: (target) => listeners.filter((l) => l.target === target).length };
+  const runTimers = (ms = Infinity) => {
+    for (const [id, t] of [...timeouts]) if (t.ms <= ms) { timeouts.delete(id); t.fn(); }
+  };
+  return { win, El, Target, fire, left, advance, runTimers, listenerCount: (target) => listeners.filter((l) => l.target === target).length };
 }
 
 test("a board view mounted then unmounted leaves no listener, interval, timer or watch behind, and lets go of the shell's change signal", () => {
@@ -679,7 +687,8 @@ test("the page header's logo toggles the sidebar at every width: from 900px it c
     append(k) { this.kids.push(k); }, closest: () => null });
   const aside = el();
   const list = { scrollTop: 150, scrollHeight: 1200 };
-  aside.querySelector = (sel) => sel === '.sb-scroll' ? list : null;
+  const update = { innerHTML: '', replaceWith() {} };
+  aside.querySelector = (sel) => sel === '.sb-scroll' ? list : sel === '.sb-update' ? update : null;
   const scrim = el();
   const logo = el();
   const html = el();
@@ -701,6 +710,10 @@ test("the page header's logo toggles the sidebar at every width: from 900px it c
 
   assert.deepEqual(state(), { collapsed: false, stored: null, drawer: false });
   assert.equal(logo.kids.length, 0);
+  assert.equal(logo.attrs['aria-label'], 'Boards, 2 waiting on other boards');
+  sidebar.setUpdate('ready');
+  assert.equal(logo.attrs['aria-label'], 'Boards, new version ready, 2 waiting on other boards');
+  sidebar.setUpdate(null);
   assert.equal(logo.attrs['aria-label'], 'Boards, 2 waiting on other boards');
   tap('[data-sidebar-close]');
   assert.deepEqual(state(), { collapsed: true, stored: '1', drawer: false });
@@ -725,11 +738,13 @@ test("the page header's logo toggles the sidebar at every width: from 900px it c
   assert.equal(html.classList.contains('sb-collapsed'), true);
 });
 
-async function shellPage(path, { fetch } = {}) {
-  const page = fakePage(memoryStorage().localStorage);
+async function shellPage(path, { fetch, sidebarData = { sites: [{ route: 'shop', title: 'The Shop', board: true, icon: '' }, { route: 'other', title: 'Other', board: true, icon: '' }] },
+  EventSource, reload, storage = memoryStorage() } = {}) {
+  const page = fakePage(storage.localStorage);
   const { win } = page;
   const doc = win.document;
   if (fetch) win.fetch = fetch;
+  if (EventSource) win.EventSource = EventSource;
   const { Element } = miniDom(page.Target, doc);
   doc.head = new Element('head');
   Object.defineProperty(Element.prototype, 'className', { get() { return this.getAttribute('class') || ''; }, set(value) { this.setAttribute('class', value); } });
@@ -738,21 +753,22 @@ async function shellPage(path, { fetch } = {}) {
   doc.getElementById = (id) => doc.body.querySelector(`#${id}`);
   doc.querySelector = (sel) => doc.body.querySelector(sel);
   doc.querySelectorAll = (sel) => doc.body.querySelectorAll(sel);
-  doc.getElementById('sidebarData').textContent = JSON.stringify({ sites: [{ route: 'shop', title: 'The Shop', board: true, icon: '' }, { route: 'other', title: 'Other', board: true, icon: '' }] });
+  doc.getElementById('sidebarData').textContent = JSON.stringify(sidebarData);
   const scrim = doc.getElementById('sidebarScrim');
   scrim.after = (root) => doc.body.insertBefore(root, scrim.nextSibling);
   let entries = [{ href: `https://mac.ts.net${path}`, state: null }];
   let at = 0;
-  win.location = new URL(entries[0].href);
+  const locate = (url) => { win.location = new URL(url, win.location.href); if (reload) win.location.reload = reload; };
+  locate(entries[0].href);
   const write = (state, url) => {
-    win.location = new URL(url || win.location.href, win.location.href);
+    locate(url || win.location.href);
     entries[at] = { href: win.location.href, state };
   };
   win.history = {
     get state() { return entries[at].state; },
     replaceState: (state, _, url) => write(state, url),
     pushState(state, _, url) { entries = entries.slice(0, ++at); write(state, url); },
-    go(n) { at += n; win.location = new URL(entries[at].href); page.fire(win, 'popstate', { state: entries[at].state }); },
+    go(n) { at += n; locate(entries[at].href); page.fire(win, 'popstate', { state: entries[at].state }); },
     back() { this.go(-1); },
   };
   win.scrollTo = () => {};
@@ -769,6 +785,217 @@ async function shellPage(path, { fetch } = {}) {
   return { page, win, doc, tap, selected: () => doc.querySelectorAll('.sb-row[aria-current="page"]').map((a) => a.getAttribute('href')),
     entries: () => entries, position: () => at, boardUnmounts: () => boardUnmounts };
 }
+
+test('the shell uses the inline or fetched boot code, adopts the first live code for cached or unversioned data, and keeps its update row across sidebar events', async () => {
+  for (const boot of ['inline', 'fetched', 'cached', 'unversioned']) {
+    const storage = memoryStorage([['hub:sidebar', JSON.stringify({ code: 'stored', sites: [] })]]);
+    const data = { code: 'boot', sites: [] };
+    const sources = [];
+    class EventSource {
+      static CLOSED = 2;
+      constructor() { this.readyState = 1; this.listeners = new Map(); sources.push(this); }
+      addEventListener(type, fn) { this.listeners.set(type, fn); }
+      close() { this.readyState = EventSource.CLOSED; }
+    }
+    let reloads = 0;
+    const { win, doc, page } = await shellPage('/_hub/', {
+      sidebarData: boot === 'inline' ? data : boot === 'unversioned' ? { sites: [] } : null,
+      fetch: (url) => url === '/_hub/sidebar.json'
+        ? boot === 'cached' ? Promise.reject(new Error('offline')) : Promise.resolve({ ok: true, json: async () => data })
+        : new Promise(() => {}),
+      EventSource, storage, reload: () => reloads++,
+    });
+    const region = doc.querySelector('.sb-update');
+    const logo = doc.querySelector('.view-hub .top a.hub');
+    logo.focus();
+    win.AppShell.codeSeen('');
+    win.AppShell.codeSeen(null);
+    const first = boot === 'inline' || boot === 'fetched' ? 'boot' : 'first live';
+    sources[0].listeners.get('sidebar')({ data: JSON.stringify({ code: first, sites: [] }) });
+    assert.equal(region.innerHTML, '', boot);
+    win.fetch = async () => new Response(JSON.stringify({ version: 'new' }), { headers: { 'x-hub-code': 'new' } });
+    let paints = 0;
+    const live = win.BoardView.page(doc.createElement('div'), '/_hub', (B) => win.HubKit.live(B, {
+      url: () => '/_hub/api/hub',
+      paint(data) { assert.equal(data.version, 'new'); assert.ok(region.querySelector('[data-app-reload]')); paints++; },
+    }));
+    live.mount();
+    await until(() => paints, 'the header code check before paint');
+    live.unmount();
+    const button = region.querySelector('[data-app-reload]');
+    assert.ok(button, boot);
+    assert.equal(doc.activeElement, logo);
+    assert.equal(logo.getAttribute('aria-label'), 'Boards, new version ready');
+    sources[0].listeners.get('sidebar')({ data: JSON.stringify({ code: 'newer', sites: [] }) });
+    win.AppShell.codeSeen(first);
+    assert.equal(doc.querySelector('.sb-update'), region);
+    assert.equal(region.querySelector('[data-app-reload]'), button);
+    assert.equal(reloads, 0);
+    page.fire(doc.getElementById('sidebar'), 'click', { target: button });
+    assert.equal(region.querySelector('.sb-go').textContent, 'Reloading…');
+    assert.ok(region.querySelector('[data-app-reload]').disabled);
+    page.runTimers(0);
+    assert.equal(reloads, 1);
+  }
+});
+
+test('a reload forgets the saved shell and waits for the worker reply or one second, keeping the URL and dirty-view guard', async () => {
+  for (const responds of [true, false]) {
+    let reloads = 0;
+    const { win, doc, page } = await shellPage('/shop/#item=w%2FA1', { reload: () => reloads++ });
+    let reply;
+    let closed = 0;
+    const sent = [];
+    win.MessageChannel = class {
+      constructor() {
+        const port1 = this.port1 = { close: () => closed++ };
+        this.port2 = { close: () => closed++, postMessage: (data) => port1.onmessage?.({ data }) };
+      }
+    };
+    win.navigator.serviceWorker = { controller: { postMessage: (data, [port]) => { sent.push({ ...data }); reply = port; } } };
+    const dirty = doc.createElement('form');
+    dirty.setAttribute('data-dirty', '');
+    doc.querySelector('.view-board').appendChild(dirty);
+    assert.ok(page.fire(win, 'beforeunload').defaultPrevented);
+    win.AppShell.codeSeen('boot');
+    win.AppShell.codeSeen('new');
+    const region = doc.querySelector('.sb-update');
+    page.fire(doc.getElementById('sidebar'), 'click', { target: region.querySelector('[data-app-reload]') });
+    assert.deepEqual(sent, [{ forget: 'shell' }]);
+    assert.ok(region.querySelector('[data-app-reload]').disabled);
+    assert.equal(region.querySelector('.sb-go').textContent, 'Reloading…');
+    page.runTimers(999);
+    assert.equal(reloads, 0);
+    if (responds) reply.postMessage({ forgot: true }); else page.runTimers(1000);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(reloads, 0);
+    assert.equal(closed, 2);
+    page.runTimers(0);
+    page.runTimers(1000);
+    assert.equal(reloads, 1);
+    assert.equal(win.location.pathname + win.location.hash, '/shop/#item=w%2FA1');
+  }
+});
+
+test('an open shell shows new hub code before the next Hub paint and reloads only on a tap', { timeout: 20000 }, async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'app-code-'));
+  const dir = path.join(home, '.claude', 'kickflip');
+  const streams = new Set();
+  let hub;
+  t.after(async () => {
+    for (const stream of streams) stream.close();
+    if (hub && hub.exitCode === null && hub.signalCode === null) {
+      const exited = new Promise((resolve) => hub.once('exit', resolve));
+      hub.kill('SIGTERM');
+      await exited;
+    }
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({ version: 1, sites: {} }));
+  const [port] = await freePorts();
+  const base = `http://127.0.0.1:${port}`;
+  hub = spawn(process.execPath, [new URL('../hub/hub.mjs', import.meta.url).pathname], {
+    env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false' },
+  });
+  await new Promise((resolve, reject) => {
+    let out = '';
+    let err = '';
+    const timer = setTimeout(() => reject(new Error(`hub did not start: ${out}${err}`)), 10000);
+    hub.stderr.on('data', (d) => { err += d; });
+    hub.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) { clearTimeout(timer); resolve(); } });
+    hub.once('error', (e) => { clearTimeout(timer); reject(e); });
+    hub.once('exit', (code) => { clearTimeout(timer); reject(new Error(`hub exited ${code}: ${err}`)); });
+  });
+  let received = 0;
+  class EventSource {
+    static CLOSED = 2;
+    constructor(url) {
+      this.readyState = 0;
+      this.listeners = new Map();
+      streams.add(this);
+      const drop = () => {
+        if (this.readyState === EventSource.CLOSED) return;
+        this.readyState = EventSource.CLOSED;
+        this.emit('error', {});
+      };
+      this.req = http.get(new URL(url, base), (res) => {
+        this.res = res;
+        this.readyState = 1;
+        this.emit('open', {});
+        let buffer = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          buffer += chunk.replace(/\r\n/g, '\n');
+          for (let i = buffer.indexOf('\n\n'); i >= 0; i = buffer.indexOf('\n\n')) {
+            const block = buffer.slice(0, i);
+            buffer = buffer.slice(i + 2);
+            const type = /^event: ?(.+)$/m.exec(block)?.[1];
+            const data = /^data: ?(.+)$/m.exec(block)?.[1];
+            if (type === 'sidebar') received++;
+            if (type && data) this.emit(type, { data });
+          }
+        });
+        res.on('error', drop);
+        res.on('close', drop);
+      });
+      this.req.on('error', drop);
+    }
+    addEventListener(type, fn) {
+      if (!this.listeners.has(type)) this.listeners.set(type, []);
+      this.listeners.get(type).push(fn);
+    }
+    emit(type, event) { for (const fn of this.listeners.get(type) || []) fn(event); }
+    close() { this.readyState = EventSource.CLOSED; this.req.destroy(); this.res?.destroy(); streams.delete(this); }
+  }
+  const sidebar = await fetch(`${base}/_hub/sidebar.json`);
+  const sidebarData = await sidebar.json();
+  assert.ok(sidebarData.code);
+  assert.equal(sidebar.headers.get('x-hub-code'), sidebarData.code);
+  const html = await (await fetch(`${base}/_hub/`)).text();
+  assert.match(html, /<div class="sb-update" role="status"><\/div>/);
+  let reloads = 0;
+  const { win, doc, page } = await shellPage('/_hub/', {
+    fetch: (url, opts) => fetch(new URL(url, base), opts), sidebarData, EventSource, reload: () => reloads++,
+  });
+  const status = doc.querySelector('.hub-status');
+  const logo = doc.querySelector('.view-hub .top a.hub');
+  const region = doc.querySelector('.sb-update');
+  await until(() => status.innerHTML && received, 'the first Hub paint and sidebar event');
+  assert.equal(region.innerHTML, '');
+  assert.equal(doc.querySelector('[data-app-reload]'), null);
+  assert.equal(logo.getAttribute('aria-label'), 'Boards');
+  const file = path.join(dir, 'hub-code.json');
+  const code = JSON.parse(fs.readFileSync(file, 'utf8'));
+  fs.writeFileSync(file, JSON.stringify({ ...code, hash: `${code.hash}-new` }));
+  const paints = [];
+  const innerHTML = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(status), 'innerHTML');
+  Object.defineProperty(status, 'innerHTML', {
+    get() { return innerHTML.get.call(this); },
+    set(value) { paints.push(Boolean(doc.querySelector('.sb-update [data-app-reload]'))); innerHTML.set.call(this, value); },
+  });
+  page.fire(doc.querySelector('.view-hub #refresh'), 'click');
+  await until(() => paints.length, 'the next Hub paint');
+  assert.ok(paints.every(Boolean));
+  assert.equal(doc.querySelector('.sb-update'), region);
+  assert.equal(region.getAttribute('role'), 'status');
+  assert.equal(region.querySelector('.sb-title').textContent, 'New version');
+  assert.equal(region.querySelector('.sb-go').textContent, 'Reload');
+  assert.ok(doc.documentElement.classList.contains('sb-update'));
+  assert.equal(logo.getAttribute('aria-label'), 'Boards, new version ready');
+  assert.equal(reloads, 0);
+  const button = region.querySelector('[data-app-reload]');
+  win.AppShell.codeSeen(sidebarData.code);
+  win.AppShell.codeSeen('a later hash');
+  assert.equal(region.querySelector('[data-app-reload]'), button);
+  page.fire(doc.getElementById('sidebar'), 'click', { target: button });
+  assert.equal(region.querySelector('.sb-go').textContent, 'Reloading…');
+  assert.ok(region.querySelector('[data-app-reload]').disabled);
+  assert.equal(reloads, 0);
+  page.fire(doc.getElementById('sidebar'), 'click', { target: region.querySelector('[data-app-reload]') });
+  page.runTimers(0);
+  assert.equal(reloads, 1);
+});
 
 test('the Hub row stays selected on old Settings URLs, hub sections, Polling and browser back', async () => {
   for (const path of ['/_hub/', '/_hub/settings', '/_hub/settings#rules', '/_hub/settings/polling?w=09%3A00']) {
@@ -1295,6 +1522,7 @@ test("s s shows each sidebar row's key and the Boards label's hint, and the next
   const { win } = page;
   win.Element = page.El;
   const aside = new page.El();
+  aside.querySelector('.sb-update').replaceWith = () => {};
   const scrim = new page.El();
   let dialog = null;
   Object.assign(win.document, { getElementById: (id) => ({ sidebar: aside, sidebarScrim: scrim })[id] || null, querySelectorAll: () => [],

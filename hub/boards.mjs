@@ -413,7 +413,8 @@ export function recordHubCode() {
 }
 
 const RESTART_HUB = hubService().restartCommand;
-export const hubCodeState = () => ({ running: readJSON(HUB_CODE, null)?.hash, onDisk: hubCode().hash });
+export const runningHubCode = () => readJSON(HUB_CODE, null)?.hash ?? null;
+export const hubCodeState = () => ({ running: runningHubCode(), onDisk: hubCode().hash });
 // The hub's own link, so linksOf leaves it out (docs/adr/0064-every-builder-works-in-a-worktree.md).
 // → {link: 'hub', ok, detail}
 export const hubLink = ({ running, onDisk } = hubCodeState()) => (running && running === onDisk

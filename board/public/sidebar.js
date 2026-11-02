@@ -12,8 +12,8 @@
 // with nothing opened. A key it uses is defaultPrevented, so the board's other shortcuts skip it.
 // The shortcuts sheet: h pressed twice within a second, on a device with a fine pointer that hovers, under the same
 // rules as s, shows or hides ui-sidebar.js shortcuts in a centred sheet over the dimmed page; Escape closes it.
-// mount({here, data, open}): open(href) shows a row's page, by default by loading it.
-// → {setHere(route), setData(data), checkDevice(), close(), toggle(), keydown(e), pointerdown()}, toggle doing what the
+// mount({here, data, open, reload}): open(href) shows a row's page, by default by loading it; reload() reloads the app.
+// → {setHere(route), setData(data), setUpdate(state), checkDevice(), close(), toggle(), keydown(e), pointerdown()}, toggle doing what the
 // logo does, checkDevice reading this device's push subscription again, and keydown and pointerdown taking a framed
 // page's events (view-frame.js), as the document's own
 (function () {
@@ -42,15 +42,17 @@
     } catch { return null; }
   }
 
-  function mount({ here = '', data = null, open: openRow = (href) => location.assign(href) } = {}) {
+  function mount({ here = '', data = null, open: openRow = (href) => location.assign(href), reload = () => {} } = {}) {
     const aside = document.getElementById('sidebar');
     const scrim = document.getElementById('sidebarScrim');
     // ui.js replaces the BoardUI global when it loads after this, so the renderers are held here.
-    const { sidebar, othersWaiting, switchKeys, shortcuts } = globalThis.BoardUI || {};
-    const none = { setHere() {}, setData() {}, checkDevice() {}, close() {}, toggle() {}, keydown() {}, pointerdown() {} };
+    const { sidebar, updateRow, othersWaiting, switchKeys, shortcuts } = globalThis.BoardUI || {};
+    const none = { setHere() {}, setData() {}, setUpdate() {}, checkDevice() {}, close() {}, toggle() {}, keydown() {}, pointerdown() {} };
     if (!aside || !sidebar) return none;
     if (!data) { try { data = JSON.parse(read(DATA_KEY) || 'null'); } catch { data = null; } }
     let device = null;
+    let update = null;
+    let updateHTML = '';
     const rail = matchMedia(RAIL);
     const html = document.documentElement;
     let collapsed = read(COLLAPSED_KEY) === '1';
@@ -60,9 +62,9 @@
     const pageLogo = (el) => (el && !el.closest('.sidebar') ? el : null);
     function logoCount() {
       const logo = [...document.querySelectorAll('.top a.hub')].find(pageLogo);
-      if (!logo || !data) return;
+      if (!logo) return;
       const n = othersWaiting(data, here);
-      logo.setAttribute('aria-label', n ? `Boards, ${n} waiting on other boards` : 'Boards');
+      logo.setAttribute('aria-label', `Boards${update ? ', new version ready' : ''}${n ? `, ${n} waiting on other boards` : ''}`);
     }
     // switching: {timer, opened} while switch mode shows, opened when it opened the drawer.
     let switching = null;
@@ -72,7 +74,14 @@
       if (!data) return;
       const scroll = aside.querySelector('.sb-scroll');
       const top = painted ? scroll?.scrollTop : undefined;
+      // Screen readers announce a role="status" node only when its own content changes, so the node outlives the repaint.
+      const held = aside.querySelector('.sb-update');
       aside.innerHTML = sidebar(data, { here, device, switching: Boolean(switching) });
+      const fresh = aside.querySelector('.sb-update');
+      if (held) fresh.replaceWith(held);
+      const row = updateRow(update);
+      if (!held || row !== updateHTML) (held || fresh).innerHTML = row;
+      updateHTML = row;
       const list = aside.querySelector('.sb-scroll');
       if (list) list.scrollTop = top ?? list.scrollHeight;
       painted = true;
@@ -82,6 +91,11 @@
       if (!next) return;
       data = next;
       write(DATA_KEY, JSON.stringify(data));
+      paint();
+    }
+    function setUpdate(state) {
+      update = state;
+      html.classList.toggle('sb-update', Boolean(update));
       paint();
     }
 
@@ -135,6 +149,11 @@
       });
     }
     aside.addEventListener('click', async (e) => {
+      const refreshApp = e.target.closest?.('[data-app-reload]');
+      if (refreshApp) {
+        if (!refreshApp.disabled && update !== 'reloading') { setUpdate('reloading'); reload(); }
+        return;
+      }
       if (e.target.closest?.('[data-new-board]')) { newBoard(); return; }
       const dismiss = e.target.closest?.('[data-dismiss-board]');
       if (!dismiss || dismiss.disabled) return;
@@ -261,7 +280,7 @@
       here = route;
       paint();
     }
-    return { setHere, setData, checkDevice, close, toggle, keydown, pointerdown };
+    return { setHere, setData, setUpdate, checkDevice, close, toggle, keydown, pointerdown };
   }
 
   globalThis.Sidebar = { mount };

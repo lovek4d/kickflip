@@ -31,6 +31,14 @@
 @media (hover: hover) { .sidebar .sb-row:hover { background: color-mix(in srgb, var(--chip) 70%, transparent); text-decoration: none; } }
 .sidebar .sb-row.on { background: var(--accent-soft); }
 .sidebar .sb-turnon { margin: 6px 0 0; background: color-mix(in srgb, var(--color-danger) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--color-danger) 30%, var(--line)); }
+.sidebar .sb-update-row { width: 100%; min-height: 48px; margin: 0 0 6px; padding: 6px 8px; border-radius: 10px; text-align: left; font: inherit; color: var(--text);
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); cursor: pointer; }
+.sidebar .sb-update-row:disabled { opacity: 1; cursor: default; }
+.sidebar .sb-go { flex: none; padding: 5px 10px; border-radius: 7px; background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; }
+.sidebar .sb-update-row:disabled .sb-go { background: transparent; color: var(--muted); padding-right: 0; font-weight: 400; }
+html.sb-update body.has-sidebar > .top .hub, html.sb-update body.has-sidebar > :not(.sidebar) > .top .hub { position: relative; }
+html.sb-update body.has-sidebar > .top .hub::after, html.sb-update body.has-sidebar > :not(.sidebar) > .top .hub::after {
+  content: ''; position: absolute; width: 10px; height: 10px; top: 3px; right: 3px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
 .sidebar .sb-text { flex: 1; min-width: 0; }
 .sidebar .sb-title { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sidebar .sb-moon { display: inline-block; margin-left: 5px; color: var(--muted); vertical-align: -1px; }

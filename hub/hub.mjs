@@ -12,7 +12,7 @@
 //                     the hub page (both paths) and Polling, views of the shell; any GET of them gets the shell
 //   /_hub/api/hub, /_hub/api/settings, /_hub/api/polling?w=HH:MM
 //                     those views' data and words (views.mjs)
-//   /_hub/sidebar.json what the sidebar shows (board/public/ui-sidebar.js): {total, start,
+//   /_hub/sidebar.json what the sidebar shows (board/public/ui-sidebar.js): {code, total, start,
 //                     sites: [{route, title, board, state, count, changedAt, created, icon, sub}], hub: {tone, word, detail, broken},
 //                     notifications: {state, text}}, each site's row from its GET /_claude/needs
 //                     (home.mjs; docs/adr/0010-sites-report-what-waits-through-claude-needs.md)
@@ -23,6 +23,7 @@
 //                     /_hub/api/hub carries the same usage field.
 //                     Both carry pause: {pause_at, state: normal|paused|going, window, used, resets_at,
 //                     codex: {past, window, used, resets_at}} (../shared/usage-gate.mjs).
+//                     /_hub/ JSON answers carry X-Hub-Code, the running hub's code hash.
 //   /_hub/api/linear GET {set, workspace, url_key, teams: [{key, name}], projects: [{id, name, team}]} through Hub's Linear
 //                     key, {set: false} without one, or with error when Linear can't be reached
 //   /_hub/linear/projects POST {team, name} creates a Linear project in that team → {id, name, team}
@@ -125,7 +126,7 @@ import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, updatePro
 import { nextSlot, windowAt, hold, heldUntil, holdLine, editPolling } from './schedule.mjs';
 import { capital, hubView, settingsView, pollingView, flushView, SNOOZE_REFUSED } from './views.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
-import { listBoards, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, migrateHubFlag, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON } from './boards.mjs';
+import { listBoards, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, runningHubCode, migrateHubFlag, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON } from './boards.mjs';
 import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
@@ -530,6 +531,7 @@ async function sidebarState({ fresh = false } = {}) {
   const settings = readSettings();
   const held = hold(now, settings);
   const data = {
+    code: code.running ?? null,
     total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links, hubLink(code)),
     home: fs.realpathSync(os.homedir()),
     starting: startingBoards(manifest, now.getTime()),
@@ -623,7 +625,10 @@ const redirect = (res, location) => { res.writeHead(303, { location, 'cache-cont
 
 async function hubRoute(req, res, url) {
   const send = (code, type, body, extra = {}) => { res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store', ...extra }); res.end(body); };
-  const sendJSON = (code, v) => send(code, 'application/json', JSON.stringify(v));
+  const sendJSON = (code, v) => {
+    const hash = runningHubCode();
+    return send(code, 'application/json', JSON.stringify(v), hash ? { 'x-hub-code': hash } : {});
+  };
   const json = wantsJSON(req);
   const p = url.pathname;
   const closing = /^\/_hub\/close-board\/([a-z0-9-]+)$/.exec(p);

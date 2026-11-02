@@ -166,6 +166,26 @@ test("a site's own page or an error page reaches the browser and never replaces 
   assert.deepEqual(await w.saved(), { [SHELL]: 'the shell' });
 });
 
+test('forgetting the shell answers on the port and a slow navigation waits for the network instead of the old shell', async () => {
+  const w = worker();
+  w.network = () => shellAnswer('old shell');
+  await w.page('/').done;
+  assert.deepEqual(await w.saved(), { [SHELL]: 'old shell' });
+  const answers = [];
+  const ev = await w.dispatch('message', { data: { forget: 'shell' }, ports: [{ postMessage: (data) => answers.push({ ...data }) }] });
+  await Promise.all(ev.waits);
+  assert.deepEqual(answers, [{ forgot: true }]);
+  assert.deepEqual(await w.saved(), {});
+  let answer;
+  w.network = () => new Promise((resolve) => { answer = resolve; });
+  const slow = w.page('/_hub/');
+  await w.advance(3001);
+  assert.equal(slow.settled, false);
+  answer(shellAnswer('new shell'));
+  assert.equal((await slow.done).text, 'new shell');
+  assert.deepEqual(await w.saved(), { [SHELL]: 'new shell' });
+});
+
 test("the worker answers with the saved shell exactly the page loads hub/shell.mjs pageOf answers with the shell", async () => {
   const sites = new Set(['hub-orchestrator', 'learn']);
   const paths = ['/', '/_hub/', '/_hub/settings', '/_hub/settings/polling', '/_hub/api/hub', '/_hub/sidebar.json', '/_hub/app/ui.js',
