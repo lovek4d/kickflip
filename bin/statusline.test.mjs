@@ -32,28 +32,32 @@ test('status line prints the exact directory, branch, model and context for clea
   git('add', 'tracked');
   git('commit', '-m', 'fixture');
   const input = { cwd: repo, model: { display_name: 'Opus 4.6' }, context_window: { used_percentage: 42 } };
-  assert.equal(run(input), 'dev/kickflip  feature  Opus 4.6  42% ctx\n');
+  assert.equal(run(input), 'dev/kickflip feature · Opus 4.6 / 42% ctx\n');
   fs.writeFileSync(path.join(repo, 'untracked'), 'untracked files do not count');
-  assert.equal(run(input), 'dev/kickflip  feature  Opus 4.6  42% ctx\n');
+  assert.equal(run(input), 'dev/kickflip feature · Opus 4.6 / 42% ctx\n');
   fs.writeFileSync(tracked, 'changed\n');
-  assert.equal(run(input), 'dev/kickflip  feature*  Opus 4.6  42% ctx\n');
+  assert.equal(run(input), 'dev/kickflip feature* · Opus 4.6 / 42% ctx\n');
+  assert.equal(fs.existsSync(usageFile()), false);
+  assert.equal(run({ ...input, rate_limits: { five_hour: { used_percentage: 81 }, seven_day: { used_percentage: 78 } } }), 'dev/kickflip feature* · Opus 4.6 / 42% ctx · 5h: 81% / 7d: 78%\n');
   git('add', 'tracked');
-  assert.equal(run(input), 'dev/kickflip  feature*  Opus 4.6  42% ctx\n');
+  assert.equal(run(input), 'dev/kickflip feature* · Opus 4.6 / 42% ctx\n');
   git('commit', '-m', 'second fixture');
   git('checkout', '--detach', 'HEAD');
-  assert.equal(run(input), 'dev/kickflip  Opus 4.6  42% ctx\n');
-  assert.equal(fs.existsSync(usageFile()), false);
+  assert.equal(run(input), 'dev/kickflip · Opus 4.6 / 42% ctx\n');
 });
 
 test('status line shortens slash-separated directories and omits absent fields, including outside Git', () => {
   for (const [cwd, dir] of [[home, '~'], [path.join(home, 'dev'), '~/dev'], [path.join(home, 'dev', 'kickflip'), 'dev/kickflip'], ['/one/two/three', 'two/three'], ['/one', '/one'], ['/', '/'], [home + '-other/child', path.basename(home) + '-other/child']]) {
     assert.equal(run({ cwd }), dir + '\n');
   }
-  assert.equal(run({ model: { display_name: 'Sonnet' }, context_window: { used_percentage: 0 } }), 'Sonnet  0% ctx\n');
+  assert.equal(run({ model: { display_name: 'Sonnet' }, context_window: { used_percentage: 0 } }), 'Sonnet / 0% ctx\n');
   assert.equal(run({ context_window: { used_percentage: 12.5 } }), '12% ctx\n');
-  assert.equal(run({ model: { display_name: 'Opus 5.5' }, context_window: { used_percentage: 41.7 }, rate_limits: { five_hour: { used_percentage: 23.4, resets_at: 1793580000 }, seven_day: { used_percentage: 57, resets_at: 1794003836 } } }), 'Opus 5.5  41% ctx  5h 23% · 7d 57%\n');
-  assert.equal(run({ rate_limits: { seven_day: { used_percentage: 99.9 } } }), '7d 99%\n');
-  assert.equal(run({ model: { display_name: 'Opus' }, rate_limits: { five_hour: { used_percentage: 0 }, seven_day: { used_percentage: 'bad' } } }), 'Opus  5h 0%\n');
+  assert.equal(run({ model: { display_name: 'Opus 5.5' }, context_window: { used_percentage: 41.7 }, rate_limits: { five_hour: { used_percentage: 23.4, resets_at: 1793580000 }, seven_day: { used_percentage: 57, resets_at: 1794003836 } } }), 'Opus 5.5 / 41% ctx · 5h: 23% / 7d: 57%\n');
+  assert.equal(run({ rate_limits: { seven_day: { used_percentage: 99.9 } } }), '7d: 99%\n');
+  assert.equal(run({ model: { display_name: 'Opus' }, rate_limits: { five_hour: { used_percentage: 0 }, seven_day: { used_percentage: 'bad' } } }), 'Opus · 5h: 0%\n');
+  assert.equal(run({ cwd: '/one/two/three', rate_limits: { five_hour: { used_percentage: 81 } } }), 'two/three · 5h: 81%\n');
+  assert.equal(run({ cwd: '/one/two/three', context_window: { used_percentage: 20 }, rate_limits: { seven_day: { used_percentage: 78 } } }), 'two/three · 20% ctx · 7d: 78%\n');
+  assert.equal(run({ cwd: '/one/two/three', model: { display_name: 'Opus 5.5' } }), 'two/three · Opus 5.5\n');
   assert.equal(run({ context_window: { used_percentage: null } }), '\n');
   assert.equal(run({}), '\n');
 });
@@ -68,7 +72,7 @@ test('status line writes normalized Claude usage atomically, preserving other to
   const before = Date.now();
   assert.equal(run({ model: { display_name: 'Opus' }, session_id: 'session-1', rate_limits: {
     five_hour: { used_percentage: 42, resets_at: resets }, seven_day: { used_percentage: '7.5', resets_at: iso },
-  } }), 'Opus  5h 42% · 7d 7%\n');
+  } }), 'Opus · 5h: 42% / 7d: 7%\n');
   const data = JSON.parse(fs.readFileSync(usageFile(), 'utf8'));
   assert.deepEqual(data.codex, codex);
   assert.deepEqual(data.extra, { keep: true });
@@ -99,7 +103,7 @@ test('usage is created only with rate_limits and absent or malformed limits leav
 test('bad stdin and filesystem failures are silent and always exit zero', () => {
   for (const input of ['', 'bad JSON', 'null', '42', '[]']) assert.equal(run(input), '');
   fs.writeFileSync(path.join(home, '.claude'), 'blocks the usage directory');
-  assert.equal(run({ model: { display_name: 'Opus' }, rate_limits: { five_hour: { used_percentage: 42 } } }), 'Opus  5h 42%\n');
+  assert.equal(run({ model: { display_name: 'Opus' }, rate_limits: { five_hour: { used_percentage: 42 } } }), 'Opus · 5h: 42%\n');
   assert.equal(fs.readFileSync(path.join(home, '.claude'), 'utf8'), 'blocks the usage directory');
 });
 

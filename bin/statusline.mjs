@@ -83,8 +83,13 @@ try {
     const ctx = percent(input.context_window?.used_percentage);
     const usage = [['5h', input.rate_limits?.five_hour], ['7d', input.rate_limits?.seven_day]]
       .map(([name, window]) => [name, percent(window?.used_percentage)])
-      .filter(([, value]) => value != null).map(([name, value]) => `${name} ${value}%`).join(' · ');
-    const line = [shortDir(cwd), branchOf(cwd), model, ctx == null ? '' : `${ctx}% ctx`, usage].filter(Boolean).join('  ');
+      .filter(([, value]) => value != null).map(([name, value]) => `${name}: ${value}%`).join(' / ');
+    const join = (parts, separator) => parts.filter(Boolean).join(separator);
+    const line = join([
+      join([shortDir(cwd), branchOf(cwd)], ' '),
+      join([model, ctx == null ? '' : `${ctx}% ctx`], ' / '),
+      usage,
+    ], ' · ');
     // Wait for stdout to flush before doing filesystem work; errors stay off both streams.
     process.stdout.write(line + '\n', () => { try { migrateOnStart(); saveUsage(input); } catch {} });
   }

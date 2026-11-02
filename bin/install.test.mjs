@@ -416,7 +416,7 @@ test('the hub, the board CLI and the status line each move an old-named HOME bef
   assertMigrated(homes[0], cloneRoot());
 
   const line = run(homes[1], ['bin', 'statusline.mjs'], [], JSON.stringify({ model: { display_name: 'Opus' }, rate_limits: { five_hour: { used_percentage: 5 } } }));
-  assert.equal(line.stdout, 'Opus  5h 5%\n');
+  assert.equal(line.stdout, 'Opus · 5h: 5%\n');
   assertMigrated(homes[1], cloneRoot());
   assert.ok(fs.existsSync(path.join(homes[1], '.claude', 'kickflip', 'usage.json')));
 
