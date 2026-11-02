@@ -68,7 +68,7 @@ function fakePage(localStorage) {
   const win = Object.assign(new Target(), {
     URL, URLSearchParams, AbortController, localStorage, document, CSS: { escape: (s) => s }, navigator: { platform: 'MacIntel' },
     location: { hostname: 'mac.ts.net', href: 'https://mac.ts.net/', hash: '', pathname: '/', search: '' }, history: { replaceState() {} }, innerHeight: 844,
-    scrollX: 0, scrollY: 0, scrollTo(x, y) { this.scrollX = x; this.scrollY = y; },
+    scrollX: 0, scrollY: 0, scrollTo(x, y) { win.scrollX = x; win.scrollY = y; },
     visualViewport: Object.assign(new Target(), { height: 844, offsetTop: 0 }),
     matchMedia: (query) => Object.assign(new Target(), { matches: query === '(min-width: 900px)' && win.innerWidth >= 900 }), MutationObserver, ResizeObserver: MutationObserver,
     performance: { now: () => now },
@@ -730,7 +730,7 @@ test("the page header's logo toggles the sidebar at every width: from 900px it c
 });
 
 async function shellPage(path, { fetch, sidebarData = { sites: [{ route: 'shop', title: 'The Shop', board: true, icon: '' }, { route: 'other', title: 'Other', board: true, icon: '' }] },
-  EventSource, reload, storage = memoryStorage() } = {}) {
+  EventSource, reload, storage = memoryStorage(), realBoards = false } = {}) {
   const page = fakePage(storage.localStorage);
   const { win } = page;
   const doc = win.document;
@@ -770,7 +770,7 @@ async function shellPage(path, { fetch, sidebarData = { sites: [{ route: 'shop',
   win.top = win;
   vm.runInContext(fs.readFileSync(new URL('./public/shell.js', import.meta.url), 'utf8'), win);
   let boardUnmounts = 0;
-  win.BoardView.create = () => ({ B: { state: {} }, mount() {}, unmount() { boardUnmounts++; } });
+  if (!realBoards) win.BoardView.create = () => ({ B: { state: {} }, mount() {}, unmount() { boardUnmounts++; } });
   await win.AppShell.start();
   const tap = (a) => page.fire(doc, 'click', { target: a, button: 0 });
   return { page, win, doc, tap, selected: () => doc.querySelectorAll('.sb-row[aria-current="page"]').map((a) => a.getAttribute('href')),
@@ -2565,6 +2565,78 @@ test('leaving a board with its settings open releases the modal and returning wi
   await new Promise((r) => setImmediate(r));
   assert.ok(doc.querySelector('.view-board'));
   assert.ok(doc.querySelector('#boardSettingsModal').open);
+});
+
+test("switching to another board through the sidebar and back returns to the page's scroll and open threads, and on a desktop to the box being typed in with its text and selection, but not to a box blurred inside the board, nor on a phone, nor when the link names a card", async () => {
+  const mine = { ts: '2026-10-30T10:00:00.000Z', who: 'love', text: 'Fix the header', eventId: 'e1', canEdit: true, canDelete: true, state: 'waiting' };
+  const said = (n) => ({ ts: `2026-10-30T10:0${n}:00.000Z`, who: 'claude', text: `Line ${n}` });
+  const threads = { 'ask:a1': [mine], 'ask:b1': [1, 2, 3, 4, 5].map(said) };
+  const fetch = async (url) => {
+    const u = new URL(url, 'https://mac.ts.net/');
+    const body = u.pathname.endsWith('/api/board') ? boardOf([askCard('a1', 'progress'), askCard('b1', 'progress')]) : threads[u.searchParams.get('key')] || [];
+    return { ok: true, json: async () => structuredClone(body) };
+  };
+  const storage = memoryStorage([['site:shop:openItems', JSON.stringify(['ask:a1', 'ask:b1'])]]);
+  const { win, doc, page, tap } = await shellPage('/shop/', { fetch, storage, realBoards: true });
+  let desktop = true;
+  win.matchMedia = (query) => Object.assign(new page.Target(), { matches: query === '(hover: hover) and (pointer: fine)' && desktop });
+  win.scrollTo = (x, y) => { win.scrollY = y; };
+  const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
+  await settle();
+  const $ = (sel) => doc.querySelector(`.view-board ${sel}`);
+  const row = (route) => doc.querySelector(`.sb-row[href="/${route}/"]`);
+  const press = (el) => page.fire(doc, 'pointerdown', { target: el });
+  const switchTo = async (route) => {
+    press(row(route));
+    doc.activeElement?.blur();
+    tap(row(route));
+    await settle();
+  };
+  const lines = () => $('[data-thread="ask:b1"] .msgs').querySelectorAll('.msg .body').map((el) => el.textContent);
+  const focused = (el) => (el?.closest('.edit-form') ? 'edit' : el?.closest('form[data-reply]') ? 'reply' : null);
+  const shown = () => [win.location.pathname, win.scrollY, focused(doc.activeElement)];
+
+  page.fire(doc.querySelector('.view-board'), 'click', { target: $('[data-thread="ask:b1"] [data-thread-more]') });
+  assert.deepEqual(lines(), ['Line 1', 'Line 2', 'Line 3', 'Line 4', 'Line 5']);
+  page.fire(doc.querySelector('.view-board'), 'click', { target: $('.msg[data-event="e1"] button[data-edit]') });
+  await settle();
+  const edit = $('.edit-form textarea');
+  edit.value = 'Fix the header and the footer';
+  edit.setSelectionRange(4, 10);
+  page.fire(doc.querySelector('.view-board'), 'input', { target: edit });
+  edit.focus();
+  win.scrollY = 640;
+  await switchTo('other');
+  assert.deepEqual(shown(), ['/other/', 0, null]);
+  await switchTo('shop');
+  const back = $('.edit-form textarea');
+  assert.notEqual(back, edit);
+  assert.deepEqual(shown(), ['/shop/', 640, 'edit']);
+  assert.deepEqual([back.value, back.selectionStart, back.selectionEnd], ['Fix the header and the footer', 4, 10]);
+  assert.deepEqual(lines(), ['Line 1', 'Line 2', 'Line 3', 'Line 4', 'Line 5']);
+
+  const reply = () => $('form[data-reply="ask:a1"] textarea');
+  reply().focus();
+  press($('main'));
+  reply().blur();
+  win.scrollY = 320;
+  await switchTo('other');
+  await switchTo('shop');
+  assert.deepEqual(shown(), ['/shop/', 320, null]);
+
+  desktop = false;
+  reply().focus();
+  press($('.top a.hub'));
+  await switchTo('other');
+  await switchTo('shop');
+  assert.deepEqual(shown(), ['/shop/', 320, null]);
+
+  desktop = true;
+  reply().focus();
+  await switchTo('other');
+  win.AppShell.open('/shop/#item=ask%3Ab1');
+  await settle();
+  assert.deepEqual(shown(), ['/shop/', 0, null]);
 });
 
 test('a stored Polling link opens Hub with its window selected, and modal links and dismissal preserve history', async () => {

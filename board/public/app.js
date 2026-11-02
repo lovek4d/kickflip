@@ -3,8 +3,9 @@
 // and mount() runs the parts in load order, then renders the board from /api/board and per-item threads from
 // /api/thread. Actions go out as events through B.site.send (each wakes Claude). Parts add listeners, intervals,
 // timers, watches and unmount steps only through B.on, B.every, B.later, B.watch and B.atUnmount, so unmount() undoes
-// them all and no board's state outlives its view. BoardView.markup({title}) is the root's inner
-// HTML. BoardView.page(root, site, run) gives a board's other views (view-*.js) the same site, $ and recorders.
+// them all and no board's state outlives its view but what B.keep keeps for its next mount in this page.
+// BoardView.markup({title}) is the root's inner HTML. BoardView.page(root, site, run) gives a board's other views
+// (view-*.js) the same site, $ and recorders.
 // opts, both from the app shell (shell.js):
 //   signal(fn) → off   calls fn on each change signal for this board, from the hub's one stream
 //   live {fresh, generatedAt}
@@ -14,6 +15,9 @@
 window.BoardView = (function () {
   const parts = [];
   const part = (fn) => { parts.push(fn); };
+  // route → what a board's view kept as it unmounted, which its next mount in this page reads as B.place. A reload
+  // starts with none.
+  const places = new Map();
 
   // Every board shares the hub's one origin, so each keeps its keys under site:<route>:; app.html's preload reads
   // openItems by the same key. Thread and question drafts are already per card and keep their own keys.
@@ -111,7 +115,12 @@ window.BoardView = (function () {
       waveFilter: store.get('wave', null),
     };
     const signal = opts.signal ? (fn) => { if (B.alive()) B.own(opts.signal(fn)); } : null;
-    Object.assign(B, { store, state, signal, live: opts.live || null, pause: opts.pause });
+    // B.keep(fn): a part adds fn() → {…} to what the board keeps as it unmounts, read before any part's unmount step.
+    const keepers = [];
+    const keep = (fn) => { if (B.alive()) keepers.push(fn); };
+    const place = places.get(B.route) || null;
+    places.delete(B.route);
+    Object.assign(B, { store, state, signal, live: opts.live || null, pause: opts.pause, place, keep });
 
     function mount() {
       if (B.alive()) return;
@@ -119,7 +128,12 @@ window.BoardView = (function () {
       for (const p of parts) p(B);
       start(B);
     }
-    return { B, mount, unmount: stop };
+    function unmount() {
+      if (B.alive()) places.set(B.route, Object.assign({}, ...keepers.map((fn) => fn())));
+      keepers.length = 0;
+      stop();
+    }
+    return { B, mount, unmount };
   }
 
   // A view other than the board: run(B) adds what it needs through B's recorders when the view mounts.
@@ -167,6 +181,8 @@ window.BoardView = (function () {
     let focusKey = null;
     let replyKey = null;
     let hashRead = false;
+    // A board this page left goes back to where the owner left it once it first renders, unless its URL names a card.
+    const returnToPlace = () => B.restorePlace({ linked: /^#item=/.test(location.hash) });
     function readHash() {
       const m = /^#item=([^&]+)(&reply)?$/.exec(location.hash);
       if (!m) return;
@@ -223,6 +239,7 @@ window.BoardView = (function () {
       hashRead = true;
       render();
       scrollToFocus(false);
+      returnToPlace();
       if (!live) B.holdForFlash();
       return live;
     }
@@ -251,6 +268,7 @@ window.BoardView = (function () {
         B.linkUp();
         render(load);
         scrollToFocus();
+        returnToPlace();
         B.site.syncBadge();
         B.saveSnapshotSoon();
         landed = true;

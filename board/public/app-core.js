@@ -6,12 +6,16 @@ BoardView.part((B) => {
     const a = document.activeElement;
     return a && B.root.contains(a) && a.matches('textarea, input') ? a : null;
   };
-  // → a function finding field after a repaint: the same node, else the box drawn anew in its place (an edit box from
-  // state.edits, a reply box from its draft), found by its form.
-  function finder(field) {
+  // → the selector of field's box as drawn anew (an edit box from state.edits, a reply box from its draft), by its form;
+  // null for any other field.
+  function boxOf(field) {
     const form = field.closest('form[data-reply], form[data-edit-form]');
-    const again = !form ? null : form.dataset.reply != null ? `form[data-reply="${CSS.escape(form.dataset.reply)}"] textarea`
+    return !form ? null : form.dataset.reply != null ? `form[data-reply="${CSS.escape(form.dataset.reply)}"] textarea`
       : `form[data-edit-form="${CSS.escape(form.dataset.editForm)}"] textarea`;
+  }
+  // → a function finding field after a repaint: the same node, else the box drawn anew in its place.
+  function finder(field) {
+    const again = boxOf(field);
     return () => (field.isConnected ? field : again && $(again));
   }
 
@@ -50,6 +54,36 @@ BoardView.part((B) => {
     const after = before == null ? null : find()?.getBoundingClientRect().top;
     if (after != null && after !== before) scrollBy(0, after - before);
   }
+  // Where the owner left the board, kept for its next mount in this page: the page's scroll and the box they were typing
+  // in, as it unmounts or at their last press outside the board, such as on a sidebar row, which takes the focus first.
+  // The header's logo, which opens the sidebar, counts as outside.
+  let held = null;
+  B.on(document, 'pointerdown', (e) => {
+    const outside = !B.root.contains(e.target) || e.target.closest?.('.top a.hub');
+    held = outside ? focusedField() || held : null;
+  }, true);
+  // A board left before its first render keeps the place it hadn't returned to yet.
+  let place = B.place;
+  B.keep(() => {
+    if (place) return { y: place.y, box: place.box };
+    const field = focusedField() || (held?.isConnected ? held : null);
+    const selector = field && boxOf(field);
+    return { y: scrollY, box: selector ? { selector, selection: [field.selectionStart, field.selectionEnd, field.selectionDirection], top: field.scrollTop } : null };
+  });
+  // Only the first call restores, and none when the URL names a card (linked). A phone's keyboard would open for the
+  // focus, so only a mouse or trackpad gets the box back (sidebar.js DESKTOP).
+  function restorePlace({ linked = false } = {}) {
+    const p = place;
+    place = null;
+    if (!p || linked) return;
+    scrollTo(0, p.y);
+    const box = p.box && $(p.box.selector);
+    if (!box || box.closest('details:not([open])') || !matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+    box.focus({ preventScroll: true });
+    box.setSelectionRange(...p.box.selection);
+    box.scrollTop = p.box.top;
+  }
+
   const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
   // A card this browser has never seen starts from now, so a first load badges nothing.
@@ -92,5 +126,5 @@ BoardView.part((B) => {
   const confirm = (message, labels) => dialogs.confirm(message, { ...labels, signal: controller.signal });
   const notice = dialogs.notice;
 
-  Object.assign(B, { steady, plural, seen, markSeen, quieted, sendDraft, hide, links, svg, confirm, notice });
+  Object.assign(B, { steady, restorePlace, plural, seen, markSeen, quieted, sendDraft, hide, links, svg, confirm, notice });
 });

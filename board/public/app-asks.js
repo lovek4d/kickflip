@@ -99,7 +99,10 @@ BoardView.part((B) => {
     }
     return { thread, key, msg, data: { id, ...(key ? { key } : {}) } };
   }
-  // An edit box lives in state.edits and its thread draws it (ui-threads.js threadMessages), so a repaint keeps it.
+  // An edit box lives in state.edits and its thread draws it (ui-threads.js threadMessages), so a repaint keeps it, and
+  // so does leaving the board and opening it again in this page.
+  for (const [id, e] of B.place?.edits || []) state.edits.set(id, e);
+  B.keep(() => ({ edits: [...state.edits] }));
   function closeEditor(id) {
     const e = state.edits.get(id);
     state.edits.delete(id);

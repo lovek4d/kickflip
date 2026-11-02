@@ -85,6 +85,7 @@ export function miniDom(Target, document) {
     get lastChild() { return this.childNodes.at(-1) ?? null; }
     get nextSibling() { const s = this.parentNode?.childNodes; return s ? s[s.indexOf(this) + 1] ?? null : null; }
     get previousSibling() { const s = this.parentNode?.childNodes; return s ? s[s.indexOf(this) - 1] ?? null : null; }
+    get parentElement() { return this.parentNode?.nodeType === 1 ? this.parentNode : null; }
     get children() { return this.childNodes.filter((c) => c.nodeType === 1); }
     get firstElementChild() { return this.children[0] ?? null; }
     get previousElementSibling() { let n = this.previousSibling; while (n && n.nodeType !== 1) n = n.previousSibling; return n; }

@@ -17,10 +17,13 @@ BoardView.part((B) => {
   }
 
   // Each open card's ui-threads.js threadMessages view. Opening a card marks it seen (app-core.js markSeen) before its
-  // thread draws, so its unread messages start from its seen mark as the page loaded or as the card last closed.
-  const seenBefore = new Map(Object.entries(B.seen));
-  const moreTaps = new Map();
-  const firstDrawn = new Map();
+  // thread draws, so its unread messages start from its seen mark as the page loaded or as the card last closed. A
+  // board left and opened again in this page keeps them, so its open threads show what they showed.
+  const kept = B.place?.threads;
+  const seenBefore = new Map(kept?.seenBefore || Object.entries(B.seen));
+  const moreTaps = new Map(kept?.moreTaps);
+  const firstDrawn = new Map(kept?.firstDrawn);
+  B.keep(() => ({ threads: { seenBefore: [...seenBefore], moreTaps: [...moreTaps], firstDrawn: [...firstDrawn] } }));
   const newestTs = (msgs) => msgs.reduce((top, m) => [String(m.ts), m.reply?.at ? String(m.reply.at) : ''].reduce((a, b) => (b > a ? b : a), top), '');
   const viewOf = (key) => ({ seenAt: seenBefore.get(key) || null, more: moreTaps.get(key) || 0, upto: firstDrawn.get(key) || null });
   B.on(B.root, 'toggle', (ev) => {
