@@ -180,7 +180,7 @@ BoardView.part((B) => {
     return `<details class="item" data-key="${esc(it.key)}" ${state.openItems.has(it.key) ? 'open' : ''}>
           <summary class="work">
             <span class="status ${it.lane}"></span>
-            <div class="title-wrap">${workLines(it, { unread: state.openItems.has(it.key) ? 0 : unreadCount(it.othersAt, seen[it.key]), top: latestBump(it) })}</div>
+            <div class="title-wrap">${workLines(it, { unread: state.openItems.has(it.key) ? 0 : unreadCount(it.othersAt, seen[it.key]), top: latestBump(it), by: B.sortOf(it.lane) })}</div>
           </summary>
           ${state.openItems.has(it.key) ? detail(it) : ''}
         </details>`;
@@ -194,10 +194,10 @@ BoardView.part((B) => {
       state.openItems.add(key);
       const it = state.board.items.find((i) => i.key === key);
       markSeen(it);
-      const unread = el.querySelector('summary .chip.unread');
-      const row = unread?.parentNode;
+      const unread = el.querySelector('summary .card-unread');
+      const line = unread?.parentNode;
       unread?.remove();
-      if (row && !row.children.length) row.remove();
+      if (line && !line.children.length) line.remove();
       if (it && !el.querySelector('.detail')) { el.insertAdjacentHTML('beforeend', detail(it)); }
       if (state.threadCache.has(key)) B.renderThread(key, state.threadCache.get(key));
       B.loadThread(key, { maxAge: 10000 });

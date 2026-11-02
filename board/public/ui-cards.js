@@ -1,6 +1,6 @@
 // Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js and ui-enums.js.
 (function () {
-  const { esc, ago, time, etaLine, workingLine, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, LINK_ARROW } = globalThis.BoardUI;
+  const { esc, ago, cardTime, etaLine, workingLine, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, LINK_ARROW } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   function prChips(it) {
     const pr = it.pr;
@@ -119,24 +119,28 @@
     attrs: { type: 'button', 'data-confirm': 'nudge', 'data-key': it.key },
   }) : '';
   const unreadCount = (othersAt, seenAt) => (seenAt ? (othersAt || []).filter((t) => String(t) > seenAt).length : 0);
-  const unreadChip = (n) => {
-    if (!n) return '';
-    const label = `${n} unread message${n === 1 ? '' : 's'}`;
-    return `<span class="chip unread" title="${label}" aria-label="${label}">${n} new</span>`;
-  };
+  // A card's last line: the time its lane sorts by (domain.mjs laneOrder), then its unread count, which app-cards.js
+  // takes away when the card opens.
+  const SORT_TIME = { touched: 'updatedAt', created: 'created' };
+  function timeLine(it, by, unread) {
+    const iso = it[SORT_TIME[by]];
+    const count = unread ? `<span class="card-unread">${iso ? '<span class="sep"> · </span>' : ''}${unread} new message${unread === 1 ? '' : 's'}</span>` : '';
+    if (!iso && !count) return '';
+    return `<div class="line6 sub card-time">${iso ? `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>` : ''}${count}</div>`;
+  }
   // A New card's bump, edit and delete, and its line from its ask state (domain.mjs askItem;
   // docs/adr/0047-the-plus-makes-a-new-card.md). top is whether it is the latest bump.
   const askActions = (it, top) => `<div class="ask-actions">${bumpButton(it, top)}${it.ask.canEdit ? editButton(it.id) : ''}${withdrawButton(it.id)}</div>`;
   const cardActions = (it, top) => (it.isNew ? askActions(it, top) : it.bumpable ? `<div class="ask-actions">${cardBumpButton(it.key, top)}</div>` : '');
-  const ASK_STATE = { waiting: 'Waiting', working: `<span class="working">${workingLine}</span>` };
-  const askLine = (ask) => `${ask.from ? `Moved from ${esc(ask.from)} · ` : ''}${esc(time(ask.askedAt))} · ${ask.edited ? 'Edited · ' : ''}${ASK_STATE[ask.state] || ''}`;
-  function workLines(it, { unread = 0, top = false } = {}) {
+  const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' && `<span class="working">${workingLine}</span>`].filter(Boolean).join(' · ');
+  // by is the lane's sort, 'touched' or 'created'.
+  function workLines(it, { unread = 0, top = false, by = 'touched' } = {}) {
     const ids = it.kind === 'ask' ? askChip(it) : it.ticket ? ticketChip(it) : it.ticketSource === 'linear' ? linearChips(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
     const blocked = (it.blockedBy || []).map((d) => badge('notice', `blocked by ${esc(d.ref)}`, { href: `#item=${encodeURIComponent(d.key)}` })).join('');
     const wave = it.lineup ? badge('quiet', `${WAVE_ICON}${esc(it.lineup.title)}`, { title: `In the wave ${it.lineup.title}` }) : '';
     const ready = !blocked && !it.action && it.deps?.length && it.lane === 'todo' ? badge('ready', 'ready to start') : '';
-    const chips = `${it.todoAge ? badge('quiet', esc(it.todoAge)) : ''}${stalledChip(it)}${unreadChip(unread)}${actionChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('quiet', 'bumped') : ''}${ready}${installChip(it)}`;
-    const status = it.isNew && !it.action ? `<div class="line3 sub">${askLine(it.ask)}</div>`
+    const chips = `${stalledChip(it)}${actionChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('quiet', 'bumped') : ''}${ready}${installChip(it)}`;
+    const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)
       : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Orchestrator review</div>'
       : it.builder ? `<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>${esc(builderLine(it.builder))}</div>`
       : it.working ? `<div class="line3 sub agent">${workingLine}</div>`
@@ -145,7 +149,8 @@
     return `${cardActions(it, top)}<div class="line1 title">${ids ? `${ids} ` : ''}${esc(it.title)}</div>
       ${status}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
-      ${blocked || wave ? `<div class="line5 meta${blocked ? ' blocked' : ''}">${wave}${blocked}</div>` : ''}`;
+      ${blocked || wave ? `<div class="line5 meta${blocked ? ' blocked' : ''}">${wave}${blocked}</div>` : ''}
+      ${timeLine(it, by, unread)}`;
   }
   const WAVE_ICON = '<svg class="wave-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/><path d="M2 16c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/></svg>';
   const askChip = (it) => badge(it.isNew ? 'notice' : 'quiet', it.isNew ? 'New' : 'Task');

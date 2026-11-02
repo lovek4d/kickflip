@@ -546,8 +546,6 @@ export function buildBoard(snapshot) {
     if (it.lane === 'done' && !it.fold && it.updatedAt && now - Date.parse(it.updatedAt) >= DONE_OPEN) it.fold = OLDER_FOLD;
     placeOwnerWait(it, questionById, autoMerge);
     if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it)) it.lane = 'progress';
-    const days = it.created ? Math.floor((now - Date.parse(it.created)) / DAY) : 0;
-    it.todoAge = it.lane === 'todo' && it.kind === 'work' && days >= 2 ? `${days} days ago` : null;
   }
   // Items arrive in touched order; the page shows a lane in created order from rank.created, as this device chose.
   [...items].sort(laneOrder('created')).forEach((it, n) => { it.rank = { created: n }; });

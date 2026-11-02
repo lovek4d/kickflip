@@ -159,5 +159,5 @@ BoardView.part((B) => {
     if (row && !ev.target.closest('a')) showWave(row.dataset.waveRow !== state.waveFilter ? row.dataset.waveRow : null);
   });
 
-  Object.assign(B, { FOLDS, lanesHtml, renderWaves });
+  Object.assign(B, { FOLDS, lanesHtml, renderWaves, sortOf });
 });

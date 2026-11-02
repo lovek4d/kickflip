@@ -822,18 +822,20 @@ test("a builder line shows the progress and its age, not who is building", () =>
   assert.equal(ui.builderLine({ label: null, progress: 'Making changes', at: null }), 'Making changes');
 });
 
-test("a New card reads New and its first line, then when it was sent and whether Claude has started, with bump, edit and delete and no Action needed", () => {
-  const card = (ask, extra = {}) => ui.workLines({ kind: 'ask', id: 'a1', key: 'ask:a1', ref: 'New', isNew: true, title: 'Fix <it>', linear: [], pr: null, deps: [], blockedBy: [],
-    bumpedAt: ask.bumpedAt || null, ask: { askedAt: ago(1), bumpedAt: null, canEdit: true, text: 'Fix <it>\nand more', files: [], ...ask }, ...extra }, { top: Boolean(ask.bumpedAt) });
-  assert.deepEqual(lines(card({ state: 'waiting' })).map((l, n) => (n === 1 ? l.split(' · ').slice(1).join(' · ') : l)), ['New Fix <it>', 'Waiting']);
-  assert.deepEqual(lines(card({ state: 'working', bumpedAt: ago(0.5), edited: true })).map((l, n) => (n === 1 ? l.split(' · ').slice(1).join(' · ') : l)), ['New Fix <it>', 'Edited · Working on it', 'bumped']);
+test("a New card reads New and its first line, then whether it was moved or edited and whether Claude has started, with bump, edit and delete and no Action needed, and ends with when it was sent", () => {
+  const sent = ago(1);
+  const card = (ask, extra = {}) => ui.workLines({ kind: 'ask', id: 'a1', key: 'ask:a1', ref: 'New', isNew: true, title: 'Fix <it>', linear: [], pr: null, deps: [], blockedBy: [], created: sent, updatedAt: sent,
+    bumpedAt: ask.bumpedAt || null, ask: { askedAt: sent, bumpedAt: null, canEdit: true, text: 'Fix <it>\nand more', files: [], ...ask }, ...extra }, { top: Boolean(ask.bumpedAt) });
+  const at = ui.cardTime(sent);
+  assert.deepEqual(lines(card({ state: 'waiting' })), ['New Fix <it>', at]);
+  assert.deepEqual(lines(card({ state: 'working', bumpedAt: ago(0.5), edited: true })), ['New Fix <it>', 'Edited · Working on it', 'bumped', at]);
   assert.deepEqual([...card({ state: 'waiting' }).matchAll(/data-(bump|edit|withdraw)="a1"/g)].map((m) => m[1]), ['bump', 'edit', 'withdraw']);
   assert.match(card({ state: 'waiting', bumpedAt: ago(0.5) }), /data-bump="a1"[^>]* disabled/);
   assert.doesNotMatch(card({ state: 'waiting' }), /Action needed/);
-  assert.deepEqual(lines(card({ state: 'answered' }, { isNew: false, ref: 'Task', working: false })), ['Task Fix <it>']);
-  assert.match(lines(card({ state: 'waiting', from: 'Orch' }))[1], /^Moved from Orch · .+ · Waiting$/);
+  assert.deepEqual(lines(card({ state: 'answered' }, { isNew: false, ref: 'Task', working: false })), ['Task Fix <it>', at]);
+  assert.deepEqual(lines(card({ state: 'waiting', from: 'Orch' })), ['New Fix <it>', 'Moved from Orch', at]);
   const asked = card({ state: 'waiting' }, { next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#mv', label: 'Answer 1 question' } });
-  assert.deepEqual(lines(asked), ['New Fix <it>', 'Next: Answer 1 question', 'Action needed']);
+  assert.deepEqual(lines(asked), ['New Fix <it>', 'Next: Answer 1 question', 'Action needed', at]);
 });
 
 test('a pending prototype request offers a bump unless it is already the latest bump', () => {
@@ -862,12 +864,10 @@ test('ticket badges use the board source, link internally or externally, and lea
   assert.doesNotMatch(foreign, /ENG-1|#4/);
 });
 
-test('a work card reads its title, then its next step or builder, its chips led by its unread messages, and last its Blocked by chips', () => {
-  assert.deepEqual(lines(ui.workLines(workCard, { unread: 2 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', '2 new repo#7 ● CI ✓ J ✗']);
-  assert.deepEqual(lines(ui.workLines({ ...workCard, next: null, pr: null, reviewers: [] }, { unread: 1 })), ['ENG-1 Five', '1 new']);
-  assert.match(ui.workLines(workCard, { unread: 1 }), /<div class="line2 meta"><span class="chip unread"[^>]* aria-label="1 unread message">1 new<\/span>/);
-  assert.match(ui.workLines(workCard, { unread: 3 }), /aria-label="3 unread messages">3 new</);
-  assert.doesNotMatch(text(ui.workLines(workCard)), /B5|msg|unread/);
+test('a work card reads its title, then its next step or builder, its chips, its Blocked by chips, and last its unread messages', () => {
+  assert.deepEqual(lines(ui.workLines(workCard, { unread: 2 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ J ✗', '2 new messages']);
+  assert.deepEqual(lines(ui.workLines({ ...workCard, next: null, pr: null, reviewers: [] }, { unread: 1 })), ['ENG-1 Five', '1 new message']);
+  assert.doesNotMatch(text(ui.workLines(workCard)), /B5|msg|unread|new/);
   const busy = { ...workCard, held: true, risky: true, builder: { progress: 'Running tests', at: null } };
   assert.deepEqual(lines(ui.workLines(busy)), ['ENG-1 Five', 'Running tests', 'repo#7 ● CI ✓ J ✗ held risky']);
   const internal = { ...workCard, key: 'site/S3', id: 'S3', ref: 'INT-3', internal: true, pr: null, linear: [{ id: 'ENG-9', url: 'u' }], next: null };
@@ -875,7 +875,7 @@ test('a work card reads its title, then its next step or builder, its chips led 
   assert.deepEqual(lines(ui.workLines({ ...workCard, questions: { open: 1, first: 'q1' }, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
     ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'Action needed repo#7 ● CI ✓ J ✗']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, questions: { open: 1, first: 'q1' }, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } }, { unread: 3 })),
-    ['ENG-1 Five', 'Next: Waiting for PR reviewers', '3 new Action needed repo#7 ● CI ✓ J ✗']);
+    ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'Action needed repo#7 ● CI ✓ J ✗', '3 new messages']);
   const blocked = { ...internal, lane: 'todo', deps: ['S1', 'S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }] };
   assert.deepEqual(lines(ui.workLines(blocked)), ['INT-3 Five', 'blocked by INT-2']);
   assert.match(ui.workLines(blocked), /href="#item=site%2FS2"/);
@@ -883,29 +883,38 @@ test('a work card reads its title, then its next step or builder, its chips led 
   assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [], next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
     ['INT-3 Five', 'Next: Answer 1 question', 'Action needed']);
   const waiting = { ...workCard, lane: 'todo', deps: ['S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }], bumpedAt: ago(1) };
-  assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', '1 new repo#7 ● CI ✓ J ✗ bumped', 'blocked by INT-2']);
+  assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ J ✗ bumped', 'blocked by INT-2', '1 new message']);
   const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: 'Task', title: 'Fix it', internal: false, linear: [], pr: null, deps: [], blockedBy: [], working: true };
   assert.deepEqual(lines(ui.workLines(ask)), ['Task Fix it', 'Working on it']);
-  assert.deepEqual(lines(ui.workLines(ask, { unread: 2 })), ['Task Fix it', 'Working on it', '2 new']);
+  assert.deepEqual(lines(ui.workLines(ask, { unread: 2 })), ['Task Fix it', 'Working on it', '2 new messages']);
   assert.deepEqual(lines(ui.workLines({ ...internal, waitsOn: 'checking', working: true, next: 'Verify it' })), ['INT-3 Five', 'Orchestrator review']);
   const followup = { ...workCard, kind: 'followup', key: 'w/ENG-7', id: 'ENG-7', ref: 'ENG-7', linear: [{ id: 'ENG-7', url: 'u' }], pr: null, reviewers: [], next: null, lane: 'todo', deps: [], blockedBy: [] };
   assert.deepEqual(lines(ui.workLines(followup)), ['ENG-7 Five', 'follow-up']);
   assert.match(ui.workLines(followup), /<a class="chip tone-quiet" href="u"[^>]*>ENG-7<\/a>.*<span class="chip tone-quiet">follow-up<\/span>/s);
 });
 
-test('a Todo age is a quiet badge first in the badges row', () => {
-  const card = { ...workCard, lane: 'todo', pr: null, reviewers: [], next: null };
-  assert.deepEqual(lines(ui.workLines(card)), ['ENG-1 Five']);
-  const html = ui.workLines({ ...card, todoAge: '3 days ago', held: true });
-  assert.deepEqual(lines(html), ['ENG-1 Five', '3 days ago held']);
-  assert.match(html, /<div class="line2 meta"><span class="chip tone-quiet">3 days ago<\/span>/);
-  assert.doesNotMatch(html, /tone-notice/);
-  const ageOnly = ui.workLines({ ...card, todoAge: '3 days ago' });
-  assert.deepEqual(lines(ageOnly), ['ENG-1 Five', '3 days ago']);
-  assert.match(ageOnly, /<div class="line2 meta"><span class="chip tone-quiet">3 days ago<\/span><\/div>/);
-  const unread = ui.workLines({ ...card, todoAge: '3 days ago' }, { unread: 1 });
-  assert.deepEqual(lines(unread), ['ENG-1 Five', '3 days ago 1 new']);
-  assert.match(unread, /<div class="line2 meta"><span class="chip tone-quiet">3 days ago<\/span><span class="chip unread"/);
+test("a card's last line is the time its lane sorts by, then its unread messages, with no age badge", () => {
+  const created = ago(24 * 5);
+  const updatedAt = ago(30);
+  const card = { ...workCard, lane: 'todo', pr: null, reviewers: [], next: null, held: true, created, updatedAt };
+  const last = (html) => lines(html).at(-1);
+  assert.deepEqual(lines(ui.workLines(card)), ['ENG-1 Five', 'held', ui.cardTime(updatedAt)]);
+  assert.equal(last(ui.workLines(card, { by: 'touched' })), ui.cardTime(updatedAt));
+  assert.equal(last(ui.workLines(card, { by: 'created' })), ui.cardTime(created));
+  assert.match(ui.workLines(card, { by: 'created' }), new RegExp(`<div class="line6 sub card-time"><time datetime="${created}">`));
+  assert.equal(last(ui.workLines(card, { by: 'created', unread: 1 })), `${ui.cardTime(created)} · 1 new message`);
+  assert.equal(last(ui.workLines(card, { unread: 3 })), `${ui.cardTime(updatedAt)} · 3 new messages`);
+  assert.match(ui.workLines(card, { unread: 3 }), /<span class="card-unread"><span class="sep"> · <\/span>3 new messages<\/span><\/div>/);
+  assert.doesNotMatch(text(ui.workLines(card)), /days? ago/);
+  assert.deepEqual(lines(ui.workLines({ ...card, updatedAt: null })), ['ENG-1 Five', 'held']);
+});
+
+test("a card's time reads the time only today, adds the day before today, and adds the year past 365 days", () => {
+  const now = new Date(2026, 10, 2, 16, 0);
+  assert.match(ui.cardTime(new Date(2026, 10, 2, 14, 49).toISOString(), now), /^2:49\sPM$/);
+  assert.match(ui.cardTime(new Date(2026, 10, 1, 23, 5).toISOString(), now), /^11\/1, 11:05\sPM$/);
+  assert.match(ui.cardTime(new Date(2025, 10, 3, 9, 0).toISOString(), now), /^11\/3, 9:00\sAM$/);
+  assert.match(ui.cardTime(new Date(2025, 9, 31, 14, 49).toISOString(), now), /^10\/31\/2025, 2:49\sPM$/);
 });
 
 test('an app install badge opens in place and uses the agreed current and stale words', () => {

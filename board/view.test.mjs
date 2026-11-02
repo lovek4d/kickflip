@@ -2152,17 +2152,19 @@ test("a card opened with more than 3 unread messages shows them all, and once cl
   assert.deepEqual(seen(), ['Show more · 5 previous messages', ['Five', 'Six', 'Seven']]);
 });
 
-test("a closed card leads its chip row with its count of unread messages, and opening the card reads them, taking away the chip and the chip row it leaves empty", async () => {
+test("a closed card ends its time line with its count of unread messages, and opening the card reads them, taking away the count and the line it leaves empty", async () => {
   const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
   const b = boardOnDom({ seen: { 'w/A1': at(2), 'w/A2': at(2) },
-    board: boardOf([workCard('A1', { othersAt: [at(5), at(6)] }), workCard('A2', { othersAt: [at(5)], held: true })]) });
+    board: boardOf([workCard('A1', { othersAt: [at(5), at(6)] }), workCard('A2', { othersAt: [at(5)], held: true, updatedAt: at(6) })]) });
   await b.settle();
   const card = (key) => b.root.querySelector(`details.item[data-key="${key}"]`);
   const chips = (key) => card(key).querySelector('summary .line2')?.children.map((c) => c.textContent) ?? null;
-  assert.deepEqual([chips('w/A1'), chips('w/A2')], [['2 new'], ['1 new', 'held']]);
+  const last = (key) => card(key).querySelector('summary .card-time')?.textContent ?? null;
+  const time = b.page.win.BoardUI.cardTime(at(6));
+  assert.deepEqual([chips('w/A1'), last('w/A1'), chips('w/A2'), last('w/A2')], [null, '2 new messages', ['held'], `${time} · 1 new message`]);
   for (const key of ['w/A1', 'w/A2']) { card(key).open = true; b.page.fire(b.root, 'toggle', { target: card(key) }); }
   await b.settle();
-  assert.deepEqual([chips('w/A1'), chips('w/A2')], [null, ['held']]);
+  assert.deepEqual([last('w/A1'), last('w/A2')], [null, time]);
 });
 
 function layOut(b) {
@@ -2723,14 +2725,14 @@ test("the Waves section sits above the lanes: tapping a wave's row shows only it
   assert.deepEqual(lanes(), ['w/A1', 'w/A2']);
 });
 
-test("every lane's header ends in a grey sort icon whose menu picks Recently touched or Recently created without folding the lane; a pick reorders that lane alone by created, kept for the lane on this device through a repaint, and Escape or a tap outside closes the menu", async () => {
+test("every lane's header ends in a grey sort icon whose menu picks Recently touched or Recently created without folding the lane; a pick reorders that lane alone by created and its cards' time lines to their created time, kept for the lane on this device through a repaint, and Escape or a tap outside closes the menu", async () => {
   const cards = [
     workCard('R1', { lane: 'review', rank: { created: 0 } }),
     { ...askCard('n1', 'todo'), isNew: true, ref: 'New', rank: { created: 1 }, ask: { eventId: 'n1', state: 'waiting', askedAt: '2026-10-30T08:00:00.000Z', text: 'Task n1', files: [], canEdit: true } },
     workCard('T1', { bumpedAt: '2026-10-30T09:00:00.000Z', bumpable: true, rank: { created: 2 } }),
-    workCard('T2', { rank: { created: 4 } }),
-    workCard('T3', { rank: { created: 3 } }),
-    workCard('D1', { lane: 'done', rank: { created: 6 } }),
+    workCard('T2', { rank: { created: 4 }, created: '2026-10-20T08:00:00.000Z', updatedAt: '2026-10-29T08:00:00.000Z' }),
+    workCard('T3', { rank: { created: 3 }, created: '2026-10-21T08:00:00.000Z', updatedAt: '2026-10-28T08:00:00.000Z' }),
+    workCard('D1', { lane: 'done', rank: { created: 6 }, created: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-02T08:00:00.000Z' }),
     workCard('D2', { lane: 'done', rank: { created: 5 } }),
   ];
   const b = boardOnDom({ board: boardOf(cards), threads: {} });
@@ -2739,11 +2741,13 @@ test("every lane's header ends in a grey sort icon whose menu picks Recently tou
   const order = (id) => lane(id).querySelectorAll('details.item').map((el) => el.dataset.key);
   const icon = (id) => lane(id).querySelector('summary button[data-lane-sort]');
   const menu = () => b.root.querySelector('.lane-sort-menu');
+  const times = (id) => lane(id).querySelectorAll('details.item').map((el) => el.querySelector('summary .card-time time')?.getAttribute('datetime') ?? null);
   assert.deepEqual(['review', 'progress', 'todo', 'done'].map((id) => [icon(id).getAttribute('aria-label'), icon(id).parentNode.children.at(-1) === icon(id)]), [
     ['Sort In Review, now recently touched', true], ['Sort In Progress, now recently touched', true], ['Sort Todo, now recently touched', true], ['Sort Done, now recently touched', true],
   ]);
   assert.equal(icon('review').previousElementSibling.classList.contains('lane-github'), true);
   assert.deepEqual([order('todo'), order('done')], [['ask:n1', 'w/T1', 'w/T2', 'w/T3'], ['w/D1', 'w/D2']]);
+  assert.deepEqual([times('todo'), times('done')], [[null, null, '2026-10-29T08:00:00.000Z', '2026-10-28T08:00:00.000Z'], ['2026-10-02T08:00:00.000Z', null]]);
 
   const opened = lane('todo').open;
   const tap = b.page.fire(b.root, 'click', { target: icon('todo') });
@@ -2762,6 +2766,7 @@ test("every lane's header ends in a grey sort icon whose menu picks Recently tou
   assert.equal(pick.defaultPrevented, true);
   assert.equal(menu(), null);
   assert.deepEqual([order('todo'), order('done')], [['ask:n1', 'w/T1', 'w/T3', 'w/T2'], ['w/D1', 'w/D2']]);
+  assert.deepEqual([times('todo'), times('done')], [[null, null, '2026-10-21T08:00:00.000Z', '2026-10-20T08:00:00.000Z'], ['2026-10-02T08:00:00.000Z', null]]);
   assert.equal(icon('todo').getAttribute('aria-label'), 'Sort Todo, now recently created');
   await b.change({ board: { ...boardOf(cards.map((c) => ({ ...c }))), generatedAt: '2026-10-30T10:05:00.000Z' } });
   assert.deepEqual([order('todo'), order('done')], [['ask:n1', 'w/T1', 'w/T3', 'w/T2'], ['w/D1', 'w/D2']]);

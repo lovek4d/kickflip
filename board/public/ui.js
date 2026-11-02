@@ -24,6 +24,14 @@
     const day = d.toDateString() === now.toDateString() ? '' : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, `;
     return `ETA about ${day}${clock(d)}`;
   }
+  // A card's last line: the time only today, with the day before today, and with the year too past 365 days.
+  function cardTime(iso, now = new Date()) {
+    const d = new Date(iso);
+    const at = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    if (d.toDateString() === now.toDateString()) return at;
+    const day = d.toLocaleDateString([], { month: 'numeric', day: 'numeric', ...(now - d > 365 * 86400000 ? { year: 'numeric' } : {}) });
+    return `${day}, ${at}`;
+  }
   const replyBody = (reply) => reply.html ?? esc(JSON.stringify(reply.json));
 
   // Attachments are uploads from POST /api/upload: {name, url, path, type, size}. Only uploads/ URLs become links.
@@ -229,7 +237,7 @@
 
   globalThis.BoardUI = {
     LINK_ARROW,
-    esc, record, time, ago, since, etaLine, replyBody, setHTML, fetchJSON, RESTARTING, restartNotice,
+    esc, record, time, ago, since, etaLine, cardTime, replyBody, setHTML, fetchJSON, RESTARTING, restartNotice,
     attachments, attachButton, pendingFiles, protoButton, protoNotice, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, BADGE_TONES, badge,
   };
 })();

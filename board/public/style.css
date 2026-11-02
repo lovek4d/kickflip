@@ -74,7 +74,6 @@ button.chip { border: 0; }
 .chip.tone-quiet { color: var(--color-quiet); } .chip.tone-normal { color: var(--color-info); } .chip.tone-notice { color: var(--color-notice); }
 .chip.tone-danger { color: var(--color-danger); } .chip.tone-ready { color: var(--color-success); }
 /* Action needed keeps the notice orange; unread takes the accent so the two never read alike. */
-.chip.unread { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--color-quiet); }
 .dot.pass { background: var(--color-success); } .dot.pending { background: var(--color-notice); } .dot.fail { background: var(--color-danger); }
 
@@ -307,6 +306,10 @@ button.attach:disabled { opacity: .35; }
 .agent-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; margin-right: 5px; vertical-align: 1px; }
 /* INT-30: card line order */
 .line5.meta { justify-content: flex-start; margin-top: 4px; }
+.line6 { margin-top: 4px; }
+.card-time time { font-variant-numeric: tabular-nums; }
+.card-unread { color: var(--accent); font-weight: 600; }
+.card-unread .sep { color: var(--muted); font-weight: 400; }
 /* Lane headers: Linear-style group bands */
 .lane > summary { display: flex; align-items: center; gap: 8px; margin: 0; min-height: 34px; padding: 5px 12px;
   background: var(--band); border: 1px solid var(--line); border-radius: 10px; font-size: 13px; font-weight: 500; color: var(--text); }
