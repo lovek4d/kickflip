@@ -42,8 +42,6 @@ BoardView.part((B) => {
     </div>`;
   }
 
-  // docs/adr/0023-a-card-can-be-held-and-every-card-button-confirms.md
-  const sendingHold = new Map();
   const sendingMerge = new Set();
   const refFor = (it) => (it.kind !== 'work' || it.internal ? it.ref : it.linear?.[0]?.id || (it.pr ? `#${it.pr.number}` : it.ref));
   const CONFIRM = {
@@ -67,9 +65,7 @@ BoardView.part((B) => {
   function actions(it) {
     const key = esc(it.key);
     const ask = (act, label) => `<button data-confirm="${act}" data-key="${key}">${label}</button>`;
-    const holding = sendingHold.has(it.key) ? sendingHold.get(it.key) : it.holdPending;
     const hold = it.kind !== 'work' || !it.holdable ? ''
-      : holding != null ? `<button disabled>${holding ? 'Holding…' : 'Resuming…'}</button>`
       : it.held ? ask('resume', 'Resume') : ask('hold', 'Hold');
     const build = it.kind === 'followup' && it.lane !== 'done' ? `<button class="build" data-confirm="build" data-key="${key}">Build</button>` : '';
     return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${build}${mergeButton(it, sendingMerge.has(it.key))}${hold}${actionButton(it)}${tryButton(it)}`)}</div>`;
@@ -155,11 +151,8 @@ BoardView.part((B) => {
     const it = state.board.items.find((i) => i.key === key);
     if (!it || !(await B.confirm(CONFIRM[act](it, refFor(it))))) return;
     if (act === 'hold' || act === 'resume') {
-      sendingHold.set(key, act === 'hold');
-      redrawActions(key);
       try { await B.site.send('card-hold', { key, hold: act === 'hold' }); }
       catch { toast(`Could not ${act}. Is the host awake?`); }
-      sendingHold.delete(key);
       B.loadBoard();
       return;
     }
@@ -173,13 +166,10 @@ BoardView.part((B) => {
       B.loadBoard();
       return;
     }
-    // docs/adr/0035-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md
+    // docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md
     if (act === 'finish') {
-      B.sendingDone.add(key);
-      B.syncDone(key);
       try { await (it.kind === 'ask' ? B.site.send('ask-done', { id: it.id }) : B.site.send('card-done', { key })); }
       catch { toast('Could not close. Is the host awake?'); }
-      B.sendingDone.delete(key);
       await B.loadBoard();
       B.syncDone(key);
       return;

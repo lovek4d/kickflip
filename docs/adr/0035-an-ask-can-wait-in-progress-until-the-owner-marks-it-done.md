@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0106
+---
+
 # An ask can wait on the owner before Done, and the owner closes any open card from its thread
+
+Superseded in part by [0106](0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md): a work card's or follow-up's Done moves the card at once, with no "Closing…"; the session records it afterwards.
 
 An answered ask whose answer waits on the owner, such as a choice only the owner can settle, stays open instead of going to Done's Asks fold. It sits in In Review with an Action needed badge linking to its thread, and moves to In Progress while an owner message in its thread waits on Claude ([0045](0045-the-lane-follows-who-acts-next.md)). Every open card's thread has a **Done** button, just left of Send in its reply form, that the owner uses to close the card at any time. A card already in Done has none.
 

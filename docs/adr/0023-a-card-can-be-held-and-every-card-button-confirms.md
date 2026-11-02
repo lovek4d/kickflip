@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0106
+---
+
 # A card can be held, and every card button confirms
+
+Superseded in part by [0106](0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md): the card shows the owner's Hold or Resume at once, with no "Holding…" or "Resuming…".
 
 An open work card that isn't Done has a **Hold** button first in its action row, then Grill; its bump is an icon at the card's top right ([0019](0019-a-card-that-hasnt-started-can-be-bumped.md)) and confirms the same way. On a held card it reads **Resume**.
 

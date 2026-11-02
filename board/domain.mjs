@@ -101,6 +101,8 @@ const OWNER_MERGE_NEXT = { waiting: 'Approved, Merge shows once CI and the merge
 const FIX_CI = 'Fix the failing CI';
 
 function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, thread, events, working, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, tickets }) {
+  // docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md
+  if (closedAt && String(closedAt) > String(it.status_at || '')) it = { ...it, status: 'done' };
   const key = `${slug}/${it.id}`;
   const reviewers = reviewersOf(wave, boardReviewers);
   const sentAt = Object.fromEntries(Object.entries(reviewLinks(wave, it, key, topicItems)).map(([name, link]) => [name, reviewTime(link.ts)]));
@@ -114,12 +116,9 @@ function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, threa
   const waitsOn = waitsOnOf(lane, pr, builder, (it.status || '').toLowerCase());
   const changing = waitsOn === 'builder' && pr?.state === 'OPEN' && !pr.isDraft;
   const redReady = lane === 'progress' && !waitsOn && pr?.state === 'OPEN' && !pr.isDraft;
-  const held = it.status === 'held' || Boolean(it.held);
+  const held = holdAsk && String(holdAsk.ts) > String(it.held_at || '') ? Boolean(holdAsk.data.hold) : it.status === 'held' || Boolean(it.held);
   // docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md
   const bumpable = !held && (lane === 'todo' || (lane === 'progress' && waitsOn !== 'ready' && waitsOn !== 'checking'));
-  // docs/adr/0023-a-card-can-be-held-and-every-card-button-confirms.md
-  const asked = holdAsk && Boolean(holdAsk.data?.hold);
-  const holdPending = holdAsk && asked !== held && String(holdAsk.ts) > String(it.held_at || '') ? asked : null;
   // The owner's Merge waits on the session until it merges or writes in the thread, such as why it can't merge yet.
   const lastClaudeAt = thread.filter((m) => (m.who || 'claude') === 'claude' && m.kind !== 'status').map((m) => String(m.ts)).sort().pop() || '';
   const merging = waitsOn === 'merge' && Boolean(mergeAt) && String(mergeAt) > lastClaudeAt;
@@ -130,9 +129,8 @@ function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, threa
     internal: wave.internal === true, repo: wave.internal === true && !wave.repo ? null : repo,
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, agents, eta, working,
     deps: it.deps || [], held, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable ? bumpedAt || null : null,
-    holdable: lane !== 'done', holdPending, hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
-    // docs/adr/0035-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md
-    finishable: lane !== 'done', closing: lane !== 'done' && Boolean(closedAt) && String(closedAt) > String(it.status_at || ''),
+    holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
+    finishable: lane !== 'done',
     merging, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, from: null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || null,
     branch: it.branch || pr?.headRefName || null,
     ticket: tickets?.source === 'linear' && !it.ticket && it.linear?.length ? null
@@ -220,11 +218,12 @@ const started = (it) => it.agents.length > 0 || Boolean(it.questions && it.quest
 
 // An open follow-up is a Todo card of its wave (docs/adr/0034-follow-ups-are-todo-cards-of-their-wave.md).
 function followUp({ slug, wave, f, order, repo, bumpedAt, closedAt, tickets }) {
+  const done = Boolean(f.done || closedAt);
   return {
     key: `${slug}/${f.id}`, kind: 'followup', order, wave: slug, waveTitle: wave.title || slug, id: f.id, ref: f.id, title: f.title, status: null,
-    repo: wave.internal === true && !wave.repo ? null : repo, finishable: !f.done, closing: !f.done && Boolean(closedAt),
-    lane: f.done ? 'done' : 'todo', waitsOn: null, builder: null, agents: [], eta: null, working: false, inReviewSince: null,
-    deps: [], held: false, risky: false, bumpable: !f.done, bumpedAt: f.done ? null : bumpedAt || null, manualSteps: [], fromAsk: null, from: f.from || null, next: null, hasNotes: false, branch: null,
+    repo: wave.internal === true && !wave.repo ? null : repo, finishable: !done,
+    lane: done ? 'done' : 'todo', waitsOn: null, builder: null, agents: [], eta: null, working: false, inReviewSince: null,
+    deps: [], held: false, risky: false, bumpable: !done, bumpedAt: done ? null : bumpedAt || null, manualSteps: [], fromAsk: null, from: f.from || null, next: null, hasNotes: false, branch: null,
     ticket: ticketOf(tickets, f.ticket, f.ticket || f.id, { repo, key: `${slug}/${f.id}` }),
     linear: [linearRef(f.id, tickets)], pr: null, reviewers: [], review: {},
     threadCount: 0, lastTs: null, othersAt: [], grilling: false, updatedAt: f.filed || null, ask: null, fold: null, action: null,
@@ -264,7 +263,7 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
     key: `ask:${e.id}`, kind: 'ask', order: 0, wave: null, waveTitle: null, id: e.id, ref: handled ? 'Task' : 'New', isNew: !handled, title, status: null,
     internal: false, repo: null, lane: inProgress || onClaude ? 'progress' : done ? 'done' : 'todo', waitsOn: inProgress && !ownerPending ? 'owner' : null, builder: null, agents: [], eta: null, working: msgs.some((m) => m.state === 'working'),
     deps: [], held: false, risky: false, bumpable: !handled, bumpedAt: bumped, manualSteps: [], fromAsk: null, from: null, next: inProgress ? mark.next || null : null, hasNotes: false, branch: null,
-    finishable: handled && !done, closing: false,
+    finishable: handled && !done,
     linear: [], pr: null, reviewers: [], review: {}, inReviewSince: null,
     threadCount: msgs.length, lastTs, othersAt: handled ? othersAt : [], grilling: false, updatedAt: handled ? lastTs : e.ts,
     ask: { eventId: e.id, state, askedAt: e.ts, bumpedAt: bumped, edited: Boolean(msg.edited), canEdit: !handled, text: msg.text, files, answerAt, from: msg.from || null },

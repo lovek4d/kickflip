@@ -542,22 +542,29 @@ test("with auto-merge off an approved, green, clean PR waits on the owner's Merg
   assert.equal(card({ autoMerge: true, item: { manual_steps: ['Run the backfill'] } }).items[0].action.kind, 'steps');
 });
 
-test("every card not in Done can be closed, and a card-done reads closing until the card's status changes after it", () => {
+test("a card-done moves work and follow-ups to Done and unblocks dependents at once, unless a newer status overrides it", () => {
   const close = (key, ts) => ({ id: 'c' + ts, ts, kind: 'card-done', data: { key }, reply: null });
   const items = [
     { id: 'A1', title: 'One', status: 'building' },
     { id: 'A2', title: 'Two', status: 'building', status_at: '2026-10-23T11:20:00Z' },
     { id: 'A3', title: 'Three' },
     { id: 'A4', title: 'Four', status: 'done', status_at: '2026-10-23T11:20:00Z' },
+    { id: 'A5', title: 'Five', deps: ['A1'] },
   ];
   const followups = [{ id: 'ENG-1', title: 'f', filed: '2026-10-22' }, { id: 'ENG-2', title: 'g', filed: '2026-10-22' }, { id: 'ENG-3', title: 'h', filed: '2026-10-22', done: true }];
   const events = [close('w/A1', '2026-10-23T11:00:00Z'), close('w/A2', '2026-10-23T11:10:00Z'), close('w/A4', '2026-10-23T11:10:00Z'), close('w/ENG-2', '2026-10-23T11:10:00Z')];
-  const b = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [{ slug: 'w', agents: runningBuilders('A1', 'A2'), wave: { items, followups } }], events });
-  const cards = Object.fromEntries(b.items.map((i) => [i.id, [i.lane, i.finishable, i.closing]]));
+  const snapshot = { fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [{ slug: 'w', agents: runningBuilders('A1', 'A2'), wave: { items, followups } }] };
+  assert.deepEqual(buildBoard(snapshot).items.find((i) => i.id === 'A5').blockedBy, [{ key: 'w/A1', ref: 'A1' }]);
+  const b = buildBoard({ ...snapshot, events });
+  const cards = Object.fromEntries(b.items.map((i) => [i.id, [i.lane, i.finishable]]));
   assert.deepEqual(cards, {
-    A1: ['progress', true, true], A2: ['progress', true, false], A3: ['todo', true, false], A4: ['done', false, false],
-    'ENG-1': ['todo', true, false], 'ENG-2': ['todo', true, true], 'ENG-3': ['done', false, false],
+    A1: ['done', false], A2: ['progress', true], A3: ['todo', true], A4: ['done', false], A5: ['todo', true],
+    'ENG-1': ['todo', true], 'ENG-2': ['done', false], 'ENG-3': ['done', false],
   });
+  const closed = b.items.find((i) => i.id === 'A1');
+  assert.deepEqual([closed.status, closed.action, closed.actionButton, closed.next, closed.holdable], ['done', null, null, null, false]);
+  assert.equal(b.items.find((i) => i.id === 'A2').status, 'building');
+  assert.deepEqual(b.items.find((i) => i.id === 'A5').blockedBy, []);
 });
 
 test('a withdrawn ask leaves the board', () => {
@@ -597,18 +604,18 @@ test('a bumped card that has not started, or is running, tops its lane, the late
   ]);
 });
 
-test('a card-hold waits until held_at is newer, and only cards that are not Done can be held', () => {
+test('a card-hold applies at once unless held_at is newer, including a legacy held status, and only cards outside Done can be held', () => {
   const hold = (key, ts, value) => ({ id: 'h' + ts, ts, kind: 'card-hold', data: { key, hold: value }, reply: null });
   const items = [
     { id: 'A1', title: 'One', status: 'planned' },
-    { id: 'A2', title: 'Two', status: 'planned', held: true, held_at: '2026-10-23T11:05:00Z' },
+    { id: 'A2', title: 'Two', status: 'held', held: true, held_at: '2026-10-23T11:05:00Z' },
     { id: 'A3', title: 'Three', status: 'building', held: true, held_at: '2026-10-23T11:20:00Z' },
     { id: 'A4', title: 'Four', status: 'planned', held_at: '2026-10-23T11:20:00Z' },
     { id: 'A5', title: 'Five', status: 'done' },
   ];
-  const events = [hold('w/A1', '2026-10-23T11:00:00Z', true), hold('w/A2', '2026-10-23T11:10:00Z', false), hold('w/A3', '2026-10-23T11:10:00Z', false), hold('w/A4', '2026-10-23T11:10:00Z', true)];
-  const cards = Object.fromEntries(askBoard(events, { items }).items.filter((i) => i.kind === 'work').map((i) => [i.id, [i.held, i.holdable, i.holdPending]]));
-  assert.deepEqual(cards, { A1: [false, true, true], A2: [true, true, false], A3: [true, true, null], A4: [false, true, null], A5: [false, false, null] });
+  const events = [hold('w/A1', '2026-10-23T11:00:00Z', true), hold('w/A2', '2026-10-23T11:10:00Z', false), hold('w/A3', '2026-10-23T11:10:00Z', false), hold('w/A4', '2026-10-23T11:10:00Z', true), hold('w/A1', '2026-10-23T10:00:00Z', false)];
+  const cards = Object.fromEntries(askBoard(events, { items }).items.filter((i) => i.kind === 'work').map((i) => [i.id, [i.held, i.holdable]]));
+  assert.deepEqual(cards, { A1: [true, true], A2: [false, true], A3: [true, true], A4: [false, true], A5: [false, false] });
 });
 
 test("every lane lists its newest card first, and a card with no activity after them, the last added on top, with Todo's follow-ups after its work", () => {

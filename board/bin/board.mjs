@@ -80,8 +80,9 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          [--from-ask <eventId>]                          the ask it came from: its New card gives way to this item,
                                                          whose thread opens with the ask and its thread; it leaves
                                                          a card it was folded into
-         [--held | --unheld]                             --held sets held: true, for the owner's card-hold;
-                                                         --unheld clears it and a held status
+         [--held | --unheld]                             records the owner's card-hold in the wave file;
+                                                         the board already shows it. A later --held/--unheld
+                                                         overrides the tap; --unheld also clears a held status
          [--ticket <id>]                                links a ticket in the board’s source
          [--title <t>]                                   renames the card
          [--notes-file <file>]                           the item's notes: a .md file inside its wave's folder,
@@ -109,8 +110,8 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          --pr clears building/fixing and closes ordinary builders; install builders keep running.
          checking is a builder's hand-back: In Progress, reading "Orchestrator review",
          until the owning session verifies it and sets done; it unblocks nothing.
-         Every --status or --clear-status records status_at, which ends the Done button's "Closing…"
-         for the owner's card-done; apply a card-done with --status done.
+         The board already shows the owner's card-done; --status done records it in the wave file.
+         Every --status or --clear-status records status_at; a later status change overrides the tap.
          --status done, merged or dropped closes the card: it resolves each of its questions (topic
          item:<wave>/<id>) that has an answer, noting "Closed with the card", and prints "resolved: <id>"
          for each. It refuses while one has no answer yet; [--force] closes it and resolves that one too

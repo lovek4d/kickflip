@@ -1050,7 +1050,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   const confirmLine = status === 'building' ? await confirmGate(site, key, confirmed) : null;
   const resolve = FINISHED.includes(status) ? await closeQuestions(site, key, `--status ${status}`, force) : async () => [];
   if (clearStatus) delete item.status;
-  // A card-done newer than status_at reads "Closing…" (domain.mjs workItem).
+  // A newer status_at overrides the owner's card-done in domain.mjs.
   if (status !== undefined || clearStatus) item.status_at = new Date().toISOString();
   if (next !== undefined) {
     item.next = text(next, '--next');

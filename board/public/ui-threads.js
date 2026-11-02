@@ -68,13 +68,11 @@
     return (hidden ? moreButton(hidden) : '') + shown.map((m) => line(m, links, edits)).join('');
   }
 
-  // The reply form's Done, just left of Send, on every card not in Done: an ask's sends ask-done, a work card's or
-  // follow-up's card-done, which reads "Closing…" until the session sets its status
-  // (docs/adr/0035-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md).
-  function doneButton(it, sending = false) {
+  // The reply form's Done sends ask-done or card-done; the board applies it before the session follows up.
+  // docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md
+  function doneButton(it) {
     if (!it?.finishable) return '';
-    const closing = it.kind !== 'ask' && (sending || it.closing);
-    return `<button type="button"${it.resolvedBy === BUTTON.markDone ? ' class="resolves"' : ''} data-confirm="finish" data-key="${esc(it.key)}"${closing ? ' disabled' : ''}>${closing ? 'Closing…' : 'Done'}</button>`;
+    return `<button type="button"${it.resolvedBy === BUTTON.markDone ? ' class="resolves"' : ''} data-confirm="finish" data-key="${esc(it.key)}">Done</button>`;
   }
 
   Object.assign(globalThis.BoardUI, { threadMessages, withReplies, doneButton });

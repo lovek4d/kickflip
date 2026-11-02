@@ -269,7 +269,7 @@ The owning session's understanding of a work item so far: what was asked, what i
 _Avoid_: full plan, plan, spec
 
 **Held**:
-A work card the owner paused with its Hold button. It doesn't start, and a running one gets no new work, until the owner taps Resume ([0023](docs/adr/0023-a-card-can-be-held-and-every-card-button-confirms.md)). Every action-row button asks to confirm first, through `B.confirm` (`dialogs.js`).
+A work card the owner paused with its Hold button. Hold and Resume apply on the board at once; the session records the tap in the wave file afterwards. It doesn't start, and the session stops work on a running one, until the owner taps Resume ([0106](docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md)). Every action-row button asks to confirm first, through `B.confirm` (`dialogs.js`).
 _Avoid_: paused, frozen, on hold (as a status name)
 
 **Builder**:
@@ -308,7 +308,7 @@ The one line at the top of a board, above Needs you, naming new tasks Claude ans
 _Avoid_: notification, toast
 
 **Owner question**:
-A multiple-choice question Claude needs the owner to decide, attached to a topic. A builder's judgement call becomes one. One marked **urgent** blocks a build or a merge and shows alone; Claude resolves a question in the step that acts on its answer ([0043](docs/adr/0043-needs-you-gathers-what-waits-and-questions-answer-on-one-page.md)), and closing a card resolves each of its questions that has an answer; one with no answer yet stops the close unless forced. Adding a question on the same card or setting its notes file resolves answered questions still waiting on Claude; answering or resolving a question drops its queued `q-<id>` push for this site.
+A multiple-choice question Claude needs the owner to decide, attached to a topic. A builder's judgement call becomes one. One marked **urgent** blocks a build or a merge and shows alone; Claude resolves a question in the step that acts on its answer ([0043](docs/adr/0043-needs-you-gathers-what-waits-and-questions-answer-on-one-page.md)), and recording a card's close in the wave file resolves each of its questions that has an answer; one with no answer yet stops that write unless forced. The owner's Done still moves the card on the board at once ([0106](docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md)). Adding a question on the same card or setting its notes file resolves answered questions still waiting on Claude; answering or resolving a question drops its queued `q-<id>` push for this site.
 _Avoid_: poll, decision card
 
 **Topic**:

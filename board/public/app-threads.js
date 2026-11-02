@@ -6,11 +6,10 @@ BoardView.part((B) => {
   const thread = (key) => `<div class="thread" data-thread="${esc(key)}"><div class="muted small">Loading thread…</div></div>`;
 
   // The board, not the thread, decides the Done button, so it follows each board load even when the thread is unchanged.
-  const sendingDone = new Set();
   function syncDone(el, key) {
     const send = el.querySelector('form button[type=submit]');
     if (!send) return;
-    const html = doneButton(state.board?.items.find((i) => i.key === key), sendingDone.has(key));
+    const html = doneButton(state.board?.items.find((i) => i.key === key));
     const current = el.querySelector('form [data-confirm="finish"]');
     if (current?.outerHTML === html) return;
     current?.remove();
@@ -158,7 +157,7 @@ BoardView.part((B) => {
   });
 
   Object.assign(B, {
-    thread, renderThread, loadThread, sendingDone,
+    thread, renderThread, loadThread,
     repaintThread: (key) => { if (state.threadCache.has(key)) renderThread(key, state.threadCache.get(key)); },
     syncDone: (key) => { const el = $(`[data-thread="${CSS.escape(key)}"]`); if (el) syncDone(el, key); },
   });

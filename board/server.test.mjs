@@ -196,7 +196,7 @@ test("a new task is a New card until it becomes work, whose thread then holds th
   assert.deepEqual(await thread('t/A2'), [[id, 'Fix the header', 'answered'], [reply.id, 'Also the footer', 'answered'], [null, 'Footer too.', undefined]]);
 });
 
-test("an ask marked in progress waits on the owner in In Review until their ask-done moves it to Done", async () => {
+test("an ask's Done and a work card's Hold, Resume and Done apply at once from their events", async () => {
   const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const { id } = await post('/_claude/events', { kind: 'ask', text: 'Settings prototype' });
   const card = async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === `ask:${id}`);
@@ -204,6 +204,16 @@ test("an ask marked in progress waits on the owner in In Review until their ask-
   assert.deepEqual(await card().then((c) => [c.lane, c.next, c.finishable]), ['review', 'Pick a take', true]);
   await post('/_claude/events', { kind: 'ask-done', id });
   assert.deepEqual(await card().then((c) => [c.lane, c.fold, c.finishable]), ['done', 'asks', false]);
+  const work = async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/A2');
+  assert.deepEqual(await work().then((c) => [c.lane, c.held, c.finishable]), ['todo', false, true]);
+  const wave = fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8');
+  await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: true });
+  assert.equal((await work()).held, true);
+  await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: false });
+  assert.equal((await work()).held, false);
+  await post('/_claude/events', { kind: 'card-done', key: 't/A2' });
+  assert.deepEqual(await work().then((c) => [c.lane, c.status, c.finishable]), ['done', 'done', false]);
+  assert.equal(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'), wave);
 });
 
 test('a watcher that just exited on an event still counts as listening, until its session stops', async () => {
