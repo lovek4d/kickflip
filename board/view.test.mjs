@@ -1817,7 +1817,7 @@ test('a card try button confirms, posts through the site URL and reloads; disabl
   assert.equal(posts.length, 1);
 });
 
-test('main paints above the lanes and failures on open cards scroll to their thread', async () => {
+test('main paints above the lanes, card failures scroll to their thread and main failures open a log and retry sheet', async () => {
   const data = { ...boardOf([workCard('R1', { try: { kind: 'web', state: 'failed', script: true, changes: true } })]), main: { kind: 'web', state: 'ready', slug: 'o/r', branch: 'main', sha: 'abcdef1', at: new Date().toISOString(), url: null, port: 8500 } };
   const b = boardOnDom({ open: ['w/R1'], board: data, threads: {} });
   await b.settle();
@@ -1839,6 +1839,96 @@ test('main paints above the lanes and failures on open cards scroll to their thr
   const event = b.page.fire(b.root, 'click', { target: b.root.querySelector('.external-links [data-try-log]') });
   assert.equal(event.defaultPrevented, true);
   assert.deepEqual(scrolled, ['thread']);
+
+  const failed = { ...data, main: { ...data.main, state: 'failed' } };
+  await b.change({ board: failed });
+  const original = b.page.win.fetch;
+  const posts = [];
+  let lines = ['<script>bad & worse</script>', 'stopped'];
+  let refusal = 'Try builds wait on Tailscale: Tailscale isn’t signed in';
+  let resolvePost;
+  let logReads = 0;
+  let holdBoard = false;
+  let releaseBoard;
+  b.page.win.fetch = async (url, opts = {}) => {
+    if (url.endsWith('/api/try/main/log')) {
+      logReads++;
+      return { ok: true, json: async () => ({ lines }) };
+    }
+    if (url.endsWith('/api/try')) {
+      posts.push([url, JSON.parse(opts.body)]);
+      if (!refusal) await new Promise((resolve) => { resolvePost = resolve; });
+      return { ok: !refusal, json: async () => refusal ? { error: refusal } : { status: 'started' } };
+    }
+    if (url.endsWith('/api/board') && holdBoard) {
+      holdBoard = false;
+      const response = await original(url, opts);
+      await new Promise((resolve) => { releaseBoard = resolve; });
+      return response;
+    }
+    return original(url, opts);
+  };
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('[data-main-log]') });
+  await b.settle();
+  const sheet = b.root.querySelector('#mainLogSheet');
+  const retry = b.root.querySelector('#mainLogRetry');
+  assert.equal(sheet.open, true);
+  assert.equal(b.root.querySelector('#mainLogTitle').textContent, 'Main’s serve failed');
+  assert.match(b.root.querySelector('#mainLogSource').textContent, /main@abcdef1/);
+  assert.match(b.root.querySelector('#mainLogLines').innerHTML, /&lt;script&gt;bad &amp; worse&lt;\/script&gt;/);
+  b.page.fire(retry, 'click');
+  await b.settle();
+  assert.deepEqual(posts, [['https://mac.ts.net/board-a/api/try', { key: 'main' }]]);
+  assert.equal(b.root.querySelector('#mainLogReason').textContent, refusal);
+  assert.equal(b.root.querySelector('#mainLogReason').hidden, false);
+  assert.equal(retry.disabled, false);
+  assert.deepEqual(b.confirms, []);
+
+  refusal = null;
+  b.page.fire(retry, 'click');
+  await b.settle();
+  assert.equal(retry.disabled, true);
+  assert.equal(retry.getAttribute('aria-disabled'), 'true');
+  assert.match(retry.textContent, /Serving…/);
+  await b.change({ board: failed });
+  assert.equal(logReads, 1);
+  assert.equal(retry.disabled, true);
+  const readsBeforeReload = logReads;
+  holdBoard = true;
+  const staleLoad = b.view.B.loadBoard();
+  await b.settle();
+  await b.change({ board: { ...failed, main: { ...failed.main, state: 'running' } } });
+  resolvePost();
+  await b.settle();
+  releaseBoard();
+  await staleLoad;
+  assert.equal(logReads, readsBeforeReload);
+  assert.equal(retry.disabled, true);
+  lines = ['new failure'];
+  await b.change({ board: failed });
+  assert.equal(b.root.querySelector('#mainLogLines').textContent, 'new failure');
+  assert.equal(retry.disabled, false);
+
+  b.page.fire(retry, 'click');
+  await b.settle();
+  await b.change({ board: { ...failed, main: { ...failed.main, state: 'running' } } });
+  resolvePost();
+  await b.settle();
+  await b.change({ board: data });
+  b.page.runTimers(180);
+  assert.equal(sheet.open, false);
+  assert.match(b.root.textContent, /Main is up again at abcdef1/);
+  await b.change({ board: { ...failed, main: { ...failed.main, kind: 'app' } } });
+  lines = [];
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('[data-main-log]') });
+  await b.settle();
+  assert.equal(b.root.querySelector('#mainLogTitle').textContent, 'Main’s build failed');
+  assert.equal(b.root.querySelector('#mainLogLines').textContent, 'No log was written.');
+  const cancel = b.page.fire(sheet, 'cancel');
+  assert.equal(cancel.defaultPrevented, true);
+  b.page.runTimers(180);
+  assert.equal(sheet.open, false);
+  b.view.unmount();
 });
 
 test('labelled confirmations use the modal bottom sheet, preserve text, cancel safely and leave native callers working', async () => {

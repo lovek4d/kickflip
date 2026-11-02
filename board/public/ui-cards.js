@@ -102,7 +102,7 @@
     const words = tryWords(main.kind);
     const url = tryURL(main);
     const chip = main.state === 'running' ? badge('notice', spinner + esc(words.going), { attrs: { role: 'status' } })
-      : main.state === 'failed' ? badge('danger', esc(words.failed), { title: 'The build script stopped with an error. Its log is data/try/main.log in the board’s folder.' })
+      : main.state === 'failed' ? badge('danger', esc(words.failed), { button: true, attrs: { type: 'button', 'data-main-log': '', 'aria-haspopup': 'dialog' }, title: 'Read main’s build log and retry this tip.' })
       : main.state === 'ready' && url ? badge('ready', `${words.done} ${LINK_ARROW}`, { href: url, attrs: main.kind === 'web' ? EXTERNAL : {} }) : '';
     return `<div class="tb-main" role="region" aria-label="Main’s version">${BRANCH}<div class="tb-main-text">${esc(main.slug)} · <strong>${esc(main.branch)}</strong>@<code>${esc(main.sha)}</code> · ${esc(ago(main.at))}</div><div class="meta">${chip}</div></div>`;
   }

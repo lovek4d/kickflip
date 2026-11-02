@@ -253,7 +253,7 @@ The open card's link to its PR, on every card with an open PR, last on the detai
 _Avoid_: Review #<n> on GitHub, PR link
 
 **Install**:
-The app card's one badge that opens its build on the owner's phone, or the badge on main's slim bar above the lanes. A ready card reads "Install ↗", or "Install (stale) ↗" when its build's sha differs from the current branch head. While a build runs it reads "Building…" with an inert spinner; a failed build reads "Build failed ↗" and opens its thread. The open card's badge sits between Notes and Review on GitHub. The rightmost workflow button starts a Build, or Retry after failure. A Done card has no try badge ([0099](docs/adr/0099-a-boards-build-script-serves-or-builds-each-card-and-main.md)).
+The app card's one badge that opens its build on the owner's phone, or the badge on main's slim bar above the lanes. A ready card reads "Install ↗", or "Install (stale) ↗" when its build's sha differs from the current branch head. While a build runs it reads "Building…" with an inert spinner; a failed build reads "Build failed ↗" and opens its thread. The open card's badge sits between Notes and Review on GitHub. The rightmost workflow button starts a Build, or Retry after failure. Main’s red Build failed button opens a bottom sheet with the last 40 lines of `data/try/main.log` and Retry at the recorded failed tip. Retry shows readiness refusals in the sheet, reads Building… in orange while running, refreshes the log after failure and closes with a toast when ready. A Done card has no try badge ([0099](docs/adr/0099-a-boards-build-script-serves-or-builds-each-card-and-main.md)).
 _Avoid_: download, TestFlight (a different channel), older build
 
 **Build script**:
@@ -261,7 +261,7 @@ The repo's reviewed, executable `.kickflip/build`, run by the hub from each card
 _Avoid_: install script, session install runner
 
 **Serve**:
-The rightmost workflow button for a website work card with a build script. It confirms before the hub runs the script. Its one badge reads "Serving…", "Visit ↗", "Visit (stale) ↗" or "Serve failed ↗". A served card opens at `https://<host>:<port>/`, with a port from 8500–8599 kept through re-serves. A loopback relay tracks visits; 30 idle minutes stops the card and releases its port. Main has a fixed port recorded per board, keeps its link across merges and restarts and never idles out. Both open the server itself, outside the app shell ([0102](docs/adr/0102-a-try-build-serves-on-its-own-tailscale-port.md)).
+The rightmost workflow button for a website work card with a build script. It confirms before the hub runs the script. Its one badge reads "Serving…", "Visit ↗", "Visit (stale) ↗" or "Serve failed ↗". A served card opens at `https://<host>:<port>/`, with a port from 8500–8599 kept through re-serves. A loopback relay tracks visits; 30 idle minutes stops the card and releases its port. Main has a fixed port recorded per board, keeps its link across merges and restarts and never idles out. Its red Serve failed button opens the same log and Retry sheet as an app’s Build failed, reading Serving… in orange while retrying the recorded failed tip, even if origin has moved. Both open the server itself, outside the app shell ([0102](docs/adr/0102-a-try-build-serves-on-its-own-tailscale-port.md)).
 _Avoid_: preview site, separate page
 
 **Auto-build**:
@@ -409,7 +409,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `dialogs.js` | `BoardDialogs.confirm` and `notice`, which every board page's dialogs go through, and `fitSheet`, the sheets’ shared phone keyboard handling, `repoSheet` for New board and Repo → Change, and `ticketsControl`, shared by New board and Board Settings; loaded on every page |
 | `rules-editor.js` | `RulesEditor`, the rules list on Board Settings and the Hub page, with its own CSS; `ui.test.mjs` tests its pure parts |
 | `app-threads.js` | Loading a thread, once at a time per card; an open card's thread, its reply box, quick replies and Done |
-| `app-cards.js` | Cards, their open detail with the details list ending in Notes ↗ · Visit/Install ↗ · Review on GitHub ↗ when present, and the workflow row: a follow-up's Build, Merge, Hold, the **action button** and rightmost Serve/Build, each confirming; try requests and failure-thread links; the bump icon's confirmation; an ask's detail shows only its action button; the thread's Done confirmation and send |
+| `app-cards.js` | Cards, their open detail with the details list ending in Notes ↗ · Visit/Install ↗ · Review on GitHub ↗ when present, and the workflow row: a follow-up's Build, Merge, Hold, the **action button** and rightmost Serve/Build, each confirming; try requests, failure-thread links and main’s failed-build log and Retry sheet; the bump icon's confirmation; an ask's detail shows only its action button; the thread's Done confirmation and send |
 | `app-lanes.js` | Lanes, the Answered, older and finished-wave folds, the wave bars and filter, and Plan a wave |
 | `app-asks.js` | The + sheet and its press-n-twice shortcut, and bump, edit and delete |
 | `app-needs.js` | The Needs you box, led by the board session's pending prompts |

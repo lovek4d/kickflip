@@ -325,6 +325,26 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     log(`build /${board.route} ${key}: started; log ${logFile}`);
     return { status: 'started' };
   }
+  async function launchMain(board, repo, metadata) {
+    const id = runKey(board, 'main');
+    if (starting.has(id)) throw new BuildError('A build is already running for main.', 409);
+    starting.add(id);
+    try {
+      if (runs.has(id)) await stopRun(runs.get(id), true);
+      const dir = path.join(os.homedir(), '.claude', 'kickflip', 'try', `${board.route}-main`);
+      fs.mkdirSync(path.dirname(dir), { recursive: true });
+      if (exists(dir)) await git(dir, 'checkout', '--detach', '--force', metadata.sha);
+      else await git(repo, 'worktree', 'add', '--detach', dir, metadata.sha);
+      return await launch(board, 'main', dir, metadata);
+    } catch (e) {
+      if (e.status !== 503) {
+        stateOf(board).state.main = { ...metadata, state: 'failed' };
+        failureLog(board, 'main', e);
+        persist(board);
+      }
+      throw e;
+    } finally { starting.delete(id); }
+  }
   async function start(input, { manifest = readManifest() } = {}) {
     await initialize(manifest);
     reserveMains(manifest);
@@ -332,14 +352,21 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     if (!input || Array.isArray(input) || typeof input !== 'object' || Object.keys(input).some((k) => !['route', 'key'].includes(k))
       || typeof input.route !== 'string' || typeof input.key !== 'string') throw new BuildError('Send only the board route and card key.');
     const { route, key } = input;
-    if (!/^[\w.-]+\/[\w.-]+$/.test(key) || key.split('/').some((s) => s === '.' || s === '..')) throw new BuildError('Card key must be <wave>/<id>.');
+    if (key !== 'main' && (!/^[\w.-]+\/[\w.-]+$/.test(key) || key.split('/').some((s) => s === '.' || s === '..'))) throw new BuildError('Card key must be <wave>/<id>.');
     const board = listBoards(manifest).find((b) => b.route === route);
     if (!board) throw new BuildError(`/${route} is not a board.`, 404);
-    if (!board.waves.some(({ slug, wave }) => wave.items.some((it) => `${slug}/${it.id}` === key))) throw new BuildError('There is no item with this card key.', 404);
+    if (key !== 'main' && !board.waves.some(({ slug, wave }) => wave.items.some((it) => `${slug}/${it.id}` === key))) throw new BuildError('There is no item with this card key.', 404);
     const reason = await waiting();
     if (reason) throw new BuildError(reason, 409);
     const id = runKey(board, key);
-    if (starting.has(id) || (runs.has(id) && !runs.get(id).ready)) throw new BuildError('A build is already running for this card.', 409);
+    if (starting.has(id) || (runs.has(id) && !runs.get(id).ready)) throw new BuildError(`A build is already running for ${key === 'main' ? 'main' : 'this card'}.`, 409);
+    if (key === 'main') {
+      const entry = stateOf(board).state.main;
+      if (entry?.state === 'running') throw new BuildError('A build is already running for main.', 409);
+      if (entry?.state !== 'failed' || !entry.sha) throw new BuildError('Main has no failed build to retry.', 409);
+      const { sha, branch, slug, at, script } = entry;
+      return launchMain(board, boardRepo(route, manifest).repo, { sha, branch, slug, at, script });
+    }
     starting.add(id);
     try {
       if (runs.has(id)) await stopRun(runs.get(id), true);
@@ -420,21 +447,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
           let slug = board.github;
           if (!slug) { try { slug = githubFromOrigin(await git(source.repo, 'remote', 'get-url', 'origin')); } catch {} }
           const metadata = { sha, branch, slug: slug || '', at, script };
-          starting.add(id);
-          try {
-            if (runs.has(id)) await stopRun(runs.get(id), true);
-            const dir = path.join(os.homedir(), '.claude', 'kickflip', 'try', `${board.route}-main`);
-            fs.mkdirSync(path.dirname(dir), { recursive: true });
-            if (exists(dir)) await git(dir, 'checkout', '--detach', '--force', sha);
-            else await git(source.repo, 'worktree', 'add', '--detach', dir, sha);
-            await launch(board, 'main', dir, metadata);
-          } catch (e) {
-            if (e.status === 503) return;
-            state.main = { ...metadata, state: 'failed' };
-            failureLog(board, 'main', e);
-            persist(board);
-            throw e;
-          } finally { starting.delete(id); }
+          await launchMain(board, source.repo, metadata);
         } catch (e) { log(`try /${board.route} main: ${e.message}`); }
       }
     })().finally(() => { ticking = null; });

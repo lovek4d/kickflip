@@ -717,9 +717,9 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.match(css, /button\.build \{[^}]*background: var\(--color-notice\)/);
 
-  const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s } });
+  const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
-  const B = { on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
+  const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const open = { ...workCard, pr: null, reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
@@ -933,7 +933,7 @@ test('try buttons explain no changes, running and current runs, and offer Retry 
   }
 });
 
-test('main is a slim branch bar with one badge, no control and a failure log title', () => {
+test('main is a slim branch bar with a ready link, running status or failed log button', () => {
   assert.equal(ui.mainBar(null), '');
   for (const kind of ['web', 'app']) {
     const main = { kind, slug: 'owner/repo', branch: 'develop', sha: '1234567', at: ago(2), state: 'ready', url: kind === 'web' ? null : 'https://m/main.apk', port: kind === 'web' ? 8500 : null };
@@ -942,7 +942,7 @@ test('main is a slim branch bar with one badge, no control and a failure log tit
     assert.equal(text(ui.mainBar(main)).includes(kind === 'web' ? 'Visit' : 'Install'), true);
     assert.match(ui.mainBar({ ...main, state: 'running' }), /role="status"/);
     assert.doesNotMatch(ui.mainBar({ ...main, state: 'running' }), /href=|<button/);
-    assert.match(ui.mainBar({ ...main, state: 'failed' }), /title="[^"]*data\/try\/main.log[^"]*"/);
+    assert.match(ui.mainBar({ ...main, state: 'failed' }), /<button[^>]*data-main-log=""[^>]*aria-haspopup="dialog"/);
   }
 });
 

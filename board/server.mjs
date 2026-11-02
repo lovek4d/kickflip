@@ -78,7 +78,8 @@
 //   GET  /api/settings           the board's settings, {auto_merge, auto_build} (store.mjs readBoardSettings)
 //   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean} → board.json, keeping its other keys, and when the value moved a
 //                                `settings {<changed setting>: value}` event, which wakes Claude. → {settings, id}; a bad body → 400 {error}
-//   POST /api/try                {key}: forwards a card build to the hub's loopback /_hub/build
+//   POST /api/try                {key}: forwards a card build or main retry to the hub's loopback /_hub/build
+//   GET  /api/try/main/log       {lines}: last 40 lines of main's log, from at most its last 64 KiB
 // data/try.json is the hub's run state; data/main.json holds main's published install link.
 //   GET  /_claude/events         events not hidden, newest first, each with Claude's reply if written
 //   GET  /_claude/needs          {items: [{kind, text, url}], working, summary, lanes: {review, progress, todo}, building}:
@@ -589,6 +590,23 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { rules: saved.rules, id });
     }
     if (p === '/api/settings' && req.method === 'GET') return json(res, 200, { settings: await readBoardSettings(here) });
+    if (p === '/api/try/main/log' && req.method === 'GET') {
+      let file;
+      try {
+        file = await fs.open(path.join(here, 'data', 'try', 'main.log'), 'r');
+        const { size } = await file.stat();
+        const start = Math.max(0, size - 64 * 1024);
+        const buffer = Buffer.alloc(size - start);
+        const { bytesRead } = await file.read(buffer, 0, buffer.length, start);
+        const lines = buffer.subarray(0, bytesRead).toString('utf8').split(/\r?\n/);
+        if (start) lines.shift();
+        if (lines.at(-1) === '') lines.pop();
+        return json(res, 200, { lines: lines.slice(-40) });
+      } catch (e) {
+        if (e.code === 'ENOENT') return json(res, 200, { lines: [] });
+        throw e;
+      } finally { await file?.close(); }
+    }
     if (p === '/api/try' && req.method === 'POST') {
       const body = await readBody(req);
       if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => k !== 'key') || typeof body.key !== 'string') return json(res, 400, { error: 'Send only the card key.' });

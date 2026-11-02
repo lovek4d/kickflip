@@ -144,7 +144,7 @@ test('script validation refuses missing, symlink, directory, foreign ownership, 
   await assert.rejects(start(), /regular file/);
   assert.match(buildScriptError('relative'), /absolute/);
   await assert.rejects(start({ command: '/bin/sh' }), /only the board route/);
-  await assert.rejects(start({ key: 'main' }), /Card key/);
+  await assert.rejects(start({ key: 'main' }), { status: 409, message: 'Main has no failed build to retry.' });
   await assert.rejects(start({ key: 'w/missing' }), /no item/);
   await assert.rejects(start({ key: 'w/..' }), /Card key/);
   await assert.rejects(start({ route: 'missing' }), /not a board/);
@@ -279,7 +279,7 @@ test('the auto-build tick refreshes head, changes and script and runs each new h
   assert.equal(thread().length, 1);
 });
 
-test('main builds at the remote tip regardless of auto_build, uses a detached worktree, and does not repeat a failed tip', async () => {
+test('main builds at the remote tip regardless of auto_build, uses a detached worktree, and does not repeat a failed tip', async (t) => {
   setScript('process.exit(0);', repo);
   const sha = commit(repo, 'main script');
   git(repo, 'update-ref', 'refs/remotes/origin/main', sha);
@@ -289,7 +289,11 @@ test('main builds at the remote tip regardless of auto_build, uses a detached wo
   const dir = path.join(home, '.claude/kickflip/try/orch-main');
   assert.equal(git(dir, 'rev-parse', 'HEAD'), sha);
   assert.throws(() => git(dir, 'symbolic-ref', '-q', 'HEAD'));
-  setScript('process.exit(8);', repo);
+  await assert.rejects(start({ key: 'main' }), { status: 409, message: 'Main has no failed build to retry.' });
+  setScript(`
+console.log(require('node:child_process').execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim());
+setInterval(() => { if (!require('node:fs').existsSync('hold')) process.exit(8); }, 20);
+`, repo);
   const failedSha = commit(repo, 'broken');
   git(repo, 'update-ref', 'refs/remotes/origin/main', failedSha);
   await tick();
@@ -297,8 +301,39 @@ test('main builds at the remote tip regardless of auto_build, uses a detached wo
   assert.equal(state().main.sha, failedSha);
   await tick();
   assert.equal(state().main.state, 'failed');
+  const metadata = state().main;
+  setScript('process.exit(0);', repo);
+  const movedSha = commit(repo, 'origin moved');
+  git(repo, 'update-ref', 'refs/remotes/origin/main', movedSha);
+  await manager.stop();
+  let reason = 'Try builds wait on Tailscale: Tailscale isn’t signed in';
+  manager = createTryManager({ waiting: async () => reason, log() {} });
+  await assert.rejects(start({ key: 'main' }), (e) => e.status === 409 && e.message === reason);
+  reason = null;
+  write(path.join(dir, 'hold'), '');
+  assert.deepEqual(await start({ key: 'main' }), { status: 'started' });
+  await assert.rejects(start({ key: 'main' }), (e) => e.status === 409 && /already running/.test(e.message));
+  fs.unlinkSync(path.join(dir, 'hold'));
+  await until(() => state().main.state === 'failed');
+  assert.deepEqual(state().main, metadata);
+  assert.equal(fs.readFileSync(path.join(site, 'data/try/main.log'), 'utf8').trim(), failedSha);
+  assert.equal(git(dir, 'rev-parse', 'HEAD'), failedSha);
+  const stat = fs.lstatSync;
+  const mocked = t.mock.method(fs, 'lstatSync', (file, ...args) => {
+    const result = stat(file, ...args);
+    if (file === path.join(dir, '.kickflip/build')) result.mode &= ~0o111;
+    return result;
+  });
+  await assert.rejects(start({ key: 'main' }), /executable/);
+  mocked.mock.restore();
+  assert.deepEqual(state().main, metadata);
+  assert.match(fs.readFileSync(path.join(site, 'data/try/main.log'), 'utf8'), /executable/);
+  fs.rmSync(dir, { recursive: true, force: true });
+  await assert.rejects(start({ key: 'main' }), /already registered/);
+  assert.deepEqual(state().main, metadata);
+  assert.match(fs.readFileSync(path.join(site, 'data/try/main.log'), 'utf8'), /already registered/);
   assert.deepEqual(thread(), []);
-  git(repo, 'worktree', 'remove', '--force', dir);
+  git(repo, 'worktree', 'prune');
 });
 
 test('a restart clears dead web cards and stops main so the next tick serves it again', async () => {
@@ -439,7 +474,7 @@ test('the hub build route enforces loopback and fixed inputs', async () => {
     const input = { route: 'orch', key: 'w/A1' };
     for (const headers of [{ origin: 'https://mac.ts.net' }, { 'x-forwarded-for': '100.64.0.1' }, { host: 'mac.ts.net' }]) assert.equal(await post(input, headers), 403);
     assert.equal(await post({ ...input, command: '/bin/sh' }), 400);
-    assert.equal(await post({ ...input, key: 'main' }), 400);
+    assert.equal(await post({ ...input, key: 'main' }), 409);
     assert.equal(await post(input), 202);
     await until(() => state().cards['w/A1']?.state === 'ready');
   } finally { hub.kill('SIGTERM'); await exited; }

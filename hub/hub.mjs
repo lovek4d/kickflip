@@ -73,7 +73,8 @@
 //                     removed}` event (boards.mjs sendToBoards). → {rules, events, failed}; a bad list → 400 {error}
 //   /_hub/poll        POST runs one poll now, or joins the running one, and returns its result as JSON;
 //                     {"flush": false} skips sending the queue (`kickflip poll-now`)
-//   /_hub/build       POST {route, key}, loopback only: runs <worktree>/.kickflip/build <key> <worktree>
+//   /_hub/build       POST {route, key}, key <wave>/<id> or main (retry failed tip), loopback only:
+//                     runs <worktree>/.kickflip/build <key> <worktree>
 //                     asynchronously; data/try.json and data/try/<id>.log carry its state (try.mjs)
 //   /_hub/prompts     POST a PermissionRequest hook's input (permission-hook.mjs) → {id, deadline}: a pending prompt in
 //                     prompts.json, on the board whose owner is that session, else the hub page, with a push

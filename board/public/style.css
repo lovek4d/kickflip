@@ -570,3 +570,12 @@ main > * { transition: opacity .25s ease; }
 .tb-main > svg { flex: none; color: var(--muted); }
 .tb-main-text { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
 .tb-main .meta { justify-content: flex-end; margin-left: auto; }
+.main-log-source { margin: 0 0 8px; overflow-wrap: anywhere; }
+.main-log-lines { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--chip); color: var(--text);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; line-height: 1.5;
+  max-height: calc(12 * 1.5 * 11.5px + 16px); white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; }
+.main-log-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
+.main-log-actions button { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 6px 18px; }
+.main-log-actions .main-log-going { border-color: color-mix(in srgb, var(--color-notice) 45%, var(--line));
+  background: color-mix(in srgb, var(--color-notice) 12%, var(--panel)); color: var(--color-notice); cursor: default; opacity: 1; }
+#mainLogReason { color: var(--color-notice); overflow-wrap: anywhere; }

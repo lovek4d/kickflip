@@ -139,7 +139,7 @@ window.BoardView = (function () {
     const { setHTML, preloadKeys } = BoardUI;
 
     // Renders open threads from state.threadCache; loadBoard and opening a card load them.
-    function render() {
+    function render(load = null) {
       const d = state.board;
       const title = $(':scope > .top h1');
       if (d.title && title && title.textContent !== d.title) title.textContent = d.title;
@@ -148,6 +148,7 @@ window.BoardView = (function () {
         B.renderHeader(d);
         B.renderWaves(d);
         BoardUI.setHTML($('#tryMain'), BoardUI.mainBar(d.main));
+        B.renderMainLog(d.main, load);
         const live = d.items.filter((i) => !state.withdrawnAsks.has(i.id));
         const shown = state.waveFilter ? live.filter((i) => i.wave === state.waveFilter) : live;
         for (const el of $$('details.item[open]')) state.openItems.add(el.dataset.key);
@@ -235,6 +236,7 @@ window.BoardView = (function () {
     if (boot?.route && boot.route !== B.route) boot = null;
     let preloaded = false;
     async function loadBoard({ via = 'poll' } = {}) {
+      const load = B.boardLoad = (B.boardLoad || 0) + 1;
       const started = boot;
       boot = null;
       const threads = [...state.openItems].map((k) => B.loadThread(k, { from: started?.threads.get(k) || null, force: via !== 'poll' }));
@@ -247,7 +249,7 @@ window.BoardView = (function () {
         B.setView('fresh');
         if (!hashRead || (first && focusKey)) { readHash(); hashRead = true; }
         B.linkUp();
-        render();
+        render(load);
         scrollToFocus();
         B.site.syncBadge();
         B.saveSnapshotSoon();
@@ -314,6 +316,15 @@ window.BoardView = (function () {
       <button type="submit" class="primary">Send</button>
     </div>
   </form>
+</dialog>
+<dialog id="mainLogSheet" class="sheet" aria-labelledby="mainLogTitle">
+  <div class="sheet-body">
+    <div class="sheet-head"><h2 id="mainLogTitle"></h2><button type="button" class="ghost" id="mainLogClose" aria-label="Close">✕</button></div>
+    <p id="mainLogSource" class="main-log-source muted small"></p>
+    <pre id="mainLogLines" class="main-log-lines" tabindex="0" aria-label="Main’s build log"></pre>
+    <p id="mainLogReason" class="small" role="status" hidden></p>
+    <div class="main-log-actions"><button type="button" class="primary" id="mainLogRetry">Retry</button></div>
+  </div>
 </dialog>
 <dialog id="linksSheet" class="sheet" aria-labelledby="linksTitle">
   <div class="sheet-body">
