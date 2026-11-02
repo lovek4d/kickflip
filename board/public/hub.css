@@ -50,12 +50,12 @@
 .hub-view .day { position:relative; padding:18px 0 20px; }
 .hub-view .day .bar { position:relative; height:40px; border-radius:8px; overflow:hidden; background:var(--chip); }
 .hub-view .day .seg { position:absolute; top:0; bottom:0; display:grid; place-items:center; overflow:hidden; border-right:2px solid var(--panel);
-  background:color-mix(in srgb, var(--accent) var(--k), var(--chip)); }
+  background:color-mix(in srgb, var(--muted) var(--k), var(--chip)); }
 .hub-view .day .seg.held { background-image:repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--text) 22%, transparent) 5px 8px); }
 .hub-view .day .seg.sel { box-shadow:inset 0 0 0 3px var(--text); z-index:2; }
 .hub-view .day .seg span { font-size:11px; font-weight:600; line-height:1.5; color:var(--text); background:color-mix(in srgb, var(--panel) 85%, transparent); border-radius:4px; padding:0 4px; }
 .hub-view .day .pin { position:absolute; top:2px; transform:translateX(-50%); color:var(--color-notice); font-size:11px; line-height:1; }
-.hub-view .day .now { position:absolute; top:14px; height:48px; width:2px; margin-left:-1px; background:var(--color-danger); z-index:3; pointer-events:none; }
+.hub-view .day .now { position:absolute; top:14px; height:48px; width:2px; margin-left:-1px; background:var(--text); z-index:3; pointer-events:none; }
 .hub-view .day .ticks { position:absolute; left:0; right:0; bottom:0; height:16px; font-size:10px; color:var(--muted); }
 .hub-view .day .ticks span { position:absolute; transform:translateX(-50%); }
 .hub-view .day .ticks span:first-child { transform:none; } .hub-view .day .ticks span:last-child { transform:translateX(-100%); }
@@ -116,7 +116,7 @@
 .hub-view .hub-modal .setting-content > .group:first-child { margin-top: 16px; }
 .hub-view .hub-modal .rules-box { margin-top: 14px; }
 
-.hub-view .u-tone-ok { --u: var(--accent); }
+.hub-view .u-tone-ok { --u: var(--muted); }
 .hub-view .u-tone-high { --u: var(--color-notice); }
 .hub-view .u-tone-full { --u: var(--color-danger); }
 .hub-view .u-tone-stale, .hub-view .u-tone-none { --u: var(--muted); }

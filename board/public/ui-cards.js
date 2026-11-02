@@ -7,7 +7,7 @@
     if (!pr) return '';
     const st = pr.state === 'MERGED' ? badge('ready', 'merged') : pr.state === 'CLOSED' ? badge('danger', 'closed') : '';
     // An open PR's chip ends with its state, marked like the reviewer and CI chips.
-    const open = pr.state === 'OPEN' ? (pr.isDraft ? { tone: 'notice', mark: ' ●', label: 'Draft' } : { tone: 'ready', mark: ' ✓', label: 'Ready for review' }) : { tone: 'normal', mark: '', label: '' };
+    const open = pr.state === 'OPEN' ? (pr.isDraft ? { tone: 'notice', mark: ' ●', label: 'Draft' } : { tone: 'ready', mark: ' ✓', label: 'Ready for review' }) : { tone: 'quiet', mark: '', label: '' };
     const CI = { pass: { tone: 'ready', mark: '✓' }, fail: { tone: 'danger', mark: '✗' }, pending: { tone: 'notice', mark: '●' } }[pr.checks?.state] || { tone: 'quiet', mark: '?' };
     const ci = pr.checks && pr.state === 'OPEN' ? badge(CI.tone, `CI ${CI.mark}`, { title: `CI ${pr.checks.state}` }) : '';
     const repo = (pr.url.match(/github\.com\/[^/]+\/([^/]+)\//) || [])[1] || '';
@@ -16,8 +16,8 @@
     const label = open.label ? { title: open.label, attrs: { ...EXTERNAL, 'aria-label': `${name}: ${open.label}` } } : { attrs: EXTERNAL };
     return `${badge(open.tone, `${esc(name)}${open.mark}`, { href: pr.url, ...label })}${st}${ci}${codex}`;
   }
-  const linearChips = (it) => (it.linear || []).map((l) => badge('normal', esc(l.id), { href: l.url, title: `${l.id} in Linear`, attrs: EXTERNAL })).join('');
-  const ticketChip = (it) => !it.ticket ? '' : !it.ticket.url ? badge('quiet', esc(it.ticket.id), { title: `${it.ticket.id} · not from this board’s ticket source` }) : badge(it.ticket.source === 'internal' ? 'quiet' : 'normal', esc(it.ticket.id), { href: it.ticket.url, title: `${it.ticket.id}${it.ticket.source === 'internal' ? ' · this board’s own ticket' : it.ticket.source === 'github' ? ' on GitHub' : ' in Linear'}`, attrs: it.ticket.source === 'internal' ? {} : EXTERNAL });
+  const linearChips = (it) => (it.linear || []).map((l) => badge('quiet', esc(l.id), { href: l.url, title: `${l.id} in Linear`, attrs: EXTERNAL })).join('');
+  const ticketChip = (it) => !it.ticket ? '' : !it.ticket.url ? badge('quiet', esc(it.ticket.id), { title: `${it.ticket.id} · not from this board’s ticket source` }) : badge('quiet', esc(it.ticket.id), { href: it.ticket.url, title: `${it.ticket.id}${it.ticket.source === 'internal' ? ' · this board’s own ticket' : it.ticket.source === 'github' ? ' on GitHub' : ' in Linear'}`, attrs: it.ticket.source === 'internal' ? {} : EXTERNAL });
   const REVIEW = {
     approved: { tone: 'ready', mark: '✓', label: 'approved' },
     changes: { tone: 'danger', mark: '✗', label: 'asked for changes' },
@@ -134,19 +134,19 @@
     const ids = it.kind === 'ask' ? askChip(it) : it.ticket ? ticketChip(it) : it.ticketSource === 'linear' ? linearChips(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
     const blocked = (it.blockedBy || []).map((d) => badge('notice', `blocked by ${esc(d.ref)}`, { href: `#item=${encodeURIComponent(d.key)}` })).join('');
     const ready = !blocked && !it.action && it.deps?.length && it.lane === 'todo' ? badge('ready', 'ready to start') : '';
-    const chips = `${it.todoAge ? badge('quiet', esc(it.todoAge)) : ''}${stalledChip(it)}${unreadChip(unread)}${actionChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('normal', 'bumped') : ''}${ready}${installChip(it)}`;
+    const chips = `${it.todoAge ? badge('quiet', esc(it.todoAge)) : ''}${stalledChip(it)}${unreadChip(unread)}${actionChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('quiet', 'bumped') : ''}${ready}${installChip(it)}`;
     const status = it.isNew && !it.action ? `<div class="line3 sub">${askLine(it.ask)}</div>`
       : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Orchestrator review</div>'
       : it.builder ? `<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>${esc(builderLine(it.builder))}</div>`
       : it.working ? `<div class="line3 sub agent">${workingLine}</div>`
-      : it.next ? `<div class="line3 sub next">Next: ${esc(it.next)}</div>` : '';
+      : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.held ? ' idle' : ''}">Next: ${esc(it.next)}</div>` : '';
     const eta = it.eta && it.builder ? `<div class="line3 sub eta">${esc(etaLine(it.eta))}</div>` : '';
     return `${cardActions(it, top)}<div class="line1 title">${ids ? `${ids} ` : ''}${esc(it.title)}</div>
       ${status}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
       ${blocked ? `<div class="line5 meta blocked">${blocked}</div>` : ''}`;
   }
-  const askChip = (it) => badge('normal', it.isNew ? 'New' : 'Task');
+  const askChip = (it) => badge(it.isNew ? 'notice' : 'quiet', it.isNew ? 'New' : 'Task');
   function planButton(items) {
     const keys = items.filter((i) => i.kind === 'followup').map((i) => i.key);
     return keys.length > 1 ? `<button class="link" data-plan="${esc(keys.join(' '))}">Plan a wave from these ${keys.length} follow-ups →</button>` : '';

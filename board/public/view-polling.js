@@ -14,10 +14,10 @@
       + ` aria-label="${esc(g.aria)}"${g.w === sel ? ' aria-current="true"' : ''}>${g.label ? `<span>${esc(g.label)}</span>` : ''}</a>`).join('');
     const pins = day.pins.map((p) => `<span class="pin" style="left:${p.left}" title="${esc(p.title)}" aria-hidden="true">▼</span>`).join('');
     const ticks = ['12am', '6am', '12pm', '6pm', '12am'].map((t, i) => `<span style="left:${i * 25}%">${t}</span>`).join('');
-    const legend = ['<span><i style="background:var(--accent)"></i>darker checks more often</span>',
-      day.held && '<span><i style="background:repeating-linear-gradient(135deg,var(--accent) 0 3px,var(--chip) 3px 5px)"></i>pushes held</span>',
+    const legend = ['<span><i style="background:var(--muted)"></i>darker checks more often</span>',
+      day.held && '<span><i style="background:repeating-linear-gradient(135deg,var(--muted) 0 3px,var(--chip) 3px 5px)"></i>pushes held</span>',
       day.wakes && '<span style="color:var(--color-notice)">▼ wake</span>',
-      '<span><i style="background:var(--color-danger);width:2px"></i>now</span>'].filter(Boolean).join('');
+      '<span><i style="background:var(--text);width:2px"></i>now</span>'].filter(Boolean).join('');
     return `<div class="day">${pins}<span class="now" style="left:${day.now}" aria-hidden="true"></span><div class="bar">${segs}</div><div class="ticks" aria-hidden="true">${ticks}</div></div><div class="legend">${legend}</div>`;
   }
 

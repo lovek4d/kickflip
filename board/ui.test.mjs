@@ -99,7 +99,7 @@ test('the header reads the time since the last change signal or refresh, and the
   assert.equal(text(ui.statusLine(ago(0))), 'now');
   assert.equal(text(ui.statusLine(ago(2), { watcher: 'running' })), '2 h');
   assert.equal(ui.statusLine(null), '');
-  assert.match(ui.statusLine(fresh, { watcher: 'stopped' }), /^<span class="claude late" title="Claude not listening">not listening<\/span>$/);
+  assert.match(ui.statusLine(fresh, { watcher: 'stopped' }), /^<span class="claude down" title="Claude not listening">not listening<\/span>$/);
   assert.match(ui.statusLine(fresh, { watcher: 'stopped', link: 'offline' }), /^<span class="link-state offline" title="Offline: can't reach the host">1 min<\/span>$/);
   assert.equal(text(ui.statusLine(fresh, { link: 'reconnecting' })), 'Reconnecting…');
   assert.match(ui.statusLine(undefined, { link: 'offline' }), /^<span class="link-state offline"[^>]*>offline<\/span>$/);
@@ -864,7 +864,7 @@ test('a work card reads its title, then its next step or builder, its chips led 
   assert.deepEqual(lines(ui.workLines({ ...internal, waitsOn: 'checking', working: true, next: 'Verify it' })), ['INT-3 Five', 'Orchestrator review']);
   const followup = { ...workCard, kind: 'followup', key: 'w/ENG-7', id: 'ENG-7', ref: 'ENG-7', linear: [{ id: 'ENG-7', url: 'u' }], pr: null, reviewers: [], next: null, lane: 'todo', deps: [], blockedBy: [] };
   assert.deepEqual(lines(ui.workLines(followup)), ['ENG-7 Five', 'follow-up']);
-  assert.match(ui.workLines(followup), /<a class="chip tone-normal" href="u"[^>]*>ENG-7<\/a>.*<span class="chip tone-quiet">follow-up<\/span>/s);
+  assert.match(ui.workLines(followup), /<a class="chip tone-quiet" href="u"[^>]*>ENG-7<\/a>.*<span class="chip tone-quiet">follow-up<\/span>/s);
 });
 
 test('a Todo age is a quiet badge first in the badges row', () => {
@@ -1125,7 +1125,7 @@ test("a Linear id links in its board's own workspace, and a board without a work
   const bare = ui.threadMessages(line, ui.linkContext(items(null), 'w/A1'));
   assert.deepEqual(anchors(bare), []);
   assert.ok(shown(bare).includes('ENG-2310 and ENG-12 next'));
-  assert.match(ui.linearChips({ linear: [{ id: 'ENG-2310', url: null }] }), /^<span class="chip tone-normal"[^>]*>ENG-2310<\/span>$/);
+  assert.match(ui.linearChips({ linear: [{ id: 'ENG-2310', url: null }] }), /^<span class="chip tone-quiet"[^>]*>ENG-2310<\/span>$/);
 });
 
 test("a bare #n links only in a thread whose item has a repo, and a wave's short id links only from that wave's cards", () => {

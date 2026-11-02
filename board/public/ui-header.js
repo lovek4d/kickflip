@@ -7,7 +7,7 @@
   const statusLine = (at, { link = 'online', watcher, pause } = {}) => (pause?.state === 'paused' ? `<span class="late">Paused until ${esc(BoardUI.usageClock(pause.resets_at))}</span>`
     : link === 'offline' ? `<span class="link-state offline" title="Offline: can't reach the host">${at ? shortSince(at) : 'offline'}</span>`
     : link === 'reconnecting' ? '<span class="link-state">Reconnecting…</span>'
-    : watcher === 'stopped' ? '<span class="claude late" title="Claude not listening">not listening</span>'
+    : watcher === 'stopped' ? '<span class="claude down" title="Claude not listening">not listening</span>'
     : at ? `<span class="fresh" title="Updated ${since(at)}: the last change from the host, or your last refresh">${shortSince(at)}</span>` : '');
   // What the page shows, for telling whether a change signal brought anything new; generatedAt changes on every load.
   const freshSig = (board, threads, openKeys) => JSON.stringify([{ ...board, generatedAt: null }, [...openKeys].sort().map((k) => [k, threads.get(k) ?? null])]);

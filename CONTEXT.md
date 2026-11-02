@@ -31,7 +31,7 @@ The list of every site beside each board and hub page: New version with Reload w
 _Avoid_: hub home, switcher, nav
 
 **Switch mode**:
-The sidebar showing each linked row's key after s is pressed twice outside a text field: the first nine boards' numbers on their tiles, and every linked row's letter from its name, in builder orange, while the Boards label reads "Boards – press a key to switch" over a bar that drains, and no row moves. The next key opens that row in place; Escape, a click or 3 seconds with no key ends it. Boards claim letters first, in the order they joined the hub, so a new board never takes another board's letter ([0056](docs/adr/0056-switch-mode-letters-come-from-names-in-join-order.md)).
+The sidebar showing each linked row's key after s is pressed twice outside a text field: the first nine boards' numbers on their tiles, and every linked row's letter from its name, in blue, while the Boards label reads "Boards – press a key to switch" over a bar that drains, and no row moves. The next key opens that row in place; Escape, a click or 3 seconds with no key ends it. Boards claim letters first, in the order they joined the hub, so a new board never takes another board's letter ([0056](docs/adr/0056-switch-mode-letters-come-from-names-in-join-order.md)).
 _Avoid_: shortcuts, hotkeys, jump mode
 
 **Shortcuts sheet**:
@@ -129,7 +129,7 @@ The badge on a site's row in the sidebar: how many things the site's `GET /_clau
 _Avoid_: unread count, inbox
 
 **Status word**:
-The coloured word that leads a site's sub line in the sidebar when something urgent holds, most urgent first: Paused while the **pause line** holds, otherwise Down, Not listening (a board that is neither **listening** nor **asleep**), Starting, "N need you", Working, Asleep (muted) or Building. Lane chips with the site's open-card counts follow it; a calm site shows only the chips ([0037](docs/adr/0037-the-hub-home-shows-status-not-descriptions.md), [0077](docs/adr/0077-need-you-outranks-working.md)).
+The coloured word that leads a site's sub line in the sidebar when something urgent holds, most urgent first: Paused while the **pause line** holds, otherwise Down, Not listening (a board that is neither **listening** nor **asleep**), Starting, Stopped (muted), "N need you", Working, Asleep (muted) or Building. Lane chips with the site's open-card counts follow it; a calm site shows only the chips ([0037](docs/adr/0037-the-hub-home-shows-status-not-descriptions.md), [0077](docs/adr/0077-need-you-outranks-working.md)).
 _Avoid_: activity line, subtitle
 
 ### Boards
@@ -200,7 +200,7 @@ A color named by what it means, `--color-quiet`, `--color-info`, `--color-notice
 _Avoid_: tone token, theme color, badge color
 
 **Colour rule**:
-A colour says what waits: blue (info) only for review and notice, something for the human to read or see, such as an unread review or a new version to reload; orange (notice) for attention, an agent or builder waiting on something, such as Action needed, a permission or a pick, or working; red (danger) for danger, such as failed, offline or spending; grey (quiet) for idle, which takes no other colour. Pick a new colour by it ([0096](docs/adr/0096-colour-says-whos-waiting.md)).
+A colour says whose turn it is: red (danger) for faults, such as failed, down, not listening or spending, and the sidebar's "N need you"; orange (notice) for attention and work, such as Action needed, the Needs you box, a New card, a Next line while it is someone's turn, a builder's line, Working or Starting; blue (info) only for review and notice, something for the owner to read or see, such as an unread review, a new version to reload or a changed line's flash; grey (quiet) for idle, such as ticket ids, a Todo or Done card's Next, the Done ring, Stopped or usage that is fine, which takes no other colour. Pick a new colour by it ([0096](docs/adr/0096-colour-says-whos-waiting.md)).
 _Avoid_: warning colour (for attention), action colour (for blue)
 
 **Follow-up**:
@@ -220,7 +220,7 @@ A work item that has waited in review more than seven days since its first revie
 _Avoid_: old, overdue
 
 **Next step**:
-Claude's next step on a card and what sets it off, such as "Next: merge when CI is green", kept in the item's `next` and cleared once done. A card waiting on its reviewers reads its next step from GitHub instead ([0002](docs/adr/0002-a-card-derives-its-lane-from-github.md)), and one waiting on the owner reads its action.
+Claude's next step on a card and what sets it off, such as "Next: merge when CI is green", kept in the item's `next` and cleared once done. A card waiting on its reviewers reads its next step from GitHub instead ([0002](docs/adr/0002-a-card-derives-its-lane-from-github.md)), and one waiting on the owner reads its action. It is orange while it is someone's turn and grey on a Todo, Done or held card.
 _Avoid_: plan, notes (**Notes** is the card's write-up), todo
 
 **Waits on**:
@@ -297,7 +297,7 @@ A line in a card's thread written by someone other than the owner, apart from bu
 _Avoid_: inbox, notification. "New" names it only in the chip's "N new"; a New card is an unsorted ask.
 
 **Last visit**:
-The board and threads this device last showed, kept in its browser storage. The next visit paints it dimmed at first paint, readable at any age, with the controls that send held until the fresh board lands and replaces it in place, flashing a fading orange border round each card or line that changed ([0028](docs/adr/0028-the-board-opens-on-the-last-visit.md)). A board the app shell left fresh and comes back to with no change since paints it live instead ([0055](docs/adr/0055-one-app-for-the-whole-hub.md)). In code it is the snapshot.
+The board and threads this device last showed, kept in its browser storage. The next visit paints it dimmed at first paint, readable at any age, with the controls that send held until the fresh board lands and replaces it in place, flashing a fading blue border round each card or line that changed ([0028](docs/adr/0028-the-board-opens-on-the-last-visit.md)). A board the app shell left fresh and comes back to with no change since paints it live instead ([0055](docs/adr/0055-one-app-for-the-whole-hub.md)). In code it is the snapshot.
 _Avoid_: cache, offline copy, stale board
 
 **Answer banner**:
@@ -313,7 +313,7 @@ The group an owner question belongs to; an item's questions use the topic `item:
 _Avoid_: category, section
 
 **Needs you**:
-The box at the top of a board listing what waits on the owner, one line per work item, led by the board session's **pending prompts** ([0043](docs/adr/0043-needs-you-gathers-what-waits-and-questions-answer-on-one-page.md)).
+The orange box at the top of a board listing what waits on the owner, one line per work item, led by the board session's **pending prompts** ([0043](docs/adr/0043-needs-you-gathers-what-waits-and-questions-answer-on-one-page.md)).
 _Avoid_: inbox, digest
 
 **Pending prompt**:

@@ -39,7 +39,7 @@
 .rules-editor .rule-body { flex:1; min-width:0; }
 .rules-editor .rule-text { overflow-wrap:anywhere; }
 .rules-editor .rule-meta { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; font-size:12px; color:var(--muted); }
-.rules-editor .rule-by { padding:0 6px; border-radius:6px; background:var(--chip); color:var(--color-info); }
+.rules-editor .rule-by { padding:0 6px; border-radius:6px; background:var(--chip); color:var(--muted); }
 .rules-editor .rule-actions { flex:none; display:flex; gap:4px; }
 .rules-editor textarea { box-sizing:border-box; width:100%; min-width:0; resize:vertical; font:inherit; font-size:16px; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:6px 8px; }
 .rules-editor .rule-add { display:flex; align-items:flex-end; gap:6px; margin-top:8px; }

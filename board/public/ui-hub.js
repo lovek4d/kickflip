@@ -53,10 +53,10 @@
   // This device's notifications (hub-kit.js device): state is {title, sub, action: {label, act, quiet, disabled}} or
   // null while unknown, which keeps the row hidden.
   function deviceRow(state, { compact = false } = {}) {
-    if (!state) return `<div class="row" id="push" hidden>${tile('bell', '#ef4444')}</div>`;
+    if (!state) return `<div class="row" id="push" hidden>${tile('bell', 'var(--accent)')}</div>`;
     const a = state.action;
     const button = a ? `<button type="button" class="${a.quiet ? 'btn quiet' : 'btn'}" data-device="${esc(a.act)}"${a.disabled ? ' disabled' : ''}>${esc(a.label)}</button>` : '';
-    return `<div class="row" id="push">${tile('bell', '#ef4444')}<span class="body"><span class="text"><span class="title">${esc(state.title)}</span>${compact ? '' : `<span class="sub wrap">${esc(state.sub)}</span>`}</span>${compact && state.title === 'This device' ? `<span class="val">${state.sub?.startsWith('On') ? 'On' : 'Off'}</span>` : ''}${button}</span></div>`;
+    return `<div class="row" id="push">${tile('bell', state.action?.act === 'test' ? 'var(--color-success)' : 'var(--accent)')}<span class="body"><span class="text"><span class="title">${esc(state.title)}</span>${compact ? '' : `<span class="sub wrap">${esc(state.sub)}</span>`}</span>${compact && state.title === 'This device' ? `<span class="val">${state.sub?.startsWith('On') ? 'On' : 'Off'}</span>` : ''}${button}</span></div>`;
   }
 
   // The Codex share control: codex is hub/views.mjs hubView's codex, and its form posts to /_hub/settings/codex, which

@@ -34,7 +34,7 @@
 ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/kickflip &lt;route&gt;</code>.' }) : ''}</div>
 ${sitesHtml(d.groups)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, events (its session and a watcher run, or the hub can wake it), daily wakes, pushes and reviewer links. One that just broke reads settling first.</p>
 <h2 class="label">Polling status</h2>
-<div class="group">${nowRow(d.polling, tile('clock', '#3b82f6'))}</div>`;
+<div class="group">${nowRow(d.polling, tile('clock', d.polling.count ? 'var(--color-notice)' : 'var(--color-quiet)'))}</div>`;
   }
 
   const footer = (d) => `<footer>${esc(d.sites)}. Each belongs to one Claude session, which adds it with <code>/kickflip &lt;route&gt;</code>. This page refreshes every 30 seconds.<br><span class="host">${esc(d.host)}</span></footer>`;

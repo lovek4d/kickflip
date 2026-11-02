@@ -34,7 +34,7 @@
     const toggle = ({ icon, set, title, checked, attrs = '' }) => `<form class="row field" method="post" action="${ACTION}"><input type="hidden" name="set" value="${set}">${icon}<label class="body"><span class="text"><span class="title">${title}</span></span><input type="checkbox" name="value" value="on" class="toggle"${attrs}${checked ? ' checked' : ''}></label></form>`;
     const onRow = toggle({ icon: tile('power', d.on.on ? '#22c55e' : '#6b7280'), set: 'on', title: 'Push notifications', checked: d.on.on,
       attrs: ` id="notifyOn" data-confirm="${esc(d.on.confirm)}"` });
-    const weekendRow = toggle({ icon: tile('calendar', '#0ea5e9'), set: 'weekends', title: 'Off on weekends', checked: d.weekends.on, attrs: ' data-submit' });
+    const weekendRow = toggle({ icon: tile('calendar', 'var(--color-quiet)'), set: 'weekends', title: 'Off on weekends', checked: d.weekends.on, attrs: ' data-submit' });
     return `${onRow}\n${snoozeRow(d)}\n${weekendRow}`;
   }
 
@@ -74,7 +74,7 @@
           const typed = B.$('#linearKey')?.value || '';
           const l = last.linear;
           const remove = l.set ? `<form method="post" action="/_hub/settings/linear"><input type="hidden" name="remove" value="1"><button type="button" class="btn quiet danger" data-linear-remove>Remove</button></form>` : '';
-          content.innerHTML = `<div class="group">${row({ icon: tile('key', l.set ? '#5e6ad2' : '#6b7280'), title: esc(l.title), sub: esc(l.sub), wrap: !l.set, trail: remove })}<form class="block lk-form" method="post" action="/_hub/settings/linear"><input id="linearKey" name="key" type="password" required placeholder="${l.set ? 'Paste a new key to replace it' : 'Paste a Linear API key'}" aria-label="Linear API key" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn">Save</button></form></div><p class="note">Stays on the host. Boards use it to list teams and projects, create issues and move the ones that are yours. Without a key, each board’s session does that through its Linear MCP.</p>`;
+          content.innerHTML = `<div class="group">${row({ icon: tile('key', 'var(--color-quiet)'), title: esc(l.title), sub: esc(l.sub), wrap: !l.set, trail: remove })}<form class="block lk-form" method="post" action="/_hub/settings/linear"><input id="linearKey" name="key" type="password" required placeholder="${l.set ? 'Paste a new key to replace it' : 'Paste a Linear API key'}" aria-label="Linear API key" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn">Save</button></form></div><p class="note">Stays on the host. Boards use it to list teams and projects, create issues and move the ones that are yours. Without a key, each board’s session does that through its Linear MCP.</p>`;
           B.$('#linearKey').value = typed;
         } else if (active === 'closed') {
           content.innerHTML = `<div class="group">${(last.closed || []).length ? last.closed.map((b) => `<div class="row"><span class="body"><span class="text"><span class="title">${esc(b.title)}</span><span class="sub wrap">/${esc(b.route)}</span></span><button class="btn" type="button" data-reopen="${esc(b.route)}"${reopening ? ' disabled' : ''}>${reopening === b.route ? 'Reopening…' : 'Reopen'}</button></span></div>`).join('') : '<p class="note">No closed boards.</p>'}</div>`;

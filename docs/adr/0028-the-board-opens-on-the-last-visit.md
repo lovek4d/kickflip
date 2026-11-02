@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0096
+---
+
 # The board opens on the last visit
+
+Superseded in part by [0096](0096-colour-says-whos-waiting.md): a changed line flashes blue, news for the owner to see.
 
 Each device keeps the last board page it showed, and the next visit paints it at first paint, dimmed, while the first load runs.
 
