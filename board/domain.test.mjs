@@ -259,6 +259,41 @@ test("an answer after a question was resolved reopens it, but a Done card's topi
   assert.deepEqual([closed.owner[0].state, closed.ownerTopics.find((t) => t.id === 'item:w/A1').state, closed.items.find((i) => i.key === 'w/A1').questions.state], ['answered', 'resolved', 'resolved']);
 });
 
+test("a prototype request holds its question as requested until the round arrives, and the topic's round reads making, back, then closed with the confirm's take", () => {
+  const plain = { id: 'plain', topic: 'item:w/A1', question: 'Where does search sit?', options: [{ id: 'A', label: 'Above' }, { id: 'B', label: 'Behind an icon' }] };
+  const takes = { id: 'takes', topic: 'item:w/A1', question: 'Which take?', url: 'prototype-search.html?q=takes', options: [{ id: 'A', label: 'Above' }, { id: 'B', label: 'Icon' }], round: 1, round_of: 'plain' };
+  const confirm = { id: 'takes-confirm', topic: 'item:w/A1', question: 'Is this it?', url: 'prototype-search.html?q=takes-confirm', options: [{ id: 'B', label: 'Icon' }], round: 1, confirm_of: 'takes' };
+  const resolved = (q, note, at) => ({ ...q, resolved: note, resolved_at: at });
+  const request = (question, ts) => ({ id: `r-${question}`, ts, kind: 'prototype-request', data: { key: 'w/A1', question, note: 'show it on a phone' }, reply: null });
+  const answer = (id, choice, ts) => ({ id: `a-${id}`, ts, kind: 'owner-answer', data: { id, choice }, reply: null });
+  const view = (items, events) => {
+    const b = board({ owner: { items }, events });
+    const t = b.ownerTopics.find((x) => x.id === 'item:w/A1');
+    return { states: b.owner.map((q) => [q.id, q.state]), round: t.round, open: t.open, requested: t.requested, needs: b.needs.filter((l) => l.questions).length };
+  };
+
+  assert.deepEqual(view([plain], []), { states: [['plain', 'open']], round: null, open: 1, requested: 0, needs: 1 });
+  const asked = board({ owner: { items: [plain] }, events: [request('plain', '2026-10-23T10:00:00Z')] });
+  assert.deepEqual(asked.owner[0].request, { id: 'r-plain', ts: '2026-10-23T10:00:00Z', note: 'show it on a phone' });
+  assert.deepEqual(view([plain], [request('plain', '2026-10-23T10:00:00Z')]),
+    { states: [['plain', 'requested']], round: { n: 1, state: 'making' }, open: 0, requested: 1, needs: 0 });
+  assert.deepEqual(view([plain], [answer('plain', 'A', '2026-10-23T09:00:00Z'), request('plain', '2026-10-23T10:00:00Z')]).states, [['plain', 'requested']]);
+  assert.deepEqual(view([plain], [request('plain', '2026-10-23T09:00:00Z'), answer('plain', 'A', '2026-10-23T10:00:00Z')]).states, [['plain', 'answered']]);
+
+  const back = [resolved(plain, 'Followed by prototype round 1', '2026-10-23T11:00:00Z'), takes];
+  assert.deepEqual(view(back, [request('plain', '2026-10-23T10:00:00Z')]),
+    { states: [['plain', 'resolved'], ['takes', 'open']], round: { n: 1, state: 'back' }, open: 1, requested: 0, needs: 1 });
+  const confirming = [back[0], resolved(takes, 'Followed by Is this it?', '2026-10-23T12:00:01Z'), confirm];
+  const picked = [answer('takes', 'B', '2026-10-23T12:00:00Z')];
+  assert.deepEqual(view(confirming, picked).round, { n: 1, state: 'back' });
+  assert.deepEqual(view(confirming, [...picked, answer('takes-confirm', 'B', '2026-10-23T13:00:00Z')]).round, { n: 1, state: 'closed', take: 'B' });
+  assert.deepEqual(view(confirming, [...picked, request('takes-confirm', '2026-10-23T13:00:00Z')]).round, { n: 2, state: 'making' });
+  assert.deepEqual(view([{ ...plain, url: 'prototype-search.html?q=plain', resolved: 'Picked A', resolved_at: '2026-10-23T11:00:00Z' }], []).round, null);
+
+  const thread = threadOf('w/A1', { events: [request('plain', '2026-10-23T10:00:00Z')], owner: { items: [plain] } });
+  assert.deepEqual(thread.map((m) => [m.kind, m.text]), [['prototype-request', 'Asked for a prototype: Where does search sit?\n→ show it on a phone']]);
+});
+
 test("an answer to an item's question joins that item's thread", () => {
   const shot = { name: 'shot.png', url: 'uploads/1-shot.png', path: '/s/data/uploads/1-shot.png', type: 'image/png', size: 3 };
   const owner = { items: [{ id: 'q1', topic: 'item:w/A1', question: 'Keep it?' }, { id: 'q2', topic: 'site', question: 'Other?' }] };

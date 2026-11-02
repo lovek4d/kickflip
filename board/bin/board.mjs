@@ -42,7 +42,7 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
   topic add <id> --title <t> [--summary <s>]             a question topic in data/owner.json
   question add --file <json>                             one question or an array of them:
          {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
-          source?, context?, url?, urgent?}; topic is declared, item:<wave>/<id>, item:ask:<eventId>
+          source?, context?, url?, urgent?, round_of?}; topic is declared, item:<wave>/<id>, item:ask:<eventId>
           for a New card not sorted yet, or lineup:<slug> for a wave's triage.
          url is http(s), or a site page such as prototype-<topic>.html?q=<id>, stored as given.
          Prototype options keep take order, ids matching take keys; recommended: true tags the recommendation.
@@ -55,9 +55,12 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          is refused. On an item: topic, each question answered and still waiting on Claude is resolved,
          noting "Followed by <new id>", and printed as "resolved: <old id>". Any other unresolved question
          on the same topic that links the same prototype is resolved, noting "Replaced by <new id>", and
-         printed as "replaced: <old id>". Answering or resolving a question drops its queued push tagged
-         q-<id> on this site.
-  question resolve <id> --note <text>                    sets resolved and resolved_at
+         printed as "replaced: <old id>". round_of names the question on the same topic whose
+         prototype-request this answers; the question needs a prototype url, takes the next round
+         number, and resolves that one, noting "Followed by prototype round N". Answering or resolving
+         a question drops its queued push tagged q-<id> on this site.
+  question resolve <id> --note <text>                    sets resolved and resolved_at; refuses a question on a
+         prototype page until a confirm in its round has an answer
   prototype add <topic> --title <t> --take <K>:<label>   records a prototype in data/prototypes.json: the board
          [--take <K>:<label> …] [--card <wave>/<id>]     serves prototype-<topic>.html from its one template, with
                                                          the title, a back arrow to --card (else the board), the

@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { ITEM_STATUSES, ownerQuestion, refOf } from './domain.mjs';
+import { ITEM_STATUSES, ownerQuestion, refOf, roundOf } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason } from '../shared/usage-gate.mjs';
 import { dropQueued, reviseQueued, flushQueue, queueStatus } from '../hub/push.mjs';
@@ -809,7 +809,7 @@ export async function addQuestions(site, input) {
   const topics = new Set((owner.topics || []).map((t) => t.id));
   for (const [i, q] of questions.entries()) {
     const name = `question ${q?.id ?? i + 1}`;
-    onlyKeys(q, ['id', 'topic', 'source', 'question', 'context', 'url', 'urgent', 'options'], name);
+    onlyKeys(q, ['id', 'topic', 'source', 'question', 'context', 'url', 'urgent', 'options', 'round_of'], name);
     if (taken.has(domId(q.id, `${name}.id`))) fail(`question id "${q.id}" is already used`);
     taken.add(q.id);
     text(q.topic, `${name}.topic`);
@@ -823,12 +823,24 @@ export async function addQuestions(site, input) {
     optional(q.urgent, (v) => bool(v, `${name}.urgent`));
     checkOptions(q.options, name);
     await checkPrototype(site, q, name);
+    optional(q.round_of, (id) => {
+      const from = items.find((x) => x.id === id);
+      if (!from) fail(`${name}.round_of names no question "${id}" in owner.json`);
+      if (from.topic !== q.topic) fail(`${name}.round_of names ${id} on topic ${from.topic}; a round stays on its question's topic, ${q.topic}`);
+      if (!pageTopic(q.url)) fail(`${name}.round_of needs a url on a recorded prototype, prototype-<topic>.html?q=${q.id}`);
+    });
   }
   // docs/adr/0095-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   const answers = await ownerAnswers(site);
   const at = new Date().toISOString();
   const replaced = [];
   const resolved = [];
+  // docs/adr/0111-a-prototype-round-ends-with-a-one-take-confirm.md
+  for (const q of questions.filter((x) => x.round_of)) {
+    q.round = roundOf(items.find((x) => x.id === q.round_of)) + 1;
+    setResolved(owner, [q.round_of], `Followed by prototype round ${q.round}`, at);
+    resolved.push(q.round_of);
+  }
   for (const q of questions) {
     const topic = pageTopic(q.url);
     for (const old of items) {
@@ -861,8 +873,47 @@ async function markResolved(site, owner, ids, note) {
 export async function resolveQuestion(site, id, note) {
   needSite(site);
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
-  if (!(owner.items || []).some((x) => x.id === id)) fail(`no question "${id}" in owner.json`);
+  const q = (owner.items || []).find((x) => x.id === id);
+  if (!q) fail(`no question "${id}" in owner.json`);
+  if (pageTopic(q.url)) await roundConfirmed(site, owner, q);
   return markResolved(site, owner, [id], text(note, '--note'));
+}
+
+// docs/adr/0111-a-prototype-round-ends-with-a-one-take-confirm.md
+// Refuses while q's round has no answered confirm, naming the confirm.
+async function roundConfirmed(site, owner, q) {
+  const n = roundOf(q);
+  const confirms = owner.items.filter((x) => x.topic === q.topic && x.confirm_of && roundOf(x) === n);
+  const answered = new Set((await ownerAnswers(site)).map((e) => e.data?.id));
+  if (confirms.some((c) => answered.has(c.id))) return;
+  fail(confirms.length
+    ? `${q.id} is in prototype round ${n}, whose confirm ${confirms.at(-1).id} ("Is this it?") has no answer yet; the round ends when the owner answers it`
+    : `${q.id} is in prototype round ${n}, which has no "Is this it?" confirm yet; the board opens one when the owner picks a take`);
+}
+
+// docs/adr/0111-a-prototype-round-ends-with-a-one-take-confirm.md
+// The board's one-take confirm after the owner answers a prototype question with one of its takes: a new open question
+// on the same topic, round and prototype, offering that take alone. It resolves the answered question and any open
+// confirm on the topic it replaces. → the confirm's id, or null when the answer opens none.
+export async function openConfirm(site, { id, choice }) {
+  const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
+  const items = owner.items || [];
+  const q = items.find((x) => x.id === id);
+  const take = q?.options?.find((o) => o.id === choice);
+  if (!take || q.confirm_of || !pageTopic(q.url)) return null;
+  const taken = new Set(items.map((x) => x.id));
+  let cid = `${id}-confirm`;
+  for (let i = 2; taken.has(cid); i++) cid = `${id}-confirm-${i}`;
+  const n = roundOf(q);
+  const at = new Date().toISOString();
+  const stale = items.filter((x) => x.topic === q.topic && x.confirm_of && !x.resolved).map((x) => x.id);
+  setResolved(owner, stale, `Replaced by ${cid}`, at);
+  setResolved(owner, [id], 'Followed by Is this it?', at);
+  const confirm = { id: cid, topic: q.topic, source: `Prototype round ${n} · confirm`, question: 'Is this it?',
+    context: `Take ${take.id}, “${take.label}”. Send to keep it, or ask for another prototype.`,
+    url: `${q.url.split(/[?#]/)[0]}?q=${encodeURIComponent(cid)}`, options: [{ id: take.id, label: take.label }], round: n, confirm_of: id };
+  await writeJSON(ownerFile(site), { ...owner, topics: owner.topics || [], items: [...items, confirm] });
+  return cid;
 }
 
 async function ownerAnswers(site) {

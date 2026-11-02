@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0111
+---
+
 # A prototype answer with a note gets a confirm round
+
+Superseded in part by [0111](0111-a-prototype-round-ends-with-a-one-take-confirm.md): the board opens a one-take confirm after every take the owner picks, and a note that changes the take gets a new prototype round (`round_of`) rather than a hand-written confirm. The building gate still holds.
 
 The owner asked on hub/INT-208 that a card never build on a take the owner changed in a note without one more look at the final version, unless the note says go. That rested on the owning session remembering, so the board enforces it where a card starts.
 

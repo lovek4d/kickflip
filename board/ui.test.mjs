@@ -629,6 +629,33 @@ test("a question's link opens in place on this hub, and outside the board anywhe
   assert.match(linear, /target="_blank" rel="noopener">INT-1 <svg class="link-arrow"[^>]*>[^]*<\/svg><\/a>/);
 });
 
+test('a question waiting on its prototype reads Prototype requested with a spinner and takes no answer; a confirm links its one take alone and says why it is asked', () => {
+  const requested = ui.questionCard({ ...question, state: 'requested', request: { id: 'e1', ts: ago(1), note: 'bigger' } }, { draft: { note: 'kept' } });
+  assert.match(requested, /^<section class="q  pr-busy"/);
+  assert.match(requested, /<span class="chip tone-notice"><span class="try-spin" aria-hidden="true"><\/span>Prototype requested<\/span>/);
+  assert.match(text(requested), /Claude is making takes\. Answering waits until they’re back\./);
+  assert.deepEqual(options(requested).map((o) => /\bdisabled>/.test(o)), [true, true]);
+  assert.match(requested, /<textarea class="note" rows="2" placeholder="Note \(optional\)" disabled>kept<\/textarea>/);
+  const onTakes = ui.questionCard({ ...question, url: 'prototype-search.html?q=q1', state: 'requested' });
+  assert.ok(takeCards(onTakes).every((t) => /<input type="radio"[^>]* disabled>/.test(t)));
+  assert.doesNotMatch(ui.questionCard(question), /disabled|pr-busy|try-spin/);
+
+  const confirm = { ...question, id: 'c1', question: 'Is this it?', url: 'prototype-search.html?q=c1', options: [{ id: 'B', label: 'Icon' }], round: 1, confirm_of: 'q1' };
+  const open = ui.questionCard(confirm);
+  assert.match(open, /<a class="pill proto pr-open" href="prototype-search\.html\?q=c1&amp;take=B">Open the prototype →<\/a>/);
+  assert.match(text(open), /A prototype round ends with a one-take confirm/);
+  assert.deepEqual(frames(open), ['prototype-search.html?q=c1&take=B']);
+  assert.doesNotMatch(ui.questionCard({ ...confirm, state: 'answered', answers: [{ ts: ago(1), choice: 'B', note: '', reply: null }] }), /one-take confirm/);
+  assert.doesNotMatch(ui.questionCard({ ...confirm, url: 'prototype-search.html?q=c1', confirm_of: undefined }), /pr-open|one-take confirm/);
+});
+
+test("a topic's prototype round chip is orange with a spinner while being made, blue while back, and grey once its confirm closes it", () => {
+  assert.equal(ui.roundChip(null), '');
+  assert.equal(ui.roundChip({ n: 2, state: 'making' }), '<span class="chip tone-notice"><span class="try-spin" aria-hidden="true"></span>Prototype round 2</span>');
+  assert.equal(ui.roundChip({ n: 2, state: 'back' }), '<span class="chip tone-normal">Prototype round 2</span>');
+  assert.equal(ui.roundChip({ n: 2, state: 'closed', take: 'B' }), '<span class="chip tone-quiet">Round 2 closed · take B</span>');
+});
+
 test('a resolved question says how it was resolved', () => {
   assert.match(text(ui.questionCard({ ...question, state: 'resolved', resolved: 'Kept it.' })), /Resolved: Kept it\. A new answer reopens it\./);
 });

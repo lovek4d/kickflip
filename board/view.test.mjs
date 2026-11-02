@@ -2235,8 +2235,15 @@ function questionsOnDom({ topics, questions, at, next }) {
   const body = (url) => (new URL(url, base).pathname.endsWith('/api/board') ? { ...boardOf([]), owner: server.questions, ownerTopics: ownerTopics() } : []);
   page.win.fetch = async (url) => { const b = structuredClone(body(url)); return { ok: true, status: 200, text: async () => JSON.stringify(b), json: async () => b }; };
   const site = page.win.ClaudeSite.site;
+  const sent = [];
   page.win.ClaudeSite.site = (r) => ({ ...site(r), send: async (kind, data) => {
-    const q = server.questions.find((x) => x.id === data.id);
+    sent.push([kind, data]);
+    const q = server.questions.find((x) => x.id === (data.id ?? data.question));
+    if (kind === 'prototype-request') {
+      q.state = 'requested';
+      topics.find((t) => t.id === q.topic).round = { n: (q.round || 0) + 1, state: 'making' };
+      return {};
+    }
     q.state = 'answered';
     q.answers.push({ ts: '2026-10-30T10:00:00.000Z', choice: data.choice, note: '', files: [], reply: null });
     return {};
@@ -2276,7 +2283,7 @@ function questionsOnDom({ topics, questions, at, next }) {
   const shown = () => shell.board ? { board: shell.board.querySelector('.toast')?.textContent || '' }
     : { pills: shell.root.querySelectorAll('.topics button').map((b) => [b.dataset.topic, b.getAttribute('aria-pressed')]),
       questions: shell.root.querySelectorAll('section.q').map((s) => s.dataset.q), status: $('#qstatus').textContent, hash: page.win.location.hash };
-  return { settle, answer, send, shown, decisions, root: shell.root, page, idle, unmount: () => questionsView.unmount() };
+  return { settle, answer, send, shown, decisions, sent, root: shell.root, page, idle, unmount: () => questionsView.unmount() };
 }
 
 test("Waiting on you's Send follows the shared next question, leaving an urgent question's solo view, staying on the current topic or going to the board with its Sent toast", async () => {
@@ -2312,6 +2319,42 @@ test("Waiting on you's Send follows the shared next question, leaving an urgent 
   urgent.answer('q3');
   await urgent.send();
   assert.deepEqual(urgent.shown(), { pills: [['item:w/T1', 'true'], ['item:w/T2', 'false']], questions: ['q1'], status: 'Sent 1 answer to INT-3.', hash: '#q1' });
+});
+
+test("Waiting on you's eye left of Send asks for a prototype of the question last typed in, with its note, and that card reads Prototype requested with answering off while the topic's round is made", async () => {
+  const question = (id) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('q2')], at: 'q1' });
+  await v.settle();
+  const $ = (sel) => v.root.querySelector(sel);
+  const eye = () => $('#qform .bar .pr-send [data-proto]');
+  assert.deepEqual($('#qform .bar .pr-send').children.map((c) => c.id || c.getAttribute('aria-label')), ['Ask for a prototype instead', 'send']);
+  assert.equal(eye().disabled, false);
+  assert.equal($('.topichead .chip'), null);
+
+  v.answer('q2');
+  const note = $('section.q[data-q="q2"] textarea.note');
+  note.value = 'Show it on a phone';
+  v.page.fire(v.root, 'input', { target: note });
+  v.page.fire(v.root, 'click', { target: eye() });
+  await v.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['prototype-request', { key: 'w/T1', question: 'q2', note: 'Show it on a phone' }]]);
+  const busy = $('section.q[data-q="q2"]');
+  assert.ok(busy.classList.contains('pr-busy'));
+  assert.equal(busy.querySelector('.chip').textContent, 'Prototype requested');
+  assert.ok(busy.querySelector('.chip .try-spin'));
+  assert.ok(busy.querySelectorAll('input[type=radio]').every((r) => r.disabled));
+  assert.equal(busy.querySelector('textarea.note').disabled, true);
+  assert.equal(busy.querySelector('textarea.note').value, '');
+  assert.equal($('.topichead .chip').textContent, 'Prototype round 1');
+  assert.ok($('.topichead .chip.tone-notice .try-spin'));
+  assert.equal($('#qstatus').textContent, 'Asked for a prototype.');
+  assert.equal($('#send').disabled, true);
+
+  v.page.fire(v.root, 'click', { target: eye() });
+  await v.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(v.sent[1])), ['prototype-request', { key: 'w/T1', question: 'q1', note: '' }]);
+  assert.equal(eye().disabled, true);
+  v.unmount();
 });
 
 test('Waiting on you measures a fitting grid, then uses one growing full-size frame when any take scrolls, preserving drafts and history while choices switch', async () => {

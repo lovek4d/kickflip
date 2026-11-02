@@ -42,6 +42,30 @@ test('an owner answer drops queued question pushes only for this site', async ()
   assert.deepEqual(JSON.parse(fs.readFileSync(queue, 'utf8')), { items: keep });
 });
 
+test("an owner answer picking a prototype question's take opens its one-take confirm, replacing an open one, and an answer to the confirm or with no take opens none", async () => {
+  const ownerFile = path.join(site, 'data', 'owner.json');
+  const pick = { id: 'pick', topic: 'item:t/A1', question: 'Which?', url: 'prototype-rounds.html?q=pick', options: [{ id: 'A', label: 'Badge' }, { id: 'B', label: 'Dot' }], round: 2 };
+  const plain = { id: 'plain', topic: 'item:t/A1', question: 'Keep?', options: [{ id: 'A', label: 'Keep' }] };
+  fs.writeFileSync(ownerFile, JSON.stringify({ items: [pick, plain] }));
+  const answer = (id, choice) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answer', id, choice, note: '' }) });
+  const items = () => JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items;
+  const confirm = (id, take, label) => ({ id, topic: 'item:t/A1', source: 'Prototype round 2 · confirm', question: 'Is this it?',
+    context: `Take ${take}, “${label}”. Send to keep it, or ask for another prototype.`, url: `prototype-rounds.html?q=${id}`, options: [{ id: take, label }], round: 2, confirm_of: 'pick' });
+  try {
+    assert.equal((await answer('pick', 'B')).status, 200);
+    assert.deepEqual(items().map((q) => [q.id, q.resolved ?? null]), [['pick', 'Followed by Is this it?'], ['plain', null], ['pick-confirm', null]]);
+    assert.deepEqual(items()[2], confirm('pick-confirm', 'B', 'Dot'));
+    assert.equal((await answer('pick', 'A')).status, 200);
+    assert.deepEqual(items().map((q) => [q.id, q.resolved ?? null]), [['pick', 'Followed by Is this it?'], ['plain', null], ['pick-confirm', 'Replaced by pick-confirm-2'], ['pick-confirm-2', null]]);
+    assert.deepEqual(items()[3], confirm('pick-confirm-2', 'A', 'Badge'));
+    const before = fs.readFileSync(ownerFile, 'utf8');
+    for (const [id, choice] of [['pick-confirm-2', 'A'], ['plain', 'A'], ['pick', null], ['missing', 'A']]) assert.equal((await answer(id, choice)).status, 200);
+    assert.equal(fs.readFileSync(ownerFile, 'utf8'), before);
+    const board = await (await fetch(`${base}/api/board`)).json();
+    assert.deepEqual(board.ownerTopics.find((t) => t.questions.includes('pick')).round, { n: 2, state: 'closed', take: 'A' });
+  } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
+});
+
 test('an owner answer still succeeds when removing its queued push fails', async () => {
   const queue = path.join(home, '.claude', 'kickflip', 'push', 'queue.json');
   fs.mkdirSync(path.dirname(queue), { recursive: true });

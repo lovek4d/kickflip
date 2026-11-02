@@ -5,6 +5,9 @@
 // open question goes back to the board, where the Sent line shows as a toast (BoardUI.sentNotice). An open question
 // with `urgent: true` in owner.json shows alone first, and its Send follows the same rule for its topic. A question
 // whose options are prototype takes frames each take with ?take= (docs/adr/0048-a-questions-takes-show-inline.md).
+// The eye left of Send sends `prototype-request {key?, question, note}` instead of an answer, for the question last
+// typed in or picked on, else the first one not resolved or requested, with its note box as the note
+// (docs/adr/0111-a-prototype-round-ends-with-a-one-take-confirm.md).
 // fits: each framed take's measured size, kept across repaints and visits so a take redraws at its size at once.
 (globalThis.AppViews ||= {}).questions = ((fits) => ({
   className: 'view-questions',
@@ -16,7 +19,7 @@
 
   create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
     const { $, site } = B;
-    const { esc, choiceLabel, questionCard, takes, linkContext, badge, topicName, topicRow, nextQuestion, sentNotice, fetchJSON, restartNotice } = BoardUI;
+    const { esc, choiceLabel, questionCard, roundChip, protoButton, takes, linkContext, badge, topicName, topicRow, nextQuestion, sentNotice, fetchJSON, restartNotice } = BoardUI;
     // prototype-switcher.js reads a draft's note and clears the draft once it sends that question's answer.
     const draftKey = (id) => 'qdraft:' + id;
     const getDraft = (id) => { try { return JSON.parse(localStorage.getItem(draftKey(id)) || '{}'); } catch { return {}; } };
@@ -31,6 +34,7 @@
     let shown = '';
     let sentLine = '';
     let scrollTake = null;
+    let touched = null;
     const takeResources = new Map();
     const clearTakeResources = (within = root) => {
       for (const [shot, release] of takeResources) {
@@ -52,13 +56,14 @@
       return `<div class="topics" role="group" aria-label="Topics">${list.map((t) =>
         `<button data-topic="${esc(t.id)}" aria-pressed="${t.id === topicId}" title="${esc(t.title)}">${esc(topicName(t))}<span class="n">${t.state === 'resolved' ? 'resolved' : t.open}</span></button>`).join('')}</div>`;
     }
-    const topicHead = (t) => t ? `<div class="topichead muted small">${esc(t.title)}${t.summary ? ` · ${esc(t.summary)}` : ''}</div>` : '';
+    const topicHead = (t) => t ? `<div class="topichead muted small"><span>${esc(t.title)}${t.summary ? ` · ${esc(t.summary)}` : ''}</span>${roundChip(t.round)}</div>` : '';
 
     // Only questions changed here since their last answer, or with files attached, are sent.
     const filesOf = (q) => BoardAttach.files('q:' + q.id, site.root);
     const uploading = (qs) => qs.some((q) => BoardAttach.busy('q:' + q.id, site.root));
     function pending(qs) {
       return qs.filter((q) => {
+        if (q.state === 'requested') return false;
         const d = getDraft(q.id);
         if (filesOf(q).length) return true;
         if (!('choice' in d) && !d.note) return false;
@@ -84,6 +89,7 @@
       }
       const t = topics.find((x) => x.id === topicId);
       const live = qs.filter((q) => q.state !== 'resolved');
+      const eye = protoButton('question', null, { label: 'Ask for a prototype instead', disabled: !eyeTarget() });
       const done = qs.filter((q) => q.state === 'resolved');
       const head = soloId
         ? `<div class="solo">${badge('notice', 'needs you first')}<button class="ghost" id="showAll">All questions</button></div>`
@@ -91,7 +97,7 @@
       el.innerHTML = `${head}<form id="qform">
         ${live.map((q, i) => questionCard(q, { n: soloId ? 0 : i + 1, draft: getDraft(q.id), links: links(q), fit: fitOf(q) })).join('')}
         ${done.length ? `<details class="done"><summary>Resolved · ${done.length}</summary>${done.map((q) => questionCard(q, { draft: getDraft(q.id), links: links(q), fit: fitOf(q) })).join('')}</details>` : ''}
-        <div class="bar"><span class="muted small${sentLine ? ' sent' : ''}" id="qstatus" role="status">${esc(sentLine)}</span><span class="send-hint" aria-hidden="true">${/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘↵' : 'Ctrl+↵'}</span><button class="primary" type="submit" id="send">Send</button></div>
+        <div class="bar"><span class="muted small${sentLine ? ' sent' : ''}" id="qstatus" role="status">${esc(sentLine)}</span><span class="send-hint" aria-hidden="true">${/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘↵' : 'Ctrl+↵'}</span><span class="pr-send">${eye}<button class="primary" type="submit" id="send">Send</button></span></div>
       </form>${soloId ? '' : waitingTopics() + resolvedTopics()}`;
       BoardAttach.paintAll();
       el.querySelectorAll('.take-shot').forEach(fitTake);
@@ -199,13 +205,31 @@
     function waitingTopics() {
       const list = topicRow(topics, topicId).waiting;
       return list.length ? `<details class="done"><summary>Waiting on Claude · ${list.length}</summary>${list.map((t) =>
-        `<div class="trow"><button class="ghost" data-topic="${esc(t.id)}">${esc(t.title)}</button><span class="muted small">${t.answered ? 'answered' : 'Claude replied'}</span></div>`).join('')}</details>` : '';
+        `<div class="trow"><button class="ghost" data-topic="${esc(t.id)}">${esc(t.title)}</button><span class="muted small">${t.requested ? 'prototype requested' : t.answered ? 'answered' : 'Claude replied'}</span></div>`).join('')}</details>` : '';
     }
 
     function resolvedTopics() {
       const done = topics.filter((t) => t.state === 'resolved' && t.id !== topicId);
       return done.length ? `<details class="done"><summary>Resolved topics · ${done.length}</summary>${done.map((t) =>
         `<div><button class="ghost" data-topic="${esc(t.id)}">${esc(t.title)}</button></div>`).join('')}</details>` : '';
+    }
+
+    function eyeTarget() {
+      const live = visible().filter((q) => q.state !== 'resolved' && q.state !== 'requested');
+      return live.find((q) => q.id === touched) || live[0] || null;
+    }
+    async function askPrototype() {
+      const q = eyeTarget();
+      if (!q) return;
+      const st = $('#qstatus');
+      const key = q.topic?.startsWith('item:') ? q.topic.slice(5) : null;
+      st.textContent = 'Sending…';
+      try { await site.send('prototype-request', { ...(key ? { key } : {}), question: q.id, note: (getDraft(q.id).note || '').trim() }); }
+      catch { st.textContent = 'Could not send. Is the host awake?'; return; }
+      setDraft(q.id, {});
+      sentLine = 'Asked for a prototype.';
+      await loading;
+      if (await load(false)) { shown = sigNow(); render(); }
     }
 
     function updateBar() {
@@ -226,7 +250,7 @@
       topicId = t ? t.id : null;
     }
 
-    const sigNow = () => JSON.stringify([soloId, topicId, topics.map((t) => [t.id, t.state, t.open, t.answered]), visible().map((q) => [q.id, q.state, q.answers.length, q.answers.map((a) => Boolean(a.reply))])]);
+    const sigNow = () => JSON.stringify([soloId, topicId, topics.map((t) => [t.id, t.state, t.open, t.answered, t.round]), visible().map((q) => [q.id, q.state, q.answers.length, q.answers.map((a) => Boolean(a.reply))])]);
     // One load at a time: a load waiting out a board restart would otherwise overlap the next poll's. A load asked for
     // while one runs shares it. → true when the board's answer landed in this view.
     let loading = null;
@@ -290,6 +314,8 @@
 
     B.on(root, 'click', (ev) => {
       if (ev.target.id === 'showAll') { soloId = null; sentLine = ''; shown = ''; render(); return; }
+      const eye = ev.target.closest && ev.target.closest('[data-proto]');
+      if (eye) { if (!eye.disabled) askPrototype(); return; }
       const b = ev.target.closest && ev.target.closest('[data-topic]');
       if (b) { soloId = null; topicId = b.dataset.topic; sentLine = ''; shown = ''; render(); scrollTo(0, 0); }
     });
@@ -311,6 +337,7 @@
     }
     B.on(root, 'change', (ev) => {
       const sec = ev.target.closest('section.q'); if (!sec || ev.target.type !== 'radio') return;
+      touched = sec.dataset.q;
       const d = getDraft(sec.dataset.q); d.choice = ev.target.value; setDraft(sec.dataset.q, d); updateBar();
       const full = sec.querySelector('.takes-full');
       if (full && inPlace(full, d.choice)) return;
@@ -324,6 +351,7 @@
     });
     B.on(root, 'input', (ev) => {
       const sec = ev.target.closest('section.q'); if (!sec || ev.target.tagName !== 'TEXTAREA') return;
+      touched = sec.dataset.q;
       const d = getDraft(sec.dataset.q); d.note = ev.target.value; setDraft(sec.dataset.q, d); updateBar();
     });
     B.on(root, 'keydown', (ev) => {

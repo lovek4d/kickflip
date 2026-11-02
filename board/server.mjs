@@ -38,7 +38,7 @@
 //                                per-item review_link_ts and legacy ~/.claude/slack-bridge/topics/*.json fallbacks,
 //                                data/owner.json and GitHub (gh, cached for 45 s).
 //                                owner.json: {topics: [{id, title, summary}], items: [{id, topic,
-//                                question, context, url, options, urgent, resolved, resolved_at}]};
+//                                question, context, url, options, urgent, resolved, resolved_at, round, round_of, confirm_of}]};
 //                                Waiting on you shows an open `urgent` question alone, first
 //                                checks comes from data/checked.json (board.mjs checked),
 //                                whether the board hears its events (../hub/boards.mjs listenState) and Claude's latest writes;
@@ -63,6 +63,9 @@
 //   GET  /plan.html?…            redirects to notes.html with the same query, since pushes and threads link it
 //   POST /_claude/events         {kind, ...data} → one line in data/events.jsonl; wakes Claude.
 //                                ask, item-message and owner-answer may carry files: [upload]
+//                                An owner-answer picking a take of a prototype question opens its one-take
+//                                "Is this it?" confirm in owner.json (store.mjs openConfirm).
+//                                prototype-request {key?, question?, note?} asks for prototypes of a card, or of one question
 //                                builder-nudge {key} asks the session to check a builder. The server also appends
 //                                builder-stalled {key, silentSince} once per silent spell, tracked in data/builder-stalled.json
 //                                item set appends card-unblocked {key} when a waiting card's last dep finishes,
@@ -108,7 +111,7 @@ import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { buildBoard, ITEM_EVENTS, needsAnswer, refOf, threadOf } from './domain.mjs';
 import { createReadStream, watch as watchFiles } from 'node:fs';
-import { BoardError, boardConfig, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, boardConfig, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, openConfirm, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -585,6 +588,7 @@ const server = http.createServer(async (req, res) => {
       const id = await appendEvent(kind, body);
       if (kind === 'owner-answer') {
         try { await dropQueued([`q-${body.id}`], path.basename(here)); } catch {}
+        await openConfirm(here, body);
       }
       return json(res, 200, { id });
     }

@@ -501,6 +501,14 @@ const addPrototypeQuestion = (url = 'prototype-site.html?q=q1', extra = {}) => {
   write(path.join(home, 'q.json'), question('q1', { url, ...extra }));
   return board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json'));
 };
+const confirmFor = (id, take = 'A') => ({ id: `${id}-confirm`, question: 'Is this it?', url: `prototype-site.html?q=${id}-confirm`, options: [{ id: take, label: 'Keep' }], round: 1, confirm_of: id });
+function addConfirm(id, answered) {
+  const file = site('orch', 'data', 'owner.json');
+  const owner = read(file);
+  owner.items.push({ ...confirmFor(id), topic: owner.items.find((q) => q.id === id).topic });
+  write(file, owner);
+  if (answered) addEvents({ id: `answer-${id}-confirm`, ts: '2026-10-23T12:00:00Z', kind: 'owner-answer', data: { id: `${id}-confirm`, choice: 'A' } });
+}
 const prototypeRefusal = (result, line) => {
   assert.deepEqual(result, { code: 1, out: '', err: line + '\n' });
   assert.deepEqual(read(site('orch', 'data', 'owner.json')).items, []);
@@ -544,8 +552,47 @@ test('prototype rm refuses while an open question links the prototype', () => {
   recordPrototype();
   assert.equal(addPrototypeQuestion().code, 0);
   assert.deepEqual(board('prototype', 'rm', 'site', '--site', 'orch'), { code: 1, out: '', err: 'prototype site backs open question q1; resolve it first\n' });
-  assert.equal(board('question', 'resolve', 'q1', '--site', 'orch', '--note', 'Picked A.').code, 0);
+  addConfirm('q1', true);
+  for (const id of ['q1', 'q1-confirm']) assert.equal(board('question', 'resolve', id, '--site', 'orch', '--note', 'Picked A.').code, 0);
   assert.equal(board('prototype', 'rm', 'site', '--site', 'orch').code, 0);
+});
+
+test("question resolve refuses a prototype question until its round's one-take confirm has an answer, naming the confirm", () => {
+  recordPrototype();
+  assert.equal(addPrototypeQuestion().code, 0);
+  const resolve = (id) => board('question', 'resolve', id, '--site', 'orch', '--note', 'Picked A.');
+  assert.deepEqual(resolve('q1'), { code: 1, out: '', err: 'q1 is in prototype round 1, which has no "Is this it?" confirm yet; the board opens one when the owner picks a take\n' });
+  addConfirm('q1', false);
+  const waiting = 'is in prototype round 1, whose confirm q1-confirm ("Is this it?") has no answer yet; the round ends when the owner answers it\n';
+  assert.deepEqual(resolve('q1'), { code: 1, out: '', err: `q1 ${waiting}` });
+  assert.deepEqual(resolve('q1-confirm'), { code: 1, out: '', err: `q1-confirm ${waiting}` });
+  assert.ok(read(site('orch', 'data', 'owner.json')).items.every((q) => !q.resolved));
+  addEvents({ id: 'answer-q1-confirm', ts: '2026-10-23T12:00:00Z', kind: 'owner-answer', data: { id: 'q1-confirm', choice: 'A' } });
+  for (const id of ['q1', 'q1-confirm']) assert.equal(resolve(id).code, 0);
+});
+
+test('question add with round_of starts the next prototype round on the question it answers, resolving that one as followed by the round', () => {
+  recordPrototype();
+  recordPrototype('next');
+  const add = (q) => { write(path.join(home, 'q.json'), q); return board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')); };
+  const on = (id, extra = {}) => question(id, { topic: 'item:w/A1', ...extra });
+  assert.equal(add(on('plain')).code, 0);
+  const file = site('orch', 'data', 'owner.json');
+  for (const [q, err] of [
+    [on('r1', { url: 'prototype-site.html?q=r1', round_of: 'nope' }), 'question r1.round_of names no question "nope" in owner.json'],
+    [on('r1', { url: 'prototype-site.html?q=r1', round_of: 'plain', topic: 'site' }), 'question r1.round_of names plain on topic item:w/A1; a round stays on its question\'s topic, site'],
+    [on('r1', { round_of: 'plain' }), 'question r1.round_of needs a url on a recorded prototype, prototype-<topic>.html?q=r1'],
+  ]) assert.deepEqual(add(q), { code: 1, out: '', err: err + '\n' });
+  assert.deepEqual(read(file).items.map((q) => q.id), ['plain']);
+
+  const first = add(on('r1', { url: 'prototype-site.html?q=r1', round_of: 'plain' }));
+  assert.deepEqual(first.out.split('\n').slice(1), ['resolved: plain', '']);
+  addConfirm('r1', false);
+  const second = add(on('r2', { url: 'prototype-next.html?q=r2', round_of: 'r1-confirm' }));
+  assert.deepEqual(second.out.split('\n').slice(1), ['resolved: r1-confirm', '']);
+  const items = read(file).items;
+  assert.deepEqual(items.map((q) => [q.id, q.round ?? null, q.resolved ?? null]), [
+    ['plain', null, 'Followed by prototype round 1'], ['r1', 1, null], ['r1-confirm', 1, 'Followed by prototype round 2'], ['r2', 2, null]]);
 });
 
 test('question add refuses a prototype url missing or with the wrong ?q=', () => {
@@ -597,8 +644,7 @@ test('a question re-asked on the same topic with the same prototype resolves the
   recordPrototype('other');
   const add = (q) => { write(path.join(home, 'q.json'), q); return board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')); };
   const on = (id, topic, page) => question(id, { topic, url: `prototype-${page}.html?q=${id}` });
-  assert.equal(add(on('done', 'item:w/A1', 'site')).code, 0);
-  assert.equal(board('question', 'resolve', 'done', '--site', 'orch', '--note', 'Picked A.').code, 0);
+  write(site('orch', 'data', 'owner.json'), { topics: [{ id: 'site', title: 'Site' }], items: [{ ...on('done', 'item:w/A1', 'site'), resolved: 'Picked A.', resolved_at: '2026-10-23T00:00:00Z' }] });
   for (const q of [on('moon', 'item:w/A1', 'site'), on('elsewhere', 'site', 'site'), on('different', 'item:w/A1', 'other')]) assert.deepEqual(add(q).out.split('\n').slice(1), ['']);
   const r = add(on('moon-2', 'item:w/A1', 'site'));
   assert.deepEqual(r, { code: 0, err: '', out: `question add → ${site('orch', 'data', 'owner.json')}\nreplaced: moon\n` });
