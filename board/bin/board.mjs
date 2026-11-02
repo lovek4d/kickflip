@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readiness, reportSlack } from '../../hub/readiness.mjs';
 import { readSlack, setSlack } from '../../hub/slack.mjs';
 import { routeRecord } from '../../hub/routes.mjs';
 import fs from 'node:fs';
@@ -162,6 +163,9 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
   review sent <wave>/<id> <reviewer> --ts <ts>           records the PR link's message in the item
               --channel <dm>
   review react <wave>/<id> <reviewer> <emoji>            records a reaction once on that reviewer's link
+  integrations                                          readiness rows as one JSON line
+  integrations report --slack yes|no                    with --site: reports whether this session has Claude's
+                                                         Slack connector, in ~/.claude/kickflip/integrations.json
   review digest                                         pending reviews as JSON; due weekday mornings from 09:00
   review digest sent <reviewer> --ts <ts>               records a digest in data/review-digests.json;
               --channel <dm> --items <key,key>           marks today sent in the Slack identity timezone
@@ -359,6 +363,14 @@ const COMMANDS = {
     const fields = { 'self-dm': 'self_dm', user: 'owner_slack_user', domain: 'slack_domain', timezone: 'timezone' };
     try { return { lines: [JSON.stringify(await setSlack(Object.fromEntries(Object.entries(f).map(([k, v]) => [fields[k], v]))))] }; }
     catch (e) { throw new store.BoardError(e.message); }
+  }],
+  integrations: [[], [], async () => ({ lines: [JSON.stringify(await readiness.rows())] })],
+  'integrations report': [[], ['slack'], async (site, _, f) => {
+    if (!['yes', 'no'].includes(f.slack)) throw new UsageError('integrations report takes --slack yes|no');
+    if (!site) throw new store.BoardError('integrations report needs --site <route>');
+    const route = path.basename(site);
+    reportSlack(f.slack === 'yes', { route, title: readManifest().sites?.[route]?.title || (await store.boardConfig(site)).title });
+    return { lines: [`Slack connector reported: ${f.slack}.`] };
   }],
   'review sent': [['wave/id', 'reviewer'], ['ts', 'channel'], (site, [key, name], f) => store.reviewSent(site, key, name, f)],
   'review react': [['wave/id', 'reviewer', 'emoji'], [], (site, [key, name, emoji]) => store.reviewReact(site, key, name, emoji)],

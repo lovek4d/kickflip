@@ -5,9 +5,9 @@ export const PR_VIEW_FIELDS = 'state,isDraft,reviewDecision,mergeable,mergeState
 const GH_PATH = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
 const firstLine = (value) => String(value).trim().split(/\r?\n/)[0].slice(0, 200);
 
-function gh(args) {
+function gh(args, env = process.env) {
   return new Promise((resolve, reject) => {
-    execFile('gh', args, { env: { ...process.env, PATH: [process.env.PATH, GH_PATH].filter(Boolean).join(':') }, timeout: 90_000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile('gh', args, { env: { ...env, PATH: [env.PATH, GH_PATH].filter(Boolean).join(':') }, timeout: 90_000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) return reject(new Error(firstLine(stderr || err.message)));
       try { resolve(JSON.parse(stdout)); } catch (e) { reject(new Error(firstLine(`unreadable output (${e.message})`))); }
     });
@@ -46,8 +46,8 @@ export function reportOf({ view, issueComments, reviewComments, reviews }, { pr,
   };
 }
 
-export async function githubLogin() {
-  const user = await gh(['api', 'user']);
+export async function githubLogin({ env } = {}) {
+  const user = await gh(['api', 'user'], env);
   if (typeof user?.login !== 'string' || !user.login) throw new Error('gh api user: missing login');
   return user.login;
 }

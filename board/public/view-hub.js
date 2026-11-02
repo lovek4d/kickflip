@@ -1,5 +1,5 @@
 // The hub page, /_hub/, a view of the app shell (shell.js): a banner while pushes are held or snoozed, the Usage card with Codex share, Needs you for the pending
-// prompts of sessions that own no board, the hub's health, each site's health and board links,
+// prompts of sessions that own no board, Health, Integrations (readiness.mjs words), each site's health and board links,
 // polling status, then hub settings summary rows (ADR 0075). Health comes from GET /_hub/api/hub.
 // Its data refreshes every 30 seconds while it shows (hub-kit.js live).
 (function () {
@@ -20,6 +20,18 @@
     return groups.map((g) => `<h2 class="label">${esc(g.label)}</h2>\n<div class="group">${g.sites.map(site).join('')}</div>\n`).join('');
   }
 
+  function integrationsHtml(integrations) {
+    const { row, tile } = HubUI;
+    const fixHtml = (fix) => fix.command ? `<code>${esc(fix.command)}</code>` : fix.settings
+      ? `${esc(fix.text)} <button type="button" class="link" data-settings-open="${esc(fix.settings)}">${esc(fix.label)}</button>.` : esc(fix.text);
+    const rows = integrations.map((it) => row({ icon: tile(it.id, it.ready ? 'var(--color-quiet)' : 'var(--color-notice)'), title: esc(it.name), wrap: true,
+      sub: it.ready ? `<span class="st ok">Ready</span> · ${esc(it.detail)}`
+        : `<span class="st wait">Not ready</span> · ${esc(it.missing)}<span class="links"><span class="rd-fix">${fixHtml(it.fix)}</span><span class="rd-waits">${esc(it.waits)}</span></span>` })).join('');
+    return `<h2 class="label">Integrations</h2><div class="group">${rows}</div>
+<p class="note">A feature that needs an integration stays off until it’s ready, and says why.</p>
+`;
+  }
+
   // A pending prompt from a session that owns no board waits here (prompts.js).
   function promptsHtml(list, prompts) {
     const shown = list.filter(prompts.shows);
@@ -32,7 +44,7 @@
     return `${HubUI.flash(flash)}${HubUI.pauseBanner(d.pause)}${HubUI.holdBanner(d.hold)}${usage}${promptsHtml(d.prompts || [], prompts)}<h2 class="label"${usage ? '' : ' style="margin-top:4px"'}>Health</h2>
 <div class="group">${row({ icon: tile('power', { ok: '#22c55e', wait: '#f59e0b' }[d.hub.tone] || '#ef4444'), title: 'Hub', sub: `<span class="st ${esc(d.hub.tone)}">${esc(d.hub.word)}</span> · ${esc(d.hub.detail)}`, wrap: true })}
 ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/kickflip &lt;route&gt;</code>.' }) : ''}</div>
-${sitesHtml(d.groups)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, events (its session and a watcher run, or the hub can wake it), daily wakes, pushes and reviewer links. One that just broke reads settling first.</p>
+${integrationsHtml(d.integrations)}${sitesHtml(d.groups)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, events (its session and a watcher run, or the hub can wake it), daily wakes, pushes and reviewer links. One that just broke reads settling first.</p>
 <h2 class="label">Polling status</h2>
 <div class="group">${nowRow(d.polling, tile('clock', d.polling.count ? 'var(--color-notice)' : 'var(--color-quiet)'))}</div>`;
   }
@@ -60,6 +72,10 @@ ${sitesHtml(d.groups)}${d.remembered?.length ? `<h2 class="label">Sessions witho
       B.on(B.$('#refresh'), 'click', () => settings.B.refreshSettings?.());
       let flash = null;
       B.openSettings = (...args) => settings.B.openSettings(...args);
+      B.on(main, 'click', (e) => {
+        const opener = e.target.closest?.('[data-settings-open]');
+        if (opener) B.openSettings({ hash: `#${opener.dataset.settingsOpen}` }, opener);
+      });
       const foot = B.$('.hub-foot');
       const paint = () => {
         if (!last) return;

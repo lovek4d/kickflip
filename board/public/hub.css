@@ -160,3 +160,5 @@
 .hub-view .ub-step output.off { border-color: var(--line); background: var(--panel); color: var(--muted); }
 .hub-view .ub-marked .u-bar { position: relative; }
 .hub-view .ub-marked .u-bar > .ub-mark { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; border-radius: 0; background: var(--text); opacity: .5; }
+
+.hub-view .rd-fix button.link { padding: 0; font-size: inherit; }

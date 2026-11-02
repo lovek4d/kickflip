@@ -11,7 +11,7 @@
 //   /_hub/, /_hub/settings, /_hub/settings/polling
 //                     the hub page (both paths) and Polling, views of the shell; any GET of them gets the shell
 //   /_hub/api/hub, /_hub/api/settings, /_hub/api/polling?w=HH:MM
-//                     those views' data and words (views.mjs)
+//                     those views' data and words (views.mjs), including integration readiness rows on /_hub/api/hub
 //   /_hub/sidebar.json what the sidebar shows (board/public/ui-sidebar.js): {code, total, start,
 //                     sites: [{route, title, board, state, count, changedAt, created, icon, sub}], hub: {tone, word, detail, broken},
 //                     notifications: {state, text}}, each site's row from its GET /_claude/needs
@@ -113,7 +113,7 @@
 // Every 15 seconds try.mjs refreshes card heads, auto-builds cards and rebuilds main; polls fetch non-hub branches.
 // Try worktrees live in ~/.claude/kickflip/try/<route>-main; board data/try.json and data/try/*.log record runs.
 // State lives in ~/.claude/kickflip: manifest.json, logs/<route>.log, run/<route>.pid, github-state.json, wake-state.json,
-// deaf-state.json, link-faults.json, hub-code.json, resume-state.json, prompts.json, linear.json.
+// deaf-state.json, link-faults.json, hub-code.json, resume-state.json, prompts.json, linear.json, integrations.json.
 import http from 'node:http';
 import net from 'node:net';
 import { spawn, execFileSync } from 'node:child_process';
@@ -144,7 +144,7 @@ import { BOARD_PUBLIC, appFile, colorsVersion, destOf, fileVersion, pageOf, shel
 import { hubStream } from './stream.mjs';
 import { usageReader, checkUsagePause } from './usage.mjs';
 import { readUsageGate, setPauseAt, setKeepGoing } from '../shared/usage-gate.mjs';
-import { codexStatusReader } from '../shared/codex.mjs';
+import { readiness, readCodex } from './readiness.mjs';
 import { BuildError, startBuild, stopTries, tryTick, initializeTries, fetchTryBranches } from './try.mjs';
 import { migrateOnStart } from '../bin/install.mjs';
 import { serveFiles } from './files.mjs';
@@ -170,7 +170,6 @@ try { const route = await migrateHubFlag(); if (route) log(`manifest: flagged /$
 try { const routes = await migrateBoardRepos(); if (routes.length) log(`manifest: recorded GitHub repos for ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('board repo migration failed:', e.message); }
 const repos = repoService();
 const readUsage = usageReader();
-const readCodex = codexStatusReader();
 
 // ---------- manifest ----------
 let manifest = { version: 1, sites: {} };
@@ -619,7 +618,7 @@ async function hubData(req) {
   const { data, links, rows, code } = await sidebarState();
   return {
     ...hubView({
-      now, st: queueStatus(now), poll: pollState(), sidebar: data, rows, links, rules: readHubRules(),
+      now, st: queueStatus(now), poll: pollState(), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
       code, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), codex: readCodex(),
       remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])),
     }),

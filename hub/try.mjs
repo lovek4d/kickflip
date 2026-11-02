@@ -8,6 +8,7 @@ import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { listBoards, readManifest, readJSON, saveJSON, GITHUB_STATE } from './boards.mjs';
 import { boardRepo, githubFromOrigin } from './board-repo.mjs';
+import { readiness } from './readiness.mjs';
 import { buildScriptError } from '../board/build-script.mjs';
 import { appendThread, recordedWorktree } from '../board/store.mjs';
 
@@ -72,7 +73,7 @@ export async function installWorktree(board, key, manifest) {
   } catch { return ''; }
 }
 
-export function createTryManager({ now = Date.now, answers = probe, log = console.log } = {}) {
+export function createTryManager({ now = Date.now, answers = probe, log = console.log, waiting = async () => null } = {}) {
   const boards = new Map();
   const runs = new Map();
   const starting = new Set();
@@ -335,6 +336,8 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     const board = listBoards(manifest).find((b) => b.route === route);
     if (!board) throw new BuildError(`/${route} is not a board.`, 404);
     if (!board.waves.some(({ slug, wave }) => wave.items.some((it) => `${slug}/${it.id}` === key))) throw new BuildError('There is no item with this card key.', 404);
+    const reason = await waiting();
+    if (reason) throw new BuildError(reason, 409);
     const id = runKey(board, key);
     if (starting.has(id) || (runs.has(id) && !runs.get(id).ready)) throw new BuildError('A build is already running for this card.', 409);
     starting.add(id);
@@ -398,7 +401,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
           } catch (e) { log(`try /${board.route} ${key}: ${e.message}`); }
         }
         try {
-          if (!source.repo) continue;
+          if (!source.repo || await waiting()) continue;
           const sha = await git(source.repo, 'rev-parse', ref);
           let script = false;
           try { await git(source.repo, 'cat-file', '-e', `${sha}:.kickflip/build`); script = true; } catch {}
@@ -454,7 +457,7 @@ export async function fetchTryBranches({ manifest = readManifest(), log = consol
     catch (e) { log(`fetch /${board.route}: ${e.message}`); }
   }
 }
-const manager = createTryManager();
+const manager = createTryManager({ waiting: () => readiness.waiting('tailscale') });
 export const startBuild = (...args) => manager.start(...args);
 export const tryTick = (...args) => manager.tick(...args);
 export const stopTries = () => manager.stop();

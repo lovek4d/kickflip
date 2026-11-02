@@ -10,18 +10,18 @@ export class LinearError extends Error {
   constructor(message, status = 502) { super(message); this.status = status; }
 }
 
-const keyFile = () => path.join(os.homedir(), '.claude', 'kickflip', 'linear.json');
+const keyFile = (home = os.homedir()) => path.join(home, '.claude', 'kickflip', 'linear.json');
 const endpoint = () => process.env.KICKFLIP_LINEAR_URL || 'https://api.linear.app/graphql';
 
-export function readLinearKey() {
+export function readLinearKey(home) {
   try {
-    const saved = JSON.parse(fs.readFileSync(keyFile(), 'utf8'));
+    const saved = JSON.parse(fs.readFileSync(keyFile(home), 'utf8'));
     return typeof saved?.key === 'string' && saved.key ? saved : null;
   } catch { return null; }
 }
 
-export function linearStatus() {
-  const saved = readLinearKey();
+export function linearStatus(home) {
+  const saved = readLinearKey(home);
   return saved ? { set: true, workspace: saved.workspace, url_key: saved.url_key } : { set: false };
 }
 

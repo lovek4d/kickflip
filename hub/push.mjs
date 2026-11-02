@@ -49,8 +49,8 @@ export function publicKey() {
   return b64u(Buffer.concat([Buffer.from([4]), unb64u(jwk.x), unb64u(jwk.y)]));
 }
 
-function readSubs() {
-  try { return JSON.parse(fs.readFileSync(SUBS, 'utf8')); } catch { return []; }
+function readSubs(file = SUBS) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return []; }
 }
 
 // origin: the https origin of the hub page that subscribed. It becomes the VAPID
@@ -63,8 +63,8 @@ export function addSubscription(sub, origin, agent = '') {
   return subs.length;
 }
 
-export function subscriptions() {
-  return readSubs().map((s) => ({ host: new URL(s.endpoint).host, agent: s.agent, added: s.added }));
+export function subscriptions(home) {
+  return readSubs(home ? path.join(home, '.claude', 'kickflip', 'push', 'subs.json') : SUBS).map((s) => ({ host: new URL(s.endpoint).host, agent: s.agent, added: s.added }));
 }
 
 // A subscription with no user agent counts as a phone, so it never loses pushes while the owner is at the host.
@@ -170,8 +170,8 @@ export function setCodexShare(value, status = codexStatus()) {
 }
 
 // The saved polling settings: an old `push` block is migrated, and a missing or invalid file gives the defaults.
-export function readSettings() {
-  return pollingOf(readSettingsFile());
+export function readSettings(home) {
+  return pollingOf(readSettingsFile(home));
 }
 
 // Rewrites an old `push` block as `polling`. Returns the migrated settings, or null when there was nothing to migrate.

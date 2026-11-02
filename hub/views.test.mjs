@@ -366,10 +366,11 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   const { Element } = miniDom(class {}, document);
   const root = new Element('div');
   let live;
+  const listeners = [], opened = [];
   const context = vm.createContext({
     navigator: {},
-    BoardView: { page: (root, site, run) => run({ $: (s) => root.querySelector(s), atUnmount() {}, on() {} }) },
-    HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
+    BoardView: { page: (root, site, run) => run({ $: (s) => root.querySelector(s), atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    HubSettings: { create: () => ({ B: { openSettings: (...args) => opened.push(args) }, mount() {}, unmount() {} }) },
     BoardUI: { header: () => '' },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
     HubKit: { device: () => ({ state: () => null }), forms: () => ({}), live: (B, opts) => { live = opts; } },
@@ -379,7 +380,12 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   context.AppViews.hub.create(root, '/_hub', {});
   const now = t(19);
   const sessions = [{ session: 's-alpha', rules: ['Bash(echo "<img>")', 'Write(//r/a)', 'WebFetch(domain:docs.x.dev)'] }];
-  const data = hubView({ now, st: status(now, DEFAULTS), poll: poll(now),
+  const integrations = [
+    { id: 'github', name: 'GitHub', ready: false, missing: "gh isn't logged in <img>", fix: { command: 'gh auth login <img>' }, waits: 'GitHub polling and PR reports wait on this.' },
+    { id: 'codex', name: 'Codex', ready: true, detail: 'Installed and logged in <img>' },
+    { id: 'linear', name: 'Linear', ready: false, missing: 'No Linear key set', fix: { settings: 'linear', label: 'Hub settings › Linear', text: 'Add one in' }, waits: 'Linear moves wait on this.' },
+  ];
+  const data = hubView({ now, st: status(now, DEFAULTS), poll: poll(now), integrations,
     sidebar: { sites: [{ route: 'alpha', board: true }, { route: 'beta', board: true }], hub: {}, notifications: {}, total: 0,
       usage: { claude: { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null }, codex: null } },
     rows: [{ route: 'alpha', title: 'Alpha', state: 'up' }, { route: 'beta', title: 'Beta', state: 'up' }], remembered: new Map([['alpha', sessions]]),
@@ -387,7 +393,29 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   assert.deepEqual(data.groups[0].sites.map((s) => s.remembered), [sessions, []]);
   live.paint({ ...data, remembered: [{ session: 's-alone', rules: ['WebSearch'] }] });
   const labels = root.querySelectorAll('.hub-status .label').map((el) => el.textContent);
-  assert.deepEqual(labels.slice(0, 2), ['Usage', 'Health']);
+  assert.equal(data.integrations, integrations);
+  assert.deepEqual(labels.slice(0, 4), ['Usage', 'Health', 'Integrations', 'Boards']);
+  const label = root.querySelectorAll('.label').find((el) => el.textContent === 'Integrations');
+  const group = label.nextSibling;
+  assert.deepEqual(group.querySelectorAll('.title').map((el) => el.textContent), ['GitHub', 'Codex', 'Linear']);
+  const [github, codex, linear] = group.querySelectorAll('.row');
+  assert.equal(github.querySelector('.st.wait').textContent, 'Not ready');
+  assert.match(github.textContent, /gh isn't logged in <img>/);
+  assert.equal(github.querySelector('code').textContent, 'gh auth login <img>');
+  assert.equal(github.querySelector('.rd-waits').textContent, integrations[0].waits);
+  assert.match(github.querySelector('.icon').getAttribute('style'), /var\(--color-notice\)/);
+  assert.equal(codex.querySelector('.st.ok').textContent, 'Ready');
+  assert.match(codex.textContent, /Installed and logged in <img>/);
+  assert.match(codex.querySelector('.icon').getAttribute('style'), /var\(--color-quiet\)/);
+  assert.equal(linear.querySelector('[data-settings-open="linear"]').textContent, 'Hub settings › Linear');
+  const link = linear.querySelector('[data-settings-open="linear"]');
+  listeners.find((l) => l.target === root.querySelector('.hub-status') && l.type === 'click').fn({ target: link });
+  assert.deepEqual(plain(opened[0][0]), { hash: '#linear' });
+  assert.equal(opened[0][1], link);
+  assert.match(linear.querySelector('.rd-fix').textContent, /Add one in Hub settings › Linear\./);
+  assert.equal(group.querySelector('img'), null);
+  const note = group.nextSibling.nodeType === 3 ? group.nextSibling.nextSibling : group.nextSibling;
+  assert.equal(note.textContent, 'A feature that needs an integration stays off until it’s ready, and says why.');
   assert.match(root.querySelector('.usage').textContent, /Claude.*5-hour.*42%/);
   assert.equal(root.querySelector('.usage').querySelectorAll('details, dialog').length, 0);
   assert.ok(root.querySelector('.usage').querySelectorAll('button').every((el) => el.hasAttribute('disabled')));
@@ -540,7 +568,7 @@ test('the pause stepper and banner forms save in place, refresh the sidebar and 
   let live;
   let changed = 0;
   let gate = { pause_at: 90, state: 'paused', used: 91, window: 'five_hour', resets_at: new Date(Date.now() + 3600_000).toISOString() };
-  const data = () => ({ pause: { ...gate }, usage: { claude: { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at: gate.resets_at, state: 'live' } } }, hub: {}, groups: [], polling: { title: '', lines: [] } });
+  const data = () => ({ integrations: [], pause: { ...gate }, usage: { claude: { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at: gate.resets_at, state: 'live' } } }, hub: {}, groups: [], polling: { title: '', lines: [] } });
   const context = vm.createContext({
     URLSearchParams, document, navigator: {}, FormData: class { *[Symbol.iterator]() {} },
     BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), toast: (text) => toasts.push(text), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },

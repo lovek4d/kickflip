@@ -5,15 +5,15 @@ import { isTryPort } from '../hub/try.mjs';
 import { cloneRoot as runningClone } from '../shared/repos.mjs';
 import { codexStatus } from '../shared/codex.mjs';
 import { hubService, runCommand } from '../shared/service.mjs';
-import { inspectLinks, ownsStatusLine, hubStatus, tailscaleRoot, runInstall } from './install.mjs';
+import { inspectLinks, ownsStatusLine, hubStatus, tailscaleState, runInstall } from './install.mjs';
 
 const FIX = 'kickflip doctor --fix';
 const MARKS = { ok: 'ok', fixable: 'fixable', yours: 'yours', optional: 'optional', note: 'note' };
 const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
-// Homebrew on macOS; elsewhere apt, with Tailscale's own script since most distributions don't ship it.
+// Homebrew on macOS; apt elsewhere.
 const INSTALL = {
-  darwin: { git: 'xcode-select --install', gh: 'brew install gh', tailscale: 'brew install --cask tailscale' },
-  other: { git: 'sudo apt install git', gh: 'sudo apt install gh', tailscale: 'curl -fsSL https://tailscale.com/install.sh | sh' },
+  darwin: { git: 'xcode-select --install', gh: 'brew install gh' },
+  other: { git: 'sudo apt install git', gh: 'sudo apt install gh' },
 };
 
 // → [{group: prereqs|setup|hub, item, state, detail, fix}]. state is ok; fixable, which `doctor --fix` sets up; yours,
@@ -27,7 +27,6 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   const execute = (command, argv) => {
     try { return run(command, argv, { env }); } catch (e) { return { status: 1, error: e.message }; }
   };
-  const json = (result) => { try { return result.status === 0 ? JSON.parse(result.stdout) : null; } catch { return null; } };
   const installed = (item, command, argv, fix, missing = 'not on this session’s PATH') => {
     const r = execute(command, argv);
     const ok = r.status === 0;
@@ -41,14 +40,8 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   const gh = installed('gh', 'gh', ['--version'], hints.gh);
   const ghAuth = gh && execute('gh', ['auth', 'status']).status === 0;
   add('gh signed in', ghAuth ? 'ok' : 'yours', ghAuth ? 'signed in' : gh ? 'not signed in' : 'needs gh', 'gh auth login');
-  const ts = installed('Tailscale', 'tailscale', ['version'], hints.tailscale);
-  const tsStatus = ts ? json(execute('tailscale', ['status', '--json'])) : null;
-  const signedIn = tsStatus?.BackendState === 'Running';
-  add('Tailscale signed in', signedIn ? 'ok' : 'yours', signedIn ? `signed in${tsStatus.Self?.DNSName ? ' as ' + tsStatus.Self.DNSName.replace(/\.$/, '') : ''}` : ts ? 'not connected' : 'needs Tailscale', 'tailscale up');
-  if (ts && platform === 'linux' && uid !== 0) {
-    const operator = json(execute('tailscale', ['debug', 'prefs']))?.OperatorUser;
-    add('Tailscale operator', operator === username ? 'ok' : 'yours', operator === username ? username : `${operator || 'none'} (expected ${username})`, 'sudo tailscale set --operator=$USER');
-  }
+  const ts = await tailscaleState({ run: (command, argv) => execute(command, argv), platform, uid, username, port });
+  for (const entry of ts.prereqs) add(entry.item, entry.state, entry.detail, entry.fix);
   const codex = codexStatus({ home, env, platform });
   add('Codex', codex.usable ? 'ok' : 'optional', codex.usable ? 'installed and logged in' : `${codex.reason}; Codex builds and reviews need it`, codex.fix);
 
@@ -81,16 +74,8 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   group = 'hub';
   const hub = await hubStatus({ port, fetch });
   add('hub', hub ? 'ok' : 'fixable', `${hub ? 'running' : 'not running'} on 127.0.0.1:${port}`, FIX);
-  const serveConfig = ts ? json(execute('tailscale', ['serve', 'status', '--json'])) : null;
-  const serve = tailscaleRoot(serveConfig);
-  let pointsAtHub = false;
-  try {
-    const url = new URL(serve.root);
-    pointsAtHub = url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) && Number(url.port) === port && url.pathname === '/' && !url.search && !url.hash;
-  } catch {}
-  const mounts = serve.paths.filter((route) => route !== '/');
-  // doctor --fix maps / with `tailscale serve`, which needs Tailscale signed in first.
-  add('tailscale /', pointsAtHub ? 'ok' : signedIn ? 'fixable' : 'yours', `${serve.root || 'nothing'}${pointsAtHub ? '' : ` (expected the hub on ${port})`}${mounts.length ? '; other mounts: ' + mounts.join(', ') : ''}`, signedIn ? FIX : ts ? 'tailscale up' : hints.tailscale);
+  const { serveConfig } = ts;
+  add(ts.root.item, ts.root.state, ts.root.detail, ts.root.fix);
 
   let sites = hub?.sites;
   if (!sites) {

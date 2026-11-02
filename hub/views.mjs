@@ -1,6 +1,6 @@
 // The hub's own views' data (docs/adr/0055-one-app-for-the-whole-hub.md): what GET /_hub/api/hub, /_hub/api/settings
 // and /_hub/api/polling answer, with every word the hub page and its settings modals show. hub.mjs reads the state
-// these take; board/public/view-hub.js, view-hub-settings.js and view-polling.js only lay the words out.
+// these take; integration readiness rows and their words come from readiness.mjs; board/public/view-hub.js, view-hub-settings.js and view-polling.js only lay the words out.
 // st is a push.mjs queueStatus(now) result throughout, and poll the hub's poll state {running, nextAt, last}, last
 // being the last github.mjs checkGitHub result.
 import { clock, windowAt, holdLine, checksIn, checksADay, holdsOvernight, daySegments, splitPoint, snoozeEnd } from './schedule.mjs';
@@ -70,7 +70,7 @@ const codexView = (share, status) => ({
 // codex: a shared/codex.mjs codexStatus. Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js).
 // hold, for the page's banner, is null unless pushes are held or snoozed; its text matches the sidebar moon's tooltip,
 // and end is true when End can lift it, which only a snooze allows.
-export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code = {}, host = '', rules = [], remembered = new Map(), codexShare = 'off', codex = codexStatus({ installed: false }) }) {
+export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code = {}, host = '', rules = [], remembered = new Map(), integrations = [], codexShare = 'off', codex = codexStatus({ installed: false }) }) {
   const boards = new Set(sidebar.sites.filter((x) => x.board).map((x) => x.route));
   const codeLine = code.running && code.running === code.onDisk ? ` · runs the code in its files (${code.onDisk})` : '';
   const site = (r) => ({ route: r.route, title: r.title, icon: siteIcon(r.route, r), href: `/${encodeURIComponent(r.route)}/`, ...siteHealth(r, links.get(r.route)), remembered: remembered.get(r.route) || [] });
@@ -79,6 +79,7 @@ export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code 
   return {
     hub: { tone: sidebar.hub.tone, word: sidebar.hub.word, detail: `${sidebar.hub.detail}${codeLine}` },
     groups,
+    integrations,
     usage: sidebar.usage,
     pause: sidebar.pause,
     codex: codexView(codexShare, codex),

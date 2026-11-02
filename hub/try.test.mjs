@@ -29,6 +29,8 @@ fs.appendFileSync(path.join(process.env.HOME, 'tailscale.calls'), args.join(' ')
 if (args.join(' ') === 'serve status --json') {
   console.error('version warning');
   console.log(fs.readFileSync(path.join(process.env.HOME, 'tailscale.status'), 'utf8'));
+} else if (args.join(' ') === 'status --json') {
+  console.log(JSON.stringify({ BackendState: 'Running', Self: { DNSName: 'mac.ts.net.' } }));
 } else if (args.includes('--bg') && fs.existsSync(path.join(process.env.HOME, 'tailscale.fail'))) {
   console.error('permission denied by tailscaled'); process.exit(1);
 }
@@ -416,6 +418,7 @@ test('the hub build route enforces loopback and fixed inputs', async () => {
   setScript(`require('node:http').createServer((req, res) => res.end('ok')).listen(${target}, '127.0.0.1', () => console.log('port ${target}'));`);
   const web = path.join(home, '.claude/kickflip');
   write(path.join(web, 'manifest.json'), manifest);
+  write(path.join(home, 'tailscale.status'), { Web: { 'mac.ts.net:443': { Handlers: { '/': { Proxy: `http://127.0.0.1:${port}` } } } } });
   write(path.join(web, 'settings.json'), { polling: { windows: [{ from: '00:00', every_minutes: 120 }], hold_overnight: false, wakes: [] } });
   const hub = spawn(process.execPath, [path.join(root, 'hub/hub.mjs')], { env: { ...process.env, KICKFLIP_HUB_PORT: String(port) } });
   let errors = '';
@@ -581,4 +584,21 @@ test('startup cleanup failure logs and still allows a build', async () => {
   setScript('process.exit(0);');
   await start();
   await until(() => state().cards['w/A1'].state === 'ready');
+});
+
+test('try builds refuse with 409 while waiting and main rebuilds wait without a failure', async () => {
+  const reason = 'Try builds wait on Tailscale: Tailscale / is not serving the hub.';
+  const launched = path.join(home, 'build-started');
+  setScript(`require('node:fs').writeFileSync(${JSON.stringify(launched)}, 'yes');`);
+  setScript(`require('node:fs').writeFileSync(${JSON.stringify(launched)}, 'yes');`, repo);
+  commit(repo);
+  const messages = [];
+  manager = createTryManager({ waiting: async () => reason, log: (text) => messages.push(text) });
+  await assert.rejects(start(), (error) => error.status === 409 && error.message === reason);
+  await tick();
+  assert.equal(fs.existsSync(launched), false);
+  assert.equal(state().main, null);
+  assert.equal(Object.values(state().cards).some((card) => card.state === 'failed' || card.state === 'running'), false);
+  assert.deepEqual(thread(), []);
+  assert.deepEqual(messages, []);
 });

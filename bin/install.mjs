@@ -159,6 +159,39 @@ export function tailscaleRoot(config) {
   return { root: handlers.find(([route]) => route === '/')?.[1]?.Proxy || null, paths: [...new Set(handlers.map(([route]) => route))] };
 }
 
+export const tailscaleInstallHint = (platform = process.platform) => platform === 'darwin'
+  ? 'brew install --cask tailscale' : 'curl -fsSL https://tailscale.com/install.sh | sh';
+
+export async function tailscaleState({ run = runCommand, platform = process.platform, uid = process.getuid(), username = os.userInfo().username, port = Number(process.env.KICKFLIP_HUB_PORT || 4500) } = {}) {
+  const execute = async (args) => {
+    try { return await run('tailscale', args); } catch (e) { return { status: 1, error: e.message }; }
+  };
+  const json = (r) => { try { return r.status === 0 ? JSON.parse(r.stdout) : null; } catch { return null; } };
+  const version = await execute(['version']);
+  const installed = version.status === 0;
+  const status = installed ? json(await execute(['status', '--json'])) : null;
+  const signedIn = status?.BackendState === 'Running';
+  const dns = status?.Self?.DNSName?.replace(/\.$/, '') || '';
+  const operatorChecked = installed && platform === 'linux' && uid !== 0;
+  const operator = operatorChecked ? json(await execute(['debug', 'prefs']))?.OperatorUser : null;
+  const serveConfig = installed ? json(await execute(['serve', 'status', '--json'])) : null;
+  const serve = tailscaleRoot(serveConfig);
+  let pointsAtHub = false;
+  try {
+    const url = new URL(serve.root);
+    pointsAtHub = url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) && Number(url.port) === port && url.pathname === '/' && !url.search && !url.hash;
+  } catch {}
+  const entry = (item, ok, detail, fix, state = 'yours') => ({ item, state: ok ? 'ok' : state, detail, fix: ok ? null : fix });
+  const prereqs = [
+    entry('Tailscale', installed, installed ? (version.stdout || 'installed').trim().split('\n')[0] : 'not on this session’s PATH', tailscaleInstallHint(platform)),
+    entry('Tailscale signed in', signedIn, signedIn ? `signed in${dns ? ' as ' + dns : ''}` : installed ? 'not connected' : 'needs Tailscale', 'tailscale up'),
+  ];
+  if (operatorChecked) prereqs.push(entry('Tailscale operator', operator === username, operator === username ? username : `${operator || 'none'} (expected ${username})`, 'sudo tailscale set --operator=$USER'));
+  const mounts = serve.paths.filter((route) => route !== '/');
+  const root = entry('tailscale /', pointsAtHub, `${serve.root || 'nothing'}${pointsAtHub ? '' : ` (expected the hub on ${port})`}${mounts.length ? '; other mounts: ' + mounts.join(', ') : ''}`, signedIn ? 'kickflip doctor --fix' : installed ? 'tailscale up' : tailscaleInstallHint(platform), signedIn ? 'fixable' : 'yours');
+  return { installed, signedIn, dns, operatorChecked, operator, username, pointsAtHub, prereqs, root, serveConfig };
+}
+
 export async function runInstall({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, platform = process.platform, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), fetch = globalThis.fetch, dryRun = false, log = console.log } = {}) {
   const state = path.join(home, '.claude', 'kickflip');
   const migration = migrateHome({ home, dryRun });

@@ -1953,6 +1953,7 @@ function digestCommand(args, now) {
 
 test('review digest lists the hub-checked PRs awaiting review, dates old links and turns due off after a sent digest', () => {
   const now = '2026-11-02T17:00:00Z';
+  assert.equal(board('--site', 'orch', 'integrations', 'report', '--slack', 'yes').code, 0);
   assert.equal(board('slack', 'set', '--timezone', 'America/Los_Angeles').code, 0);
   const ts = (hours) => String((Date.parse(now) - hours * 3600000) / 1000);
   write(site('orch', 'board.json'), { items: 'waves', reviewers: [bobReviewer] });
@@ -1982,4 +1983,61 @@ test('review digest lists the hub-checked PRs awaiting review, dates old links a
   const realClock = board('review', 'digest', '--site', 'orch');
   assert.equal(realClock.code, 0, realClock.err);
   assert.ok(Array.isArray(JSON.parse(realClock.out).reviewers));
+});
+
+test('integrations report writes the latest Slack connector report and integrations reads it', () => {
+  const stub = path.join(home, 'bin');
+  for (const name of ['gh', 'tailscale', 'claude', 'codex', 'launchctl', 'systemctl']) {
+    const file = path.join(stub, name);
+    write(file, '#!/bin/sh\nexit 1\n');
+    fs.chmodSync(file, 0o700);
+  }
+  write(at('kickflip', 'manifest.json'), { sites: { orch: { title: 'Orchestrator' } } });
+  const rows = () => {
+    const r = run('board.mjs', ['integrations'], undefined, { PATH: stub });
+    assert.equal(r.code, 0, r.err);
+    assert.equal(r.out.trim().split('\n').length, 1);
+    return JSON.parse(r.out);
+  };
+  assert.equal(rows()[3].missing, 'No board session has reported yet');
+  for (const value of ['yes', 'no']) {
+    const atStart = Date.now();
+    const result = board('integrations', 'report', '--slack', value, '--site', 'orch');
+    assert.equal(result.code, 0, result.err);
+    assert.equal(result.out.trim().split('\n').length, 1);
+    const report = read(at('kickflip', 'integrations.json')).slack;
+    assert.deepEqual([report.ready, report.route, report.title], [value === 'yes', 'orch', 'Orchestrator']);
+    assert.ok(Date.parse(report.at) >= atStart && Date.parse(report.at) <= Date.now());
+    const row = rows()[3];
+    assert.equal(row.ready, value === 'yes');
+    assert.match(row.detail || row.missing, new RegExp(`Orchestrator’s session reported ${value === 'yes' ? 'a' : 'no'} Slack connector, just now`));
+  }
+  const before = read(at('kickflip', 'integrations.json'));
+  const bad = board('integrations', 'report', '--slack', 'maybe');
+  assert.equal(bad.code, 2);
+  assert.match(bad.err, /--slack yes\|no/);
+  assert.deepEqual(read(at('kickflip', 'integrations.json')), before);
+  const siteless = board('integrations', 'report', '--slack', 'yes');
+  assert.equal(siteless.code, 1);
+  assert.match(siteless.err, /needs --site/);
+  assert.deepEqual(read(at('kickflip', 'integrations.json')), before);
+});
+
+test('review digest waits without changing the record while Slack is not ready', () => {
+  const now = '2026-11-02T17:00:00Z';
+  board('slack', 'set', '--timezone', 'America/Los_Angeles');
+  const file = site('orch', 'data', 'review-digests.json');
+  const record = { last_date: '2026-10-30', digests: [] };
+  write(file, record);
+  const digest = digestCommand([], now);
+  assert.equal(digest.due, false);
+  assert.equal(digest.waiting, 'Reviewer DMs and digests wait on Slack: No board session has reported yet.');
+  assert.equal(digest.date, '2026-11-02');
+  assert.deepEqual(digest.reviewers, []);
+  assert.deepEqual(read(file), record);
+  board('--site', 'orch', 'integrations', 'report', '--slack', 'no');
+  assert.match(digestCommand([], now).waiting, /Orch’s session reported no Slack connector/);
+  board('--site', 'orch', 'integrations', 'report', '--slack', 'yes');
+  assert.equal(digestCommand([], now).due, true);
+  assert.deepEqual(read(file), record);
 });

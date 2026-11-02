@@ -15,6 +15,7 @@ import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleT
 import { withFileLock } from '../hub/locks.mjs';
 import { fetchPR, reportOf, githubLogin } from '../hub/pr-report.mjs';
 import { reviewLinks, topicItems, reviewersOf } from './review.mjs';
+import { readiness } from '../hub/readiness.mjs';
 import { slackDay } from '../hub/slack.mjs';
 import { storedPath } from '../bin/install.mjs';
 import { RuleError, rulesOf, addRule, editRule, removeRule, applyRules, readHubRules, writeHubRules } from '../hub/rules.mjs';
@@ -531,7 +532,8 @@ export async function reviewDigest(site, { now = new Date() } = {}) {
   }
   const { date, morning } = slackDay(now);
   const sent = await readJSON(digestFile(site), {});
-  return { date, due: morning && sent.last_date !== date, reviewers: [...reviewers.values()].filter((r) => r.items.length) };
+  const waiting = await readiness.waiting('slack');
+  return { date, due: !waiting && morning && sent.last_date !== date, ...(waiting ? { waiting } : {}), reviewers: [...reviewers.values()].filter((r) => r.items.length) };
 }
 
 export async function reviewDigestSent(site, name, { ts, channel, items }, { now = new Date() } = {}) {
