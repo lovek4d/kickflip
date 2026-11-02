@@ -1280,7 +1280,7 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   const pause = { pause_at: 90, state: 'paused', window: 'five_hour', used: 91, resets_at };
   const hub = context.HubUI;
   const card = hub.usageCard({ claude: reading, codex: reading }, null, pause);
-  assert.match(text(card), /Pause work at 10% buffer − 90% \+/);
+  assert.match(text(card), /Codex .*Pause work at 10% buffer − 90% \+/);
   assert.match(text(card), /Claude’s new work waits.*Codex hands its work to Opus builders/);
   assert.equal([...card.matchAll(/class="ub-mark" style="left:90%"/g)].length, 4);
   assert.match(card, /form class="segments ub-step" method="post" action="\/_hub\/settings\/pause-at"/);

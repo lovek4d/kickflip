@@ -59,7 +59,7 @@ The last reported Claude or Codex usage for its 5-hour and weekly windows, with 
 _Avoid_: quota, live usage
 
 **Pause line**:
-The Usage card's “Pause work at” under Claude's bars: `pauseAt` in `~/.claude/kickflip/settings.json`, 50–100 in steps of 5, default 90 (10% buffer); 100 reads Off. Either live Claude window at or over it pauses new work until that window resets. Running steps finish; builders and new agents wait, watchers hold the hub's work events, and owner messages get a brief “paused until <time>”. Keep going lifts that window's pause until its reset; Stop restores it. Codex hands work to Opus builders at the same line, without pausing. The Hub banner and sidebar and board header status slots show the pause, never the logo. `shared/usage-gate.mjs` owns it; `kickflip usage-gate` prints it ([0094](docs/adr/0094-work-pauses-at-the-pause-line.md)).
+The Usage card's “Pause work at”, last in the group below Codex: `pauseAt` in `~/.claude/kickflip/settings.json`, 50–100 in steps of 5, default 90 (10% buffer); 100 reads Off. Either live Claude window at or over it pauses new work until that window resets. Running steps finish; builders and new agents wait, watchers hold the hub's work events, and owner messages get a brief “paused until <time>”. Keep going lifts that window's pause until its reset; Stop restores it. Codex hands work to Opus builders at the same line, without pausing. The Hub banner and sidebar and board header status slots show the pause, never the logo. `shared/usage-gate.mjs` owns it; `kickflip usage-gate` prints it ([0094](docs/adr/0094-work-pauses-at-the-pause-line.md)).
 _Avoid_: buffer threshold, quota guard
 
 **Board registry**:

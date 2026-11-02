@@ -150,7 +150,6 @@
 .hub-view .hold-banner.ub-going { border-color: color-mix(in srgb, var(--color-danger) 45%, transparent); background: color-mix(in srgb, var(--color-danger) 10%, var(--panel)); }
 .hub-view .hold-banner.ub-going > svg { color: var(--color-danger); }
 
-.hub-view .u-buffer { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .hub-view .ub-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .hub-view .ub-label { min-width: 0; }
 .hub-view .ub-label .title { display: block; font-size: 14px; }
