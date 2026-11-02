@@ -68,8 +68,9 @@ function fakePage(localStorage) {
   const win = Object.assign(new Target(), {
     URL, URLSearchParams, AbortController, localStorage, document, CSS: { escape: (s) => s }, navigator: { platform: 'MacIntel' },
     location: { href: 'https://mac.ts.net/', hash: '', pathname: '/', search: '' }, history: { replaceState() {} }, innerHeight: 844,
+    scrollX: 0, scrollY: 0, scrollTo(x, y) { this.scrollX = x; this.scrollY = y; },
     visualViewport: Object.assign(new Target(), { height: 844, offsetTop: 0 }),
-    matchMedia: () => Object.assign(new Target(), { matches: false }), MutationObserver, ResizeObserver: MutationObserver,
+    matchMedia: (query) => Object.assign(new Target(), { matches: query === '(min-width: 900px)' && win.innerWidth >= 900 }), MutationObserver, ResizeObserver: MutationObserver,
     performance: { now: () => now },
     requestAnimationFrame: (fn) => { frames.set(++ids, fn); return ids; },
     cancelAnimationFrame: (id) => frames.delete(id),
@@ -1016,6 +1017,39 @@ test('the Hub row stays selected on old Settings URLs, hub sections, Polling and
   }
 });
 
+test('modal page locking is below 900px and fitted sheets use the current width and latest wide scroll position', () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  const phoneMedia = /@media\s*\(max-width:\s*899px\)\s*\{(?:[^{}]|\{[^{}]*\})*\}/g;
+  const lock = /html:has\(dialog:modal\)\s*\{\s*overflow:\s*hidden;\s*\}/g;
+  assert.equal((css.match(phoneMedia) || []).join('\n').match(lock)?.length, 1);
+  assert.doesNotMatch(css.replace(phoneMedia, ''), lock);
+
+  const page = fakePage(memoryStorage().localStorage);
+  const { win } = page;
+  const { Element } = miniDom(page.Target, win.document);
+  const sheet = win.document.body.appendChild(new Element('dialog'));
+  const global = vm.runInContext('window', win);
+  for (const width of [1280, 390]) {
+    win.innerWidth = width;
+    win.scrollTo(0, 120);
+    const unfit = win.BoardDialogs.fitSheet(sheet);
+    sheet.showModal();
+    win.scrollTo(0, 469);
+    page.fire(global, 'scroll');
+    assert.equal(win.scrollY, width === 390 ? 120 : 469);
+    win.innerWidth = 900;
+    win.scrollTo(0, 600);
+    page.fire(global, 'scroll');
+    assert.equal(win.scrollY, 600);
+    win.innerWidth = 899;
+    win.scrollTo(0, 700);
+    page.fire(global, 'scroll');
+    assert.equal(win.scrollY, 600);
+    sheet.close();
+    unfit();
+  }
+});
+
 test('ask and New board sheets follow the phone keyboard, hold the page still and release viewport listeners on close', () => {
   const page = fakePage(memoryStorage().localStorage);
   const { win } = page;
@@ -1027,7 +1061,7 @@ test('ask and New board sheets follow the phone keyboard, hold the page still an
   doc.getElementById = (id) => doc.body.querySelector(`#${id}`);
   doc.querySelector = (sel) => doc.body.querySelector(sel);
   doc.querySelectorAll = (sel) => doc.body.querySelectorAll(sel);
-  win.matchMedia = () => Object.assign(new page.Target(), { matches: true });
+  win.matchMedia = (query) => Object.assign(new page.Target(), { matches: query === '(prefers-reduced-motion: reduce)' });
   win.Sidebar.mount({ data: { sites: [], repos: [], starting: [] } });
   const aside = doc.getElementById('sidebar');
   const root = doc.body.appendChild(new Element('div'));

@@ -134,7 +134,7 @@
         signal?.removeEventListener('abort', abort);
         el.close();
         el.remove();
-        if (previous?.isConnected) previous.focus();
+        if (previous?.isConnected) previous.focus({ preventScroll: true });
         resolve(yes);
       }
       el.addEventListener('click', (e) => {
@@ -162,9 +162,11 @@
     // iOS scrolls the page to show a focused field even under a modal sheet, and then draws the sheet cut off above the
     // keyboard with the board below it, so the page keeps its scroll position. innerHeight reads short during that
     // scroll and no resize follows the restore, so --kb is measured again once the keyboard has settled.
-    const y = window.scrollY;
+    let y = window.scrollY;
     let settle = 0;
     const pin = () => {
+      // The 900px breakpoint must match style.css's html:has(dialog:modal) scroll lock.
+      if (matchMedia('(min-width: 900px)').matches) { y = window.scrollY; return; }
       if (window.scrollY === y) return;
       window.scrollTo(window.scrollX, y);
       clearTimeout(settle);
