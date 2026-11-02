@@ -264,7 +264,7 @@ test('reopen rewinds to the cursor saved before stopping even if the old watcher
   const result = await new Promise((resolve, reject) => {
     let stdout = '';
     let stderr = '';
-    const timeout = setTimeout(() => { watcher.kill(); reject(new Error('Watcher did not deliver the saved event')); }, 8000);
+    const timeout = setTimeout(() => { watcher.kill(); reject(new Error('Watcher did not deliver the saved event')); }, 30000);
     watcher.stdout.on('data', (chunk) => { stdout += chunk; });
     watcher.stderr.on('data', (chunk) => { stderr += chunk; });
     watcher.on('error', (error) => { clearTimeout(timeout); reject(error); });

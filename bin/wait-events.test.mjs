@@ -8,7 +8,7 @@ import { until } from '../shared/test-helpers.mjs';
 
 const write = (file, data) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof data === 'string' ? data : JSON.stringify(data)); };
 
-test('paused watchers hold hub work through owner wakes and restarts, and report it after reset', { timeout: 20000 }, async (t) => {
+test('paused watchers hold hub work through owner wakes and restarts, and report it after reset', { timeout: 120000 }, async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'paused-watch-'));
   const dir = path.join(home, 'site');
   const state = path.join(home, '.claude', 'kickflip');

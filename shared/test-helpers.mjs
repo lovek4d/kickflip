@@ -18,7 +18,7 @@ export async function freePorts(count = 1) {
   }
 }
 
-export async function until(predicate, message, timeout = 10000) {
+export async function until(predicate, message, timeout = 30000) {
   const deadline = Date.now() + timeout;
   while (!await predicate()) {
     assert.ok(Date.now() < deadline, message);

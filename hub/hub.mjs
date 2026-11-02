@@ -174,17 +174,14 @@ const readCodex = codexStatusReader();
 
 // ---------- manifest ----------
 let manifest = { version: 1, sites: {} };
-let manifestMtime = 0;
+// Read on every call: Linux stamps file mtimes per clock tick, so two writes a few ms apart can share an mtime, and a
+// cache keyed on it keeps the first.
 function loadManifest() {
   try {
-    const st = fs.statSync(MANIFEST);
-    if (st.mtimeMs !== manifestMtime) {
-      manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
-      manifest.sites ||= {};
-      manifestMtime = st.mtimeMs;
-    }
+    manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
+    manifest.sites ||= {};
   } catch (e) {
-    if (e.code === 'ENOENT') { manifest = { version: 1, sites: {} }; manifestMtime = 0; }
+    if (e.code === 'ENOENT') manifest = { version: 1, sites: {} };
     else log('manifest unreadable, keeping the last good copy:', e.message);
   }
   return manifest;

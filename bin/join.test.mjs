@@ -12,7 +12,7 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'join-'));
 const state = path.join(home, '.claude', 'kickflip');
 const bin = path.join(home, 'bin');
-const [port, pagePort] = await freePorts(2);
+const [port, pagePort, learnPort] = await freePorts(3);
 const base = `http://127.0.0.1:${port}`;
 const env = { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', PATH: `${bin}:${process.env.PATH}` };
 const manifest = () => JSON.parse(fs.readFileSync(path.join(state, 'manifest.json'), 'utf8')).sites;
@@ -116,7 +116,7 @@ test('join --dir has the hub serve the folder with the route stripped, never a d
 
 test('--watch with --session is today\'s join: the starter kit, the owner, the watcher and the Needs you badge; a plain join refuses that route', async () => {
   assert.match((await cli('join', 'learn', '--watch')).stderr, /--watch needs --session/);
-  const r = await cli('join', 'learn', '--session', 's-learn', '--watch', '--title', 'Learn');
+  const r = await cli('join', 'learn', '--session', 's-learn', '--watch', '--title', 'Learn', '--port', String(learnPort));
   assert.equal(r.status, 0, r.stderr);
   const out = r.json();
   assert.equal(out.url, 'https://mac.tail.ts.net/learn/');

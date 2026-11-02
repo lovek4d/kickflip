@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import { setTimeout as delay } from 'node:timers/promises';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { until as waitUntil } from '../shared/test-helpers.mjs';
 
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'try-')));
 process.env.HOME = home;
@@ -34,10 +34,7 @@ const state = () => read(path.join(site, 'data', 'try.json'));
 const thread = () => { try { return fs.readFileSync(path.join(site, 'data', 'threads', 'w__A1.jsonl'), 'utf8').trim().split('\n').map(JSON.parse); } catch { return []; } };
 const start = (input = {}) => manager.start({ route: 'orch', key: 'w/A1', ...input }, { manifest });
 const tick = () => manager.tick({ manifest });
-const until = async (fn) => {
-  const deadline = Date.now() + 7000;
-  while (!fn()) { assert.ok(Date.now() < deadline, 'timed out waiting for try state'); await delay(10); }
-};
+const until = (fn) => waitUntil(fn, 'timed out waiting for try state');
 const config = (extra = {}) => write(path.join(site, 'board.json'), { items: 'data/wave.json', slug: 'w', ...extra });
 function commit(dir, name = 'change') { git(dir, 'add', '.'); git(dir, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '--quiet', '-m', name); return git(dir, 'rev-parse', 'HEAD'); }
 

@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { pageOf, versionAppAssets } from './shell.mjs';
 import { hubStream } from './stream.mjs';
+import { until } from '../shared/test-helpers.mjs';
 
 const boards = new Set(['hub-orchestrator', 'ios']);
 const sites = new Set([...boards, 'learn']);
@@ -119,12 +120,6 @@ function listen(port) {
   return { events, close: () => req.destroy() };
 }
 
-const until = async (fn, ms = 3000) => {
-  const start = Date.now();
-  while (Date.now() - start < ms) { if (fn()) return true; await new Promise((r) => setTimeout(r, 10)); }
-  return false;
-};
-
 test("a board's change reaches /_hub/stream as change {route} with the sidebar's new data, and the stream recovers after the board restarts", async () => {
   let board = await fakeBoard();
   const port = board.port;
@@ -134,23 +129,23 @@ test("a board's change reaches /_hub/stream as change {route} with the sidebar's
   await new Promise((resolve, reject) => hub.once('error', reject).listen(0, '127.0.0.1', resolve));
   const page = listen(hub.address().port);
   try {
-    assert.ok(await until(() => board.listening() === 1 && page.events.some((e) => e.type === 'sidebar')));
+    await until(() => board.listening() === 1 && page.events.some((e) => e.type === 'sidebar'), 'the hub connects to the board and sends the initial sidebar');
     assert.deepEqual(page.events, [{ type: 'sidebar', data: { waiting: 0, fresh: [] } }]);
 
     waiting = 1;
     board.change();
-    assert.ok(await until(() => page.events.length === 3));
+    await until(() => page.events.length === 3, 'the board change and refreshed sidebar reach the page');
     assert.deepEqual(page.events.slice(1), [{ type: 'change', data: { route: 'ios' } }, { type: 'sidebar', data: { waiting: 1, fresh: ['ios'] } }]);
 
     await board.stop();
     board = await fakeBoard(port);
-    assert.ok(await until(() => board.listening() === 1 && page.events.some((e, i) => i > 2 && e.type === 'change')));
+    await until(() => board.listening() === 1 && page.events.some((e, i) => i > 2 && e.type === 'change'), 'the hub reconnects after the board restarts');
     board.change();
-    assert.ok(await until(() => page.events.filter((e) => e.type === 'change').length === 3));
+    await until(() => page.events.filter((e) => e.type === 'change').length === 3, 'the restarted board sends its next change');
     assert.deepEqual(page.events.filter((e) => e.type === 'change').map((e) => e.data), [{ route: 'ios' }, { route: 'ios' }, { route: 'ios' }]);
 
     page.close();
-    assert.ok(await until(() => board.listening() === 0), 'the hub lets go of the board once no page listens');
+    await until(() => board.listening() === 0, 'the hub lets go of the board once no page listens');
   } finally {
     page.close();
     relay.close();

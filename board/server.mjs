@@ -659,7 +659,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-watchBoard();
+await watchBoard();
 setInterval(checkStalled, 60000).unref();
 await checkStalled();
 server.listen(port, '127.0.0.1', () => console.log(`site on http://127.0.0.1:${port}/ (prefix ${prefix || 'none'})`));

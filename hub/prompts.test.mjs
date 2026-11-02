@@ -6,6 +6,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { until } from '../shared/test-helpers.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const HOOK = path.join(HUB_DIR, 'permission-hook.mjs');
@@ -13,9 +14,10 @@ const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'prompts-')))
 process.env.HOME = home;
 const { expired, GONE_AFTER, NO_ANSWER, UNREACHABLE, DROPPED, DENIED, WAIT_MS,
   promptRecord, answerOf, rememberRules, rememberedAnswer, pruneRemembered, readPrompts, savePrompts, updatePrompts, withPromptsLock, rememberedFor, pendingFor, matchesRule } = await import('./prompts.mjs');
-const { readManifest, writeManifest, withManifestLock } = await import('./boards.mjs');
+const { readManifest, writeManifest, withManifestLock, saveJSON } = await import('./boards.mjs');
 
 const write = (file, v) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof v === 'string' ? v : JSON.stringify(v)); };
+const writeManifestFile = (m) => withManifestLock(() => saveJSON(path.join(home, '.claude', 'kickflip', 'manifest.json'), m));
 const freePort = () => new Promise((resolve, reject) => { const s = http.createServer().on('error', reject).listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); }); });
 
 function runHook(input, port, preload) {
@@ -389,10 +391,6 @@ async function stopHub() {
 }
 after(async () => { await stopHub(); fs.rmSync(home, { recursive: true, force: true }); });
 
-const until = async (fn, what) => {
-  for (let i = 0; i < 100; i++) { const v = await fn(); if (v) return v; await new Promise((r) => setTimeout(r, 100)); }
-  assert.fail(`timed out waiting for ${what}`);
-};
 const hubPrompts = async () => (await (await fetch(`${base}/_hub/api/hub`)).json()).prompts;
 const answer = (id, body) => fetch(`${base}/_hub/prompts/${id}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
@@ -404,7 +402,9 @@ test("a session that owns no board waits on the hub page by its folder and count
   const total = async () => (await (await fetch(`${base}/_hub/needs.json`)).json()).total;
   const two = { ...question, session_id: 's-nobody', cwd: path.join(home, 'work'), tool_input: { questions: [...question.tool_input.questions, { question: 'Size?', header: '', multiSelect: false, options: [{ label: 'S', description: '' }] }] } };
   const hook = runHook(two, port);
-  const [p] = await until(async () => (await hubPrompts()).length && hubPrompts(), 'the prompt');
+  let prompts;
+  await until(async () => { prompts = await hubPrompts(); return prompts.length; }, 'the prompt appears on the hub');
+  const [p] = prompts;
   assert.deepEqual([p.title, p.cwd, p.tool, p.questions.map((q) => q.question)], ['~/work', '~/work', 'AskUserQuestion', ['Colour?', 'Size?']]);
   assert.equal(await total(), 1);
   assert.equal((await answer(p.id, { choice: 'always' })).status, 400);
@@ -428,10 +428,9 @@ test('a remembered match bypasses prompts and push, survives a hub restart, and 
   base = `http://127.0.0.1:${port}`;
   const web = (...parts) => path.join(home, '.claude', 'kickflip', ...parts);
   const dir = web('sites', 'shop');
-  const manifestFile = web('manifest.json');
   const manifest = { version: 1, sites: { shop: { title: 'Shop', dir, port: await freePort(),
     cmd: [process.execPath, path.join(HUB_DIR, '..', 'board', 'server.mjs'), dir], owner: { ...board.owner } } } };
-  write(manifestFile, manifest);
+  await writeManifestFile(manifest);
   write(path.join(dir, 'board.json'), { title: 'Shop', items: 'items.json' });
   write(path.join(dir, 'items.json'), { items: [] });
   const sessionFile = path.join(home, '.claude', 'sessions', `${process.pid}.json`);
@@ -475,14 +474,14 @@ test('a remembered match bypasses prompts and push, survives a hub restart, and 
     await fetch(`${base}/_hub/prompts/${asked.id}`, { method: 'DELETE' });
   }
   manifest.sites.shop.owner.session = 's2';
-  write(manifestFile, manifest);
+  await writeManifestFile(manifest);
   assert.deepEqual((await data()).groups[0].sites[0].remembered, []);
   assert.deepEqual(JSON.parse(fs.readFileSync(web('prompts.json'), 'utf8')).remembered, {});
   const asked = await post(bash('npm test'));
   assert.ok(asked.id);
   await fetch(`${base}/_hub/prompts/${asked.id}`, { method: 'DELETE' });
   manifest.sites.shop.owner.session = 's1';
-  write(manifestFile, manifest);
+  await writeManifestFile(manifest);
   const again = await post(bash('npm test'));
   await answer(again.id, { choice: 'always' });
   fs.unlinkSync(sessionFile);

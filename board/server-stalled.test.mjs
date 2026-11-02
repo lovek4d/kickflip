@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { until } from '../shared/test-helpers.mjs';
 
 test('automatic builder check-ins run without a browser, once per silent spell across a restart, and stop on done', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'builder-stalled-'));
@@ -41,13 +42,6 @@ test('automatic builder check-ins run without a browser, once per silent spell a
     const text = fs.existsSync(path.join(dataDir, 'events.jsonl')) ? fs.readFileSync(path.join(dataDir, 'events.jsonl'), 'utf8') : '';
     return text.trim().split('\n').filter(Boolean).map(JSON.parse).filter((e) => e.kind === 'builder-stalled');
   };
-  const until = async (predicate) => {
-    for (let i = 0; i < 200; i++) {
-      if (predicate()) return;
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    assert.fail('Builder check did not reach the expected state');
-  };
   const start = async () => {
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
       env: { ...process.env, HOME: dir, BUILDER_TEST_CLOCK: clockFile },
@@ -73,7 +67,7 @@ test('automatic builder check-ins run without a browser, once per silent spell a
     await tick();
     assert.equal(stalledEvents().length, 0);
     advance(2);
-    await until(() => read(stateFile, {})['t/A1'] === started);
+    await until(() => read(stateFile, {})['t/A1'] === started, 'the initial silent spell is recorded');
     assert.deepEqual(stalledEvents().map((e) => e.data), [{ key: 't/A1', silentSince: started }]);
     await stop();
     await start();
@@ -82,18 +76,18 @@ test('automatic builder check-ins run without a browser, once per silent spell a
     await stop();
     fs.rmSync(stateFile);
     await start();
-    await until(() => read(stateFile, {})['t/A1'] === started);
+    await until(() => read(stateFile, {})['t/A1'] === started, 'the silent spell is restored after restart');
     assert.equal(stalledEvents().length, 1);
 
     const progress = new Date(now).toISOString();
     fs.writeFileSync(path.join(dataDir, 'threads', 't__A1.jsonl'), JSON.stringify({ ts: progress, kind: 'status', text: 'Running tests' }) + '\n');
-    await until(() => !read(stateFile, {})['t/A1']);
+    await until(() => !read(stateFile, {})['t/A1'], 'progress clears the silent spell');
     advance(31);
-    await until(() => read(stateFile, {})['t/A1'] === progress);
+    await until(() => read(stateFile, {})['t/A1'] === progress, 'the next silent spell is recorded');
     assert.deepEqual(stalledEvents().map((e) => e.data), [{ key: 't/A1', silentSince: started }, { key: 't/A1', silentSince: progress }]);
 
     fs.writeFileSync(agentFile, JSON.stringify({ kind: 'codex', started, done: new Date(now).toISOString() }));
-    await until(() => !read(stateFile, {})['t/A1']);
+    await until(() => !read(stateFile, {})['t/A1'], 'finishing the builder clears the silent spell');
     advance(60);
     await tick();
     assert.equal(stalledEvents().length, 2);

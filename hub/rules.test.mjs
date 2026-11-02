@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { freePorts } from '../shared/test-helpers.mjs';
+import { freePorts, until } from '../shared/test-helpers.mjs';
 import { SNOOZE_REFUSED } from './views.mjs';
 import { ruleText, rulesOf, addRule, editRule, removeRule, applyRules, changed, ruleLines, RULE_MAX, RuleError } from './rules.mjs';
 
@@ -171,7 +171,7 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
       hub.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) resolve(); });
       hub.once('exit', reject);
     });
-    for (let i = 0; i < 50 && !(await fetch(`${base}/orch/_claude/health`).then((r) => r.ok, () => false)); i++) await new Promise((r) => setTimeout(r, 100));
+    await until(() => fetch(`${base}/orch/_claude/health`).then((r) => r.ok, () => false), 'Orch server becomes healthy');
     const page = await (await fetch(`${base}/_hub/settings`)).text();
     assert.match(page, /<script src="\/_hub\/app\/rules-editor\.js\?v=[^"]+"><\/script>/);
     assert.match(page, /<script src="\/_hub\/app\/view-hub-settings\.js\?v=[^"]+"><\/script>/);
@@ -285,8 +285,7 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
       const count = resumed().length;
       fs.writeFileSync(stateFile, JSON.stringify({ state: 'paused', window: 'five_hour' }));
       fs.writeFileSync(path.join(web, 'usage.json'), JSON.stringify({ claude: { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at: new Date(Date.now() - 1000).toISOString() } } }));
-      const deadline = Date.now() + 20000;
-      while (resumed().length === count && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
+      await until(() => resumed().length > count, 'Orch receives usage-resumed after the pause resets');
       assert.equal(resumed().length, count + 1);
       assert.deepEqual(resumed().at(-1).data, { window: 'five_hour' });
       fs.writeFileSync(stateFile, JSON.stringify({ state: 'going', window: 'five_hour' }));

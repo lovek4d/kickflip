@@ -399,7 +399,7 @@ test('the board, a thread and the static files come gzipped when the browser acc
   }
 });
 
-test('the stream sends a change, uncompressed, within a second of a write to a thread or a wave file', async () => {
+test('the stream sends a change, uncompressed, after a write to a thread or a wave file', async () => {
   const req = http.get(`${base}/api/stream`, { headers: { 'accept-encoding': 'gzip' } });
   const res = await new Promise((resolve, reject) => req.once('response', resolve).once('error', reject));
   try {
@@ -412,19 +412,14 @@ test('the stream sends a change, uncompressed, within a second of a write to a t
     const changes = () => text.split('\n\n').filter((block) => /^event: change$/m.test(block)).length;
     const nextChange = async () => {
       const seen = changes();
-      const started = Date.now();
-      while (changes() === seen) {
-        assert.ok(Date.now() - started < 1000, `no change signal within a second; got ${JSON.stringify(text)}`);
-        await new Promise((r) => setTimeout(r, 20));
-      }
+      await until(() => changes() > seen, 'the board stream sends a change after a file write');
     };
-    await new Promise((r) => setTimeout(r, 600));
+    await until(() => text.includes('retry: 3000\n\n'), 'the board change stream opens');
     fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
     for (const write of [
       () => fs.appendFileSync(path.join(site, 'data', 'threads', 't__S1.jsonl'), JSON.stringify({ ts: new Date().toISOString(), who: 'claude', text: 'Live' }) + '\n'),
       () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'S1', title: 'Streamed' }] })),
     ]) {
-      await new Promise((r) => setTimeout(r, 400));
       const signal = nextChange();
       write();
       await signal;

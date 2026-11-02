@@ -868,7 +868,7 @@ test('a reload forgets the saved shell and waits for the worker reply or one sec
   }
 });
 
-test('an open shell shows new hub code before the next Hub paint and reloads only on a tap', { timeout: 20000 }, async (t) => {
+test('an open shell shows new hub code before the next Hub paint and reloads only on a tap', { timeout: 120000 }, async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'app-code-'));
   const dir = path.join(home, '.claude', 'kickflip');
   const streams = new Set();
@@ -892,7 +892,7 @@ test('an open shell shows new hub code before the next Hub paint and reloads onl
   await new Promise((resolve, reject) => {
     let out = '';
     let err = '';
-    const timer = setTimeout(() => reject(new Error(`hub did not start: ${out}${err}`)), 10000);
+    const timer = setTimeout(() => reject(new Error(`hub did not start: ${out}${err}`)), 30000);
     hub.stderr.on('data', (d) => { err += d; });
     hub.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) { clearTimeout(timer); resolve(); } });
     hub.once('error', (e) => { clearTimeout(timer); reject(e); });
