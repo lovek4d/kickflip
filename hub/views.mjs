@@ -48,32 +48,49 @@ export function siteHealth(r, links) {
   return { tone: off.length ? 'wait' : 'ok', word, lines: off.map((l) => ({ link: l.link, detail: `${l.state === 'broken' ? '' : 'settling: '}${l.detail}` })) };
 }
 
+// builder: the Claude model's word for who builds when Codex doesn't (BUILDER_WORDS).
 const CODEX_CHOICES = [
-  { value: 'always', label: 'Always on', description: 'Codex builds and reviews. Work pauses when it runs out.' },
-  { value: 'auto', label: 'Auto', description: "Codex builds and reviews, and Opus takes over while it's out." },
-  { value: 'off', label: 'Off', description: 'Opus builds and reviews.' },
+  { value: 'always', label: 'Always on', description: () => 'Codex builds and reviews. Work pauses when it runs out.' },
+  { value: 'auto', label: 'Auto', description: (builder) => `Codex builds and reviews, and ${builder} takes over while it's out.` },
+  { value: 'off', label: 'Off', description: (builder) => `${builder} builds and reviews.` },
 ];
 
 // The Usage card's Codex block (docs/adr/0092-codex-share-follows-whether-codex-is-usable.md). share is the setting in
 // effect and status a shared/codex.mjs codexStatus; while Codex isn't usable, tag, description and fix say why and
-// what to run, and the choices are disabled.
-const codexView = (share, status) => ({
+// what to run, and the choices are disabled. claudeModel names who takes over (docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md).
+const codexView = (share, status, claudeModel) => ({
   usable: status.usable,
   tag: status.usable ? null : capital(status.reason),
   share,
   choices: CODEX_CHOICES.map(({ value, label }) => ({ value, label, on: value === share })),
-  description: status.usable ? CODEX_CHOICES.find((c) => c.value === share).description : status.words,
+  description: status.usable ? CODEX_CHOICES.find((c) => c.value === share).description(BUILDER_WORDS[claudeModel]) : status.words,
   fix: status.fix,
+});
+
+// The Usage card's Claude model control (docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md): model
+// is push.mjs readClaudeModel, and the description always says what Auto does. builder is the word for who builds
+// when Claude does, which the Codex share and pause line descriptions use: the forced model, or Claude under Auto.
+const BUILDER_WORDS = { opus: 'Opus', sonnet: 'Sonnet', auto: 'Claude' };
+const CLAUDE_CHOICES = [
+  { value: 'opus', label: 'Opus', description: 'Always Opus. Auto would give small cards to Sonnet.' },
+  { value: 'auto', label: 'Auto', description: 'Auto: small cards get Sonnet, the rest get Opus.' },
+  { value: 'sonnet', label: 'Sonnet', description: 'Always Sonnet. Auto would give large cards to Opus.' },
+];
+const claudeView = (model) => ({
+  model,
+  builder: BUILDER_WORDS[model],
+  choices: CLAUDE_CHOICES.map(({ value, label }) => ({ value, label, on: value === model })),
+  description: CLAUDE_CHOICES.find((c) => c.value === model).description,
 });
 
 // sidebar: the /_hub/sidebar.json data, whose hub detail already says when the hub runs older code (home.mjs
 // hubHealth); rows: hub.mjs status() rows, whose restart (restart-board.mjs restartable) gives a board its Restart; links: Map of route to linksOf; code: {running, onDisk}, the hub's code hashes
-// (boards.mjs); host: the address the page was loaded from; rules: the hub rules; codexShare: push.mjs readCodexShare(codex);
+// (boards.mjs); host: the address the page was loaded from; rules: the hub rules; codexShare: push.mjs readCodexShare(codex); claudeModel: push.mjs readClaudeModel;
 // codex: a shared/codex.mjs codexStatus; awake: awake.mjs awakeUntil, which the Health row's Keeping awake shows.
 // Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js).
 // hold, for the page's banner, is null unless pushes are held or snoozed; its text matches the sidebar moon's tooltip,
 // and end is true when End can lift it, which only a snooze allows.
-export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code = {}, host = '', rules = [], remembered = new Map(), integrations = [], codexShare = 'off', codex = codexStatus({ installed: false }), awake = null }) {
+export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code = {}, host = '', rules = [], remembered = new Map(), integrations = [], codexShare = 'off', claudeModel = 'auto', codex = codexStatus({ installed: false }), awake = null }) {
   const boards = new Set(sidebar.sites.filter((x) => x.board).map((x) => x.route));
   const codeLine = code.running && code.running === code.onDisk ? ` · runs the code in its files (${code.onDisk})` : '';
   const site = (r) => ({ route: r.route, title: r.title, icon: siteIcon(r.route, r), href: `/${encodeURIComponent(r.route)}/`, ...siteHealth(r, links.get(r.route)), remembered: remembered.get(r.route) || [],
@@ -87,7 +104,8 @@ export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code 
     integrations,
     usage: sidebar.usage,
     pause: sidebar.pause,
-    codex: codexView(codexShare, codex),
+    codex: codexView(codexShare, codex, claudeModel),
+    claude: claudeView(claudeModel),
     empty: rows.length === 0,
     polling: { ...pollingNow(st, poll, now), summary: pollingSummary(st.settings) },
     notifications: { on: st.settings.notifications.on, text: sidebar.notifications.text, device: nowLine(st, now) },

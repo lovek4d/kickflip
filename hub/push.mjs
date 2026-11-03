@@ -181,6 +181,22 @@ export function setCodexShare(value, status = codexStatus()) {
   return value;
 }
 
+// Which Claude model builds a card that Claude builds (docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md):
+// opus or sonnet forces it, auto leaves it to the card (shared/usage-gate.mjs builderPick). A missing or unknown stored
+// value is auto.
+export const CLAUDE_MODEL_VALUES = ['opus', 'auto', 'sonnet'];
+export const readClaudeModel = (home = os.homedir()) => {
+  const stored = readSettingsFile(home).claudeModel;
+  return CLAUDE_MODEL_VALUES.includes(stored) ? stored : 'auto';
+};
+
+// Throws {status: 400} for a value that isn't a choice.
+export function setClaudeModel(value, home = os.homedir()) {
+  if (!CLAUDE_MODEL_VALUES.includes(value)) throw Object.assign(new Error('claude-model takes opus, auto or sonnet'), { status: 400 });
+  writeSettingsFile({ ...readSettingsFile(home), claudeModel: value }, home);
+  return value;
+}
+
 // The saved polling settings: an old `push` block is migrated, and a missing or invalid file gives the defaults.
 export function readSettings(home) {
   return pollingOf(readSettingsFile(home));

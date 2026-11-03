@@ -108,9 +108,14 @@ test("the hub page's Codex share says what each choice means while Codex is usab
   assert.deepEqual(unusable(view({ codex: LOGGED_OUT })), [false, 'Not logged in', 'off', 'off', "Codex isn't logged in on the host.", 'codex login']);
   const meanings = {
     always: 'Codex builds and reviews. Work pauses when it runs out.',
-    auto: "Codex builds and reviews, and Opus takes over while it's out.",
-    off: 'Opus builds and reviews.',
+    auto: "Codex builds and reviews, and Claude takes over while it's out.",
+    off: 'Claude builds and reviews.',
   };
+  // The Claude model names who takes over: the forced model, or Claude under Auto.
+  for (const [claudeModel, word] of [['opus', 'Opus'], ['sonnet', 'Sonnet'], ['auto', 'Claude']]) {
+    assert.equal(view({ codexShare: 'auto', codex: USABLE, claudeModel }).description, `Codex builds and reviews, and ${word} takes over while it's out.`);
+    assert.equal(view({ codexShare: 'off', codex: USABLE, claudeModel }).description, `${word} builds and reviews.`);
+  }
   for (const [codexShare, description] of Object.entries(meanings)) {
     const v = view({ codexShare, codex: USABLE });
     assert.deepEqual([v.usable, v.tag, v.share, v.fix], [true, null, codexShare, null]);
@@ -549,7 +554,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   assert.equal(note.textContent, 'A feature that needs an integration stays off until it’s ready, and says why.');
   assert.match(root.querySelector('.usage').textContent, /Claude.*5-hour.*42%/);
   assert.equal(root.querySelector('.usage').querySelectorAll('details, dialog').length, 0);
-  assert.ok(root.querySelector('.usage').querySelectorAll('button').every((el) => el.hasAttribute('disabled')));
+  assert.ok(root.querySelector('.usage [aria-label="Codex share"]').querySelectorAll('button').every((el) => el.hasAttribute('disabled')));
   const lists = root.querySelectorAll('.remembered');
   assert.equal(lists.length, 2);
   assert.match(lists[0].textContent, /Always allow · session s-alpha/);
@@ -614,13 +619,13 @@ test("the hub page's Usage card opens Codex's block with Codex share, bars under
   }
 
   live.paint(hub('off'));
-  assert.match(codex().textContent, /^CodexAlways onAutoOffOpus builds and reviews\./);
+  assert.match(codex().textContent, /^CodexAlways onAutoOffClaude builds and reviews\./);
   assert.equal(codex().querySelector('.u-asof'), null);
   assert.equal(codex().querySelectorAll('.u-bar, .u-share-fix, [disabled], [aria-disabled]').length, 0);
   assert.equal(selected(), 'off');
   assert.deepEqual(codex().querySelectorAll('.segments button').map((b) => b.textContent), ['Always on', 'Auto', 'Off']);
   assert.equal(codex().querySelector('.segments').getAttribute('aria-label'), 'Codex share');
-  assert.equal(codex().querySelector('.u-share-desc').textContent, 'Opus builds and reviews.');
+  assert.equal(codex().querySelector('.u-share-desc').textContent, 'Claude builds and reviews.');
   assert.deepEqual(root.querySelectorAll('.usage .u-head .title').map((el) => el.textContent), ['Claude', 'Codex']);
 
   for (const value of ['auto', 'always', 'off']) {
@@ -630,13 +635,81 @@ test("the hub page's Usage card opens Codex's block with Codex share, bars under
     assert.equal(selected(), value);
     assert.equal(codex().querySelector('.u-share-desc').textContent, hub(value).codex.description);
     assert.equal(codex().querySelectorAll('.u-bar').length, value === 'off' ? 0 : 2);
-    assert.match(codex().textContent, value === 'off' ? /^CodexAlways onAutoOffOpus builds and reviews\./ : /^Codexread [^]*?Always onAutoOff[^]*?(?:runs out|it's out)\.5-hour42% · resets/);
+    assert.match(codex().textContent, value === 'off' ? /^CodexAlways onAutoOffClaude builds and reviews\./ : /^Codexread [^]*?Always onAutoOff[^]*?(?:runs out|it's out)\.5-hour42% · resets/);
   }
   assert.equal(sidebarChanges, 3);
   refused = true;
   await submit('auto');
   assert.equal(selected(), 'off');
   assert.equal(root.querySelector('[role="alert"]').textContent, 'codex-share takes auto, always, or off');
+});
+
+// docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md
+test("the hub page's Usage card opens Claude's block with Opus, Auto and Sonnet, whose helper says what Auto does, and saves each choice or shows a refusal", async () => {
+  const document = {};
+  const { Element } = miniDom(class {}, document);
+  const root = new Element('div');
+  const listeners = [];
+  const posts = [];
+  let live;
+  let refused = false;
+  const now = t(19);
+  const reading = { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null };
+  const hub = (claudeModel, claude = reading) => plain(hubView({ now, st: status(now, DEFAULTS), poll: poll(now), rows: [], codexShare: 'off', codex: USABLE, claudeModel,
+    sidebar: { sites: [], hub: {}, notifications: {}, total: 0, usage: { claude, codex: null } } }));
+  const context = vm.createContext({
+    URLSearchParams, document, navigator: {},
+    FormData: class { *[Symbol.iterator]() {} },
+    BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
+    BoardUI: { header: () => '' },
+    PromptAnswers: { wire: () => ({ shows: () => true }) },
+    fetch: async (url, opts) => {
+      posts.push({ url, opts });
+      return { ok: !refused, json: async () => refused ? { error: 'claude-model takes opus, auto or sonnet' } : hub(opts.body.get('value')) };
+    },
+  });
+  for (const file of ['ui-sidebar.js', 'ui-hub.js', 'hub-kit.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
+  context.HubKit.live = (B, opts) => { live = opts; return () => {}; };
+  root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
+  context.AppViews.hub.create(root, '/_hub', {});
+  const claude = () => root.querySelectorAll('.usage .u-block')[0];
+  const selected = () => claude().querySelector('.segments button[aria-pressed="true"]').value;
+  const submit = (value) => {
+    const form = claude().querySelector('.segments');
+    const button = form.querySelector(`button[value="${value}"]`);
+    return listeners.find((l) => l.target === root && l.type === 'submit').fn({ target: form,
+      submitter: { name: button.getAttribute('name'), value: button.value }, preventDefault() {} });
+  };
+  const HELP = {
+    opus: 'Always Opus. Auto would give small cards to Sonnet.',
+    auto: 'Auto: small cards get Sonnet, the rest get Opus.',
+    sonnet: 'Always Sonnet. Auto would give large cards to Opus.',
+  };
+
+  live.paint(hub('auto'));
+  assert.equal(claude().querySelector('.u-head .title').textContent, 'Claude');
+  assert.equal(claude().querySelector('.segments').getAttribute('aria-label'), 'Claude model');
+  assert.equal(claude().querySelector('.segments').getAttribute('action'), '/_hub/settings/claude-model');
+  assert.deepEqual(claude().querySelectorAll('.segments button').map((b) => b.textContent), ['Opus', 'Auto', 'Sonnet']);
+  assert.match(claude().textContent, /^Claude.*OpusAutoSonnetAuto: small cards get Sonnet, the rest get Opus\.5-hour42%/);
+  assert.equal(selected(), 'auto');
+  for (const value of ['opus', 'sonnet', 'auto']) {
+    await submit(value);
+    const { url, opts } = posts.at(-1);
+    assert.deepEqual([url, opts.method, opts.body.toString()], ['/_hub/settings/claude-model', 'POST', `value=${value}`]);
+    assert.equal(selected(), value);
+    assert.equal(claude().querySelector('.u-share-desc').textContent, HELP[value]);
+  }
+  refused = true;
+  await submit('opus');
+  assert.equal(selected(), 'auto');
+  assert.equal(root.querySelector('[role="alert"]').textContent, 'claude-model takes opus, auto or sonnet');
+
+  // With no Claude reading yet, the block still opens with the control.
+  live.paint(hub('sonnet', null));
+  assert.deepEqual(root.querySelectorAll('.usage .u-head .title').map((el) => el.textContent), ['Claude', 'Codex']);
+  assert.equal(selected(), 'sonnet');
 });
 
 test("the hub page leads with a banner while pushes are held or snoozed, and its End snooze lifts a snooze", async () => {

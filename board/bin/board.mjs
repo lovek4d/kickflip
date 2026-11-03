@@ -108,6 +108,9 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
                                                          --held holds it with no time; --pick-up-at "" resumes it
          [--ticket <id>]                                links a ticket in the board’s source
          [--title <t>]                                   renames the card
+         [--size small|large] [--model opus|sonnet]      what builder pick reads while the hub's Claude model is
+                                                         Auto: a small card gets Claude Sonnet, any other Opus, and
+                                                         --model wins over --size; "" clears either
          [--notes-file <file>]                           the item's notes: a .md file inside its wave's folder,
                                                          named relative to it, holding the session's understanding
                                                          of the task so far. The open card's Notes link opens it,
@@ -149,6 +152,7 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
          [--ticket <id>] [--deps <id>,<wave>/<id>]       hand-edit wave.json to add one. Refuses an id the wave has.
          [--notes-file <file>]                           --plan is an alias of --notes-file
          [--pick-up-at <time>]                           holds it until then, as item set's --pick-up-at
+         [--size small|large] [--model opus|sonnet]      as item set's
          [--parent <wave>/<id>]                          the card it was spun out of, such as one filed from
                                                          another card's thread, grill or answer: it reads as a
                                                          follow-up, and its Parent lists it in Children. A card
@@ -270,9 +274,10 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
                                                          login; without one they run as gh's active account
   builder start <wave>/<id> [--agent <name>] [--kind <claude|codex|prototype|grill|install|…>] [--label <who>]
          [--model <opus|sonnet>]                         the Claude model running the builder, recorded and printed as
-                                                         "model: Claude Sonnet" (kind claude defaults to opus; codex
-                                                         prints "model: Codex"). The thread's agent line reads it: "Claude
-                                                         Sonnet builder started"; the label carries no model word.
+                                                         "model: Claude Sonnet" (kind claude takes builder pick's model;
+                                                         codex prints "model: Codex"). The thread's agent line reads it: "Claude
+                                                         Sonnet builder started"; the label carries no model word. A
+                                                         build refuses the model the hub's Claude model rules out
          [--phase <phase> --progress <detail>]           one record per agent on the item; --agent defaults to main.
          [--eta <ISO time>]                              --phase and --progress take what builder progress takes.
                                                          --kind install: a build of the card's install, whose
@@ -313,8 +318,10 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
                                                          and land close the records themselves
          builder takes --dir <dir> for a wave file in <dir>; its records go in <dir>/agents
   builder pick <wave>/<id>                               who builds the card, from the hub's Codex share and the pause
-                                                         line: "codex: <reason>" or "claude opus: <reason>". Pass that kind
-                                                         to builder start --kind
+                                                         line, and for claude which model, from the hub's Claude model
+                                                         and the card's --size and --model: "codex: <reason>" or
+                                                         "claude sonnet: <reason>". Pass that kind to builder start
+                                                         --kind, and launch that model
   builder call <wave>/<id> <judgment call>             appends one line to the agent's open builder record: a
          [--agent <name>]                                judgment call as the builder makes it, or a "Question: …"
                                                          for the session; refused with no open record. A builder start
@@ -456,10 +463,10 @@ const COMMANDS = {
   'prototype add': [['topic'], ['title', 'take', 'card'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take })],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'pushed', 'gh-since', 'from-ask', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'parent', 'related', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force', 'ticket', 'text'], (site, [key], f, options) =>
+  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'pushed', 'gh-since', 'from-ask', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'parent', 'related', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'text'], (site, [key], f, options) =>
     store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps, parent: f.parent, related: f.related,
-      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, force: f.force, ticket: f.ticket, text: f.text }, options)],
-  'item add': [['wave[/id]'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'parent'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket, pickUpAt: f['pick-up-at'], parent: f.parent }, options)],
+      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, text: f.text }, options)],
+  'item add': [['wave[/id]'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'parent', 'size', 'model'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket, pickUpAt: f['pick-up-at'], parent: f.parent, size: f.size, model: f.model }, options)],
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
   'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],
   'ask done': [['eventId'], [], (site, [id]) => store.markAsk(site, id, 'done')],

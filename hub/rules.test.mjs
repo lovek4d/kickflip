@@ -112,7 +112,7 @@ test('codex-share prints the setting in effect, refuses a change while Codex is 
     assert.match(help.stdout, /prints the Codex setting in effect for every board; with a value, saves it and prints it\./);
     assert.match(help.stdout, /auto \(also when unset\): Codex builds and reviews; while Codex is past the pause line or out of usage, Opus\n\s+builders take over until it resets\./);
     assert.match(help.stdout, /always \(Always on\): the same past the pause line; while Codex is out of usage, that work pauses until a\n\s+usage-reset check succeeds\./);
-    assert.match(help.stdout, /off: Opus builds and reviews\. While Codex isn't installed or logged in, the setting reads off and a change is refused\./);
+    assert.match(help.stdout, /off: Claude builds and reviews\. While Codex isn't installed or logged in, the setting reads off and a change is refused\./);
     assert.equal(cli().stdout, 'off\n');
     const notInstalled = cli('always');
     assert.deepEqual([notInstalled.status, notInstalled.stdout, notInstalled.stderr], [1, '', `kickflip: Codex isn't installed on the host. Run ${process.platform === 'darwin' ? 'brew install --cask codex' : 'npm i -g @openai/codex'}, then choose again.\n`]);
@@ -240,6 +240,27 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
     const refused = await postCodex('value=bad', false);
     assert.equal(refused.status, 400);
     assert.equal(await refused.text(), 'codex-share takes auto, always, or off');
+    await t.test('the Claude model route saves opus, auto or sonnet, refuses anything else and redirects forms', async () => {
+      const postModel = (body, json = true) => fetch(`${base}/_hub/settings/claude-model`, {
+        method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...(json ? { accept: 'application/json' } : {}) }, body, redirect: 'manual',
+      });
+      assert.equal((await getHub()).claude.model, 'auto');
+      const settingsBefore = JSON.parse(fs.readFileSync(file, 'utf8'));
+      for (const value of ['opus', 'sonnet', 'auto']) {
+        const r = await postModel(`value=${value}`);
+        assert.equal(r.status, 200);
+        const out = await r.json();
+        assert.equal(out.claude.model, value);
+        assert.deepEqual(out.claude, (await getHub()).claude);
+        assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { ...settingsBefore, claudeModel: value });
+      }
+      const bad = await postModel('value=haiku');
+      assert.deepEqual([bad.status, await bad.json()], [400, { error: 'claude-model takes opus, auto or sonnet' }]);
+      const badForm = await postModel('value=', false);
+      assert.deepEqual([badForm.status, await badForm.text()], [400, 'claude-model takes opus, auto or sonnet']);
+      const redirect = await postModel('value=opus', false);
+      assert.deepEqual([redirect.status, redirect.headers.get('location')], [303, '/_hub/']);
+    });
     await t.test('pause line routes save the gate, refuse bad values and redirect forms', async () => {
       const postGate = (name, body, json = true) => fetch(`${base}/_hub/settings/${name}`, {
         method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...(json ? { accept: 'application/json' } : {}) }, body, redirect: 'manual',

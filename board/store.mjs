@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { BUILD_REFUSED, ITEM_STATUSES, builds, mergeBlockers, modelName, noTakePicked, ownerQuestion, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, builderPick } from '../shared/usage-gate.mjs';
-import { reviseQueued, flushQueue, queueStatus, readSettings, pushKindError } from '../hub/push.mjs';
+import { reviseQueued, flushQueue, queueStatus, readSettings, pushKindError, readClaudeModel } from '../hub/push.mjs';
 import { holdLine, windowAt } from '../hub/schedule.mjs';
 import { AT_RE } from '../hub/duration.mjs';
 import { routeRecord } from '../hub/routes.mjs';
@@ -1273,7 +1273,7 @@ function closingLine(site, key, item, status, text) {
 // (done, merged, dropped) adds a `resolved: <id>` line per question it resolved (closeQuestions).
 // notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`. text is the closing line
 // (closingLine), or with fromAsk the item's first thread line.
-async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, parent, related, install, installSha, installLabel, clearInstall, title, force, text: said, who }, options) {
+async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, parent, related, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
   if (state !== undefined && !CARD_STATES.includes(state)) fail('--state takes ready, grilling or prototyping');
   if (force && !FINISHED.includes(status)) fail(`--force goes with --status ${FINISHED.join(', ')}`);
@@ -1285,7 +1285,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   const hold = holdOf({ held, unheld, pickUpAt });
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, state, hold, notesFile, deps, parent, related, built, title, ticket].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --notes-file, --deps, --parent, --related, --install, --clear-install, --title or --ticket');
+  if ([status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, state, hold, notesFile, deps, parent, related, built, title, size, model, ticket].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --notes-file, --deps, --parent, --related, --install, --clear-install, --title, --size, --model or --ticket');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   const { source, wave, item } = await loadItem(site, key);
@@ -1295,6 +1295,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   const owedBefore = owesNext(item, records);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
   if (title !== undefined) item.title = text(title, '--title');
+  setBuildChoice(item, { size, model });
   if (deps !== undefined) {
     const list = await depList(site, parseKey(key).wave, deps);
     if (list.length) item.deps = list; else delete item.deps;
@@ -1387,6 +1388,17 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     if (!queued) await appendEvent({ dir: site }, 'card-unblocked', { key: k });
   }
   return { file: source.file, lines: [...unblocked.map(({ key: k, queued }) => (queued ? `queued build starts: ${k}` : `unblocked: ${k}`)), ...resolved] };
+}
+
+// --size and --model, which builder pick reads while the hub's Claude model is Auto: a small card gets Sonnet, and a
+// card's own model wins over its size; "" clears either
+// (docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md).
+function setBuildChoice(item, { size, model }) {
+  for (const [field, value, choices] of [['size', size, ['small', 'large']], ['model', model, ['opus', 'sonnet']]]) {
+    if (value === undefined) continue;
+    if (value === '') delete item[field];
+    else item[field] = choices.includes(value) ? value : fail(`--${field} takes ${choices.join(' or ')}, or "" to clear it`);
+  }
 }
 
 // docs/adr/0023-a-card-can-be-held-and-every-card-button-confirms.md, docs/adr/0118-a-card-can-be-held-until-a-time.md
@@ -1595,7 +1607,7 @@ export const addItem = (site, key, details, options) => ticketWrite(site, () => 
 // → {file, key}. A new card starts unstarted: planned, or waiting when it names deps. key is <wave>/<id>, or <wave>
 // alone, which names the card from the ticket made or linked for it. parent is the card it was spun out of
 // (docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md).
-async function createItem(site, key, { title, notes, deps, notesFile, ticket, pickUpAt, parent }, options) {
+async function createItem(site, key, { title, notes, deps, notesFile, ticket, pickUpAt, parent, size, model }, options) {
   const { wave: slug, id } = key.includes('/') ? parseKey(key) : { wave: key };
   if (id !== undefined) domId(id, 'the item id');
   const { source, wave } = await loadWave(site, slug);
@@ -1603,6 +1615,7 @@ async function createItem(site, key, { title, notes, deps, notesFile, ticket, pi
   const item = { id, title: text(title, '--title'), created: new Date().toISOString() };
   if (parent !== undefined) item.parent = await parentKey(site, slug, null, parent) || fail('--parent takes a card, such as <wave>/<id>');
   if (notes !== undefined) item.notes = text(notes, '--notes');
+  setBuildChoice(item, { size, model });
   if (deps !== undefined) item.deps = await depList(site, slug, deps);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
   item.status = item.deps?.length ? 'waiting' : 'planned';
@@ -1862,7 +1875,9 @@ async function statusToThread(site, key, agent = 'main', builder, { phase, detai
 // the record's kind, its Claude model and worktree stay, and the record starts again at now, no longer tapped or
 // dispatched (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md,
 // docs/adr/0152-the-session-opens-the-builder-record-when-it-dispatches-an-agent.md).
-// → {file, lines, kind, reason, worktree}: reason is the pick's, worktree the path or null.
+// A Claude build takes the hub's Claude model when it is Opus or Sonnet, refusing a --model it rules out, and otherwise
+// the pick's, which reads the card's size and model (docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md).
+// → {file, lines, kind, model, reason, worktree}: model is the Claude model or null, reason the pick's, worktree the path or null.
 export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, model, eta, worktree, tapped, dispatch }) {
   const gate = readUsageGate();
   if (gate.state === 'paused') throw new BoardError(pauseReason(gate));
@@ -1878,21 +1893,23 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const build = ['build', ...PICKED].includes(asked);
   const before = await readJSON(file, null);
   const takeUp = (before?.tapped || before?.dispatched) && !before.done ? before : null;
+  const was = build && !dir ? (await loadItem(site, key)).item : undefined;
   // A record with unverified judgment calls is a build not yet checked: a start on it resumes that build, a
   // dispatched or tapped one included (docs/adr/0155-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
   const resumed = before && unverifiedCalls(before).length ? before : null;
-  const pick = takeUp && asked === 'build' ? { kind: providerOf(takeUp.kind), model: takeUp.model, reason: takeUp.tapped ? "The owner's Build tap picked it." : "The session's dispatch picked it." } : build ? builderPick() : null;
+  const pick = takeUp && asked === 'build' ? { kind: providerOf(takeUp.kind), model: takeUp.model, reason: takeUp.tapped ? "The owner's Build tap picked it." : "The session's dispatch picked it." } : build ? builderPick({ card: was ?? {} }) : null;
   if (pick && asked !== 'build' && asked !== pick.kind) fail(`--kind ${asked}: ${pick.kind} builds now. ${pick.reason} Pass --kind ${pick.kind}, or --kind build.`);
   const k = pick ? pick.kind : asked;
   if (model !== undefined && !['opus', 'sonnet'].includes(model)) fail('--model takes opus or sonnet');
   if (askedModel !== undefined && k === 'codex') fail('--model is for kind claude; codex needs none');
+  const forced = k === 'claude' ? readClaudeModel() : 'auto';
+  if (askedModel !== undefined && forced !== 'auto' && askedModel !== forced) fail(`--model ${askedModel}: the hub's Claude model is ${forced === 'opus' ? 'Opus' : 'Sonnet'}. Pass --model ${forced}, or no --model.`);
   const claude = k === 'claude' ? askedModel ?? pick?.model ?? (takeUp && providerOf(takeUp.kind) === 'claude' ? takeUp.model : undefined) ?? 'opus' : undefined;
   const record = {
     label: label === undefined ? 'Builder' : text(label, '--label'), ...(k ? { kind: k } : {}), ...(claude ? { model: claude } : {}), started: now,
     ...(eta === undefined ? {} : { eta: isoTime(eta, '--eta') }), ...(tapped ? { tapped: true } : {}), ...(dispatch ? { dispatched: true } : {}),
     ...(resumed ? { calls: resumed.calls, ...(resumed.verified ? { verified: resumed.verified } : {}) } : {}),
   };
-  const was = build && !dir ? (await loadItem(site, key)).item : undefined;
   const marking = build && !dir && ![...FINISHED, 'building', 'fixing'].includes(was.status);
   const marked = marking ? await setItem(site, key, { status: 'building' }) : { lines: [] };
   let wt;
@@ -1906,7 +1923,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const resolved = await resolveAnswered(site, key, 'Acted on: builder started');
   if (site && builds({ kind: k })) await clearWaitedNext(site, `item:${key}`, { build: true });
   return {
-    file, kind: k ?? null, reason: pick?.reason ?? null, worktree: wt?.path ?? null,
+    file, kind: k ?? null, model: claude ?? null, reason: pick?.reason ?? null, worktree: wt?.path ?? null,
     lines: [...(asked === 'build' ? [`kind: ${k}. ${pick.reason}`] : []), ...(modelName(record) ? [`model: ${modelName(record)}`] : []), ...(site ? [`ref: ${await cardName(site, key)}`] : []), ...(wt ? [`worktree: ${wt.path}`] : []), ...marked.lines, ...resolved],
   };
 }
@@ -1927,7 +1944,7 @@ export async function startTappedBuild(site, key, worktree) {
     if (blockers.length) return await queueBuild(site, key, blockers);
     try {
       const started = await startBuilder(site, key, { kind: 'build', worktree, tapped: true });
-      return { key, ref: await cardName(site, key), kind: started.kind, reason: started.reason, worktree: started.worktree };
+      return { key, ref: await cardName(site, key), kind: started.kind, ...(started.model ? { model: started.model } : {}), reason: started.reason, worktree: started.worktree };
     } catch (e) {
       if (held) await restoreHold(site, key, held);
       throw e;
@@ -2007,10 +2024,10 @@ async function restoreStatus(site, key, was) {
 }
 
 const PICKED = ['codex', 'claude'];
-// `builder pick`: the kind builder start takes for a card's build. → {lines: ["codex: <reason>" or "claude opus: <reason>"]}
+// `builder pick`: the kind builder start takes for a card's build. → {lines: ["codex: <reason>" or "claude <opus|sonnet>: <reason>"]}
 export async function pickBuilder(site, key) {
-  await loadItem(site, key);
-  const { kind, model, reason } = builderPick();
+  const { item } = await loadItem(site, key);
+  const { kind, model, reason } = builderPick({ card: item });
   return { lines: [`${[kind, model].filter(Boolean).join(' ')}: ${reason}`] };
 }
 

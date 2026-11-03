@@ -1,6 +1,6 @@
 import os from 'node:os';
 import { usageReader } from '../hub/usage.mjs';
-import { readSettingsFile, writeSettingsFile, readCodexShare } from '../hub/push.mjs';
+import { readSettingsFile, writeSettingsFile, readCodexShare, readClaudeModel } from '../hub/push.mjs';
 import { codexStatus, codexStatusReader, effectiveCodexShare } from './codex.mjs';
 
 export const validPauseAt = (value) => Number.isInteger(value) && value >= 50 && value <= 100 && value % 5 === 0;
@@ -58,17 +58,29 @@ export const heldUsageEvent = (line) => {
   try { return ['github-change', 'check-github', 'card-unblocked', 'card-pull'].includes(JSON.parse(line).kind); } catch { return false; }
 };
 
-// Who builds a card, codex or claude (Opus today): Codex while it is usable, the Codex share in effect is auto or always, and Codex
-// is under the pause line, else Claude (docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md).
+// Who builds a card, codex or claude: Codex while it is usable, the Codex share in effect is auto or always, and Codex is
+// under the pause line, else Claude (docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md), with the
+// model claudePick gives. card is the card's wave entry, whose size and model Auto reads.
 // → {kind, model?, reason}
-export function builderPick({ home = os.homedir(), now = Date.now() } = {}) {
+export function builderPick({ home = os.homedir(), now = Date.now(), card = {} } = {}) {
+  const claude = (why) => { const { model, reason } = claudePick(readClaudeModel(home), card); return { kind: 'claude', model, reason: `${why} ${reason}` }; };
   const status = codexStatus({ home });
-  if (!status.usable) return { kind: 'claude', model: 'opus', reason: status.words };
+  if (!status.usable) return claude(status.words);
   const codexShare = effectiveCodexShare(readSettingsFile(home).codexShare, status);
-  if (codexShare === 'off') return { kind: 'claude', model: 'opus', reason: 'Codex share is off.' };
+  if (codexShare === 'off') return claude('Codex share is off.');
   const gate = readUsageGate({ home, now });
-  if (gate.codex.past) return { kind: 'claude', model: 'opus', reason: `Codex is at ${Math.round(gate.codex.used)}%, past the ${gate.pause_at}% line until ${gate.codex.resets_at}.` };
+  if (gate.codex.past) return claude(`Codex is at ${Math.round(gate.codex.used)}%, past the ${gate.pause_at}% line until ${gate.codex.resets_at}.`);
   return { kind: 'codex', reason: `Codex share is ${codexShare} and Codex is under the ${gate.pause_at}% line.` };
+}
+
+// The hub's Claude model (hub/push.mjs readClaudeModel) forces Opus or Sonnet; Auto takes the card's own model, else
+// Sonnet for a card sized small and Opus for the rest
+// (docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md). → {model, reason}
+const NAMES = { opus: 'Opus', sonnet: 'Sonnet' };
+function claudePick(setting, card) {
+  if (setting !== 'auto') return { model: setting, reason: `Claude model is ${NAMES[setting]}.` };
+  if (card.model) return { model: card.model, reason: `Claude model is Auto and the card asks for Claude ${NAMES[card.model]}.` };
+  return card.size === 'small' ? { model: 'sonnet', reason: 'Claude model is Auto and the card is small.' } : { model: 'opus', reason: "Claude model is Auto and the card isn't small." };
 }
 
 export const pauseReason = (gate) => `Work is paused: Claude's ${gate.window === 'five_hour' ? '5-hour' : 'weekly'} usage is at ${Math.round(gate.used)}%. Resumes at ${gate.resets_at}. The owner can tap Keep going on the Hub page.`;

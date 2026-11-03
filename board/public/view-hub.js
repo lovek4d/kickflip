@@ -1,4 +1,4 @@
-// The hub page, /_hub/, a view of the app shell (shell.js): a banner while pushes are held or snoozed, the Usage card with Codex share, Needs you for the pending
+// The hub page, /_hub/, a view of the app shell (shell.js): a banner while pushes are held or snoozed, the Usage card with Claude model and Codex share, Needs you for the pending
 // prompts of sessions that own no board, Health, Integrations (readiness.mjs words), each site's health and board links,
 // polling status, then hub settings summary rows (ADR 0075). A board's row can carry Restart (hub/restart-board.mjs). Health comes from GET /_hub/api/hub.
 // Its data refreshes every 30 seconds while it shows (hub-kit.js live).
@@ -54,7 +54,7 @@
 
   function html(d, { flash, prompts, restarting }) {
     const { row, tile, nowRow } = HubUI;
-    const usage = HubUI.usageCard(d.usage, d.codex, d.pause);
+    const usage = HubUI.usageCard(d.usage, d.codex, d.pause, d.claude);
     return `${HubUI.flash(flash)}${HubUI.pauseBanner(d.pause)}${HubUI.holdBanner(d.hold)}${usage}${promptsHtml(d.prompts || [], prompts)}<h2 class="label"${usage ? '' : ' style="margin-top:4px"'}>Health</h2>
 <div class="group">${row({ icon: tile('power', { ok: '#22c55e', wait: '#f59e0b' }[d.hub.tone] || '#ef4444'), title: 'Hub', sub: `<button type="button" class="st ${esc(d.hub.tone)}" data-jump="integrations">${esc(d.hub.word)}</button> ·${esc(d.hub.detail)}${d.awake ? `<span class="links"><span><span class="awake-on">Keeping awake</span> ${esc(d.awake)}</span></span>` : ''}`, wrap: true })}
 ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/kickflip &lt;route&gt;</code>.' }) : ''}</div>
@@ -124,9 +124,9 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembe
         after: () => load(),
       });
       const forms = HubKit.forms(B, {
-        accepts: (action, form) => action === '/_hub/push/flush' || ['/_hub/settings/codex', '/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(action) || Boolean(form?.closest?.('.hold-banner')),
+        accepts: (action, form) => action === '/_hub/push/flush' || ['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(action) || Boolean(form?.closest?.('.hold-banner')),
         answer(out, action) {
-          if (['/_hub/settings/codex', '/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(action)) {
+          if (['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(action)) {
             last = out; flash = null; paint();
             if (action.endsWith('/keep-going')) B.toast(out.pause.state === 'going' ? `Keep going: work runs past the buffer until ${BoardUI.usageClock(out.pause.resets_at)}.` : 'Stopped: new work waits again.');
           } else if (action === '/_hub/push/flush') { flash = { text: out.message, error: !out.ok }; load(); } else { flash = null; load(); settings.B.refreshSettings?.(); }

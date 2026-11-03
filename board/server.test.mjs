@@ -263,7 +263,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.deepEqual([record.kind, record.label, record.tapped, record.worktree], ['claude', 'Builder', true, { path: worktree, branch: 'B1', repo: clone }]);
     assert.equal(git(worktree, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'HEAD'));
     const woke = log().slice(before);
-    assert.deepEqual(woke.map((e) => [e.kind, e.data]), [['card-build', { key: 't/B1', ref: 'B1', kind: 'claude', reason: woke[0].data.reason, worktree }]]);
+    assert.deepEqual(woke.map((e) => [e.kind, e.data]), [['card-build', { key: 't/B1', ref: 'B1', kind: 'claude', model: 'opus', reason: woke[0].data.reason, worktree }]]);
     assert.match(woke[0].data.reason, /\S/);
     const started = await card('B1');
     assert.deepEqual([started.lane, started.status, started.buildable, started.builder.waiting, started.builder.progress, started.refusal], ['progress', 'building', false, true, null, null]);

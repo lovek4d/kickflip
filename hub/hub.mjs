@@ -73,6 +73,7 @@
 //                     409 {error} off macOS (awake.mjs)
 //   /_hub/settings/codex POST value=auto|always|off → /_hub/api/hub's JSON, or 400 {error}, or 409 {error} with the
 //                     fix while Codex isn't installed or logged in, checked afresh
+//   /_hub/settings/claude-model POST value=opus|auto|sonnet → /_hub/api/hub's JSON, or 400 {error}
 //   /_hub/settings/pause-at POST value=50..100 in steps of 5 → /_hub/api/hub's JSON, or 400 {error}; 100 is Off
 //   /_hub/settings/keep-going POST value=on|off → /_hub/api/hub's JSON, or 400 {error}; on without a pause → 409 {error}
 //   /_hub/settings/linear POST key=<Linear personal API key>, checked with Linear and saved, as refused if Linear
@@ -142,7 +143,7 @@ import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import zlib from 'node:zlib';
 import { routeRecord } from './routes.mjs';
-import { publicKey, addSubscription, removeSubscription, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, deliver, pushRoute } from './push.mjs';
+import { publicKey, addSubscription, removeSubscription, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, deliver, pushRoute } from './push.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
 import { nextSlot, windowAt, hold, heldUntil, holdLine, editPolling } from './schedule.mjs';
 import { capital, hubView, settingsView, pollingView, flushView, SNOOZE_REFUSED, AWAKE_REFUSED } from './views.mjs';
@@ -699,7 +700,7 @@ async function hubData(req) {
   return {
     ...hubView({
       now, st: queueStatus(now), poll: pollState(), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
-      code, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), codex: readCodex(), awake: awakeUntil(now),
+      code, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), codex: readCodex(), awake: awakeUntil(now),
       remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])),
     }),
     prompts: pendingFor(null).map(shown),
@@ -913,6 +914,14 @@ async function hubRoute(req, res, url) {
     try { setCodexShare(f.get('value'), readCodex({ fresh: true })); } catch (e) {
       if (e.status !== 400 && e.status !== 409) throw e;
       return json ? sendJSON(e.status, { error: e.message }) : send(e.status, 'text/plain; charset=utf-8', e.message);
+    }
+    return json ? sendJSON(200, await hubData(req)) : redirect(res, '/_hub/');
+  }
+  if (p === '/_hub/settings/claude-model' && req.method === 'POST') {
+    const f = new URLSearchParams(await readBody(req));
+    try { setClaudeModel(f.get('value')); } catch (e) {
+      if (e.status !== 400) throw e;
+      return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
     }
     return json ? sendJSON(200, await hubData(req)) : redirect(res, '/_hub/');
   }

@@ -43,14 +43,15 @@
     return `<div class="hold-banner ub-banner ub-${going ? 'going' : 'paused'}" role="status"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg><span>${esc(text)}</span><form method="post" action="/_hub/settings/keep-going"><button class="btn${going ? '' : ' quiet'}" name="value" value="${going ? 'off' : 'on'}">${going ? 'Stop' : 'Keep going'}</button></form></div>`;
   }
 
-  function bufferControl(pause) {
+  // builder: the word for who builds Codex's work, hub/views.mjs hubView's claude.builder.
+  function bufferControl(pause, builder) {
     const at = pause.pause_at;
     const off = at === 100;
     return `<div class="block"><div class="ub-row"><span class="ub-label"><span class="title">Pause work at</span><span class="ub-sub">${off ? 'No buffer' : `${100 - at}% buffer`}</span></span>`
       + `<form class="segments ub-step" method="post" action="/_hub/settings/pause-at" role="group" aria-label="Pause work at"><button name="value" value="${at - 5}" aria-label="Pause 5% sooner"${at <= 50 ? ' disabled' : ''}>−</button>`
       + `<output class="${off ? 'off' : ''}" aria-live="polite">${off ? 'Off' : `${at}%`}</output>`
       + `<button name="value" value="${at + 5}" aria-label="Pause 5% later"${off ? ' disabled' : ''}>+</button></form></div>`
-      + `<p class="u-share-desc">${off ? 'Off: work keeps going until usage runs out.' : 'Claude’s new work waits when either window passes this, and resumes at that window’s reset; Codex hands its work to Opus builders.'}</p></div>`;
+      + `<p class="u-share-desc">${off ? 'Off: work keeps going until usage runs out.' : `Claude’s new work waits when either window passes this, and resumes at that window’s reset; Codex hands its work to ${builder} builders.`}</p></div>`;
   }
 
   // What polling does now, the last and next check and the queue, with Send now: hub/views.mjs pollingNow's words.
@@ -75,11 +76,21 @@
       + `<p class="u-share-desc">${esc(codex.description)}</p>${codex.fix ? `<p class="u-share-fix"><code>${esc(codex.fix)}</code></p>` : ''}</div>`;
   }
 
-  // data is the usage reading; codex, when given, draws Codex's block even without a reading: the Codex share control
+  // The Claude model control, drawn as Codex share's: claude is hub/views.mjs hubView's claude, and its form posts to
+  // /_hub/settings/claude-model, which view-hub.js sends.
+  function claudeModel(claude) {
+    const buttons = claude.choices.map((c) => `<button type="submit" name="value" value="${esc(c.value)}" aria-pressed="${c.on}">${esc(c.label)}</button>`).join('');
+    return `<div class="u-share"><form class="segments" method="post" action="/_hub/settings/claude-model" role="group" aria-label="Claude model">${buttons}</form>`
+      + `<p class="u-share-desc">${esc(claude.description)}</p></div>`;
+  }
+
+  // data is the usage reading; claude, when given, opens Claude's block with the Claude model control, even without a
+  // reading; codex, when given, draws Codex's block even without a reading: the Codex share control
   // first, then Codex's bars while share isn't Off.
-  function usageCard(data, codex, pause) {
+  function usageCard(data, codex, pause, claude) {
     const { usageProducts, usageNames, usageClock, usageTone, usageBar, usageWords } = BoardUI;
     const products = usageProducts(data);
+    if (claude && !products.includes('claude')) products.unshift('claude');
     if (codex && !products.includes('codex')) products.push('codex');
     if (!products.length) return '';
     const head = (name, tag) => `<div class="u-head"><span class="title">${name}</span>${tag ? `<span class="u-asof">${esc(tag)}</span>` : ''}</div>`;
@@ -88,11 +99,12 @@
       `<div class="u-tone-${usageTone(r[key])}${pause?.pause_at < 100 ? ' ub-marked' : ''}"><div class="u-win"><span>${label}</span><span>${usageWords(r, key)}</span></div>${usageBar(r[key]).replace('</span>', `${pause?.pause_at < 100 ? `<span class="ub-mark" style="left:${pause.pause_at}%"></span>` : ''}</span>`)}</div>`).join('');
     const blocks = products.map((p) => {
       const r = data?.[p] || { at: null };
+      if (p === 'claude' && claude) return `<div class="block u-block">${head(usageNames.claude, asof(r))}${claudeModel(claude)}${windows(r)}</div>`;
       if (p !== 'codex' || !codex) return `<div class="block u-block">${head(usageNames[p], asof(r))}${windows(r)}</div>`;
       const bars = codex.usable && codex.share !== 'off';
       return `<div class="block u-block">${head(usageNames.codex, codex.tag || (bars ? asof(r) : ''))}${codexShare(codex)}${bars ? `<div class="u-codex-bars">${windows(r)}</div>` : ''}</div>`;
     }).join('');
-    const buffer = pause && products.includes('claude') ? bufferControl(pause) : '';
+    const buffer = pause && products.includes('claude') ? bufferControl(pause, claude?.builder ?? 'Claude') : '';
     return `<section class="usage"><h2 class="label" style="margin-top:4px">Usage</h2><div class="group">${blocks}${buffer}</div></section>`;
   }
 

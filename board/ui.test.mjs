@@ -1541,7 +1541,8 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   const hub = context.HubUI;
   const card = hub.usageCard({ claude: reading, codex: reading }, null, pause);
   assert.match(text(card), /Codex .*Pause work at 10% buffer − 90% \+/);
-  assert.match(text(card), /Claude’s new work waits.*Codex hands its work to Opus builders/);
+  assert.match(text(card), /Claude’s new work waits.*Codex hands its work to Claude builders/);
+  for (const builder of ['Opus', 'Sonnet']) assert.match(text(hub.usageCard({ claude: reading }, null, pause, { model: builder.toLowerCase(), builder, choices: [], description: '' })), new RegExp(`Codex hands its work to ${builder} builders`));
   assert.equal([...card.matchAll(/class="ub-mark" style="left:90%"/g)].length, 4);
   assert.match(card, /form class="segments ub-step" method="post" action="\/_hub\/settings\/pause-at"/);
   assert.match(card, /value="85" aria-label="Pause 5% sooner"/);

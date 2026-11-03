@@ -1354,14 +1354,14 @@ test('builder call appends a one-line call to the open record, calls prints them
 
 test('builder pick names the kind that builds now, builder start refuses the other, and --kind build takes the pick', () => {
   const noCodex = (...args) => run('board.mjs', args, undefined, { PATH: path.join(home, 'bin') });
-  assert.deepEqual(noCodex('builder', 'pick', 'w/A1', '--site', 'orch'), { code: 0, err: '', out: "claude opus: Codex isn't installed on the host.\n" });
+  assert.deepEqual(noCodex('builder', 'pick', 'w/A1', '--site', 'orch'), { code: 0, err: '', out: "claude opus: Codex isn't installed on the host. Claude model is Auto and the card isn't small.\n" });
   assert.equal(noCodex('builder', 'pick', 'w/Z9', '--site', 'orch').code, 1);
   const refused = noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'codex');
-  assert.deepEqual([refused.code, refused.err], [1, "--kind codex: claude builds now. Codex isn't installed on the host. Pass --kind claude, or --kind build.\n"]);
+  assert.deepEqual([refused.code, refused.err], [1, "--kind codex: claude builds now. Codex isn't installed on the host. Claude model is Auto and the card isn't small. Pass --kind claude, or --kind build.\n"]);
   assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A1.json')), false);
   const picked = noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'build');
   assert.equal(picked.code, 0, picked.err);
-  assert.match(picked.out, /^kind: claude\. Codex isn't installed on the host\.\nmodel: Claude Opus$/m);
+  assert.match(picked.out, /^kind: claude\. Codex isn't installed on the host\. Claude model is Auto and the card isn't small\.\nmodel: Claude Opus$/m);
   assert.match(picked.out, /^ref: A1$/m);
   assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).kind, 'claude');
   assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).model, 'opus');
@@ -1371,6 +1371,37 @@ test('builder pick names the kind that builds now, builder start refuses the oth
   assert.equal(blocked.code, 1);
   assert.match(blocked.err, /A1/);
   assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A2.json')), false);
+});
+
+// docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md
+test("a card's --size and --model feed builder pick's Claude model, and builder start refuses a --model the hub's Claude model rules out", () => {
+  const noCodex = (...args) => run('board.mjs', args, undefined, { PATH: path.join(home, 'bin') });
+  const card = () => read(at('waves', 'w', 'wave.json')).items[0];
+  const pick = () => noCodex('builder', 'pick', 'w/A1', '--site', 'orch').out;
+  assert.deepEqual([board('item', 'set', 'w/A1', '--size', 'small').code, card().size], [0, 'small']);
+  assert.equal(pick(), "claude sonnet: Codex isn't installed on the host. Claude model is Auto and the card is small.\n");
+  assert.deepEqual([board('item', 'set', 'w/A1', '--model', 'opus').code, card().model], [0, 'opus']);
+  assert.equal(pick(), "claude opus: Codex isn't installed on the host. Claude model is Auto and the card asks for Claude Opus.\n");
+  assert.equal(board('item', 'set', 'w/A1', '--model', '', '--size', '').code, 0);
+  assert.deepEqual(['size' in card(), 'model' in card()], [false, false]);
+  assert.match(board('item', 'set', 'w/A1', '--size', 'tiny').err, /^--size takes small or large/);
+  assert.match(board('item', 'set', 'w/A1', '--model', 'haiku').err, /^--model takes opus or sonnet/);
+  const added = board('item', 'add', 'w/A9', '--title', 'Nine', '--size', 'small', '--model', 'sonnet');
+  assert.equal(added.code, 0, added.err);
+  assert.deepEqual([read(at('waves', 'w', 'wave.json')).items.at(-1).size, read(at('waves', 'w', 'wave.json')).items.at(-1).model], ['small', 'sonnet']);
+
+  write(at('kickflip', 'settings.json'), { claudeModel: 'sonnet' });
+  assert.equal(pick(), "claude sonnet: Codex isn't installed on the host. Claude model is Sonnet.\n");
+  const refused = noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'claude', '--model', 'opus');
+  assert.deepEqual([refused.code, refused.err], [1, "--model opus: the hub's Claude model is Sonnet. Pass --model sonnet, or no --model.\n"]);
+  assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A1.json')), false);
+  assert.equal(noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'opus').code, 1);
+  const started = noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'build');
+  assert.equal(started.code, 0, started.err);
+  assert.match(started.out, /^kind: claude\. Codex isn't installed on the host\. Claude model is Sonnet\.\nmodel: Claude Sonnet$/m);
+  assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).model, 'sonnet');
+  // A kind other than a build keeps its own model.
+  assert.equal(noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--agent', 'p', '--kind', 'prototype', '--model', 'opus').code, 0);
 });
 
 const git = (cwd, ...args) => {

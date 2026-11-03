@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { usageGate, readUsageGate, setPauseAt, setKeepGoing, heldUsageEvent, builderPick } from './usage-gate.mjs';
+import { readClaudeModel, setClaudeModel } from '../hub/push.mjs';
 
 const now = Date.parse('2026-11-01T21:00:00Z');
 const until = new Date(now + 3600_000).toISOString();
@@ -122,10 +123,10 @@ test('the reader exposes Codex past the line only while effective share is on', 
   const read = () => readUsageGate({ home: f.home, now });
   const pick = () => builderPick({ home: f.home, now });
   assert.deepEqual(read().codex, { past: true, window: 'five_hour', used: 91, resets_at: until });
-  assert.deepEqual(pick(), { kind: 'claude', model: 'opus', reason: `Codex is at 91%, past the 90% line until ${until}.` });
+  assert.deepEqual(pick(), { kind: 'claude', model: 'opus', reason: `Codex is at 91%, past the 90% line until ${until}. Claude model is Auto and the card isn't small.` });
   f.write('settings.json', { codexShare: 'off' });
   assert.equal(read().codex.past, false);
-  assert.deepEqual(pick(), { kind: 'claude', model: 'opus', reason: 'Codex share is off.' });
+  assert.deepEqual(pick(), { kind: 'claude', model: 'opus', reason: "Codex share is off. Claude model is Auto and the card isn't small." });
   f.write('settings.json', { pauseAt: 95, codexShare: 'always' });
   assert.equal(read().codex.past, false);
   assert.deepEqual(pick(), { kind: 'codex', reason: 'Codex share is always and Codex is under the 95% line.' });
@@ -133,5 +134,48 @@ test('the reader exposes Codex past the line only while effective share is on', 
   assert.equal(read().codex.past, true);
   fs.rmSync(path.join(f.home, '.codex', 'auth.json'));
   assert.equal(read().codex.past, false);
-  assert.deepEqual(pick(), { kind: 'claude', model: 'opus', reason: "Codex isn't logged in on the host." });
+  assert.deepEqual(pick(), { kind: 'claude', model: 'opus', reason: "Codex isn't logged in on the host. Claude model is Auto and the card isn't small." });
+});
+
+// docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md
+test("the hub's Claude model decides a Claude build's model: Auto gives a small card Sonnet and a card's own model wins, Opus and Sonnet force it, and Codex builds take none", (t) => {
+  const f = fixture(t);
+  const oldPath = process.env.PATH;
+  process.env.PATH = path.join(f.home, 'bin');
+  t.after(() => { process.env.PATH = oldPath; });
+  const pick = (card, settings) => {
+    if (settings) f.write('settings.json', settings);
+    const { model, reason } = builderPick({ home: f.home, now, card });
+    return [model, reason.replace("Codex isn't installed on the host. ", '')];
+  };
+  assert.deepEqual(pick({}), ['opus', "Claude model is Auto and the card isn't small."]);
+  assert.deepEqual(pick({ size: 'large' }), ['opus', "Claude model is Auto and the card isn't small."]);
+  assert.deepEqual(pick({ size: 'small' }), ['sonnet', 'Claude model is Auto and the card is small.']);
+  assert.deepEqual(pick({ size: 'small', model: 'opus' }), ['opus', 'Claude model is Auto and the card asks for Claude Opus.']);
+  assert.deepEqual(pick({ model: 'sonnet' }), ['sonnet', 'Claude model is Auto and the card asks for Claude Sonnet.']);
+  for (const card of [{}, { size: 'small' }, { model: 'sonnet' }]) assert.deepEqual(pick(card, { claudeModel: 'opus' }), ['opus', 'Claude model is Opus.']);
+  for (const card of [{}, { size: 'large' }, { model: 'opus' }]) assert.deepEqual(pick(card, { claudeModel: 'sonnet' }), ['sonnet', 'Claude model is Sonnet.']);
+  assert.deepEqual(pick({ size: 'small' }, { claudeModel: 'bad' }), ['sonnet', 'Claude model is Auto and the card is small.']);
+
+  fs.mkdirSync(path.join(f.home, 'bin'));
+  fs.writeFileSync(path.join(f.home, 'bin', 'codex'), '#!/bin/sh\nexit 99\n', { mode: 0o755 });
+  fs.mkdirSync(path.join(f.home, '.codex'));
+  fs.writeFileSync(path.join(f.home, '.codex', 'auth.json'), '{}');
+  f.write('settings.json', { claudeModel: 'sonnet' });
+  assert.deepEqual(builderPick({ home: f.home, now, card: { size: 'small' } }), { kind: 'codex', reason: 'Codex share is auto and Codex is under the 90% line.' });
+});
+
+test('setClaudeModel saves opus, auto or sonnet beside the other hub settings and refuses anything else', (t) => {
+  const f = fixture(t);
+  f.write('settings.json', { codexShare: 'off' });
+  assert.equal(readClaudeModel(f.home), 'auto');
+  for (const value of ['opus', 'sonnet', 'auto']) {
+    assert.equal(setClaudeModel(value, f.home), value);
+    assert.deepEqual(f.settings(), { codexShare: 'off', claudeModel: value });
+    assert.equal(readClaudeModel(f.home), value);
+  }
+  for (const value of [undefined, '', 'Opus', 'haiku', 'toString']) {
+    assert.throws(() => setClaudeModel(value, f.home), { message: 'claude-model takes opus, auto or sonnet', status: 400 });
+  }
+  assert.deepEqual(f.settings(), { codexShare: 'off', claudeModel: 'auto' });
 });

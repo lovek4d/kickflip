@@ -135,7 +135,7 @@
 //               builders take over until it resets.
 //               always (Always on): the same past the pause line; while Codex is out of usage, that work pauses until a
 //               usage-reset check succeeds.
-//               off: Opus builds and reviews. While Codex isn't installed or logged in, the setting reads off and a change is refused.
+//               off: Claude builds and reviews. While Codex isn't installed or logged in, the setting reads off and a change is refused.
 //   kickflip usage-gate [pause-at <50..100> | keep-going | stop]
 //               prints {pause_at, state, window, used, resets_at, codex: {past, window, used, resets_at}}; a read exits 0.
 //               pause-at saves the line in steps of 5 (default 90, 100 Off); keep-going lifts the current Claude pause

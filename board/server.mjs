@@ -83,7 +83,7 @@
 //                                Forever, {key, hold: true}; a choice that ends in the past or past 30 days → 400 {error}.
 //                                card-build {key} is the owner's Build: the server starts the build itself (store.mjs
 //                                startTappedBuild, board/worktree.mjs boardWorktree) and, once started, appends
-//                                card-build {key, ref, kind, reason, worktree}, which wakes the session to brief and launch
+//                                card-build {key, ref, kind, model, reason, worktree}, model only for claude, which wakes the session to brief and launch
 //                                the builder; a refusal appends no event and leaves its reason in the card's thread.
 //                                On a card an unfinished dep blocks, the tap queues the build instead (queued_at, no
 //                                event), and once nothing blocks it the server starts it the same way, after any board
