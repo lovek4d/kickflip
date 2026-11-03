@@ -40,7 +40,7 @@ console.log(JSON.stringify(argv[0] === 'api' ? [] : { state: 'OPEN', title: repo
       for (const github of ['new/project', 'another/project', undefined]) {
         fs.writeFileSync(${JSON.stringify(manifestFile)}, JSON.stringify({ sites: { board: { ...${JSON.stringify(entry)}, github } } }));
         const response = await new Promise((resolve) => {
-          const req = { method: 'GET', url: '/api/board', headers: {} };
+          const req = { method: 'GET', url: '/api/board', headers: {}, socket: { remoteAddress: '127.0.0.1' } };
           const res = {
             req,
             writeHead(status) { this.status = status; return this; },

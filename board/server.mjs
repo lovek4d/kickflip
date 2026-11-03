@@ -50,6 +50,8 @@
 //                                (../hub/boards.mjs linksOf), null when the manifest has no board here; setup:
 //                                {events, github} while the join handshake's checklist shows, else null
 //                                arch: the header bulb's {repo, waits, last} (arch-review.mjs archOf), null off the manifest
+//                                onHost: whether this request's browser runs on the hub's machine (on-host.mjs fromHost);
+//                                a work card's worktree is its builder's worktree path while that folder exists, else null
 //   GET  /api/links              {links}: the same list alone
 //   GET  /api/working            {working: [{id, kind, card, since}]}: each event marked Working on it with no answer yet,
 //                                card its work card's ref or null (hooks-plugin/hooks/watcher-stop.mjs reads it)
@@ -138,6 +140,7 @@
 // Claude's reply to event <id> is data/replies/<id>.html, or .json.
 import { topicItems } from './review.mjs';
 import { boardWorktree } from './worktree.mjs';
+import { fromHost } from './on-host.mjs';
 import { archOf, readReviews, repoName, startReview } from './arch-review.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
@@ -150,7 +153,7 @@ import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { buildBoard, ITEM_EVENTS, needsAnswer, ownerActions, pullOf, refOf, startedByAnswer, threadOf } from './domain.mjs';
 import { dropQueued } from '../hub/push.mjs';
-import { createReadStream, readdirSync, statSync, watch as watchFiles } from 'node:fs';
+import { createReadStream, existsSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { BoardError, boardConfig, dueQueuedBuilds, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
@@ -467,6 +470,7 @@ async function board() {
   const self = boardAt(here);
   const listen = self ? listenState(self) : 'deaf';
   const built = buildBoard({ ...(await snapshot()), listen, prompts: self ? pendingFor(self.route).map(shown) : [] });
+  for (const it of built.items) if (it.worktree && !existsSync(it.worktree)) it.worktree = null;
   const links = self ? linksOf(self, { listen }) : null;
   return { generatedAt, title, reviewers: (reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string'), ...built, links, setup: await setupOf(links),
     holdChoices: durationChoices(new Date(), 'until you unhold it'), arch: self ? archOf(await readReviews(here), built.items, built.owner, { repo: repoName(boardRepo(self.route)), waits: reviewWaits() }) : null };
@@ -683,7 +687,7 @@ const server = http.createServer(async (req, res) => {
     if (prefix && (p === prefix || p.startsWith(prefix + '/'))) p = p.slice(prefix.length) || '/';
 
     if (p === '/_claude/health') return json(res, 200, { ok: true });
-    if (p === '/api/board') return json(res, 200, await board());
+    if (p === '/api/board') return json(res, 200, { ...(await board()), onHost: fromHost(req) });
     if (p === '/api/links') return json(res, 200, { links: (await board()).links });
     if (p === '/api/stream' && req.method === 'GET') return stream(req, res);
     if (p === '/_claude/needs') {

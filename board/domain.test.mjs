@@ -1264,3 +1264,13 @@ test("an owner answer stops waiting on Claude once its question is resolved afte
   // The questions page reads the same resolution from ownerQuestion.
   assert.deepEqual(['resolved', 'reopened'].map((id) => ownerQuestion(owner.items.find((x) => x.id === id), events).answers.map((a) => a.acted)), [[true], [false]]);
 });
+
+test("a card's worktree is the path its newest builder record keeps, done or running, and null with none", () => {
+  const card = (agents) => board({ agents }).items.find((i) => i.key === 'w/A1');
+  const old = { label: 'Opus builder', started: '2026-10-23T09:00:00Z', done: '2026-10-23T09:30:00Z', worktree: { path: '/wt/old', branch: 'A1', repo: '/r' } };
+  const done = { label: 'Opus builder', started: '2026-10-23T10:00:00Z', done: '2026-10-23T10:30:00Z', worktree: { path: '/wt/A1', branch: 'A1', repo: '/r' } };
+  assert.equal(card({ A1: { main: old, second: done } }).worktree, '/wt/A1');
+  assert.equal(card({ A1: { main: { label: 'Grill', started: '2026-10-23T11:00:00Z' }, second: done } }).worktree, '/wt/A1');
+  assert.equal(card({ A1: { main: { label: 'Opus builder', started: '2026-10-23T10:00:00Z' } } }).worktree, null);
+  assert.equal(card({}).worktree, null);
+});

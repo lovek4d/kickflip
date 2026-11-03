@@ -837,6 +837,22 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   }
 });
 
+test("a card with a worktree opens it in VS Code from its Links line after Notes, only on the host", () => {
+  const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
+  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  const B = { $: () => ({}), on() {}, later() {}, store: {}, state: { board: { items: [], onHost: true } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
+  app.BoardView = { part: (fn) => fn(B) };
+  vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
+  const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
+  const open = { ...workCard, pr: null, reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, worktree: '/Users/me/.claude/kickflip/worktrees/A 1' };
+  assert.deepEqual(rows(open).at(-1), ['Links', 'Notes · Open in VS Code']);
+  assert.match(B.detail(open), /<a href="vscode:\/\/file\/Users\/me\/\.claude\/kickflip\/worktrees\/A%201" title="Open the worktree in VS Code">Open in VS Code /);
+  assert.deepEqual(rows({ ...open, hasNotes: false }).at(-1), ['Links', 'Open in VS Code']);
+  assert.doesNotMatch(B.detail({ ...open, worktree: null }), /vscode:|Open in VS Code/);
+  B.state.board.onHost = false;
+  assert.doesNotMatch(B.detail(open), /vscode:|Open in VS Code/);
+});
+
 // docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md
 test("the open card's details list shows Parent, Children, Related to, Blocked by and Waits on it as rows of tappable labels, leaving out empty rows; the workflow row has no follow-up Build", () => {
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });

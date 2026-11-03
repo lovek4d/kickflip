@@ -113,7 +113,7 @@ const TAP_DONE = 'Tap Done once it is settled';
 const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && !['status', 'agent', 'ask-link'].includes(m.kind);
 
 // said is the owner's messages and answers in the card's thread (threadOf), and askedAt the asked_at of its questions.
-function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agents, eta, thread, events, working, said, askedAt, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, tickets }) {
+function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, tickets }) {
   const merged = it.status === 'merged' || Boolean(it.merged_at) || pr?.state === 'MERGED' || pr?.state === 'CLOSED';
   // docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md
   const tappedDone = Boolean(closedAt) && String(closedAt) > String(it.status_at || '');
@@ -168,7 +168,7 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
     key, kind: 'work', order, wave: slug, waveTitle: wave.title || slug, id: it.id, ref: refOf(wave, it, tickets), title: it.title, status: it.status || null,
     created: it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
     internal: wave.internal === true, repo: wave.internal === true && !wave.repo ? null : repo,
-    lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, agents, eta, working, reopened: Boolean(reopenAt), awaitsDone,
+    lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenAt), awaitsDone,
     queued: lane !== 'done' && Boolean(it.queued_at),
     deps: it.deps || [], held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable ? bumpedAt || null : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
@@ -374,6 +374,12 @@ function agentsOf(records = {}) {
     tapped: r.tapped === true, calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null,
   })).sort((a, b) => String(a.started || '').localeCompare(String(b.started || '')) || a.name.localeCompare(b.name));
 }
+// The worktree path the newest builder record keeping one names (board/worktree.mjs makeWorktree), or null. The board
+// server drops it once land has removed the folder.
+function worktreeOf(records = {}) {
+  return Object.values(records).filter((r) => r?.worktree?.path).sort((a, b) => String(a.started || '').localeCompare(String(b.started || ''))).at(-1)?.worktree.path ?? null;
+}
+
 // An install builder takes precedence so another running agent cannot hide the install's build state. A phased line
 // ("Testing: <detail>") reads "Testing · <detail>" on the card; a line with no phase, from builder done's note or from
 // before phases, reads as written (docs/adr/0137-a-builder-status-line-is-a-phase-and-a-short-detail.md). waiting: a
@@ -620,6 +626,7 @@ export function buildBoard(snapshot) {
         slug, wave, it, order, repo, remote, base: snapshot.branch || 'main',
         pr,
         ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
+        worktree: worktreeOf(routeRecord(records, it.id)),
         thread: lines,
         events: [...itemEvents.filter((e) => e.data.key === key || askKeys.has(e.data.key)), ...askIds.map((id) => asks.get(id))],
         working: msgs.some((m) => m.state === 'working'),

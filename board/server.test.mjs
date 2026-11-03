@@ -922,3 +922,26 @@ test("a wave's triage runs from its wave-triage event until Claude replies, and 
   assert.deepEqual(await notes.json(), { title: 'Monitor', markdown: '**Goal** Runs in kickflip.\n\n**Order** INT-1 → INT-2\n\nWhy: one PR each.\n' });
   assert.equal((await fetch(`${base}/api/notes?wave=nope`)).status, 404);
 });
+
+test("/api/board names a card's worktree while its folder exists, and says whether the request's browser runs on the host", async () => {
+  const waveFile = path.join(site, 'data', 'wave.json');
+  const agents = path.join(site, 'data', 'agents');
+  const kept = path.join(home, 'worktrees', 'V1');
+  const saved = fs.readFileSync(waveFile, 'utf8');
+  fs.mkdirSync(kept, { recursive: true });
+  fs.mkdirSync(agents, { recursive: true });
+  fs.writeFileSync(waveFile, JSON.stringify({ items: [{ id: 'V1', title: 'Kept', status: 'building' }, { id: 'V2', title: 'Landed', status: 'building' }] }));
+  const record = (dir) => JSON.stringify({ label: 'Opus builder', kind: 'claude', started: new Date().toISOString(), worktree: { path: dir, branch: 'x', repo: home } });
+  fs.writeFileSync(path.join(agents, 'V1.json'), record(kept));
+  fs.writeFileSync(path.join(agents, 'V2.json'), record(path.join(home, 'worktrees', 'V2')));
+  const board = async (headers = {}) => (await fetch(`${base}/api/board`, { headers })).json();
+  try {
+    const b = await board();
+    assert.deepEqual([b.onHost, b.items.find((i) => i.id === 'V1').worktree, b.items.find((i) => i.id === 'V2').worktree], [true, kept, null]);
+    assert.equal((await board({ 'x-forwarded-for': '127.0.0.1' })).onHost, true);
+    assert.equal((await board({ 'x-forwarded-for': '100.70.1.2' })).onHost, false);
+  } finally {
+    fs.writeFileSync(waveFile, saved);
+    for (const id of ['V1', 'V2']) fs.rmSync(path.join(agents, `${id}.json`), { force: true });
+  }
+});
