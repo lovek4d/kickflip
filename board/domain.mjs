@@ -243,9 +243,9 @@ function actionButtonOf(it) {
 }
 
 // docs/adr/0122-a-todo-card-that-nothing-blocks-has-build.md
-// The open card's Build: on a work card still unstarted in Todo, not held, that no unfinished dep blocks and that waits
+// The open card's Build: on a work card still unstarted in Todo, held or not, that no unfinished dep blocks and that waits
 // on nothing from the owner.
-const buildableOf = (it) => it.kind === 'work' && it.lane === 'todo' && !it.held && !it.blockedBy.length && !it.action;
+const buildableOf = (it) => it.kind === 'work' && it.lane === 'todo' && !it.blockedBy.length && !it.action;
 
 // The open card's button that resolves each action kind, which the board page colours orange: an action button, the
 // PR's Review on GitHub, or Merge.

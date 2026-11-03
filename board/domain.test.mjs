@@ -602,7 +602,7 @@ test("an unstarted Todo card that nothing blocks and that waits on nothing from 
   assert.equal(one(card({ item: { deps: ['A2'] }, dep: 'done' })).buildable, true);
   const asking = one(card({ owner: { items: [q] } }));
   assert.deepEqual([asking.lane, asking.action.kind, asking.buildable], ['todo', 'questions', false]);
-  assert.equal(one(card({ item: { held: true } })).buildable, false);
+  assert.equal(one(card({ item: { held: true } })).buildable, true);
   assert.equal(one(card({ agents: runningBuilders('A1') })).buildable, false);
   assert.equal(one(card({ item: { status: 'done' } })).buildable, false);
 

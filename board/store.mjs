@@ -1896,9 +1896,15 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
 // (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md).
 export async function startTappedBuild(site, key, worktree) {
   try {
-    await tapRefusals(site, key);
-    const started = await startBuilder(site, key, { kind: 'build', worktree, tapped: true });
-    return { key, ref: await cardName(site, key), kind: started.kind, reason: started.reason, worktree: started.worktree };
+    const held = await tapRefusals(site, key);
+    if (held) await recordOwnerTap(site, 'card-hold', { key, hold: false });
+    try {
+      const started = await startBuilder(site, key, { kind: 'build', worktree, tapped: true });
+      return { key, ref: await cardName(site, key), kind: started.kind, reason: started.reason, worktree: started.worktree };
+    } catch (e) {
+      if (held) await restoreHold(site, key, held);
+      throw e;
+    }
   } catch (e) {
     if (!(e instanceof BoardError)) throw e;
     await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', kind: BUILD_REFUSED, text: `Couldn't start the build: ${e.message}` });
@@ -1907,17 +1913,27 @@ export async function startTappedBuild(site, key, worktree) {
 }
 
 // The refusals of a build's start that the owner can act on, worded for the card; startBuilder still makes every check.
+// A held card that hasn't started is no refusal: the tap unholds it (docs/adr/0141-a-held-todo-card-shows-build-in-place-of-unhold.md). → its hold, or null.
 async function tapRefusals(site, key) {
   const gate = readUsageGate();
   if (gate.state === 'paused') fail(pauseReason(gate));
   const { item } = await loadItem(site, key);
-  if (item.held || item.status === 'held') fail("it's held. Resume it, then tap Build.");
+  const held = item.held || item.status === 'held' ? { held: item.held, status: item.status, pick_up_at: item.pick_up_at, held_at: item.held_at } : null;
+  if (held && item.status && item.status !== 'held') fail("it's held. Unhold it, then tap Build.");
   const blockers = await unfinishedDeps(site, parseKey(key).wave, item);
   if (blockers.length) {
     const names = await Promise.all(blockers.map((k) => cardName(site, k)));
     fail(`it's blocked by ${names.join(', ')}. It can start once ${blockers.length === 1 ? 'that is' : 'those are'} done.`);
   }
   if (await unconfirmedPrototype(site, key)) fail("your prototype pick has a note, so Claude posts the final version for your confirm first.");
+  return held;
+}
+
+// A tapped build that failed to start puts back the hold the tap cleared.
+async function restoreHold(site, key, was) {
+  const { source, wave, item } = await loadItem(site, key);
+  for (const field of Object.keys(was)) if (was[field] === undefined) delete item[field]; else item[field] = was[field];
+  await writeJSON(source.file, wave);
 }
 
 async function restoreStatus(site, key, was) {

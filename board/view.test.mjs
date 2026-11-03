@@ -3147,3 +3147,15 @@ test("each lane shows its cards in the order they arrive, with no sort icon in i
   ]);
   assert.equal(b.root.querySelector('.lane-sort, .lane-sort-menu, [data-lane-sort]'), null);
 });
+
+test('a held Todo card that can build shows Build in place of Unhold, whose confirm says it also unholds, and sends card-build', async () => {
+  const cards = [workCard('H1', { ref: 'INT-42', held: true, holdable: true, buildable: true })];
+  const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
+  await b.settle();
+  const detail = b.root.querySelector('details.item[data-key="w/H1"] .detail');
+  assert.equal(detail.querySelector('[data-confirm="resume"]'), null);
+  b.page.fire(b.root, 'click', { target: detail.querySelector('[data-confirm="card-build"]') });
+  await b.settle();
+  assert.deepEqual(b.confirms, ['Unhold and build INT-42? Claude starts its builder now with the notes as they stand.']);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['card-build', { key: 'w/H1' }]);
+});

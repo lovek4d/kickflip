@@ -207,7 +207,7 @@ A chip on a card or page that shows a status, such as Action needed, Install or 
 _Avoid_: chip (in what the owner reads), tag, label
 
 **Button**:
-A control that acts: it sends something to the board, such as Merge, Hold or Grill, or opens a place to act, such as Open questions. The open card's workflow row holds a follow-up's Build, Merge, Hold or Unhold, the **action button**, Serve or Build when the card has a build script and branch changes and Auto-build is off, and last the **card Build** on a Todo card that can start, below the details list whose final line holds Notes, Install and Review on GitHub links in that order ([0067](docs/adr/0067-a-cards-external-links-share-the-last-details-line.md)). A card that can be bumped carries its bump as an icon at its top right instead, closed or open, as a New card does; it confirms like a button ([0019](docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md)). The control that clears the card's **Action needed** is orange.
+A control that acts: it sends something to the board, such as Merge, Hold or Grill, or opens a place to act, such as Open questions. The open card's workflow row holds a follow-up's Build, Merge, Hold or Unhold, the **action button**, Serve or Build when the card has a build script and branch changes and Auto-build is off, and last the **card Build** on a Todo card that can start (a held Todo card's Build takes the place of its Unhold), below the details list whose final line holds Notes, Install and Review on GitHub links in that order ([0067](docs/adr/0067-a-cards-external-links-share-the-last-details-line.md)). A card that can be bumped carries its bump as an icon at its top right instead, closed or open, as a New card does; it confirms like a button ([0019](docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md)). The control that clears the card's **Action needed** is orange.
 _Avoid_: badge, pill (a pill is only a look)
 
 **Badge tone**:
@@ -284,7 +284,7 @@ The board's `auto_build` setting, off by default. On, each card with commits bey
 _Avoid_: auto-serve, build rule
 
 **Card Build**:
-The orange Build last in the open card's workflow row, on a work card still unstarted in Todo, not held, that no unfinished dep blocks and that has no **Action needed**: the card's `buildable` from `board/domain.mjs`. It confirms, sends `card-build {key}` and reads "Starting…" while the board server starts the build: the refusals, the builder pick, the worktree and the building mark that `builder start --kind build --worktree` makes. Started, the card is in In Progress reading **Waiting for orchestrator**, and the server wakes the session with `card-build {key, ref, kind, reason, worktree}` to brief and launch the builder. Refused, the card stays in Todo showing **Couldn't start the build** ([0122](docs/adr/0122-a-todo-card-that-nothing-blocks-has-build.md), [0139](docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md)). It isn't an app's Build, which runs the **build script**, nor a follow-up's Build.
+The orange Build last in the open card's workflow row, on a work card still unstarted in Todo, held or not, that no unfinished dep blocks and that has no **Action needed**: the card's `buildable` from `board/domain.mjs`. On a held card it reads "Unhold and build" in its confirm and the board server clears the hold as Unhold does before the start; a held card outside Todo keeps Unhold ([0141](docs/adr/0141-a-held-todo-card-shows-build-in-place-of-unhold.md)). It confirms, sends `card-build {key}` and reads "Starting…" while the board server starts the build: the refusals, the builder pick, the worktree and the building mark that `builder start --kind build --worktree` makes. Started, the card is in In Progress reading **Waiting for orchestrator**, and the server wakes the session with `card-build {key, ref, kind, reason, worktree}` to brief and launch the builder. Refused, the card stays in Todo showing **Couldn't start the build** ([0122](docs/adr/0122-a-todo-card-that-nothing-blocks-has-build.md), [0139](docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md)). It isn't an app's Build, which runs the **build script**, nor a follow-up's Build.
 _Avoid_: go button, start button
 
 **Waiting for orchestrator**:
@@ -292,7 +292,7 @@ A card's builder line while the builder record the owner's Build tap made is sti
 _Avoid_: queued, pending build
 
 **Couldn't start the build**:
-The thread line, of kind `build-refused`, the board server writes when it refuses a Build tap, with the reason in the owner's words: paused, held, blocked by a card, or a noted prototype pick that waits on its confirm. The Todo card shows it in its status line while it is the card's newest line other than a status line ([0139](docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md)).
+The thread line, of kind `build-refused`, the board server writes when it refuses a Build tap, with the reason in the owner's words: paused, blocked by a card, or a noted prototype pick that waits on its confirm. The Todo card shows it in its status line while it is the card's newest line other than a status line ([0139](docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md)).
 _Avoid_: build error, failed start
 
 **Auto-pull**:
@@ -304,7 +304,7 @@ The owning session's understanding of a work item so far: what was asked, what i
 _Avoid_: full plan, plan, spec
 
 **Held**:
-A work card the owner paused with its Hold button, which opens the shared duration picker: Forever, until the owner taps Unhold, or until a time, its **pick-up time**. Hold and Unhold apply on the board at once, and the board server writes them to the wave file with the owner's thread line ([0131](docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md)). It doesn't start, and the session stops work on a running one, until it is resumed ([0106](docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md)). The card's last line reads "held" or "held until Wed 9:00 am" after its time. Every other action-row button, Unhold included, asks to confirm first, through `B.confirm` (`dialogs.js`).
+A work card the owner paused with its Hold button, which opens the shared duration picker: Forever, until the owner taps Unhold, or until a time, its **pick-up time**. Hold and Unhold apply on the board at once, and the board server writes them to the wave file with the owner's thread line ([0131](docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md)). It doesn't start, and the session stops work on a running one, until it is resumed (a held Todo card's Build resumes and starts it, [0141](docs/adr/0141-a-held-todo-card-shows-build-in-place-of-unhold.md)) ([0106](docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md)). The card's last line reads "held" or "held until Wed 9:00 am" after its time. Every other action-row button, Unhold included, asks to confirm first, through `B.confirm` (`dialogs.js`).
 _Avoid_: paused, frozen, on hold (as a status name)
 
 **Pick-up time**:

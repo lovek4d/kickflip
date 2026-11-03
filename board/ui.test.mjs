@@ -862,6 +862,9 @@ test("an open card that can Build shows Build rightmost in its action row, which
   const changed = { ...todo, try: { ...todo.try, changes: true } };
   assert.deepEqual(row(changed), ['Hold', 'Grill', 'Serve', 'Build']);
   assert.deepEqual(row({ ...changed, buildable: false }), ['Hold', 'Grill', 'Serve']);
+  assert.deepEqual(row({ ...todo, held: true }), ['Grill', 'Build']);
+  assert.deepEqual(row({ ...todo, held: true, buildable: false }), ['Unhold', 'Grill']);
+  assert.match(B.detail({ ...todo, held: true }), /data-confirm="card-build"/);
 });
 
 test('a thread message says Working on it while Claude works on it, and only a pending message can be deleted', () => {

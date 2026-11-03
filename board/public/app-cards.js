@@ -228,7 +228,7 @@ BoardView.part((B) => {
     grill: (it, ref) => `Ask Claude for questions about ${ref}?`,
     merge: (it, ref) => `Merge ${ref}? Claude squash-merges #${it.pr?.number} if it is still approved, green and clean.`,
     build: (it, ref) => `Build ${ref}? Claude replies with a short plan, then builds it as a draft.`,
-    'card-build': (it, ref) => `Build ${ref}? Claude starts its builder now with the notes as they stand.`,
+    'card-build': (it, ref) => `${it.held ? `Unhold and build ${ref}?` : `Build ${ref}?`} Claude starts its builder now with the notes as they stand.`,
     finish: (it, ref) => (it.kind === 'ask' ? `Mark this task done? "${it.title}" moves to Done.`
       : `Close ${ref}? It moves to Done and Claude stops work on it.${it.pr?.state === 'OPEN' ? ' Its PR stays open on GitHub.' : it.pushed ? ` Its branch stays on ${it.pushed.host || 'the remote'}.` : ''}`),
   };
@@ -243,7 +243,7 @@ BoardView.part((B) => {
     const key = esc(it.key);
     const ask = (act, label, cls = '') => `<button${cls ? ` class="${cls}"` : ''} data-confirm="${act}" data-key="${key}">${label}</button>`;
     const hold = it.kind !== 'work' || !it.holdable ? ''
-      : it.held ? ask('resume', 'Unhold', 'unhold') : ask('hold', 'Hold');
+      : it.held ? (it.buildable ? '' : ask('resume', 'Unhold', 'unhold')) : ask('hold', 'Hold');
     const build = it.kind === 'followup' && it.lane !== 'done' ? `<button class="build" data-confirm="build" data-key="${key}">Build</button>` : '';
     return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${build}${mergeButton(it, sendingMerge.has(it.key))}${hold}${actionButton(it)}${tryButton(it)}${buildButton(it, sendingBuild.has(it.key))}`)}</div>`;
   }

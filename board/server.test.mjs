@@ -247,7 +247,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
   fs.mkdirSync(path.dirname(manifest), { recursive: true });
   fs.writeFileSync(manifest, JSON.stringify({ sites: { site: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [
-    { id: 'B1', title: 'Tapped' }, { id: 'B2', title: 'Held', held: true }, { id: 'B3', title: 'Blocked', deps: ['B4'] }, { id: 'B4', title: 'Dep' },
+    { id: 'B1', title: 'Tapped' }, { id: 'B2', title: 'Held', held: true, pick_up_at: '2099-01-01T00:00:00.000Z' }, { id: 'B3', title: 'Blocked', deps: ['B4'] }, { id: 'B4', title: 'Dep' },
   ] }));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const log = () => fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
@@ -266,21 +266,29 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     const started = await card('B1');
     assert.deepEqual([started.lane, started.status, started.buildable, started.builder.waiting, started.builder.progress, started.refusal], ['progress', 'building', false, true, null, null]);
 
-    for (const [id, reason] of [['B2', "Couldn't start the build: it's held. Resume it, then tap Build."], ['B3', "Couldn't start the build: it's blocked by B4. It can start once that is done."]]) {
+    const held = await card('B2');
+    assert.deepEqual([held.held, held.buildable], [true, true]);
+    assert.equal((await post({ kind: 'card-build', key: 't/B2' })).status, 200);
+    const unheld = await card('B2');
+    assert.deepEqual([unheld.held, unheld.lane, unheld.status, unheld.builder.waiting, unheld.refusal], [false, 'progress', 'building', true, null]);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items[1].pick_up_at, undefined);
+    assert.deepEqual(thread('B2').map((m) => [m.who, m.text]), [['love', 'Resumed.']]);
+    assert.deepEqual(log().slice(before).map((e) => e.kind), ['card-build', 'card-build']);
+    for (const [id, reason] of [['B3', "Couldn't start the build: it's blocked by B4. It can start once that is done."]]) {
       assert.equal((await post({ kind: 'card-build', key: `t/${id}` })).status, 200);
       assert.deepEqual(thread(id).map((m) => [m.who, m.kind, m.text]), [['claude', 'build-refused', reason]]);
       const refused = await card(id);
       assert.deepEqual([refused.lane, refused.status, refused.refusal, refused.builder], ['todo', null, reason, null]);
       assert.equal(fs.existsSync(path.join(site, 'data', 'agents', `${id}.json`)), false);
     }
-    assert.deepEqual(log().slice(before).map((e) => e.kind), ['card-build']);
+    assert.deepEqual(log().slice(before).map((e) => e.kind), ['card-build', 'card-build']);
 
     const taken = path.join(home, '.claude', 'kickflip', 'worktrees', 'B4');
     fs.mkdirSync(taken, { recursive: true });
     assert.equal((await post({ kind: 'card-build', key: 't/B4' })).status, 200);
     const leftover = await card('B4');
     assert.deepEqual([leftover.lane, leftover.status, leftover.refusal], ['todo', null, `Couldn't start the build: --worktree: ${taken} already exists; land or remove it first`]);
-    assert.deepEqual(log().slice(before).map((e) => e.kind), ['card-build']);
+    assert.deepEqual(log().slice(before).map((e) => e.kind), ['card-build', 'card-build']);
   } finally {
     fs.rmSync(manifest);
     fs.rmSync(path.join(site, 'data', 'agents'), { recursive: true, force: true });
