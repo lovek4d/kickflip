@@ -3,7 +3,7 @@
 // app-core.js and app-threads.js.
 BoardView.part((B) => {
   const { $, store, state, markSeen, seen, toast, links } = B;
-  const { esc, REVIEW, reviewAge, unreadCount, workLines, heldUntilWords, holdPicker, linkText, mergeButton, installButton, tryButton, tryWords, BUTTON, LINK_ARROW } = BoardUI;
+  const { esc, REVIEW, reviewAge, unreadCount, workLines, heldUntilWords, holdPicker, linkText, mergeButton, buildButton, installButton, tryButton, tryWords, BUTTON, LINK_ARROW } = BoardUI;
 
   const mainSheet = $('#mainLogSheet');
   const mainRetry = $('#mainLogRetry');
@@ -202,6 +202,7 @@ BoardView.part((B) => {
   }
 
   const sendingMerge = new Set();
+  const sendingBuild = new Set();
   const refFor = (it) => (it.kind !== 'work' || it.internal ? it.ref : it.linear?.[0]?.id || (it.pr ? `#${it.pr.number}` : it.ref));
   const CONFIRM = {
     resume: (it, ref) => `Resume ${ref}?${it.heldUntil ? ` It's held until ${heldUntilWords(it.heldUntil)}.` : ''} It can start again once nothing blocks it.`,
@@ -210,6 +211,7 @@ BoardView.part((B) => {
     grill: (it, ref) => `Ask Claude for questions about ${ref}?`,
     merge: (it, ref) => `Merge ${ref}? Claude squash-merges #${it.pr?.number} if it is still approved, green and clean.`,
     build: (it, ref) => `Build ${ref}? Claude replies with a short plan, then builds it as a draft.`,
+    'card-build': (it, ref) => `Build ${ref}? Claude starts its builder now with the notes as they stand.`,
     finish: (it, ref) => (it.kind === 'ask' ? `Mark this task done? "${it.title}" moves to Done.`
       : `Close ${ref}? It moves to Done and Claude stops work on it.${it.pr?.state === 'OPEN' ? ' Its PR stays open on GitHub.' : ''}`),
   };
@@ -226,7 +228,7 @@ BoardView.part((B) => {
     const hold = it.kind !== 'work' || !it.holdable ? ''
       : it.held ? ask('resume', 'Resume') : ask('hold', 'Hold');
     const build = it.kind === 'followup' && it.lane !== 'done' ? `<button class="build" data-confirm="build" data-key="${key}">Build</button>` : '';
-    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${build}${mergeButton(it, sendingMerge.has(it.key))}${hold}${actionButton(it)}${tryButton(it)}`)}</div>`;
+    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${build}${mergeButton(it, sendingMerge.has(it.key))}${hold}${actionButton(it)}${tryButton(it)}${buildButton(it, sendingBuild.has(it.key))}`)}</div>`;
   }
 
   // board/domain.mjs actionButtonOf picks the button and resolvedBy its colour (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md).
@@ -322,6 +324,15 @@ BoardView.part((B) => {
       try { await B.site.send('card-merge', { key }); }
       catch { toast('Could not send. Is the host awake?'); }
       sendingMerge.delete(key);
+      B.loadBoard();
+      return;
+    }
+    if (act === 'card-build') {
+      sendingBuild.add(key);
+      redrawActions(key);
+      try { await B.site.send('card-build', { key }); }
+      catch { toast('Could not send. Is the host awake?'); }
+      sendingBuild.delete(key);
       B.loadBoard();
       return;
     }

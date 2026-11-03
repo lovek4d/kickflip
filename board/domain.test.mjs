@@ -555,6 +555,34 @@ test("with auto-merge off an approved, green, clean PR waits on the owner's Merg
   assert.equal(card({ autoMerge: true, item: { manual_steps: ['Run the backfill'] } }).items[0].action.kind, 'steps');
 });
 
+test("an unstarted Todo card that nothing blocks and that waits on nothing from the owner can Build, and reads starting after the tap until its status changes or Claude writes", () => {
+  const q = { id: 'q1', topic: 'item:w/A1', question: 'Which way?', options: [{ id: 'A', label: 'One' }] };
+  const card = ({ item = {}, events = [], threads = {}, owner = {}, agents = {}, dep } = {}) => buildBoard({
+    fromWaves: false, events, threads, owner, prs: {},
+    waves: [{ slug: 'w', agents, wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One', ...item }, ...(dep ? [{ id: 'A2', title: 'Two', status: dep }] : [])], followups: [{ id: 'ENG-1', title: 'Later', filed: '2026-10-22T00:00:00Z' }] } }],
+  });
+  const one = (b) => b.items.find((i) => i.id === 'A1');
+  const fresh = card();
+  assert.deepEqual([one(fresh).lane, one(fresh).buildable, one(fresh).starting, one(fresh).action], ['todo', true, false, null]);
+  assert.equal(fresh.items.find((i) => i.id === 'ENG-1').buildable, false);
+  assert.deepEqual(needsAnswer(fresh).items, []);
+  assert.equal(one(card({ item: { deps: ['A2'] }, dep: 'building' })).buildable, false);
+  assert.equal(one(card({ item: { deps: ['A2'] }, dep: 'done' })).buildable, true);
+  const asking = one(card({ owner: { items: [q] } }));
+  assert.deepEqual([asking.lane, asking.action.kind, asking.buildable], ['todo', 'questions', false]);
+  assert.equal(one(card({ item: { held: true } })).buildable, false);
+  assert.equal(one(card({ agents: runningBuilders('A1') })).buildable, false);
+  assert.equal(one(card({ item: { status: 'done' } })).buildable, false);
+
+  const tapped = [{ id: 'b1', ts: '2026-10-29T10:00:00Z', kind: 'card-build', data: { key: 'w/A1' } }];
+  const starting = one(card({ events: tapped, item: { status_at: '2026-10-29T09:00:00Z' }, threads: { 'w/A1': [{ ts: '2026-10-29T10:01:00Z', who: 'claude', kind: 'status', text: 'Reading the notes' }] } }));
+  assert.deepEqual([starting.lane, starting.buildable, starting.starting], ['todo', true, true]);
+  const declined = one(card({ events: tapped, threads: { 'w/A1': [{ ts: '2026-10-29T10:02:00Z', who: 'claude', text: 'Not started: INT-2 changes the same file' }] } }));
+  assert.deepEqual([declined.buildable, declined.starting], [true, false]);
+  const moved = one(card({ events: tapped, item: { status: 'waiting', status_at: '2026-10-29T10:03:00Z' } }));
+  assert.deepEqual([moved.buildable, moved.starting], [true, false]);
+});
+
 test("a card-done moves work and follow-ups to Done and unblocks dependents at once, unless a newer status overrides it", () => {
   const close = (key, ts) => ({ id: 'c' + ts, ts, kind: 'card-done', data: { key }, reply: null });
   const items = [

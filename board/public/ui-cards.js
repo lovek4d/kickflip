@@ -113,6 +113,14 @@
     const merging = sending || it.merging;
     return `<button class="${it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${merging ? ' disabled' : ''}>${merging ? 'Merging…' : 'Merge'}</button>`;
   }
+  // The open card's Build, rightmost in its action row, on a card board/domain.mjs marks buildable: it confirms, then sends
+  // card-build, and reads "Starting…" while it is sent or waits on the session
+  // (docs/adr/0122-a-todo-card-that-nothing-blocks-has-build.md).
+  function buildButton(it, sending = false) {
+    if (!it.buildable) return '';
+    const starting = sending || it.starting;
+    return `<button class="build" data-confirm="card-build" data-key="${esc(it.key)}"${starting ? ' disabled' : ''}>${starting ? 'Starting…' : 'Build'}</button>`;
+  }
   const builderLine = (b) => [b.progress || 'Building', b.at && ago(b.at)].filter(Boolean).join(' · ');
   const stalledChip = (it) => it.lane !== 'done' && it.builder?.stalled ? badge('danger', 'Stalled', {
     button: true, title: 'No recent progress. Nudge Claude to check this builder',
@@ -186,5 +194,5 @@
     return keys.length > 1 ? `<button class="link" data-plan="${esc(keys.join(' '))}">Plan a wave from these ${keys.length} follow-ups →</button>` : '';
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionChip, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, unreadCount, heldUntilWords, holdPicker, workLines, askChip, askActions, askLine, planButton, WAVE_ICON });
+  Object.assign(globalThis.BoardUI, { prChips, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionChip, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, buildButton, builderLine, unreadCount, heldUntilWords, holdPicker, workLines, askChip, askActions, askLine, planButton, WAVE_ICON });
 })();

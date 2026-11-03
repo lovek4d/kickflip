@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0122
+---
+
 # Notes replace the full plan, and a card starts on its own
+
+Superseded in part by [0122](0122-a-todo-card-that-nothing-blocks-has-build.md): a Todo card that nothing blocks and that has no Action needed has the owner's Build, which starts its builder now. Cards still start on their own.
 
 A card's long write-up is its **Notes**: the owning session's understanding of the task so far, what was asked, what is settled and what is still open. The session rewrites it as the grill settles things, rather than freezing it as a plan, and the thread keeps the short news. A card starts as soon as its open questions are all answered and nothing blocks it; the owner gives no separate go.
 

@@ -1,0 +1,13 @@
+# A Todo card that nothing blocks has Build
+
+The owner asked on hub/INT-261: "todo items should have a build button, idk why it went away. make it rightmost in the row". Cards still start on their own once their questions are answered and nothing blocks them ([0053](0053-notes-replace-the-full-plan-and-cards-start-on-their-own.md)), but some sit in Todo with nothing left to settle, such as one waiting for a prototype or a grill nobody needs. Build is the owner's "start it now". In the prototype round (todo-build A) the owner settled that Build shows only on cards nothing blocks: "open questions should also prevent build (rather action needed should block build)". This supersedes in part ADR 0053's "no go button", and ADR 0099's Serve or Build as the rightmost workflow button.
+
+- **Which cards.** `board/domain.mjs` marks a card `buildable` when it is a work card still unstarted in Todo ([0049](0049-a-started-card-never-returns-to-todo.md)), not held, with no unfinished dep ([0020](0020-cards-wait-on-explicit-blocked-by-links.md)) and no Action needed, so no open question or prototype pick. A held card waits for Resume instead. A follow-up keeps its own Build ([0034](0034-follow-ups-are-todo-cards-of-their-wave.md)).
+- **Where.** The open card's workflow row ends with Build, after the action button and Serve or Build, filled orange like a follow-up's Build. Build is not Action needed: nothing waits on the owner, so it adds no badge, push or Needs you line.
+- **What a tap does.** It confirms "Build <ref>? Claude starts its builder now with the notes as they stand.", then sends `card-build {key}`. The button reads "Starting…", disabled, while the event is sent and until the card's status changes or Claude writes a thread line other than a status line after the tap. A started builder moves the card to In Progress, where it has no Build.
+- **What the session does.** On `card-build` it starts the card's builder now, with its notes as they stand. When it can't, because the card was held, blocked or got a question since the tap, it says why in one thread line, which ends "Starting…".
+
+Considered:
+- Build on every Todo card, overriding its blockers (todo-build B): the owner chose to keep blocked cards waiting on their deps.
+- Build on a card with open questions, closing them with their recommended options: the owner chose that Action needed blocks Build, so the questions are answered first.
+- The `--await-build` flag of hub/INT-121, where the session asked for the go: dropped in 0053, since every tap confirmed what the answers had settled. This Build is the owner's choice, not a step the session waits on.

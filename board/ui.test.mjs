@@ -799,6 +799,25 @@ test("an open card waiting on the owner's Merge shows a Merge button that confir
   assert.equal(merge(undefined), '');
 });
 
+test("an open card that can Build shows Build rightmost in its action row, which confirms first and reads Starting…, disabled, while it is sent or waits on the session", () => {
+  const build = (it, sending) => { const html = ui.buildButton(it, sending); return html && [text(html), /disabled/.test(html), /data-confirm="card-build"/.test(html), /data-key="w\/A1"/.test(html), /class="build"/.test(html)]; };
+  assert.deepEqual(build({ key: 'w/A1', buildable: true, starting: false }), ['Build', false, true, true, true]);
+  assert.deepEqual(build({ key: 'w/A1', buildable: true, starting: false }, true), ['Starting…', true, true, true, true]);
+  assert.deepEqual(build({ key: 'w/A1', buildable: true, starting: true }), ['Starting…', true, true, true, true]);
+  assert.equal(build({ key: 'w/A1', buildable: false, starting: true }), '');
+
+  const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
+  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
+  app.BoardView = { part: (fn) => fn(B) };
+  vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
+  const todo = { ...workCard, pr: null, reviewers: [], key: 'w/A1', lane: 'todo', action: null, actionButton: 'grill', waveTitle: 'W', deps: [], manualSteps: [], holdable: true, hasNotes: true,
+    try: { kind: 'web', script: true, changes: false }, buildable: true, starting: false };
+  const row = (it) => [...B.detail(it).match(/<div class="action-row workflow">(.*?)<\/div>/)[1].matchAll(/<button[^>]*>(.*?)<\/button>/g)].map(([, label]) => label);
+  assert.deepEqual(row(todo), ['Hold', 'Grill', 'Serve', 'Build']);
+  assert.deepEqual(row({ ...todo, buildable: false }), ['Hold', 'Grill', 'Serve']);
+});
+
 test('a thread message says Working on it while Claude works on it, and only a pending message can be deleted', () => {
   const html = ui.threadMessages([
     { ts: ago(3), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it', eventId: 'e1', reply: null, state: 'working', canDelete: true },

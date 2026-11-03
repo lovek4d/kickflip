@@ -100,7 +100,7 @@ const REVIEW_NEXT = { reviewers: 'Waiting for PR reviewers', merge: 'Approved, m
 const OWNER_MERGE_NEXT = { waiting: 'Approved, Merge shows once CI and the merge state allow', ready: 'Approved and green: tap Merge', merging: 'Merging' };
 const FIX_CI = 'Fix the failing CI';
 
-function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, thread, events, working, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, tickets }) {
+function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, thread, events, working, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, buildAt, autoMerge, tickets }) {
   // docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md
   if (closedAt && String(closedAt) > String(it.status_at || '')) it = { ...it, status: 'done' };
   const key = `${slug}/${it.id}`;
@@ -125,6 +125,8 @@ function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, threa
   // The owner's Merge waits on the session until it merges or writes in the thread, such as why it can't merge yet.
   const lastClaudeAt = thread.filter((m) => (m.who || 'claude') === 'claude' && m.kind !== 'status').map((m) => String(m.ts)).sort().pop() || '';
   const merging = waitsOn === 'merge' && Boolean(mergeAt) && String(mergeAt) > lastClaudeAt;
+  // The owner's Build waits on the session until the card's status changes or Claude writes in the thread.
+  const starting = Boolean(buildAt) && String(buildAt) > lastClaudeAt && String(buildAt) > String(it.status_at || '');
   const reviewNext = waitsOn === 'merge' && !autoMerge ? OWNER_MERGE_NEXT[merging ? 'merging' : 'waiting'] : REVIEW_NEXT[waitsOn];
   return {
     key, kind: 'work', order, wave: slug, waveTitle: wave.title || slug, id: it.id, ref: refOf(wave, it.id, tickets), title: it.title, status: it.status || null,
@@ -134,7 +136,7 @@ function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, threa
     deps: it.deps || [], held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable ? bumpedAt || null : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
-    merging, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, from: null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || null,
+    merging, starting, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, from: null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || null,
     branch: it.branch || pr?.headRefName || null,
     ticket: tickets?.source === 'linear' && !it.ticket && it.linear?.length ? null
       : ticketOf(tickets, it.ticket, it.ticket || (wave.internal ? refOf(wave, it.id, tickets) : it.linear?.[0]), { repo, key }),
@@ -193,6 +195,11 @@ function actionButtonOf(it) {
   if (it.action?.kind === ACTION_KIND.done) return BUTTON.markDone;
   return it.kind === 'ask' ? null : BUTTON.grill;
 }
+
+// docs/adr/0122-a-todo-card-that-nothing-blocks-has-build.md
+// The open card's Build: on a work card still unstarted in Todo, not held, that no unfinished dep blocks and that waits
+// on nothing from the owner.
+const buildableOf = (it) => it.kind === 'work' && it.lane === 'todo' && !it.held && !it.blockedBy.length && !it.action;
 
 // The open card's button that resolves each action kind, which the board page colours orange: an action button, the
 // PR's Review on GitHub, or Merge.
@@ -465,6 +472,7 @@ export function buildBoard(snapshot) {
   const cardBumps = latest('card-bump', 'key');
   const cardDones = latest('card-done', 'key');
   const cardMerges = latest('card-merge', 'key');
+  const cardBuilds = latest('card-build', 'key');
   const autoMerge = snapshot.autoMerge === true;
   const tickets = snapshot.tickets;
   const cardHolds = new Map(events.filter((e) => e.kind === 'card-hold').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((e) => [e.data?.key, e]));
@@ -497,7 +505,7 @@ export function buildBoard(snapshot) {
         events: [...itemEvents.filter((e) => e.data.key === key || askKeys.has(e.data.key)), ...askIds.map((id) => asks.get(id))],
         working: msgs.some((m) => m.state === 'working'),
         topicItems, boardReviewers: snapshot.reviewers || [], now, bumpedAt: cardBumps.get(key), holdAsk: cardHolds.get(key), closedAt: cardDones.get(key),
-        mergeAt: cardMerges.get(key), autoMerge, tickets,
+        mergeAt: cardMerges.get(key), buildAt: cardBuilds.get(key), autoMerge, tickets,
       }));
     });
     (wave.followups || []).forEach((f, n) => items.push(followUp({ slug, wave, f, order: wave.items.length + n, repo, bumpedAt: cardBumps.get(`${slug}/${f.id}`), closedAt: cardDones.get(`${slug}/${f.id}`), tickets })));
@@ -571,6 +579,7 @@ export function buildBoard(snapshot) {
     if (it.lane === 'done' && !it.fold && it.updatedAt && now - Date.parse(it.updatedAt) >= DONE_OPEN) it.fold = OLDER_FOLD;
     placeOwnerWait(it, questionById, autoMerge);
     if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it)) it.lane = 'progress';
+    it.buildable = buildableOf(it);
   }
   // Items arrive in touched order; the page shows a lane in created order from rank.created, as this device chose.
   [...items].sort(laneOrder('created')).forEach((it, n) => { it.rank = { created: n }; });
