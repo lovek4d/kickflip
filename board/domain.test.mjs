@@ -637,7 +637,9 @@ test("a card-done moves work and follow-ups to Done and unblocks dependents at o
   assert.deepEqual(state(said, 'A7'), ['done', null, 'merged', null, null, null]);
   assert.deepEqual(state(said, 'A8'), ['review', 'owner', null, 'questions', 'openQuestions', 'Answer 1 question']);
   const answered = { ...said, threads: { 'w/A4': [{ ts: '2026-10-23T11:40:00Z', who: 'claude', text: 'Done that.' }] } };
-  assert.deepEqual(state(answered, 'A4'), ['review', 'owner', null, 'done', 'markDone', 'Tap Done once it is settled']);
+  assert.deepEqual(state(answered, 'A4'), ['review', 'owner', null, null, 'grill', 'Tap Done once it is settled']);
+  assert.deepEqual((({ awaitsDone, bumpable, resolvedBy }) => [awaitsDone, bumpable, resolvedBy])(card(answered, 'A4')), [true, false, null]);
+  assert.deepEqual(needsAnswer(buildBoard(answered)).items.filter((l) => l.url === '#item=w%2FA4'), []);
   assert.deepEqual(state({ ...answered, events: [...answered.events, close('w/A4', '2026-10-23T11:50:00Z')] }, 'A4'), ['done', null, 'done', null, null, null]);
 });
 

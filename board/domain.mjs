@@ -107,6 +107,7 @@ const REVIEW_NEXT = { reviewers: 'Waiting for PR reviewers', merge: 'Approved, m
 // docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md
 const OWNER_MERGE_NEXT = { waiting: 'Approved, Merge shows once CI and the merge state allow', ready: 'Approved and green: tap Merge', merging: 'Merging' };
 const FIX_CI = 'Fix the failing CI';
+const TAP_DONE = 'Tap Done once it is settled';
 
 // said is the owner's messages and answers in the card's thread (threadOf), and askedAt the asked_at of its questions.
 function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agents, eta, thread, events, working, said, askedAt, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, buildAt, autoMerge, tickets }) {
@@ -200,9 +201,9 @@ export function mergeBlockers(pr) {
 const mergeable = (pr) => !mergeBlockers(pr).length;
 
 // What the owner acts on next, or null: {kind, url, label}, url relative to the site root. kind is pick (a prototype
-// question), questions, ready (a green draft's Ready on GitHub), done (an ask's or a reopened card's Done in its thread), steps (manual
+// question), questions, ready (a green draft's Ready on GitHub), done (an ask's Done in its thread), steps (manual
 // steps on an approved PR, which the session never merges on its own) or merge (the open card's Merge, while the board's
-// auto-merge is off). A held card waits on nobody.
+// auto-merge is off). A held card waits on nobody, and a reopened card waiting only on its Done has no action.
 function actionOf(it, questionById, autoMerge) {
   if (it.held || it.lane === 'done') return null;
   const thread = `#item=${encodeURIComponent(it.key)}`;
@@ -212,7 +213,7 @@ function actionOf(it, questionById, autoMerge) {
     return { kind: ACTION_KIND.questions, url: `questions.html#${it.questions.first}`, label: `Answer ${plural(it.questions.open, 'question')}` };
   }
   if (it.waitsOn === 'ready') return { kind: ACTION_KIND.ready, url: it.pr.url, label: 'Tap Ready on GitHub' };
-  if ((it.kind === 'ask' && it.waitsOn === 'owner') || it.awaitsDone) return { kind: ACTION_KIND.done, url: thread, label: it.next || 'Tap Done once it is settled' };
+  if (it.kind === 'ask' && it.waitsOn === 'owner') return { kind: ACTION_KIND.done, url: thread, label: it.next || TAP_DONE };
   if (it.waitsOn === 'merge' && it.manualSteps.length) return { kind: ACTION_KIND.steps, url: thread, label: 'Run the manual steps, then merge' };
   // docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md
   if (it.waitsOn === 'merge' && !autoMerge && !it.merging && mergeable(it.pr)) return { kind: ACTION_KIND.merge, url: thread, label: 'Merge' };
@@ -223,7 +224,7 @@ const asking = (it) => Boolean(it.questions && it.questions.state !== 'resolved'
 const ASKING = new Set([ACTION_KIND.pick, ACTION_KIND.questions]);
 
 // The open card's one workflow button, which board/public/app-cards.js only labels: openQuestions while it has open
-// questions, held or not, markDone for an ask or a reopened card waiting on the owner's Done, grill otherwise, and none on a Done card or
+// questions, held or not, markDone for an ask waiting on the owner's Done, grill otherwise, and none on a Done card or
 // on an ask with neither.
 function actionButtonOf(it) {
   if (it.lane === 'done') return null;
@@ -247,12 +248,16 @@ const RESOLVED_BY = Object.freeze({
 // docs/adr/0045-the-lane-follows-who-acts-next.md
 // A card only the owner can move on goes to In Review, apart from a Todo card waiting on its questions, which stays in
 // Todo (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md). One Claude still works on, or one already
-// waiting on the reviewers, keeps its lane; either way it carries its action.
+// waiting on the reviewers, keeps its lane; either way it carries its action. A reopened card that waits only on the
+// owner's Done goes to In Review with no action
+// (docs/adr/0136-a-card-waiting-only-to-be-closed-has-no-action-needed.md).
 function placeOwnerWait(it, questionById, autoMerge) {
   it.action = actionOf(it, questionById, autoMerge);
+  it.awaitsDone &&= !it.action;
   it.actionButton = actionButtonOf(it);
   it.resolvedBy = RESOLVED_BY[it.action?.kind] || null;
   if (it.action?.kind === ACTION_KIND.merge) it.next = OWNER_MERGE_NEXT.ready;
+  if (it.awaitsDone) Object.assign(it, { lane: 'review', next: TAP_DONE, bumpable: false, bumpedAt: null });
   const ownerOnly = it.lane === 'todo' || (it.lane === 'progress' && (it.waitsOn === 'ready' || it.waitsOn === 'owner'));
   if (!it.action || !ownerOnly) return;
   const lane = it.lane === 'todo' && ASKING.has(it.action.kind) ? 'todo' : 'review';

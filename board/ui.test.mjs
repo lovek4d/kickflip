@@ -761,11 +761,13 @@ test('a pending upload shows its progress and a remove button naming the file', 
   assert.match(text(html), /big\.mov Over 20 MB/);
 });
 
-test("a thread's Done reads Done and is never disabled on a finishable card, orange while it clears an ask's Action needed", () => {
+test("a thread's Done reads Done and is never disabled on a finishable card, orange while it clears an ask's Action needed and primary while a card waits only on it", () => {
   const done = (it) => { const html = ui.doneButton(it); return html && [text(html), /disabled/.test(html)]; };
   assert.deepEqual(done({ key: 'ask:a1', kind: 'ask', finishable: true }), ['Done', false]);
   assert.match(ui.doneButton({ key: 'ask:a1', kind: 'ask', finishable: true, resolvedBy: 'markDone' }), /^<button type="button" class="resolves"/);
   assert.doesNotMatch(ui.doneButton({ key: 'ask:a1', kind: 'ask', finishable: true }), /resolves/);
+  assert.match(ui.doneButton({ key: 'w/A1', kind: 'work', finishable: true, awaitsDone: true }), /^<button type="button" class="primary"/);
+  assert.doesNotMatch(ui.doneButton({ key: 'w/A1', kind: 'work', finishable: true }), /class=/);
   assert.deepEqual(done({ key: 'w/A1', kind: 'work', finishable: true }), ['Done', false]);
   assert.deepEqual(done({ key: 'w/ENG-1', kind: 'followup', finishable: true }), ['Done', false]);
   assert.equal(done({ key: 'w/A1', kind: 'work', finishable: false }), '');
