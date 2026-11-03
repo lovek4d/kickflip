@@ -5,8 +5,8 @@
 // open question goes back to the board, where the Sent line shows as a toast (BoardUI.sentNotice). An open question
 // with `urgent: true` in owner.json shows alone first, and its Send follows the same rule for its topic. A question
 // whose options are prototype takes frames each take with ?take= (docs/adr/0048-a-questions-takes-show-inline.md).
-// Each question's eye sends `prototype-request {key?, question, note}` for that question instead of an answer, with its
-// note box as the note (docs/adr/0126-each-question-has-its-own-prototype-eye.md).
+// Each question's eye sends `prototype-request {key?, question, note, choice}` for that question instead of an answer,
+// with its note box as the note and its pick so far as the choice (docs/adr/0126-each-question-has-its-own-prototype-eye.md).
 // fits: each framed take's measured size, kept across repaints and visits so a take redraws at its size at once.
 (globalThis.AppViews ||= {}).questions = ((fits) => ({
   className: 'view-questions',
@@ -215,7 +215,9 @@
       const st = $('#qstatus');
       const key = q.topic?.startsWith('item:') ? q.topic.slice(5) : null;
       st.textContent = 'Sending…';
-      try { await site.send('prototype-request', { ...(key ? { key } : {}), question: q.id, note: (getDraft(q.id).note || '').trim() }); }
+      const d = getDraft(q.id);
+      const last = q.answers[q.answers.length - 1];
+      try { await site.send('prototype-request', { ...(key ? { key } : {}), question: q.id, note: (d.note || '').trim(), choice: d.choice ?? (last ? last.choice : null) }); }
       catch { st.textContent = 'Could not send. Is the host awake?'; return; }
       setDraft(q.id, {});
       sentLine = 'Prototype please.';

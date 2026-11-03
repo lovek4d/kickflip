@@ -78,7 +78,7 @@
 //                                line per answer, appended in one write with each answer's side effects → {ids, board};
 //                                an answer naming no question in owner.json, or none at all, → 400 {error} and nothing
 //                                recorded (docs/adr/0163-send-records-every-ready-answer-in-one-request.md).
-//                                prototype-request {key?, question?, note?} asks for prototypes of a card, or of one question
+//                                prototype-request {key?, question?, note?, choice?} asks for prototypes of a card, or of one question
 //                                builder-nudge {key} asks the session to check a builder. The server also appends
 //                                builder-stalled {key, silentSince} once per silent spell, tracked in data/builder-stalled.json
 //                                item set appends card-unblocked {key} when a waiting card's last dep finishes,

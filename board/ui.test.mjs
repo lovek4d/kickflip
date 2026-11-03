@@ -675,14 +675,18 @@ test("a question's link opens in place on this hub, and outside the board anywhe
   assert.match(linear, /target="_blank" rel="noopener">INT-1 <svg class="link-arrow"[^>]*>[^]*<\/svg><\/a>/);
 });
 
-test('a question waiting on its prototype reads Prototype requested with a spinner and takes no answer; a confirm links its one take alone and says why it is asked', () => {
-  const requested = ui.questionCard({ ...question, state: 'requested', request: { id: 'e1', ts: ago(1), note: 'bigger' } }, { draft: { note: 'kept' } });
+test('a question waiting on its prototype shows only a prototype requested badge with a spinner right after its eye, and locks the note and pick it was asked with; a confirm links its one take alone and says why it is asked', () => {
+  const requested = ui.questionCard({ ...question, state: 'requested', request: { id: 'e1', ts: ago(1), note: 'bigger', choice: 'B' } }, { draft: {} });
   assert.match(requested, /^<section class="q  pr-busy"/);
-  assert.match(requested, /<span class="chip tone-notice"><span class="try-spin" aria-hidden="true"><\/span>Prototype requested<\/span>/);
-  assert.match(text(requested), /Claude is making takes\. Answering waits until they’re back\./);
+  assert.match(requested, /<button type="button" class="attach proto-ask" data-proto="q:q1" aria-label="Ask for a prototype instead" title="Ask for a prototype instead" disabled>[^]*?<\/button><span class="chip tone-normal"><span class="try-spin" aria-hidden="true"><\/span>prototype requested<\/span><div class="pending-files"/);
+  assert.equal(requested.match(/class="chip/g).length, 1);
+  assert.doesNotMatch(text(requested), /Claude is making takes|Prototype requested/);
   assert.deepEqual(options(requested).map((o) => /\bdisabled>/.test(o)), [true, true]);
-  assert.match(requested, /<textarea class="note" rows="2" placeholder="Note \(optional\)" disabled>kept<\/textarea>/);
-  const onTakes = ui.questionCard({ ...question, url: 'prototype-search.html?q=q1', state: 'requested' });
+  assert.deepEqual(options(requested).map((o) => /\bchecked /.test(o)), [false, true]);
+  assert.match(requested, /<textarea class="note" rows="2" placeholder="Note \(optional\)" disabled>bigger<\/textarea>/);
+  const answered = [{ ts: ago(2), choice: 'A', note: '', reply: null }];
+  assert.deepEqual(options(ui.questionCard({ ...question, answers: answered, state: 'requested', request: { id: 'e1', ts: ago(1), note: '', choice: null } })).map((o) => /\bchecked /.test(o)), [true, false]);
+  const onTakes = ui.questionCard({ ...question, url: 'prototype-search.html?q=q1', state: 'requested', request: { id: 'e1', ts: ago(1), note: '', choice: null } });
   assert.ok(takeCards(onTakes).every((t) => /<input type="radio"[^>]* disabled>/.test(t)));
   assert.doesNotMatch(ui.questionCard(question), /disabled|pr-busy|try-spin/);
   assert.doesNotMatch(ui.questionCard({ ...question, state: 'resolved' }), /data-proto/);

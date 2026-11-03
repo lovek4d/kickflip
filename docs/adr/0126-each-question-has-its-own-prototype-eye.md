@@ -2,8 +2,8 @@
 
 The owner asked on hub/INT-267 for the prototype eye to leave Waiting on you's Send bar, where it crowded the ⌘↵ hint and asked for whichever question was last touched, and to sit on each question instead. This amends [0111](0111-a-prototype-round-ends-with-a-one-take-confirm.md)'s eye beside Send.
 
-- **One eye per question.** Each open, answered or replied question's note row starts with its attach button and then its eye (`board/public/ui-questions.js` `questionCard`), in the order of a card thread's reply row. The eye sends `prototype-request {key?, question, note}` for that question alone, with its note box as the note; `key` is the card when the question's topic is `item:<key>`.
-- **A requested question's eye waits.** A question that reads Prototype requested shows the eye's "…" and takes no tap. A resolved question has no eye.
+- **One eye per question.** Each open, answered or replied question's note row starts with its attach button and then its eye (`board/public/ui-questions.js` `questionCard`), in the order of a card thread's reply row. The eye sends `prototype-request {key?, question, note, choice}` for that question alone, with its note box as the note and its pick so far (its draft's, else its last answer's, else null) as the choice; `key` is the card when the question's topic is `item:<key>`.
+- **A requested question's eye waits.** Once the eye is tapped (hub/GH-120, take A of `proto-requested-2`), the question's eye is off and a "prototype requested" badge with a spinner sits right after it, in the accent, the owner's colour, not the builder's orange; the card has no other requested line or header badge. The card takes a faint accent tint and an accent border drawn inside it (an inset shadow on the unchanged 1px border), so it keeps its size. Its options and note are off and show the pick and note the request was sent with, until the round arrives. A resolved question has no eye.
 - **The Send bar keeps ⌘↵ and Send.**
 
 A card's thread keeps its own eye, which asks for prototypes of the card ([0015](0015-prototypes-come-on-request.md)).

@@ -2686,6 +2686,7 @@ function questionsOnDom({ topics, questions, at, next, gate = null }) {
     const q = server.questions.find((x) => x.id === (data.id ?? data.question));
     if (kind === 'prototype-request') {
       q.state = 'requested';
+      q.request = { id: 'r1', ts: '2026-10-30T10:00:00.000Z', note: data.note, choice: data.choice };
       topics.find((t) => t.id === q.topic).round = { n: (q.round || 0) + 1, state: 'making' };
       return {};
     }
@@ -2772,7 +2773,7 @@ test("Waiting on you's Send follows the shared next question, leaving an urgent 
   assert.deepEqual(urgent.shown(), { pills: [['item:w/T1', 'true'], ['item:w/T2', 'false']], questions: ['q1'], status: 'Sent 1 answer to INT-3.', hash: '#q1' });
 });
 
-test("Waiting on you's eye on each question, after its attach button, asks for a prototype of that question with its note, and that card reads Prototype requested with answering off while the topic's round is made", async () => {
+test("Waiting on you's eye on each question, after its attach button, asks for a prototype of that question with its note and pick, and that card shows only a prototype requested badge after the eye with its answer locked while the topic's round is made", async () => {
   const question = (id) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
   const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('q2')], at: 'q1' });
   await v.settle();
@@ -2786,18 +2787,23 @@ test("Waiting on you's eye on each question, after its attach button, asks for a
   const note = $('section.q[data-q="q2"] textarea.note');
   note.value = 'Show it on a phone';
   v.page.fire(v.root, 'input', { target: note });
+  const pickB = $('section.q[data-q="q2"] input[value="B"]');
+  pickB.type = 'radio';
+  v.page.fire(v.root, 'change', { target: pickB });
   v.page.fire(v.root, 'click', { target: eye('q2') });
   await v.settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['prototype-request', { key: 'w/T1', question: 'q2', note: 'Show it on a phone' }]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['prototype-request', { key: 'w/T1', question: 'q2', note: 'Show it on a phone', choice: 'B' }]]);
   const busy = $('section.q[data-q="q2"]');
   assert.ok(busy.classList.contains('pr-busy'));
-  assert.equal(busy.querySelector('.chip').textContent, 'Prototype requested');
-  assert.ok(busy.querySelector('.chip .try-spin'));
+  assert.equal(busy.querySelector('.row .chip'), null);
+  assert.deepEqual(busy.querySelector('.note-tools').children.map((c) => c.getAttribute('title') || c.getAttribute('class')), ['Attach files', 'Ask for a prototype instead', 'chip tone-normal', 'pending-files']);
+  assert.equal(busy.querySelector('.note-tools .chip').textContent, 'prototype requested');
+  assert.ok(busy.querySelector('.note-tools .chip .try-spin'));
   assert.ok(busy.querySelectorAll('input[type=radio]').every((r) => r.disabled));
+  assert.deepEqual(busy.querySelectorAll('input[type=radio]').map((r) => r.getAttribute('checked') != null), [false, true]);
   assert.equal(busy.querySelector('textarea.note').disabled, true);
-  assert.equal(busy.querySelector('textarea.note').value, '');
+  assert.equal(busy.querySelector('textarea.note').value, 'Show it on a phone');
   assert.equal(eye('q2').disabled, true);
-  assert.equal(eye('q2').getAttribute('aria-label'), 'Prototypes are being made');
   assert.equal($('.topichead .chip').textContent, 'Prototype round 1');
   assert.ok($('.topichead .chip.tone-notice .try-spin'));
   assert.equal($('#qstatus').textContent, 'Prototype please.');
@@ -2805,7 +2811,7 @@ test("Waiting on you's eye on each question, after its attach button, asks for a
 
   v.page.fire(v.root, 'click', { target: eye('q1') });
   await v.settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(v.sent[1])), ['prototype-request', { key: 'w/T1', question: 'q1', note: '' }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(v.sent[1])), ['prototype-request', { key: 'w/T1', question: 'q1', note: '', choice: null }]);
   v.unmount();
 });
 

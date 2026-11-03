@@ -262,7 +262,7 @@ test("a prototype request holds its question as requested until the round arrive
   const takes = { id: 'takes', topic: 'item:w/A1', question: 'Which take?', url: 'prototype-search.html?q=takes', options: [{ id: 'A', label: 'Above' }, { id: 'B', label: 'Icon' }], round: 1, round_of: 'plain' };
   const confirm = { id: 'takes-confirm', topic: 'item:w/A1', question: 'Is this it?', url: 'prototype-search.html?q=takes-confirm', options: [{ id: 'B', label: 'Icon' }], round: 1, confirm_of: 'takes' };
   const resolved = (q, note, at) => ({ ...q, resolved: note, resolved_at: at });
-  const request = (question, ts) => ({ id: `r-${question}`, ts, kind: 'prototype-request', data: { key: 'w/A1', question, note: 'show it on a phone' }, reply: null });
+  const request = (question, ts, choice) => ({ id: `r-${question}`, ts, kind: 'prototype-request', data: { key: 'w/A1', question, note: 'show it on a phone', ...(choice ? { choice } : {}) }, reply: null });
   const answer = (id, choice, ts, note = '') => ({ id: `a-${id}`, ts, kind: 'owner-answer', data: { id, choice, note }, reply: null });
   const view = (items, events) => {
     const b = board({ owner: { items }, events });
@@ -272,7 +272,8 @@ test("a prototype request holds its question as requested until the round arrive
 
   assert.deepEqual(view([plain], []), { states: [['plain', 'open']], round: null, open: 1, requested: 0, needs: 1 });
   const asked = board({ owner: { items: [plain] }, events: [request('plain', '2026-10-23T10:00:00Z')] });
-  assert.deepEqual(asked.owner[0].request, { id: 'r-plain', ts: '2026-10-23T10:00:00Z', note: 'show it on a phone' });
+  assert.deepEqual(asked.owner[0].request, { id: 'r-plain', ts: '2026-10-23T10:00:00Z', note: 'show it on a phone', choice: null });
+  assert.equal(board({ owner: { items: [plain] }, events: [request('plain', '2026-10-23T10:00:00Z', 'B')] }).owner[0].request.choice, 'B');
   assert.deepEqual(view([plain], [request('plain', '2026-10-23T10:00:00Z')]),
     { states: [['plain', 'requested']], round: { n: 1, state: 'making' }, open: 0, requested: 1, needs: 0 });
   assert.deepEqual(view([plain], [answer('plain', 'A', '2026-10-23T09:00:00Z'), request('plain', '2026-10-23T10:00:00Z')]).states, [['plain', 'requested']]);
@@ -293,6 +294,8 @@ test("a prototype request holds its question as requested until the round arrive
 
   const thread = threadOf('w/A1', { events: [request('plain', '2026-10-23T10:00:00Z')], owner: { items: [plain] } });
   assert.deepEqual(thread.map((m) => [m.kind, m.text]), [['prototype-request', 'Prototype please:Where does search sit?\n→ show it on a phone']]);
+  const leaning = threadOf('w/A1', { events: [request('plain', '2026-10-23T10:00:00Z', 'B')], owner: { items: [plain] } });
+  assert.deepEqual(leaning.map((m) => m.text), ['Prototype please:Where does search sit?\n→ B. Behind an icon\n→ show it on a phone']);
 });
 
 test("an answer to an item's question joins that item's thread", () => {

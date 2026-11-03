@@ -430,7 +430,7 @@ export function ownerQuestion(q, answerEvents, requestEvents = []) {
   const resolved = q.resolved && !reopened;
   const req = resolved ? null : requestEvents.filter((e) => e.data?.question === q.id && String(e.ts) > String(last?.ts || '')).at(-1);
   const state = resolved ? 'resolved' : req ? 'requested' : !last ? 'open' : last.reply ? 'replied' : 'answered';
-  return { ...q, state, request: req ? { id: req.id, ts: req.ts, note: req.data.note || '' } : null,
+  return { ...q, state, request: req ? { id: req.id, ts: req.ts, note: req.data.note || '', choice: req.data.choice || null } : null,
     answers: answers.map((e) => ({ ts: e.ts, choice: e.data.choice || null, note: e.data.note || '', files: e.data.files || [], reply: e.reply, acted: resolvedSince(q, e.ts) })) };
 }
 
@@ -493,7 +493,9 @@ function ownerTopics(topics, questions, closed = new Set()) {
 const ACTION_LABELS = { 'mark-ready': 'Mark ready', 'grill-more': 'Grill please', 'prototype-request': 'Prototype please' };
 const actionText = (e, asked) => {
   if (e.kind !== 'prototype-request' || !asked.has(e.data.question)) return e.data.text || routeRecord(ACTION_LABELS, e.kind) || '';
-  return [`Prototype please:${asked.get(e.data.question).question}`, e.data.note].filter(Boolean).join('\n→ ');
+  const q = asked.get(e.data.question);
+  const o = (q.options || []).find((x) => x.id === e.data.choice);
+  return [`Prototype please:${q.question}`, o && `${o.id}. ${o.label}`, e.data.note].filter(Boolean).join('\n→ ');
 };
 const claudeAtOf = (msgs) => [...msgs.filter((m) => m.who === 'claude' && m.kind !== 'status' && m.kind !== 'agent').map((m) => m.ts),
   ...msgs.filter((m) => m.kind === 'ask').map((m) => m.reply?.at)].filter(Boolean).map(String).sort().pop() || '';

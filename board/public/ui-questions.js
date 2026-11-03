@@ -7,10 +7,12 @@
   const option = (o, { type = 'radio', name, checked = false, numbered = true, shown = false, disabled = false }) => `<label class="opt"${shown ? ' aria-current="true"' : ''}><input type="${type}" name="${esc(name)}" value="${esc(o.id)}" ${checked ? 'checked' : ''}${disabled ? ' disabled' : ''}>
         <span><span class="lbl">${numbered ? esc(lead(o)) : ''}${esc(o.label)}</span>${o.recommended ? '<span class="rec">Recommended</span>' : ''}<div class="det">${esc(o.detail || '')}</div></span></label>`;
 
-  // A question's eye sends `prototype-request {key?, question, note}` for that question alone (view-questions.js).
+  const SPIN = '<span class="try-spin" aria-hidden="true"></span>';
+  // A question's eye sends `prototype-request {key?, question, note, choice}` for that question alone (view-questions.js);
+  // once sent, the eye is off with a "prototype requested" badge right after it until the round arrives.
   const questionEye = (q) => q.state === 'resolved' ? ''
-    : q.state === 'requested' ? protoButton('q:' + q.id, { pending: 'requested' }, { disabled: true })
-    : protoButton('q:' + q.id, null, { label: 'Ask for a prototype instead' });
+    : protoButton('q:' + q.id, null, { label: 'Ask for a prototype instead', disabled: q.state === 'requested' })
+      + (q.state === 'requested' ? badge('normal', `${SPIN}prototype requested`) : '');
   const noteComposer = (q, note) => `<div class="composer" data-composer="${esc('q:' + q.id)}"><textarea class="note" rows="2" placeholder="Note (optional)"${q.state === 'requested' ? ' disabled' : ''}>${esc(note || '')}</textarea>
       <div class="note-tools">${attachButton()}${questionEye(q)}<div class="pending-files" data-files></div></div></div>`;
 
@@ -19,9 +21,7 @@
     answered: { label: 'waiting for claude', tone: 'notice' },
     replied: { label: 'claude replied', tone: 'ready' },
     resolved: { label: 'resolved', tone: 'quiet' },
-    requested: { label: 'Prototype requested', tone: 'notice' },
   };
-  const SPIN = '<span class="try-spin" aria-hidden="true"></span>';
   // docs/adr/0111-a-prototype-round-ends-with-a-one-take-confirm.md
   // A topic's latest prototype round from /api/board ownerTopics: {n, state: making|back|closed, take}.
   const roundChip = (r) => !r ? ''
@@ -93,21 +93,21 @@
     : `<a class="pill proto pr-open" href="${esc(withParam(q.url, 'take', q.options[0].id))}">Open the prototype →</a>${q.state === 'open' ? `<div class="pr-rule">${RULE_ICON}A pick with a note gets a one-take confirm once Claude has updated the take.</div>` : ''}`;
   // An owner question from /api/board; draft is this device's unsent {choice, note}; links its ui-links.js linkContext;
   // fit(option id) supplies the measured grid and full-width heights.
+  // A requested question shows the note and pick its prototype was asked with, locked.
   function questionCard(q, { n = 0, draft = {}, links = {}, fit = () => null } = {}) {
     const last = q.answers[q.answers.length - 1];
-    const chosen = draft.choice ?? (last ? last.choice : null);
-    const st = QUESTION_STATE[q.state];
     const busy = q.state === 'requested';
+    const shown = busy ? q.request : draft;
+    const chosen = shown.choice ?? (last ? last.choice : null);
     return `<section class="q ${q.urgent && q.state === 'open' ? 'urgent' : ''}${busy ? ' pr-busy' : ''}" id="${esc(q.id)}" data-q="${esc(q.id)}">
-      <div class="row" style="margin:0"><span class="muted small">${n ? n + '. ' : ''}${esc(q.source || '')}</span>${badge(st.tone, `${busy ? SPIN : ''}${esc(st.label)}`)}</div>
+      <div class="row" style="margin:0"><span class="muted small">${n ? n + '. ' : ''}${esc(q.source || '')}</span>${busy ? '' : badge(QUESTION_STATE[q.state].tone, esc(QUESTION_STATE[q.state].label))}</div>
       <h3>${linkText(q.question, links)}</h3>
       ${q.context ? `<div class="ctx">${linkText(q.context, links)}</div>` : ''}
-      ${busy ? `<div class="pr-busy-line" role="status">${SPIN}Claude is making takes. Answering waits until they’re back.</div>` : ''}
       ${framed(q) ? '' : questionLink(q.url)}
       ${confirmLines(q)}
       ${q.state === 'resolved' && q.resolved ? `<div class="small muted" style="margin-bottom:8px">Resolved: ${esc(q.resolved)}${/[.!?]$/.test(q.resolved) ? '' : '.'} A new answer reopens it.</div>` : ''}
       ${inline(q) ? takes(q, chosen, links, fit) : q.options.map((o) => option(o, { name: 'c-' + q.id, checked: chosen === o.id, disabled: busy })).join('')}
-      ${noteComposer(q, draft.note)}
+      ${noteComposer(q, shown.note)}
       ${answerHistory(q, links)}
     </section>`;
   }
