@@ -337,6 +337,7 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
   await saveBoardSettings(site('audit'), { tickets: { source: 'github' } });
   assert.equal(await cli('item', 'add', 'audit/F6', '--title', 'Six'), 0);
   assert.equal(await cli('item', 'add', 'audit/G7', '--title', 'Seven', '--ticket', '#41'), 0);
+  assert.equal(await cli('item', 'add', 'audit/H8', '--title', 'Eight', '--ticket', '#43', '--deps', 'audit/F6'), 0);
   gh.length = 0;
   for (const id of ['F6', 'G7']) assert.equal(await cli('item', 'set', `audit/${id}`, '--status', 'building'), 0);
   assert.equal(await cli('item', 'set', 'audit/G7', '--pr', '7'), 0);
@@ -344,6 +345,8 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
   assert.equal(await cli('item', 'set', 'audit/F6', '--status', 'done', '--text', 'Done.'), 0);
   assert.equal(out.at(-1), 'ticket #42: closed');
   assert.deepEqual(gh, [['issue', 'close', '42', '--repo', 'o/r']]);
+  // The line on the card it unblocked names the finished card by its ticket, not its id.
+  assert.deepEqual(lines(site('audit', 'data', 'threads', 'audit__H8.jsonl')).map((m) => m.text), ['Unblocked: #42 is done.']);
   assert.equal(await cli('item', 'set', 'audit/G7', '--status', 'merged'), 0);
   assert.equal(out.at(-1), 'ticket #41: left as it is, not assigned to you');
   assert.equal(gh.some((argv) => argv[1] === 'close' && argv[2] === '41'), false);

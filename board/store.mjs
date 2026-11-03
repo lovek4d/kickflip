@@ -1405,7 +1405,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   // The owner reads a card's wait in its thread, so the line that ends it goes there too.
   const ts = new Date().toISOString();
   for (const k of unblocked) {
-    await appendLine(threadFile(site, k), { ts, who: 'claude', text: `Unblocked: ${item.id} is ${status}.` });
+    await appendLine(threadFile(site, k), { ts, who: 'claude', text: `Unblocked: ${await cardName(site, key)} is ${status}.` });
     await appendEvent({ dir: site }, 'card-unblocked', { key: k });
   }
   return { file: source.file, lines: [...unblocked.map((k) => `unblocked: ${k}`), ...resolved] };
