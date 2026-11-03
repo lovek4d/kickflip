@@ -343,11 +343,6 @@
     B.on($('#autoPull'), 'change', async () => {
       const toggle = $('#autoPull');
       const want = toggle.checked;
-      if (want && !(await BoardDialogs.confirm('Turn on pulling in Todo cards? When no builder runs on this board, Claude takes the top Todo card nothing blocks or holds and grills or builds it, without asking you.', { ok: 'Turn on' }))) {
-        toggle.checked = false;
-        return;
-      }
-      if (!B.alive()) return;
       toggle.disabled = true;
       try {
         const r = await fetch(site.url('api/settings'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ auto_pull: want }) });

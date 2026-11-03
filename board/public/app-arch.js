@@ -46,7 +46,7 @@ BoardView.part((B) => {
     if (!a || a.waits || starting) return;
     if (a.last?.open) { openCard(a.last.key); B.toast(`${a.last.ref} is this board’s open review.`); return; }
     sheet.close();
-    if (!(await B.confirm(`Review ${a.repo}’s architecture? Claude reads the repo and makes a wave. Its first card asks you one question per finding.`, { ok: 'Run review' })) || !B.alive()) return;
+    if (!(await B.confirm(`Claude reads ${a.repo} and makes a wave whose first card asks you one question per finding. Run the architecture review?`)) || !B.alive()) return;
     starting = true;
     try {
       const r = await fetch(B.site.url('api/arch-review'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });

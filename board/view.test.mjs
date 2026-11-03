@@ -402,12 +402,12 @@ test('Board Settings saves auto-build immediately, uses kind-specific words and 
   }
 });
 
-test('Board Settings asks before turning auto-pull on, saves off at once and restores the toggle on refusal', async () => {
+test('Board Settings turns auto-pull on and off with no confirmation and restores the toggle on refusal', async () => {
   const page = fakePage(memoryStorage().localStorage);
   const root = new page.El();
-  let saved = false, refuse = false, accept = false;
+  let saved = false, refuse = false;
   const posts = [], confirms = [];
-  page.win.BoardDialogs.confirm = async (text, labels) => { confirms.push(labels?.ok); return accept; };
+  page.win.BoardDialogs.confirm = async (text) => { confirms.push(text); return true; };
   page.win.fetch = async (url, opts = {}) => {
     let body = {};
     if (url.endsWith('/api/settings')) {
@@ -430,17 +430,12 @@ test('Board Settings asks before turning auto-pull on, saves off at once and res
   toggle.checked = true;
   page.fire(toggle, 'change');
   await tick();
-  assert.deepEqual([confirms, posts.length, toggle.checked], [['Turn on'], 0, false]);
-  accept = true;
-  toggle.checked = true;
-  page.fire(toggle, 'change');
-  await tick();
-  assert.deepEqual([confirms.length, posts.at(-1), toggle.checked], [2, { auto_pull: true }, true]);
+  assert.deepEqual([confirms, posts.at(-1), toggle.checked], [[], { auto_pull: true }, true]);
   assert.equal(status.textContent, 'Saved. When no builder runs, Claude pulls in the top Todo card.');
   toggle.checked = false;
   page.fire(toggle, 'change');
   await tick();
-  assert.deepEqual([confirms.length, posts.at(-1), toggle.checked], [2, { auto_pull: false }, false]);
+  assert.deepEqual([confirms.length, posts.at(-1), toggle.checked], [0, { auto_pull: false }, false]);
   refuse = true;
   toggle.checked = true;
   page.fire(toggle, 'change');
@@ -604,7 +599,7 @@ test("Restart on a board's row of the Hub page confirms, reads Restarting until 
   assert.equal(button().textContent, 'Restart');
   page.fire(root.querySelector('.hub-status'), 'click', { target: button() });
   await settle();
-  assert.deepEqual(confirms, [['Restart The <Shop>? This stops its session mid-task, along with any builder it started, then restarts its server and resumes the session. Its cards and threads stay. For a stuck board.', 'Restart']]);
+  assert.deepEqual(confirms, [['This stops The <Shop>’s session mid-task, along with any builder it started, then restarts its server and resumes the session. Its cards and threads stay. For a stuck board. Restart The <Shop>?', undefined]]);
   assert.deepEqual(posts, [['/_hub/restart-board', { route: 'shop' }]]);
   assert.equal(row().querySelector('.sub').textContent, 'Restarting · stopping its session, then starting it again');
   assert.equal(button().textContent, 'Restarting…');
@@ -2170,52 +2165,25 @@ test('main paints above the lanes, card failures scroll to their thread and main
   b.view.unmount();
 });
 
-test('labelled confirmations use the modal bottom sheet, preserve text, cancel safely and leave native callers working', async () => {
+test('confirmations are the browser\'s own window.confirm, whatever labels a caller passes, and an aborted signal answers false without asking', async () => {
   const page = fakePage(memoryStorage().localStorage);
-  const { Element } = miniDom(page.Target, page.win.document);
-  const doc = page.win.document;
-  const trigger = doc.body.appendChild(new Element('button'));
-  trigger.focus();
   const native = [];
-  page.win.confirm = (message) => { native.push(message); return true; };
+  let answer = true;
+  page.win.confirm = (message) => { native.push(message); return answer; };
   page.win.alert = (message) => native.push(message);
   vm.runInContext(fs.readFileSync(new URL('./public/dialogs.js', import.meta.url), 'utf8'), page.win);
   const dialogs = page.win.BoardDialogs;
   assert.equal(await dialogs.confirm('Hold INT-143?'), true);
+  assert.equal(await dialogs.confirm('Remove the key?', { ok: 'Remove' }), true);
+  answer = false;
+  assert.equal(await dialogs.confirm('Restart it?'), false);
   await dialogs.notice('Saved');
-  assert.deepEqual(native, ['Hold INT-143?', 'Saved']);
-  const message = 'Currently rebuilding with latest changes. Install the existing older build now?';
-  const labels = { ok: 'Install older build', cancel: 'Cancel' };
-  const pending = dialogs.confirm(message, labels);
-  const sheet = doc.body.querySelector('dialog.confirm-sheet');
-  assert.equal(sheet.open, true);
-  assert.equal(sheet.getAttribute('role'), 'alertdialog');
-  assert.equal(sheet.getAttribute('aria-modal'), 'true');
-  assert.equal(sheet.querySelector(`#${sheet.getAttribute('aria-labelledby')}`).textContent, message);
-  const ok = sheet.querySelector('[data-answer="ok"]');
-  const cancel = sheet.querySelector('[data-answer="cancel"]');
-  assert.deepEqual([ok.textContent, cancel.textContent], ['Install older build', 'Cancel']);
-  assert.equal(doc.activeElement, cancel);
-  page.fire(sheet, 'click', { target: ok });
-  assert.equal(await pending, true);
-  assert.equal(doc.body.querySelector('dialog'), null);
-  assert.equal(doc.activeElement, trigger);
-  for (const how of ['button', 'outside', 'escape']) {
-    const answer = dialogs.confirm(message, labels);
-    const el = doc.body.querySelector('dialog');
-    if (how === 'escape') assert.equal(page.fire(el, 'cancel').defaultPrevented, true);
-    else page.fire(el, 'click', { target: how === 'button' ? el.querySelector('.cancel') : el });
-    assert.equal(await answer, false, how);
-    assert.equal(doc.body.querySelector('dialog'), null);
-  }
-  const first = dialogs.confirm('<b>Build</b>', { ok: '<Install>' });
-  assert.equal(doc.body.querySelector('p').textContent, '<b>Build</b>');
-  assert.equal(doc.body.querySelector('b'), null);
-  const second = dialogs.confirm('Another build?', labels);
-  assert.equal(await first, false);
-  assert.equal(doc.body.querySelectorAll('dialog').length, 1);
-  page.fire(doc.body.querySelector('dialog'), 'cancel');
-  assert.equal(await second, false);
+  assert.deepEqual(native, ['Hold INT-143?', 'Remove the key?', 'Restart it?', 'Saved']);
+  const controller = new AbortController();
+  controller.abort();
+  answer = true;
+  assert.equal(await dialogs.confirm('Never shown?', { signal: controller.signal }), false);
+  assert.equal(native.length, 4);
 });
 
 test("every bumpable card, closed or open, carries the bump icon at its top right and no bump in its button rows; the icon confirms, then sends card-bump, and the lane's latest bump shows it disabled", async () => {

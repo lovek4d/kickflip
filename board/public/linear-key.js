@@ -68,7 +68,7 @@
     };
     const onClick = async (e) => {
       if (!e.target.closest?.('[data-linear-remove]') || pending) return;
-      if (await BoardDialogs.confirm('Remove the Linear key? Boards on Linear can’t create issues or move tickets until you add one again.', { ok: 'Remove' }) && !destroyed) post(new URLSearchParams({ remove: '1' }));
+      if (await BoardDialogs.confirm('Boards on Linear can’t create issues or move tickets until you add a key again. Remove the Linear key?') && !destroyed) post(new URLSearchParams({ remove: '1' }));
     };
     const listeners = [['paste', onPaste], ['change', onChange], ['submit', onSubmit], ['click', onClick]];
     for (const [type, fn] of listeners) root.addEventListener(type, fn);
