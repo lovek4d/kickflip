@@ -4,15 +4,17 @@
 // until its join moves it into the site. A New board request (new-board.mjs) records {title, repo, asked_at} there
 // first, then the hub's start merges its owner in, or `error` when claude failed. Board sessions start in the background (`claude --bg`) in auto mode, with
 // worktree.bgIsolation "none" so it stays in the repo folder, since its builders make their own worktrees, and with
-// the hook that brings its prompts to the owner's phone. `kickflip hub` runs the hub board's session in the owner's terminal.
+// the hook that brings its prompts to the owner's phone. The hub board (`hub: true`) is the one exception: its session
+// runs in the foreground inside a tmux session the hub starts, with the same flags and hook, and `kickflip hub`
+// attaches to it (docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
 // checkSessions is the hub's wake (docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md): when an event lands
-// for a board whose owner session isn't running, the session is resumed at once; a board not listening for
+// for a board whose owner session isn't running, or the owner taps its page (`asked`), the session is resumed at once; a board not listening for
 // RESUME_AFTER with an event its session hasn't heard is resumed as a fallback. Either happens once per outage, and if
 // the board still isn't listening COMEBACK_WAIT later, the owner gets one push.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { joinName, routeRecord, validRoute } from './routes.mjs';
 import { withFileLock } from './locks.mjs';
@@ -43,7 +45,8 @@ export function startingBoards(manifest, now = Date.now()) {
 }
 // "none" is the value that turns isolation off; Claude Code drops any other value and isolates. The PermissionRequest
 // hook sends the session's prompts to the phone, and its timeout stays a minute past the hook's own wait
-// (docs/adr/0060-background-sessions-prompts-come-to-the-phone.md). The hub service's PATH may have no node, hence a full path.
+// (docs/adr/0060-background-sessions-prompts-come-to-the-phone.md). Every session the hub starts or resumes gets them,
+// the hub board's foreground one in tmux included. The hub service's PATH may have no node, hence a full path.
 export const PROMPT_HOOK_TIMEOUT_S = WAIT_MS / 1000 + 60;
 export const BG_SETTINGS = JSON.stringify({
   worktree: { bgIsolation: 'none' },
@@ -51,7 +54,7 @@ export const BG_SETTINGS = JSON.stringify({
 });
 
 export class SessionError extends Error {
-  // reason: 'none' (no session or folder recorded), 'hub' (no hub board), 'live' (the session runs), 'failed' (claude refused)
+  // reason: 'none' (no session or folder recorded), 'hub' (no hub board), 'live' (the session runs), 'failed' (claude or tmux refused)
   constructor(message, reason) { super(message); this.reason = reason; }
 }
 
@@ -70,6 +73,21 @@ export function claudeBin() {
 
 // A session's environment names its own session and parent; a claude started under it would take them as its own.
 const inherited = (k) => k === 'CLAUDECODE' || k === 'CLAUDE_PID' || k === 'CLAUDE_EFFORT' || k.startsWith('CLAUDE_CODE_');
+
+// tmux, for the hub board's foreground session. The hub service's PATH may lack Homebrew's or the system's bin.
+export function tmuxBin() {
+  if (process.env.KICKFLIP_TMUX) return process.env.KICKFLIP_TMUX;
+  return ['/opt/homebrew/bin/tmux', '/usr/local/bin/tmux', '/usr/bin/tmux'].find((p) => fs.existsSync(p)) || 'tmux';
+}
+// Runs one tmux command, which returns at once (new-session -d detaches). → {status, stdout, stderr}
+export function runTmux(argv) {
+  const r = spawnSync(tmuxBin(), argv, { encoding: 'utf8', timeout: 10_000, env: Object.fromEntries(Object.entries(process.env).filter(([k]) => !inherited(k))) });
+  if (r.error?.code === 'ENOENT') return { status: 127, stdout: '', stderr: "tmux isn't installed; kickflip doctor names how to install it" };
+  return { status: r.status ?? 1, stdout: r.stdout || '', stderr: r.stderr || r.error?.message || '' };
+}
+// The tmux session a hub board's session runs in.
+export const tmuxName = (route) => `kickflip-${route}`;
+const hasTmux = (tmux, route) => tmux(['has-session', '-t', `=${tmuxName(route)}`]).status === 0;
 
 // Runs claude with argv in cwd. → {status, stdout, stderr}. A process `claude --bg` leaves behind can hold our pipes
 // open, so this settles shortly after claude exits rather than on close, and drops the pipes so the caller can exit.
@@ -116,14 +134,21 @@ export async function stopSession(owner, { live = liveSessions, stop = runSessio
   }
 }
 
-export function runForegroundClaude(argv, { cwd }) {
+// Attaches this terminal to the route's tmux session, or switches to it from inside tmux, until the owner detaches.
+// → {status}
+export function attachTmux(route) {
+  const target = `=${tmuxName(route)}`;
+  return runForeground(tmuxBin(), process.env.TMUX ? ['switch-client', '-t', target] : ['attach-session', '-t', target]);
+}
+
+function runForeground(bin, argv) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !inherited(k) && k !== 'CLAUDE_BG_ISOLATION'));
-  // A terminal's Ctrl-C or Ctrl-\ signals both processes; this one has to outlive claude to hand back its exit code.
+  // A terminal's Ctrl-C or Ctrl-\ signals both processes; this one has to outlive tmux to hand back its exit code.
   const ignore = () => {};
   process.on('SIGINT', ignore).on('SIGQUIT', ignore);
   const settle = () => process.off('SIGINT', ignore).off('SIGQUIT', ignore);
   return new Promise((resolve, reject) => {
-    const child = spawn(claudeBin(), argv, { cwd, env, stdio: 'inherit' });
+    const child = spawn(bin, argv, { env, stdio: 'inherit' });
     child.on('error', (e) => { settle(); reject(new SessionError(e.message, 'failed')); });
     child.on('close', (code) => { settle(); resolve({ status: code ?? 1 }); });
   });
@@ -140,23 +165,41 @@ export const resumePrompt = (route, id, title) => `The hub resumed this session 
 export const resumeArgv = ({ id, route, name, model, background }) => ['--resume', id, '--bg', ...(background ? [] : common({ name, model })), resumePrompt(route, id, name)];
 
 const hubPrompt = (route, title) => `You are the hub session. Read \`${path.join(SKILL_DIR, 'docs', 'hub-session.md')}\`, then rejoin /${route} (join ${boardFlag(route, title)}) and relaunch its watcher.`;
+// The hub board's session in the foreground: the recorded one resumed, else a fresh one that joins with --hub.
 export const hubArgv = ({ route, title, id, model }) => [
-  ...(id ? ['--resume', id] : []), ...(model ? ['--model', model] : []),
+  ...(id ? ['--resume', id] : []), ...common({ name: title, model }),
   id ? `${hubPrompt(route, title)} If your session id (the folder above your scratchpad) isn't ${id}, rejoin with yours and --force.` : `/kickflip ${boardFlag(route, title)} --hub\n${hubPrompt(route, title)}`,
 ];
 
-// `repo` is the folder for a fresh session, or for a recorded session whose folder the manifest lacks.
-export async function hubSession({ manifest = readManifest(), repo, run = runForegroundClaude, live = liveSessions } = {}) {
+// Starts the hub board's session in a detached tmux session named tmuxName(route), in cwd. env drops the caller's
+// session variables, since tmux passes its own environment on. → the claude argv
+function startTmux(route, argv, { cwd, tmux }) {
+  const bin = claudeBin();
+  const unset = [...new Set(['CLAUDECODE', 'CLAUDE_BG_ISOLATION', ...Object.keys(process.env).filter(inherited)])].flatMap((k) => ['-u', k]);
+  const r = tmux(['new-session', '-d', '-s', tmuxName(route), '-c', cwd, '/usr/bin/env', ...unset,
+    ...(path.isAbsolute(bin) ? [`PATH=${path.dirname(bin)}:${process.env.PATH || ''}`] : []), bin, ...argv]);
+  if (r.status !== 0) throw new SessionError(`tmux new-session failed (${r.status}): ${(r.stderr || r.stdout).trim().slice(0, 300)}`, 'failed');
+  return [bin, ...argv];
+}
+
+// `kickflip hub`: attaches this terminal to the hub board's tmux session, first starting it when none runs: the
+// recorded session resumed in its folder and model, else a fresh one in repo (default the cwd) that joins with --hub.
+// While the tmux session runs, nothing else starts. Refuses a recorded session live outside tmux, and a missing folder.
+// `repo` is the folder for a fresh session, or for a recorded session whose folder the manifest lacks. → attach's {status}
+export async function hubSession({ manifest = readManifest(), repo, tmux = runTmux, attach = attachTmux, live = liveSessions } = {}) {
   const board = hubBoard(manifest);
   if (!board) throw new SessionError('No hub board is flagged; flag one with kickflip set <route> --hub, or run kickflip join --hub in its repo folder', 'hub');
-  const owner = board.owner?.session ? board.owner : null;
-  if (owner && !owner.repo && !repo) throw new SessionError(`/${board.route}'s session ${owner.session} has no folder recorded; pass --repo <its folder>`, 'none');
-  refuseLive(owner, live);
-  const cwd = owner?.repo || path.resolve(repo || process.cwd());
-  if (!fs.statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
-    throw new SessionError(owner?.repo ? `/${board.route}'s recorded folder ${cwd} is gone; rejoin from its new folder with --repo` : `no folder at ${cwd}`, 'none');
+  if (!hasTmux(tmux, board.route)) {
+    const owner = board.owner?.session ? board.owner : null;
+    if (owner && !owner.repo && !repo) throw new SessionError(`/${board.route}'s session ${owner.session} has no folder recorded; pass --repo <its folder>`, 'none');
+    refuseLive(owner, live);
+    const cwd = owner?.repo || path.resolve(repo || process.cwd());
+    if (!fs.statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
+      throw new SessionError(owner?.repo ? `/${board.route}'s recorded folder ${cwd} is gone; rejoin from its new folder with --repo` : `no folder at ${cwd}`, 'none');
+    }
+    startTmux(board.route, hubArgv({ route: board.route, title: board.title, id: owner?.session, model: owner?.model }), { cwd, tmux });
   }
-  return run(hubArgv({ route: board.route, title: board.title, id: owner?.session, model: owner?.model }), { cwd });
+  return attach(board.route);
 }
 
 // The session recorded for a route: its site's owner, else a start its join hasn't taken up. → owner + {title} | null
@@ -242,12 +285,19 @@ export function resumeSession(route, options = {}) {
   return withSessionLock(route, ({ resume }) => resume(options));
 }
 
-async function resumeRecordedSession(route, { manifest = readManifest(), run = runClaude, live = liveSessions, mark = null } = {}) {
+async function resumeRecordedSession(route, { manifest = readManifest(), run = runClaude, tmux = runTmux, live = liveSessions, mark = null } = {}) {
   if (routeRecord(readManifest().closed, route)) throw new SessionError(`/${route} is closed; use kickflip reopen ${route}`, 'none');
   const rec = sessionOf(manifest, route);
   if (!rec) throw new SessionError(`/${route} has no recorded session`, 'none');
   if (!rec.repo) throw new SessionError(`/${route}'s session ${rec.session} has no folder recorded; its session records one by rejoining (kickflip join, --repo)`, 'none');
   refuseLive(rec, live);
+  // The hub board comes back in the foreground, in its tmux session; a foreground resume keeps the session's id.
+  if (routeRecord(manifest.sites, route)?.hub === true) {
+    if (hasTmux(tmux, route)) throw new SessionError(`/${route}'s tmux session ${tmuxName(route)} is still open; attach with kickflip hub`, 'live');
+    const argv = startTmux(route, hubArgv({ route, title: rec.title, id: rec.session, model: rec.model }), { cwd: rec.repo, tmux });
+    await moveOwner(route, { from: rec.session, to: rec.session, mark });
+    return { route, session: rec.session, previous: rec.session, confirmed: false, repo: rec.repo, argv, output: `in tmux session ${tmuxName(route)}` };
+  }
   const background = await isBackground(rec.session, { run, cwd: rec.repo });
   const argv = resumeArgv({ id: rec.session, route, name: rec.title, model: rec.model, background });
   const r = await run(argv, { cwd: rec.repo });
@@ -260,9 +310,10 @@ async function resumeRecordedSession(route, { manifest = readManifest(), run = r
 // One board's next wake step. entry is its resume-state.json record {down_since, mark?, resumed_at?, error?,
 // pushed_at?}, kept while the board isn't listening; mark is the watched line counts when its session was first seen
 // not running. counts: the watched line counts now. waiting: an event its session hasn't heard (boards.mjs
-// oldestUnheard). recorded: it has a session and folder to resume.
+// oldestUnheard). recorded: it has a session and folder to resume. asked: the owner tapped the board's page (hub.mjs
+// /_hub/wake), which wakes it at once like an event landing.
 // → {action: 'none' | 'resume' | 'push', entry: the record to keep, null once it listens}
-export function resumeStep(entry, { listening, live, recorded, counts, waiting, now }) {
+export function resumeStep(entry, { listening, live, recorded, counts, waiting, asked = false, now }) {
   if (listening) return { action: 'none', entry: null };
   const at = new Date(now).toISOString();
   const e = entry ? { ...entry } : { down_since: at };
@@ -274,14 +325,15 @@ export function resumeStep(entry, { listening, live, recorded, counts, waiting, 
   }
   if (!recorded || live) return { action: 'none', entry: e };
   const landed = Boolean(entry?.mark && counts && Object.entries(counts).some(([f, n]) => n > (routeRecord(entry.mark, f) ?? 0)));
-  if (landed || (waiting && now - Date.parse(e.down_since) >= RESUME_AFTER)) return { action: 'resume', entry: { ...e, resumed_at: at } };
+  if (landed || asked || (waiting && now - Date.parse(e.down_since) >= RESUME_AFTER)) return { action: 'resume', entry: { ...e, resumed_at: at } };
   return { action: 'none', entry: e };
 }
 
-// The hub's wake over every board (resumeStep), keeping ~/.claude/kickflip/resume-state.json {<route>: entry}.
+// The hub's wake over every board (resumeStep), keeping ~/.claude/kickflip/resume-state.json {<route>: entry}. asked
+// is the routes whose page asked for a wake since the last check.
 // → {resumed: [route], pushed: [route], failed: [message]}
 export async function checkSessions({
-  manifest = readManifest(), now = new Date(), live = liveSessions,
+  manifest = readManifest(), now = new Date(), live = liveSessions, asked = new Set(),
   listening = (board, running) => isListening(board, { now: now.getTime(), running }),
   resume = (route, mark) => resumeSession(route, { manifest, live, mark }), push = deliver,
   gate = readUsageGate({ now }),
@@ -295,7 +347,7 @@ export async function checkSessions({
     const isLive = Boolean(rec && running.has(rec.session));
     const heard = listening(board, running);
     let { action, entry } = resumeStep(routeRecord(state, board.route), {
-      listening: heard, live: isLive, recorded: Boolean(rec?.repo), now: now.getTime(),
+      listening: heard, live: isLive, recorded: Boolean(rec?.repo), now: now.getTime(), asked: asked.has(board.route),
       counts: heard ? null : watchedCounts(board), waiting: !heard && !isLive && oldestUnheard(board) !== null,
     });
     if (action === 'resume' && gate.state === 'paused') {

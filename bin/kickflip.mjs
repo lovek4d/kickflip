@@ -11,8 +11,8 @@
 //               takes letters, digits and spaces, and gives the route, lowercased with dashes for spaces. Records the
 //               folder's origin as `github` and its branch; the board's builders branch from the folder's local main and
 //               land there (`local: true`). Marks the folder trusted for Claude Code, then starts the board's session in
-//               the background as `start` does, or with --hub flags the board as the hub board and opens its session in
-//               this terminal as `hub` does. Refuses a folder outside git (exit 2), and exits 1 while the hub isn't
+//               the background as `start` does, or with --hub flags the board as the hub board, starts its session in
+//               the foreground in tmux and attaches this terminal to it, as `hub` does. Refuses a folder outside git (exit 2), and exits 1 while the hub isn't
 //               running. A folder that already has a board names it and offers to restart its session
 //   Every other join names its site with --name <name>, which gives its title and its route as above (any characters,
 //   other than letters and digits, become dashes). A name that is the route itself keeps the site's title.
@@ -29,7 +29,8 @@
 //               [--icon <key>] [--color <css hex>] [--repo <dir>] [--model <m>] [--hub | --no-hub]
 //               a site with an owning session: events, the watcher, Needs you. --watch is optional with --session;
 //               with files it watches those (relative to the dir) in place of data/events.jsonl
-//               --hub makes this board the hub board, as `set --hub` does; a join without either keeps the flag
+//               --hub makes this board the hub board, as `set --hub` does; a join without either keeps the flag.
+//               The hub board's session runs in the foreground in tmux (`hub`); every other board's in the background
 //               --template board runs the shared board (../board/server.mjs) from the site dir,
 //               writing its board.json; --items is "waves" (default) or a wave.json-format file, made with no
 //               items when missing.
@@ -56,7 +57,7 @@
 //               {route, session, previous, confirmed, repo, argv, output}. Exit 1 when no session or folder is recorded
 //   kickflip close <route> --name <board title>
 //               stops its session, closes builder records and removes the site; keeps its folder and open PRs.
-//               --name must match the board title exactly. The board flagged --hub cannot be closed.
+//               --name must match the board title exactly.
 //   kickflip reopen <route>
 //               restores the closed board's manifest entry and resumes its recorded session
 //   kickflip export <route> [--out <file>]
@@ -73,10 +74,14 @@
 //               or whose folder exists. Prints {route, dir, port, settings, hub, join}: `join` is the line a fresh
 //               session runs to take the board over
 //   kickflip hub [--repo <dir>]
-//               opens the hub board's recorded session in this terminal, in its recorded folder and model, or in
-//               --repo when no folder is recorded; with no owner, starts a fresh session in --repo (default cwd)
-//               that joins the board with --hub. Points it to docs/hub-session.md.
-//               Exit 2 when no board has the hub flag (`set --hub`); otherwise keeps claude's exit code
+//               attaches this terminal to the hub board's tmux session (tmux attach; switch-client inside tmux).
+//               With none running, the hub board's session starts in it first, in the foreground: its recorded
+//               session resumed in its recorded folder and model, or in --repo when no folder is recorded; with no
+//               owner, a fresh session in --repo (default cwd) that joins the board with --hub. Points it to
+//               docs/hub-session.md. While the tmux session runs, nothing else starts
+//               (docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
+//               Exit 2 when no board has the hub flag (`set --hub`), 3 while its session is live outside tmux;
+//               otherwise keeps tmux's exit code
 //   kickflip sessions [--json]
 //               one line per board: route, session id, live (background or terminal) or not, folder
 //   kickflip handshake <route>
@@ -85,7 +90,7 @@
 //               until the watcher answered and the hub's GitHub check reached it. Prints {route, hello}
 //   kickflip set <route> [--icon <key>] [--color <hex>] [--hub | --no-hub]
 //               changes an existing site's icon or color without joining; '' clears one. --hub makes the board the
-//               hub board, whose session `hub` opens (`hub: true` in its entry), clearing the flag from any other
+//               hub board, whose session runs in tmux and `hub` attaches to (`hub: true` in its entry), clearing the flag from any other
 //               site; --no-hub clears it. Exit 2 for --hub on a site that isn't a board
 //   kickflip leave <route> [--session <id>] [--force]
 //               removes the entry and keeps its files; --session (or --force) only for a route a session owns
@@ -329,7 +334,7 @@ async function startRecorded(route, options) {
   });
 }
 
-// The hub board's session in this terminal (../hub/sessions.mjs hubSession); repo is the folder for a fresh one.
+// This terminal attached to the hub board's tmux session (../hub/sessions.mjs hubSession); repo is the folder for a fresh one.
 async function openHub(repo) {
   const { hubSession } = await sessionsModule();
   const r = await sessionCall(() => hubSession({ manifest: readManifest(), repo }));
@@ -353,7 +358,7 @@ function nameProblem(name) {
 const BOARD_FLAGS = '--template board --items data/wave.json';
 
 // Bare `kickflip join` (docs/adr/0143-kickflip-join-adds-the-current-repository-as-a-board.md): adds the git repo the
-// cwd is in as a local board, its session starting in the background, or in this terminal with --hub.
+// cwd is in as a local board, its session starting in the background, or with --hub in tmux, attached to this terminal.
 async function joinFolder() {
   const top = git(process.cwd(), 'rev-parse', '--show-toplevel');
   if (!top) fail(`${process.cwd()} is not in a git repo; run kickflip join in the folder of the repo to add as a board`, 2);
@@ -395,7 +400,7 @@ async function joinFolder() {
   });
   out(`Made ${title} at ${siteUrl(route)}, working in ${folder}${github ? ` (${github})` : ''}.`);
   if (args.hub) {
-    out('It is the hub board, so its session opens here.');
+    out('It is the hub board, so its session runs in tmux, attached here.');
     return openHub(folder);
   }
   try { await startRecorded(route, { repo: folder, prompt: BOARD_FLAGS }); }
@@ -404,15 +409,15 @@ async function joinFolder() {
 }
 
 // A folder that already has a board: names it and, on a yes, restarts its session as the Hub page's Restart does
-// (../hub/restart-board.mjs), opens the hub board's here, or starts one when none is recorded.
+// (../hub/restart-board.mjs), then attaches to the hub board's tmux session, or starts one when none is recorded.
 async function restartFolderBoard(route, site) {
   const title = site.title || route;
   out(`This folder already has a board: ${title} (/${route}).`);
   if (!canAsk()) fail(site.hub === true ? 'Open its session with kickflip hub.' : 'Run kickflip join in a terminal to restart its session, or tap Restart on its row of the Hub page.');
   const answer = (await ask('Restart its session? (Y/n) ')).toLowerCase();
   if (answer && !'yes'.startsWith(answer)) return;
-  if (site.hub === true) return openHub(site.owner.repo);
   if (!site.owner.session) {
+    if (site.hub === true) return openHub(site.owner.repo);
     await startRecorded(route, { repo: site.owner.repo, prompt: BOARD_FLAGS });
     return out('Its session is starting in the background.');
   }
@@ -420,6 +425,7 @@ async function restartFolderBoard(route, site) {
   const body = await r.json();
   if (!r.ok) fail(body.error);
   out(`Restarted ${title}'s session.`);
+  if (site.hub === true) return openHub(site.owner.repo);
 }
 
 // A manifest entry's fields that hold on another host; the rest name this host's paths, port, session or restarts.

@@ -103,8 +103,8 @@
       const { body: d } = await get(`/_hub/close-board/${encodeURIComponent(route)}`);
       if (!B.alive()) return;
       closure = d;
-      closeRow.disabled = d.hub === true;
-      $('#closeBoardReason').textContent = d.hub ? 'The hub board cannot be closed while it is flagged as the hub.' : '';
+      closeRow.disabled = false;
+      $('#closeBoardReason').textContent = '';
       $('#closeBoardName').textContent = d.title;
       $('#closeBoardTypeName').textContent = d.title;
       const warnings = [...(d.prs || []).map((p) => `<li>PR #${esc(p.pr)} (${esc(p.repo)}) — ${esc(p.wave)}/${esc(p.id)}</li>`),
@@ -117,7 +117,7 @@
       closeRow.disabled = true;
       try {
         await loadClosure();
-        if (!B.alive() || closure.hub) return;
+        if (!B.alive()) return;
         typed.value = '';
         closeConfirm.disabled = true;
         $('#closeBoardError').textContent = '';
@@ -133,7 +133,7 @@
     B.on(closeSheet, 'click', (e) => { if (e.target === closeSheet && !closing) closeSheet.close(); });
     B.on($('#closeBoardForm'), 'submit', async (e) => {
       e.preventDefault();
-      if (closing || closure?.hub || typed.value !== closure?.title) return;
+      if (closing || typed.value !== closure?.title) return;
       closing = true;
       closeConfirm.disabled = true;
       try {
@@ -161,12 +161,6 @@
       repo = body;
       tickets?.render();
       if (tickets) syncTickets();
-      if (repo.hub) {
-        $('#boardRepoValue').textContent = repo.github ? `${repo.github} · Kickflip’s own clone` : 'Kickflip’s own clone';
-        $('#boardRepoChange').hidden = true;
-        $('#boardRepoStatus').textContent = `${repo.repo} · The hub board’s builders branch from its main.`;
-        return;
-      }
       showRepo();
       $('#boardRepo').disabled = false;
     }).catch(() => { $('#boardRepoValue').textContent = 'Could not load repo.'; });

@@ -1010,6 +1010,7 @@ test('the board says when GitHub was last checked, late past twice the interval 
   assert.deepEqual(checks({ at: at(61), every: 30 }, true), { at: at(61), every: 30, idle: false, late: true, watcher: 'running', claudeAt: null });
   assert.deepEqual(checks({ at: at(61), every: 60 }, false), { at: at(61), every: 60, idle: false, late: false, watcher: 'stopped', claudeAt: null });
   assert.equal(checks({ at: at(12), every: 30 }, 'asleep').watcher, 'asleep');
+  assert.equal(checks({ at: at(12), every: 30 }, 'waking').watcher, 'waking');
   assert.deepEqual(checks({ at: at(300), every: null, idle: true }, true), { at: at(300), every: null, idle: true, late: false, watcher: 'running', claudeAt: null });
 });
 

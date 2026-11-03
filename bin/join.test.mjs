@@ -15,7 +15,11 @@ const bin = path.join(home, 'bin');
 const [port, pagePort, learnPort] = await freePorts(3);
 const base = `http://127.0.0.1:${port}`;
 const claudeConfig = path.join(home, 'claude-config');
-const env = { ...process.env, HOME: home, CLAUDE_CONFIG_DIR: claudeConfig, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', PATH: `${bin}:${process.env.PATH}` };
+// A stand-in tmux for join --hub: logs each call; has-session finds none, and attach-session prints its target.
+const fakeTmux = path.join(bin, 'tmux');
+const tmuxLog = path.join(home, 'tmux-calls.jsonl');
+const tmuxCalls = () => (fs.existsSync(tmuxLog) ? fs.readFileSync(tmuxLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
+const env = { ...process.env, HOME: home, CLAUDE_CONFIG_DIR: claudeConfig, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: fakeTmux, TMUX: '', PATH: `${bin}:${process.env.PATH}` };
 // A stand-in claude for kickflip join: it logs each call, and a --bg start prints its id and leaves a session record.
 const fakeClaude = path.join(bin, 'claude');
 const claudeLog = path.join(home, 'claude-calls.jsonl');
@@ -65,6 +69,13 @@ fs.writeFileSync(sessions + '/fake-' + id + '.json', JSON.stringify({ pid: 99999
 console.log('backgrounded · ' + id.slice(0, 8) + ' · board');
 `);
   fs.chmodSync(fakeClaude, 0o755);
+  fs.writeFileSync(fakeTmux, `#!${process.execPath}
+const argv = process.argv.slice(2);
+require('node:fs').appendFileSync(${JSON.stringify(tmuxLog)}, JSON.stringify(argv) + '\\n');
+if (argv[0] === 'attach-session') console.log('attached ' + argv[2]);
+process.exit(argv[0] === 'has-session' ? 1 : 0);
+`);
+  fs.chmodSync(fakeTmux, 0o755);
   fs.mkdirSync(claudeConfig, { recursive: true });
   fs.writeFileSync(path.join(claudeConfig, '.claude.json'), JSON.stringify({ theme: 'dark' }));
   page = http.createServer((req, res) => {
@@ -241,15 +252,18 @@ test('kickflip join in a repo makes a local board named as asked, with its GitHu
   assert.equal(claudeCalls().length, 1);
 });
 
-test('kickflip join --hub in a repo with no origin makes the hub board with no GitHub repo and opens its session in this terminal', async () => {
+test('kickflip join --hub in a repo with no origin makes the hub board with no GitHub repo, starts its session in tmux and attaches this terminal', async () => {
   const repo = gitRepo('second');
+  const claudeBefore = claudeCalls().length;
   const r = await cliIn(repo, ['join', '--name', 'Second', '--hub']);
   assert.equal(r.status, 0, r.stderr);
   const entry = manifest().second;
   assert.deepEqual([entry.hub, entry.local, entry.github, entry.branch, entry.owner], [true, true, undefined, 'main', { repo }]);
-  const call = claudeCalls().at(-1);
-  assert.equal(call.cwd, repo);
-  assert.equal(call.argv.length, 1);
-  assert.ok(call.argv[0].startsWith("/kickflip --name 'Second' --hub\n"), call.argv[0]);
-  assert.match(r.stdout, /It is the hub board, so its session opens here\.\n$/);
+  const calls = tmuxCalls();
+  assert.deepEqual(calls.map((argv) => argv.slice(0, 6)), [['has-session', '-t', '=kickflip-second'], ['new-session', '-d', '-s', 'kickflip-second', '-c', repo], ['attach-session', '-t', '=kickflip-second']]);
+  const argv = calls[1].slice(calls[1].indexOf(fakeClaude) + 1);
+  assert.equal(argv.includes('--bg'), false);
+  assert.ok(argv.at(-1).startsWith("/kickflip --name 'Second' --hub\n"), argv.at(-1));
+  assert.equal(claudeCalls().length, claudeBefore);
+  assert.match(r.stdout, /It is the hub board, so its session runs in tmux, attached here\.\nattached =kickflip-second\n$/);
 });

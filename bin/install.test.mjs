@@ -389,7 +389,7 @@ test('the init command moves an old-named HOME before the hub service, and --dry
   fs.writeFileSync(path.join(agents, 'local.claude.web-ts-hub.plist'), 'old plist');
   const serviceFile = hubService({ home }).file;
   const run = (...flags) => spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'init', ...flags], {
-    env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
+    env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
   });
   const dry = run('--dry-run');
   assert.equal(dry.status, 0, dry.stderr);
@@ -412,7 +412,7 @@ test('the init command moves an old-named HOME before the hub service, and --dry
 
 test('the hub, the board CLI and the status line each move an old-named HOME before touching state', async () => {
   const [port] = await freePorts();
-  const run = (h, file, args, input = '') => spawnSync(process.execPath, [path.join(cloneRoot(), ...file), ...args], { env: { ...process.env, HOME: h, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false' }, input, encoding: 'utf8' });
+  const run = (h, file, args, input = '') => spawnSync(process.execPath, [path.join(cloneRoot(), ...file), ...args], { env: { ...process.env, HOME: h, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false' }, input, encoding: 'utf8' });
   const homes = ['board', 'statusline', 'hub'].map((name) => path.join(home, name));
   for (const h of homes) oldShape(h, cloneRoot());
 
@@ -424,7 +424,7 @@ test('the hub, the board CLI and the status line each move an old-named HOME bef
   assertMigrated(homes[1], cloneRoot());
   assert.ok(fs.existsSync(path.join(homes[1], '.claude', 'kickflip', 'usage.json')));
 
-  const hub = spawn(process.execPath, [path.join(cloneRoot(), 'hub', 'hub.mjs')], { env: { ...process.env, HOME: homes[2], KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false' } });
+  const hub = spawn(process.execPath, [path.join(cloneRoot(), 'hub', 'hub.mjs')], { env: { ...process.env, HOME: homes[2], KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false' } });
   const exited = new Promise((resolve) => hub.once('exit', resolve));
   try {
     await new Promise((resolve, reject) => {
@@ -450,7 +450,7 @@ test('the init command refuses conflicting links before touching launchd or hub 
   const link = path.join(skills, 'kickflip');
   fs.symlinkSync(root, link);
   const result = spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'init', '--force'], {
-    env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
+    env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
   });
   assert.equal(result.status, 1, result.stderr);
   assert.match(result.stderr, /^kickflip: refusing to replace link/);
@@ -464,7 +464,7 @@ test('the init command configures links and settings before the hub service and 
   fs.symlinkSync(path.join(home, 'old-dotfiles-statusline'), statusline());
   writeSettings({ keep: 'untouched', hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'python3 ~/.claude/hooks/no-paths.py' }] }] } });
   const run = () => spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'init'], {
-    env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
+    env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
   });
   const first = run();
   assert.equal(first.status, 1);
@@ -495,7 +495,7 @@ test('the update command installs the latest package before restarting the hub a
     fs.writeFileSync(path.join(tools, name), `#!/bin/sh\nprintf '%s\\n' '${name}'" $*" >> "$KICKFLIP_TEST_LOG"\nexit 0\n`, { mode: 0o755 });
   }
   const run = (folder) => spawnSync(process.execPath, [path.join(folder, 'bin', 'kickflip.mjs'), 'update'], {
-    env: { ...process.env, HOME: home, PATH: tools, KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TEST_LOG: log }, encoding: 'utf8',
+    env: { ...process.env, HOME: home, PATH: tools, KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', KICKFLIP_TEST_LOG: log }, encoding: 'utf8',
   });
   const installed = run(root);
   assert.equal(installed.status, 0, installed.stderr);
@@ -516,7 +516,7 @@ test('the uninstall command removes the owned status-line link and preserves ski
   configure();
   const before = fs.readFileSync(settingsFile(), 'utf8');
   const result = spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'uninstall'], {
-    env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
+    env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
   });
   assert.equal(result.status, 0, result.stderr);
   assert.ok(result.stdout.startsWith(`removed ${statusline()}\n`));
@@ -572,10 +572,11 @@ function healthyDoctor() {
     ['tailscale status --json', JSON.stringify({ BackendState: 'Running', Self: { DNSName: 'mac.tail.ts.net.' } })],
     ['tailscale serve status --json', JSON.stringify({ Web: { 'mac.tail.ts.net:443': { Handlers: { '/': { Proxy: `http://127.0.0.1:${port}` } } } } })],
     ['launchctl print gui/501/local.claude.kickflip-hub', 'state = running'],
+    ['tmux -V', 'tmux 3.5a'],
     [SKILLS_TREE, tree],
   ].map(([key, stdout]) => [key, { status: 0, stdout }]));
   const calls = [];
-  const env = { PATH: path.join(home, 'doctor-bin'), HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false' };
+  const env = { PATH: path.join(home, 'doctor-bin'), HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false' };
   fs.mkdirSync(env.PATH);
   fs.writeFileSync(path.join(env.PATH, 'codex'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
   const options = { home, cloneRoot: root, port, uid: 501, env, platform: 'darwin',
@@ -600,7 +601,7 @@ test('doctor reports every healthy item and the old hub, Tailscale and site deta
   const { options, calls, appRepo } = healthyDoctor();
   const items = await doctorReport(options);
   assert.deepEqual(items.map(({ group, item }) => `${group} ${item}`), [
-    'prereqs git', 'prereqs node on Claude’s PATH', 'prereqs gh', 'prereqs gh signed in', 'prereqs GitHub clone', 'prereqs Tailscale', 'prereqs Tailscale signed in', 'prereqs Codex', 'prereqs mattpocock skills',
+    'prereqs git', 'prereqs node on Claude’s PATH', 'prereqs gh', 'prereqs gh signed in', 'prereqs GitHub clone', 'prereqs Tailscale', 'prereqs Tailscale signed in', 'prereqs tmux', 'prereqs Codex', 'prereqs mattpocock skills',
     'setup kickflip skill link', 'setup kickflip-hooks link', 'setup ~/.claude/statusline.sh', 'setup settings.json statusLine', 'setup hub login item',
     'hub hub', 'hub tailscale /', 'hub try ports', 'hub /shop', 'hub /app repo',
   ]);

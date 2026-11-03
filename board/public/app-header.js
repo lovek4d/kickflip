@@ -1,7 +1,8 @@
 // The board view's header and GitHub status: the time since the last change signal or refresh, refresh, the In Review
 // header's GitHub line (docs/adr/0021-the-board-shows-github-checks-and-watcher-health.md);
-// the GitHub mark's Hub links sheet and a new board's setup checklist (docs/adr/0040-one-board-registry-for-every-hub-feature.md).
-// Needs app-core.js.
+// the GitHub mark's Hub links sheet and a new board's setup checklist (docs/adr/0040-one-board-registry-for-every-hub-feature.md);
+// and the wake: any tap on an asleep board's page, refresh included, asks the hub to resume its session
+// (docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md). Needs app-core.js.
 BoardView.part((B) => {
   const { $, state, toast } = B;
   const { statusLine, freshSig, nextFresh, githubLine, remoteLine, linksList, setupCard, checkLanded, githubRefresh, headerControls } = BoardUI;
@@ -15,7 +16,7 @@ BoardView.part((B) => {
     $('#setup').innerHTML = setupCard(d.setup);
     if ($('#linksSheet').open) $('#linksList').innerHTML = linksList(d.links);
   }
-  const renderStatus = () => { $('#status').innerHTML = statusLine(state.fresh?.at, { link: state.link, watcher: state.board?.checks?.watcher, pause: B.pause?.() }); };
+  const renderStatus = () => { $('#status').innerHTML = statusLine(state.fresh?.at, { link: state.link, watcher: state.board?.checks?.watcher, pause: B.pause?.(), waking: state.waking }); };
   // A board load and its open threads landed; via is ui-header.js nextFresh's.
   function landed(via) {
     state.fresh = nextFresh(state.fresh, { via, at: new Date().toISOString(), sig: freshSig(state.board, state.threadCache, state.openItems) });
@@ -56,6 +57,22 @@ BoardView.part((B) => {
     ev.preventDefault();
     if (state.link === 'online' && state.board && !state.githubPending) askGitHub();
   });
+
+  // The wake: the header reads waking… from the tap until the board's reload says the hub took it up.
+  state.waking = false;
+  async function wake() {
+    state.waking = true;
+    renderStatus();
+    try {
+      const r = await fetch('/_hub/wake', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ route: B.route }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `the hub answered ${r.status}`);
+      await B.loadBoard();
+    } catch (e) { toast(`Couldn't wake this board's session: ${e.message}`); }
+    finally { state.waking = false; if (B.alive()) renderStatus(); }
+  }
+  const wakeOnTap = () => { if (state.board?.checks?.watcher === 'asleep' && !state.waking && state.link === 'online') wake(); };
+  B.on(B.root, 'click', wakeOnTap, true);
+  B.on(B.root, 'submit', wakeOnTap, true);
 
   state.link = 'online';
   const controls = { wired: false, boardSettled: false, reloading: false };

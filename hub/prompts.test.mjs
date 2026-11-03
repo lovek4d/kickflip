@@ -376,7 +376,7 @@ let hub;
 let port;
 let base;
 function startHub() {
-  hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false' } });
+  hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false' } });
   return new Promise((resolve, reject) => {
     let out = '';
     hub.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) resolve(); });

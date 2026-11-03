@@ -123,7 +123,7 @@ test("the hub saves the Linear key from its settings form, serves only the works
   const linear = fakeLinear(world);
   const server = await linear.serve();
   const [port] = await freePorts(1);
-  const hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_LINEAR_URL: server.url } });
+  const hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', KICKFLIP_LINEAR_URL: server.url } });
   t.after(async () => { hub.kill(); await server.close(); fs.rmSync(home, { recursive: true, force: true }); });
   await new Promise((resolve, reject) => {
     let out = '';

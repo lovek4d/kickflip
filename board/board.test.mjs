@@ -452,15 +452,12 @@ test('an Internal ticket another card holds is refused, and backfill gives a car
   assert.deepEqual(done.out.trim().split('\n'), ['w/A1 created INT-2', 'w/D4 created INT-3', 'w/E5 linked INT-9', 'w/ENG-1 created INT-10', 'backfill: linked 1, created 3, failed 0']);
 });
 
-test("the hub board files its cards as issues in the kickflip clone's origin as its Tickets gh account, PR calls stay on the active account, and a missing account fails clearly", () => {
+test("the hub board files its cards as issues in its entry's GitHub repo, as any local board does, as its Tickets gh account, PR calls stay on the active account, and a missing account fails clearly", () => {
   const dir = path.join(home, 'fake-gh');
-  const stubs = path.join(home, 'git-stub');
-  write(path.join(stubs, 'git'), '#!/bin/sh\n[ "$3 $4 $5" = "remote get-url origin" ] && echo https://github.com/someone/fork.git\n');
-  fs.chmodSync(path.join(stubs, 'git'), 0o755);
-  const env = { PATH: `${stubs}:${fakeGh(dir)}:${process.env.PATH}` };
+  const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
   writeAccounts(dir, { lovek4d: 'token-lovek4d' });
   writePR(dir, 7, prView());
-  write(at('kickflip', 'manifest.json'), { sites: { audit: { dir: site('audit'), hub: true, cmd: [process.execPath, bin('../server.mjs')] } } });
+  write(at('kickflip', 'manifest.json'), { sites: { audit: { dir: site('audit'), hub: true, local: true, github: 'someone/fork', cmd: [process.execPath, bin('../server.mjs')] } } });
   write(site('audit', 'data', 'wave.json'), { ...wave(), internal: true, items: [{ id: 'A1', title: 'One', ticket: 'A1' }, { id: 'Z9', title: 'Shipped', ticket: 'Z9', status: 'done' }] });
   const cli = (...args) => run('board.mjs', ['--site', 'audit', ...args], undefined, env);
   const last = (...args) => cli(...args).out.trim().split('\n').at(-1);
@@ -1357,7 +1354,7 @@ test('builder start --worktree makes a worktree on a new branch from main, keeps
   assert.equal(board('builder', 'start', 'w/A1', '--repo', repo).code, 2);
 });
 
-test('builder start stores the installed link for the kickflip fallback repo, which the hub board uses even with a GitHub repo set', async () => {
+test("builder start stores the installed link for the kickflip fallback repo, and the hub board builds from its own folder's local main like any local board", async () => {
   const clone = scratchRepo();
   const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   for (const dir of ['bin', 'board', 'hub', 'shared', 'hooks-plugin']) fs.cpSync(path.join(source, dir), path.join(clone, dir), { recursive: true, filter: (file) => !file.endsWith('.test.mjs') });
@@ -1380,15 +1377,14 @@ test('builder start stores the installed link for the kickflip fallback repo, wh
   git(project, 'config', 'user.name', 'Test');
   git(project, 'config', 'user.email', 'test@example.com');
   commit(project, 'project.txt', 'project');
-  git(project, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
   const manifest = read(at('kickflip', 'manifest.json'));
-  Object.assign(manifest.sites.orch, { hub: true, github: 'owner/project', branch: 'main', owner: { repo: project } });
+  Object.assign(manifest.sites.orch, { hub: true, local: true, github: 'owner/project', branch: 'main', owner: { repo: project } });
   write(at('kickflip', 'manifest.json'), manifest);
   const hub = start('--site', 'orch');
   assert.equal(hub.status, 0, hub.stderr);
-  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo: link });
-  assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(clone, 'rev-parse', 'main'));
-  assert.deepEqual(branches(project), ['main']);
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo: project });
+  assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(project, 'rev-parse', 'main'));
+  assert.deepEqual(branches(clone), ['main']);
 });
 
 test('a board builder uses its shared clone and selected remote branch without changing the clone checkout', () => {

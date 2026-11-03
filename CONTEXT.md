@@ -19,7 +19,7 @@ A project's shared checkout in `<clone>/.repos/<owner>/<repo>` for a clone or `~
 _Avoid_: repo folder (for the repo choice)
 
 **Local board**:
-A board whose builders branch from its repo's local `main` and land there, with nothing fetched: the hub board, on the running kickflip clone; a board `kickflip join` made, marked `local: true`, on the folder it ran in; and a board with neither a GitHub repo nor a plain git remote, on its session's folder (`hub/boards.mjs` `buildsLocally`). Bare `kickflip join`, run in a git repo's folder, asks for the board name, records the folder's GitHub origin and branch, marks the folder trusted for Claude Code and starts the board's session, in the background or with `--hub` in that terminal ([0143](docs/adr/0143-kickflip-join-adds-the-current-repository-as-a-board.md)).
+A board whose builders branch from its repo's local `main` and land there, with nothing fetched: a board `kickflip join` made, marked `local: true`, on the folder it ran in, the hub board included; and a board with neither a GitHub repo nor a plain git remote, on its session's folder (`hub/boards.mjs` `buildsLocally`). Bare `kickflip join`, run in a git repo's folder, asks for the board name, records the folder's GitHub origin and branch, marks the folder trusted for Claude Code and starts the board's session, in the background or with `--hub` in the foreground in tmux, attached to that terminal ([0143](docs/adr/0143-kickflip-join-adds-the-current-repository-as-a-board.md), [0147](docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md)).
 _Avoid_: joined board, folder board
 
 **Hub**:
@@ -55,7 +55,7 @@ The levels back climbs in the app shell: a board, its Waiting on you, then a sep
 _Avoid_: nav stack, breadcrumbs
 
 **Hub page**:
-The hub's status page, `/_hub/`, which the sidebar's Hub row opens: a pause or Keep going banner at the **pause line**, a banner while pushes are held or snoozed, with End snooze on a snooze, then **usage readings**, then the **pending prompts** of sessions that own no board, **Health**, which says Keeping awake and until when while Keep awake is on, **Integrations**, then **Boards** and **Pages** with each site's health and each board's hub links and watcher, and on each board but the hub board a Restart that stops its session, restarts its server and resumes the session ([0121](docs/adr/0121-a-board-restarts-from-its-row-on-the-hub-page.md)), each session's remembered Always allow rules read-only under its board, polling status, then the **hub settings** summary rows ([0050](docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md), [0060](docs/adr/0060-background-sessions-prompts-come-to-the-phone.md)).
+The hub's status page, `/_hub/`, which the sidebar's Hub row opens: a pause or Keep going banner at the **pause line**, a banner while pushes are held or snoozed, with End snooze on a snooze, then **usage readings**, then the **pending prompts** of sessions that own no board, **Health**, which says Keeping awake and until when while Keep awake is on, **Integrations**, then **Boards** and **Pages** with each site's health and each board's hub links and watcher, and on each board a Restart that stops its session, restarts its server and resumes the session ([0121](docs/adr/0121-a-board-restarts-from-its-row-on-the-hub-page.md)), each session's remembered Always allow rules read-only under its board, polling status, then the **hub settings** summary rows ([0050](docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md), [0060](docs/adr/0060-background-sessions-prompts-come-to-the-phone.md)).
 _Avoid_: dashboard, console, hub home
 
 **Integration readiness**:
@@ -91,21 +91,21 @@ A board's owning session as the manifest records it in the site's owner: its id,
 _Avoid_: orchestrator process, agent
 
 **Hub session**:
-The dev-time session that builds the app from inside: the owning session of the **hub board**, the one board whose manifest entry has `hub: true` (`kickflip set <route> --hub`), opened in the owner's terminal by `kickflip hub`. Code finds the hub board by that flag, never by its route. The product needs only the hub server, with boards added in the app, and no feature depends on this session ([0068](docs/adr/0068-the-hub-session-is-a-dev-time-role.md)).
+The owning session of the **hub board**, the one board whose manifest entry has `hub: true` (`kickflip set <route> --hub`, `kickflip join --hub`). It is the one board session that runs in the foreground, inside the tmux session `kickflip-<route>` the hub starts, which `kickflip hub` attaches the owner's terminal to; it gets the phone permission hook like a background session. Nothing else sets the hub board apart: it works on its own folder as a **local board**, closes and restarts like any board. Code finds it by the flag, never by its route. A hub board is optional, and no feature depends on its session ([0147](docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md)).
 _Avoid_: hub server, permanent orchestrator
 
 **Live**:
 A session whose `~/.claude/sessions/<pid>.json` record names it and whose process still runs, started when the record says. A live session is never started or resumed again.
 
 **Listening**:
-A board is listening while its owner session is live and a watcher runs for it. A watcher outlives its session, so a watcher alone isn't listening. A board that isn't listening is **asleep** or deaf. The board header, the sidebar, the events link and the not-listening push read that state, and the **session wake** uses this test ([0061](docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md)).
+A board is listening while its owner session is live and a watcher runs for it. A watcher outlives its session, so a watcher alone isn't listening. A board that isn't listening is waking, **asleep** or deaf. The board header, the sidebar, the events link and the not-listening push read that state, and the **session wake** uses this test ([0061](docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md)).
 
 **Asleep**:
-A board whose owner session isn't live but that the hub can wake on its next event: a session and folder are recorded, and no **session wake** of this outage has failed or gone unanswered. It reads a muted Asleep in the sidebar, its events link passes, and it gets no not-listening push. A board that is neither listening nor asleep is deaf and reads Not listening in red ([0061](docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md)).
+A board whose owner session isn't live but that the hub can wake on its next event or a tap on its page: a session and folder are recorded, and no **session wake** of this outage has failed or gone unanswered. It reads asleep in grey in the sidebar and the board header, its events link passes, and it gets no not-listening push. Once the hub resumed its session it is waking, and reads waking… in grey until it listens. A board that is neither listening, waking nor asleep is deaf and reads not listening in red ([0061](docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md), [0147](docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md)).
 _Avoid_: idle, stopped, offline
 
 **Session wake**:
-The hub resuming a board session as soon as an event lands while that session isn't live, or, as a fallback, once its board hasn't been listening for 3 minutes with an event its session hasn't heard. Once per outage, then one push to the owner if the board still isn't listening 5 minutes later. A session that idles out with nothing waiting stays stopped ([0061](docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md)).
+The hub resuming a board session as soon as an event lands while that session isn't live, or the owner taps the board's page while it is **asleep** (the header's refresh or any other tap or send, through `/_hub/wake`), or, as a fallback, once its board hasn't been listening for 3 minutes with an event its session hasn't heard. Once per outage, then one push to the owner if the board still isn't listening 5 minutes later. A session that idles out with nothing waiting stays stopped. The hub board's session comes back in its tmux session ([0061](docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md), [0147](docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md)).
 _Avoid_: auto-resume, respawn, wake (a daily wake is the morning `check-github`)
 
 **Push**:
@@ -137,7 +137,7 @@ The badge on a site's row in the sidebar: how many things the site's `GET /_clau
 _Avoid_: unread count, inbox
 
 **Status word**:
-The coloured word that leads a site's sub line in the sidebar when something urgent holds, most urgent first: Paused while the **pause line** holds, otherwise Down, Not listening (a board that is neither **listening** nor **asleep**), Starting, Stopped (muted), "N need you", Working, Asleep (muted) or Building. Lane chips with the site's open-card counts follow it; a calm site shows only the chips ([0037](docs/adr/0037-the-hub-home-shows-status-not-descriptions.md), [0077](docs/adr/0077-need-you-outranks-working.md)).
+The coloured word that leads a site's sub line in the sidebar when something urgent holds, most urgent first: Paused while the **pause line** holds, otherwise Down, not listening (a board that is neither **listening**, waking nor **asleep**), Starting, Stopped (muted), "N need you", Working, waking… (muted), asleep (muted) or Building. Lane chips with the site's open-card counts follow it; a calm site shows only the chips ([0037](docs/adr/0037-the-hub-home-shows-status-not-descriptions.md), [0077](docs/adr/0077-need-you-outranks-working.md)).
 _Avoid_: activity line, subtitle
 
 ### Boards
@@ -175,7 +175,7 @@ Claude reading the code for a lineup's unstarted cards and proposing to split, m
 _Avoid_: grooming, refinement
 
 **Architecture review**:
-Claude reviewing a board's repo, chosen by `hub/board-repo.mjs` `boardRepo`, with the mattpocock skills: the bulb between the board header's ↻ and gear opens a sheet with the last review and Run, which confirms. The board server makes a **lineup** "Architecture <date>", or on a board over `~/.claude/waves` a wave file of its own, whose first card is its audit card, and wakes the session with `arch-review`. The bulb glows orange while the audit card is open with no question yet. The audit card's Notes are the report, and it asks one question per finding, with possible solutions and Skip; each finding not skipped becomes a card after it. One review is open at a time, so Run while one is open opens its audit card. The hub board's review covers kickflip's code, the board template and the model, and reads the live data only for its shapes. It waits, saying why, while a skill it follows isn't installed ([0125](docs/adr/0125-the-bulb-runs-an-architecture-review-of-the-boards-repo.md)).
+Claude reviewing a board's repo, chosen by `hub/board-repo.mjs` `boardRepo`, with the mattpocock skills: the bulb between the board header's ↻ and gear opens a sheet with the last review and Run, which confirms. The board server makes a **lineup** "Architecture <date>", or on a board over `~/.claude/waves` a wave file of its own, whose first card is its audit card, and wakes the session with `arch-review`. The bulb glows orange while the audit card is open with no question yet. The audit card's Notes are the report, and it asks one question per finding, with possible solutions and Skip; each finding not skipped becomes a card after it. One review is open at a time, so Run while one is open opens its audit card. A board on the running kickflip clone, as the hub board is, has its review cover kickflip's code, the board template and the model, reading the live data only for its shapes. It waits, saying why, while a skill it follows isn't installed ([0125](docs/adr/0125-the-bulb-runs-an-architecture-review-of-the-boards-repo.md)).
 _Avoid_: improvements round, audit (for the whole review), bulb round
 
 **Reviewers**:
@@ -195,7 +195,7 @@ The identity of a work item or follow-up in its board’s **ticket source**, sho
 _Avoid_: card (the board’s work item), task
 
 **Ticket source**:
-The board’s one choice for every card’s tickets: Internal with a prefix (INT by default), GitHub issues in the board’s repo when it is on GitHub, or a Linear workspace, team and project, picked from dropdowns listed through Hub’s **Linear key**. New board and Board Settings share the choice ([0081](docs/adr/0081-a-board-has-one-ticket-source.md)), and pick Linear only while that key works: tapping Linear without one opens the key’s modal over them. Board Settings saves each change at once, and Done waits for a save in flight ([0117](docs/adr/0117-a-board-picks-linear-only-while-hubs-key-works.md)). A GitHub source can name the gh account its issue calls run as. The hub board’s repo is the kickflip clone’s origin, so it can file its cards as GitHub issues ([0115](docs/adr/0115-the-hub-board-files-its-cards-as-github-issues.md)).
+The board’s one choice for every card’s tickets: Internal with a prefix (INT by default), GitHub issues in the board’s repo when it is on GitHub, or a Linear workspace, team and project, picked from dropdowns listed through Hub’s **Linear key**. New board and Board Settings share the choice ([0081](docs/adr/0081-a-board-has-one-ticket-source.md)), and pick Linear only while that key works: tapping Linear without one opens the key’s modal over them. Board Settings saves each change at once, and Done waits for a save in flight ([0117](docs/adr/0117-a-board-picks-linear-only-while-hubs-key-works.md)). A GitHub source can name the gh account its issue calls run as. The hub board’s repo is its entry’s `github`, its folder’s origin, so it can file its cards as GitHub issues ([0115](docs/adr/0115-the-hub-board-files-its-cards-as-github-issues.md)).
 _Avoid_: integration, tracker, GitHub project
 
 **Linear key**:
@@ -328,7 +328,7 @@ A builder still recorded as running whose last progress, or start before its fir
 _Avoid_: stuck, hung, failed
 
 **Worktree**:
-The git worktree a builder works in, never the folder the session, a running app or the hub uses. A board's is `~/.claude/kickflip/worktrees/<card id>` on branch `<card id>` from its chosen repo branch, or from local main for a **local board**: the running kickflip clone's for the hub board, the board's own folder's for any other (`hub/board-repo.mjs` decides which), made by `board.mjs builder start --worktree` and kept on the builder record; the owning session checks and commits there, then **lands** it (`board.mjs land`): rebased onto main, tested, fast-forwarded into the live folder's main, the hub or board servers restarted, the worktree and branch removed. A repo card's comes from wave-build ([0064](docs/adr/0064-every-builder-works-in-a-worktree.md)).
+The git worktree a builder works in, never the folder the session, a running app or the hub uses. A board's is `~/.claude/kickflip/worktrees/<card id>` on branch `<card id>` from its chosen repo branch, or from local main for a **local board**, of the board's own folder, the hub board's included (`hub/board-repo.mjs` decides which), made by `board.mjs builder start --worktree` and kept on the builder record; the owning session checks and commits there, then **lands** it (`board.mjs land`): rebased onto main, tested, fast-forwarded into the live folder's main, the hub or board servers restarted, the worktree and branch removed. A repo card's comes from wave-build ([0064](docs/adr/0064-every-builder-works-in-a-worktree.md)).
 _Avoid_: copy, checkout, live folder (for the builder's)
 
 ### Talking with the owner

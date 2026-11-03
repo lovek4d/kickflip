@@ -7,6 +7,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { boardRepo } from '../hub/board-repo.mjs';
+import { samePath } from '../hub/boards.mjs';
+import { cloneRoot } from '../shared/repos.mjs';
 import { readUsageGate, pauseReason } from '../shared/usage-gate.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { BoardError, addItem, appendThread, boardConfig, cardName, changeLineup, createLineup, itemSources, parseKey, readJSON, resolveQuestion, setItem, startBuilder, topicQuestions, wavesDir } from './store.mjs';
@@ -15,8 +17,8 @@ import { awaitsConfirm } from './domain.mjs';
 const recordsFile = (site) => path.join(site, 'data', 'arch-reviews.json');
 export const readReviews = async (site) => (await readJSON(recordsFile(site), { reviews: [] })).reviews || [];
 
-// The hub board reviews kickflip's own code, the board template and the model, and reads the live data only for its
-// shapes.
+// A board whose repo is the running kickflip clone reviews kickflip's own code, the board template and the model, and
+// reads the live data only for its shapes.
 export const HUB_SCOPE = {
   paths: ['hub/', 'board/', 'shared/', 'CONTEXT.md', 'docs/adr/'],
   data: ['~/.claude/kickflip/manifest.json', '~/.claude/kickflip/sites/*/data/wave.json', '~/.claude/kickflip/sites/*/data/owner.json', '~/.claude/kickflip/sites/*/data/events.jsonl'],
@@ -100,7 +102,7 @@ export async function startReview(site, board, { now = new Date(), home = os.hom
   await fs.writeFile(recordsFile(site) + '.tmp', JSON.stringify({ reviews }, null, 2) + '\n');
   await fs.rename(recordsFile(site) + '.tmp', recordsFile(site));
 
-  const data = { key, repo: target.repo, github: target.github || null, branch: target.branch || null, wave: lineupSlug || waveSlug, lineup: Boolean(lineupSlug), ...(target.hub ? { scope: HUB_SCOPE } : {}) };
+  const data = { key, repo: target.repo, github: target.github || null, branch: target.branch || null, wave: lineupSlug || waveSlug, lineup: Boolean(lineupSlug), ...(target.repo && samePath(target.repo, cloneRoot()) ? { scope: HUB_SCOPE } : {}) };
   return { key, data };
 }
 

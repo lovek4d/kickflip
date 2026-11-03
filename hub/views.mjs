@@ -42,7 +42,7 @@ export function siteHealth(r, links) {
   const off = links.filter((l) => !l.ok);
   const broken = off.filter((l) => l.state === 'broken');
   const events = links.find((l) => l.link === 'events');
-  const heard = events?.listen === 'asleep' ? 'asleep' : events?.ok ? 'listening' : 'not listening';
+  const heard = events?.listen === 'asleep' || events?.listen === 'waking' ? events.listen : events?.ok ? 'listening' : 'not listening';
   const word = broken.length ? `${plural(broken.length, 'link')} broken · ${heard}` : off.length ? `Up · ${heard} · ${off.length} settling` : `Up · ${heard} · every link passes`;
   return { tone: broken.length ? 'down' : off.length ? 'wait' : 'ok', word, lines: off.map((l) => ({ link: l.link, detail: `${l.state === 'broken' ? '' : 'settling: '}${l.detail}` })) };
 }

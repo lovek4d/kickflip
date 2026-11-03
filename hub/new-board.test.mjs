@@ -394,7 +394,7 @@ test('PR polling takes github ahead of a wave repo or the legacy default', () =>
   assert.deepEqual([registry[0].github, registry[0].branch, registry[0].prs[0].repo], ['new/project', 'develop', 'new/project']);
 });
 
-test('origin migration runs once, skips the hub board, preserves configured repos, ignores non-GitHub origins and records the default branch', async () => {
+test("origin migration runs once, the hub board's included, preserves configured repos, ignores non-GitHub origins and records the default branch", async () => {
   saveJSON(manifestFile, { sites: { one: { ...board, owner: { repo: '/project' } }, local: { ...board, owner: { repo: '/local' } }, two: { ...board, github: 'kept/repo' },
     other: { ...board, dir: '/other' }, hub: { ...board, hub: true, owner: { repo: '/project' } } } });
   const calls = [];
@@ -404,10 +404,10 @@ test('origin migration runs once, skips the hub board, preserves configured repo
     if (argv.includes('refs/remotes/origin/HEAD')) return argv[1] === '/local' ? { status: 1, stdout: '' } : { status: 0, stdout: 'origin/trunk\n' };
     return { status: 0, stdout: argv.includes('symbolic-ref') ? 'develop\n' : 'git@github.com:Owner/Project.git\n' };
   };
-  assert.deepEqual(await migrateBoardRepos({ run }), ['one', 'local']);
+  assert.deepEqual(await migrateBoardRepos({ run }), ['one', 'local', 'hub']);
   assert.deepEqual(boardRepo('one'), { github: 'Owner/Project', branch: 'trunk', repo: '/project' });
   assert.deepEqual(boardRepo('local'), { github: 'Owner/Project', branch: 'develop', repo: '/local' });
-  assert.equal(readManifest().sites.hub.github, undefined);
+  assert.deepEqual(boardRepo('hub'), { github: 'Owner/Project', branch: 'trunk', repo: '/project' });
   assert.equal(readManifest().sites.two.github, 'kept/repo');
   assert.equal(readManifest().sites.other.github, undefined);
   const count = calls.length;
@@ -423,26 +423,9 @@ test('Settings clone changes update repo, branch and session folder and notify t
     hub: { ...board, hub: true, owner: { session: 's2', repo: '/session' } } } });
   const events = [];
   const event = async (board, kind, data) => { events.push([board.route, kind, data]); return 'e1'; };
-  const hubSite = structuredClone(readManifest().sites.hub);
-  const clones = cloneCalls.length;
-  const clone = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const stubs = path.join(home, 'git-stub');
-  fs.mkdirSync(stubs, { recursive: true });
-  fs.writeFileSync(path.join(stubs, 'git'), '#!/bin/sh\n[ "$1 $2 $3 $4 $5" = "-C $ROOT remote get-url origin" ] && [ -n "$ORIGIN" ] && echo "$ORIGIN" && exit 0\nexit 2\n', { mode: 0o755 });
-  const priorPath = process.env.PATH;
-  process.env.PATH = `${stubs}:${priorPath}`;
-  process.env.ROOT = clone;
-  try {
-    for (const [origin, github] of [['git@github.com:someone/kickflip-fork.git', 'someone/kickflip-fork'], ['https://example.com/someone/kickflip.git', ''], ['', '']]) {
-      process.env.ORIGIN = origin;
-      assert.deepEqual(boardRepo('hub'), { hub: true, local: true, github, branch: '', repo: clone });
-      assert.equal(listBoards().find((b) => b.route === 'hub').github, github);
-    }
-  } finally { process.env.PATH = priorPath; delete process.env.ROOT; delete process.env.ORIGIN; }
-  await assert.rejects(changeBoardRepo('hub', { github: 'owner/settings', branch: 'develop' }, { repos, event }), { status: 409 });
-  assert.deepEqual(readManifest().sites.hub, hubSite);
-  assert.equal(cloneCalls.length, clones);
-  assert.deepEqual(events, []);
+  // The hub board works on its session's folder like any local board (docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
+  assert.deepEqual(boardRepo('hub'), { github: '', branch: '', repo: '/session', local: true });
+  assert.equal(listBoards().find((b) => b.route === 'hub').github, undefined);
   const out = await changeBoardRepo('settings', { github: 'owner/settings', branch: 'develop' }, { repos, event });
   assert.deepEqual(out, { github: 'owner/settings', branch: 'develop', repo: path.join(base, 'owner/settings'), id: 'e1' });
   assert.equal(readManifest().sites.settings.owner.session, 's1');

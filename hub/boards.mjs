@@ -96,10 +96,10 @@ export const reviewerLogins = (list) => Object.fromEntries((Array.isArray(list) 
 const isWave = (w) => Array.isArray(w?.items);
 
 export const isBoardSite = (s) => Array.isArray(s?.cmd) && s.cmd.some((a) => /board[/\\]server\.mjs$/.test(a)) && typeof s.dir === 'string';
-// Whether a board's builders branch from its repo's local main and land there, with no fetch: the hub board, a board
-// `kickflip join` made (`local: true`), and a board with neither a GitHub repo nor a plain git remote
+// Whether a board's builders branch from its repo's local main and land there, with no fetch: a board
+// `kickflip join` made (`local: true`), the hub board among them, and a board with neither a GitHub repo nor a plain git remote
 // (docs/adr/0143-kickflip-join-adds-the-current-repository-as-a-board.md).
-export const buildsLocally = (s) => s.hub === true || s.local === true || !(s.github || s.remote);
+export const buildsLocally = (s) => s.local === true || !(s.github || s.remote);
 
 // The waves a board shows, keyed as board/store.mjs itemSources keys them: a file board's slug is board.json `slug`,
 // else the file's basename, so a github-change names the same <wave>/<id> the board's cards use.
@@ -124,20 +124,11 @@ export function prsOf(waves, github) {
   });
 }
 
-// The hub board's repo is the running kickflip clone's origin, read from git on every call since the remote can be
-// changed underneath (docs/adr/0115-the-hub-board-files-its-cards-as-github-issues.md). An install from npm has no
-// clone, so its hub board has none. → owner/name, or ''
-export function hubGithub(root = cloneRoot()) {
-  if (!fs.existsSync(path.join(root, '.git'))) return '';
-  try { return githubFromOrigin(execFileSync('git', ['-C', root, 'remote', 'get-url', 'origin'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })) || ''; }
-  catch { return ''; }
-}
-
 function boardOf(route, s) {
   const cfg = readJSON(path.join(s.dir, 'board.json'), {});
   const kind = typeof cfg.items === 'string' && cfg.items !== 'waves' ? 'file' : 'waves';
   const waves = wavesOf(s.dir, cfg, kind);
-  const github = s.hub === true ? hubGithub() : s.github;
+  const github = s.github;
   return {
     route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, waves, prs: prsOf(waves, github), github, ...(s.remote && !github ? { remote: s.remote } : {}), branch: s.branch, auto_build: cfg.auto_build === true,
     githubLogin: typeof cfg.github_login === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(cfg.github_login) ? cfg.github_login : null,
@@ -151,28 +142,11 @@ export function listBoards(manifest = readManifest()) {
 }
 
 // The board whose manifest entry has `hub: true`, which bin/kickflip.mjs `set --hub` and `join --hub` keep on at most one
-// site (docs/adr/0068-the-hub-session-is-a-dev-time-role.md). → a board, or undefined when no board has it
+// site: its session runs in the foreground in tmux (docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
+// → a board, or undefined when no board has it
 export function hubBoard(manifest = readManifest()) {
   const found = Object.entries(manifest?.sites || {}).find(([, s]) => s?.hub === true && isBoardSite(s));
   return found ? boardOf(...found) : undefined;
-}
-
-const HUB_FLAG_MIGRATION = 'hub-flag';
-// Run by the hub as it starts: flags the `hub-orchestrator` board as the hub board when no site has the flag. The
-// manifest's `migrated` list records the run, so a flag cleared later stays cleared. → the route flagged, or null
-export function migrateHubFlag() {
-  return withManifestLock(async () => {
-    const m = readJSON(MANIFEST, null);
-    if (!m || typeof m.sites !== 'object' || !m.sites) return null;
-    const done = Array.isArray(m.migrated) ? m.migrated : [];
-    if (done.includes(HUB_FLAG_MIGRATION)) return null;
-    const site = routeRecord(m.sites, 'hub-orchestrator');
-    const flag = isBoardSite(site) && !Object.values(m.sites).some((s) => s?.hub === true);
-    if (flag) site.hub = true;
-    m.migrated = [...done, HUB_FLAG_MIGRATION];
-    await writeManifest(m);
-    return flag ? 'hub-orchestrator' : null;
-  });
 }
 
 // Saved site folders can name ~/.claude/web-ts, a link to ~/.claude/kickflip (docs/adr/0084-kickflip-is-the-only-name.md).
@@ -231,15 +205,19 @@ export function isListening(board, { now = Date.now(), running } = {}) {
   return Boolean(session && (running ?? liveSessions()).has(session)) && watcherRunning(board.dir, now);
 }
 
-// Whether the board hears its events now: 'listening' (isListening); 'asleep', its owner session isn't running and the
-// hub can wake it on the next event (hub/sessions.mjs checkSessions): a session and folder are recorded and no wake of
-// this outage has failed or gone unanswered (resume-state.json error, pushed_at); else 'deaf', which nothing will wake.
-// running is live.mjs liveSessions' Map and wakes resume-state.json, passed when checking several boards.
+// Whether the board hears its events now: 'listening' (isListening); 'waking', the hub resumed its session for this
+// outage and is still waiting for it to listen (resume-state.json resumed_at, with no error or pushed_at yet); 'asleep',
+// its owner session isn't running and the hub can wake it on the next event or a tap on its page (hub/sessions.mjs
+// checkSessions): a session and folder are recorded and no wake of this outage has failed or gone unanswered; else
+// 'deaf', which nothing will wake. running is live.mjs liveSessions' Map and wakes resume-state.json, passed when
+// checking several boards.
 export function listenState(board, { now = Date.now(), running = liveSessions(), wakes = readJSON(RESUME_STATE, {}) } = {}) {
   if (isListening(board, { now, running })) return 'listening';
   const session = board.owner?.session;
   const wake = routeRecord(wakes, board.route);
-  return session && board.owner.repo && !running.has(session) && !wake?.error && !wake?.pushed_at ? 'asleep' : 'deaf';
+  if (!session || !board.owner.repo || wake?.error || wake?.pushed_at) return 'deaf';
+  if (wake?.resumed_at) return 'waking';
+  return running.has(session) ? 'deaf' : 'asleep';
 }
 
 const cursorPath = (board, session) => path.join(board.dir, 'data', `.watch-cursor-${session}.json`);
@@ -294,8 +272,8 @@ export function oldestUnheard(board) {
   return oldest;
 }
 
-// One push per board per outage when an event has waited DEAF_AFTER while the board is deaf (listenState); an asleep
-// board waits for the hub's wake, which pushes on its own when it fails. Its listening again ends the outage (~/.claude/kickflip/deaf-state.json {<route>: {at, since}}). The hub runs it after each
+// One push per board per outage when an event has waited DEAF_AFTER while the board is deaf (listenState); an asleep or
+// waking board waits for the hub's wake, which pushes on its own when it fails. Its listening again ends the outage (~/.claude/kickflip/deaf-state.json {<route>: {at, since}}). The hub runs it after each
 // GitHub check. → {pushed: [route], failed: [message]}
 export async function checkListening({ manifest, now = new Date(), running = liveSessions() } = {}) {
   const state = Object.assign(Object.create(null), readJSON(DEAF_STATE, {}));
@@ -309,7 +287,7 @@ export async function checkListening({ manifest, now = new Date(), running = liv
       if (routeRecord(state, board.route)) { delete state[board.route]; dirty = true; }
       continue;
     }
-    if (listen === 'asleep' || routeRecord(state, board.route)) continue;
+    if (listen === 'asleep' || listen === 'waking' || routeRecord(state, board.route)) continue;
     const since = oldestUnheard(board);
     if (!since || now - Date.parse(since) < DEAF_AFTER) continue;
     const minutes = Math.round((now - Date.parse(since)) / 60_000);
@@ -368,7 +346,8 @@ function repoFetchLink(fetch) {
 
 const EVENTS = {
   listening: { ok: true, detail: 'Its session and a watcher are running.' },
-  asleep: { ok: true, detail: 'Asleep: its session idled out, and the hub wakes it on the next event.' },
+  waking: { ok: true, detail: 'Waking: the hub resumed its session, which listens again once it rejoins.' },
+  asleep: { ok: true, detail: 'Asleep: its session idled out, and the hub wakes it on the next event or a tap on its page.' },
   deaf: { ok: false, detail: "Not listening: its session or its watcher isn't running, and the hub can't wake it, so events wait." },
 };
 const eventsLink = (listen) => ({ link: 'events', listen, ...EVENTS[listen] });
@@ -486,7 +465,7 @@ function settle(route, links, { settings, now, faults }) {
 //   github      every open PR on a card was in the hub's last check, and that check reached the board; a board on
 //               another git remote has none
 //   repo-fetch  the hub's last git fetch of the board's repo worked; only a board the hub fetches has it
-//   events      the board is listening or asleep (listenState, as the link's listen), so its events reach the session
+//   events      the board is listening, waking or asleep (listenState, as the link's listen), so its events reach the session
 //   wakes       the polling interval has daily wakes, and the last one reached the board
 //   push        at least one device is subscribed
 //   slack       every open, non-draft PR has a Slack link for each of the board's and its wave's reviewers

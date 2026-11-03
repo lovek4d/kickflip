@@ -127,8 +127,8 @@ test('a review waits, saying why, while the mattpocock skills are missing', asyn
   assert.equal(readJSON(path.join(b.site, 'data', 'wave.json')).items.length, 2);
 });
 
-test("the hub board's review names its scope: the kickflip clone's code and model, and the live data's shapes", async () => {
-  const b = await boardServer({ site: { hub: true } });
+test("a board on the kickflip clone, as the hub board is, names its review's scope: the clone's code and model, and the live data's shapes", async () => {
+  const b = await boardServer({ site: { hub: true, local: true, owner: { session: 's1', repo: path.resolve(serverFile, '..', '..') } } });
   assert.equal((await b.run()).status, 200);
   const { data } = b.events()[0];
   assert.deepEqual(data.scope.paths, ['hub/', 'board/', 'shared/', 'CONTEXT.md', 'docs/adr/']);

@@ -511,24 +511,22 @@ test('Board Settings warns about active work, requires the exact board name and 
   assert.deepEqual(page.left(), baseline);
 });
 
-test('Board Settings disables Close board for the flagged hub board and gives the reason', async () => {
+test('Board Settings offers Close board for the hub board like any other once its closure loads', async () => {
   const page = fakePage(memoryStorage().localStorage);
   const root = new page.El();
   const requests = [];
   page.win.fetch = async (url, opts = {}) => {
     requests.push([url, opts.method]);
-    const body = url === '/_hub/close-board/dev' ? { title: 'Dev', hub: true, prs: [], builders: [] } : {};
+    const body = url === '/_hub/close-board/dev' ? { title: 'Dev', prs: [], builders: [] } : {};
     return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
   };
   const view = page.win.AppViews.settings.create(root, '/dev', {});
   view.mount();
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(root.querySelector('#closeBoard').disabled, true);
-  assert.match(root.querySelector('#closeBoardReason').textContent, /hub board cannot be closed/);
-  page.fire(root.querySelector('#closeBoard'), 'click');
+  assert.equal(root.querySelector('#closeBoard').disabled, false);
+  assert.equal(root.querySelector('#closeBoardReason').textContent, '');
   page.fire(root.querySelector('#closeBoardForm'), 'submit');
   assert.equal(requests.some(([, method]) => method === 'POST'), false);
-  assert.equal(root.querySelector('#closeBoardSheet').open, false);
   view.unmount();
 });
 
@@ -1953,6 +1951,30 @@ function boardOnDom({ open = [], seen = {}, board, threads, confirm = false, rea
 const askCard = (id, lane) => ({ key: `ask:${id}`, id, kind: 'ask', lane, title: `Task ${id}`, deps: [], othersAt: [] });
 const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items, waves: [], needs: [], answers: [] });
 const workCard = (id, extra) => ({ key: `w/${id}`, id, kind: 'work', lane: 'todo', title: `Work ${id}`, ref: id, internal: true, waveTitle: 'W', deps: [], manualSteps: [], othersAt: [], ...extra });
+
+test('a tap anywhere on an asleep board, refresh included, asks the hub to wake its session once, and the header reads asleep, then waking… until it listens', async () => {
+  const checks = (watcher) => ({ at: '2026-10-30T10:00:00.000Z', every: 30, late: false, watcher, claudeAt: null });
+  const b = boardOnDom({ board: { ...boardOf([workCard('A1')]), checks: checks('asleep') }, threads: {} });
+  await b.settle();
+  const status = () => b.root.querySelector('#status').textContent;
+  assert.equal(status(), 'asleep');
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('#refresh') });
+  assert.equal(status(), 'waking…');
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('.lane') });
+  assert.deepEqual(b.posts.filter(([p]) => p === '/_hub/wake'), [['/_hub/wake', { route: 'board-a' }]]);
+  await b.change({ board: { ...b.view.B.state.board, checks: checks('waking') } });
+  assert.equal(status(), 'waking…');
+  b.page.fire(b.root, 'submit', { target: b.root });
+  assert.equal(b.posts.filter(([p]) => p === '/_hub/wake').length, 1);
+  await b.change({ board: { ...b.view.B.state.board, checks: checks('running') } });
+  assert.notEqual(status(), 'waking…');
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('#refresh') });
+  await b.settle();
+  assert.equal(b.posts.filter(([p]) => p === '/_hub/wake').length, 1);
+  await b.change({ board: { ...b.view.B.state.board, checks: checks('stopped') } });
+  assert.equal(status(), 'not listening');
+  b.view.unmount();
+});
 
 test("an open card shows its workflow buttons below a final details line of Notes, Install and GitHub links, and colours orange the control that clears Action needed: Open questions links to its first question, Grill asks for questions or reads Writing questions…, and an ask's Mark as done confirms and sends ask-done", async () => {
   const draft = { state: 'OPEN', isDraft: true, number: 7, url: 'https://github.com/o/r/pull/7', checks: { state: 'pass' } };

@@ -44,6 +44,8 @@
 //   /_hub/reopen-board POST {route} restores that entry and resumes its recorded session (close-board.mjs)
 //   /_hub/restart-board POST {route} stops the board's session, restarts its server and, once that answers, resumes
 //                     the session → {route, title, session}, or {error} (restart-board.mjs)
+//   /_hub/wake       POST {route} from a board page's tap while the board is asleep: the session check resumes its
+//                     session now, as for an event that landed → {route, listen} (boards.mjs listenState)
 //   /_hub/status.json the manifest's sites and their process state, as JSON
 //   /_hub/needs.json  {total, sites: {<route>: {count, working, summary, lanes, building} | null}}: total is the
 //                     Home Screen badge; ?fresh=1 skips the cache
@@ -112,11 +114,12 @@
 // hub itself running (../shared/service.mjs, `kickflip init`).
 // After each poll it records when each board's hub links first failed (boards.mjs recordLinkFaults). As it starts it
 // records the hash of its own code (boards.mjs recordHubCode), so the hub link (boards.mjs hubLink) can tell when the
-// files changed under it (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md), and flags `hub-orchestrator`
-// as the hub board once when no site has the flag (boards.mjs migrateHubFlag).
+// files changed under it (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md), and makes a hub board that
+// built on the kickflip clone a local board of its folder, once (board-repo.mjs migrateHubBoard).
 // Every 15 seconds it counts each board's watched lines, and resumes the recorded session of a board that got an event
 // while that session wasn't running, and pushes once when that doesn't bring it back (sessions.mjs checkSessions;
-// docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md).
+// docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md). A tap on an asleep board's page wakes it at once
+// through /_hub/wake (docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
 // Every 15 seconds it drops the pending prompts whose hook has gone (prompts.mjs expired).
 // It runs caffeinate while Keep awake is on, and starts it again as it starts while time is left (awake.mjs).
 // On paused → normal it sends every board usage-resumed {window}, keeping usage-gate-state.json across restarts.
@@ -143,14 +146,14 @@ import { nextSlot, windowAt, hold, heldUntil, holdLine, editPolling } from './sc
 import { capital, hubView, settingsView, pollingView, flushView, SNOOZE_REFUSED, AWAKE_REFUSED } from './views.mjs';
 import { caffeinate, setKeepAwake, awakeUntil, awakeUnsupported } from './awake.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
-import { listBoards, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, runningHubCode, migrateHubFlag, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON } from './boards.mjs';
+import { listBoards, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, runningHubCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON } from './boards.mjs';
 import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
 import { readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
 import { checkSessions, startingBoards } from './sessions.mjs';
 import { repoService, repoLookupRoute } from './repos.mjs';
-import { boardRepo, changeBoardRepo, migrateBoardRepos } from './board-repo.mjs';
+import { boardRepo, changeBoardRepo, migrateBoardRepos, migrateHubBoard } from './board-repo.mjs';
 import { requestBoard, retryBoard, dismissBoard } from './new-board.mjs';
 import { boardClosure, closeBoard, closedBoards, reopenBoard } from './close-board.mjs';
 import { restartBoard, restartable } from './restart-board.mjs';
@@ -181,8 +184,8 @@ const PORT = Number(process.env.KICKFLIP_HUB_PORT || 4500);
 for (const d of [HOME, LOGS, RUN]) fs.mkdirSync(d, { recursive: true });
 
 try { const code = recordHubCode(); log(`hub code ${code.hash} (${code.files.length} files)`); } catch (e) { log('could not record the hub code hash:', e.message); }
-try { const route = await migrateHubFlag(); if (route) log(`manifest: flagged /${route} as the hub board`); } catch (e) { log('hub board migration failed:', e.message); }
 try { const routes = await migrateBoardRepos(); if (routes.length) log(`manifest: recorded GitHub repos for ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('board repo migration failed:', e.message); }
+try { const route = await migrateHubBoard(); if (route) log(`manifest: /${route}, the hub board, builds from its own folder's local main`); } catch (e) { log('hub board migration failed:', e.message); }
 const repos = repoService();
 const readUsage = usageReader();
 const awake = caffeinate({ log });
@@ -395,10 +398,14 @@ function runWakes() {
   }).catch((e) => log('wake failed:', e.message)).finally(() => { waking = null; });
 }
 
+// Routes whose page asked for a wake (/_hub/wake) that no session check has taken up yet.
+const wakeAsks = new Set();
 const sessionCheck = { running: null };
 function runSessionCheck() {
   if (sessionCheck.running || closingResponses.size || restarting.size) return;
-  sessionCheck.running = checkSessions({ manifest: loadManifest() }).then((r) => {
+  const asked = new Set(wakeAsks);
+  wakeAsks.clear();
+  sessionCheck.running = checkSessions({ manifest: loadManifest(), asked }).then((r) => {
     if (r.resumed.length || r.pushed.length || r.failed.length) log(`sessions: resumed ${r.resumed.join(', ') || 'none'}; pushed ${r.pushed.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
   }).catch((e) => log('session check failed:', e.message)).finally(() => { sessionCheck.running = null; });
 }
@@ -723,6 +730,20 @@ async function hubRoute(req, res, url) {
       if (route) log(`restart /${route} failed: ${e.message}`);
       return sendJSON(e.status || 400, { error: e.message });
     } finally { restarting.delete(route); stream.refresh(); }
+  }
+  if (p === '/_hub/wake' && req.method === 'POST') {
+    try {
+      const { route } = await readJSONBody(req);
+      const board = listBoards(loadManifest()).find((b) => b.route === route);
+      if (!board) return sendJSON(404, { error: 'That board is not open.' });
+      wakeAsks.add(route);
+      await sessionCheck.running;
+      runSessionCheck();
+      await sessionCheck.running;
+      linksCache.at = 0;
+      stream.changed(route);
+      return sendJSON(200, { route, listen: listenState(board) });
+    } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
   }
   if (p === '/_hub/repos' && req.method === 'GET') {
     try { return sendJSON(200, await repos.list(loadManifest(), { fresh: url.searchParams.get('fresh') === '1' })); }

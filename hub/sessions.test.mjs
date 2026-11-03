@@ -58,6 +58,27 @@ console.log('backgrounded · ' + id.slice(0, 8) + ' · board');
 console.log('  claude attach ' + id.slice(0, 8) + '    open in this terminal');
 `);
 fs.chmodSync(fakeClaude, 0o755);
+// A stand-in tmux: logs each call; has-session finds a session while tmuxRunning exists, which new-session makes;
+// attach-session prints its target and exits with attachExit's code.
+const tmuxLog = path.join(home, 'tmux-calls.jsonl');
+const tmuxRunning = path.join(home, 'tmux-running');
+const attachExit = path.join(home, 'attach-exit');
+const fakeTmux = path.join(home, 'bin', 'tmux');
+process.env.KICKFLIP_TMUX = fakeTmux;
+write(fakeTmux, `#!${process.execPath}
+const fs = require('node:fs');
+const argv = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(tmuxLog)}, JSON.stringify({ argv, claudecode: process.env.CLAUDECODE ?? null }) + '\\n');
+if (argv[0] === 'has-session') process.exit(fs.existsSync(${JSON.stringify(tmuxRunning)}) ? 0 : 1);
+if (argv[0] === 'new-session') fs.writeFileSync(${JSON.stringify(tmuxRunning)}, '');
+if (argv[0] === 'attach-session' || argv[0] === 'switch-client') {
+  console.log((argv[0] === 'switch-client' ? 'switched ' : 'attached ') + argv[2]);
+  process.exit(fs.existsSync(${JSON.stringify(attachExit)}) ? Number(fs.readFileSync(${JSON.stringify(attachExit)}, 'utf8')) : 0);
+}
+`);
+fs.chmodSync(fakeTmux, 0o755);
+const tmuxCalls = () => { try { return fs.readFileSync(tmuxLog, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l).argv); } catch { return []; } };
+const noTmux = () => fs.rmSync(tmuxRunning, { force: true });
 fs.mkdirSync(path.join(home, '.claude', 'sessions'), { recursive: true });
 const calls = () => { try { return fs.readFileSync(fakeLog, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
 
@@ -72,7 +93,7 @@ const liveRecord = (sessionId, cwd) => {
 
 const cli = (args, { cwd = repo, input = '', entry = SKILL, env = {}, preload } = {}) => new Promise((resolve) => {
   const child = spawn(process.execPath, [...(preload ? ['--import', preload] : []), path.join(entry, 'bin', 'kickflip.mjs'), ...args], {
-    cwd, env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: fakeClaude, KICKFLIP_HUB_PORT: '1', CLAUDECODE: '1', ...env },
+    cwd, env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: fakeClaude, KICKFLIP_HUB_PORT: '1', CLAUDECODE: '1', TMUX: '', ...env },
   });
   let stdout = '';
   let stderr = '';
@@ -111,7 +132,7 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
     import { syncBuiltinESMExports } from 'node:module';
     cp.spawnSync = (command, argv, options) => {
       fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify([command, ...argv]) + '\\n');
-      if (!['git', 'node', 'gh', 'tailscale', ...(process.platform === 'darwin' ? ['launchctl'] : ['systemctl', 'loginctl'])].includes(command)) throw new Error('unexpected command: ' + command);
+      if (!['git', 'node', 'gh', 'tailscale', 'tmux', ...(process.platform === 'darwin' ? ['launchctl'] : ['systemctl', 'loginctl'])].includes(command)) throw new Error('unexpected command: ' + command);
       if (!${healthy}) return { status: 1, stdout: '', stderr: 'unavailable' };
       let stdout = command + ' version';
       if (command === 'launchctl') stdout = 'state = running';
@@ -157,6 +178,8 @@ test('doctor CLI exits 1 on a broken HOME, prints commands, and leaves old state
   const report = await fixture.run('doctor');
   assert.equal(report.status, 1, report.stderr);
   assert.match(report.stdout, /^yours +gh signed in: needs gh\n +→ gh auth login$/m);
+  // tmux is optional: only a hub board's session runs in it.
+  assert.match(report.stdout, new RegExp(`^optional +tmux: not installed; a hub board’s session \\(kickflip join --hub, kickflip hub\\) runs in it\n +→ ${process.platform === 'darwin' ? 'brew' : 'sudo apt'} install tmux$`, 'm'));
   assert.match(report.stdout, /^fixable +kickflip skill link: missing -> .*\n +→ kickflip doctor --fix$/m);
   const structured = await fixture.run('doctor', '--json');
   assert.equal(structured.status, 1);
@@ -429,7 +452,7 @@ test('a session is told to join by its board name: the title when it hyphenates 
   const { startArgv, resumePrompt, hubArgv } = await import('./sessions.mjs');
   assert.equal(startArgv({ route: 'bob-s-board', name: "Bob's board" }).at(-1), "/kickflip --name 'Bob'\\''s board'");
   assert.ok(resumePrompt('ops', 'id-1', 'Operations').includes("join --name 'ops' --session id-1`"));
-  assert.ok(hubArgv({ route: 'dev-hub', title: 'Dev hub' })[0].startsWith("/kickflip --name 'Dev hub' --hub\n"));
+  assert.ok(hubArgv({ route: 'dev-hub', title: 'Dev hub' }).at(-1).startsWith("/kickflip --name 'Dev hub' --hub\n"));
 });
 
 test('start, join and resume accept routes named after object properties', async () => {
@@ -537,34 +560,62 @@ test('set --hub moves the hub flag to one board, --no-hub clears it, join --hub 
   assert.deepEqual(flagged(), ['b']);
 });
 
-test('hub resumes the hub board owner in the foreground with its folder and model and inherited terminal streams', async () => {
+// The new-session call's claude argv, after `/usr/bin/env -u … [PATH=…] <claude>`.
+const tmuxClaude = (argv) => argv.slice(argv.indexOf(fakeClaude) + 1);
+
+test('hub starts the hub board owner in a tmux session in the foreground, in its folder and model with the phone hook, then attaches this terminal', async () => {
   const m = hubManifest({ session: 's-hub', repo, model: 'opus' });
   write(web('manifest.json'), m);
-  const before = calls().length;
-  const r = await cli(['hub', '--repo', otherRepo], { input: 'hello hub' });
-  assert.deepEqual(r, { status: 0, stdout: 'foreground stdin: hello hub\n', stderr: 'foreground stderr\n' });
-  const [call] = calls().slice(before);
-  assert.deepEqual(call.argv.slice(0, -1), ['--resume', 's-hub', '--model', 'opus']);
-  assert.match(call.argv.at(-1), /You are the hub session/);
-  assert.ok(call.argv.at(-1).includes(path.join(SKILL, 'docs', 'hub-session.md')));
-  assert.match(call.argv.at(-1), /rejoin \/dev-hub \(join --name 'dev-hub'\) and/);
-  assert.deepEqual([call.cwd, call.isolation, call.claudecode], [repo, null, null]);
+  noTmux();
+  const before = [calls().length, tmuxCalls().length];
+  const r = await cli(['hub', '--repo', otherRepo]);
+  assert.deepEqual(r, { status: 0, stdout: 'attached =kickflip-dev-hub\n', stderr: '' });
+  const made = tmuxCalls().slice(before[1]);
+  assert.deepEqual(made.map((argv) => argv.slice(0, 6)), [['has-session', '-t', '=kickflip-dev-hub'], ['new-session', '-d', '-s', 'kickflip-dev-hub', '-c', repo], ['attach-session', '-t', '=kickflip-dev-hub']]);
+  const [env, ...unset] = made[1].slice(6, made[1].indexOf(fakeClaude));
+  assert.equal(env, '/usr/bin/env');
+  assert.ok(unset.join(' ').includes('-u CLAUDECODE'));
+  const argv = tmuxClaude(made[1]);
+  assert.deepEqual(argv.slice(0, -1), ['--resume', 's-hub', '--name', 'Hub', '--permission-mode', 'auto', '--settings', BG_SETTINGS, '--model', 'opus']);
+  assert.match(argv.at(-1), /You are the hub session/);
+  assert.ok(argv.at(-1).includes(path.join(SKILL, 'docs', 'hub-session.md')));
+  assert.match(argv.at(-1), /rejoin \/dev-hub \(join --name 'dev-hub'\) and/);
+  assert.equal(calls().length, before[0]);
   assert.deepEqual(manifest(), m);
+});
+
+test('while the hub board tmux session runs, hub only attaches to it and starts nothing, even with its session live', async () => {
+  write(web('manifest.json'), hubManifest({ session: 's-hub', repo }));
+  write(tmuxRunning, '');
+  const before = tmuxCalls().length;
+  const r = await cli(['hub']);
+  assert.deepEqual([r.status, r.stdout], [0, 'attached =kickflip-dev-hub\n']);
+  assert.deepEqual(tmuxCalls().slice(before).map((argv) => argv[0]), ['has-session', 'attach-session']);
+  assert.equal((await cli(['hub'], { env: { TMUX: '/tmp/tmux-501/default,1,0' } })).stdout, 'switched =kickflip-dev-hub\n');
+  const { hubSession } = await import('./sessions.mjs');
+  const attached = [];
+  const result = await hubSession({ manifest: hubManifest({ session: 's-hub', repo }), tmux: (argv) => ({ status: argv[0] === 'has-session' ? 0 : assert.fail(argv.join(' ')) }),
+    attach: async (route) => { attached.push(route); return { status: 0 }; }, live: () => new Map([['s-hub', { pid: 1, kind: 'interactive' }]]) });
+  assert.deepEqual([result, attached], [{ status: 0 }, ['dev-hub']]);
+  noTmux();
 });
 
 test('hub starts fresh with no owner, in --repo or the cwd, with the join prompt and hub doc pointer', async () => {
   for (const options of [{ args: ['--repo', otherRepo], dir: otherRepo, owner: undefined }, { args: [], dir: repo, owner: {} }]) {
     write(web('manifest.json'), hubManifest(options.owner));
-    const before = calls().length;
+    noTmux();
+    const before = tmuxCalls().length;
     const r = await cli(['hub', ...options.args]);
     assert.equal(r.status, 0, r.stderr);
-    const [call] = calls().slice(before);
-    assert.equal(call.argv.length, 1);
-    assert.ok(call.argv[0].startsWith("/kickflip --name 'dev-hub' --hub\n"));
-    assert.match(call.argv[0], /You are the hub session/);
-    assert.ok(call.argv[0].includes(path.join(SKILL, 'docs', 'hub-session.md')));
-    assert.equal(call.cwd, options.dir);
+    const started = tmuxCalls().slice(before).find((argv) => argv[0] === 'new-session');
+    assert.equal(started[5], options.dir);
+    const argv = tmuxClaude(started);
+    assert.equal(argv.includes('--resume'), false);
+    assert.ok(argv.at(-1).startsWith("/kickflip --name 'dev-hub' --hub\n"));
+    assert.match(argv.at(-1), /You are the hub session/);
+    assert.ok(argv.at(-1).includes(path.join(SKILL, 'docs', 'hub-session.md')));
   }
+  noTmux();
 });
 
 test('hub exits 2 with one line telling the owner to flag or join a hub board when no board has the flag', async () => {
@@ -582,27 +633,31 @@ test('hub exits 2 with one line telling the owner to flag or join a hub board wh
   assert.equal(calls().length, before);
 });
 
-test('hub keeps claude exit codes for a fresh session and a resumed owner with no model', async () => {
-  for (const [owner, status] of [[undefined, 7], [{ session: 's-hub', repo }, 42]]) {
-    write(web('manifest.json'), hubManifest(owner));
-    write(foregroundExit, String(status));
+test("hub keeps tmux attach's exit code", async () => {
+  for (const status of [7, 42]) {
+    write(web('manifest.json'), hubManifest({ session: 's-hub', repo }));
+    write(attachExit, String(status));
     const r = await cli(['hub']);
     assert.equal(r.status, status);
-    assert.deepEqual(calls().at(-1).argv.slice(0, -1), owner ? ['--resume', 's-hub'] : []);
   }
-  fs.rmSync(foregroundExit);
+  fs.rmSync(attachExit);
+  noTmux();
 });
 
-test('hub uses an injected runner and refuses a live owner or a missing recorded folder', async () => {
+test('hub uses injected tmux and attach runners and refuses a live owner or a missing recorded folder', async () => {
   const { hubSession } = await import('./sessions.mjs');
   const m = hubManifest({ session: 's-hub', repo });
   const ran = [];
-  const run = async (argv, options) => { ran.push({ argv, options }); return { status: 9 }; };
-  assert.deepEqual(await hubSession({ manifest: m, run, live: () => new Map() }), { status: 9 });
-  assert.deepEqual(ran[0].options, { cwd: repo });
-  const before = calls().length;
-  await assert.rejects(hubSession({ manifest: m, run, live: () => new Map([['s-hub', { pid: 1, kind: 'interactive' }]]) }), { reason: 'live' });
-  assert.equal(ran.length, 1);
+  const tmux = (argv) => { ran.push(argv); return { status: argv[0] === 'has-session' ? 1 : 0, stdout: '', stderr: '' }; };
+  const attach = async (route) => ({ status: 9, route });
+  assert.deepEqual(await hubSession({ manifest: m, tmux, attach, live: () => new Map() }), { status: 9, route: 'dev-hub' });
+  assert.deepEqual(ran.map((argv) => argv.slice(0, 6)), [['has-session', '-t', '=kickflip-dev-hub'], ['new-session', '-d', '-s', 'kickflip-dev-hub', '-c', repo]]);
+  await assert.rejects(hubSession({ manifest: m, tmux, attach, live: () => new Map([['s-hub', { pid: 1, kind: 'interactive' }]]) }), { reason: 'live' });
+  assert.equal(ran.length, 3);
+  const refused = await hubSession({ manifest: m, tmux: (argv) => ({ status: argv[0] === 'has-session' ? 1 : 127, stdout: '', stderr: "tmux isn't installed" }), attach, live: () => new Map() }).catch((e) => e);
+  assert.deepEqual([refused.reason, refused.message], ['failed', "tmux new-session failed (127): tmux isn't installed"]);
+  noTmux();
+  const before = tmuxCalls().length;
   m.sites['dev-hub'].owner.repo = path.join(home, 'gone');
   write(web('manifest.json'), m);
   const gone = await cli(['hub', '--repo', otherRepo]);
@@ -613,9 +668,51 @@ test('hub uses an injected runner and refuses a live owner or a missing recorded
   const r = await cli(['hub']);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /has no folder recorded/);
-  assert.equal(calls().length, before);
+  assert.deepEqual(tmuxCalls().slice(before).map((argv) => argv[0]), ['has-session', 'has-session']);
   assert.equal((await cli(['hub', '--repo', otherRepo])).status, 0);
-  assert.deepEqual([calls().at(-1).argv.slice(0, 2), calls().at(-1).cwd], [['--resume', 's-hub'], otherRepo]);
+  const started = tmuxCalls().find((argv, i) => i >= before && argv[0] === 'new-session');
+  assert.deepEqual([started[5], tmuxClaude(started).slice(0, 2)], [otherRepo, ['--resume', 's-hub']]);
+  noTmux();
+});
+
+test("a tap on an asleep board's page wakes its session at once with no event, once per outage, and never while it runs", async () => {
+  const dir = path.join(home, 'tap-board');
+  write(path.join(dir, 'board.json'), { title: 'Tap' });
+  write(path.join(dir, 'data', 'events.jsonl'), '');
+  const m = { sites: { tap: { dir, port: 1, cmd: boardCmd(dir), owner: { session: 's-tap', repo } } } };
+  const resumed = [];
+  let running = new Map();
+  const check = (asked) => checkSessions({ manifest: m, asked: new Set(asked), live: () => running, listening: () => false,
+    resume: async (route) => { resumed.push(route); }, push: async () => {} });
+  fs.rmSync(web('resume-state.json'), { force: true });
+  await check([]);
+  assert.deepEqual(resumed, []);
+  assert.deepEqual(await check(['tap']), { resumed: ['tap'], pushed: [], failed: [] });
+  assert.ok(read(web('resume-state.json')).tap.resumed_at);
+  await check(['tap']);
+  assert.deepEqual(resumed, ['tap']);
+  fs.rmSync(web('resume-state.json'));
+  running = new Map([['s-tap', { pid: 1, kind: 'bg' }]]);
+  await check(['tap']);
+  assert.deepEqual(resumed, ['tap']);
+  fs.rmSync(web('resume-state.json'), { force: true });
+});
+
+test("the hub board's wake resumes its session in its tmux session, keeping its id, and refuses while that tmux session is open", async () => {
+  const { resumeSession } = await import('./sessions.mjs');
+  const m = hubManifest({ session: 's-hub', repo, model: 'opus' });
+  write(web('manifest.json'), m);
+  const ran = [];
+  let open = false;
+  const tmux = (argv) => { ran.push(argv); return { status: argv[0] === 'has-session' ? (open ? 0 : 1) : 0, stdout: '', stderr: '' }; };
+  const r = await resumeSession('dev-hub', { manifest: m, tmux, live: () => new Map(), run: () => assert.fail('ran claude --bg') });
+  assert.deepEqual([r.session, r.previous, r.repo], ['s-hub', 's-hub', repo]);
+  assert.deepEqual(tmuxClaude(ran[1]).slice(0, 2), ['--resume', 's-hub']);
+  assert.match(tmuxClaude(ran[1]).at(-1), /You are the hub session/);
+  assert.equal(manifest().sites['dev-hub'].owner.session, 's-hub');
+  open = true;
+  await assert.rejects(resumeSession('dev-hub', { manifest: m, tmux, live: () => new Map() }), { reason: 'live' });
+  assert.equal(ran.length, 3);
 });
 
 test('join, start and resume keep clone paths under the installed link across a clone move', async () => {

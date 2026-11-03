@@ -163,7 +163,7 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
   } }));
   const bin = path.join(home, 'bin');
   fs.mkdirSync(bin);
-  const hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin` } });
+  const hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin` } });
   const base = `http://127.0.0.1:${port}`;
   try {
     await new Promise((resolve, reject) => {

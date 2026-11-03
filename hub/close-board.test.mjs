@@ -38,9 +38,9 @@ function fixture({ hub = false, waves = false } = {}) {
 }
 after(() => fs.rmSync(home, { recursive: true, force: true }));
 
-test('close and reopen retain the folder and complete manifest entry, stop the session and builders, and resume the recorded session', async () => {
+test('close and reopen retain the folder and complete manifest entry, stop the session and builders, and resume the recorded session, the hub board like any other', async () => {
   for (const waves of [false, true]) {
-    const { dir, data, site } = fixture({ waves });
+    const { dir, data, site } = fixture({ waves, hub: waves });
     const warning = await boardClosure('shop');
     assert.equal(warning.title, 'The Shop');
     assert.deepEqual(warning.prs.map((p) => p.pr), [42]);
@@ -71,21 +71,25 @@ test('close and reopen retain the folder and complete manifest entry, stop the s
     await checkSessions({ live, resume: async () => { wakes++; } });
     assert.equal(wakes, 0);
     const calls = [];
+    const tmuxCalls = [];
     const reopened = await reopenBoard('shop', { live, run: async (argv, opts) => {
       calls.push([argv, opts.cwd]);
       return { status: 0, stdout: argv[0] === 'agents' ? JSON.stringify([{ sessionId: id, kind: 'background' }]) : 'backgrounded · 12345678 · Shop', stderr: '' };
-    } });
+    }, tmux: (argv) => { tmuxCalls.push(argv); return { status: argv[0] === 'has-session' ? 1 : 0, stdout: '', stderr: '' }; } });
     assert.deepEqual(reopened, { route: 'shop', session: id });
     assert.deepEqual(readManifest().sites.shop, site);
     assert.equal(readManifest().closed, undefined);
-    assert.deepEqual(calls[1][0].slice(0, 3), ['--resume', id, '--bg']);
-    assert.equal(calls[1][1], home);
+    // The hub board comes back in the foreground in its tmux session; any other board in the background.
+    if (waves) assert.deepEqual([calls.length, tmuxCalls.map((a) => a.slice(0, 6)), tmuxCalls[1][tmuxCalls[1].indexOf('--resume') + 1]], [0, [['has-session', '-t', '=kickflip-shop'], ['new-session', '-d', '-s', 'kickflip-shop', '-c', home]], id]);
+    else {
+      assert.deepEqual([calls[1][0].slice(0, 3), calls[1][1], tmuxCalls], [['--resume', id, '--bg'], home, []]);
+    }
   }
 });
 
-test('the flagged hub board and an incorrect typed title are refused without changing records or stopping anything', async () => {
-  for (const [hub, name, status] of [[true, 'The Shop', 409], [false, 'Shop', 400], [false, 'the shop', 400], [false, undefined, 400]]) {
-    const { data } = fixture({ hub });
+test('an incorrect typed title is refused without changing records or stopping anything', async () => {
+  for (const [name, status] of [['Shop', 400], ['the shop', 400], [undefined, 400]]) {
+    const { data } = fixture();
     const before = readManifest();
     await assert.rejects(closeBoard('shop', name, { live: () => { assert.fail('looked up a process'); }, stop: () => assert.fail('stopped a process') }), { status });
     assert.deepEqual(readManifest(), before);
@@ -105,9 +109,7 @@ test('a failed stop keeps the board open, and a failed resume leaves the closed 
   assert.deepEqual(readManifest(), closed);
 });
 
-test('closed routes are reserved against new boards, starts and joins, and CLI close validates the title and hub flag', async () => {
-  fixture({ hub: true });
-  assert.throws(() => execFileSync(process.execPath, [cliFile, 'close', 'shop', '--name', 'The Shop'], { encoding: 'utf8', stdio: 'pipe' }), (e) => e.status === 2 && /hub board cannot be closed/.test(e.stderr));
+test('closed routes are reserved against new boards, starts and joins, and CLI close validates the title', async () => {
   fixture();
   assert.throws(() => execFileSync(process.execPath, [cliFile, 'close', 'shop', '--name', 'Shop'], { encoding: 'utf8', stdio: 'pipe' }), (e) => e.status === 2 && /name exactly/.test(e.stderr));
   const closed = JSON.parse(execFileSync(process.execPath, [cliFile, 'close', 'shop', '--name', 'The Shop'], { encoding: 'utf8' }));

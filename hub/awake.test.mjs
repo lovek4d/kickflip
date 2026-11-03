@@ -37,7 +37,7 @@ test('the hub runs caffeinate -ims while Keep awake is on, stops it when turned 
   const saved = () => JSON.parse(fs.readFileSync(path.join(web, 'settings.json'), 'utf8')).keep_awake_until;
   let hub;
   const startHub = async () => {
-    hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', PATH: `${bin}:${process.env.PATH}` } });
+    hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', PATH: `${bin}:${process.env.PATH}` } });
     await new Promise((resolve, reject) => {
       let out = '';
       hub.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) resolve(); });

@@ -25,12 +25,13 @@ export function readNeeds(body) {
 // boards.mjs listenState and undefined for a site that isn't a board.
 export function siteStatus({ state, working, count: waiting, building, listen } = {}) {
   if (state === 'down') return { tone: 'down', word: 'Down' };
-  if (listen === 'deaf') return { tone: 'down', word: 'Not listening' };
+  if (listen === 'deaf') return { tone: 'down', word: 'not listening' };
   if (state === 'starting') return { tone: 'starting', word: 'Starting' };
   if (state === 'stopped') return { tone: 'stopped', word: 'Stopped' };
   if (waiting) return { tone: 'needs', word: `${waiting} need you` };
   if (working) return { tone: 'working', word: 'Working' };
-  if (listen === 'asleep') return { tone: 'asleep', word: 'Asleep' };
+  if (listen === 'waking') return { tone: 'asleep', word: 'waking…' };
+  if (listen === 'asleep') return { tone: 'asleep', word: 'asleep' };
   if (building) return { tone: 'building', word: 'Building' };
   return null;
 }

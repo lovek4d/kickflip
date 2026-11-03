@@ -17,8 +17,7 @@ function boardOf(route, manifest) {
 
 export async function boardClosure(route, manifest = readManifest()) {
   const board = boardOf(route, manifest);
-  return { route, title: board.title, hub: routeRecord(manifest.sites, route).hub === true,
-    prs: board.prs, builders: await openBoardBuilders(board.dir) };
+  return { route, title: board.title, prs: board.prs, builders: await openBoardBuilders(board.dir) };
 }
 
 export function closedBoards(manifest = readManifest()) {
@@ -32,7 +31,6 @@ export async function closeBoard(route, name, { live, stop } = {}) {
     const manifest = readManifest();
     const board = boardOf(route, manifest);
     const site = routeRecord(manifest.sites, route);
-    if (site.hub === true) refuse('The hub board cannot be closed while it is flagged as the hub.', 409);
     if (name !== board.title) refuse('Type the board’s name exactly to close it.');
     if (routeRecord(manifest.closed, route)) refuse('That route already has a closed board.', 409);
     const shared = site.owner?.session && listBoards(manifest).filter((other) => other.route !== route && other.owner?.session === site.owner.session);
@@ -47,7 +45,7 @@ export async function closeBoard(route, name, { live, stop } = {}) {
   }));
 }
 
-export async function reopenBoard(route, { run, live } = {}) {
+export async function reopenBoard(route, { run, tmux, live } = {}) {
   checkRoute(route);
   return withSessionLock(route, async ({ resume }) => {
     const saved = await withManifestLock(async () => {
@@ -67,7 +65,7 @@ export async function reopenBoard(route, { run, live } = {}) {
       return entry;
     });
     try {
-      const session = await resume({ run, live, mark: saved.cursor });
+      const session = await resume({ run, tmux, live, mark: saved.cursor });
       return { route, session: session.session };
     } catch (error) {
       const current = routeRecord(readManifest().sites, route);

@@ -765,7 +765,7 @@ function checksOf({ checked, listen, watcher, replyAt, threads = {}, working = {
   const idle = Boolean(checked?.idle);
   return {
     at: checked?.at || null, every: idle ? null : every, idle, late: !idle && Boolean(checked?.at) && now - Date.parse(checked.at) > 2 * every * 60000,
-    watcher: { listening: 'running', asleep: 'asleep' }[listen] || 'stopped', claudeAt,
+    watcher: { listening: 'running', asleep: 'asleep', waking: 'waking' }[listen] || 'stopped', claudeAt,
   };
 }
 

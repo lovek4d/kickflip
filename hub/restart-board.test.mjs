@@ -45,6 +45,18 @@ else if (argv[0] === '--resume') {
   return file;
 }
 
+// A stand-in tmux: logs each call; has-session finds no session, so the hub board's resume starts one.
+function fakeTmux(home) {
+  const file = path.join(home, 'bin', 'tmux');
+  write(file, `#!${process.execPath}
+const argv = process.argv.slice(2);
+require('node:fs').appendFileSync(${JSON.stringify(path.join(home, 'tmux.jsonl'))}, JSON.stringify(argv) + '\\n');
+process.exit(argv[0] === 'has-session' ? 1 : 0);
+`);
+  fs.chmodSync(file, 0o755);
+  return file;
+}
+
 function board(home, route, port, extra) {
   const dir = path.join(home, '.claude', 'kickflip', 'sites', route);
   write(path.join(dir, 'board.json'), { title: route, items: 'data/cards.json' });
@@ -52,12 +64,13 @@ function board(home, route, port, extra) {
   return { dir, port, cmd: [process.execPath, boardServer, dir], ...extra };
 }
 
-test("Restart stops a board's session, restarts its server, resumes the session once the new server answers, and keeps the hub board out", async () => {
+test("Restart stops a board's session, restarts its server and resumes the session once the new server answers, the hub board's in its tmux session", async () => {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'restart-board-')));
   const [port, shopPort, hubPort] = await freePorts(3);
   const repo = path.join(home, 'repo');
   fs.mkdirSync(repo);
   const claude = fakeClaude(home);
+  const tmux = fakeTmux(home);
   for (const tool of ['gh', 'tailscale', 'launchctl', 'systemctl', 'codex', 'caffeinate']) { write(path.join(home, 'bin', tool), '#!/bin/sh\nexit 1\n'); fs.chmodSync(path.join(home, 'bin', tool), 0o755); }
   const sleeper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
   write(path.join(home, '.claude', 'sessions', `${sleeper.pid}.json`), { pid: sleeper.pid, sessionId: id, jobId: id.slice(0, 8), kind: 'bg' });
@@ -65,7 +78,7 @@ test("Restart stops a board's session, restarts its server, resumes the session 
     shop: board(home, 'shop', shopPort, { title: 'The Shop', owner: { session: id, repo, label: 'Shop' } }),
     'hub-orchestrator': board(home, 'hub-orchestrator', hubPort, { title: 'Hub', hub: true, owner: { session: hubId, repo, label: 'Hub' } }),
   } });
-  const hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: claude, PATH: `${path.join(home, 'bin')}:/usr/bin:/bin:/usr/sbin:/sbin` } });
+  const hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: claude, KICKFLIP_TMUX: tmux, PATH: `${path.join(home, 'bin')}:/usr/bin:/bin:/usr/sbin:/sbin` } });
   const base = `http://127.0.0.1:${port}`;
   const calls = () => fs.readFileSync(path.join(home, 'calls.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   const restart = (route) => fetch(`${base}/_hub/restart-board`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ route }) });
@@ -77,13 +90,8 @@ test("Restart stops a board's session, restarts its server, resumes the session 
     });
     await until(() => fetch(`${base}/shop/_claude/health`).then((r) => r.ok, () => false), 'the Shop server answers');
     const groups = (await (await fetch(`${base}/_hub/api/hub`)).json()).groups;
-    assert.deepEqual(groups.flatMap((g) => g.sites.map((s) => [s.route, s.restart])), [['hub-orchestrator', false], ['shop', true]]);
+    assert.deepEqual(groups.flatMap((g) => g.sites.map((s) => [s.route, s.restart])), [['hub-orchestrator', true], ['shop', true]]);
     const before = fs.readFileSync(path.join(home, '.claude', 'kickflip', 'run', 'shop.pid'), 'utf8');
-
-    const refused = await restart('hub-orchestrator');
-    assert.equal(refused.status, 409);
-    assert.match((await refused.json()).error, /terminal/);
-    assert.equal(fs.existsSync(path.join(home, 'calls.jsonl')), false);
 
     const r = await restart('shop');
     assert.equal(r.status, 200);
@@ -102,6 +110,17 @@ test("Restart stops a board's session, restarts its server, resumes the session 
     assert.equal(manifest.sites.shop.owner.session, id);
     assert.equal(manifest.sites['hub-orchestrator'].restart_at, undefined);
     assert.ok((await fetch(`${base}/shop/_claude/health`)).ok);
+    assert.equal(fs.existsSync(path.join(home, 'tmux.jsonl')), false);
+
+    const hubRestart = await restart('hub-orchestrator');
+    assert.equal(hubRestart.status, 200);
+    assert.deepEqual(await hubRestart.json(), { route: 'hub-orchestrator', title: 'Hub', session: hubId });
+    const tmuxCalls = fs.readFileSync(path.join(home, 'tmux.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    assert.deepEqual(tmuxCalls.map((a) => a.slice(0, 6)), [['has-session', '-t', '=kickflip-hub-orchestrator'], ['new-session', '-d', '-s', 'kickflip-hub-orchestrator', '-c', repo]]);
+    const started = tmuxCalls[1];
+    assert.deepEqual([started.includes(claude), started[started.indexOf('--resume') + 1], started.includes('--bg')], [true, hubId, false]);
+    assert.ok(started.includes('--settings'));
+    assert.equal(calls().length, made.length);
   } finally {
     hub.kill();
     await new Promise((resolve) => hub.once('exit', resolve));

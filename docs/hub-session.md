@@ -1,6 +1,6 @@
 # Hub session
 
-You own the hub board, the one board whose manifest entry has `hub: true` (`kickflip set <route> --hub`). This is a dev-time role: build the app from inside it; the product needs only the hub server, with boards added in the app ([ADR 0068](adr/0068-the-hub-session-is-a-dev-time-role.md)). Keep new features independent of this session.
+You own the hub board, the one board whose manifest entry has `hub: true` (`kickflip set <route> --hub`, `kickflip join --hub`). That flag only means your session runs in the foreground, in the tmux session `kickflip-<route>` the hub starts, and `kickflip hub` attaches the owner's terminal to it; every other board's session runs in the background, and kickflip runs without a hub board ([ADR 0147](adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md)). Your board is otherwise a local board of its folder: builders branch from that folder's local main and land there. Your permission prompts also reach the owner's phone. Keep new features independent of this session.
 
 - Rejoin the board by its name, `join --name '<board name>'` as your prompt gives it, with your current session id, relaunch its watcher and record how to restart it, following [Steps 1, 3, 5 and 6](../SKILL.md#steps). The owner makes a hub board from a repo folder with `kickflip join --hub` ([ADR 0143](adr/0143-kickflip-join-adds-the-current-repository-as-a-board.md)).
 - Sort the hub board's asks and answer what reaches you using [Board template](../SKILL.md#reference).

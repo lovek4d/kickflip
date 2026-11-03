@@ -15,8 +15,8 @@ const MARKS = { ok: 'ok', fixable: 'fixable', yours: 'yours', optional: 'optiona
 const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
 // Homebrew on macOS; apt elsewhere.
 const INSTALL = {
-  darwin: { git: 'xcode-select --install', gh: 'brew install gh' },
-  other: { git: 'sudo apt install git', gh: 'sudo apt install gh' },
+  darwin: { git: 'xcode-select --install', gh: 'brew install gh', tmux: 'brew install tmux' },
+  other: { git: 'sudo apt install git', gh: 'sudo apt install gh', tmux: 'sudo apt install tmux' },
 };
 // Checked when gh lists no repo of the owner's own.
 const PUBLIC_REPO = 'cli/cli';
@@ -56,6 +56,9 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   } else add('GitHub clone', 'yours', 'needs git', hints.git);
   const ts = await tailscaleState({ run: (command, argv) => execute(command, argv), platform, uid, username, port });
   for (const entry of ts.prereqs) add(entry.item, entry.state, entry.detail, entry.fix);
+  // Only a hub board's session needs tmux (../hub/sessions.mjs hubSession).
+  const tmux = execute('tmux', ['-V']);
+  add('tmux', tmux.status === 0 ? 'ok' : 'optional', tmux.status === 0 ? (tmux.stdout || 'installed').trim().split('\n')[0] : 'not installed; a hub board’s session (kickflip join --hub, kickflip hub) runs in it', hints.tmux);
   const codex = codexStatus({ home, env, platform });
   add('Codex', codex.usable ? 'ok' : 'optional', codex.usable ? 'installed and logged in' : `${codex.reason}; Codex builds and reviews need it`, codex.fix);
   const skills = skillsState({ home, run: execute, gh: ghAuth });

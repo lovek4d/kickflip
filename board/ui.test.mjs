@@ -102,6 +102,12 @@ test('the header reads the time since the last change signal or refresh, and the
   assert.equal(ui.statusLine(null), '');
   assert.match(ui.statusLine(fresh, { watcher: 'stopped' }), /^<span class="claude down" title="Claude not listening">not listening<\/span>$/);
   assert.match(ui.statusLine(fresh, { watcher: 'stopped', link: 'offline' }), /^<span class="link-state offline" title="Offline: can't reach the host">1 min<\/span>$/);
+  // An asleep board says so in grey where a deaf one is red, and waking… once the page asked the hub to wake it.
+  assert.match(ui.statusLine(fresh, { watcher: 'asleep' }), /^<span class="claude asleep" title="Asleep: [^"]*wakes it">asleep<\/span>$/);
+  assert.equal(text(ui.statusLine(fresh, { watcher: 'asleep', waking: true })), 'waking…');
+  assert.match(ui.statusLine(fresh, { watcher: 'waking' }), /^<span class="claude asleep" title="Waking: [^"]*">waking…<\/span>$/);
+  assert.equal(text(ui.statusLine(fresh, { watcher: 'running', waking: true })), '1 min');
+  assert.equal(text(ui.statusLine(fresh, { watcher: 'stopped', waking: true })), 'not listening');
   assert.equal(text(ui.statusLine(fresh, { link: 'reconnecting' })), 'Reconnecting…');
   assert.match(ui.statusLine(undefined, { link: 'offline' }), /^<span class="link-state offline"[^>]*>offline<\/span>$/);
   assert.equal(text(ui.githubLine(checks)), 'GitHub 4 min');

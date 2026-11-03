@@ -6,9 +6,8 @@ import { sessionOf, stopSession, withSessionLock } from './sessions.mjs';
 const refuse = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 
 // Whether the Hub page offers Restart for a site: a board whose server the hub runs from its `cmd`, with a session and
-// folder recorded to resume, and not the hub board, whose session runs in the owner's terminal (`kickflip hub`) and
-// would come back in the background.
-export const restartable = (site) => Boolean(Array.isArray(site?.cmd) && site.cmd.length && site.port && site.hub !== true
+// folder recorded to resume. The hub board's session comes back in its tmux session (sessions.mjs).
+export const restartable = (site) => Boolean(Array.isArray(site?.cmd) && site.cmd.length && site.port
   && site.owner?.session && site.owner.repo);
 
 // Under the board's session lock: stops its recorded session, sets its manifest entry's restart_at as `kickflip
@@ -23,7 +22,6 @@ export async function restartBoard(route, { serverUp, live, stop, run } = {}) {
     if (!board) refuse('That board is not open.', 404);
     const site = routeRecord(manifest.sites, route);
     const title = site.title || route;
-    if (site.hub === true) refuse('The hub board’s session runs in your terminal; restart it there with kickflip hub.', 409);
     if (!restartable(site)) refuse(`${title} has no server the hub runs or no session to resume.`, 409);
     const shared = listBoards(manifest).filter((other) => other.route !== route && other.owner?.session === site.owner.session);
     if (shared.length) refuse(`This session is also recorded by ${shared.map((other) => `${other.title} (/${other.route})`).join(', ')}; restart refused.`, 409);
