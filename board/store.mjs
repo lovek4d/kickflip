@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, ITEM_STATUSES, awaitsConfirm, mergeBlockers, ownerQuestion, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
+import { BUILD_REFUSED, ITEM_STATUSES, awaitsConfirm, mergeBlockers, ownerQuestion, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, builderPick } from '../shared/usage-gate.mjs';
 import { reviseQueued, flushQueue, queueStatus, readSettings, pushKindError } from '../hub/push.mjs';
@@ -1335,6 +1335,8 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   const { source, wave, item } = await loadItem(site, key);
   const statusBefore = item.status;
   const wasFinished = FINISHED.includes(item.status);
+  const records = await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)));
+  const owedBefore = owesNext(item, records);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
   if (title !== undefined) item.title = text(title, '--title');
   if (deps !== undefined) {
@@ -1382,6 +1384,8 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (ask) item.from_ask = ask;
   if (built) item.install = built;
   if (built === null) delete item.install;
+  // docs/adr/0142-an-in-progress-card-always-has-a-builder-line-or-a-next.md: building and fixing go with a builder start.
+  if (!owedBefore && !['building', 'fixing'].includes(status) && owesNext(item, records)) fail(`that leaves ${key} In Progress with nothing building and no Next; pass --next "<what happens next>"`);
   const mcpLine = ticket !== undefined || (ask && !item.ticket && !item.linear?.length) ? await assignTicket(site, key, wave, item, ticket, options, source.dir, setTicketCommand(site, key)) : null;
   await writeJSON(source.file, wave);
   const resolved = await resolve();
@@ -1993,8 +1997,11 @@ async function closeBuilders(waveDir, id, cardFinished) {
 
 // The record stays, marked done, so the item's thread can show when the agent finished (domain.mjs threadOf).
 // startedBetween [from, to] (ms) leaves a record alone unless it started in that window, so a caller closing an
-// agent's own record never closes one a later agent restarted on the same item.
-export async function stopBuilder(site, key, { dir, agent, startedBetween, note }) {
+// agent's own record never closes one a later agent restarted on the same item. next sets the item's Next. requireNext,
+// for `builder done`, refuses closing the last open record of a card that would then sit In Progress with no Next
+// (docs/adr/0142-an-in-progress-card-always-has-a-builder-line-or-a-next.md); the SubagentStop hook and a board's
+// close stop records whatever the card is left with.
+export async function stopBuilder(site, key, { dir, agent, startedBetween, note, next, requireNext = false }) {
   const file = await builderFile(site, key, dir, agent);
   const record = await readJSON(file, null);
   if (!record || record.done) return file;
@@ -2004,16 +2011,25 @@ export async function stopBuilder(site, key, { dir, agent, startedBetween, note 
   }
   const { eta, ...rest } = record;
   const done = new Date().toISOString();
-  await writeJSON(file, { ...rest, done, ...(note ? { note } : {}) });
-  if (note) await statusToThread(site, key, agent, record.kind, { detail: note }, done);
+  const stopped = { ...rest, done, ...(note ? { note } : {}) };
   const { id } = parseKey(key);
   const waveDir = path.dirname(path.dirname(file));
-  const records = await Promise.all((await builderFiles(waveDir, id)).map((f) => readJSON(f, null)));
-  if (records.some((r) => r?.started && !r.done)) return file;
+  const records = await Promise.all((await builderFiles(waveDir, id)).map((f) => (f === file ? stopped : readJSON(f, null))));
+  const last = !records.some((r) => r?.started && !r.done);
   const source = dir ? { file: path.join(waveDir, 'wave.json') } : (await loadItem(site, key)).source;
   const wave = await readJSON(source.file, null);
   const item = wave?.items?.find((it) => it.id === id);
-  if (clearBuildingStatus(item)) await writeJSON(source.file, wave);
+  if (next !== undefined) {
+    (item || fail(`${key} has no item to set --next on`)).next = text(next, '--next');
+    if (site) await checkNextDeps(site, key, item, item.next);
+  }
+  const cleared = last && clearBuildingStatus(item);
+  if (requireNext && item && owesNext(item, records)) {
+    fail(`builder done closes ${key}'s last open builder, which leaves it In Progress with no Next; pass --next "<what happens next>", or hand it back with item set ${key} --status checking or land`);
+  }
+  await writeJSON(file, stopped);
+  if (note) await statusToThread(site, key, agent, record.kind, { detail: note }, done);
+  if (cleared || next !== undefined) await writeJSON(source.file, wave);
   return file;
 }
 

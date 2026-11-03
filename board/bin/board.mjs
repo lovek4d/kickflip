@@ -306,8 +306,11 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          A progress line, --progress included, needs --site: it is a status line in the item's thread, and
          the card's status shows the newest one from an agent still working
   builder done <wave>/<id> [--agent <name>]              marks that agent's record done; the item's thread
-                                                         shows when it started and finished; clears building/fixing
-                                                         when the card has no open builder records left
+         [--next <t>]                                    shows when it started and finished; clears building/fixing
+                                                         when the card has no open builder records left. Closing the
+                                                         last one of a card left In Progress with no Next is refused
+                                                         without --next, which sets it; item set --status checking
+                                                         and land close the records themselves
          builder takes --dir <dir> for a wave file in <dir>; its records go in <dir>/agents
   builder pick <wave>/<id>                               who builds the card, from the hub's Codex share and the pause
                                                          line: "codex: <reason>" or "opus: <reason>". Pass that kind
@@ -518,7 +521,7 @@ const COMMANDS = {
     if (!words.length && f.text === undefined) throw new UsageError('builder progress needs its text, as words or as --text');
     return store.builderProgress(site, key, f.text ?? words.join(' '), { ...f, clearEta: f['clear-eta'] });
   }],
-  'builder done': [['wave/id'], ['dir', 'agent'], (site, [key], f) => store.stopBuilder(site, key, f)],
+  'builder done': [['wave/id'], ['dir', 'agent', 'next'], (site, [key], f) => store.stopBuilder(site, key, { ...f, requireNext: true })],
   'builder pick': [['wave/id'], [], (site, [key]) => store.pickBuilder(site, key)],
   land: [['wave/id'], ['repo', 'dir', 'text'], async (site, [key], f) => {
     const id = key.split('/')[1];

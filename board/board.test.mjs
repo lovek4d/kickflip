@@ -1227,6 +1227,41 @@ test('builder keeps one record per agent on an item, with its kind and an ETA it
   }
 });
 
+// docs/adr/0142-an-in-progress-card-always-has-a-builder-line-or-a-next.md
+test('a write that would leave a built card In Progress with nothing building and no Next is refused, naming --next, and writes nothing', () => {
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two' }] });
+  const items = () => read(at('waves', 'w', 'wave.json')).items;
+  const main = at('waves', 'w', 'agents', 'A1.json');
+  assert.equal(board('builder', 'start', 'w/A1', '--label', 'Opus builder').code, 0);
+  assert.equal(board('builder', 'start', 'w/A1', '--agent', 'bench', '--kind', 'bench').code, 0);
+  assert.equal(board('builder', 'done', 'w/A1', '--agent', 'bench').code, 0);
+  const refused = board('builder', 'done', 'w/A1', '--site', 'orch');
+  assert.deepEqual([refused.code, refused.err.trim()], [1, 'builder done closes w/A1\'s last open builder, which leaves it In Progress with no Next; pass --next "<what happens next>", or hand it back with item set w/A1 --status checking or land']);
+  assert.equal('done' in read(main), false);
+  assert.equal(board('builder', 'done', 'w/A1', '--site', 'orch', '--next', 'Land it').code, 0);
+  assert.deepEqual([typeof read(main).done, items()[0].next], ['string', 'Land it']);
+
+  for (const args of [['--clear-next'], ['--next', '']]) {
+    const r = board('item', 'set', 'w/A1', '--site', 'orch', ...args);
+    assert.deepEqual([r.code, r.err.trim()], [1, 'that leaves w/A1 In Progress with nothing building and no Next; pass --next "<what happens next>"'], args.join(' '));
+  }
+  assert.equal(items()[0].next, 'Land it');
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'checking', '--clear-next').code, 0);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--clear-status').code, 1);
+  assert.equal(items()[0].status, 'checking');
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--clear-status', '--next', 'Fix the review finding').code, 0);
+
+  // A card only grilled stays in Todo, a checking card reads Orchestrator review, and a held one isn't In Progress.
+  assert.equal(board('builder', 'start', 'w/A2', '--kind', 'grill').code, 0);
+  assert.equal(board('builder', 'done', 'w/A2', '--site', 'orch').code, 0);
+  for (const [flags, status] of [[['--held'], undefined], [['--unheld', '--status', 'checking'], 'checking']]) {
+    assert.equal(board('builder', 'start', 'w/A2').code, 0);
+    assert.equal(board('item', 'set', 'w/A2', '--site', 'orch', ...flags).code, 0);
+    if (status) assert.equal(board('builder', 'start', 'w/A2').code, 0);
+    assert.equal(board('builder', 'done', 'w/A2', '--site', 'orch').code, 0, flags.join(' '));
+  }
+});
+
 test('a hand-back closes ordinary builders while an install survives until explicitly stopped or the card finishes', () => {
   const install = at('waves', 'w', 'agents', 'A1@install.json');
   assert.equal(board('builder', 'start', 'w/A1', '--agent', 'install', '--kind', 'install', '--eta', '2026-10-30T18:00:00Z').code, 0);

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, threadOf, needsAnswer, pullOf } from './domain.mjs';
+import { buildBoard, threadOf, needsAnswer, pullOf, NO_NEXT } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -671,7 +671,7 @@ test("a card-done moves work and follow-ups to Done and unblocks dependents at o
     owner: { items: [{ id: 'q1', topic: 'item:w/A8', question: 'Which?', options: [{ id: 'a', label: 'A' }], asked_at: '2026-10-23T11:30:00Z' }] } };
   const card = (s, id) => buildBoard(s).items.find((i) => i.id === id);
   const state = (s, id) => (({ lane, waitsOn, status, action, actionButton, next }) => [lane, waitsOn, status, action?.kind ?? null, actionButton, next])(card(s, id));
-  assert.deepEqual(state(said, 'A4'), ['progress', null, null, null, 'grill', null]);
+  assert.deepEqual(state(said, 'A4'), ['progress', null, null, null, 'grill', NO_NEXT]);
   assert.deepEqual(card(said, 'A6').blockedBy, []);
   assert.deepEqual(state(said, 'A7'), ['done', null, 'merged', null, null, null]);
   assert.deepEqual(state(said, 'A8'), ['review', 'owner', null, 'questions', 'openQuestions', 'Answer 1 question']);
@@ -1102,4 +1102,18 @@ test('a follow-up filed from a card carries that card\'s label, or the stored id
   const wave = { items: [{ id: 'GH-41', title: 'Parent', ticket: '#41' }], followups: [{ id: 'F1', title: 'a', filed: '2026-10-22', from: 'GH-41' }, { id: 'F2', title: 'b', filed: '2026-10-22', from: 'GH-9' }, { id: 'F3', title: 'c', filed: '2026-10-22' }] };
   const b = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), tickets: { source: 'github' }, waves: [{ slug: 'w', wave }] });
   assert.deepEqual(['F1', 'F2', 'F3'].map((id) => b.items.find((i) => i.id === id).from), ['#41', 'GH-9', null]);
+});
+
+// docs/adr/0142-an-in-progress-card-always-has-a-builder-line-or-a-next.md
+test('an In Progress card with nothing building and no next step reads a gap as its Next, never nothing; a builder line, a check or its own Next fills the place', () => {
+  const finished = { main: { label: 'Opus builder', kind: 'opus', started: '2026-10-23T10:00:00Z', done: '2026-10-23T10:30:00Z' } };
+  const running = { main: { label: 'Opus builder', kind: 'opus', started: '2026-10-23T10:00:00Z' } };
+  const card = (item, agents = {}) => board({ pr: null, item: { pr: undefined, ...item }, agents: { A1: agents } }).items.find((i) => i.key === 'w/A1');
+  for (const built of [card({}, finished), card({ status: 'building' }), card({ status: 'fixing' })]) {
+    assert.deepEqual([built.lane, built.builder, built.next], ['progress', null, NO_NEXT]);
+  }
+  assert.deepEqual([card({}, running).next, card({}, running).builder.progress], [null, null]);
+  assert.equal(card({ next: 'Land it' }, finished).next, 'Land it');
+  assert.equal(card({ status: 'checking' }, finished).next, null);
+  assert.deepEqual([card({}).lane, card({}).next], ['todo', null]);
 });

@@ -279,6 +279,20 @@ function placeOwnerWait(it, questionById, autoMerge) {
 // status. A PR, a pushed branch and checking place it on their own (laneOf).
 const started = (it) => it.agents.some(builds) || ['building', 'fixing'].includes(String(it.status || '').toLowerCase());
 
+// docs/adr/0142-an-in-progress-card-always-has-a-builder-line-or-a-next.md
+// An In Progress card shows its builder line while a builder record is open, else its Next. buildBoard gives one with
+// neither this as its Next; owesNext is store.mjs's check before a write that would leave one so.
+export const NO_NEXT = 'none set yet';
+// Whether a work item's wave entry and builder records leave its card started with no open record and no Next, where
+// nothing else gives it a line or places it: a PR or pushed branch (GitHub or the owner's merge words most of those,
+// and buildBoard's gap the rest), checking, a hold or a finished status.
+export function owesNext(item, records) {
+  const status = String(item.status || '').toLowerCase();
+  if (item.next || item.pr || item.pushed || item.held || ['held', 'checking', 'done', 'merged', 'dropped'].includes(status)) return false;
+  const agents = records.filter((r) => r?.started);
+  return !agents.some((r) => !r.done) && started({ status, agents });
+}
+
 // An open follow-up is a Todo card of its wave (docs/adr/0034-follow-ups-are-todo-cards-of-their-wave.md).
 function followUp({ slug, wave, f, order, repo, bumpedAt, closedAt, tickets }) {
   const done = Boolean(f.done || closedAt);
@@ -700,7 +714,10 @@ export function buildBoard(snapshot) {
   };
   const workingOn = events.filter((e) => routeRecord(working, e.id) && unanswered(e))
     .map((e) => ({ id: e.id, kind: e.kind, key: cardOf(e), data: e.data, since: routeRecord(working, e.id) }));
-  for (const it of items) it.working = workingOn.some((w) => w.key === it.key);
+  for (const it of items) {
+    it.working = workingOn.some((w) => w.key === it.key);
+    if (it.kind === 'work' && it.lane === 'progress' && !it.builder && !it.next && it.waitsOn !== 'checking' && !it.working) it.next = NO_NEXT;
+  }
   // The page shows those this browser hasn't seen in the answer banner (docs/adr/0016-every-ask-is-a-card.md).
   const answers = items.filter((i) => i.ask?.answerAt).sort((a, b) => b.ask.answerAt.localeCompare(a.ask.answerAt))
     .map((i) => ({ key: i.key, id: i.id, text: i.title, at: i.ask.answerAt }));

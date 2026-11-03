@@ -239,7 +239,7 @@ A work item that has waited in review more than seven days since its first revie
 _Avoid_: old, overdue
 
 **Next step**:
-Claude's next step on a card and what sets it off, such as "Next: merge when CI is green", kept in the item's `next` and cleared once done. A card waiting on its reviewers reads its next step from GitHub instead ([0002](docs/adr/0002-a-card-derives-its-lane-from-github.md)), and one waiting on the owner reads its action. It is orange while it is someone's turn and grey on a Todo, Done or held card.
+Claude's next step on a card and what sets it off, such as "Next: merge when CI is green", kept in the item's `next` and cleared once done. A card waiting on its reviewers reads its next step from GitHub instead ([0002](docs/adr/0002-a-card-derives-its-lane-from-github.md)), and one waiting on the owner reads its action. It is orange while it is someone's turn and grey on a Todo, Done or held card. It shares its place under the title with the builder line, which takes it while a builder record is open, and an In Progress card with neither reads "Next: none set yet": the CLI refuses a `builder done` or `item set` that would leave one so without `--next` ([0142](docs/adr/0142-an-in-progress-card-always-has-a-builder-line-or-a-next.md)).
 _Avoid_: plan, notes (**Notes** is the card's write-up), todo
 
 **Waits on**:
