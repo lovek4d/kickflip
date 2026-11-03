@@ -7,6 +7,10 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { until } from '../shared/test-helpers.mjs';
 
+// Writes a file the running server may be reading the way the board does (write aside, then rename), so the server
+// never reads it half-written.
+const put = (file, text) => { fs.writeFileSync(file + '.tmp', text); fs.renameSync(file + '.tmp', file); };
+
 test('automatic builder check-ins run without a browser, once per silent spell across a restart, and stop on done', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'builder-stalled-'));
   const siteDir = path.join(dir, 'site');
@@ -61,7 +65,7 @@ test('automatic builder check-ins run without a browser, once per silent spell a
     await exited;
   };
   const tick = () => new Promise((resolve) => setTimeout(resolve, 80));
-  const advance = (minutes) => { now += minutes * 60000; fs.writeFileSync(clockFile, String(now)); };
+  const advance = (minutes) => { now += minutes * 60000; put(clockFile, String(now)); };
   try {
     await start();
     await tick();
@@ -80,13 +84,13 @@ test('automatic builder check-ins run without a browser, once per silent spell a
     assert.equal(stalledEvents().length, 1);
 
     const progress = new Date(now).toISOString();
-    fs.writeFileSync(path.join(dataDir, 'threads', 't__A1.jsonl'), JSON.stringify({ ts: progress, kind: 'status', text: 'Running tests' }) + '\n');
+    put(path.join(dataDir, 'threads', 't__A1.jsonl'), JSON.stringify({ ts: progress, kind: 'status', text: 'Running tests' }) + '\n');
     await until(() => !read(stateFile, {})['t/A1'], 'progress clears the silent spell');
     advance(31);
     await until(() => read(stateFile, {})['t/A1'] === progress, 'the next silent spell is recorded');
     assert.deepEqual(stalledEvents().map((e) => e.data), [{ key: 't/A1', silentSince: started }, { key: 't/A1', silentSince: progress }]);
 
-    fs.writeFileSync(agentFile, JSON.stringify({ kind: 'codex', started, done: new Date(now).toISOString() }));
+    put(agentFile, JSON.stringify({ kind: 'codex', started, done: new Date(now).toISOString() }));
     await until(() => !read(stateFile, {})['t/A1'], 'finishing the builder clears the silent spell');
     advance(60);
     await tick();
@@ -194,6 +198,7 @@ test('an idle board with auto-pull on sends card-pull for its top pullable Todo 
   const waveFile = path.join(dataDir, 'wave.json');
   const eventsFile = path.join(dataDir, 'events.jsonl');
   const ownerFile = path.join(dataDir, 'owner.json');
+  const pulledFile = path.join(dataDir, 'pulled.json');
   const agentFile = path.join(dataDir, 'agents', 'A0.json');
   const usageFile = path.join(dir, '.claude', 'kickflip', 'usage.json');
   const now = Date.parse('2026-11-02T16:00:00Z');
@@ -202,7 +207,7 @@ test('an idle board with auto-pull on sends card-pull for its top pullable Todo 
   fs.mkdirSync(path.dirname(agentFile), { recursive: true });
   fs.mkdirSync(path.join(dataDir, 'threads'));
   fs.mkdirSync(path.dirname(usageFile), { recursive: true });
-  const boardJSON = (on) => fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't', auto_pull: on }));
+  const boardJSON = (on) => put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't', auto_pull: on }));
   boardJSON(false);
   const wave = { items: [
     { id: 'A0', title: 'Running', status: 'building' },
@@ -237,9 +242,9 @@ test('an idle board with auto-pull on sends card-pull for its top pullable Todo 
     http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };
   `);
   const pulls = () => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').map(JSON.parse).filter((e) => e.kind === 'card-pull').map((e) => e.data.key);
-  const thread = (id) => (fs.existsSync(path.join(dataDir, 'threads', `t__${id}.jsonl`)) ? fs.readFileSync(path.join(dataDir, 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').map((l) => JSON.parse(l).text) : []);
-  const ask = (id, key) => { owner.items.push(question(id, key)); fs.writeFileSync(ownerFile, JSON.stringify(owner)); };
-  const setStatus = (id, status) => { wave.items.find((it) => it.id === id).status = status; fs.writeFileSync(waveFile, JSON.stringify(wave)); };
+  const thread = (id) => (fs.existsSync(path.join(dataDir, 'threads', `t__${id}.jsonl`)) ? fs.readFileSync(path.join(dataDir, 'threads', `t__${id}.jsonl`), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l).text) : []);
+  const ask = (id, key) => { owner.items.push(question(id, key)); put(ownerFile, JSON.stringify(owner)); };
+  const setStatus = (id, status) => { wave.items.find((it) => it.id === id).status = status; put(waveFile, JSON.stringify(wave)); };
   const start = async () => {
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
       env: { ...process.env, HOME: dir, BUILDER_TEST_CLOCK: clockFile },
@@ -266,29 +271,33 @@ test('an idle board with auto-pull on sends card-pull for its top pullable Todo 
     await tick();
     assert.deepEqual(pulls(), []);
 
-    fs.writeFileSync(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), done: iso(now) }));
+    put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), done: iso(now) }));
     await until(() => pulls().length === 1 && thread('A5').length === 1, 'the idle board pulls in a card');
     assert.deepEqual(pulls(), ['t/A5']);
     assert.deepEqual(thread('A5'), ['Pulled in: the board was idle.']);
-    await tick();
+    await until(() => fs.existsSync(pulledFile) && JSON.parse(fs.readFileSync(pulledFile, 'utf8')).key === 't/A5', 'the pull is marked');
     await stop();
     await start();
     await tick();
-    fs.rmSync(path.join(dataDir, 'pulled.json'));
+    fs.rmSync(pulledFile);
     await stop();
     await start();
     await tick();
     assert.deepEqual(pulls(), ['t/A5']);
 
+    // Changed while the server is down: a check reads wave.json before owner.json, so one landing between the two
+    // writes would see A0 not yet checking and A5 already asked, and pull A6.
+    await stop();
     setStatus('A0', 'checking');
     ask('q5', 't/A5');
+    await start();
     await tick();
     assert.deepEqual(pulls(), ['t/A5']);
     setStatus('A0', 'done');
     await until(() => pulls().length === 2, 'the next card is pulled once the board is idle again');
     assert.deepEqual(pulls(), ['t/A5', 't/A6']);
 
-    fs.writeFileSync(usageFile, JSON.stringify({ claude: { at: iso(now), five_hour: { used_percentage: 95, resets_at: iso(now + 3600000) }, seven_day: { used_percentage: 40, resets_at: iso(now + 86400000) } } }));
+    put(usageFile, JSON.stringify({ claude: { at: iso(now), five_hour: { used_percentage: 95, resets_at: iso(now + 3600000) }, seven_day: { used_percentage: 40, resets_at: iso(now + 86400000) } } }));
     ask('q6', 't/A6');
     await tick();
     await tick();
