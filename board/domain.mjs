@@ -145,7 +145,7 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
   // docs/adr/0118-a-card-can-be-held-until-a-time.md
   const heldUntil = held ? (tapped ? holdAsk.data.until : it.pick_up_at) || null : null;
   // docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md
-  const bumpable = !held && (lane === 'todo' || (lane === 'progress' && waitsOn !== 'ready' && waitsOn !== 'checking'));
+  const bumpable = lane === 'todo' || (!held && lane === 'progress' && waitsOn !== 'ready' && waitsOn !== 'checking');
   // The owner's Merge waits on the session until it merges or writes in the thread, such as why it can't merge yet.
   const lastClaudeAt = thread.filter((m) => (m.who || 'claude') === 'claude' && m.kind !== 'status').map((m) => String(m.ts)).sort().pop() || '';
   const merging = waitsOn === 'merge' && Boolean(mergeAt) && String(mergeAt) > lastClaudeAt;
@@ -269,7 +269,8 @@ function placeOwnerWait(it, questionById, autoMerge) {
   const ownerOnly = it.lane === 'todo' || (it.lane === 'progress' && (it.waitsOn === 'ready' || it.waitsOn === 'owner'));
   if (!it.action || !ownerOnly) return;
   const lane = it.lane === 'todo' && ASKING.has(it.action.kind) ? 'todo' : 'review';
-  Object.assign(it, { lane, waitsOn: it.waitsOn === 'ready' ? 'ready' : 'owner', next: it.action.label, bumpable: false, bumpedAt: null });
+  Object.assign(it, { lane, waitsOn: it.waitsOn === 'ready' ? 'ready' : 'owner', next: it.action.label });
+  if (lane === 'review') Object.assign(it, { bumpable: false, bumpedAt: null });
 }
 
 // docs/adr/0049-a-started-card-never-returns-to-todo.md

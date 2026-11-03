@@ -78,7 +78,7 @@ test('a card waiting on its questions stays in Todo with its action until buildi
   const q = { id: 'q1', topic: 'item:w/A1', question: 'Which take?', options: [{ id: 'A', label: 'One' }], url: 'prototype-x.html?q=q1' };
   const card = (opts) => board({ pr: null, ...opts }).items.find((i) => i.key === 'w/A1');
   const waiting = card({ owner: { items: [q] } });
-  assert.deepEqual([waiting.lane, waiting.waitsOn, waiting.next, waiting.bumpable, waiting.actionButton], ['todo', 'owner', 'Prototypes ready: pick a take', false, 'openQuestions']);
+  assert.deepEqual([waiting.lane, waiting.waitsOn, waiting.next, waiting.bumpable, waiting.actionButton], ['todo', 'owner', 'Prototypes ready: pick a take', true, 'openQuestions']);
   assert.deepEqual([waiting.action, waiting.resolvedBy], [{ kind: 'pick', url: 'questions.html#q1', label: 'Prototypes ready: pick a take' }, 'openQuestions']);
   const picked = { id: 'e1', ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A' }, reply: null };
   const answered = card({ owner: { items: [q] }, events: [picked] });
@@ -694,7 +694,7 @@ test('a withdrawn ask leaves the board', () => {
   assert.deepEqual(b.items.map((i) => i.key), ['w/A1']);
 });
 
-test('a bumped card that has not started, or is running, tops its lane, the latest bump first, an open follow-up bumps like a Todo card, and a held card, a draft waiting on Ready or a done follow-up takes no bump', () => {
+test('a bumped card that has not started, or is running, tops its lane, the latest bump first, an open follow-up bumps like a Todo card, a held Todo card bumps too, and a draft waiting on Ready or a done follow-up takes no bump', () => {
   const bump = (key, ts) => ({ id: 'c' + ts, ts, kind: 'card-bump', data: { key }, reply: null });
   const items = [
     { id: 'A1', title: 'One', status: 'planned' },
@@ -705,15 +705,15 @@ test('a bumped card that has not started, or is running, tops its lane, the late
     { id: 'A6', title: 'Six', status: 'fixing' },
   ];
   const cards = (events) => askBoard(events, { items, agents: runningBuilders('A5', 'A6') }).items.filter((i) => i.kind === 'work').map((i) => [i.key, i.lane, i.bumpable, i.bumpedAt]);
-  assert.deepEqual(cards([]).map(([key, , bumpable]) => [key, bumpable]), [['w/A6', true], ['w/A5', true], ['w/A4', false], ['w/A3', true], ['w/A2', true], ['w/A1', true]]);
+  assert.deepEqual(cards([]).map(([key, , bumpable]) => [key, bumpable]), [['w/A6', true], ['w/A5', true], ['w/A4', true], ['w/A3', true], ['w/A2', true], ['w/A1', true]]);
   const at1 = '2026-10-23T11:10:00Z';
   const at2 = '2026-10-23T11:20:00Z';
   assert.deepEqual(cards([bump('w/A1', at1), bump('w/A2', at2), bump('w/A5', at2), bump('w/A4', at2)]), [
     ['w/A5', 'progress', true, at2],
     ['w/A6', 'progress', true, null],
+    ['w/A4', 'todo', true, at2],
     ['w/A2', 'todo', true, at2],
     ['w/A1', 'todo', true, at1],
-    ['w/A4', 'todo', false, null],
     ['w/A3', 'todo', true, null],
   ]);
   assert.deepEqual(cards([bump('w/A1', at1), bump('w/A2', at2), bump('w/A1', '2026-10-23T11:30:00Z')]).slice(2, 4).map(([key]) => key), ['w/A1', 'w/A2']);
