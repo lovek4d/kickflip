@@ -162,19 +162,49 @@ test('wakesDue names each wake time passed today that has not gone out today', (
   assert.deepEqual(wakesDue(t(12), DEFAULTS, undefined), ['08:00', '09:00']);
 });
 
-test('notifications sends each queued push on its own, in queue order, keeping the newest of a tag', () => {
+test('notifications sends a board\'s one push as it is, keeping the newest of a tag', () => {
   const queue = [
-    { id: '1', title: 'Answered: keep it?', body: 'First', url: '/x/#item=ask%3Ae1', tag: 'ask-e1', queuedAt: 1 },
-    { id: '2', title: '2 PRs merged', url: '/x/' },
-    { id: '3', title: 'Answered: keep it?', body: 'Latest', url: '/x/#item=ask%3Ae1', tag: 'ask-e1' },
-    { id: '4', title: '2 questions need you', body: 'Which layout?', url: '/x/questions.html', tag: 'questions-x' },
+    { id: '1', title: 'Answered: keep it?', body: 'First', url: '/x/#item=ask%3Ae1', tag: 'ask-e1', kind: 'action' },
+    { id: '2', title: 'Allow Bash?', url: '/y/', kind: 'prompt' },
+    { id: '3', title: 'Answered: keep it?', body: 'Latest', url: '/x/#item=ask%3Ae1', tag: 'ask-e1', kind: 'action' },
+    { id: '4', title: 'Hub is down', kind: 'fault' },
   ];
-  assert.deepEqual(notifications(queue), [
-    { id: '2', title: '2 PRs merged', body: '', url: '/x/', tag: undefined },
-    { id: '3', title: 'Answered: keep it?', body: 'Latest', url: '/x/#item=ask%3Ae1', tag: 'ask-e1' },
-    { id: '4', title: '2 questions need you', body: 'Which layout?', url: '/x/questions.html', tag: 'questions-x' },
+  assert.deepEqual(notifications(queue, { x: { count: 0, summary: '' } }), [
+    { title: 'Allow Bash?', body: '', url: '/y/', tag: undefined, kind: 'prompt', members: ['2'] },
+    { title: 'Answered: keep it?', body: 'Latest', url: '/x/#item=ask%3Ae1', tag: 'ask-e1', kind: 'action', members: ['3'] },
+    { title: 'Hub is down', body: '', url: '/', tag: undefined, kind: 'fault', members: ['4'] },
   ]);
   assert.deepEqual(notifications([]), []);
+});
+
+test('notifications sends a board with several pushes as one summary of what waits on it now, and nothing when nothing waits', () => {
+  const queue = [
+    { id: '1', title: 'A1 asks: Which layout?', url: '/x/#item=w%2FA1', tag: 'item-w/A1', kind: 'action' },
+    { id: '2', title: 'B5 waits on Ready', url: '/y/#item=w%2FB5', tag: 'item-w/B5', kind: 'action' },
+    { id: '3', title: 'A2 waits on Merge', url: '/x/#item=w%2FA2', tag: 'item-w/A2', kind: 'action' },
+    { id: '4', title: 'Allow Bash?', url: '/y/', tag: 'prompt-p1', kind: 'prompt' },
+    { id: '5', title: 'C1 waits on Ready', url: '/z/#item=w%2FC1', kind: 'action' },
+    { id: '6', title: 'C2 waits on Ready', url: '/z/#item=w%2FC2', kind: 'action' },
+    { id: '7', title: 'D1 asks: Keep it?', url: '/w/#item=w%2FD1', kind: 'action' },
+    { id: '8', title: 'D2 waits on Ready', url: '/w/', kind: 'action' },
+    { id: '9', title: 'D3 waits on Merge', url: '/w/', kind: 'action' },
+    { id: '10', title: 'A1 asks: Which colour?', url: '/x/#item=w%2FA1', tag: 'item-w/A1', kind: 'action' },
+  ];
+  const sites = {
+    x: { count: 3, summary: '1 question · 2 drafts waiting on Ready' },
+    y: { count: 1, summary: '1 prompt' },
+    z: { count: 0, summary: '' },
+    w: null,
+  };
+  assert.deepEqual(notifications(queue, sites), [
+    { title: '1 needs you on y', body: '1 prompt', url: '/y/', tag: 'summary:y', kind: 'prompt', members: ['2', '4'] },
+    { title: '3 need you on x', body: '1 question · 2 drafts waiting on Ready', url: '/x/', tag: 'summary:x', kind: 'action', members: ['3', '10'] },
+    { title: '3 updates on w', body: 'D1 asks: Keep it? · D2 waits on Ready · and 1 more', url: '/w/', tag: 'summary:w', kind: 'action', members: ['7', '8', '9'] },
+  ]);
+  assert.deepEqual(notifications(queue.slice(0, 4)).map((n) => [n.title, n.body, n.tag]), [
+    ['2 updates on x', 'A1 asks: Which layout? · A2 waits on Merge', 'summary:x'],
+    ['2 updates on y', 'B5 waits on Ready · Allow Bash?', 'summary:y'],
+  ]);
 });
 
 test('heldUntil lets pushes go except while held overnight, and then names when they go', () => {

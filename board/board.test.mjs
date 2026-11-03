@@ -1554,12 +1554,12 @@ test("after a thread's push has gone, Claude's lines and replies there push noth
   assert.deepEqual(read(at('kickflip', 'push', 'queue.json')).items, []);
 }));
 
-test('checked sends the queued pushes at the end of a tick, each as its own notification', () => withDevice(async (b, received) => {
+test('checked sends the queued pushes at the end of a tick, a board\'s several as one summary', () => withDevice(async (b, received) => {
   assert.equal((await b('push', '--site', 'orch', '--kind', 'action', '--title', 'A2 waits on Merge', '--body', 'Green and approved', '--url', '/orch/')).code, 0);
   assert.equal((await b('push', '--site', 'orch', '--kind', 'action', '--title', 'A1 waits on Ready', '--url', '/orch/#item=w%2FA1', '--tag', 'item-w/A1')).code, 0);
   assert.equal(received.length, 0);
   assert.equal((await b('checked', '--site', 'orch', '--every', '15')).code, 0);
-  assert.deepEqual(received.map(({ title, tag, url }) => [title, tag, url]), [['A2 waits on Merge', undefined, '/orch/'], ['A1 waits on Ready', 'item-w/A1', '/orch/#item=w%2FA1&reply']]);
+  assert.deepEqual(received.map(({ title, body, tag, url }) => [title, body, tag, url]), [['2 updates on orch', 'A2 waits on Merge · A1 waits on Ready', 'summary:orch', '/orch/']]);
   assert.deepEqual(read(at('kickflip', 'push', 'queue.json')).items, []);
 }));
 

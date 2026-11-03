@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0120
+---
+
 # Pushes go out by kind, and each arrives on its own
+
+Superseded in part by [0120](0120-queued-pushes-go-as-one-summary-per-board.md): a board with several queued pushes in one flush gets one summary of what waits on it now, in place of each push on its own.
 
 What pushes, when it goes, and how several arrive together.
 

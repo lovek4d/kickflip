@@ -89,8 +89,8 @@
 //               can fix. A push without one is refused (exit 2): news stays on the board.
 //               The push queues, replacing a queued one with the same
 //               --tag, and goes out after the hub's next GitHub check on the polling interval
-//               (/_hub/settings/polling) or when a GitHub tick ends (board.mjs checked), each
-//               queued push as its own notification. --now sends at once unless pushes are held
+//               (/_hub/settings/polling) or when a GitHub tick ends (board.mjs checked); a board's
+//               several queued pushes go as one summary. --now sends at once unless pushes are held
 //               (overnight, snoozed or the weekend), and queues if no device takes it; it is for questions,
 //               steps only the owner can run and prototypes. --urgent sends at once through
 //               those holds, for a production fault. While notifications are off every push is dropped, urgent ones too.

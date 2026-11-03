@@ -4,8 +4,8 @@
 // the desktop subscriptions only, unless urgent or no desktop has subscribed
 // (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md).
 // The queue goes out through flushQueue() after each GitHub check on the polling interval (schedule.mjs) and at the end
-// of each GitHub tick (`board.mjs checked`), each push as its own notification
-// (docs/adr/0030-pushes-go-by-kind-and-each-arrives-on-its-own.md).
+// of each GitHub tick (`board.mjs checked`), a board's one push as it is and its several as one summary
+// (docs/adr/0120-queued-pushes-go-as-one-summary-per-board.md).
 // State lives in ~/.claude/kickflip/push: vapid.json (the signing key),
 // subs.json (one entry per phone or browser that enabled notifications, with
 // the hub origin it subscribed from and its user agent) and queue.json (pushes waiting to go). The polling interval's
@@ -107,23 +107,25 @@ function authorization(sub) {
   return `vapid t=${head}.${claims}.${b64u(sig)}, k=${publicKey()}`;
 }
 
-// The Home Screen badge count from the hub's /_hub/needs.json, or undefined when the hub doesn't answer.
-async function badgeTotal() {
+// What waits on the owner, fresh from the hub's /_hub/needs.json: {total, sites} with total the Home Screen badge count
+// and sites as hub.mjs serves them, or {} when the hub doesn't answer.
+async function hubNeeds() {
   try {
     const r = await fetch(`http://127.0.0.1:${Number(process.env.KICKFLIP_HUB_PORT || 4500)}/_hub/needs.json?fresh=1`, { signal: AbortSignal.timeout(4000) });
-    const { total } = await r.json();
-    return Number.isInteger(total) ? total : undefined;
-  } catch { return undefined; }
+    const { total, sites } = await r.json();
+    return { total: Number.isInteger(total) ? total : undefined, sites };
+  } catch { return {}; }
 }
 
 // message: {title, body, url, tag}. url is a path on the hub, such as
 // /<route>/page.html#x; the service worker opens it on tap. The payload adds badge, the count of
-// what waits on the owner across every site when this sends, which the service worker shows.
+// what waits on the owner across every site when this sends (needs, a hubNeeds result, else fetched now), which the
+// service worker shows.
 export const sendAll = (message) => sendTo(readSubs(), message);
 
-async function sendTo(subs, message) {
+async function sendTo(subs, message, needs) {
   if (!subs.length) return [];
-  const payload = JSON.stringify({ ...message, badge: await badgeTotal() });
+  const payload = JSON.stringify({ ...message, badge: (needs || await hubNeeds()).total });
   const results = await Promise.all(subs.map(async (sub) => {
     try {
       const r = await fetch(sub.endpoint, {
@@ -324,10 +326,10 @@ export async function dropQueued(tags, route) {
 }
 
 let flushing = null;
-// Sends each queued push as its own notification (schedule.mjs notifications), to whom reach() picks for its kind at
-// flush time. The queue is emptied before sending, so the hub and a `board.mjs checked` flushing at once never send a
-// push twice. Returns null when nothing was queued, else {count, sent, ok, results}: a push no device took goes back
-// to the queue unless a newer one has its tag.
+// Sends the queue as schedule.mjs notifications, built from what waits on each board now, each to whom reach() picks
+// for its kind at flush time. The queue is emptied before sending, so the hub and a `board.mjs checked` flushing at
+// once never send a push twice. Returns null when nothing was queued, else {count, sent, ok, results}, with sent the
+// notifications that went: the pushes behind one no device took go back to the queue unless a newer one has their tag.
 export function flushQueue() {
   flushing ||= (async () => {
     const items = await withQueueLock(() => {
@@ -339,16 +341,16 @@ export function flushQueue() {
     const sent = [];
     const failed = [];
     const results = [];
-    const kindOf = new Map(items.map((i) => [i.id, i.kind]));
-    for (const m of notifications(items)) {
-      const r = await sendTo(await reach(kindOf.get(m.id)), { title: m.title, body: m.body, url: m.url, tag: m.tag });
+    const needs = await hubNeeds();
+    for (const m of notifications(items, needs.sites)) {
+      const r = await sendTo(await reach(m.kind), { title: m.title, body: m.body, url: m.url, tag: m.tag }, needs);
       results.push(...r);
       (delivered(r) ? sent : failed).push(m);
     }
     if (failed.length) await withQueueLock(() => {
       const q = readQueue();
       const newer = new Set(q.items.map((i) => i.tag).filter(Boolean));
-      const back = items.filter((i) => failed.some((f) => f.id === i.id) && !(i.tag && newer.has(i.tag)));
+      const back = items.filter((i) => failed.some((f) => f.members.includes(i.id)) && !(i.tag && newer.has(i.tag)));
       writePrivate(QUEUE, { items: [...back, ...q.items] });
     });
     return { count: items.length, sent: sent.length, ok: !failed.length, results };

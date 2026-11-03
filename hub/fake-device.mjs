@@ -1,5 +1,6 @@
 // A push endpoint on 127.0.0.1 for tests: it decrypts each Web Push it receives (RFC 8291 aes128gcm) and keeps the
-// payloads in `received`, so a test can send through push.mjs without reaching a real push service.
+// payloads in `received`, so a test can send through push.mjs without reaching a real push service. With `needs` set,
+// it also answers GET /_hub/needs.json with it, standing in for the hub when KICKFLIP_HUB_PORT names its port.
 import crypto from 'node:crypto';
 import http from 'node:http';
 
@@ -24,7 +25,12 @@ export async function startFakeDevice() {
     const plain = Buffer.concat([decipher.update(data.subarray(0, -16)), decipher.final()]);
     return JSON.parse(plain.subarray(0, plain.lastIndexOf(2)).toString());
   };
+  const device = { received, needs: null };
   const server = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url.startsWith('/_hub/needs.json') && device.needs) {
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(device.needs));
+      return;
+    }
     const chunks = [];
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => {
@@ -35,10 +41,9 @@ export async function startFakeDevice() {
   });
   await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
   const { port } = server.address();
-  return {
+  return Object.assign(device, {
     port,
-    received,
     subscription: { endpoint: `http://127.0.0.1:${port}/device`, keys: { p256dh: uaPublic.toString('base64url'), auth: auth.toString('base64url') }, origin: 'https://hub.invalid' },
     close: () => new Promise((resolve) => server.close(resolve)),
-  };
+  });
 }

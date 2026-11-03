@@ -271,13 +271,37 @@ export function wakesDue(now, s, sent = {}) {
   return s.wakes.filter((w) => atOn(now, w) <= now && sent?.[w] !== today);
 }
 
-// The notifications a queue of {id, title, body, url, tag}, oldest first, goes out as: one per push, in queue order,
-// keeping only the newest push of each tag (docs/adr/0030-pushes-go-by-kind-and-each-arrives-on-its-own.md).
-export function notifications(items) {
+// The board a push's url opens, `/<route>/…`, or null for a url outside any site.
+const routeOf = (url) => /^\/([^/?#]+)(?:[/?#]|$)/.exec(url || '')?.[1] ?? null;
+
+// The notifications a queue of {id, title, body, url, tag, kind}, oldest first, goes out as, keeping only the newest
+// push of each tag: a board with one push sends it unchanged; a board with more sends one summary of what waits on it
+// now, from `sites`, the /_hub/needs.json `sites` ({<route>: {count, summary} | null}), and nothing when nothing
+// waits. A board missing from `sites`, or null there, gets "N updates" with the first titles. Each comes out as
+// {title, body, url, tag, kind, members: the queued ids it stands for}, in queue order of each board's first push kept
+// (docs/adr/0120-queued-pushes-go-as-one-summary-per-board.md).
+export function notifications(items, sites = {}) {
   const newest = new Map();
   items.forEach((i, k) => { if (i.tag) newest.set(i.tag, k); });
-  return items.filter((i, k) => !i.tag || newest.get(i.tag) === k)
-    .map((i) => ({ id: i.id, title: i.title, body: i.body || '', url: i.url || '/', tag: i.tag || undefined }));
+  const groups = new Map();
+  items.filter((i, k) => !i.tag || newest.get(i.tag) === k).forEach((i) => {
+    const key = routeOf(i.url) ?? Symbol(i.id);
+    groups.set(key, [...(groups.get(key) || []), i]);
+  });
+  return [...groups].flatMap(([route, group]) => {
+    if (group.length === 1) {
+      const [i] = group;
+      return [{ title: i.title, body: i.body || '', url: i.url || '/', tag: i.tag || undefined, kind: i.kind, members: [i.id] }];
+    }
+    const needs = sites[route];
+    if (needs && !needs.count) return [];
+    const where = route === '_hub' ? 'Hub' : route;
+    const titles = group.map((i) => i.title);
+    const title = needs ? `${needs.count} need${needs.count === 1 ? 's' : ''} you on ${where}` : `${group.length} updates on ${where}`;
+    const body = needs ? needs.summary : [...titles.slice(0, 2), ...(titles.length > 2 ? [`and ${titles.length - 2} more`] : [])].join(' · ');
+    const kind = group.every((i) => i.kind === 'action') ? 'action' : group.find((i) => i.kind !== 'action').kind;
+    return [{ title, body, url: `/${route}/`, tag: `summary:${route}`, kind, members: group.map((i) => i.id) }];
+  });
 }
 
 // When queued pushes go, a flushAt result, as words: a clock time, or "once the snooze ends" while snoozed until ended.
