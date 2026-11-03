@@ -1,8 +1,10 @@
 ---
-status: superseded in part by ADR-0078 and ADR-0081
+status: superseded in part by ADR-0078, ADR-0081 and ADR-0140
 ---
 
 # A new board chooses a repo and branch
+
+Superseded in part by [0140](0140-kickflip-join-adds-the-current-repository-as-a-board.md): a board without `github` or a plain git remote, and a board `kickflip join` made, build from their own folder's local `main`, never the kickflip clone's.
 
 Superseded in part by [0078](0078-a-pasted-github-link-picks-any-reachable-repo.md): the picker also takes a pasted GitHub link or `owner/name` for a repo outside the list. The list, clones and branches below still hold.
 

@@ -5,15 +5,25 @@
 //               fixable (by --fix), yours (with the command to run), optional or note. Changes nothing.
 //               --fix runs install's steps, then reports again. --json prints {items:[{group,item,state,detail,fix}]}.
 //               Exit 1 when anything is fixable or yours
-//   kickflip join <route> (--port <n> | --dir <folder> [--cmd '<json array>' [--port <n>]])
-//               [--title <t>] [--description <d>] [--icon <key>] [--color <css hex>]
+//   kickflip join [--name <board name>] [--hub]
+//               run in a git repo's folder: adds it as a board (docs/adr/0140-kickflip-join-adds-the-current-repository-as-a-board.md).
+//               Asks for the board name, default the folder's name; with no terminal to ask in, --name is needed. The name
+//               takes letters, digits and spaces, and gives the route, lowercased with dashes for spaces. Records the
+//               folder's origin as `github` and its branch; the board's builders branch from the folder's local main and
+//               land there (`local: true`). Marks the folder trusted for Claude Code, then starts the board's session in
+//               the background as `start` does, or with --hub flags the board as the hub board and opens its session in
+//               this terminal as `hub` does. Refuses a folder outside git (exit 2), and exits 1 while the hub isn't
+//               running. A folder that already has a board names it and offers to restart its session
+//   Every other join names its site with --name <name>, which gives its title and its route as above (any characters,
+//   other than letters and digits, become dashes). A name that is the route itself keeps the site's title.
+//   kickflip join --name <name> (--port <n> | --dir <folder> [--cmd '<json array>' [--port <n>]])
+//               [--description <d>] [--icon <key>] [--color <css hex>]
 //               a plain page: no session, owner, watcher or needs (docs/adr/0087-a-page-joins-without-a-session.md).
 //               --port forwards /<route>/ to a server the session already runs, which reads Down while it doesn't
 //               answer; --dir alone has the hub serve the folder's files; --cmd has the hub run that command in --dir
 //               (default the cwd) on --port or a free one. Prints {route, url, serves, port|dir, answering?, hub}.
-//               A rejoin changes how the page is served only when one of those flags is given. Exit 3 when a
-//               session owns the route
-//   kickflip join <route> --session <id> [--watch [<file,file>]] [--label <name>] [--title <t>] [--description <d>]
+//               A rejoin passes --port, --dir or --cmd again. Exit 3 when a session owns the route
+//   kickflip join --name <name> --session <id> [--watch [<file,file>]] [--label <name>] [--description <d>]
 //               [--dir <path>] [--cmd '<json array>'] [--port <n>]
 //               [--filter <regex>] [--template board [--items <waves|file>]] [--force]
 //               [--icon <key>] [--color <css hex>] [--repo <dir>] [--model <m>] [--hub | --no-hub]
@@ -38,7 +48,7 @@
 //   kickflip start <route> [--repo <dir>] [--model <m>] [--prompt <text>]
 //               starts a background session (`claude --bg`, auto mode, worktree isolation off) in --repo, else
 //               the route's recorded folder, else the cwd, named after the board, whose first prompt is
-//               `/kickflip <route>` plus --prompt. Records it as the route's owner, or in `starting` until a
+//               `/kickflip --name '<board name>'` plus --prompt. Records it as the route's owner, or in `starting` until a
 //               join takes it up when the route has no site yet. Prints {route, session, confirmed, repo, argv, output}
 //   kickflip resume <route>
 //               `claude --resume <id> --bg` for the route's recorded session in its folder, prompting it to rejoin
@@ -135,12 +145,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
+import readline from 'node:readline/promises';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ICON_KEYS } from '../hub/icons.mjs';
 import { liveSessions } from '../hub/live.mjs';
 import { isBoardSite, writeManifest } from '../hub/boards.mjs';
-import { routeRecord, validRoute } from '../hub/routes.mjs';
+import { joinName, routeFromName, routeRecord, validRoute } from '../hub/routes.mjs';
+import { githubFromOrigin } from '../hub/repos.mjs';
 import { migrateOnStart, uninstallStatusLine, storedPath, nodeBin, watcherCommand } from './install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { runDoctor } from './doctor.mjs';
@@ -269,9 +281,149 @@ async function hubStatus() {
 }
 
 const isFolder = (dir) => { try { return fs.statSync(dir).isDirectory(); } catch { return false; } };
+const realPath = (p) => { try { return fs.realpathSync(p); } catch { return null; } };
+
+// --name gives a join its title and its route, the name hyphenated (../hub/routes.mjs routeFromName). A name that is
+// the route itself keeps the existing site's title, so a board whose title hyphenates elsewhere rejoins by its route
+// (../hub/routes.mjs joinName). → {route, title}
+function named(existing = (route) => undefined) {
+  if (typeof args.name !== 'string' || !args.name.trim()) fail('join needs --name "<name>": the board or page name, which gives its route', 2);
+  const name = args.name.trim().replace(/\s+/g, ' ');
+  const route = routeFromName(name);
+  if (!validRoute(route)) fail(`--name "${name}" needs a letter or digit for its route`, 2);
+  return { route, title: (name === route && existing(route)?.title) || name };
+}
+
+// The board template's files in dir: board.json with its title, items ("waves" or a wave.json-format file, made with
+// no items when missing) and, when given, tickets. → the board server's cmd for dir
+function boardFiles(dir, { title, items, tickets }) {
+  fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
+  const cfgFile = path.join(dir, 'board.json');
+  const cfg = fs.existsSync(cfgFile) ? JSON.parse(fs.readFileSync(cfgFile, 'utf8')) : {};
+  cfg.title = title;
+  cfg.items = storedPath(items || cfg.items || 'waves');
+  if (tickets) cfg.tickets = tickets;
+  fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2) + '\n');
+  const itemsFile = cfg.items === 'waves' ? null : path.resolve(dir, cfg.items);
+  if (itemsFile && !fs.existsSync(itemsFile)) {
+    fs.mkdirSync(path.dirname(itemsFile), { recursive: true });
+    fs.writeFileSync(itemsFile, JSON.stringify({ title: cfg.title, items: [] }, null, 2) + '\n');
+  }
+  return [nodeBin(), path.join(SKILL, 'board', 'server.mjs'), dir];
+}
+
+// A background session for the route (../hub/sessions.mjs startSession), recorded as its site's owner, or in
+// `starting` until a join takes it up when the route has no site yet. → startSession's result
+async function startRecorded(route, options) {
+  const { startSession, withSessionLock } = await sessionsModule();
+  return withSessionLock(route, async () => {
+    const r = await sessionCall(() => startSession(route, { manifest: readManifest(), ...options }));
+    await withLock(async () => {
+      const m = readManifest();
+      const owner = { session: r.session, label: r.name, since: new Date().toISOString(), repo: r.repo, ...(r.model ? { model: r.model } : {}) };
+      if (routeRecord(m.sites, route)) { m.sites[route].owner = owner; m.sites[route].updated = owner.since; }
+      else m.starting = { ...m.starting, [route]: { ...routeRecord(m.starting, route), ...owner } };
+      await writeManifest(m);
+    });
+    return r;
+  });
+}
+
+// The hub board's session in this terminal (../hub/sessions.mjs hubSession); repo is the folder for a fresh one.
+async function openHub(repo) {
+  const { hubSession } = await sessionsModule();
+  const r = await sessionCall(() => hubSession({ manifest: readManifest(), repo }));
+  process.exitCode = r.status;
+}
+
+const git = (cwd, ...argv) => { const r = spawnSync('git', ['-C', cwd, ...argv], { encoding: 'utf8' }); return r.status === 0 ? r.stdout.trim() : null; };
+const canAsk = () => Boolean(process.stdin.isTTY && process.stdout.isTTY);
+async function ask(question) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  // Ctrl-D or Ctrl-C at the prompt stops join before it has changed anything.
+  try { return (await rl.question(question)).trim(); } catch (e) { if (e.code === 'ABORT_ERR') fail('stopped at the prompt; nothing changed'); throw e; } finally { rl.close(); }
+}
+const taken = (m, route) => Boolean(routeRecord(m.sites, route) || routeRecord(m.starting, route) || routeRecord(m.closed, route));
+// What's wrong with a typed board name, or null.
+function nameProblem(name) {
+  if (!/^[A-Za-z0-9 ]+$/.test(name) || !validRoute(routeFromName(name))) return 'A board name takes letters, digits and spaces, up to 41 characters of route.';
+  return taken(readManifest(), routeFromName(name)) ? `/${routeFromName(name)} is taken; pick another name.` : null;
+}
+// The board starts on its own cards, data/wave.json, as a New board start does.
+const BOARD_FLAGS = '--template board --items data/wave.json';
+
+// Bare `kickflip join` (docs/adr/0140-kickflip-join-adds-the-current-repository-as-a-board.md): adds the git repo the
+// cwd is in as a local board, its session starting in the background, or in this terminal with --hub.
+async function joinFolder() {
+  const top = git(process.cwd(), 'rev-parse', '--show-toplevel');
+  if (!top) fail(`${process.cwd()} is not in a git repo; run kickflip join in the folder of the repo to add as a board`, 2);
+  const folder = fs.realpathSync(top);
+  if (!(await hubStatus())) fail('the hub is not running; run kickflip install to set it up, then kickflip join here again');
+  const had = Object.entries(readManifest().sites).find(([, s]) => isBoardSite(s) && s.owner?.repo && realPath(s.owner.repo) === folder);
+  if (had) return restartFolderBoard(...had);
+  const fallback = path.basename(folder).replace(/[^A-Za-z0-9]+/g, ' ').trim();
+  let name = args.name?.trim();
+  if (name === undefined && !canAsk()) fail('join needs --name "<Board name>" when it has no terminal to ask in', 2);
+  for (;;) {
+    if (name === undefined) name = (await ask(`Board name${fallback ? ` (${fallback})` : ''}: `)) || fallback;
+    const problem = nameProblem(name);
+    if (!problem) break;
+    if (args.name !== undefined) fail(problem, 2);
+    out(problem);
+    name = undefined;
+  }
+  const title = name.replace(/\s+/g, ' ');
+  const route = routeFromName(title);
+  const origin = git(folder, 'remote', 'get-url', 'origin');
+  const github = origin ? githubFromOrigin(origin) : null;
+  const branch = git(folder, 'symbolic-ref', '--quiet', '--short', 'HEAD');
+  // Running join in the folder is the owner's consent to Claude Code's workspace trust for it.
+  const { trustFolder } = await import('../hub/trust.mjs');
+  try { trustFolder(folder); } catch (e) { fail(`Couldn't trust this folder for Claude Code: ${e.message}`); }
+  await withLock(async () => {
+    const m = readManifest();
+    if (taken(m, route)) fail(`/${route} is taken; pick another name`, 2);
+    const dir = path.join(HOME, 'sites', route);
+    const now = new Date().toISOString();
+    const site = {
+      dir, port: await freePort(m), cmd: boardFiles(dir, { title, items: 'data/wave.json' }), watch: ['data/events.jsonl'], title,
+      local: true, ...(github ? { github } : {}), ...(branch ? { branch } : {}), owner: { repo: folder }, created: now, updated: now,
+    };
+    m.sites = { ...m.sites, [route]: site };
+    applyHub(m, route, site);
+    await writeManifest(m);
+  });
+  out(`Made ${title} at ${siteUrl(route)}, working in ${folder}${github ? ` (${github})` : ''}.`);
+  if (args.hub) {
+    out('It is the hub board, so its session opens here.');
+    return openHub(folder);
+  }
+  try { await startRecorded(route, { repo: folder, prompt: BOARD_FLAGS }); }
+  catch (e) { if (e instanceof Exit) fail(`${e.message}\nThe board is made; run kickflip join here again to start its session.`, e.code); throw e; }
+  out('Its session is starting in the background, and joins the board shortly.');
+}
+
+// A folder that already has a board: names it and, on a yes, restarts its session as the Hub page's Restart does
+// (../hub/restart-board.mjs), opens the hub board's here, or starts one when none is recorded.
+async function restartFolderBoard(route, site) {
+  const title = site.title || route;
+  out(`This folder already has a board: ${title} (/${route}).`);
+  if (!canAsk()) fail(site.hub === true ? 'Open its session with kickflip hub.' : 'Run kickflip join in a terminal to restart its session, or tap Restart on its row of the Hub page.');
+  const answer = (await ask('Restart its session? (Y/n) ')).toLowerCase();
+  if (answer && !'yes'.startsWith(answer)) return;
+  if (site.hub === true) return openHub(site.owner.repo);
+  if (!site.owner.session) {
+    await startRecorded(route, { repo: site.owner.repo, prompt: BOARD_FLAGS });
+    return out('Its session is starting in the background.');
+  }
+  const r = await fetch(`http://127.0.0.1:${HUB_PORT}/_hub/restart-board`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ route }), signal: AbortSignal.timeout(5 * 60_000) });
+  const body = await r.json();
+  if (!r.ok) fail(body.error);
+  out(`Restarted ${title}'s session.`);
+}
 
 // A manifest entry's fields that hold on another host; the rest name this host's paths, port, session or restarts.
-const EXPORT_KEYS = ['title', 'description', 'icon', 'color', 'created', 'watch', 'filter', 'hub', 'github', 'remote', 'branch'];
+const EXPORT_KEYS = ['title', 'description', 'icon', 'color', 'created', 'watch', 'filter', 'hub', 'github', 'remote', 'branch', 'local'];
 // The hub settings the owner chose to carry (Notifications, Polling, Codex share); never a key or an integration.
 const EXPORT_SETTINGS = ['notifications', 'polling', 'codexShare'];
 const BUNDLE = 'kickflip-board';
@@ -316,7 +468,7 @@ Manifest fields left out, which the new machine sets itself: ${b.dropped.length 
 
 // A plain page (docs/adr/0087-a-page-joins-without-a-session.md): the entry has no owner, watch or filter, so no session
 // is woken, nothing is watched and the hub never asks it for needs.
-async function joinPage(route) {
+async function joinPage() {
   checkLook();
   const port = args.port === undefined ? undefined : Number(args.port);
   if (port !== undefined && !(Number.isInteger(port) && port > 0 && port < 65536)) fail('--port takes a port number', 2);
@@ -328,6 +480,7 @@ async function joinPage(route) {
   }
   const dir = args.dir === undefined ? undefined : path.resolve(args.dir);
   if (dir !== undefined && !cmd && port === undefined && !isFolder(dir)) fail(`--dir ${dir} is not a folder`, 2);
+  const { route, title } = named((r) => routeRecord(readManifest().sites, r));
   const result = await withLock(async () => {
     const m = readManifest();
     if (routeRecord(m.closed, route)) fail('That board is closed; use kickflip reopen ' + route, 2);
@@ -337,21 +490,19 @@ async function joinPage(route) {
       out({ error: 'owned', route, owner: existing.owner, hint: 'a session owns this route: pick another route, or that session leaves it first' });
       throw new Exit('', 3);
     }
-    if (!existing && port === undefined && dir === undefined && !cmd) fail('join needs --port <n> (a server this session runs) or --dir <folder> (files the hub serves), or --session <id> for a watched site', 2);
     const now = new Date().toISOString();
     const site = existing ? { ...existing } : { created: now };
     delete site.watch;
     delete site.filter;
-    if (port !== undefined || dir !== undefined || cmd) {
+    {
       const served = cmd ? { cmd, dir: dir || existing?.dir || process.cwd(), port: port ?? (existing?.cmd ? existing.port : undefined) ?? await freePort(m) }
         : port !== undefined ? { port, ...(dir ? { dir } : {}) } : { dir };
       for (const k of ['cmd', 'dir', 'port', 'cwd', 'env']) delete site[k];
       Object.assign(site, served);
     }
-    if (args.title) site.title = args.title;
+    site.title = title;
     if (args.description) site.description = args.description;
     applyLook(site);
-    site.title ||= route;
     site.updated = now;
     m.sites = { ...m.sites, [route]: site };
     await writeManifest(m);
@@ -375,13 +526,15 @@ const commands = {
   },
 
   async join() {
-    const route = args._[0];
-    if (!validRoute(route)) fail('join needs a route: lowercase letters, digits and dashes', 2);
+    if (args._.length) fail(`join takes no route: --name "<name>" gives the title and the route, as in kickflip join --name ${shellQuote(args._[0])}`, 2);
+    if (args.title !== undefined) fail('join takes no --title: --name "<name>" gives the title and the route', 2);
     if (!args.session) {
-      const watched = ['watch', 'template', 'filter', 'label', 'model', 'repo', 'hub', 'force'].find((k) => args[k] !== undefined);
+      const page = ['port', 'dir', 'cmd'].some((k) => args[k] !== undefined);
+      const watched = ['watch', 'template', 'filter', 'label', 'model', 'repo', 'force', 'items', ...(page ? ['hub'] : [])].find((k) => args[k] !== undefined);
       if (watched) fail(`--${watched} needs --session <id> (this session's id)`, 2);
-      return joinPage(route);
+      return page ? joinPage() : joinFolder();
     }
+    const { route, title } = named((r) => routeRecord(readManifest().sites, r));
     if (args.template && args.template !== 'board') fail('--template takes "board"', 2);
     checkLook();
     checkHub();
@@ -413,29 +566,17 @@ const commands = {
       if (args.port && existing) site.port = Number(args.port);
       if (args.cmd && existing) site.cmd = JSON.parse(args.cmd);
       if (args.template === 'board') {
-        fs.mkdirSync(path.join(site.dir, 'data'), { recursive: true });
-        const cfgFile = path.join(site.dir, 'board.json');
-        const cfg = fs.existsSync(cfgFile) ? JSON.parse(fs.readFileSync(cfgFile, 'utf8')) : {};
-        cfg.title = args.title || cfg.title || route;
-        cfg.items = storedPath(args.items || cfg.items || 'waves');
         const pending = routeRecord(m.starting, route);
-        if (!existing && pending?.tickets && (!pending.session || pending.session === args.session)) cfg.tickets = pending.tickets;
-        fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2) + '\n');
-        const itemsFile = cfg.items === 'waves' ? null : path.resolve(site.dir, cfg.items);
-        if (itemsFile && !fs.existsSync(itemsFile)) {
-          fs.mkdirSync(path.dirname(itemsFile), { recursive: true });
-          fs.writeFileSync(itemsFile, JSON.stringify({ title: cfg.title, items: [] }, null, 2) + '\n');
-        }
-        site.cmd = [nodeBin(), path.join(SKILL, 'board', 'server.mjs'), site.dir];
+        const tickets = !existing && pending?.tickets && (!pending.session || pending.session === args.session) ? pending.tickets : undefined;
+        site.cmd = boardFiles(site.dir, { title, items: args.items, tickets });
         created = !existing;
       }
-      if (args.title) site.title = args.title;
+      site.title = title;
       if (args.description) site.description = args.description;
       if (typeof args.watch === 'string') site.watch = args.watch.split(',').map((s) => s.trim()).filter(Boolean);
       if (args.filter !== undefined) site.filter = args.filter || undefined;
       applyLook(site);
       applyHub(m, route, site);
-      site.title ||= route;
       const previous = existing?.owner && existing.owner.session !== args.session ? existing.owner : null;
       const started = routeRecord(m.starting, route)?.session === args.session ? routeRecord(m.starting, route) : null;
       const pendingRepo = routeRecord(m.starting, route);
@@ -505,18 +646,8 @@ const commands = {
   async start() {
     const route = args._[0];
     if (!validRoute(route)) fail('start needs a route: lowercase letters, digits and dashes', 2);
-    const { startSession, withSessionLock } = await sessionsModule();
-    await withSessionLock(route, async () => {
-      const r = await sessionCall(() => startSession(route, { manifest: readManifest(), repo: args.repo, model: args.model, prompt: args.prompt }));
-      await withLock(async () => {
-        const m = readManifest();
-        const owner = { session: r.session, label: r.name, since: new Date().toISOString(), repo: r.repo, ...(r.model ? { model: r.model } : {}) };
-        if (routeRecord(m.sites, route)) { m.sites[route].owner = owner; m.sites[route].updated = owner.since; }
-        else m.starting = { ...m.starting, [route]: { ...routeRecord(m.starting, route), ...owner } };
-        await writeManifest(m);
-      });
-      out({ route: r.route, session: r.session, confirmed: r.confirmed, repo: r.repo, argv: r.argv, output: r.output });
-    });
+    const r = await startRecorded(route, { repo: args.repo, model: args.model, prompt: args.prompt });
+    out({ route: r.route, session: r.session, confirmed: r.confirmed, repo: r.repo, argv: r.argv, output: r.output });
   },
 
   async resume() {
@@ -603,7 +734,7 @@ const commands = {
       const { label, model } = bundle.owner || {};
       out({
         route, dir, port: site.port, settings: Object.keys(settings), hub: site.hub === true,
-        join: `kickflip join ${route} --session <this session's id> --watch --template board${label ? ` --label ${shellQuote(label)}` : ''}${model ? ` --model ${shellQuote(model)}` : ''} --force`,
+        join: `kickflip join --name ${shellQuote(joinName(route, site.title))} --session <this session's id> --watch --template board${label ? ` --label ${shellQuote(label)}` : ''}${model ? ` --model ${shellQuote(model)}` : ''} --force`,
       });
     } finally { fs.rmSync(stage, { recursive: true, force: true }); }
   },
@@ -625,9 +756,7 @@ const commands = {
   },
 
   async hub() {
-    const { hubSession } = await sessionsModule();
-    const r = await sessionCall(() => hubSession({ manifest: readManifest(), repo: args.repo }));
-    process.exitCode = r.status;
+    await openHub(args.repo);
   },
 
   async set() {

@@ -166,7 +166,7 @@ test('join clears boardless rules and prompts for both owners while the hub is s
   const web = (...parts) => path.join(home, '.claude', 'kickflip', ...parts);
   const dir = web('sites', 'shop');
   const join = (session) => {
-    execFileSync(process.execPath, [path.join(HUB_DIR, '..', 'bin', 'kickflip.mjs'), 'join', 'shop',
+    execFileSync(process.execPath, [path.join(HUB_DIR, '..', 'bin', 'kickflip.mjs'), 'join', '--name', 'shop',
       '--session', session, '--force', '--dir', dir, '--port', '4600',
       '--cmd', JSON.stringify([process.execPath, path.join(HUB_DIR, '..', 'board', 'server.mjs'), dir])],
     { env: { ...process.env, KICKFLIP_HUB_PORT: '1' }, stdio: 'pipe' });

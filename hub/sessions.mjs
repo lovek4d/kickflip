@@ -14,7 +14,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { routeRecord, validRoute } from './routes.mjs';
+import { joinName, routeRecord, validRoute } from './routes.mjs';
 import { withFileLock } from './locks.mjs';
 import { RESUME_STATE, carryCursor, hubBoard, isListening, listBoards, oldestUnheard, readManifest, readJSON, saveJSON, watchedCounts, watchedLines, watcherCursor, withManifestLock, writeManifest } from './boards.mjs';
 import { readUsageGate, heldUsageEvent } from '../shared/usage-gate.mjs';
@@ -130,22 +130,25 @@ export function runForegroundClaude(argv, { cwd }) {
 }
 
 const common = ({ name, model }) => ['--name', name, '--permission-mode', 'auto', '--settings', BG_SETTINGS, ...(model ? ['--model', model] : [])];
-export const startArgv = ({ route, name, model, prompt }) => ['--bg', ...common({ name, model }), `/kickflip ${route}${prompt ? ` ${prompt}` : ''}`];
-export const resumePrompt = (route, id) => `The hub resumed this session because /${route} had nobody listening. Rejoin the board as session ${id} (kickflip steps 3 and 5): rerun \`node ${path.join(SKILL_DIR, 'bin', 'kickflip.mjs')} join ${route} --session ${id}\`, relaunch its watcher as a background task, then go on with what its events ask. If your session id (the folder above your scratchpad) isn't ${id}, rejoin with yours and --force.`;
+// The session runs the join line through its shell, so the board name stays one quoted word.
+const quote = (s) => `'${s.replaceAll("'", "'\\''")}'`;
+const boardFlag = (route, title) => `--name ${quote(joinName(route, title))}`;
+export const startArgv = ({ route, name, model, prompt }) => ['--bg', ...common({ name, model }), `/kickflip ${boardFlag(route, name)}${prompt ? ` ${prompt}` : ''}`];
+export const resumePrompt = (route, id, title) => `The hub resumed this session because /${route} had nobody listening. Rejoin the board as session ${id} (kickflip steps 3 and 5): rerun \`node ${path.join(SKILL_DIR, 'bin', 'kickflip.mjs')} join ${boardFlag(route, title)} --session ${id}\`, relaunch its watcher as a background task, then go on with what its events ask. If your session id (the folder above your scratchpad) isn't ${id}, rejoin with yours and --force.`;
 // A background session resumed with any flag starts as a copy under a new id, so one goes without them and keeps the
 // options it started with; a session that never ran in the background gets them (Claude Code's `note:` line says which).
-export const resumeArgv = ({ id, route, name, model, background }) => ['--resume', id, '--bg', ...(background ? [] : common({ name, model })), resumePrompt(route, id)];
+export const resumeArgv = ({ id, route, name, model, background }) => ['--resume', id, '--bg', ...(background ? [] : common({ name, model })), resumePrompt(route, id, name)];
 
-const hubPrompt = (route) => `You are the hub session. Read \`${path.join(SKILL_DIR, 'docs', 'hub-session.md')}\`, then rejoin /${route} and relaunch its watcher.`;
-export const hubArgv = ({ route, id, model }) => [
+const hubPrompt = (route, title) => `You are the hub session. Read \`${path.join(SKILL_DIR, 'docs', 'hub-session.md')}\`, then rejoin /${route} (join ${boardFlag(route, title)}) and relaunch its watcher.`;
+export const hubArgv = ({ route, title, id, model }) => [
   ...(id ? ['--resume', id] : []), ...(model ? ['--model', model] : []),
-  id ? `${hubPrompt(route)} If your session id (the folder above your scratchpad) isn't ${id}, rejoin with yours and --force.` : `/kickflip ${route} --hub\n${hubPrompt(route)}`,
+  id ? `${hubPrompt(route, title)} If your session id (the folder above your scratchpad) isn't ${id}, rejoin with yours and --force.` : `/kickflip ${boardFlag(route, title)} --hub\n${hubPrompt(route, title)}`,
 ];
 
 // `repo` is the folder for a fresh session, or for a recorded session whose folder the manifest lacks.
 export async function hubSession({ manifest = readManifest(), repo, run = runForegroundClaude, live = liveSessions } = {}) {
   const board = hubBoard(manifest);
-  if (!board) throw new SessionError('No hub board is flagged; flag one with kickflip set <route> --hub, or join one with kickflip join hub-orchestrator --template board --hub --session <id>', 'hub');
+  if (!board) throw new SessionError('No hub board is flagged; flag one with kickflip set <route> --hub, or run kickflip join --hub in its repo folder', 'hub');
   const owner = board.owner?.session ? board.owner : null;
   if (owner && !owner.repo && !repo) throw new SessionError(`/${board.route}'s session ${owner.session} has no folder recorded; pass --repo <its folder>`, 'none');
   refuseLive(owner, live);
@@ -153,7 +156,7 @@ export async function hubSession({ manifest = readManifest(), repo, run = runFor
   if (!fs.statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
     throw new SessionError(owner?.repo ? `/${board.route}'s recorded folder ${cwd} is gone; rejoin from its new folder with --repo` : `no folder at ${cwd}`, 'none');
   }
-  return run(hubArgv({ route: board.route, id: owner?.session, model: owner?.model }), { cwd });
+  return run(hubArgv({ route: board.route, title: board.title, id: owner?.session, model: owner?.model }), { cwd });
 }
 
 // The session recorded for a route: its site's owner, else a start its join hasn't taken up. → owner + {title} | null
@@ -207,7 +210,7 @@ async function moveOwner(route, { from, to, mark }) {
 }
 
 // A new background session for the route, in repo (else the recorded session's folder, else the cwd), whose first
-// prompt is `/kickflip <route>` plus prompt. Refuses while the route's recorded session is live. Writes nothing to the
+// prompt is `/kickflip --name '<board name>'` plus prompt. Refuses while the route's recorded session is live. Writes nothing to the
 // manifest. A folder that is a clone under clones (repos.mjs isClone) is first marked trusted for Claude Code (trust.mjs).
 // → {route, session, confirmed, repo, model, name, argv, output}
 export async function startSession(route, { manifest = readManifest(), repo, model, prompt, run = runClaude, live = liveSessions, clones = reposDir() } = {}) {

@@ -45,16 +45,20 @@ export function makeWorktree(id, { repo = skillRepo(), base = 'main', remote = f
   return { path: storedPath(dir), branch: id, repo: storedPath(root) };
 }
 
-// The worktree of card id on the board at site: from the board's branch of its shared clone for a board on GitHub or a
-// plain git remote, else from repo, which defaults to the running kickflip clone's main. → as makeWorktree
-export function boardWorktree(site, id, { repo } = {}) {
-  const manifest = readManifest();
+// Where the board at site's builders branch from and land (hub/board-repo.mjs boardRepo): a board on GitHub or a plain
+// git remote from its branch of its shared clone, fetched first; a local board, the hub board included, from its repo's
+// local main. With no site, or a site that isn't a board, the running kickflip clone's main. repo stands in for the
+// board's folder. → {repo, base, remote}
+export function builderRepo(site, { repo, manifest = readManifest() } = {}) {
   const board = site ? boardAt(site, manifest) : null;
-  const chosen = board ? boardRepo(board.route, manifest) : {};
-  const remote = Boolean(chosen.github || chosen.remote) && !chosen.hub;
-  const source = repo ?? (remote ? chosen.repo || undefined : undefined);
-  return makeWorktree(id, { repo: source, base: remote ? chosen.branch || 'main' : 'main', remote });
+  if (!board) return { repo: repo ?? skillRepo(), base: 'main', remote: false };
+  const chosen = boardRepo(board.route, manifest);
+  const folder = repo ?? (chosen.repo || fail(`/${board.route} has no folder recorded for its session; rejoin it from its repo folder`));
+  return chosen.local ? { repo: folder, base: 'main', remote: false } : { repo: folder, base: chosen.branch || 'main', remote: true };
 }
+
+// The worktree of card id on the board at site, from builderRepo. → as makeWorktree
+export const boardWorktree = (site, id, { repo } = {}) => makeWorktree(id, builderRepo(site, { repo }));
 
 function testFiles(dir) {
   const found = [];

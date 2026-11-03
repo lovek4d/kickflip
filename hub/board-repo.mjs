@@ -1,4 +1,4 @@
-import { readManifest, withManifestLock, writeManifest, isBoardSite, listBoards, appendEvent, hubGithub } from './boards.mjs';
+import { readManifest, withManifestLock, writeManifest, isBoardSite, listBoards, appendEvent, hubGithub, buildsLocally } from './boards.mjs';
 import { routeRecord } from './routes.mjs';
 import { repoService, validateBranch, runRepo, githubFromOrigin } from './repos.mjs';
 import { repoInput } from './new-board.mjs';
@@ -12,9 +12,11 @@ const refuse = (message, status = 400) => { throw Object.assign(new Error(messag
 export function boardRepo(route, manifest = readManifest()) {
   const site = routeRecord(manifest.sites, route);
   if (!isBoardSite(site)) refuse('Board not found.', 404);
-  // The hub board's builders branch from the running kickflip clone's main (board/bin/board.mjs builder start).
-  if (site.hub === true) return { hub: true, github: hubGithub(), branch: '', repo: storedPath(cloneRoot()) };
-  return { github: site.github || '', ...(site.remote ? { remote: site.remote } : {}), branch: site.branch || '', repo: storedPath(site.owner?.repo || '') };
+  // `local` (boards.mjs buildsLocally): builders branch from the repo's local main. The hub board's repo is the running
+  // kickflip clone; any other board's is its session's folder.
+  if (site.hub === true) return { hub: true, local: true, github: hubGithub(), branch: '', repo: storedPath(cloneRoot()) };
+  const local = buildsLocally(site);
+  return { github: site.github || '', ...(site.remote ? { remote: site.remote } : {}), branch: site.branch || '', repo: storedPath(site.owner?.repo || ''), ...(local ? { local: true } : {}) };
 }
 
 function changeable(route, manifest) {
@@ -36,6 +38,7 @@ export async function changeBoardRepo(route, input, { repos = repoService(), eve
     const previous = changeable(route, manifest);
     const site = routeRecord(manifest.sites, route);
     Object.assign(site, { github, remote, branch, updated: new Date().toISOString() });
+    delete site.local;
     if (!github) delete site.github;
     if (!remote) delete site.remote;
     site.owner = { ...site.owner, repo };

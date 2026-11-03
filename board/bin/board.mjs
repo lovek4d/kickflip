@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as store from '../store.mjs';
-import { boardWorktree, holdingLandLock, land, skillRepo, worktreesDir } from '../worktree.mjs';
+import { boardWorktree, builderRepo, holdingLandLock, land, worktreesDir } from '../worktree.mjs';
 import { fileFindings } from '../arch-review.mjs';
 import { ITEM_STATUSES } from '../domain.mjs';
 import { boardAt, readManifest } from '../../hub/boards.mjs';
@@ -530,7 +530,7 @@ const COMMANDS = {
     return holdingLandLock(site ? await store.cardName(site, key) : key, async () => {
       if (site) await store.checkClose(site, key, f.text);
       const recorded = await store.recordedWorktree(site, key, { dir: f.dir });
-      const repo = path.resolve(f.repo ?? recorded?.repo ?? skillRepo());
+      const repo = path.resolve(f.repo ?? recorded?.repo ?? builderRepo(site).repo);
       land({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo });
       return site ? store.setItem(site, key, { status: 'done', text: f.text }) : { lines: [] };
     });

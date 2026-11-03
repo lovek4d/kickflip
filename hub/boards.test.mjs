@@ -558,13 +558,13 @@ test("the handshake says hello without a push; the board shows its checklist unt
 
 test("joining a board polls at once, so the new board's GitHub link passes without waiting for the next slot, and records when it joined, which a later join keeps and the sidebar serves", async () => {
   const before = Date.now();
-  const r = await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['join', 'fresh', '--session', 's-fresh', '--template', 'board', '--title', 'Fresh', '--port', String(freshPort)]);
+  const r = await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['join', '--name', 'Fresh', '--session', 's-fresh', '--template', 'board', '--port', String(freshPort)]);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(JSON.parse(r.stdout).poll, 'reached this board');
   assert.ok(read(claude('kickflip', 'github-state.json')).lastCheck.boards.includes('fresh'));
   const { created } = read(claude('kickflip', 'manifest.json')).sites.fresh;
   assert.ok(Date.parse(created) >= before - 1000 && Date.parse(created) <= Date.now(), created);
-  assert.equal((await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['join', 'fresh', '--session', 's-fresh', '--title', 'Fresher'])).status, 0);
+  assert.equal((await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['join', '--name', 'fresh', '--session', 's-fresh'])).status, 0);
   assert.equal(read(claude('kickflip', 'manifest.json')).sites.fresh.created, created);
   const sites = (await (await fetch(`${base}/_hub/sidebar.json?fresh=1`)).json()).sites;
   assert.deepEqual(sites.map((s) => [s.route, s.created]), [['fresh', created], ['orch', null], ['plain', null], ['shop', null]]);
@@ -655,7 +655,7 @@ test("New board validates through HTTP, reports a failed clone and preserves rep
     assert.deepEqual(again, { ...pending, askedAt: read(manifestFile).starting['backend-audit'].asked_at });
     assert.equal(read(manifestFile).starting['backend-audit'].purpose, request.purpose);
     const dismiss = (route) => fetch(`${base}/_hub/new-board/${route}`, { method: 'DELETE' });
-    const join = await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['join', pending.route, '--session', 's-backend', '--template', 'board', '--title', request.name, '--repo', repo, '--port', String(auditPort)]);
+    const join = await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['join', '--name', request.name, '--session', 's-backend', '--template', 'board', '--repo', repo, '--port', String(auditPort)]);
     assert.equal(join.status, 0, join.stderr);
     const joined = await sidebar();
     assert.equal(joined.starting.some((s) => s.route === pending.route), false);
@@ -739,7 +739,7 @@ test('object property names work as page routes and as new boards through HTTP a
       assert.deepEqual(await response.json(), { route });
       const pending = (await get('/_hub/sidebar.json')).starting.find((s) => s.route === route);
       assert.equal(pending.title, names[i]);
-      const joined = await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['join', route, '--session', sessions[i], '--template', 'board', '--title', names[i], '--repo', repo, '--port', String(namedPorts[i])]);
+      const joined = await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['join', '--name', names[i], '--session', sessions[i], '--template', 'board', '--repo', repo, '--port', String(namedPorts[i])]);
       assert.equal(joined.status, 0, joined.stderr);
       write(site(route, 'board.json'), { title: names[i], slug: route, items: 'data/items.json' });
       write(site(route, 'data', 'items.json'), { items: [{ id: 'constructor', title: 'Review', status: 'planned' }] });

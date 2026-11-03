@@ -1,8 +1,10 @@
 ---
-status: superseded in part by ADR-0127
+status: superseded in part by ADR-0127 and ADR-0140
 ---
 
 # The hub trusts the clones it makes
+
+Superseded in part by [0140](0140-kickflip-join-adds-the-current-repository-as-a-board.md): `kickflip join` also marks the git repo it runs in trusted, running it there being the consent.
 
 Superseded in part by [0127](0127-a-board-can-work-on-any-git-remote.md): a clone of another host's repo is `<host>/<path…>` under the same folder, with no clone above it, and is marked the same way.
 

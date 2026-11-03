@@ -113,7 +113,7 @@ test('closed routes are reserved against new boards, starts and joins, and CLI c
   const closed = JSON.parse(execFileSync(process.execPath, [cliFile, 'close', 'shop', '--name', 'The Shop'], { encoding: 'utf8' }));
   assert.equal(closed.buildersClosed, 3);
   await assert.rejects(requestBoard({ name: 'Shop', repo: home, purpose: '' }), { status: 400 });
-  assert.throws(() => execFileSync(process.execPath, [cliFile, 'join', 'shop', '--session', id, '--force'], { stdio: 'pipe' }), (e) => e.status === 2 && /closed/.test(e.stderr));
+  assert.throws(() => execFileSync(process.execPath, [cliFile, 'join', '--name', 'shop', '--session', id, '--force'], { stdio: 'pipe' }), (e) => e.status === 2 && /closed/.test(e.stderr));
   assert.throws(() => execFileSync(process.execPath, [cliFile, 'start', 'shop'], { stdio: 'pipe' }), (e) => e.status === 1 && /closed/.test(e.stderr));
   const fake = path.join(home, 'fake-claude');
   write(fake, `#!${process.execPath}\nconsole.log(process.argv[2] === 'agents' ? JSON.stringify([{sessionId: '${id}', kind: 'background'}]) : 'backgrounded · 12345678 · Shop');\n`);

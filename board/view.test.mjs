@@ -1392,6 +1392,7 @@ test('the repo sheet names gh auth login when signed out, retries authentication
   const form = sheet.querySelector('form');
   const click = (sel) => page.fire(form, 'click', { target: sheet.querySelector(sel) });
   assert.match(sheet.textContent, /GitHub isn’t connected.*gh auth login/);
+  assert.ok(sheet.querySelector('[data-join-hint]'), 'the signed-out sheet points at kickflip join too');
   assert.equal(sheet.querySelector('[data-repo]'), null);
   signedIn = true;
   click('[data-check-auth]');
@@ -1429,6 +1430,7 @@ test('pasted unlisted repos use the normal branch and save steps in New board an
     await tick();
     const sheet = doc.getElementById('newBoardSheet');
     const form = sheet.querySelector('form');
+    assert.equal(sheet.querySelector('[data-join-hint]')?.textContent ?? null, current ? null : 'A repo already on the host running Kickflip? Run kickflip join in its folder.');
     const input = sheet.querySelector('[name="search"]');
     input.value = 'https://github.com/outside/project/tree/canary';
     page.fire(form, 'input', { target: input });

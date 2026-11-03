@@ -90,7 +90,7 @@ test('new repo requests clone before starting a session and store the board bran
   assert.equal(fs.statSync(claudeConfig).mode & 0o777, 0o640);
   assert.deepEqual(fs.readdirSync(process.env.CLAUDE_CONFIG_DIR), ['.claude.json']);
   assert.deepEqual(calls, [{ cwd: repo, argv: ['--bg', '--name', "Bob's audit", '--permission-mode', 'auto', '--settings', BG_SETTINGS,
-    `/kickflip bob-s-audit --template board --items data/wave.json --title 'Bob'\\''s audit' --description 'Review $HOME changes'`] }]);
+    `/kickflip --name 'Bob'\\''s audit' --template board --items data/wave.json --description 'Review $HOME changes'`] }]);
   const rec = readManifest().starting['bob-s-audit'];
   assert.equal(started.session, rec.session);
   assert.ok(fs.existsSync(path.join(sessionsDir, `${rec.session}.json`)));
@@ -116,7 +116,7 @@ test('concurrent boards share one clone without switching its branch and need no
   await Promise.all(requests.map((r) => r.started));
   assert.equal(cloneCalls.length - before, 1);
   assert.deepEqual(calls.map((c) => c.cwd), [path.join(base, 'owner/shared'), path.join(base, 'owner/shared')]);
-  assert.equal(calls[0].argv.at(-1), "/kickflip shared-0 --template board --items data/wave.json --title 'Shared 0'");
+  assert.equal(calls[0].argv.at(-1), "/kickflip --name 'Shared 0' --template board --items data/wave.json");
   assert.deepEqual(Object.values(readManifest().starting).map((r) => r.branch), ['main', 'develop']);
   const another = await requestBoard(input('Shared again', 'owner/shared'), { run, live, repos });
   assert.ok((await another.started).session);
@@ -189,7 +189,7 @@ test('Retry starts a failed start again from its record, stopping a timed-out st
   assert.deepEqual(changes, ['retry-me']);
   assert.deepEqual(stops, []);
   assert.deepEqual(working.calls, [{ cwd: repo, argv: broken.calls[0].argv }]);
-  assert.equal(working.calls[0].argv.at(-1), "/kickflip retry-me --template board --items data/wave.json --title 'Retry me' --description 'Try it again'");
+  assert.equal(working.calls[0].argv.at(-1), "/kickflip --name 'Retry me' --template board --items data/wave.json --description 'Try it again'");
   const started = readManifest().starting['retry-me'];
   assert.deepEqual([started.session, started.error], [session, undefined]);
 
@@ -435,7 +435,7 @@ test('Settings clone changes update repo, branch and session folder and notify t
   try {
     for (const [origin, github] of [['git@github.com:someone/kickflip-fork.git', 'someone/kickflip-fork'], ['https://example.com/someone/kickflip.git', ''], ['', '']]) {
       process.env.ORIGIN = origin;
-      assert.deepEqual(boardRepo('hub'), { hub: true, github, branch: '', repo: clone });
+      assert.deepEqual(boardRepo('hub'), { hub: true, local: true, github, branch: '', repo: clone });
       assert.equal(listBoards().find((b) => b.route === 'hub').github, github);
     }
   } finally { process.env.PATH = priorPath; delete process.env.ROOT; delete process.env.ORIGIN; }
@@ -462,7 +462,7 @@ test('join transfers the reserved repo and branch before or after the start resu
     const clone = path.join(base, 'owner/project');
     saveJSON(manifestFile, { sites: {}, starting: { [route]: { title: route, github: 'owner/project', branch: 'develop', repo: clone, tickets: { source: 'internal', prefix: 'OPS' }, ...(recorded ? { session: 'joined-id' } : {}) } } });
     const run = (args) => {
-      const result = spawnSync(process.execPath, [bin, 'join', route, '--session', 'joined-id', '--port', '4613', ...args], { encoding: 'utf8', env: { ...process.env, KICKFLIP_HUB_PORT: '1' } });
+      const result = spawnSync(process.execPath, [bin, 'join', '--name', route, '--session', 'joined-id', '--port', '4613', ...args], { encoding: 'utf8', env: { ...process.env, KICKFLIP_HUB_PORT: '1' } });
       assert.equal(result.status, 0, result.stderr);
     };
     run(['--template', 'board', '--items', 'data/wave.json', '--cmd', JSON.stringify(board.cmd), '--repo', clone]);
@@ -492,7 +492,7 @@ test('a New board on another git host reserves remote and no github, refuses Git
   assert.ok((await request.started).session);
   assert.deepEqual(ensured, [[link, 'main']]);
   const bin = fileURLToPath(new URL('../bin/kickflip.mjs', import.meta.url));
-  const joined = spawnSync(process.execPath, [bin, 'join', 'firmware', '--session', readManifest().starting.firmware.session, '--port', '4614', '--template', 'board', '--items', 'data/wave.json', '--cmd', JSON.stringify(board.cmd)],
+  const joined = spawnSync(process.execPath, [bin, 'join', '--name', 'firmware', '--session', readManifest().starting.firmware.session, '--port', '4614', '--template', 'board', '--items', 'data/wave.json', '--cmd', JSON.stringify(board.cmd)],
     { encoding: 'utf8', env: { ...process.env, KICKFLIP_HUB_PORT: '1' } });
   assert.equal(joined.status, 0, joined.stderr);
   assert.deepEqual(boardRepo('firmware'), { github: '', remote: link, branch: 'main', repo: clone });

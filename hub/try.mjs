@@ -416,7 +416,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
         const { state } = stateOf(board);
         const source = boardRepo(board.route, manifest);
         const branch = source.branch || 'main';
-        const ref = source.hub ? 'refs/heads/main' : `refs/remotes/origin/${branch}`;
+        const ref = source.local ? 'refs/heads/main' : `refs/remotes/origin/${branch}`;
         for (const { slug, wave } of board.waves) for (const item of wave.items) {
           const key = `${slug}/${item.id}`;
           if (['done', 'merged', 'dropped'].includes(String(item.status).toLowerCase()) || ['MERGED', 'CLOSED'].includes(prs[`${board.github || wave.repo}#${item.pr}`]?.state)) continue;
@@ -482,14 +482,14 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
 // A remote board's git, with git's own credential and its prompts off (repos.mjs remoteGitEnv).
 const remoteGit = async (dir, ...args) => (await execFileAsync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 10_000, env: remoteGitEnv() })).stdout;
 
-// Fetches each non-hub board's branch and writes REPO_FETCH {<route>: {at, ok, error?, hint?}} for the boards it
+// Fetches the branch of each board that isn't local (board-repo.mjs boardRepo) and writes REPO_FETCH {<route>: {at, ok, error?, hint?}} for the boards it
 // fetched, which boards.mjs linksOf reads as each board's repo-fetch link. On a board whose repo is a plain git
 // remote, it then moves each pushed card to Done once its branch is merged or gone (settlePushed).
 export async function fetchTryBranches({ manifest = readManifest(), log = console.log } = {}) {
   const fetched = {};
   for (const board of listBoards(manifest)) {
     const source = boardRepo(board.route, manifest);
-    if (source.hub || !source.repo) continue;
+    if (source.local || !source.repo) continue;
     const branch = source.branch || 'main';
     const at = new Date().toISOString();
     try {

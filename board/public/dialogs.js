@@ -233,6 +233,8 @@
       return d;
     };
     const fail = (e) => { if (!closed) { error.textContent = e.message; error.hidden = false; } };
+    // A repo already on the host joins from its folder instead (docs/adr/0140-kickflip-join-adds-the-current-repository-as-a-board.md).
+    const joinHint = current ? '' : '<p class="nb-help" data-join-hint>A repo already on the host running Kickflip? Run <code>kickflip join</code> in its folder.</p>';
     function sync() { start.disabled = sending || !(draft.github || draft.remote) || !draft.branch || (!current && (!draft.name.trim() || !tickets?.valid())); }
     // A repo row's id is its GitHub owner/name, or the git link of a repo on another host, which the row names by
     // host/path and labels with its host where a GitHub row says Private or Public
@@ -297,11 +299,11 @@
         signedIn = d.signedIn;
         if (!d.signedIn) {
           repos = [];
-          content.innerHTML = '<h3>GitHub isn’t connected</h3><p>gh isn’t signed in on the host running Kickflip. Sign in there to see your repos.</p><code>gh auth login</code><p><button type="button" data-check-auth>Check again</button></p><label class="nb-field"><span>Or paste a git link</span><input name="search" type="search" placeholder="https://host/path or user@host:path" autocomplete="off" autocapitalize="off" spellcheck="false"></label><div data-repo-results></div>';
+          content.innerHTML = `<h3>GitHub isn’t connected</h3><p>gh isn’t signed in on the host running Kickflip. Sign in there to see your repos.</p><code>gh auth login</code><p><button type="button" data-check-auth>Check again</button></p><label class="nb-field"><span>Or paste a git link</span><input name="search" type="search" placeholder="https://host/path or user@host:path" autocomplete="off" autocapitalize="off" spellcheck="false"></label>${joinHint}<div data-repo-results></div>`;
           return;
         }
         repos = d.repos;
-        content.innerHTML = '<p class="nb-next">1 · Choose a repo</p><p>Choose the repo this board will work on: one of your GitHub repos, or any git repo by its link.</p><label class="nb-field"><span>Search repos or paste a git link</span><input name="search" type="search" placeholder="Search or paste owner/name or a git link…" autocomplete="off" autocapitalize="off" spellcheck="false"></label><div data-repo-results></div>';
+        content.innerHTML = `<p class="nb-next">1 · Choose a repo</p><p>Choose the repo this board will work on: one of your GitHub repos, or any git repo by its link.</p><label class="nb-field"><span>Search repos or paste a git link</span><input name="search" type="search" placeholder="Search or paste owner/name or a git link…" autocomplete="off" autocapitalize="off" spellcheck="false"></label>${joinHint}<div data-repo-results></div>`;
         rows();
       } catch (e) { fail(e); content.innerHTML = '<button type="button" data-check-auth>Try again</button>'; }
     }

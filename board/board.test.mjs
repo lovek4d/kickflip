@@ -1460,6 +1460,46 @@ test('land refuses a worktree with uncommitted changes, with no commit beyond ma
   assert.deepEqual(restarts(), []);
 });
 
+test("a local board, or one with no GitHub repo or git remote, branches from its own folder's local main and lands there, never kickflip's clone", () => {
+  scratchRepo();
+  const project = path.join(home, 'local-project');
+  fs.mkdirSync(project);
+  git(project, 'init', '--quiet', '-b', 'main');
+  git(project, 'config', 'user.name', 'Test');
+  git(project, 'config', 'user.email', 'test@example.com');
+  commit(project, 'project.txt', 'pushed');
+  git(project, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+  git(project, 'update-ref', 'refs/remotes/origin/develop', 'HEAD');
+  commit(project, 'landed.txt', 'only on local main');
+  const setOrch = (fields) => {
+    const manifest = read(at('kickflip', 'manifest.json'));
+    manifest.sites.orch = { dir: manifest.sites.orch.dir, port: 1, cmd: manifest.sites.orch.cmd, ...fields };
+    write(at('kickflip', 'manifest.json'), manifest);
+  };
+  const reset = () => { git(project, 'worktree', 'remove', '--force', worktree()); git(project, 'branch', '--quiet', '-D', 'A1'); };
+  for (const fields of [{ owner: { repo: project } }, { github: 'owner/project', branch: 'develop', local: true, owner: { repo: project } }]) {
+    setOrch(fields);
+    const r = board('--site', 'orch', 'builder', 'start', 'w/A1', '--worktree');
+    assert.equal(r.code, 0, r.err);
+    assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo: project });
+    assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(project, 'rev-parse', 'main'));
+    reset();
+  }
+
+  setOrch({});
+  const none = board('--site', 'orch', 'builder', 'start', 'w/A1', '--worktree');
+  assert.deepEqual([none.code, none.err], [1, '/orch has no folder recorded for its session; rejoin it from its repo folder\n']);
+
+  setOrch({ owner: { repo: project } });
+  fs.rmSync(at('waves', 'w', 'agents'), { recursive: true });
+  git(project, 'worktree', 'add', '--quiet', '-b', 'A1', worktree(), 'main');
+  commit(worktree(), 'card.txt', 'card');
+  const landed = run('board.mjs', ['land', 'w/A1', '--site', 'orch', '--text', 'Checked.'], undefined, { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) });
+  assert.equal(landed.code, 0, landed.err);
+  assert.match(landed.out, new RegExp(`main fast-forwarded to \\w+ in ${project}`));
+  assert.equal(fs.readFileSync(path.join(project, 'card.txt'), 'utf8'), 'card');
+});
+
 test('land rebases onto a moved main, fast-forwards main, restarts only what changed, and removes the worktree and branch', () => {
   const repo = scratchRepo();
   assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);

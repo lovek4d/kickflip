@@ -39,9 +39,10 @@ export function repoInput(input) {
 const taken = (manifest, route) => Object.hasOwn(manifest.sites || {}, route) || Object.hasOwn(manifest.starting || {}, route) || Object.hasOwn(manifest.closed || {}, route);
 const TAKEN = 'That board route already exists. Reopen it from Closed boards if it is closed.';
 
-// The new session runs these join flags through its shell, so each value must stay one quoted word.
+// The new session runs these join flags through its shell, so each value must stay one quoted word. The board's name,
+// which gives its title and route, comes first in the prompt (sessions.mjs startArgv).
 const quote = (s) => `'${s.replaceAll("'", "'\\''")}'`;
-const joinFlags = ({ title, purpose }) => `--template board --items data/wave.json --title ${quote(title)}${purpose ? ` --description ${quote(purpose)}` : ''}`;
+const joinFlags = ({ purpose }) => `--template board --items data/wave.json${purpose ? ` --description ${quote(purpose)}` : ''}`;
 
 function errorLine(message) {
   const line = String(message).split('\n').map((l) => l.trim()).find(Boolean) || 'claude did not start';
@@ -69,13 +70,13 @@ const startingRecord = ({ title, purpose, repo, github, remote, branch, tickets 
 
 // Prepares the clone and starts the route's session, recording the outcome on its Starting row. → a promise that settles
 // once the outcome is recorded, as {session} or {error}, and never rejects.
-async function start(route, { title, purpose, repo, github, remote, branch }, { run, live, repos, changed }) {
+async function start(route, { purpose, repo, github, remote, branch }, { run, live, repos, changed }) {
   let outcome;
   try {
     await repos.ensure(github || remote, branch);
     await recordStart(route, { phase: 'starting' });
     changed();
-    const r = await startSession(route, { repo, prompt: joinFlags({ title, purpose }), run, live, clones: repos.base });
+    const r = await startSession(route, { repo, prompt: joinFlags({ purpose }), run, live, clones: repos.base });
     outcome = { session: r.session, name: r.name, repo: r.repo, model: r.model };
   } catch (e) { outcome = { error: errorLine(e.message) }; }
   try { await recordStart(route, outcome); } catch (e) { return { error: errorLine(`could not record the start: ${e.message}`) }; }
