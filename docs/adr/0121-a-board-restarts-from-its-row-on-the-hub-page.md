@@ -1,0 +1,12 @@
+# A board restarts from its row on the Hub page
+
+The owner asked on hub/INT-260 for "a restart board button", for a board whose page is stuck or runs stale code, and settled take B of prototype `restart-board`: a Restart on each board's row of the Hub page, with Hub settings unchanged. The owner said it "should restart the orchestrator session and all, may be somewhat destructive and is for stuck boards".
+
+- **What it restarts.** `POST /_hub/restart-board {route}` (`hub/restart-board.mjs`) takes the board's session lock, stops its recorded session (`sessions.mjs stopSession`), which stops any builder it started, and sets the site's `restart_at` as `kickflip restart` does, so the hub restarts its server. Once the new server answers, it resumes the recorded session (`resumeRecordedSession`). Cards, threads, notes and builder records stay. The session wake waits while a restart runs, so it never resumes the session in between. A server that hasn't answered after 30 seconds still gets its session resumed, and the answer is an error naming `kickflip logs <route>`.
+- **The row.** Restart asks first in the confirm sheet: "Restart <title>? This stops its session mid-task, along with any builder it started, then restarts its server and resumes the session. Its cards and threads stay. For a stuck board." While the request is out, the row reads "Restarting · stopping its session, then starting it again" and the button shows a spinner. When it answers, a toast reads "<title> is back up, and its session is listening."; a refusal shows above the page.
+- **Which rows.** Only a board whose server the hub runs from its `cmd`, with a session and folder recorded to resume. The hub board has none: its session runs in the owner's terminal (`kickflip hub`, [0068](0068-the-hub-session-is-a-dev-time-role.md)), and a resume would bring it back as a background session, away from that terminal. Its server restarts with `kickflip restart <route>` and its session with `kickflip hub`. A session that another board also records is refused, as Close refuses it.
+
+Considered:
+- Take A, a Boards modal in Hub settings listing every board with Restart: one more place to look for a stuck board, away from the health that shows it is stuck.
+- Restarting only the server: a stuck board's session is as likely the problem, and the owner asked for both.
+- Answering at once and polling for the result: the row would need a second source for its state, while the request already ends when the board is back.

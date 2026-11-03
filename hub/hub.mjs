@@ -40,6 +40,8 @@
 //   /_hub/close-board/<route> GET the board's title, hub flag, open PRs and running builder records
 //   /_hub/close-board POST {route, name} stops the session, closes builder records and keeps the site under `closed`
 //   /_hub/reopen-board POST {route} restores that entry and resumes its recorded session (close-board.mjs)
+//   /_hub/restart-board POST {route} stops the board's session, restarts its server and, once that answers, resumes
+//                     the session → {route, title, session}, or {error} (restart-board.mjs)
 //   /_hub/status.json the manifest's sites and their process state, as JSON
 //   /_hub/needs.json  {total, sites: {<route>: {count, working, summary, lanes, building} | null}}: total is the
 //                     Home Screen badge; ?fresh=1 skips the cache
@@ -149,6 +151,7 @@ import { repoService, repoLookupRoute } from './repos.mjs';
 import { boardRepo, changeBoardRepo, migrateBoardRepos } from './board-repo.mjs';
 import { requestBoard, dismissBoard } from './new-board.mjs';
 import { boardClosure, closeBoard, closedBoards, reopenBoard } from './close-board.mjs';
+import { restartBoard, restartable } from './restart-board.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { BOARD_PUBLIC, appFile, colorsVersion, destOf, fileVersion, pageOf, shellHtml } from './shell.mjs';
 import { hubStream } from './stream.mjs';
@@ -243,7 +246,7 @@ function start(route, site) {
   }
   fs.closeSync(out);
   fs.writeFileSync(pidFile(route), String(child.pid));
-  Object.assign(p, { child, key: keyOf(site), state: 'starting', since: Date.now(), exitCode: null });
+  Object.assign(p, { child, key: keyOf(site), state: 'starting', since: Date.now(), exitCode: null, up: false });
   procs.set(route, p);
   log(`started ${route} pid ${child.pid}`);
   if (child.pid) children.add(child);
@@ -287,6 +290,20 @@ function probe(port) {
 
 let first = true;
 const closingResponses = new Set();
+// Routes whose Restart (restart-board.mjs) is running; the session wake waits them out.
+const restarting = new Set();
+const SERVER_WAIT = 30_000;
+// Whether the route's server, started from its entry as it reads now, answers within SERVER_WAIT.
+async function serverAnswers(route) {
+  const deadline = Date.now() + SERVER_WAIT;
+  for (;;) {
+    const site = routeRecord(loadManifest().sites, route);
+    const p = procs.get(route);
+    if (site && p?.child && p.up && p.key === keyOf(site)) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
 async function reconcile() {
   if (shuttingDown) return;
   const { sites } = loadManifest();
@@ -378,7 +395,7 @@ function runWakes() {
 
 const sessionCheck = { running: null };
 function runSessionCheck() {
-  if (sessionCheck.running || closingResponses.size) return;
+  if (sessionCheck.running || closingResponses.size || restarting.size) return;
   sessionCheck.running = checkSessions({ manifest: loadManifest() }).then((r) => {
     if (r.resumed.length || r.pushed.length || r.failed.length) log(`sessions: resumed ${r.resumed.join(', ') || 'none'}; pushed ${r.pushed.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
   }).catch((e) => log('session check failed:', e.message)).finally(() => { sessionCheck.running = null; });
@@ -484,7 +501,7 @@ function status() {
         : p.child ? (p.up ? 'up' : 'starting') : (p.state === 'crashed' ? 'down' : (p.state || 'starting'));
     return {
       route, title: s.title || route, description: s.description || '', icon: s.icon || null, color: s.color || null, port: s.port ?? null, serves, state,
-      exitCode: p.exitCode ?? null, owner: s.owner || null, changedAt: changedAt(route, s) || null, created: s.created || null,
+      exitCode: p.exitCode ?? null, owner: s.owner || null, restart: restartable(s), changedAt: changedAt(route, s) || null, created: s.created || null,
       log: path.join(LOGS, route + '.log'),
     };
   });
@@ -683,6 +700,21 @@ async function hubRoute(req, res, url) {
       stream.refresh();
       return sendJSON(200, result);
     } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
+  }
+  if (p === '/_hub/restart-board' && req.method === 'POST') {
+    let route;
+    try {
+      route = (await readJSONBody(req)).route;
+      if (restarting.has(route)) return sendJSON(409, { error: 'That board is already restarting.' });
+      restarting.add(route);
+      await sessionCheck.running;
+      const result = await restartBoard(route, { serverUp: serverAnswers });
+      log(`restarted /${route}: server answers, session ${result.session} resumed`);
+      return sendJSON(200, result);
+    } catch (e) {
+      if (route) log(`restart /${route} failed: ${e.message}`);
+      return sendJSON(e.status || 400, { error: e.message });
+    } finally { restarting.delete(route); stream.refresh(); }
   }
   if (p === '/_hub/repos' && req.method === 'GET') {
     try { return sendJSON(200, await repos.list(loadManifest(), { fresh: url.searchParams.get('fresh') === '1' })); }

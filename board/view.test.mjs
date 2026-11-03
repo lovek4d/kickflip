@@ -527,6 +527,55 @@ test('Hub Settings lists closed boards, keeps a refused reopen available, then r
   view.unmount();
 });
 
+test("Restart on a board's row of the Hub page confirms, reads Restarting until the hub answers, then toasts; a refusal shows above the page, and the hub board has no Restart", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const { Element } = miniDom(page.Target, page.win.document);
+  const site = (route, title, restart) => ({ route, title, icon: '', href: `/${route}/`, tone: 'ok', word: 'Up · listening · every link passes', lines: [], remembered: [], restart });
+  const hub = { hub: { tone: 'ok', word: 'Healthy', detail: '2 of 2 sites up' }, integrations: [], polling: { title: 'Checks every 30 min', lines: [], count: 0 }, sites: '2 sites', host: 'mac',
+    groups: [{ label: 'Boards', sites: [site('shop', 'The <Shop>', true), site('hub-orchestrator', 'Hub', false)] }] };
+  const settings = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], awake: { summary: 'Off' }, closed: [] };
+  const confirms = [];
+  page.win.BoardDialogs.confirm = async (text, labels) => { confirms.push([text, labels?.ok]); return true; };
+  const posts = [];
+  let answer;
+  page.win.fetch = (url, opts = {}) => {
+    if (opts.method === 'POST') { posts.push([url, JSON.parse(opts.body)]); return new Promise((resolve) => { answer = resolve; }); }
+    const body = url === '/_hub/api/hub' ? hub : settings;
+    return Promise.resolve({ ok: true, headers: { get: () => null }, json: async () => structuredClone(body) });
+  };
+  const root = page.win.document.body.appendChild(new Element('div'));
+  root.innerHTML = page.win.AppViews.hub.markup();
+  const view = page.win.AppViews.hub.create(root, 'https://mac.ts.net/_hub', { view: { kind: 'hub' }, sidebarChanged() {} });
+  const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
+  view.mount();
+  await settle();
+  const button = () => root.querySelector('[data-restart="shop"]');
+  const row = () => button().closest('.row');
+  assert.equal(root.querySelector('[data-restart="hub-orchestrator"]'), null);
+  assert.equal(row().querySelector('a.site-link').getAttribute('href'), '/shop/');
+  assert.equal(button().textContent, 'Restart');
+  page.fire(root.querySelector('.hub-status'), 'click', { target: button() });
+  await settle();
+  assert.deepEqual(confirms, [['Restart The <Shop>? This stops its session mid-task, along with any builder it started, then restarts its server and resumes the session. Its cards and threads stay. For a stuck board.', 'Restart']]);
+  assert.deepEqual(posts, [['/_hub/restart-board', { route: 'shop' }]]);
+  assert.equal(row().querySelector('.sub').textContent, 'Restarting · stopping its session, then starting it again');
+  assert.equal(button().textContent, 'Restarting…');
+  assert.ok(button().disabled);
+  assert.ok(button().querySelector('.try-spin'));
+  answer({ ok: true, json: async () => ({ route: 'shop', title: 'The <Shop>', session: 'abc' }) });
+  await settle();
+  assert.equal(root.querySelector('.toast').textContent, 'The <Shop> is back up, and its session is listening.');
+  assert.equal(button().textContent, 'Restart');
+  assert.equal(row().querySelector('.sub').textContent, 'Up · listening · every link passes');
+  page.fire(root.querySelector('.hub-status'), 'click', { target: button() });
+  await settle();
+  answer({ ok: false, json: async () => ({ error: 'session 1234 did not stop' }) });
+  await settle();
+  assert.equal(root.querySelector('.hub-status .flash.error').textContent, 'session 1234 did not stop');
+  assert.equal(button().textContent, 'Restart');
+  view.unmount();
+});
+
 test("the hub page, Hub Settings and Polling, mounted then unmounted, load their data from the hub's API, refresh it on an interval and leave no listener or interval behind", async () => {
   const page = fakePage(memoryStorage().localStorage);
   const urls = [];

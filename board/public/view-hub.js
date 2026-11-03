@@ -1,6 +1,6 @@
 // The hub page, /_hub/, a view of the app shell (shell.js): a banner while pushes are held or snoozed, the Usage card with Codex share, Needs you for the pending
 // prompts of sessions that own no board, Health, Integrations (readiness.mjs words), each site's health and board links,
-// polling status, then hub settings summary rows (ADR 0075). Health comes from GET /_hub/api/hub.
+// polling status, then hub settings summary rows (ADR 0075). A board's row can carry Restart (hub/restart-board.mjs). Health comes from GET /_hub/api/hub.
 // Its data refreshes every 30 seconds while it shows (hub-kit.js live).
 (function () {
   // The last data, which a return to the view paints at once.
@@ -11,11 +11,25 @@
     return sessions.map((s) => `<div class="remembered"><p>Always allow · session <code>${esc(s.session)}</code></p><ul>${s.rules.map((rule) => `<li><code>${esc(rule)}</code></li>`).join('')}</ul></div>`).join('');
   }
 
-  function sitesHtml(groups) {
+  const RESTARTING = '<span class="st wait">Restarting</span> · stopping its session, then starting it again';
+
+  // A board with Restart (hub/restart-board.mjs restartable) keeps its link and chevron around the button, since a
+  // button can't sit inside a link.
+  function restartRow(s, sub, busy) {
+    const href = esc(s.href);
+    return `<div class="row site-row"><a class="site-link" href="${href}">${s.icon}<span class="text"><span class="title">${esc(s.title)}</span><span class="sub wrap">${sub}</span></span></a>`
+      + `<button type="button" class="btn quiet restart-btn" data-restart="${esc(s.route)}" data-title="${esc(s.title)}" aria-label="Restart ${esc(s.title)}"${busy ? ' disabled aria-busy="true"' : ''}>${busy ? '<span class="try-spin" aria-hidden="true"></span>Restarting…' : 'Restart'}</button>`
+      + `<a class="chev" href="${href}" tabindex="-1" aria-hidden="true">›</a></div>`;
+  }
+
+  // restarting: the routes whose Restart is out.
+  function sitesHtml(groups, restarting) {
     const { row, CHEVRON } = HubUI;
     const site = (s) => {
+      const busy = restarting.has(s.route);
       const lines = s.lines.length ? `<span class="links">${s.lines.map((l) => `<span><b>${esc(l.link)}</b> ${esc(l.detail)}</span>`).join('')}</span>` : '';
-      return row({ icon: s.icon, title: esc(s.title), sub: `<span class="st ${esc(s.tone)}">${esc(s.word)}</span>${lines}`, wrap: true, trail: CHEVRON, href: s.href }) + rememberedHtml(s.remembered);
+      const sub = busy ? RESTARTING : `<span class="st ${esc(s.tone)}">${esc(s.word)}</span>${lines}`;
+      return (s.restart ? restartRow(s, sub, busy) : row({ icon: s.icon, title: esc(s.title), sub, wrap: true, trail: CHEVRON, href: s.href })) + rememberedHtml(s.remembered);
     };
     return groups.map((g) => `<h2 class="label">${esc(g.label)}</h2>\n<div class="group">${g.sites.map(site).join('')}</div>\n`).join('');
   }
@@ -38,13 +52,13 @@
     return shown.length ? `<section class="waiting"><h2>Needs you · ${shown.length}</h2><ul>${shown.map((p) => BoardUI.promptItem(p, prompts.state(p))).join('')}</ul></section>` : '';
   }
 
-  function html(d, { flash, prompts }) {
+  function html(d, { flash, prompts, restarting }) {
     const { row, tile, nowRow } = HubUI;
     const usage = HubUI.usageCard(d.usage, d.codex, d.pause);
     return `${HubUI.flash(flash)}${HubUI.pauseBanner(d.pause)}${HubUI.holdBanner(d.hold)}${usage}${promptsHtml(d.prompts || [], prompts)}<h2 class="label"${usage ? '' : ' style="margin-top:4px"'}>Health</h2>
 <div class="group">${row({ icon: tile('power', { ok: '#22c55e', wait: '#f59e0b' }[d.hub.tone] || '#ef4444'), title: 'Hub', sub: `<span class="st ${esc(d.hub.tone)}">${esc(d.hub.word)}</span> · ${esc(d.hub.detail)}${d.awake ? `<span class="links"><span><span class="awake-on">Keeping awake</span> ${esc(d.awake)}</span></span>` : ''}`, wrap: true })}
 ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/kickflip &lt;route&gt;</code>.' }) : ''}</div>
-${integrationsHtml(d.integrations)}${sitesHtml(d.groups)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, the fetch of its repo, events (its session and a watcher run, or the hub can wake it), daily wakes, pushes and reviewer links. One that just broke reads settling first.</p>
+${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, the fetch of its repo, events (its session and a watcher run, or the hub can wake it), daily wakes, pushes and reviewer links. One that just broke reads settling first.</p>
 <h2 class="label">Polling status</h2>
 <div class="group">${nowRow(d.polling, tile('clock', d.polling.count ? 'var(--color-notice)' : 'var(--color-quiet)'))}</div>`;
   }
@@ -71,15 +85,33 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups)}${d.remembered?.length 
       B.atUnmount(() => settings.unmount());
       B.on(B.$('#refresh'), 'click', () => settings.B.refreshSettings?.());
       let flash = null;
+      const restarting = new Set();
       B.openSettings = (...args) => settings.B.openSettings(...args);
+      async function restart(route, title) {
+        if (restarting.has(route) || !(await BoardDialogs.confirm(`Restart ${title}? This stops its session mid-task, along with any builder it started, then restarts its server and resumes the session. Its cards and threads stay. For a stuck board.`, { ok: 'Restart' }))) return;
+        restarting.add(route);
+        flash = null;
+        paint();
+        let out = null;
+        try {
+          const r = await fetch('/_hub/restart-board', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, body: JSON.stringify({ route }) });
+          out = await r.json().catch(() => null);
+          if (!r.ok || !out) throw new Error();
+          if (B.alive()) B.toast(`${out.title} is back up, and its session is listening.`);
+        } catch { flash = { text: out?.error || `Could not restart ${title}. Is the host awake?`, error: true }; }
+        restarting.delete(route);
+        if (B.alive()) { paint(); load(); }
+      }
       B.on(main, 'click', (e) => {
         const opener = e.target.closest?.('[data-settings-open]');
         if (opener) B.openSettings({ hash: `#${opener.dataset.settingsOpen}` }, opener);
+        const restarter = e.target.closest?.('[data-restart]');
+        if (restarter) restart(restarter.dataset.restart, restarter.dataset.title);
       });
       const foot = B.$('.hub-foot');
       const paint = () => {
         if (!last) return;
-        main.innerHTML = html(last, { flash, prompts });
+        main.innerHTML = html(last, { flash, prompts, restarting });
         foot.innerHTML = footer(last);
       };
       const prompts = PromptAnswers.wire(B, {

@@ -165,3 +165,6 @@
 .hub-view .ub-marked .u-bar > .ub-mark { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; border-radius: 0; background: var(--text); opacity: .5; }
 
 .hub-view .rd-fix button.link { padding: 0; font-size: inherit; }
+.hub-view .site-row > .site-link { flex:1; min-width:0; display:flex; align-items:center; gap:10px; color:inherit; }
+.hub-view .restart-btn { min-width:76px; min-height:34px; display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+.hub-view .restart-btn .try-spin { width:9px; height:9px; }

@@ -66,7 +66,7 @@ const codexView = (share, status) => ({
 });
 
 // sidebar: the /_hub/sidebar.json data, whose hub detail already says when the hub runs older code (home.mjs
-// hubHealth); rows: hub.mjs status() rows; links: Map of route to linksOf; code: {running, onDisk}, the hub's code hashes
+// hubHealth); rows: hub.mjs status() rows, whose restart (restart-board.mjs restartable) gives a board its Restart; links: Map of route to linksOf; code: {running, onDisk}, the hub's code hashes
 // (boards.mjs); host: the address the page was loaded from; rules: the hub rules; codexShare: push.mjs readCodexShare(codex);
 // codex: a shared/codex.mjs codexStatus; awake: awake.mjs awakeUntil, which the Health row's Keeping awake shows.
 // Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js).
@@ -75,7 +75,8 @@ const codexView = (share, status) => ({
 export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code = {}, host = '', rules = [], remembered = new Map(), integrations = [], codexShare = 'off', codex = codexStatus({ installed: false }), awake = null }) {
   const boards = new Set(sidebar.sites.filter((x) => x.board).map((x) => x.route));
   const codeLine = code.running && code.running === code.onDisk ? ` · runs the code in its files (${code.onDisk})` : '';
-  const site = (r) => ({ route: r.route, title: r.title, icon: siteIcon(r.route, r), href: `/${encodeURIComponent(r.route)}/`, ...siteHealth(r, links.get(r.route)), remembered: remembered.get(r.route) || [] });
+  const site = (r) => ({ route: r.route, title: r.title, icon: siteIcon(r.route, r), href: `/${encodeURIComponent(r.route)}/`, ...siteHealth(r, links.get(r.route)), remembered: remembered.get(r.route) || [],
+    restart: boards.has(r.route) && r.restart === true });
   const groups = [['Boards', rows.filter((r) => boards.has(r.route))], ['Pages', rows.filter((r) => !boards.has(r.route))]]
     .filter(([, list]) => list.length).map(([label, list]) => ({ label, sites: list.map(site) }));
   return {

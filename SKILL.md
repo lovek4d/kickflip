@@ -124,6 +124,7 @@ Reviewer DMs and digests wait on Slack. Before steps 1–3, read `board.mjs inte
 **Changes.**
 - Static files are live on the next request.
 - A change to the server's code needs `node $KF restart <route>`.
+- A stuck board restarts from its row on the Hub page: Restart stops its session and any builder it started, restarts its server and resumes the session, keeping its cards and threads. The hub board has no Restart, since its session runs in the owner's terminal ([ADR 0121](docs/adr/0121-a-board-restarts-from-its-row-on-the-hub-page.md)).
 - A changed `cmd`, port or dir in the manifest restarts the site by itself.
 - A change to the hub's own code (`hub/`) needs a hub restart, `launchctl kickstart -k gui/$(id -u)/local.claude.kickflip-hub` on macOS or `systemctl --user restart kickflip-hub.service` on Linux, which restarts every site; `board.mjs land` runs it when it lands such a change. Until then the Hub row reads Needs a restart.
 - `node $KF logs <route>` shows the site's output. The hub's own log is `~/.claude/kickflip/hub.log`.
