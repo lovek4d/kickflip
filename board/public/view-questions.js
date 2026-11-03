@@ -361,24 +361,25 @@
       const from = soloId ? topicOf(soloId)?.id : topicId;
       const pills = topicRow(topics, from).pills;
       const name = topicName(topics.find((t) => t.id === from) || { title: '' });
-      let sent = 0;
-      try {
-        for (const q of list) {
-          const d = getDraft(q.id);
-          const last = q.answers[q.answers.length - 1];
-          const choice = d.choice ?? (last ? last.choice : null);
-          const files = filesOf(q);
-          await site.send('owner-answer', { id: q.id, question: q.question, choice, label: choiceLabel(q, choice), note: (d.note || '').trim(), ...(files.length ? { files } : {}) });
-          setDraft(q.id, {});
-          BoardAttach.clear('q:' + q.id, site.root);
-          sent++;
-        }
-        const what = `Sent ${sent} answer${sent === 1 ? '' : 's'}${name ? ` to ${name}` : ''}.`;
-        // A load that started before these answers went out would read them as still open.
-        await loading;
-        if (await load(false)) moveOn(from, pills, what);
-        else if (B.alive()) { sentLine = what; $('#qstatus').textContent = what; $('#qstatus').classList.add('sent'); }
-      } catch { st.textContent = sent ? `Sent ${sent} of ${list.length}. Is the host awake?` : 'Could not send. Is the host awake?'; }
+      // docs/adr/0163-send-records-every-ready-answer-in-one-request.md: one request, recorded all or none.
+      const answers = list.map((q) => {
+        const d = getDraft(q.id);
+        const last = q.answers[q.answers.length - 1];
+        const choice = d.choice ?? (last ? last.choice : null);
+        const files = filesOf(q);
+        return { id: q.id, question: q.question, choice, label: choiceLabel(q, choice), note: (d.note || '').trim(), ...(files.length ? { files } : {}) };
+      });
+      try { await site.send('owner-answers', { answers }); }
+      catch (e) { st.textContent = e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?'; return; }
+      for (const q of list) {
+        setDraft(q.id, {});
+        BoardAttach.clear('q:' + q.id, site.root);
+      }
+      const what = `Sent ${list.length} answer${list.length === 1 ? '' : 's'}${name ? ` to ${name}` : ''}.`;
+      // A load that started before these answers went out would read them as still open.
+      await loading;
+      if (await load(false)) moveOn(from, pills, what);
+      else if (B.alive()) { sentLine = what; $('#qstatus').textContent = what; $('#qstatus').classList.add('sent'); }
     });
     // Each composer painted raises a bubbling attach-change (attach.js).
     B.on(root, 'attach-change', updateBar);

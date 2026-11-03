@@ -71,7 +71,11 @@
 //                                the one round trip (docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md)
 //                                ask, item-message and owner-answer may carry files: [upload]
 //                                An owner-answer with a note and no take resolves its question (store.mjs
-//                                resolveNoteAnswer).
+//                                resolveNoteAnswers).
+//                                owner-answers {answers: [owner-answer data]} is Waiting on you's Send: one owner-answer
+//                                line per answer, appended in one write with each answer's side effects → {ids, board};
+//                                an answer naming no question in owner.json, or none at all, → 400 {error} and nothing
+//                                recorded (docs/adr/0163-send-records-every-ready-answer-in-one-request.md).
 //                                prototype-request {key?, question?, note?} asks for prototypes of a card, or of one question
 //                                builder-nudge {key} asks the session to check a builder. The server also appends
 //                                builder-stalled {key, silentSince} once per silent spell, tracked in data/builder-stalled.json
@@ -147,7 +151,7 @@ import { promisify } from 'node:util';
 import { buildBoard, ITEM_EVENTS, needsAnswer, ownerActions, pullOf, refOf, startedByAnswer, threadOf } from './domain.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, readdirSync, statSync, watch as watchFiles } from 'node:fs';
-import { BoardError, boardConfig, dueQueuedBuilds, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswer, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, boardConfig, dueQueuedBuilds, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -238,11 +242,34 @@ async function readBody(req, limit = 64 * 1024) {
 }
 
 // Every page event, and the server's own such as a rules save, is one line here, which wakes the watcher. → its id
-async function appendEvent(kind, data) {
-  const e = { id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ts: new Date().toISOString(), kind, data };
+const appendEvent = async (kind, data) => (await appendEvents([[kind, data]]))[0];
+// [[kind, data]] → their ids, every line in one append.
+async function appendEvents(list) {
+  const ts = new Date().toISOString();
+  const lines = list.map(([kind, data]) => ({ id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), ts, kind, data }));
   await fs.mkdir(replies, { recursive: true });
-  await fs.appendFile(events, JSON.stringify(e) + '\n');
-  return e.id;
+  await fs.appendFile(events, lines.map((e) => JSON.stringify(e) + '\n').join(''));
+  return lines.map((e) => e.id);
+}
+
+// Owner answers [{id, ...}] → their event ids, appended in one write. A note with no take resolves its question, and an
+// answer that leaves an unstarted card with nothing stopping it appends card-unblocked for that card once.
+async function recordAnswers(answers) {
+  const ids = await appendEvents(answers.map((a) => ['owner-answer', a]));
+  await resolveNoteAnswers(here, answers);
+  // docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
+  const built = buildBoard(await snapshot({ github: false }));
+  const started = [...new Set(answers.map((a) => startedByAnswer(built, String(a.id))).filter(Boolean))];
+  if (started.length) await appendEvents(started.map((key) => ['card-unblocked', { key }]));
+  return ids;
+}
+// docs/adr/0163-send-records-every-ready-answer-in-one-request.md
+// Why a batch of owner answers can't be recorded, or null when every one names a question in owner.json.
+async function answersRefused(answers) {
+  if (!Array.isArray(answers) || !answers.length) return 'Send at least one answer.';
+  const asked = new Set(((await readJSON(path.join(data, 'owner.json'), { items: [] })).items || []).map((q) => q.id));
+  const gone = answers.filter((a) => !asked.has(String(a?.id)));
+  return gone.length ? `${gone.map((a) => String(a?.id)).join(', ')} ${gone.length === 1 ? 'is' : 'are'} no longer asked here. Reload to see what is, then send again.` : null;
 }
 
 async function withReply(e) {
@@ -680,7 +707,8 @@ const server = http.createServer(async (req, res) => {
       } catch (e) { if (e instanceof BoardError) return json(res, 404, { error: e.message }); throw e; }
     }
     if (p === '/_claude/events' && req.method === 'POST') {
-      const body = await readBody(req);
+      // Room for a Send carrying every ready answer's note.
+      const body = await readBody(req, 512 * 1024);
       const kind = String(body.kind || 'message').slice(0, 64);
       delete body.kind;
       if (kind === 'card-hold' && body.hold && body.for !== undefined) {
@@ -695,13 +723,13 @@ const server = http.createServer(async (req, res) => {
         const started = await startTappedBuild(here, key, () => boardWorktree(here, key.split('/')[1]));
         return json(res, 200, { id: started && !started.queued ? await appendEvent(kind, started) : null, board: await board() });
       }
-      const id = await appendEvent(kind, body);
-      if (kind === 'owner-answer') {
-        await resolveNoteAnswer(here, body);
-        // docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
-        const started = startedByAnswer(buildBoard(await snapshot({ github: false })), String(body.id));
-        if (started) await appendEvent('card-unblocked', { key: started });
+      if (kind === 'owner-answer') return json(res, 200, { id: (await recordAnswers([body]))[0], board: await board() });
+      if (kind === 'owner-answers') {
+        const refused = await answersRefused(body.answers);
+        if (refused) return json(res, 400, { error: refused });
+        return json(res, 200, { ids: await recordAnswers(body.answers), board: await board() });
       }
+      const id = await appendEvent(kind, body);
       // The event shows the tap at once (domain.mjs); a failed write leaves it to the session's follow-up.
       if (kind === 'card-hold' || kind === 'card-done') {
         try { await recordOwnerTap(here, kind, body); } catch (e) { console.error(`Recording ${kind} failed:`, e.message); }

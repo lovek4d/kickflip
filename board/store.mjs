@@ -1049,12 +1049,12 @@ export async function resolveQuestion(site, id, note) {
 }
 
 // docs/adr/0114-a-pick-with-no-note-settles-a-prototype-round.md
-// An owner answer with a note and no take resolves its question, noting "Answered with a note".
-export async function resolveNoteAnswer(site, { id, choice, note }) {
-  if (choice || !String(note || '').trim()) return;
-  const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
-  if (!(owner.items || []).some((q) => q.id === id)) return;
-  setResolved(owner, [id], 'Answered with a note');
+// Each owner answer with a note and no take resolves its question, noting "Answered with a note", in one write.
+export async function resolveNoteAnswers(site, answers) {
+  const ids = answers.filter(({ choice, note }) => !choice && String(note || '').trim()).map((a) => a.id);
+  const owner = ids.length ? await readJSON(ownerFile(site), { topics: [], items: [] }) : null;
+  if (!owner?.items?.some((q) => ids.includes(q.id))) return;
+  setResolved(owner, ids, 'Answered with a note');
   await writeJSON(ownerFile(site), owner);
 }
 

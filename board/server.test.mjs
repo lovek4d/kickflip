@@ -105,6 +105,38 @@ test("an owner answer opens no confirm: a pick settles its round, with a note or
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
+test("one owner-answers request records every answer as one-by-one answers would, in one write, returning the board once, or on any it can't record records none and says why", async () => {
+  const ownerFile = path.join(site, 'data', 'owner.json');
+  const eventsFile = path.join(site, 'data', 'events.jsonl');
+  const ask = (id, key) => ({ id, topic: `item:${key}`, question: `${id}?`, options: [{ id: 'A', label: 'This' }] });
+  const batch = (answers) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answers', answers }) });
+  const lines = () => (fs.existsSync(eventsFile) ? fs.readFileSync(eventsFile, 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'B1', title: 'Two questions' }] }));
+  fs.writeFileSync(ownerFile, JSON.stringify({ items: [ask('b1a', 't/B1'), ask('b1b', 't/B1')] }));
+  try {
+    const untouched = [fs.readFileSync(ownerFile, 'utf8'), lines().length];
+    const refused = await batch([{ id: 'b1a', choice: 'A', note: '' }, { id: 'gone', choice: 'A', note: '' }]);
+    assert.equal(refused.status, 400);
+    assert.match((await refused.json()).error, /gone/);
+    assert.deepEqual([fs.readFileSync(ownerFile, 'utf8'), lines().length], untouched);
+    assert.equal((await batch([])).status, 400);
+    assert.deepEqual([fs.readFileSync(ownerFile, 'utf8'), lines().length], untouched);
+
+    const before = lines().length;
+    const r = await batch([{ id: 'b1a', question: 'b1a?', choice: 'A', label: 'A. This', note: 'Bigger' }, { id: 'b1b', question: 'b1b?', choice: null, label: '', note: 'Rename it' }]);
+    assert.equal(r.status, 200);
+    const out = await r.json();
+    const added = lines().slice(before);
+    assert.deepEqual(added.map((e) => [e.kind, e.data]), [
+      ['owner-answer', { id: 'b1a', question: 'b1a?', choice: 'A', label: 'A. This', note: 'Bigger' }],
+      ['owner-answer', { id: 'b1b', question: 'b1b?', choice: null, label: '', note: 'Rename it' }],
+      ['card-unblocked', { key: 't/B1' }]]);
+    assert.deepEqual(out.ids, added.slice(0, 2).map((e) => e.id));
+    assert.deepEqual(out.board.owner.filter((q) => q.topic === 'item:t/B1').map((q) => [q.id, q.state]), [['b1a', 'answered'], ['b1b', 'resolved']]);
+    assert.equal(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items.find((q) => q.id === 'b1b').resolved, 'Answered with a note');
+  } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
+});
+
 test('board writes refuse cross-site requests and non-JSON bodies before their handlers run', async () => {
   const file = path.join(site, 'data', 'events.jsonl');
   const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;

@@ -2667,7 +2667,7 @@ test("Mark as done closes the card and leaves the page where it is as the card m
   assert.deepEqual([flashing(), tinting()], [[], ['ask:b1', 'w/C1']]);
 });
 
-function questionsOnDom({ topics, questions, at, next }) {
+function questionsOnDom({ topics, questions, at, next, gate = null }) {
   const page = fakePage(memoryStorage().localStorage);
   const { Element } = miniDom(page.Target, page.win.document);
   const base = 'https://mac.ts.net/board-a';
@@ -2689,8 +2689,14 @@ function questionsOnDom({ topics, questions, at, next }) {
       topics.find((t) => t.id === q.topic).round = { n: (q.round || 0) + 1, state: 'making' };
       return {};
     }
-    q.state = 'answered';
-    q.answers.push({ ts: '2026-10-30T10:00:00.000Z', choice: data.choice, note: '', files: [], reply: null });
+    // An owner-answers batch is recorded all or none, as board/server.mjs records it, once gate (if any) settles.
+    await gate?.promise;
+    if (gate?.refuse) throw Object.assign(new Error('send failed: 400'), { status: 400, reason: gate.refuse });
+    for (const a of data.answers) {
+      const q = server.questions.find((x) => x.id === a.id);
+      q.state = 'answered';
+      q.answers.push({ ts: '2026-10-30T10:00:00.000Z', choice: a.choice, note: '', files: [], reply: null });
+    }
     return {};
   } });
   Object.assign(page.win, { scrollTo() {}, scrollY: 0, sessionStorage: memoryStorage().localStorage });
@@ -2801,6 +2807,46 @@ test("Waiting on you's eye on each question, after its attach button, asks for a
   await v.settle();
   assert.deepEqual(JSON.parse(JSON.stringify(v.sent[1])), ['prototype-request', { key: 'w/T1', question: 'q1', note: '' }]);
   v.unmount();
+});
+
+test("Waiting on you's Send carries every ready answer in one request, reads Sending… until the server answers, then shows them all sent at once, or on a refusal keeps every draft and says why", async () => {
+  const question = (id) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
+  let release;
+  const gate = { promise: new Promise((r) => { release = r; }) };
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('q2'), question('q3')], at: 'q1', next: question('q3'), gate });
+  await v.settle();
+  const $ = (sel) => v.root.querySelector(sel);
+  const draft = (page, id) => JSON.parse(page.win.localStorage.getItem(`qdraft:${id}`) || '{}');
+  const waiting = () => v.root.querySelectorAll('section.q').filter((s) => s.textContent.includes('waiting for claude')).map((s) => s.dataset.q);
+  v.answer('q1');
+  v.answer('q2');
+  await v.send();
+  assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['owner-answers', { answers: [
+    { id: 'q1', question: 'Question q1?', choice: 'A', label: 'A. Yes', note: '' },
+    { id: 'q2', question: 'Question q2?', choice: 'A', label: 'A. Yes', note: '' }] }]]);
+  assert.equal($('#qstatus').textContent, 'Sending…');
+  assert.deepEqual(waiting(), []);
+  assert.deepEqual([draft(v.page, 'q1'), draft(v.page, 'q2')], [{ choice: 'A' }, { choice: 'A' }]);
+  release();
+  await v.settle();
+  assert.equal(v.sent.length, 1);
+  assert.deepEqual(waiting(), ['q1', 'q2']);
+  assert.deepEqual([draft(v.page, 'q1'), draft(v.page, 'q2')], [{}, {}]);
+  assert.equal($('#qstatus').textContent, 'Sent 2 answers to INT-1. 1 still open, answer it any time.');
+
+  const refused = { promise: Promise.resolve(), refuse: 'Question q2 is no longer asked here. Reload to see what is.' };
+  const r = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('q2')], at: 'q1', gate: refused });
+  await r.settle();
+  r.answer('q1');
+  r.answer('q2');
+  await r.send();
+  assert.equal(r.root.querySelector('#qstatus').textContent, 'Nothing was sent: Question q2 is no longer asked here. Reload to see what is.');
+  assert.deepEqual(r.shown().questions, ['q1', 'q2']);
+  assert.deepEqual([draft(r.page, 'q1'), draft(r.page, 'q2')], [{ choice: 'A' }, { choice: 'A' }]);
+  await r.send();
+  assert.deepEqual(JSON.parse(JSON.stringify(r.sent.map(([, d]) => d.answers.map((a) => a.id)))), [['q1', 'q2'], ['q1', 'q2']]);
+  v.unmount();
+  r.unmount();
 });
 
 test('Waiting on you measures a fitting grid, then uses one growing full-size frame when any take scrolls, preserving drafts and history while choices switch', async () => {
