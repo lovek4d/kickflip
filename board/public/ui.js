@@ -57,7 +57,7 @@
   const ELLIPSIS = icon('<circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/>');
   // Asks Claude for throwaway prototypes of one item (docs/adr/0015-prototypes-come-on-request.md).
   function protoButton(id, state = null, { label = 'Ask for prototypes', disabled = false } = {}) {
-    if (state?.pending) return `<button type="button" class="attach proto-ask" data-proto="${esc(id)}" data-proto-pending="${esc(state.pending)}" aria-label="Prototypes are being made" title="Prototypes are being made">${ELLIPSIS}</button>`;
+    if (state?.pending) return `<button type="button" class="attach proto-ask" data-proto="${esc(id)}" data-proto-pending="${esc(state.pending)}" aria-label="Prototypes are being made" title="Prototypes are being made"${disabled ? ' disabled' : ''}>${ELLIPSIS}</button>`;
     return `<button type="button" class="attach proto-ask" data-proto="${esc(id)}" aria-label="${esc(label)}" title="${esc(label)}"${disabled ? ' disabled' : ''}>${EYE}</button>`;
   }
   // latestBump is the data.id of the newest ask-bump event.

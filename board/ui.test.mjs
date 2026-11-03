@@ -641,6 +641,7 @@ test('a question waiting on its prototype reads Prototype requested with a spinn
   const onTakes = ui.questionCard({ ...question, url: 'prototype-search.html?q=q1', state: 'requested' });
   assert.ok(takeCards(onTakes).every((t) => /<input type="radio"[^>]* disabled>/.test(t)));
   assert.doesNotMatch(ui.questionCard(question), /disabled|pr-busy|try-spin/);
+  assert.doesNotMatch(ui.questionCard({ ...question, state: 'resolved' }), /data-proto/);
 
   const confirm = { ...question, id: 'c1', question: 'Is this it?', url: 'prototype-search.html?q=c1', options: [{ id: 'B', label: 'Icon' }], round: 1, confirm_of: 'q1' };
   const open = ui.questionCard(confirm);

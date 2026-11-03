@@ -5,9 +5,8 @@
 // open question goes back to the board, where the Sent line shows as a toast (BoardUI.sentNotice). An open question
 // with `urgent: true` in owner.json shows alone first, and its Send follows the same rule for its topic. A question
 // whose options are prototype takes frames each take with ?take= (docs/adr/0048-a-questions-takes-show-inline.md).
-// The eye left of Send sends `prototype-request {key?, question, note}` instead of an answer, for the question last
-// typed in or picked on, else the first one not resolved or requested, with its note box as the note
-// (docs/adr/0111-a-prototype-round-ends-with-a-one-take-confirm.md).
+// Each question's eye sends `prototype-request {key?, question, note}` for that question instead of an answer, with its
+// note box as the note (docs/adr/0126-each-question-has-its-own-prototype-eye.md).
 // fits: each framed take's measured size, kept across repaints and visits so a take redraws at its size at once.
 (globalThis.AppViews ||= {}).questions = ((fits) => ({
   className: 'view-questions',
@@ -19,7 +18,7 @@
 
   create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
     const { $, site } = B;
-    const { esc, choiceLabel, questionCard, roundChip, protoButton, takes, linkContext, badge, topicName, topicRow, nextQuestion, sentNotice, fetchJSON, restartNotice } = BoardUI;
+    const { esc, choiceLabel, questionCard, roundChip, takes, linkContext, badge, topicName, topicRow, nextQuestion, sentNotice, fetchJSON, restartNotice } = BoardUI;
     // prototype-switcher.js reads a draft's note and clears the draft once it sends that question's answer.
     const draftKey = (id) => 'qdraft:' + id;
     const getDraft = (id) => { try { return JSON.parse(localStorage.getItem(draftKey(id)) || '{}'); } catch { return {}; } };
@@ -34,7 +33,6 @@
     let shown = '';
     let sentLine = '';
     let scrollTake = null;
-    let touched = null;
     const takeResources = new Map();
     const clearTakeResources = (within = root) => {
       for (const [shot, release] of takeResources) {
@@ -89,7 +87,6 @@
       }
       const t = topics.find((x) => x.id === topicId);
       const live = qs.filter((q) => q.state !== 'resolved');
-      const eye = protoButton('question', null, { label: 'Ask for a prototype instead', disabled: !eyeTarget() });
       const done = qs.filter((q) => q.state === 'resolved');
       const head = soloId
         ? `<div class="solo">${badge('notice', 'needs you first')}<button class="ghost" id="showAll">All questions</button></div>`
@@ -97,7 +94,7 @@
       el.innerHTML = `${head}<form id="qform">
         ${live.map((q, i) => questionCard(q, { n: soloId ? 0 : i + 1, draft: getDraft(q.id), links: links(q), fit: fitOf(q) })).join('')}
         ${done.length ? `<details class="done"><summary>Resolved · ${done.length}</summary>${done.map((q) => questionCard(q, { draft: getDraft(q.id), links: links(q), fit: fitOf(q) })).join('')}</details>` : ''}
-        <div class="bar"><span class="muted small${sentLine ? ' sent' : ''}" id="qstatus" role="status">${esc(sentLine)}</span><span class="send-hint" aria-hidden="true">${/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘↵' : 'Ctrl+↵'}</span><span class="pr-send">${eye}<button class="primary" type="submit" id="send">Send</button></span></div>
+        <div class="bar"><span class="muted small${sentLine ? ' sent' : ''}" id="qstatus" role="status">${esc(sentLine)}</span><span class="send-hint" aria-hidden="true">${/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘↵' : 'Ctrl+↵'}</span><button class="primary" type="submit" id="send">Send</button></div>
       </form>${soloId ? '' : waitingTopics() + resolvedTopics()}`;
       BoardAttach.paintAll();
       el.querySelectorAll('.take-shot').forEach(fitTake);
@@ -214,13 +211,7 @@
         `<div><button class="ghost" data-topic="${esc(t.id)}">${esc(t.title)}</button></div>`).join('')}</details>` : '';
     }
 
-    function eyeTarget() {
-      const live = visible().filter((q) => q.state !== 'resolved' && q.state !== 'requested');
-      return live.find((q) => q.id === touched) || live[0] || null;
-    }
-    async function askPrototype() {
-      const q = eyeTarget();
-      if (!q) return;
+    async function askPrototype(q) {
       const st = $('#qstatus');
       const key = q.topic?.startsWith('item:') ? q.topic.slice(5) : null;
       st.textContent = 'Sending…';
@@ -315,7 +306,7 @@
     B.on(root, 'click', (ev) => {
       if (ev.target.id === 'showAll') { soloId = null; sentLine = ''; shown = ''; render(); return; }
       const eye = ev.target.closest && ev.target.closest('[data-proto]');
-      if (eye) { if (!eye.disabled) askPrototype(); return; }
+      if (eye) { if (!eye.disabled) askPrototype(byId(eye.closest('section.q').dataset.q)); return; }
       const b = ev.target.closest && ev.target.closest('[data-topic]');
       if (b) { soloId = null; topicId = b.dataset.topic; sentLine = ''; shown = ''; render(); scrollTo(0, 0); }
     });
@@ -337,7 +328,6 @@
     }
     B.on(root, 'change', (ev) => {
       const sec = ev.target.closest('section.q'); if (!sec || ev.target.type !== 'radio') return;
-      touched = sec.dataset.q;
       const d = getDraft(sec.dataset.q); d.choice = ev.target.value; setDraft(sec.dataset.q, d); updateBar();
       const full = sec.querySelector('.takes-full');
       if (full && inPlace(full, d.choice)) return;
@@ -351,7 +341,6 @@
     });
     B.on(root, 'input', (ev) => {
       const sec = ev.target.closest('section.q'); if (!sec || ev.target.tagName !== 'TEXTAREA') return;
-      touched = sec.dataset.q;
       const d = getDraft(sec.dataset.q); d.note = ev.target.value; setDraft(sec.dataset.q, d); updateBar();
     });
     B.on(root, 'keydown', (ev) => {

@@ -199,7 +199,7 @@ code { overflow-wrap: anywhere; }
 .msg .body:empty { display: none; }
 .note-tools { display: flex; align-items: flex-start; gap: 6px; }
 .note-tools .pending-files { flex: 1; margin-top: 4px; }
-.note-tools .attach { margin-left: auto; margin-top: 2px; }
+.note-tools .attach { margin-top: 2px; }
 
 /* Compose button and sheet */
 main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
@@ -478,11 +478,9 @@ main > * { transition: opacity .25s ease; }
 .view-questions .bar #qstatus { min-width: 0; }
 .view-questions .bar #qstatus.sent { color: var(--color-success); font-weight: 600; }
 .view-questions .solo { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 4px 0; }
-/* docs/adr/0111-a-prototype-round-ends-with-a-one-take-confirm.md: the eye left of Send, a question waiting on its
-   prototype, the round chip in the topic head and a confirm's rule line. */
+/* docs/adr/0111-a-prototype-round-ends-with-a-one-take-confirm.md */
 .view-questions .topichead { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .view-questions .topichead .try-spin, .view-questions .q .chip .try-spin { width: 9px; height: 9px; margin-right: 5px; vertical-align: -1px; }
-.view-questions .bar .pr-send { display: flex; align-items: center; gap: 4px; flex: none; }
 .view-questions .q.pr-busy { border-color: var(--color-notice); background: color-mix(in srgb, var(--color-notice) 6%, var(--panel)); }
 .view-questions .q.pr-busy .opt { opacity: .55; cursor: default; }
 .view-questions .q.pr-busy textarea { opacity: .7; }

@@ -1,14 +1,18 @@
 // Owner questions, for Waiting on you (view-questions.js). Needs ui.js and ui-links.js.
 (function () {
-  const { esc, time, replyBody, attachments, attachButton, linkText, linkHtml, badge, opensHere, LINK_ARROW } = globalThis.BoardUI;
+  const { esc, time, replyBody, attachments, attachButton, protoButton, linkText, linkHtml, badge, opensHere, LINK_ARROW } = globalThis.BoardUI;
   // A short id such as A or C2 leads the label; a word id such as "inline" would repeat it. prototype-switcher.js answerLabel matches.
   const lead = (o) => (/^[A-Z][0-9]?$/i.test(o.id) ? `${o.id}. ` : '');
   const choiceLabel = (q, id) => { const o = q.options.find((x) => x.id === id); return o ? `${q.multi ? '' : lead(o)}${o.label}` : id || ''; };
   const option = (o, { type = 'radio', name, checked = false, numbered = true, shown = false, disabled = false }) => `<label class="opt"${shown ? ' aria-current="true"' : ''}><input type="${type}" name="${esc(name)}" value="${esc(o.id)}" ${checked ? 'checked' : ''}${disabled ? ' disabled' : ''}>
         <span><span class="lbl">${numbered ? esc(lead(o)) : ''}${esc(o.label)}</span>${o.recommended ? '<span class="rec">Recommended</span>' : ''}<div class="det">${esc(o.detail || '')}</div></span></label>`;
 
-  const noteComposer = (id, note, disabled = false) => `<div class="composer" data-composer="${esc(id)}"><textarea class="note" rows="2" placeholder="Note (optional)"${disabled ? ' disabled' : ''}>${esc(note || '')}</textarea>
-      <div class="note-tools"><div class="pending-files" data-files></div>${attachButton()}</div></div>`;
+  // A question's eye sends `prototype-request {key?, question, note}` for that question alone (view-questions.js).
+  const questionEye = (q) => q.state === 'resolved' ? ''
+    : q.state === 'requested' ? protoButton('q:' + q.id, { pending: 'requested' }, { disabled: true })
+    : protoButton('q:' + q.id, null, { label: 'Ask for a prototype instead' });
+  const noteComposer = (q, note) => `<div class="composer" data-composer="${esc('q:' + q.id)}"><textarea class="note" rows="2" placeholder="Note (optional)"${q.state === 'requested' ? ' disabled' : ''}>${esc(note || '')}</textarea>
+      <div class="note-tools">${attachButton()}${questionEye(q)}<div class="pending-files" data-files></div></div></div>`;
 
   const QUESTION_STATE = {
     open: { label: 'open', tone: 'normal' },
@@ -103,7 +107,7 @@
       ${confirmLines(q)}
       ${q.state === 'resolved' && q.resolved ? `<div class="small muted" style="margin-bottom:8px">Resolved: ${esc(q.resolved)}${/[.!?]$/.test(q.resolved) ? '' : '.'} A new answer reopens it.</div>` : ''}
       ${inline(q) ? takes(q, chosen, links, fit) : q.options.map((o) => option(o, { name: 'c-' + q.id, checked: chosen === o.id, disabled: busy })).join('')}
-      ${noteComposer('q:' + q.id, draft.note, busy)}
+      ${noteComposer(q, draft.note)}
       ${answerHistory(q, links)}
     </section>`;
   }

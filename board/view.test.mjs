@@ -2513,21 +2513,21 @@ test("Waiting on you's Send follows the shared next question, leaving an urgent 
   assert.deepEqual(urgent.shown(), { pills: [['item:w/T1', 'true'], ['item:w/T2', 'false']], questions: ['q1'], status: 'Sent 1 answer to INT-3.', hash: '#q1' });
 });
 
-test("Waiting on you's eye left of Send asks for a prototype of the question last typed in, with its note, and that card reads Prototype requested with answering off while the topic's round is made", async () => {
+test("Waiting on you's eye on each question, after its attach button, asks for a prototype of that question with its note, and that card reads Prototype requested with answering off while the topic's round is made", async () => {
   const question = (id) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
   const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('q2')], at: 'q1' });
   await v.settle();
   const $ = (sel) => v.root.querySelector(sel);
-  const eye = () => $('#qform .bar .pr-send [data-proto]');
-  assert.deepEqual($('#qform .bar .pr-send').children.map((c) => c.id || c.getAttribute('aria-label')), ['Ask for a prototype instead', 'send']);
-  assert.equal(eye().disabled, false);
+  const eye = (id) => $(`section.q[data-q="${id}"] .note-tools [data-proto]`);
+  assert.deepEqual($('section.q[data-q="q1"] .note-tools').children.map((c) => c.getAttribute('title') || c.getAttribute('class')), ['Attach files', 'Ask for a prototype instead', 'pending-files']);
+  assert.equal($('#qform .bar [data-proto]'), null);
+  assert.equal(eye('q1').disabled, false);
   assert.equal($('.topichead .chip'), null);
 
-  v.answer('q2');
   const note = $('section.q[data-q="q2"] textarea.note');
   note.value = 'Show it on a phone';
   v.page.fire(v.root, 'input', { target: note });
-  v.page.fire(v.root, 'click', { target: eye() });
+  v.page.fire(v.root, 'click', { target: eye('q2') });
   await v.settle();
   assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['prototype-request', { key: 'w/T1', question: 'q2', note: 'Show it on a phone' }]]);
   const busy = $('section.q[data-q="q2"]');
@@ -2537,15 +2537,16 @@ test("Waiting on you's eye left of Send asks for a prototype of the question las
   assert.ok(busy.querySelectorAll('input[type=radio]').every((r) => r.disabled));
   assert.equal(busy.querySelector('textarea.note').disabled, true);
   assert.equal(busy.querySelector('textarea.note').value, '');
+  assert.equal(eye('q2').disabled, true);
+  assert.equal(eye('q2').getAttribute('aria-label'), 'Prototypes are being made');
   assert.equal($('.topichead .chip').textContent, 'Prototype round 1');
   assert.ok($('.topichead .chip.tone-notice .try-spin'));
   assert.equal($('#qstatus').textContent, 'Asked for a prototype.');
   assert.equal($('#send').disabled, true);
 
-  v.page.fire(v.root, 'click', { target: eye() });
+  v.page.fire(v.root, 'click', { target: eye('q1') });
   await v.settle();
   assert.deepEqual(JSON.parse(JSON.stringify(v.sent[1])), ['prototype-request', { key: 'w/T1', question: 'q1', note: '' }]);
-  assert.equal(eye().disabled, true);
   v.unmount();
 });
 
