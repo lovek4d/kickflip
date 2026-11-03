@@ -363,6 +363,45 @@ test('shutdown stops process groups without failure messages and refuses new sta
   await assert.rejects(start(), /hub is stopping/);
 });
 
+test('builds waiting on each other when the hub restarts run after it, and one that can no longer start fails in its thread', async () => {
+  write(path.join(site, 'data/wave.json'), { items: [{ id: 'A1' }, { id: 'A2' }, { id: 'A3' }] });
+  for (const id of ['A2', 'A3']) write(path.join(site, `data/agents/${id}.json`), { worktree: { path: worktree, repo } });
+  const lock = path.join(home, 'xcode.lock');
+  const built = path.join(home, 'built');
+  const keys = ['w/A1', 'w/A2', 'w/A3'];
+  setScript(`const fs = require('node:fs');
+const take = () => {
+  try { fs.mkdirSync(${JSON.stringify(lock)}); } catch { return setTimeout(take, 20); }
+  fs.appendFileSync(${JSON.stringify(built)}, process.argv[2] + '\\n');
+  setInterval(() => { if (!fs.existsSync('hold')) { fs.rmdirSync(${JSON.stringify(lock)}); process.exit(0); } }, 20);
+};
+take();`);
+  const restart = async () => {
+    await manager.stop();
+    fs.rmSync(lock, { recursive: true, force: true });
+    manager = createTryManager({ now: () => clock, log() {} });
+    await manager.initialize(manifest);
+  };
+  write(path.join(worktree, 'hold'), '');
+  for (const key of keys) assert.deepEqual(await start({ key }), { status: 'started' });
+  await until(() => fs.existsSync(built));
+  await restart();
+  assert.ok(keys.every((key) => state().cards[key].state === 'running'));
+  fs.unlinkSync(path.join(worktree, 'hold'));
+  fs.rmSync(built);
+  await tick();
+  await until(() => keys.every((key) => state().cards[key]?.state === 'ready'));
+  assert.deepEqual(fs.readFileSync(built, 'utf8').trim().split('\n').sort(), keys);
+  assert.deepEqual(thread(), []);
+  write(path.join(worktree, 'hold'), '');
+  await start();
+  await restart();
+  fs.chmodSync(script(), 0o600);
+  await tick();
+  assert.equal(state().cards['w/A1'].state, 'failed');
+  assert.match(thread()[0].text, /^Build failed \(exit 1\)\nBuild script must be executable/);
+});
+
 test('a web script serves root paths and upgrades through the relay and keeps its port across a new commit and Retry', async () => {
   const server = http.createServer();
   await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));

@@ -78,6 +78,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
   const boards = new Map();
   const runs = new Map();
   const starting = new Set();
+  const interrupted = new Set();
   const cardPorts = new Map();
   const mainPorts = new Map();
   const lastHeads = new Map();
@@ -93,13 +94,12 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     const record = { state, file, written: JSON.stringify(saved) };
     boards.set(board.dir, record);
     if (state.main_port) mainPorts.set(board.dir, state.main_port);
+    const unfinished = Object.entries(state.cards).filter(([, card]) => card.state === 'running');
+    for (const [key] of unfinished) interrupted.add(runKey(board, key));
     if (state.kind === 'web') {
-      state.cards = {};
+      state.cards = Object.fromEntries(unfinished);
       if (state.main && state.main.state !== 'failed') { delete state.main.state; delete state.main.port; delete state.main.https; }
-    } else {
-      for (const card of Object.values(state.cards)) if (card.state === 'running') { delete card.state; delete card.sha; }
-      if (state.main?.state === 'running') { delete state.main.state; delete state.main.sha; }
-    }
+    } else if (state.main?.state === 'running') { delete state.main.state; delete state.main.sha; }
     persist(board);
     return record;
   }
@@ -226,13 +226,16 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     });
     return run.ending;
   }
-  async function stopRun(run, keepPort = false) {
+  async function halt(run, keepPort = false) {
     run.keepPort = keepPort;
     run.stopped = true;
     clearTimeout(run.deadline);
     clearInterval(run.poll);
     await terminate(run);
     await run.done;
+  }
+  async function stopRun(run, keepPort = false) {
+    await halt(run, keepPort);
     update(run.board, run.key, { state: undefined, port: undefined, https: undefined, ...(!run.ready ? { sha: undefined } : {}) });
     if (!run.ready) lastHeads.delete(runKey(run.board, run.key));
   }
@@ -374,11 +377,16 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       return launchMain(board, boardRepo(route, manifest).repo, { sha, branch, slug, at, script });
     }
     starting.add(id);
+    const resuming = interrupted.delete(id);
     try {
       if (runs.has(id)) await stopRun(runs.get(id), true);
       const worktree = await installWorktree(board, key, manifest);
       return await launch(board, key, worktree);
-    } catch (e) { cardPorts.delete(id); throw e; }
+    } catch (e) {
+      cardPorts.delete(id);
+      if (resuming && e.status !== 503) update(board, key, { state: undefined, sha: undefined });
+      throw e;
+    }
     finally { starting.delete(id); }
   }
   function lookup(route, id, { manifest = readManifest() } = {}) {
@@ -413,20 +421,23 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
           const key = `${slug}/${item.id}`;
           if (['done', 'merged', 'dropped'].includes(String(item.status).toLowerCase()) || ['MERGED', 'CLOSED'].includes(prs[`${board.github || wave.repo}#${item.pr}`]?.state)) continue;
           try {
+            const id = runKey(board, key);
             const worktree = await installWorktree(board, key, manifest);
-            if (!worktree) continue;
-            const head = await git(worktree, 'rev-parse', 'HEAD');
-            let ahead = 0;
-            try { ahead = Number(await git(worktree, 'rev-list', '--count', `${ref}..HEAD`)); } catch {}
-            const script = exists(scriptAt(worktree));
-            const entry = state.cards[key] ||= {};
-            Object.assign(entry, { head, ahead, script });
-            persist(board);
-            if (board.auto_build && script && ahead > 0 && (entry.sha || lastHeads.get(runKey(board, key))) !== head && entry.state !== 'running' && !starting.has(runKey(board, key))) {
+            if (worktree) {
+              const head = await git(worktree, 'rev-parse', 'HEAD');
+              let ahead = 0;
+              try { ahead = Number(await git(worktree, 'rev-list', '--count', `${ref}..HEAD`)); } catch {}
+              Object.assign(state.cards[key] ||= {}, { head, ahead, script: exists(scriptAt(worktree)) });
+              persist(board);
+            } else if (!interrupted.has(id)) continue;
+            const entry = state.cards[key];
+            const wanted = interrupted.has(id)
+              || (board.auto_build && entry.script && entry.ahead > 0 && (entry.sha || lastHeads.get(id)) !== entry.head && entry.state !== 'running');
+            if (wanted && !starting.has(id)) {
               try { await start({ route: board.route, key }, { manifest }); }
               catch (e) {
                 if ([409, 503].includes(e.status)) continue;
-                update(board, key, { sha: head });
+                update(board, key, { sha: entry.head });
                 await failure({ board, key, logFile: failureLog(board, key, e) }, 1);
                 throw e;
               }
@@ -461,7 +472,8 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
   }
   async function stop() {
     stopping = true;
-    const stopped = Promise.all([...runs.values()].map((run) => stopRun(run)));
+    // A build still going keeps `running`, so the next hub starts it again (docs/adr/0119-a-build-the-hub-stops-starts-again-after-it-restarts.md).
+    const stopped = Promise.all([...runs.values()].map((run) => run.ready ? stopRun(run) : halt(run)));
     await Promise.all([stopped, ticking]);
   }
   return { start, tick, stop, lookup, initialize };
