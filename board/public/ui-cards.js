@@ -33,7 +33,8 @@
     return (it.reviewers || []).map((r) => {
       const rv = globalThis.BoardUI.record(it.review, r);
       const s = REVIEW[rv?.state || 'unsent'];
-      return badge(s.tone, `${esc(r[0])} ${s.mark}${reviewAge(rv)}`, { title: `${r}: ${s.label}` });
+      const age = reviewAge(rv).trim();
+      return badge(s.tone, `${esc(rv?.github || r)}${age ? ` (${age})` : ''} ${s.mark}`, { title: `${r}${rv?.github ? ` (${rv.github})` : ''}: ${s.label}` });
     }).join('');
   }
   const pendingQuestions = (it) => (it.questions && it.questions.state !== 'resolved' ? it.questions.open + it.questions.answered + it.questions.replied : 0);

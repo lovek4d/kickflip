@@ -10,7 +10,7 @@ Superseded in part by [0006](0006-pushes-only-when-something-waits-on-the-owner.
 
 A PR waiting on its reviewers shows how long it has waited. After seven days it parks in its own lane and the owner is told once. Reviewers hear about a change only when it matters to them, and merges reach the owner as one summary per tick.
 
-- **Age on the reviewer chip.** Once a reviewer has had the link for a day without approving, their chip shows the age, such as "J ● 2d" (`board/public/ui-cards.js`).
+- **Age on the reviewer chip.** Once a reviewer has had the link for a day without approving, their chip shows the age, such as "4lefac (2d) ●" (`board/public/ui-cards.js`).
 - **Age in the reviewer digest.** A PR whose link went out more than 48 hours ago reads "<link> (N days old)" in the reviewers' Slack digest (slack-bridge).
 - **Kept conflict-free.** When GitHub reads a PR in review as conflicting, monitor has its builder rebase it onto `main` and rechecks CI.
 - **Stale after seven days.** A card whose first review link went out more than seven days ago moves from In Review to the Stale lane (`STALE_AFTER` in `board/domain.mjs`). A card Claude is checking never goes Stale. The lane shows only when it holds a card. The owner gets one queued push when a card lands there, and `/_claude/needs` counts Stale as review ([0010](0010-sites-report-what-waits-through-claude-needs.md)).

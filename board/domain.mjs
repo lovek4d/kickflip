@@ -76,7 +76,7 @@ function reviewOf(reviewers, pr, sentAt) {
   return Object.fromEntries(reviewers.map((r) => {
     const verdict = routeRecord(pr?.reviews, r.github);
     const state = verdict === 'APPROVED' ? 'approved' : verdict === 'CHANGES_REQUESTED' ? 'changes' : Object.hasOwn(sentAt, r.name) ? 'sent' : 'unsent';
-    return [r.name, { state, since: state === 'sent' ? routeRecord(sentAt, r.name) : null }];
+    return [r.name, { state, since: state === 'sent' ? routeRecord(sentAt, r.name) : null, github: r.github || null }];
   }));
 }
 

@@ -194,13 +194,13 @@ test('a review waits with its age, and parks in Stale after a week', () => {
   const sentAt = '2026-10-24T00:00:00.000Z';
   const at = (days) => Date.parse(sentAt) + days * 86400000;
   const item = (days) => board({ pr: ready, topicItems: sent, now: at(days) }).items.find((i) => i.key === 'w/A1');
-  assert.deepEqual(item(2).review, { Ann: { state: 'sent', since: sentAt } });
+  assert.deepEqual(item(2).review, { Ann: { state: 'sent', since: sentAt, github: 'ann' } });
   assert.equal(item(2).lane, 'review');
   assert.equal(item(8).lane, 'stale');
   assert.equal(item(8).waitsOn, 'reviewers');
   assert.equal(item(8).next, 'Waiting for PR reviewers');
   const approved = board({ pr: { ...ready, reviews: { ann: 'APPROVED' }, reviewDecision: 'APPROVED' }, topicItems: sent, now: at(2) }).items.find((i) => i.key === 'w/A1');
-  assert.deepEqual(approved.review, { Ann: { state: 'approved', since: null } });
+  assert.deepEqual(approved.review, { Ann: { state: 'approved', since: null, github: 'ann' } });
   assert.equal(approved.waitsOn, 'merge');
   const fileBoard = buildBoard({
     now: at(8), fromWaves: false, prs: { 'o/r#7': ready },
@@ -948,7 +948,7 @@ test('review records use one precedence order and date the card from the item re
   assert.deepEqual({ ...reviewLinks({}, { review_sent: ['Ann'] }, 'w/A1') }, { Ann: { ts: null } });
   assert.deepEqual({ ...reviewLinks({}, { review_link_ts: { Ann: '8.0' } }, 'w/A1') }, { Ann: { ts: '8.0' } });
   const card = board({ item: { review_link_ts: item.review_link_ts }, topicItems: { 'w/A1': { review_link_ts: { Ann: '1.0' } } }, pr: { ...greenDraft, isDraft: false }, now: Date.parse('2026-11-01T00:00:00Z') }).items[0];
-  assert.deepEqual(card.review.Ann, { state: 'sent', since: '2026-10-24T00:00:00.000Z' });
+  assert.deepEqual(card.review.Ann, { state: 'sent', since: '2026-10-24T00:00:00.000Z', github: 'ann' });
   assert.equal(card.inReviewSince, '2026-10-24T00:00:00.000Z');
   assert.equal(card.lane, 'stale');
   assert.equal(Object.hasOwn(card, 'slack'), false);
