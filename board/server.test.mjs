@@ -196,6 +196,22 @@ test('only stored uploads are served, never other files under data', async () =>
   }
 });
 
+test('a card with a message marked working or a prototype recorded for it leaves Todo for In Progress', async () => {
+  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'W1', title: 'Messaged' }, { id: 'W2', title: 'Prototyped' }] }));
+  const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+  const { id } = await post('/_claude/events', { kind: 'item-message', key: 't/W1', text: 'Fix it' });
+  const lanes = async () => (await (await fetch(`${base}/api/board`)).json()).items.filter((i) => i.id === 'W1' || i.id === 'W2').map((i) => [i.id, i.lane]).sort();
+  assert.deepEqual(await lanes(), [['W1', 'todo'], ['W2', 'todo']]);
+  fs.writeFileSync(path.join(site, 'data', 'working.json'), JSON.stringify({ events: { [id]: new Date().toISOString() } }));
+  fs.writeFileSync(path.join(site, 'data', 'prototypes.json'), JSON.stringify({ prototypes: [{ topic: 'w2', title: 'W2', card: 't/W2', takes: [{ key: 'A', label: 'One' }] }] }));
+  try {
+    assert.deepEqual(await lanes(), [['W1', 'progress'], ['W2', 'progress']]);
+  } finally {
+    fs.rmSync(path.join(site, 'data', 'working.json'));
+    fs.rmSync(path.join(site, 'data', 'prototypes.json'));
+  }
+});
+
 test("a hidden thread message leaves the item's thread", async () => {
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One' }] }));
   const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());

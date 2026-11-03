@@ -337,7 +337,8 @@ async function itemSnapshot() {
     threadLines[`${slug}/${it.id}`] = await readLines(threadFile(`${slug}/${it.id}`));
   })));
   const self = boardAt(here);
-  return { github: self?.github, remote: self?.remote, branch: self?.branch, reviewers: cfg.reviewers || [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, waves, threads: threadLines };
+  return { github: self?.github, remote: self?.remote, branch: self?.branch, reviewers: cfg.reviewers || [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, waves, threads: threadLines,
+    working: await readWorking(here), prototypes: await readPrototypes(here) };
 }
 
 // Reads every source buildBoard needs: wave files and their builder records,
@@ -345,14 +346,13 @@ async function itemSnapshot() {
 // questions and legacy review-link fallbacks.
 async function snapshot() {
   const items = await itemSnapshot();
-  const { waves, threads: threadLines } = items;
+  const { waves, threads: threadLines, working } = items;
   const prs = Object.create(null);
   await Promise.all(waves.flatMap(({ wave }) => {
     const repo = items.github || wave.repo;
     return repo ? wave.items.filter((it) => it.pr).map(async (it) => { prs[`${repo}#${it.pr}`] = await prState(repo, it.pr); }) : [];
   }));
   const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'item-message', 'wave-triage']);
-  const working = await readWorking(here);
   const pageEvents = await Promise.all((await shownEvents()).map((e) => (needsReply.has(e.kind) || routeRecord(working, e.id) ? withReply(e) : { ...e, reply: null })));
   await Promise.all(pageEvents.filter((e) => e.kind === 'ask').map(async (e) => {
     const lines = await readLines(threadFile(`ask:${e.id}`));
@@ -360,7 +360,7 @@ async function snapshot() {
   }));
 
   return {
-    ...items, route: prefix.slice(1) || path.basename(here), try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, working, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
+    ...items, route: prefix.slice(1) || path.basename(here), try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
     checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
     owner: await readJSON(path.join(data, 'owner.json'), { items: [] }),
     topicItems: await topicItems(),

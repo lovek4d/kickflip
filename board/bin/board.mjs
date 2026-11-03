@@ -33,7 +33,8 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
 
   reply <eventId> (--html <text> | --file <path>)        data/replies/<eventId>.html
   working <eventId>                                      marks an ask or thread message started; the page
-                                                         shows "Working on it" until a reply or later thread line
+                                                         shows "Working on it" until a reply or later thread line.
+                                                         A mark in a card's thread starts the card: it leaves Todo
   thread <wave>/<id> --text <t> [--link <url>]           one line in the item's thread; ask:<eventId> in place
          [--who claude|love|<name>] [--via github|slack] of <wave>/<id> writes in that ask's thread
          A Claude thread line, or a reply to an ask or item-message, rewrites the body of the thread's
@@ -79,7 +80,8 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          "A. ", since the pill shows it alone. Prints each take
                                                          file to write,
                                                          public/prototypes/<topic>/<K>.js, which exports
-                                                         render(stage, kit) (board/public/prototype-kit.js lists kit)
+                                                         render(stage, kit) (board/public/prototype-kit.js lists kit).
+                                                         --card starts that card: it leaves Todo
   prototype list                                         one line per recorded prototype
   prototype rm <topic>                                   drops the record, keeping its take files; refuses while an
                                                          open question links it
@@ -257,7 +259,7 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          {"source":"linear","workspace","team","project"}. A
                                                          GitHub account runs the board's issue calls as that gh
                                                          login; without one they run as gh's active account
-  builder start <wave>/<id> [--agent <name>] [--kind <opus|codex|sonnet|install|…>] [--label <who>]
+  builder start <wave>/<id> [--agent <name>] [--kind <opus|codex|sonnet|prototype|grill|install|…>] [--label <who>]
          [--progress <text>] [--eta <ISO time>]          one record per agent on the item; --agent defaults to main.
                                                          --kind install: a build of the card's install, whose
                                                          Install badge reads Building… meanwhile

@@ -245,7 +245,8 @@ function placeOwnerWait(it, questionById, autoMerge) {
 }
 
 // docs/adr/0049-a-started-card-never-returns-to-todo.md
-const started = (it) => it.agents.length > 0 || Boolean(it.questions && it.questions.answered + it.questions.replied + it.questions.resolved > 0);
+// docs/adr/0129-any-work-on-a-card-starts-it.md
+const started = (it, worked) => worked.has(it.key) || it.agents.length > 0 || Boolean(it.questions && it.questions.answered + it.questions.replied + it.questions.resolved > 0);
 
 // An open follow-up is a Todo card of its wave (docs/adr/0034-follow-ups-are-todo-cards-of-their-wave.md).
 function followUp({ slug, wave, f, order, repo, bumpedAt, closedAt, tickets }) {
@@ -475,7 +476,7 @@ function waveRowsOf(snapshot, waves, lineups, items, questions, events) {
 
 // snapshot: {waves: [{slug, wave, agents: {<id>: {<agent>: record}}}], fromWaves,
 //   prs: {"<repo>#<n>": pr}, threads: {<key>: [line]}, events: [event with reply, hidden ones left out],
-//   working: {<event id>: ts}, checked: data/checked.json, listen, watcher: data/watcher.json, askLinks: {<ask event id>: <wave>/<id>},
+//   working: {<event id>: ts}, prototypes: data/prototypes.json's list, checked: data/checked.json, listen, watcher: data/watcher.json, askLinks: {<ask event id>: <wave>/<id>},
 //   askProgress: {<ask event id>: {state: progress|done, at, next, moved}}, owner: owner.json,
 //   autoMerge: board.json's auto_merge (true leaves merging to the GitHub tick, so no card gets the owner's Merge),
 //   autoBuild: board.json's auto_build (true leaves card runs to the hub, so no card gets the owner's Serve / Build),
@@ -508,6 +509,8 @@ export function buildBoard(snapshot) {
   const waves = [];
   const items = [];
   const threadStates = new Map();
+  // Cards a session worked on without a builder: a working mark on a message in its thread, or a prototype recorded for it.
+  const worked = new Set((snapshot.prototypes || []).map((p) => p.card).filter(Boolean));
   const remote = snapshot.github ? null : remoteFromInput(snapshot.remote);
   for (const { slug, wave, agents: records = {} } of snapshot.waves) {
     const repo = snapshot.github || wave.repo || null;
@@ -521,6 +524,7 @@ export function buildBoard(snapshot) {
       if (it.from_ask) madeFrom.set(it.from_ask, [...(madeFrom.get(it.from_ask) || []), { key, ref: refOf(wave, it.id, tickets), became: true }]);
       const msgs = threadOf(key, { lines, events, owner, working, fromAsk: it.from_ask || null, moved: folded });
       for (const m of msgs) if (m.eventId) threadStates.set(m.eventId, m.state);
+      if (msgs.some((m) => m.eventId && m.kind !== 'ask' && routeRecord(working, m.eventId))) worked.add(key);
       items.push(workItem({
         slug, wave, it, order, repo, remote, base: snapshot.branch || 'main',
         pr: it.pr && repo ? routeRecord(prs, `${repo}#${it.pr}`) || null : null,
@@ -605,7 +609,7 @@ export function buildBoard(snapshot) {
       .filter((d) => d && d.lane !== 'done' && !d.reopened).map((d) => ({ key: d.key, ref: d.ref }));
     if (it.lane === 'done' && !it.fold && it.updatedAt && now - Date.parse(it.updatedAt) >= DONE_OPEN) it.fold = OLDER_FOLD;
     placeOwnerWait(it, questionById, autoMerge);
-    if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it)) it.lane = 'progress';
+    if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it, worked)) it.lane = 'progress';
     it.buildable = buildableOf(it);
   }
   // Items arrive in touched order; the page shows a lane in created order from rank.created, as this device chose.

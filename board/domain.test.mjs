@@ -808,7 +808,7 @@ test('a card badges only a ticket from its board source, keeps another source\'s
   assert.deepEqual(legacy.items[0].linear.map((l) => l.url), ['https://linear.app/new-workspace/issue/ENG-9', 'https://linear.app/new-workspace/issue/ENG-10']);
 });
 
-test('a card lists each unfinished dep it is blocked by, a Done one none; an unstarted one sits in Todo, a started one stays In Progress unless held', () => {
+test('a card lists each unfinished dep it is blocked by, a Done one none; an unstarted one sits in Todo, one grilled, built, prototyped or with a message marked working stays In Progress unless held', () => {
   const items = [
     { id: 'S10', title: 'Ten', status: 'done' },
     { id: 'S11', title: 'Eleven', status: 'building' },
@@ -820,10 +820,19 @@ test('a card lists each unfinished dep it is blocked by, a Done one none; an uns
     { id: 'INT-19', title: 'Grilled, held', deps: ['S11'], held: true },
     { id: 'INT-20', title: 'Built before', status: 'planned' },
     { id: 'INT-21', title: 'Landed first', status: 'done', deps: ['S11'] },
+    { id: 'INT-22', title: 'Message worked on', deps: ['S11'] },
+    { id: 'INT-23', title: 'Prototyped' },
+    { id: 'INT-24', title: 'Message waiting' },
+    { id: 'INT-25', title: 'Made from a worked ask', from_ask: 'a1' },
+    { id: 'INT-26', title: 'Worked on, held', held: true },
   ];
+  const message = (id, key) => ({ id, ts: '2026-10-23T09:00:00Z', kind: 'item-message', data: { key, text: 'Look at this' }, reply: null });
+  const events = [message('m22', 'site/INT-22'), message('m24', 'site/INT-24'), message('m26', 'site/INT-26'), { id: 'a1', ts: '2026-10-23T08:00:00Z', kind: 'ask', data: { text: 'Make it' }, reply: null }];
+  const working = { m22: '2026-10-23T09:01:00Z', m26: '2026-10-23T09:01:00Z', a1: '2026-10-23T08:01:00Z' };
+  const prototypes = [{ topic: 'shape', title: 'Shape', card: 'site/INT-23', takes: [{ key: 'A', label: 'One' }] }];
   const owner = { items: ['INT-18', 'INT-19'].map((id) => ({ id: `q${id}`, topic: `item:site/${id}`, question: '?', options: [], resolved: 'Picked.', resolved_at: '2026-10-23T10:00:00Z' })) };
-  const agents = { ...runningBuilders('S11', 'INT-15'), 'INT-20': { main: { label: 'Opus builder', started: '2026-10-23T09:00:00Z', done: '2026-10-23T09:30:00Z' } } };
-  const b = buildBoard({ fromWaves: false, owner, waves: [{ slug: 'site', agents, wave: { internal: true, items } }] });
+  const agents = { ...runningBuilders('S11', 'INT-15'), 'INT-20': { main: { label: 'Opus', kind: 'prototype', started: '2026-10-23T09:00:00Z', done: '2026-10-23T09:30:00Z' } } };
+  const b = buildBoard({ fromWaves: false, owner, events, working, prototypes, waves: [{ slug: 'site', agents, wave: { internal: true, items } }] });
   const card = (id) => b.items.find((i) => i.id === id);
   assert.deepEqual(card('INT-15').blockedBy, [{ key: 'site/S11', ref: 'INT-11' }, { key: 'site/INT-14', ref: 'INT-14' }]);
   assert.equal(card('INT-15').lane, 'progress');
@@ -832,6 +841,8 @@ test('a card lists each unfinished dep it is blocked by, a Done one none; an uns
   assert.deepEqual([card('INT-18').blockedBy, card('INT-18').lane], [[{ key: 'site/S11', ref: 'INT-11' }], 'progress']);
   assert.deepEqual([card('INT-19').lane, card('INT-20').lane], ['todo', 'progress']);
   assert.deepEqual([card('INT-21').blockedBy, card('INT-21').lane], [[], 'done']);
+  assert.deepEqual(['INT-22', 'INT-23', 'INT-24', 'INT-25', 'INT-26'].map((id) => card(id).lane), ['progress', 'progress', 'todo', 'todo', 'todo']);
+  assert.equal(card('INT-22').working, true);
 });
 
 test("a checking card sits in In Progress waiting on Claude's check, with no builder line or next step, and still blocks its dependents", () => {
