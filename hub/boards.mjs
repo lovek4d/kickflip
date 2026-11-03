@@ -21,6 +21,8 @@ import { withFileLock } from './locks.mjs';
 import { dropSessionPrompts, readPrompts, savePrompts, withPromptsLock } from './prompts.mjs';
 import { storedPath } from '../bin/install.mjs';
 import { hubService } from '../shared/service.mjs';
+import { cloneRoot } from '../shared/repos.mjs';
+import { githubFromOrigin } from './repos.mjs';
 import { reviewLinks, topicItems } from '../board/review.mjs';
 
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -115,12 +117,22 @@ export function prsOf(waves, github) {
   });
 }
 
+// The hub board's repo is the running kickflip clone's origin, read from git on every call since the remote can be
+// changed underneath (docs/adr/0115-the-hub-board-files-its-cards-as-github-issues.md). An install from npm has no
+// clone, so its hub board has none. → owner/name, or ''
+export function hubGithub(root = cloneRoot()) {
+  if (!fs.existsSync(path.join(root, '.git'))) return '';
+  try { return githubFromOrigin(execFileSync('git', ['-C', root, 'remote', 'get-url', 'origin'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })) || ''; }
+  catch { return ''; }
+}
+
 function boardOf(route, s) {
   const cfg = readJSON(path.join(s.dir, 'board.json'), {});
   const kind = typeof cfg.items === 'string' && cfg.items !== 'waves' ? 'file' : 'waves';
   const waves = wavesOf(s.dir, cfg, kind);
+  const github = s.hub === true ? hubGithub() : s.github;
   return {
-    route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, waves, prs: prsOf(waves, s.github), github: s.github, branch: s.branch, auto_build: cfg.auto_build === true,
+    route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, waves, prs: prsOf(waves, github), github, branch: s.branch, auto_build: cfg.auto_build === true,
     githubLogin: typeof cfg.github_login === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(cfg.github_login) ? cfg.github_login : null,
     tickets: cfg.tickets, reviewers: names(cfg.reviewers), owner: s.owner || null, watch: Array.isArray(s.watch) && s.watch.length ? s.watch : ['data/events.jsonl'], filter: s.filter || null,
   };

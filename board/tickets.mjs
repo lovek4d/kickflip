@@ -4,7 +4,7 @@ import { savedClient } from '../hub/linear.mjs';
 const refuse = (message) => { throw Object.assign(new Error(message), { status: 400 }); };
 export function ticketSource(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) refuse('Tickets must name a source.');
-  const allowed = { internal: ['source', 'prefix'], github: ['source'], linear: ['source', 'workspace', 'team', 'project'] };
+  const allowed = { internal: ['source', 'prefix'], github: ['source', 'account'], linear: ['source', 'workspace', 'team', 'project'] };
   if (!Object.hasOwn(allowed, value.source)) refuse('Ticket source must be internal, github or linear.');
   if (Object.keys(value).some((k) => !allowed[value.source].includes(k))) refuse('Unknown ticket source field.');
   if (value.source === 'internal') {
@@ -12,7 +12,11 @@ export function ticketSource(value) {
     if (typeof prefix !== 'string' || !/^[A-Z]{2,6}$/.test(prefix)) refuse('Prefix must be 2–6 uppercase letters.');
     return { source: 'internal', prefix };
   }
-  if (value.source === 'github') return { source: 'github' };
+  if (value.source === 'github') {
+    if (value.account === undefined || value.account === '') return { source: 'github' };
+    if (typeof value.account !== 'string' || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(value.account)) refuse('The gh account must be a GitHub login.');
+    return { source: 'github', account: value.account };
+  }
   if (typeof value.workspace !== 'string' || !/^[a-z\d][a-z\d-]*$/i.test(value.workspace)) refuse('Linear needs a workspace.');
   if (typeof value.team !== 'string' || !/^[A-Z][A-Z0-9]*$/.test(value.team)) refuse('Linear needs an uppercase team key.');
   if (typeof value.project !== 'string' || !value.project.trim()) refuse('Linear needs a project.');
@@ -45,6 +49,17 @@ export function ticketBadge(source, id, { repo, key } = {}) {
   return { id: ref, url: `https://linear.app/${source.workspace}/issue/${ref}`, source: 'linear' };
 }
 
+// A GitHub source's issue calls run as its account, with GH_TOKEN from gh's own store, read each time because the
+// token can be rotated underneath. Without an account they run as gh's active account
+// (docs/adr/0115-the-hub-board-files-its-cards-as-github-issues.md). → a runner for gh
+async function issueRunner(source, run) {
+  if (!source.account) return run;
+  const token = await run('gh', ['auth', 'token', '-u', source.account]);
+  if (token.status !== 0 || !token.stdout?.trim()) refuse(`gh has no ${source.account} account; run gh auth login`);
+  const as = { ...process.env, GH_TOKEN: token.stdout.trim() };
+  return (command, argv) => run(command, argv, { env: as });
+}
+
 const linearCall = async (fn) => { try { return await fn(); } catch (e) { refuse(e.message); } };
 
 // → {ticket, created}: created when kickflip made the ticket rather than linking one (store.mjs keeps it as
@@ -74,7 +89,7 @@ export async function resolveTicket(source, { ticket, title, body = '', repo, ne
   if (ticket !== undefined && !n) refuse('GitHub ticket must be an issue number such as #41.');
   const argv = n ? ['issue', 'view', String(n), '--repo', repo, '--json', 'number,url']
     : ['issue', 'create', '--repo', repo, '--title', title, '--body', body];
-  const out = await run('gh', argv);
+  const out = await (await issueRunner(source, run))('gh', argv);
   if (out.status !== 0) refuse((out.stderr || 'GitHub refused the issue.').trim().split('\n')[0]);
   let url;
   if (n) {
@@ -126,16 +141,17 @@ export async function moveTicket(source, item, target, { repo, run = runRepo, li
       return moved ? `ticket ${id}: moved to ${moved}` : null;
     }
     const n = id.slice(1);
+    const gh = await issueRunner(source, run);
     if (!item.ticket_created) {
-      const view = await run('gh', ['issue', 'view', n, '--repo', repo, '--json', 'state,assignees']);
+      const view = await gh('gh', ['issue', 'view', n, '--repo', repo, '--json', 'state,assignees']);
       if (view.status !== 0) throw new Error(view.stderr || 'gh issue view failed');
-      const me = await run('gh', ['api', 'user', '--jq', '.login']);
+      const me = await gh('gh', ['api', 'user', '--jq', '.login']);
       if (me.status !== 0) throw new Error(me.stderr || 'gh api user failed');
       const issue = JSON.parse(view.stdout);
       if (issue.state !== 'OPEN') return null;
       if (!(issue.assignees || []).some((a) => a.login?.toLowerCase() === me.stdout.trim().toLowerCase())) return `ticket ${id}: left as it is, not assigned to you`;
     }
-    const closed = await run('gh', ['issue', 'close', n, '--repo', repo]);
+    const closed = await gh('gh', ['issue', 'close', n, '--repo', repo]);
     if (closed.status !== 0) throw new Error(closed.stderr || 'gh issue close failed');
     return `ticket ${id}: closed`;
   } catch (e) { return why(e); }

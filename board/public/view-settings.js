@@ -148,7 +148,7 @@
       tickets?.render();
       if (tickets) syncTickets();
       if (repo.hub) {
-        $('#boardRepoValue').textContent = 'Kickflip’s own clone';
+        $('#boardRepoValue').textContent = repo.github ? `${repo.github} · Kickflip’s own clone` : 'Kickflip’s own clone';
         $('#boardRepoChange').hidden = true;
         $('#boardRepoStatus').textContent = `${repo.repo} · The hub board’s builders branch from its main.`;
         return;

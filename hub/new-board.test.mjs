@@ -374,7 +374,20 @@ test('Settings clone changes update repo, branch and session folder and notify t
   const event = async (board, kind, data) => { events.push([board.route, kind, data]); return 'e1'; };
   const hubSite = structuredClone(readManifest().sites.hub);
   const clones = cloneCalls.length;
-  assert.deepEqual(boardRepo('hub'), { hub: true, github: '', branch: '', repo: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..') });
+  const clone = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const stubs = path.join(home, 'git-stub');
+  fs.mkdirSync(stubs, { recursive: true });
+  fs.writeFileSync(path.join(stubs, 'git'), '#!/bin/sh\n[ "$1 $2 $3 $4 $5" = "-C $ROOT remote get-url origin" ] && [ -n "$ORIGIN" ] && echo "$ORIGIN" && exit 0\nexit 2\n', { mode: 0o755 });
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${stubs}:${priorPath}`;
+  process.env.ROOT = clone;
+  try {
+    for (const [origin, github] of [['git@github.com:someone/kickflip-fork.git', 'someone/kickflip-fork'], ['https://example.com/someone/kickflip.git', ''], ['', '']]) {
+      process.env.ORIGIN = origin;
+      assert.deepEqual(boardRepo('hub'), { hub: true, github, branch: '', repo: clone });
+      assert.equal(listBoards().find((b) => b.route === 'hub').github, github);
+    }
+  } finally { process.env.PATH = priorPath; delete process.env.ROOT; delete process.env.ORIGIN; }
   await assert.rejects(changeBoardRepo('hub', { github: 'owner/settings', branch: 'develop' }, { repos, event }), { status: 409 });
   assert.deepEqual(readManifest().sites.hub, hubSite);
   assert.equal(cloneCalls.length, clones);

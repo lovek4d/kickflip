@@ -22,7 +22,7 @@
     const typed = () => !linear.set && !linear.loading;
     const typedProject = () => (draft.project && draft.project !== '__new' ? draft.project : isNew ? title() : '').trim();
     const read = () => draft.source === 'internal' ? { source: 'internal', prefix: draft.prefix || 'INT' }
-      : draft.source === 'github' ? { source: 'github' }
+      : draft.source === 'github' ? { source: 'github', ...(draft.account ? { account: draft.account } : {}) }
       : typed() ? { source: 'linear', workspace: draft.workspace || '', team: draft.team || '', project: typedProject() }
       : draft.project === '__new' && isNew ? { source: 'linear', workspace: workspace(), team: draft.team, new_project: newName() }
       : { source: 'linear', workspace: workspace(), team: draft.team, project: draft.project };
@@ -50,7 +50,7 @@
       const segment = `<div class="tk-seg" role="group" aria-label="Ticket source">${[['linear', 'Linear'], ['github', 'GitHub issues'], ['internal', 'Internal']].map(([source, name]) => `<button type="button" data-tk-source="${source}" aria-pressed="${draft.source === source}">${name}</button>`).join('')}</div>`;
       let detail;
       if (draft.source === 'internal') detail = `<label class="tk-field"><span>Prefix</span><input data-tk="prefix" value="${esc(draft.prefix)}" placeholder="INT" maxlength="6" pattern="[A-Z]{2,6}" title="2–6 uppercase letters" autocapitalize="characters" autocomplete="off" spellcheck="false"></label><p class="muted small" data-tk-example>Cards number ${esc(draft.prefix || 'INT')}-1, ${esc(draft.prefix || 'INT')}-2… on this board. The badge opens the card.</p>`;
-      else if (draft.source === 'github') detail = `<div class="who tk-static"><span>Issues in ${esc(repo())}<span class="muted small sub">${isNew ? 'The repo chosen above' : 'The board’s repo, set above'}. A new card opens an issue there; its badge reads #41.</span></span></div>`;
+      else if (draft.source === 'github') detail = `<div class="who tk-static"><span>Issues in ${esc(repo())}<span class="muted small sub">${isNew ? 'The repo chosen above' : 'The board’s repo, set above'}. A new card opens an issue there${draft.account ? ` as gh account ${esc(draft.account)}` : ''}; its badge reads #41.</span></span></div>`;
       else detail = linearDetail();
       root.innerHTML = `${segment}<div class="tk-detail">${detail}</div>`;
       if (draft.source === 'linear' && linear.set && !linear.error && !linear.loading) {

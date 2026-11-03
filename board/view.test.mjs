@@ -1401,7 +1401,7 @@ test('the shared Tickets control stages Board Settings changes, validates the pr
   const { doc, Element } = page;
   const root = doc.body.appendChild(new Element('div'));
   root.innerHTML = page.win.AppViews.settings.markup();
-  let settings = { auto_merge: false }, refuse = false;
+  let settings = { auto_merge: false, tickets: { source: 'github', account: 'lovek4d' } }, refuse = false;
   const posts = [];
   page.win.fetch = async (url, options = {}) => {
     if (url.endsWith('/api/settings')) {
@@ -1421,6 +1421,7 @@ test('the shared Tickets control stages Board Settings changes, validates the pr
   const form = root.querySelector('#ticketsForm');
   const save = root.querySelector('#ticketsSave');
   assert.equal(save.disabled, true);
+  assert.match(control.textContent, /opens an issue there as gh account lovek4d/);
   page.fire(control, 'click', { target: control.querySelector('[data-tk-source="internal"]') });
   assert.equal(save.disabled, false);
   page.fire(form, 'submit'); await tick();
@@ -1441,7 +1442,7 @@ test('the shared Tickets control stages Board Settings changes, validates the pr
   page.fire(control, 'click', { target: control.querySelector('[data-tk-source="github"]') });
   assert.match(control.textContent, /Issues in owner\/project/);
   page.fire(form, 'submit'); await tick();
-  assert.deepEqual(posts.at(-1), { tickets: { source: 'github' } });
+  assert.deepEqual(posts.at(-1), { tickets: { source: 'github', account: 'lovek4d' } });
   page.fire(control, 'click', { target: control.querySelector('[data-tk-source="linear"]') });
   await tick();
   assert.match(control.textContent, /A Linear key on Hub/);

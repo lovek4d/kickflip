@@ -219,6 +219,12 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          the hub asks gh api user. Pass "" to clear it
   settings set auto-build on|off                         on: each push builds its card. Off by default.
                                                          Main builds after every merge either way
+  settings set tickets <json>                            the board's ticket source, as Board Settings' Tickets row
+                                                         saves it: {"source":"internal","prefix":"OPS"},
+                                                         {"source":"github","account":"<gh login>"} or
+                                                         {"source":"linear","workspace","team","project"}. A
+                                                         GitHub account runs the board's issue calls as that gh
+                                                         login; without one they run as gh's active account
   builder start <wave>/<id> [--agent <name>] [--kind <opus|codex|sonnet|install|…>] [--label <who>]
          [--progress <text>] [--eta <ISO time>]          one record per agent on the item; --agent defaults to main.
                                                          --kind install: a build of the card's install, whose
@@ -442,7 +448,7 @@ const COMMANDS = {
     const manifest = readManifest();
     const board = site ? boardAt(site, manifest) : null;
     const chosen = board ? boardRepo(board.route, manifest) : {};
-    const remote = Boolean(chosen.github);
+    const remote = Boolean(chosen.github) && !chosen.hub;
     const source = repo ?? (remote ? chosen.repo || undefined : undefined);
     const base = remote ? chosen.branch || 'main' : 'main';
     return store.startBuilder(site, key, { ...f, worktree: worktree && (() => makeWorktree(key.split('/')[1], { repo: source, base, remote })) });

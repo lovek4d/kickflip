@@ -187,7 +187,7 @@ The identity of a work item or follow-up in its board’s **ticket source**, sho
 _Avoid_: card (the board’s work item), task
 
 **Ticket source**:
-The board’s one choice for every card’s tickets: Internal with a prefix (INT by default), GitHub issues in the board’s repo, or a Linear workspace, team and project, listed through Hub’s **Linear key** when one is set and typed otherwise. New board and Board Settings share the choice ([0081](docs/adr/0081-a-board-has-one-ticket-source.md)).
+The board’s one choice for every card’s tickets: Internal with a prefix (INT by default), GitHub issues in the board’s repo, or a Linear workspace, team and project, listed through Hub’s **Linear key** when one is set and typed otherwise. New board and Board Settings share the choice ([0081](docs/adr/0081-a-board-has-one-ticket-source.md)). A GitHub source can name the gh account its issue calls run as. The hub board’s repo is the kickflip clone’s origin, so it can file its cards as GitHub issues ([0115](docs/adr/0115-the-hub-board-files-its-cards-as-github-issues.md)).
 _Avoid_: integration, tracker, GitHub project
 
 **Linear key**:

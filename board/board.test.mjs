@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { startFakeDevice } from '../hub/fake-device.mjs';
 import { freePorts, fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
 import http from 'node:http';
-import { fakeGh, prView, writePR, writeIssueComments, writeUser, calls } from '../shared/fake-gh.mjs';
+import { fakeGh, prView, writePR, writeIssueComments, writeUser, writeAccounts, calls, tokens } from '../shared/fake-gh.mjs';
 
 const bin = (name) => path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', name);
 let home;
@@ -414,6 +414,45 @@ test('an Internal ticket another card holds is refused, and backfill gives a car
   const done = board('tickets', 'backfill', '--site', 'orch');
   assert.equal(done.code, 0, done.err);
   assert.deepEqual(done.out.trim().split('\n'), ['w/A1 created INT-2', 'w/D4 created INT-3', 'w/E5 linked INT-9', 'w/ENG-1 created INT-10', 'backfill: linked 1, created 3, failed 0']);
+});
+
+test("the hub board files its cards as issues in the kickflip clone's origin as its Tickets gh account, PR calls stay on the active account, and a missing account fails clearly", () => {
+  const dir = path.join(home, 'fake-gh');
+  const stubs = path.join(home, 'git-stub');
+  write(path.join(stubs, 'git'), '#!/bin/sh\n[ "$3 $4 $5" = "remote get-url origin" ] && echo https://github.com/someone/fork.git\n');
+  fs.chmodSync(path.join(stubs, 'git'), 0o755);
+  const env = { PATH: `${stubs}:${fakeGh(dir)}:${process.env.PATH}` };
+  writeAccounts(dir, { lovek4d: 'token-lovek4d' });
+  writePR(dir, 7, prView());
+  write(at('kickflip', 'manifest.json'), { sites: { audit: { dir: site('audit'), hub: true, cmd: [process.execPath, bin('../server.mjs')] } } });
+  write(site('audit', 'data', 'wave.json'), { ...wave(), internal: true, items: [{ id: 'A1', title: 'One', ticket: 'A1' }, { id: 'Z9', title: 'Shipped', ticket: 'Z9', status: 'done' }] });
+  const cli = (...args) => run('board.mjs', ['--site', 'audit', ...args], undefined, env);
+  const last = (...args) => cli(...args).out.trim().split('\n').at(-1);
+  assert.equal(last('settings', 'set', 'tickets', '{"source":"github","account":"lovek4d"}'), 'setting tickets {"source":"github","account":"lovek4d"}');
+  assert.equal(cli('settings', 'set', 'github-login', 'owner').code, 0);
+  assert.equal(cli('item', 'add', 'audit/B2', '--title', 'Two').code, 0);
+  assert.equal(cli('item', 'add', 'audit/C3', '--title', 'Three', '--ticket', '#9').code, 0);
+  assert.deepEqual(cli('tickets', 'backfill').out.trim().split('\n').slice(-3), ['audit/A1 created #2', 'audit/ENG-1 created #3', 'backfill: linked 0, created 2, failed 0']);
+  assert.equal(read(site('audit', 'data', 'wave.json')).items.find((it) => it.id === 'Z9').ticket, 'Z9');
+  assert.equal(last('item', 'set', 'audit/B2', '--status', 'done'), 'ticket #1: closed');
+  assert.equal(cli('item', 'set', 'audit/C3', '--pr', '7').code, 0);
+  const report = cli('pr', 'audit/C3');
+  assert.equal(report.code, 0, report.err);
+  const issues = tokens(dir).filter((c) => c.args[0] === 'issue').map(({ args, token }) => [args[1], args[args.indexOf('--repo') + 1], token]);
+  assert.deepEqual(issues, [
+    ['create', 'someone/fork', 'token-lovek4d'], ['view', 'someone/fork', 'token-lovek4d'], ['create', 'someone/fork', 'token-lovek4d'],
+    ['create', 'someone/fork', 'token-lovek4d'], ['close', 'someone/fork', 'token-lovek4d'],
+  ]);
+  const prs = tokens(dir).filter((c) => c.args[0] === 'pr');
+  assert.deepEqual(prs.map((c) => c.args[4]), ['someone/fork']);
+  assert.notEqual(prs[0].token, 'token-lovek4d');
+  assert.equal(cli('settings', 'set', 'tickets', '{"source":"github","account":"nobody"}').code, 0);
+  const issueCalls = () => calls(dir).filter((a) => a[0] === 'issue').length;
+  const before = issueCalls();
+  assert.deepEqual(cli('item', 'add', 'audit/D4', '--title', 'Four'), { code: 1, out: '', err: 'gh has no nobody account; run gh auth login\n' });
+  assert.equal(last('item', 'set', 'audit/C3', '--status', 'done'), 'ticket #9: could not move to Done (gh has no nobody account; run gh auth login)');
+  assert.equal(issueCalls(), before);
+  assert.equal(cli('settings', 'set', 'tickets', '{"source":"github","account":"-bad"}').code, 1);
 });
 
 test('working marks a known ask started and refuses an unknown one', () => {

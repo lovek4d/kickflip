@@ -624,7 +624,14 @@ export function saveBoardSettings(site, changes) {
 // The CLI's `settings set <name> <value>`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
   const key = String(name).replace(/-/g, '_');
-  if (!['auto_merge', 'auto_build', 'github_login'].includes(key)) fail(`no board setting "${name}"; settings are ${['auto_merge', 'auto_build', 'github_login'].map((k) => k.replace(/_/g, '-')).join(', ')}`);
+  const names = ['auto_merge', 'auto_build', 'github_login', 'tickets'];
+  if (!names.includes(key)) fail(`no board setting "${name}"; settings are ${names.map((k) => k.replace(/_/g, '-')).join(', ')}`);
+  if (key === 'tickets') {
+    let tickets;
+    try { tickets = JSON.parse(value); } catch { fail('settings set tickets takes the source as JSON, such as {"source":"github"}'); }
+    const { file, settings } = await saveBoardSettings(site, { tickets });
+    return { file, lines: settingsLines({ tickets: settings.tickets }) };
+  }
   if (key === 'github_login') {
     const { file, settings } = await saveBoardSettings(site, { github_login: value });
     return { file, lines: [`github-login ${settings.github_login || 'unset'}`] };
@@ -1264,7 +1271,8 @@ const setTicketCommand = (site, key, followup = false) => {
 };
 
 // `tickets backfill`: each open card and follow-up with no ticket links the first id in its title, or in its legacy
-// `linear` list, that belongs to the board's source, else gets a new ticket. An Internal id another card holds is only
+// `linear` list, that belongs to the board's source, else gets a new ticket. An internal wave's card whose ticket is
+// its own id has none outside the board, so under GitHub or Linear it gets one too. An Internal id another card holds is only
 // a mention, so that card gets a new one. Done cards are left alone. dryRun writes nothing and calls no source. A Linear
 // board without Hub's key links ids on their pattern and prints a create line for each of the rest.
 // → {file, lines}: one line per card, then a count.
@@ -1284,10 +1292,11 @@ async function backfill(site, dryRun, options) {
   }
   const lines = [];
   const counts = { linked: 0, created: 0, failed: 0, mcp: 0 };
+  const ticketed = (wave, it) => it.ticket && !(source.source !== 'internal' && wave.internal === true && it.ticket === it.id);
   for (const { entry, wave } of waves) {
     for (const it of [...wave.items, ...(wave.followups || [])]) {
       const followup = !wave.items.includes(it);
-      if (it.ticket || (followup ? it.done : FINISHED.includes(it.status))) continue;
+      if (ticketed(wave, it) || (followup ? it.done : FINISHED.includes(it.status))) continue;
       const key = `${entry.slug}/${it.id}`;
       const found = [...titleTickets(source, it.title), ...(it.linear || []).filter((id) => ticketIn(source, id))]
         .find((id) => source.source !== 'internal' || !held.has(id));

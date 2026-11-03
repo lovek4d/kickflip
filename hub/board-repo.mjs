@@ -1,4 +1,4 @@
-import { readManifest, withManifestLock, writeManifest, isBoardSite, listBoards, appendEvent } from './boards.mjs';
+import { readManifest, withManifestLock, writeManifest, isBoardSite, listBoards, appendEvent, hubGithub } from './boards.mjs';
 import { routeRecord } from './routes.mjs';
 import { repoService, validateGithub, validateBranch, runRepo, githubFromOrigin } from './repos.mjs';
 import { storedPath } from '../bin/install.mjs';
@@ -11,7 +11,7 @@ export function boardRepo(route, manifest = readManifest()) {
   const site = routeRecord(manifest.sites, route);
   if (!isBoardSite(site)) refuse('Board not found.', 404);
   // The hub board's builders branch from the running kickflip clone's main (board/bin/board.mjs builder start).
-  if (site.hub === true) return { hub: true, github: '', branch: '', repo: storedPath(cloneRoot()) };
+  if (site.hub === true) return { hub: true, github: hubGithub(), branch: '', repo: storedPath(cloneRoot()) };
   return { github: site.github || '', branch: site.branch || '', repo: storedPath(site.owner?.repo || '') };
 }
 
