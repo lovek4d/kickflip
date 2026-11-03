@@ -129,7 +129,7 @@ BoardView.part((B) => {
   }
   async function hold(key, choice) {
     closeHold();
-    try { await B.site.send('card-hold', { key, hold: true, for: choice }); }
+    try { await B.sentHere(key, () => B.site.send('card-hold', { key, hold: true, for: choice })); }
     catch { toast('Could not hold. Is the host awake?'); }
     B.loadBoard();
   }
@@ -330,7 +330,7 @@ BoardView.part((B) => {
     if (it && act === 'hold') { openHold(it); return; }
     if (!it || !(await B.confirm(CONFIRM[act](it, refFor(it))))) return;
     if (act === 'resume') {
-      try { await B.site.send('card-hold', { key, hold: false }); }
+      try { await B.sentHere(key, () => B.site.send('card-hold', { key, hold: false })); }
       catch { toast('Could not resume. Is the host awake?'); }
       B.loadBoard();
       return;
@@ -339,7 +339,7 @@ BoardView.part((B) => {
     if (act === 'merge') {
       sendingMerge.add(key);
       redrawActions(key);
-      try { await B.site.send('card-merge', { key }); }
+      try { await B.sentHere(key, () => B.site.send('card-merge', { key })); }
       catch { toast('Could not send. Is the host awake?'); }
       sendingMerge.delete(key);
       B.loadBoard();
@@ -348,7 +348,7 @@ BoardView.part((B) => {
     if (act === 'card-build') {
       sendingBuild.add(key);
       redrawActions(key);
-      try { await B.site.send('card-build', { key }); }
+      try { await B.sentHere(key, () => B.site.send('card-build', { key })); }
       catch { toast('Could not send. Is the host awake?'); }
       sendingBuild.delete(key);
       B.loadBoard();
@@ -359,7 +359,7 @@ BoardView.part((B) => {
     if (act === 'finish') {
       const card = $(`details.item[data-key="${CSS.escape(key)}"]`);
       if (card) card.open = false;
-      try { await B.movingHere(key, () => (it.kind === 'ask' ? B.site.send('ask-done', { id: it.id }) : B.site.send('card-done', { key }))); }
+      try { await B.sentHere(key, () => (it.kind === 'ask' ? B.site.send('ask-done', { id: it.id }) : B.site.send('card-done', { key }))); }
       catch { toast('Could not close. Is the host awake?'); }
       await B.loadBoard();
       B.syncDone(key);
@@ -369,9 +369,9 @@ BoardView.part((B) => {
     row?.querySelectorAll('button').forEach((x) => { x.disabled = true; });
     b.disabled = true;
     try {
-      if (act === 'bump') { await B.site.send('card-bump', { key }); toast('Moved to the top'); }
-      else if (act === 'nudge') { await B.site.send('builder-nudge', { key }); b.textContent = 'Sent'; toast('Nudge sent'); }
-      else { await B.site.send(act === 'grill' ? 'grill-more' : 'build-followup', { key }); B.loadThread(key, { force: true }); }
+      if (act === 'bump') { await B.sentHere(key, () => B.site.send('card-bump', { key })); toast('Moved to the top'); }
+      else if (act === 'nudge') { await B.sentHere(key, () => B.site.send('builder-nudge', { key })); b.textContent = 'Sent'; toast('Nudge sent'); }
+      else { await B.sentHere(key, () => B.site.send(act === 'grill' ? 'grill-more' : 'build-followup', { key })); B.loadThread(key, { force: true }); }
     } catch { toast('Could not send. Is the host awake?'); }
     B.loadBoard();
   });

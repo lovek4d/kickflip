@@ -1,10 +1,10 @@
 // The last visit's board on the board view: reading and saving it, holding the controls that send until the fresh
-// board lands, and flashing the lines the fresh board changed (docs/adr/0028-the-board-opens-on-the-last-visit.md)
-// and the cards that changed lanes.
+// board lands, flashing the lines the fresh board changed (docs/adr/0028-the-board-opens-on-the-last-visit.md), and
+// the sign on a card that changed lanes or was updated (docs/adr/0135-an-updated-card-takes-a-brief-tint.md).
 // Needs app-core.js and ui-snapshot.js; app.js paints it.
 BoardView.part((B) => {
   const { $$, state } = B;
-  const { packSnapshot, unpackSnapshot, preloadKeys, liveControls, changedLines, SNAPSHOT_MAX } = BoardUI;
+  const { packSnapshot, unpackSnapshot, preloadKeys, liveControls, changedLines, updateSign, SNAPSHOT_MAX } = BoardUI;
   // The hub serves every site from one origin, so each board keeps its own key.
   const KEY = 'boardSnapshot:' + B.site.url('');
   // Every board's snapshots together stay within three at ui-snapshot.js's cap, the boards saved least recently
@@ -69,13 +69,9 @@ BoardView.part((B) => {
     }, true);
   }
 
-  // The lines a fresh board can change: each card line, lane count, Needs you line and thread message.
+  // The lines a fresh board can change: each lane count, Needs you line and thread message. A card shows its own sign below.
   function lines() {
     const out = new Map();
-    for (const wrap of $$('details.item[data-key] > summary .title-wrap')) {
-      const key = wrap.closest('[data-key]').dataset.key;
-      [...wrap.children].forEach((el, i) => out.set(`${key}|${i}`, el));
-    }
     for (const count of $$('.lane[data-lane] > summary .count')) out.set(`lane:${count.closest('.lane').dataset.lane}`, count);
     $$('#waiting li').forEach((li, i) => out.set(`needs:${i}`, li));
     for (const msgs of $$('[data-thread] > .msgs')) [...msgs.children].forEach((m, i) => out.set(`thread:${msgs.parentElement.dataset.thread}|${i}`, m));
@@ -89,37 +85,47 @@ BoardView.part((B) => {
     const els = lines();
     const after = texts(els);
     for (const id of changedLines(before, after)) {
-      const el = els.get(id);
-      (el.closest('details.item') || el).classList.add('flash');
+      els.get(id).classList.add('flash');
       before[id] = after[id];
     }
   }
   const endFlash = () => { before = null; };
 
-  // A card whose lane changed since the page last drew it, a last visit's board included, flashes once in its new
-  // lane, as does a work card that takes the place of a drawn New task (its fromAsk), unless the owner moved it from
-  // this page: movingHere(key, send) holds the card's next lane change unflashed until the first board load started
-  // after send settles.
-  let drawnLanes = new Map();
-  const ownMoves = new Map();
-  async function movingHere(key, send) {
-    ownMoves.set(key, Infinity);
-    try { return await send(); } finally { ownMoves.set(key, B.boardLoad || 0); }
+  // Since the page last drew it, a last visit's board included, a card that changed lanes, or a work card that takes
+  // the place of a drawn New task (its fromAsk), flashes once; any other card whose updateSign changed takes a brief
+  // tint on its title row. Neither shows for a change the owner sent from this page: sentHere(key, send) holds the
+  // card's next change unsigned until the first board load started after send settles.
+  let drawn = new Map();
+  const ownChanges = new Map();
+  async function sentHere(key, send) {
+    ownChanges.set(key, Infinity);
+    try { return await send(); } finally { ownChanges.set(key, B.boardLoad || 0); }
   }
-  function flashMoved(load = null) {
+  // Each sign's style.css animation length. A lane repaint resets a card's classes, so a sign still running is put back
+  // as far into its animation as it was.
+  const SIGNS = { flash: 1600, tint: 2400 };
+  const running = new Map();
+  function signCards(load = null) {
+    const now = Date.now();
     for (const it of state.board.items) {
-      const moved = drawnLanes.has(it.key) ? drawnLanes.get(it.key) !== it.lane : Boolean(it.fromAsk) && drawnLanes.has(`ask:${it.fromAsk}`);
-      const own = ownMoves.get(it.key);
-      if (own !== undefined) { if (moved || (load !== null && load > own)) ownMoves.delete(it.key); continue; }
-      const el = moved && state.view === 'fresh' && B.root.querySelector(`details.item[data-key="${CSS.escape(it.key)}"]`);
-      if (!el) continue;
-      // Re-adding the class after a layout read restarts a flash still running.
-      el.classList.remove('flash');
-      void el.offsetWidth;
-      el.classList.add('flash');
+      const was = drawn.get(it.key);
+      const moved = was ? was.lane !== it.lane : Boolean(it.fromAsk) && drawn.has(`ask:${it.fromAsk}`);
+      const updated = Boolean(was) && was.sign !== updateSign(it);
+      const own = ownChanges.get(it.key);
+      if (own !== undefined) { if (moved || updated || (load !== null && load > own)) ownChanges.delete(it.key); continue; }
+      if ((moved || updated) && state.view === 'fresh') running.set(it.key, { sign: moved ? 'flash' : 'tint', at: now });
     }
-    drawnLanes = new Map(state.board.items.map((i) => [i.key, i.lane]));
+    drawn = new Map(state.board.items.map((i) => [i.key, { lane: i.lane, sign: updateSign(i) }]));
+    for (const [key, { sign, at }] of running) {
+      const card = now - at < SIGNS[sign] && B.root.querySelector(`details.item[data-key="${CSS.escape(key)}"]`);
+      if (!card) { running.delete(key); continue; }
+      // Re-adding the class after a layout read restarts the animation, from the delay's point.
+      card.classList.remove('flash', 'tint');
+      card.style.setProperty('--sign-delay', `-${now - at}ms`);
+      void card.offsetWidth;
+      card.classList.add(sign);
+    }
   }
 
-  Object.assign(B, { readSnapshot, saveSnapshotSoon, setView, holdForFlash, flashChanged, endFlash, movingHere, flashMoved });
+  Object.assign(B, { readSnapshot, saveSnapshotSoon, setView, holdForFlash, flashChanged, endFlash, sentHere, signCards });
 });

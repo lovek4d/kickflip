@@ -175,7 +175,7 @@ window.BoardView = (function () {
         B.renderBanner(d);
       });
       B.flashChanged();
-      B.flashMoved(load);
+      B.signCards(load);
     }
 
     // #item=<wave>/<id> opens that card; push notifications link here, with &reply to land in the thread's reply box

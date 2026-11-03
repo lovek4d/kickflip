@@ -2495,14 +2495,22 @@ test("a lane repaint while the owner types in a card's reply box moves the other
   assert.deepEqual([lane('e1'), top(TITLE)], ['review', titleTop]);
 });
 
-test("Mark as done closes the card and leaves the page where it is as the card moves to Done, unflashed, while a card another hand moves, or a work card that takes a New task's place, flashes once", async () => {
+test("Mark as done closes the card and leaves the page where it is as the card moves to Done, unflashed, and the owner's reply leaves its card untinted, while a card another hand moves, or a work card that takes a New task's place, flashes once, and a card another hand updates takes the tint in its place", async () => {
   const board = boardOf([askCard('b1', 'progress'), { ...askCard('a1', 'progress'), actionButton: 'markDone', finishable: true }]);
   const b = boardOnDom({ open: ['ask:a1'], board, threads: {}, confirm: true });
   await b.settle();
   const view = layOut(b);
   const card = () => b.root.querySelector('details.item[data-key="ask:a1"]');
   const flashing = () => [...b.root.querySelectorAll('details.item.flash')].map((el) => el.dataset.key);
+  const tinting = () => [...b.root.querySelectorAll('details.item.tint')].map((el) => el.dataset.key);
   assert.deepEqual(flashing(), []);
+  board.items[1] = { ...board.items[1], threadCount: 1 };
+  const form = card().querySelector('form[data-reply="ask:a1"]');
+  form.querySelector('textarea').value = 'On it';
+  b.page.fire(b.root, 'submit', { target: form });
+  await b.settle();
+  await b.change({ board });
+  assert.deepEqual([b.sent.map(([kind]) => kind), flashing(), tinting()], [['item-message'], [], []]);
   const open = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(b.root), 'open');
   const el = card();
   Object.defineProperty(el, 'open', { get: open.get, set(v) {
@@ -2523,7 +2531,11 @@ test("Mark as done closes the card and leaves the page where it is as the card m
   assert.deepEqual(flashing(), ['ask:b1']);
   board.items[2] = workCard('C1', { fromAsk: 'n1' });
   await b.change({ board });
-  assert.deepEqual(flashing(), ['w/C1']);
+  assert.deepEqual(flashing(), ['ask:b1', 'w/C1']);
+  board.items[0] = { ...board.items[0], threadCount: 1 };
+  board.items[2] = { ...board.items[2], builder: { progress: 'Tests pass' } };
+  await b.change({ board });
+  assert.deepEqual([flashing(), tinting()], [[], ['ask:b1', 'w/C1']]);
 });
 
 function questionsOnDom({ topics, questions, at, next }) {
