@@ -367,7 +367,7 @@ Claude's answer to one event, shown under it on the page.
 _Avoid_: response, comment
 
 **Pending message**:
-A New card's message, or the owner's message in a thread, that Claude hasn't answered yet: no reply, and in a thread no later Claude line other than a builder status line or agent line. It reads "Working on it" once the watcher prints it to the session, and the owner can edit or delete it.
+A New card's message, or the owner's message in a thread, that Claude hasn't answered yet: no reply, no later Claude line on its card other than a builder status line or agent line, no later reply to its card's ask, its ask not turned or folded into a card, and its card not closed since the watcher marked it. It reads "Working on it" once the watcher prints it to the session, and the owner can edit or delete it.
 _Avoid_: unread, queued
 
 **Reminder**:

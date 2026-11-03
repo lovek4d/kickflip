@@ -403,8 +403,8 @@ function ownerTopics(topics, questions, closed = new Set()) {
 // An item's thread: Claude's and GitHub's lines, the owner's messages and
 // buttons from the board, and their answers to the item's questions,
 // oldest first. working maps the event ids marked working in data/working.json (bin/wait-events.mjs writes them).
-// Each owner message has a state: replied (Claude replied to its event), answered (a Claude line
-// came after it), working (marked, neither yet) or waiting. An item-message still working or
+// Each owner message has a state: replied (Claude replied to its event), answered (a Claude line, or the reply to
+// the thread's ask, came after it), working (marked, neither yet) or waiting. An item-message still working or
 // waiting can be deleted or edited, and shows its latest ask-edited text (docs/adr/0014-a-pending-ask-can-be-deleted-or-bumped.md). An ask's thread
 // (key ask:<event id>), and a work item's whose fromAsk names an ask, opens with that ask. links [{key, ref, became}] are the
 // work items an ask's thread links to: each adds a link line after the ask, and a linked ask counts as answered.
@@ -417,6 +417,8 @@ const actionText = (e, asked) => {
   if (e.kind !== 'prototype-request' || !asked.has(e.data.question)) return e.data.text || routeRecord(ACTION_LABELS, e.kind) || '';
   return [`Asked for a prototype: ${asked.get(e.data.question).question}`, e.data.note].filter(Boolean).join('\n→ ');
 };
+const claudeAtOf = (msgs) => [...msgs.filter((m) => m.who === 'claude' && m.kind !== 'status' && m.kind !== 'agent').map((m) => m.ts),
+  ...msgs.filter((m) => m.kind === 'ask').map((m) => m.reply?.at)].filter(Boolean).map(String).sort().pop() || '';
 export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, fromAsk = null, links = [], agents = {}, moved = [] }) {
   const askIds = key.startsWith('ask:') ? [key.slice(4)] : [fromAsk, ...moved].filter(Boolean);
   const keys = new Set([key, ...askIds.map((id) => `ask:${id}`)]);
@@ -439,7 +441,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
         ...(typeof e.data?.from?.title === 'string' ? { from: e.data.from.title } : {}) },
         ...links.map((l) => ({ ts: e.ts, who: 'claude', kind: 'ask-link', text: `${l.became ? 'Became' : 'Added to'} ${l.ref}`, link: `#item=${encodeURIComponent(l.key)}`, html: null, via: null }))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
-  const lastClaude = msgs.filter((m) => m.who === 'claude' && m.kind !== 'status' && m.kind !== 'agent').map((m) => String(m.ts)).pop() || '';
+  const lastClaude = claudeAtOf(msgs);
   const edits = new Map(events.filter((e) => e.kind === 'ask-edited').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((e) => [e.data?.id, e.data?.text]));
   for (const m of msgs) {
     if (!m.eventId) continue;
@@ -512,6 +514,9 @@ export function buildBoard(snapshot) {
   const waves = [];
   const items = [];
   const threadStates = new Map();
+  // By card key: when Claude last answered in its thread, and when a Done work card closed.
+  const claudeAt = new Map();
+  const closedWork = new Map();
   // Cards a session worked on without a builder: a working mark on a message in its thread, or a prototype recorded for it.
   const worked = new Set((snapshot.prototypes || []).map((p) => p.card).filter(Boolean));
   const remote = snapshot.github ? null : remoteFromInput(snapshot.remote);
@@ -527,10 +532,12 @@ export function buildBoard(snapshot) {
       if (it.from_ask) madeFrom.set(it.from_ask, [...(madeFrom.get(it.from_ask) || []), { key, ref: refOf(wave, it, tickets), became: true }]);
       const msgs = threadOf(key, { lines, events, owner, working, fromAsk: it.from_ask || null, moved: folded });
       for (const m of msgs) if (m.eventId) threadStates.set(m.eventId, m.state);
+      claudeAt.set(key, claudeAtOf(msgs));
       if (msgs.some((m) => m.eventId && m.kind !== 'ask' && routeRecord(working, m.eventId))) worked.add(key);
+      const pr = it.pr && repo ? routeRecord(prs, `${repo}#${it.pr}`) || null : null;
       items.push(workItem({
         slug, wave, it, order, repo, remote, base: snapshot.branch || 'main',
-        pr: it.pr && repo ? routeRecord(prs, `${repo}#${it.pr}`) || null : null,
+        pr,
         ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
         thread: lines,
         events: [...itemEvents.filter((e) => e.data.key === key || askKeys.has(e.data.key)), ...askIds.map((id) => asks.get(id))],
@@ -540,6 +547,8 @@ export function buildBoard(snapshot) {
         topicItems, boardReviewers: snapshot.reviewers || [], now, bumpedAt: cardBumps.get(key), holdAsk: cardHolds.get(key), closedAt: cardDones.get(key),
         mergeAt: cardMerges.get(key), buildAt: cardBuilds.get(key), autoMerge, tickets,
       }));
+      const card = items[items.length - 1];
+      if (card.lane === 'done') closedWork.set(key, [it.status_at, it.merged_at, pr?.mergedAt].filter(Boolean).map(String).sort().pop() || String(card.updatedAt || ''));
     });
     (wave.followups || []).forEach((f, n) => items.push(followUp({ slug, wave, f, order: wave.items.length + n, repo, bumpedAt: cardBumps.get(`${slug}/${f.id}`), closedAt: cardDones.get(`${slug}/${f.id}`), tickets })));
   }
@@ -581,6 +590,7 @@ export function buildBoard(snapshot) {
     if (links.length) { moved.set(key, links[0].key); continue; }
     const msgs = threadOf(key, { lines: routeRecord(threads, key) || [], events, working, links });
     for (const m of msgs) if (m.eventId) threadStates.set(m.eventId, m.state);
+    claudeAt.set(key, claudeAtOf(msgs));
     items.push(askItem(e, msgs, bumps.get(e.id), links.length > 0 || Boolean(routeRecord(askLinks, e.id)), routeRecord(askProgress, e.id), askDones.get(e.id), pendingOn(`item:${key}`)));
   }
   for (const w of waves) {
@@ -623,8 +633,9 @@ export function buildBoard(snapshot) {
   // Built again after the sort, so the item topics follow the lanes' order.
   const topicList = topicsOf();
   const needs = [...promptLines(snapshot.prompts), ...needsOf(items, topicList, questions)];
-  // A thread's event works until a reply or a later Claude line; any other event until its reply. A mark also lapses once
-  // its card leaves the board or is closed after the mark, since nothing would ever reply to it.
+  // A marked event works until Claude answers it: a reply, a later Claude line in its card's thread or a reply to that
+  // card's ask, its ask becoming or folding into a card, or its card leaving the board or closing after the mark. An
+  // event on no card works until its reply.
   const topicOf = new Map((owner.items || []).map((q) => [q.id, q.topic]));
   const ownCardOf = (e) => {
     if (e.kind === 'owner-answer') return topicOf.has(e.data?.id) ? /^item:(.+)$/.exec(topicOf.get(e.data.id))?.[1] || null : '';
@@ -635,14 +646,18 @@ export function buildBoard(snapshot) {
   const closedAt = (key) => {
     const id = key.startsWith('ask:') ? key.slice(4) : null;
     const done = id && routeRecord(askProgress, id)?.state === 'done' ? routeRecord(askProgress, id).at : null;
-    return [cardDones.get(key), id && askDones.get(id), done].filter(Boolean).sort().pop() || '';
+    return [cardDones.get(key), id && askDones.get(id), done, closedWork.get(key)].filter(Boolean).sort().pop() || '';
   };
-  const live = (e) => {
+  const unanswered = (e) => {
     const card = cardOf(e);
-    return card === null || (byKey.has(card) && closedAt(card) < String(routeRecord(working, e.id)));
+    if (card === null) return !e.reply;
+    if (!byKey.has(card) || !(closedAt(card) < String(routeRecord(working, e.id)))) return false;
+    if (threadStates.has(e.id)) return threadStates.get(e.id) === 'working';
+    return !e.reply && !moved.has(ownCardOf(e)) && !(String(claudeAt.get(card) || '') > String(e.ts));
   };
-  const workingOn = events.filter((e) => routeRecord(working, e.id) && live(e) && (threadStates.has(e.id) ? threadStates.get(e.id) === 'working' : !e.reply))
+  const workingOn = events.filter((e) => routeRecord(working, e.id) && unanswered(e))
     .map((e) => ({ id: e.id, kind: e.kind, key: cardOf(e), data: e.data, since: routeRecord(working, e.id) }));
+  for (const it of items) it.working = workingOn.some((w) => w.key === it.key);
   // The page shows those this browser hasn't seen in the answer banner (docs/adr/0016-every-ask-is-a-card.md).
   const answers = items.filter((i) => i.ask?.answerAt).sort((a, b) => b.ask.answerAt.localeCompare(a.ask.answerAt))
     .map((i) => ({ key: i.key, id: i.id, text: i.title, at: i.ask.answerAt }));
@@ -652,8 +667,8 @@ export function buildBoard(snapshot) {
 // docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md
 const REMIND_AFTER = 30 * 60000;
 // What has waited on the session REMIND_AFTER, from a built board and the snapshot's waves: a card in Orchestrator
-// review with no running builder, since its status changed or its last builder finished, and a message marked Working
-// that has no reply or later Claude line, since its mark. A spell names one wait; a new status, builder or mark starts
+// review with no running builder, since its status changed or its last builder finished, and each of the board's
+// workingOn, since its mark. A spell names one wait; a new status, builder or mark starts
 // another. → [{spell, key, what, since}], key null for a wave's triage
 export function remindersOf(built, waves, now) {
   const due = (since) => Boolean(since) && now - Date.parse(since) >= REMIND_AFTER;
