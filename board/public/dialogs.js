@@ -1,5 +1,5 @@
 // Every confirmation and notice is the browser's own window.confirm or window.alert; no page imitates a native dialog.
-// Load before any page script that asks (docs/adr/0145-confirmations-are-the-browsers-own.md).
+// Load before any page script that asks (docs/adr/0146-confirmations-are-the-browsers-own.md).
 (function () {
   // linear: Hub's /_hub/api/linear answer, else loadLinear() fetches it once Linear is the source. Linear is picked only
   // while Hub's key works; tapping it without one opens Hub's key modal over the page (linear-key.js,
