@@ -1673,6 +1673,27 @@ test('the SubagentStop hook leaves a record another agent restarted on the card 
   assert.equal('done' in read(at('waves', 'w', 'agents', 'A1@fix.json')), false);
 });
 
+test('the SubagentStop hook leaves the records open while background work the agent started still runs, and closes them on its real finish', () => {
+  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch').code, 0);
+  const transcript = path.join(home, 'agent.jsonl');
+  const launched = (id, toolUseResult) => JSON.stringify({ type: 'user', timestamp: ago(500), message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'started' }] }, toolUseResult });
+  write(transcript, [
+    toolUse('t1', 'node board.mjs --site orch builder start w/A1 --kind build', ago(1000)),
+    toolResult('t1', ago(900)),
+    launched('t2', { stdout: '', stderr: '', backgroundTaskId: 'bsuite' }),
+    launched('t3', { taskId: 'bmonitor', timeoutMs: 1800000, persistent: false }),
+    launched('t4', { isAsync: true, status: 'async_launched', agentId: 'ahelper' }),
+  ].join('\n') + '\n');
+  const task = (id, type) => ({ id, type, status: 'running', description: id });
+  const watcher = task('bwatcher', 'shell');
+  for (const own of [task('bsuite', 'shell'), task('bmonitor', 'monitor'), task('ahelper', 'subagent')]) {
+    assert.deepEqual(stopHook({ agent_transcript_path: transcript, background_tasks: [watcher, own] }).out, '');
+    assert.equal('done' in read(at('waves', 'w', 'agents', 'A1.json')), false, own.id);
+  }
+  assert.equal(stopHook({ agent_transcript_path: transcript, background_tasks: [watcher] }).code, 0);
+  assert.equal(typeof read(at('waves', 'w', 'agents', 'A1.json')).done, 'string');
+});
+
 test('the SubagentStop hook exits 0 with nothing on stdout when its input or transcript is missing', () => {
   for (const input of [{ agent_transcript_path: path.join(home, 'gone.jsonl') }, {}, 'not json']) {
     const r = stopHook(input);

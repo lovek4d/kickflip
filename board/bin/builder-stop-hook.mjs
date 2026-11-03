@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // A Claude Code SubagentStop hook: closes the builder records a subagent started and left open.
-// Claude Code passes {agent_transcript_path, …} on stdin. It may run more than once for one agent,
-// and a non-zero exit or stdout output would reach the session, so it is quiet and always exits 0.
+// Claude Code passes {agent_transcript_path, background_tasks, …} on stdin. It also fires when the agent ends a
+// turn to wait on background work it started, and the agent resumes when that work ends; then the records stay
+// open. It may run more than once for one agent, and a non-zero exit or stdout output would reach the session,
+// so it is quiet and always exits 0.
 import fs from 'node:fs';
 import os from 'node:os';
 
@@ -67,12 +69,29 @@ function startsInTranscript(text) {
   return starts;
 }
 
+// The ids of the background tasks the agent started: a backgrounded shell command, a Monitor, a background agent.
+// background_tasks lists the in-flight tasks of the whole session, the parent's own included, by these ids.
+function backgroundIdsIn(text) {
+  const ids = new Set();
+  for (const line of text.split('\n')) {
+    if (!line.includes('"toolUseResult"') || !/"backgroundTaskId"|"taskId"|"async_launched"/.test(line)) continue;
+    let r;
+    try { r = JSON.parse(line).toolUseResult; } catch { continue; }
+    const id = r?.backgroundTaskId ?? r?.taskId ?? (r?.status === 'async_launched' ? r.agentId : undefined);
+    if (typeof id === 'string') ids.add(id);
+  }
+  return ids;
+}
+
 async function main() {
   const input = JSON.parse(fs.readFileSync(0, 'utf8'));
   const transcript = input?.agent_transcript_path;
   if (typeof transcript !== 'string' || !transcript) throw new Error('no agent_transcript_path on stdin');
-  const starts = startsInTranscript(fs.readFileSync(transcript, 'utf8'));
+  const text = fs.readFileSync(transcript, 'utf8');
+  const starts = startsInTranscript(text);
   if (!starts.length) return;
+  const own = backgroundIdsIn(text);
+  if ((input.background_tasks ?? []).some((t) => own.has(t.id))) return;
   (await import('../../bin/install.mjs')).migrateOnStart();
   const store = await import('../store.mjs');
   for (const s of starts) {
