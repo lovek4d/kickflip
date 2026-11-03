@@ -267,7 +267,7 @@ test('an idle board with auto-pull on sends card-pull for its top pullable Todo 
     assert.deepEqual(pulls(), []);
 
     fs.writeFileSync(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), done: iso(now) }));
-    await until(() => pulls().length === 1, 'the idle board pulls in a card');
+    await until(() => pulls().length === 1 && thread('A5').length === 1, 'the idle board pulls in a card');
     assert.deepEqual(pulls(), ['t/A5']);
     assert.deepEqual(thread('A5'), ['Pulled in: the board was idle.']);
     await tick();
