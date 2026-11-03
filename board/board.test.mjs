@@ -543,16 +543,13 @@ test('question add appends valid questions and rejects the whole file otherwise'
     write(path.join(home, 'card.json'), question(id, { topic: 'item:w/A1' }));
     return board('question', 'add', '--site', 'orch', '--file', path.join(home, 'card.json'));
   };
-  const refused = (status) => ({ code: 1, out: '', err: `w/A1 is ${status}; reopen it with item set w/A1 --status building, then add the question\n` });
-  for (const status of ['done', 'merged']) {
-    assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', status, '--force').code, 0);
-    assert.deepEqual(onCard(`q-${status}`), refused(status));
-    assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'building').code, 0);
-    assert.equal(onCard(`q-${status}`).code, 0);
-  }
-  fs.appendFileSync(site('orch', 'data', 'events.jsonl'), JSON.stringify({ id: 'e2', ts: '2999-01-01T00:00:00Z', kind: 'card-done', data: { key: 'w/A1' } }) + '\n');
-  assert.deepEqual(onCard('q-tapped'), refused('done'));
-  assert.deepEqual(read(site('orch', 'data', 'owner.json')).items.map((q) => q.id), ['q1', 'q2', 'q4', 'q-done', 'q-merged']);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'merged', '--force').code, 0);
+  assert.deepEqual(onCard('q-merged'), { code: 1, out: '', err: 'w/A1 is merged and stays closed; ask on an open card or a declared topic\n' });
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'done', '--force').code, 0);
+  assert.equal(onCard('q-done').code, 0);
+  const added = read(site('orch', 'data', 'owner.json')).items;
+  assert.deepEqual(added.map((q) => q.id), ['q1', 'q2', 'q4', 'q-done']);
+  assert.ok(added.every((q) => !Number.isNaN(Date.parse(q.asked_at))));
 });
 
 const takePath = (topic, key) => site('orch', 'public', 'prototypes', topic, `${key}.js`);

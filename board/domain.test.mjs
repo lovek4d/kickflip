@@ -600,7 +600,7 @@ test("an unstarted Todo card that nothing blocks and that waits on nothing from 
   assert.deepEqual([moved.buildable, moved.starting], [true, false]);
 });
 
-test("a card-done moves work and follow-ups to Done and unblocks dependents at once, unless a newer status overrides it", () => {
+test("a card-done moves work and follow-ups to Done and unblocks dependents at once, unless a newer status overrides it, and an owner message or question after it reopens all but a merged card", () => {
   const close = (key, ts) => ({ id: 'c' + ts, ts, kind: 'card-done', data: { key }, reply: null });
   const items = [
     { id: 'A1', title: 'One', status: 'building' },
@@ -608,6 +608,9 @@ test("a card-done moves work and follow-ups to Done and unblocks dependents at o
     { id: 'A3', title: 'Three' },
     { id: 'A4', title: 'Four', status: 'done', status_at: '2026-10-23T11:20:00Z' },
     { id: 'A5', title: 'Five', deps: ['A1'] },
+    { id: 'A6', title: 'Six', deps: ['A4'] },
+    { id: 'A7', title: 'Seven', status: 'merged', status_at: '2026-10-23T11:20:00Z' },
+    { id: 'A8', title: 'Eight', status: 'done', status_at: '2026-10-23T11:20:00Z' },
   ];
   const followups = [{ id: 'ENG-1', title: 'f', filed: '2026-10-22' }, { id: 'ENG-2', title: 'g', filed: '2026-10-22' }, { id: 'ENG-3', title: 'h', filed: '2026-10-22', done: true }];
   const events = [close('w/A1', '2026-10-23T11:00:00Z'), close('w/A2', '2026-10-23T11:10:00Z'), close('w/A4', '2026-10-23T11:10:00Z'), close('w/ENG-2', '2026-10-23T11:10:00Z')];
@@ -616,13 +619,26 @@ test("a card-done moves work and follow-ups to Done and unblocks dependents at o
   const b = buildBoard({ ...snapshot, events });
   const cards = Object.fromEntries(b.items.map((i) => [i.id, [i.lane, i.finishable]]));
   assert.deepEqual(cards, {
-    A1: ['done', false], A2: ['progress', true], A3: ['todo', true], A4: ['done', false], A5: ['todo', true],
+    A1: ['done', false], A2: ['progress', true], A3: ['todo', true], A4: ['done', false], A5: ['todo', true], A6: ['todo', true], A7: ['done', false], A8: ['done', false],
     'ENG-1': ['todo', true], 'ENG-2': ['done', false], 'ENG-3': ['done', false],
   });
   const closed = b.items.find((i) => i.id === 'A1');
   assert.deepEqual([closed.status, closed.action, closed.actionButton, closed.next, closed.holdable], ['done', null, null, null, false]);
   assert.equal(b.items.find((i) => i.id === 'A2').status, 'building');
   assert.deepEqual(b.items.find((i) => i.id === 'A5').blockedBy, []);
+
+  const msg = (key, ts) => ({ id: `m-${key}-${ts}`, ts, kind: 'item-message', data: { key, text: 'One more thing' }, reply: null });
+  const said = { ...snapshot, events: [...events, msg('w/A4', '2026-10-23T11:15:00Z'), msg('w/A4', '2026-10-23T11:30:00Z'), msg('w/A7', '2026-10-23T11:30:00Z')],
+    owner: { items: [{ id: 'q1', topic: 'item:w/A8', question: 'Which?', options: [{ id: 'a', label: 'A' }], asked_at: '2026-10-23T11:30:00Z' }] } };
+  const card = (s, id) => buildBoard(s).items.find((i) => i.id === id);
+  const state = (s, id) => (({ lane, waitsOn, status, action, actionButton, next }) => [lane, waitsOn, status, action?.kind ?? null, actionButton, next])(card(s, id));
+  assert.deepEqual(state(said, 'A4'), ['progress', null, null, null, 'grill', null]);
+  assert.deepEqual(card(said, 'A6').blockedBy, []);
+  assert.deepEqual(state(said, 'A7'), ['done', null, 'merged', null, null, null]);
+  assert.deepEqual(state(said, 'A8'), ['review', 'owner', null, 'questions', 'openQuestions', 'Answer 1 question']);
+  const answered = { ...said, threads: { 'w/A4': [{ ts: '2026-10-23T11:40:00Z', who: 'claude', text: 'Done that.' }] } };
+  assert.deepEqual(state(answered, 'A4'), ['review', 'owner', null, 'done', 'markDone', 'Tap Done once it is settled']);
+  assert.deepEqual(state({ ...answered, events: [...answered.events, close('w/A4', '2026-10-23T11:50:00Z')] }, 'A4'), ['done', null, 'done', null, null, null]);
 });
 
 test('a withdrawn ask leaves the board', () => {

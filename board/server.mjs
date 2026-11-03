@@ -39,7 +39,7 @@
 //                                per-item review_link_ts and legacy ~/.claude/slack-bridge/topics/*.json fallbacks,
 //                                data/owner.json and GitHub (gh, cached for 45 s).
 //                                owner.json: {topics: [{id, title, summary}], items: [{id, topic,
-//                                question, context, url, options, urgent, resolved, resolved_at, round, round_of, confirm_of}]};
+//                                question, context, url, options, urgent, asked_at, resolved, resolved_at, round, round_of, confirm_of}]};
 //                                Waiting on you shows an open `urgent` question alone, first
 //                                checks comes from data/checked.json (board.mjs checked),
 //                                whether the board hears its events (../hub/boards.mjs listenState) and Claude's latest writes;

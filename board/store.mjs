@@ -844,13 +844,10 @@ async function checkPrototype(site, q, name) {
   }
 }
 
-// A card the board shows Done takes questions only once it is back In Progress. The owner's card-done counts until a
-// newer status_at overrides it, as in board/domain.mjs workItem.
-async function refuseClosedCard(site, key) {
+// docs/adr/0128-a-message-or-question-on-a-done-card-reopens-it.md
+async function refuseMergedCard(site, key) {
   const { item } = await loadItem(site, key);
-  const doneAt = (await readLines(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'card-done' && e.data?.key === key).map((e) => String(e.ts)).sort().at(-1);
-  const status = doneAt && doneAt > String(item.status_at || '') ? 'done' : item.status;
-  if (['done', 'merged'].includes(status)) fail(`${key} is ${status}; reopen it with item set ${key} --status building, then add the question`);
+  if (item.status === 'merged' || item.merged_at) fail(`${key} is merged and stays closed; ask on an open card or a declared topic`);
 }
 
 // A question file holds one question or an array of them; all are checked before any is added.
@@ -869,7 +866,7 @@ export async function addQuestions(site, input) {
     taken.add(q.id);
     text(q.topic, `${name}.topic`);
     if (q.topic.startsWith('item:ask:')) await checkAsk(site, q.topic.slice(9), `${name}.topic`);
-    else if (q.topic.startsWith('item:')) await refuseClosedCard(site, q.topic.slice(5));
+    else if (q.topic.startsWith('item:')) await refuseMergedCard(site, q.topic.slice(5));
     else if (q.topic.startsWith('lineup:')) await findLineup(site, q.topic.slice(7));
     else if (q.topic.startsWith('wave:')) await triagedWave(site, q.topic.slice(5));
     else if (!topics.has(q.topic)) fail(`topic "${q.topic}" is not declared; add it with: topic add ${q.topic} --title <t>`);
@@ -913,7 +910,7 @@ export async function addQuestions(site, input) {
       }
     }
   }
-  await writeJSON(ownerFile(site), { ...owner, topics: owner.topics || [], items: [...items, ...questions] });
+  await writeJSON(ownerFile(site), { ...owner, topics: owner.topics || [], items: [...items, ...questions.map((q) => ({ ...q, asked_at: at }))] });
   await dropQueued([...replaced, ...resolved].map((id) => `q-${id}`), path.basename(site));
   return { file: ownerFile(site), lines: [...replaced.map((id) => `replaced: ${id}`), ...resolved.map((id) => `resolved: ${id}`)] };
 }

@@ -105,9 +105,18 @@ const REVIEW_NEXT = { reviewers: 'Waiting for PR reviewers', merge: 'Approved, m
 const OWNER_MERGE_NEXT = { waiting: 'Approved, Merge shows once CI and the merge state allow', ready: 'Approved and green: tap Merge', merging: 'Merging' };
 const FIX_CI = 'Fix the failing CI';
 
-function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agents, eta, thread, events, working, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, buildAt, autoMerge, tickets }) {
+// said is the owner's messages and answers in the card's thread (threadOf), and askedAt the asked_at of its questions.
+function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agents, eta, thread, events, working, said, askedAt, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, buildAt, autoMerge, tickets }) {
+  const merged = it.status === 'merged' || Boolean(it.merged_at) || pr?.state === 'MERGED' || pr?.state === 'CLOSED';
   // docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md
-  if (closedAt && String(closedAt) > String(it.status_at || '')) it = { ...it, status: 'done' };
+  const tappedDone = Boolean(closedAt) && String(closedAt) > String(it.status_at || '');
+  if (tappedDone) it = { ...it, status: 'done' };
+  // docs/adr/0128-a-message-or-question-on-a-done-card-reopens-it.md
+  const doneAt = String((tappedDone ? closedAt : it.status_at) || '');
+  const reopenAt = it.status === 'done' && !merged
+    ? [...said.filter((m) => m.kind === 'item-message').map((m) => m.ts), ...askedAt].map(String).filter((t) => t > doneAt).sort().pop() : undefined;
+  if (reopenAt) it = { ...it, status: undefined, next: undefined };
+  const ownerPending = Boolean(reopenAt) && said.some((m) => String(m.ts) > doneAt && (m.state === 'waiting' || m.state === 'working'));
   const key = `${slug}/${it.id}`;
   const reviewers = reviewersOf(wave, boardReviewers);
   const sentAt = Object.fromEntries(Object.entries(reviewLinks(wave, it, key, topicItems)).map(([name, link]) => [name, reviewTime(link.ts)]));
@@ -119,10 +128,14 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
   // A branch pushed to a plain git remote, which has no PR (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
   const pushed = !it.pr && it.pushed?.branch ? { branch: it.pushed.branch, at: it.pushed.at || null, host: remote?.host || null } : null;
   let lane = laneOf(it, pr, Boolean(builder), pushed);
+  if (reopenAt && lane === 'todo') lane = 'progress';
   if (lane === 'review' && inReviewSince && now - Date.parse(inReviewSince) > STALE_AFTER) lane = 'stale';
-  const waitsOn = waitsOnOf(lane, pr, builder, (it.status || '').toLowerCase(), pushed);
+  let waitsOn = waitsOnOf(lane, pr, builder, (it.status || '').toLowerCase(), pushed);
   const changing = waitsOn === 'builder' && pr?.state === 'OPEN' && !pr.isDraft;
   const redReady = lane === 'progress' && !waitsOn && pr?.state === 'OPEN' && !pr.isDraft;
+  // A reopened card Claude has answered waits on the owner's Done.
+  const awaitsDone = Boolean(reopenAt) && lane === 'progress' && !waitsOn && !redReady && !ownerPending;
+  if (awaitsDone) waitsOn = 'owner';
   const tapped = holdAsk && String(holdAsk.ts) > String(it.held_at || '');
   const held = tapped ? Boolean(holdAsk.data.hold) : it.status === 'held' || Boolean(it.held);
   // docs/adr/0118-a-card-can-be-held-until-a-time.md
@@ -140,7 +153,7 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
     key, kind: 'work', order, wave: slug, waveTitle: wave.title || slug, id: it.id, ref: refOf(wave, it.id, tickets), title: it.title, status: it.status || null,
     created: it.created || null,
     internal: wave.internal === true, repo: wave.internal === true && !wave.repo ? null : repo,
-    lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, agents, eta, working,
+    lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, agents, eta, working, reopened: Boolean(reopenAt), awaitsDone,
     deps: it.deps || [], held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable ? bumpedAt || null : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
@@ -172,7 +185,7 @@ function installOf(install, pr) {
 const mergeable = (pr) => pr?.state === 'OPEN' && !pr.isDraft && pr.reviewDecision === 'APPROVED' && ['pass', 'none'].includes(pr.checks?.state) && pr.mergeStateStatus === 'CLEAN';
 
 // What the owner acts on next, or null: {kind, url, label}, url relative to the site root. kind is pick (a prototype
-// question), questions, ready (a green draft's Ready on GitHub), done (an ask's Done in its thread), steps (manual
+// question), questions, ready (a green draft's Ready on GitHub), done (an ask's or a reopened card's Done in its thread), steps (manual
 // steps on an approved PR, which the session never merges on its own) or merge (the open card's Merge, while the board's
 // auto-merge is off). A held card waits on nobody.
 function actionOf(it, questionById, autoMerge) {
@@ -184,7 +197,7 @@ function actionOf(it, questionById, autoMerge) {
     return { kind: ACTION_KIND.questions, url: `questions.html#${it.questions.first}`, label: `Answer ${plural(it.questions.open, 'question')}` };
   }
   if (it.waitsOn === 'ready') return { kind: ACTION_KIND.ready, url: it.pr.url, label: 'Tap Ready on GitHub' };
-  if (it.kind === 'ask' && it.waitsOn === 'owner') return { kind: ACTION_KIND.done, url: thread, label: it.next || 'Tap Done once it is settled' };
+  if ((it.kind === 'ask' && it.waitsOn === 'owner') || it.awaitsDone) return { kind: ACTION_KIND.done, url: thread, label: it.next || 'Tap Done once it is settled' };
   if (it.waitsOn === 'merge' && it.manualSteps.length) return { kind: ACTION_KIND.steps, url: thread, label: 'Run the manual steps, then merge' };
   // docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md
   if (it.waitsOn === 'merge' && !autoMerge && !it.merging && mergeable(it.pr)) return { kind: ACTION_KIND.merge, url: thread, label: 'Merge' };
@@ -195,7 +208,7 @@ const asking = (it) => Boolean(it.questions && it.questions.state !== 'resolved'
 const ASKING = new Set([ACTION_KIND.pick, ACTION_KIND.questions]);
 
 // The open card's one workflow button, which board/public/app-cards.js only labels: openQuestions while it has open
-// questions, held or not, markDone for an ask waiting on the owner's Done, grill otherwise, and none on a Done card or
+// questions, held or not, markDone for an ask or a reopened card waiting on the owner's Done, grill otherwise, and none on a Done card or
 // on an ask with neither.
 function actionButtonOf(it) {
   if (it.lane === 'done') return null;
@@ -515,6 +528,8 @@ export function buildBoard(snapshot) {
         thread: lines,
         events: [...itemEvents.filter((e) => e.data.key === key || askKeys.has(e.data.key)), ...askIds.map((id) => asks.get(id))],
         working: msgs.some((m) => m.state === 'working'),
+        said: msgs.filter((m) => m.who === 'love' && (m.kind === 'item-message' || m.kind === 'owner-answer')),
+        askedAt: (owner.items || []).filter((q) => q.topic === `item:${key}` && q.asked_at).map((q) => q.asked_at),
         topicItems, boardReviewers: snapshot.reviewers || [], now, bumpedAt: cardBumps.get(key), holdAsk: cardHolds.get(key), closedAt: cardDones.get(key),
         mergeAt: cardMerges.get(key), buildAt: cardBuilds.get(key), autoMerge, tickets,
       }));
@@ -582,12 +597,12 @@ export function buildBoard(snapshot) {
     const first = t.questions.find((id) => questions.find((q) => q.id === id)?.state === 'open') || pending[0] || t.questions[0];
     it.questions = { topic: t.id, state: t.state, open: t.open, answered: t.answered, replied: t.replied, resolved: t.resolved, first };
   }
-  // A card waits on each dep until it reaches Done, and a Done card waits on nothing (docs/adr/0020-cards-wait-on-explicit-blocked-by-links.md).
+  // A card waits on each dep until it reaches Done, which a reopened dep still counts as, and a Done card waits on nothing (docs/adr/0020-cards-wait-on-explicit-blocked-by-links.md).
   const byKey = new Map(items.map((i) => [i.key, i]));
   const questionById = new Map(questions.map((q) => [q.id, q]));
   for (const it of items) {
     it.blockedBy = it.kind !== 'work' || it.lane === 'done' ? [] : it.deps.map((d) => byKey.get(String(d).includes('/') ? d : `${it.wave}/${d}`))
-      .filter((d) => d && d.lane !== 'done').map((d) => ({ key: d.key, ref: d.ref }));
+      .filter((d) => d && d.lane !== 'done' && !d.reopened).map((d) => ({ key: d.key, ref: d.ref }));
     if (it.lane === 'done' && !it.fold && it.updatedAt && now - Date.parse(it.updatedAt) >= DONE_OPEN) it.fold = OLDER_FOLD;
     placeOwnerWait(it, questionById, autoMerge);
     if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it)) it.lane = 'progress';
