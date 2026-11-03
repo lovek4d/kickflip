@@ -218,7 +218,7 @@
       try { await site.send('prototype-request', { ...(key ? { key } : {}), question: q.id, note: (getDraft(q.id).note || '').trim() }); }
       catch { st.textContent = 'Could not send. Is the host awake?'; return; }
       setDraft(q.id, {});
-      sentLine = 'Asked for a prototype.';
+      sentLine = 'Prototype please.';
       await loading;
       if (await load(false)) { shown = sigNow(); render(); }
     }

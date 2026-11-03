@@ -293,7 +293,7 @@ test("a prototype request holds its question as requested until the round arrive
   assert.deepEqual(view([{ ...plain, url: 'prototype-search.html?q=plain', resolved: 'Picked A', resolved_at: '2026-10-23T11:00:00Z' }], []).round, null);
 
   const thread = threadOf('w/A1', { events: [request('plain', '2026-10-23T10:00:00Z')], owner: { items: [plain] } });
-  assert.deepEqual(thread.map((m) => [m.kind, m.text]), [['prototype-request', 'Asked for a prototype: Where does search sit?\n→ show it on a phone']]);
+  assert.deepEqual(thread.map((m) => [m.kind, m.text]), [['prototype-request', 'Prototype please:Where does search sit?\n→ show it on a phone']]);
 });
 
 test("an answer to an item's question joins that item's thread", () => {

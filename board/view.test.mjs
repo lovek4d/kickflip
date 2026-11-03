@@ -2772,7 +2772,7 @@ test("Waiting on you's eye on each question, after its attach button, asks for a
   assert.equal(eye('q2').getAttribute('aria-label'), 'Prototypes are being made');
   assert.equal($('.topichead .chip').textContent, 'Prototype round 1');
   assert.ok($('.topichead .chip.tone-notice .try-spin'));
-  assert.equal($('#qstatus').textContent, 'Asked for a prototype.');
+  assert.equal($('#qstatus').textContent, 'Prototype please.');
   assert.equal($('#send').disabled, true);
 
   v.page.fire(v.root, 'click', { target: eye('q1') });

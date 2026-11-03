@@ -493,10 +493,10 @@ function ownerTopics(topics, questions, closed = new Set()) {
 // answered. A work item's thread also takes the owner's messages from its asks' threads; the caller adds their lines.
 // agents is the item's builder records by agent name: each adds a line when it started and one when it finished,
 // which, like status lines, answer no message.
-const ACTION_LABELS = { 'mark-ready': 'Mark ready', 'grill-more': 'Grill', 'prototype-request': 'Asked for prototypes' };
+const ACTION_LABELS = { 'mark-ready': 'Mark ready', 'grill-more': 'Grill please', 'prototype-request': 'Prototype please' };
 const actionText = (e, asked) => {
   if (e.kind !== 'prototype-request' || !asked.has(e.data.question)) return e.data.text || routeRecord(ACTION_LABELS, e.kind) || '';
-  return [`Asked for a prototype: ${asked.get(e.data.question).question}`, e.data.note].filter(Boolean).join('\n→ ');
+  return [`Prototype please:${asked.get(e.data.question).question}`, e.data.note].filter(Boolean).join('\n→ ');
 };
 const claudeAtOf = (msgs) => [...msgs.filter((m) => m.who === 'claude' && m.kind !== 'status' && m.kind !== 'agent').map((m) => m.ts),
   ...msgs.filter((m) => m.kind === 'ask').map((m) => m.reply?.at)].filter(Boolean).map(String).sort().pop() || '';
