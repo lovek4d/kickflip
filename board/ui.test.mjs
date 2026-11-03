@@ -537,12 +537,12 @@ test("in the app, back follows the page tree: a prototype goes up to Waiting on 
   assert.deepEqual([picked.stack(), picked.shown.at(-1)], [['#item=w%2FA1&reply'], 'pop board']);
 });
 
-test('the Action needed badge shows only while the card waits on the owner, and links to what they act on', () => {
-  assert.equal(ui.actionChip({ questions: { open: 2, first: 'q1' }, action: null }), '');
-  const pick = ui.actionChip({ action: { kind: 'pick', url: 'https://mac.ts.net/r/prototype-x.html?q=q1', label: 'Prototypes ready: pick a take' } });
-  assert.match(pick, /^<a class="chip tone-notice" href="https:\/\/mac\.ts\.net\/r\/prototype-x\.html\?q=q1"[^>]*>Action needed<\/a>$/);
-  assert.doesNotMatch(pick, /target=/);
-  assert.match(ui.actionChip({ action: { kind: 'ready', url: 'https://github.com/o/r/pull/7', label: 'Tap Ready on GitHub' } }), /href="https:\/\/github\.com\/o\/r\/pull\/7"[^>]*target="_blank"/);
+test('Action needed shows only while the card waits on the owner, as orange words that link to what they act on', () => {
+  assert.equal(ui.actionWords({ questions: { open: 2, first: 'q1' }, action: null }), '');
+  const pick = ui.actionWords({ action: { kind: 'pick', url: 'https://mac.ts.net/r/prototype-x.html?q=q1', label: 'Prototypes ready: pick a take' } });
+  assert.match(pick, /^<a class="card-action" href="https:\/\/mac\.ts\.net\/r\/prototype-x\.html\?q=q1"[^>]*>Action needed<\/a>$/);
+  assert.doesNotMatch(pick, /target=|chip/);
+  assert.match(ui.actionWords({ action: { kind: 'ready', url: 'https://github.com/o/r/pull/7', label: 'Tap Ready on GitHub' } }), /href="https:\/\/github\.com\/o\/r\/pull\/7"[^>]*target="_blank"/);
 });
 
 test('a thread message shows its text as written, never as markup', () => {
@@ -911,14 +911,15 @@ test("a New card reads New and its first line, then whether it was moved or edit
     bumpedAt: ask.bumpedAt || null, ask: { askedAt: sent, bumpedAt: null, canEdit: true, text: 'Fix <it>\nand more', files: [], ...ask }, ...extra }, { top: Boolean(ask.bumpedAt) });
   const at = ui.cardTime(sent);
   assert.deepEqual(lines(card({ state: 'waiting' })), ['New Fix <it>', at]);
-  assert.deepEqual(lines(card({ state: 'working', bumpedAt: ago(0.5), edited: true })), ['New Fix <it>', 'Edited · Working on it', 'bumped', at]);
+  assert.deepEqual(lines(card({ state: 'working', bumpedAt: ago(0.5), edited: true })), ['New Fix <it>', 'Edited · Working on it', at]);
   assert.deepEqual([...card({ state: 'waiting' }).matchAll(/data-(bump|edit|withdraw)="a1"/g)].map((m) => m[1]), ['bump', 'edit', 'withdraw']);
-  assert.match(card({ state: 'waiting', bumpedAt: ago(0.5) }), /data-bump="a1"[^>]* disabled/);
+  assert.match(card({ state: 'waiting', bumpedAt: ago(0.5) }), /class="ghost icon bumped" data-bump="a1"[^>]* disabled/);
+  assert.doesNotMatch(card({ state: 'waiting' }), /bumped/);
   assert.doesNotMatch(card({ state: 'waiting' }), /Action needed/);
   assert.deepEqual(lines(card({ state: 'answered' }, { isNew: false, ref: '10:00', working: false })), ['Fix <it>', at]);
   assert.deepEqual(lines(card({ state: 'waiting', from: 'Orch' })), ['New Fix <it>', 'Moved from Orch', at]);
   const asked = card({ state: 'waiting' }, { next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#mv', label: 'Answer 1 question' } });
-  assert.deepEqual(lines(asked), ['New Fix <it>', 'Next: Answer 1 question', 'Action needed', at]);
+  assert.deepEqual(lines(asked), ['New Fix <it>', 'Next: Answer 1 question', `${at} · Action needed`]);
 });
 
 test('a pending prototype request offers a bump unless it is already the latest bump', () => {
@@ -947,7 +948,7 @@ test('ticket badges use the board source, link internally or externally, and lea
   assert.doesNotMatch(foreign, /ENG-1|#4/);
 });
 
-test('a work card reads its title, then its next step or builder, its chips, its Blocked by chips, and last its unread messages', () => {
+test('a work card reads its title, then its next step or builder, its chips, and last its time line with what blocks it, Action needed and its unread messages', () => {
   assert.deepEqual(lines(ui.workLines(workCard, { unread: 2 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ✗', '2 new messages']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, next: null, pr: null, reviewers: [] }, { unread: 1 })), ['ENG-1 Five', '1 new message']);
   assert.doesNotMatch(text(ui.workLines(workCard)), /B5|msg|unread|new/);
@@ -956,17 +957,24 @@ test('a work card reads its title, then its next step or builder, its chips, its
   const internal = { ...workCard, key: 'site/S3', id: 'S3', ref: 'INT-3', internal: true, pr: null, linear: [{ id: 'ENG-9', url: 'u' }], next: null };
   assert.deepEqual(lines(ui.workLines(internal)), ['INT-3 Five']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, questions: { open: 1, first: 'q1' }, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
-    ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'Action needed repo#7 ● CI ✓ Jamie ✗']);
+    ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ✗', 'Action needed']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, questions: { open: 1, first: 'q1' }, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } }, { unread: 3 })),
-    ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'Action needed repo#7 ● CI ✓ Jamie ✗', '3 new messages']);
+    ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ✗', 'Action needed · 3 new messages']);
   const blocked = { ...internal, lane: 'todo', deps: ['S1', 'S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }] };
   assert.deepEqual(lines(ui.workLines(blocked)), ['INT-3 Five', 'blocked by INT-2']);
-  assert.match(ui.workLines(blocked), /href="#item=site%2FS2"/);
+  assert.match(ui.workLines(blocked), /<div class="line6 sub card-time"><a class="card-blocked" href="#item=site%2FS2">blocked by INT-2<\/a><\/div>/);
+  assert.match(ui.workLines({ ...blocked, blockedBy: [{ key: 'site/S1', ref: 'INT-1' }, { key: 'site/S2', ref: 'INT-2' }] }), />blocked by INT-1<\/a><span class="sep">, <\/span><a class="card-blocked" href="#item=site%2FS2">INT-2<\/a>/);
   assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [] })), ['INT-3 Five']);
   assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [], next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
     ['INT-3 Five', 'Next: Answer 1 question', 'Action needed']);
-  const waiting = { ...workCard, lane: 'todo', deps: ['S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }], bumpedAt: ago(1) };
-  assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ✗ bumped', 'blocked by INT-2', '1 new message']);
+  // docs/adr/0145-build-on-a-blocked-card-queues-it.md: no bumped badge; the bump icon fills orange and unbumps.
+  const sortAt = ago(2);
+  const waiting = { ...workCard, lane: 'todo', deps: ['S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }], bumpable: true, bumpedAt: ago(1), held: true, sortAt,
+    action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } };
+  assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ✗', `${ui.cardTime(sortAt)} · held · blocked by INT-2 · Action needed · 1 new message`]);
+  assert.match(ui.workLines(waiting), /<button class="ghost icon bumped" data-card-bump="w\/B5" data-bumped aria-pressed="true" aria-label="Unbump"/);
+  assert.doesNotMatch(ui.workLines(waiting), /disabled|data-confirm="bump"/);
+  assert.match(ui.workLines({ ...waiting, bumpedAt: null }), /<button class="ghost icon" data-card-bump="w\/B5" aria-pressed="false" aria-label="Bump to top"/);
   const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: '10:00', title: 'Fix it', internal: false, linear: [], pr: null, deps: [], blockedBy: [], working: true };
   assert.deepEqual(lines(ui.workLines(ask)), ['Fix it', 'Working on it']);
   assert.deepEqual(lines(ui.workLines(ask, { unread: 2 })), ['Fix it', 'Working on it', '2 new messages']);

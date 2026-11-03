@@ -1232,13 +1232,14 @@ async function unfinishedDeps(site, slug, item) {
   const deps = await Promise.all(keys.map((k) => loadItem(site, k).then(({ item: d }) => d, () => null)));
   return keys.filter((k, i) => deps[i] && !FINISHED.includes(deps[i].status));
 }
+// → [{key, queued}]: queued is a build the owner queued, which the board server starts (startQueuedBuild).
 async function unblockedBy(site, key) {
   const out = [];
   for (const s of await itemSources(site)) {
     const wave = await readJSON(s.file, null);
     for (const it of Array.isArray(wave?.items) ? wave.items : []) {
       if (![undefined, 'planned', 'waiting', 'held'].includes(it.status) || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
-      if (!(await unfinishedDeps(site, s.slug, it)).length) out.push(`${s.slug}/${it.id}`);
+      if (!(await unfinishedDeps(site, s.slug, it)).length) out.push({ key: `${s.slug}/${it.id}`, queued: Boolean(it.queued_at) });
     }
   }
   return out;
@@ -1313,7 +1314,8 @@ function closingLine(site, key, item, status, text) {
   return text ?? null;
 }
 
-// → the wave file, and when a dep finishes the items it unblocked as `unblocked: <key>` lines; closing
+// → the wave file, and when a dep finishes the items it unblocked as `unblocked: <key>` lines, or `queued build starts:
+// <key>` for one whose build the owner queued, which the board server starts; closing
 // (done, merged, dropped) adds a `resolved: <id>` line per question it resolved (closeQuestions).
 // notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`. text is the closing line
 // (closingLine), or with fromAsk the item's first thread line.
@@ -1353,6 +1355,8 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     const blockers = await unfinishedDeps(site, parseKey(key).wave, item);
     if (blockers.length) fail(`${key} is blocked by ${blockers.join(', ')}; start it once ${blockers.length === 1 ? 'that is' : 'those are'} done or merged`);
   }
+  // docs/adr/0145-build-on-a-blocked-card-queues-it.md: a build that starts, or a card that closes, ends its queued build.
+  if (status === 'building' || FINISHED.includes(status)) delete item.queued_at;
   const confirmLine = status === 'building' ? await confirmGate(site, key, confirmed) : null;
   const resolve = FINISHED.includes(status) ? await closeQuestions(site, key, `--status ${status}`, force) : async () => [];
   const lastLine = FINISHED.includes(status) ? closingLine(site, key, { ...item, status: statusBefore }, status, said) : null;
@@ -1408,11 +1412,12 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   const unblocked = await unblockedBy(site, key);
   // The owner reads a card's wait in its thread, so the line that ends it goes there too.
   const ts = new Date().toISOString();
-  for (const k of unblocked) {
+  for (const { key: k, queued } of unblocked) {
     await appendLine(threadFile(site, k), { ts, who: 'claude', text: `Unblocked: ${await cardName(site, key)} is ${status}.` });
-    await appendEvent({ dir: site }, 'card-unblocked', { key: k });
+    // A queued build starts in the board server, so the session isn't woken to start it a second time.
+    if (!queued) await appendEvent({ dir: site }, 'card-unblocked', { key: k });
   }
-  return { file: source.file, lines: [...unblocked.map((k) => `unblocked: ${k}`), ...resolved] };
+  return { file: source.file, lines: [...unblocked.map(({ key: k, queued }) => (queued ? `queued build starts: ${k}` : `unblocked: ${k}`)), ...resolved] };
 }
 
 // docs/adr/0023-a-card-can-be-held-and-every-card-button-confirms.md, docs/adr/0118-a-card-can-be-held-until-a-time.md
@@ -1445,7 +1450,7 @@ export async function pickUp(site, key, until, { announce = true } = {}) {
   if (announce) {
     const at = new Date(until).toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Resumed: its hold until ${at} ended.` });
-    if (!(await unfinishedDeps(site, parseKey(key).wave, item)).length) await appendEvent({ dir: site }, 'card-unblocked', { key, until });
+    if (!item.queued_at && !(await unfinishedDeps(site, parseKey(key).wave, item)).length) await appendEvent({ dir: site }, 'card-unblocked', { key, until });
   }
   setHold(item, null);
   await writeJSON(source.file, wave);
@@ -1898,10 +1903,14 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
 // of kind BUILD_REFUSED, which the Todo card shows while it is the card's newest line. worktree makes the worktree, as
 // builder start's does (board/worktree.mjs boardWorktree). → {key, ref, kind, reason, worktree}, or null when refused
 // (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md).
+// A card an unfinished dep blocks is queued instead: no record and no worktree, its wave entry's queued_at the tap's
+// time, and a thread line; the board server starts it once nothing blocks it (startQueuedBuild). → {key, ref, queued:
+// [blocker names]} (docs/adr/0145-build-on-a-blocked-card-queues-it.md).
 export async function startTappedBuild(site, key, worktree) {
   try {
-    const held = await tapRefusals(site, key);
+    const { held, blockers } = await tapRefusals(site, key);
     if (held) await recordOwnerTap(site, 'card-hold', { key, hold: false });
+    if (blockers.length) return await queueBuild(site, key, blockers);
     try {
       const started = await startBuilder(site, key, { kind: 'build', worktree, tapped: true });
       return { key, ref: await cardName(site, key), kind: started.kind, reason: started.reason, worktree: started.worktree };
@@ -1917,20 +1926,57 @@ export async function startTappedBuild(site, key, worktree) {
 }
 
 // The refusals of a build's start that the owner can act on, worded for the card; startBuilder still makes every check.
-// A held card that hasn't started is no refusal: the tap unholds it (docs/adr/0141-a-held-todo-card-shows-build-in-place-of-unhold.md). → its hold, or null.
+// A held card that hasn't started is no refusal: the tap unholds it (docs/adr/0141-a-held-todo-card-shows-build-in-place-of-unhold.md),
+// and nor is a blocked one: the tap queues it (docs/adr/0145-build-on-a-blocked-card-queues-it.md).
+// → {held: its hold or null, blockers: the names of its unfinished deps}.
 async function tapRefusals(site, key) {
   const gate = readUsageGate();
   if (gate.state === 'paused') fail(pauseReason(gate));
   const { item } = await loadItem(site, key);
   const held = item.held || item.status === 'held' ? { held: item.held, status: item.status, pick_up_at: item.pick_up_at, held_at: item.held_at } : null;
   if (held && item.status && item.status !== 'held') fail("it's held. Unhold it, then tap Build.");
-  const blockers = await unfinishedDeps(site, parseKey(key).wave, item);
-  if (blockers.length) {
-    const names = await Promise.all(blockers.map((k) => cardName(site, k)));
-    fail(`it's blocked by ${names.join(', ')}. It can start once ${blockers.length === 1 ? 'that is' : 'those are'} done.`);
-  }
   if (await unconfirmedPrototype(site, key)) fail("your prototype pick has a note, so Claude posts the final version for your confirm first.");
-  return held;
+  const blockers = await Promise.all((await unfinishedDeps(site, parseKey(key).wave, item)).map((k) => cardName(site, k)));
+  return { held, blockers };
+}
+
+async function queueBuild(site, key, blockers) {
+  const { source, wave, item } = await loadItem(site, key);
+  if (!item.queued_at) {
+    item.queued_at = new Date().toISOString();
+    await writeJSON(source.file, wave);
+    await appendLine(threadFile(site, key), { ts: item.queued_at, who: 'claude', text: `Build queued: it starts once ${blockers.join(', ')} ${blockers.length === 1 ? 'is' : 'are'} done.` });
+  }
+  return { key, ref: await cardName(site, key), queued: blockers };
+}
+
+// The board's queued builds that nothing holds or blocks any more, which the board server starts (startQueuedBuild).
+export async function dueQueuedBuilds(site) {
+  const due = [];
+  for (const s of await itemSources(site)) {
+    const wave = await readJSON(s.file, null);
+    for (const it of Array.isArray(wave?.items) ? wave.items : []) {
+      if (!it.queued_at || it.held || it.status === 'held' || FINISHED.includes(it.status)) continue;
+      if (!(await unfinishedDeps(site, s.slug, it)).length) due.push(`${s.slug}/${it.id}`);
+    }
+  }
+  return due;
+}
+
+// A queued build whose last blocker finished starts as the owner's Build tap does. One the start refuses, or that
+// fails, goes back to Todo with the reason, so it isn't tried again on every check. → startTappedBuild's result.
+export async function startQueuedBuild(site, key, worktree) {
+  let started;
+  try { started = await startTappedBuild(site, key, worktree); } catch (e) {
+    await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', kind: BUILD_REFUSED, text: `Couldn't start the build: ${e.message}` });
+    started = null;
+  }
+  if (!started) {
+    const { source, wave, item } = await loadItem(site, key);
+    delete item.queued_at;
+    await writeJSON(source.file, wave);
+  }
+  return started;
 }
 
 // A tapped build that failed to start puts back the hold the tap cleared.

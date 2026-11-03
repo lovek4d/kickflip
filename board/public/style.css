@@ -82,7 +82,7 @@ button.chip { border: 0; }
 .status.review { border-color: var(--color-info); background: conic-gradient(var(--color-info) 0 75%, transparent 75% 100%); }
 .sub.agent { color: var(--color-notice); }
 .sub.next { color: var(--color-notice); }
-.card-hold { color: var(--color-notice); }
+.card-hold, .card-blocked, .card-action { color: var(--color-notice); }
 .sub.next.idle { color: var(--muted); }
 .sub.refused { color: var(--color-danger); }
 .toast-stack { position: fixed; left: 50%; bottom: calc(var(--app-bottom, 0px) + 16px + env(safe-area-inset-bottom));
@@ -276,6 +276,8 @@ main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 .ask-actions { float: right; display: flex; gap: 2px; margin: -6px -6px 0 8px; }
 .ask-actions .icon { padding: 6px; color: var(--muted); }
 .ask-actions .icon:disabled { opacity: .35; }
+.ask-actions .icon.bumped { color: var(--color-notice); opacity: 1; }
+.ask-actions .icon.bumped svg { fill: currentColor; }
 .working-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--color-notice); margin-right: 5px; vertical-align: 1px; }
 @media (prefers-reduced-motion: no-preference) { .working-dot { animation: pulse 1.4s ease-in-out infinite; } }
 form[data-reply] .row .quick { margin-left: auto; margin-right: 6px; }

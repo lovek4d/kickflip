@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, threadOf, needsAnswer, pullOf, NO_NEXT } from './domain.mjs';
+import { buildBoard, threadOf, needsAnswer, pullOf, owesNext, NO_NEXT } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -594,7 +594,7 @@ test("with auto-merge off an approved, green, clean PR waits on the owner's Merg
   assert.equal(card({ autoMerge: true, item: { manual_steps: ['Run the backfill'] } }).items[0].action.kind, 'steps');
 });
 
-test("an unstarted Todo card that nothing blocks and that waits on nothing from the owner can Build", () => {
+test("an unstarted Todo card that waits on nothing from the owner can Build, a blocked one too, which the idle pull skips", () => {
   const q = { id: 'q1', topic: 'item:w/A1', question: 'Which way?', options: [{ id: 'A', label: 'One' }] };
   const card = ({ item = {}, events = [], threads = {}, owner = {}, agents = {}, dep } = {}) => buildBoard({
     fromWaves: false, events, threads, owner, prs: {},
@@ -605,7 +605,9 @@ test("an unstarted Todo card that nothing blocks and that waits on nothing from 
   assert.deepEqual([one(fresh).lane, one(fresh).buildable, one(fresh).action, one(fresh).refusal], ['todo', true, null, null]);
   assert.equal(fresh.items.find((i) => i.id === 'ENG-1').buildable, false);
   assert.deepEqual(needsAnswer(fresh).items, []);
-  assert.equal(one(card({ item: { deps: ['A2'] }, dep: 'building' })).buildable, false);
+  const blocked = card({ item: { deps: ['A2'] }, dep: 'building' });
+  assert.equal(one(blocked).buildable, true);
+  assert.equal(pullOf(blocked.items).pullable.includes('w/A1'), false);
   assert.equal(one(card({ item: { deps: ['A2'] }, dep: 'done' })).buildable, true);
   const asking = one(card({ owner: { items: [q] } }));
   assert.deepEqual([asking.lane, asking.action.kind, asking.buildable], ['todo', 'questions', false]);
@@ -1124,4 +1126,30 @@ test('an In Progress card with nothing building and no next step reads a gap as 
   assert.equal(card({ next: 'Land it' }, finished).next, 'Land it');
   assert.equal(card({ status: 'checking' }, finished).next, null);
   assert.deepEqual([card({}).lane, card({}).next], ['todo', null]);
+});
+
+// docs/adr/0145-build-on-a-blocked-card-queues-it.md
+test('a queued build puts its card In Progress, blocked, from when it was queued, with no Build, no gap Next and no pull; held it waits in Todo', () => {
+  const queuedAt = '2026-11-03T10:26:00.000Z';
+  const items = [
+    { id: 'A1', title: 'Blocker', status: 'building' },
+    { id: 'A2', title: 'Queued', deps: ['A1'], queued_at: queuedAt },
+    { id: 'A3', title: 'Queued, held', deps: ['A1'], queued_at: queuedAt, held: true },
+  ];
+  const b = buildBoard({ fromWaves: false, now: Date.parse('2026-11-03T11:00:00Z'), waves: [{ slug: 'w', agents: runningBuilders('A1'), wave: { internal: true, items } }] });
+  const card = (id) => b.items.find((i) => i.id === id);
+  const q = card('A2');
+  assert.deepEqual([q.lane, q.queued, q.buildable, q.next, q.builder, q.sortAt, q.blockedBy.length], ['progress', true, false, null, null, queuedAt, 1]);
+  assert.deepEqual([card('A3').lane, card('A3').queued], ['todo', true]);
+  assert.equal(pullOf(b.items).pullable.includes('w/A2'), false);
+  assert.equal(owesNext(items[1], []), false);
+  assert.equal(owesNext({ ...items[1], queued_at: undefined, status: 'building' }, []), true);
+});
+
+test('a card-unbump after a card-bump unbumps the card, and a later bump bumps it again', () => {
+  const bump = (kind, ts) => ({ id: `${kind}${ts}`, ts: `2026-11-03T10:0${ts}:00.000Z`, kind, data: { key: 'w/A1' } });
+  const bumpedAt = (events) => board({ pr: null, item: { pr: undefined }, events }).items.find((i) => i.key === 'w/A1').bumpedAt;
+  assert.equal(bumpedAt([bump('card-bump', 1)]), '2026-11-03T10:01:00.000Z');
+  assert.equal(bumpedAt([bump('card-bump', 1), bump('card-unbump', 2)]), null);
+  assert.equal(bumpedAt([bump('card-bump', 1), bump('card-unbump', 2), bump('card-bump', 3)]), '2026-11-03T10:03:00.000Z');
 });

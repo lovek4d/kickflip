@@ -223,12 +223,13 @@ BoardView.part((B) => {
   const sendingBuild = new Set();
   const CONFIRM = {
     resume: (it, ref) => `Unhold ${ref}?${it.heldUntil ? ` It's held until ${heldUntilWords(it.heldUntil)}.` : ''} It can start again once nothing blocks it.`,
-    bump: (it, ref) => `Move ${ref} to the top of its lane?`,
     nudge: () => 'Nudge Claude to check this builder?',
     grill: (it, ref) => `Ask Claude for questions about ${ref}?`,
     merge: (it, ref) => `Merge ${ref}? Claude squash-merges #${it.pr?.number} if it is still approved, green and clean.`,
     build: (it, ref) => `Build ${ref}? Claude replies with a short plan, then builds it as a draft.`,
-    'card-build': (it, ref) => `${it.held ? `Unhold and build ${ref}?` : `Build ${ref}?`} Claude starts its builder now with the notes as they stand.`,
+    'card-build': (it, ref) => (it.blockedBy?.length
+      ? `${it.held ? 'Unhold and build' : 'Build'} ${ref} once ${it.blockedBy.map((d) => d.ref).join(', ')} ${it.blockedBy.length === 1 ? 'is' : 'are'} done? It waits in In Progress until then.`
+      : `${it.held ? `Unhold and build ${ref}?` : `Build ${ref}?`} Claude starts its builder now with the notes as they stand.`),
     finish: (it, ref) => (it.kind === 'ask' ? `Mark this task done? "${it.title}" moves to Done.`
       : `Close ${ref}? It moves to Done and Claude stops work on it.${it.pr?.state === 'OPEN' ? ' Its PR stays open on GitHub.' : it.pushed ? ` Its branch stays on ${it.pushed.host || 'the remote'}.` : ''}`),
   };
@@ -256,9 +257,8 @@ BoardView.part((B) => {
   };
   const actionButton = (it) => ACTION_BUTTONS[it.actionButton]?.(it) || '';
 
-  // The latest bump takes no second bump: among New cards for a New card (docs/adr/0014-a-pending-ask-can-be-deleted-or-bumped.md),
-  // in its lane for any other card (docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md).
-  const latestBump = (it) => Boolean(it.bumpedAt) && !state.board.items.some((i) => (it.isNew ? i.isNew : i.lane === it.lane) && (i.bumpedAt || '') > it.bumpedAt);
+  // The latest bump among New cards takes no second bump (docs/adr/0014-a-pending-ask-can-be-deleted-or-bumped.md).
+  const latestBump = (it) => Boolean(it.isNew && it.bumpedAt) && !state.board.items.some((i) => i.isNew && (i.bumpedAt || '') > it.bumpedAt);
   function card(it) {
     return `<details class="item" data-key="${esc(it.key)}" ${state.openItems.has(it.key) ? 'open' : ''}>
           <summary class="work">
@@ -320,6 +320,20 @@ BoardView.part((B) => {
     if (B.alive()) B.loadBoard();
   });
 
+  // A work card's bump icon bumps it, or unbumps a bumped one, with no confirm
+  // (docs/adr/0145-build-on-a-blocked-card-queues-it.md).
+  B.on(B.root, 'click', async (ev) => {
+    const b = ev.target.closest('button[data-card-bump]');
+    if (!b) return;
+    ev.preventDefault();
+    const key = b.dataset.cardBump;
+    const unbump = b.hasAttribute('data-bumped');
+    b.disabled = true;
+    try { await B.sentHere(key, () => B.site.send(unbump ? 'card-unbump' : 'card-bump', { key })); toast(unbump ? 'Unbumped' : 'Moved to the top'); }
+    catch { toast('Could not send. Is the host awake?'); }
+    B.loadBoard();
+  });
+
   B.on(B.root, 'click', async (ev) => {
     const b = ev.target.closest('button[data-confirm]');
     if (!b) return;
@@ -368,8 +382,7 @@ BoardView.part((B) => {
     row?.querySelectorAll('button').forEach((x) => { x.disabled = true; });
     b.disabled = true;
     try {
-      if (act === 'bump') { await B.sentHere(key, () => B.site.send('card-bump', { key })); toast('Moved to the top'); }
-      else if (act === 'nudge') { await B.sentHere(key, () => B.site.send('builder-nudge', { key })); b.textContent = 'Sent'; toast('Nudge sent'); }
+      if (act === 'nudge') { await B.sentHere(key, () => B.site.send('builder-nudge', { key })); b.textContent = 'Sent'; toast('Nudge sent'); }
       else { await B.sentHere(key, () => B.site.send(act === 'grill' ? 'grill-more' : 'build-followup', { key })); B.loadThread(key, { force: true }); }
     } catch { toast('Could not send. Is the host awake?'); }
     B.loadBoard();

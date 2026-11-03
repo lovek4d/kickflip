@@ -231,7 +231,7 @@ test('a card with a message marked working or a prototype recorded for it stays 
   }
 });
 
-test("a Build tap starts the build in the board server, moving the card to In Progress reading Waiting for orchestrator and waking the session with its worktree and pick, and a refusal leaves it in Todo with the reason", async () => {
+test("a Build tap starts the build in the board server, moving the card to In Progress reading Waiting for orchestrator and waking the session with its worktree and pick, and a refusal leaves it in Todo with the reason; on a blocked card it queues the build, which the server starts once the blocker is done", async () => {
   const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
   const origin = path.join(home, 'origin');
   fs.mkdirSync(origin);
@@ -248,7 +248,9 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
   fs.writeFileSync(manifest, JSON.stringify({ sites: { site: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [
     { id: 'B1', title: 'Tapped' }, { id: 'B2', title: 'Held', held: true, pick_up_at: '2099-01-01T00:00:00.000Z' }, { id: 'B3', title: 'Blocked', deps: ['B4'] }, { id: 'B4', title: 'Dep' },
+    { id: 'B5', title: 'Held and blocked', deps: ['B4'], held: true },
   ] }));
+  const wave = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const log = () => fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   const card = async (id) => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.id === id);
@@ -274,13 +276,17 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items[1].pick_up_at, undefined);
     assert.deepEqual(thread('B2').map((m) => [m.who, m.text]), [['love', 'Resumed.']]);
     assert.deepEqual(log().slice(before).map((e) => e.kind), ['card-build', 'card-build']);
-    for (const [id, reason] of [['B3', "Couldn't start the build: it's blocked by B4. It can start once that is done."]]) {
-      assert.equal((await post({ kind: 'card-build', key: `t/${id}` })).status, 200);
-      assert.deepEqual(thread(id).map((m) => [m.who, m.kind, m.text]), [['claude', 'build-refused', reason]]);
-      const refused = await card(id);
-      assert.deepEqual([refused.lane, refused.status, refused.refusal, refused.builder], ['todo', null, reason, null]);
-      assert.equal(fs.existsSync(path.join(site, 'data', 'agents', `${id}.json`)), false);
-    }
+    // docs/adr/0145-build-on-a-blocked-card-queues-it.md
+    assert.deepEqual(await (await post({ kind: 'card-build', key: 't/B3' })).json(), { id: null });
+    const queued = await card('B3');
+    assert.deepEqual([queued.lane, queued.queued, queued.status, queued.builder, queued.next, queued.buildable, queued.blockedBy.map((d) => d.ref)], ['progress', true, null, null, null, false, ['B4']]);
+    assert.deepEqual(thread('B3').map((m) => [m.who, m.text]), [['claude', 'Build queued: it starts once B4 is done.']]);
+    assert.equal(fs.existsSync(path.join(site, 'data', 'agents', 'B3.json')), false);
+    assert.equal(fs.existsSync(path.join(home, '.claude', 'kickflip', 'worktrees', 'B3')), false);
+    assert.equal((await post({ kind: 'card-build', key: 't/B5' })).status, 200);
+    const unheldQueued = await card('B5');
+    assert.deepEqual([unheldQueued.held, unheldQueued.lane, unheldQueued.queued], [false, 'progress', true]);
+    assert.deepEqual(thread('B5').map((m) => m.text), ['Resumed.', 'Build queued: it starts once B4 is done.']);
     assert.deepEqual(log().slice(before).map((e) => e.kind), ['card-build', 'card-build']);
 
     const taken = path.join(home, '.claude', 'kickflip', 'worktrees', 'B4');
@@ -289,6 +295,21 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     const leftover = await card('B4');
     assert.deepEqual([leftover.lane, leftover.status, leftover.refusal], ['todo', null, `Couldn't start the build: --worktree: ${taken} already exists; land or remove it first`]);
     assert.deepEqual(log().slice(before).map((e) => e.kind), ['card-build', 'card-build']);
+
+    // The blocker finishing starts both queued builds in the server, each waking the session once, with no card-unblocked.
+    const done = wave();
+    done.items.find((i) => i.id === 'B4').status = 'done';
+    fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify(done));
+    await until(() => log().slice(before).filter((e) => e.kind === 'card-build').length === 4, 'the queued builds start');
+    const woken = log().slice(before).filter((e) => e.kind === 'card-build').slice(2).map((e) => e.data.key).sort();
+    assert.deepEqual(woken, ['t/B3', 't/B5']);
+    for (const id of ['B3', 'B5']) {
+      const startedQueued = await card(id);
+      assert.deepEqual([startedQueued.lane, startedQueued.status, startedQueued.queued, startedQueued.builder.waiting], ['progress', 'building', false, true]);
+      assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'agents', `${id}.json`), 'utf8')).worktree.path, path.join(home, '.claude', 'kickflip', 'worktrees', id));
+      assert.equal(wave().items.find((i) => i.id === id).queued_at, undefined);
+    }
+    assert.equal(log().slice(before).some((e) => e.kind === 'card-unblocked'), false);
   } finally {
     fs.rmSync(manifest);
     fs.rmSync(path.join(site, 'data', 'agents'), { recursive: true, force: true });

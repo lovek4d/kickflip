@@ -69,10 +69,14 @@
   // Deletes or edits a pending ask or thread message; app-asks.js handles [data-withdraw] and [data-edit] on one path.
   const withdrawButton = (id) => `<button class="ghost icon" data-withdraw="${esc(id)}" aria-label="Delete" title="Delete">${TRASH}</button>`;
   const editButton = (id) => `<button class="ghost icon" data-edit="${esc(id)}" aria-label="Edit" title="Edit">${PENCIL}</button>`;
-  // A waiting ask's bump, which app-asks.js sends as ask-bump {id}. A work card's is the same icon, which app-cards.js
-  // confirms before it sends card-bump {key} (docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md).
-  const bumpButton = (it, top) => `<button class="ghost icon" data-bump="${esc(it.id)}" aria-label="Bump to top" title="Bump to top"${top ? ' disabled' : ''}>${BUMP}</button>`;
-  const cardBumpButton = (key, top) => `<button class="ghost icon" data-confirm="bump" data-key="${esc(key)}" aria-label="Bump to top" title="Bump to top"${top ? ' disabled' : ''}>${BUMP}</button>`;
+  // A waiting ask's bump, which app-asks.js sends as ask-bump {id}, filled orange once bumped and disabled on the latest
+  // bump. A work card's is the same icon: app-cards.js sends card-bump {key} with no confirm, and on a bumped card, where
+  // it is filled orange, card-unbump {key} (docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md,
+  // docs/adr/0145-build-on-a-blocked-card-queues-it.md).
+  const bumpButton = (it, top) => `<button class="ghost icon${it.bumpedAt ? ' bumped' : ''}" data-bump="${esc(it.id)}" aria-label="Bump to top" title="Bump to top"${top ? ' disabled' : ''}>${BUMP}</button>`;
+  const cardBumpButton = (key, bumped) => (bumped
+    ? `<button class="ghost icon bumped" data-card-bump="${esc(key)}" data-bumped aria-pressed="true" aria-label="Unbump" title="Bumped. Tap to unbump">${BUMP}</button>`
+    : `<button class="ghost icon" data-card-bump="${esc(key)}" aria-pressed="false" aria-label="Bump to top" title="Bump to top">${BUMP}</button>`);
   const workingLine = '<span class="working-dot" aria-hidden="true"></span>Working on it';
   // html is markup the caller has escaped; href, title and attrs values are escaped here.
   const BADGE_TONES = Object.freeze(['quiet', 'normal', 'notice', 'danger', 'ready']);

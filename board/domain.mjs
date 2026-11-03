@@ -154,7 +154,7 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
   const refusal = lane === 'todo' && newest?.kind === BUILD_REFUSED ? newest.text : null;
   // docs/adr/0140-each-lane-has-one-fixed-order.md
   // When the card last came into In Progress: its reopening, else its latest build agent's start, else its status change.
-  const progressSince = reopenAt || agents.filter(builds).map((a) => a.started).filter(Boolean).map(String).sort().pop()
+  const progressSince = reopenAt || agents.filter(builds).map((a) => a.started).filter(Boolean).map(String).sort().pop() || it.queued_at
     || (['building', 'fixing', 'checking'].includes(String(it.status || '').toLowerCase()) ? it.status_at || null : null);
   const closed = [tappedDone && closedAt, it.status_at, it.merged_at, pr?.mergedAt].filter(Boolean).map(String).sort().pop() || null;
   const reviewNext = pushed && waitsOn === 'owner' ? `merge ${pushed.branch} into ${base}`
@@ -164,6 +164,7 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
     created: it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
     internal: wave.internal === true, repo: wave.internal === true && !wave.repo ? null : repo,
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, agents, eta, working, reopened: Boolean(reopenAt), awaitsDone,
+    queued: lane !== 'done' && Boolean(it.queued_at),
     deps: it.deps || [], held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable ? bumpedAt || null : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
@@ -240,9 +241,9 @@ function actionButtonOf(it) {
 }
 
 // docs/adr/0122-a-todo-card-that-nothing-blocks-has-build.md
-// The open card's Build: on a work card still unstarted in Todo, held or not, that no unfinished dep blocks and that waits
-// on nothing from the owner.
-const buildableOf = (it) => it.kind === 'work' && it.lane === 'todo' && !it.blockedBy.length && !it.action;
+// The open card's Build: on a work card still unstarted in Todo, held or not, that waits on nothing from the owner. On a
+// card an unfinished dep blocks, the tap queues the build (docs/adr/0145-build-on-a-blocked-card-queues-it.md).
+const buildableOf = (it) => it.kind === 'work' && it.lane === 'todo' && !it.action;
 
 // The open card's button that resolves each action kind, which the board page colours orange: an action button, the
 // PR's Review on GitHub, or Merge.
@@ -273,8 +274,9 @@ function placeOwnerWait(it, questionById, autoMerge) {
 // docs/adr/0049-a-started-card-never-returns-to-todo.md
 // docs/adr/0138-a-card-moves-to-in-progress-only-once-building-starts.md
 // A work card has started once building has: a build agent's record, running or finished, or a building or fixing
-// status. A PR, a pushed branch and checking place it on their own (laneOf).
-const started = (it) => it.agents.some(builds) || ['building', 'fixing'].includes(String(it.status || '').toLowerCase());
+// status. A PR, a pushed branch and checking place it on their own (laneOf). A build the owner queued on a blocked card
+// counts too (docs/adr/0145-build-on-a-blocked-card-queues-it.md).
+const started = (it) => it.queued || it.agents.some(builds) || ['building', 'fixing'].includes(String(it.status || '').toLowerCase());
 
 // docs/adr/0142-an-in-progress-card-always-has-a-builder-line-or-a-next.md
 // An In Progress card shows its builder line while a builder record is open, else its Next. buildBoard gives one with
@@ -282,10 +284,10 @@ const started = (it) => it.agents.some(builds) || ['building', 'fixing'].include
 export const NO_NEXT = 'none set yet';
 // Whether a work item's wave entry and builder records leave its card started with no open record and no Next, where
 // nothing else gives it a line or places it: a PR or pushed branch (GitHub or the owner's merge words most of those,
-// and buildBoard's gap the rest), checking, a hold or a finished status.
+// and buildBoard's gap the rest), checking, a hold, a queued build, whose blockers fill the place, or a finished status.
 export function owesNext(item, records) {
   const status = String(item.status || '').toLowerCase();
-  if (item.next || item.pr || item.pushed || item.held || ['held', 'checking', 'done', 'merged', 'dropped'].includes(status)) return false;
+  if (item.next || item.pr || item.pushed || item.held || item.queued_at || ['held', 'checking', 'done', 'merged', 'dropped'].includes(status)) return false;
   const agents = records.filter((r) => r?.started);
   return !agents.some((r) => !r.done) && started({ status, agents });
 }
@@ -556,7 +558,9 @@ export function buildBoard(snapshot) {
   const asks = new Map(events.filter((e) => e.kind === 'ask' && !withdrawn.has(e.id)).map((e) => [e.id, e]));
   const latest = (kind, field) => new Map(events.filter((e) => e.kind === kind).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((e) => [e.data?.[field], e.ts]));
   const bumps = latest('ask-bump', 'id');
-  const cardBumps = latest('card-bump', 'key');
+  // A card's bump counts until a later card-unbump (docs/adr/0145-build-on-a-blocked-card-queues-it.md).
+  const cardUnbumps = latest('card-unbump', 'key');
+  const cardBumps = new Map([...latest('card-bump', 'key')].filter(([key, ts]) => !(String(cardUnbumps.get(key) || '') > String(ts))));
   const cardDones = latest('card-done', 'key');
   const cardMerges = latest('card-merge', 'key');
   const autoMerge = snapshot.autoMerge === true;
@@ -714,7 +718,7 @@ export function buildBoard(snapshot) {
     .map((e) => ({ id: e.id, kind: e.kind, key: cardOf(e), data: e.data, since: routeRecord(working, e.id) }));
   for (const it of items) {
     it.working = workingOn.some((w) => w.key === it.key);
-    if (it.kind === 'work' && it.lane === 'progress' && !it.builder && !it.next && it.waitsOn !== 'checking' && !it.working) it.next = NO_NEXT;
+    if (it.kind === 'work' && it.lane === 'progress' && !it.builder && !it.next && it.waitsOn !== 'checking' && !it.working && !it.queued) it.next = NO_NEXT;
   }
   // The page shows those this browser hasn't seen in the answer banner (docs/adr/0016-every-ask-is-a-card.md).
   const answers = items.filter((i) => i.ask?.answerAt).sort((a, b) => b.ask.answerAt.localeCompare(a.ask.answerAt))
@@ -819,12 +823,12 @@ export function needsAnswer(b) {
 
 // docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md
 // For built items in board order: idle while no card has a running builder and none waits in Orchestrator review;
-// pullable lists, top first, the buildable cards with no questions, no grill under way and no message a session is
-// working on. A running grill or prototype agent keeps the board from being idle.
+// pullable lists, top first, the buildable cards nothing blocks, with no questions, no grill under way and no message a
+// session is working on. A running grill or prototype agent keeps the board from being idle.
 export function pullOf(items) {
   const open = items.filter((i) => !closedLane(i));
   const idle = !open.some((i) => i.waitsOn === 'checking' || (i.agents || []).some((a) => !a.done));
-  const pullable = open.filter((i) => i.buildable && !i.questions && !i.grilling && !i.working).map((i) => i.key);
+  const pullable = open.filter((i) => i.buildable && !i.blockedBy.length && !i.questions && !i.grilling && !i.working).map((i) => i.key);
   return { idle, pullable };
 }
 

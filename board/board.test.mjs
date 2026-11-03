@@ -1872,6 +1872,24 @@ test('item set takes checking as a hand-back that unblocks nothing, and done fro
   assert.deepEqual(unblocked(board('item', 'set', 'd/A1', '--status', 'done', '--site', 'orch', '--text', 'Done.')), ['unblocked: d/A2']);
 });
 
+// docs/adr/0145-build-on-a-blocked-card-queues-it.md
+test("a dep finishing names a queued build as the board's to start and wakes no session for it; starting or closing a card ends its queued build", () => {
+  const queuedAt = '2026-11-03T10:26:00.000Z';
+  write(at('waves', 'd', 'wave.json'), { items: [
+    { id: 'A1', title: 'One', status: 'building' },
+    { id: 'A2', title: 'Two', deps: ['A1'], queued_at: queuedAt },
+    { id: 'A3', title: 'Three', deps: ['A1'] },
+    { id: 'A4', title: 'Four', queued_at: queuedAt },
+  ] });
+  const done = board('item', 'set', 'd/A1', '--status', 'done', '--site', 'orch', '--text', 'Done.');
+  assert.equal(done.code, 0);
+  assert.deepEqual(done.out.split('\n').filter((l) => /^(unblocked|queued)/.test(l)), ['queued build starts: d/A2', 'unblocked: d/A3']);
+  assert.deepEqual(lines(site('orch', 'data', 'events.jsonl')).filter((e) => e.kind === 'card-unblocked').map((e) => e.data.key), ['d/A3']);
+  assert.equal(board('item', 'set', 'd/A2', '--status', 'building', '--site', 'orch').code, 0);
+  assert.equal(board('item', 'set', 'd/A4', '--status', 'dropped', '--site', 'orch', '--text', 'Not needed.').code, 0);
+  assert.deepEqual(read(at('waves', 'd', 'wave.json')).items.map((it) => it.queued_at), [undefined, undefined, undefined, undefined]);
+});
+
 test('a held item emits its unblocking but never starts until --unheld resumes it', () => {
   write(at('waves', 'd', 'wave.json'), { items: [
     { id: 'A1', title: 'One', status: 'building' },

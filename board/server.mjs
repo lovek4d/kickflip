@@ -74,6 +74,7 @@
 //                                builder-stalled {key, silentSince} once per silent spell, tracked in data/builder-stalled.json
 //                                item set appends card-unblocked {key} when a waiting card's last dep finishes,
 //                                including held cards, so the owning session hears it whoever ran the command.
+//                                card-bump {key} and card-unbump {key} are a work card's bump icon, sent with no confirm.
 //                                card-hold {key, hold: true, for} is a Hold sheet chip or its Custom time
 //                                (../hub/duration.mjs durationEnd), stored as {key, hold: true, until} or, for
 //                                Forever, {key, hold: true}; a choice that ends in the past or past 30 days → 400 {error}.
@@ -81,6 +82,9 @@
 //                                startTappedBuild, board/worktree.mjs boardWorktree) and, once started, appends
 //                                card-build {key, ref, kind, reason, worktree}, which wakes the session to brief and launch
 //                                the builder; a refusal appends no event and leaves its reason in the card's thread.
+//                                On a card an unfinished dep blocks, the tap queues the build instead (queued_at, no
+//                                event), and once nothing blocks it the server starts it the same way, after any board
+//                                change and every minute (store.mjs startQueuedBuild; docs/adr/0145-build-on-a-blocked-card-queues-it.md).
 //                                card-hold and card-done are written to the wave file too, with the owner's thread
 //                                line, and a Done unblocks waiting cards (store.mjs recordOwnerTap).
 //                                An owner-answer that leaves an unstarted card with nothing stopping it appends
@@ -139,7 +143,7 @@ import { promisify } from 'node:util';
 import { buildBoard, ITEM_EVENTS, needsAnswer, ownerActions, pullOf, refOf, startedByAnswer, threadOf } from './domain.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, watch as watchFiles } from 'node:fs';
-import { BoardError, boardConfig, pickUp, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswer, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, boardConfig, dueQueuedBuilds, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswer, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -584,6 +588,7 @@ function changed() {
     broadcast(`event: change\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`);
     checkStalled();
     checkActions();
+    checkQueued();
   }, Math.max(0, Math.min(CHANGE_QUIET, changeFirst + CHANGE_MAX - now)));
 }
 // A folder that doesn't exist yet, or whose watch fails, is retried; the first watch after a retry signals, since a
@@ -654,7 +659,7 @@ const server = http.createServer(async (req, res) => {
       if (kind === 'card-build') {
         const key = String(body.key || '');
         const started = await startTappedBuild(here, key, () => boardWorktree(here, key.split('/')[1]));
-        return json(res, 200, { id: started ? await appendEvent(kind, started) : null });
+        return json(res, 200, { id: started && !started.queued ? await appendEvent(kind, started) : null });
       }
       const id = await appendEvent(kind, body);
       if (kind === 'owner-answer') {
@@ -774,6 +779,28 @@ async function checkPickUps() {
   }
 }
 
+// docs/adr/0145-build-on-a-blocked-card-queues-it.md
+// Starts each queued build nothing holds or blocks any more, as the owner's Build tap would, waking the session with
+// card-build. The pause line keeps them queued. A check asked for while one runs runs again after it.
+let checkingQueued = null;
+let queuedAgain = false;
+function checkQueued() {
+  if (checkingQueued) { queuedAgain = true; return checkingQueued; }
+  checkingQueued = (async () => {
+    do {
+      queuedAgain = false;
+      try {
+        if (readUsageGate().state === 'paused') continue;
+        for (const key of await dueQueuedBuilds(here)) {
+          const started = await startQueuedBuild(here, key, () => boardWorktree(here, key.split('/')[1]));
+          if (started && !started.queued) await appendEvent('card-build', started);
+        }
+      } catch (err) { console.error('Queued build check failed:', err.message); }
+    } while (queuedAgain);
+  })().finally(() => { checkingQueued = null; });
+  return checkingQueued;
+}
+
 // docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md
 // data/pulled.json {key, at}: key is the pulled card while it stays pullable, at when the marker last changed.
 let checkingPulls = false;
@@ -856,8 +883,10 @@ setInterval(checkStalled, 60000).unref();
 setInterval(checkPickUps, 60000).unref();
 setInterval(checkPulls, 60000).unref();
 setInterval(checkActions, 60000).unref();
+setInterval(checkQueued, 60000).unref();
 await checkStalled();
 await checkPickUps();
 await checkPulls();
 checkActions();
+checkQueued();
 server.listen(port, '127.0.0.1', () => console.log(`site on http://127.0.0.1:${port}/ (prefix ${prefix || 'none'})`));

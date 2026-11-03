@@ -2186,7 +2186,7 @@ test('confirmations are the browser\'s own window.confirm, whatever labels a cal
   assert.equal(native.length, 4);
 });
 
-test("every bumpable card, closed or open, carries the bump icon at its top right and no bump in its button rows; the icon confirms, then sends card-bump, and the lane's latest bump shows it disabled", async () => {
+test("every bumpable card, closed or open, carries the bump icon at its top right and no bump in its button rows; the icon sends card-bump with no confirm, and on a bumped card it is filled and sends card-unbump", async () => {
   const cards = [
     workCard('T1', { bumpable: true, bumpedAt: '2026-10-30T09:00:00.000Z', actionButton: 'grill' }),
     workCard('T2', { bumpable: true, bumpedAt: '2026-10-30T08:00:00.000Z', actionButton: 'grill' }),
@@ -2197,17 +2197,19 @@ test("every bumpable card, closed or open, carries the bump icon at its top righ
   const b = boardOnDom({ open: ['w/T1', 'w/T3', 'w/H1'], board: boardOf(cards), threads: {}, confirm: true });
   await b.settle();
   const card = (key) => b.root.querySelector(`details.item[data-key="${key}"]`);
-  const icon = (key) => card(key).querySelector('summary .ask-actions button[data-confirm="bump"]');
-  assert.deepEqual(Object.fromEntries(cards.map((c) => [c.key, icon(c.key) ? [icon(c.key).getAttribute('aria-label'), icon(c.key).hasAttribute('disabled')] : null])), {
-    'w/T1': ['Bump to top', true], 'w/T2': ['Bump to top', false], 'w/T3': ['Bump to top', false], 'w/P1': ['Bump to top', true], 'w/H1': null,
+  const icon = (key) => card(key).querySelector('summary .ask-actions button[data-card-bump]');
+  assert.deepEqual(Object.fromEntries(cards.map((c) => [c.key, icon(c.key) ? [icon(c.key).getAttribute('aria-label'), icon(c.key).classList.contains('bumped'), icon(c.key).hasAttribute('disabled')] : null])), {
+    'w/T1': ['Unbump', true, false], 'w/T2': ['Unbump', true, false], 'w/T3': ['Bump to top', false, false], 'w/P1': ['Unbump', true, false], 'w/H1': null,
   });
-  for (const key of ['w/T1', 'w/T3', 'w/H1']) assert.equal(card(key).querySelector('.detail .actions [data-confirm="bump"]'), null, key);
+  for (const key of ['w/T1', 'w/T3', 'w/H1']) assert.equal(card(key).querySelector('.detail .actions [data-card-bump]'), null, key);
   assert.deepEqual(['w/T1', 'w/T3'].map((key) => card(key).querySelector('.detail .action-row.workflow').textContent.trim()), ['Grill', 'Hold']);
 
+  b.page.fire(b.root, 'click', { target: icon('w/T3') });
+  await b.settle();
   b.page.fire(b.root, 'click', { target: icon('w/T2') });
   await b.settle();
-  assert.deepEqual(b.confirms, ['Move T2 to the top of its lane?']);
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-bump', { key: 'w/T2' }]]);
+  assert.deepEqual(b.confirms, []);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-bump', { key: 'w/T3' }], ['card-unbump', { key: 'w/T2' }]]);
 });
 
 test('Hold opens a sheet of the shared duration picker in place of a confirm, whose chip sends card-hold with that choice, and Unhold confirms naming the time', async () => {
@@ -3036,7 +3038,7 @@ test('legacy hub links open one modal, guard dirty rules on every dismissal, res
   assert.deepEqual(page.left(), baseline);
 });
 
-test("the Waves section sits above the lanes: tapping a wave's row shows only its cards, its cards carry a grey chip first in the blocked-by row, and Triage confirms, sends wave-triage and reads Triaging… then its open questions, at a lineup's foot or at the end of a wave file's name line", async () => {
+test("the Waves section sits above the lanes: tapping a wave's row shows only its cards, its cards carry a grey chip in their wave row, with blocked by on the time line, and Triage confirms, sends wave-triage and reads Triaging… then its open questions, at a lineup's foot or at the end of a wave file's name line", async () => {
   const row = (triage) => ({ kind: 'lineup', slug: 'mon', title: 'Monitor', goal: 'Runs in kickflip.', order: [{ key: 'w/A1', ref: 'A1' }, { key: 'w/A2', ref: 'A2' }], merged: 1, total: 2, triage });
   const mon = { slug: 'mon', title: 'Monitor' };
   const cards = [workCard('A1', { lane: 'done', lineup: mon }), workCard('A2', { lineup: mon, blockedBy: [{ key: 'w/A9', ref: 'A9' }] }), workCard('A3', { lineup: { slug: 'col', title: 'Colour' } }), workCard('A4')];
@@ -3055,7 +3057,8 @@ test("the Waves section sits above the lanes: tapping a wave's row shows only it
   assert.match(mine.querySelector('.wv-id').textContent, /Monitor1 of 2 merged/);
   assert.equal(mine.querySelector('.wv-links a').getAttribute('href'), 'notes.html?wave=mon');
   const metaRow = (key) => b.root.querySelector(`#lanes details.item[data-key="${key}"] .line5`);
-  assert.deepEqual(metaRow('w/A2').querySelectorAll('.chip').map((c) => [c.textContent, c.classList.contains('tone-quiet')]), [['Monitor', true], ['blocked by A9', false]]);
+  assert.deepEqual(metaRow('w/A2').querySelectorAll('.chip').map((c) => [c.textContent, c.classList.contains('tone-quiet')]), [['Monitor', true]]);
+  assert.equal(b.root.querySelector('#lanes details.item[data-key="w/A2"] .card-time .card-blocked').getAttribute('href'), '#item=w%2FA9');
   assert.equal(metaRow('w/A3').querySelector('.chip').textContent, 'Colour');
   assert.equal(metaRow('w/A4'), null);
 
@@ -3155,4 +3158,18 @@ test('a held Todo card that can build shows Build in place of Unhold, whose conf
   await b.settle();
   assert.deepEqual(b.confirms, ['Unhold and build INT-42? Claude starts its builder now with the notes as they stand.']);
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['card-build', { key: 'w/H1' }]);
+});
+
+// docs/adr/0145-build-on-a-blocked-card-queues-it.md
+test('a blocked Todo card shows Build, whose confirm says it builds once its blockers are done, and sends card-build', async () => {
+  const blockedBy = [{ key: 'w/A9', ref: '#53' }];
+  const cards = [workCard('B1', { ref: 'INT-44', buildable: true, blockedBy }), workCard('B2', { ref: 'INT-45', held: true, holdable: true, buildable: true, blockedBy })];
+  const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
+  await b.settle();
+  for (const key of ['w/B1', 'w/B2']) {
+    b.page.fire(b.root, 'click', { target: b.root.querySelector(`details.item[data-key="${key}"] .detail [data-confirm="card-build"]`) });
+    await b.settle();
+  }
+  assert.deepEqual(b.confirms, ['Build INT-44 once #53 is done? It waits in In Progress until then.', 'Unhold and build INT-45 once #53 is done? It waits in In Progress until then.']);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-build', { key: 'w/B1' }], ['card-build', { key: 'w/B2' }]]);
 });
