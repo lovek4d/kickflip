@@ -278,6 +278,10 @@ main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 .ask-actions .icon:disabled { opacity: .35; }
 .ask-actions .icon.bumped { color: var(--color-notice); opacity: 1; }
 .ask-actions .icon.bumped svg { fill: currentColor; }
+/* A work card's empty bump icon shows only while the card is hovered or holds focus; on touch, while it is open */
+.item button[data-card-bump]:not(.bumped) { opacity: 0; }
+.item:hover button[data-card-bump]:not(.bumped), .item:focus-within button[data-card-bump]:not(.bumped) { opacity: 1; }
+@media (hover: none) { .item[open] button[data-card-bump]:not(.bumped) { opacity: 1; } }
 .working-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--color-notice); margin-right: 5px; vertical-align: 1px; }
 @media (prefers-reduced-motion: no-preference) { .working-dot { animation: pulse 1.4s ease-in-out infinite; } }
 form[data-reply] .row .quick { margin-left: auto; margin-right: 6px; }
