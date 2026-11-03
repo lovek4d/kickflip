@@ -173,7 +173,7 @@ test("a snapshot keeps the board and the threads of its cards, open cards' first
 test('a stored snapshot that is damaged, from another version or undated reads as none', () => {
   const good = ui.packSnapshot({ items: [{ key: 'w/A', lane: 'todo' }] }, new Map(), { savedAt: '2026-10-23T08:00:00.000Z' });
   assert.ok(ui.unpackSnapshot(good));
-  for (const raw of [null, '', 'not json', good.slice(0, -3), good.replace('"v":1', '"v":0'), good.replace('"items":[', '"cards":['), good.replace('2026-10-23T08:00:00.000Z', 'soon')]) {
+  for (const raw of [null, '', 'not json', good.slice(0, -3), good.replace(/"v":\d+/, '"v":0'), good.replace('"items":[', '"cards":['), good.replace('2026-10-23T08:00:00.000Z', 'soon')]) {
     assert.equal(ui.unpackSnapshot(raw), null, String(raw));
   }
   const odd = JSON.parse(good);

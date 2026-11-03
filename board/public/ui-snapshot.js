@@ -1,7 +1,7 @@
 // The last board this device showed, which the board page paints dimmed until the fresh board lands, and what the
 // page may do meanwhile (docs/adr/0028-the-board-opens-on-the-last-visit.md). Needs ui.js.
 (function () {
-  const VERSION = 1;
+  const VERSION = 2;
   // Characters, one board's most; app-snapshot.js keeps every board's within three of these.
   const SNAPSHOT_MAX = 900000;
   const ACTIVE_LANES = ['review', 'stale', 'progress', 'todo'];
