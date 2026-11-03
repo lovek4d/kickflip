@@ -196,7 +196,7 @@
     const chips = `${stalledChip(it)}${it.followUp ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
     const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)
       : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Orchestrator review</div>'
-      : it.builder ? `<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>${esc(builderLine(it.builder))}</div>`
+      : it.builder ? `<div class="line3 sub agent${it.builder.planner ? ' planner' : ''}"><span class="working-dot" aria-hidden="true"></span>${esc(builderLine(it.builder))}</div>`
       : it.refusal ? `<div class="line3 sub refused">${esc(it.refusal)}</div>`
       : it.working ? `<div class="line3 sub agent">${workingLine}</div>`
       : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.held ? ' idle' : ''}">Next: ${esc(it.next)}</div>` : '';
@@ -205,7 +205,7 @@
       ${status}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
       ${wave ? `<div class="line5 meta">${wave}</div>` : ''}
-      ${timeLine(it, unread, it.lane === 'progress' && it.builder && it.waitsOn !== 'checking' ? phaseBars(it.builder.phase) : '')}`;
+      ${timeLine(it, unread, it.lane === 'progress' && it.builder && !it.builder.planner && it.waitsOn !== 'checking' ? phaseBars(it.builder.phase) : '')}`;
   }
   const WAVE_ICON = '<svg class="wave-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/><path d="M2 16c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/></svg>';
   const askChip = (it) => (it.isNew ? badge('notice', 'New') : '');

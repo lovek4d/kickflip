@@ -284,7 +284,9 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
                                                          "model: Claude Sonnet" (kind claude takes builder pick's model;
                                                          codex prints "model: Codex"). The thread's agent line reads it: "Claude
                                                          Sonnet builder started"; the label carries no model word. A
-                                                         build refuses the model the hub's Claude model rules out
+                                                         build refuses the model the hub's Claude model rules out.
+                                                         A prototype defaults to sonnet and a grill to opus:
+                                                         "Claude Sonnet prototype started"
          [--phase <phase> --progress <detail>]           one record per agent on the item; --agent defaults to main.
          [--eta <ISO time>]                              --phase and --progress take what builder progress takes.
                                                          --kind install: a build of the card's install, whose

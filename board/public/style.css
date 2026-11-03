@@ -326,6 +326,10 @@ button.attach:disabled { opacity: .35; }
 .msg.agent { padding: 0 10px; margin: 4px 0; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
 .msg.agent.started { color: var(--color-notice); } .msg.agent.finished { color: var(--color-success); }
 .msg.agent .muted { font-weight: 400; }
+/* A planner's line, dot included, is the owner's blue, on the card and in the thread; its finish stays green
+   (docs/adr/0167-planners-and-implementers-are-two-kinds-of-agent.md). */
+.sub.agent.planner, .msg.builder-status.planner, .msg.agent.started.planner { color: var(--love-ink); }
+.planner .working-dot { background: currentColor; }
 .msg.calls { padding: 0 10px; margin: 4px 0; font-size: 12px; overflow-wrap: anywhere; }
 .msg.calls summary { cursor: pointer; color: var(--muted); }
 .msg.calls ol { margin: 4px 0; padding-left: 20px; }

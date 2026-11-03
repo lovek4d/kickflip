@@ -971,10 +971,14 @@ test('a building card in In Progress ends its time row with five bars, after the
   assert.doesNotMatch(ui.workLines({ ...building, builder: null, next: 'Fix it' }), /phase-bars/);
 });
 
-test('a grill or prototype agent on a Todo card keeps its agent line and dot, without phase bars', () => {
-  const html = ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', builder: { progress: 'Reading · the notes', phase: 'reading', at: null } });
-  assert.match(html, /<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"><\/span>Reading · the notes<\/div>/);
-  assert.doesNotMatch(html, /phase-bars/);
+// docs/adr/0167-planners-and-implementers-are-two-kinds-of-agent.md
+test("a planner's line on a card is marked planner, keeping its dot, and never has phase bars, in Todo or In Progress", () => {
+  const planner = { progress: 'Reading · the notes', phase: 'reading', at: null, planner: true };
+  for (const lane of ['todo', 'progress']) {
+    const html = ui.workLines({ ...workCard, lane, sortAt: '2020-01-01T10:00:00.000Z', builder: planner });
+    assert.match(html, /<div class="line3 sub agent planner"><span class="working-dot" aria-hidden="true"><\/span>Reading · the notes<\/div>/);
+    assert.doesNotMatch(html, /phase-bars/);
+  }
 });
 
 test("a builder line shows the progress and its age, not who is building", () => {
@@ -1233,6 +1237,12 @@ test('a builder status line, and an agent starting or finishing, reads as one li
   assert.match(agents, /<div class="msg agent finished"><span class="agent-dot" aria-hidden="true"><\/span>Opus builder &lt;b&gt;finished/);
   assert.match(text(agents), /^Codex started · \S.* · ETA about .+ Opus builder started · [^·]+ Opus builder <b>finished<\/b> · [^·]+$/);
   assert.doesNotMatch(agents, /class="who"|data-withdraw|data-edit/);
+  const planner = ui.threadMessages([
+    { ts: ago(1), who: 'claude', kind: 'agent', text: 'Claude Sonnet prototype started', finished: false, eta: null, planner: true },
+    { ts: ago(0.8), who: 'claude', kind: 'status', text: 'Reading: the notes', planner: true },
+  ]);
+  assert.match(planner, /<div class="msg agent started planner"><span class="agent-dot" aria-hidden="true"><\/span>Claude Sonnet prototype started/);
+  assert.match(planner, /<div class="msg builder-status planner"><span class="working-dot" aria-hidden="true"><\/span>Reading: the notes/);
 });
 
 test("a builder's judgment calls show collapsed under its lines, saying whether the session verified them, and count as no message", () => {

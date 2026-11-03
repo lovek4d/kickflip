@@ -3,11 +3,11 @@
 :root {
   --bg: #fbfbfc; --panel: #ffffff; --line: #e6e6ea; --text: #1b1b1f; --muted: #6b6b76;
   --accent: #5e6ad2; --accent-soft: #eef0ff; --ok: #1f9d55; --warn: #c27c0e; --bad: #d1435b;
-  --chip: #f1f1f4; --band: #f2f2f5; --love: #eef6ff; --claude: #fdf3e4;
+  --chip: #f1f1f4; --band: #f2f2f5; --love: #eef6ff; --love-ink: #2b6cb0; --claude: #fdf3e4;
   --color-quiet: var(--muted); --color-info: var(--accent); --color-notice: var(--warn); --color-danger: var(--bad); --color-success: var(--ok);
 }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #111114; --panel: #18181c; --line: #2a2a31; --text: #ececf1; --muted: #9a9aa6;
     --accent: #8c95f0; --accent-soft: #23253d; --ok: #3ccf7f; --warn: #e3a33a; --bad: #f0687f;
-    --chip: #24242b; --band: #202026; --love: #1b2533; --claude: #2d2416; }
+    --chip: #24242b; --band: #202026; --love: #1b2533; --love-ink: #6fa8e8; --claude: #2d2416; }
 }

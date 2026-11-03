@@ -50,12 +50,12 @@ test('a green draft waits on Ready in In Review until a builder works on it', ()
   const record = { label: 'Opus builder', started: '2026-10-23T10:00:00Z', progress: 'Record line', progress_at: '2026-10-23T10:06:00Z' };
   const earlier = { ts: '2026-10-23T09:00:00Z', who: 'claude', kind: 'status', text: 'Previous run' };
   const fresh = board({ now: Date.parse(record.started), agents: { A1: { main: record } }, threads: { 'w/A1': [earlier] } }).items.find((i) => i.key === 'w/A1');
-  assert.deepEqual(fresh.builder, { progress: null, phase: null, waiting: false, at: record.started, kind: null, stalled: false, silentSince: record.started });
+  assert.deepEqual(fresh.builder, { progress: null, phase: null, waiting: false, at: record.started, kind: null, planner: false, stalled: false, silentSince: record.started });
   const lines = [earlier, { ts: '2026-10-23T10:05:00Z', who: 'claude', kind: 'status', text: 'Running tests' }, { ts: '2026-10-23T10:07:00Z', who: 'claude', text: 'Halfway.' }];
   const busy = board({ now: Date.parse('2026-10-23T10:07:00Z'), agents: { A1: { main: record } }, threads: { 'w/A1': lines } });
   const item = busy.items.find((i) => i.key === 'w/A1');
   assert.deepEqual([item.lane, item.waitsOn, item.action], ['progress', 'builder', null]);
-  assert.deepEqual(item.builder, { progress: 'Running tests', phase: null, waiting: false, at: '2026-10-23T10:05:00Z', kind: null, stalled: false, silentSince: '2026-10-23T10:05:00Z' });
+  assert.deepEqual(item.builder, { progress: 'Running tests', phase: null, waiting: false, at: '2026-10-23T10:05:00Z', kind: null, planner: false, stalled: false, silentSince: '2026-10-23T10:05:00Z' });
   const finished = board({ agents: { A1: { main: { label: 'Opus builder', started: '2026-10-23T10:00:00Z', progress: 'Running tests', progress_at: '2026-10-23T10:05:00Z', eta: '2026-10-23T11:00:00Z', done: '2026-10-23T10:30:00Z' } } } });
   const after = finished.items.find((i) => i.key === 'w/A1');
   assert.deepEqual([after.lane, after.waitsOn, after.builder, after.eta], ['review', 'ready', null, null]);
@@ -1290,4 +1290,38 @@ test("todoOf reads the Todo a triage sees: its cards' keys, titles and deps, and
   assert.equal(todo([base[0], base[1], { ...base[2], title: 'Running, renamed' }]), seen);
   assert.equal(todo([base[0], base[1], { ...base[2], status: 'done' }]), seen);
   assert.equal(todo([{ id: 'A3', title: 'Running', status: 'building' }]), '');
+});
+
+// docs/adr/0167-planners-and-implementers-are-two-kinds-of-agent.md
+test("a running planner's line is the card's builder line, marked planner, until a build runs, whose line wins", () => {
+  const status = (ts, text, extra = {}) => ({ ts, who: 'claude', kind: 'status', text, ...extra });
+  const proto = { kind: 'prototype', model: 'sonnet', label: 'Prototype', started: '2026-10-23T10:00:00Z' };
+  const build = { kind: 'claude', model: 'opus', label: 'Builder', started: '2026-10-23T10:10:00Z' };
+  const threads = { 'w/A1': [status('2026-10-23T10:05:00Z', 'Reading: the notes', { phase: 'reading', planner: true }), status('2026-10-23T10:12:00Z', 'Building: the page', { phase: 'building' }), status('2026-10-23T10:15:00Z', 'Prototype testing: the takes', { phase: 'testing', planner: true })] };
+  const card = (agents) => board({ pr: null, now: Date.parse('2026-10-23T10:20:00Z'), agents: { A1: agents }, threads }).items.find((i) => i.key === 'w/A1');
+  const alone = card({ main: proto });
+  assert.deepEqual([alone.lane, alone.builder.planner, alone.builder.kind, alone.builder.progress], ['todo', true, 'prototype', 'Prototype testing · the takes']);
+  const both = card({ main: proto, fix: build });
+  assert.deepEqual([both.lane, both.builder.planner, both.builder.kind, both.builder.progress, both.builder.phase], ['progress', false, 'claude', 'Building · the page', 'building']);
+  assert.equal(card({ main: build }).builder.planner, false);
+});
+
+test('a planner\'s agent and status lines in the thread are marked planner and name its model and kind; an implementer\'s are not', () => {
+  const agents = {
+    main: { kind: 'prototype', model: 'sonnet', label: 'Prototype', started: '2026-10-23T10:00:00Z', done: '2026-10-23T10:30:00Z' },
+    grill: { kind: 'grill', model: 'opus', label: 'Grill agent', started: '2026-10-23T10:01:00Z' },
+    build: { kind: 'claude', model: 'opus', label: 'Builder', started: '2026-10-23T10:02:00Z' },
+  };
+  const lines = [{ ts: '2026-10-23T10:05:00Z', who: 'claude', kind: 'status', text: 'Reading: the notes', planner: true }, { ts: '2026-10-23T10:06:00Z', who: 'claude', kind: 'status', text: 'Building: the page' }];
+  const msgs = threadOf('w/A1', { lines, agents });
+  assert.deepEqual(msgs.map((m) => [m.text, Boolean(m.planner)]), [
+    ['Claude Sonnet prototype started', true], ['Claude Opus grill started', true], ['Claude Opus implementer started', false],
+    ['Reading: the notes', true], ['Building: the page', false], ['Claude Sonnet prototype finished', true],
+  ]);
+});
+
+test('only a running build keeps the board from being idle: a running planner leaves Pull free to start the next ready card', () => {
+  const card = (agents) => ({ key: 'w/A1', lane: 'todo', buildable: true, state: 'ready', blockedBy: [], agents });
+  for (const kind of ['prototype', 'grill']) assert.equal(pullOf([card([{ kind, started: '2026-10-23T10:00:00Z', done: null }])]).idle, true, kind);
+  assert.equal(pullOf([card([{ kind: 'claude', started: '2026-10-23T10:00:00Z', done: null }])]).idle, false);
 });

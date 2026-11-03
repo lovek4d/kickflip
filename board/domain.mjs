@@ -362,15 +362,18 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
   };
 }
 
-// Grill and prototype agents work toward a build, so they never start a card or put it in In Progress
-// (docs/adr/0138-a-card-moves-to-in-progress-only-once-building-starts.md).
-const NOT_BUILDING = new Set(['grill', 'prototype']);
-export const builds = (agent) => !NOT_BUILDING.has(agent.kind);
+// Two kinds of agent: planners, the grill and prototype agents, which write no output code, and implementers, every
+// other kind. A planner works toward a build, so it never starts a card or puts it in In Progress, and its lines are
+// the owner's blue (docs/adr/0138-a-card-moves-to-in-progress-only-once-building-starts.md,
+// docs/adr/0167-planners-and-implementers-are-two-kinds-of-agent.md).
+const PLANNERS = new Set(['grill', 'prototype']);
+export const plans = (agent) => PLANNERS.has(agent.kind);
+export const builds = (agent) => !plans(agent);
 
 // An item's agents, oldest first, from its records by agent name.
 function agentsOf(records = {}) {
   return Object.entries(records).filter(([, r]) => r && typeof r === 'object').map(([name, r]) => ({
-    name, kind: providerOf(r.kind) || null, label: r.label || null, started: r.started || null, eta: r.done ? null : r.eta || null, done: r.done || null,
+    name, kind: providerOf(r.kind) || null, model: r.model || (r.kind === 'opus' || r.kind === 'sonnet' ? r.kind : null), label: r.label || null, started: r.started || null, eta: r.done ? null : r.eta || null, done: r.done || null,
     tapped: r.tapped === true, calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null,
   })).sort((a, b) => String(a.started || '').localeCompare(String(b.started || '')) || a.name.localeCompare(b.name));
 }
@@ -384,16 +387,20 @@ function worktreeOf(records = {}) {
 // ("Testing: <detail>") reads "Testing · <detail>" on the card; a line with no phase, from builder done's note or from
 // before phases, reads as written (docs/adr/0137-a-builder-status-line-is-a-phase-and-a-short-detail.md). waiting: a
 // record the owner's Build tap started, whose builder the session hasn't launched yet, and no status line since
-// (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md).
+// (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md). While a build runs, its line wins over a running
+// planner's; with only planners running the line is theirs, marked planner
+// (docs/adr/0167-planners-and-implementers-are-two-kinds-of-agent.md).
 function builderOf(agents, lines = [], now) {
-  const running = agents.filter((a) => a.started && !a.done);
+  const open = agents.filter((a) => a.started && !a.done);
+  const planner = open.every(plans);
+  const running = planner ? open : open.filter(builds);
   const since = running.map((a) => String(a.started || '')).sort()[0];
   if (since === undefined) return null;
-  const line = lines.filter((m) => m.kind === 'status' && String(m.ts) >= since).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop();
+  const line = lines.filter((m) => m.kind === 'status' && String(m.ts) >= since && (planner || !m.planner)).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop();
   const kind = running.some((a) => a.kind === BUILDER_KIND.install) ? BUILDER_KIND.install : providerOf(running.at(-1).kind);
   const silentSince = line?.ts || since;
   const progress = line ? (line.phase ? line.text.replace(': ', ' · ') : line.text || null) : null;
-  return { progress, phase: line?.phase || null, waiting: !line && running.some((a) => a.tapped), at: silentSince, kind, silentSince, stalled: now - Date.parse(silentSince) >= BUILDER_STALLED_AFTER };
+  return { progress, phase: line?.phase || null, waiting: !line && running.some((a) => a.tapped), at: silentSince, kind, planner, silentSince, stalled: now - Date.parse(silentSince) >= BUILDER_STALLED_AFTER };
 }
 
 // The model the agent runs: a Claude kind's record holds it as model (opus or sonnet), a record without one reads from its kind.
@@ -404,13 +411,14 @@ export const providerOf = (kind) => (kind === 'opus' || kind === 'sonnet' ? 'cla
 
 // "Claude Opus implementer", "Claude Sonnet implementer", "Codex benchmarks": the model once, never "Claude Opus · Opus
 // implementer" (owner, question int42-agents-look; owner ask on #89). A label's builder reads implementer, since Build
-// means the package (docs/adr/0166-a-todo-cards-button-reads-implement.md). A kind that is no model keeps its own word
-// ("Prototype sketch").
+// means the package (docs/adr/0166-a-todo-cards-button-reads-implement.md). A planner with a model is named by its
+// kind: "Claude Sonnet prototype", "Claude Opus grill". A kind that is no model keeps its own word ("Prototype sketch").
 function agentName(a) {
   const model = modelName(a);
   const { kind } = a;
   const label = a.label?.replace(/\bbuilder\b/, 'implementer').replace(/\bBuilder\b/, 'Implementer');
   const lower = (t) => t[0].toLowerCase() + t.slice(1);
+  if (model && plans(a)) return `${model} ${kind}`;
   if (model) return `${model} ${lower(label?.replace(/^(?:claude\s+)?(?:opus|sonnet|codex)\b\s*/i, '') || 'implementer')}`;
   const k = kind ? kind[0].toUpperCase() + kind.slice(1) : '';
   if (!k) return label || 'Implementer';
@@ -514,14 +522,15 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     .filter((e) => resolvedSince(asked.get(e.data.id), e.ts) || rounded.has(e.data.id) || buildsFrom.some((s) => s > String(e.ts))).map((e) => e.id));
   const msgs = [
     // First, so a start sorts above the status line `builder start` writes at the same moment.
+    // A planner's lines are marked planner, which the thread draws in the owner's blue.
     ...agentsOf(agents).flatMap((a) => [
-      ...(a.started ? [{ ts: a.started, who: 'claude', kind: 'agent', text: `${agentName(a)} started`, finished: false, eta: a.done ? null : a.eta }] : []),
-      ...(a.done ? [{ ts: a.done, who: 'claude', kind: 'agent', text: `${agentName(a)} finished`, finished: true, eta: null }] : []),
+      ...(a.started ? [{ ts: a.started, who: 'claude', kind: 'agent', text: `${agentName(a)} started`, finished: false, eta: a.done ? null : a.eta, ...(plans(a) ? { planner: true } : {}) }] : []),
+      ...(a.done ? [{ ts: a.done, who: 'claude', kind: 'agent', text: `${agentName(a)} finished`, finished: true, eta: null, ...(plans(a) ? { planner: true } : {}) }] : []),
       // Its judgment calls, one entry under its lines: at its finish, or at its newest call while it runs
       // (docs/adr/0155-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
-    ...lines.map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.kind === 'status' ? { kind: 'status' } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null })),
+    ...lines.map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}) } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null })),
     ...events.filter((e) => keys.has(e.data?.key) && ITEM_EVENTS.includes(e.kind))
       .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply })),
     ...events.filter((e) => e.kind === 'owner-answer' && asked.has(e.data?.id)).map((e) => {
@@ -882,13 +891,14 @@ export function needsAnswer(b) {
 }
 
 // docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md
-// For built items in board order: idle while no card has a running builder and none waits in Orchestrator review;
+// For built items in board order: idle while no card has a running build and none waits in Orchestrator review, a
+// running planner counting as no work (docs/adr/0167-planners-and-implementers-are-two-kinds-of-agent.md);
 // pullable lists, top first, the buildable cards nothing blocks, with no questions, no grill under way and no message a
 // session is working on, leaving out a card still New, grilling or prototyping
-// (docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md). A running grill or prototype agent keeps the board from being idle.
+// (docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md).
 export function pullOf(items) {
   const open = items.filter((i) => !closedLane(i));
-  const idle = !open.some((i) => i.waitsOn === 'checking' || (i.agents || []).some((a) => !a.done));
+  const idle = !open.some((i) => i.waitsOn === 'checking' || (i.agents || []).some((a) => !a.done && builds(a)));
   const pullable = open.filter((i) => i.buildable && !i.unsorted && [null, 'ready'].includes(i.state ?? null) && !i.blockedBy.length && !i.questions && !i.grilling && !i.working).map((i) => i.key);
   return { idle, pullable };
 }

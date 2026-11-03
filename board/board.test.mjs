@@ -2852,3 +2852,25 @@ test("a Next set while the card has an open question clears once its questions a
   ok('builder', 'start', 'w/A1', '--kind', 'claude');
   assert.deepEqual([item('A1').next, item('A1').next_on_questions], [undefined, undefined]);
 });
+
+// docs/adr/0167-planners-and-implementers-are-two-kinds-of-agent.md
+test('builder start saves a planner\'s model, Sonnet for a prototype and Opus for a grill by default, and its status lines are marked planner', () => {
+  const record = (agent) => read(at('waves', 'w', 'agents', agent === 'main' ? 'A1.json' : `A1@${agent}.json`));
+  for (const [kind, model] of [['prototype', 'sonnet'], ['grill', 'opus']]) {
+    const r = board('builder', 'start', 'w/A1', '--site', 'orch', '--agent', kind, '--kind', kind);
+    assert.equal(r.code, 0, r.err);
+    assert.equal(record(kind).model, model);
+    assert.match(r.out, new RegExp(`^model: Claude ${model === 'opus' ? 'Opus' : 'Sonnet'}$`, 'm'));
+  }
+  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--agent', 'prototype', '--kind', 'prototype', '--model', 'opus').code, 0);
+  assert.equal(record('prototype').model, 'opus');
+  // A dispatched planner's model stays through the agent's own start.
+  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--dispatch', '--kind', 'grill', '--model', 'sonnet').code, 0);
+  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'grill', '--phase', 'reading', '--progress', 'the notes').code, 0);
+  assert.equal(record('main').model, 'sonnet');
+  assert.equal(board('builder', 'progress', 'w/A1', '--site', 'orch', '--agent', 'prototype', '--phase', 'building', 'the takes').code, 0);
+  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--agent', 'fix', '--kind', 'claude', '--phase', 'testing', '--progress', 'the fix').code, 0);
+  assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map(({ text, planner }) => [text, planner]), [
+    ['Reading: the notes', true], ['Prototype building: the takes', true], ['Claude Opus testing: the fix', undefined],
+  ]);
+});

@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, ITEM_STATUSES, builds, mergeBlockers, modelName, noTakePicked, ownerQuestion, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
+import { BUILD_REFUSED, ITEM_STATUSES, builds, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, builderPick } from '../shared/usage-gate.mjs';
 import { reviseQueued, flushQueue, queueStatus, readSettings, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -1857,14 +1857,20 @@ function progressLine(site, phase, detail, name) {
 // keeps its phase and reads "Testing: <detail>", or "Codex testing: <detail>" for an agent other than main, named by
 // its kind; a line with no phase (builder done's note) reads "<detail>" or "Codex: <detail>". A line that repeats the
 // thread's last status line is skipped.
+// A planner's line is marked planner and a further planner is named by its kind ("Prototype building: …")
+// (docs/adr/0167-planners-and-implementers-are-two-kinds-of-agent.md).
 async function statusToThread(site, key, agent = 'main', builder, { phase, detail }, ts) {
-  const who = agent === 'main' ? '' : modelName(builder) || builder.kind || agent;
+  const planner = plans(builder);
+  const who = agent === 'main' ? '' : (planner ? builder.kind : modelName(builder)) || builder.kind || agent;
   const head = [who, phase].filter(Boolean).join(' ');
   const body = head ? `${head[0].toUpperCase()}${head.slice(1)}: ${detail}` : detail;
   const file = threadFile(site, key);
   if ((await readLines(file)).filter((m) => m.kind === 'status').pop()?.text === body) return;
-  await appendLine(file, { ts, who: 'claude', kind: 'status', ...(phase ? { phase } : {}), text: body });
+  await appendLine(file, { ts, who: 'claude', kind: 'status', ...(phase ? { phase } : {}), ...(planner ? { planner: true } : {}), text: body });
 }
+
+// The model a planner runs without --model (owner, #111's grill).
+const PLANNER_MODEL = { prototype: 'sonnet', grill: 'opus' };
 
 // worktree, when given, makes the builder's worktree once every flag has passed (board/worktree.mjs makeWorktree) and
 // returns {path, branch, repo}, which the record keeps for `board.mjs land`. A build (--kind build, claude or codex) on an
@@ -1904,7 +1910,8 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   if (askedModel !== undefined && k === 'codex') fail('--model is for kind claude; codex needs none');
   const forced = k === 'claude' ? readClaudeModel() : 'auto';
   if (askedModel !== undefined && forced !== 'auto' && askedModel !== forced) fail(`--model ${askedModel}: the hub's Claude model is ${forced === 'opus' ? 'Opus' : 'Sonnet'}. Pass --model ${forced}, or no --model.`);
-  const claude = k === 'claude' ? askedModel ?? pick?.model ?? (takeUp && providerOf(takeUp.kind) === 'claude' ? takeUp.model : undefined) ?? 'opus' : undefined;
+  const claude = k === 'claude' ? askedModel ?? pick?.model ?? (takeUp && providerOf(takeUp.kind) === 'claude' ? takeUp.model : undefined) ?? 'opus'
+    : plans({ kind: k }) ? askedModel ?? (takeUp?.kind === k ? takeUp.model : undefined) ?? PLANNER_MODEL[k] : undefined;
   const record = {
     label: label === undefined ? 'Builder' : text(label, '--label'), ...(k ? { kind: k } : {}), ...(claude ? { model: claude } : {}), started: now,
     ...(eta === undefined ? {} : { eta: isoTime(eta, '--eta') }), ...(tapped ? { tapped: true } : {}), ...(dispatch ? { dispatched: true } : {}),
