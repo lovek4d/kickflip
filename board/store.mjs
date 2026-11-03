@@ -5,10 +5,12 @@ import fs from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { ITEM_STATUSES, awaitsConfirm, ownerQuestion, refOf, roundOf, roundSettledBy } from './domain.mjs';
+import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { ITEM_STATUSES, awaitsConfirm, mergeBlockers, ownerQuestion, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, builderPick } from '../shared/usage-gate.mjs';
-import { dropQueued, reviseQueued, flushQueue, queueStatus, readSettings } from '../hub/push.mjs';
+import { reviseQueued, flushQueue, queueStatus, readSettings, pushKindError } from '../hub/push.mjs';
 import { holdLine, windowAt } from '../hub/schedule.mjs';
 import { AT_RE } from '../hub/duration.mjs';
 import { routeRecord } from '../hub/routes.mjs';
@@ -150,11 +152,40 @@ export async function recordPush(site, at) {
   return pushStateFile(site);
 }
 
+const KICKFLIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'kickflip.mjs');
+function pushCommand() {
+  if (!process.env.KICKFLIP_PUSH_CMD) return [process.execPath, KICKFLIP, 'push'];
+  try {
+    const cmd = JSON.parse(process.env.KICKFLIP_PUSH_CMD);
+    if (Array.isArray(cmd) && cmd.length && cmd.every((a) => typeof a === 'string')) return cmd;
+  } catch {}
+  throw new BoardError('KICKFLIP_PUSH_CMD must be a JSON array of strings');
+}
+
+// Runs kickflip push with {kind, title, body?, url?, tag?, urgent?, now?}, adding "· and N replies" to the body for the
+// replies written since the site's last push, and records the push when kickflip push succeeds. → {lines}: what
+// kickflip push said. A failure throws a BoardError with its exit code, naming why on its last line.
+export async function sendPush(site, f) {
+  const refused = pushKindError(f.kind);
+  if (refused) fail(refused);
+  if (f.title === undefined) fail('push needs --title');
+  const at = new Date();
+  const body = withReplies(f.body, await repliesSincePush(site, at));
+  const flags = { kind: f.kind, title: f.title, body: body || undefined, url: pushUrl(f.url), tag: f.tag };
+  const [cmd, ...pre] = pushCommand();
+  const args = [...pre, ...Object.entries(flags).flatMap(([k, v]) => (v === undefined ? [] : [`--${k}`, v])), ...(f.urgent ? ['--urgent'] : []), ...(f.now ? ['--now'] : [])];
+  const r = await new Promise((resolve) => {
+    execFile(cmd, args, { encoding: 'utf8' }, (error, stdout, stderr) => resolve({ error, said: `${stdout || ''}${stderr || ''}`.split('\n').filter((l) => l.trim()) }));
+  });
+  const code = r.error ? (typeof r.error.code === 'number' ? r.error.code : 1) : 0;
+  if (code !== 0) throw Object.assign(new BoardError([...r.said, `kickflip push failed (${typeof r.error.code === 'number' ? `exit ${code}` : r.error.message}); the push was not recorded`].join('\n')), { exitCode: code });
+  await recordPush(site, at);
+  return { lines: r.said };
+}
+
 const REPLIES = /(?:^| · )(and \d+ repl(?:y|ies))$/;
 export const withReplies = (body, n) => [body, n && `and ${n} ${n === 1 ? 'reply' : 'replies'}`].filter(Boolean).join(' · ');
 
-// The push tag tied to a thread: ask-<event id> for ask:<event id>, item-<wave>/<id> for a work item.
-export const pushTag = (key) => (key.startsWith('ask:') ? `ask-${key.slice(4)}` : `item-${key}`);
 
 export const PUSH_LINE_MAX = 160;
 // A message's first non-empty line, cut to PUSH_LINE_MAX characters.
@@ -449,16 +480,27 @@ export async function moveAsk(site, eventId, route) {
 
 // When the session last checked GitHub, and how often it checks (docs/adr/0021-the-board-shows-github-checks-and-watcher-health.md).
 const checkedFile = (site) => path.join(site, 'data', 'checked.json');
-// idle: no timer checks until the next wave, so the last check is never late. every defaults to the minutes of the
-// polling window now (Hub settings' Polling).
-export async function writeChecked(site, every, { idle = false } = {}) {
+// idle: no timer checks until the next wave, so the last check is never late; left out, it is idle while no card has an
+// open PR, as the hub's poll writes it (hub/github.mjs writeChecked). every defaults to the minutes of the polling
+// window now (Hub settings' Polling).
+export async function writeChecked(site, every, { idle } = {}) {
   needSite(site);
   if (idle && every !== undefined) fail('pass --every or --idle, not both');
+  if (idle === undefined && every === undefined) idle = !(await hasOpenPR(site));
   const now = new Date();
   const minutes = idle ? null : every === undefined ? windowAt(now, readSettings()).every_minutes
     : /^[1-9]\d{0,3}$/.test(String(every)) ? Number(every) : fail('--every takes the minutes between checks, such as 30');
   await writeJSON(checkedFile(site), idle ? { at: now.toISOString(), every: null, idle: true } : { at: now.toISOString(), every: minutes });
   return { file: checkedFile(site), every: minutes, lines: await flushAfterTick() };
+}
+
+// Whether a card the hub polls has a PR still open: the cards hub/boards.mjs prsOf lists.
+async function hasOpenPR(site) {
+  for (const source of await itemSources(site)) {
+    const wave = await readJSON(source.file, null);
+    if ((wave?.items || []).some((it) => Number.isInteger(it.pr) && !FINISHED.includes(it.status)) && boardRepoOf(site, wave)) return true;
+  }
+  return false;
 }
 
 // A tick's pushes go out as it ends rather than at the next slot (docs/adr/0030-pushes-go-by-kind-and-each-arrives-on-its-own.md).
@@ -506,11 +548,20 @@ function checkReviewers(list, name) {
   return list.map((r) => Object.fromEntries(Object.keys(REVIEWER_FIELDS).map((k) => [k, r[k].trim()])));
 }
 
+// The board's list, also written to each wave file with an unfinished card, so its open PRs reach the same people.
 async function writeReviewers(site, change) {
   const file = path.join(needSite(site), 'board.json');
   const cfg = await readJSON(file, {});
-  await writeJSON(file, { ...cfg, reviewers: checkReviewers(change(cfg.reviewers || []), 'the reviewers') });
-  return file;
+  const reviewers = checkReviewers(change(cfg.reviewers || []), 'the reviewers');
+  await writeJSON(file, { ...cfg, reviewers });
+  const lines = [];
+  for (const source of await itemSources(site)) {
+    const wave = await readJSON(source.file, null);
+    if (!(wave?.items || []).some((it) => !FINISHED.includes(it.status))) continue;
+    await writeJSON(source.file, { ...wave, reviewers });
+    lines.push(`wave ${source.slug}: reviewers copied`);
+  }
+  return { file, lines };
 }
 
 export const setReviewers = (site, list) => writeReviewers(site, () => checkReviewers(list, 'the reviewer file'));
@@ -547,6 +598,51 @@ export const reviewReact = (site, key, name, emoji) => ticketWrite(site, async (
 });
 
 const digestFile = (site) => path.join(needSite(site), 'data', 'review-digests.json');
+
+// docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
+// `review due`: each Slack send the Reviewers steps owe, from local state with no GitHub call, each with the board.mjs
+// command that records it once sent. dms: a ready-for-review link to each reviewer of a card whose PR the hub last read
+// open and out of draft, with no link recorded for them. reactions: git_merged on each recorded link of a merged card
+// that doesn't carry it. digest: review digest's answer while one is due, else null. While Slack isn't ready → waiting
+// and nothing owed.
+export async function reviewDue(site, options) {
+  needSite(site);
+  const waiting = await readiness.waiting('slack');
+  if (waiting) return { waiting, dms: [], reactions: [], digest: null };
+  const cfg = await boardConfig(site);
+  const cache = await readJSON(GITHUB_STATE, {});
+  const topics = topicItems();
+  const cmd = `board.mjs --site ${path.basename(site)}`;
+  const arg = (v) => (/^[\w.@-]+$/.test(v) ? v : JSON.stringify(v));
+  const dms = [];
+  const reactions = [];
+  for (const source of await itemSources(site)) {
+    const wave = await readJSON(source.file, {});
+    const people = reviewersOf(wave, cfg.reviewers);
+    const repo = boardRepoOf(site, wave);
+    for (const item of wave.items || []) {
+      if (!Number.isInteger(item.pr) || !repo || ['done', 'dropped'].includes(item.status)) continue;
+      const key = `${source.slug}/${item.id}`;
+      const pr = routeRecord(cache.prs, `${repo}#${item.pr}`);
+      const links = reviewLinks(wave, item, key, topics);
+      if (item.status === 'merged' || item.merged_at || pr?.state === 'MERGED') {
+        for (const r of people) {
+          const link = routeRecord(links, r.name);
+          const stored = routeRecord(item.review_link_ts, r.name);
+          if (!link?.ts || (Array.isArray(stored?.reactions) && stored.reactions.includes('git_merged'))) continue;
+          reactions.push({ key, reviewer: r.name, channel: link.channel || r.dm, ts: link.ts, emoji: 'git_merged', record: `${cmd} review react ${key} ${arg(r.name)} git_merged` });
+        }
+      } else if (pr?.state === 'OPEN' && !pr.isDraft) {
+        const url = `https://github.com/${repo}/pull/${item.pr}`;
+        for (const r of people.filter((p) => !routeRecord(links, p.name))) {
+          dms.push({ key, reviewer: r.name, channel: r.dm, text: url, record: `${cmd} review sent ${key} ${arg(r.name)} --ts <ts> --channel ${r.dm}` });
+        }
+      }
+    }
+  }
+  const digest = await reviewDigest(site, options);
+  return { dms, reactions, digest: digest.due ? { ...digest, record: `${cmd} review digest sent <reviewer> --ts <ts> --channel <dm> --items <key,key>` } : null };
+}
 export async function reviewDigest(site, { now = new Date() } = {}) {
   needSite(site);
   const cfg = await boardConfig(site);
@@ -919,40 +1015,9 @@ export async function addQuestions(site, input) {
       }
     }
   }
-  const written = { ...owner, topics: owner.topics || [], items: [...items, ...questions.map((q) => ({ ...q, asked_at: at, push_tag: `q-${questions[0].id}` }))] };
+  const written = { ...owner, topics: owner.topics || [], items: [...items, ...questions.map((q) => ({ ...q, asked_at: at }))] };
   await writeJSON(ownerFile(site), written);
-  await dropSettledPushes(site, written, [...replaced, ...resolved]);
   return { file: ownerFile(site), lines: [...replaced.map((id) => `replaced: ${id}`), ...resolved.map((id) => `resolved: ${id}`)] };
-}
-
-// docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md
-// question add pushes its questions once, tagged push_tag (q-<first id>); a question without one, such as a confirm,
-// has q-<id>. A tag's queued push is dropped once every question carrying it is answered or resolved.
-const pushTagOf = (q) => q.push_tag || `q-${q.id}`;
-async function dropSettledPushes(site, owner, ids) {
-  if (!ids.length) return;
-  const answered = new Set((await readLines(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'owner-answer').map((e) => e.data?.id));
-  const items = owner.items || [];
-  const tags = new Set(items.filter((q) => ids.includes(q.id)).map(pushTagOf));
-  const settled = [...tags].filter((tag) => items.filter((q) => pushTagOf(q) === tag).every((q) => q.resolved || answered.has(q.id)));
-  await dropQueued(settled, path.basename(site));
-}
-
-// The board server calls this once an owner answer to question id is in data/events.jsonl.
-export async function dropAnsweredPush(site, id) {
-  await dropSettledPushes(site, await readJSON(ownerFile(site), { items: [] }), [id]);
-}
-
-// The push question add and question confirm send for the questions they wrote: one action push now, titled from the
-// card or topic, opening Waiting on you at the first of them. → {kind, title, body, url, tag, now} for board.mjs push.
-export async function questionPush(site, asked) {
-  const [first] = asked;
-  const topic = String(first.topic);
-  const owner = await readJSON(ownerFile(site), { topics: [] });
-  const name = topic.startsWith('item:') ? await cardName(site, topic.slice(5))
-    : (owner.topics || []).find((t) => t.id === topic)?.title || topic.replace(/^(?:lineup|wave):/, '');
-  const count = asked.length === 1 ? (first.confirm_of ? 'Is this it?' : '1 question') : `${asked.length} questions`;
-  return { kind: 'action', title: `${name}: ${count}`, body: pushLine(first.question), url: `/${path.basename(site)}/questions.html#${encodeURIComponent(first.id)}`, tag: pushTagOf(first), now: true };
 }
 
 // docs/adr/0116-a-confirm-waits-for-claudes-update.md
@@ -975,7 +1040,6 @@ function setResolved(owner, ids, note, at = new Date().toISOString()) {
 async function markResolved(site, owner, ids, note) {
   setResolved(owner, ids, note);
   await writeJSON(ownerFile(site), owner);
-  await dropSettledPushes(site, owner, ids);
   return ownerFile(site);
 }
 
@@ -1056,8 +1120,7 @@ export async function confirmQuestion(site, id, url) {
   setResolved(owner, [id], 'Followed by Is this it?', at);
   const written = { ...owner, topics: owner.topics || [], items: [...items, confirm] };
   await writeJSON(ownerFile(site), written);
-  await dropSettledPushes(site, written, [...stale, id]);
-  return { file: ownerFile(site), asked: [confirm], lines: [`confirm: ${cid}`, ...stale.map((x) => `replaced: ${x}`), ...(q.state === 'resolved' ? [] : [`resolved: ${id}`])] };
+  return { file: ownerFile(site), lines: [`confirm: ${cid}`, ...stale.map((x) => `replaced: ${x}`), ...(q.state === 'resolved' ? [] : [`resolved: ${id}`])] };
 }
 
 async function ownerAnswers(site) {
@@ -1068,7 +1131,7 @@ async function ownerAnswers(site) {
   }));
 }
 
-async function topicQuestions(site, topic) {
+export async function topicQuestions(site, topic) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   const answers = await ownerAnswers(site);
   const asked = (owner.items || []).filter((q) => q.topic === topic).map((q) => ownerQuestion(q, answers));
@@ -1134,14 +1197,19 @@ const clip = (s) => (s.length > 120 ? `${s.slice(0, 119)}…` : s);
 // docs/adr/0124-only-the-owner-or-auto-build-starts-a-card-run.md
 // The owner's words on this board that can ask for a card run: an ask, an edit to one, a card message, an answer's note.
 const OWNER_WORDS = { ask: 'text', 'ask-edited': 'text', 'item-message': 'text', 'owner-answer': 'note' };
+// → words, once they quote what the owner wrote on this board; else it refuses, naming flag.
+async function ownerQuote(site, words, flag) {
+  const quoted = text(words, flag).replace(/\s+/g, ' ');
+  const said = (await readLines(path.join(site, 'data', 'events.jsonl'))).map((e) => String(e.data?.[OWNER_WORDS[e.kind]] ?? '').replace(/\s+/g, ' ').toLowerCase());
+  if (!said.some((t) => t.includes(quoted.toLowerCase()))) fail(`${flag} must quote the owner's words in an ask, card message or answer note on this board`);
+  return quoted;
+}
+
 // → the thread line a session's card run writes once the hub starts it; refuses words the owner didn't write here.
 export async function askedGate(site, key, asked) {
   needSite(site);
   if (asked === undefined) fail(`only the owner's Serve / Build and the hub's Auto-build start a card run; pass --asked "<the owner's words>" quoting where the owner asked for ${key}'s run`);
-  const words = text(asked, '--asked').replace(/\s+/g, ' ');
-  const said = (await readLines(path.join(site, 'data', 'events.jsonl'))).map((e) => String(e.data?.[OWNER_WORDS[e.kind]] ?? '').replace(/\s+/g, ' ').toLowerCase());
-  if (!said.some((t) => t.includes(words.toLowerCase()))) fail('--asked must quote the owner\'s words in an ask, card message or answer note on this board');
-  return `Running at the owner's ask: "${words}"`;
+  return `Running at the owner's ask: "${await ownerQuote(site, asked, '--asked')}"`;
 }
 
 async function checkAsk(site, eventId, name = '--from-ask') {
@@ -1424,6 +1492,50 @@ export async function prReport(site, key) {
 
 const boardSource = async (site) => storedTickets((await boardConfig(site)).tickets);
 
+// docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
+// `board.mjs merge`: merges the card's PR with gh --squash once GitHub reads it approved, green and CLEAN (domain.mjs
+// mergeBlockers, the test the Merge button uses), then records the card merged. It refuses commits after the newest
+// approval unless afterApproval says why they're trivial, and a card with manual steps unless confirmed quotes the
+// owner. A refusal names every reason, and also goes in the card's thread while the owner's Merge waits on it.
+export async function mergeCard(site, key, { afterApproval, confirmed } = {}) {
+  needSite(site);
+  const { wave, item } = await loadItem(site, key);
+  if (!Number.isInteger(item.pr)) fail(`${key} has no PR`);
+  if (FINISHED.includes(item.status)) fail(`${key} is ${item.status}`);
+  const repo = boardRepoOf(site, wave) || fail(`${key} has no repo`);
+  let fetched;
+  try { fetched = await fetchPR({ repo, pr: item.pr, since: new Date().toISOString() }); } catch (e) { fail(e.message); }
+  const { view, reviews } = fetched;
+  if (view.state === 'MERGED') return setItem(site, key, { status: 'merged', text: `PR #${item.pr} was already merged.` });
+  const { failing, pending } = reportOf(fetched, { pr: item.pr, since: new Date().toISOString(), me: null });
+  const reasons = mergeBlockers({ ...view, checks: { state: failing.length ? 'fail' : pending ? 'pending' : 'pass', failing, pending } });
+  const approved = reviews.filter((r) => r.state === 'APPROVED').sort((a, b) => String(a.submitted_at).localeCompare(String(b.submitted_at))).at(-1)?.commit_id;
+  const after = Boolean(approved && view.headRefOid && approved !== view.headRefOid);
+  if (afterApproval !== undefined && !after) fail('--after-approval: no commit came after the approval; drop it');
+  if (after && afterApproval === undefined) reasons.push('commits after the approval: pass --after-approval "<why they are trivial>" when they are, else ask the approver to look again');
+  const steps = item.manual_steps?.length ? (confirmed === undefined ? null : await ownerQuote(site, confirmed, '--confirmed')) : undefined;
+  if (confirmed !== undefined && steps === undefined) fail(`--confirmed: ${key} has no manual steps; drop it`);
+  if (steps === null) reasons.push('manual steps: merge only on the owner\'s word, with --confirmed "<their words>"');
+  if (reasons.length) {
+    const why = `Not merged: ${reasons.join('; ')}.`;
+    if (await ownerMergeWaits(site, key)) await appendThread(site, key, { text: why });
+    fail(why);
+  }
+  const merged = await new Promise((resolve) => {
+    execFile('gh', ['pr', 'merge', String(item.pr), '--repo', repo, '--squash'], { encoding: 'utf8', timeout: 120_000 }, (error, stdout, stderr) => resolve(error ? String(stderr || error.message).trim().split('\n')[0] : null));
+  });
+  if (merged) fail(`gh pr merge #${item.pr} failed: ${merged}`);
+  const said = [`Merged PR #${item.pr}.`, afterApproval !== undefined && `After the approval: ${text(afterApproval, '--after-approval')}`, steps && `The owner's word on the manual steps: "${steps}"`];
+  return setItem(site, key, { status: 'merged', text: said.filter(Boolean).join(' ') });
+}
+
+// Whether the owner's Merge on the card waits on the session: a card-merge newer than Claude's last thread line.
+async function ownerMergeWaits(site, key) {
+  const asked = (await readLines(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'card-merge' && e.data?.key === key).at(-1)?.ts;
+  const said = (await readLines(threadFile(site, key))).filter((m) => (m.who || 'claude') === 'claude' && m.kind !== 'status').at(-1)?.ts;
+  return Boolean(asked) && String(asked) > String(said || '');
+}
+
 // Sets item.ticket from the board's source, and ticket_created when kickflip made it. self is the card's <wave>/<id>:
 // an Internal ticket another card holds is refused. → null, or the line asking the session to make a Linear issue
 // through its MCP and link it with link, the board.mjs command that sets this card's ticket.
@@ -1623,10 +1735,11 @@ function chain(source, wave, members, order) {
   }
 }
 
-async function writeLineup(source, wave, lineup, note) {
+async function writeLineup(site, source, wave, lineup, note) {
   if (note !== undefined) await replace(path.join(source.dir, lineupNoteFile(lineup.slug)), `${text(note, 'the note').replace(/\n*$/, '\n')}`);
   await writeJSON(source.file, wave);
-  return { file: source.file, lines: [`order: ${lineup.items.join(' → ')}`] };
+  const { tickets } = settingsOf(await boardConfig(site));
+  return { file: source.file, lines: [`order: ${lineup.items.map((id) => refOf(wave, wave.items.find((it) => it.id === id), tickets)).join(' → ')}`] };
 }
 
 export async function createLineup(site, slug, { title, goal, cards, note }) {
@@ -1644,7 +1757,7 @@ export async function createLineup(site, slug, { title, goal, cards, note }) {
   const lineup = { slug, title: text(title, '--title'), goal: text(goal, '--goal'), items, created: new Date().toISOString() };
   chain(source, wave, items, items);
   wave.lineups = [...(wave.lineups || []), lineup];
-  return writeLineup(source, wave, lineup, note);
+  return writeLineup(site, source, wave, lineup, note);
 }
 
 // Adds a card after --after (default last) or removes one, then chains the order again; also renames, sets the goal or
@@ -1671,7 +1784,7 @@ export async function changeLineup(site, slug, { add, after, remove, title, goal
   if (title !== undefined) lineup.title = text(title, '--title');
   if (goal !== undefined) lineup.goal = text(goal, '--goal');
   chain(source, wave, [...new Set([...before, ...lineup.items])], lineup.items);
-  return writeLineup(source, wave, lineup, note);
+  return writeLineup(site, source, wave, lineup, note);
 }
 
 // A finished wave leaves the Waves section; its cards keep their links.
@@ -1714,8 +1827,10 @@ async function statusToThread(site, key, agent = 'main', kind, line, ts) {
 }
 
 // worktree, when given, makes the builder's worktree once every flag has passed (board/worktree.mjs makeWorktree) and
-// returns {path, branch, repo}, which the record keeps for `board.mjs land`.
-export async function startBuilder(site, key, { label, progress, dir, agent = 'main', kind, eta, worktree }) {
+// returns {path, branch, repo}, which the record keeps for `board.mjs land`. A build (--kind build, codex or opus) on an
+// open card marks it building first, refusing what item set --status building refuses, confirmed included
+// (docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
+export async function startBuilder(site, key, { label, progress, dir, agent = 'main', kind, eta, worktree, confirmed }) {
   const gate = readUsageGate();
   if (gate.state === 'paused') throw new BoardError(pauseReason(gate));
   const line = optional(progress, (v) => progressLine(site, v, '--progress'));
@@ -1723,18 +1838,22 @@ export async function startBuilder(site, key, { label, progress, dir, agent = 'm
   const now = new Date().toISOString();
   const asked = optional(kind, (v) => (/^[\w.-]{1,30}$/.test(v) ? v : fail('--kind takes a short word such as opus or codex')));
   // docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md: --kind build takes the pick's kind.
-  const pick = ['build', ...PICKED].includes(asked) ? builderPick() : null;
+  const build = ['build', ...PICKED].includes(asked);
+  const pick = build ? builderPick() : null;
   if (pick && asked !== 'build' && asked !== pick.kind) fail(`--kind ${asked}: ${pick.kind} builds now. ${pick.reason} Pass --kind ${pick.kind}, or --kind build.`);
+  if (confirmed !== undefined && !build) fail('--confirmed goes with a build: --kind build, codex or opus');
   const k = pick ? pick.kind : asked;
   const record = {
     label: label === undefined ? 'Builder' : text(label, '--label'), ...(k ? { kind: k } : {}), started: now,
     ...(eta === undefined ? {} : { eta: isoTime(eta, '--eta') }),
   };
+  const status = build && !dir ? (await loadItem(site, key)).item.status : undefined;
+  const marked = build && !dir && ![...FINISHED, 'building', 'fixing'].includes(status) ? await setItem(site, key, { status: 'building', confirmed }) : { lines: [] };
   const wt = worktree ? await worktree() : null;
   await writeJSON(file, wt ? { ...record, worktree: wt } : record);
   if (line) await statusToThread(site, key, agent, k, line, now);
   const resolved = await resolveAnswered(site, key, 'Acted on: builder started');
-  return { file, lines: [...(asked === 'build' ? [`kind: ${k}. ${pick.reason}`] : []), ...(wt ? [`worktree: ${wt.path}`] : []), ...resolved] };
+  return { file, lines: [...(asked === 'build' ? [`kind: ${k}. ${pick.reason}`] : []), ...(site ? [`ref: ${await cardName(site, key)}`] : []), ...(wt ? [`worktree: ${wt.path}`] : []), ...marked.lines, ...resolved] };
 }
 
 const PICKED = ['codex', 'opus'];

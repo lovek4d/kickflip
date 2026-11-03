@@ -39,7 +39,7 @@
 //                                per-item review_link_ts and legacy ~/.claude/slack-bridge/topics/*.json fallbacks,
 //                                data/owner.json and GitHub (gh, cached for 45 s).
 //                                owner.json: {topics: [{id, title, summary}], items: [{id, topic,
-//                                question, context, url, options, urgent, asked_at, push_tag, resolved, resolved_at, round, round_of, confirm_of}]};
+//                                question, context, url, options, urgent, asked_at, resolved, resolved_at, round, round_of, confirm_of}]};
 //                                Waiting on you shows an open `urgent` question alone, first
 //                                checks comes from data/checked.json (board.mjs checked),
 //                                whether the board hears its events (../hub/boards.mjs listenState) and Claude's latest writes;
@@ -50,6 +50,8 @@
 //                                {events, github} while the join handshake's checklist shows, else null
 //                                arch: the header bulb's {repo, waits, last} (arch-review.mjs archOf), null off the manifest
 //   GET  /api/links              {links}: the same list alone
+//   GET  /api/working            {working: [{id, kind, card, since}]}: each event marked Working on it with no answer yet,
+//                                card its work card's ref or null (hooks-plugin/hooks/watcher-stop.mjs reads it)
 //   GET  /api/thread?key=w/id    data/threads/<w>__<id>.jsonl ({ts, who, text, link, via}; who is
 //                                claude, love or a reviewer's name; via github or slack) plus the page's own
 //                                events for that key, its from_ask ask and the asks folded into it (data/ask-links.json),
@@ -77,9 +79,11 @@
 //                                Forever, {key, hold: true}; a choice that ends in the past or past 30 days → 400 {error}.
 //                                card-hold and card-done are written to the wave file too, with the owner's thread
 //                                line, and a Done unblocks waiting cards (store.mjs recordOwnerTap).
-//                                An owner-answer drops the queued push of its questions once all are settled.
-//                                The server appends reminder {key, what, spell, since} once per wait of 30 minutes
-//                                on the session (domain.mjs remindersOf), tracked in data/reminders.json.
+//                                An owner-answer that leaves an unstarted card with nothing stopping it appends
+//                                card-unblocked {key} (domain.mjs startedByAnswer).
+//                                Each new or changed Action needed, and each topic's new open questions, push the
+//                                owner, one tag per card (domain.mjs ownerActions), tracked in data/action-pushes.json;
+//                                a gone one drops its queued push.
 //                                Within a minute of a held card's until or pick_up_at the server resumes it
 //                                (store.mjs pickUp), at most once per time even across a restart.
 //                                With auto_pull on, the server appends card-pull {key} for the top pullable Todo card
@@ -127,9 +131,10 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { buildBoard, ITEM_EVENTS, needsAnswer, pullOf, refOf, remindersOf, threadOf } from './domain.mjs';
+import { buildBoard, ITEM_EVENTS, needsAnswer, ownerActions, pullOf, refOf, startedByAnswer, threadOf } from './domain.mjs';
+import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, watch as watchFiles } from 'node:fs';
-import { BoardError, boardConfig, dropAnsweredPush, pickUp, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswer, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, boardConfig, pickUp, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswer, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -573,6 +578,7 @@ function changed() {
     changeTimer = null;
     broadcast(`event: change\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`);
     checkStalled();
+    checkActions();
   }, Math.max(0, Math.min(CHANGE_QUIET, changeFirst + CHANGE_MAX - now)));
 }
 // A folder that doesn't exist yet, or whose watch fails, is retried; the first watch after a retry signals, since a
@@ -612,6 +618,11 @@ const server = http.createServer(async (req, res) => {
     if (p === '/_claude/needs') {
       return json(res, 200, needsAnswer(await board()));
     }
+    if (p === '/api/working') {
+      const built = buildBoard(await snapshot({ github: false }));
+      const refs = new Map(built.items.filter((i) => i.kind === 'work').map((i) => [i.key, i.ref]));
+      return json(res, 200, { working: built.workingOn.map((w) => ({ id: w.id, kind: w.kind, card: refs.get(w.key) || null, since: w.since })) });
+    }
     if (p === '/api/thread') return json(res, 200, await thread(String(url.searchParams.get('key') || '')));
     if (p === '/api/notes' && url.searchParams.has('wave')) {
       try { return json(res, 200, await readLineupNotes(here, String(url.searchParams.get('wave')), settingsOf(await config()).tickets)); }
@@ -636,8 +647,10 @@ const server = http.createServer(async (req, res) => {
       }
       const id = await appendEvent(kind, body);
       if (kind === 'owner-answer') {
-        try { await dropAnsweredPush(here, String(body.id)); } catch {}
         await resolveNoteAnswer(here, body);
+        // docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
+        const started = startedByAnswer(buildBoard(await snapshot({ github: false })), String(body.id));
+        if (started) await appendEvent('card-unblocked', { key: started });
       }
       // The event shows the tap at once (domain.mjs); a failed write leaves it to the session's follow-up.
       if (kind === 'card-hold' || kind === 'card-done') {
@@ -786,33 +799,44 @@ async function checkPulls() {
   }
 }
 
-// docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md
-// data/reminders.json {<spell>: since}: the waits already reminded of (domain.mjs remindersOf), so each spell sends one
-// reminder {key, what, spell, since}; the event log covers a restart between appending one and saving the marker.
-let checkingReminders = false;
-async function checkReminders() {
-  if (checkingReminders) return;
-  checkingReminders = true;
-  try {
-    const file = path.join(data, 'reminders.json');
-    const previous = await readJSON(file, {});
-    const shot = await snapshot({ github: false });
-    const due = remindersOf(buildBoard(shot), shot.waves, Date.now());
-    const current = Object.fromEntries(due.map((r) => [r.spell, r.since]));
-    let sent;
-    for (const r of due.filter((x) => routeRecord(previous, x.spell) !== x.since)) {
-      sent ||= await readLines(events);
-      if (!sent.some((e) => e.kind === 'reminder' && e.data?.spell === r.spell && e.data?.since === r.since)) await appendEvent('reminder', r);
+// docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
+// data/action-pushes.json {<tag>: {kind, ids}}: what waited on the owner at the last check (domain.mjs ownerActions).
+// A tag that is new, changes kind or gains an open question pushes; one that is gone drops its queued push. The first
+// check records what already waits without pushing it. A check asked for while one runs runs again after it.
+let checkingActions = null;
+let actionsAgain = false;
+function checkActions() {
+  if (checkingActions) { actionsAgain = true; return checkingActions; }
+  checkingActions = (async () => {
+    do {
+      actionsAgain = false;
+      try { await pushActions(); } catch (err) { console.error('Action push check failed:', err.message); }
+    } while (actionsAgain);
+  })().finally(() => { checkingActions = null; });
+  return checkingActions;
+}
+async function pushActions() {
+  const file = path.join(data, 'action-pushes.json');
+  const previous = await readJSON(file, null);
+  const shot = await snapshot();
+  const actions = ownerActions(buildBoard(shot));
+  const current = Object.fromEntries(actions.map((a) => [a.tag, { kind: a.kind, ids: a.questions.map((q) => q.id) }]));
+  if (previous) {
+    for (const a of actions) {
+      const was = routeRecord(previous, a.tag);
+      const fresh = a.questions.filter((q) => !was?.ids?.includes(q.id));
+      if (was?.kind === a.kind && !fresh.length) continue;
+      const url = fresh.length ? `questions.html#${encodeURIComponent(fresh[0].id)}` : a.url;
+      try { await sendPush(here, { kind: 'action', title: a.title, body: fresh[0]?.question || a.body, url: `/${shot.route}/${url}`, tag: a.tag, now: a.now }); }
+      catch (e) { if (e instanceof BoardError) console.error(`Push ${a.tag} not sent:`, e.message.split('\n').at(-2) || e.message); else throw e; }
     }
-    if (JSON.stringify(current) !== JSON.stringify(previous)) {
-      await fs.mkdir(data, { recursive: true });
-      await fs.writeFile(file + '.tmp', JSON.stringify(current) + '\n');
-      await fs.rename(file + '.tmp', file);
-    }
-  } catch (err) {
-    console.error('Reminder check failed:', err.message);
-  } finally {
-    checkingReminders = false;
+    const gone = Object.keys(previous).filter((tag) => !routeRecord(current, tag));
+    if (gone.length) await dropQueued(gone, shot.route);
+  }
+  if (JSON.stringify(current) !== JSON.stringify(previous)) {
+    await fs.mkdir(data, { recursive: true });
+    await fs.writeFile(file + '.tmp', JSON.stringify(current) + '\n');
+    await fs.rename(file + '.tmp', file);
   }
 }
 
@@ -820,9 +844,9 @@ await watchBoard();
 setInterval(checkStalled, 60000).unref();
 setInterval(checkPickUps, 60000).unref();
 setInterval(checkPulls, 60000).unref();
-setInterval(checkReminders, 60000).unref();
+setInterval(checkActions, 60000).unref();
 await checkStalled();
 await checkPickUps();
 await checkPulls();
-await checkReminders();
+checkActions();
 server.listen(port, '127.0.0.1', () => console.log(`site on http://127.0.0.1:${port}/ (prefix ${prefix || 'none'})`));

@@ -11,6 +11,8 @@ export const writePR = (dir, n, value) => write(dir, 'pr', n, value);
 export const writeIssueComments = (dir, n, value) => write(dir, 'issue-comments', n, value);
 export const writeReviewComments = (dir, n, value) => write(dir, 'review-comments', n, value);
 export const writeReviews = (dir, n, value) => write(dir, 'reviews', n, value);
+// {error}: gh pr merge <n> fails, printing error.
+export const writeMerge = (dir, n, value) => write(dir, 'merge', n, value);
 export const writeUser = (dir, value) => write(dir, '', 'user', value);
 // {login: token}: the accounts gh auth token -u answers for.
 export const writeAccounts = (dir, value) => write(dir, '', 'accounts', value);
@@ -54,6 +56,12 @@ if (args[0] === 'issue' && args.includes('--repo')) {
     console.log('https://github.com/' + repo + '/issues/' + n);
   } else if (args[1] === 'view') console.log(JSON.stringify(args[6] === 'number,url' ? { number: Number(args[2]), url: 'https://github.com/' + repo + '/issues/' + args[2] } : { state: 'OPEN', assignees: [] }));
   else if (args[1] !== 'close') fail();
+  process.exit(0);
+}
+if (args.length === 6 && args[0] === 'pr' && args[1] === 'merge' && /^\\d+$/.test(args[2]) && args[3] === '--repo' && args[5] === '--squash') {
+  let refused = null;
+  try { refused = JSON.parse(fs.readFileSync(path.join(dir, 'merge', args[2] + '.json'), 'utf8')).error; } catch {}
+  if (refused) { console.error(refused); process.exit(1); }
   process.exit(0);
 }
 let file;

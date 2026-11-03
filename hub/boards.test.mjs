@@ -540,7 +540,7 @@ test('a board whose stopped session the hub can wake is asleep and pushes nothin
   assert.equal(linksOf(nap, { faults: {} }).find((l) => l.link === 'events').ok, true);
 });
 
-test('the handshake says hello without a push; the board shows its checklist until the session acks the hello', async () => {
+test("the handshake says hello without a push; the board shows its checklist until the session's watcher answers the hello", async () => {
   const before = pushes().length;
   const r = await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['handshake', 'shop']);
   assert.equal(r.status, 0, r.stderr);
@@ -548,9 +548,9 @@ test('the handshake says hello without a push; the board shows its checklist unt
   assert.deepEqual(events('shop', 'hello').map((e) => [e.id, e.data.title]), [[hello, 'Shop']]);
   assert.equal(pushes().length, before);
   assert.deepEqual((await api('shop')).setup, { events: false, github: true });
-  const board = (...a) => cli(path.join(SKILL, 'board', 'bin', 'board.mjs'), a);
-  assert.match((await board('--site', 'shop', 'hello-ack', 'e-shop')).stderr, /no hello event "e-shop"/);
-  assert.equal((await board('--site', 'shop', 'hello-ack', hello)).status, 0);
+  const { ackHello } = await import('../board/store.mjs');
+  await assert.rejects(ackHello(site('shop'), 'e-shop'), /no hello event "e-shop"/);
+  await ackHello(site('shop'), hello);
   assert.equal((await api('shop')).setup, null);
   assert.ok(read(site('shop', 'data', 'handshake.json')).done_at);
   assert.equal((await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['handshake', 'plain'])).status, 2);

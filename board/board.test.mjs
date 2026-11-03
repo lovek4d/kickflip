@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { startFakeDevice } from '../hub/fake-device.mjs';
 import { freePorts, fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
 import http from 'node:http';
-import { fakeGh, prView, writePR, writeIssueComments, writeUser, writeAccounts, calls, tokens } from '../shared/fake-gh.mjs';
+import { fakeGh, prView, writePR, writeIssueComments, writeReviews, writeMerge, writeUser, writeAccounts, calls, tokens } from '../shared/fake-gh.mjs';
 
 const bin = (name) => path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', name);
 let home;
@@ -19,7 +19,6 @@ const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const lines = (file) => fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
 
 const pushStub = () => path.join(home, 'push-stub.mjs');
-const pushCalls = () => (fs.existsSync(path.join(home, 'push-calls.jsonl')) ? lines(path.join(home, 'push-calls.jsonl')) : []);
 function run(script, args, input, env = {}) {
   write(pushStub(), "import fs from 'node:fs'; fs.appendFileSync(process.env.STUB_CALLS, JSON.stringify(process.argv.slice(2)) + '\\n'); console.log(process.env.STUB_SAY || 'sent'); process.exit(Number(process.env.STUB_EXIT || 0));");
   const pushEnv = { KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, pushStub(), 'push']), STUB_CALLS: path.join(home, 'push-calls.jsonl') };
@@ -489,6 +488,50 @@ test("the hub board files its cards as issues in the kickflip clone's origin as 
   assert.equal(cli('settings', 'set', 'tickets', '{"source":"github","account":"-bad"}').code, 1);
 });
 
+test("merge squashes a card's PR once GitHub would merge it, with no commit after the approval unexplained and manual steps on the owner's word, and says why it won't on the card the owner asked to merge", () => {
+  const dir = path.join(home, 'fake-gh');
+  const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
+  const merge = (...args) => run('board.mjs', ['--site', 'orch', 'merge', ...args], undefined, env);
+  const thread = () => (fs.existsSync(site('orch', 'data', 'threads', 'w__A1.jsonl')) ? lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map((m) => m.text) : []);
+  const merges = () => calls(dir).filter((a) => a[1] === 'merge');
+  const approved = (commit) => writeReviews(dir, 7, [{ id: 1, user: { login: 'ann' }, state: 'APPROVED', submitted_at: '2026-11-01T10:00:00Z', commit_id: commit }]);
+  write(at('waves', 'w', 'wave.json'), { ...wave(), repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7, status: 'building', manual_steps: ['Run the backfill'] }, { id: 'A2', title: 'Two', pr: 8 }, { id: 'A3', title: 'Three' }] });
+  writePR(dir, 7, prView({ failing: ['build'], pending: 1 }));
+  assert.deepEqual(merge('w/A1'), { code: 1, out: '', err: "Not merged: review: review required; failing: build; merge state: blocked; manual steps: merge only on the owner's word, with --confirmed \"<their words>\".\n" });
+  assert.deepEqual(thread(), []);
+  fs.appendFileSync(site('orch', 'data', 'events.jsonl'), [
+    { id: 'e2', ts: '2026-11-01T11:00:00Z', kind: 'card-merge', data: { key: 'w/A1' } },
+    { id: 'e3', ts: '2026-11-01T11:01:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'The backfill ran on prod.' } },
+  ].map((e) => JSON.stringify(e) + '\n').join(''));
+  writePR(dir, 7, prView({ reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN', head: 'bbb' }));
+  approved('aaa');
+  const after = merge('w/A1', '--confirmed', 'the backfill ran on prod');
+  assert.equal(after.code, 1);
+  assert.match(after.err, /^Not merged: commits after the approval: pass --after-approval/);
+  assert.deepEqual(thread(), [after.err.trim()]);
+  assert.match(merge('w/A1', '--after-approval', 'Rebased.', '--confirmed', 'the backfill is done').err, /--confirmed must quote the owner's words/);
+  approved('bbb');
+  assert.match(merge('w/A1', '--after-approval', 'Rebased.', '--confirmed', 'the backfill ran on prod').err, /--after-approval: no commit came after the approval/);
+  writePR(dir, 8, prView({ reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN' }));
+  assert.match(merge('w/A2', '--confirmed', 'the backfill ran on prod').err, /--confirmed: w\/A2 has no manual steps/);
+  assert.match(merge('w/A3').err, /w\/A3 has no PR/);
+  writeMerge(dir, 8, { error: 'Pull request is not mergeable: the base branch policy prohibits the merge.' });
+  assert.deepEqual(merge('w/A2'), { code: 1, out: '', err: 'gh pr merge #8 failed: Pull request is not mergeable: the base branch policy prohibits the merge.\n' });
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[1].status, undefined);
+  assert.equal(merges().length, 1);
+  approved('aaa');
+  const done = merge('w/A1', '--after-approval', 'Only a rebase onto main.', '--confirmed', 'the backfill ran on prod');
+  assert.equal(done.code, 0, done.err);
+  assert.equal(done.out.trim().split('\n').at(-1), 'A1: merged');
+  assert.deepEqual(merges().at(-1), ['pr', 'merge', '7', '--repo', 'o/r', '--squash']);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status, 'merged');
+  assert.equal(thread().at(-1), 'Merged PR #7. After the approval: Only a rebase onto main. The owner\'s word on the manual steps: "the backfill ran on prod"');
+  writePR(dir, 8, prView({ state: 'MERGED' }));
+  assert.equal(merge('w/A2').code, 0);
+  assert.equal(lines(site('orch', 'data', 'threads', 'w__A2.jsonl')).at(-1).text, 'PR #8 was already merged.');
+  assert.equal(merges().length, 2);
+});
+
 test("thread appends a line to an item's thread", () => {
   assert.equal(board('thread', 'w/A1', '--site', 'orch', '--text', 'Built.', '--who', 'Jamie', '--via', 'github', '--link', 'https://github.com/o/r/pull/1').code, 0);
   assert.equal(board('thread', 'w/A1', '--site', 'orch', '--text', 'Merged.').code, 0);
@@ -678,13 +721,13 @@ test('question confirm opens the one-take confirm on a pick with a note, on its 
   refused('confirm q1-confirm.url names prototype-nope.html, which is not a recorded prototype; record it with board.mjs prototype add nope --title "…" --take A:"…", then write its take files', '--url', 'prototype-nope.html');
   assert.deepEqual(read(file).items.map((q) => q.id), ['q1']);
 
-  assert.deepEqual(confirm(), { code: 0, err: '', out: ['"Is this it?" confirm opened on question q1', 'confirm: q1-confirm', 'resolved: q1', 'push: sent', ''].join('\n') });
+  assert.deepEqual(confirm(), { code: 0, err: '', out: ['"Is this it?" confirm opened on question q1', 'confirm: q1-confirm', 'resolved: q1', ''].join('\n') });
   const [asked, opened] = read(file).items;
   assert.equal(asked.resolved, 'Followed by Is this it?');
   assert.deepEqual(opened, { id: 'q1-confirm', topic: 'site', source: 'Prototype round 1 · confirm', question: 'Is this it?',
     context: 'Take B, “Drop”. Send to keep it, or ask for another prototype.', url: 'prototype-site.html?q=q1-confirm', options: [{ id: 'B', label: 'Drop' }], round: 1, confirm_of: 'q1' });
 
-  assert.deepEqual(confirm('--url', 'prototype-site-two.html'), { code: 0, err: '', out: ['"Is this it?" confirm opened on question q1', 'confirm: q1-confirm-2', 'replaced: q1-confirm', 'push: sent', ''].join('\n') });
+  assert.deepEqual(confirm('--url', 'prototype-site-two.html'), { code: 0, err: '', out: ['"Is this it?" confirm opened on question q1', 'confirm: q1-confirm-2', 'replaced: q1-confirm', ''].join('\n') });
   const items = read(file).items;
   assert.deepEqual(items.map((q) => [q.id, q.url, q.resolved ?? null]), [['q1', 'prototype-site.html?q=q1', 'Followed by Is this it?'],
     ['q1-confirm', 'prototype-site.html?q=q1-confirm', 'Replaced by q1-confirm-2'], ['q1-confirm-2', 'prototype-site-two.html?q=q1-confirm-2', null]]);
@@ -709,10 +752,10 @@ test('question add with round_of starts the next prototype round on the question
   assert.deepEqual(read(file).items.map((q) => q.id), ['plain']);
 
   const first = add(on('r1', { url: 'prototype-site.html?q=r1', round_of: 'plain' }));
-  assert.deepEqual(first.out.split('\n').slice(1), ['resolved: plain', 'push: sent', '']);
+  assert.deepEqual(first.out.split('\n').slice(1), ['resolved: plain', '']);
   addConfirm('r1', false);
   const second = add(on('r2', { url: 'prototype-next.html?q=r2', round_of: 'r1-confirm' }));
-  assert.deepEqual(second.out.split('\n').slice(1), ['resolved: r1-confirm', 'push: sent', '']);
+  assert.deepEqual(second.out.split('\n').slice(1), ['resolved: r1-confirm', '']);
   const items = read(file).items;
   assert.deepEqual(items.map((q) => [q.id, q.round ?? null, q.resolved ?? null]), [
     ['plain', null, 'Followed by prototype round 1'], ['r1', 1, null], ['r1-confirm', 1, 'Followed by prototype round 2'], ['r2', 2, null]]);
@@ -726,12 +769,12 @@ test('question add leaves a pick with a note waiting on its confirm until its ro
   addEvents({ id: 'answer-q1', ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A', note: 'Bigger' } });
   const second = add('q2');
   assert.equal(second.code, 0, second.err);
-  assert.deepEqual(second.out.trim().split('\n').slice(1), ['push: sent']);
+  assert.deepEqual(second.out.trim().split('\n').slice(1), []);
   assert.equal(read(file).items.find((q) => q.id === 'q1').resolved, undefined);
   addEvents({ id: 'answer-q2', ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id: 'q2', choice: 'B', note: '' } });
   const third = add('q3');
   assert.equal(third.code, 0, third.err);
-  assert.deepEqual(third.out.trim().split('\n').slice(1), ['resolved: q1', 'resolved: q2', 'push: sent']);
+  assert.deepEqual(third.out.trim().split('\n').slice(1), ['resolved: q1', 'resolved: q2']);
   assert.deepEqual(read(file).items.map((q) => q.resolved ?? null), ['Followed by q3', 'Followed by q3', null]);
 });
 
@@ -785,9 +828,9 @@ test('a question re-asked on the same topic with the same prototype resolves the
   const add = (q) => { write(path.join(home, 'q.json'), q); return board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')); };
   const on = (id, topic, page) => question(id, { topic, url: `prototype-${page}.html?q=${id}` });
   write(site('orch', 'data', 'owner.json'), { topics: [{ id: 'site', title: 'Site' }], items: [{ ...on('done', 'item:w/A1', 'site'), resolved: 'Picked A.', resolved_at: '2026-10-23T00:00:00Z' }] });
-  for (const q of [on('moon', 'item:w/A1', 'site'), on('elsewhere', 'site', 'site'), on('different', 'item:w/A1', 'other')]) assert.deepEqual(add(q).out.split('\n').slice(1), ['push: sent', '']);
+  for (const q of [on('moon', 'item:w/A1', 'site'), on('elsewhere', 'site', 'site'), on('different', 'item:w/A1', 'other')]) assert.deepEqual(add(q).out.split('\n').slice(1), ['']);
   const r = add(on('moon-2', 'item:w/A1', 'site'));
-  assert.deepEqual(r, { code: 0, err: '', out: 'question moon-2 added on A1\nreplaced: moon\npush: sent\n' });
+  assert.deepEqual(r, { code: 0, err: '', out: 'question moon-2 added on A1\nreplaced: moon\n' });
   const owner = read(site('orch', 'data', 'owner.json')).items;
   assert.deepEqual(owner.map((q) => [q.id, q.resolved ?? null]), [['done', 'Picked A.'], ['moon', 'Replaced by moon-2'], ['elsewhere', null], ['different', null], ['moon-2', null]]);
   assert.ok(!Number.isNaN(Date.parse(owner[1].resolved_at)));
@@ -830,10 +873,8 @@ test('question add on a card follows answered questions with the first new quest
   const r = add([prototype('first'), on('second')]);
   assert.equal(r.code, 0, r.err);
   assert.deepEqual(r.out.trim().split('\n').slice(1), [
-    'replaced: open-prototype', 'replaced: replied', 'resolved: answered', 'resolved: answered-prototype', 'resolved: reopened', 'push: sent',
+    'replaced: open-prototype', 'replaced: replied', 'resolved: answered', 'resolved: answered-prototype', 'resolved: reopened',
   ]);
-  assert.deepEqual(pushCalls(), [['push', '--kind', 'action', '--title', 'A1: 2 questions', '--body', 'Keep it?', '--url', '/orch/questions.html?from=push#first', '--tag', 'q-first', '--now']]);
-  assert.deepEqual(read(file).items.filter((q) => ['first', 'second'].includes(q.id)).map((q) => q.push_tag), ['q-first', 'q-first']);
   const items = read(file).items;
   for (const id of ['answered', 'answered-prototype', 'reopened']) {
     const q = items.find((q) => q.id === id);
@@ -847,12 +888,11 @@ test('question add on a card follows answered questions with the first new quest
   }
   const declared = add(on('declared-next', { topic: 'site' }));
   assert.equal(declared.code, 0, declared.err);
-  assert.deepEqual(declared.out.trim().split('\n').slice(1), ['push: sent']);
-  assert.deepEqual(pushCalls().at(-1).slice(4, 7), ['Site: 1 question', '--body', 'Keep it?']);
+  assert.deepEqual(declared.out.trim().split('\n').slice(1), []);
   assert.deepEqual(read(file).items.find((q) => q.id === 'declared'), original.find((q) => q.id === 'declared'));
   const ask = add(on('ask-next', { topic: 'item:ask:e1' }));
   assert.equal(ask.code, 0, ask.err);
-  assert.deepEqual(ask.out.trim().split('\n').slice(1), ['resolved: ask', 'push: sent']);
+  assert.deepEqual(ask.out.trim().split('\n').slice(1), ['resolved: ask']);
   assert.equal(read(file).items.find((q) => q.id === 'ask').resolved, 'Followed by ask-next');
 });
 
@@ -989,7 +1029,7 @@ test('item set notes leaves a pick with a note waiting on its confirm, which que
   assert.equal(read(file).items[0].resolved, undefined);
   const confirm = board('question', 'confirm', 'q1', '--site', 'orch');
   assert.equal(confirm.code, 0, confirm.err);
-  assert.deepEqual(confirm.out.trim().split('\n').slice(1), ['confirm: q1-confirm', 'resolved: q1', 'push: sent']);
+  assert.deepEqual(confirm.out.trim().split('\n').slice(1), ['confirm: q1-confirm', 'resolved: q1']);
 });
 
 test("item set notes resolves only answered questions, and closing in the same call resolves each question once", () => {
@@ -1026,32 +1066,6 @@ test("item set notes resolves only answered questions, and closing in the same c
   assert.deepEqual(read(file).items.slice(3), original.slice(3));
 });
 
-for (const action of ['resolve', 'followed', 'replaced', 'notes', 'close', 'followup']) {
-  test(`question pushes leave the shared queue only for this site when ${action} resolves them`, () => {
-    const file = site('orch', 'data', 'owner.json');
-    const queue = at('kickflip', 'push', 'queue.json');
-    const topic = action === 'followup' ? 'item:w/ENG-1' : 'item:w/A1';
-    const q = question('q1', { topic, ...(action === 'replaced' ? { url: 'prototype-site.html?q=q1' } : {}) });
-    write(file, { topics: [], items: [q] });
-    if (action === 'replaced') recordPrototype();
-    else addEvents({ id: 'answer-q1', ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A' } });
-    const keep = [{ tag: 'q-q1', url: '/audit/prototype-site.html?q=q1' }, { tag: 'unrelated', url: '/orch/' }, { tag: 'q-q1', url: '/orch-other/' }, { tag: 'q-q1' }];
-    write(queue, { items: [{ tag: 'q-q1', url: '/orch/prototype-site.html?q=q1' }, { tag: 'q-q1', url: '/orch/#item=w%2FA1' }, ...keep] });
-    let r;
-    if (action === 'resolve') r = board('question', 'resolve', 'q1', '--site', 'orch', '--note', 'Settled');
-    else if (['followed', 'replaced'].includes(action)) {
-      r = run('board.mjs', ['question', 'add', '--site', 'orch', '--file', '-'], JSON.stringify(question('next', { topic, ...(action === 'replaced' ? { url: 'prototype-site.html?q=next' } : {}) })));
-    } else if (action === 'notes') {
-      write(at('waves', 'w', 'notes.md'), '# Settled');
-      r = board('item', 'set', 'w/A1', '--site', 'orch', '--notes-file', 'notes.md');
-    } else if (action === 'close') r = board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'done', '--text', 'Done.');
-    else r = board('followup', 'done', 'w', 'ENG-1', '--site', 'orch', '--text', 'Done.');
-    assert.equal(r.code, 0, r.err);
-    assert.deepEqual(read(queue), { items: keep });
-    assert.doesNotMatch(r.out, /dropped/);
-  });
-}
-
 test('a reply, --status building and builder start each resolve the answered questions they act on, leaving the rest', () => {
   const on = (id, topic) => question(id, { topic });
   const answer = (id) => ({ id: `answer-${id}`, ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id, choice: 'A' } });
@@ -1067,25 +1081,6 @@ test('a reply, --status building and builder start each resolve the answered que
   addEvents(answer('open-q'));
   assert.match(board('builder', 'start', 'w/A1', '--site', 'orch').out, /^resolved: open-q$/m);
   assert.equal(notes()['open-q'], 'Acted on: builder started');
-});
-
-test("question add's push for several questions stays queued until the last of them is settled", () => {
-  const queue = at('kickflip', 'push', 'queue.json');
-  const r = run('board.mjs', ['question', 'add', '--site', 'orch', '--file', '-'], JSON.stringify([question('qa', { topic: 'item:w/A1' }), question('qb', { topic: 'item:w/A1' })]));
-  assert.equal(r.code, 0, r.err);
-  write(queue, { items: [{ tag: 'q-qa', url: '/orch/questions.html?from=push#qa' }] });
-  assert.equal(board('question', 'resolve', 'qa', '--site', 'orch', '--note', 'Settled').code, 0);
-  assert.equal(read(queue).items.length, 1);
-  addEvents({ id: 'answer-qb', ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id: 'qb', choice: 'A' } });
-  assert.equal(board('question', 'resolve', 'qb', '--site', 'orch', '--note', 'Settled').code, 0);
-  assert.deepEqual(read(queue).items, []);
-});
-
-test('a question push that fails leaves the questions written and says so in one line', () => {
-  const r = run('board.mjs', ['question', 'add', '--site', 'orch', '--file', '-'], JSON.stringify(question('qa', { topic: 'item:w/A1' })), { STUB_EXIT: '3', STUB_SAY: 'hub unreachable' });
-  assert.equal(r.code, 0, r.err);
-  assert.deepEqual(r.out.trim().split('\n'), ['question qa added on A1', 'push not sent: hub unreachable']);
-  assert.deepEqual(read(site('orch', 'data', 'owner.json')).items.map((q) => q.id), ['qa']);
 });
 
 test('item set --install records a device build with when it was built, takes only https or an iOS manifest link, and --clear-install removes it', () => {
@@ -1261,7 +1256,15 @@ test('builder pick names the kind that builds now, builder start refuses the oth
   const picked = noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'build');
   assert.equal(picked.code, 0, picked.err);
   assert.match(picked.out, /^kind: opus\. Codex isn't installed on the host\.$/m);
+  assert.match(picked.out, /^ref: A1$/m);
   assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).kind, 'opus');
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status, 'building');
+  write(at('waves', 'w', 'wave.json'), { ...read(at('waves', 'w', 'wave.json')), items: [...read(at('waves', 'w', 'wave.json')).items, { id: 'A2', title: 'Two', deps: ['A1'] }] });
+  const blocked = noCodex('builder', 'start', 'w/A2', '--site', 'orch', '--kind', 'opus');
+  assert.equal(blocked.code, 1);
+  assert.match(blocked.err, /A1/);
+  assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A2.json')), false);
+  assert.match(noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'review', '--confirmed', 'go').err, /--confirmed goes with a build/);
 });
 
 const git = (cwd, ...args) => {
@@ -1377,8 +1380,13 @@ test('land refuses a worktree with uncommitted changes, with no commit beyond ma
   const repo = scratchRepo();
   assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
   const main = git(repo, 'rev-parse', 'main');
+  const lock = at('kickflip', 'land.lock');
+  write(lock, { card: 'B2', pid: process.pid, at: '2026-11-02T10:00:00.000Z' });
+  assert.deepEqual(land(), { code: 1, out: '', err: 'B2 is landing (since 2026-11-02T10:00:00.000Z); land again once it finishes\n' });
+  write(lock, { card: 'B2', pid: 2 ** 22 + 1, at: '2026-11-02T10:00:00.000Z' });
   const none = land();
   assert.deepEqual([none.code, none.err], [1, 'A1 has no commits beyond main; nothing to land\n']);
+  assert.equal(fs.existsSync(lock), false);
   write(path.join(worktree(), 'board', 'server.mjs'), '2\n');
   const dirty = land();
   assert.deepEqual([dirty.code, dirty.err], [1, `${worktree()} has uncommitted changes; commit them there first\n`]);
@@ -1986,12 +1994,15 @@ test('ask progress and ask done mark a known ask, keeping --next only while in p
   assert.match(board('ask', 'done', 'e1', '--next', 'x', '--site', 'orch').err, /does not take --next/);
 });
 
-test('checked records when GitHub was last checked and the interval, and refuses a bad interval', () => {
+test('checked records when GitHub was last checked and the interval, idle while no card has an open PR, and refuses a bad interval', () => {
   assert.equal(board('checked', '--site', 'orch', '--every', '60').code, 0);
   const c = read(site('orch', 'data', 'checked.json'));
   assert.equal(c.every, 60);
   assert.ok(Date.now() - Date.parse(c.at) < 60000);
   write(at('kickflip', 'settings.json'), { polling: { windows: [{ from: '00:00', every_minutes: 45 }], hold_overnight: true, wakes: [] } });
+  assert.deepEqual(board('checked', '--site', 'orch'), { code: 0, err: '', out: 'GitHub checked; no open PR\n' });
+  assert.deepEqual({ ...read(site('orch', 'data', 'checked.json')), at: null }, { at: null, every: null, idle: true });
+  write(at('waves', 'w', 'wave.json'), { ...wave(), repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 5 }, { id: 'A2', title: 'Two', pr: 6, status: 'merged' }] });
   assert.deepEqual(board('checked', '--site', 'orch'), { code: 0, err: '', out: 'GitHub checked; next in 45 min\n' });
   assert.equal(read(site('orch', 'data', 'checked.json')).every, 45);
   const bad = board('checked', '--site', 'orch', '--every', '0');
@@ -2008,8 +2019,9 @@ test("reviewers set, add and remove keep the board's own reviewers in its board.
   const ann = { name: 'Ann', slack_user: 'U01ANN', dm: 'D01ANN', github: 'ann' };
   const bob = { name: 'Bob', slack_user: 'U02BOB', dm: 'D02BOB', github: 'bob-b' };
   const cfg = () => read(site('orch', 'board.json'));
+  write(at('waves', 'old', 'wave.json'), { title: 'Old', items: [{ id: 'O1', title: 'Shipped', status: 'merged' }] });
   write(path.join(home, 'r.json'), [ann]);
-  assert.equal(board('reviewers', 'set', '--site', 'orch', '--file', path.join(home, 'r.json')).code, 0);
+  assert.deepEqual(board('reviewers', 'set', '--site', 'orch', '--file', path.join(home, 'r.json')).out.trim().split('\n').slice(1), ['wave w: reviewers copied']);
   assert.deepEqual(cfg(), { title: 'Orch', items: 'waves', reviewers: [ann] });
   write(path.join(home, 'bob.json'), bob);
   assert.equal(board('reviewers', 'add', '--site', 'orch', '--file', path.join(home, 'bob.json')).code, 0);
@@ -2027,6 +2039,7 @@ test("reviewers set, add and remove keep the board's own reviewers in its board.
   assert.match(board('reviewers', 'remove', 'Bob', 'Zed', '--site', 'orch').err, /Zed/);
   assert.equal(board('reviewers', 'set', '--file', path.join(home, 'r.json')).code, 1);
   assert.deepEqual(cfg(), { title: 'Orch', items: 'waves', reviewers: [bob] });
+  assert.deepEqual([read(at('waves', 'w', 'wave.json')).reviewers, read(at('waves', 'old', 'wave.json')).reviewers], [[bob], undefined]);
 });
 
 test("settings prints the board's settings as JSON, off when absent, and settings set auto-merge on|off writes board.json keeping its other keys", () => {
@@ -2325,6 +2338,35 @@ test('review digest lists the hub-checked PRs awaiting review, dates old links a
   const realClock = board('review', 'digest', '--site', 'orch');
   assert.equal(realClock.code, 0, realClock.err);
   assert.ok(Array.isArray(JSON.parse(realClock.out).reviewers));
+});
+
+test('review due lists the reviewer DMs, git_merged reactions and digest still owed, each with the command that records it, and waits while Slack is not ready', () => {
+  const now = '2026-11-02T17:00:00Z';
+  const due = () => {
+    const script = `import {main} from ${JSON.stringify(new URL('./bin/board.mjs', import.meta.url).href)};
+      process.exitCode = await main(['--site', 'orch', 'review', 'due'], {now: new Date('${now}')});`;
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    return JSON.parse(r.stdout);
+  };
+  assert.equal(board('--site', 'orch', 'integrations', 'report', '--slack', 'yes').code, 0);
+  assert.equal(board('slack', 'set', '--timezone', 'America/Los_Angeles').code, 0);
+  write(at('waves', 'w', 'wave.json'), { repo: 'o/r', reviewers: [annReviewer, bobReviewer], items: [
+    { id: 'A1', title: 'Open', pr: 1, review_link_ts: { Ann: { ts: '1.1', channel: 'D1' } } },
+    { id: 'A2', title: 'Draft', pr: 2 },
+    { id: 'A3', title: 'Merged', pr: 3, status: 'merged', review_link_ts: { Ann: { ts: '3.1', channel: 'D1', reactions: ['git_merged'] }, Bob: { ts: '3.2', channel: 'D2' } } },
+    { id: 'A4', title: 'Done', pr: 4, status: 'done', review_link_ts: { Bob: { ts: '4.2', channel: 'D2' } } },
+  ] });
+  write(at('kickflip', 'github-state.json'), { prs: { 'o/r#1': { state: 'OPEN', isDraft: false }, 'o/r#2': { state: 'OPEN', isDraft: true }, 'o/r#3': { state: 'MERGED' } } });
+  const owed = due();
+  assert.deepEqual(owed.dms, [{ key: 'w/A1', reviewer: 'Bob', channel: 'D2', text: 'https://github.com/o/r/pull/1', record: 'board.mjs --site orch review sent w/A1 Bob --ts <ts> --channel D2' }]);
+  assert.deepEqual(owed.reactions, [{ key: 'w/A3', reviewer: 'Bob', channel: 'D2', ts: '3.2', emoji: 'git_merged', record: 'board.mjs --site orch review react w/A3 Bob git_merged' }]);
+  assert.deepEqual([owed.digest.due, owed.digest.reviewers.map((r) => r.name), owed.digest.record], [true, ['Ann', 'Bob'], 'board.mjs --site orch review digest sent <reviewer> --ts <ts> --channel <dm> --items <key,key>']);
+  assert.equal(board('--site', 'orch', 'review', 'sent', 'w/A1', 'Bob', '--ts', '1.2', '--channel', 'D2').code, 0);
+  assert.equal(board('--site', 'orch', 'review', 'react', 'w/A3', 'Bob', 'git_merged').code, 0);
+  assert.deepEqual([due().dms, due().reactions], [[], []]);
+  board('--site', 'orch', 'integrations', 'report', '--slack', 'no');
+  assert.deepEqual(due(), { waiting: 'Reviewer DMs and digests wait on Slack: Orch’s session reported no Slack connector, just now.', dms: [], reactions: [], digest: null });
 });
 
 test('integrations report writes the latest Slack connector report and integrations reads it', () => {

@@ -58,8 +58,8 @@
 //               one line per board: route, session id, live (background or terminal) or not, folder
 //   kickflip handshake <route>
 //               tests a board's hub links (../hub/boards.mjs handshake): appends a `hello` event, which the
-//               owning session answers with `board.mjs hello-ack <eventId>`. The board shows a setup checklist
-//               until the session answered and the hub's GitHub check reached it. Prints {route, hello}
+//               owning session's watcher answers when it prints it. The board shows a setup checklist
+//               until the watcher answered and the hub's GitHub check reached it. Prints {route, hello}
 //   kickflip set <route> [--icon <key>] [--color <hex>] [--hub | --no-hub]
 //               changes an existing site's icon or color without joining; '' clears one. --hub makes the board the
 //               hub board, whose session `hub` opens (`hub: true` in its entry), clearing the flag from any other

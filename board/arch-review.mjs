@@ -9,7 +9,8 @@ import path from 'node:path';
 import { boardRepo } from '../hub/board-repo.mjs';
 import { readUsageGate, pauseReason } from '../shared/usage-gate.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
-import { BoardError, addItem, appendThread, boardConfig, createLineup, itemSources, readJSON, startBuilder, wavesDir } from './store.mjs';
+import { BoardError, addItem, appendThread, boardConfig, cardName, changeLineup, createLineup, itemSources, parseKey, readJSON, resolveQuestion, setItem, startBuilder, topicQuestions, wavesDir } from './store.mjs';
+import { awaitsConfirm } from './domain.mjs';
 
 const recordsFile = (site) => path.join(site, 'data', 'arch-reviews.json');
 export const readReviews = async (site) => (await readJSON(recordsFile(site), { reviews: [] })).reviews || [];
@@ -46,26 +47,13 @@ export function archOf(reviews, items, questions, { repo, waits }) {
 const stampOf = (now) => now.toLocaleDateString('en-CA').replaceAll('-', '');
 const dayOf = (now) => now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
-// The next id in the board's own numbering, PREFIX-n after its newest numbered card, else arch-<date>. A review's own
-// wave file on a board over ~/.claude/waves starts with its audit, so there the card is <wave>/audit.
-function nextId(items, now) {
-  const numbered = items.map((it) => /^([A-Z][A-Z0-9]*)-([1-9]\d*)$/.exec(it.id)).filter(Boolean);
-  if (numbered.length) {
-    const prefix = numbered.at(-1)[1];
-    return `${prefix}-${Math.max(...numbered.filter((m) => m[1] === prefix).map((m) => Number(m[2]))) + 1}`;
-  }
-  const base = `arch-${stampOf(now)}`;
-  let id = base;
-  for (let n = 2; items.some((it) => it.id === id); n++) id = `${base}-${n}`;
-  return id;
-}
-
 async function freeSlug(base, taken) {
   let slug = base;
   for (let n = 2; await taken(slug); n++) slug = `${base}-${n}`;
   return slug;
 }
 
+const fail = (msg) => { throw new BoardError(msg); };
 const exists = (file) => fs.stat(file).then(() => true, () => false);
 
 // Makes the review's wave and its audit card on the board at site (route board.route) and records it. The caller
@@ -82,28 +70,25 @@ export async function startReview(site, board, { now = new Date(), home = os.hom
   const sources = await itemSources(site);
   const fromWaves = (await boardConfig(site)).items === 'waves';
 
-  let waveSlug, lineupSlug = null, id;
+  let waveSlug, lineupSlug = null, key;
   if (fromWaves) {
     waveSlug = await freeSlug(base, (slug) => exists(path.join(wavesDir(), slug)));
     const file = path.join(wavesDir(), waveSlug, 'wave.json');
     await fs.mkdir(path.dirname(file), { recursive: true });
     await fs.writeFile(file, JSON.stringify({ title, ...(target.github ? { repo: target.github } : {}), items: [] }, null, 2) + '\n');
-    id = 'audit';
+    key = (await addItem(site, `${waveSlug}/audit`, { title: `Architecture review of ${name}` })).key;
   } else {
     const [source] = sources;
-    const wave = await readJSON(source.file, { items: [] });
     const lineups = (await Promise.all(sources.map(async (s) => (await readJSON(s.file, {}))?.lineups || []))).flat();
     lineupSlug = await freeSlug(base, (slug) => sources.some((s) => s.slug === slug) || lineups.some((l) => l.slug === slug));
     waveSlug = source.slug;
-    id = nextId(wave.items || [], now);
+    key = (await addItem(site, waveSlug, { title: `Architecture review of ${name}` })).key;
   }
 
-  const key = `${waveSlug}/${id}`;
-  await addItem(site, key, { title: `Architecture review of ${name}` });
   if (lineupSlug) {
     await createLineup(site, lineupSlug, {
       title, goal: `Act on the architecture review of ${name}`, cards: key,
-      note: `${key.split('/')[1]} is the audit of ${name}: its Notes are the report, and it asks one question per finding. Each finding you don't skip becomes a card after it, built from the option you pick.`,
+      note: `${await cardName(site, key)} is the audit of ${name}: its Notes are the report, and it asks one question per finding. Each finding you don't skip becomes a card after it, built from the option you pick.`,
     });
   }
   await startBuilder(site, key, { label: 'Architecture review', progress: 'Waiting for Claude to start the review' });
@@ -117,4 +102,39 @@ export async function startReview(site, board, { now = new Date(), home = os.hom
 
   const data = { key, repo: target.repo, github: target.github || null, branch: target.branch || null, wave: lineupSlug || waveSlug, lineup: Boolean(lineupSlug), ...(target.hub ? { scope: HUB_SCOPE } : {}) };
   return { key, data };
+}
+
+// docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
+// `board.mjs arch file <key>`: each answered finding of the audit card becomes a card in the review's wave, titled
+// with the picked option's label, its detail, practice and the owner's note as notes, chained after the wave's last
+// card (a lineup's, else the wave file's newest), and its question resolved; a Skip pick resolves its question alone.
+// A pick waiting on a confirm, and a question with no answer yet, stay. Once none is left, the audit card closes as
+// done. → {lines}
+export async function fileFindings(site, key) {
+  const review = (await readReviews(site)).find((r) => r.key === key) || fail(`${key} is not an architecture review's audit card`);
+  const { wave } = parseKey(key);
+  const { asked } = await topicQuestions(site, `item:${key}`);
+  const lines = [];
+  for (const q of asked.filter((x) => x.state === 'answered' && !awaitsConfirm(x))) {
+    const answer = q.answers.at(-1);
+    const option = q.options.find((o) => o.id === answer.choice);
+    if (!option) continue;
+    if (option.id === 'skip' || option.label === 'Skip') {
+      await resolveQuestion(site, q.id, 'Skipped.');
+      lines.push(`skipped: ${q.id}`);
+      continue;
+    }
+    const notes = [option.detail, ...(option.practice || []).map((l) => `- ${l}`), answer.note.trim() && `Owner's note: ${answer.note.trim()}`, `From the finding: ${q.question}`].filter(Boolean).join('\n\n');
+    const newest = (await readJSON((await itemSources(site)).find((s) => s.slug === wave).file, { items: [] })).items.at(-1)?.id;
+    const added = await addItem(site, wave, { title: option.label, notes, ...(review.lineup ? {} : { deps: newest }) });
+    if (review.lineup) await changeLineup(site, review.wave, { add: added.key });
+    const ref = await cardName(site, added.key);
+    await resolveQuestion(site, q.id, `Filed as ${ref}.`);
+    lines.push(`filed: ${ref} from ${q.id}`, ...(added.lines || []));
+  }
+  const left = (await topicQuestions(site, `item:${key}`)).asked.filter((x) => x.state !== 'resolved');
+  if (left.length) return { lines: [...lines, `waiting: ${left.map((x) => x.id).join(', ')}`] };
+  const filed = (await topicQuestions(site, `item:${key}`)).asked.filter((x) => /^Filed as /.test(x.resolved || '')).map((x) => x.resolved.slice(9, -1));
+  const closed = await setItem(site, key, { status: 'done', text: filed.length ? `Every finding is settled: filed ${filed.join(', ')}.` : 'Every finding is settled: none filed.' });
+  return { lines: [...lines, ...closed.lines, `closed: ${await cardName(site, key)}`] };
 }

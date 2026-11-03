@@ -4,10 +4,10 @@ import { readSlack, setSlack } from '../../hub/slack.mjs';
 import { routeRecord } from '../../hub/routes.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import * as store from '../store.mjs';
-import { makeWorktree, land, skillRepo, worktreesDir } from '../worktree.mjs';
+import { holdingLandLock, makeWorktree, land, skillRepo, worktreesDir } from '../worktree.mjs';
+import { fileFindings } from '../arch-review.mjs';
 import { ITEM_STATUSES } from '../domain.mjs';
 import { boardAt, readManifest } from '../../hub/boards.mjs';
 import { boardRepo } from '../../hub/board-repo.mjs';
@@ -60,10 +60,8 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          and printed as "replaced: <old id>". round_of names the question on the same topic whose
          prototype-request this answers; the question needs a prototype url, takes the next round
          number, and resolves that one, noting "Followed by prototype round N".
-         It then sends one action push for the questions it wrote, at once unless pushes are held, titled
-         "<card or topic>: N questions" and opening Waiting on you at the first, tagged q-<first id>; it prints
-         "push: <what kickflip push said>", or "push not sent: <why>" with the questions still written. Once the
-         last of them is answered or resolved, a push still queued under that tag is dropped.
+         The board server pushes the new open questions itself, under the card's tag (item-<wave>/<id>, or
+         ask-<eventId>) or topic-<topic> off the cards
   question resolve <id> --note <text> [--no-change]      sets resolved and resolved_at; refuses a question on a
          prototype page until an answer settles its round: a pick with no note, or any answer to the
          "Is this it?" confirm that question confirm opens. A pick with a note waits on you: update the
@@ -73,8 +71,8 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
   question confirm <id> [--url <prototype page>]         opens the one-take "Is this it?" confirm on the take the
          owner picked with a note on prototype question <id>, once you have updated that take: same topic
          and round, on --url's recorded prototype-<topic>.html (else <id>'s), whose take files must exist.
-         It resolves <id>, noting "Followed by Is this it?", replaces an open confirm on the topic and
-         pushes the confirm as question add pushes its questions
+         It resolves <id>, noting "Followed by Is this it?", and replaces an open confirm on the topic. The board
+         server pushes the confirm as it pushes any new question
   prototype add <topic> --title <t> --take <K>:<label>   records a prototype in data/prototypes.json: the board
          [--take <K>:<label> …] [--card <wave>/<id>]     serves prototype-<topic>.html from its one template, with
                                                          the title, a back arrow to --card (else the board), the
@@ -136,7 +134,8 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          [--text <t>]                                    with --status done or dropped, required on a site: the
                                                          card's closing line, written last in its thread. merged
                                                          writes "Merged PR #n." unless --text says otherwise
-         --status building resolves the card's answered questions, noting "Acted on: build started".
+         builder start for a build sets building itself. --status building resolves the card's answered
+         questions, noting "Acted on: build started".
          --status building refuses while the item is held or a dep isn't done, merged or dropped,
          and while the newest owner answer to its questions that link a prototype-*.html page has a
          note: post the final version with prototype add and question add first.
@@ -146,8 +145,8 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          once per unblocking, including held cards: start each unheld card next.
          building and fixing count as working only while a builder record on the card is open.
          --pr clears building/fixing and closes ordinary builders; install builders keep running.
-         checking is a builder's hand-back: In Progress, reading "Orchestrator review",
-         until the owning session verifies it and sets done; it unblocks nothing.
+         checking is a builder's hand-back of work it couldn't land: In Progress, reading "Orchestrator
+         review", until the owning session takes it on; it unblocks nothing.
          The board server records the owner's card-done in the wave file itself.
          Every --status or --clear-status records status_at; a later status change overrides the tap.
          --status done, merged or dropped closes the card: it resolves each of its questions (topic
@@ -176,13 +175,11 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          A card the ask became is dropped, unless it has started.
                                                          Refuses a route that isn't another board, and an ask
                                                          that isn't New
-  hello-ack <eventId>                                    answers the hub's hello: data/handshake.json records that the
-                                                         session hears the board, which clears the setup checklist's
-                                                         Events step. Refuses an older hello than the newest
   checked [--every <minutes> | --idle]                   data/checked.json: GitHub was just checked, next in
                                                          <minutes> (default the polling window's, as kickflip
                                                          polling prints); run it at the end of each GitHub tick.
-                                                         --idle: the board shows no open PR, so never late.
+                                                         --idle: the board shows no open PR, so never late; with
+                                                         neither flag it is idle while no card has an open PR.
                                                          Then sends the queued pushes, each on its own, unless
                                                          pushes are held (overnight, snoozed, the weekend or off)
   followup add <wave> --id <id> --title <t> [--from <item id>] [--ticket <id>]
@@ -196,7 +193,7 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          The board's Waves section shows it with its goal and
                                                          order, its cards carry its chip, and Notes opens the
                                                          goal, the order and the note. Refuses a card already in
-                                                         another open wave. Prints the order
+                                                         another open wave. Prints the order by card label
   lineup add <slug> <wave>/<id> [--after <wave>/<id>]    puts a card in the wave, last unless --after, and chains
                                                          the order again
   lineup remove <slug> <wave>/<id>                       takes a card out: it loses its links to the wave's cards,
@@ -227,6 +224,14 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
   integrations                                          readiness rows as one JSON line
   integrations report --slack yes|no                    with --site: reports whether this session has Claude's
                                                          Slack connector, in ~/.claude/kickflip/integrations.json
+  review due                                            one JSON line of the Slack sends owed, from local state:
+                                                         {dms: [{key, reviewer, channel, text, record}], reactions:
+                                                         [{key, reviewer, channel, ts, emoji, record}], digest:
+                                                         review digest's answer while due (with record), else null}.
+                                                         dms: a PR link to each reviewer of an open, non-draft PR with
+                                                         no link recorded; reactions: git_merged on each recorded link
+                                                         of a merged card. record is the command to run once sent.
+                                                         While Slack isn't ready: {waiting} and nothing owed
   review digest                                         pending reviews as JSON; due weekday mornings from 09:00
   review digest sent <reviewer> --ts <ts>               records a digest in data/review-digests.json;
               --channel <dm> --items <key,key>           marks today sent in the Slack identity timezone
@@ -276,6 +281,10 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          Install badge reads Building… meanwhile. --kind codex or
                                                          opus refuses the one builder pick rules out; --kind build
                                                          records the pick's kind and prints "kind: <kind>. <reason>".
+                                                         A build (--kind build, codex or opus) on an open card sets
+                                                         --status building first, refusing what that refuses;
+         [--confirmed "<owner's words>"]                 --confirmed passes its noted-pick gate. Prints "ref: <ref>",
+                                                         the card's label, which commit subjects start with.
                                                          Resolves the card's answered questions, noting "Acted on:
                                                          builder started"
          [--worktree [--repo <dir>]]                     --worktree: a git worktree for the builder at
@@ -306,75 +315,47 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          fast-forwards main in the repo;
                                                          restarts the hub when its code changed, else each board
                                                          server when board/ changed; removes the worktree and its
-                                                         branch. Never pushes. With --site, --text <what was checked>
+                                                         branch. Never pushes. One land runs at a time on the host: a
+                                                         second refuses, naming the card landing. With --site, --text <what was checked>
                                                          is required, and once it lands the card closes as item set
                                                          --status done --text does; it refuses first what that close
                                                          would. KICKFLIP_RESTART_CMD='["<cmd>"]' replaces
                                                          the restarts, called with hub or board <route>
+  merge <wave>/<id> [--after-approval "<why trivial>"]   merges the card's PR (gh pr merge --squash) and records it merged,
+         [--confirmed "<owner's words>"]                 once GitHub reads it approved, its checks green with none
+                                                         pending and its merge state CLEAN, the test the Merge button
+                                                         uses. Refuses, naming each reason ("pending: 2 checks"),
+                                                         commits after the newest approval unless --after-approval
+                                                         says why they're trivial (its closing line says so), and a
+                                                         card with manual steps unless --confirmed quotes the owner.
+                                                         A refusal also goes in the thread while the owner's Merge waits
+  arch file <wave>/<id>                                  turns the architecture review audit card's answered findings
+                                                         into cards in the review's wave: titled with the picked
+                                                         option's label, its detail, practice and the owner's note as
+                                                         notes, each after the wave's last card, its question resolved
+                                                         "Filed as <ref>."; a Skip pick resolves its question alone.
+                                                         Prints "filed: <ref> from <id>", "skipped: <id>", and
+                                                         "waiting: <ids>" while any are unanswered; once none is, it
+                                                         closes the audit card as done
   push --kind action|prompt|fault --title <t>            runs kickflip push with these flags, adding
        [--body <b>] [--url </route/path>]                "· and N replies" to the body for the replies
        [--tag <tag>] [--now | --urgent]                  written since the site's last push through this
-                                                         command (none before its first). Questions push themselves
-                                                         (question add). For an item, tag it
-                                                         ask-<eventId> or item-<wave>/<id>; a card whose action
-                                                         changes pushes again under its tag. It records the
-                                                         push in data/push-state.json only when kickflip push
-                                                         succeeds, and exits with kickflip push's code.
-                                                         --kind: action when a card's Action needed appears or
-                                                         changes, fault for what only the owner can fix. Refused
-                                                         without one: news stays on the board.
-                                                         Without --now it queues until the tick ends (checked) or
-                                                         the hub's next check: drafts on Ready, Merge. --now sends
-                                                         at once unless pushes are held (overnight, snoozed or the
-                                                         weekend): steps only the owner can run,
-                                                         prototypes asked for. --urgent: a production fault only;
-                                                         it beats those holds. While notifications are off every
-                                                         push is dropped, urgent too
+                                                         command (none before its first). The board server pushes
+                                                         each card's Action needed itself, so this is for a fault,
+                                                         what only the owner can fix. It records the push in
+                                                         data/push-state.json only when kickflip push succeeds,
+                                                         and exits with kickflip push's code. Refused without an
+                                                         allowed --kind: news stays on the board. Without --now
+                                                         it queues until the tick ends (checked) or the hub's
+                                                         next check; --now sends at once unless pushes are held
+                                                         (overnight, snoozed or the weekend). --urgent: a
+                                                         production fault only; it beats those holds. While
+                                                         notifications are off every push is dropped, urgent too
          KICKFLIP_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/kickflip.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
 const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree', 'dry-run', 'no-change']);
 const REPEATED = new Set(['take']);
-const KICKFLIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'bin', 'kickflip.mjs');
-
-function pushCommand() {
-  if (!process.env.KICKFLIP_PUSH_CMD) return [process.execPath, KICKFLIP, 'push'];
-  try {
-    const cmd = JSON.parse(process.env.KICKFLIP_PUSH_CMD);
-    if (Array.isArray(cmd) && cmd.length && cmd.every((a) => typeof a === 'string')) return cmd;
-  } catch {}
-  throw new store.BoardError('KICKFLIP_PUSH_CMD must be a JSON array of strings');
-}
-
-async function push(site, f) {
-  const refused = pushKindError(f.kind);
-  if (refused) throw new UsageError(refused);
-  if (f.title === undefined) throw new UsageError('push needs --title');
-  const at = new Date();
-  const n = await store.repliesSincePush(site, at);
-  const body = store.withReplies(f.body, n);
-  const flags = { kind: f.kind, title: f.title, body: body || undefined, url: store.pushUrl(f.url), tag: f.tag };
-  const [cmd, ...pre] = pushCommand();
-  const args = [...pre, ...Object.entries(flags).flatMap(([k, v]) => (v === undefined ? [] : [`--${k}`, v])), ...(f.urgent ? ['--urgent'] : []), ...(f.now ? ['--now'] : [])];
-  const r = spawnSync(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
-  const said = `${r.stdout || ''}${r.stderr || ''}`.split('\n').filter((l) => l.trim());
-  if (r.status !== 0) throw Object.assign(new store.BoardError([...said, `kickflip push failed (${r.error?.message || `exit ${r.status ?? r.signal}`}); the push was not recorded`].join('\n')), { exitCode: r.status || 1 });
-  await store.recordPush(site, at);
-  return { lines: said };
-}
-
-// docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md: the questions a command wrote push themselves.
-// A push that fails leaves the questions written and says why in one line.
-async function pushQuestions(site, result) {
-  try {
-    const sent = await push(site, await store.questionPush(site, result.asked));
-    return { ...result, lines: [...result.lines, `push: ${sent.lines.at(-1) || 'sent'}`] };
-  } catch (e) {
-    if (!(e instanceof store.BoardError)) throw e;
-    return { ...result, lines: [...result.lines, `push not sent: ${e.message.split('\n').at(-2) || e.message}`] };
-  }
-}
-
 function parse(argv) {
   const flags = Object.create(null);
   const rest = [];
@@ -449,10 +430,10 @@ const COMMANDS = {
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
   'question add': [[], ['file'], async (site, _, f) => {
     const input = readJSONInput(f.file);
-    return pushQuestions(site, { ...(await store.addQuestions(site, input)), asked: [input].flat() });
+    return { ...(await store.addQuestions(site, input)), asked: [input].flat() };
   }],
   'question resolve': [['id'], ['note', 'no-change'], (site, [id], f) => store.resolveQuestion(site, id, f.note, { noChange: f['no-change'] })],
-  'question confirm': [['id'], ['url'], async (site, [id], f) => pushQuestions(site, await store.confirmQuestion(site, id, f.url))],
+  'question confirm': [['id'], ['url'], (site, [id], f) => store.confirmQuestion(site, id, f.url)],
   'prototype add': [['topic'], ['title', 'take', 'card'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take })],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
@@ -491,6 +472,7 @@ const COMMANDS = {
   'review sent': [['wave/id', 'reviewer'], ['ts', 'channel'], (site, [key, name], f) => store.reviewSent(site, key, name, f)],
   'review react': [['wave/id', 'reviewer', 'emoji'], [], (site, [key, name, emoji]) => store.reviewReact(site, key, name, emoji)],
   'review digest': [[], [], async (site, _, f, options) => ({ lines: [JSON.stringify(await store.reviewDigest(site, options))] })],
+  'review due': [[], [], async (site, _, f, options) => ({ lines: [JSON.stringify(await store.reviewDue(site, options))] })],
   'review digest sent': [['reviewer'], ['ts', 'channel', 'items'], (site, [name], f, options) => store.reviewDigestSent(site, name, f, options)],
   'reviewers set': [[], ['file'], (site, _, f) => store.setReviewers(site, readJSONInput(f.file))],
   'reviewers add': [[], ['file'], (site, _, f) => store.addReviewers(site, readJSONInput(f.file))],
@@ -519,7 +501,7 @@ const COMMANDS = {
   }],
   'main set': [[], ['install', 'install-sha'], (site, _, f) => store.setMainInstall(site, { install: f.install, installSha: f['install-sha'] })],
   'settings set': [['name', 'value'], [], (site, [name, value]) => store.setBoardSetting(site, name, value)],
-  'builder start': [['wave/id'], ['label', 'progress', 'dir', 'agent', 'kind', 'eta', 'worktree', 'repo'], (site, [key], { worktree, repo, ...f }) => {
+  'builder start': [['wave/id'], ['label', 'progress', 'dir', 'agent', 'kind', 'eta', 'worktree', 'repo', 'confirmed'], (site, [key], { worktree, repo, ...f }) => {
     if (repo !== undefined && !worktree) throw new UsageError('--repo goes with --worktree');
     const manifest = readManifest();
     const board = site ? boardAt(site, manifest) : null;
@@ -540,15 +522,23 @@ const COMMANDS = {
     const id = key.split('/')[1];
     if (site && f.text === undefined) throw new UsageError(`land needs --text "<what was checked>", which closes ${key} as done once it lands`);
     if (!site && f.text !== undefined) throw new UsageError('--text closes the card, which needs --site');
-    if (site) await store.checkClose(site, key, f.text);
-    const recorded = await store.recordedWorktree(site, key, { dir: f.dir });
-    const repo = path.resolve(f.repo ?? recorded?.repo ?? skillRepo());
-    land({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo });
-    return site ? store.setItem(site, key, { status: 'done', text: f.text }) : { lines: [] };
+    return holdingLandLock(site ? await store.cardName(site, key) : key, async () => {
+      if (site) await store.checkClose(site, key, f.text);
+      const recorded = await store.recordedWorktree(site, key, { dir: f.dir });
+      const repo = path.resolve(f.repo ?? recorded?.repo ?? skillRepo());
+      land({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo });
+      return site ? store.setItem(site, key, { status: 'done', text: f.text }) : { lines: [] };
+    });
   }],
-  'hello-ack': [['eventId'], [], (site, [id]) => store.ackHello(site, id)],
+  merge: [['wave/id'], ['after-approval', 'confirmed'], (site, [key], f) => store.mergeCard(site, key, { afterApproval: f['after-approval'], confirmed: f.confirmed })],
+  'arch file': [['wave/id'], [], (site, [key]) => (site ? fileFindings(site, key) : Promise.reject(new store.BoardError('arch file needs --site <route>')))],
   checked: [[], ['every', 'idle'], (site, _, f) => store.writeChecked(site, f.every, { idle: f.idle })],
-  push: [[], ['kind', 'title', 'body', 'url', 'tag', 'urgent', 'now'], (site, _, f) => push(site, f)],
+  push: [[], ['kind', 'title', 'body', 'url', 'tag', 'urgent', 'now'], (site, _, f) => {
+    const refused = pushKindError(f.kind);
+    if (refused) throw new UsageError(refused);
+    if (f.title === undefined) throw new UsageError('push needs --title');
+    return store.sendPush(site, f);
+  }],
 };
 
 COMMANDS.install = COMMANDS.build;
@@ -596,8 +586,7 @@ const SAID = {
   'ask done': async (site, [id]) => `${await card(site, `ask:${id}`)}: done`,
   'ask unfold': (site, [id]) => `task ${id} back on a card of its own`,
   'ask move': (site, [id], f) => `task ${id} moved to /${f.to}`,
-  'hello-ack': (site, [id]) => `hello ${id} answered`,
-  checked: (site, _, f, { every }) => (f.idle ? 'GitHub checked; no open PR' : `GitHub checked; next in ${every} min`),
+  checked: (site, _, f, { every }) => (every === null ? 'GitHub checked; no open PR' : `GitHub checked; next in ${every} min`),
   'followup add': async (site, [wave], f) => `follow-up ${await card(site, `${wave}/${f.id}`)} added`,
   'followup done': async (site, [wave, id]) => `follow-up ${await card(site, `${wave}/${id}`)}: done`,
   'followup set': async (site, [wave, id], f) => `follow-up ${await card(site, `${wave}/${id}`)}: ticket ${f.ticket}`,
@@ -619,6 +608,8 @@ const SAID = {
   'builder progress': async (site, [key]) => `progress line on ${await card(site, key)}`,
   'builder done': async (site, [key], f) => `${await card(site, key)}: ${builderOf(f)} done`,
   land: async (site, [key]) => (site ? `${await card(site, key)}: landed and done` : null),
+  merge: async (site, [key]) => `${await card(site, key)}: merged`,
+  'arch file': async (site, [key]) => `findings of ${await card(site, key)} filed`,
 };
 
 export async function main(argv, options = {}) {

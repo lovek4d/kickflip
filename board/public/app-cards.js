@@ -115,7 +115,7 @@ BoardView.part((B) => {
     B.later(180, () => { holdSheet.classList.remove('closing'); holdSheet.close(); });
   }
   function openHold(it) {
-    $('#holdTitle').textContent = `Hold ${refFor(it)}`;
+    $('#holdTitle').textContent = `Hold ${it.ref}`;
     $('#holdLede').textContent = `${it.lane === 'todo' ? 'It won’t start' : 'Claude stops work on it'} until then. Forever holds it until you resume it.`;
     $('#holdPicker').innerHTML = holdPicker(it.key, state.board.holdChoices || []);
     const input = $('#holdPicker [data-hold-at]');
@@ -221,7 +221,6 @@ BoardView.part((B) => {
 
   const sendingMerge = new Set();
   const sendingBuild = new Set();
-  const refFor = (it) => (it.kind !== 'work' || it.internal ? it.ref : it.linear?.[0]?.id || (it.pr ? `#${it.pr.number}` : it.ref));
   const CONFIRM = {
     resume: (it, ref) => `Resume ${ref}?${it.heldUntil ? ` It's held until ${heldUntilWords(it.heldUntil)}.` : ''} It can start again once nothing blocks it.`,
     bump: (it, ref) => `Move ${ref} to the top of its lane?`,
@@ -328,7 +327,7 @@ BoardView.part((B) => {
     const { key, confirm: act } = b.dataset;
     const it = state.board.items.find((i) => i.key === key);
     if (it && act === 'hold') { openHold(it); return; }
-    if (!it || !(await B.confirm(CONFIRM[act](it, refFor(it))))) return;
+    if (!it || !(await B.confirm(CONFIRM[act](it, it.ref)))) return;
     if (act === 'resume') {
       try { await B.sentHere(key, () => B.site.send('card-hold', { key, hold: false })); }
       catch { toast('Could not resume. Is the host awake?'); }

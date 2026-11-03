@@ -184,8 +184,20 @@ function installOf(install, pr) {
   return { url: install.url, label: install.label || null, builtAt: install.built_at || null, sha, older: Boolean(sha && head && !head.startsWith(sha)) };
 }
 
-// An approved PR that GitHub would merge now: CI green (or none) and the merge state CLEAN.
-const mergeable = (pr) => pr?.state === 'OPEN' && !pr.isDraft && pr.reviewDecision === 'APPROVED' && ['pass', 'none'].includes(pr.checks?.state) && pr.mergeStateStatus === 'CLEAN';
+// Why GitHub wouldn't merge the PR now, one short reason each; none means approved, CI green (or none) and the merge
+// state CLEAN. checks: {state, pending?, failing?: [name]}. board.mjs merge refuses on the same reasons.
+export function mergeBlockers(pr) {
+  if (pr?.state !== 'OPEN') return [`PR is ${String(pr?.state || 'unknown').toLowerCase()}`];
+  const { state, pending, failing } = pr.checks || {};
+  return [
+    pr.isDraft && 'it is a draft',
+    pr.reviewDecision !== 'APPROVED' && `review: ${String(pr.reviewDecision || 'none').toLowerCase().replace(/_/g, ' ')}`,
+    state === 'fail' && `failing: ${failing?.length ? failing.join(', ') : 'a check'}`,
+    state === 'pending' && `pending: ${pending ? plural(pending, 'check') : 'checks'}`,
+    pr.mergeStateStatus !== 'CLEAN' && `merge state: ${String(pr.mergeStateStatus || 'unknown').toLowerCase()}`,
+  ].filter(Boolean);
+}
+const mergeable = (pr) => !mergeBlockers(pr).length;
 
 // What the owner acts on next, or null: {kind, url, label}, url relative to the site root. kind is pick (a prototype
 // question), questions, ready (a green draft's Ready on GitHub), done (an ask's or a reopened card's Done in its thread), steps (manual
@@ -664,30 +676,6 @@ export function buildBoard(snapshot) {
   return { kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, waves, waveRows, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, needs, needsSummary: needsSummary(needs), working: workingOn.length, workingOn, checks: checksOf(snapshot, now) };
 }
 
-// docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md
-const REMIND_AFTER = 30 * 60000;
-// What has waited on the session REMIND_AFTER, from a built board and the snapshot's waves: a card in Orchestrator
-// review with no running builder, since its status changed or its last builder finished, and each of the board's
-// workingOn, since its mark. A spell names one wait; a new status, builder or mark starts
-// another. → [{spell, key, what, since}], key null for a wave's triage
-export function remindersOf(built, waves, now) {
-  const due = (since) => Boolean(since) && now - Date.parse(since) >= REMIND_AFTER;
-  const out = [];
-  for (const it of built.items) {
-    if (it.kind !== 'work' || it.lane === 'done' || it.held || it.waitsOn !== 'checking' || (it.agents || []).some((a) => !a.done)) continue;
-    const raw = waves.find((w) => w.slug === it.wave)?.wave.items.find((x) => x.id === it.id);
-    const since = [raw?.status_at, ...(it.agents || []).map((a) => a.done)].filter(Boolean).map(String).sort().pop();
-    if (due(since)) out.push({ spell: `checking:${it.key}`, key: it.key, what: 'has waited 30 min in Orchestrator review', since });
-  }
-  for (const w of built.workingOn || []) {
-    if (!due(w.since)) continue;
-    const triage = w.kind === 'wave-triage' ? (w.data?.lineup || w.data?.wave) : null;
-    out.push({ spell: `working:${w.id}`, key: triage ? null : w.key, since: w.since,
-      what: triage ? `the triage of wave ${triage} has waited 30 min for a reply` : 'has had a message marked Working for 30 min with no reply' });
-  }
-  return out;
-}
-
 // The board's order, each lane together, by touched (the card's latest activity) or created (when the card was made).
 // docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md
 // New cards lead Todo, unbumped ones oldest first, so the top one is the next taken (docs/adr/0047-the-plus-makes-a-new-card.md).
@@ -785,4 +773,39 @@ export function pullOf(items) {
   const idle = !open.some((i) => i.waitsOn === 'checking' || (i.agents || []).some((a) => !a.done));
   const pullable = open.filter((i) => i.buildable && !i.questions && !i.grilling).map((i) => i.key);
   return { idle, pullable };
+}
+
+// The push tag tied to a card's thread: ask-<event id> for ask:<event id>, item-<wave>/<id> for a work item.
+export const pushTag = (key) => (key.startsWith('ask:') ? `ask-${key.slice(4)}` : `item-${key}`);
+
+// docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
+// What waits on the owner in a built board, one entry per push tag: each card with Action needed (pushTag), and each
+// Needs you line for a topic off the cards, tagged topic-<id>. questions are the open questions behind it, oldest
+// first. now: questions, picks, manual steps and a Done push at once; Ready and Merge queue for the tick's end.
+// url is relative to the site root. → [{tag, kind, title, body, url, now, questions: [{id, question}]}]
+export function ownerActions(built) {
+  const open = (topic) => built.owner.filter((q) => q.topic === topic && q.state === 'open').map(({ id, question }) => ({ id, question }));
+  const queued = [ACTION_KIND.ready, ACTION_KIND.merge];
+  const cards = built.items.filter((it) => it.action).map((it) => {
+    const questions = ASKING.has(it.action.kind) ? open(it.questions.topic) : [];
+    return { tag: pushTag(it.key), kind: it.action.kind, title: `${it.ref}: ${it.action.label}`, body: questions[0]?.question || it.title,
+      url: questions.length ? it.action.url : `#item=${encodeURIComponent(it.key)}`, now: !queued.includes(it.action.kind), questions };
+  });
+  const topics = built.needs.filter((line) => line.topic).map((line) => {
+    const questions = open(line.topic);
+    return { tag: `topic-${line.topic}`, kind: ACTION_KIND.questions, title: line.text, body: questions[0]?.question || line.title, url: line.url, now: true, questions };
+  });
+  return [...cards, ...topics];
+}
+
+// docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
+// The card an owner answer to question id left ready to start: an unstarted work card, not held, that nothing blocks,
+// with no open question, no prototype pick waiting on a confirm and nothing else waiting on the owner. → its key, or null.
+export function startedByAnswer(built, id) {
+  const q = built.owner.find((x) => x.id === id);
+  const key = /^item:([^/:]+\/[^/]+)$/.exec(q?.topic || '')?.[1];
+  const it = key && built.items.find((i) => i.key === key);
+  if (!it || it.kind !== 'work' || it.lane === 'done' || it.held || it.blockedBy.length || it.action || it.pr || it.pushed) return null;
+  if (![null, 'planned', 'waiting'].includes(it.status) || it.agents.some((a) => !a.done)) return null;
+  return built.owner.some((x) => x.topic === q.topic && (x.state === 'open' || awaitsConfirm(x))) ? null : key;
 }

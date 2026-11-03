@@ -144,6 +144,28 @@ export function restartRunner(what, route) {
 // the rebase undone; runs the worktree's full suite; fast-forwards main; restarts the hub when its code changed,
 // else the board servers when board/ changed (a hub restart restarts every site); removes the worktree and branch.
 // Never pushes. A restart that fails is reported after the rest is done.
+// One land at a time on the host, since a land can restart the hub and every board server: ~/.claude/kickflip/land.lock
+// {card, pid, at} names the card landing. A lock whose process is gone is taken over.
+const landLock = () => path.join(os.homedir(), '.claude', 'kickflip', 'land.lock');
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+export async function holdingLandLock(card, fn) {
+  const file = landLock();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  for (;;) {
+    try { fs.writeFileSync(file, JSON.stringify({ card, pid: process.pid, at: new Date().toISOString() }), { flag: 'wx' }); break; }
+    catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      let held = null;
+      try { held = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
+      if (Number.isInteger(held?.pid) && alive(held.pid)) fail(`${held.card} is landing (since ${held.at}); land again once it finishes`);
+      fs.rmSync(file, { force: true });
+    }
+  }
+  try { return await fn(); } finally {
+    try { if (JSON.parse(fs.readFileSync(file, 'utf8')).pid === process.pid) fs.rmSync(file, { force: true }); } catch {}
+  }
+}
+
 export function land({ path: dir, branch, repo }, { say = console.log, runTests = nodeTests, restart = restartRunner, boards = () => listBoards() } = {}) {
   if (!fs.existsSync(dir)) fail(`no worktree at ${dir}`);
   const head = git(repo, 'symbolic-ref', '--quiet', '--short', 'HEAD').out;

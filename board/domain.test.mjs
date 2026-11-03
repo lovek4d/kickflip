@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, threadOf, needsAnswer, remindersOf } from './domain.mjs';
+import { buildBoard, threadOf, needsAnswer } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -390,52 +390,6 @@ test('a message marked working shows on its thread and card until Claude replies
   assert.equal(count([ask, { id: 'd1', ts: '2026-10-23T07:00:00Z', kind: 'ask-done', data: { id: 'a1' } }], { now: Date.parse('2026-10-23T12:00:00Z') }), 1);
   const agents = { main: { label: 'Opus builder', started: '2026-10-23T10:06:00Z', done: '2026-10-23T10:07:00Z' } };
   assert.deepEqual(threadOf('w/A1', { events: [msg('m2', '2026-10-23T10:05:00Z')], agents }).map(({ kind, state }) => [kind, state]), [['item-message', 'waiting'], ['agent', undefined], ['agent', undefined]]);
-});
-
-test('a reminder is due after 30 minutes in Orchestrator review with no running builder, or of a Working message Claude has not answered, each named by its spell', () => {
-  const now = Date.parse('2026-10-23T12:00:00Z');
-  const items = [
-    { id: 'A1', title: 'One', status: 'checking', status_at: '2026-10-23T11:00:00Z' },
-    { id: 'A2', title: 'Two', status: 'checking', status_at: '2026-10-23T11:45:00Z' },
-    { id: 'A3', title: 'Three', status: 'checking', status_at: '2026-10-23T11:00:00Z', held: true },
-    { id: 'A4', title: 'Four', status: 'checking', status_at: '2026-10-23T11:00:00Z' },
-    { id: 'A5', title: 'Five', status: 'checking', status_at: '2026-10-23T10:00:00Z' },
-  ];
-  const agents = { A4: { main: { started: '2026-10-23T11:10:00Z' } }, A5: { main: { started: '2026-10-23T11:00:00Z', done: '2026-10-23T11:40:00Z' } } };
-  const msg = (id, ts, data) => ({ id, ts, kind: 'item-message', data, reply: null });
-  const events = [
-    msg('m1', '2026-10-23T11:00:00Z', { key: 'w/A1', text: 'Bigger' }),
-    msg('m2', '2026-10-23T11:50:00Z', { key: 'w/A2', text: 'Smaller' }),
-    { id: 't1', ts: '2026-10-23T11:00:00Z', kind: 'wave-triage', data: { wave: 'w' }, reply: null },
-  ];
-  const unblocked = (id, key) => ({ id, ts: '2026-10-23T10:00:00Z', kind: 'card-unblocked', data: { key }, reply: null });
-  const answer = (id, q) => ({ id, ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: q, choice: 'A' }, reply: null });
-  const answered = [
-    unblocked('u1', 'hub/H1'), unblocked('u2', 'hub/H2'), unblocked('u3', 'hub/H3'), unblocked('u4', 'hub/H4'),
-    { id: 'k1', ts: '2026-10-23T09:50:00Z', kind: 'ask', data: { text: 'Drop the button' }, reply: { html: 'Folded in.', at: '2026-10-23T10:05:00Z' } }, answer('o1', 'q1'),
-    { id: 'k2', ts: '2026-10-23T09:50:00Z', kind: 'ask', data: { text: 'Fold me' }, reply: null }, answer('o2', 'q2'),
-    { id: 'k3', ts: '2026-10-23T09:50:00Z', kind: 'ask', data: { text: 'Build me' }, reply: null }, answer('o3', 'q3'),
-  ];
-  const owner = { items: ['q1', 'q2', 'q3'].map((q, n) => ({ id: q, topic: `item:ask:k${n + 1}`, question: 'Which?' })) };
-  const hub = [
-    { id: 'H1', title: 'Line after', status: 'building' },
-    { id: 'H2', title: 'Done after', status: 'done', status_at: '2026-10-23T10:30:00Z' },
-    { id: 'H3', title: 'Merged after', status: 'merged', status_at: '2026-10-23T10:30:00Z' },
-    { id: 'H4', title: 'Dropped after', status: 'dropped', status_at: '2026-10-23T10:30:00Z' },
-    { id: 'H5', title: 'Folded into', status: 'planned' },
-    { id: 'H6', title: 'Made from', status: 'planned', from_ask: 'k3' },
-  ];
-  const threads = { 'hub/H1': [{ ts: '2026-10-23T10:20:00Z', who: 'claude', text: 'Building it.' }] };
-  const working = { m1: '2026-10-23T11:01:00Z', m2: '2026-10-23T11:51:00Z', t1: '2026-10-23T11:02:00Z',
-    ...Object.fromEntries(['u1', 'u2', 'u3', 'u4', 'o1', 'o2', 'o3'].map((id) => [id, '2026-10-23T10:01:00Z'])) };
-  const waves = [{ slug: 'w', agents, wave: { items } }, { slug: 'hub', agents: {}, wave: { internal: true, items: hub } }];
-  const built = buildBoard({ fromWaves: false, now, waves, events: [...events, ...answered], working, owner, threads, askLinks: { k2: 'hub/H5' } });
-  assert.deepEqual(built.items.filter((i) => i.working).map((i) => i.key).sort(), ['w/A1', 'w/A2']);
-  assert.deepEqual(remindersOf(built, waves, now), [
-    { spell: 'checking:w/A1', key: 'w/A1', what: 'has waited 30 min in Orchestrator review', since: '2026-10-23T11:00:00Z' },
-    { spell: 'working:m1', key: 'w/A1', since: '2026-10-23T11:01:00Z', what: 'has had a message marked Working for 30 min with no reply' },
-    { spell: 'working:t1', key: null, since: '2026-10-23T11:02:00Z', what: 'the triage of wave w has waited 30 min for a reply' },
-  ]);
 });
 
 const askAt = (id, ts, extra = {}) => ({ id, ts, kind: 'ask', data: { text: `${id} first line\nmore` }, reply: null, ...extra });

@@ -326,7 +326,7 @@ export async function checkListening({ manifest, now = new Date(), running = liv
 // ackHello records the session's answer, and the board shows its setup checklist until that and the GitHub link pass.
 export const handshakeFile = (dir) => path.join(dir, 'data', 'handshake.json');
 
-// A new board's test of its links: a `hello` event its session answers with `board.mjs hello-ack`. The owner's
+// A new board's test of its links: a `hello` event its session's watcher answers (bin/wait-events.mjs). The owner's
 // watcher cursor is set first when the session has none, so its first watcher prints the hello rather than starting
 // past it. → {route, hello}
 export async function handshake(route, manifest = readManifest()) {
