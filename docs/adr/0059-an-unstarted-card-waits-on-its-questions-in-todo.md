@@ -1,5 +1,5 @@
 ---
-status: superseded in part by ADR-0129 and ADR-0138
+status: superseded in part by ADR-0129, ADR-0138 and ADR-0144
 ---
 
 # An unstarted card waits on its questions in Todo, and its one action button follows what it waits on
@@ -7,6 +7,8 @@ status: superseded in part by ADR-0129 and ADR-0138
 Superseded in part by [0129](0129-any-work-on-a-card-starts-it.md) on when a work card counts as started: a builder record of any kind, a working mark on a message in its thread or a prototype recorded for it also starts it.
 
 Superseded in part by [0138](0138-a-card-moves-to-in-progress-only-once-building-starts.md): an answered or resolved question no longer starts a work card; it stays in Todo with its Build until building starts.
+
+Superseded in part by [0144](0144-answered-asks-have-their-own-section-below-done.md): an ask whose questions are answered stays in Todo while Claude takes them up, and goes to Asks, below Done, once closed.
 
 A card that hasn't started and waits only on the owner's answers, open questions or a prototype pick, stays in **Todo** with its Action needed badge, ask and work card alike. Answering moves it on: a work card goes to In Progress as its work starts, and an ask goes to In Progress while Claude takes up the answer. In Review keeps finished work waiting on the owner or the reviewers: a green draft's Ready, Merge, manual steps and an answered ask waiting on its Done ([0045](0045-the-lane-follows-who-acts-next.md)).
 

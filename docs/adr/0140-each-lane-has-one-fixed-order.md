@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0144
+---
+
 # Each lane has one fixed order
+
+Superseded in part by [0144](0144-answered-asks-have-their-own-section-below-done.md): answered asks sit in Asks, below Done, newest answer first.
 
 This supersedes in part [0019](0019-a-card-that-hasnt-started-can-be-bumped.md) on how a lane lists its cards after the bumped ones, and [0012](0012-lists-never-cut-silently.md) on what "newest first" means in Done and its folds. It removes the per-lane sort menu (Recently created or Recently touched, kept per lane on the device) that INT-245 added.
 

@@ -1,5 +1,5 @@
-// The board view's lanes and the Waves section above them: each lane's header and cards, the "N older" and finished-wave
-// folds, and the wave rows that filter the lanes and start a wave's triage.
+// The board view's lanes and the Waves section above them: each lane's header and cards, Done's and Asks' Show more,
+// Done's finished-wave folds, and the wave rows that filter the lanes and start a wave's triage.
 // Needs app-core.js and app-cards.js.
 BoardView.part((B) => {
   const { $, store, state } = B;
@@ -9,11 +9,24 @@ BoardView.part((B) => {
     { id: 'stale', name: 'Stale', open: true, hideEmpty: true },
     { id: 'progress', name: 'In Progress', open: true },
     { id: 'todo', name: 'Todo', open: true },
-    { id: 'done', name: 'Done', open: false },
+    { id: 'done', name: 'Done', open: false, capped: true },
+    { id: 'asks', name: 'Asks', open: false, capped: true },
   ];
+  // docs/adr/0144-answered-asks-have-their-own-section-below-done.md
+  // A capped lane shows STEP cards, and each Show more tap adds STEP more, kept in memory per lane. A card the owner has
+  // open stays shown past the cap. Show more says how many are left (docs/adr/0012-lists-never-cut-silently.md).
+  const STEP = 10;
+  const moreTaps = new Map();
+  function cappedRows(laneId, cards) {
+    const lastOpen = cards.findLastIndex((it) => state.openItems.has(it.key));
+    const shown = Math.max(STEP * (1 + (moreTaps.get(laneId) || 0)), lastOpen + 1);
+    const left = cards.length - shown;
+    return cards.slice(0, shown).map((it) => B.card(it)).join('')
+      + (left > 0 ? `<button type="button" class="thread-more" data-lane-more="${laneId}">Show more <span class="n">· ${left} older card${left === 1 ? '' : 's'}</span></button>` : '');
+  }
 
   // A fold's open state lives in storage, not in setHTML's summary-text match, because its row's count changes.
-  // Fold ids are 'older', 'asks' or wave:<slug> (board/domain.mjs), so any id maps to its own storage key.
+  // Fold ids are wave:<slug> (board/domain.mjs waveFold), so any id maps to its own storage key.
   const FOLDS = new Proxy({}, { get: (_, id) => ({ store: `foldOpen:${String(id)}` }) });
   // A fold's header reads like a lane's: its name, then its count, then an optional note.
   function fold(id, list, name, note = '') {
@@ -41,12 +54,10 @@ BoardView.part((B) => {
       // Items arrive in each lane's fixed order (domain.mjs laneOrder).
       const items = shown.filter((i) => i.lane === lane.id);
       if (lane.hideEmpty && !items.length) return '';
-      const open = laneState[lane.id] ?? lane.open;
-      const older = items.filter((i) => i.fold === 'older');
-      const asks = items.filter((i) => i.fold === 'asks');
-      const rows = items.filter((i) => !i.fold).map((it) => B.card(it)).join('') + fold('asks', asks, 'Answered')
-        + waveFolds(d, items) + fold('older', older, 'Older');
-      return `<details class="lane" data-lane="${lane.id}" ${open ? 'open' : ''}>
+      const expanded = laneState[lane.id] ?? lane.open;
+      const open = items.filter((i) => !i.fold);
+      const rows = (lane.capped ? cappedRows(lane.id, open) : open.map((it) => B.card(it)).join('')) + waveFolds(d, items);
+      return `<details class="lane" data-lane="${lane.id}" ${expanded ? 'open' : ''}>
         <summary><span class="lane-name">${lane.name}</span><span class="count">${items.length}</span>${lane.id === 'review' ? B.githubHeader(d) : ''}</summary>
         <div class="list">${rows || '<div class="empty">Nothing here.</div>'}
         ${lane.id === 'todo' ? BoardUI.planButton(items) : ''}</div>
@@ -95,6 +106,8 @@ BoardView.part((B) => {
   }, true);
 
   B.on(B.root, 'click', async (ev) => {
+    const more = ev.target.closest('[data-lane-more]');
+    if (more) { moreTaps.set(more.dataset.laneMore, (moreTaps.get(more.dataset.laneMore) || 0) + 1); B.render(); return; }
     const pb = ev.target.closest('button[data-plan]');
     if (pb) {
       if (!(await B.confirm('Claude groups these follow-ups into a small wave and asks you about the plan in Needs you. Nothing builds until you answer. Start?'))) return;

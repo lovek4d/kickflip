@@ -125,6 +125,8 @@ button.chip { border: 0; }
 .thread-more:active { background: var(--accent-soft); }
 .thread-more:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .thread-more .n { color: var(--muted); font-weight: 400; }
+/* ADR 0144: Done's and Asks' Show more, the thread's look as a row of the lane's list */
+.list > .thread-more { width: 100%; margin: 0; border-top: 1px solid var(--line); border-radius: 0; }
 
 @media (max-width: 560px) {
   .item > summary { grid-template-columns: 16px 1fr; }

@@ -1,0 +1,17 @@
+# Answered asks have their own section below Done, and Done and Asks show 10 cards at a time
+
+This supersedes in part [0012](0012-lists-never-cut-silently.md) on Done's Older and Answered folds, [0140](0140-each-lane-has-one-fixed-order.md) on the order of answered asks, and [0059](0059-an-unstarted-card-waits-on-its-questions-in-todo.md) on where an answered ask waits while Claude takes up its answered questions.
+
+- **Asks is a lane of its own, below Done.** An answered ask, one Claude replied to or wrote in, or that a done mark or the owner's Done closed, has lane `asks` in `board/domain.mjs`, not Done's Answered fold. It is closed like a Done card: it has no action, no action button, and its topic with no open question is resolved. Asks is closed by default, as Done is, and stays open once opened.
+- **Asks lists the newest answer first.** `SORT_AT.asks` is the ask's `answerAt`, Claude's latest line or reply on it; a moved ask, which has none, falls back to its latest activity.
+- **Done and Asks show 10 cards, then Show more.** Each tap adds 10 more (`board/public/app-lanes.js`). It is the thread's Show more, the same `thread-more` button as a row of the lane's list, reading "Show more · 13 older cards", so the list never cuts silently. The taps are kept in memory per lane, and a reload starts at 10 again. A card the owner has open, or a link opens, stays shown past the cap.
+- **The Older fold is gone.** The cap does its job: Done kept the last 7 days open and folded the rest so the lane stayed short, and 10 newest-closed cards with Show more keep it shorter without a second way to hide cards. Finished-wave folds stay after Done's cards, since they group by wave rather than by age; the cap counts only Done's cards outside them.
+- **An answered ask stays in Todo until it closes.** An ask whose questions the owner has answered, waiting on Claude to take them up, used to go to In Progress. It now stays in Todo, as a work card does until building starts ([0138](0138-a-card-moves-to-in-progress-only-once-building-starts.md)). An ask is in In Progress only while an owner message waits on Claude after Claude's progress mark ([0035](0035-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md)).
+
+The owner asked on hub/GH-68: "let's break out asks to a separate card from done. And let's put it below done. And also for both done and asks, I would like to cap at … ten cards for now with a prototyped um click to show more that kind of mirrors the show more in the threads, except it goes by iterations of 10 instead of three." On #50, folded into it: "it should stay in to do until building begins. The in-progress reversion from done is specifically for done."
+
+Considered:
+- keeping answered asks in lane `done` with their fold and drawing the fold as its own section on the page: Done's count, its order and the link that opens a card's lane would each need to leave the asks out;
+- keeping Older beside the cap: two ways to hide Done cards, one by age and one by count;
+- Asks by when each was asked, the Answered fold's order: the owner guessed "by date answered", and an answer is what moves an ask there;
+- keeping the Show more taps on the device: the thread's are kept in memory, and a long Done reopening long on every visit is what the cap avoids.

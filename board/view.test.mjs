@@ -3150,6 +3150,33 @@ test("each lane shows its cards in the order they arrive, with no sort icon in i
   assert.equal(b.root.querySelector('.lane-sort, .lane-sort-menu, [data-lane-sort]'), null);
 });
 
+// docs/adr/0144-answered-asks-have-their-own-section-below-done.md
+test('answered asks have their own Asks section below Done, and Done and Asks each show 10 cards, then a Show more that adds 10 and says how many are left', async () => {
+  const day = (n) => `2026-10-${String(30 - n).padStart(2, '0')}T08:00:00.000Z`;
+  const done = Array.from({ length: 23 }, (_, n) => workCard(`D${n}`, { lane: 'done', sortAt: day(n) }));
+  const asks = Array.from({ length: 11 }, (_, n) => ({ ...askCard(`a${n}`, 'asks'), sortAt: day(n) }));
+  const b = boardOnDom({ open: ['ask:a10'], board: boardOf([...done, ...asks]), threads: {} });
+  await b.settle();
+  const lane = (id) => b.root.querySelector(`#lanes details.lane[data-lane="${id}"]`);
+  const keys = (id) => lane(id).querySelectorAll('details.item').map((el) => el.dataset.key);
+  const more = (id) => lane(id).querySelector('[data-lane-more]');
+  assert.deepEqual(b.root.querySelectorAll('#lanes details.lane').map((el) => el.dataset.lane).slice(-2), ['done', 'asks']);
+  assert.deepEqual([lane('done').querySelector('summary .lane-name').textContent, lane('asks').querySelector('summary .lane-name').textContent], ['Done', 'Asks']);
+  assert.equal(lane('done').querySelector('details.fold'), null);
+  assert.deepEqual(keys('done'), done.slice(0, 10).map((c) => c.key));
+  assert.equal(more('done').textContent, 'Show more · 13 older cards');
+  assert.ok(more('done').classList.contains('thread-more'));
+  // A card the owner has open stays shown past the cap, so nothing it is reading drops out.
+  assert.deepEqual(keys('asks'), asks.map((c) => c.key));
+  assert.equal(more('asks'), null);
+  b.page.fire(b.root, 'click', { target: more('done') });
+  await b.settle();
+  assert.deepEqual([keys('done').length, more('done').textContent], [20, 'Show more · 3 older cards']);
+  b.page.fire(b.root, 'click', { target: more('done') });
+  await b.settle();
+  assert.deepEqual([keys('done'), more('done')], [done.map((c) => c.key), null]);
+});
+
 test('a held Todo card that can build shows Build in place of Unhold, whose confirm says it also unholds, and sends card-build', async () => {
   const cards = [workCard('H1', { ref: 'INT-42', held: true, holdable: true, buildable: true })];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });

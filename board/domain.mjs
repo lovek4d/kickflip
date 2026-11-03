@@ -27,15 +27,12 @@ export const ITEM_STATUSES = ['planned', 'waiting', 'building', 'fixing', 'check
 export const BUILDER_STALLED_AFTER = 30 * 60000;
 // The thread line's kind for a Build tap the board server refused (store.mjs startTappedBuild).
 export const BUILD_REFUSED = 'build-refused';
-const LANE_ORDER = { review: 0, stale: 1, progress: 2, todo: 3, done: 4 };
+const LANE_ORDER = { review: 0, stale: 1, progress: 2, todo: 3, done: 4, asks: 5 };
 const DAY = 86400000;
-// Done cards older than this fold under one row (docs/adr/0012-lists-never-cut-silently.md).
-const DONE_OPEN = 7 * DAY;
-export const OLDER_FOLD = 'older';
+// Done holds closed work cards and follow-ups, Asks the answered asks (docs/adr/0144-answered-asks-have-their-own-section-below-done.md).
+const closedLane = (i) => i.lane === 'done' || i.lane === 'asks';
 // A finished wave's Done cards fold under a row of their own, which board/public/app-lanes.js reads back by this id.
 export const waveFold = (slug) => `wave:${slug}`;
-// Answered asks fold under one row of their own, like a finished wave (docs/adr/0012-lists-never-cut-silently.md), read back by board/public/app-lanes.js.
-export const ASKS_FOLD = 'asks';
 // A PR in review longer than this parks in the Stale lane (docs/adr/0044-a-pr-in-review-shows-its-age-and-goes-stale-after-seven-days.md).
 const STALE_AFTER = 7 * DAY;
 
@@ -214,7 +211,7 @@ const mergeable = (pr) => !mergeBlockers(pr).length;
 // steps on an approved PR, which the session never merges on its own) or merge (the open card's Merge, while the board's
 // auto-merge is off). A held card waits on nobody, and a reopened card waiting only on its Done has no action.
 function actionOf(it, questionById, autoMerge) {
-  if (it.held || it.lane === 'done') return null;
+  if (it.held || closedLane(it)) return null;
   const thread = `#item=${encodeURIComponent(it.key)}`;
   if (asking(it)) {
     const q = questionById.get(it.questions.first);
@@ -236,7 +233,7 @@ const ASKING = new Set([ACTION_KIND.pick, ACTION_KIND.questions]);
 // questions, held or not, markDone for an ask waiting on the owner's Done, grill otherwise, and none on a Done card or
 // on an ask with neither.
 function actionButtonOf(it) {
-  if (it.lane === 'done') return null;
+  if (closedLane(it)) return null;
   if (asking(it)) return BUTTON.openQuestions;
   if (it.action?.kind === ACTION_KIND.done) return BUTTON.markDone;
   return it.kind === 'ask' ? null : BUTTON.grill;
@@ -307,15 +304,17 @@ function followUp({ slug, wave, f, order, repo, bumpedAt, closedAt, tickets }) {
   };
 }
 
-// An ask is a New card at the top of Todo until Claude replies to it or writes in its thread; then it is a Done item with
-// its thread (docs/adr/0047-the-plus-makes-a-new-card.md). An ask that became work or was folded into a card has no card
+// An ask is a New card at the top of Todo until Claude replies to it or writes in its thread; then it is an answered ask
+// in the Asks section, below Done, with its thread (docs/adr/0047-the-plus-makes-a-new-card.md,
+// docs/adr/0144-answered-asks-have-their-own-section-below-done.md). An ask that became work or was folded into a card has no card
 // of its own: buildBoard leaves it out. msgs is its thread; bumpedAt is its latest ask-bump.
 // mark is Claude's latest data/ask-progress.json entry {state, at, next} and doneAt the owner's latest ask-done: the newer
 // one decides whether the ask sits in In Progress with a Done button (docs/adr/0035-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md).
 // A mark with moved is an ask sent to another board on the owner's answer, so it never shows as an answer.
 // pending counts its questions (topic item:ask:<event id>) that are open or answered and waiting on Claude: an answered
-// ask with either stays out of Done until a mark or the owner's Done closes it
-// (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md).
+// ask with either stays in Todo until a mark or the owner's Done closes it, since only Claude's progress mark puts an
+// ask in In Progress (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md,
+// docs/adr/0144-answered-asks-have-their-own-section-below-done.md).
 // An ask with no ticket is named by when it was asked: the time today, else the short date and time.
 function askedLabel(iso, now = new Date()) {
   const d = new Date(iso);
@@ -344,7 +343,7 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
   const lastTs = [...msgs.map((m) => m.ts), ...othersAt, ...(inProgress ? [mark.at] : [])].filter(Boolean).sort().pop();
   return {
     key: `ask:${e.id}`, kind: 'ask', order: 0, wave: null, waveTitle: null, id: e.id, ref: handled ? askedLabel(e.ts) : 'New', isNew: !handled, title, status: null,
-    internal: false, repo: null, lane: inProgress || onClaude ? 'progress' : done ? 'done' : 'todo', waitsOn: inProgress && !ownerPending ? 'owner' : null, builder: null, agents: [], eta: null, working: msgs.some((m) => m.state === 'working'),
+    internal: false, repo: null, lane: inProgress ? 'progress' : done ? 'asks' : 'todo', waitsOn: inProgress && !ownerPending ? 'owner' : null, builder: null, agents: [], eta: null, working: msgs.some((m) => m.state === 'working'),
     deps: [], held: false, risky: false, bumpable: !handled, bumpedAt: bumped, manualSteps: [], fromAsk: null, from: null, next: inProgress ? mark.next || null : null, hasNotes: false, branch: null,
     finishable: handled && !done,
     linear: [], pr: null, reviewers: [], review: {}, inReviewSince: null, progressSince: inProgress ? mark.at || null : null, closedAt: null,
@@ -655,14 +654,14 @@ export function buildBoard(snapshot) {
     w.finished = finishedOf(cards);
     if (w.finished) for (const i of cards) if (i.lane === 'done') i.fold = waveFold(w.slug);
   }
-  for (const i of items) { i.lineup = null; if (i.kind === 'ask' && i.lane === 'done') i.fold = ASKS_FOLD; }
+  for (const i of items) i.lineup = null;
   const declared = new Set((owner.topics || []).map((t) => t.id));
   const lineups = snapshot.waves.flatMap(({ slug, wave }) => (wave.lineups || []).map((l) => ({ ...l, keys: l.items.map((id) => `${slug}/${id}`) })));
   const topicsOf = () => ownerTopics([...(owner.topics || []), ...items.filter((it) => !declared.has(`item:${it.key}`))
     .map((it) => ({ id: `item:${it.key}`, title: `${it.ref}: ${it.title}`, ...(it.kind === 'ask' ? { askedAt: it.ask.askedAt } : {}), summary: 'Questions about this work item.' })),
   ...lineups.filter((l) => !declared.has(`lineup:${l.slug}`)).map((l) => ({ id: `lineup:${l.slug}`, title: l.title, summary: 'Wave triage.' })),
   ...(snapshot.fromWaves ? waves : []).filter((w) => !declared.has(`wave:${w.slug}`)).map((w) => ({ id: `wave:${w.slug}`, title: w.title, summary: 'Wave triage.' }))], questions,
-  new Set(items.filter((it) => it.lane === 'done').map((it) => `item:${it.key}`)));
+  new Set(items.filter(closedLane).map((it) => `item:${it.key}`)));
   const itemTopics = new Map(topicsOf().map((t) => [t.id, t]));
   for (const it of items) {
     const t = itemTopics.get(`item:${it.key}`);
@@ -677,7 +676,6 @@ export function buildBoard(snapshot) {
   for (const it of items) {
     it.blockedBy = it.kind !== 'work' || it.lane === 'done' ? [] : it.deps.map((d) => byKey.get(String(d).includes('/') ? d : `${it.wave}/${d}`))
       .filter((d) => d && d.lane !== 'done' && !d.reopened).map((d) => ({ key: d.key, ref: d.ref }));
-    if (it.lane === 'done' && !it.fold && it.updatedAt && now - Date.parse(it.updatedAt) >= DONE_OPEN) it.fold = OLDER_FOLD;
     placeOwnerWait(it, questionById, autoMerge);
     if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it)) it.lane = 'progress';
     it.buildable = buildableOf(it);
@@ -726,11 +724,10 @@ export function buildBoard(snapshot) {
 
 // docs/adr/0140-each-lane-has-one-fixed-order.md
 // The time each lane sorts by, newest first: Todo when the card was made, In Progress and In Review (Stale too) when it
-// came into the lane, and Done when it closed, apart from an answered ask, which keeps its own time in its fold. A card
-// with none falls back to its latest activity.
+// came into the lane, Done when it closed, and Asks when Claude answered. A card with none falls back to its latest activity.
 const SORT_AT = {
   todo: (i) => i.created, progress: (i) => i.progressSince, review: (i) => i.inReviewSince, stale: (i) => i.inReviewSince,
-  done: (i) => (i.kind === 'ask' ? i.created : i.closedAt),
+  done: (i) => i.closedAt, asks: (i) => i.ask.answerAt,
 };
 // The board's order, each lane together. New cards lead Todo, oldest first, so the top one is the next taken
 // (docs/adr/0047-the-plus-makes-a-new-card.md); then bumped cards, the latest bump on top
@@ -825,7 +822,7 @@ export function needsAnswer(b) {
 // pullable lists, top first, the buildable cards with no questions, no grill under way and no message a session is
 // working on. A running grill or prototype agent keeps the board from being idle.
 export function pullOf(items) {
-  const open = items.filter((i) => i.lane !== 'done');
+  const open = items.filter((i) => !closedLane(i));
   const idle = !open.some((i) => i.waitsOn === 'checking' || (i.agents || []).some((a) => !a.done));
   const pullable = open.filter((i) => i.buildable && !i.questions && !i.grilling && !i.working).map((i) => i.key);
   return { idle, pullable };

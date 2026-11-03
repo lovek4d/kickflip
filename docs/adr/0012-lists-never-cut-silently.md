@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0144
+---
+
 # Lists never cut silently
+
+Superseded in part by [0144](0144-answered-asks-have-their-own-section-below-done.md): answered asks are a lane of their own below Done, Done and Asks show 10 cards then a Show more that says how many are left, and the Older fold is gone.
 
 A board page shows every item a list holds: every pending ask, every reply, every question it needs. When a read can't hold everything, the page says how many it shows.
 
