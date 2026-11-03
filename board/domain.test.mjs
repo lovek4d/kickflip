@@ -233,13 +233,13 @@ test("an answer after a question was resolved reopens it, but a Done card's topi
   assert.deepEqual([closed.owner[0].state, closed.ownerTopics.find((t) => t.id === 'item:w/A1').state, closed.items.find((i) => i.key === 'w/A1').questions.state], ['answered', 'resolved', 'resolved']);
 });
 
-test("a prototype request holds its question as requested until the round arrives, and the topic's round reads making, back, then closed with the confirm's take", () => {
+test("a prototype request holds its question as requested until the round arrives, and the topic's round reads making, back, then closed with the take of a pick with no note or of the confirm a noted pick opens", () => {
   const plain = { id: 'plain', topic: 'item:w/A1', question: 'Where does search sit?', options: [{ id: 'A', label: 'Above' }, { id: 'B', label: 'Behind an icon' }] };
   const takes = { id: 'takes', topic: 'item:w/A1', question: 'Which take?', url: 'prototype-search.html?q=takes', options: [{ id: 'A', label: 'Above' }, { id: 'B', label: 'Icon' }], round: 1, round_of: 'plain' };
   const confirm = { id: 'takes-confirm', topic: 'item:w/A1', question: 'Is this it?', url: 'prototype-search.html?q=takes-confirm', options: [{ id: 'B', label: 'Icon' }], round: 1, confirm_of: 'takes' };
   const resolved = (q, note, at) => ({ ...q, resolved: note, resolved_at: at });
   const request = (question, ts) => ({ id: `r-${question}`, ts, kind: 'prototype-request', data: { key: 'w/A1', question, note: 'show it on a phone' }, reply: null });
-  const answer = (id, choice, ts) => ({ id: `a-${id}`, ts, kind: 'owner-answer', data: { id, choice }, reply: null });
+  const answer = (id, choice, ts, note = '') => ({ id: `a-${id}`, ts, kind: 'owner-answer', data: { id, choice, note }, reply: null });
   const view = (items, events) => {
     const b = board({ owner: { items }, events });
     const t = b.ownerTopics.find((x) => x.id === 'item:w/A1');
@@ -257,8 +257,10 @@ test("a prototype request holds its question as requested until the round arrive
   const back = [resolved(plain, 'Followed by prototype round 1', '2026-10-23T11:00:00Z'), takes];
   assert.deepEqual(view(back, [request('plain', '2026-10-23T10:00:00Z')]),
     { states: [['plain', 'resolved'], ['takes', 'open']], round: { n: 1, state: 'back' }, open: 1, requested: 0, needs: 1 });
+  assert.deepEqual(view(back, [answer('takes', 'A', '2026-10-23T12:00:00Z')]).round, { n: 1, state: 'closed', take: 'A' });
+  assert.deepEqual(view(back, [answer('takes', null, '2026-10-23T12:00:00Z', 'Neither')]).round, { n: 1, state: 'back' });
   const confirming = [back[0], resolved(takes, 'Followed by Is this it?', '2026-10-23T12:00:01Z'), confirm];
-  const picked = [answer('takes', 'B', '2026-10-23T12:00:00Z')];
+  const picked = [answer('takes', 'B', '2026-10-23T12:00:00Z', 'Bigger icon')];
   assert.deepEqual(view(confirming, picked).round, { n: 1, state: 'back' });
   assert.deepEqual(view(confirming, [...picked, answer('takes-confirm', 'B', '2026-10-23T13:00:00Z')]).round, { n: 1, state: 'closed', take: 'B' });
   assert.deepEqual(view(confirming, [...picked, request('takes-confirm', '2026-10-23T13:00:00Z')]).round, { n: 2, state: 'making' });

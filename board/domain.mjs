@@ -316,15 +316,24 @@ export function ownerQuestion(q, answerEvents, requestEvents = []) {
 // The prototype round a question belongs to: owner.json's `round`, set by `question add` with `round_of` and on the
 // board's confirm, else 1 for a question on a prototype page and 0 for any other.
 export const roundOf = (q) => q.round ?? (PROTOTYPE_URL.test(q.url || '') ? 1 : 0);
-// A topic's latest round: making while a question in it is requested, closed once that round's confirm has an answer,
-// back while one of its questions is unresolved, else none.
+// docs/adr/0114-a-pick-with-no-note-settles-a-prototype-round.md
+// The answer that settles round n among a topic's questions (ownerQuestion views): the newest of any answer to the
+// round's confirm and a question's last answer when it picks one of its takes with no note; undefined while none has.
+export function roundSettledBy(qs, n) {
+  const settles = (q, a) => q.confirm_of || (!a.note.trim() && (q.options || []).some((o) => o.id === a.choice));
+  return qs.filter((q) => roundOf(q) === n && q.answers.length).map((q) => [q, q.answers.at(-1)])
+    .filter(([q, a]) => settles(q, a)).map(([, a]) => a)
+    .sort((x, y) => String(x.ts).localeCompare(String(y.ts))).at(-1);
+}
+// A topic's latest round: making while a question in it is requested, closed once an answer settles it, back while one
+// of its questions is unresolved, else none.
 function roundState(qs) {
   const req = qs.find((q) => q.state === 'requested');
   if (req) return { n: roundOf(req) + 1, state: 'making' };
   const n = Math.max(0, ...qs.map(roundOf));
   if (!n) return null;
-  const confirm = qs.filter((q) => q.confirm_of && roundOf(q) === n && q.answers.length).at(-1);
-  if (confirm) return { n, state: 'closed', take: confirm.answers.at(-1).choice };
+  const settled = roundSettledBy(qs, n);
+  if (settled) return { n, state: 'closed', take: settled.choice };
   return qs.some((q) => roundOf(q) === n && q.state !== 'resolved') ? { n, state: 'back' } : null;
 }
 

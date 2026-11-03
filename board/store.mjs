@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { ITEM_STATUSES, ownerQuestion, refOf, roundOf } from './domain.mjs';
+import { ITEM_STATUSES, ownerQuestion, refOf, roundOf, roundSettledBy } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason } from '../shared/usage-gate.mjs';
 import { dropQueued, reviseQueued, flushQueue, queueStatus } from '../hub/push.mjs';
@@ -876,32 +876,45 @@ export async function resolveQuestion(site, id, note) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   const q = (owner.items || []).find((x) => x.id === id);
   if (!q) fail(`no question "${id}" in owner.json`);
-  if (pageTopic(q.url)) await roundConfirmed(site, owner, q);
+  const answers = await ownerAnswers(site);
+  if (ownerQuestion(q, answers).state === 'resolved') return ownerFile(site);
+  if (pageTopic(q.url)) roundSettled(owner, q, answers);
   return markResolved(site, owner, [id], text(note, '--note'));
 }
 
-// docs/adr/0111-a-prototype-round-ends-with-a-one-take-confirm.md
-// Refuses while q's round has no answered confirm, naming the confirm.
-async function roundConfirmed(site, owner, q) {
+// docs/adr/0114-a-pick-with-no-note-settles-a-prototype-round.md
+// An owner answer with a note and no take resolves its question, noting "Answered with a note".
+export async function resolveNoteAnswer(site, { id, choice, note }) {
+  if (choice || !String(note || '').trim()) return;
+  const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
+  if (!(owner.items || []).some((q) => q.id === id)) return;
+  setResolved(owner, [id], 'Answered with a note');
+  await writeJSON(ownerFile(site), owner);
+}
+
+// docs/adr/0114-a-pick-with-no-note-settles-a-prototype-round.md
+// Refuses while no answer settles q's round, naming its confirm when one is open.
+function roundSettled(owner, q, answers) {
   const n = roundOf(q);
-  const confirms = owner.items.filter((x) => x.topic === q.topic && x.confirm_of && roundOf(x) === n);
-  const answered = new Set((await ownerAnswers(site)).map((e) => e.data?.id));
-  if (confirms.some((c) => answered.has(c.id))) return;
-  fail(confirms.length
-    ? `${q.id} is in prototype round ${n}, whose confirm ${confirms.at(-1).id} ("Is this it?") has no answer yet; the round ends when the owner answers it`
-    : `${q.id} is in prototype round ${n}, which has no "Is this it?" confirm yet; the board opens one when the owner picks a take`);
+  const round = owner.items.filter((x) => x.topic === q.topic && roundOf(x) === n).map((x) => ownerQuestion(x, answers));
+  if (roundSettledBy(round, n)) return;
+  const confirm = round.filter((x) => x.confirm_of).at(-1);
+  fail(confirm
+    ? `${q.id} is in prototype round ${n}, whose confirm ${confirm.id} ("Is this it?") has no answer yet; the round ends when the owner answers it`
+    : `${q.id} is in prototype round ${n}, which no pick has settled yet; a pick with no note settles it, and one with a note opens an "Is this it?" confirm`);
 }
 
 // docs/adr/0111-a-prototype-round-ends-with-a-one-take-confirm.md
-// The board's one-take confirm after the owner answers a prototype question with one of its takes: a new open question
-// on the same topic, round and prototype, offering that take alone. It resolves the answered question and any open
-// confirm on the topic it replaces. → the confirm's id, or null when the answer opens none.
-export async function openConfirm(site, { id, choice }) {
+// The board's one-take confirm after the owner answers a prototype question with one of its takes and a note: a new
+// open question on the same topic, round and prototype, offering that take alone. It resolves the answered question and
+// any open confirm on the topic it replaces. → the confirm's id, or null when the answer opens none.
+export async function openConfirm(site, { id, choice, note }) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   const items = owner.items || [];
   const q = items.find((x) => x.id === id);
   const take = q?.options?.find((o) => o.id === choice);
-  if (!take || q.confirm_of || !pageTopic(q.url)) return null;
+  // docs/adr/0114-a-pick-with-no-note-settles-a-prototype-round.md
+  if (!take || q.confirm_of || !pageTopic(q.url) || !String(note || '').trim()) return null;
   const taken = new Set(items.map((x) => x.id));
   let cid = `${id}-confirm`;
   for (let i = 2; taken.has(cid); i++) cid = `${id}-confirm-${i}`;

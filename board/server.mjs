@@ -63,8 +63,9 @@
 //   GET  /plan.html?…            redirects to notes.html with the same query, since pushes and threads link it
 //   POST /_claude/events         {kind, ...data} → one line in data/events.jsonl; wakes Claude.
 //                                ask, item-message and owner-answer may carry files: [upload]
-//                                An owner-answer picking a take of a prototype question opens its one-take
-//                                "Is this it?" confirm in owner.json (store.mjs openConfirm).
+//                                An owner-answer picking a take of a prototype question with a note opens its
+//                                one-take "Is this it?" confirm in owner.json (store.mjs openConfirm); one with a
+//                                note and no take resolves its question (store.mjs resolveNoteAnswer).
 //                                prototype-request {key?, question?, note?} asks for prototypes of a card, or of one question
 //                                builder-nudge {key} asks the session to check a builder. The server also appends
 //                                builder-stalled {key, silentSince} once per silent spell, tracked in data/builder-stalled.json
@@ -111,7 +112,7 @@ import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { buildBoard, ITEM_EVENTS, needsAnswer, refOf, threadOf } from './domain.mjs';
 import { createReadStream, watch as watchFiles } from 'node:fs';
-import { BoardError, boardConfig, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, openConfirm, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, boardConfig, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, openConfirm, resolveNoteAnswer, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -589,6 +590,7 @@ const server = http.createServer(async (req, res) => {
       if (kind === 'owner-answer') {
         try { await dropQueued([`q-${body.id}`], path.basename(here)); } catch {}
         await openConfirm(here, body);
+        await resolveNoteAnswer(here, body);
       }
       return json(res, 200, { id });
     }

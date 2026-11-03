@@ -61,7 +61,9 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          number, and resolves that one, noting "Followed by prototype round N". Answering or resolving
          a question drops its queued push tagged q-<id> on this site.
   question resolve <id> --note <text>                    sets resolved and resolved_at; refuses a question on a
-         prototype page until a confirm in its round has an answer
+         prototype page until an answer settles its round: a pick with no note, or any answer to the
+         "Is this it?" confirm the board opens on a pick with a note. A question already resolved,
+         such as one an answer with a note and no option resolved, is left as it is
   prototype add <topic> --title <t> --take <K>:<label>   records a prototype in data/prototypes.json: the board
          [--take <K>:<label> …] [--card <wave>/<id>]     serves prototype-<topic>.html from its one template, with
                                                          the title, a back arrow to --card (else the board), the

@@ -557,16 +557,31 @@ test('prototype rm refuses while an open question links the prototype', () => {
   assert.equal(board('prototype', 'rm', 'site', '--site', 'orch').code, 0);
 });
 
-test("question resolve refuses a prototype question until its round's one-take confirm has an answer, naming the confirm", () => {
+test("question resolve refuses a prototype question until a pick with no note or an answer to its round's one-take confirm settles the round, naming the confirm, and leaves one a note resolved as it is", () => {
   recordPrototype();
   assert.equal(addPrototypeQuestion().code, 0);
+  const file = site('orch', 'data', 'owner.json');
+  const fresh = read(file);
   const resolve = (id) => board('question', 'resolve', id, '--site', 'orch', '--note', 'Picked A.');
-  assert.deepEqual(resolve('q1'), { code: 1, out: '', err: 'q1 is in prototype round 1, which has no "Is this it?" confirm yet; the board opens one when the owner picks a take\n' });
+  const unsettled = { code: 1, out: '', err: 'q1 is in prototype round 1, which no pick has settled yet; a pick with no note settles it, and one with a note opens an "Is this it?" confirm\n' };
+  assert.deepEqual(resolve('q1'), unsettled);
+  addEvents({ id: 'answer-q1-noted', ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A', note: 'Bigger' } });
+  assert.deepEqual(resolve('q1'), unsettled);
+  addEvents({ id: 'answer-q1', ts: '2026-10-23T10:30:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A', note: '' } });
+  assert.equal(resolve('q1').code, 0);
+  assert.equal(read(file).items[0].resolved, 'Picked A.');
+  addEvents({ id: 'answer-q1-note', ts: '2026-10-23T10:40:00Z', kind: 'owner-answer', data: { id: 'q1', choice: null, note: 'Make it blue' } });
+  const noted = { ...fresh, items: [{ ...fresh.items[0], resolved: 'Answered with a note', resolved_at: '2026-10-23T10:40:01Z' }] };
+  write(file, noted);
+  assert.equal(resolve('q1').code, 0);
+  assert.deepEqual(read(file), noted);
+  write(file, fresh);
+  addEvents({ id: 'answer-q1-again', ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A', note: 'Bigger still' } });
   addConfirm('q1', false);
   const waiting = 'is in prototype round 1, whose confirm q1-confirm ("Is this it?") has no answer yet; the round ends when the owner answers it\n';
   assert.deepEqual(resolve('q1'), { code: 1, out: '', err: `q1 ${waiting}` });
   assert.deepEqual(resolve('q1-confirm'), { code: 1, out: '', err: `q1-confirm ${waiting}` });
-  assert.ok(read(site('orch', 'data', 'owner.json')).items.every((q) => !q.resolved));
+  assert.ok(read(file).items.every((q) => !q.resolved));
   addEvents({ id: 'answer-q1-confirm', ts: '2026-10-23T12:00:00Z', kind: 'owner-answer', data: { id: 'q1-confirm', choice: 'A' } });
   for (const id of ['q1', 'q1-confirm']) assert.equal(resolve(id).code, 0);
 });

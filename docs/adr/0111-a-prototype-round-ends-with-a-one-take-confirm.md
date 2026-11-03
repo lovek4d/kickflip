@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0114
+---
+
 # A prototype round ends with a one-take confirm
+
+Superseded in part by [0114](0114-a-pick-with-no-note-settles-a-prototype-round.md): a pick with no note settles the round and opens no confirm, and a note with no take resolves its question.
 
 The owner asked on hub/INT-221 to ask for a prototype from an open question, in place of an answer, and that a prototype round always ends with a single-take confirm that the board's code enforces, not the skill's wording.
 
