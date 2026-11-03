@@ -37,7 +37,8 @@
 //                     repo-changed (board-repo.mjs); the hub board's GET names kickflip's clone and its POST is refused
 //   /_hub/new-board  POST {name, github | remote, branch, purpose, tickets} → {route}: a starting reservation, then the board's session starts
 //                     without holding the response; DELETE /_hub/new-board/<route> dismisses a start that failed
-//                     or timed out (new-board.mjs)
+//                     or timed out, and POST /_hub/new-board/<route>/retry (application/json) starts it again → {route}
+//                     (new-board.mjs)
 //   /_hub/close-board/<route> GET the board's title, hub flag, open PRs and running builder records
 //   /_hub/close-board POST {route, name} stops the session, closes builder records and keeps the site under `closed`
 //   /_hub/reopen-board POST {route} restores that entry and resumes its recorded session (close-board.mjs)
@@ -150,7 +151,7 @@ import { readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
 import { checkSessions, startingBoards } from './sessions.mjs';
 import { repoService, repoLookupRoute } from './repos.mjs';
 import { boardRepo, changeBoardRepo, migrateBoardRepos } from './board-repo.mjs';
-import { requestBoard, dismissBoard } from './new-board.mjs';
+import { requestBoard, retryBoard, dismissBoard } from './new-board.mjs';
 import { boardClosure, closeBoard, closedBoards, reopenBoard } from './close-board.mjs';
 import { restartBoard, restartable } from './restart-board.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
@@ -673,6 +674,12 @@ async function hubRoute(req, res, url) {
     const hash = runningHubCode();
     return send(code, 'application/json', JSON.stringify(v), hash ? { 'x-hub-code': hash } : {});
   };
+  // Answers a New board start or retry at once with {route}, and refreshes the sidebar again when its outcome lands.
+  const starting = ({ route, started }) => {
+    started.then(({ error }) => { if (error) log(`new board /${route} didn't start: ${error}`); stream.refresh(); });
+    stream.refresh();
+    return sendJSON(200, { route });
+  };
   const json = wantsJSON(req);
   const p = url.pathname;
   const closing = /^\/_hub\/close-board\/([a-z0-9-]+)$/.exec(p);
@@ -738,12 +745,14 @@ async function hubRoute(req, res, url) {
     if (!isJSON(req.headers)) return send(403, 'text/plain; charset=utf-8', 'Send name, github, branch and purpose as application/json.');
     let input;
     try { input = await readJSONBody(req); } catch { return send(400, 'text/plain; charset=utf-8', 'Send name, github, branch and purpose as JSON.'); }
-    try {
-      const { route, started } = await requestBoard(input, { repos, changed: () => stream.refresh() });
-      started.then(({ error }) => { if (error) log(`new board /${route} didn't start: ${error}`); stream.refresh(); });
-      stream.refresh();
-      return sendJSON(200, { route });
-    } catch (e) { if (e.status) return send(e.status, 'text/plain; charset=utf-8', e.message); throw e; }
+    try { return starting(await requestBoard(input, { repos, changed: () => stream.refresh() })); }
+    catch (e) { if (e.status) return send(e.status, 'text/plain; charset=utf-8', e.message); throw e; }
+  }
+  const retry = /^\/_hub\/new-board\/([a-z0-9-]+)\/retry$/.exec(p);
+  if (retry && req.method === 'POST') {
+    if (!isJSON(req.headers)) return send(403, 'text/plain; charset=utf-8', 'Send the retry as application/json.');
+    try { return starting(await retryBoard(retry[1], { repos, changed: () => stream.refresh() })); }
+    catch (e) { if (e.status) return send(e.status, 'text/plain; charset=utf-8', e.message); throw e; }
   }
   const dismiss = /^\/_hub\/new-board\/([a-z0-9-]+)$/.exec(p);
   if (dismiss && req.method === 'DELETE') {

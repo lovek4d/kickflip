@@ -1,8 +1,10 @@
 ---
-status: superseded in part by ADR-0055, ADR-0069, ADR-0070, ADR-0073 and ADR-0074
+status: superseded in part by ADR-0055, ADR-0069, ADR-0070, ADR-0073, ADR-0074 and ADR-0130
 ---
 
 # A sidebar of every board replaces the hub home
+
+Superseded in part by [0130](0130-a-failed-start-retries-from-its-sheet.md): a failed start keeps the board's name in red with the sub line failed to start, and tapping it opens a sheet with Dismiss and Retry.
 
 Superseded in part by [0055](0055-one-app-for-the-whole-hub.md): `/` serves the app shell, which picks the board by the same rule and stores the last board as each one opens; the shell mounts the sidebar once and keeps it fresh from the hub's one stream, not a 30-second poll.
 

@@ -120,6 +120,24 @@
       + '<p class="sc-foot">Press h twice anywhere to open this. Esc to close.</p></div>';
   }
 
+  const ticketsLabel = (t) => (t.source === 'internal' ? `Internal · ${t.prefix}` : t.source === 'github' ? `GitHub issues${t.account ? ` · ${t.account}` : ''}` : `Linear · ${t.team}`);
+  function askedWhen(iso, now) {
+    const minutes = Math.floor((now - Date.parse(iso)) / 60_000);
+    return minutes < 1 ? 'just now' : minutes < 60 ? `${minutes} min ago` : usageClock(iso);
+  }
+  // The sheet a failed start's row opens (sidebar.js), inside its <dialog aria-labelledby="failedStartTitle">: the error,
+  // what the start used and when it was asked, then Dismiss and Retry. s: a /_hub/sidebar.json starting entry. Only a
+  // New board start records a branch, and only that start can run again, so a row without one has no Retry.
+  function failedStart(s, { home, now = Date.now() } = {}) {
+    const fact = (name, value) => (value ? `<dt>${name}</dt><dd>${value}</dd>` : '');
+    return `<div class="sheet-body"><div class="sheet-head"><h2 id="failedStartTitle">${esc(s.title)} failed to start</h2><button type="button" data-failed-close aria-label="Close sheet">✕</button></div>`
+      + `<p class="fs-error">${esc(s.error || "Its session didn't answer within 15 minutes.")}</p>`
+      + `<dl class="fs-facts">${fact('Repo', s.repo && esc(repoLabel(s.repo, home)))}${fact('Branch', s.branch && `<code>${esc(s.branch)}</code>`)}`
+      + `${fact('Tickets', s.tickets && esc(ticketsLabel(s.tickets)))}${fact('Asked', s.askedAt && esc(askedWhen(s.askedAt, now)))}</dl>`
+      + '<p class="fs-refused" role="alert" hidden></p>'
+      + `<div class="sheet-actions fs-actions"><button type="button" data-failed-dismiss>Dismiss</button>${s.branch ? '<button type="button" class="primary" data-failed-retry>Retry</button>' : ''}</div></div>`;
+  }
+
   function updateRow(update) {
     return update ? `<button type="button" class="sb-row sb-update-row" data-app-reload${update === 'reloading' ? ' disabled' : ''}>${tile('up', 'var(--accent)')}`
       + `<span class="sb-text"><span class="sb-title">New version</span></span><span class="sb-go">${update === 'reloading' ? 'Reloading…' : 'Reload'}</span></button>` : '';
@@ -140,9 +158,11 @@
     const boards = sites.filter((s) => s.board);
     const pages = sites.filter((s) => !s.board);
     const plus = `<span class="icon sb-plus" aria-hidden="true">${svg(ICONS.plus, 20)}</span>`;
-    const pending = (data?.starting || []).map((s) => `<div class="sb-row sb-starting" data-starting="${esc(s.route)}">${plus}`
-      + `<span class="sb-text"><span class="sb-title">${s.failed ? "Didn't start" : s.phase === 'cloning' ? 'Cloning…' : 'Starting…'}</span><span class="sb-sub">${esc(s.title)}${s.repo ? ` · ${esc(repoLabel(s.repo, data.home))}` : ''}${s.failed ? '' : s.phase === 'cloning' ? ' · Cloning from GitHub' : ' · Waiting for the board to answer'}</span>${s.error ? `<span class="sb-sub">${esc(s.error)}</span>` : ''}</span>`
-      + (s.failed ? `<button type="button" class="sb-dismiss" data-dismiss-board="${esc(s.route)}" aria-label="Dismiss ${esc(s.title)}">Dismiss</button>` : '') + '</div>').join('');
+    const pending = (data?.starting || []).map((s) => (s.failed
+      ? `<button type="button" class="sb-row sb-starting sb-failed" data-starting="${esc(s.route)}" data-failed-start="${esc(s.route)}" aria-haspopup="dialog">${plus}`
+        + `<span class="sb-text"><span class="sb-title">${esc(s.title)}</span><span class="sb-sub">failed to start</span></span></button>`
+      : `<div class="sb-row sb-starting" data-starting="${esc(s.route)}">${plus}`
+        + `<span class="sb-text"><span class="sb-title">${s.phase === 'cloning' ? 'Cloning…' : 'Starting…'}</span><span class="sb-sub">${esc(s.title)}${s.repo ? ` · ${esc(repoLabel(s.repo, data.home))}` : ''}${s.phase === 'cloning' ? ' · Cloning from GitHub' : ' · Waiting for the board to answer'}</span></span></div>`)).join('');
     const newBoard = `<button type="button" class="sb-row sb-new" data-new-board aria-haspopup="dialog">${plus}<span class="sb-text"><span class="sb-title">New board</span></span></button>`;
     const turnOn = device === 'off' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Turn on notifications', sub: 'Off on this device', cls: 'sb-turnon' })
       : device === 'install' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })
@@ -173,5 +193,5 @@
       + `<div class="sb-group">${boards.map(siteRow).join('')}${pending}${newBoard}</div></section></div>`;
   }
 
-  Object.assign(globalThis.BoardUI ||= {}, { sidebar, updateRow, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, usageTone, usageBar, usageWords });
+  Object.assign(globalThis.BoardUI ||= {}, { sidebar, failedStart, updateRow, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, usageTone, usageBar, usageWords });
 })();

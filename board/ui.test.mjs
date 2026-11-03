@@ -263,7 +263,7 @@ test("the Kickflip sidebar lists Hub, notifications, Pages, then Boards with New
   assert.match(ui.sidebar({ sites: [] }), /data-new-board aria-haspopup="dialog"/);
 });
 
-test('pending boards have muted non-link rows, failed starts can be dismissed, and New board stays last in Boards', () => {
+test("pending boards have muted non-link rows, a failed start keeps its name with failed to start and opens its sheet, and New board stays last in Boards", () => {
   const data = { sites: [{ route: 'page', title: 'Page', board: false, icon: '' }], starting: [
     { route: 'new', title: 'Backend <audit>', failed: false }, { route: 'cloning', title: 'Cloning board', phase: 'cloning', failed: false },
     { route: 'old', title: 'Old board', failed: true },
@@ -272,8 +272,11 @@ test('pending boards have muted non-link rows, failed starts can be dismissed, a
   const html = ui.sidebar(data, { switching: true });
   assert.match(html, /<div class="sb-row sb-starting" data-starting="new">.*Starting….*Backend &lt;audit&gt; · Waiting for the board to answer/);
   assert.match(html, /data-starting="cloning">.*?Cloning….*?Cloning board · Cloning from GitHub<\/span>/);
-  assert.match(html, /data-starting="old">.*Didn't start.*data-dismiss-board="old"/);
-  assert.match(html, /data-starting="broken">.*Didn't start.*claude --bg failed \(1\): &lt;Not signed in&gt;.*data-dismiss-board="broken"/);
+  for (const [route, title] of [['old', 'Old board'], ['broken', 'Broken']]) {
+    const row = new RegExp(`<button type="button" class="sb-row sb-starting sb-failed" data-starting="${route}" data-failed-start="${route}" aria-haspopup="dialog">.*?</button>`).exec(html)?.[0];
+    assert.match(row, new RegExp(`<span class="sb-title">${title}</span><span class="sb-sub">failed to start</span></span></button>$`));
+  }
+  assert.doesNotMatch(html, /Didn't start|Not signed in|Dismiss|→/);
   assert.doesNotMatch(html, /href="\/(new|old)\//);
   assert.ok(html.indexOf('data-starting="old"') < html.indexOf('data-new-board'));
   assert.ok(html.indexOf('>Pages<') < html.indexOf('>Boards<'));
@@ -284,12 +287,37 @@ test('pending boards have muted non-link rows, failed starts can be dismissed, a
 test('pending board folders use home labels with a directory boundary and tolerate cached data without home', () => {
   const home = '/Users/you';
   for (const [repo, label] of [[`${home}/x`, '~/x'], [home, '~'], ['/opt/x', '/opt/x'], [`${home}2/x`, `${home}2/x`]]) {
-    for (const failed of [false, true]) {
-      const data = { home, sites: [], starting: [{ route: 'new', title: 'New', repo, failed }] };
-      assert.ok(ui.sidebar(data).includes(`New · ${label}`));
-      assert.ok(ui.sidebar({ ...data, home: undefined }).includes(`New · ${repo}`));
-    }
+    const data = { home, sites: [], starting: [{ route: 'new', title: 'New', repo, failed: false }] };
+    assert.ok(ui.sidebar(data).includes(`New · ${label}`));
+    assert.ok(ui.sidebar({ ...data, home: undefined }).includes(`New · ${repo}`));
+    const failed = { route: 'new', title: 'New', repo, failed: true };
+    assert.ok(ui.failedStart(failed, { home }).includes(`<dt>Repo</dt><dd>${label}</dd>`));
+    assert.ok(ui.failedStart(failed).includes(`<dt>Repo</dt><dd>${repo}</dd>`));
   }
+});
+
+test("a failed start's sheet names it, shows its error or the 15-minute wait, what the start used and when it was asked, and offers Retry only for a New board start", () => {
+  const now = Date.parse('2026-11-02T15:00:00Z');
+  const ago = (min) => new Date(now - min * 60_000).toISOString();
+  const entities = { '&lt;': '<', '&gt;': '>', '&amp;': '&', '&#39;': "'", '&quot;': '"' };
+  const text = (html) => html.replace(/<[^>]+>/g, ' ').replace(/&[#\w]+;/g, (e) => entities[e]).replace(/\s+/g, ' ').trim();
+  const clone = '/Users/you/dev/.repos/acme/firmware';
+  const failed = { route: 'firmware', title: 'Firm <ware>', repo: clone, branch: 'release/next', askedAt: ago(3), failed: true,
+    tickets: { source: 'internal', prefix: 'FW' }, error: 'claude --bg failed (1): <Not signed in>' };
+  const sheet = ui.failedStart(failed, { home: '/Users/you', now });
+  assert.match(sheet, /<h2 id="failedStartTitle">Firm &lt;ware&gt; failed to start<\/h2>/);
+  assert.equal(text(sheet), 'Firm <ware> failed to start ✕ claude --bg failed (1): <Not signed in> Repo ~/dev/.repos/acme/firmware Branch release/next Tickets Internal · FW Asked 3 min ago Dismiss Retry');
+  assert.match(sheet, /<button type="button" class="primary" data-failed-retry>Retry<\/button>/);
+  for (const [tickets, label] of [[{ source: 'github' }, 'GitHub issues'], [{ source: 'github', account: 'octo' }, 'GitHub issues · octo'], [{ source: 'linear', workspace: 'acme', team: 'ENG', project: 'p1' }, 'Linear · ENG']]) {
+    assert.ok(ui.failedStart({ ...failed, tickets }, { now }).includes(`<dt>Tickets</dt><dd>${label}</dd>`), label);
+  }
+  const timedOut = { ...failed, error: undefined, askedAt: ago(0.5) };
+  assert.match(text(ui.failedStart(timedOut, { now })), /failed to start ✕ Its session didn't answer within 15 minutes\. Repo .* Asked just now Dismiss Retry$/);
+  assert.match(text(ui.failedStart({ ...timedOut, askedAt: ago(59) }, { now })), /Asked 59 min ago/);
+  assert.doesNotMatch(text(ui.failedStart({ ...timedOut, askedAt: ago(90) }, { now })), /min ago|just now/);
+  const started = ui.failedStart({ route: 'cli', title: 'CLI', repo: clone, askedAt: ago(20), failed: true }, { now });
+  assert.match(text(started), /Repo \S+ Asked 20 min ago Dismiss$/);
+  assert.doesNotMatch(started, /Branch|Tickets|data-failed-retry/);
 });
 
 test("switch mode numbers the first nine boards in sidebar order, and gives every row a letter from its name, boards claiming first in the order they joined, so a new board moves only a page's or a Hub row's letter", () => {

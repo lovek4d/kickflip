@@ -2,7 +2,7 @@ import { ticketSource } from '../board/tickets.mjs';
 import { readManifest, withManifestLock, writeManifest } from './boards.mjs';
 import { ROUTE_RE, routeFromName, routeRecord } from './routes.mjs';
 import { repoService, validateGithub, validateBranch, validateRemote } from './repos.mjs';
-import { STARTING_WAIT, startSession } from './sessions.mjs';
+import { startFailed, startSession, stopSession } from './sessions.mjs';
 import { savedClient } from './linear.mjs';
 
 const refuse = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
@@ -61,6 +61,27 @@ async function recordStart(route, outcome) {
   });
 }
 
+// The Starting row's record before its start has an outcome.
+const startingRecord = ({ title, purpose, repo, github, remote, branch, tickets }, repos) => ({
+  title, purpose, repo, ...(github ? { github } : { remote }), branch, tickets,
+  phase: repos.cloned(github || remote) ? 'starting' : 'cloning', asked_at: new Date().toISOString(),
+});
+
+// Prepares the clone and starts the route's session, recording the outcome on its Starting row. → a promise that settles
+// once the outcome is recorded, as {session} or {error}, and never rejects.
+async function start(route, { title, purpose, repo, github, remote, branch }, { run, live, repos, changed }) {
+  let outcome;
+  try {
+    await repos.ensure(github || remote, branch);
+    await recordStart(route, { phase: 'starting' });
+    changed();
+    const r = await startSession(route, { repo, prompt: joinFlags({ title, purpose }), run, live, clones: repos.base });
+    outcome = { session: r.session, name: r.name, repo: r.repo, model: r.model };
+  } catch (e) { outcome = { error: errorLine(e.message) }; }
+  try { await recordStart(route, outcome); } catch (e) { return { error: errorLine(`could not record the start: ${e.message}`) }; }
+  return outcome.error ? { error: outcome.error } : { session: outcome.session };
+}
+
 // Reserves the route on a Starting row, then starts the board's session in the background
 // (docs/adr/0069-the-hub-starts-a-new-boards-session.md). run and live go to sessions.mjs startSession. Tickets with
 // new_project create that Linear project first, through linear (linear.mjs savedClient by default); without a key the
@@ -68,10 +89,9 @@ async function recordStart(route, outcome) {
 // → {route, started}: started settles once the outcome is on the Starting row, as {session} or {error}, and never rejects.
 export async function requestBoard(input, { run, live, repos = repoService(), changed = () => {}, linear } = {}) {
   const board = details(input);
-  const { route, title, github, remote, branch, newProject } = board;
+  const { route, github, remote, newProject } = board;
   let { tickets } = board;
-  const source = github || remote;
-  const repo = repos.path(source);
+  const repo = repos.path(github || remote);
   const client = newProject === undefined ? null : linear || savedClient();
   if (client) {
     if (taken(readManifest(), route)) refuse(TAKEN);
@@ -81,31 +101,41 @@ export async function requestBoard(input, { run, live, repos = repoService(), ch
   await withManifestLock(async () => {
     const manifest = readManifest();
     if (taken(manifest, route)) refuse(TAKEN);
-    manifest.starting = { ...manifest.starting, [route]: { title, repo, ...(github ? { github } : { remote }), branch, tickets, phase: repos.cloned(source) ? 'starting' : 'cloning', asked_at: new Date().toISOString() } };
+    manifest.starting = { ...manifest.starting, [route]: startingRecord({ ...board, repo, tickets }, repos) };
     await writeManifest(manifest);
   });
-  const started = (async () => {
-    let outcome;
-    try {
-      await repos.ensure(source, branch);
-      await recordStart(route, { phase: 'starting' });
-      changed();
-      const r = await startSession(route, { repo, prompt: joinFlags(board), run, live, clones: repos.base });
-      outcome = { session: r.session, name: r.name, repo: r.repo, model: r.model };
-    } catch (e) { outcome = { error: errorLine(e.message) }; }
-    try { await recordStart(route, outcome); } catch (e) { return { error: errorLine(`could not record the start: ${e.message}`) }; }
-    return outcome.error ? { error: outcome.error } : { session: outcome.session };
-  })();
-  return { route, started };
+  return { route, started: start(route, { ...board, repo }, { run, live, repos, changed }) };
+}
+
+// The route's Starting record when its start failed (sessions.mjs startFailed), else refuses with action's verb.
+function failedStart(manifest, route, action) {
+  const pending = routeRecord(manifest.starting, route);
+  if (!pending || routeRecord(manifest.sites, route) || !startFailed(pending)) refuse(`Only a board that didn’t start can be ${action}.`);
+  return pending;
+}
+
+// Starts a failed New board start again from its Starting record, with the same route, repo, branch, tickets and
+// purpose (docs/adr/0130-a-failed-start-retries-from-its-sheet.md). A start that timed out first has its recorded
+// session stopped (sessions.mjs stopSession, with live and stop), so the route never has two. The record loses its
+// error and session, and takes a new phase and asked_at. → {route, started} as requestBoard's.
+export async function retryBoard(route, { run, live, stop, repos = repoService(), changed = () => {} } = {}) {
+  const before = failedStart(readManifest(), route, 'retried');
+  if (!before.branch) refuse('Only a board asked for with New board can be retried; make it again with New board.');
+  try { await stopSession(before, { live, stop }); } catch (e) { refuse(`Couldn’t stop its earlier session: ${e.message}`, 502); }
+  const board = await withManifestLock(async () => {
+    const manifest = readManifest();
+    const pending = failedStart(manifest, route, 'retried');
+    manifest.starting[route] = startingRecord({ ...pending, purpose: pending.purpose || '' }, repos);
+    await writeManifest(manifest);
+    return manifest.starting[route];
+  });
+  return { route, started: start(route, board, { run, live, repos, changed }) };
 }
 
 export async function dismissBoard(route) {
   return withManifestLock(async () => {
     const manifest = readManifest();
-    const pending = routeRecord(manifest.starting, route);
-    const askedAt = Date.parse(pending?.asked_at || pending?.since);
-    const failed = Boolean(pending?.error) || (Number.isFinite(askedAt) && Date.now() - askedAt >= STARTING_WAIT);
-    if (!pending || routeRecord(manifest.sites, route) || !failed) refuse('Only a board that didn’t start can be dismissed.');
+    failedStart(manifest, route, 'dismissed');
     delete manifest.starting[route];
     if (!Object.keys(manifest.starting).length) delete manifest.starting;
     await writeManifest(manifest);

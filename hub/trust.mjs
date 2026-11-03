@@ -8,7 +8,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 const claudeConfigFile = () => path.join(process.env.CLAUDE_CONFIG_DIR || os.homedir(), '.claude.json');
-// Errors end on the board's Didn't start line, which keeps 200 characters.
+// Errors end as a failed start's error line, which keeps 200 characters.
 const shown = (file) => file.startsWith(os.homedir() + path.sep) ? `~${file.slice(os.homedir().length)}` : file;
 
 function load(file) {

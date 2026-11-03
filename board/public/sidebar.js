@@ -46,7 +46,7 @@
     const aside = document.getElementById('sidebar');
     const scrim = document.getElementById('sidebarScrim');
     // ui.js replaces the BoardUI global when it loads after this, so the renderers are held here.
-    const { sidebar, updateRow, othersWaiting, switchKeys, shortcuts } = globalThis.BoardUI || {};
+    const { sidebar, failedStart, updateRow, othersWaiting, switchKeys, shortcuts } = globalThis.BoardUI || {};
     const none = { setHere() {}, setData() {}, setUpdate() {}, checkDevice() {}, close() {}, toggle() {}, keydown() {}, pointerdown() {} };
     if (!aside || !sidebar) return none;
     if (!data) { try { data = JSON.parse(read(DATA_KEY) || 'null'); } catch { data = null; } }
@@ -153,22 +153,70 @@
         onClose: () => aside.querySelector('[data-new-board]')?.focus({ preventScroll: true }),
       });
     }
-    aside.addEventListener('click', async (e) => {
+    aside.addEventListener('click', (e) => {
       const refreshApp = e.target.closest?.('[data-app-reload]');
       if (refreshApp) {
         if (!refreshApp.disabled && update !== 'reloading') { setUpdate('reloading'); reload(); }
         return;
       }
       if (e.target.closest?.('[data-new-board]')) { newBoard(); return; }
-      const dismiss = e.target.closest?.('[data-dismiss-board]');
-      if (!dismiss || dismiss.disabled) return;
-      dismiss.disabled = true;
-      try {
-        const response = await fetch(`/_hub/new-board/${encodeURIComponent(dismiss.dataset.dismissBoard)}`, { method: 'DELETE' });
-        if (!response.ok) throw new Error(await response.text());
-        await refresh();
-      } catch (e) { dismiss.disabled = false; globalThis.BoardDialogs?.notice(e.message); }
+      const failed = e.target.closest?.('[data-failed-start]');
+      if (failed) openFailed(failed.dataset.failedStart);
     });
+    // A failed start's sheet (docs/adr/0130-a-failed-start-retries-from-its-sheet.md). Dismiss deletes its Starting
+    // record; Retry starts it again, and its row reads Starting… until the hub's next copy says otherwise.
+    function openFailed(route) {
+      const s = (data?.starting || []).find((x) => x.route === route && x.failed);
+      if (!s || document.getElementById('failedStartSheet')) return;
+      const previous = document.activeElement;
+      const el = document.createElement('dialog');
+      el.setAttribute('id', 'failedStartSheet');
+      el.setAttribute('class', 'sheet');
+      el.setAttribute('aria-labelledby', 'failedStartTitle');
+      el.innerHTML = failedStart(s, { home: data.home });
+      let sending = false;
+      const done = () => { if (!sending) el.close(); };
+      async function act(request, after) {
+        sending = true;
+        el.querySelectorAll('.fs-actions button').forEach((b) => { b.disabled = true; });
+        const refused = el.querySelector('.fs-refused');
+        refused.hidden = true;
+        try {
+          const response = await fetch(`/_hub/new-board/${encodeURIComponent(route)}${request.path || ''}`, request.options);
+          if (!response.ok) throw new Error(await response.text());
+          after();
+          sending = false;
+          el.close();
+          refresh().catch(() => {});
+        } catch (e) {
+          sending = false;
+          el.querySelectorAll('.fs-actions button').forEach((b) => { b.disabled = false; });
+          refused.textContent = e.message;
+          refused.hidden = false;
+        }
+      }
+      el.addEventListener('click', (e) => {
+        if (sending) return;
+        if (e.target === el || e.target.closest('[data-failed-close]')) { done(); return; }
+        if (e.target.closest('[data-failed-dismiss]')) {
+          act({ options: { method: 'DELETE' } }, () => setData({ ...data, starting: data.starting.filter((x) => x.route !== route) }));
+        } else if (e.target.closest('[data-failed-retry]')) {
+          act({ path: '/retry', options: { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' } }, () => {
+            const { error, ...rest } = s;
+            const again = { ...rest, phase: 'starting', askedAt: new Date().toISOString(), failed: false };
+            setData({ ...data, starting: data.starting.map((x) => (x.route === route ? again : x)) });
+          });
+        }
+      });
+      el.addEventListener('cancel', (e) => { e.preventDefault(); done(); });
+      el.addEventListener('close', () => {
+        el.remove();
+        if (previous?.isConnected) previous.focus({ preventScroll: true });
+      });
+      document.body.appendChild(el);
+      el.showModal();
+      (el.querySelector('[data-failed-retry]') || el.querySelector('[data-failed-dismiss]')).focus({ preventScroll: true });
+    }
     document.addEventListener('click', (e) => {
       if (e.metaKey || e.ctrlKey || e.shiftKey) return;
       if (e.target.closest?.('[data-sidebar-close]')) { e.preventDefault(); if (rail.matches) collapse(true); else close(); return; }

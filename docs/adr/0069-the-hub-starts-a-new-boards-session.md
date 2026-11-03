@@ -1,8 +1,10 @@
 ---
-status: superseded in part by ADR-0073 and ADR-0110
+status: superseded in part by ADR-0073, ADR-0110 and ADR-0130
 ---
 
 # The hub starts a new board's session itself
+
+Superseded in part by [0130](0130-a-failed-start-retries-from-its-sheet.md): a failed start's row reads its name and failed to start, and its error line, Dismiss and Retry are in the sheet the row opens.
 
 [0073](0073-a-new-board-chooses-a-repo-and-branch.md) defines the repo-first sheet and shared clone; the hub still starts the session directly.
 

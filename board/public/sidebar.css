@@ -48,7 +48,24 @@ html.sb-update body.has-sidebar > .top .hub::after, html.sb-update body.has-side
 .sidebar .sb-new { width: 100%; text-align: left; border: 0; background: transparent; font: inherit; }
 .sidebar .sb-starting { color: var(--muted); }
 .sidebar .sb-starting:hover, .sidebar .sb-starting:active { background: transparent; }
-.sidebar .sb-dismiss { flex: none; min-height: 44px; font-size: 12px; }
+.sidebar .sb-failed { width: 100%; text-align: left; border: 0; background: transparent; font: inherit; color: var(--text); }
+.sidebar .sb-failed .sb-title { color: var(--color-danger); }
+.sidebar .sb-failed:active { background: var(--chip); }
+@media (hover: hover) { .sidebar .sb-failed:hover { background: color-mix(in srgb, var(--chip) 70%, transparent); } }
+
+#failedStartSheet .sheet-head h2 { font-size: 17px; overflow-wrap: anywhere; }
+#failedStartSheet .fs-error { margin: 4px 0 12px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--color-danger) 40%, var(--line)); border-radius: 10px;
+  color: var(--color-danger); font-size: 13px; overflow-wrap: anywhere; }
+#failedStartSheet .fs-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0 0 14px; font-size: 13px; }
+#failedStartSheet .fs-facts dt { color: var(--muted); }
+#failedStartSheet .fs-facts dd { margin: 0; overflow-wrap: anywhere; }
+#failedStartSheet .fs-refused { margin: 0 0 8px; color: var(--color-danger); font-size: 13px; }
+#failedStartSheet .fs-refused[hidden] { display: none; }
+#failedStartSheet .fs-actions { display: flex; gap: 8px; justify-content: flex-end; }
+#failedStartSheet .fs-actions button { min-height: 44px; padding: 6px 16px; }
+@media (min-width: 900px) {
+  #failedStartSheet { inset: 0; margin: auto; height: fit-content; max-height: calc(100dvh - 48px); }
+}
 .sidebar .sb-row .icon.sb-plus { color: var(--muted); background: var(--chip); }
 
 #newBoardSheet .nb-form { min-width: 0; }

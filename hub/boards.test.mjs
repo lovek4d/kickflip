@@ -632,10 +632,28 @@ test("New board validates through HTTP, reports a failed clone and preserves rep
       pending = (await sidebar()).starting.find((s) => s.route === 'backend-audit');
       return pending?.failed;
     }, 'backend-audit clone failure appears in the sidebar');
-    assert.deepEqual(pending, { route: 'backend-audit', title: request.name, repo, phase: 'cloning', askedAt: read(manifestFile).starting['backend-audit'].asked_at, failed: true, error: 'git clone failed' });
+    assert.deepEqual(pending, { route: 'backend-audit', title: request.name, repo, phase: 'cloning', branch: 'main', tickets: { source: 'internal', prefix: 'INT' }, askedAt: read(manifestFile).starting['backend-audit'].asked_at, failed: true, error: 'git clone failed' });
     assert.equal(events('orch', 'ask').length, before);
     assert.equal((await sidebar()).sites.some((s) => s.route === pending.route), false);
     assert.equal((await post(request)).status, 400);
+    const retry = (route, headers = sameOrigin) => fetch(`${base}/_hub/new-board/${route}/retry`, { method: 'POST', headers, body: '{}' });
+    for (const headers of [{ ...sameOrigin, 'content-type': 'text/plain' }, { ...sameOrigin, origin: 'https://evil.example' }]) {
+      assert.equal((await retry(pending.route, headers)).status, 403);
+    }
+    assert.equal(read(manifestFile).starting['backend-audit'].error, 'git clone failed');
+    const missing = await retry('missing');
+    assert.equal(missing.status, 400);
+    assert.match(missing.headers.get('content-type'), /^text\/plain/);
+    const retried = await retry(pending.route);
+    assert.equal(retried.status, 200);
+    assert.deepEqual(await retried.json(), { route: 'backend-audit' });
+    let again;
+    await until(async () => {
+      again = (await sidebar()).starting.find((s) => s.route === 'backend-audit');
+      return again?.failed && again.askedAt !== pending.askedAt;
+    }, 'backend-audit retry fails again with a new asked time');
+    assert.deepEqual(again, { ...pending, askedAt: read(manifestFile).starting['backend-audit'].asked_at });
+    assert.equal(read(manifestFile).starting['backend-audit'].purpose, request.purpose);
     const dismiss = (route) => fetch(`${base}/_hub/new-board/${route}`, { method: 'DELETE' });
     const join = await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['join', pending.route, '--session', 's-backend', '--template', 'board', '--title', request.name, '--repo', repo, '--port', String(auditPort)]);
     assert.equal(join.status, 0, join.stderr);

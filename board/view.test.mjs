@@ -1228,7 +1228,7 @@ const repoList = [{ github: 'owner/project', private: true, pushedAt: '2026-10-3
   { github: 'org/tools', private: false, pushedAt: '2026-10-01T12:00:00Z', description: 'Tools', clone: '/clone/.repos/org/tools', cloned: true, shared: [{ route: 'tools', title: 'Tools board' }] }];
 const repoResponse = (body) => ({ ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body });
 
-test('New board chooses a searchable repo before board details, defaults its branch, posts JSON and keeps failures dismissible on rail and drawer', async () => {
+test('New board chooses a searchable repo before board details, defaults its branch, posts JSON, and a failed start opens a sheet that retries or dismisses it on rail and drawer', async () => {
   for (const wide of [true, false]) {
     const page = repoPage(wide);
     const { win, doc } = page;
@@ -1236,6 +1236,7 @@ test('New board chooses a searchable repo before board details, defaults its bra
     let refusal = 'That board route already exists.';
     let finish;
     let hubKey = false;
+    let retryRefusal = 'Couldn’t stop its earlier session: no such job';
     const posted = [], keyPosts = [];
     win.fetch = async (url, options = {}) => {
       if (url === '/_hub/sidebar.json') return repoResponse(data);
@@ -1246,6 +1247,11 @@ test('New board chooses a searchable repo before board details, defaults its bra
       if (url === '/_hub/settings/linear') { keyPosts.push(String(options.body)); hubKey = true; return repoResponse({ linear: { set: true, title: 'Acme workspace', sub: 'Key ••••••••', summary: 'Key set · Acme workspace' } }); }
       posted.push([url, options.method, options.body && JSON.parse(options.body), options.headers?.['content-type']]);
       if (options.method === 'DELETE') { data = { ...data, starting: [] }; return repoResponse({}); }
+      if (url.endsWith('/retry')) {
+        if (retryRefusal) return { ok: false, text: async () => retryRefusal };
+        data = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', repo: repoList[0].clone, phase: 'cloning', askedAt: new Date().toISOString(), failed: false }] };
+        return repoResponse({ route: 'backend-audit' });
+      }
       if (refusal) return { ok: false, text: async () => refusal };
       return new Promise((resolve) => { finish = () => { data = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', repo: repoList[0].clone, phase: 'cloning', failed: false }] }; resolve(repoResponse({ route: 'backend-audit' })); }; });
     };
@@ -1331,11 +1337,41 @@ test('New board chooses a searchable repo before board details, defaults its bra
     assert.match(aside.querySelector('[data-starting="backend-audit"]').textContent, /Cloning….*Backend audit/);
     assert.equal(aside.querySelector('a[href="/backend-audit/"]'), null);
     assert.equal(aside.classList.contains('open'), !wide);
-    data = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', failed: true }] };
+    const failed = { route: 'backend-audit', title: 'Backend audit', repo: repoList[0].clone, branch: 'release/next', tickets: { source: 'internal', prefix: 'INT' }, askedAt: new Date().toISOString(), failed: true, error: 'claude --bg failed (1): Not logged in' };
+    data = { ...data, starting: [failed] };
     win.Sidebar.mount({ data });
-    page.fire(aside, 'click', { target: aside.querySelector('[data-dismiss-board]') });
+    const failedRow = () => aside.querySelector('[data-failed-start="backend-audit"]');
+    assert.match(failedRow().textContent, /^\s*Backend audit\s*failed to start\s*$/);
+    const openFailed = () => { page.fire(aside, 'click', { target: failedRow() }); return doc.getElementById('failedStartSheet'); };
+    let failedSheet = openFailed();
+    assert.equal(failedSheet.open, true);
+    assert.equal(failedSheet.querySelector('h2').textContent, 'Backend audit failed to start');
+    assert.match(failedSheet.textContent, /Not logged in.*Branch\s*release\/next.*Tickets\s*Internal · INT/s);
+    const tapSheet = (sel) => page.fire(failedSheet, 'click', { target: failedSheet.querySelector(sel) });
+    tapSheet('[data-failed-retry]');
+    await tick();
+    assert.deepEqual(posted.at(-1), ['/_hub/new-board/backend-audit/retry', 'POST', {}, 'application/json']);
+    assert.equal(failedSheet.open, true);
+    assert.equal(failedSheet.querySelector('.fs-refused').textContent, retryRefusal);
+    assert.equal(failedSheet.querySelector('.fs-refused').hidden, false);
+    assert.equal(failedSheet.querySelector('[data-failed-retry]').disabled, false);
+    retryRefusal = null;
+    tapSheet('[data-failed-retry]');
+    await tick();
+    assert.equal(doc.getElementById('failedStartSheet'), null);
+    assert.equal(failedRow(), null);
+    assert.match(aside.querySelector('[data-starting="backend-audit"]').textContent, /(Starting|Cloning)….*Backend audit/);
+    data = { ...data, starting: [failed] };
+    win.Sidebar.mount({ data });
+    failedSheet = openFailed();
+    tapSheet('[data-failed-close]');
+    assert.equal(doc.getElementById('failedStartSheet'), null);
+    failedSheet = openFailed();
+    tapSheet('[data-failed-dismiss]');
     await tick();
     assert.equal(posted.at(-1)[1], 'DELETE');
+    assert.equal(posted.at(-1)[0], '/_hub/new-board/backend-audit');
+    assert.equal(doc.getElementById('failedStartSheet'), null);
     assert.equal(aside.querySelector('[data-starting]'), null);
     sidebar.close();
   }

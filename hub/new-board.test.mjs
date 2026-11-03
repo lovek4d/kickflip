@@ -16,7 +16,7 @@ fs.writeFileSync(claudeConfig, '{}');
 const shownConfig = '~/claude-config/.claude.json';
 const config = () => JSON.parse(fs.readFileSync(claudeConfig, 'utf8'));
 const trusted = (dir) => config().projects?.[dir]?.hasTrustDialogAccepted === true;
-const { requestBoard, dismissBoard } = await import('./new-board.mjs');
+const { requestBoard, retryBoard, dismissBoard } = await import('./new-board.mjs');
 const { repoService, repoPath, validateBranch, runRepo, githubGitArgv } = await import('./repos.mjs');
 const { boardRepo, changeBoardRepo, migrateBoardRepos, githubFromOrigin } = await import('./board-repo.mjs');
 const { startingBoards, STARTING_WAIT, BG_SETTINGS } = await import('./sessions.mjs');
@@ -94,10 +94,10 @@ test('new repo requests clone before starting a session and store the board bran
   const rec = readManifest().starting['bob-s-audit'];
   assert.equal(started.session, rec.session);
   assert.ok(fs.existsSync(path.join(sessionsDir, `${rec.session}.json`)));
-  assert.deepEqual(rec, { title: "Bob's audit", repo, github: 'owner/new-project', branch: 'release/next', tickets: { source: 'internal', prefix: 'INT' }, phase: 'starting', asked_at: pending.asked_at, session: rec.session, label: "Bob's audit", since: rec.since });
+  assert.deepEqual(rec, { title: "Bob's audit", purpose: 'Review $HOME changes', repo, github: 'owner/new-project', branch: 'release/next', tickets: { source: 'internal', prefix: 'INT' }, phase: 'starting', asked_at: pending.asked_at, session: rec.session, label: "Bob's audit", since: rec.since });
   assert.ok(fs.existsSync(path.join(repo, '.git')));
   const at = Date.parse(rec.asked_at);
-  assert.deepEqual(startingBoards(readManifest(), at), [{ route: 'bob-s-audit', title: "Bob's audit", repo, phase: 'starting', askedAt: rec.asked_at, failed: false }]);
+  assert.deepEqual(startingBoards(readManifest(), at), [{ route: 'bob-s-audit', title: "Bob's audit", repo, phase: 'starting', branch: 'release/next', tickets: { source: 'internal', prefix: 'INT' }, askedAt: rec.asked_at, failed: false }]);
   assert.equal(startingBoards(readManifest(), at + STARTING_WAIT)[0].failed, true);
   noEvents();
   await assert.rejects(dismissBoard(request.route), { status: 400 });
@@ -159,11 +159,62 @@ test("a claude that fails marks the Starting row Didn't start at once with its f
     assert.ok(error.length <= 200, error);
     const rec = readManifest().starting[route];
     assert.deepEqual([rec.error, rec.session], [error, undefined]);
-    assert.deepEqual(startingBoards(readManifest(), Date.parse(rec.asked_at)), [{ route, title: `Broken ${i}`, repo: path.join(base, 'owner/project'), phase: 'starting', askedAt: rec.asked_at, failed: true, error }]);
+    assert.deepEqual(startingBoards(readManifest(), Date.parse(rec.asked_at)), [{ route, title: `Broken ${i}`, repo: path.join(base, 'owner/project'), phase: 'starting', branch: 'main', tickets: { source: 'internal', prefix: 'INT' }, askedAt: rec.asked_at, failed: true, error }]);
     noEvents();
     assert.deepEqual(await dismissBoard(route), { route });
     assert.equal(readManifest().starting, undefined);
   }
+});
+
+test('Retry starts a failed start again from its record, stopping a timed-out start\'s session first, and refuses a start that is still running or never came from New board', async () => {
+  saveJSON(manifestFile, { sites });
+  const repo = path.join(base, 'owner/project');
+  const tickets = { source: 'linear', workspace: 'acme', team: 'ENG', project: 'p1' };
+  const broken = claude({ status: 1, stdout: '', stderr: 'Not signed in · run claude /login' });
+  const first = await requestBoard({ ...input('Retry me'), purpose: 'Try it again', tickets }, { run: broken.run, live, repos });
+  assert.match((await first.started).error, /Not signed in/);
+  const failedAt = readManifest().starting['retry-me'].asked_at;
+  const working = claude();
+  const stops = [];
+  const stop = async (record) => { stops.push(record); };
+  const changes = [];
+  const again = await retryBoard('retry-me', { run: working.run, live, stop, repos, changed: () => changes.push('retry-me') });
+  assert.equal(again.route, 'retry-me');
+  const reset = readManifest().starting['retry-me'];
+  assert.deepEqual(reset, { title: 'Retry me', purpose: 'Try it again', repo, github: 'owner/project', branch: 'main', tickets, phase: 'starting', asked_at: reset.asked_at });
+  assert.ok(reset.asked_at >= failedAt);
+  assert.equal(startingBoards(readManifest())[0].failed, false);
+  await assert.rejects(retryBoard('retry-me', { run: working.run, live, stop, repos }), { status: 400, message: 'Only a board that didn’t start can be retried.' });
+  const { session } = await again.started;
+  assert.deepEqual(changes, ['retry-me']);
+  assert.deepEqual(stops, []);
+  assert.deepEqual(working.calls, [{ cwd: repo, argv: broken.calls[0].argv }]);
+  assert.equal(working.calls[0].argv.at(-1), "/kickflip retry-me --template board --items data/wave.json --title 'Retry me' --description 'Try it again'");
+  const started = readManifest().starting['retry-me'];
+  assert.deepEqual([started.session, started.error], [session, undefined]);
+
+  const timedOut = readManifest();
+  timedOut.starting['retry-me'].asked_at = new Date(Date.now() - STARTING_WAIT).toISOString();
+  saveJSON(manifestFile, timedOut);
+  const running = new Map([[session, { pid: 4242, kind: 'bg', sessionId: session }]]);
+  const refusing = async () => { throw new Error('claude stop failed: no such job'); };
+  await assert.rejects(retryBoard('retry-me', { run: working.run, live: () => running, stop: refusing, repos }), { status: 502, message: 'Couldn’t stop its earlier session: claude stop failed: no such job' });
+  assert.deepEqual(readManifest().starting['retry-me'], timedOut.starting['retry-me']);
+  const stopping = async (record) => { stops.push([record, working.calls.length, readManifest().starting['retry-me'].session]); running.delete(session); };
+  const third = await retryBoard('retry-me', { run: working.run, live: () => running, stop: stopping, repos });
+  assert.deepEqual(stops, [[{ pid: 4242, kind: 'bg', sessionId: session }, 1, session]]);
+  const restarted = await third.started;
+  assert.notEqual(restarted.session, session);
+  assert.equal(working.calls.length, 2);
+  assert.equal(readManifest().starting['retry-me'].session, restarted.session);
+
+  const cli = readManifest();
+  cli.starting.reserved = { session: 's-reserved', label: 'Reserved', since: new Date(Date.now() - STARTING_WAIT).toISOString(), repo };
+  saveJSON(manifestFile, cli);
+  await assert.rejects(retryBoard('reserved', { run: working.run, live, stop, repos }), { status: 400, message: /New board/ });
+  await assert.rejects(retryBoard('missing', { run: working.run, live, stop, repos }), { status: 400 });
+  assert.equal(working.calls.length, 2);
+  noEvents();
 });
 
 test("a clone Claude Code can't be told to trust reads Didn't start with the reason, and its config is never made or replaced", async (t) => {
