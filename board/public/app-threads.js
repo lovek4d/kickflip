@@ -106,7 +106,7 @@ BoardView.part((B) => {
     if (!b) return;
     const key = b.closest('form').dataset.reply;
     b.disabled = true;
-    try { await B.sentHere(key, () => B.site.send('item-message', { key, text: b.dataset.quick })); loadThread(key, { force: true }); }
+    try { await B.sentHere(key, () => B.send('item-message', { key, text: b.dataset.quick })); loadThread(key, { force: true }); }
     catch { toast('Could not send'); }
     b.disabled = false;
   });
@@ -121,13 +121,13 @@ BoardView.part((B) => {
       const n = protoNotice(pending, latest);
       if (!n.bump) { B.notice(n.text); return; }
       if (!(await B.confirm(n.text))) return;
-      try { await B.site.send('ask-bump', { id: pending }); toast('Bumped to the top'); } catch { toast('Could not bump'); }
+      await B.bumpAsk(pending);
       return;
     }
     if (!(await B.confirm('Ask Claude for prototypes of this item?'))) return;
     b.disabled = true;
     try {
-      await B.sentHere(key, () => B.site.send('prototype-request', { key }));
+      await B.sentHere(key, () => B.send('prototype-request', { key }));
       b.title = b.ariaLabel = 'Prototypes asked for';
       toast('Asked Claude for prototypes');
       loadThread(key, { force: true });
@@ -147,7 +147,7 @@ BoardView.part((B) => {
     const btn = f.querySelector('button[type=submit]'); btn.disabled = true;
     try {
       await sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),
-        () => B.sentHere(key, () => B.site.send('item-message', { key, text, ...(files.length ? { files } : {}) })));
+        () => B.sentHere(key, () => B.send('item-message', { key, text, ...(files.length ? { files } : {}) })));
       BoardAttach.clear(id, B.site.root);
       btn.disabled = false;
       loadThread(f.dataset.reply, { force: true });

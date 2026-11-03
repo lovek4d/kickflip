@@ -65,7 +65,9 @@
 //                                {error}. /api/plan is the same, for pages loaded before the rename
 //   GET  /api/notes?wave=<slug>  {title, markdown}: a lineup's goal, order and note (store.mjs readLineupNotes)
 //   GET  /plan.html?…            redirects to notes.html with the same query, since pushes and threads link it
-//   POST /_claude/events         {kind, ...data} → one line in data/events.jsonl; wakes Claude.
+//   POST /_claude/events         {kind, ...data} → one line in data/events.jsonl; wakes Claude. → {id, board}: the
+//                                event's id and /api/board's answer as the tap left it, so the page draws the tap from
+//                                the one round trip (docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md)
 //                                ask, item-message and owner-answer may carry files: [upload]
 //                                An owner-answer with a note and no take resolves its question (store.mjs
 //                                resolveNoteAnswer).
@@ -430,13 +432,15 @@ async function setupOf(links) {
   return steps;
 }
 
+// generatedAt is when the board began reading, so of two boards the later one holds every change the earlier one does.
 async function board() {
+  const generatedAt = new Date().toISOString();
   const { title, reviewers } = await config();
   const self = boardAt(here);
   const listen = self ? listenState(self) : 'deaf';
   const built = buildBoard({ ...(await snapshot()), listen, prompts: self ? pendingFor(self.route).map(shown) : [] });
   const links = self ? linksOf(self, { listen }) : null;
-  return { generatedAt: new Date().toISOString(), title, reviewers: (reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string'), ...built, links, setup: await setupOf(links),
+  return { generatedAt, title, reviewers: (reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string'), ...built, links, setup: await setupOf(links),
     holdChoices: durationChoices(new Date(), 'until you unhold it'), arch: self ? archOf(await readReviews(here), built.items, built.owner, { repo: repoName(boardRepo(self.route)), waits: reviewWaits() }) : null };
 }
 
@@ -660,7 +664,7 @@ const server = http.createServer(async (req, res) => {
       if (kind === 'card-build') {
         const key = String(body.key || '');
         const started = await startTappedBuild(here, key, () => boardWorktree(here, key.split('/')[1]));
-        return json(res, 200, { id: started && !started.queued ? await appendEvent(kind, started) : null });
+        return json(res, 200, { id: started && !started.queued ? await appendEvent(kind, started) : null, board: await board() });
       }
       const id = await appendEvent(kind, body);
       if (kind === 'owner-answer') {
@@ -673,7 +677,8 @@ const server = http.createServer(async (req, res) => {
       if (kind === 'card-hold' || kind === 'card-done') {
         try { await recordOwnerTap(here, kind, body); } catch (e) { console.error(`Recording ${kind} failed:`, e.message); }
       }
-      return json(res, 200, { id });
+      // docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md
+      return json(res, 200, { id, board: await board() });
     }
     if (p === '/api/rules' && req.method === 'GET') return json(res, 200, { board: await readBoardRules(here), hub: readHubRules() });
     if (p === '/api/rules' && req.method === 'POST') {

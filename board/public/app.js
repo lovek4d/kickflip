@@ -174,6 +174,7 @@ window.BoardView = (function () {
         B.renderNeeds(d);
         B.renderBanner(d);
       });
+      paintFades();
       B.flashChanged();
       B.signCards(load);
     }
@@ -233,7 +234,7 @@ window.BoardView = (function () {
       const snap = B.readSnapshot();
       if (!snap) return false;
       const live = Boolean(B.live) && snap.board?.generatedAt === B.live.generatedAt;
-      state.board = snap.board;
+      served = state.board = snap.board;
       for (const [key, msgs] of Object.entries(snap.threads)) state.threadCache.set(key, msgs);
       state.fresh = live ? B.live.fresh : { at: snap.savedAt, sig: null };
       B.setView(live ? 'fresh' : 'snapshot');
@@ -263,16 +264,7 @@ window.BoardView = (function () {
       try {
         const board = await (started?.board || fetch(B.site.url('api/board'), { cache: 'no-store' })
           .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`board ${r.status}`)))));
-        const first = state.view !== 'fresh';
-        state.board = board;
-        B.setView('fresh');
-        if (!hashRead || (first && focusKey)) { readHash(); hashRead = true; }
-        B.linkUp();
-        render(load);
-        scrollToFocus();
-        returnToPlace();
-        B.site.syncBadge();
-        B.saveSnapshotSoon();
+        land(board, load);
         landed = true;
         if (!preloaded) {
           preloaded = true;
@@ -284,6 +276,79 @@ window.BoardView = (function () {
       await Promise.all(threads);
       if (landed) B.landed(via);
       if (state.view === 'fresh') B.endFlash();
+    }
+
+    // A board from the server, a load's or an events POST's, with the taps still in flight drawn over it. One built
+    // before the board on screen leaves it as it is, so a slow load can't undo a newer one. → whether it landed
+    let served = null;
+    const drawing = new Set();
+    const drawn = () => [...drawing].reduce((board, draw) => draw(board), served);
+    function land(board, load) {
+      if (state.view === 'fresh' && served && board.generatedAt < served.generatedAt) return false;
+      const first = state.view !== 'fresh';
+      served = board;
+      state.board = drawn();
+      B.setView('fresh');
+      if (!hashRead || (first && focusKey)) { readHash(); hashRead = true; }
+      B.linkUp();
+      render(load);
+      scrollToFocus();
+      returnToPlace();
+      B.site.syncBadge();
+      B.saveSnapshotSoon();
+      return true;
+    }
+    function undraw(draw) {
+      drawing.delete(draw);
+      state.board = drawn();
+      render();
+    }
+
+    // An owner tap (docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md): the events POST answers with
+    // the board as the tap left it, which lands as a load of its own, so the tap needs no reload. draw(board) → board is
+    // what the tap changes when its result follows from the tap alone: the page draws it before the POST and keeps it
+    // over every board that lands until the POST settles; a failed POST takes it back off and throws.
+    async function send(kind, data, draw = null) {
+      if (draw) {
+        drawing.add(draw);
+        state.board = drawn();
+        render();
+      }
+      let out;
+      try { out = await B.site.send(kind, data); }
+      catch (e) {
+        if (draw && B.alive()) undraw(draw);
+        throw e;
+      }
+      drawing.delete(draw);
+      // A board newer than the POST's already holds the tap.
+      if (B.alive() && !land(out.board, B.boardLoad = (B.boardLoad || 0) + 1) && draw) undraw(draw);
+      return out;
+    }
+    // A draw that changes the item with that key, the board's order kept as the server sorts it.
+    const drawItem = (key, change) => (board) => ({ ...board, items: board.items.map((i) => (i.key === key ? change({ ...i }) : i)).sort(BoardUI.laneOrder) });
+
+    // The bump icon's fill fades in as a tap bumps a card and out as one unbumps it, on a toast's timing (toasts.js), and
+    // keeps fading through any redraw meanwhile. selector names the icon.
+    const fades = new Map();
+    function paintFades() {
+      for (const [selector, { name, ms }] of fades) {
+        const icon = $(selector);
+        if (!icon) continue;
+        icon.classList.add(name);
+        icon.style.setProperty('--bump-fade', `${ms}ms`);
+      }
+    }
+    function fadeBump(selector, on) {
+      const fade = { name: on ? 'bump-in' : 'bump-out', ms: on ? BoardToasts.enterTime() : BoardToasts.exitTime() };
+      $(selector)?.classList.remove('bump-in', 'bump-out');
+      fades.set(selector, fade);
+      paintFades();
+      B.later(fade.ms, () => {
+        if (fades.get(selector) !== fade) return;
+        fades.delete(selector);
+        $(selector)?.classList.remove(fade.name);
+      });
     }
 
     // The server signals each change to what the board reads, through the shell, and the board reloads at once; the
@@ -300,7 +365,9 @@ window.BoardView = (function () {
       });
     }
 
-    Object.assign(B, { render, loadBoard });
+    // The toast for a tap drawn at once whose POST failed, as the page takes the drawing back off.
+    const FAILED = 'That didn’t go through. Is the host awake?';
+    Object.assign(B, { render, loadBoard, send, drawItem, fadeBump, reload: signalled, FAILED });
     const live = paintSnapshot();
     B.headerWired();
     if (live) B.linkUp();

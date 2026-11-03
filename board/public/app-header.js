@@ -49,7 +49,7 @@ BoardView.part((B) => {
   function askGitHub() {
     state.githubPending = Date.now();
     B.render();
-    B.site.send('check-github', {}).catch(() => { state.githubPending = null; B.render(); toast('Could not ask Claude to check GitHub'); });
+    B.send('check-github', {}).catch(() => { state.githubPending = null; B.render(); toast('Could not ask Claude to check GitHub'); });
   }
   B.on(B.root, 'click', (ev) => {
     const b = ev.target.closest('[data-check-github]');

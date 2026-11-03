@@ -17,17 +17,17 @@ import { reviewLinks, reviewTime, reviewersOf } from './review.mjs';
 import { remoteFromInput } from '../hub/repos.mjs';
 import vm from 'node:vm';
 
-// A page script with no exports, which the page loads as is, so node runs it the same way.
+// Page scripts with no exports, which the page loads as is, so node runs them the same way.
 const enums = vm.createContext({});
-vm.runInContext(fs.readFileSync(new URL('./public/ui-enums.js', import.meta.url), 'utf8'), enums);
+for (const file of ['ui-enums.js', 'ui-order.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), enums);
 export const { BUTTON, ACTION_KIND, BUILDER_KIND } = enums.BoardUI;
+const { laneOrder } = enums.BoardUI;
 
 export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'build-followup', 'prototype-request'];
 export const ITEM_STATUSES = ['planned', 'waiting', 'building', 'fixing', 'checking', 'held', 'merged', 'done', 'dropped'];
 export const BUILDER_STALLED_AFTER = 30 * 60000;
 // The thread line's kind for a Build tap the board server refused (store.mjs startTappedBuild).
 export const BUILD_REFUSED = 'build-refused';
-const LANE_ORDER = { review: 0, stale: 1, progress: 2, todo: 3, done: 4, asks: 5 };
 const DAY = 86400000;
 // Done holds closed work cards and follow-ups, Asks the answered asks (docs/adr/0144-answered-asks-have-their-own-section-below-done.md).
 const closedLane = (i) => i.lane === 'done' || i.lane === 'asks';
@@ -708,7 +708,7 @@ export function buildBoard(snapshot) {
     it.buildable = buildableOf(it);
     it.sortAt = SORT_AT[it.lane](it) || it.updatedAt || null;
   }
-  // Items arrive in the order the page shows them.
+  // Items arrive in the order the page shows them (public/ui-order.js).
   items.sort(laneOrder);
 
   const waveRows = waveRowsOf(snapshot, waves, lineups, items, questions, events);
@@ -756,17 +756,6 @@ const SORT_AT = {
   todo: (i) => i.created, progress: (i) => i.progressSince, review: (i) => i.inReviewSince, stale: (i) => i.inReviewSince,
   done: (i) => i.closedAt, asks: (i) => i.ask.answerAt,
 };
-// The board's order, each lane together. New cards lead Todo, oldest first, so the top one is the next taken
-// (docs/adr/0047-the-plus-makes-a-new-card.md); then bumped cards, the latest bump on top
-// (docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md); then the rest newest first by sortAt, a card with no time
-// last, the last added to its wave file on top.
-function laneOrder(a, b) {
-  const bumped = (i) => i.bumpedAt || '';
-  const unsorted = (i) => (i.isNew ? 0 : 1);
-  const at = (i) => String(i.sortAt || '');
-  const age = a.isNew ? at(a).localeCompare(at(b)) : at(b).localeCompare(at(a));
-  return LANE_ORDER[a.lane] - LANE_ORDER[b.lane] || unsorted(a) - unsorted(b) || bumped(b).localeCompare(bumped(a)) || age || b.order - a.order || a.key.localeCompare(b.key);
-}
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 

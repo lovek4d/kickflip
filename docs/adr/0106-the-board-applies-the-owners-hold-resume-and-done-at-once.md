@@ -1,10 +1,12 @@
 ---
-status: superseded in part by ADR-0131
+status: superseded in part by ADR-0131 and ADR-0151
 ---
 
 # The board applies the owner's Hold, Resume and Done at once
 
 Superseded in part by [0131](0131-the-cli-and-board-server-do-the-boards-housekeeping.md): the board server writes Hold, Resume and Done to the wave file, with the owner's thread line and `card-unblocked`; the session only stops a builder.
+
+Superseded in part by [0151](0151-every-owner-tap-the-server-can-apply-draws-at-once.md): every owner tap the server can apply draws at once, from the events POST's answer, and the board's rule for taps generalises this one.
 
 The board applies the latest `card-hold` and `card-done` itself, as it does `ask-done`. The card shows the owner's tap as soon as the event arrives, before the owning session follows up.
 

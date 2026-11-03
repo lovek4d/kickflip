@@ -279,6 +279,16 @@ main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .ask-actions .icon:disabled { opacity: .35; }
 .ask-actions .icon.bumped { color: var(--color-notice); opacity: 1; }
 .ask-actions .icon.bumped svg { fill: currentColor; }
+/* A tap's bump fades the icon's fill in, and an unbump fades it out, on a toast's timing, which app.js fadeBump sets as --bump-fade */
+.ask-actions .icon { --bump-fade: 0ms; }
+@keyframes bump-in { from { color: var(--muted); } }
+@keyframes bump-fill-in { from { fill: transparent; } }
+@keyframes bump-out { from { color: var(--color-notice); opacity: 1; } }
+@keyframes bump-fill-out { from { fill: var(--color-notice); } to { fill: transparent; } }
+.ask-actions .icon.bump-in { animation: bump-in var(--bump-fade) linear; }
+.ask-actions .icon.bump-in svg { animation: bump-fill-in var(--bump-fade) linear; }
+.ask-actions .icon.bump-out { animation: bump-out var(--bump-fade) linear; }
+.ask-actions .icon.bump-out svg { animation: bump-fill-out var(--bump-fade) linear; }
 /* A work card's empty bump icon always shows on touch screens; with a hover pointer it shows while the card is hovered or holds focus */
 @media (hover: hover) {
   .item button[data-card-bump]:not(.bumped) { opacity: 0; }

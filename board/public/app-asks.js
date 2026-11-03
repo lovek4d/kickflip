@@ -70,23 +70,31 @@ BoardView.part((B) => {
     if ((!text && !files.length) || BoardAttach.busy('ask', B.site.root)) return;
     $('#askStatus').textContent = 'Sending…';
     try {
-      await sendDraft('draft:ask', $('#askText'), () => $('#askText'), () => B.site.send('ask', { text, ...(files.length ? { files } : {}) }));
+      await sendDraft('draft:ask', $('#askText'), () => $('#askText'), () => B.send('ask', { text, ...(files.length ? { files } : {}) }));
       BoardAttach.clear('ask', B.site.root);
       $('#askStatus').textContent = '';
       closeSheet();
       toast('Sent');
-      B.loadBoard();
     } catch { $('#askStatus').textContent = 'Could not send'; }
   });
 
-  B.on(B.root, 'click', async (ev) => {
+  // A bump moves the New card to the top at once, its icon filling as it goes
+  // (docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md).
+  async function bumpAsk(id) {
+    const icon = `button[data-bump="${CSS.escape(id)}"]`;
+    const at = new Date().toISOString();
+    const sending = B.send('ask-bump', { id }, B.drawItem(`ask:${id}`, (it) => ({ ...it, bumpedAt: at, ask: { ...it.ask, bumpedAt: at } })));
+    B.fadeBump(icon, true);
+    try { await sending; toast('Bumped to the top'); } catch { B.fadeBump(icon, false); toast(B.FAILED); }
+  }
+  B.on(B.root, 'click', (ev) => {
     const bump = ev.target.closest('button[data-bump]');
     if (!bump) return;
     ev.preventDefault();
     bump.disabled = true;
-    try { await B.site.send('ask-bump', { id: bump.dataset.bump }); toast('Bumped to the top'); } catch { toast('Could not bump'); }
-    B.loadBoard();
+    bumpAsk(bump.dataset.bump);
   });
+  B.bumpAsk = bumpAsk;
   // A New card's icons sit on the card; a message in a thread, an ask's included, carries its thread's key.
   async function pendingMessage(b, id) {
     const card = b.closest('details.item');
@@ -138,11 +146,11 @@ BoardView.part((B) => {
     B.render();
     if (msg) msg.hidden = true;
     try {
-      await B.site.send('ask-withdrawn', { id, ...(key ? { key } : {}) });
+      await B.send('ask-withdrawn', { id, ...(key ? { key } : {}) });
       await hide(id, true);
       toast('Deleted');
-      if (key) B.loadThread(key, { force: true }); else B.loadBoard();
-    } catch { state.withdrawnAsks.delete(id); B.render(); if (msg) msg.hidden = false; toast('Could not delete'); }
+      if (key) B.loadThread(key, { force: true });
+    } catch { state.withdrawnAsks.delete(id); B.render(); if (msg) msg.hidden = false; toast(B.FAILED); }
   });
   B.on(B.root, 'submit', async (ev) => {
     const form = ev.target.closest('form.edit-form');
@@ -153,14 +161,22 @@ BoardView.part((B) => {
     if (!e) return;
     const text = form.querySelector('textarea').value.trim();
     if (!text) { toast('Write something, or delete the message'); return; }
-    const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
+    // The new text shows at once, in the thread and on the New card; a failed save puts the old text back and reopens
+    // the edit box with what was typed (docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md).
+    const before = state.threadCache.get(e.thread);
+    if (before) state.threadCache.set(e.thread, before.map((m) => (m.eventId === id ? { ...m, text, edited: true } : m)));
+    closeEditor(id);
+    const title = text.split('\n')[0];
     try {
-      await B.site.send('ask-edited', { ...e.data, text });
-      closeEditor(id);
+      await B.send('ask-edited', { ...e.data, text }, B.drawItem(`ask:${id}`, (it) => ({ ...it, title, ask: { ...it.ask, text, edited: true } })));
       toast('Edited');
       B.loadThread(e.thread, { force: true });
-      B.loadBoard();
-    } catch { btn.disabled = false; toast('Could not save'); }
+    } catch {
+      if (before) state.threadCache.set(e.thread, before);
+      state.edits.set(id, { ...e, text });
+      B.repaintThread(e.thread);
+      toast(B.FAILED);
+    }
   });
   // The asks watch polls every 10 s while an ask waits for its reply, sooner than the board's own refresh.
   let asksSeen = false;

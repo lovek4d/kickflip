@@ -95,7 +95,7 @@ BoardView.part((B) => {
     } finally { postingMain = false; }
     if (B.alive()) {
       renderMainLog(state.board.main);
-      B.loadBoard();
+      B.reload();
     }
   });
 
@@ -129,9 +129,8 @@ BoardView.part((B) => {
   }
   async function hold(key, choice) {
     closeHold();
-    try { await B.sentHere(key, () => B.site.send('card-hold', { key, hold: true, for: choice })); }
+    try { await B.sentHere(key, () => B.send('card-hold', { key, hold: true, for: choice })); }
     catch { toast('Could not hold. Is the host awake?'); }
-    B.loadBoard();
   }
   B.on($('#holdClose'), 'click', closeHold);
   B.on(holdSheet, 'click', (ev) => {
@@ -317,21 +316,23 @@ BoardView.part((B) => {
       const out = await r.json();
       if (!r.ok) throw new Error(out.error || 'The hub refused the build.');
     } catch (error) { toast(error.message || 'Could not start. Is the host awake?'); }
-    if (B.alive()) B.loadBoard();
+    B.reload();
   });
 
   // A work card's bump icon bumps it, or unbumps a bumped one, with no confirm
-  // (docs/adr/0145-build-on-a-blocked-card-queues-it.md).
+  // (docs/adr/0145-build-on-a-blocked-card-queues-it.md), and the card moves at once
+  // (docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md).
   B.on(B.root, 'click', async (ev) => {
     const b = ev.target.closest('button[data-card-bump]');
     if (!b) return;
     ev.preventDefault();
     const key = b.dataset.cardBump;
     const unbump = b.hasAttribute('data-bumped');
-    b.disabled = true;
-    try { await B.sentHere(key, () => B.site.send(unbump ? 'card-unbump' : 'card-bump', { key })); toast(unbump ? 'Unbumped' : 'Moved to the top'); }
-    catch { toast('Could not send. Is the host awake?'); }
-    B.loadBoard();
+    const icon = `button[data-card-bump="${CSS.escape(key)}"]`;
+    const sending = B.sentHere(key, () => B.send(unbump ? 'card-unbump' : 'card-bump', { key }, B.drawItem(key, (it) => ({ ...it, bumpedAt: unbump ? null : new Date().toISOString() }))));
+    B.fadeBump(icon, !unbump);
+    try { await sending; toast(unbump ? 'Unbumped' : 'Moved to the top'); }
+    catch { B.fadeBump(icon, unbump); toast(B.FAILED); }
   });
 
   B.on(B.root, 'click', async (ev) => {
@@ -343,28 +344,27 @@ BoardView.part((B) => {
     if (it && act === 'hold') { openHold(it); return; }
     if (!it || !(await B.confirm(CONFIRM[act](it, it.ref)))) return;
     if (act === 'resume') {
-      try { await B.sentHere(key, () => B.site.send('card-hold', { key, hold: false })); }
+      try { await B.sentHere(key, () => B.send('card-hold', { key, hold: false })); }
       catch { toast('Could not resume. Is the host awake?'); }
-      B.loadBoard();
       return;
     }
     // docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md
     if (act === 'merge') {
       sendingMerge.add(key);
       redrawActions(key);
-      try { await B.sentHere(key, () => B.site.send('card-merge', { key })); }
+      try { await B.sentHere(key, () => B.send('card-merge', { key })); }
       catch { toast('Could not send. Is the host awake?'); }
       sendingMerge.delete(key);
-      B.loadBoard();
+      redrawActions(key);
       return;
     }
     if (act === 'card-build') {
       sendingBuild.add(key);
       redrawActions(key);
-      try { await B.sentHere(key, () => B.site.send('card-build', { key })); }
+      try { await B.sentHere(key, () => B.send('card-build', { key })); }
       catch { toast('Could not send. Is the host awake?'); }
       sendingBuild.delete(key);
-      B.loadBoard();
+      redrawActions(key);
       return;
     }
     // docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md
@@ -372,9 +372,8 @@ BoardView.part((B) => {
     if (act === 'finish') {
       const card = $(`details.item[data-key="${CSS.escape(key)}"]`);
       if (card) card.open = false;
-      try { await B.sentHere(key, () => (it.kind === 'ask' ? B.site.send('ask-done', { id: it.id }) : B.site.send('card-done', { key }))); }
+      try { await B.sentHere(key, () => (it.kind === 'ask' ? B.send('ask-done', { id: it.id }) : B.send('card-done', { key }))); }
       catch { toast('Could not close. Is the host awake?'); }
-      await B.loadBoard();
       B.syncDone(key);
       return;
     }
@@ -382,10 +381,9 @@ BoardView.part((B) => {
     row?.querySelectorAll('button').forEach((x) => { x.disabled = true; });
     b.disabled = true;
     try {
-      if (act === 'nudge') { await B.sentHere(key, () => B.site.send('builder-nudge', { key })); b.textContent = 'Sent'; toast('Nudge sent'); }
-      else { await B.sentHere(key, () => B.site.send(act === 'grill' ? 'grill-more' : 'build-followup', { key })); B.loadThread(key, { force: true }); }
-    } catch { toast('Could not send. Is the host awake?'); }
-    B.loadBoard();
+      if (act === 'nudge') { await B.sentHere(key, () => B.send('builder-nudge', { key })); b.textContent = 'Sent'; toast('Nudge sent'); }
+      else { await B.sentHere(key, () => B.send(act === 'grill' ? 'grill-more' : 'build-followup', { key })); B.loadThread(key, { force: true }); }
+    } catch { redrawActions(key); toast('Could not send. Is the host awake?'); }
   });
 
   Object.assign(B, { detail, card });

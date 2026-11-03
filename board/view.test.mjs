@@ -10,7 +10,7 @@ import { freePorts, until } from '../shared/test-helpers.mjs';
 import { miniDom } from './mini-dom.mjs';
 import { buildBoard, BUTTON, ACTION_KIND } from './domain.mjs';
 
-const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
+const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-order.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
   'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-arch.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-polling.js', 'view-frame.js', 'router.js'];
 
@@ -1921,7 +1921,7 @@ test("h h on a desktop shows the shortcuts sheet listing each shortcut's keys, a
   assert.equal(sheet(), null);
 });
 
-function boardOnDom({ open = [], seen = {}, board, threads, confirm = false, realDialogs = false }) {
+function boardOnDom({ open = [], seen = {}, board, threads, confirm = false, realDialogs = false, send = null }) {
   const page = fakePage(memoryStorage([['site:board-a:openItems', JSON.stringify(open)], ['site:board-a:seenThreads', JSON.stringify(seen)]]).localStorage);
   const { Element } = miniDom(page.Target, page.win.document);
   const server = { board, threads };
@@ -1931,11 +1931,14 @@ function boardOnDom({ open = [], seen = {}, board, threads, confirm = false, rea
   page.win.BoardDialogs.confirm = async (text, labels) => { confirms.push(text); confirmLabels.push(labels?.ok ? { ok: labels.ok, cancel: labels.cancel } : undefined); return confirm; };
   if (realDialogs) vm.runInContext(fs.readFileSync(new URL('./public/dialogs.js', import.meta.url), 'utf8'), page.win);
   const site = page.win.ClaudeSite.site;
-  page.win.ClaudeSite.site = (r) => ({ ...site(r), send: async (kind, data) => { sent.push([kind, data]); return {}; } });
+  // The events POST answers with the board, as board/server.mjs does; send(kind, data, server) answers in its place.
+  page.win.ClaudeSite.site = (r) => ({ ...site(r), send: async (kind, data) => { sent.push([kind, data]); return send ? send(kind, data, server) : { id: `e${sent.length}`, board: structuredClone(server.board) }; } });
   const posts = [];
+  const gets = [];
   page.win.fetch = async (url, opts = {}) => {
     const u = new URL(url, 'https://mac.ts.net/');
     if (opts.method === 'POST') { posts.push([u.pathname, JSON.parse(opts.body)]); return { ok: true, status: 200, json: async () => ({ ok: true }) }; }
+    gets.push(u.pathname);
     const body = u.pathname.endsWith('/api/board') ? server.board : server.threads[u.searchParams.get('key')] || [];
     return { ok: true, json: async () => structuredClone(body) };
   };
@@ -1946,7 +1949,7 @@ function boardOnDom({ open = [], seen = {}, board, threads, confirm = false, rea
   view.mount();
   const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
   const change = async (next) => { Object.assign(server, next); signalled(); await settle(); };
-  return { page, root, view, settle, change, sent, confirms, confirmLabels, posts, doc: page.win.document };
+  return { page, root, view, settle, change, sent, confirms, confirmLabels, posts, gets, server, doc: page.win.document };
 }
 const askCard = (id, lane) => ({ key: `ask:${id}`, id, kind: 'ask', lane, title: `Task ${id}`, deps: [], othersAt: [] });
 const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items, waves: [], needs: [], answers: [] });
@@ -2232,6 +2235,116 @@ test("every bumpable card, closed or open, carries the bump icon at its top righ
   await b.settle();
   assert.deepEqual(b.confirms, []);
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-bump', { key: 'w/T3' }], ['card-unbump', { key: 'w/T2' }]]);
+});
+
+// docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md
+// A send that waits for the test: answer() settles the oldest, with the server's board, or fails it.
+function heldSends() {
+  const waiting = [];
+  const send = (kind, data, server) => new Promise((resolve, reject) => { waiting.push({ ok: () => resolve({ id: 'e1', board: structuredClone(server.board) }), fail: () => reject(new Error('send failed: 502')) }); });
+  return { send, answer: (ok = true) => waiting.shift()[ok ? 'ok' : 'fail'](), waiting };
+}
+const boardGets = (b) => b.gets.filter((p) => p.endsWith('/api/board')).length;
+
+test("a bump or unbump moves the card at once, the icon's fill fading on a toast's timing, and lands from the POST's board with no reload of its own; a board landing meanwhile keeps the tap drawn, and a failed one is undone with a toast that it didn't go through", async () => {
+  const T1 = workCard('T1', { bumpable: true, bumpedAt: '2026-10-30T09:00:00.000Z', sortAt: '2026-10-01T00:00:00.000Z', order: 0 });
+  const T2 = workCard('T2', { bumpable: true, sortAt: '2026-10-03T00:00:00.000Z', order: 1 });
+  const T3 = workCard('T3', { bumpable: true, sortAt: '2026-10-02T00:00:00.000Z', order: 2 });
+  const sends = heldSends();
+  const b = boardOnDom({ board: boardOf([T1, T2, T3]), threads: {}, send: sends.send });
+  await b.settle();
+  const order = () => b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key);
+  const icon = (key) => b.root.querySelector(`details.item[data-key="${key}"] button[data-card-bump]`);
+  const loads = boardGets(b);
+  assert.deepEqual(order(), ['w/T1', 'w/T2', 'w/T3']);
+
+  b.page.fire(b.root, 'click', { target: icon('w/T3') });
+  assert.deepEqual(order(), ['w/T3', 'w/T1', 'w/T2']);
+  assert.deepEqual([icon('w/T3').classList.contains('bumped'), icon('w/T3').classList.contains('bump-in')], [true, true]);
+  b.server.board = boardOf([{ ...T3, bumpedAt: '2026-10-30T10:00:00.000Z' }, T1, T2]);
+  sends.answer();
+  await b.settle();
+  assert.deepEqual(order(), ['w/T3', 'w/T1', 'w/T2']);
+  assert.equal(boardGets(b), loads);
+  assert.match(b.root.textContent, /Moved to the top/);
+  b.page.runTimers(150);
+  assert.equal(icon('w/T3').classList.contains('bump-in'), false);
+
+  // A signal's load that lands while the unbump is in flight still shows it unbumped.
+  b.page.fire(b.root, 'click', { target: icon('w/T1') });
+  assert.deepEqual(order(), ['w/T3', 'w/T2', 'w/T1']);
+  assert.deepEqual([icon('w/T1').classList.contains('bumped'), icon('w/T1').classList.contains('bump-out')], [false, true]);
+  await b.change({});
+  assert.equal(boardGets(b), loads + 1);
+  assert.deepEqual(order(), ['w/T3', 'w/T2', 'w/T1']);
+  sends.answer(false);
+  await b.settle();
+  assert.deepEqual(order(), ['w/T3', 'w/T1', 'w/T2']);
+  assert.deepEqual([icon('w/T1').classList.contains('bumped'), icon('w/T1').classList.contains('bump-in')], [true, true]);
+  assert.match(b.root.textContent, /That didn’t go through/);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-bump', { key: 'w/T3' }], ['card-unbump', { key: 'w/T1' }]]);
+  b.view.unmount();
+});
+
+test("a New card's bump moves it to the top at once, and a load built before the board on screen doesn't undo it", async () => {
+  const ask = (id, at, extra) => ({ ...askCard(id, 'todo'), isNew: true, bumpable: true, sortAt: at, created: at, ask: { eventId: id, bumpedAt: null }, ...extra });
+  const a1 = ask('a1', '2026-10-30T09:00:00.000Z');
+  const a2 = ask('a2', '2026-10-30T09:30:00.000Z');
+  const sends = heldSends();
+  const b = boardOnDom({ board: boardOf([a1, a2]), threads: {}, send: sends.send });
+  await b.settle();
+  const order = () => b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key);
+  assert.deepEqual(order(), ['ask:a1', 'ask:a2']);
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('details.item[data-key="ask:a2"] button[data-bump]') });
+  assert.deepEqual(order(), ['ask:a2', 'ask:a1']);
+  b.server.board = { ...boardOf([{ ...a2, bumpedAt: '2026-10-30T10:00:01.000Z' }, a1]), generatedAt: '2026-10-30T10:00:02.000Z' };
+  sends.answer();
+  await b.settle();
+  assert.deepEqual(order(), ['ask:a2', 'ask:a1']);
+  await b.change({ board: boardOf([a1, a2]) });
+  assert.deepEqual(order(), ['ask:a2', 'ask:a1']);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['ask-bump', { id: 'a2' }]]);
+  b.view.unmount();
+});
+
+test("Done lands from the events POST's board in one round trip, with no reload of its own, and the change signal after it reloads the board once", async () => {
+  const b = boardOnDom({ open: ['w/D1'], board: boardOf([workCard('D1', { actionButton: 'markDone', finishable: true })]), threads: {}, confirm: true });
+  await b.settle();
+  const loads = boardGets(b);
+  b.server.board = boardOf([workCard('D1', { lane: 'done', actionButton: null })]);
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('button[data-confirm="finish"]') });
+  await b.settle();
+  assert.ok(b.root.querySelector('.lane[data-lane="done"] details.item[data-key="w/D1"]'));
+  assert.equal(boardGets(b), loads);
+  await b.change({});
+  assert.equal(boardGets(b), loads + 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-done', { key: 'w/D1' }]]);
+  b.view.unmount();
+});
+
+test("an edit shows its new text at once, in the thread and on the New card, and a failed save puts the old text back and reopens the edit box with what was typed", async () => {
+  const mine = { ts: '2026-10-30T10:00:00.000Z', who: 'love', kind: 'ask', text: 'Fix the header', eventId: 'a1', canEdit: true, canDelete: true, state: 'waiting' };
+  const sends = heldSends();
+  const b = boardOnDom({ open: ['ask:a1'], board: boardOf([{ ...askCard('a1', 'todo'), isNew: true, title: 'Fix the header', ask: { eventId: 'a1', text: 'Fix the header' } }]), threads: { 'ask:a1': [mine] }, send: sends.send });
+  await b.settle();
+  const edit = async (text) => {
+    b.page.fire(b.root, 'click', { target: b.root.querySelector('.msg[data-event="a1"] button[data-edit]') });
+    await b.settle();
+    const form = b.root.querySelector('.msg[data-event="a1"] .edit-form');
+    form.querySelector('textarea').value = text;
+    b.page.fire(b.root, 'submit', { target: form });
+  };
+  const body = () => b.root.querySelector('.msg[data-event="a1"] .body')?.textContent;
+  const title = () => b.root.querySelector('details.item[data-key="ask:a1"] summary').textContent;
+  await edit('Fix the footer');
+  assert.equal(body(), 'Fix the footer');
+  assert.match(title(), /Fix the footer/);
+  sends.answer(false);
+  await b.settle();
+  assert.equal(b.root.querySelector('.msg[data-event="a1"] .edit-form textarea').value, 'Fix the footer');
+  assert.match(title(), /Fix the header/);
+  assert.match(b.root.textContent, /That didn’t go through/);
+  b.view.unmount();
 });
 
 test('Hold opens a sheet of the shared duration picker in place of a confirm, whose chip sends card-hold with that choice, and Unhold confirms naming the time', async () => {

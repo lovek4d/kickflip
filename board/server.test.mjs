@@ -277,7 +277,9 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.deepEqual(thread('B2').map((m) => [m.who, m.text]), [['love', 'Resumed.']]);
     assert.deepEqual(log().slice(before).map((e) => e.kind), ['card-build', 'card-build']);
     // docs/adr/0145-build-on-a-blocked-card-queues-it.md
-    assert.deepEqual(await (await post({ kind: 'card-build', key: 't/B3' })).json(), { id: null });
+    const queuedAnswer = await (await post({ kind: 'card-build', key: 't/B3' })).json();
+    assert.equal(queuedAnswer.id, null);
+    assert.equal(queuedAnswer.board.items.find((i) => i.id === 'B3').queued, true);
     const queued = await card('B3');
     assert.deepEqual([queued.lane, queued.queued, queued.status, queued.builder, queued.next, queued.buildable, queued.blockedBy.map((d) => d.ref)], ['progress', true, null, null, null, false, ['B4']]);
     assert.deepEqual(thread('B3').map((m) => [m.who, m.text]), [['claude', 'Build queued: it starts once B4 is done.']]);
@@ -384,6 +386,27 @@ test("an ask's Done and a work card's Hold, Resume and Done apply at once from t
   const lines = said();
   assert.deepEqual([lines.slice(0, 2), lines.slice(4)], [['Held.', 'Resumed.'], ['Held.', 'Resumed.', 'Marked done.']]);
   assert.match(lines[2], /^Held until .+\.$/);
+});
+
+// docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md
+test("the events POST answers with the board as the tap left it, so a bump, unbump, Hold and Done each draw from the one round trip", async () => {
+  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'C1', title: 'One' }, { id: 'C2', title: 'Two' }] }));
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+  const todo = (board) => board.items.filter((i) => i.lane === 'todo').map((i) => [i.id, Boolean(i.bumpedAt)]);
+  const first = await (await fetch(`${base}/api/board`)).json();
+  const bottom = todo(first).at(-1)[0];
+  const bumped = await post({ kind: 'card-bump', key: `t/${bottom}` });
+  assert.match(bumped.id, /\S/);
+  assert.deepEqual(todo(bumped.board)[0], [bottom, true]);
+  assert.ok(bumped.board.generatedAt >= first.generatedAt);
+  const unbumped = await post({ kind: 'card-unbump', key: `t/${bottom}` });
+  assert.deepEqual(todo(unbumped.board), todo(first));
+  const held = await post({ kind: 'card-hold', key: 't/C1', hold: true });
+  assert.equal(held.board.items.find((i) => i.id === 'C1').held, true);
+  const done = await post({ kind: 'card-done', key: 't/C2' });
+  assert.equal(done.board.items.find((i) => i.id === 'C2').lane, 'done');
+  const said = await post({ kind: 'message', text: 'Hello' });
+  assert.deepEqual(Object.keys(said).sort(), ['board', 'id']);
 });
 
 test('a watcher that just exited on an event still counts as listening, until its session stops', async () => {
