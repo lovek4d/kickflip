@@ -432,7 +432,7 @@ async function board() {
   const built = buildBoard({ ...(await snapshot()), listen, prompts: self ? pendingFor(self.route).map(shown) : [] });
   const links = self ? linksOf(self, { listen }) : null;
   return { generatedAt: new Date().toISOString(), title, reviewers: (reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string'), ...built, links, setup: await setupOf(links),
-    holdChoices: durationChoices(new Date(), 'until you resume it'), arch: self ? archOf(await readReviews(here), built.items, built.owner, { repo: repoName(boardRepo(self.route)), waits: reviewWaits() }) : null };
+    holdChoices: durationChoices(new Date(), 'until you unhold it'), arch: self ? archOf(await readReviews(here), built.items, built.owner, { repo: repoName(boardRepo(self.route)), waits: reviewWaits() }) : null };
 }
 
 // docs/adr/0125-the-bulb-runs-an-architecture-review-of-the-boards-repo.md: one review at a time, so a second Run while

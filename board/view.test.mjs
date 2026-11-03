@@ -2242,7 +2242,7 @@ test("every bumpable card, closed or open, carries the bump icon at its top righ
 
 test('Hold opens a sheet of the shared duration picker in place of a confirm, whose chip sends card-hold with that choice, and Unhold confirms naming the time', async () => {
   const until = new Date(Date.now() + 2 * 86_400_000).toISOString();
-  const holdChoices = [['1h', '1h'], ['3h', '3h'], ['6h', '6h'], ['1d', '1d'], ['forever', 'Forever']].map(([value, label]) => ({ value, label, until: value === 'forever' ? 'until you resume it' : 'until 4:40pm' }));
+  const holdChoices = [['1h', '1h'], ['3h', '3h'], ['6h', '6h'], ['1d', '1d'], ['forever', 'Forever']].map(([value, label]) => ({ value, label, until: value === 'forever' ? 'until you unhold it' : 'until 4:40pm' }));
   const cards = [workCard('T1', { ref: 'INT-41', holdable: true }), workCard('P1', { ref: 'INT-43', lane: 'progress', holdable: true }), workCard('H1', { ref: 'INT-42', held: true, heldUntil: until, holdable: true })];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: { ...boardOf(cards), holdChoices }, threads: {}, confirm: true });
   await b.settle();
