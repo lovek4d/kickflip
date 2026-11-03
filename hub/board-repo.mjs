@@ -1,6 +1,8 @@
 import { readManifest, withManifestLock, writeManifest, isBoardSite, listBoards, appendEvent, hubGithub } from './boards.mjs';
 import { routeRecord } from './routes.mjs';
-import { repoService, validateGithub, validateBranch, runRepo, githubFromOrigin } from './repos.mjs';
+import { repoService, validateBranch, runRepo, githubFromOrigin } from './repos.mjs';
+import { repoInput } from './new-board.mjs';
+import { boardConfig } from '../board/store.mjs';
 import { storedPath } from '../bin/install.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 
@@ -12,7 +14,7 @@ export function boardRepo(route, manifest = readManifest()) {
   if (!isBoardSite(site)) refuse('Board not found.', 404);
   // The hub board's builders branch from the running kickflip clone's main (board/bin/board.mjs builder start).
   if (site.hub === true) return { hub: true, github: hubGithub(), branch: '', repo: storedPath(cloneRoot()) };
-  return { github: site.github || '', branch: site.branch || '', repo: storedPath(site.owner?.repo || '') };
+  return { github: site.github || '', ...(site.remote ? { remote: site.remote } : {}), branch: site.branch || '', repo: storedPath(site.owner?.repo || '') };
 }
 
 function changeable(route, manifest) {
@@ -23,20 +25,25 @@ function changeable(route, manifest) {
 
 export async function changeBoardRepo(route, input, { repos = repoService(), event = appendEvent } = {}) {
   changeable(route);
-  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some((k) => !['github', 'branch'].includes(k))) refuse('Send only github and branch.');
-  const github = validateGithub(input.github);
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some((k) => !['github', 'remote', 'branch'].includes(k))) refuse('Send only github or remote, and branch.');
+  const { github = '', remote } = repoInput(input);
   const branch = validateBranch(input.branch);
-  const repo = storedPath(await repos.ensure(github, branch));
+  const dir = routeRecord(readManifest().sites, route).dir;
+  if (remote && (await boardConfig(dir)).tickets?.source === 'github') refuse('This board files its cards as GitHub issues. Switch Tickets to Internal or Linear first.', 409);
+  const repo = storedPath(await repos.ensure(github || remote, branch));
   return withManifestLock(async () => {
     const manifest = readManifest();
     const previous = changeable(route, manifest);
     const site = routeRecord(manifest.sites, route);
-    Object.assign(site, { github, branch, updated: new Date().toISOString() });
+    Object.assign(site, { github, remote, branch, updated: new Date().toISOString() });
+    if (!github) delete site.github;
+    if (!remote) delete site.remote;
     site.owner = { ...site.owner, repo };
     await writeManifest(manifest);
     const board = listBoards(manifest).find((b) => b.route === route);
-    const id = await event(board, 'repo-changed', { github, branch, repo, previous });
-    return { github, branch, repo, id };
+    const now = { github, ...(remote ? { remote } : {}), branch, repo };
+    const id = await event(board, 'repo-changed', { ...now, previous });
+    return { ...now, id };
   });
 }
 

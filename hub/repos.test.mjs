@@ -10,7 +10,7 @@ process.env.HOME = home;
 process.env.KICKFLIP_CLAUDE = '/usr/bin/false';
 process.env.CLAUDE_CONFIG_DIR = home;
 fs.writeFileSync(path.join(home, '.claude.json'), '{}');
-const { repoService, runRepo, githubFromInput, githubFromOrigin, repoLookupRoute } = await import('./repos.mjs');
+const { repoService, runRepo, githubFromInput, githubFromOrigin, repoLookupRoute, remoteFromInput, isClone, gitReachFault } = await import('./repos.mjs');
 const { requestBoard } = await import('./new-board.mjs');
 const { changeBoardRepo } = await import('./board-repo.mjs');
 const { saveJSON, readManifest } = await import('./boards.mjs');
@@ -86,7 +86,7 @@ test('GET /_hub/repo returns a checked unlisted repo, caches argv calls and refr
   at = 60_000;
   await get('collaborator/project');
   assert.equal(calls.length, 2);
-  assert.equal((await get('https://gitlab.com/o/r')).status, 400);
+  assert.equal((await get('file:///srv/o/r.git')).status, 400);
   assert.equal((await get('o/../../escape')).status, 400);
   assert.equal(calls.length, 2);
 });
@@ -145,6 +145,57 @@ test('an unlisted public repo lists branches and prepares a verified clone with 
   assert.equal(calls.some(([, argv]) => argv.includes('list')), false);
   assert.ok(calls.some(([, argv]) => argv.includes('+refs/heads/release/next:refs/remotes/origin/release/next')));
   assert.ok(calls.some(([, argv]) => argv.includes('+refs/heads/trunk:refs/remotes/origin/trunk')));
+});
+
+test('a repo on another git host is looked up, listed, cloned under .repos/<host>/<path> and changed to with git\'s own credential and no prompts', async () => {
+  const accepted = [
+    ['https://gitlab.com/acme/firmware.git', 'gitlab.com', 'acme/firmware'], ['git@gitlab.com:Acme/Firmware.git', 'gitlab.com', 'Acme/Firmware'],
+    ['ssh://git@Git.Example.com:2222/group/sub/repo/', 'git.example.com', 'group/sub/repo'], ['https://bitbucket.org:8443/o/r', 'bitbucket.org', 'o/r'],
+  ];
+  for (const [input, host, name] of accepted) assert.deepEqual(remoteFromInput(input), { remote: input.replace(/\/$/, ''), host, path: name }, input);
+  for (const input of ['/srv/git/r.git', 'file:///srv/r.git', '../r', 'https://user:token@gitlab.com/o/r', 'https://user@gitlab.com/o/r',
+    'git@localhost:r.git', 'https://github.com/o/r', 'git@github.com:o/r.git', 'https://gitlab.com/o/../r', 'https://gitlab.com/o/r?x=1', 'https://gitlab.com/', 'http://gitlab.com/o/r']) {
+    assert.equal(remoteFromInput(input), null, input);
+  }
+  const link = 'git@gitlab.com:acme/firmware.git';
+  const base = path.join(home, 'remote', '.repos');
+  const calls = [];
+  let reachable = true;
+  const repos = repoService({ base, run: async (command, argv, options) => {
+    assert.equal(command, 'git');
+    calls.push(argv);
+    assert.equal(argv.some((a) => a.includes('credential')), false);
+    if (['ls-remote', 'clone', 'fetch'].some((a) => argv.includes(a))) assert.deepEqual([options?.env?.GIT_TERMINAL_PROMPT, options?.env?.GIT_SSH_COMMAND], ['0', process.env.GIT_SSH_COMMAND || 'ssh -o BatchMode=yes']);
+    if (argv[0] === 'ls-remote') return reachable ? { status: 0, stdout: `ref: refs/heads/main\tHEAD\n${'a'.repeat(40)}\tHEAD\n${'a'.repeat(40)}\trefs/heads/main\n${'b'.repeat(40)}\trefs/heads/dev\n` }
+      : { status: 128, stderr: 'git@gitlab.com: Permission denied (publickey).\nfatal: Could not read from remote repository.\n' };
+    if (argv[0] === 'clone') { fs.mkdirSync(path.join(argv.at(-1), '.git'), { recursive: true }); return { status: 0 }; }
+    if (argv.includes('rev-parse')) return { status: 0, stdout: argv[1] };
+    if (argv.includes('remote')) return { status: 0, stdout: link };
+    if (argv.includes('fetch')) return { status: 0 };
+    assert.fail(`unexpected git ${argv.join(' ')}`);
+  } });
+  const clone = path.join(base, 'gitlab.com/acme/firmware');
+  const get = (remote) => repoLookupRoute(new URL(`http://test/_hub/repo?remote=${encodeURIComponent(remote)}`), { repos, manifest: {}, sendJSON: (status, body) => ({ status, body }) });
+  assert.deepEqual((await get(link)).body, { remote: link, host: 'gitlab.com', name: 'gitlab.com/acme/firmware', github: '', pushedAt: '', defaultBranch: 'main', description: '', clone, cloned: false, shared: [], listed: false });
+  assert.deepEqual(calls.shift(), ['ls-remote', '--symref', link, 'HEAD', 'refs/heads/*']);
+  assert.deepEqual(await repos.branches(link), { defaultBranch: 'main', branches: ['main', 'dev'] });
+  reachable = false;
+  assert.deepEqual((await get('https://gitlab.com/acme/private.git')), { status: 404, body: { error: 'fatal: Could not read from remote repository. Check git can reach gitlab.com: git ls-remote https://gitlab.com/acme/private.git.' } });
+  assert.equal((await get('file:///srv/r.git')).status, 400);
+  calls.length = 0;
+  saveJSON(manifestFile, manifest);
+  const changed = await changeBoardRepo('board', { remote: link, branch: 'dev' }, { repos, event: async () => 'event' });
+  assert.deepEqual(changed, { github: '', remote: link, branch: 'dev', repo: clone, id: 'event' });
+  assert.deepEqual(calls[0], ['clone', link, calls[0].at(-1)]);
+  assert.ok(calls.some((argv) => argv.includes('+refs/heads/dev:refs/remotes/origin/dev')));
+  const site = readManifest().sites.board;
+  assert.deepEqual([site.github, site.remote, site.branch, site.owner.repo], [undefined, link, 'dev', clone]);
+  assert.equal(isClone(clone, base), true);
+  assert.equal(isClone(path.join(base, 'gitlab.com/acme'), base), false);
+  fs.mkdirSync(path.join(clone, 'vendor/lib/.git'), { recursive: true });
+  assert.equal(isClone(path.join(clone, 'vendor/lib'), base), false);
+  assert.deepEqual(gitReachFault('remote: The project you were looking for could not be found.\nfatal: Could not read from remote repository.', { remote: 'https://gitlab.com/o/r.git', repo: clone }),
+    { error: 'remote: The project you were looking for could not be found.', hint: 'check git can reach gitlab.com: git ls-remote https://gitlab.com/o/r.git' });
 });
 
 test('a private repo clones and fetches over https with gh\'s token while gh itself is set to clone over SSH', async () => {

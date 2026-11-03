@@ -1413,7 +1413,7 @@ test('pasted unlisted repos use the normal branch and save steps in New board an
   }
 });
 
-test('repo links highlight listed rows, reject other hosts locally, and lookup failures replace the list', async () => {
+test('repo links highlight listed rows, check other hosts on the hub, refuse local paths, and lookup failures replace the list', async () => {
   const page = repoPage();
   const { win, doc } = page;
   const urls = [];
@@ -1438,12 +1438,19 @@ test('repo links highlight listed rows, reject other hosts locally, and lookup f
     assert.match(sheet.textContent, /Already in your list/);
     assert.ok(sheet.querySelector('.nb-repo-highlight[data-repo="owner/project"]'));
   }
-  for (const link of ['https://gitlab.com/o/r.git', 'git@bitbucket.org:o/r.git', 'ssh://git@gitlab.com/o/r', 'https://github.com.evil.test/o/r']) {
+  for (const link of ['/srv/git/r.git', 'file:///srv/git/r.git', '../r']) {
     search(link);
-    assert.equal(sheet.querySelector('[data-repo-results] [role="alert"] .nb-why').textContent, 'Only GitHub repos work here.');
-    assert.equal(sheet.querySelector('[data-repo]'), null);
+    assert.equal(sheet.querySelector('[data-repo-results] [role="alert"] .nb-why').textContent, 'Paste the repo’s remote link. Local folders don’t work here.');
   }
   assert.deepEqual(urls, ['/_hub/repos']);
+  for (const [link, name] of [['https://gitlab.com/o/r.git', 'gitlab.com/o/r'], ['git@bitbucket.org:o/r.git', 'bitbucket.org/o/r'], ['ssh://git@git.example.com:2222/o/r', 'git.example.com/o/r']]) {
+    search(link);
+    await tick();
+    assert.equal(urls.at(-1), `/_hub/repo?remote=${encodeURIComponent(link)}`);
+    assert.equal(sheet.querySelector('[data-repo-results] [role="alert"]').textContent, `${name}Not found, or you don't have access.`);
+    assert.equal(sheet.querySelector('[data-repo]'), null);
+  }
+  urls.length = 1;
   search('https://github.com/outside/missing');
   await tick();
   assert.equal(sheet.querySelector('[data-repo-results] [role="alert"]').textContent, "outside/missingNot found, or you don't have access.");
@@ -1452,6 +1459,44 @@ test('repo links highlight listed rows, reject other hosts locally, and lookup f
   assert.ok(sheet.querySelector('[data-repo="owner/project"]'));
   assert.doesNotMatch(sheet.textContent, /From your link|Not in your list/);
   sheet.close();
+});
+
+test('a pasted git link on another host picks its host-labelled row, lists branches through remote, starts with remote, and greys out GitHub issues', async () => {
+  const page = repoPage();
+  const { win, doc } = page;
+  const urls = [], saved = [];
+  const link = 'git@gitlab.com:acme/firmware.git';
+  const repo = { remote: link, host: 'gitlab.com', name: 'gitlab.com/acme/firmware', github: '', pushedAt: '', defaultBranch: 'main', description: '', clone: '/clone/.repos/gitlab.com/acme/firmware', cloned: false, shared: [], listed: false };
+  win.fetch = async (url) => {
+    urls.push(url);
+    if (url === '/_hub/repos') return repoResponse({ signedIn: false, repos: [] });
+    if (url.startsWith('/_hub/repo?')) return repoResponse(repo);
+    return repoResponse({ defaultBranch: 'main', branches: ['main', 'dev'] });
+  };
+  win.BoardDialogs.repoSheet({ save: async (input) => saved.push(JSON.parse(JSON.stringify(input))) });
+  await tick();
+  const sheet = doc.getElementById('newBoardSheet');
+  const form = sheet.querySelector('form');
+  assert.match(sheet.textContent, /GitHub isn’t connected/);
+  const input = sheet.querySelector('[name="search"]');
+  input.value = link;
+  page.fire(form, 'input', { target: input });
+  await tick();
+  const row = sheet.querySelector(`[data-repo="${link}"]`);
+  assert.match(row.textContent, /^gitlab\.com\/acme\/firmwareNot in your listgitlab\.com · Last push unknown.*Not cloned in \.repos$/);
+  page.fire(form, 'click', { target: row });
+  await tick();
+  assert.match(sheet.querySelector('.nb-selected').textContent, /gitlab\.com\/acme\/firmwaregitlab\.com.*\/clone\/\.repos\/gitlab\.com\/acme\/firmware/);
+  assert.equal(sheet.querySelector('[name="name"]').value, 'firmware');
+  const github = sheet.querySelector('[data-tk-source="github"]');
+  assert.equal(github.getAttribute('aria-disabled'), 'true');
+  page.fire(sheet.querySelector('[data-board-tickets]'), 'click', { target: github });
+  assert.equal(sheet.querySelector('[data-tk-source="github"]').getAttribute('aria-pressed'), 'false');
+  assert.match(sheet.querySelector('[data-board-tickets] [role="status"]').textContent, /GitHub issues need a repo on GitHub, and the repo chosen above isn’t on GitHub/);
+  page.fire(form, 'submit');
+  await tick();
+  assert.deepEqual(saved, [{ name: 'firmware', purpose: '', remote: link, branch: 'main', tickets: { source: 'internal', prefix: 'INT' } }]);
+  assert.deepEqual(urls, ['/_hub/repos', `/_hub/repo?remote=${encodeURIComponent(link)}`, `/_hub/branches?remote=${encodeURIComponent(link)}`]);
 });
 
 test('bare repo lookups debounce, cancel when edited or closed, and ignore stale success and failure responses', async () => {

@@ -89,6 +89,12 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          [--next <t> | --clear-next] [--pr <n>]          status: ${ITEM_STATUSES.join(', ')}
                                                          an empty --next "" clears it, as --clear-next does
                                                          naming another unfinished card requires it in --deps
+         [--pushed <branch>]                             on a board whose repo is a plain git remote (no GitHub):
+                                                         the card's branch is pushed there, so it waits In Review
+                                                         on the owner's merge. Push it first (git push origin
+                                                         <branch>). The hub's repo fetch moves it to Done once the
+                                                         branch is merged into the board's branch or gone from the
+                                                         remote. Clears building/fixing as --pr does
          [--gh-since <ISO time>]                         records the last handled GitHub event, an ISO-8601 UTC
                                                          time such as 2026-10-23T11:00:00Z, stored as given
          [--from-ask <eventId>]                          the ask it came from: its New card gives way to this item,
@@ -411,8 +417,8 @@ const COMMANDS = {
   'prototype add': [['topic'], ['title', 'take', 'card'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take })],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'gh-since', 'from-ask', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force', 'ticket', 'confirmed'], (site, [key], f, options) =>
-    store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, ghSince: f['gh-since'], fromAsk: f['from-ask'], held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps,
+  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'pushed', 'gh-since', 'from-ask', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force', 'ticket', 'confirmed'], (site, [key], f, options) =>
+    store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, force: f.force, ticket: f.ticket, confirmed: f.confirmed }, options)],
   'item add': [['wave/id'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket, pickUpAt: f['pick-up-at'] }, options)],
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
@@ -479,7 +485,7 @@ const COMMANDS = {
     const manifest = readManifest();
     const board = site ? boardAt(site, manifest) : null;
     const chosen = board ? boardRepo(board.route, manifest) : {};
-    const remote = Boolean(chosen.github) && !chosen.hub;
+    const remote = Boolean(chosen.github || chosen.remote) && !chosen.hub;
     const source = repo ?? (remote ? chosen.repo || undefined : undefined);
     const base = remote ? chosen.branch || 'main' : 'main';
     return store.startBuilder(site, key, { ...f, worktree: worktree && (() => makeWorktree(key.split('/')[1], { repo: source, base, remote })) });
@@ -514,7 +520,7 @@ function itemChanges(f) {
   return [
     f.status, f['clear-status'] && 'status cleared',
     f.next !== undefined && (f.next.trim() ? 'next line set' : 'next line cleared'), f['clear-next'] && 'next line cleared',
-    f.pr !== undefined && `PR #${f.pr}`, f['gh-since'] && `GitHub read to ${f['gh-since']}`, f['from-ask'] && `from task ${f['from-ask']}`,
+    f.pr !== undefined && `PR #${f.pr}`, f.pushed !== undefined && `pushed ${f.pushed}`, f['gh-since'] && `GitHub read to ${f['gh-since']}`, f['from-ask'] && `from task ${f['from-ask']}`,
     f.held && 'held', f.unheld && 'resumed', pickUp !== undefined && (pickUp ? `held until ${pickUp}` : 'resumed'),
     notesFileOf(f) !== undefined && 'notes recorded', f.deps !== undefined && (f.deps ? `blocked by ${f.deps}` : 'deps cleared'),
     f.install !== undefined && 'install published', f['clear-install'] && 'install cleared',

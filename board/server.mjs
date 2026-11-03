@@ -336,7 +336,8 @@ async function itemSnapshot() {
   await Promise.all(waves.flatMap(({ slug, wave }) => wave.items.map(async (it) => {
     threadLines[`${slug}/${it.id}`] = await readLines(threadFile(`${slug}/${it.id}`));
   })));
-  return { github: boardAt(here)?.github, reviewers: cfg.reviewers || [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, waves, threads: threadLines };
+  const self = boardAt(here);
+  return { github: self?.github, remote: self?.remote, branch: self?.branch, reviewers: cfg.reviewers || [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, waves, threads: threadLines };
 }
 
 // Reads every source buildBoard needs: wave files and their builder records,
@@ -399,12 +400,14 @@ async function checkStalled() {
 }
 
 // The setup checklist after a join's handshake (hub/boards.mjs handshake), or null: when the board never had one, or
-// once the session acked the newest hello and the GitHub link passed, which marks it done for good.
+// once the session acked the newest hello and the GitHub link passed, which marks it done for good. A board on another
+// git remote has no GitHub link, so no github step.
 async function setupOf(links) {
   const h = await readHandshake(here);
   if (!h?.hello?.id || h.done_at) return null;
-  const steps = { events: h.ack?.id === h.hello.id, github: Boolean(links?.find((l) => l.link === 'github')?.ok) };
-  if (steps.events && steps.github) { await finishHandshake(here); return null; }
+  const github = links?.find((l) => l.link === 'github');
+  const steps = { events: h.ack?.id === h.hello.id, ...(github || !links ? { github: Boolean(github?.ok) } : {}) };
+  if (steps.events && steps.github !== false) { await finishHandshake(here); return null; }
   return steps;
 }
 

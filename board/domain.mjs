@@ -14,6 +14,7 @@ import { routeRecord } from '../hub/routes.mjs';
 import fs from 'node:fs';
 import { ticketBadge } from './tickets.mjs';
 import { reviewLinks, reviewTime, reviewersOf } from './review.mjs';
+import { remoteFromInput } from '../hub/repos.mjs';
 import vm from 'node:vm';
 
 // A page script with no exports, which the page loads as is, so node runs it the same way.
@@ -47,12 +48,14 @@ export const refOf = (wave, id, tickets) => (wave.internal === true ? internalRe
 const ticketOf = (tickets, stored, id, at) => ticketBadge(tickets || (stored ? { source: 'internal', prefix: 'INT' } : null), id, at)
   || (stored ? { id: String(stored), url: null, source: null } : null);
 
-// The lane before owner waits are placed: In Progress while Claude acts next, In Review while the reviewers do.
+// The lane before owner waits are placed: In Progress while Claude acts next, In Review while the reviewers do, or
+// while a pushed branch waits on the owner's merge (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
 // buildBoard places a card that only the owner can move on (docs/adr/0045-the-lane-follows-who-acts-next.md).
-function laneOf(item, pr, running) {
+function laneOf(item, pr, running, pushed) {
   const s = (item.status || '').toLowerCase();
   if (s === 'merged' || s === 'done' || s === 'dropped' || pr?.state === 'MERGED' || pr?.state === 'CLOSED') return 'done';
   if (running || s === 'checking') return 'progress';
+  if (pushed) return 'review';
   if (pr && pr.state === 'OPEN' && !pr.isDraft) return pr.checks?.state === 'fail' ? 'progress' : 'review';
   return pr ? 'progress' : 'todo';
 }
@@ -81,11 +84,13 @@ function reviewOf(reviewers, pr, sentAt) {
 }
 
 // What the card waits on: the owning session's check of finished work, the owner's Ready on GitHub, the builder, the
-// reviewers, the merge once GitHub counts it approved, or nothing. buildBoard sets `owner` for the owner's other waits.
-function waitsOnOf(lane, pr, builder, status) {
+// owner's merge of a pushed branch, the reviewers, the merge once GitHub counts it approved, or nothing. buildBoard sets
+// `owner` for the owner's other waits.
+function waitsOnOf(lane, pr, builder, status, pushed) {
   if (builder?.kind === BUILDER_KIND.install) return 'builder';
   if (status === 'checking') return 'checking';
   if (builder) return 'builder';
+  if (pushed && lane === 'review') return 'owner';
   if (lane === 'progress' && pr?.state === 'OPEN' && pr.isDraft && pr.checks?.state === 'pass') return 'ready';
   if (lane === 'review' || lane === 'stale') return pr?.reviewDecision === 'APPROVED' ? 'merge' : 'reviewers';
   return null;
@@ -100,7 +105,7 @@ const REVIEW_NEXT = { reviewers: 'Waiting for PR reviewers', merge: 'Approved, m
 const OWNER_MERGE_NEXT = { waiting: 'Approved, Merge shows once CI and the merge state allow', ready: 'Approved and green: tap Merge', merging: 'Merging' };
 const FIX_CI = 'Fix the failing CI';
 
-function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, thread, events, working, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, buildAt, autoMerge, tickets }) {
+function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agents, eta, thread, events, working, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, buildAt, autoMerge, tickets }) {
   // docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md
   if (closedAt && String(closedAt) > String(it.status_at || '')) it = { ...it, status: 'done' };
   const key = `${slug}/${it.id}`;
@@ -111,9 +116,11 @@ function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, threa
   // A builder status line is progress, not a message: it is never unread and answers no owner message.
   const othersAt = [...thread.filter((m) => (m.who || 'claude') !== 'love' && m.kind !== 'status').map((m) => m.ts), ...events.map((e) => e.reply?.at)].filter(Boolean).sort();
   const lastGrill = events.filter((e) => e.kind === 'grill-more').pop();
-  let lane = laneOf(it, pr, Boolean(builder));
+  // A branch pushed to a plain git remote, which has no PR (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
+  const pushed = !it.pr && it.pushed?.branch ? { branch: it.pushed.branch, at: it.pushed.at || null, host: remote?.host || null } : null;
+  let lane = laneOf(it, pr, Boolean(builder), pushed);
   if (lane === 'review' && inReviewSince && now - Date.parse(inReviewSince) > STALE_AFTER) lane = 'stale';
-  const waitsOn = waitsOnOf(lane, pr, builder, (it.status || '').toLowerCase());
+  const waitsOn = waitsOnOf(lane, pr, builder, (it.status || '').toLowerCase(), pushed);
   const changing = waitsOn === 'builder' && pr?.state === 'OPEN' && !pr.isDraft;
   const redReady = lane === 'progress' && !waitsOn && pr?.state === 'OPEN' && !pr.isDraft;
   const tapped = holdAsk && String(holdAsk.ts) > String(it.held_at || '');
@@ -127,7 +134,8 @@ function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, threa
   const merging = waitsOn === 'merge' && Boolean(mergeAt) && String(mergeAt) > lastClaudeAt;
   // The owner's Build waits on the session until the card's status changes or Claude writes in the thread.
   const starting = Boolean(buildAt) && String(buildAt) > lastClaudeAt && String(buildAt) > String(it.status_at || '');
-  const reviewNext = waitsOn === 'merge' && !autoMerge ? OWNER_MERGE_NEXT[merging ? 'merging' : 'waiting'] : REVIEW_NEXT[waitsOn];
+  const reviewNext = pushed && waitsOn === 'owner' ? `merge ${pushed.branch} into ${base}`
+    : waitsOn === 'merge' && !autoMerge ? OWNER_MERGE_NEXT[merging ? 'merging' : 'waiting'] : REVIEW_NEXT[waitsOn];
   return {
     key, kind: 'work', order, wave: slug, waveTitle: wave.title || slug, id: it.id, ref: refOf(wave, it.id, tickets), title: it.title, status: it.status || null,
     created: it.created || null,
@@ -137,7 +145,7 @@ function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, threa
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
     merging, starting, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, from: null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || null,
-    branch: it.branch || pr?.headRefName || null,
+    branch: it.branch || pr?.headRefName || pushed?.branch || null, pushed: lane === 'done' ? null : pushed,
     ticket: tickets?.source === 'linear' && !it.ticket && it.linear?.length ? null
       : ticketOf(tickets, it.ticket, it.ticket || (wave.internal ? refOf(wave, it.id, tickets) : it.linear?.[0]), { repo, key }),
     ticketSource: tickets?.source || null,
@@ -458,7 +466,8 @@ function waveRowsOf(snapshot, waves, lineups, items, questions, events) {
 //   askProgress: {<ask event id>: {state: progress|done, at, next, moved}}, owner: owner.json,
 //   autoMerge: board.json's auto_merge (true leaves merging to the GitHub tick, so no card gets the owner's Merge),
 //   autoBuild: board.json's auto_build (true leaves card runs to the hub, so no card gets the owner's Serve / Build),
-//   threads also holds each ask's lines under ask:<event id>;
+//   threads also holds each ask's lines under ask:<event id>; github: the board's owner/name, or remote: its git link
+//   on another host, and branch: the board's branch;
 //   topicItems: merged topic items, prompts: this board's pending prompts (../hub/prompts.mjs shown), now: ms}
 // moved maps ask:<event id> to the work item whose thread holds that ask.
 // An event marked working needs its reply loaded, or it counts as still working.
@@ -486,6 +495,7 @@ export function buildBoard(snapshot) {
   const waves = [];
   const items = [];
   const threadStates = new Map();
+  const remote = snapshot.github ? null : remoteFromInput(snapshot.remote);
   for (const { slug, wave, agents: records = {} } of snapshot.waves) {
     const repo = snapshot.github || wave.repo || null;
     waves.push({ slug, title: wave.title || slug, status: wave.status || null, internal: Boolean(wave.internal), finished: null, reviewers: (wave.reviewers || []).map((r) => r.name) });
@@ -499,7 +509,7 @@ export function buildBoard(snapshot) {
       const msgs = threadOf(key, { lines, events, owner, working, fromAsk: it.from_ask || null, moved: folded });
       for (const m of msgs) if (m.eventId) threadStates.set(m.eventId, m.state);
       items.push(workItem({
-        slug, wave, it, order, repo,
+        slug, wave, it, order, repo, remote, base: snapshot.branch || 'main',
         pr: it.pr && repo ? routeRecord(prs, `${repo}#${it.pr}`) || null : null,
         ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
         thread: lines,
@@ -613,7 +623,7 @@ export function buildBoard(snapshot) {
   // The page shows those this browser hasn't seen in the answer banner (docs/adr/0016-every-ask-is-a-card.md).
   const answers = items.filter((i) => i.ask?.answerAt).sort((a, b) => b.ask.answerAt.localeCompare(a.ask.answerAt))
     .map((i) => ({ key: i.key, id: i.id, text: i.title, at: i.ask.answerAt }));
-  return { kind, main, waves, waveRows, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, needs, needsSummary: needsSummary(needs), working: workingCount, checks: checksOf(snapshot, now) };
+  return { kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, waves, waveRows, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, needs, needsSummary: needsSummary(needs), working: workingCount, checks: checksOf(snapshot, now) };
 }
 
 // The board's order, each lane together, by touched (the card's latest activity) or created (when the card was made).

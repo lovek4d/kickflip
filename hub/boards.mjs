@@ -133,7 +133,7 @@ function boardOf(route, s) {
   const waves = wavesOf(s.dir, cfg, kind);
   const github = s.hub === true ? hubGithub() : s.github;
   return {
-    route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, waves, prs: prsOf(waves, github), github, branch: s.branch, auto_build: cfg.auto_build === true,
+    route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, waves, prs: prsOf(waves, github), github, ...(s.remote && !github ? { remote: s.remote } : {}), branch: s.branch, auto_build: cfg.auto_build === true,
     githubLogin: typeof cfg.github_login === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(cfg.github_login) ? cfg.github_login : null,
     tickets: cfg.tickets, reviewers: names(cfg.reviewers), owner: s.owner || null, watch: Array.isArray(s.watch) && s.watch.length ? s.watch : ['data/events.jsonl'], filter: s.filter || null,
   };
@@ -341,7 +341,9 @@ export async function handshake(route, manifest = readManifest()) {
 // ---------- links ----------
 export const LINKS = ['github', 'repo-fetch', 'events', 'wakes', 'push', 'slack'];
 
+// A board on another git remote has no PRs, so nothing to poll (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
 function githubLink(board, state) {
+  if (board.remote) return null;
   const last = state?.lastCheck;
   if (!last?.at) return { link: 'github', ok: false, detail: "The hub hasn't checked GitHub yet." };
   const missed = board.prs.filter((p) => state.prs?.[prKey(p)]?.at !== last.at).map((p) => `#${p.pr}`);
@@ -475,7 +477,8 @@ function settle(route, links, { settings, now, faults }) {
 
 // Whether each hub link reaches the board → [{link, ok, detail, state, since?}] in LINKS order. ok is the link's
 // state now; state is what the board shows, broken only once ok has stayed false past the link's GRACE.
-//   github      every open PR on a card was in the hub's last check, and that check reached the board
+//   github      every open PR on a card was in the hub's last check, and that check reached the board; a board on
+//               another git remote has none
 //   repo-fetch  the hub's last git fetch of the board's repo worked; only a board the hub fetches has it
 //   events      the board is listening or asleep (listenState, as the link's listen), so its events reach the session
 //   wakes       the polling interval has daily wakes, and the last one reached the board

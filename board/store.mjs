@@ -13,6 +13,7 @@ import { holdLine } from '../hub/schedule.mjs';
 import { AT_RE } from '../hub/duration.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleTickets, mcpCreateLine } from './tickets.mjs';
+import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { fetchPR, reportOf, githubLogin } from '../hub/pr-report.mjs';
 import { reviewLinks, topicItems, reviewersOf } from './review.mjs';
@@ -642,7 +643,12 @@ export function saveBoardSettings(site, changes) {
   if (!Object.keys(changes).length) fail('the settings name nothing to change');
   changes = { ...changes };
   for (const [k, v] of Object.entries(changes)) {
-    if (k === 'tickets') { try { changes.tickets = ticketSource(v); } catch (e) { fail(e.message); } }
+    if (k === 'tickets') {
+      try { changes.tickets = ticketSource(v); } catch (e) { fail(e.message); }
+      // Issues need a repo on GitHub, as Board Settings' Tickets row shows (dialogs.js ticketsControl).
+      const board = changes.tickets.source === 'github' && site ? listBoards().find((b) => samePath(b.dir, site)) : null;
+      if (board && !board.github) fail('GitHub issues need the board’s repo on GitHub, and this board’s repo isn’t; pick internal or linear');
+    }
     else if (k === 'github_login') {
       if (v === '' || v === null) changes.github_login = undefined;
       else if (!validGithubLogin(v)) fail('github_login must be a GitHub login');
@@ -1176,7 +1182,7 @@ export async function setMainInstall(site, { install, installSha }) {
 // → the wave file, and when a dep finishes the items it unblocked as `unblocked: <key>` lines; closing
 // (done, merged, dropped) adds a `resolved: <id>` line per question it resolved (closeQuestions).
 // notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`.
-async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, ghSince, fromAsk, held, unheld, pickUpAt, notesFile, deps, install, installSha, installLabel, clearInstall, title, force, confirmed }, options) {
+async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, held, unheld, pickUpAt, notesFile, deps, install, installSha, installLabel, clearInstall, title, force, confirmed }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
   if (confirmed !== undefined && status !== 'building') fail('--confirmed goes with --status building');
   if (force && !FINISHED.includes(status)) fail(`--force goes with --status ${FINISHED.join(', ')}`);
@@ -1184,7 +1190,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   const hold = holdOf({ held, unheld, pickUpAt });
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([status, clearStatus, next, clearNext, pr, ghSince, fromAsk, hold, notesFile, deps, built, title, ticket].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --gh-since, --from-ask, --held, --unheld, --pick-up-at, --notes-file, --deps, --install, --clear-install, --title or --ticket');
+  if ([status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, hold, notesFile, deps, built, title, ticket].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --held, --unheld, --pick-up-at, --notes-file, --deps, --install, --clear-install, --title or --ticket');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   const { source, wave, item } = await loadItem(site, key);
@@ -1219,6 +1225,15 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     item.pr = /^[1-9]\d*$/.test(String(pr)) ? Number(pr) : fail('--pr takes a PR number');
     clearBuildingStatus(item);
   }
+  // docs/adr/0127-a-board-can-work-on-any-git-remote.md
+  if (pushed !== undefined) {
+    if (!listBoards().find((b) => samePath(b.dir, needSite(site)))?.remote) fail('--pushed is for a board whose repo is a plain git remote; on GitHub, open a PR and pass --pr');
+    if (item.pr) fail(`${key} has PR #${item.pr}; its PR says when it merges`);
+    try { validateBranch(pushed); } catch { fail('--pushed takes the name of the branch you pushed'); }
+    item.pushed = { branch: pushed, at: new Date().toISOString() };
+    item.branch = pushed;
+    clearBuildingStatus(item);
+  }
   if (ghSince !== undefined) {
     if (typeof ghSince !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(ghSince) || Number.isNaN(Date.parse(ghSince))) fail('--gh-since takes an ISO-8601 UTC time such as 2026-10-23T11:00:00Z');
     item.gh_since = ghSince;
@@ -1233,11 +1248,11 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (notesFile !== undefined) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
   if (confirmLine) resolved.push(...(await appendThread(site, key, { text: confirmLine })).lines);
   if (mcpLine) resolved.push(mcpLine);
-  const target = ticketTarget({ status, pr });
+  const target = ticketTarget({ status, pr: pr ?? pushed });
   const moved = target && await moveTicket(await boardSource(site), item, target, { ...options, repo: boardRepoOf(site, wave) });
   if (moved) resolved.push(moved);
   // A builder that forgot builder done would keep the card In Progress after it was handed back.
-  if (pr !== undefined || HANDED_BACK.includes(status)) await closeBuilders(source.dir, item.id, FINISHED.includes(status));
+  if (pr !== undefined || pushed !== undefined || HANDED_BACK.includes(status)) await closeBuilders(source.dir, item.id, FINISHED.includes(status));
   // An ask is in one card's thread: becoming this item moves it out of a card it was folded into.
   const links = ask ? await readAskLinks(site) : {};
   if (routeRecord(links, ask) !== undefined) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }

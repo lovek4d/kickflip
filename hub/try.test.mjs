@@ -492,6 +492,30 @@ test('the poll fetches each non-hub board branch into its origin ref without a n
   assert.equal(git(repo, 'rev-parse', 'refs/remotes/origin/develop'), sha);
 });
 
+test('on a plain git remote board the poll moves a pushed card to Done once its branch is merged or gone from the remote, and leaves an unmerged one In Review', async () => {
+  const remote = path.join(site, 'remote.git');
+  git(repo, 'clone', '--quiet', '--bare', repo, remote);
+  git(repo, 'remote', 'set-url', 'origin', remote);
+  const branch = (name, file) => { git(repo, 'switch', '--quiet', '-c', name, 'main'); write(path.join(repo, file), name); commit(repo, name); git(repo, 'push', '--quiet', 'origin', name); git(repo, 'switch', '--quiet', 'main'); };
+  branch('merged-one', 'merged');
+  branch('open-one', 'open');
+  branch('dropped-one', 'dropped');
+  git(repo, 'merge', '--quiet', '--no-ff', '-m', 'merge', 'merged-one');
+  git(repo, 'push', '--quiet', 'origin', 'main', ':merged-one', ':dropped-one');
+  const pushed = (b) => ({ branch: b, at: '2026-11-02T10:00:00Z' });
+  write(path.join(site, 'data', 'wave.json'), { items: [{ id: 'A1', pushed: pushed('merged-one') }, { id: 'A2', pushed: pushed('open-one') }, { id: 'A3', pushed: pushed('dropped-one') }] });
+  delete manifest.sites.orch.github;
+  manifest.sites.orch.remote = 'git@gitlab.example.com:acme/project.git';
+  await fetchTryBranches({ manifest, log() {} });
+  assert.deepEqual(read(path.join(site, 'data', 'wave.json')).items.map((it) => it.status), ['merged', undefined, 'done']);
+  assert.equal(thread().at(-1).text, 'merged-one is merged into main on gitlab.example.com, so this card is Done.');
+  assert.equal(fs.readFileSync(path.join(site, 'data', 'threads', 'w__A3.jsonl'), 'utf8').includes('dropped-one is gone from gitlab.example.com, so this card is Done.'), true);
+  git(repo, 'merge', '--quiet', '--no-ff', '-m', 'merge', 'open-one');
+  git(repo, 'push', '--quiet', 'origin', 'main');
+  await fetchTryBranches({ manifest, log() {} });
+  assert.equal(read(path.join(site, 'data', 'wave.json')).items[1].status, 'merged');
+});
+
 test('the hub build route enforces loopback and fixed inputs', async () => {
   const free = async () => {
     const server = http.createServer();

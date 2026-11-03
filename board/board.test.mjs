@@ -848,6 +848,26 @@ test('resolving a question leaves a missing or empty push queue alone', () => {
   assert.equal(fs.readFileSync(queue, 'utf8'), empty);
 });
 
+test('on a board whose repo is a plain git remote, item set --pushed records the branch In Review and closes the builder, settings refuse GitHub issues, and a GitHub board refuses --pushed', () => {
+  const cmd = [process.execPath, fileURLToPath(new URL('./server.mjs', import.meta.url))];
+  write(at('kickflip', 'manifest.json'), { sites: { audit: { dir: site('audit'), cmd, remote: 'git@gitlab.com:acme/audit.git', branch: 'main' }, orch: { dir: site('orch'), cmd, github: 'o/r' } } });
+  assert.equal(board('builder', 'start', 'audit/A1', '--site', 'audit').code, 0);
+  assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--status', 'building').code, 0);
+  const r = board('item', 'set', 'audit/A1', '--site', 'audit', '--pushed', 'A1');
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^A1: pushed A1\n/);
+  const { pushed, ...item } = read(site('audit', 'data', 'wave.json')).items[0];
+  assert.deepEqual([item.branch, item.status, typeof Date.parse(pushed.at)], ['A1', undefined, 'number']);
+  assert.equal(pushed.branch, 'A1');
+  assert.ok(read(site('audit', 'data', 'agents', 'A1.json')).done);
+  assert.match(board('item', 'set', 'audit/A1', '--site', 'audit', '--pushed', 'bad..branch').err, /branch you pushed/);
+  assert.match(board('item', 'set', 'w/A1', '--site', 'orch', '--pushed', 'A1').err, /plain git remote; on GitHub, open a PR and pass --pr/);
+  const tickets = board('--site', 'audit', 'settings', 'set', 'tickets', '{"source":"github"}');
+  assert.equal(tickets.code, 1);
+  assert.match(tickets.err, /GitHub issues need the board’s repo on GitHub/);
+  assert.equal(board('--site', 'orch', 'settings', 'set', 'tickets', '{"source":"github"}').code, 0);
+});
+
 test('item set edits the item in a waves board and in a file board', () => {
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'building', '--next', 'Run tests', '--pr', '42').code, 0);
   const { status_at: _w, ...edited } = read(at('waves', 'w', 'wave.json')).items[0];

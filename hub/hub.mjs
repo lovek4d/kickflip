@@ -29,12 +29,13 @@
 //                     error when Linear can't be reached
 //   /_hub/linear/projects POST {team, name} creates a Linear project in that team → {id, name, team}
 //   /_hub/repos      GET the signed-in owner's and orgs' repos with clone/share metadata
-//   /_hub/repo       GET ?github=owner/repo checks a pasted GitHub repo, including one outside the list;
-//                     returns one repo row with listed: false, or 404 when unreachable (repos.mjs)
-//   /_hub/branches   GET ?github=owner/repo lists branches and the repo default
-//   /_hub/board-repo/<route> GET repo and branch; POST {github, branch} prepares the clone and sends repo-changed
-//                     (board-repo.mjs); the hub board's GET names kickflip's clone and its POST is refused
-//   /_hub/new-board  POST {name, github, branch, purpose, tickets} → {route}: a starting reservation, then the board's session starts
+//   /_hub/repo       GET ?github=owner/repo checks a pasted GitHub repo, including one outside the list, or
+//                     ?remote=<git link> another host's repo; returns one repo row with listed: false, or 404 when
+//                     unreachable (repos.mjs)
+//   /_hub/branches   GET ?github=owner/repo or ?remote=<git link> lists branches and the repo default
+//   /_hub/board-repo/<route> GET repo and branch; POST {github | remote, branch} prepares the clone and sends
+//                     repo-changed (board-repo.mjs); the hub board's GET names kickflip's clone and its POST is refused
+//   /_hub/new-board  POST {name, github | remote, branch, purpose, tickets} → {route}: a starting reservation, then the board's session starts
 //                     without holding the response; DELETE /_hub/new-board/<route> dismisses a start that failed
 //                     or timed out (new-board.mjs)
 //   /_hub/close-board/<route> GET the board's title, hub flag, open PRs and running builder records
@@ -721,7 +722,7 @@ async function hubRoute(req, res, url) {
     catch (e) { return sendJSON(e.status || 502, { error: e.message }); }
   }
   if (p === '/_hub/branches' && req.method === 'GET') {
-    try { return sendJSON(200, await repos.branches(url.searchParams.get('github'))); }
+    try { return sendJSON(200, await repos.branches(url.searchParams.get('github') ?? url.searchParams.get('remote'))); }
     catch (e) { return sendJSON(e.status || 502, { error: e.message }); }
   }
   if (p === '/_hub/repo' && req.method === 'GET') return repoLookupRoute(url, { repos, manifest: loadManifest(), sendJSON });

@@ -27,11 +27,15 @@
   // when the hub doesn't list this board. A link without state, from a board server still running older code, reads from ok.
   const linkState = (l) => l.state || (l.ok ? 'ok' : 'broken');
   const brokenLinks = (links) => (links || []).filter((l) => linkState(l) === 'broken');
-  const linksMark = (links) => {
+  const linksMark = (links, mark = GITHUB_MARK) => {
     const broken = brokenLinks(links).length;
     const label = `Hub links${broken ? `: ${broken} not working` : ''}`;
-    return `<button class="ghost gh-links" type="button" data-hub-links aria-haspopup="dialog" aria-label="${label}" title="${label}">${GITHUB_MARK}${broken ? '<span class="links-dot" aria-hidden="true"></span>' : ''}</button>`;
+    return `<button class="ghost gh-links" type="button" data-hub-links aria-haspopup="dialog" aria-label="${label}" title="${label}">${mark}${broken ? '<span class="links-dot" aria-hidden="true"></span>' : ''}</button>`;
   };
+  // A board on a plain git remote has no GitHub checks, so the In Review header names its repo, host/path, instead
+  // (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
+  const REMOTE_MARK = '<svg class="gh-mark" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7"/><path d="M18 10.5c0 4-6 3-11 6"/></svg>';
+  const remoteLine = (remote, { links = null } = {}) => `<span class="github remote" title="This board’s repo">${linksMark(links, REMOTE_MARK)} <span class="remote-name">${esc(remote.name)}</span></span>`;
   // The In Review header's right end; pending is whether a check-github request is waiting.
   const githubLine = (checks, { pending = false, links = null } = {}) => {
     const mark = linksMark(links);
@@ -63,7 +67,7 @@
     const step = (ok, done, waiting) => `<li><span class="dot ${ok ? 'pass' : 'pending'}" aria-hidden="true"></span>${ok ? done : waiting}</li>`;
     return `<h2>Connecting this board</h2><ul class="setup-steps">
       ${step(setup.events, 'Claude answered the hello', 'Waiting for Claude to answer the hello')}
-      ${step(setup.github, 'GitHub checks reach this board', 'Waiting for the hub\'s next GitHub check')}
+      ${setup.github === undefined ? '' : step(setup.github, 'GitHub checks reach this board', 'Waiting for the hub\'s next GitHub check')}
     </ul>`;
   };
   const checkLanded = (checks, pendingSince) => Boolean(checks?.at) && Date.parse(checks.at) >= pendingSince;
@@ -80,5 +84,5 @@
     return { refresh: ready, settings: ready && link === 'online', spin: !boardSettled || reloading };
   };
 
-  Object.assign(globalThis.BoardUI, { statusLine, freshSig, nextFresh, githubLine, brokenLinks, linksList, setupCard, checkLanded, githubRefresh, refreshIcon, headerControls });
+  Object.assign(globalThis.BoardUI, { statusLine, freshSig, nextFresh, githubLine, remoteLine, brokenLinks, linksList, setupCard, checkLanded, githubRefresh, refreshIcon, headerControls });
 })();

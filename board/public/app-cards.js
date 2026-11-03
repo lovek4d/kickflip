@@ -3,7 +3,7 @@
 // app-core.js and app-threads.js.
 BoardView.part((B) => {
   const { $, store, state, markSeen, seen, toast, links } = B;
-  const { esc, REVIEW, reviewAge, unreadCount, workLines, heldUntilWords, holdPicker, linkText, mergeButton, buildButton, installButton, tryButton, tryWords, BUTTON, LINK_ARROW } = BoardUI;
+  const { esc, ago, REVIEW, reviewAge, unreadCount, workLines, heldUntilWords, holdPicker, linkText, mergeButton, buildButton, installButton, tryButton, tryWords, BUTTON, LINK_ARROW } = BoardUI;
 
   const mainSheet = $('#mainLogSheet');
   const mainRetry = $('#mainLogRetry');
@@ -191,6 +191,7 @@ BoardView.part((B) => {
       it.hasNotes ? `<a href="notes.html?item=${encodeURIComponent(it.key)}">Notes ${LINK_ARROW}</a>` : '',
       installButton(it),
       pr?.state === 'OPEN' ? `<a${classes(it, BUTTON.github)} href="${esc(pr.url)}" target="_blank" rel="noopener">${pr.isDraft ? 'Review draft on GitHub' : 'Review on GitHub'} ${LINK_ARROW}</a>` : '',
+      it.pushed ? pushedLink(it) : '',
     ].filter(Boolean);
     const externalRow = external.length ? `<dt class="external-links-label">Links</dt><dd class="external-links">${external.map((html, i) => `<span class="external-link">${i ? '<span class="external-separator" aria-hidden="true"> · </span>' : ''}${html}</span>`).join('')}</dd>` : '';
 
@@ -200,6 +201,22 @@ BoardView.part((B) => {
       ${B.thread(it.key)}
     </div>`;
   }
+
+  // A card whose branch is pushed to a plain git remote has no PR to link, so its line copies the branch name
+  // (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
+  const pushedLink = (it) => `<a href="#" data-copy-branch="${esc(it.pushed.branch)}" title="Copy the branch name">${esc(pushedWords(it))}</a>`;
+  const pushedWords = (it) => [`Pushed ${it.ref}${it.pushed.host ? ` to ${it.pushed.host}` : ''}`, it.pushed.at && ago(it.pushed.at)].filter(Boolean).join(' · ');
+  B.on(B.root, 'click', (ev) => {
+    const link = ev.target.closest('[data-copy-branch]');
+    if (!link) return;
+    ev.preventDefault();
+    navigator.clipboard?.writeText(link.dataset.copyBranch).catch(() => {});
+    link.textContent = 'Copied the branch name';
+    B.later(1600, () => {
+      const it = state.board?.items.find((i) => i.pushed?.branch === link.dataset.copyBranch);
+      if (link.isConnected && it) link.textContent = pushedWords(it);
+    });
+  });
 
   const sendingMerge = new Set();
   const sendingBuild = new Set();
@@ -213,7 +230,7 @@ BoardView.part((B) => {
     build: (it, ref) => `Build ${ref}? Claude replies with a short plan, then builds it as a draft.`,
     'card-build': (it, ref) => `Build ${ref}? Claude starts its builder now with the notes as they stand.`,
     finish: (it, ref) => (it.kind === 'ask' ? `Mark this task done? "${it.title}" moves to Done.`
-      : `Close ${ref}? It moves to Done and Claude stops work on it.${it.pr?.state === 'OPEN' ? ' Its PR stays open on GitHub.' : ''}`),
+      : `Close ${ref}? It moves to Done and Claude stops work on it.${it.pr?.state === 'OPEN' ? ' Its PR stays open on GitHub.' : it.pushed ? ` Its branch stays on ${it.pushed.host || 'the remote'}.` : ''}`),
   };
 
   const classes = (it, button, base = '') => {

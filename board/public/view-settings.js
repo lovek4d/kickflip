@@ -155,7 +155,7 @@
     const repoURL = `/_hub/board-repo/${encodeURIComponent(B.route)}`;
     let repo = {}, closeRepo = () => {};
     let tickets, savedTickets, savingTickets = null, ticketsTouched = false;
-    const showRepo = () => { $('#boardRepoValue').textContent = repo.github ? `${repo.github} · ${repo.branch || 'Branch not recorded'}` : 'No GitHub repo'; };
+    const showRepo = () => { $('#boardRepoValue').textContent = repo.github || repo.remote ? `${repo.github || repo.remote} · ${repo.branch || 'Branch not recorded'}` : 'No GitHub repo'; };
     get(repoURL).then(({ body }) => {
       if (!B.alive()) return;
       repo = body;

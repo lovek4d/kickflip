@@ -1,10 +1,12 @@
 ---
-status: superseded in part by ADR-0110
+status: superseded in part by ADR-0110 and ADR-0127
 ---
 
 # A pasted GitHub link picks any reachable repo
 
 Superseded in part by [0110](0110-a-clone-uses-ghs-token-over-https.md): the clone is one https clone with gh's token, which needs no fallback for a public repo. Lookup and branches still fall back to anonymous Git.
+
+Superseded in part by [0127](0127-a-board-can-work-on-any-git-remote.md): another host's git link is checked with git's own credential and makes a board on that remote, instead of being refused.
 
 The owner picked take A of `prototype-repo-paste.html` on hub/INT-188. [0073](0073-a-new-board-chooses-a-repo-and-branch.md)'s list shows only `gh repo list` for the owner and their orgs, so a collaborator's repo or another owner's public repo could not make a board.
 

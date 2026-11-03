@@ -6,10 +6,12 @@
   // docs/adr/0117-a-board-picks-linear-only-while-hubs-key-works.md). A New board's "New project…" reads as
   // new_project, which the hub creates on Start; Board Settings creates it with createProject. change(value, valid,
   // {loaded, typing}) follows each change: loaded when only Linear's lists arrived, typing while a text field is being typed in.
+  // GitHub issues needs repo(), the board's GitHub owner/name: without one, as on a board whose repo is another git
+  // remote, it can't be picked and says why (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
   function ticketsControl(root, { value = { source: 'internal', prefix: 'INT' }, repo = () => '', title = () => '', linear = null, loadLinear, isNew = false, change = () => {}, createProject } = {}) {
     const { esc } = BoardUI;
     const draft = { prefix: 'INT', ...value };
-    let creating = false, createError = '', destroyed = false, asking = false;
+    let creating = false, createError = '', destroyed = false, asking = false, noGithub = false;
     const works = () => Boolean(linear?.set && !linear.refused);
     async function load() {
       linear = { loading: true };
@@ -50,12 +52,15 @@
       return `<div class="tk-grid"><label class="tk-field"><span>Team</span><select data-tk="team">${(linear.teams || []).map((t) => `<option value="${esc(t.key)}"${t.key === draft.team ? ' selected' : ''}>${esc(t.key)} · ${esc(t.name)}</option>`).join('')}</select></label><label class="tk-field"><span>Project</span><select data-tk="project">${(linear.projects || []).filter((p) => p.team === draft.team).map((p) => `<option value="${esc(p.id)}"${p.id === draft.project ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}<option value="__new"${draft.project === '__new' ? ' selected' : ''}>New project…</option></select></label></div>${draft.project === '__new' ? `<div class="tk-new"><input data-tk="newName" value="${esc(draft.newName ?? title())}" aria-label="New Linear project name" placeholder="Project name" maxlength="80" autocomplete="off">${isNew ? '' : `<button type="button" data-tk-create${creating ? ' disabled' : ''}>${creating ? 'Creating…' : 'Create'}</button>`}</div>` : ''}${createError ? `<p class="muted small" role="alert">${esc(createError)}</p>` : ''}${note}`;
     }
     function render() {
-      const segment = `<div class="tk-seg" role="group" aria-label="Ticket source">${[['linear', 'Linear'], ['github', 'GitHub issues'], ['internal', 'Internal']].map(([source, name]) => `<button type="button" data-tk-source="${source}" aria-pressed="${draft.source === source}">${name}</button>`).join('')}</div>`;
+      const off = !repo();
+      const segment = `<div class="tk-seg" role="group" aria-label="Ticket source">${[['linear', 'Linear'], ['github', 'GitHub issues'], ['internal', 'Internal']].map(([source, name]) => `<button type="button" data-tk-source="${source}" aria-pressed="${draft.source === source}"${source === 'github' && off ? ' aria-disabled="true"' : ''}>${name}</button>`).join('')}</div>`;
+      const why = `<p class="muted small" role="status">GitHub issues need a repo on GitHub, and ${isNew ? 'the repo chosen above' : 'this board’s repo'} isn’t on GitHub.</p>`;
       let detail;
-      if (draft.source === 'internal') detail = `<label class="tk-field"><span>Prefix</span><input data-tk="prefix" value="${esc(draft.prefix)}" placeholder="INT" maxlength="6" pattern="[A-Z]{2,6}" title="2–6 uppercase letters" autocapitalize="characters" autocomplete="off" spellcheck="false"></label><p class="muted small" data-tk-example>Cards number ${esc(draft.prefix || 'INT')}-1, ${esc(draft.prefix || 'INT')}-2… on this board. The badge opens the card.</p>`;
+      if (draft.source === 'github' && off) detail = why;
+      else if (draft.source === 'internal') detail = `<label class="tk-field"><span>Prefix</span><input data-tk="prefix" value="${esc(draft.prefix)}" placeholder="INT" maxlength="6" pattern="[A-Z]{2,6}" title="2–6 uppercase letters" autocapitalize="characters" autocomplete="off" spellcheck="false"></label><p class="muted small" data-tk-example>Cards number ${esc(draft.prefix || 'INT')}-1, ${esc(draft.prefix || 'INT')}-2… on this board. The badge opens the card.</p>`;
       else if (draft.source === 'github') detail = `<div class="who tk-static"><span>Issues in ${esc(repo())}<span class="muted small sub">${isNew ? 'The repo chosen above' : 'The board’s repo, set above'}. A new card opens an issue there${draft.account ? ` as gh account ${esc(draft.account)}` : ''}; its badge reads #41.</span></span></div>`;
       else detail = linearDetail();
-      root.innerHTML = `${segment}<div class="tk-detail">${detail}</div>`;
+      root.innerHTML = `${segment}<div class="tk-detail">${noGithub && off && draft.source !== 'github' ? why : ''}${detail}</div>`;
       if (draft.source === 'linear' && ready()) {
         root.querySelector('[data-tk="team"]').value = draft.team || '';
         root.querySelector('[data-tk="project"]').value = draft.project || '';
@@ -100,6 +105,8 @@
       if (e.target.closest('[data-tk-key]')) { pickLinear(); return; }
       const button = e.target.closest('[data-tk-source]');
       if (!button) return;
+      noGithub = button.dataset.tkSource === 'github' && !repo();
+      if (noGithub) { render(); root.querySelector('[data-tk-source="github"]').focus(); return; }
       if (button.dataset.tkSource === 'linear') { pickLinear(); return; }
       draft.source = button.dataset.tkSource;
       render(); root.querySelector(`[data-tk-source="${draft.source}"]`).focus(); change(read(), valid());
@@ -209,9 +216,9 @@
     el.setAttribute('class', 'sheet');
     el.setAttribute('aria-labelledby', 'newBoardTitle');
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    const draft = { name: '', purpose: '', github: '', branch: '', tickets: { source: 'internal', prefix: 'INT' } };
+    const draft = { name: '', purpose: '', github: '', remote: '', branch: '', tickets: { source: 'internal', prefix: 'INT' } };
     let tickets;
-    let repos = [], pasted, selected, edited = false, sending = false, closed = false, generation = 0, lookupTimer, linear;
+    let repos = [], signedIn = false, pasted, selected, edited = false, sending = false, closed = false, generation = 0, lookupTimer, linear;
     const controller = new AbortController();
     el.innerHTML = `<form class="nb-form"><div class="sheet-head"><h2 id="newBoardTitle" tabindex="-1" autofocus>${current ? 'Change repo' : 'New board'}</h2><button type="button" data-cancel-new aria-label="Close sheet">✕</button></div><div data-repo-content></div><p class="nb-error" role="alert" hidden></p><div class="nb-actions sheet-actions"><button type="button" data-cancel-new>Cancel</button><button type="submit" class="primary" hidden disabled>${current ? 'Use repo' : 'Start'}</button></div></form>`;
     const content = el.querySelector('[data-repo-content]');
@@ -226,10 +233,17 @@
       return d;
     };
     const fail = (e) => { if (!closed) { error.textContent = e.message; error.hidden = false; } };
-    function sync() { start.disabled = sending || !draft.github || !draft.branch || (!current && (!draft.name.trim() || !tickets?.valid())); }
-    const row = (r, highlighted = false) => `<button type="button" class="nb-repo${highlighted ? ' nb-repo-highlight' : ''}" data-repo="${esc(r.github)}"><strong>${esc(r.github)}</strong>${r.listed === false ? '<span class="nb-repo-tag">Not in your list</span>' : ''}<span class="nb-help">${r.private ? 'Private' : 'Public'} · <time datetime="${esc(r.pushedAt)}">${r.pushedAt ? `Pushed ${esc(new Date(r.pushedAt).toLocaleString())}` : r.listed === false ? 'Last push unknown' : 'No pushes yet'}</time></span><span class="nb-help">${esc(r.description)}</span><span class="nb-local">${r.cloned ? `✓ In .repos${r.shared.length ? ` · shared with ${esc(r.shared.map((b) => b.title).join(', '))}` : ' · already cloned'}` : 'Not cloned in .repos'}</span></button>`;
+    function sync() { start.disabled = sending || !(draft.github || draft.remote) || !draft.branch || (!current && (!draft.name.trim() || !tickets?.valid())); }
+    // A repo row's id is its GitHub owner/name, or the git link of a repo on another host, which the row names by
+    // host/path and labels with its host where a GitHub row says Private or Public
+    // (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
+    const idOf = (r) => r.github || r.remote;
+    const nameOf = (r) => r.github || r.name;
+    const access = (r) => (r.remote ? r.host : r.private ? 'Private' : 'Public');
+    const row = (r, highlighted = false) => `<button type="button" class="nb-repo${highlighted ? ' nb-repo-highlight' : ''}" data-repo="${esc(idOf(r))}"><strong>${esc(nameOf(r))}</strong>${r.listed === false ? '<span class="nb-repo-tag">Not in your list</span>' : ''}<span class="nb-help">${esc(access(r))} · <time datetime="${esc(r.pushedAt)}">${r.pushedAt ? `Pushed ${esc(new Date(r.pushedAt).toLocaleString())}` : r.listed === false ? 'Last push unknown' : 'No pushes yet'}</time></span><span class="nb-help">${esc(r.description)}</span><span class="nb-local">${r.cloned ? `✓ In .repos${r.shared.length ? ` · shared with ${esc(r.shared.map((b) => b.title).join(', '))}` : ' · already cloned'}` : 'Not cloned in .repos'}</span></button>`;
     const results = (html) => { el.querySelector('[data-repo-results]').innerHTML = html; };
     function rows(query = '') {
+      if (!signedIn) { results(''); return; }
       const list = repos.filter((r) => `${r.github} ${r.description}`.toLowerCase().includes(query.trim().toLowerCase()));
       results(`<p class="nb-help" role="status">${list.length} of ${repos.length} repos · Newest push first</p><div class="nb-repo-list">${list.map((r) => row(r)).join('')}</div>${list.length ? '' : '<p class="nb-help">No matching repos. Try an owner or repo name.</p>'}`);
     }
@@ -240,8 +254,20 @@
       const q = value.trim();
       const host = /^(?:[a-z][a-z\d+.-]*:\/\/(?:[^@/\s]+@)?|[^@/\s]+@)([^/:?#\s]+)/i.exec(q);
       const reason = (name, message) => results(`<div class="nb-box nb-box-no" role="alert"><span><strong>${esc(name)}</strong><span class="nb-why">${esc(message)}</span></span></div>`);
+      const checking = (name) => results(`<p class="nb-help" role="status">Checking the hub can reach it…</p><div class="nb-box"><span class="nb-spin" aria-hidden="true"></span><span><strong>${esc(name)}</strong><span class="nb-help">Checking…</span></span></div>`);
+      const check = (query, name) => async () => {
+        try {
+          const repo = await request(`/_hub/repo?${query}`);
+          if (closed || generation !== version) return;
+          pasted = repo;
+          results(`<p class="nb-help" role="status">From your link</p><div class="nb-repo-list">${row(repo)}</div>`);
+        } catch (e) { if (!closed && generation === version) reason(name, e.message); }
+      };
+      if (/^(?:file:|[/~]|\.\.?\/)/i.test(q)) { reason(q, 'Paste the repo’s remote link. Local folders don’t work here.'); return; }
       if (host && !/^(?:www\.)?github\.com$/i.test(host[1])) {
-        reason(q.replace(/^[a-z][a-z\d+.-]*:\/\//i, '').replace(/^[^@/\s]+@/, '').replace(/:/, '/').replace(/\.git$/i, ''), 'Only GitHub repos work here.');
+        const name = q.replace(/^[a-z][a-z\d+.-]*:\/\//i, '').replace(/^[^@/\s]+@/, '').replace(/:(?!\d+\/)/, '/').replace(/:\d+\//, '/').replace(/\.git\/?$/i, '');
+        checking(name);
+        check(`remote=${encodeURIComponent(q)}`, name)();
         return;
       }
       const link = /^(?:https?:\/\/(?:www\.)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([^/\s?#]+\/[^/\s?#]+)(?:\/[^\s]*)?(?:[?#][^\s]*)?$/i.exec(q);
@@ -252,17 +278,9 @@
       const github = link ? link[1].replace(/\.git$/i, '') : q;
       const listed = repos.find((r) => r.github.toLowerCase() === github.toLowerCase());
       if (listed) { results(`<p class="nb-help" role="status">Already in your list</p><div class="nb-repo-list">${row(listed, true)}</div>`); return; }
-      results(`<p class="nb-help" role="status">Checking the hub can reach it…</p><div class="nb-box"><span class="nb-spin" aria-hidden="true"></span><span><strong>${esc(github)}</strong><span class="nb-help">Checking…</span></span></div>`);
-      const check = async () => {
-        try {
-          const repo = await request(`/_hub/repo?github=${encodeURIComponent(github)}`);
-          if (closed || generation !== version) return;
-          pasted = repo;
-          results(`<p class="nb-help" role="status">From your link</p><div class="nb-repo-list">${row(repo)}</div>`);
-        } catch (e) { if (!closed && generation === version) reason(github, e.message); }
-      };
-      if (bare) lookupTimer = setTimeout(check, 500);
-      else check();
+      checking(github);
+      if (bare) lookupTimer = setTimeout(check(`github=${encodeURIComponent(github)}`, github), 500);
+      else check(`github=${encodeURIComponent(github)}`, github)();
     }
     async function picker(fresh = false) {
       tickets?.destroy();
@@ -276,26 +294,29 @@
       try {
         const d = await request(`/_hub/repos${fresh ? '?fresh=1' : ''}`);
         if (closed || generation !== version) return;
+        signedIn = d.signedIn;
         if (!d.signedIn) {
-          content.innerHTML = '<h3>GitHub isn’t connected</h3><p>gh isn’t signed in on the host running Kickflip. Sign in there to see your repos.</p><code>gh auth login</code><p><button type="button" data-check-auth>Check again</button></p>';
+          repos = [];
+          content.innerHTML = '<h3>GitHub isn’t connected</h3><p>gh isn’t signed in on the host running Kickflip. Sign in there to see your repos.</p><code>gh auth login</code><p><button type="button" data-check-auth>Check again</button></p><label class="nb-field"><span>Or paste a git link</span><input name="search" type="search" placeholder="https://host/path or user@host:path" autocomplete="off" autocapitalize="off" spellcheck="false"></label><div data-repo-results></div>';
           return;
         }
         repos = d.repos;
-        content.innerHTML = '<p class="nb-next">1 · Choose a repo</p><p>Choose the GitHub repo this board will work on.</p><label class="nb-field"><span>Search repos or paste a GitHub link</span><input name="search" type="search" placeholder="Search or paste owner/name…" autocomplete="off" autocapitalize="off" spellcheck="false"></label><div data-repo-results></div>';
+        content.innerHTML = '<p class="nb-next">1 · Choose a repo</p><p>Choose the repo this board will work on: one of your GitHub repos, or any git repo by its link.</p><label class="nb-field"><span>Search repos or paste a git link</span><input name="search" type="search" placeholder="Search or paste owner/name or a git link…" autocomplete="off" autocapitalize="off" spellcheck="false"></label><div data-repo-results></div>';
         rows();
       } catch (e) { fail(e); content.innerHTML = '<button type="button" data-check-auth>Try again</button>'; }
     }
-    async function pick(github) {
-      selected = repos.find((r) => r.github === github) || (pasted?.github === github ? pasted : null);
+    async function pick(id) {
+      selected = repos.find((r) => r.github === id) || (pasted && idOf(pasted) === id ? pasted : null);
       if (!selected) return;
       const version = ++generation;
       clearTimeout(lookupTimer);
-      draft.github = github;
+      draft.github = selected.github || '';
+      draft.remote = selected.remote || '';
       draft.branch = '';
-      if (!edited) draft.name = github.split('/')[1];
+      if (!edited) draft.name = nameOf(selected).split('/').at(-1);
       error.hidden = true;
       const shared = selected.shared.map((b) => b.title).join(', ');
-      content.innerHTML = `<button type="button" data-back-repos>‹ Back</button><p class="nb-next">${current ? 'Repo details' : '2 · Board details'}</p><div class="nb-selected"><strong>${esc(github)}</strong><span class="nb-help">${selected.private ? 'Private' : 'Public'}</span><p>${selected.cloned ? shared ? `Shared with ${esc(shared)}` : 'Already cloned in .repos' : 'Clones to'}<code class="nb-clone">${esc(selected.clone)}</code></p></div><label class="nb-field"><span>Default branch for this board</span><select name="branch" disabled><option value="">Loading branches…</option></select><span class="nb-help" data-branch-help></span></label><p class="nb-next">Each board’s builders work in separate worktrees off this clone. Sharing the clone doesn’t share their working files.</p>${current ? '<p class="nb-next">New builders and GitHub links will use the selected repo.</p>' : `<label class="nb-field"><span>Name</span><input name="name" type="text" value="${esc(draft.name)}" required maxlength="60" autocomplete="off"></label><label class="nb-field"><span>What it’s for</span><input name="purpose" type="text" value="${esc(draft.purpose)}" maxlength="240"><span class="nb-help">One line to get the board started. Optional.</span></label><p class="nb-next">The hub ${selected.cloned ? 'reuses the clone' : 'clones the repo'} and starts your board. You can keep using your other boards.</p>`}`;
+      content.innerHTML = `<button type="button" data-back-repos>‹ Back</button><p class="nb-next">${current ? 'Repo details' : '2 · Board details'}</p><div class="nb-selected"><strong>${esc(nameOf(selected))}</strong><span class="nb-help">${esc(access(selected))}</span><p>${selected.cloned ? shared ? `Shared with ${esc(shared)}` : 'Already cloned in .repos' : 'Clones to'}<code class="nb-clone">${esc(selected.clone)}</code></p></div><label class="nb-field"><span>Default branch for this board</span><select name="branch" disabled><option value="">Loading branches…</option></select><span class="nb-help" data-branch-help></span></label><p class="nb-next">Each board’s builders work in separate worktrees off this clone. Sharing the clone doesn’t share their working files.</p>${current ? '<p class="nb-next">New builders and GitHub links will use the selected repo.</p>' : `<label class="nb-field"><span>Name</span><input name="name" type="text" value="${esc(draft.name)}" required maxlength="60" autocomplete="off"></label><label class="nb-field"><span>What it’s for</span><input name="purpose" type="text" value="${esc(draft.purpose)}" maxlength="240"><span class="nb-help">One line to get the board started. Optional.</span></label><p class="nb-next">The hub ${selected.cloned ? 'reuses the clone' : 'clones the repo'} and starts your board. You can keep using your other boards.</p>`}`;
       if (!current) {
         content.querySelectorAll('.nb-next')[content.querySelectorAll('.nb-next').length - 1].insertAdjacentHTML('beforebegin', '<div class="nb-field tk-section" role="group" aria-labelledby="nbTicketsLabel"><span id="nbTicketsLabel">Tickets</span><span class="nb-help">Where this board’s cards get their tickets. You can change it in Board settings.</span><div data-board-tickets></div></div>');
         tickets = ticketsControl(content.querySelector('[data-board-tickets]'), { value: draft.tickets, linear, loadLinear: async () => (linear = await request('/_hub/api/linear')),
@@ -304,9 +325,9 @@
       start.hidden = false;
       sync();
       try {
-        const d = await request(`/_hub/branches?github=${encodeURIComponent(github)}`);
+        const d = await request(`/_hub/branches?${draft.remote ? 'remote' : 'github'}=${encodeURIComponent(id)}`);
         if (closed || generation !== version) return;
-        draft.branch = current?.github === github && d.branches.includes(current.branch) ? current.branch : d.defaultBranch;
+        draft.branch = (current?.github || current?.remote) === id && d.branches.includes(current.branch) ? current.branch : d.defaultBranch;
         if (!d.branches.includes(draft.branch)) draft.branch = d.branches[0] || '';
         field('branch').innerHTML = d.branches.map((b) => `<option value="${esc(b)}"${b === draft.branch ? ' selected' : ''}>${esc(b)}${b === d.defaultBranch ? ' (repo default)' : ''}</option>`).join('');
         field('branch').value = draft.branch;
@@ -343,7 +364,8 @@
       sync();
       error.hidden = true;
       try {
-        await save(current ? { github: draft.github, branch: draft.branch } : { name: draft.name.trim(), purpose: draft.purpose.trim(), github: draft.github, branch: draft.branch, tickets: tickets.read() }, selected);
+        const repo = draft.remote ? { remote: draft.remote } : { github: draft.github };
+        await save(current ? { ...repo, branch: draft.branch } : { name: draft.name.trim(), purpose: draft.purpose.trim(), ...repo, branch: draft.branch, tickets: tickets.read() }, selected);
         sending = false;
         el.close();
       } catch (e) { sending = false; fail(e); sync(); }

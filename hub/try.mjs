@@ -8,10 +8,10 @@ import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { listBoards, readManifest, readJSON, saveJSON, GITHUB_STATE, REPO_FETCH } from './boards.mjs';
 import { boardRepo, githubFromOrigin } from './board-repo.mjs';
-import { gitReachFault } from './repos.mjs';
+import { gitReachFault, remoteFromInput, remoteGitEnv } from './repos.mjs';
 import { readiness } from './readiness.mjs';
 import { buildScriptError } from '../board/build-script.mjs';
-import { appendThread, recordedWorktree } from '../board/store.mjs';
+import { appendThread, recordedWorktree, setItem } from '../board/store.mjs';
 
 export class BuildError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
@@ -479,8 +479,12 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
   return { start, tick, stop, lookup, initialize };
 }
 
+// A remote board's git, with git's own credential and its prompts off (repos.mjs remoteGitEnv).
+const remoteGit = async (dir, ...args) => (await execFileAsync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 10_000, env: remoteGitEnv() })).stdout;
+
 // Fetches each non-hub board's branch and writes REPO_FETCH {<route>: {at, ok, error?, hint?}} for the boards it
-// fetched, which boards.mjs linksOf reads as each board's repo-fetch link.
+// fetched, which boards.mjs linksOf reads as each board's repo-fetch link. On a board whose repo is a plain git
+// remote, it then moves each pushed card to Done once its branch is merged or gone (settlePushed).
 export async function fetchTryBranches({ manifest = readManifest(), log = console.log } = {}) {
   const fetched = {};
   for (const board of listBoards(manifest)) {
@@ -489,16 +493,48 @@ export async function fetchTryBranches({ manifest = readManifest(), log = consol
     const branch = source.branch || 'main';
     const at = new Date().toISOString();
     try {
-      await git(source.repo, 'fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`);
+      const refspec = `+refs/heads/${branch}:refs/remotes/origin/${branch}`;
+      if (board.remote) await remoteGit(source.repo, 'fetch', '--quiet', '--no-tags', 'origin', refspec);
+      else await git(source.repo, 'fetch', '--quiet', '--no-tags', 'origin', refspec);
       fetched[board.route] = { at, ok: true };
     } catch (e) {
       log(`fetch /${board.route}: ${e.message}`);
       let github = board.github;
-      if (!github) { try { github = githubFromOrigin(await git(source.repo, 'remote', 'get-url', 'origin')); } catch {} }
-      fetched[board.route] = { at, ok: false, ...gitReachFault(e.killed ? 'git fetch timed out' : e.stderr, { github: github || '', repo: source.repo }) };
+      if (!github && !board.remote) { try { github = githubFromOrigin(await git(source.repo, 'remote', 'get-url', 'origin')); } catch {} }
+      fetched[board.route] = { at, ok: false, ...gitReachFault(e.killed ? 'git fetch timed out' : e.stderr, { github: github || '', remote: board.remote, repo: source.repo }) };
+      continue;
+    }
+    if (board.remote) {
+      try { await settlePushed(board, source.repo, branch, log); }
+      catch (e) { log(`pushed branches /${board.route}: ${e.message}`); }
     }
   }
   saveJSON(REPO_FETCH, fetched);
+}
+
+// docs/adr/0127-a-board-can-work-on-any-git-remote.md: a pushed card (board.mjs item set --pushed) is Done once its
+// branch's tip is in the board's branch, as merged, or once the branch is gone from the remote, as merged when its last
+// known tip is in the board's branch and done otherwise, since a squash merge leaves no trace of the branch.
+async function settlePushed(board, repo, branch, log) {
+  const open = board.waves.flatMap(({ slug, wave }) => wave.items
+    .filter((it) => it.pushed?.branch && !it.pr && !['done', 'merged', 'dropped'].includes(String(it.status).toLowerCase()))
+    .map((it) => ({ key: `${slug}/${it.id}`, branch: it.pushed.branch })));
+  if (!open.length) return;
+  const heads = new Map((await remoteGit(repo, 'ls-remote', '--heads', 'origin')).split('\n')
+    .map((line) => /^([\da-f]+)\trefs\/heads\/(.+)$/.exec(line)).filter(Boolean).map((m) => [m[2], m[1]]));
+  const host = remoteFromInput(board.remote)?.host || 'the remote';
+  for (const card of open) {
+    let tip = heads.get(card.branch);
+    if (!tip) { try { tip = await git(repo, 'rev-parse', '--verify', '--quiet', `refs/heads/${card.branch}^{commit}`); } catch {} }
+    let merged = false;
+    if (tip) { try { await git(repo, 'merge-base', '--is-ancestor', tip, `refs/remotes/origin/${branch}`); merged = true; } catch {} }
+    if (!merged && heads.has(card.branch)) continue;
+    try {
+      await setItem(board.dir, card.key, { status: merged ? 'merged' : 'done', force: true });
+      await appendThread(board.dir, card.key, { text: merged ? `${card.branch} is merged into ${branch} on ${host}, so this card is Done.`
+        : `${card.branch} is gone from ${host}, so this card is Done.` });
+    } catch (e) { log(`pushed ${card.key}: ${e.message}`); }
+  }
 }
 const manager = createTryManager({ waiting: () => readiness.waiting('tailscale') });
 export const startBuild = (...args) => manager.start(...args);

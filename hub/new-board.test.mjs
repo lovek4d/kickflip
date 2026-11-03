@@ -21,7 +21,7 @@ const { repoService, repoPath, validateBranch, runRepo, githubGitArgv } = await 
 const { boardRepo, changeBoardRepo, migrateBoardRepos, githubFromOrigin } = await import('./board-repo.mjs');
 const { startingBoards, STARTING_WAIT, BG_SETTINGS } = await import('./sessions.mjs');
 const { routeFromName, ROUTE_RE } = await import('./routes.mjs');
-const { saveJSON, readManifest, listBoards, prsOf } = await import('./boards.mjs');
+const { saveJSON, readManifest, listBoards, prsOf, linksOf } = await import('./boards.mjs');
 const { linearClient } = await import('./linear.mjs');
 const { fakeLinear, linearWorld } = await import('../shared/test-helpers.mjs');
 const manifestFile = path.join(home, '.claude', 'kickflip', 'manifest.json');
@@ -423,6 +423,32 @@ test('join transfers the reserved repo and branch before or after the start resu
     run([]);
     assert.equal(readManifest().sites[route].owner.repo, clone);
   }
+});
+
+test('a New board on another git host reserves remote and no github, refuses GitHub issues, and its joined board has no GitHub link', async () => {
+  saveJSON(manifestFile, { sites });
+  const link = 'https://gitlab.com/acme/firmware.git';
+  const clone = path.join(base, 'gitlab.com/acme/firmware');
+  const ensured = [];
+  const service = { base, path: (repo) => repoPath(repo, base), cloned: () => false, ensure: async (repo, branch) => { ensured.push([repo, branch]); fs.mkdirSync(path.join(clone, '.git'), { recursive: true }); return clone; } };
+  const firmware = { name: 'Firmware', remote: link, branch: 'main', purpose: '' };
+  await assert.rejects(requestBoard({ ...firmware, tickets: { source: 'github' } }, { run: claude().run, live, repos: service }), { status: 400, message: /GitHub issues need a repo on GitHub/ });
+  await assert.rejects(requestBoard({ ...firmware, github: 'acme/firmware' }, { run: claude().run, live, repos: service }), { status: 400 });
+  await assert.rejects(requestBoard({ ...firmware, remote: '/srv/git/firmware.git' }, { run: claude().run, live, repos: service }), { status: 400 });
+  const request = await requestBoard(firmware, { run: claude().run, live, repos: service });
+  const pending = readManifest().starting.firmware;
+  assert.deepEqual([pending.remote, pending.github, pending.repo], [link, undefined, clone]);
+  assert.ok((await request.started).session);
+  assert.deepEqual(ensured, [[link, 'main']]);
+  const bin = fileURLToPath(new URL('../bin/kickflip.mjs', import.meta.url));
+  const joined = spawnSync(process.execPath, [bin, 'join', 'firmware', '--session', readManifest().starting.firmware.session, '--port', '4614', '--template', 'board', '--items', 'data/wave.json', '--cmd', JSON.stringify(board.cmd)],
+    { encoding: 'utf8', env: { ...process.env, KICKFLIP_HUB_PORT: '1' } });
+  assert.equal(joined.status, 0, joined.stderr);
+  assert.deepEqual(boardRepo('firmware'), { github: '', remote: link, branch: 'main', repo: clone });
+  const firm = listBoards().find((b) => b.route === 'firmware');
+  assert.equal(firm.remote, link);
+  const links = linksOf(firm, { github: {}, fetches: {}, settings: {}, wakes: {}, devices: 0, listen: 'deaf', topics: {}, faults: {}, now: Date.now() });
+  assert.deepEqual(links.map((l) => l.link), ['events', 'wakes', 'push', 'slack']);
 });
 
 test('a failed Settings clone keeps the prior manifest entry and emits no event', async () => {

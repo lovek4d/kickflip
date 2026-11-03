@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0127
+---
+
 # The hub trusts the clones it makes
+
+Superseded in part by [0127](0127-a-board-can-work-on-any-git-remote.md): a clone of another host's repo is `<host>/<path…>` under the same folder, with no clone above it, and is marked the same way.
 
 hub/INT-252 found that the dev-setup board didn't start: `claude --bg` in `.repos/ever-cars/dev-setup` failed with "Workspace not trusted". Claude Code keys workspace trust on the git repo root. A folder's trust covers its subfolders but not a git repo nested inside them, so trusting `~/dev` doesn't cover a clone under `.repos`. No flag, setting or environment variable accepts trust for `--bg`: `-p` skips the dialog but can't be combined with `--bg`. The Claude Code docs (permissions, "Project allow rules and workspace trust") give one fix: set `projects["<repo root>"].hasTrustDialogAccepted` to `true` in `~/.claude.json`, or in `$CLAUDE_CONFIG_DIR/.claude.json` when that variable is set. The owner picked this (take A of `new-board-trust`).
 

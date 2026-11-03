@@ -357,6 +357,9 @@ button.attach:disabled { opacity: .35; }
 .lane-github { display: inline-flex; align-items: center; gap: 2px; }
 .lane-github .github { display: inline-flex; align-items: center; gap: 4px; }
 .lane-github .gh-mark { flex: none; }
+.lane-github:has(.remote) { min-width: 0; }
+.lane-github .remote { min-width: 0; }
+.lane-github .remote-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lane-github .gh-refresh { font-size: 15px; line-height: 1; padding: 2px 4px; margin-right: -6px; color: var(--muted); }
 .lane-github .gh-refresh[aria-disabled="true"] { opacity: .35; cursor: default; }
 /* INT-44: both refreshes rest and spin while they fetch */

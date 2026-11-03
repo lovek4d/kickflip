@@ -4,7 +4,7 @@
 // Needs app-core.js.
 BoardView.part((B) => {
   const { $, state, toast } = B;
-  const { statusLine, freshSig, nextFresh, githubLine, linksList, setupCard, checkLanded, githubRefresh, headerControls } = BoardUI;
+  const { statusLine, freshSig, nextFresh, githubLine, remoteLine, linksList, setupCard, checkLanded, githubRefresh, headerControls } = BoardUI;
   // A request no check answers stops showing after this.
   const GITHUB_GIVE_UP = 5 * 60000;
 
@@ -22,7 +22,8 @@ BoardView.part((B) => {
     renderStatus();
   }
   B.every(15000, () => { if (!document.hidden) renderStatus(); });
-  const githubHeader = (d) => `<span class="lane-github">${githubLine(d.checks, { pending: Boolean(state.githubPending), links: d.links })}${githubRefresh(d.checks, state.githubPending)}</span>`;
+  const githubHeader = (d) => (d.remote ? `<span class="lane-github">${remoteLine(d.remote, { links: d.links })}</span>`
+    : `<span class="lane-github">${githubLine(d.checks, { pending: Boolean(state.githubPending), links: d.links })}${githubRefresh(d.checks, state.githubPending)}</span>`);
 
   // The Hub links sheet: the GitHub mark opens it, from inside the lane's summary, so the tap must not fold the lane.
   const linksSheet = $('#linksSheet');

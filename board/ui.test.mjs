@@ -750,11 +750,24 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
 
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
-  const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
+  const clicks = [], later = [];
+  const B = { $: () => ({}), alive: () => false, on: (el, type, fn) => { if (type === 'click') clicks.push(fn); }, later: (ms, fn) => later.push([ms, fn]), store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const open = { ...workCard, pr: null, reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
+  const pushed = { ...open, ref: 'INT-12', next: 'merge INT-12 into main', branch: 'INT-12', pushed: { branch: 'INT-12', at: new Date(Date.now() - 25 * 60_000).toISOString(), host: 'gitlab.com' } };
+  assert.deepEqual(rows(pushed), [['Wave', 'W'], ['Branch', 'INT-12'], ['Next', 'merge INT-12 into main'], ['Links', 'Notes · Pushed INT-12 to gitlab.com · 25m ago']]);
+  assert.doesNotMatch(B.detail(pushed), /github\.com|gitlab\.com\/|<button[^>]*data-copy/);
+  const copied = [];
+  app.navigator = { clipboard: { writeText: async (t) => { copied.push(t); } } };
+  const link = { dataset: { copyBranch: 'INT-12' }, textContent: 'Pushed INT-12 to gitlab.com · 25m ago', isConnected: true };
+  B.state.board.items = [pushed];
+  let prevented = false;
+  for (const fn of clicks) fn({ target: { closest: (sel) => (sel === '[data-copy-branch]' ? link : null) }, preventDefault: () => { prevented = true; } });
+  assert.deepEqual([copied, link.textContent, prevented], [['INT-12'], 'Copied the branch name', true]);
+  later.at(-1)[1]();
+  assert.equal(link.textContent, 'Pushed INT-12 to gitlab.com · 25m ago');
   assert.deepEqual(rows(open), [['Wave', 'W'], ['Next', 'Waiting for PR reviewers'], ['Links', 'Notes']]);
   assert.match(B.detail(open), /href="notes.html\?item=w%2FA1"/);
   assert.doesNotMatch(B.detail(open), /Old short note|A stored summary|view more|<summary[^>]*>Notes|class="actions"[^]*notes\.html/);
@@ -1313,6 +1326,11 @@ test('the GitHub mark opens the Hub links sheet, with a red dot while a link is 
   assert.equal(ui.setupCard(null), '');
   const setup = ui.setupCard({ events: false, github: true });
   assert.equal(text(setup), 'Connecting this board Waiting for Claude to answer the hello GitHub checks reach this board');
+  assert.equal(text(ui.setupCard({ events: false })), 'Connecting this board Waiting for Claude to answer the hello');
+  const remote = ui.remoteLine({ host: 'gitlab.com', name: 'gitlab.com/acme/firmware' }, { links });
+  assert.match(remote, /data-hub-links[^>]*aria-label="Hub links: 1 not working"/);
+  assert.doesNotMatch(remote, /GitHub|data-check-github/);
+  assert.equal(text(remote), 'gitlab.com/acme/firmware');
 });
 
 test('usage stays within the Hub link and its card shows both windows, reset, stale and missing readings', () => {

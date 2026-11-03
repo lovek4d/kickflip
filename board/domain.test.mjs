@@ -299,6 +299,23 @@ test('an internal wave marks its items, and one without a PR reaches Done by sta
   assert.deepEqual(byKey, { 'site/S1': [true, 'done'], 'site/S2': [true, 'progress'], 'w/A1': [false, 'todo'] });
 });
 
+test("a card pushed to a plain git remote waits In Review on the owner's merge with no action, goes back to In Progress while a builder fixes it, and is Done once merged", () => {
+  const pushed = { branch: 'INT-12', at: '2026-11-02T10:00:00Z' };
+  const built = (item, agents = {}) => buildBoard({ remote: 'git@gitlab.com:acme/firmware.git', branch: 'trunk', fromWaves: true,
+    waves: [{ slug: 'fw', agents, wave: { internal: true, items: [{ id: 'S12', title: 'OTA retry', branch: 'INT-12', pushed, ...item }] } }] });
+  const open = built({});
+  assert.deepEqual(open.remote, { host: 'gitlab.com', name: 'gitlab.com/acme/firmware' });
+  const card = open.items[0];
+  assert.deepEqual([card.lane, card.waitsOn, card.next, card.action, card.pr, card.branch], ['review', 'owner', 'merge INT-12 into trunk', null, null, 'INT-12']);
+  assert.deepEqual(card.pushed, { branch: 'INT-12', at: pushed.at, host: 'gitlab.com' });
+  assert.deepEqual(open.needs, []);
+  const fixing = built({}, runningBuilders('S12')).items[0];
+  assert.deepEqual([fixing.lane, fixing.waitsOn], ['progress', 'builder']);
+  const merged = built({ status: 'merged' }).items[0];
+  assert.deepEqual([merged.lane, merged.next, merged.pushed], ['done', null, null]);
+  assert.equal(buildBoard({ github: 'o/r', remote: 'git@gitlab.com:acme/firmware.git', waves: [] }).remote, null);
+});
+
 test('needs lists each Needs you line: open topics apart from items, then items asking a question or waiting on Ready', () => {
   const owner = {
     topics: [{ id: 'site', title: 'Site' }],
