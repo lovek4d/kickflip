@@ -1954,7 +1954,7 @@ function boardOnDom({ open = [], seen = {}, board, threads, confirm = false, rea
   return { page, root, view, settle, change, sent, confirms, confirmLabels, posts, doc: page.win.document };
 }
 const askCard = (id, lane) => ({ key: `ask:${id}`, id, kind: 'ask', lane, title: `Task ${id}`, deps: [], othersAt: [] });
-const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items, waves: [], needs: [], answers: [] });
+const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items: items.map((it, n) => ({ rank: { created: n }, ...it })), waves: [], needs: [], answers: [] });
 const workCard = (id, extra) => ({ key: `w/${id}`, id, kind: 'work', lane: 'todo', title: `Work ${id}`, ref: id, internal: true, waveTitle: 'W', deps: [], manualSteps: [], othersAt: [], ...extra });
 
 test("an open card shows its workflow buttons below a final details line of Notes, Install and GitHub links, and colours orange the control that clears Action needed: Open questions links to its first question, Grill asks for questions or reads Writing questions…, and an ask's Mark as done confirms and sends ask-done", async () => {
@@ -2426,7 +2426,7 @@ test("a card opened with more than 3 unread messages shows them all, and once cl
 test("a closed card ends its time line with its count of unread messages, and opening the card reads them, taking away the count and the line it leaves empty", async () => {
   const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
   const b = boardOnDom({ seen: { 'w/A1': at(2), 'w/A2': at(2) },
-    board: boardOf([workCard('A1', { othersAt: [at(5), at(6)] }), workCard('A2', { othersAt: [at(5)], held: true, updatedAt: at(6) })]) });
+    board: boardOf([workCard('A1', { othersAt: [at(5), at(6)] }), workCard('A2', { othersAt: [at(5)], held: true, created: at(6) })]) });
   await b.settle();
   const card = (key) => b.root.querySelector(`details.item[data-key="${key}"]`);
   const chips = (key) => card(key).querySelector('summary .line2')?.children.map((c) => c.textContent) ?? null;
@@ -3112,7 +3112,7 @@ test("the Waves section sits above the lanes: tapping a wave's row shows only it
   assert.deepEqual(lanes(), ['w/A1', 'w/A2']);
 });
 
-test("every lane's header ends in a grey sort icon whose menu picks Recently touched or Recently created without folding the lane; a pick reorders that lane alone by created and its cards' time lines to their created time, kept for the lane on this device through a repaint, and Escape or a tap outside closes the menu", async () => {
+test("every lane's header ends in a grey sort icon whose menu picks Recently created, the default, or Recently touched without folding the lane; a pick reorders that lane alone by touched and its cards' time lines to their touched time, kept for the lane on this device through a repaint, and Escape or a tap outside closes the menu", async () => {
   const cards = [
     workCard('R1', { lane: 'review', rank: { created: 0 } }),
     { ...askCard('n1', 'todo'), isNew: true, ref: 'New', rank: { created: 1 }, ask: { eventId: 'n1', state: 'waiting', askedAt: '2026-10-30T08:00:00.000Z', text: 'Task n1', files: [], canEdit: true } },
@@ -3130,11 +3130,11 @@ test("every lane's header ends in a grey sort icon whose menu picks Recently tou
   const menu = () => b.root.querySelector('.lane-sort-menu');
   const times = (id) => lane(id).querySelectorAll('details.item').map((el) => el.querySelector('summary .card-time time')?.getAttribute('datetime') ?? null);
   assert.deepEqual(['review', 'progress', 'todo', 'done'].map((id) => [icon(id).getAttribute('aria-label'), icon(id).parentNode.children.at(-1) === icon(id)]), [
-    ['Sort In Review, now recently touched', true], ['Sort In Progress, now recently touched', true], ['Sort Todo, now recently touched', true], ['Sort Done, now recently touched', true],
+    ['Sort In Review, now recently created', true], ['Sort In Progress, now recently created', true], ['Sort Todo, now recently created', true], ['Sort Done, now recently created', true],
   ]);
   assert.equal(icon('review').previousElementSibling.classList.contains('lane-github'), true);
-  assert.deepEqual([order('todo'), order('done')], [['ask:n1', 'w/T1', 'w/T2', 'w/T3'], ['w/D1', 'w/D2']]);
-  assert.deepEqual([times('todo'), times('done')], [[null, null, '2026-10-29T08:00:00.000Z', '2026-10-28T08:00:00.000Z'], ['2026-10-02T08:00:00.000Z', null]]);
+  assert.deepEqual([order('todo'), order('done')], [['ask:n1', 'w/T1', 'w/T3', 'w/T2'], ['w/D2', 'w/D1']]);
+  assert.deepEqual([times('todo'), times('done')], [[null, null, '2026-10-21T08:00:00.000Z', '2026-10-20T08:00:00.000Z'], [null, '2026-10-01T08:00:00.000Z']]);
 
   const opened = lane('todo').open;
   const tap = b.page.fire(b.root, 'click', { target: icon('todo') });
@@ -3143,33 +3143,33 @@ test("every lane's header ends in a grey sort icon whose menu picks Recently tou
   assert.equal(lane('todo').open, opened);
   assert.equal(icon('todo').getAttribute('aria-expanded'), 'true');
   assert.deepEqual(menu().querySelectorAll('button').map((el) => [el.textContent, el.getAttribute('aria-checked'), Boolean(el.querySelector('.tick'))]), [
-    ['Recently touched', 'true', true], ['Recently created', 'false', false],
+    ['Recently touched', 'false', false], ['Recently created', 'true', true],
   ]);
   assert.equal(menu().querySelector('.lane-sort-note').textContent, 'Kept for this lane on this device.');
   assert.equal(b.doc.activeElement, menu().querySelector('[aria-checked="true"]'));
 
-  const pick = b.page.fire(b.root, 'click', { target: menu().querySelector('[data-sort-pick="created"]') });
+  const pick = b.page.fire(b.root, 'click', { target: menu().querySelector('[data-sort-pick="touched"]') });
   await b.settle();
   assert.equal(pick.defaultPrevented, true);
   assert.equal(menu(), null);
-  assert.deepEqual([order('todo'), order('done')], [['ask:n1', 'w/T1', 'w/T3', 'w/T2'], ['w/D1', 'w/D2']]);
-  assert.deepEqual([times('todo'), times('done')], [[null, null, '2026-10-21T08:00:00.000Z', '2026-10-20T08:00:00.000Z'], ['2026-10-02T08:00:00.000Z', null]]);
-  assert.equal(icon('todo').getAttribute('aria-label'), 'Sort Todo, now recently created');
+  assert.deepEqual([order('todo'), order('done')], [['ask:n1', 'w/T1', 'w/T2', 'w/T3'], ['w/D2', 'w/D1']]);
+  assert.deepEqual([times('todo'), times('done')], [[null, null, '2026-10-29T08:00:00.000Z', '2026-10-28T08:00:00.000Z'], [null, '2026-10-01T08:00:00.000Z']]);
+  assert.equal(icon('todo').getAttribute('aria-label'), 'Sort Todo, now recently touched');
   await b.change({ board: { ...boardOf(cards.map((c) => ({ ...c }))), generatedAt: '2026-10-30T10:05:00.000Z' } });
-  assert.deepEqual([order('todo'), order('done')], [['ask:n1', 'w/T1', 'w/T3', 'w/T2'], ['w/D1', 'w/D2']]);
+  assert.deepEqual([order('todo'), order('done')], [['ask:n1', 'w/T1', 'w/T2', 'w/T3'], ['w/D2', 'w/D1']]);
 
   b.page.fire(b.root, 'click', { target: icon('done') });
   await b.settle();
-  assert.deepEqual(menu().querySelectorAll('[aria-checked="true"]').map((el) => el.textContent), ['Recently touched']);
+  assert.deepEqual(menu().querySelectorAll('[aria-checked="true"]').map((el) => el.textContent), ['Recently created']);
   b.page.fire(b.doc, 'keydown', { key: 'Escape' });
   await b.settle();
   assert.equal(menu(), null);
   assert.equal(b.doc.activeElement, icon('done'));
   b.page.fire(b.root, 'click', { target: icon('todo') });
   await b.settle();
-  assert.deepEqual(menu().querySelectorAll('[aria-checked="true"]').map((el) => el.textContent), ['Recently created']);
+  assert.deepEqual(menu().querySelectorAll('[aria-checked="true"]').map((el) => el.textContent), ['Recently touched']);
   b.page.fire(b.doc, 'click', { target: lane('done').querySelector('details.item') });
   await b.settle();
   assert.equal(menu(), null);
-  assert.deepEqual(order('todo'), ['ask:n1', 'w/T1', 'w/T3', 'w/T2']);
+  assert.deepEqual(order('todo'), ['ask:n1', 'w/T1', 'w/T2', 'w/T3']);
 });
