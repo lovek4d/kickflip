@@ -3,16 +3,19 @@
 // (docs/adr/0040-one-board-registry-for-every-hub-feature.md). Each PR and login is fetched once,
 // however many boards show it, and its summary is compared with the last one accepted, kept by repo#pr in
 // ~/.claude/kickflip/github-state.json. Each board's `github-change` event lists its eligible changed cards,
-// waking its owning session to run its GitHub tick (SKILL.md). Each board gets data/checked.json after a check that reached
-// GitHub for every PR it shows, in the idle form when it shows none. sendWakes sends the polling interval's daily wakes
-// to every board, changed or not.
+// waking its owning session to run its GitHub tick (SKILL.md). Before that, each card gets its PR's new owner and
+// reviewer comments and reviews as thread lines, and a merged PR closes its card as merged
+// (docs/adr/0134-the-hubs-poll-records-merges-and-pr-comments-on-the-card.md). Each board gets data/checked.json after a
+// check that reached GitHub for every PR it shows, in the idle form when it shows none. sendWakes sends the polling
+// interval's daily wakes to every board, changed or not.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { savedClient } from './linear.mjs';
 import { fetchPR, reportOf, githubLogin } from './pr-report.mjs';
 import { wakesDue, localDay } from './schedule.mjs';
-import { GITHUB_STATE as STATE, WAKE_STATE, WAVES, listBoards, appendEvent, prKey, readJSON, saveJSON } from './boards.mjs';
+import { GITHUB_STATE as STATE, WAKE_STATE, WAVES, listBoards, appendEvent, prKey, readJSON, saveJSON, reviewerLogins } from './boards.mjs';
+import { appendThread, setItem } from '../board/store.mjs';
 
 export const CHANGE_KINDS = ['ci', 'review', 'comments', 'merged', 'mergeable', 'draft'];
 
@@ -76,6 +79,7 @@ export async function checkGitHub({ every, manifest }) {
   const state = readJSON(STATE, { prs: {} });
   state.prs ||= {};
   state.acknowledged ||= {};
+  state.threaded ||= {};
   const boards = listBoards(manifest);
   const failed = [];
   let fallback = null;
@@ -101,11 +105,13 @@ export async function checkGitHub({ every, manifest }) {
     }
   }
   const fetched = {};
+  const reports = {};
   const summaries = new Map();
   const found = Object.fromEntries([...prs.keys()].map((key) => [key, []]));
   for (const [request, p] of requests) {
     try {
-      const next = summarize(reportOf(await fetchPR(p), p));
+      reports[request] = reportOf(await fetchPR(p), p);
+      const next = summarize(reports[request]);
       fetched[request] = next;
       if (!summaries.has(prKey(p))) summaries.set(prKey(p), next);
     }
@@ -114,6 +120,7 @@ export async function checkGitHub({ every, manifest }) {
   const events = [];
   const checked = [];
   const undelivered = new Set();
+  const merged = new Set();
   for (const board of boards) {
     const cards = board.prs.map((p) => {
       const key = prKey(p);
@@ -124,6 +131,10 @@ export async function checkGitHub({ every, manifest }) {
       if (changes.length) found[key] = CHANGE_KINDS.filter((k) => found[key].includes(k) || changes.includes(k));
       return { p, key, recipient, previous, next, changes };
     });
+    for (const card of cards) {
+      const report = reports[fetchKey(card.p, board.me)];
+      if (report) await recordOnCard(board, card, report, { state, merged, failed });
+    }
     const changed = cards.filter((c) => c.changes.length);
     let reached = cards.every((c) => c.next);
     let accepted = true;
@@ -158,6 +169,7 @@ export async function checkGitHub({ every, manifest }) {
     if (variants.get(key).size === 1) delete state.acknowledged[key];
   }
   for (const key of Object.keys(state.acknowledged)) if (!prs.has(key)) delete state.acknowledged[key];
+  for (const key of Object.keys(state.threaded)) if (!prs.has(key)) delete state.threaded[key];
   state.lastCheck = { at, watched: prs.size, failed: failed.length, changed: changes.length, boards: checked };
   saveJSON(STATE, state);
   const linear = { moved: [], failed: [] };
@@ -165,6 +177,42 @@ export async function checkGitHub({ every, manifest }) {
   try { await advanceLinear(boards, fetched, fetchKey, linear); }
   catch (e) { linear.failed.push(`linear: ${e.message}`); }
   return { at, watched: prs.size, failed, changes, events, checked, linear };
+}
+
+// '' for an empty plain review: its inline comments arrive as their own events.
+function lineText(event) {
+  const body = (event.body || '').trim();
+  const verdict = event.kind === 'review' && { APPROVED: 'Approved.', CHANGES_REQUESTED: 'Changes requested.' }[event.state];
+  return [verdict, body].filter(Boolean).join(' ');
+}
+
+// docs/adr/0134-the-hubs-poll-records-merges-and-pr-comments-on-the-card.md
+async function recordOnCard(board, { p, key, recipient }, report, { state, merged, failed }) {
+  const card = `${p.wave}/${p.id}`;
+  const written = new Set(state.threaded[key]?.[recipient] || []);
+  const wave = board.waves.find((w) => w.slug === p.wave)?.wave;
+  const names = { ...board.reviewerLogins, ...reviewerLogins(wave?.reviewers) };
+  for (const e of report.events) {
+    const id = `${e.kind}:${e.id}`;
+    if (!['user', 'reviewer'].includes(e.who) || e.at <= p.since || written.has(id)) continue;
+    const said = lineText(e);
+    try {
+      if (said) {
+        await appendThread(board.dir, card, {
+          text: said, via: 'github', who: e.who === 'user' ? 'love' : names[String(e.login).toLowerCase()] || e.login,
+          link: e.url || `https://github.com/${p.repo}/pull/${p.pr}`,
+        });
+      }
+      written.add(id);
+    } catch (err) { failed.push(`${board.route}: could not write ${card}'s GitHub line (${err.message})`); }
+  }
+  if (written.size) (state.threaded[key] ||= {})[recipient] = [...written];
+  if (report.state !== 'MERGED') return;
+  const file = JSON.stringify([board.kind === 'waves' ? WAVES : board.dir, p.wave, p.id]);
+  if (merged.has(file)) return;
+  merged.add(file);
+  try { await setItem(board.dir, card, { status: 'merged', force: true }); }
+  catch (err) { failed.push(`${board.route}: could not record ${card} merged (${err.message})`); }
 }
 
 async function advanceLinear(boards, fetched, fetchKey, result) {

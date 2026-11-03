@@ -52,7 +52,7 @@ test('labels and maps each REST event shape, drops Claude and bots, and merges b
   const report = reportOf(fetched, { ...input, me: 'owner' });
   assert.deepEqual(report.events, [
     { kind: 'issue_comment', id: 1, login: 'owner', at: '2026-10-23T11:00:00Z', body: 'Comment 1', url: comment(1).html_url, who: 'user' },
-    { kind: 'review', id: 9, login: 'ann', at: '2026-10-23T11:00:15Z', body: '', state: 'APPROVED', who: 'reviewer' },
+    { kind: 'review', id: 9, login: 'ann', at: '2026-10-23T11:00:15Z', body: '', state: 'APPROVED', url: null, who: 'reviewer' },
     { kind: 'review_comment', id: 8, login: 'bea', at: '2026-10-23T11:00:30Z', body: 'Comment 8', path: 'app.mjs', line: 12, in_reply_to: 88, url: comment(8).html_url, who: 'reviewer' },
     { kind: 'issue_comment', id: 3, login: 'chatgpt-codex-connector[bot]', at: '2026-10-23T11:02:00Z', body: 'Comment 3', url: comment(3).html_url, who: 'codex' },
     { kind: 'issue_comment', id: 7, login: 'ann', at: '2026-10-23T11:06:00Z', body: 'Comment 7', url: comment(7).html_url, who: 'reviewer' },

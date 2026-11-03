@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fakeGh, prView, writePR, writeUser, calls } from '../shared/fake-gh.mjs';
+import { fakeGh, prView, writePR, writeUser, writeIssueComments, writeReviewComments, writeReviews, calls } from '../shared/fake-gh.mjs';
 import { fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'github-'));
@@ -152,6 +152,73 @@ test('the poll retries a failed CI delivery without repeating it on another boar
   assert.deepEqual((await poll()).events, []);
 });
 
+function fileBoard(route, cfg, items) {
+  const dir = path.join(home, route);
+  const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value)); };
+  write(path.join(dir, 'board.json'), { items: 'data/wave.json', ...cfg });
+  write(path.join(dir, 'data/wave.json'), { repo: 'o/r', items });
+  const lines = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').map(JSON.parse) : []);
+  const manifest = { sites: { [route]: { dir, port: 1, cmd: [process.execPath, new URL('../board/server.mjs', import.meta.url).pathname] } } };
+  return {
+    poll: () => checkGitHub({ every: 15, manifest }),
+    thread: (key) => lines(path.join(dir, 'data/threads', `${key.replace('/', '__')}.jsonl`)),
+    events: () => lines(path.join(dir, 'data/events.jsonl')),
+    wave: () => JSON.parse(fs.readFileSync(path.join(dir, 'data/wave.json'), 'utf8')),
+  };
+}
+
+test("the poll writes each new owner and reviewer comment or review into its card's thread once", async () => {
+  const board = fileBoard('lines', { slug: 'w', reviewers: [{ name: 'Ann', github: 'ann-gh' }] }, [{ id: 'A1', pr: 50, gh_since: '2026-10-23T10:00:00Z' }]);
+  const url = (anchor) => `https://github.com/o/r/pull/50#${anchor}`;
+  const comment = (id, login, at, body) => ({ id, user: { login }, created_at: at, body, html_url: url(`issuecomment-${id}`) });
+  writePR(home, 50, prView());
+  writeIssueComments(home, 50, [
+    comment(1, 'owner', '2026-10-23T09:00:00Z', 'Handled before gh_since.'),
+    comment(2, 'owner', '2026-10-23T11:00:00Z', 'Please rename it.'),
+    comment(3, 'owner', '2026-10-23T11:01:00Z', '🤖 Renamed.\n\n<!-- claude-bridge -->'),
+    comment(4, 'chatgpt-codex-connector[bot]', '2026-10-23T11:02:00Z', 'P1: a finding.'),
+    comment(5, 'Ann-GH', '2026-10-23T11:03:00Z', 'Looks fine.'),
+  ]);
+  writeReviews(home, 50, [
+    { id: 2, user: { login: 'ann-gh' }, submitted_at: '2026-10-23T11:04:00Z', body: '', state: 'APPROVED', html_url: url('pullrequestreview-2') },
+    { id: 9, user: { login: 'bea' }, submitted_at: '2026-10-23T11:05:00Z', body: '', state: 'COMMENTED', html_url: url('pullrequestreview-9') },
+    { id: 10, user: { login: 'bea' }, submitted_at: '2026-10-23T11:06:00Z', body: 'Split the file.', state: 'CHANGES_REQUESTED' },
+  ]);
+  writeReviewComments(home, 50, [{ id: 8, user: { login: 'bea' }, created_at: '2026-10-23T11:05:00Z', body: 'Typo here.', path: 'a.mjs', line: 3, html_url: url('discussion_r8') }]);
+  const shown = () => board.thread('w/A1').map(({ who, text, link, via }) => ({ who, text, link, via }));
+  assert.deepEqual((await board.poll()).failed, []);
+  const first = [
+    { who: 'love', text: 'Please rename it.', link: url('issuecomment-2'), via: 'github' },
+    { who: 'Ann', text: 'Looks fine.', link: url('issuecomment-5'), via: 'github' },
+    { who: 'Ann', text: 'Approved.', link: url('pullrequestreview-2'), via: 'github' },
+    { who: 'bea', text: 'Typo here.', link: url('discussion_r8'), via: 'github' },
+    { who: 'bea', text: 'Changes requested. Split the file.', link: 'https://github.com/o/r/pull/50', via: 'github' },
+  ];
+  assert.deepEqual(shown(), first);
+  assert.deepEqual(board.events().map((e) => e.data.prs), [[{ wave: 'w', id: 'A1', pr: 50, changes: ['comments'] }]]);
+  await board.poll();
+  assert.deepEqual(shown(), first);
+  writeIssueComments(home, 50, [comment(2, 'owner', '2026-10-23T11:00:00Z', 'Please rename it.'), comment(11, 'owner', '2026-10-23T12:00:00Z', 'Thanks.')]);
+  await board.poll();
+  assert.deepEqual(shown(), [...first, { who: 'love', text: 'Thanks.', link: url('issuecomment-11'), via: 'github' }]);
+});
+
+test('a merged PR closes its card as merged, frees the card waiting on it and still wakes the session', async () => {
+  const board = fileBoard('merges', { slug: 'm' }, [{ id: 'A1', pr: 51 }, { id: 'A2', deps: ['A1'] }]);
+  writePR(home, 51, prView({ state: 'MERGED' }));
+  assert.deepEqual((await board.poll()).failed, []);
+  assert.equal(board.wave().items[0].status, 'merged');
+  assert.deepEqual(board.thread('m/A1').map((l) => l.text), ['Merged PR #51.']);
+  assert.deepEqual(board.thread('m/A2').map((l) => l.text), ['Unblocked: A1 is merged.']);
+  assert.deepEqual(board.events().map((e) => [e.kind, e.data]), [
+    ['card-unblocked', { key: 'm/A2' }], ['github-change', { prs: [{ wave: 'm', id: 'A1', pr: 51, changes: ['merged'] }] }],
+  ]);
+  const fetches = calls(home).length;
+  assert.equal((await board.poll()).watched, 0);
+  assert.equal(calls(home).length, fetches);
+  assert.deepEqual(board.thread('m/A1').map((l) => l.text), ['Merged PR #51.']);
+});
+
 async function linearPoll(t, { key = true } = {}) {
   const world = linearWorld();
   const linear = fakeLinear(world);
@@ -200,7 +267,7 @@ test('the poll advances a draft to In Progress, a ready PR to In Review and a me
   }
   assert.equal(world.issues['ENG-1'].state, 's-done');
   assert.equal(updates().length, 3);
-  assert.equal(linear.calls.filter((c) => c.query.includes('issue(id')).length, 6);
+  assert.equal(linear.calls.filter((c) => c.query.includes('issue(id')).length, 5);
   assert.ok(!linear.calls.some((c) => c.query.includes('viewer')));
 });
 
