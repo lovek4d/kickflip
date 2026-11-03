@@ -2495,6 +2495,26 @@ test("a lane repaint while the owner types in a card's reply box moves the other
   assert.deepEqual([lane('e1'), top(TITLE)], ['review', titleTop]);
 });
 
+test("Mark as done closes the card and leaves the page where it is as the card moves to Done", async () => {
+  const board = boardOf([askCard('b1', 'progress'), { ...askCard('a1', 'progress'), actionButton: 'markDone', finishable: true }]);
+  const b = boardOnDom({ open: ['ask:a1'], board, threads: {}, confirm: true });
+  await b.settle();
+  const view = layOut(b);
+  const card = () => b.root.querySelector('details.item[data-key="ask:a1"]');
+  const open = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(b.root), 'open');
+  const el = card();
+  Object.defineProperty(el, 'open', { get: open.get, set(v) {
+    const was = this.open;
+    open.set.call(this, v);
+    if (was !== this.open) queueMicrotask(() => b.page.fire(b.root, 'toggle', { target: this }));
+  } });
+  board.items[1] = { ...board.items[1], lane: 'done', actionButton: null, finishable: false };
+  b.page.fire(b.root, 'click', { target: card().querySelector('.detail button[data-confirm="finish"]') });
+  await b.settle();
+  assert.deepEqual([card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems'), view.scrolls],
+    ['done', false, '[]', []]);
+});
+
 function questionsOnDom({ topics, questions, at, next }) {
   const page = fakePage(memoryStorage().localStorage);
   const { Element } = miniDom(page.Target, page.win.document);

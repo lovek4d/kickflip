@@ -354,7 +354,10 @@ BoardView.part((B) => {
       return;
     }
     // docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md
+    // The card closes first, or app-core.js steady would anchor it and scroll the page after it into Done.
     if (act === 'finish') {
+      const card = $(`details.item[data-key="${CSS.escape(key)}"]`);
+      if (card) card.open = false;
       try { await (it.kind === 'ask' ? B.site.send('ask-done', { id: it.id }) : B.site.send('card-done', { key })); }
       catch { toast('Could not close. Is the host awake?'); }
       await B.loadBoard();
