@@ -302,6 +302,12 @@ function followUp({ slug, wave, f, order, repo, bumpedAt, closedAt, tickets }) {
 // pending counts its questions (topic item:ask:<event id>) that are open or answered and waiting on Claude: an answered
 // ask with either stays out of Done until a mark or the owner's Done closes it
 // (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md).
+// An ask with no ticket is named by when it was asked: the time today, else the short date and time.
+function askedLabel(iso, now = new Date()) {
+  const d = new Date(iso);
+  const at = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === now.toDateString() ? at : `${d.getMonth() + 1}/${d.getDate()} ${at}`;
+}
 function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
   const msg = msgs.find((m) => m.kind === 'ask' && m.eventId === e.id);
   const files = e.data?.files || [];
@@ -323,7 +329,7 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
   const othersAt = [...msgs.filter((m) => m.who !== 'love' && m.kind !== 'ask-link').map((m) => m.ts), ...msgs.map((m) => m.reply?.at)].filter(Boolean).sort();
   const lastTs = [...msgs.map((m) => m.ts), ...othersAt, ...(inProgress ? [mark.at] : [])].filter(Boolean).sort().pop();
   return {
-    key: `ask:${e.id}`, kind: 'ask', order: 0, wave: null, waveTitle: null, id: e.id, ref: handled ? 'Task' : 'New', isNew: !handled, title, status: null,
+    key: `ask:${e.id}`, kind: 'ask', order: 0, wave: null, waveTitle: null, id: e.id, ref: handled ? askedLabel(e.ts) : 'New', isNew: !handled, title, status: null,
     internal: false, repo: null, lane: inProgress || onClaude ? 'progress' : done ? 'done' : 'todo', waitsOn: inProgress && !ownerPending ? 'owner' : null, builder: null, agents: [], eta: null, working: msgs.some((m) => m.state === 'working'),
     deps: [], held: false, risky: false, bumpable: !handled, bumpedAt: bumped, manualSteps: [], fromAsk: null, from: null, next: inProgress ? mark.next || null : null, hasNotes: false, branch: null,
     finishable: handled && !done,
@@ -639,7 +645,7 @@ export function buildBoard(snapshot) {
   const declared = new Set((owner.topics || []).map((t) => t.id));
   const lineups = snapshot.waves.flatMap(({ slug, wave }) => (wave.lineups || []).map((l) => ({ ...l, keys: l.items.map((id) => `${slug}/${id}`) })));
   const topicsOf = () => ownerTopics([...(owner.topics || []), ...items.filter((it) => !declared.has(`item:${it.key}`))
-    .map((it) => ({ id: `item:${it.key}`, title: `${it.ref}: ${it.title}`, summary: 'Questions about this work item.' })),
+    .map((it) => ({ id: `item:${it.key}`, title: `${it.ref}: ${it.title}`, ...(it.kind === 'ask' ? { askedAt: it.ask.askedAt } : {}), summary: 'Questions about this work item.' })),
   ...lineups.filter((l) => !declared.has(`lineup:${l.slug}`)).map((l) => ({ id: `lineup:${l.slug}`, title: l.title, summary: 'Wave triage.' })),
   ...(snapshot.fromWaves ? waves : []).filter((w) => !declared.has(`wave:${w.slug}`)).map((w) => ({ id: `wave:${w.slug}`, title: w.title, summary: 'Wave triage.' }))], questions,
   new Set(items.filter((it) => it.lane === 'done').map((it) => `item:${it.key}`)));

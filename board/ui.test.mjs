@@ -696,6 +696,11 @@ test('a topic pill is named by the card id its title starts with, else by its wh
     ['INT-92', 'B5', 'Release plan', 'INT-92 without a colon', 'Other']);
 });
 
+test('an ask topic pill reads the time it appeared, not its title', () => {
+  const at = new Date(); at.setHours(10, 26, 0, 0);
+  assert.equal(ui.topicName({ title: 'New: Fix it', askedAt: at.toISOString() }), ui.cardTime(at.toISOString()));
+});
+
 test('the topic row shows only topics with an open question, the current one kept, and the rest wait on Claude', () => {
   const t = (id, state, open, answered = 0, replied = 0) => ({ id, title: id, state, open, answered, replied });
   const topics = [t('a', 'open', 0, 1), t('b', 'open', 2), t('c', 'open', 0, 0, 1), t('d', 'resolved', 0), t('e', 'open', 1), t('f', 'resolved', 0)];
@@ -910,7 +915,7 @@ test("a New card reads New and its first line, then whether it was moved or edit
   assert.deepEqual([...card({ state: 'waiting' }).matchAll(/data-(bump|edit|withdraw)="a1"/g)].map((m) => m[1]), ['bump', 'edit', 'withdraw']);
   assert.match(card({ state: 'waiting', bumpedAt: ago(0.5) }), /data-bump="a1"[^>]* disabled/);
   assert.doesNotMatch(card({ state: 'waiting' }), /Action needed/);
-  assert.deepEqual(lines(card({ state: 'answered' }, { isNew: false, ref: 'Task', working: false })), ['Task Fix <it>', at]);
+  assert.deepEqual(lines(card({ state: 'answered' }, { isNew: false, ref: '10:00', working: false })), ['Fix <it>', at]);
   assert.deepEqual(lines(card({ state: 'waiting', from: 'Orch' })), ['New Fix <it>', 'Moved from Orch', at]);
   const asked = card({ state: 'waiting' }, { next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#mv', label: 'Answer 1 question' } });
   assert.deepEqual(lines(asked), ['New Fix <it>', 'Next: Answer 1 question', 'Action needed', at]);
@@ -962,9 +967,9 @@ test('a work card reads its title, then its next step or builder, its chips, its
     ['INT-3 Five', 'Next: Answer 1 question', 'Action needed']);
   const waiting = { ...workCard, lane: 'todo', deps: ['S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }], bumpedAt: ago(1) };
   assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ✗ bumped', 'blocked by INT-2', '1 new message']);
-  const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: 'Task', title: 'Fix it', internal: false, linear: [], pr: null, deps: [], blockedBy: [], working: true };
-  assert.deepEqual(lines(ui.workLines(ask)), ['Task Fix it', 'Working on it']);
-  assert.deepEqual(lines(ui.workLines(ask, { unread: 2 })), ['Task Fix it', 'Working on it', '2 new messages']);
+  const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: '10:00', title: 'Fix it', internal: false, linear: [], pr: null, deps: [], blockedBy: [], working: true };
+  assert.deepEqual(lines(ui.workLines(ask)), ['Fix it', 'Working on it']);
+  assert.deepEqual(lines(ui.workLines(ask, { unread: 2 })), ['Fix it', 'Working on it', '2 new messages']);
   assert.deepEqual(lines(ui.workLines({ ...internal, waitsOn: 'checking', working: true, next: 'Verify it' })), ['INT-3 Five', 'Orchestrator review']);
   const followup = { ...workCard, kind: 'followup', key: 'w/ENG-7', id: 'ENG-7', ref: 'ENG-7', linear: [{ id: 'ENG-7', url: 'u' }], pr: null, reviewers: [], next: null, lane: 'todo', deps: [], blockedBy: [] };
   assert.deepEqual(lines(ui.workLines(followup)), ['ENG-7 Five', 'follow-up']);

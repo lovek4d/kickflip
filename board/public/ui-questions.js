@@ -111,7 +111,8 @@
       ${answerHistory(q, links)}
     </section>`;
   }
-  const topicName = (t) => (String(t.title).match(/^([A-Z]+-\d+|[A-Z]\d+):/) || [])[1] || t.title;
+  // A card's pill is its ID, or for an ask (item:ask:<id>) the time it appeared; other topics keep their title.
+  const topicName = (t) => (t.askedAt ? BoardUI.cardTime(t.askedAt) : (String(t.title).match(/^([A-Z]+-\d+|[A-Z]\d+):/) || [])[1] || t.title);
   // Topics from /api/board ownerTopics, in order. pills: unresolved topics with an open question, plus the
   // current topic wherever it stands; waiting: the other unresolved topics, which wait only on Claude.
   function topicRow(topics, current) {

@@ -1973,8 +1973,8 @@ test("an open card shows its workflow buttons below a final details line of Note
     workCard('R1', { lane: 'review', actionButton: 'grill', pr: ready, install }),
     workCard('S1', { lane: 'review', actionButton: 'grill', pr: ready, manualSteps: ['Run the backfill'], action: { kind: 'steps', url: '#item=w%2FS1', label: 'Run the manual steps, then merge' }, resolvedBy: 'github' }),
     workCard('M1', { lane: 'review', actionButton: 'grill', pr: ready, action: { kind: 'merge', url: '#item=w%2FM1', label: 'Merge' }, resolvedBy: 'merge' }),
-    { ...askCard('a1', 'review'), ref: 'Task', actionButton: 'markDone', finishable: true, action: { kind: 'done', url: '#item=ask%3Aa1', label: 'Pick a take' }, resolvedBy: 'markDone' },
-    { ...askCard('a2', 'done'), ref: 'Task', actionButton: null },
+    { ...askCard('a1', 'review'), ref: '10:00', actionButton: 'markDone', finishable: true, action: { kind: 'done', url: '#item=ask%3Aa1', label: 'Pick a take' }, resolvedBy: 'markDone' },
+    { ...askCard('a2', 'done'), ref: '10:00', actionButton: null },
   ];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
   await b.settle();
