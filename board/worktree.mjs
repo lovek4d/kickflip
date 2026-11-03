@@ -182,6 +182,22 @@ export async function holdingLandLock(card, fn) {
   }
 }
 
+// Two ADRs sharing a 4-digit prefix mean two builders took the same next number.
+function refuseDuplicateAdr(dir) {
+  const adrDir = path.join(dir, 'docs', 'adr');
+  if (!fs.existsSync(adrDir)) return;
+  const byNumber = new Map();
+  for (const file of fs.readdirSync(adrDir).sort()) {
+    const number = file.match(/^(\d{4})-/)?.[1];
+    if (number) byNumber.set(number, [...(byNumber.get(number) || []), file]);
+  }
+  const duplicate = [...byNumber].find(([, files]) => files.length > 1);
+  if (!duplicate) return;
+  const [number, files] = duplicate;
+  const next = String(Math.max(...byNumber.keys().map(Number)) + 1).padStart(4, '0');
+  fail(`land: docs/adr has two ADRs numbered ${number} (${files.join(', ')}); renumber yours to ${next} and land again`);
+}
+
 export function land({ path: dir, branch, repo }, { say = console.log, runTests = nodeTests, restart = restartRunner, boards = () => listBoards() } = {}) {
   if (!fs.existsSync(dir)) fail(`no worktree at ${dir}`);
   const head = git(repo, 'symbolic-ref', '--quiet', '--short', 'HEAD').out;
@@ -197,6 +213,8 @@ export function land({ path: dir, branch, repo }, { say = console.log, runTests 
     }
     say(`rebased ${branch} onto main (${short(repo, 'main')})`);
   }
+
+  refuseDuplicateAdr(dir);
 
   const tests = runTests(dir);
   if (!tests.ok) fail([

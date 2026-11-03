@@ -1414,6 +1414,21 @@ test('a board builder uses its shared clone and selected remote branch without c
   assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).worktree.repo, repo);
 });
 
+test('land refuses two ADRs with the same number after the rebase, naming both and the next free number, and changes nothing', () => {
+  const repo = scratchRepo();
+  assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  commit(worktree(), 'docs/adr/0007-first.md', '# First\n');
+  commit(worktree(), 'docs/adr/0007-second.md', '# Second\n');
+  commit(worktree(), 'docs/adr/0008-third.md', '# Third\n');
+  const main = git(repo, 'rev-parse', 'main');
+  const r = land();
+  assert.deepEqual([r.code, r.out, r.err], [1, '', 'land: docs/adr has two ADRs numbered 0007 (0007-first.md, 0007-second.md); renumber yours to 0009 and land again\n']);
+  assert.equal(git(repo, 'rev-parse', 'main'), main);
+  assert.equal(git(worktree(), 'status', '--porcelain'), '');
+  assert.ok(fs.existsSync(worktree()));
+  assert.ok(branches(repo).includes('A1'));
+});
+
 test('land refuses a worktree with uncommitted changes, with no commit beyond main, or whose suite fails, leaving main and the worktree as they were', () => {
   const repo = scratchRepo();
   assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
