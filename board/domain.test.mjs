@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, threadOf, ownerQuestion, needsAnswer, pullOf, owesNext, startedByAnswer, NO_NEXT, NO_TAKE } from './domain.mjs';
+import { buildBoard, threadOf, ownerQuestion, needsAnswer, pullOf, todoOf, owesNext, startedByAnswer, NO_NEXT, NO_TAKE } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -1276,4 +1276,18 @@ test("a card's worktree is the path its newest builder record keeps, done or run
   assert.equal(card({ A1: { main: { label: 'Grill', started: '2026-10-23T11:00:00Z' }, second: done } }).worktree, '/wt/A1');
   assert.equal(card({ A1: { main: { label: 'Opus builder', started: '2026-10-23T10:00:00Z' } } }).worktree, null);
   assert.equal(card({}).worktree, null);
+});
+
+// docs/adr/0165-an-idle-board-triages-its-todo-once-a-day.md
+test("todoOf reads the Todo a triage sees: its cards' keys, titles and deps, and nothing outside Todo", () => {
+  const todo = (items) => todoOf(buildBoard({ fromWaves: false, events: [], owner: {}, prs: {}, waves: [{ slug: 'w', wave: { repo: 'o/r', items } }] }).items);
+  const base = [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two', deps: ['A1'] }, { id: 'A3', title: 'Running', status: 'building' }];
+  const seen = todo(base);
+  assert.equal(todo([...base]), seen);
+  assert.notEqual(todo([...base, { id: 'A4', title: 'New' }]), seen);
+  assert.notEqual(todo([{ ...base[0], title: 'One, renamed' }, ...base.slice(1)]), seen);
+  assert.notEqual(todo([base[0], { ...base[1], deps: [] }, base[2]]), seen);
+  assert.equal(todo([base[0], base[1], { ...base[2], title: 'Running, renamed' }]), seen);
+  assert.equal(todo([base[0], base[1], { ...base[2], status: 'done' }]), seen);
+  assert.equal(todo([{ id: 'A3', title: 'Running', status: 'building' }]), '');
 });

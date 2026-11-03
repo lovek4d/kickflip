@@ -2340,12 +2340,12 @@ test("reviewers set, add and remove keep the board's own reviewers in its board.
 test("settings prints the board's settings as JSON, off when absent, and settings set auto-merge on|off writes board.json keeping its other keys", () => {
   const cfg = () => read(site('orch', 'board.json'));
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] });
-  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_pull":false}\n', err: '' });
+  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_pull":false,"auto_triage":false}\n', err: '' });
   const on = board('settings', 'set', 'auto-merge', 'on', '--site', 'orch');
   assert.equal(on.code, 0);
   assert.match(on.out, /^auto-merge on$/m);
   assert.deepEqual(cfg(), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }], auto_merge: true });
-  assert.equal(board('settings', '--site', 'orch').out, '{"auto_merge":true,"auto_build":false,"auto_pull":false}\n');
+  assert.equal(board('settings', '--site', 'orch').out, '{"auto_merge":true,"auto_build":false,"auto_pull":false,"auto_triage":false}\n');
   assert.equal(board('settings', 'set', 'auto-merge', 'off', '--site', 'orch').code, 0);
   assert.equal(cfg().auto_merge, false);
 
@@ -2491,8 +2491,8 @@ test('builder start refuses a Claude pause before making records or a worktree, 
   assert.match(board('--site', 'orch', 'builder', 'start', 'w/A1').err, /Claude's weekly usage is at 96%/);
 });
 
-test('settings set auto-build and auto-pull default off, change on and off, and preserve all other board keys', () => {
-  for (const name of ['auto-build', 'auto-pull']) {
+test('settings set auto-build, auto-pull and auto-triage default off, change on and off, and preserve all other board keys', () => {
+  for (const name of ['auto-build', 'auto-pull', 'auto-triage']) {
     const key = name.replace('-', '_');
     const cfg = read(site('orch', 'board.json'));
     assert.equal(JSON.parse(board('--site', 'orch', 'settings').out)[key], false);
@@ -2520,7 +2520,7 @@ test('main set publishes an install with the same URL and sha checks as card ins
 
 test('github-login settings lines and API validation support set and clear', async () => {
   const { settingsOf, settingsLines, saveBoardSettings } = await import('./store.mjs');
-  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting github-login owner']);
+  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting auto-triage off', 'setting github-login owner']);
   assert.ok(!('github_login' in settingsOf({ github_login: 'bad login' })));
   await saveBoardSettings(site('orch'), { github_login: 'owner' });
   await saveBoardSettings(site('orch'), { github_login: null });

@@ -32,7 +32,8 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
 
   reply <eventId> (--html <text> | --file <path>)        data/replies/<eventId>.html. A reply to an ask resolves its
                                                          answered questions (topic item:ask:<eventId>), and one to
-                                                         wave-triage its wave's, noting "Acted on: replied"
+                                                         wave-triage its wave's, noting "Acted on: replied". A
+                                                         reply to todo-triage ends that triage
   thread <wave>/<id> --text <t> [--link <url>]           one line in the item's thread; ask:<eventId> in place
          [--who claude|love|<name>] [--via github|slack] of <wave>/<id> writes in that ask's thread
          A Claude thread line, or a reply to an ask or item-message, rewrites the body of the thread's
@@ -242,7 +243,7 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
   settings                                               the board's settings as JSON; flags default off, optional
                                                          settings appear when set: {"auto_merge": false,
                                                          "auto_build": false, "auto_pull": false,
-                                                         "github_login": "owner"}
+                                                         "auto_triage": false, "github_login": "owner"}
   settings set auto-merge on|off                         on: the session merges an approved PR once CI is green and
                                                          the merge state is CLEAN. off (the default): the card
                                                          shows the owner a Merge button, and the session merges on its
@@ -266,6 +267,12 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
                                                          review, the board server sends card-pull {key} for the top
                                                          Todo card nothing blocks, holds or asks about. Off by default.
                                                          Only on the owner's word
+  settings set auto-triage on|off                        on: while the board is idle and Todo changed since the last
+                                                         triage, at most once a day and before any pull, the board
+                                                         server declares topic todo-triage-<date> ("Todo triage
+                                                         <date>") and sends todo-triage {date, topic}; the pull
+                                                         waits until you reply to it. Off by default. Only on the
+                                                         owner's word
   settings set tickets <json>                            the board's ticket source, as Board Settings' Tickets row
                                                          saves it: {"source":"internal","prefix":"OPS"},
                                                          {"source":"github","account":"<gh login>"} or

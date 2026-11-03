@@ -311,3 +311,121 @@ test('an idle board with auto-pull on sends card-pull for its top pullable Todo 
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// docs/adr/0165-an-idle-board-triages-its-todo-once-a-day.md
+test('an idle board with auto-triage on sends todo-triage under its dated topic before any pull, at most once a day and only when Todo changed', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-triage-'));
+  const siteDir = path.join(dir, 'site');
+  const dataDir = path.join(siteDir, 'data');
+  const clockFile = path.join(dir, 'clock');
+  const setup = path.join(dir, 'setup.mjs');
+  const waveFile = path.join(dataDir, 'wave.json');
+  const eventsFile = path.join(dataDir, 'events.jsonl');
+  const ownerFile = path.join(dataDir, 'owner.json');
+  const agentFile = path.join(dataDir, 'agents', 'A0.json');
+  const usageFile = path.join(dir, '.claude', 'kickflip', 'usage.json');
+  const day = 86400000;
+  let now = Date.parse('2026-11-02T16:00:00Z');
+  const iso = (ms) => new Date(ms).toISOString();
+  let worker;
+  fs.mkdirSync(path.dirname(agentFile), { recursive: true });
+  fs.mkdirSync(path.dirname(usageFile), { recursive: true });
+  const boardJSON = (on) => put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't', auto_pull: on, auto_triage: on }));
+  boardJSON(false);
+  const wave = { items: [
+    { id: 'A0', title: 'Running', status: 'building' },
+    { id: 'A1', title: 'One', status: 'planned' },
+    { id: 'A2', title: 'Two', status: 'planned' },
+  ] };
+  const writeWave = () => put(waveFile, JSON.stringify(wave));
+  writeWave();
+  const agent = (done) => put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), ...(done ? { done: iso(now) } : {}) }));
+  agent(true);
+  fs.writeFileSync(ownerFile, JSON.stringify({ topics: [], items: [] }));
+  fs.writeFileSync(eventsFile, '');
+  const setClock = (ms) => { now = ms; put(clockFile, String(ms)); };
+  setClock(now);
+  fs.writeFileSync(setup, `
+    import http from 'node:http';
+    import fs from 'node:fs';
+    const RealDate = Date;
+    globalThis.Date = class extends RealDate {
+      constructor(...args) { super(...(args.length ? args : [Date.now()])); }
+      static now() { return Number(fs.readFileSync(process.env.BUILDER_TEST_CLOCK, 'utf8')); }
+    };
+    const interval = globalThis.setInterval;
+    interval(() => {}, 1000);
+    globalThis.setInterval = (fn, ms, ...args) => interval(fn, ms === 60000 ? 20 : ms, ...args);
+    http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };
+  `);
+  const logged = (kind) => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse).filter((e) => e.kind === kind);
+  const triages = () => logged('todo-triage');
+  const pulls = () => logged('card-pull').map((e) => e.data.key);
+  const reply = (id) => { fs.mkdirSync(path.join(dataDir, 'replies'), { recursive: true }); put(path.join(dataDir, 'replies', `${id}.html`), '<p>Triaged.</p>'); };
+  const start = async () => {
+    worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
+      env: { ...process.env, HOME: dir, TZ: 'UTC', BUILDER_TEST_CLOCK: clockFile },
+    });
+    let errors = '';
+    worker.stderr.on('data', (chunk) => { errors += chunk; });
+    await new Promise((resolve, reject) => {
+      worker.stdout.once('data', resolve);
+      worker.once('error', reject);
+      worker.once('exit', (code) => reject(new Error(`Server exited ${code}: ${errors}`)));
+    });
+  };
+  const stop = async () => {
+    if (!worker || worker.exitCode !== null) return;
+    const exited = new Promise((resolve) => worker.once('exit', resolve));
+    worker.kill();
+    await exited;
+  };
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 80));
+  try {
+    await start();
+    await tick();
+    assert.deepEqual(triages(), [], 'off by default');
+
+    agent(false);
+    boardJSON(true);
+    await tick();
+    assert.deepEqual([triages(), pulls()], [[], []], 'a running builder keeps the board from being idle');
+
+    agent(true);
+    await until(() => triages().length === 1, 'the idle board triages its Todo');
+    const [first] = triages();
+    assert.deepEqual(first.data, { date: '2026-11-02', topic: 'todo-triage-2026-11-02' });
+    assert.deepEqual(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).topics, [{ id: 'todo-triage-2026-11-02', title: 'Todo triage 2026-11-02' }]);
+    // The triage's own changes to Todo, and the idle pull, wait for its reply.
+    wave.items[2].title = 'Two, merged with a duplicate';
+    writeWave();
+    await tick();
+    await tick();
+    assert.deepEqual([triages().length, pulls()], [1, []]);
+
+    reply(first.id);
+    await until(() => pulls().length === 1, 'the pull follows the finished triage');
+    await stop();
+    await start();
+    await tick();
+    assert.equal(triages().length, 1, 'once that day, across a restart');
+
+    setClock(now + day);
+    await tick();
+    await tick();
+    assert.equal(triages().length, 1, 'a new day with Todo unchanged since the triage sends none');
+
+    put(usageFile, JSON.stringify({ claude: { at: iso(now), five_hour: { used_percentage: 95, resets_at: iso(now + 3600000) }, seven_day: { used_percentage: 40, resets_at: iso(now + day) } } }));
+    wave.items.push({ id: 'A3', title: 'Three', status: 'planned' });
+    writeWave();
+    await tick();
+    await tick();
+    assert.equal(triages().length, 1, 'nothing while paused');
+    fs.rmSync(usageFile);
+    await until(() => triages().length === 2, 'a changed Todo on a later day triages again');
+    assert.deepEqual(triages()[1].data, { date: '2026-11-03', topic: 'todo-triage-2026-11-03' });
+  } finally {
+    await stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

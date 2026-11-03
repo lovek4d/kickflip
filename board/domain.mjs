@@ -890,6 +890,13 @@ export function pullOf(items) {
   return { idle, pullable };
 }
 
+// docs/adr/0165-an-idle-board-triages-its-todo-once-a-day.md
+// For built items: the Todo a triage looks at, one line per Todo card with its key, title and deps, sorted, so a card
+// added, dropped, renamed or relinked changes it. '' when Todo is empty.
+export function todoOf(items) {
+  return items.filter((i) => i.lane === 'todo').map((i) => JSON.stringify([i.key, i.title, i.deps || []])).sort().join('\n');
+}
+
 // The push tag tied to a card's thread: ask-<event id> for ask:<event id>, item-<wave>/<id> for a work item.
 export const pushTag = (key) => (key.startsWith('ask:') ? `ask-${key.slice(4)}` : `item-${key}`);
 

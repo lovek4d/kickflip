@@ -402,7 +402,11 @@ test('Board Settings saves auto-build immediately, uses kind-specific words and 
   }
 });
 
-test('Board Settings turns auto-pull on and off with no confirmation and restores the toggle on refusal', async () => {
+// docs/adr/0165-an-idle-board-triages-its-todo-once-a-day.md
+for (const [key, id, on] of [
+  ['auto_pull', 'autoPull', 'Saved. When no builder runs, Claude pulls in the top Todo card.'],
+  ['auto_triage', 'autoTriage', 'Saved. Once a day, when the board is idle and Todo changed, Claude triages it.'],
+]) test(`Board Settings turns ${key} on and off with no confirmation and restores the toggle on refusal`, async () => {
   const page = fakePage(memoryStorage().localStorage);
   const root = new page.El();
   let saved = false, refuse = false;
@@ -414,28 +418,28 @@ test('Board Settings turns auto-pull on and off with no confirmation and restore
       if (opts.method === 'POST') {
         posts.push(JSON.parse(opts.body));
         if (refuse) return { ok: false, json: async () => ({ error: 'Cannot save' }) };
-        saved = JSON.parse(opts.body).auto_pull;
+        saved = JSON.parse(opts.body)[key];
       }
-      body = { settings: { auto_pull: saved } };
+      body = { settings: { [key]: saved } };
     }
     return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
   };
   const view = page.win.AppViews.settings.create(root, '/orch', {});
   view.mount();
   await tick();
-  const toggle = root.querySelector('#autoPull');
-  const status = root.querySelector('#autoPullStatus');
+  const toggle = root.querySelector(`#${id}`);
+  const status = root.querySelector(`#${id}Status`);
   assert.equal(toggle.disabled, false);
   assert.equal(toggle.checked, false);
   toggle.checked = true;
   page.fire(toggle, 'change');
   await tick();
-  assert.deepEqual([confirms, posts.at(-1), toggle.checked], [[], { auto_pull: true }, true]);
-  assert.equal(status.textContent, 'Saved. When no builder runs, Claude pulls in the top Todo card.');
+  assert.deepEqual([confirms, posts.at(-1), toggle.checked], [[], { [key]: true }, true]);
+  assert.equal(status.textContent, on);
   toggle.checked = false;
   page.fire(toggle, 'change');
   await tick();
-  assert.deepEqual([confirms.length, posts.at(-1), toggle.checked], [0, { auto_pull: false }, false]);
+  assert.deepEqual([confirms.length, posts.at(-1), toggle.checked], [0, { [key]: false }, false]);
   refuse = true;
   toggle.checked = true;
   page.fire(toggle, 'change');

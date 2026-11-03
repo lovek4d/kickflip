@@ -751,11 +751,11 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
   const checks = async () => (await (await fetch(`${base}/_claude/events?kind=check-github`)).json()).map((e) => e.data);
   const before = (await checks()).length;
   try {
-    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false, auto_pull: false } });
+    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false, auto_pull: false, auto_triage: false } });
     const on = await save({ auto_merge: true });
     assert.equal(on.status, 200);
     const out = await on.json();
-    assert.deepEqual(out.settings, { auto_merge: true, auto_build: false, auto_pull: false });
+    assert.deepEqual(out.settings, { auto_merge: true, auto_build: false, auto_pull: false, auto_triage: false });
     assert.match(out.id, /^e/);
     const written = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8'));
     assert.deepEqual([written.title, written.rules.length, written.auto_merge], ['T', 1, true]);
@@ -885,13 +885,17 @@ test('the watcher prints the hub rules, then the board rules, the board settings
     assert.equal((await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === `ask:${asked}`).working, true);
     assert.deepEqual((await (await fetch(`${base}/api/working`)).json()).working.filter((w) => w.id === asked).map(({ since, ...w }) => w), [{ id: asked, kind: 'ask', card: null }]);
     assert.match(lines.at(-1), /^quiet .*AskUserQuestion/);
-    assert.deepEqual(lines.slice(2, -1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-pull off']);
+    assert.deepEqual(lines.slice(2, -1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting auto-triage off']);
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, auto_merge: true }));
     fs.rmSync(path.join(web, 'settings.json'));
-    assert.deepEqual((await watch('rules2')).slice(2, -1), ['setting auto-merge on', 'setting auto-build off', 'setting auto-pull off']);
+    assert.deepEqual((await watch('rules2')).slice(2, -1), ['setting auto-merge on', 'setting auto-build off', 'setting auto-pull off', 'setting auto-triage off']);
     const hello = () => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: 'hello1', ts: new Date().toISOString(), kind: 'hello', data: { title: 'T' } }) + '\n');
     assert.equal((await watch('hello', hello))[1], 'hello hello1 from the hub answered');
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'handshake.json'), 'utf8')).ack.id, 'hello1');
+    // docs/adr/0165-an-idle-board-triages-its-todo-once-a-day.md
+    const triage = () => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: 'tt1', ts: new Date().toISOString(), kind: 'todo-triage', data: { date: '2026-11-03', topic: 'todo-triage-2026-11-03' } }) + '\n');
+    assert.equal((await watch('triage', triage))[1], 'Todo triage 2026-11-03 asked: the board was idle');
+    assert.ok(Date.parse(JSON.parse(fs.readFileSync(path.join(site, 'data', 'working.json'), 'utf8')).events.tt1));
   } finally {
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
     fs.rmSync(path.join(web, 'settings.json'), { force: true });

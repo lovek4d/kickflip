@@ -6,7 +6,7 @@
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask, ask progress|done,
 //   lineup create|add|remove|set|finish,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
-// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_pull, github_login}. auto_build asks the hub to
+// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_pull, auto_triage, github_login}. auto_build asks the hub to
 // run each card's .kickflip/build after each push, and hides the cards' Serve / Build; main always builds after a merge.
 // auto_merge (false when absent) lets the session merge
 // an approved, green, clean PR itself; off, the card shows the owner's Merge (store.mjs settingsOf). rules are the owner's standing instructions to this
@@ -104,7 +104,10 @@
 //                                Within a minute of a held card's until or pick_up_at the server resumes it
 //                                (store.mjs pickUp), at most once per time even across a restart.
 //                                With auto_pull on, the server appends card-pull {key} for the top pullable Todo card
-//                                while the board is idle (domain.mjs pullOf), one pull at a time, tracked in data/pulled.json
+//                                while the board is idle (domain.mjs pullOf), one pull at a time, tracked in data/pulled.json.
+//                                With auto_triage on, an idle board whose Todo changed since the last triage (domain.mjs
+//                                todoOf) gets todo-triage {date, topic} first, at most once a host day, tracked in
+//                                data/triaged.json; no pull goes out until Claude replies to it
 //   POST /api/upload             the raw file as the body, its name URI-encoded in x-filename and its
 //                                type in content-type → data/uploads/<ms>-<safe name>, returning the
 //                                upload {name, url, path, type, size}: url is relative to the site
@@ -119,8 +122,8 @@
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (store.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
-//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull} (store.mjs readBoardSettings)
-//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean} → board.json, keeping its other keys, and when the value moved a
+//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull, auto_triage} (store.mjs readBoardSettings)
+//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, auto_triage?: boolean} → board.json, keeping its other keys, and when the value moved a
 //                                `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id}; a bad body → 400 {error}
 //   POST /api/try                {key}: forwards a card build or main retry to the hub's loopback /_hub/build
@@ -151,10 +154,11 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { buildBoard, ITEM_EVENTS, needsAnswer, ownerActions, pullOf, refOf, startedByAnswer, threadOf } from './domain.mjs';
+import { buildBoard, ITEM_EVENTS, needsAnswer, ownerActions, pullOf, refOf, startedByAnswer, threadOf, todoOf } from './domain.mjs';
+import { localDay } from '../hub/schedule.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, existsSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
-import { BoardError, boardConfig, dueQueuedBuilds, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, addTopic, boardConfig, dueQueuedBuilds, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -404,7 +408,7 @@ async function snapshot({ github = true } = {}) {
     const repo = items.github || wave.repo;
     return repo ? wave.items.filter((it) => it.pr).map(async (it) => { prs[`${repo}#${it.pr}`] = await prState(repo, it.pr); }) : [];
   }));
-  const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'item-message', 'wave-triage']);
+  const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'item-message', 'wave-triage', 'todo-triage']);
   const pageEvents = await Promise.all((await shownEvents()).map((e) => (needsReply.has(e.kind) || routeRecord(working, e.id) ? withReply(e) : { ...e, reply: null })));
   await Promise.all(pageEvents.filter((e) => e.kind === 'ask').map(async (e) => {
     const lines = await readLines(threadFile(`ask:${e.id}`));
@@ -870,40 +874,73 @@ function checkQueued() {
   return checkingQueued;
 }
 
-// docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md
-// data/pulled.json {key, at}: key is the pulled card while it stays pullable, at when the marker last changed.
-let checkingPulls = false;
-async function checkPulls() {
-  if (checkingPulls) return;
-  checkingPulls = true;
+// The idle jobs, triage before the pull: a triage sent or under way holds the pull until its reply.
+let checkingIdle = false;
+async function checkIdle() {
+  if (checkingIdle) return;
+  checkingIdle = true;
   try {
-    const file = path.join(data, 'pulled.json');
-    const marker = await readJSON(file, {});
-    const save = async (key) => {
-      await fs.mkdir(data, { recursive: true });
-      await fs.writeFile(file + '.tmp', JSON.stringify({ key, at: new Date().toISOString() }) + '\n');
-      await fs.rename(file + '.tmp', file);
-    };
-    if (!settingsOf(await config()).auto_pull) { if (marker.key) await save(null); return; }
+    const settings = settingsOf(await config());
     const log = await readLines(events);
     const hidden = await readHidden(here);
     const { items } = buildBoard({ ...(await itemSnapshot()), events: log.filter((e) => !hidden.has(e.id)), owner: await readJSON(path.join(data, 'owner.json'), { items: [] }) });
     const { idle, pullable } = pullOf(items);
-    // The event log covers a restart between appending card-pull and saving the marker.
-    const lastPull = log.filter((e) => e.kind === 'card-pull').at(-1);
-    const current = lastPull && String(lastPull.ts) > String(marker.at || '') ? lastPull.data?.key : marker.key;
-    if (current && pullable.includes(current)) return;
-    if (!idle || !pullable.length || readUsageGate().state === 'paused') { if (current) await save(null); return; }
-    const key = pullable[0];
-    await appendEvent('card-pull', { key });
-    await fs.mkdir(path.dirname(threadFile(key)), { recursive: true });
-    await fs.appendFile(threadFile(key), JSON.stringify({ ts: new Date().toISOString(), who: 'claude', text: 'Pulled in: the board was idle.' }) + '\n');
-    await save(key);
+    const ready = idle && readUsageGate().state !== 'paused';
+    if (await checkTriage(settings, log, items, ready)) return;
+    await checkPull(settings, log, pullable, ready);
   } catch (err) {
-    console.error('Pull check failed:', err.message);
+    console.error('Idle check failed:', err.message);
   } finally {
-    checkingPulls = false;
+    checkingIdle = false;
   }
+}
+
+// docs/adr/0165-an-idle-board-triages-its-todo-once-a-day.md
+// data/triaged.json {todo}: the Todo (domain.mjs todoOf) the last triage saw, kept current until that triage's reply so
+// its own links and merges don't read as a change. The event log says when the last triage went out. → true while a
+// triage is under way or was just sent.
+async function checkTriage(settings, log, items, ready) {
+  const file = path.join(data, 'triaged.json');
+  const marker = await readJSON(file, {});
+  const todo = todoOf(items);
+  const save = async () => {
+    await fs.mkdir(data, { recursive: true });
+    await fs.writeFile(file + '.tmp', JSON.stringify({ todo }) + '\n');
+    await fs.rename(file + '.tmp', file);
+  };
+  const last = log.filter((e) => e.kind === 'todo-triage').at(-1);
+  if (last && !(await withReply(last)).reply) { if (marker.todo !== todo) await save(); return true; }
+  const date = localDay(new Date());
+  if (!settings.auto_triage || !ready || !todo || todo === marker.todo || last?.data?.date === date) return false;
+  const topic = `todo-triage-${date}`;
+  const owner = await readJSON(path.join(data, 'owner.json'), { topics: [] });
+  if (!(owner.topics || []).some((t) => t.id === topic)) await addTopic(here, { id: topic, title: `Todo triage ${date}` });
+  await appendEvent('todo-triage', { date, topic });
+  await save();
+  return true;
+}
+
+// docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md
+// data/pulled.json {key, at}: key is the pulled card while it stays pullable, at when the marker last changed.
+async function checkPull(settings, log, pullable, ready) {
+  const file = path.join(data, 'pulled.json');
+  const marker = await readJSON(file, {});
+  const save = async (key) => {
+    await fs.mkdir(data, { recursive: true });
+    await fs.writeFile(file + '.tmp', JSON.stringify({ key, at: new Date().toISOString() }) + '\n');
+    await fs.rename(file + '.tmp', file);
+  };
+  if (!settings.auto_pull) { if (marker.key) await save(null); return; }
+  // The event log covers a restart between appending card-pull and saving the marker.
+  const lastPull = log.filter((e) => e.kind === 'card-pull').at(-1);
+  const current = lastPull && String(lastPull.ts) > String(marker.at || '') ? lastPull.data?.key : marker.key;
+  if (current && pullable.includes(current)) return;
+  if (!ready || !pullable.length) { if (current) await save(null); return; }
+  const key = pullable[0];
+  await appendEvent('card-pull', { key });
+  await fs.mkdir(path.dirname(threadFile(key)), { recursive: true });
+  await fs.appendFile(threadFile(key), JSON.stringify({ ts: new Date().toISOString(), who: 'claude', text: 'Pulled in: the board was idle.' }) + '\n');
+  await save(key);
 }
 
 // docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
@@ -952,12 +989,12 @@ try { for (const line of await migrateFollowups(here)) console.log(line); } catc
 await watchBoard();
 setInterval(checkStalled, 60000).unref();
 setInterval(checkPickUps, 60000).unref();
-setInterval(checkPulls, 60000).unref();
+setInterval(checkIdle, 60000).unref();
 setInterval(checkActions, 60000).unref();
 setInterval(checkQueued, 60000).unref();
 await checkStalled();
 await checkPickUps();
-await checkPulls();
+await checkIdle();
 checkActions();
 checkQueued();
 server.listen(port, '127.0.0.1', () => console.log(`site on http://127.0.0.1:${port}/ (prefix ${prefix || 'none'})`));

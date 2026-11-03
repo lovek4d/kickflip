@@ -33,6 +33,10 @@
     <span class="muted small sub">On: when no builder is running on this board, Claude takes the top Todo card that nothing blocks or holds, and grills or builds it. Off: a Todo card waits until it is unblocked, answered or bumped.</span></span>
     <input type="checkbox" class="toggle" id="autoPull" disabled></label>
   <p class="muted small" id="autoPullStatus" role="status"></p>
+  <label class="who" for="autoTriage"><span><span>Triage Todo when idle</span>
+    <span class="muted small sub">On: once a day, when no builder is running and Todo changed, Claude looks for duplicate cards, cards another covers, cards ready to close and stale deps. It links cards and merges clear duplicates itself, and asks you about the rest under one topic. Off: Todo is left as it is.</span></span>
+    <input type="checkbox" class="toggle" id="autoTriage" disabled></label>
+  <p class="muted small" id="autoTriageStatus" role="status"></p>
   <h2>Reviewers</h2>
   <p class="muted small">Everyone here gets each PR link on this board once it's ready, and the weekday digest. Someone you add also gets the links of PRs already in review.</p>
   <div id="list"><p class="muted small">Loading…</p></div>
@@ -293,6 +297,8 @@
       $('#autoBuild').disabled = false;
       $('#autoPull').checked = d.settings?.auto_pull === true;
       $('#autoPull').disabled = false;
+      $('#autoTriage').checked = d.settings?.auto_triage === true;
+      $('#autoTriage').disabled = false;
     }).catch(() => { autoMergeStatus.textContent = ticketsStatus.textContent = 'Offline. Is the host awake?'; });
     B.on(autoMerge, 'change', async () => {
       const want = autoMerge.checked;
@@ -333,24 +339,27 @@
       } finally { if (B.alive()) toggle.disabled = false; }
     });
 
-    // docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md
-    B.on($('#autoPull'), 'change', async () => {
-      const toggle = $('#autoPull');
+    // The Todo section's toggles save with no confirmation: docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md
+    // and docs/adr/0165-an-idle-board-triages-its-todo-once-a-day.md.
+    const todoToggle = (id, key, saved) => B.on($(`#${id}`), 'change', async () => {
+      const toggle = $(`#${id}`);
       const want = toggle.checked;
       toggle.disabled = true;
       try {
-        const r = await fetch(site.url('api/settings'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ auto_pull: want }) });
+        const r = await fetch(site.url('api/settings'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ [key]: want }) });
         const out = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(out.error);
         if (!B.alive()) return;
-        toggle.checked = out.settings.auto_pull === true;
-        $('#autoPullStatus').textContent = toggle.checked ? 'Saved. When no builder runs, Claude pulls in the top Todo card.' : 'Saved. Todo cards wait until they are unblocked, answered or bumped.';
+        toggle.checked = out.settings[key] === true;
+        $(`#${id}Status`).textContent = saved(toggle.checked);
       } catch (e) {
         if (!B.alive()) return;
         toggle.checked = !want;
-        $('#autoPullStatus').textContent = e.message || 'Could not save. Is the host awake?';
+        $(`#${id}Status`).textContent = e.message || 'Could not save. Is the host awake?';
       } finally { if (B.alive()) toggle.disabled = false; }
     });
+    todoToggle('autoPull', 'auto_pull', (on) => (on ? 'Saved. When no builder runs, Claude pulls in the top Todo card.' : 'Saved. Todo cards wait until they are unblocked, answered or bumped.'));
+    todoToggle('autoTriage', 'auto_triage', (on) => (on ? 'Saved. Once a day, when the board is idle and Todo changed, Claude triages it.' : 'Saved. Todo is left as it is.'));
 
     // Saving writes board.json through POST api/rules, whose `rules {scope: "board"}` event wakes Claude to acknowledge
     // the change; replies show below, newest first.
