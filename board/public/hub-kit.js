@@ -88,7 +88,8 @@
     return { busy: () => sending };
   }
 
-  // This device's push subscription, as HubUI.deviceRow shows it: Turn on subscribes, and Test sends a test push.
+  // This device's push subscription, as HubUI.deviceRow shows it: Turn on subscribes, Test sends a test push, and each
+  // showing of the row tells the hub of a subscription this device no longer has.
   // iOS allows web push only in a Home Screen app, and asks for permission only from a tap, so requestPermission runs
   // first in the tap. paint() redraws the row, never before device() returns; changed() follows a subscription this
   // device just made.
@@ -103,15 +104,31 @@
     const keyBytes = (k) => Uint8Array.from(atob(k.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
     const post = (p, body) => fetch(p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) }).then((r) => r.json());
     const show = (next, isOn = false) => { if (!B.alive()) return; state = next; on = isOn; paint(); };
+    // The endpoint this device last gave the hub, kept in this browser, so that once the subscription goes (the
+    // browser dropped or replaced it, or notifications were blocked) the page tells the hub to forget it
+    // (docs/adr/0149-the-hub-reads-healthy-degraded-or-a-site-down.md).
+    const KEPT = 'kickflip.push.endpoint';
+    const kept = () => { try { return localStorage.getItem(KEPT); } catch { return null; } };
+    const keep = (endpoint) => { try { if (endpoint) localStorage.setItem(KEPT, endpoint); else localStorage.removeItem(KEPT); } catch { /* storage blocked here */ } };
+    const settle = (endpoint = null) => {
+      const old = kept();
+      if (old && old !== endpoint) post('/_hub/push/unsubscribe', { endpoint: old }).catch(() => {});
+      keep(endpoint);
+    };
 
     async function render() {
       if (!('serviceWorker' in navigator) || !('PushManager' in globalThis)) {
         if (ios && !standalone) show({ title: 'Add to Home Screen', sub: 'Tap Share, then Add to Home Screen, and open Claude from your Home Screen to turn on notifications.' });
         return;
       }
-      if (Notification.permission === 'denied') { show({ title: 'Notifications are blocked', sub: `Allow them in ${ios ? 'Settings → Notifications → Claude.' : "this browser's site settings."}` }); return; }
+      if (Notification.permission === 'denied') {
+        settle();
+        show({ title: 'Notifications are blocked', sub: `Allow them in ${ios ? 'Settings → Notifications → Claude.' : "this browser's site settings."}` });
+        return;
+      }
       const reg = await navigator.serviceWorker.getRegistration('/');
       const sub = await reg?.pushManager.getSubscription();
+      settle(sub?.toJSON().endpoint);
       if (sub) {
         post('/_hub/push/subscribe', sub.toJSON()).catch(() => {});
         show({ title: 'This device', action: { label: 'Test', act: 'test', quiet: true } }, true);

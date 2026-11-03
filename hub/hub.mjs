@@ -13,7 +13,7 @@
 //   /_hub/api/hub, /_hub/api/settings, /_hub/api/polling?w=HH:MM
 //                     those views' data and words (views.mjs), including integration readiness rows on /_hub/api/hub
 //   /_hub/sidebar.json what the sidebar shows (board/public/ui-sidebar.js): {code, total, start,
-//                     sites: [{route, title, board, state, count, changedAt, created, icon, sub}], hub: {tone, word, detail, broken},
+//                     sites: [{route, title, board, state, count, changedAt, created, icon, sub}], hub: {tone, word, detail},
 //                     notifications: {state, text}}, each site's row from its GET /_claude/needs
 //                     (home.mjs; docs/adr/0010-sites-report-what-waits-through-claude-needs.md)
 //                     starting lists pending boards and their clone/start phase (sessions.mjs)
@@ -58,8 +58,8 @@
 //                     X-App-Shell: 1, and a request with X-App-Shell: 1 is a page load (shell.mjs destOf)
 //   /_hub/colors.css  ../shared/colors.css, the colours the shell and the down page link; ?v=colorsVersion() caches for a year
 //   /_hub/kickflip.png the header's image and every page's tab icon (/favicon.ico redirects to it), and /_hub/hub.css the down page's CSS, read from ../board/public
-//   /_hub/push/key    GET the VAPID public key; /_hub/push/subscribe and
-//                     /_hub/push/test take POSTs from the hub views (push.mjs)
+//   /_hub/push/key    GET the VAPID public key; /_hub/push/subscribe, /_hub/push/unsubscribe ({endpoint}, from a
+//                     page whose device lost that subscription) and /_hub/push/test take POSTs from the hub views (push.mjs)
 //   The forms below answer the view's JSON when the request accepts application/json, and redirect back with a 303
 //   otherwise:
 //   /_hub/settings/notifications POST set=on|weekends with value=on (absent for off), or snooze=<push.mjs
@@ -140,7 +140,7 @@ import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import zlib from 'node:zlib';
 import { routeRecord } from './routes.mjs';
-import { publicKey, addSubscription, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, deliver, pushRoute } from './push.mjs';
+import { publicKey, addSubscription, removeSubscription, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, deliver, pushRoute } from './push.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
 import { nextSlot, windowAt, hold, heldUntil, holdLine, editPolling } from './schedule.mjs';
 import { capital, hubView, settingsView, pollingView, flushView, SNOOZE_REFUSED, AWAKE_REFUSED } from './views.mjs';
@@ -828,6 +828,7 @@ async function hubRoute(req, res, url) {
     const host = req.headers['x-forwarded-host'] || req.headers.host;
     return sendJSON(200, { count: addSubscription(await readJSONBody(req), `https://${host}/`, req.headers['user-agent']) });
   }
+  if (p === '/_hub/push/unsubscribe' && req.method === 'POST') return sendJSON(200, { count: removeSubscription((await readJSONBody(req))?.endpoint) });
   if (p === '/_hub/push/test' && req.method === 'POST') {
     const results = await sendAll({ title: 'Claude', body: 'Test notification from the hub.', url: '/', tag: 'hub-test' });
     return sendJSON(200, { sent: results.filter((r) => r.status >= 200 && r.status < 300).length, results });

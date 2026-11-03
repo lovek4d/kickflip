@@ -1,5 +1,5 @@
 // Web Push for every hub site, with no dependencies. The hub serves the
-// subscribe side (hub.mjs); every push goes through deliver(), which refuses a push that isn't one of PUSH_KINDS and
+// subscribe and unsubscribe side (hub.mjs); every push goes through deliver(), which refuses a push that isn't one of PUSH_KINDS and
 // queues one unless it is urgent or immediate. While the owner is at the host (presence.mjs), an action push reaches
 // the desktop subscriptions only, unless urgent or no desktop has subscribed
 // (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md).
@@ -62,6 +62,15 @@ export function addSubscription(sub, origin, agent = '') {
   subs.push({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, origin, agent: String(agent).slice(0, 200), added: new Date().toISOString() });
   writePrivate(SUBS, subs);
   return subs.length;
+}
+
+// The page of a device whose subscription went (hub-kit.js device) names its endpoint here; an endpoint the hub
+// doesn't hold changes nothing. → the count left
+export function removeSubscription(endpoint) {
+  const subs = readSubs();
+  const left = subs.filter((s) => s.endpoint !== endpoint);
+  if (left.length !== subs.length) writePrivate(SUBS, left);
+  return left.length;
 }
 
 export function subscriptions(home) {

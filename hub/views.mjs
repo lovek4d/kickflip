@@ -34,7 +34,8 @@ function pollingNow(st, poll, now) {
 }
 
 // One site's row on the hub page: a word for the site, then each of its board links that isn't passing. links is the
-// board's boards.mjs linksOf, or undefined for a site that isn't a board.
+// board's boards.mjs linksOf, or undefined for a site that isn't a board. A broken link reads amber Degraded, since the
+// site still answers; red is for a site that is down (docs/adr/0149-the-hub-reads-healthy-degraded-or-a-site-down.md).
 export function siteHealth(r, links) {
   const down = { port: 'Down · not answering', files: 'Down · folder missing' }[r.serves] || 'Down · restarting';
   if (r.state !== 'up') return { tone: r.state === 'down' ? 'down' : 'wait', word: r.state === 'down' ? down : capital(r.state), lines: [] };
@@ -43,8 +44,8 @@ export function siteHealth(r, links) {
   const broken = off.filter((l) => l.state === 'broken');
   const events = links.find((l) => l.link === 'events');
   const heard = events?.listen === 'asleep' || events?.listen === 'waking' ? events.listen : events?.ok ? 'listening' : 'not listening';
-  const word = broken.length ? `${plural(broken.length, 'link')} broken · ${heard}` : off.length ? `Up · ${heard} · ${off.length} settling` : `Up · ${heard} · every link passes`;
-  return { tone: broken.length ? 'down' : off.length ? 'wait' : 'ok', word, lines: off.map((l) => ({ link: l.link, detail: `${l.state === 'broken' ? '' : 'settling: '}${l.detail}` })) };
+  const word = broken.length ? `Degraded · ${heard}` : off.length ? `Up · ${heard} · ${off.length} settling` : `Up · ${heard} · every link passes`;
+  return { tone: off.length ? 'wait' : 'ok', word, lines: off.map((l) => ({ link: l.link, detail: `${l.state === 'broken' ? '' : 'settling: '}${l.detail}` })) };
 }
 
 const CODEX_CHOICES = [

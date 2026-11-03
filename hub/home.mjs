@@ -78,18 +78,19 @@ export function startRoute(sites) {
 
 export const STALE_CODE = 'runs older code than its files; restart it';
 
-// The hub's health from the sites' process states, each board's linksOf states (a Map by route) and the
-// hub's own boards.mjs hubLink: a site is broken while it is down or one of its links reads broken; a link still
-// settling doesn't count (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md). A failing hub link reads
-// amber, and says why in the detail, here and nowhere else (docs/adr/0064-every-builder-works-in-a-worktree.md).
+// The hub's health from the sites' process states, each board's linksOf states (a Map by route) and the hub's own
+// boards.mjs hubLink (docs/adr/0149-the-hub-reads-healthy-degraded-or-a-site-down.md): red only while a site is down,
+// amber Degraded while a board link reads broken or the hub runs older code than its files, else Healthy. A link
+// still settling doesn't count (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md). The stale code says
+// why in the detail, here and nowhere else (docs/adr/0064-every-builder-works-in-a-worktree.md).
 export function hubHealth(sites, linksByRoute = new Map(), hub = null) {
-  const broken = sites.filter((s) => s.state === 'down' || (linksByRoute.get(s.route) || []).some((l) => l.state === 'broken'));
+  const down = sites.filter((s) => s.state === 'down').length;
+  const failing = sites.reduce((n, s) => n + (linksByRoute.get(s.route) || []).filter((l) => l.state === 'broken').length, 0);
   const up = sites.filter((s) => s.state === 'up').length;
   const stale = hub?.ok === false;
   return {
-    tone: broken.length ? 'down' : stale ? 'wait' : 'ok',
-    word: broken.length ? `${broken.length} broken` : stale ? 'Needs a restart' : 'Healthy',
-    detail: `${up} of ${sites.length} site${sites.length === 1 ? '' : 's'} up${stale ? ` · ${STALE_CODE}` : ''}`,
-    broken: broken.map((s) => s.route),
+    tone: down ? 'down' : failing || stale ? 'wait' : 'ok',
+    word: down ? `${down} site${down === 1 ? '' : 's'} down` : failing || stale ? 'Degraded' : 'Healthy',
+    detail: `${up} of ${sites.length} site${sites.length === 1 ? '' : 's'} up${failing ? ` · ${failing} link${failing === 1 ? '' : 's'} failing` : ''}${stale ? ` · ${STALE_CODE}` : ''}`,
   };
 }

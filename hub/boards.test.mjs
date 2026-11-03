@@ -72,10 +72,10 @@ test('the registry lists every board site, over the waves or its own file, with 
 test('linksOf names each hub link that reaches a board and each that does not', () => {
   const orch = listBoards().find((b) => b.route === 'orch');
   const github = { lastCheck: { at: 'T', boards: ['orch'] }, prs: { 'o/r#11': { at: 'T', state: 'OPEN', isDraft: false } } };
-  const ok = { github, settings: { wakes: ['08:00'] }, wakes: {}, devices: 2, listen: 'listening', topics: { 'w1/A1': { review_link_ts: { Ann: '1.1', Bea: '1.2' } } }, faults: {} };
+  const ok = { github, settings: { wakes: ['08:00'] }, wakes: {}, listen: 'listening', topics: { 'w1/A1': { review_link_ts: { Ann: '1.1', Bea: '1.2' } } }, faults: {} };
   const state = (ctx) => Object.fromEntries(linksOf(orch, ctx).map((l) => [l.link, l.ok]));
-  assert.deepEqual(linksOf(orch, ok).map((l) => l.link), ['github', 'events', 'wakes', 'push', 'slack']);
-  assert.deepEqual(state(ok), { github: true, events: true, wakes: true, push: true, slack: true });
+  assert.deepEqual(linksOf(orch, ok).map((l) => l.link), ['github', 'events', 'wakes', 'slack']);
+  assert.deepEqual(state(ok), { github: true, events: true, wakes: true, slack: true });
   const broken = (ctx) => Object.entries(state({ ...ok, ...ctx })).filter(([, v]) => !v).map(([k]) => k);
   assert.deepEqual(broken({ github: {} }), ['github']);
   assert.deepEqual(broken({ github: { ...github, prs: { 'o/r#11': { ...github.prs['o/r#11'], at: 'older' } } } }), ['github']);
@@ -84,8 +84,7 @@ test('linksOf names each hub link that reaches a board and each that does not', 
   assert.deepEqual(broken({ listen: 'asleep' }), []);
   assert.deepEqual(broken({ settings: { wakes: [] } }), ['wakes']);
   assert.deepEqual(broken({ wakes: { last: { due: ['08:00'], failed: ['orch'] } } }), ['wakes']);
-  assert.deepEqual(broken({ devices: 0 }), ['push']);
-  assert.deepEqual(linksOf(orch, { ...ok, fetches: { orch: { at: 'T', ok: true } } }).map((l) => l.link), ['github', 'repo-fetch', 'events', 'wakes', 'push', 'slack']);
+  assert.deepEqual(linksOf(orch, { ...ok, fetches: { orch: { at: 'T', ok: true } } }).map((l) => l.link), ['github', 'repo-fetch', 'events', 'wakes', 'slack']);
   assert.deepEqual(broken({ fetches: { orch: { at: 'T', ok: false, error: 'fatal: unable to access origin', hint: 'run git fetch' } } }), ['repo-fetch']);
   assert.equal(hubLink({ running: 'h1', onDisk: 'h1' }).ok, true);
   assert.equal(hubLink({ running: undefined, onDisk: 'h1' }).ok, false);
@@ -93,10 +92,10 @@ test('linksOf names each hub link that reaches a board and each that does not', 
     detail: 'The hub runs older code than its files; restart it with ' + (process.platform === 'darwin' ? 'launchctl kickstart -k gui/$(id -u)/local.claude.kickflip-hub' : 'systemctl --user restart kickflip-hub.service') });
   const recorded = structuredClone(orch);
   recorded.waves[0].wave.items[0].review_link_ts = { Ann: { ts: '1.1', channel: 'D1' }, Bea: '1.2' };
-  assert.equal(linksOf(recorded, { ...ok, topics: {} })[4].ok, true);
-  const slack = linksOf(orch, { ...ok, topics: { 'w1/A1': { review_link_ts: { Ann: '1.1' } } } })[4];
+  assert.equal(linksOf(recorded, { ...ok, topics: {} })[3].ok, true);
+  const slack = linksOf(orch, { ...ok, topics: { 'w1/A1': { review_link_ts: { Ann: '1.1' } } } })[3];
   assert.deepEqual([slack.ok, slack.detail], [false, '#11 has no link for Bea.']);
-  assert.equal(linksOf(orch, { ...ok, topics: {}, github: { ...github, prs: { 'o/r#11': { at: 'T', state: 'OPEN', isDraft: true } } } })[4].ok, true);
+  assert.equal(linksOf(orch, { ...ok, topics: {}, github: { ...github, prs: { 'o/r#11': { at: 'T', state: 'OPEN', isDraft: true } } } })[3].ok, true);
 });
 
 test('a broken link reads settling until it has stayed broken past its grace period, then broken', () => {
@@ -105,11 +104,11 @@ test('a broken link reads settling until it has stayed broken past its grace per
   const now = new Date(2026, 9, 29, 12, 0).getTime();
   const ago = (min) => new Date(now - min * 60_000).toISOString();
   const fetches = { orch: { at: ago(1), ok: false, error: 'remote: Repository not found.', hint: 'run gh auth setup-git' } };
-  const faulty = { github: {}, fetches, settings, wakes: {}, devices: 0, listen: 'deaf', topics: {}, now };
+  const faulty = { github: {}, fetches, settings, wakes: {}, listen: 'deaf', topics: {}, now };
   const states = (faults, at = now) => Object.fromEntries(linksOf(orch, { ...faulty, faults, now: at }).filter((l) => !l.ok).map((l) => [l.link, l.state]));
-  assert.deepEqual(states({}), { github: 'settling', 'repo-fetch': 'settling', events: 'settling', push: 'broken' });
-  assert.deepEqual(states({ github: ago(24), 'repo-fetch': ago(24), events: ago(1.9) }), { github: 'settling', 'repo-fetch': 'settling', events: 'settling', push: 'broken' });
-  assert.deepEqual(states({ github: ago(26), 'repo-fetch': ago(26), events: ago(2.1) }), { github: 'broken', 'repo-fetch': 'broken', events: 'broken', push: 'broken' });
+  assert.deepEqual(states({}), { github: 'settling', 'repo-fetch': 'settling', events: 'settling' });
+  assert.deepEqual(states({ github: ago(24), 'repo-fetch': ago(24), events: ago(1.9) }), { github: 'settling', 'repo-fetch': 'settling', events: 'settling' });
+  assert.deepEqual(states({ github: ago(26), 'repo-fetch': ago(26), events: ago(2.1) }), { github: 'broken', 'repo-fetch': 'broken', events: 'broken' });
   assert.equal(linksOf(orch, { ...faulty, faults: { github: ago(26) } })[0].since, ago(26));
   const eight = new Date(2026, 9, 29, 8, 5).getTime();
   assert.equal(states({ github: new Date(eight - 35 * 60_000).toISOString() }, eight).github, 'settling');
@@ -228,7 +227,7 @@ test('hub writes refuse cross-site requests before handling forms, JSON or delet
     assert.match(r.headers.get('content-type'), /^text\/plain/);
     assert.equal(fs.readFileSync(settings, 'utf8'), before);
   }
-  for (const p of ['/_hub/settings/rules', '/_hub/prompts', '/_hub/prompts/missing/answer', '/_hub/poll', '/_hub/push/subscribe']) {
+  for (const p of ['/_hub/settings/rules', '/_hub/prompts', '/_hub/prompts/missing/answer', '/_hub/poll', '/_hub/push/subscribe', '/_hub/push/unsubscribe']) {
     for (const headers of [{ 'content-type': 'text/plain' }, { 'content-type': 'application/json', origin: 'https://other.example' }]) {
       const r = await fetch(base + p, { method: 'POST', headers, body: '{' });
       assert.equal(r.status, 403, p);
@@ -361,6 +360,19 @@ test("a GitHub change goes to every board showing that PR, and pushes alone neve
   assert.equal(events('shop', 'github-change').length, 1);
 });
 
+test('a device that lost its subscription is dropped from the hub, and Integrations counts the devices left', async () => {
+  const subs = claude('kickflip', 'push', 'subs.json');
+  const before = read(subs);
+  const post = (p, body) => fetch(`${base}${p}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+  const notifications = async () => (await (await fetch(`${base}/_hub/api/hub`)).json()).integrations.find((i) => i.id === 'notifications').detail;
+  assert.deepEqual(await post('/_hub/push/subscribe', { endpoint: 'https://push.example/gone', keys: { p256dh: 'p', auth: 'a' } }), { count: 2 });
+  assert.equal(await notifications(), 'Pushes on · 2 devices');
+  assert.deepEqual(await post('/_hub/push/unsubscribe', { endpoint: 'https://push.example/gone' }), { count: 1 });
+  assert.deepEqual(await post('/_hub/push/unsubscribe', { endpoint: 'https://push.example/gone' }), { count: 1 });
+  assert.deepEqual(read(subs), before);
+  assert.equal(await notifications(), 'Pushes on · 1 device');
+});
+
 test('a hub rules save reaches both boards', async () => {
   const r = await (await fetch(`${base}/_hub/settings/rules`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ rules: [{ text: 'Be brief' }], base: [] }) })).json();
   assert.deepEqual(r.events.map((e) => e.route).sort(), ['orch', 'shop']);
@@ -369,12 +381,12 @@ test('a hub rules save reaches both boards', async () => {
 
 test("each board serves its hub links, and the slack link passes once every reviewer has the PR's link", async () => {
   const orch = await api('orch');
-  assert.deepEqual(linkState(orch.links), { github: true, events: true, wakes: true, push: true, slack: false });
-  assert.equal(orch.links[4].state, 'settling');
-  assert.match(orch.links[4].detail, /#11 has no link for Ann, Bea/);
+  assert.deepEqual(linkState(orch.links), { github: true, events: true, wakes: true, slack: false });
+  assert.equal(orch.links[3].state, 'settling');
+  assert.match(orch.links[3].detail, /#11 has no link for Ann, Bea/);
   assert.equal(orch.setup, null);
   const shop = await api('shop');
-  assert.deepEqual(linkState(shop.links), { github: true, events: false, wakes: true, push: true, slack: true });
+  assert.deepEqual(linkState(shop.links), { github: true, events: false, wakes: true, slack: true });
   const sub = Object.fromEntries((await (await fetch(`${base}/_hub/sidebar.json`)).json()).sites.map((x) => [x.route, x.sub]));
   assert.match(sub.shop, /^<span class="dot t-down" aria-hidden="true"><\/span><span class="word t-down">not listening<\/span>/);
   assert.doesNotMatch(sub.orch, /not listening/);
@@ -447,7 +459,7 @@ test('while the hub runs older code than its files, the Hub row and Health card 
   assert.match((await page()).hub.detail, /runs the code in its files/);
 });
 
-test("a board whose repo fetch fails gets a Repo fetch link that settles, turns red on Health and the watcher after its grace, and clears on the next fetch", async () => {
+test("a board whose repo fetch fails gets a Repo fetch link that settles, reads Degraded on Health and shows on the watcher after its grace, and clears on the next fetch", async () => {
   const manifestFile = claude('kickflip', 'manifest.json');
   const manifest = read(manifestFile);
   const faultsFile = claude('kickflip', 'link-faults.json');
@@ -474,7 +486,7 @@ test("a board whose repo fetch fails gets a Repo fetch link that settles, turns 
     await until(async () => (await shopLines()).some((l) => l.link === 'repo-fetch' && l.detail === detail), 'Health lists the broken fetch');
     const health = (await (await fetch(`${base}/_hub/sidebar.json`)).json()).hub;
     assert.notEqual(health.word, 'Healthy');
-    assert.ok(health.broken.includes('shop'));
+    assert.match(health.detail, /^\d+ of \d+ sites up · \d+ links? failing/);
     write(cursor, { 'data/events.jsonl': 0 });
     const watched = await cli(path.join(SKILL, 'bin', 'wait-events.mjs'), ['shop', 's-shop']);
     assert.ok(watched.stdout.split('\n').includes(`link repo-fetch ${detail}`), watched.stdout);

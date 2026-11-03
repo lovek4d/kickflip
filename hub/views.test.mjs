@@ -401,23 +401,23 @@ test("the hub page lists Boards and Pages apart with each site's health and link
     { route: 'gone', title: 'Gone', state: 'down' }, { route: 'learn', title: 'Learn', state: 'up' }, { route: 'new', title: 'New', state: 'starting' },
   ];
   const links = {
-    alpha: [ok('github'), ok('events'), ok('pushes')],
+    alpha: [ok('github'), ok('events'), ok('wakes')],
     beta: [ok('github'), { link: 'events', ok: false, state: 'broken', detail: 'no watcher since 6:00pm' }, { link: 'wakes', ok: false, state: 'settling', detail: 'missed 9:00am' }],
   };
   const sidebar = {
     total: 3, sites: rows.map((r) => ({ route: r.route, board: ['alpha', 'beta', 'gone', 'new'].includes(r.route) })),
-    hub: { tone: 'down', word: '2 broken', detail: '3 of 5 sites up' }, notifications: { state: 'on', text: 'On' },
+    hub: { tone: 'down', word: '1 site down', detail: '3 of 5 sites up · 1 link failing' }, notifications: { state: 'on', text: 'On' },
   };
   const v = hubView({ now, st: status(now, DEFAULTS, 1), poll: poll(now), sidebar, rows, links: new Map(Object.entries(links)), code: { running: 'abc', onDisk: 'abc' }, host: 'mac.ts.net', rules: [{ text: 'a' }, { text: 'b' }] });
   assert.deepEqual(v.groups.map((g) => [g.label, g.sites.map((s) => [s.route, s.tone, s.word, s.href])]), [
-    ['Boards', [['alpha', 'ok', 'Up · listening · every link passes', '/alpha/'], ['beta', 'down', '1 link broken · not listening', '/beta/'],
+    ['Boards', [['alpha', 'ok', 'Up · listening · every link passes', '/alpha/'], ['beta', 'wait', 'Degraded · not listening', '/beta/'],
       ['gone', 'down', 'Down · restarting', '/gone/'], ['new', 'wait', 'Starting', '/new/']]],
     ['Pages', [['learn', 'ok', 'Up', '/learn/']]],
   ]);
   assert.deepEqual(plain(v.groups[0].sites[1].lines), [{ link: 'events', detail: 'no watcher since 6:00pm' }, { link: 'wakes', detail: 'settling: missed 9:00am' }]);
   assert.match(v.groups[0].sites[0].icon, /^<span class="icon/);
-  assert.deepEqual(plain(v.hub), { tone: 'down', word: '2 broken', detail: '3 of 5 sites up · runs the code in its files (abc)' });
-  const staleHub = { tone: 'wait', word: 'Needs a restart', detail: '3 of 5 sites up · runs older code than its files; restart it' };
+  assert.deepEqual(plain(v.hub), { tone: 'down', word: '1 site down', detail: '3 of 5 sites up · 1 link failing · runs the code in its files (abc)' });
+  const staleHub = { tone: 'wait', word: 'Degraded', detail: '3 of 5 sites up · runs older code than its files; restart it' };
   assert.deepEqual(plain(hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar: { ...sidebar, hub: staleHub }, rows, code: { running: 'old', onDisk: 'abc' } }).hub), staleHub);
   assert.deepEqual(plain(v.polling), { title: 'Checks every 30 min until 10:00pm', lines: ['Next check 7:30pm', '1 push queued; next send 7:30pm.'], count: 1,
     summary: '3 windows, 58 checks a day · held overnight · wakes 8:00am, 9:00am' });
@@ -438,6 +438,45 @@ test("the hub page lists Boards and Pages apart with each site's health and link
   assert.deepEqual([none.groups, none.empty, none.rules, none.sites], [[], true, 'None yet', '0 sites']);
   assert.deepEqual(plain(siteHealth({ state: 'stopped' })), { tone: 'wait', word: 'Stopped', lines: [] });
   assert.deepEqual(plain(siteHealth({ state: 'up' }, [ok('github'), { ...ok('events'), listen: 'asleep' }])), { tone: 'ok', word: 'Up · asleep · every link passes', lines: [] });
+  const fetchFails = { link: 'repo-fetch', ok: false, state: 'broken', detail: "git can't reach origin" };
+  assert.deepEqual(plain(siteHealth({ state: 'up' }, [ok('github'), fetchFails, ok('events')])),
+    { tone: 'wait', word: 'Degraded · listening', lines: [{ link: 'repo-fetch', detail: "git can't reach origin" }] });
+  assert.deepEqual(plain(siteHealth({ state: 'up' }, [ok('github'), { ...fetchFails, state: 'settling' }, ok('events')])),
+    { tone: 'wait', word: 'Up · listening · 1 settling', lines: [{ link: 'repo-fetch', detail: "settling: git can't reach origin" }] });
+});
+
+test("a device that loses its push subscription tells the hub, which forgets it; one that has it is remembered", async () => {
+  const posts = [];
+  const store = new Map([['kickflip.push.endpoint', 'https://push.example/old']]);
+  let current = null;
+  let permission = 'default';
+  const registration = { pushManager: { getSubscription: async () => current && { toJSON: () => ({ endpoint: current }) } } };
+  const context = vm.createContext({
+    navigator: { userAgent: 'Mac', serviceWorker: { getRegistration: async () => registration } },
+    PushManager: class {},
+    get Notification() { return { permission }; },
+    localStorage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) },
+    fetch: async (url, opts) => { posts.push([url, JSON.parse(opts.body).endpoint]); return { json: async () => ({}) }; },
+  });
+  vm.runInContext(fs.readFileSync(new URL('../board/public/hub-kit.js', import.meta.url), 'utf8'), context);
+  const B = { root: {}, alive: () => true, on() {} };
+  const render = () => context.HubKit.device(B, { paint() {} }).ready;
+  await render();
+  assert.deepEqual(posts, [['/_hub/push/unsubscribe', 'https://push.example/old']]);
+  assert.equal(store.has('kickflip.push.endpoint'), false);
+  await render();
+  assert.equal(posts.length, 1);
+  current = 'https://push.example/new';
+  await render();
+  assert.deepEqual(posts.slice(1), [['/_hub/push/subscribe', 'https://push.example/new']]);
+  assert.equal(store.get('kickflip.push.endpoint'), 'https://push.example/new');
+  current = 'https://push.example/newer';
+  await render();
+  assert.deepEqual(posts.slice(2), [['/_hub/push/unsubscribe', 'https://push.example/new'], ['/_hub/push/subscribe', 'https://push.example/newer']]);
+  permission = 'denied';
+  await render();
+  assert.deepEqual(posts.slice(4), [['/_hub/push/unsubscribe', 'https://push.example/newer']]);
+  assert.equal(store.has('kickflip.push.endpoint'), false);
 });
 
 test('Send now says how many queued pushes went, or that none could', () => {
@@ -472,7 +511,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
     { id: 'linear', name: 'Linear', ready: false, missing: 'No Linear key set', fix: { settings: 'linear', label: 'Hub settings › Linear', text: 'Add one in' }, waits: 'Linear moves wait on this.' },
   ];
   const data = hubView({ now, st: status(now, DEFAULTS), poll: poll(now), integrations,
-    sidebar: { sites: [{ route: 'alpha', board: true }, { route: 'beta', board: true }], hub: {}, notifications: {}, total: 0,
+    sidebar: { sites: [{ route: 'alpha', board: true }, { route: 'beta', board: true }], hub: { tone: 'wait', word: 'Degraded', detail: '2 of 2 sites up · 1 link failing' }, notifications: {}, total: 0,
       usage: { claude: { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null }, codex: null } },
     rows: [{ route: 'alpha', title: 'Alpha', state: 'up' }, { route: 'beta', title: 'Beta', state: 'up' }], remembered: new Map([['alpha', sessions]]),
   });
@@ -499,6 +538,12 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   assert.deepEqual(plain(opened[0][0]), { hash: '#linear' });
   assert.equal(opened[0][1], link);
   assert.match(linear.querySelector('.rd-fix').textContent, /Add one in Hub settings › Linear\./);
+  const health = root.querySelector('[data-jump="integrations"]');
+  assert.deepEqual([health.textContent, health.getAttribute('class')], ['Degraded', 'st wait']);
+  let scrolled = 0;
+  root.querySelector('#integrations').scrollIntoView = () => { scrolled++; };
+  listeners.find((l) => l.target === root.querySelector('.hub-status') && l.type === 'click').fn({ target: health });
+  assert.equal(scrolled, 1);
   assert.equal(group.querySelector('img'), null);
   const note = group.nextSibling.nodeType === 3 ? group.nextSibling.nextSibling : group.nextSibling;
   assert.equal(note.textContent, 'A feature that needs an integration stays off until it’s ready, and says why.');

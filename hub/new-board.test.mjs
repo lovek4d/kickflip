@@ -482,7 +482,7 @@ test('a New board on another git host reserves remote and no github, refuses Git
   const firm = listBoards().find((b) => b.route === 'firmware');
   assert.equal(firm.remote, link);
   const links = linksOf(firm, { github: {}, fetches: {}, settings: {}, wakes: {}, devices: 0, listen: 'deaf', topics: {}, faults: {}, now: Date.now() });
-  assert.deepEqual(links.map((l) => l.link), ['events', 'wakes', 'push', 'slack']);
+  assert.deepEqual(links.map((l) => l.link), ['events', 'wakes', 'slack']);
 });
 
 test('a failed Settings clone keeps the prior manifest entry and emits no event', async () => {

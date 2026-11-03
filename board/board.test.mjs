@@ -2412,7 +2412,7 @@ function reviewState() {
     const prs = { 'o/r#7': { state: 'OPEN', isDraft: false } };
     const card = buildBoard({ waves: [{slug: 'w', wave}], prs, topicItems: topicItems() }).items[0];
     const board = { reviewers: ['Ann', 'Bob'], waves: [{slug: 'w', wave}], prs: [{wave: 'w', id: 'A1', pr: 7, repo: 'o/r'}] };
-    console.log(JSON.stringify({ card, slack: linksOf(board, { github: {prs}, listen: 'listening', settings: {}, wakes: {}, devices: 0, faults: {} }).find((l) => l.link === 'slack') }));
+    console.log(JSON.stringify({ card, slack: linksOf(board, { github: {prs}, listen: 'listening', settings: {}, wakes: {}, faults: {} }).find((l) => l.link === 'slack') }));
   `);
 }
 

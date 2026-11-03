@@ -217,3 +217,10 @@ test('at the Mac an action push reaches only the Mac, while prompts, faults, urg
     await mac.close();
   }
 });
+
+test('removing a subscription forgets that device alone, and one the hub never had changes nothing', async () => {
+  const r = await inChild(`push.addSubscription({ endpoint: 'https://push.example/b', keys: { p256dh: 'p', auth: 'a' } }, 'https://hub.example/');
+    return [push.removeSubscription('https://push.example/b'), push.removeSubscription('https://push.example/missing')];`);
+  assert.deepEqual(r, [1, 1]);
+  assert.deepEqual(read(pushFile('subs.json')).map((s) => s.endpoint), [device.subscription.endpoint]);
+});

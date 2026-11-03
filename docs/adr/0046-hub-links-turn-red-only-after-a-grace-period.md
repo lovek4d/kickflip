@@ -2,6 +2,8 @@
 
 The board's session fixes its own hub links, and the red dot on the GitHub mark is for the faults it couldn't fix. This refines the Hub links of [0040](0040-one-board-registry-for-every-hub-feature.md) and the watcher health of [0021](0021-the-board-shows-github-checks-and-watcher-health.md).
 
+Superseded in part by [0149](0149-the-hub-reads-healthy-degraded-or-a-site-down.md): there is no push link, and a link past its grace period reads amber Degraded on the hub page, not red. The board's red dot on its GitHub mark and the grace periods below still hold.
+
 The owner asked on the `hub-orchestrator` board (card INT-106): "why does github on this board show red dot with failed hub links? tbh this should never really happen, it should be handled by an agent." The dot was red for faults that fix themselves. A new board read "The last check didn't reach this board" until the next scheduled GitHub poll, up to an hour away. While a watcher was relaunching, or had just been stopped, the events link read "No watcher is running".
 
 - **The session hears at once.** `hub/boards.mjs` `linksOf` still gives each link's `ok` as it is now. The watcher prints every link that isn't ok as `link <name> <detail>`, so the session fixes what it can, such as relaunching a watcher, sending a missing reviewer link or restarting the hub.

@@ -41,7 +41,7 @@
     const rows = integrations.map((it) => row({ icon: tile(it.id, it.ready ? 'var(--color-quiet)' : 'var(--color-notice)'), title: esc(it.name), wrap: true,
       sub: it.ready ? `<span class="st ok">Ready</span> · ${esc(it.detail)}`
         : `<span class="st wait">Not ready</span> · ${esc(it.missing)}<span class="links"><span class="rd-fix">${fixHtml(it.fix)}</span><span class="rd-waits">${esc(it.waits)}</span></span>` })).join('');
-    return `<h2 class="label">Integrations</h2><div class="group">${rows}</div>
+    return `<h2 class="label" id="integrations">Integrations</h2><div class="group">${rows}</div>
 <p class="note">A feature that needs an integration stays off until it’s ready, and says why.</p>
 `;
   }
@@ -56,9 +56,9 @@
     const { row, tile, nowRow } = HubUI;
     const usage = HubUI.usageCard(d.usage, d.codex, d.pause);
     return `${HubUI.flash(flash)}${HubUI.pauseBanner(d.pause)}${HubUI.holdBanner(d.hold)}${usage}${promptsHtml(d.prompts || [], prompts)}<h2 class="label"${usage ? '' : ' style="margin-top:4px"'}>Health</h2>
-<div class="group">${row({ icon: tile('power', { ok: '#22c55e', wait: '#f59e0b' }[d.hub.tone] || '#ef4444'), title: 'Hub', sub: `<span class="st ${esc(d.hub.tone)}">${esc(d.hub.word)}</span> · ${esc(d.hub.detail)}${d.awake ? `<span class="links"><span><span class="awake-on">Keeping awake</span> ${esc(d.awake)}</span></span>` : ''}`, wrap: true })}
+<div class="group">${row({ icon: tile('power', { ok: '#22c55e', wait: '#f59e0b' }[d.hub.tone] || '#ef4444'), title: 'Hub', sub: `<button type="button" class="st ${esc(d.hub.tone)}" data-jump="integrations">${esc(d.hub.word)}</button> ·${esc(d.hub.detail)}${d.awake ? `<span class="links"><span><span class="awake-on">Keeping awake</span> ${esc(d.awake)}</span></span>` : ''}`, wrap: true })}
 ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/kickflip &lt;route&gt;</code>.' }) : ''}</div>
-${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, the fetch of its repo, events (its session and a watcher run, or the hub can wake it), daily wakes, pushes and reviewer links. One that just broke reads settling first.</p>
+${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, the fetch of its repo, events (its session and a watcher run, or the hub can wake it), daily wakes and reviewer links. One that just broke reads settling first.</p>
 <h2 class="label">Polling status</h2>
 <div class="group">${nowRow(d.polling, tile('clock', d.polling.count ? 'var(--color-notice)' : 'var(--color-quiet)'))}</div>`;
   }
@@ -105,6 +105,9 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembe
       B.on(main, 'click', (e) => {
         const opener = e.target.closest?.('[data-settings-open]');
         if (opener) B.openSettings({ hash: `#${opener.dataset.settingsOpen}` }, opener);
+        // The Hub's status word jumps to what's behind it: Integrations, then each board's links below them.
+        const jump = e.target.closest?.('[data-jump]');
+        if (jump) B.$(`#${jump.dataset.jump}`).scrollIntoView({ behavior: 'smooth', block: 'start' });
         const restarter = e.target.closest?.('[data-restart]');
         if (restarter) restart(restarter.dataset.restart, restarter.dataset.title);
       });

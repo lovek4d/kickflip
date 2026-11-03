@@ -37,7 +37,6 @@ export const RESUME_STATE = path.join(WEB, 'resume-state.json');
 const LINK_FAULTS = path.join(WEB, 'link-faults.json');
 export const REPO_FETCH = path.join(WEB, 'repo-fetch.json');
 export const HUB_CODE = path.join(WEB, 'hub-code.json');
-const SUBS = path.join(WEB, 'push', 'subs.json');
 const FINISHED = ['merged', 'dropped'];
 const NO_SINCE = '1970-01-01T00:00:00Z';
 // bin/wait-events.mjs exits on each event and the session relaunches it, so a recent exit still counts as running.
@@ -323,7 +322,9 @@ export async function handshake(route, manifest = readManifest()) {
 }
 
 // ---------- links ----------
-export const LINKS = ['github', 'repo-fetch', 'events', 'wakes', 'push', 'slack'];
+// Notifications are no board link: whether a device gets pushes is the hub's, in Integrations (readiness.mjs;
+// docs/adr/0149-the-hub-reads-healthy-degraded-or-a-site-down.md).
+export const LINKS = ['github', 'repo-fetch', 'events', 'wakes', 'slack'];
 
 // A board on another git remote has no PRs, so nothing to poll (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
 function githubLink(board, state) {
@@ -358,10 +359,6 @@ function wakesLink(board, settings, wakeState) {
   if ((wakeState?.last?.failed || []).includes(board.route)) return { link: 'wakes', ok: false, detail: `The last wake (${wakeState.last.due.join(', ')}) couldn't reach this board.` };
   return { link: 'wakes', ok: true, detail: `Daily at ${wakes.join(', ')}.` };
 }
-
-const pushLink = (devices) => (devices
-  ? { link: 'push', ok: true, detail: `${plural(devices, 'device')} subscribed.` }
-  : { link: 'push', ok: false, detail: 'No device has turned on notifications.' });
 
 function slackLink(board, state, topics) {
   const missing = [];
@@ -427,7 +424,6 @@ export const GRACE = {
   'repo-fetch': (every) => (every + 10) * MIN,
   events: () => 2 * MIN,
   wakes: (every) => (every + 10) * MIN,
-  push: () => 0,
   slack: (every) => (every + 10) * MIN,
 };
 
@@ -467,10 +463,9 @@ function settle(route, links, { settings, now, faults }) {
 //   repo-fetch  the hub's last git fetch of the board's repo worked; only a board the hub fetches has it
 //   events      the board is listening, waking or asleep (listenState, as the link's listen), so its events reach the session
 //   wakes       the polling interval has daily wakes, and the last one reached the board
-//   push        at least one device is subscribed
 //   slack       every open, non-draft PR has a Slack link for each of the board's and its wave's reviewers
 // ctx overrides what is read from disk: github (github-state.json), fetches (repo-fetch.json), settings (polling),
-// wakes (wake-state.json), devices (subscription count), listen (listenState), topics (slack-bridge topic items),
+// wakes (wake-state.json), listen (listenState), topics (slack-bridge topic items),
 // faults (as settle takes them; given, nothing is written) and now (ms).
 export function linksOf(board, ctx = {}) {
   const state = ctx.github ?? readJSON(GITHUB_STATE, {});
@@ -480,7 +475,6 @@ export function linksOf(board, ctx = {}) {
     repoFetchLink(routeRecord(ctx.fetches ?? readJSON(REPO_FETCH, {}), board.route)),
     eventsLink(ctx.listen ?? listenState(board)),
     wakesLink(board, settings, ctx.wakes ?? readJSON(WAKE_STATE, {})),
-    pushLink(ctx.devices ?? (readJSON(SUBS, []) || []).length),
     slackLink(board, state, ctx.topics ?? topicItems()),
   ].filter(Boolean);
   return settle(board.route, links, { settings, now: ctx.now ?? Date.now(), faults: ctx.faults });
