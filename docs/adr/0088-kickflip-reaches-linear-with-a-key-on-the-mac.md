@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0117
+---
+
 # kickflip reaches Linear with a key on the Mac
+
+The Tickets control's typed fields without a key are superseded by [0117](0117-a-board-picks-linear-only-while-hubs-key-works.md).
 
 The owner settled `linear-access`, `status-sync` and `ticket-when` (A each) on hub/INT-184: kickflip talks to Linear itself with the owner's personal API key, so a board on Linear lists, creates and moves its tickets the way a GitHub board does through `gh`, and each card moves its ticket one way. The key is optional and takes precedence: without one, the board's session does that Linear work through its own Linear MCP, because the hub process and `board.mjs` can't reach an MCP. This builds out [0081](0081-a-board-has-one-ticket-source.md)'s Linear source.
 

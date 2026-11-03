@@ -108,8 +108,9 @@ const durationChoices = (now, forever) => DURATIONS.map(([value, label]) => ({ v
 const snoozedUntil = (n, now) => (n.on ? endOf(n.snoozed_until, now) : null);
 
 // The hub page's hub settings: the on/off, snooze and weekend controls (docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md),
-// the polling summary, hub rules and the Linear key, of which only whether it is set and its workspace are shown
-// (linear.mjs linearStatus; docs/adr/0088-kickflip-reaches-linear-with-a-key-on-the-mac.md), and Keep awake. Snooze and
+// the polling summary, hub rules and the Linear key, of which only whether it is set, whether Linear refused it and
+// its workspace are shown (linear.mjs linearStatus; docs/adr/0088-kickflip-reaches-linear-with-a-key-on-the-mac.md),
+// and Keep awake. Snooze and
 // Keep awake share one duration picker (docs/adr/0112-snooze-and-keep-awake-share-one-duration-picker.md), whose
 // choices are null while that setting is on, and Snooze's while notifications are off. route is push.mjs pushRoute():
 // where an action push goes now (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md). awake is
@@ -142,10 +143,20 @@ export function settingsView({ now, st, rules = [], route = { atMac: false, desk
     weekends: { on: n.weekends_off, sub: `Pushes wait from Friday ${timeOfDay(last.from)} until Monday ${timeOfDay(first.from)}. Urgent ones still go.` },
     polling: pollingSummary(s),
     rules,
-    linear: linear.set
-      ? { set: true, title: `${linear.workspace} workspace`, sub: 'Key ••••••••', summary: `Key set · ${linear.workspace} workspace` }
-      : { set: false, title: 'No key', sub: 'Paste a personal API key from Linear’s Settings → Security & access.', summary: 'No key' },
+    linear: linearWords(linear),
   };
+}
+
+// sub names keys.label, which board/public/linear-key.js links to keys.url.
+const LINEAR_KEYS = { url: 'https://linear.app/settings/account/security', label: 'Linear › Settings › Security & access › Personal API keys' };
+function linearWords(linear) {
+  const workspace = linear.workspace ? `${linear.workspace} workspace` : '';
+  if (!linear.set) return { set: false, title: 'No key', sub: `Make a personal API key in ${LINEAR_KEYS.label}, then paste it here.`, keys: LINEAR_KEYS, summary: 'No key' };
+  if (linear.refused) {
+    return { set: true, refused: true, title: workspace || 'Linear key', down: 'Doesn’t work', sub: `Linear refused the key. Make a new one in ${LINEAR_KEYS.label} and paste it here.`,
+      keys: LINEAR_KEYS, summary: workspace ? `Key doesn’t work · ${workspace}` : 'Key doesn’t work' };
+  }
+  return { set: true, title: workspace, sub: 'Key ••••••••', summary: `Key set · ${workspace}` };
 }
 
 const EVERY_CHOICES = [5, 10, 15, 30, 60, 120];

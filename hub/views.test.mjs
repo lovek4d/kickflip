@@ -125,13 +125,17 @@ test("the hub page's Codex share says what each choice means while Codex is usab
 
 test('Hub settings modals keep summaries, turn this device on, snooze and keep awake inline through one duration picker, with no Codex share row or modal', async () => {
   const document = {};
-  const { Element } = miniDom(class {}, document);
+  const listeners = [];
+  const { Element } = miniDom(class {
+    addEventListener(type, fn) { listeners.push({ target: this, type, fn }); }
+    removeEventListener(type, fn) { listeners.splice(listeners.findIndex((l) => l.target === this && l.type === type && l.fn === fn), 1); }
+  }, document);
   const root = new Element('div');
   document.body = root;
-  const listeners = [];
   const posts = [];
   const now = t(10);
   let linear = { set: false };
+  let checked = null;
   let awake = { until: null, unsupported: null };
   const data = (notifications = ON) => settingsView({ now, st: status(now, notify(DEFAULTS, notifications)), linear, awake });
   let confirmed = false;
@@ -164,8 +168,8 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
       if (url === '/_hub/push/key') return { json: async () => ({ key: 'AQID' }) };
       if (url === '/_hub/push/subscribe') return { json: async () => ({ ok: true }) };
       if (url === '/_hub/settings/linear') {
-        if (opts.body.get('key') === 'bad') return { ok: false, json: async () => ({ error: 'Linear refused the key.' }) };
-        linear = opts.body.has('remove') ? { set: false } : { set: true, workspace: 'Acme', url_key: 'acme' };
+        await checked?.promise;
+        linear = opts.body.has('remove') ? { set: false } : opts.body.get('key') === 'bad' ? { set: true, refused: true } : { set: true, workspace: 'Acme', url_key: 'acme' };
         return { ok: true, json: async () => data() };
       }
       if (url === '/_hub/settings/notifications') {
@@ -181,7 +185,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
       return { ok: false, json: async () => ({}) };
     },
   });
-  for (const file of ['ui-hub.js', 'ui-page-header.js', 'hub-kit.js', 'router.js', 'view-hub-settings.js']) {
+  for (const file of ['ui-hub.js', 'ui-page-header.js', 'hub-kit.js', 'linear-key.js', 'router.js', 'view-hub-settings.js']) {
     vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
   }
   context.HubKit.live = (B, options) => { live = options; };
@@ -339,28 +343,52 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
   assert.equal(root.querySelector('#hubSettingsTitle').textContent, 'Linear');
   assert.equal(root.querySelector('[data-summary=linear]').textContent, 'No key');
   assert.equal(root.querySelector('[data-linear-remove]'), null);
-  const keyForm = root.querySelector('.lk-form');
-  const saveKey = async (value) => {
-    root.querySelector('#linearKey').value = value;
-    await listeners.find((l) => l.target === root && l.type === 'submit').fn({ target: root.querySelector('.lk-form'), preventDefault() {} });
-  };
-  assert.equal(keyForm.getAttribute('action'), '/_hub/settings/linear');
-  await saveKey('bad');
-  assert.equal(root.querySelector('[role="alert"]').textContent, 'Linear refused the key.');
-  await saveKey('lin_api_secret123');
+  assert.equal(root.querySelector('.lk-form button'), null);
+  const content = root.querySelector('.setting-content');
+  const fire = (target, type, extra = {}) => Promise.all(listeners.filter((l) => l.target === target && l.type === type).map((l) => l.fn({ target, preventDefault() {}, ...extra })));
+  const settle = () => new Promise((r) => setImmediate(r));
+  const keyLink = () => content.querySelector('a[href="https://linear.app/settings/account/security"]');
+  assert.equal(keyLink().textContent, 'Linear › Settings › Security & access › Personal API keys');
+  assert.match(content.textContent, /A board can pick Linear for its tickets only while this key works\./);
+  checked = Promise.withResolvers();
+  await fire(content, 'paste', { target: root.querySelector('#linearKey'), clipboardData: { getData: () => ' bad ' } });
+  assert.equal(posts.at(-1).opts.body.toString(), 'key=bad');
+  assert.match(content.textContent, /Checking the key with Linear…/);
+  assert.equal(root.querySelector('#linearKey').disabled, true);
+  const done = root.querySelector('.settings-footer [data-settings-dismiss]');
+  assert.equal(done.getAttribute('aria-busy'), 'true');
+  fire(root, 'click', { target: done });
+  await settle();
+  assert.equal(modal.open, true);
+  checked.resolve();
+  checked = null;
+  await settle(); await settle();
+  assert.equal(modal.open, false);
+  assert.equal(done.getAttribute('aria-busy'), null);
+  assert.equal(root.querySelector('[data-summary=linear]').textContent, 'Key doesn’t work');
+  await B.openSettings({ hash: '#linear' });
+  const slot = root.querySelector('.setting-content');
+  assert.match(slot.textContent, /Doesn’t work · Linear refused the key/);
+  assert.ok(slot.querySelector('a[href="https://linear.app/settings/account/security"]'));
+  assert.ok(slot.querySelector('[data-linear-remove]'));
+  const keyInput = root.querySelector('#linearKey');
+  keyInput.value = '';
+  await fire(slot, 'submit', { target: root.querySelector('.lk-form') });
+  assert.equal(posts.at(-1).opts.body.toString(), 'key=bad');
+  keyInput.value = 'lin_api_secret123';
+  await fire(slot, 'change', { target: keyInput });
+  await settle();
   assert.equal(posts.at(-1).opts.body.toString(), 'key=lin_api_secret123');
   assert.equal(root.querySelector('[data-summary=linear]').textContent, 'Key set · Acme workspace');
-  assert.match(root.querySelector('.setting-content').textContent, /Acme workspace/);
+  assert.match(slot.textContent, /Acme workspace/);
+  assert.equal(slot.querySelector('a[href="https://linear.app/settings/account/security"]'), null);
   assert.doesNotMatch(root.innerHTML, /secret123/);
-  const remove = root.querySelector('[data-linear-remove]');
-  const clickRemove = () => Promise.all(listeners.filter((l) => l.target === root && l.type === 'click').map((l) => l.fn({ target: remove })));
-  await clickRemove();
-  assert.equal(posts.at(-1).url, '/_hub/settings/linear');
-  assert.equal(root.querySelector('[data-summary=linear]').textContent, 'Key set · Acme workspace');
+  confirmed = false;
+  await fire(slot, 'click', { target: slot.querySelector('[data-linear-remove]') });
+  assert.equal(posts.at(-1).opts.body.toString(), 'key=lin_api_secret123');
   confirmed = true;
-  remove.closest('form').requestSubmit = () => listeners.find((l) => l.target === root && l.type === 'submit').fn({ target: remove.closest('form'), preventDefault() {} });
-  await clickRemove();
-  await new Promise((r) => setImmediate(r));
+  await fire(slot, 'click', { target: slot.querySelector('[data-linear-remove]') });
+  await settle();
   assert.equal(posts.at(-1).opts.body.toString(), 'remove=1');
   assert.equal(root.querySelector('[data-summary=linear]').textContent, 'No key');
 });

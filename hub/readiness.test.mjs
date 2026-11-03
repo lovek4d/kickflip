@@ -22,7 +22,7 @@ test('readiness shares fixed row order, ready details, fixes, waits and waiting 
   const reader = readinessReader({ now: () => now, probes: probesOf(off()) });
   const missing = await reader.rows();
   assert.ok(missing.every((r) => !r.ready && r.missing && r.fix));
-  assert.deepEqual(missing.map((r) => r.waits), ['GitHub polling and PR reports wait on this.', 'Codex builds and reviews wait on this; Codex share stays Off.', 'Linear moves wait on this.', 'Reviewer DMs and digests wait on this.', 'Try builds wait on this.', 'Pushes wait on this.']);
+  assert.deepEqual(missing.map((r) => r.waits), ['GitHub polling and PR reports wait on this.', 'Codex builds and reviews wait on this; Codex share stays Off.', 'Linear moves and picking Linear for a board’s tickets wait on this.', 'Reviewer DMs and digests wait on this.', 'Try builds wait on this.', 'Pushes wait on this.']);
   assert.equal(missing[0].fix.command, 'gh auth login');
   assert.equal(missing[1].fix.command, 'install codex');
   assert.deepEqual(missing[2].fix, { settings: 'linear', label: 'Hub settings › Linear', text: 'Add one in' });
@@ -99,6 +99,9 @@ test('file-backed checks see changes immediately while gh and tailscale stay cac
   write(path.join(state, 'settings.json'), { notifications: { on: true, weekends_off: true, snoozed_until: '2099-01-01T00:00:00Z' } });
   write(path.join(state, 'push', 'subs.json'), [{ endpoint: 'https://push.example/device' }]);
   assert.ok((await r.rows()).every((r) => r.ready));
+  write(path.join(state, 'linear.json'), { key: 'secret', workspace: 'Office', refused_at: new Date(now).toISOString() });
+  const refused = (await r.rows())[2];
+  assert.deepEqual([refused.ready, refused.missing, refused.fix.text], [false, 'Linear refused the key', 'Paste a new one in']);
   fs.rmSync(path.join(home, '.codex', 'auth.json'));
   fs.rmSync(path.join(state, 'linear.json'));
   reportSlack(false, { home, now: new Date(now) });

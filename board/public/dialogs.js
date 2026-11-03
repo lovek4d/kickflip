@@ -1,43 +1,46 @@
 // Native confirmations cannot label their actions on iOS; labelled confirmations use a modal sheet.
 // Load before any page script that asks (docs/adr/0023-a-card-can-be-held-and-every-card-button-confirms.md).
 (function () {
-  // linear: Hub's /_hub/api/linear answer, or loadLinear() fetches it the first time Linear is the source. A New board's
-  // "New project…" reads as new_project, which the hub creates on Start; Board Settings creates it with createProject.
-  function ticketsControl(root, { value = { source: 'internal', prefix: 'INT' }, repo = () => '', title = () => '', linear = {}, loadLinear, isNew = false, change = () => {}, createProject } = {}) {
+  // linear: Hub's /_hub/api/linear answer, else loadLinear() fetches it once Linear is the source. Linear is picked only
+  // while Hub's key works; tapping it without one opens Hub's key modal over the page (linear-key.js,
+  // docs/adr/0117-a-board-picks-linear-only-while-hubs-key-works.md). A New board's "New project…" reads as
+  // new_project, which the hub creates on Start; Board Settings creates it with createProject. change(value, valid,
+  // {loaded, typing}) follows each change: loaded when only Linear's lists arrived, typing while a text field is being typed in.
+  function ticketsControl(root, { value = { source: 'internal', prefix: 'INT' }, repo = () => '', title = () => '', linear = null, loadLinear, isNew = false, change = () => {}, createProject } = {}) {
     const { esc } = BoardUI;
     const draft = { prefix: 'INT', ...value };
-    let creating = false, createError = '', destroyed = false;
-    const fetchLinear = () => {
-      if (!loadLinear || draft.source !== 'linear') return;
-      const load = loadLinear;
-      loadLinear = null;
+    let creating = false, createError = '', destroyed = false, asking = false;
+    const works = () => Boolean(linear?.set && !linear.refused);
+    async function load() {
       linear = { loading: true };
-      load().catch((e) => ({ set: true, error: e.message || 'Is the host awake?' })).then((next) => {
-        if (destroyed) return;
-        linear = next; pickDefaults(); render(); change(read(), valid(), { loaded: true });
-      });
-    };
-    const workspace = () => linear.url_key ?? linear.workspace ?? draft.workspace;
+      render();
+      linear = await loadLinear().catch((e) => ({ set: true, error: e.message || 'Is the host awake?' }));
+    }
+    const workspace = () => linear?.url_key ?? linear?.workspace ?? draft.workspace;
     const newName = () => (draft.newName ?? title()).trim();
-    const typed = () => !linear.set && !linear.loading;
-    const typedProject = () => (draft.project && draft.project !== '__new' ? draft.project : isNew ? title() : '').trim();
+    const ready = () => works() && !linear.error;
     const read = () => draft.source === 'internal' ? { source: 'internal', prefix: draft.prefix || 'INT' }
       : draft.source === 'github' ? { source: 'github', ...(draft.account ? { account: draft.account } : {}) }
-      : typed() ? { source: 'linear', workspace: draft.workspace || '', team: draft.team || '', project: typedProject() }
+      : !ready() ? { source: 'linear', workspace: draft.workspace, team: draft.team, project: draft.project }
       : draft.project === '__new' && isNew ? { source: 'linear', workspace: workspace(), team: draft.team, new_project: newName() }
       : { source: 'linear', workspace: workspace(), team: draft.team, project: draft.project };
     const valid = () => draft.source === 'internal' ? /^[A-Z]{2,6}$/.test(draft.prefix || 'INT')
       : draft.source === 'github' ? Boolean(repo())
-      : typed() ? /^[a-z\d][a-z\d-]*$/i.test(draft.workspace || '') && /^[A-Z][A-Z0-9]*$/.test(draft.team || '') && Boolean(typedProject())
-      : Boolean(linear.set && !linear.error && draft.team && draft.project && (draft.project !== '__new' || (isNew && newName())));
+      : Boolean(ready() && draft.team && draft.project && (draft.project !== '__new' || (isNew && newName())));
     const pickDefaults = () => {
-      if (draft.source !== 'linear' || !linear.set) return;
+      if (draft.source !== 'linear' || !ready()) return;
       if (!linear.teams?.some((t) => t.key === draft.team)) draft.team = linear.teams?.[0]?.key;
-      draft.project ||= isNew ? '__new' : linear.projects?.find((p) => p.team === draft.team)?.id;
+      if (draft.project === '__new' || linear.projects?.some((p) => p.id === draft.project && p.team === draft.team)) return;
+      draft.project = isNew ? '__new' : linear.projects?.find((p) => p.team === draft.team)?.id;
     };
+    // A board already on Linear whose Hub key is missing or refused keeps its source and shows why.
+    function needsKey() {
+      const why = linear.refused ? 'Linear refused Hub’s key' : 'Hub has no Linear key';
+      return `<p class="muted small" role="status">${why}, so this board can’t list Linear’s teams or create issues there.</p><p><button type="button" data-tk-key>Add Hub’s Linear key</button></p>`;
+    }
     function linearDetail() {
-      if (linear.loading) return '<p class="muted small" role="status">Loading Linear…</p>';
-      if (!linear.set) return `<div class="tk-grid"><label class="tk-field"><span>Workspace</span><input data-tk="workspaceText" value="${esc(draft.workspace || '')}" placeholder="your-workspace" autocapitalize="off" autocomplete="off" spellcheck="false"></label><label class="tk-field"><span>Team</span><input data-tk="teamText" value="${esc(draft.team || '')}" placeholder="ENG" autocapitalize="characters" autocomplete="off" spellcheck="false"></label></div><label class="tk-field"><span>Project</span><input data-tk="projectText" value="${esc(typedProject())}" placeholder="Project name" autocomplete="off"></label><p class="muted small">The board’s session creates and moves its issues through its Linear MCP, and creates the project if it’s new. <a href="/_hub/#linear">A Linear key on Hub</a> adds team and project lists and lets kickflip do it itself.</p>`;
+      if (!linear || linear.loading) return '<p class="muted small" role="status">Loading Linear…</p>';
+      if (!works()) return needsKey();
       if (linear.error) return `<p class="muted small" role="alert">Couldn’t list Linear’s teams: ${esc(linear.error)}</p>`;
       const project = linear.projects?.find((p) => p.id === draft.project);
       const team = esc(draft.team || '');
@@ -53,10 +56,31 @@
       else if (draft.source === 'github') detail = `<div class="who tk-static"><span>Issues in ${esc(repo())}<span class="muted small sub">${isNew ? 'The repo chosen above' : 'The board’s repo, set above'}. A new card opens an issue there${draft.account ? ` as gh account ${esc(draft.account)}` : ''}; its badge reads #41.</span></span></div>`;
       else detail = linearDetail();
       root.innerHTML = `${segment}<div class="tk-detail">${detail}</div>`;
-      if (draft.source === 'linear' && linear.set && !linear.error && !linear.loading) {
+      if (draft.source === 'linear' && ready()) {
         root.querySelector('[data-tk="team"]').value = draft.team || '';
         root.querySelector('[data-tk="project"]').value = draft.project || '';
       }
+    }
+    // Linear is checked again on each tap until Hub's key works, so a key added elsewhere counts.
+    async function pickLinear() {
+      if (asking || linear?.loading) return;
+      const before = draft.source;
+      draft.source = 'linear';
+      if (!ready()) await load();
+      if (destroyed) return;
+      if (!works()) {
+        draft.source = before;
+        render();
+        asking = true;
+        const added = await LinearKey.open();
+        asking = false;
+        if (destroyed || !added) return;
+        draft.source = 'linear';
+        await load();
+        if (destroyed) return;
+      }
+      pickDefaults();
+      render(); root.querySelector('[data-tk-source="linear"]').focus(); change(read(), valid());
     }
     const click = async (e) => {
       if (e.target.closest('[data-tk-create]')) {
@@ -73,40 +97,31 @@
         render(); change(read(), valid());
         return;
       }
+      if (e.target.closest('[data-tk-key]')) { pickLinear(); return; }
       const button = e.target.closest('[data-tk-source]');
       if (!button) return;
+      if (button.dataset.tkSource === 'linear') { pickLinear(); return; }
       draft.source = button.dataset.tkSource;
-      fetchLinear();
-      pickDefaults();
       render(); root.querySelector(`[data-tk-source="${draft.source}"]`).focus(); change(read(), valid());
     };
     const input = (e) => {
       const field = e.target.dataset.tk;
-      if (!field) return;
-      if (field.endsWith('Text')) {
-        const name = field.slice(0, -4);
-        draft[name] = name === 'team' ? e.target.value.toUpperCase().trim() : e.target.value.trim();
-        if (name === 'team') e.target.value = draft.team;
-        change(read(), valid());
-        return;
-      }
+      if (!field || (e.type === 'input' && e.target.tagName === 'SELECT')) return;
       draft[field] = field === 'prefix' ? e.target.value.toUpperCase() : e.target.value;
       if (field === 'prefix') e.target.value = draft.prefix;
       if (field === 'team') draft.project = isNew ? '__new' : linear.projects?.find((p) => p.team === draft.team)?.id;
       if (field === 'team' || field === 'project') { createError = ''; render(); }
       if (field === 'prefix') root.querySelector('[data-tk-example]').textContent = `Cards number ${draft.prefix || 'INT'}-1, ${draft.prefix || 'INT'}-2… on this board. The badge opens the card.`;
-      change(read(), valid());
+      change(read(), valid(), { typing: e.type === 'input' });
     };
     root.addEventListener('click', click);
     root.addEventListener('input', input);
     root.addEventListener('change', input);
-    fetchLinear();
     render();
+    if (draft.source === 'linear' && !linear) load().then(() => { if (destroyed) return; pickDefaults(); render(); change(read(), valid(), { loaded: true }); });
     return { read, valid, render, nameChanged() {
         const field = root.querySelector('[data-tk="newName"]');
         if (field && draft.newName === undefined) field.value = title();
-        const typedField = root.querySelector('[data-tk="projectText"]');
-        if (typedField && !draft.project) typedField.value = title();
       },
       destroy() { destroyed = true; root.removeEventListener('click', click); root.removeEventListener('input', input); root.removeEventListener('change', input); } };
   }
@@ -283,7 +298,7 @@
       content.innerHTML = `<button type="button" data-back-repos>‹ Back</button><p class="nb-next">${current ? 'Repo details' : '2 · Board details'}</p><div class="nb-selected"><strong>${esc(github)}</strong><span class="nb-help">${selected.private ? 'Private' : 'Public'}</span><p>${selected.cloned ? shared ? `Shared with ${esc(shared)}` : 'Already cloned in .repos' : 'Clones to'}<code class="nb-clone">${esc(selected.clone)}</code></p></div><label class="nb-field"><span>Default branch for this board</span><select name="branch" disabled><option value="">Loading branches…</option></select><span class="nb-help" data-branch-help></span></label><p class="nb-next">Each board’s builders work in separate worktrees off this clone. Sharing the clone doesn’t share their working files.</p>${current ? '<p class="nb-next">New builders and GitHub links will use the selected repo.</p>' : `<label class="nb-field"><span>Name</span><input name="name" type="text" value="${esc(draft.name)}" required maxlength="60" autocomplete="off"></label><label class="nb-field"><span>What it’s for</span><input name="purpose" type="text" value="${esc(draft.purpose)}" maxlength="240"><span class="nb-help">One line to get the board started. Optional.</span></label><p class="nb-next">The hub ${selected.cloned ? 'reuses the clone' : 'clones the repo'} and starts your board. You can keep using your other boards.</p>`}`;
       if (!current) {
         content.querySelectorAll('.nb-next')[content.querySelectorAll('.nb-next').length - 1].insertAdjacentHTML('beforebegin', '<div class="nb-field tk-section" role="group" aria-labelledby="nbTicketsLabel"><span id="nbTicketsLabel">Tickets</span><span class="nb-help">Where this board’s cards get their tickets. You can change it in Board settings.</span><div data-board-tickets></div></div>');
-        tickets = ticketsControl(content.querySelector('[data-board-tickets]'), { value: draft.tickets, ...(linear ? { linear } : { loadLinear: async () => { linear = await request('/_hub/api/linear'); return linear; } }),
+        tickets = ticketsControl(content.querySelector('[data-board-tickets]'), { value: draft.tickets, linear, loadLinear: async () => (linear = await request('/_hub/api/linear')),
           repo: () => draft.github, title: () => draft.name.trim(), isNew: true, change(value) { draft.tickets = value; sync(); } });
       }
       start.hidden = false;

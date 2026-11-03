@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { fakeLinear, linearWorld, freePorts } from '../shared/test-helpers.mjs';
-import { linearClient, linearStatus, readLinearKey, removeLinearKey, saveLinearKey, stateFor, stageOf } from './linear.mjs';
+import { linearClient, linearStatus, readLinearKey, removeLinearKey, saveLinearKey, savedClient, stateFor, stageOf } from './linear.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 
@@ -89,17 +89,27 @@ test('advanceIssue reads once and skips missing, unowned or later issues before 
   assert.ok(!linear.calls.some((c) => c.query.includes('issueUpdate')));
 });
 
-test('the key is saved only once Linear accepts it, in a mode 600 file, and its status names the workspace without the key', async (t) => {
+test('the key is saved once Linear answers, as refused when Linear refuses it, in a mode 600 file, and its status names the workspace without the key', async (t) => {
   const file = withHome(t);
   const world = linearWorld();
   const { fetch } = fakeLinear(world);
   assert.deepEqual(linearStatus(), { set: false });
-  for (const bad of ['', '   ', 'two words', 'wrong']) await assert.rejects(saveLinearKey(bad, { fetch }), { status: 400 });
+  for (const bad of ['', '   ', 'two words']) await assert.rejects(saveLinearKey(bad, { fetch }), { status: 400 });
+  await assert.rejects(saveLinearKey(world.key, { fetch: async () => { throw new Error('offline'); } }), { status: 502 });
   assert.equal(fs.existsSync(file), false);
+  assert.deepEqual(await saveLinearKey('lin_api_wrong', { fetch }), { set: true, refused: true });
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   assert.deepEqual(await saveLinearKey(` ${world.key} `, { fetch }), { set: true, workspace: 'Acme', url_key: 'acme' });
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   assert.deepEqual([readLinearKey().key, readLinearKey().viewer], [world.key, { id: 'user-me', name: 'Love' }]);
   assert.doesNotMatch(JSON.stringify(linearStatus()), /lin_api/);
+  const key = world.key;
+  world.key = 'lin_api_rotated';
+  await assert.rejects(savedClient({ fetch }).teams(), { message: 'Linear refused the key.' });
+  assert.deepEqual(linearStatus(), { set: true, refused: true, workspace: 'Acme', url_key: 'acme' });
+  world.key = key;
+  await savedClient({ fetch }).teams();
+  assert.deepEqual(linearStatus(), { set: true, workspace: 'Acme', url_key: 'acme' });
   assert.deepEqual(removeLinearKey(), { set: false });
   assert.equal(fs.existsSync(file), false);
 });
@@ -110,7 +120,8 @@ test("the hub saves the Linear key from its settings form, serves only the works
   fs.mkdirSync(web, { recursive: true });
   fs.writeFileSync(path.join(web, 'manifest.json'), JSON.stringify({ version: 1, sites: {} }));
   const world = linearWorld();
-  const server = await fakeLinear(world).serve();
+  const linear = fakeLinear(world);
+  const server = await linear.serve();
   const [port] = await freePorts(1);
   const hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_LINEAR_URL: server.url } });
   t.after(async () => { hub.kill(); await server.close(); fs.rmSync(home, { recursive: true, force: true }); });
@@ -123,8 +134,13 @@ test("the hub saves the Linear key from its settings form, serves only the works
   const form = (body) => fetch(`${base}/_hub/settings/linear`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' }, body });
   assert.deepEqual(await (await fetch(`${base}/_hub/api/linear`)).json(), { set: false });
   assert.equal((await (await fetch(`${base}/_hub/api/settings`)).json()).linear.summary, 'No key');
+  assert.equal((await form('key=two%20words')).status, 400);
   const refused = await form('key=wrong');
-  assert.deepEqual([refused.status, (await refused.json()).error], [400, 'Linear refused the key.']);
+  assert.equal(refused.status, 200);
+  assert.deepEqual((await refused.json()).linear, { set: true, refused: true, title: 'Linear key', down: 'Doesn’t work',
+    sub: 'Linear refused the key. Make a new one in Linear › Settings › Security & access › Personal API keys and paste it here.',
+    keys: { url: 'https://linear.app/settings/account/security', label: 'Linear › Settings › Security & access › Personal API keys' }, summary: 'Key doesn’t work' });
+  assert.deepEqual(await (await fetch(`${base}/_hub/api/linear`)).json(), { set: true, refused: true });
   const saved = await form(`key=${world.key}`);
   assert.equal(saved.status, 200);
   const text = await saved.text();
@@ -139,6 +155,12 @@ test("the hub saves the Linear key from its settings form, serves only the works
   assert.equal((await create({ team: 'eng', name: 'x' })).status, 400);
   assert.equal((await create({ team: 'OPS', name: 'Hub' }, 'text/plain')).status, 403);
   assert.deepEqual(await (await create({ team: 'OPS', name: 'Hub board' })).json(), { id: 'proj-101', name: 'Hub board', team: 'OPS' });
+  world.key = 'lin_api_revoked';
+  assert.deepEqual(await (await fetch(`${base}/_hub/api/linear`)).json(), { set: true, refused: true, workspace: 'Acme', url_key: 'acme', error: 'Linear refused the key.' });
+  assert.equal((await (await fetch(`${base}/_hub/api/settings`)).json()).linear.summary, 'Key doesn’t work · Acme workspace');
+  const calls = linear.calls.length;
+  assert.deepEqual(await (await fetch(`${base}/_hub/api/linear`)).json(), { set: true, refused: true, workspace: 'Acme', url_key: 'acme' });
+  assert.equal(linear.calls.length, calls);
   assert.equal((await form('remove=1')).status, 200);
   assert.equal(fs.existsSync(path.join(web, 'linear.json')), false);
   assert.equal((await create({ team: 'OPS', name: 'Again' })).status, 400);

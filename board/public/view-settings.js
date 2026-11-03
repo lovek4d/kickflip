@@ -1,7 +1,8 @@
 // Board Settings, a modal the app shell (shell.js) mounts over its board for /<route>/settings.html.
 // Saving reviewers sends a `reviewers` event {add: [name], remove: [name]}; Claude finds each new person's Slack and
-// GitHub accounts, writes the list with board.mjs reviewers, and replies. An unsaved edit marks [data-dirty], and the
-// shell asks before closing the modal then.
+// GitHub accounts, writes the list with board.mjs reviewers, and replies. Tickets save on each change, and Done, ✕,
+// Escape and the backdrop wait for that save to land before closing. An unsaved edit marks [data-dirty], and the shell
+// asks before closing the modal then.
 (globalThis.AppViews ||= {}).settings = {
   className: 'view-settings',
   title: () => 'Board Settings',
@@ -12,7 +13,7 @@
   <p class="muted small" id="boardRepoStatus"></p>
   <h2>Tickets</h2>
   <p class="muted small">Every card on this board has a ticket from here. A new card gets a new ticket unless you name one.</p>
-  <form id="ticketsForm" class="tk-section"><div id="boardTickets">Loading…</div><button type="submit" id="ticketsSave" disabled>Save</button></form>
+  <form id="ticketsForm" class="tk-section"><div id="boardTickets">Loading…</div></form>
   <p class="muted small" id="ticketsStatus" role="status"></p>
   <h2>Merging</h2>
   <label class="who" for="autoMerge">
@@ -66,12 +67,20 @@
     const modal = $('#boardSettingsModal');
     const previous = document.activeElement;
     const unfitModal = BoardDialogs.fitSheet(modal);
-    B.on(modal, 'cancel', (e) => { e.preventDefault(); ctx.dismiss?.(); });
+    let dismissing = false;
+    function close() {
+      if (tickets) saveTickets();
+      if (!savingTickets) { ctx.dismiss?.(); return; }
+      if (dismissing) return;
+      dismissing = true;
+      savingTickets.then(() => { dismissing = false; if (B.alive()) ctx.dismiss?.(); });
+    }
+    B.on(modal, 'cancel', (e) => { e.preventDefault(); close(); });
     B.on(modal, 'click', (e) => {
-      if (e.target.closest?.('[data-settings-dismiss]')) ctx.dismiss?.();
+      if (e.target.closest?.('[data-settings-dismiss]')) close();
       else if (e.target === modal) {
         const rect = modal.getBoundingClientRect();
-        if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) ctx.dismiss?.();
+        if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) close();
       }
     });
     B.atUnmount(() => { unfitModal(); modal.close(); if (previous?.isConnected) previous.focus({ preventScroll: true }); });
@@ -140,7 +149,7 @@
     B.atUnmount(() => { unfit?.(); closeSheet.close(); });
     const repoURL = `/_hub/board-repo/${encodeURIComponent(B.route)}`;
     let repo = {}, closeRepo = () => {};
-    let tickets, savedTickets, savingTickets = false, ticketsTouched = false;
+    let tickets, savedTickets, savingTickets = null, ticketsTouched = false;
     const showRepo = () => { $('#boardRepoValue').textContent = repo.github ? `${repo.github} · ${repo.branch || 'Branch not recorded'}` : 'No GitHub repo'; };
     get(repoURL).then(({ body }) => {
       if (!B.alive()) return;
@@ -172,30 +181,44 @@
     B.atUnmount(() => closeRepo());
     B.atUnmount(() => tickets?.destroy());
     const ticketsForm = $('#ticketsForm');
-    const ticketsSave = $('#ticketsSave');
     const ticketsStatus = $('#ticketsStatus');
+    const unsaved = () => ticketsTouched && JSON.stringify(tickets.read()) !== JSON.stringify(savedTickets);
     function syncTickets() {
-      const dirty = ticketsTouched && JSON.stringify(tickets.read()) !== JSON.stringify(savedTickets);
-      if (dirty) ticketsForm.setAttribute('data-dirty', '');
+      if (unsaved()) ticketsForm.setAttribute('data-dirty', '');
       else ticketsForm.removeAttribute('data-dirty');
-      ticketsSave.disabled = savingTickets || !dirty || !tickets.valid();
     }
-    B.on(ticketsForm, 'submit', async (e) => {
-      e.preventDefault();
-      if (!tickets || ticketsSave.disabled || savingTickets) return;
-      savingTickets = true;
-      const value = tickets.read();
-      syncTickets();
+    async function postTickets(value) {
       try {
         const r = await fetch(site.url('api/settings'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tickets: value }) });
         const out = await r.json();
         if (!r.ok) throw new Error(out.error || 'Could not save tickets.');
-        if (!B.alive()) return;
         savedTickets = out.settings.tickets;
-        ticketsStatus.textContent = 'Saved.';
-      } catch (e) { if (B.alive()) ticketsStatus.textContent = e.message || 'Could not save. Is the host awake?'; }
-      finally { savingTickets = false; if (B.alive()) syncTickets(); }
-    });
+        return true;
+      } catch (e) {
+        if (B.alive()) ticketsStatus.textContent = e.message || 'Could not save. Is the host awake?';
+        return false;
+      }
+    }
+    // One save at a time: a change made while one is out saves once it lands.
+    function saveTickets() {
+      syncTickets();
+      if (savingTickets || !unsaved() || !tickets.valid()) return;
+      ticketsStatus.innerHTML = '<span class="tk-saving"><span class="try-spin" aria-hidden="true"></span>Saving…</span>';
+      LinearKey.doneBusy(modal.querySelectorAll('[data-settings-dismiss]'), true);
+      savingTickets = (async () => {
+        let saved, value;
+        do {
+          value = tickets.read();
+          saved = await postTickets(value);
+        } while (saved && B.alive() && tickets.valid() && JSON.stringify(tickets.read()) !== JSON.stringify(value));
+        savingTickets = null;
+        if (!B.alive()) return;
+        if (saved) ticketsStatus.textContent = 'Saved';
+        LinearKey.doneBusy(modal.querySelectorAll('[data-settings-dismiss]'), false);
+        syncTickets();
+      })();
+    }
+    B.on(ticketsForm, 'submit', (e) => { e.preventDefault(); saveTickets(); });
     let buildKind = 'web';
     let current = [];
     const add = new Set();
@@ -255,7 +278,10 @@
       savedTickets = d.settings?.tickets || null;
       tickets = BoardDialogs.ticketsControl($('#boardTickets'), { value: savedTickets || { source: 'internal', prefix: 'INT' }, repo: () => repo.github || '', title: () => ctx.siteTitle || '',
         loadLinear: async () => (await get('/_hub/api/linear')).body,
-        change(_value, _valid, { loaded } = {}) { if (!loaded) ticketsTouched = true; syncTickets(); }, createProject: async (team, name) => {
+        change(_value, _valid, { loaded, typing } = {}) {
+          if (!loaded) ticketsTouched = true;
+          if (typing) syncTickets(); else saveTickets();
+        }, createProject: async (team, name) => {
           const r = await fetch('/_hub/linear/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ team, name }) });
           const out = await r.json().catch(() => ({}));
           if (!r.ok) throw new Error(out.error || 'Could not create the project. Is the host awake?');

@@ -11,7 +11,7 @@ import { miniDom } from './mini-dom.mjs';
 import { buildBoard, BUTTON, ACTION_KIND } from './domain.mjs';
 
 const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
-  'dialogs.js', 'hub-kit.js', 'sidebar.js', 'toasts.js', 'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-banner.js', 'app-snapshot.js',
+  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-polling.js', 'view-frame.js', 'router.js'];
 
 function memoryStorage(entries = []) {
@@ -1134,12 +1134,15 @@ test('New board chooses a searchable repo before board details, defaults its bra
     let data = { sites: [], starting: [] };
     let refusal = 'That board route already exists.';
     let finish;
-    const posted = [];
+    let hubKey = false;
+    const posted = [], keyPosts = [];
     win.fetch = async (url, options = {}) => {
       if (url === '/_hub/sidebar.json') return repoResponse(data);
       if (url === '/_hub/repos') return repoResponse({ signedIn: true, repos: repoList });
       if (url.startsWith('/_hub/branches')) return repoResponse({ defaultBranch: 'trunk', branches: ['trunk', 'release/next'] });
-      if (url === '/_hub/api/linear') return repoResponse({ set: false });
+      if (url === '/_hub/api/linear') return repoResponse(hubKey ? { set: true, workspace: 'Acme', url_key: 'acme', teams: [{ key: 'ENG', name: 'Engineering' }], projects: [{ team: 'ENG', id: 'p1', name: 'Existing' }] } : { set: false });
+      if (url === '/_hub/api/settings') return repoResponse({ linear: { set: false, title: 'No key', sub: 'Make a personal API key in Linear, then paste it here.', summary: 'No key' } });
+      if (url === '/_hub/settings/linear') { keyPosts.push(String(options.body)); hubKey = true; return repoResponse({ linear: { set: true, title: 'Acme workspace', sub: 'Key ••••••••', summary: 'Key set · Acme workspace' } }); }
       posted.push([url, options.method, options.body && JSON.parse(options.body), options.headers?.['content-type']]);
       if (options.method === 'DELETE') { data = { ...data, starting: [] }; return repoResponse({}); }
       if (refusal) return { ok: false, text: async () => refusal };
@@ -1192,15 +1195,20 @@ test('New board chooses a searchable repo before board details, defaults its bra
     assert.equal(start.disabled, true);
     prefix.value = ''; page.fire(control, 'input', { target: prefix });
     assert.equal(start.disabled, false);
+    const pressed = () => control.querySelector('[aria-pressed="true"]').dataset.tkSource;
     page.fire(control, 'click', { target: control.querySelector('[data-tk-source="linear"]') });
-    await tick();
-    assert.match(control.textContent, /through its Linear MCP/);
-    assert.equal(control.querySelector('[data-tk="projectText"]').value, 'Backend audit');
-    assert.equal(start.disabled, true);
-    for (const [name, value] of [['workspaceText', 'acme'], ['teamText', 'eng']]) {
-      const input = control.querySelector(`[data-tk="${name}"]`);
-      input.value = value; page.fire(control, 'input', { target: input });
-    }
+    await tick(); await tick();
+    const keyModal = doc.getElementById('linearKeyModal');
+    assert.equal(keyModal.open, true);
+    assert.equal(sheet.open, true);
+    assert.equal(pressed(), 'internal');
+    page.fire(keyModal.querySelector('.setting-content'), 'paste', { target: keyModal.querySelector('#linearKey'), clipboardData: { getData: () => 'lin_api_new' } });
+    await tick(); await tick(); await tick();
+    assert.deepEqual(keyPosts, ['key=lin_api_new']);
+    assert.equal(doc.getElementById('linearKeyModal'), null);
+    assert.equal(pressed(), 'linear');
+    assert.deepEqual([control.querySelector('[data-tk="team"]').value, control.querySelector('[data-tk="project"]').value, control.querySelector('[data-tk="newName"]').value], ['ENG', '__new', 'Backend audit']);
+    assert.equal(control.querySelector('[data-tk="workspaceText"]'), null);
     assert.equal(start.disabled, false);
     page.fire(control, 'click', { target: control.querySelector(`[data-tk-source="${wide ? 'internal' : 'github'}"]`) });
     if (!wide) assert.match(control.textContent, /Issues in owner\/project/);
@@ -1396,17 +1404,27 @@ test('bare repo lookups debounce, cancel when edited or closed, and ignore stale
   assert.equal(urls.some((url) => url.includes('cancel') || url.includes('first')), false);
 });
 
-test('the shared Tickets control stages Board Settings changes, validates the prefix and saves JSON', async () => {
+test('Board Settings saves each Tickets change at once, opens Hub’s key modal for Linear without a working key, and Done waits for a save', async () => {
   const page = repoPage(true);
   const { doc, Element } = page;
   const root = doc.body.appendChild(new Element('div'));
   root.innerHTML = page.win.AppViews.settings.markup();
-  let settings = { auto_merge: false, tickets: { source: 'github', account: 'lovek4d' } }, refuse = false;
-  const posts = [];
+  let settings = { auto_merge: false, tickets: { source: 'github', account: 'lovek4d' } }, refuse = false, hold = null, hubKey = 'refused';
+  const posts = [], keyPosts = [], dismissed = [];
+  const KEYS = { url: 'https://linear.app/settings/account/security', label: 'Linear › Settings › Security & access › Personal API keys' };
+  const words = () => (hubKey === 'works' ? { set: true, title: 'Acme workspace', sub: 'Key ••••••••', summary: 'Key set · Acme workspace' }
+    : { set: true, refused: true, title: 'Acme workspace', down: 'Doesn’t work', sub: `Linear refused the key. Make a new one in ${KEYS.label} and paste it here.`, keys: KEYS, summary: 'Key doesn’t work · Acme workspace' });
   page.win.fetch = async (url, options = {}) => {
+    if (url === '/_hub/api/settings') return repoResponse({ linear: words() });
+    if (url === '/_hub/settings/linear') { keyPosts.push(String(options.body)); await hold?.promise; hubKey = 'works'; return repoResponse({ linear: words() }); }
+    if (url === '/_hub/api/linear') {
+      return repoResponse(hubKey === 'works' ? { set: true, workspace: 'Acme', url_key: 'acme', teams: [{ key: 'ENG', name: 'Engineering' }, { key: 'OPS', name: 'Ops' }],
+        projects: [{ team: 'ENG', id: 'p1', name: 'Existing' }, { team: 'OPS', id: 'p2', name: 'Runbooks' }] } : { set: true, refused: true, workspace: 'Acme', url_key: 'acme' });
+    }
     if (url.endsWith('/api/settings')) {
       if (options.method === 'POST') {
         posts.push(JSON.parse(options.body));
+        await hold?.promise;
         if (refuse) return { ok: false, json: async () => ({ error: 'Try again.' }) };
         settings = { ...settings, ...JSON.parse(options.body) };
       }
@@ -1415,45 +1433,81 @@ test('the shared Tickets control stages Board Settings changes, validates the pr
     if (url.includes('board-repo')) return repoResponse({ github: 'owner/project', branch: 'main' });
     return repoResponse({});
   };
-  const view = page.win.AppViews.settings.create(root, 'https://mac.ts.net/orch', {});
+  const view = page.win.AppViews.settings.create(root, 'https://mac.ts.net/orch', { dismiss: () => dismissed.push(1) });
   view.mount(); await tick();
   const control = root.querySelector('#boardTickets');
   const form = root.querySelector('#ticketsForm');
-  const save = root.querySelector('#ticketsSave');
-  assert.equal(save.disabled, true);
+  const status = root.querySelector('#ticketsStatus');
+  const modal = root.querySelector('#boardSettingsModal');
+  const done = root.querySelector('.settings-footer [data-settings-dismiss]');
+  const pressed = () => control.querySelector('[aria-pressed="true"]').dataset.tkSource;
+  const tapLinear = async () => { page.fire(control, 'click', { target: control.querySelector('[data-tk-source="linear"]') }); await tick(); await tick(); };
+  assert.equal(root.querySelector('#ticketsSave'), null);
   assert.match(control.textContent, /opens an issue there as gh account lovek4d/);
-  page.fire(control, 'click', { target: control.querySelector('[data-tk-source="internal"]') });
-  assert.equal(save.disabled, false);
-  page.fire(form, 'submit'); await tick();
+  page.fire(control, 'click', { target: control.querySelector('[data-tk-source="internal"]') }); await tick();
   assert.deepEqual(posts.at(-1), { tickets: { source: 'internal', prefix: 'INT' } });
+  assert.equal(status.textContent, 'Saved');
   const prefix = control.querySelector('[data-tk="prefix"]');
-  prefix.value = 'I'; page.fire(control, 'input', { target: prefix });
-  assert.equal(save.disabled, true);
+  prefix.value = 'I'; page.fire(control, 'input', { target: prefix }); page.fire(control, 'change', { target: prefix }); await tick();
+  assert.equal(posts.length, 1);
   assert.equal(form.hasAttribute('data-dirty'), true);
-  prefix.value = 'ops'; page.fire(control, 'input', { target: prefix });
+  prefix.value = 'ops'; page.fire(control, 'input', { target: prefix }); await tick();
   assert.equal(prefix.value, 'OPS');
-  assert.equal(save.disabled, false);
-  refuse = true; page.fire(form, 'submit'); await tick();
-  assert.equal(root.querySelector('#ticketsStatus').textContent, 'Try again.');
+  assert.equal(posts.length, 1);
+  refuse = true; page.fire(control, 'change', { target: prefix }); await tick();
+  assert.equal(status.textContent, 'Try again.');
   assert.equal(form.hasAttribute('data-dirty'), true);
   refuse = false; page.fire(form, 'submit'); await tick();
   assert.deepEqual(posts.at(-1), { tickets: { source: 'internal', prefix: 'OPS' } });
   assert.equal(form.hasAttribute('data-dirty'), false);
-  page.fire(control, 'click', { target: control.querySelector('[data-tk-source="github"]') });
-  assert.match(control.textContent, /Issues in owner\/project/);
-  page.fire(form, 'submit'); await tick();
-  assert.deepEqual(posts.at(-1), { tickets: { source: 'github', account: 'lovek4d' } });
-  page.fire(control, 'click', { target: control.querySelector('[data-tk-source="linear"]') });
+
+  await tapLinear();
+  let keyModal = doc.getElementById('linearKeyModal');
+  assert.equal(keyModal.open, true);
+  assert.equal(modal.open, true);
+  assert.equal(pressed(), 'internal');
+  assert.match(keyModal.textContent, /Doesn’t work · Linear refused the key/);
+  assert.equal(keyModal.querySelector(`a[href="${KEYS.url}"]`).textContent, KEYS.label);
+  assert.equal(keyModal.querySelector('.lk-form button'), null);
+  page.fire(keyModal, 'click', { target: keyModal.querySelector('.settings-footer [data-lk-done]') });
+  assert.equal(doc.getElementById('linearKeyModal'), null);
   await tick();
-  assert.match(control.textContent, /A Linear key on Hub/);
-  assert.equal(save.disabled, true);
-  for (const [name, value] of [['workspaceText', 'acme'], ['teamText', 'eng'], ['projectText', 'Audit']]) {
-    const input = control.querySelector(`[data-tk="${name}"]`);
-    input.value = value; page.fire(control, 'input', { target: input });
-  }
-  assert.equal(save.disabled, false);
-  page.fire(form, 'submit'); await tick();
-  assert.deepEqual(posts.at(-1), { tickets: { source: 'linear', workspace: 'acme', team: 'ENG', project: 'Audit' } });
+  assert.equal(pressed(), 'internal');
+  assert.equal(posts.length, 3);
+
+  await tapLinear();
+  keyModal = doc.getElementById('linearKeyModal');
+  hold = Promise.withResolvers();
+  page.fire(keyModal.querySelector('.setting-content'), 'paste', { target: keyModal.querySelector('#linearKey'), clipboardData: { getData: () => ' lin_api_new ' } });
+  assert.deepEqual(keyPosts, ['key=lin_api_new']);
+  assert.match(keyModal.textContent, /Checking the key with Linear…/);
+  const keyDone = keyModal.querySelector('.settings-footer [data-lk-done]');
+  assert.equal(keyDone.getAttribute('aria-busy'), 'true');
+  page.fire(keyModal, 'click', { target: keyDone });
+  assert.equal(keyModal.open, true);
+  hold.resolve(); hold = null;
+  await tick(); await tick(); await tick();
+  assert.equal(doc.getElementById('linearKeyModal'), null);
+  assert.equal(pressed(), 'linear');
+  assert.equal(control.querySelector('[data-tk="team"]').value, 'ENG');
+  assert.equal(control.querySelector('[data-tk="workspaceText"]'), null);
+  assert.deepEqual(posts.at(-1), { tickets: { source: 'linear', workspace: 'acme', team: 'ENG', project: 'p1' } });
+
+  hold = Promise.withResolvers();
+  const team = control.querySelector('[data-tk="team"]');
+  team.value = 'OPS'; page.fire(control, 'change', { target: team });
+  assert.deepEqual(posts.at(-1), { tickets: { source: 'linear', workspace: 'acme', team: 'OPS', project: 'p2' } });
+  assert.match(status.textContent, /Saving…/);
+  assert.equal(done.getAttribute('aria-busy'), 'true');
+  page.fire(modal, 'click', { target: done });
+  page.fire(modal, 'click', { target: root.querySelector('.settings-head [data-settings-dismiss]') });
+  await tick();
+  assert.equal(dismissed.length, 0);
+  hold.resolve(); hold = null;
+  await tick(); await tick();
+  assert.equal(status.textContent, 'Saved');
+  assert.equal(done.getAttribute('aria-busy'), null);
+  assert.equal(dismissed.length, 1);
   view.unmount();
 });
 

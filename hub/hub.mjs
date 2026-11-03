@@ -25,7 +25,8 @@
 //                     codex: {past, window, used, resets_at}} (../shared/usage-gate.mjs).
 //                     /_hub/ JSON answers carry X-Hub-Code, the running hub's code hash.
 //   /_hub/api/linear GET {set, workspace, url_key, teams: [{key, name}], projects: [{id, name, team}]} through Hub's Linear
-//                     key, {set: false} without one, or with error when Linear can't be reached
+//                     key, {set: false} without one, {set: true, refused: true, …} once Linear refused it, or with
+//                     error when Linear can't be reached
 //   /_hub/linear/projects POST {team, name} creates a Linear project in that team → {id, name, team}
 //   /_hub/repos      GET the signed-in owner's and orgs' repos with clone/share metadata
 //   /_hub/repo       GET ?github=owner/repo checks a pasted GitHub repo, including one outside the list;
@@ -66,8 +67,9 @@
 //                     fix while Codex isn't installed or logged in, checked afresh
 //   /_hub/settings/pause-at POST value=50..100 in steps of 5 → /_hub/api/hub's JSON, or 400 {error}; 100 is Off
 //   /_hub/settings/keep-going POST value=on|off → /_hub/api/hub's JSON, or 400 {error}; on without a pause → 409 {error}
-//   /_hub/settings/linear POST key=<Linear personal API key>, saved once Linear accepts it, or remove=1
-//                     → /_hub/api/settings's JSON, whose `linear` names only the workspace, or 400 {error} (linear.mjs)
+//   /_hub/settings/linear POST key=<Linear personal API key>, checked with Linear and saved, as refused if Linear
+//                     refuses it, or remove=1 → /_hub/api/settings's JSON, whose `linear` names only the workspace,
+//                     or 400 {error}, 502 {error} when Linear can't be reached (linear.mjs)
 //   /_hub/settings/polling POST one schedule.mjs editPolling change {op, w, value} → /_hub/api/polling's JSON for the
 //                     window to show, or 400 {error}
 //   /_hub/push/flush  POST sends the queued pushes now → {sent, count, ok, message}
@@ -816,17 +818,18 @@ async function hubRoute(req, res, url) {
   if (p === '/_hub/settings/linear' && req.method === 'POST') {
     const f = new URLSearchParams(await readBody(req, 4 * 1024));
     try {
-      if (f.has('remove')) removeLinearKey(); else await saveLinearKey(f.get('key'));
+      if (f.has('remove')) { removeLinearKey(); log('linear: key removed'); }
+      else log(`linear: key ${(await saveLinearKey(f.get('key'))).refused ? 'refused by Linear' : 'saved'}`);
     } catch (e) {
       if (!(e instanceof LinearError)) throw e;
       return json ? sendJSON(e.status, { error: e.message }) : send(e.status, 'text/plain; charset=utf-8', e.message);
     }
-    log(`linear: key ${f.has('remove') ? 'removed' : 'saved'}`);
     return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#linear');
   }
   if (p === '/_hub/api/linear' && req.method === 'GET') {
+    const status = linearStatus();
+    if (!status.set || status.refused) return sendJSON(200, status);
     const linear = savedClient();
-    if (!linear) return sendJSON(200, { set: false });
     try {
       const teams = await linear.teams();
       return sendJSON(200, { ...linearStatus(), teams: teams.map(({ key, name }) => ({ key, name })),

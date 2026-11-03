@@ -1,6 +1,7 @@
 // Linear through the owner's personal API key (docs/adr/0088-kickflip-reaches-linear-with-a-key-on-the-mac.md).
-// The key lives in ~/.claude/kickflip/linear.json, mode 600: {key, workspace, url_key, viewer, saved_at}. Only
-// linearStatus's {set, workspace, url_key} ever leaves this module for a page.
+// The key lives in ~/.claude/kickflip/linear.json, mode 600: {key, workspace, url_key, viewer, saved_at}, plus
+// refused_at once Linear refused it (docs/adr/0117-a-board-picks-linear-only-while-hubs-key-works.md). Only
+// linearStatus's {set, refused, workspace, url_key} ever leaves this module for a page.
 // Every request goes to KICKFLIP_LINEAR_URL when it is set, else Linear's GraphQL API, through the fetch passed in.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -22,11 +23,22 @@ export function readLinearKey(home) {
 
 export function linearStatus(home) {
   const saved = readLinearKey(home);
-  return saved ? { set: true, workspace: saved.workspace, url_key: saved.url_key } : { set: false };
+  if (!saved) return { set: false };
+  return { set: true, ...(saved.refused_at ? { refused: true } : {}), ...(saved.workspace ? { workspace: saved.workspace, url_key: saved.url_key } : {}) };
+}
+
+function writeKeyFile(saved) {
+  const file = keyFile();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(saved, null, 2) + '\n', { mode: 0o600 });
+  fs.chmodSync(tmp, 0o600);
+  fs.renameSync(tmp, file);
 }
 
 // Personal API keys go in the Authorization header as they are, with no Bearer prefix (Linear's API docs).
-export function linearClient(key, { fetch = globalThis.fetch } = {}) {
+// checked(works) follows each answer: false when Linear refused the key, true when it answered with data.
+export function linearClient(key, { fetch = globalThis.fetch, checked = () => {} } = {}) {
   async function call(query, variables = {}) {
     let r;
     try {
@@ -36,12 +48,16 @@ export function linearClient(key, { fetch = globalThis.fetch } = {}) {
       });
     } catch (e) { throw new LinearError(`Could not reach Linear: ${e.message}`); }
     const out = await r.json().catch(() => null);
-    if (r.status === 401 || out?.errors?.some((e) => e.extensions?.type === 'authentication error')) throw new LinearError('Linear refused the key.', 400);
+    if (r.status === 401 || out?.errors?.some((e) => e.extensions?.type === 'authentication error')) {
+      checked(false);
+      throw new LinearError('Linear refused the key.', 400);
+    }
     if (out?.errors?.length) {
       const e = out.errors[0];
       throw Object.assign(new LinearError(`Linear: ${e.message}`), { notFound: e.extensions?.type === 'not found' || /not found/i.test(e.message) });
     }
     if (!r.ok || !out?.data) throw new LinearError(`Linear answered ${r.status}.`);
+    checked(true);
     return out.data;
   }
 
@@ -128,18 +144,24 @@ export function stateFor(states, target) {
   return null;
 }
 
-// Saves the key once Linear accepts it. → linearStatus()
+// Checks the key with Linear and saves it, as refused when Linear refuses it. Any other failure saves nothing.
+// → linearStatus()
 export async function saveLinearKey(key, { fetch } = {}) {
   const k = typeof key === 'string' ? key.trim() : '';
   if (!k || /\s/.test(k) || k.length > 200) throw new LinearError('Paste a Linear personal API key.', 400);
-  const who = await linearClient(k, { fetch }).viewer();
-  const file = keyFile();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify({ key: k, ...who, saved_at: new Date().toISOString() }, null, 2) + '\n', { mode: 0o600 });
-  fs.chmodSync(tmp, 0o600);
-  fs.renameSync(tmp, file);
+  const now = new Date().toISOString();
+  let refused = false;
+  const who = await linearClient(k, { fetch, checked: (works) => { refused = !works; } }).viewer().catch((e) => { if (!refused) throw e; return null; });
+  writeKeyFile(who ? { key: k, ...who, saved_at: now } : { key: k, saved_at: now, refused_at: now });
   return linearStatus();
+}
+
+// Remembers whether Linear refused the saved key, from the newest answer to a call with it.
+function markChecked(key, works) {
+  const saved = readLinearKey();
+  if (saved?.key !== key || Boolean(saved.refused_at) === !works) return;
+  const { refused_at: _, ...rest } = saved;
+  writeKeyFile(works ? rest : { ...rest, refused_at: new Date().toISOString() });
 }
 
 export function removeLinearKey() {
@@ -147,8 +169,8 @@ export function removeLinearKey() {
   return linearStatus();
 }
 
-// A client over the saved key, or null when none is saved.
+// A client over the saved key, or null when none is saved. Its calls keep the key's refused_at up to date.
 export function savedClient({ fetch } = {}) {
   const saved = readLinearKey();
-  return saved ? { ...linearClient(saved.key, { fetch }), saved } : null;
+  return saved ? { ...linearClient(saved.key, { fetch, checked: (works) => markChecked(saved.key, works) }), saved } : null;
 }

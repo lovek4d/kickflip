@@ -578,6 +578,10 @@ main > * { transition: opacity .25s ease; }
 .settings-body { overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding: 0 20px 16px; }
 .settings-body input { font-size: 16px; }
 .settings-footer { display: flex; justify-content: flex-end; padding: 12px 20px; border-top: 1px solid var(--line); }
+.settings-footer button[aria-busy="true"] { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.tk-saving, .lk-checking { display: inline-flex; align-items: center; gap: 6px; }
+/* linear-key.js's modal over a page sits in .hub-view main only for hub.css's selectors. */
+.lk-over, .lk-over > main { display: contents; }
 
 .tk-section { margin: 10px 0; }
 .tk-seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; margin: 8px 0; border: 1px solid var(--line); border-radius: 9px; background: var(--chip); }

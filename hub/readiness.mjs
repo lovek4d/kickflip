@@ -12,7 +12,7 @@ import { tailscaleState, tailscaleInstallHint } from '../bin/install.mjs';
 const INTEGRATIONS = [
   ['github', 'GitHub', 'GitHub polling and PR reports wait on this.'],
   ['codex', 'Codex', 'Codex builds and reviews wait on this; Codex share stays Off.'],
-  ['linear', 'Linear', 'Linear moves wait on this.'],
+  ['linear', 'Linear', 'Linear moves and picking Linear for a board’s tickets wait on this.'],
   ['slack', 'Slack', 'Reviewer DMs and digests wait on this.'],
   ['tailscale', 'Tailscale', 'Try builds wait on this.'],
   ['notifications', 'Notifications', 'Pushes wait on this.'],
@@ -43,8 +43,9 @@ export function readinessRows(checks, { now = Date.now(), platform = process.pla
         : { ready: false, missing: "gh isn't logged in on the host", fix: { command: 'gh auth login' } };
       case 'codex': return value.usable ? { ready: true, detail: 'Installed and logged in' }
         : { ready: false, missing: value.words, fix: { command: value.fix } };
-      case 'linear': return value.set ? { ready: true, detail: `Key set · ${value.workspace} workspace` }
-        : { ready: false, missing: 'No Linear key set', fix: settingsFix('linear', 'Linear', 'Add one in') };
+      case 'linear': return !value.set ? { ready: false, missing: 'No Linear key set', fix: settingsFix('linear', 'Linear', 'Add one in') }
+        : value.refused ? { ready: false, missing: 'Linear refused the key', fix: settingsFix('linear', 'Linear', 'Paste a new one in') }
+        : { ready: true, detail: `Key set · ${value.workspace} workspace` };
       case 'slack': {
         const words = value ? `${value.title}’s session reported ${value.ready ? 'a' : 'no'} Slack connector, ${age(value.at, now)}` : 'No board session has reported yet';
         return value?.ready ? { ready: true, detail: words }

@@ -1,6 +1,7 @@
 // HubSettings: summary rows below Hub’s health and status open centred settings modals (ADR 0075), using
 // settingsView's words from GET /_hub/api/settings. Each toggle and snooze posts to /_hub/settings/notifications, and
-// Keep awake to /_hub/settings/keep-awake, and saves at once. The rules editor saves through POST /_hub/settings/rules
+// Keep awake to /_hub/settings/keep-awake, and saves at once, as Linear's key does through linear-key.js; Done waits for
+// a key's save to land. The rules editor saves through POST /_hub/settings/rules
 // and marks [data-dirty] while an edit is unsaved, so the shell asks before leaving then. The data refreshes every 30 seconds while nothing is being edited.
 (function () {
   // The last data, which a return to the view paints at once.
@@ -68,6 +69,7 @@
       let flash = null;
       let rules = null;
       let rulesJSON = '';
+      let linearKey = null;
 
       function paint() {
         if (!last) return;
@@ -80,11 +82,12 @@
           content.innerHTML = last.awake.unsupported ? `<p class="note">${esc(last.awake.unsupported)}.</p>`
             : `<div class="group">${awakeRow(last.awake)}</div><p class="note">Runs <code>caffeinate -ims</code> on the host so it doesn’t sleep while boards work. The screen can still turn off.</p>`;
         } else if (active === 'linear') {
-          const typed = B.$('#linearKey')?.value || '';
-          const l = last.linear;
-          const remove = l.set ? `<form method="post" action="/_hub/settings/linear"><input type="hidden" name="remove" value="1"><button type="button" class="btn quiet danger" data-linear-remove>Remove</button></form>` : '';
-          content.innerHTML = `<div class="group">${row({ icon: tile('key', 'var(--color-quiet)'), title: esc(l.title), sub: esc(l.sub), wrap: !l.set, trail: remove })}<form class="block lk-form" method="post" action="/_hub/settings/linear"><input id="linearKey" name="key" type="password" required placeholder="${l.set ? 'Paste a new key to replace it' : 'Paste a Linear API key'}" aria-label="Linear API key" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn">Save</button></form></div><p class="note">Stays on the host. Boards use it to list teams and projects, create issues and move the ones that are yours. Without a key, each board’s session does that through its Linear MCP.</p>`;
-          B.$('#linearKey').value = typed;
+          if (linearKey) linearKey.set(last.linear);
+          else {
+            linearKey = LinearKey.mount(content, { linear: last.linear,
+              saved(out) { last = out; flash = null; paint(); ctx.sidebarChanged?.(); },
+              busy: (on) => LinearKey.doneBusy(modal.querySelectorAll('[data-settings-dismiss]'), on) });
+          }
         } else if (active === 'closed') {
           content.innerHTML = `<div class="group">${(last.closed || []).length ? last.closed.map((b) => `<div class="row"><span class="body"><span class="text"><span class="title">${esc(b.title)}</span><span class="sub wrap">/${esc(b.route)}</span></span><button class="btn" type="button" data-reopen="${esc(b.route)}"${reopening ? ' disabled' : ''}>${reopening === b.route ? 'Reopening…' : 'Reopen'}</button></span></div>`).join('') : '<p class="note">No closed boards.</p>'}</div>`;
         }
@@ -138,6 +141,7 @@
         polling?.unmount(); polling = null;
         unfitModal?.(); unfitModal = null;
         modal.close();
+        linearKey?.destroy(); linearKey = null;
         content.innerHTML = '';
         rules = null;
         active = null;
@@ -174,7 +178,10 @@
         history.replaceState(history.state, '', settingsURL);
         return true;
       };
-      const dismiss = () => B.openSettings({ kind: 'hub' });
+      const dismiss = () => {
+        if (!linearKey?.busy()) { B.openSettings({ kind: 'hub' }); return; }
+        linearKey.settled().then(() => { if (B.alive()) B.openSettings({ kind: 'hub' }); });
+      };
       B.on(modal, 'cancel', (e) => { e.preventDefault(); dismiss(); });
       B.on(root, 'click', (e) => {
         const opener = e.target.closest?.('[data-settings-open]');
@@ -239,10 +246,6 @@
         } catch (error) { flash = { text: error.message || 'Could not reopen board. Is the host awake?', error: true }; }
         reopening = null;
         if (B.alive()) paint();
-      });
-      B.on(root, 'click', async (e) => {
-        const remove = e.target.closest?.('[data-linear-remove]');
-        if (remove && await BoardDialogs.confirm('Remove the Linear key? Boards on Linear can’t create issues or move tickets until you add one again.', { ok: 'Remove' }) && B.alive()) remove.closest('form').requestSubmit();
       });
       B.on(root, 'change', async (e) => {
         const on = e.target;
