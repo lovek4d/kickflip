@@ -246,9 +246,22 @@ function actionButtonOf(it) {
 }
 
 // docs/adr/0122-a-todo-card-that-nothing-blocks-has-build.md
-// The open card's Build: on a work card still unstarted in Todo, held or not, that waits on nothing from the owner. On a
-// card an unfinished dep blocks, the tap queues the build (docs/adr/0145-build-on-a-blocked-card-queues-it.md).
-const buildableOf = (it) => it.kind === 'work' && it.lane === 'todo' && !it.action;
+// The open card's Build: on a work card still unstarted in Todo, held or not, that waits on nothing from the owner and
+// has a take picked on its prototypes (noTakePicked). On a card an unfinished dep blocks, the tap queues the build
+// (docs/adr/0145-build-on-a-blocked-card-queues-it.md).
+const buildableOf = (it) => it.kind === 'work' && it.lane === 'todo' && !it.action && !it.unpicked;
+
+// docs/adr/0150-a-prototype-pick-is-the-builds-go.md
+// The newest answer to card key's prototype questions (ownerQuestion views) when it picks none of their takes, the owner
+// having cleared the pick to leave only a note: the card isn't ready to build. → {id, note}, or null.
+export function noTakePicked(questions, key) {
+  const answers = questions.filter((q) => q.topic === `item:${key}` && PROTOTYPE_URL.test(q.url || ''))
+    .flatMap((q) => q.answers.map((a) => ({ q, a }))).sort((x, y) => String(x.a.ts).localeCompare(String(y.a.ts)));
+  const last = answers.at(-1);
+  return last && !(last.q.options || []).some((o) => o.id === last.a.choice) ? { id: last.q.id, note: last.a.note.replace(/\s+/g, ' ').trim() } : null;
+}
+// A Todo card's line while noTakePicked holds it.
+export const NO_TAKE = "No take picked, so it isn't ready to build";
 
 // The open card's button that resolves each action kind, which the board page colours orange: an action button, the
 // PR's Review on GitHub, or Merge.
@@ -425,35 +438,26 @@ export function ownerQuestion(q, answerEvents, requestEvents = []) {
 }
 
 // docs/adr/0111-a-prototype-round-ends-with-a-one-take-confirm.md
-// The prototype round a question belongs to: owner.json's `round`, set by `question add` with `round_of` and by
-// `question confirm`, else 1 for a question on a prototype page and 0 for any other.
+// The prototype round a question belongs to: owner.json's `round`, set by `question add` with `round_of` and on a
+// confirm an earlier board opened, else 1 for a question on a prototype page and 0 for any other.
 export const roundOf = (q) => q.round ?? (PROTOTYPE_URL.test(q.url || '') ? 1 : 0);
-// docs/adr/0116-a-confirm-waits-for-claudes-update.md
-// An ownerQuestion view whose last answer picks one of its prototype takes with a note: it waits on Claude until
-// `question confirm` opens its confirm or `question resolve --no-change` resolves it.
-export function awaitsConfirm(q) {
-  const a = q.answers.at(-1);
-  return Boolean(a?.note.trim()) && q.state !== 'resolved' && !q.confirm_of && PROTOTYPE_URL.test(q.url || '')
-    && (q.options || []).some((o) => o.id === a.choice);
-}
-// docs/adr/0114-a-pick-with-no-note-settles-a-prototype-round.md
-// The answer that settles round n among a topic's questions (ownerQuestion views): the newest of any answer to the
-// round's confirm, a question's last answer when it picks one of its takes with no note, and the answer a
-// `--no-change` resolve covers (owner.json `no_change`, that answer's ts); undefined while none has.
+// docs/adr/0150-a-prototype-pick-is-the-builds-go.md
+// The answer that settles round n among a topic's questions (ownerQuestion views): the newest of any answer to a
+// confirm an earlier board opened and a question's last answer when it picks one of its takes, its note being the
+// build's guidance; undefined while none has.
 export function roundSettledBy(qs, n) {
-  const settles = (q, a) => q.confirm_of || q.no_change === a.ts || (!a.note.trim() && (q.options || []).some((o) => o.id === a.choice));
+  const settles = (q, a) => q.confirm_of || (q.options || []).some((o) => o.id === a.choice);
   return qs.filter((q) => roundOf(q) === n && q.answers.length).map((q) => [q, q.answers.at(-1)])
     .filter(([q, a]) => settles(q, a)).map(([, a]) => a)
     .sort((x, y) => String(x.ts).localeCompare(String(y.ts))).at(-1);
 }
-// A topic's latest round: making while a question in it is requested or awaits its confirm, closed once an answer
-// settles it, back while one of its questions is unresolved, else none.
+// A topic's latest round: making while a question in it is requested, closed once an answer settles it, back while
+// one of its questions is unresolved, else none.
 function roundState(qs) {
   const req = qs.find((q) => q.state === 'requested');
   if (req) return { n: roundOf(req) + 1, state: 'making' };
   const n = Math.max(0, ...qs.map(roundOf));
   if (!n) return null;
-  if (qs.some((q) => roundOf(q) === n && awaitsConfirm(q))) return { n, state: 'making' };
   const settled = roundSettledBy(qs, n);
   if (settled) return { n, state: 'closed', take: settled.choice };
   return qs.some((q) => roundOf(q) === n && q.state !== 'resolved') ? { n, state: 'back' } : null;
@@ -699,6 +703,8 @@ export function buildBoard(snapshot) {
       .filter((d) => d && d.lane !== 'done' && !d.reopened).map((d) => ({ key: d.key, ref: d.ref }));
     placeOwnerWait(it, questionById, autoMerge);
     if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it)) it.lane = 'progress';
+    it.unpicked = it.kind === 'work' && it.lane === 'todo' && Boolean(noTakePicked(questions, it.key));
+    if (it.unpicked && !it.action) it.next = NO_TAKE;
     it.buildable = buildableOf(it);
     it.sortAt = SORT_AT[it.lane](it) || it.updatedAt || null;
   }
@@ -874,12 +880,12 @@ export function ownerActions(built) {
 
 // docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
 // The card an owner answer to question id left ready to start: an unstarted work card, not held, that nothing blocks,
-// with no open question, no prototype pick waiting on a confirm and nothing else waiting on the owner. → its key, or null.
+// with no open question, a take picked on its prototypes and nothing else waiting on the owner. → its key, or null.
 export function startedByAnswer(built, id) {
   const q = built.owner.find((x) => x.id === id);
   const key = /^item:([^/:]+\/[^/]+)$/.exec(q?.topic || '')?.[1];
   const it = key && built.items.find((i) => i.key === key);
-  if (!it || it.kind !== 'work' || it.lane === 'done' || it.held || it.blockedBy.length || it.action || it.pr || it.pushed) return null;
+  if (!it || it.kind !== 'work' || it.lane === 'done' || it.held || it.blockedBy.length || it.action || it.unpicked || it.pr || it.pushed) return null;
   if (![null, 'planned', 'waiting'].includes(it.status) || it.agents.some((a) => !a.done)) return null;
-  return built.owner.some((x) => x.topic === q.topic && (x.state === 'open' || awaitsConfirm(x))) ? null : key;
+  return built.owner.some((x) => x.topic === q.topic && x.state === 'open') ? null : key;
 }

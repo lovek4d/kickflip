@@ -1,3 +1,7 @@
+---
+status: superseded in part by ADR-0150
+---
+
 # A confirm waits for Claude's update
 
 The owner asked on hub/INT-257 why a pick with a note opened "Is this it?" straight away: "it should only come after a selection is finalized with a note that requires confirmation". A note usually asks for a change, so the confirm the board opened at once showed the take before Claude had changed it. They wanted this enforced in code, not in the skill's wording. This amends [0111](0111-a-prototype-round-ends-with-a-one-take-confirm.md) and [0114](0114-a-pick-with-no-note-settles-a-prototype-round.md).

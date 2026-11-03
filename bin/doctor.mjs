@@ -8,7 +8,7 @@ import { cloneRoot as runningClone } from '../shared/repos.mjs';
 import { codexStatus } from '../shared/codex.mjs';
 import { REVIEW_SKILLS, SKILLS_SOURCE, addCommand, skillsState, updateCommand } from '../shared/skills.mjs';
 import { hubService, runCommand } from '../shared/service.mjs';
-import { inspectLinks, ownsStatusLine, hubStatus, tailscaleState, runInstall } from './install.mjs';
+import { inspectLinks, ownsStatusLine, hasWatcherStop, hubStatus, tailscaleState, runInstall } from './install.mjs';
 
 const FIX = 'kickflip doctor --fix';
 const MARKS = { ok: 'ok', fixable: 'fixable', yours: 'yours', optional: 'optional', note: 'note' };
@@ -87,6 +87,10 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   else if (!Object.hasOwn(settings, 'statusLine')) add(statusLine, 'fixable', 'missing', FIX);
   else if (ownsStatusLine(settings.statusLine, home)) add(statusLine, 'ok', 'runs ~/.claude/statusline.sh');
   else add(statusLine, 'yours', 'another tool’s status line is selected', `remove statusLine from ${quote(settingsFile)}, then ${FIX}`);
+  const stopHook = 'settings.json watcher Stop hook';
+  if (settingsError) add(stopHook, 'yours', `unreadable: ${settingsError}`, `repair the JSON in ${quote(settingsFile)}, then ${FIX}`);
+  else if (hasWatcherStop(settings)) add(stopHook, 'ok', 'runs hooks-plugin/hooks/watcher-stop.mjs');
+  else add(stopHook, 'fixable', 'missing; a board session can end a turn with no live watcher or a message left Working on it', FIX);
   const service = hubService({ platform, home, uid, env, run });
   const login = service.status();
   add(service.item, login.running ? 'ok' : service.manager ? 'fixable' : 'yours', login.detail, service.manager ? FIX : `run ${service.restartCommand} under a service manager of your own`);

@@ -1,5 +1,5 @@
 ---
-status: superseded in part by ADR-0116
+status: superseded in part by ADR-0116 and ADR-0150
 ---
 
 # A pick with no note settles a prototype round

@@ -1,5 +1,5 @@
 ---
-status: superseded in part by ADR-0114, ADR-0116 and ADR-0126
+status: superseded in part by ADR-0114, ADR-0116, ADR-0126 and ADR-0150
 ---
 
 # A prototype round ends with a one-take confirm

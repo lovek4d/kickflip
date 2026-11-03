@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, threadOf, needsAnswer, pullOf, owesNext, NO_NEXT } from './domain.mjs';
+import { buildBoard, threadOf, needsAnswer, pullOf, owesNext, startedByAnswer, NO_NEXT, NO_TAKE } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -258,7 +258,7 @@ test("an answer after a question was resolved reopens it, but a Done card's topi
   assert.deepEqual([closed.owner[0].state, closed.ownerTopics.find((t) => t.id === 'item:w/A1').state, closed.items.find((i) => i.key === 'w/A1').questions.state], ['answered', 'resolved', 'resolved']);
 });
 
-test("a prototype request holds its question as requested until the round arrives, and the topic's round reads making, back, making again while a noted pick waits on Claude, then closed with the take of a pick with no note, of a noted pick resolved with --no-change, or of its confirm", () => {
+test("a prototype request holds its question as requested until the round arrives, and the topic's round reads making, back, then closed with the take of a pick, with a note or none, or of a confirm already on the board", () => {
   const plain = { id: 'plain', topic: 'item:w/A1', question: 'Where does search sit?', options: [{ id: 'A', label: 'Above' }, { id: 'B', label: 'Behind an icon' }] };
   const takes = { id: 'takes', topic: 'item:w/A1', question: 'Which take?', url: 'prototype-search.html?q=takes', options: [{ id: 'A', label: 'Above' }, { id: 'B', label: 'Icon' }], round: 1, round_of: 'plain' };
   const confirm = { id: 'takes-confirm', topic: 'item:w/A1', question: 'Is this it?', url: 'prototype-search.html?q=takes-confirm', options: [{ id: 'B', label: 'Icon' }], round: 1, confirm_of: 'takes' };
@@ -286,9 +286,8 @@ test("a prototype request holds its question as requested until the round arrive
   assert.deepEqual(view(back, [answer('takes', null, '2026-10-23T12:00:00Z', 'Neither')]).round, { n: 1, state: 'back' });
   const confirming = [back[0], resolved(takes, 'Followed by Is this it?', '2026-10-23T12:00:01Z'), confirm];
   const picked = [answer('takes', 'B', '2026-10-23T12:00:00Z', 'Bigger icon')];
-  assert.deepEqual(view(back, picked), { states: [['plain', 'resolved'], ['takes', 'answered']], round: { n: 1, state: 'making' }, open: 0, requested: 0, needs: 0 });
-  assert.deepEqual(view([back[0], resolved({ ...takes, no_change: '2026-10-23T12:00:00Z' }, 'Kept.', '2026-10-23T12:30:00Z')], picked).round, { n: 1, state: 'closed', take: 'B' });
-  assert.deepEqual(view(confirming, picked).round, { n: 1, state: 'back' });
+  assert.deepEqual(view(back, picked), { states: [['plain', 'resolved'], ['takes', 'answered']], round: { n: 1, state: 'closed', take: 'B' }, open: 0, requested: 0, needs: 0 });
+  assert.deepEqual(view(confirming, []).round, { n: 1, state: 'back' });
   assert.deepEqual(view(confirming, [...picked, answer('takes-confirm', 'B', '2026-10-23T13:00:00Z')]).round, { n: 1, state: 'closed', take: 'B' });
   assert.deepEqual(view(confirming, [...picked, request('takes-confirm', '2026-10-23T13:00:00Z')]).round, { n: 2, state: 'making' });
   assert.deepEqual(view([{ ...plain, url: 'prototype-search.html?q=plain', resolved: 'Picked A', resolved_at: '2026-10-23T11:00:00Z' }], []).round, null);
@@ -629,6 +628,16 @@ test("an unstarted Todo card that waits on nothing from the owner can Build, a b
   assert.equal(one(card({ item: { held: true } })).buildable, true);
   assert.equal(one(card({ agents: runningBuilders('A1') })).buildable, false);
   assert.equal(one(card({ item: { status: 'done' } })).buildable, false);
+
+  // A prototype answer with no take picked leaves the card unready to build, saying so; a pick, note or not, makes it ready.
+  const takes = { id: 'p1', topic: 'item:w/A1', question: 'Which take?', url: 'prototype-x.html?q=p1', options: [{ id: 'A', label: 'One' }, { id: 'B', label: 'Two' }] };
+  const answer = (n, choice, note) => ({ id: `a${n}`, ts: `2026-10-23T10:0${n}:00Z`, kind: 'owner-answer', data: { id: 'p1', choice, note }, reply: null });
+  const unpicked = card({ owner: { items: [takes] }, events: [answer(1, 'A', ''), answer(2, null, 'Neither: try a darker moon')] });
+  assert.deepEqual([one(unpicked).lane, one(unpicked).buildable, one(unpicked).next, one(unpicked).action], ['todo', false, NO_TAKE, null]);
+  assert.equal(startedByAnswer(unpicked, 'p1'), null);
+  const picked = card({ owner: { items: [takes] }, events: [answer(2, null, 'Neither'), answer(3, 'B', 'but with the moon on the left')] });
+  assert.deepEqual([one(picked).buildable, one(picked).next], [true, null]);
+  assert.equal(startedByAnswer(picked, 'p1'), 'w/A1');
 
 });
 

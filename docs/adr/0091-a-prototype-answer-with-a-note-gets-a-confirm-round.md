@@ -1,5 +1,5 @@
 ---
-status: superseded in part by ADR-0111
+status: superseded in part by ADR-0111 and ADR-0150
 ---
 
 # A prototype answer with a note gets a confirm round

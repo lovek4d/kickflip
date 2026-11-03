@@ -112,7 +112,8 @@
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
 //   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull} (store.mjs readBoardSettings)
 //   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean} → board.json, keeping its other keys, and when the value moved a
-//                                `settings {<changed setting>: value}` event, which wakes Claude. → {settings, id}; a bad body → 400 {error}
+//                                `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
+//                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id}; a bad body → 400 {error}
 //   POST /api/try                {key}: forwards a card build or main retry to the hub's loopback /_hub/build
 //   GET  /api/try/main/log       {lines}: last 40 lines of main's log, from at most its last 64 KiB
 // data/try.json is the hub's run state; data/main.json holds main's published install link.
@@ -716,6 +717,8 @@ const server = http.createServer(async (req, res) => {
       let saved;
       try { saved = await saveBoardSettings(here, body); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
       const id = saved.changed.length ? await appendEvent('settings', Object.fromEntries(saved.changed.map((k) => [k, saved.settings[k]]))) : null;
+      // An approved PR merges on the session's GitHub tick once auto-merge is on (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md).
+      if (saved.changed.includes('auto_merge') && saved.settings.auto_merge) await appendEvent('check-github', { reason: 'auto-merge' });
       return json(res, 200, { settings: saved.settings, id });
     }
     if (p === '/api/arch-review' && req.method === 'POST') {

@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, ITEM_STATUSES, awaitsConfirm, mergeBlockers, modelName, ownerQuestion, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
+import { BUILD_REFUSED, ITEM_STATUSES, mergeBlockers, modelName, noTakePicked, ownerQuestion, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, builderPick } from '../shared/usage-gate.mjs';
 import { reviseQueued, flushQueue, queueStatus, readSettings, pushKindError } from '../hub/push.mjs';
@@ -1002,10 +1002,8 @@ export async function addQuestions(site, input) {
   for (const q of questions) {
     const topic = pageTopic(q.url);
     const views = items.filter((old) => old.topic === q.topic).map((old) => ownerQuestion(old, answers));
-    const waiting = waitingOnConfirm(views);
     const followed = q.topic.startsWith('item:') ? answeredOnClaude(views) : [];
     for (const old of views) {
-      if (waiting.includes(old.id)) continue;
       if (followed.includes(old.id)) {
         setResolved(owner, [old.id], `Followed by ${q.id}`, at);
         resolved.push(old.id);
@@ -1020,17 +1018,9 @@ export async function addQuestions(site, input) {
   return { file: ownerFile(site), lines: [...replaced.map((id) => `replaced: ${id}`), ...resolved.map((id) => `resolved: ${id}`)] };
 }
 
-// docs/adr/0116-a-confirm-waits-for-claudes-update.md
-// The ids among a topic's ownerQuestion views of picks with a note waiting on their confirm in a round no answer has
-// settled. Only question confirm, question resolve --no-change and closing the card resolve one.
-function waitingOnConfirm(views) {
-  return views.filter((q) => awaitsConfirm(q) && !roundSettledBy(views, roundOf(q))).map((q) => q.id);
-}
-
 // The ids of a topic's answered questions that Claude acting on the card resolves.
 function answeredOnClaude(views) {
-  const waiting = waitingOnConfirm(views);
-  return views.filter((q) => q.state === 'answered' && !waiting.includes(q.id)).map((q) => q.id);
+  return views.filter((q) => q.state === 'answered').map((q) => q.id);
 }
 
 function setResolved(owner, ids, note, at = new Date().toISOString()) {
@@ -1043,10 +1033,7 @@ async function markResolved(site, owner, ids, note) {
   return ownerFile(site);
 }
 
-// docs/adr/0116-a-confirm-waits-for-claudes-update.md
-// noChange resolves a pick with a note that needed no change to its take, recording that in the note and settling the
-// round with that answer (owner.json `no_change`).
-export async function resolveQuestion(site, id, note, { noChange = false } = {}) {
+export async function resolveQuestion(site, id, note) {
   needSite(site);
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   const q = (owner.items || []).find((x) => x.id === id);
@@ -1055,12 +1042,6 @@ export async function resolveQuestion(site, id, note, { noChange = false } = {})
   const view = ownerQuestion(q, answers);
   if (view.state === 'resolved') return ownerFile(site);
   const said = text(note, '--note');
-  if (noChange) {
-    if (!awaitsConfirm(view)) fail(`--no-change resolves a prototype question whose last answer picks a take with a note; ${id}'s doesn't`);
-    const last = view.answers.at(-1);
-    q.no_change = last.ts;
-    return markResolved(site, owner, [id], `${said} The note needed no change to take ${last.choice}.`);
-  }
   if (pageTopic(q.url)) roundSettled(owner, q, answers);
   return markResolved(site, owner, [id], said);
 }
@@ -1075,52 +1056,12 @@ export async function resolveNoteAnswer(site, { id, choice, note }) {
   await writeJSON(ownerFile(site), owner);
 }
 
-// docs/adr/0114-a-pick-with-no-note-settles-a-prototype-round.md
-// Refuses while no answer settles q's round, naming its confirm when one is open.
+// docs/adr/0150-a-prototype-pick-is-the-builds-go.md
+// Refuses while no answer settles q's round.
 function roundSettled(owner, q, answers) {
   const n = roundOf(q);
   const round = owner.items.filter((x) => x.topic === q.topic && roundOf(x) === n).map((x) => ownerQuestion(x, answers));
-  if (roundSettledBy(round, n)) return;
-  const waiting = round.find((x) => x.id === q.id && awaitsConfirm(x));
-  if (waiting) fail(`${q.id} has a pick with a note that waits on Claude: update take ${waiting.answers.at(-1).choice}, then run question confirm ${q.id}; or pass --no-change when the note needs no change to the take`);
-  const confirm = round.filter((x) => x.confirm_of).at(-1);
-  fail(confirm
-    ? `${q.id} is in prototype round ${n}, whose confirm ${confirm.id} ("Is this it?") has no answer yet; the round ends when the owner answers it`
-    : `${q.id} is in prototype round ${n}, which no pick has settled yet; a pick with no note settles it, and one with a note waits for question confirm`);
-}
-
-// docs/adr/0116-a-confirm-waits-for-claudes-update.md
-// The one-take confirm Claude opens once it has updated the take the owner picked with a note on prototype question id:
-// a new open question on the same topic and round, offering that take alone, on url's prototype (else id's). It
-// resolves id and any open confirm on the topic it replaces.
-export async function confirmQuestion(site, id, url) {
-  needSite(site);
-  const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
-  const items = owner.items || [];
-  const found = items.find((x) => x.id === id);
-  if (!found) fail(`no question "${id}" in owner.json`);
-  const q = ownerQuestion(found, await ownerAnswers(site));
-  const stale = items.filter((x) => x.topic === q.topic && x.confirm_of && !x.resolved).map((x) => x.id);
-  const last = q.answers.at(-1);
-  const take = q.options.find((o) => o.id === last?.choice);
-  if (!pageTopic(q.url) || q.confirm_of || !take || !last.note.trim()) fail(`${id} has no pick with a note on a prototype question's take to confirm; question confirm follows one`);
-  if (q.state === 'resolved' && !items.some((x) => x.confirm_of === id && !x.resolved)) fail(`${id} is resolved (${q.resolved}); question confirm opens a confirm only on a question still waiting on Claude`);
-  const page = (url === undefined ? q.url : text(url, '--url')).split(/[?#]/)[0];
-  if (!pageTopic(page)) fail(`--url must name a recorded prototype page, prototype-<topic>.html, not "${url}"`);
-  const taken = new Set(items.map((x) => x.id));
-  let cid = `${id}-confirm`;
-  for (let i = 2; taken.has(cid); i++) cid = `${id}-confirm-${i}`;
-  const n = roundOf(q);
-  const confirm = { id: cid, topic: q.topic, source: `Prototype round ${n} · confirm`, question: 'Is this it?',
-    context: `Take ${take.id}, “${take.label}”. Send to keep it, or ask for another prototype.`,
-    url: `${page}?q=${encodeURIComponent(cid)}`, options: [{ id: take.id, label: take.label }], round: n, confirm_of: id };
-  await checkPrototype(site, confirm, `confirm ${cid}`);
-  const at = new Date().toISOString();
-  setResolved(owner, stale, `Replaced by ${cid}`, at);
-  setResolved(owner, [id], 'Followed by Is this it?', at);
-  const written = { ...owner, topics: owner.topics || [], items: [...items, confirm] };
-  await writeJSON(ownerFile(site), written);
-  return { file: ownerFile(site), lines: [`confirm: ${cid}`, ...stale.map((x) => `replaced: ${x}`), ...(q.state === 'resolved' ? [] : [`resolved: ${id}`])] };
+  if (!roundSettledBy(round, n)) fail(`${q.id} is in prototype round ${n}, which no pick has settled yet; a pick settles it`);
 }
 
 async function ownerAnswers(site) {
@@ -1170,27 +1111,12 @@ export async function checkClose(site, key, said) {
   await closeQuestions(needSite(site), key, 'land', false);
 }
 
-// docs/adr/0091-a-prototype-answer-with-a-note-gets-a-confirm-round.md
-// → {id, note} of the newest owner answer to the card's questions that link a prototype page, when it has a note; else null.
-async function unconfirmedPrototype(site, key) {
+// docs/adr/0150-a-prototype-pick-is-the-builds-go.md
+// The card's noTakePicked, from owner.json and the owner's answers. → {id, note}, or null.
+async function unpickedPrototype(site, key) {
   const owner = await readJSON(ownerFile(site), { items: [] });
-  const ids = new Set((owner.items || []).filter((q) => q.topic === `item:${key}` && pageTopic(q.url)).map((q) => q.id));
-  const last = (await readLines(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'owner-answer' && ids.has(e.data?.id)).at(-1);
-  const note = String(last?.data?.note || '').replace(/\s+/g, ' ').trim();
-  return note ? { id: last.data.id, note } : null;
-}
-
-// → the thread line --confirmed writes once the card builds, or null; refuses a start the gate holds.
-async function confirmGate(site, key, confirmed) {
-  const open = site ? await unconfirmedPrototype(site, key) : null;
-  if (confirmed === undefined) {
-    if (open) fail(`${key} waits on a confirm round: the owner's answer to ${open.id} has a note ("${clip(open.note)}"); post the final version with prototype add and question add, or pass --confirmed "<the owner's words>" when that note says go`);
-    return null;
-  }
-  const words = text(confirmed, '--confirmed').replace(/\s+/g, ' ');
-  if (!open) fail(`${key} has no prototype answer with a note to confirm; drop --confirmed`);
-  if (!open.note.toLowerCase().includes(words.toLowerCase())) fail(`--confirmed must quote the owner's note on ${open.id}: "${clip(open.note)}"`);
-  return `Building on the owner's go in their answer to ${open.id}: "${words}"`;
+  const answers = await ownerAnswers(site);
+  return noTakePicked((owner.items || []).map((q) => ownerQuestion(q, answers)), key);
 }
 const clip = (s) => (s.length > 120 ? `${s.slice(0, 119)}…` : s);
 
@@ -1319,9 +1245,8 @@ function closingLine(site, key, item, status, text) {
 // (done, merged, dropped) adds a `resolved: <id>` line per question it resolved (closeQuestions).
 // notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`. text is the closing line
 // (closingLine), or with fromAsk the item's first thread line.
-async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, held, unheld, pickUpAt, notesFile, deps, install, installSha, installLabel, clearInstall, title, force, confirmed, text: said, who }, options) {
+async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, held, unheld, pickUpAt, notesFile, deps, install, installSha, installLabel, clearInstall, title, force, text: said, who }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
-  if (confirmed !== undefined && status !== 'building') fail('--confirmed goes with --status building');
   if (force && !FINISHED.includes(status)) fail(`--force goes with --status ${FINISHED.join(', ')}`);
   if (fromAsk !== undefined && FINISHED.includes(status)) fail('--from-ask opens a card; close it in another call');
   if (said !== undefined) text(said, '--text');
@@ -1358,7 +1283,8 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   }
   // docs/adr/0145-build-on-a-blocked-card-queues-it.md: a build that starts, or a card that closes, ends its queued build.
   if (status === 'building' || FINISHED.includes(status)) delete item.queued_at;
-  const confirmLine = status === 'building' ? await confirmGate(site, key, confirmed) : null;
+  const unpicked = status === 'building' && site ? await unpickedPrototype(site, key) : null;
+  if (unpicked) fail(`${key} has no take picked: the owner's answer to ${unpicked.id} picks none${unpicked.note ? ` ("${clip(unpicked.note)}")` : ''}; act on its note, with another prototype round when it asks for one, and build once a take is picked`);
   const resolve = FINISHED.includes(status) ? await closeQuestions(site, key, `--status ${status}`, force) : async () => [];
   const lastLine = FINISHED.includes(status) ? closingLine(site, key, { ...item, status: statusBefore }, status, said) : null;
   if (clearStatus) delete item.status;
@@ -1397,7 +1323,6 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   // docs/adr/0095-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   if (notesFile !== undefined) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
   if (status === 'building') resolved.push(...await resolveAnswered(site, key, 'Acted on: build started'));
-  if (confirmLine) resolved.push(...(await appendThread(site, key, { text: confirmLine })).lines);
   if (ask) resolved.push(...(await appendThread(site, key, { text: said })).lines);
   if (lastLine && site) resolved.push(...(await appendThread(site, key, { text: lastLine, who })).lines);
   if (mcpLine) resolved.push(mcpLine);
@@ -1861,13 +1786,13 @@ async function statusToThread(site, key, agent = 'main', builder, { phase, detai
 
 // worktree, when given, makes the builder's worktree once every flag has passed (board/worktree.mjs makeWorktree) and
 // returns {path, branch, repo}, which the record keeps for `board.mjs land`. A build (--kind build, claude or codex) on an
-// open card marks it building first, refusing what item set --status building refuses, confirmed included
+// open card marks it building first, refusing what item set --status building refuses
 // (docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
 // tapped marks a record the owner's Build tap started (startTappedBuild). A builder's own start on that open record
 // takes it up: --kind build keeps the tap's kind, the worktree stays, and the record starts again at now, no longer
 // tapped (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md).
 // → {file, lines, kind, reason, worktree}: reason is the pick's, worktree the path or null.
-export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, model, eta, worktree, confirmed, tapped }) {
+export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, model, eta, worktree, tapped }) {
   const gate = readUsageGate();
   if (gate.state === 'paused') throw new BoardError(pauseReason(gate));
   if (phase !== undefined && progress === undefined) fail('--phase goes with --progress "<detail>"');
@@ -1884,7 +1809,6 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const takeUp = before?.tapped && !before.done ? before : null;
   const pick = takeUp && asked === 'build' ? { kind: providerOf(takeUp.kind), model: takeUp.model, reason: "The owner's Build tap picked it." } : build ? builderPick() : null;
   if (pick && asked !== 'build' && asked !== pick.kind) fail(`--kind ${asked}: ${pick.kind} builds now. ${pick.reason} Pass --kind ${pick.kind}, or --kind build.`);
-  if (confirmed !== undefined && !build) fail('--confirmed goes with a build: --kind build, claude or codex');
   const k = pick ? pick.kind : asked;
   if (model !== undefined && !['opus', 'sonnet'].includes(model)) fail('--model takes opus or sonnet');
   if (askedModel !== undefined && k === 'codex') fail('--model is for kind claude; codex needs none');
@@ -1895,7 +1819,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   };
   const was = build && !dir ? (await loadItem(site, key)).item : undefined;
   const marking = build && !dir && ![...FINISHED, 'building', 'fixing'].includes(was.status);
-  const marked = marking ? await setItem(site, key, { status: 'building', confirmed }) : { lines: [] };
+  const marked = marking ? await setItem(site, key, { status: 'building' }) : { lines: [] };
   let wt;
   try { wt = worktree ? await worktree() : takeUp?.worktree ?? null; } catch (e) {
     // A worktree that can't be made leaves the card unstarted, as it was.
@@ -1949,7 +1873,7 @@ async function tapRefusals(site, key) {
   const { item } = await loadItem(site, key);
   const held = item.held || item.status === 'held' ? { held: item.held, status: item.status, pick_up_at: item.pick_up_at, held_at: item.held_at } : null;
   if (held && item.status && item.status !== 'held') fail("it's held. Unhold it, then tap Build.");
-  if (await unconfirmedPrototype(site, key)) fail("your prototype pick has a note, so Claude posts the final version for your confirm first.");
+  if (await unpickedPrototype(site, key)) fail('no take is picked on its prototypes. Pick one, then tap Build.');
   const blockers = await Promise.all((await unfinishedDeps(site, parseKey(key).wave, item)).map((k) => cardName(site, k)));
   return { held, blockers };
 }

@@ -52,8 +52,7 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          danger|success, to the next row's box indexes (default all); practice: ["<line>", …]
          A prototype url's topic must be recorded (prototype add), its option ids a non-empty subset of the
          take keys in take order, without repeats, and every take file written; a hand-written prototype-*.html
-         is refused. A pick with a note waiting on question confirm stays as it is until an answer settles
-         its round. On an item: topic, each other question answered and still waiting on Claude is
+         is refused. On an item: topic, each other question answered and still waiting on Claude is
          resolved, noting "Followed by <new id>", and printed as "resolved: <old id>". Any other unresolved
          question on the same topic that links the same prototype is resolved, noting "Replaced by <new id>",
          and printed as "replaced: <old id>". round_of names the question on the same topic whose
@@ -61,17 +60,10 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          number, and resolves that one, noting "Followed by prototype round N".
          The board server pushes the new open questions itself, under the card's tag (item-<wave>/<id>, or
          ask-<eventId>) or topic-<topic> off the cards
-  question resolve <id> --note <text> [--no-change]      sets resolved and resolved_at; refuses a question on a
-         prototype page until an answer settles its round: a pick with no note, or any answer to the
-         "Is this it?" confirm that question confirm opens. A pick with a note waits on you: update the
-         take, then run question confirm, or pass --no-change when the note needs no change to the take,
-         which says so in the note and settles the round. A question already resolved, such as one an
+  question resolve <id> --note <text>                   sets resolved and resolved_at; refuses a question on a
+         prototype page until an answer settles its round: a pick, with a note or none, or an answer to
+         an "Is this it?" confirm already on the board. A question already resolved, such as one an
          answer with a note and no option resolved, is left as it is
-  question confirm <id> [--url <prototype page>]         opens the one-take "Is this it?" confirm on the take the
-         owner picked with a note on prototype question <id>, once you have updated that take: same topic
-         and round, on --url's recorded prototype-<topic>.html (else <id>'s), whose take files must exist.
-         It resolves <id>, noting "Followed by Is this it?", and replaces an open confirm on the topic. The board
-         server pushes the confirm as it pushes any new question
   prototype add <topic> --title <t> --take <K>:<label>   records a prototype in data/prototypes.json: the board
          [--take <K>:<label> …] [--card <wave>/<id>]     serves prototype-<topic>.html from its one template, with
                                                          the title, a back arrow to --card (else the board), the
@@ -120,9 +112,7 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          or without one the item's short notes text. --plan is an
                                                          alias. Resolves answered questions still waiting on
                                                          Claude, noting "Recorded in the card's notes", and
-                                                         prints "resolved: <id>" for each, except a pick with a
-                                                         note waiting on question confirm in a round no answer
-                                                         has settled
+                                                         prints "resolved: <id>" for each
          [--deps <id>,<wave>/<id>]                       replaces its blocked-by list; --deps "" clears it
          [--install <url> [--install-sha <sha>]          a device build the owner installs from the card's Install
           [--install-label <text>] | --clear-install]    button, stamped built_at now: itms-services://?action=
@@ -136,10 +126,8 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          builder start for a build sets building itself. --status building resolves the card's answered
          questions, noting "Acted on: build started".
          --status building refuses while the item is held or a dep isn't done, merged or dropped,
-         and while the newest owner answer to its questions that link a prototype-*.html page has a
-         note: post the final version with prototype add and question add first.
-         [--confirmed "<owner's words>"] passes when that note itself says go: the words must quote
-         it, and they go in a thread line on the card;
+         and while the newest owner answer to its questions that link a prototype-*.html page picks
+         no take; a pick's note is the build's guidance;
          done, merged and dropped print "unblocked: <wave>/<id>" and append card-unblocked {key}
          once per unblocking, including held cards: start each unheld card next.
          building and fixing count as working only while a builder record on the card is open.
@@ -289,8 +277,7 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          that tap's kind and worktree.
                                                          A build (--kind build, claude or codex) on an open card sets
                                                          --status building first, refusing what that refuses;
-         [--confirmed "<owner's words>"]                 --confirmed passes its noted-pick gate. Prints "ref: <ref>",
-                                                         the card's label, which commit subjects start with.
+                                                         Prints "ref: <ref>", the card's label, which commit subjects start with.
                                                          Resolves the card's answered questions, noting "Acted on:
                                                          builder started"
          [--worktree [--repo <dir>]]                     --worktree: a git worktree for the builder at
@@ -368,7 +355,7 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          KICKFLIP_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/kickflip.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
-const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree', 'dry-run', 'no-change']);
+const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree', 'dry-run']);
 const REPEATED = new Set(['take']);
 function parse(argv) {
   const flags = Object.create(null);
@@ -446,14 +433,13 @@ const COMMANDS = {
     const input = readJSONInput(f.file);
     return { ...(await store.addQuestions(site, input)), asked: [input].flat() };
   }],
-  'question resolve': [['id'], ['note', 'no-change'], (site, [id], f) => store.resolveQuestion(site, id, f.note, { noChange: f['no-change'] })],
-  'question confirm': [['id'], ['url'], (site, [id], f) => store.confirmQuestion(site, id, f.url)],
+  'question resolve': [['id'], ['note'], (site, [id], f) => store.resolveQuestion(site, id, f.note)],
   'prototype add': [['topic'], ['title', 'take', 'card'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take })],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'pushed', 'gh-since', 'from-ask', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force', 'ticket', 'confirmed', 'text'], (site, [key], f, options) =>
+  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'pushed', 'gh-since', 'from-ask', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force', 'ticket', 'text'], (site, [key], f, options) =>
     store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps,
-      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, force: f.force, ticket: f.ticket, confirmed: f.confirmed, text: f.text }, options)],
+      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, force: f.force, ticket: f.ticket, text: f.text }, options)],
   'item add': [['wave[/id]'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket, pickUpAt: f['pick-up-at'] }, options)],
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
   'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],
@@ -515,7 +501,7 @@ const COMMANDS = {
   }],
   'main set': [[], ['install', 'install-sha'], (site, _, f) => store.setMainInstall(site, { install: f.install, installSha: f['install-sha'] })],
   'settings set': [['name', 'value'], [], (site, [name, value]) => store.setBoardSetting(site, name, value)],
-  'builder start': [['wave/id'], ['label', 'phase', 'progress', 'dir', 'agent', 'kind', 'model', 'eta', 'worktree', 'repo', 'confirmed'], (site, [key], { worktree, repo, ...f }) => {
+  'builder start': [['wave/id'], ['label', 'phase', 'progress', 'dir', 'agent', 'kind', 'model', 'eta', 'worktree', 'repo'], (site, [key], { worktree, repo, ...f }) => {
     if (repo !== undefined && !worktree) throw new UsageError('--repo goes with --worktree');
     return store.startBuilder(site, key, { ...f, worktree: worktree && (() => boardWorktree(site, key.split('/')[1], { repo })) });
   }],
@@ -584,7 +570,6 @@ const SAID = {
     return `${plural(asked.map((q) => q.id), 'question')} added${on}`;
   },
   'question resolve': (site, [id]) => `question ${id} resolved`,
-  'question confirm': (site, [id]) => `"Is this it?" confirm opened on question ${id}`,
   'prototype add': async (site, [topic], f) => `prototype ${topic} recorded${f.card ? ` for ${await card(site, f.card)}` : ''}`,
   'prototype rm': (site, [topic]) => `prototype ${topic} removed`,
   'item set': async (site, [key], f) => `${await card(site, key)}: ${itemChanges(f)}`,

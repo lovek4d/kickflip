@@ -157,8 +157,9 @@ export function restartRunner(what, route) {
 
 // Brings a checked worktree's branch into the live repo's main, saying each step: refuses while the worktree has
 // uncommitted changes or the branch adds nothing; rebases it onto main when main moved, refusing on a conflict with
-// the rebase undone; runs the worktree's full suite; fast-forwards main; restarts the hub when its code changed,
-// else the board servers when board/ changed (a hub restart restarts every site); removes the worktree and branch.
+// the rebase undone; runs the worktree's full suite; fast-forwards main; when repo is the running kickflip clone,
+// restarts the hub when its code changed, else the board servers when board/ changed (a hub restart restarts every
+// site), test files aside; removes the worktree and branch.
 // Never pushes. A restart that fails is reported after the rest is done.
 // One land at a time on the host, since a land can restart the hub and every board server: ~/.claude/kickflip/land.lock
 // {card, pid, at} names the card landing. A lock whose process is gone is taken over.
@@ -198,7 +199,7 @@ function refuseDuplicateAdr(dir) {
   fail(`land: docs/adr has two ADRs numbered ${number} (${files.join(', ')}); renumber yours to ${next} and land again`);
 }
 
-export function land({ path: dir, branch, repo }, { say = console.log, runTests = nodeTests, restart = restartRunner, boards = () => listBoards() } = {}) {
+export function land({ path: dir, branch, repo }, { say = console.log, runTests = nodeTests, restart = restartRunner, boards = () => listBoards(), clone = skillRepo() } = {}) {
   if (!fs.existsSync(dir)) fail(`no worktree at ${dir}`);
   const head = git(repo, 'symbolic-ref', '--quiet', '--short', 'HEAD').out;
   if (head !== 'main') fail(`${repo} is on ${head || 'a detached HEAD'}, not main; land fast-forwards main there`);
@@ -230,11 +231,13 @@ export function land({ path: dir, branch, repo }, { say = console.log, runTests 
   say(`main fast-forwarded to ${short(repo, 'main')} in ${repo}`);
 
   const failed = [];
-  const hubFiles = new Set(hubCode(path.join(repo, 'hub', 'hub.mjs')).files);
-  if (changed.some((f) => f.startsWith('hub/') || hubFiles.has(f))) {
+  // Only the running kickflip clone's code runs in the hub and the board servers, and no test file runs in either.
+  const running = fs.realpathSync(repo) === fs.realpathSync(clone) ? changed.filter((f) => !/\.test\.mjs$/.test(f)) : [];
+  const hubFiles = new Set(running.length ? hubCode(path.join(repo, 'hub', 'hub.mjs')).files : []);
+  if (running.some((f) => f.startsWith('hub/') || hubFiles.has(f))) {
     const err = restart('hub');
     if (err) failed.push(`the hub didn't restart (${err})`); else say('hub restarted, with every site');
-  } else if (changed.some((f) => f.startsWith('board/'))) {
+  } else if (running.some((f) => f.startsWith('board/'))) {
     for (const b of boards()) {
       const err = restart('board', b.route);
       if (err) failed.push(`/${b.route} didn't restart (${err})`); else say(`board restarted: ${b.route}`);

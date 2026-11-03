@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { startFakeDevice } from '../hub/fake-device.mjs';
 import { freePorts, fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
 import http from 'node:http';
+import { land as landWorktree } from './worktree.mjs';
 import { fakeGh, prView, writePR, writeIssueComments, writeReviews, writeMerge, writeUser, writeAccounts, calls, tokens } from '../shared/fake-gh.mjs';
 
 const bin = (name) => path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', name);
@@ -677,20 +678,15 @@ test('prototype rm refuses while an open question links the prototype', () => {
   assert.equal(board('prototype', 'rm', 'site', '--site', 'orch').code, 0);
 });
 
-test("question resolve refuses a prototype question until its round settles: a pick with no note, or --no-change on a pick with a note, which says so in the note; and leaves one a note resolved as it is", () => {
+test("question resolve refuses a prototype question until a pick settles its round, a pick with a note included, and leaves one a note resolved as it is", () => {
   recordPrototype();
   assert.equal(addPrototypeQuestion().code, 0);
   const file = site('orch', 'data', 'owner.json');
   const fresh = read(file);
   const resolve = (id, ...more) => board('question', 'resolve', id, '--site', 'orch', '--note', 'Picked A.', ...more);
-  assert.deepEqual(resolve('q1'), { code: 1, out: '', err: 'q1 is in prototype round 1, which no pick has settled yet; a pick with no note settles it, and one with a note waits for question confirm\n' });
-  const notNoted = { code: 1, out: '', err: "--no-change resolves a prototype question whose last answer picks a take with a note; q1's doesn't\n" };
-  assert.deepEqual(resolve('q1', '--no-change'), notNoted);
+  assert.deepEqual(resolve('q1'), { code: 1, out: '', err: 'q1 is in prototype round 1, which no pick has settled yet; a pick settles it\n' });
+  assert.equal(resolve('q1', '--no-change').code, 2);
   addEvents({ id: 'answer-q1-noted', ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A', note: 'Bigger' } });
-  const waits = { code: 1, out: '', err: 'q1 has a pick with a note that waits on Claude: update take A, then run question confirm q1; or pass --no-change when the note needs no change to the take\n' };
-  assert.deepEqual(resolve('q1'), waits);
-  addEvents({ id: 'answer-q1', ts: '2026-10-23T10:30:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A', note: '' } });
-  assert.deepEqual(resolve('q1', '--no-change'), notNoted);
   assert.equal(resolve('q1').code, 0);
   assert.equal(read(file).items[0].resolved, 'Picked A.');
   addEvents({ id: 'answer-q1-note', ts: '2026-10-23T10:40:00Z', kind: 'owner-answer', data: { id: 'q1', choice: null, note: 'Make it blue' } });
@@ -698,43 +694,6 @@ test("question resolve refuses a prototype question until its round settles: a p
   write(file, noted);
   assert.equal(resolve('q1').code, 0);
   assert.deepEqual(read(file), noted);
-  write(file, fresh);
-  addEvents({ id: 'answer-q1-again', ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A', note: 'Bigger still' } });
-  assert.deepEqual(resolve('q1'), waits);
-  assert.equal(resolve('q1', '--no-change').code, 0);
-  const [q] = read(file).items;
-  assert.deepEqual([q.resolved, q.no_change], ['Picked A. The note needed no change to take A.', '2026-10-23T11:00:00Z']);
-});
-
-test('question confirm opens the one-take confirm on a pick with a note, on its own or another recorded prototype, replacing an open one, and question resolve waits on its answer', () => {
-  recordPrototype();
-  recordPrototype('site-two');
-  assert.equal(addPrototypeQuestion().code, 0);
-  const file = site('orch', 'data', 'owner.json');
-  const confirm = (...more) => board('question', 'confirm', 'q1', '--site', 'orch', ...more);
-  const refused = (err, ...more) => assert.deepEqual(confirm(...more), { code: 1, out: '', err: err + '\n' });
-  refused("q1 has no pick with a note on a prototype question's take to confirm; question confirm follows one");
-  addEvents({ id: 'answer-q1-plain', ts: '2026-10-23T09:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'B', note: '' } });
-  refused("q1 has no pick with a note on a prototype question's take to confirm; question confirm follows one");
-  addEvents({ id: 'answer-q1', ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'B', note: 'Bigger' } });
-  refused('--url must name a recorded prototype page, prototype-<topic>.html, not "https://example.com/x"', '--url', 'https://example.com/x');
-  refused('confirm q1-confirm.url names prototype-nope.html, which is not a recorded prototype; record it with board.mjs prototype add nope --title "…" --take A:"…", then write its take files', '--url', 'prototype-nope.html');
-  assert.deepEqual(read(file).items.map((q) => q.id), ['q1']);
-
-  assert.deepEqual(confirm(), { code: 0, err: '', out: ['"Is this it?" confirm opened on question q1', 'confirm: q1-confirm', 'resolved: q1', ''].join('\n') });
-  const [asked, opened] = read(file).items;
-  assert.equal(asked.resolved, 'Followed by Is this it?');
-  assert.deepEqual(opened, { id: 'q1-confirm', topic: 'site', source: 'Prototype round 1 · confirm', question: 'Is this it?',
-    context: 'Take B, “Drop”. Send to keep it, or ask for another prototype.', url: 'prototype-site.html?q=q1-confirm', options: [{ id: 'B', label: 'Drop' }], round: 1, confirm_of: 'q1' });
-
-  assert.deepEqual(confirm('--url', 'prototype-site-two.html'), { code: 0, err: '', out: ['"Is this it?" confirm opened on question q1', 'confirm: q1-confirm-2', 'replaced: q1-confirm', ''].join('\n') });
-  const items = read(file).items;
-  assert.deepEqual(items.map((q) => [q.id, q.url, q.resolved ?? null]), [['q1', 'prototype-site.html?q=q1', 'Followed by Is this it?'],
-    ['q1-confirm', 'prototype-site.html?q=q1-confirm', 'Replaced by q1-confirm-2'], ['q1-confirm-2', 'prototype-site-two.html?q=q1-confirm-2', null]]);
-  const resolve = () => board('question', 'resolve', 'q1-confirm-2', '--site', 'orch', '--note', 'Kept B.');
-  assert.deepEqual(resolve(), { code: 1, out: '', err: 'q1-confirm-2 is in prototype round 1, whose confirm q1-confirm-2 ("Is this it?") has no answer yet; the round ends when the owner answers it\n' });
-  addEvents({ id: 'answer-q1-confirm-2', ts: '2026-10-23T12:00:00Z', kind: 'owner-answer', data: { id: 'q1-confirm-2', choice: 'B' } });
-  assert.equal(resolve().code, 0);
 });
 
 test('question add with round_of starts the next prototype round on the question it answers, resolving that one as followed by the round', () => {
@@ -761,7 +720,7 @@ test('question add with round_of starts the next prototype round on the question
     ['plain', null, 'Followed by prototype round 1'], ['r1', 1, null], ['r1-confirm', 1, 'Followed by prototype round 2'], ['r2', 2, null]]);
 });
 
-test('question add leaves a pick with a note waiting on its confirm until its round settles, then follows it', () => {
+test('question add follows a pick with a note as it follows any answered question on the card', () => {
   recordPrototype();
   const file = site('orch', 'data', 'owner.json');
   const add = (id) => addPrototypeQuestion(`prototype-site.html?q=${id}`, { id, topic: 'item:w/A1' });
@@ -769,13 +728,8 @@ test('question add leaves a pick with a note waiting on its confirm until its ro
   addEvents({ id: 'answer-q1', ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A', note: 'Bigger' } });
   const second = add('q2');
   assert.equal(second.code, 0, second.err);
-  assert.deepEqual(second.out.trim().split('\n').slice(1), []);
-  assert.equal(read(file).items.find((q) => q.id === 'q1').resolved, undefined);
-  addEvents({ id: 'answer-q2', ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id: 'q2', choice: 'B', note: '' } });
-  const third = add('q3');
-  assert.equal(third.code, 0, third.err);
-  assert.deepEqual(third.out.trim().split('\n').slice(1), ['resolved: q1', 'resolved: q2']);
-  assert.deepEqual(read(file).items.map((q) => q.resolved ?? null), ['Followed by q3', 'Followed by q3', null]);
+  assert.deepEqual(second.out.trim().split('\n').slice(1), ['resolved: q1']);
+  assert.deepEqual(read(file).items.map((q) => q.resolved ?? null), ['Followed by q2', null]);
 });
 
 test('question add refuses a prototype url missing or with the wrong ?q=', () => {
@@ -1017,7 +971,7 @@ test('item set --notes-file, or its alias --plan, names a notes file inside the 
   assert.equal(read(at('waves', 'w', 'wave.json')).items.at(-1).plan, 'A1-notes.md');
 });
 
-test('item set notes leaves a pick with a note waiting on its confirm, which question confirm then follows', () => {
+test("item set notes resolves a prototype pick with a note, whose note is the build's guidance", () => {
   recordPrototype();
   write(at('waves', 'w', 'notes.md'), '# Picked A');
   const file = site('orch', 'data', 'owner.json');
@@ -1025,11 +979,9 @@ test('item set notes leaves a pick with a note waiting on its confirm, which que
   addEvents({ id: 'answer-q1', ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A', note: 'Bigger' } });
   const r = board('item', 'set', 'w/A1', '--site', 'orch', '--notes-file', 'notes.md');
   assert.equal(r.code, 0, r.err);
-  assert.deepEqual(r.out.trim().split('\n').slice(1), []);
-  assert.equal(read(file).items[0].resolved, undefined);
-  const confirm = board('question', 'confirm', 'q1', '--site', 'orch');
-  assert.equal(confirm.code, 0, confirm.err);
-  assert.deepEqual(confirm.out.trim().split('\n').slice(1), ['confirm: q1-confirm', 'resolved: q1']);
+  assert.deepEqual(r.out.trim().split('\n').slice(1), ['resolved: q1']);
+  assert.equal(read(file).items[0].resolved, "Recorded in the card's notes");
+  assert.equal(board('question', 'confirm', 'q1', '--site', 'orch').code, 2);
 });
 
 test("item set notes resolves only answered questions, and closing in the same call resolves each question once", () => {
@@ -1309,7 +1261,6 @@ test('builder pick names the kind that builds now, builder start refuses the oth
   assert.equal(blocked.code, 1);
   assert.match(blocked.err, /A1/);
   assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A2.json')), false);
-  assert.match(noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'review', '--confirmed', 'go').err, /--confirmed goes with a build/);
 });
 
 const git = (cwd, ...args) => {
@@ -1521,10 +1472,11 @@ test("a local board, or one with no GitHub repo or git remote, branches from its
   assert.equal(fs.readFileSync(path.join(project, 'card.txt'), 'utf8'), 'card');
 });
 
-test('land rebases onto a moved main, fast-forwards main, restarts only what changed, and removes the worktree and branch', () => {
+test('land rebases onto a moved main, fast-forwards main, and removes the worktree and branch; a repo other than the running kickflip clone restarts nothing', () => {
   const repo = scratchRepo();
   assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
   commit(worktree(), 'board/server.mjs', '2\n');
+  commit(worktree(), 'hub/hub.mjs', "import { a } from '../shared/lib.mjs';\n// 2\n");
   commit(repo, 'shared/notes.md', 'b\n');
   const moved = git(repo, 'rev-parse', '--short', 'main');
   const r = land();
@@ -1532,26 +1484,39 @@ test('land rebases onto a moved main, fast-forwards main, restarts only what cha
   const main = git(repo, 'rev-parse', '--short', 'main');
   assert.deepEqual(r.out.trim().split('\n'), [
     `rebased A1 onto main (${moved})`, 'tests passed: 1', `main fast-forwarded to ${main} in ${repo}`,
-    'board restarted: orch', 'board restarted: audit', `worktree removed: ${worktree()}`, 'branch deleted: A1',
+    `worktree removed: ${worktree()}`, 'branch deleted: A1',
   ]);
-  assert.equal(git(repo, 'rev-parse', 'main~1'), git(repo, 'rev-parse', moved));
+  assert.equal(git(repo, 'rev-parse', 'main~2'), git(repo, 'rev-parse', moved));
   assert.equal(fs.readFileSync(path.join(repo, 'board', 'server.mjs'), 'utf8'), '2\n');
-  assert.deepEqual(restarts(), ['board orch', 'board audit']);
+  assert.deepEqual(restarts(), []);
   assert.equal(fs.existsSync(worktree()), false);
   assert.deepEqual(branches(repo), ['main']);
+});
 
-  assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
-  commit(worktree(), 'shared/lib.mjs', 'export const a = 2;\n');
-  commit(worktree(), 'board/server.mjs', '3\n');
-  assert.equal(land().code, 0);
-  assert.deepEqual(restarts(), ['board orch', 'board audit', 'hub']);
-
-  assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
-  commit(worktree(), 'shared/notes.md', 'c\n');
-  const docs = land();
-  assert.equal(docs.code, 0, docs.err);
-  assert.doesNotMatch(docs.out, /restarted/);
-  assert.deepEqual(restarts(), ['board orch', 'board audit', 'hub']);
+test("land into the running kickflip clone restarts only the code that changed: the hub for its code, else every board for board/, nothing for tests or docs", () => {
+  const repo = scratchRepo();
+  const restarted = [];
+  const landHere = () => {
+    const said = [];
+    landWorktree({ path: worktree(), branch: 'A1', repo }, {
+      clone: repo, say: (line) => said.push(line), runTests: () => ({ ok: true, pass: 1 }),
+      restart: (what, route) => { restarted.push([what, route].filter(Boolean).join(' ')); return null; },
+      boards: () => [{ route: 'orch' }, { route: 'audit' }],
+    });
+    return said;
+  };
+  const card = (...files) => {
+    assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+    for (const [file, text] of files) commit(worktree(), file, text);
+    return landHere();
+  };
+  assert.ok(card(['board/server.mjs', '2\n']).includes('board restarted: audit'));
+  assert.deepEqual(restarted, ['board orch', 'board audit']);
+  assert.ok(card(['shared/lib.mjs', 'export const a = 2;\n'], ['board/server.mjs', '3\n']).includes('hub restarted, with every site'));
+  assert.deepEqual(restarted, ['board orch', 'board audit', 'hub']);
+  const tests = card(['hub/hub.test.mjs', '// t\n'], ['board/server.test.mjs', '// t\n'], ['shared/notes.md', 'c\n']);
+  assert.equal(tests.some((line) => /restarted/.test(line)), false);
+  assert.deepEqual(restarted, ['board orch', 'board audit', 'hub']);
 });
 
 test('land on --site needs --text, refuses before landing what closing would refuse, and closes the card as done once it lands', () => {
@@ -1988,43 +1953,31 @@ test('--pick-up-at holds a card until a time, read as local time without an offs
   assert.deepEqual([item('A2').status, item('A2').held, item('A2').pick_up_at], ['planned', true, nine]);
 });
 
-test('item set --status building waits on a confirm round after a prototype answer with a note, until a clean answer or --confirmed quoting the note', () => {
+test("item set --status building takes a prototype pick's note as guidance, and refuses while the newest answer to the card's prototypes picks no take", () => {
   const card = (id, url, extra = {}) => question(id, { topic: 'item:w/A1', ...(url ? { url: `${url}?q=${id}` } : {}), ...extra });
   write(site('orch', 'data', 'owner.json'), { topics: [{ id: 'site', title: 'Site' }], items: [
     card('q1', 'prototype-old.html'), card('q2', 'prototype-old.html'), card('q3', ''), card('q4', 'prototype-old.html', { topic: 'site' }),
   ] });
   let n = 0;
-  const answer = (id, note) => addEvents({ id: `a${++n}`, ts: `2026-11-01T10:${String(n).padStart(2, '0')}:00Z`, kind: 'owner-answer', data: { id, choice: 'A', ...(note === undefined ? {} : { note }) } });
+  const answer = (id, choice, note) => addEvents({ id: `a${++n}`, ts: `2026-11-01T10:${String(n).padStart(2, '0')}:00Z`, kind: 'owner-answer', data: { id, ...(choice ? { choice } : {}), ...(note === undefined ? {} : { note }) } });
   const start = (...extra) => board('item', 'set', 'w/A1', '--status', 'building', '--site', 'orch', ...extra);
   const status = () => read(at('waves', 'w', 'wave.json')).items[0].status;
-  const thread = () => (fs.existsSync(site('orch', 'data', 'threads', 'w__A1.jsonl')) ? lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map((m) => m.text) : []);
 
-  answer('q1', 'B, but with the moon on the left');
-  answer('q3', '');
-  answer('q4', '');
-  assert.deepEqual(start(), { code: 1, out: '', err: 'w/A1 waits on a confirm round: the owner\'s answer to q1 has a note ("B, but with the moon on the left"); post the final version with prototype add and question add, or pass --confirmed "<the owner\'s words>" when that note says go\n' });
-  assert.equal(status(), undefined);
-  assert.equal(start('--confirmed', 'send it').code, 1);
-  assert.equal(start('--confirmed', 'send it').err, '--confirmed must quote the owner\'s note on q1: "B, but with the moon on the left"\n');
-  answer('q2', '  ');
+  answer('q1', 'A', 'B, but with the moon on the left');
+  answer('q3', null, 'Not this one');
+  answer('q4', null, 'Nor this');
   assert.equal(start().code, 0);
   assert.equal(status(), 'building');
-  assert.deepEqual(thread(), []);
+  assert.equal(fs.existsSync(site('orch', 'data', 'threads', 'w__A1.jsonl')), false);
 
   assert.equal(board('item', 'set', 'w/A1', '--clear-status', '--site', 'orch').code, 0);
-  answer('q2', 'Looks right,\nsend it');
-  assert.equal(start().code, 1);
-  assert.equal(board('item', 'set', 'w/A1', '--next', 'Go', '--confirmed', 'send it', '--site', 'orch').err, '--confirmed goes with --status building\n');
-  assert.equal(start('--confirmed', 'SEND IT').code, 0);
+  answer('q2', null, 'Neither: try a darker moon');
+  assert.deepEqual(start(), { code: 1, out: '', err: 'w/A1 has no take picked: the owner\'s answer to q2 picks none ("Neither: try a darker moon"); act on its note, with another prototype round when it asks for one, and build once a take is picked\n' });
+  assert.equal(status(), undefined);
+  assert.equal(start('--confirmed', 'try a darker moon').code, 2);
+  answer('q2', 'B');
+  assert.equal(start().code, 0);
   assert.equal(status(), 'building');
-  assert.deepEqual(thread(), ['Building on the owner\'s go in their answer to q2: "SEND IT"']);
-
-  write(at('waves', 'w', 'wave.json'), { title: 'W', items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two' }] });
-  write(site('orch', 'data', 'owner.json'), { topics: [], items: [{ ...card('p1', ''), topic: 'item:w/A2' }, { ...card('p2', 'https://example.com/spec.html'), topic: 'item:w/A2' }] });
-  answer('p1', 'Change the copy');
-  answer('p2', 'Tighter spacing');
-  assert.equal(board('item', 'set', 'w/A2', '--status', 'building', '--site', 'orch').code, 0);
-  assert.equal(board('item', 'set', 'w/A1', '--status', 'building', '--confirmed', 'go', '--site', 'orch').err, 'w/A1 has no prototype answer with a note to confirm; drop --confirmed\n');
 });
 
 test("thread writes in an ask's thread and refuses an unknown ask", () => {

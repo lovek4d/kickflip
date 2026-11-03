@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { runInstall, installLinks, installClaudeSettings, uninstallStatusLine, storedPath } from './install.mjs';
+import { runInstall, installLinks, installClaudeSettings, uninstallStatusLine, storedPath, WATCHER_STOP } from './install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { doctorReport, doctorLines, runDoctor } from './doctor.mjs';
@@ -34,6 +34,8 @@ const writeSettings = (value) => {
 };
 const readSettings = () => JSON.parse(fs.readFileSync(settingsFile(), 'utf8'));
 const configure = () => installClaudeSettings({ home });
+const watcherStop = { hooks: [{ type: 'command', command: WATCHER_STOP }] };
+const addedStop = () => `added the watcher Stop hook to ${settingsFile()} -> ${WATCHER_STOP}`;
 
 test('stored paths name the link for the clone and its descendants and preserve other paths', () => {
   install();
@@ -146,13 +148,13 @@ test('install refuses another working status-line link before making skill links
   assert.equal(fs.existsSync(skills), false);
 });
 
-test('settings adds only statusLine, writes two-space JSON atomically and is unchanged on rerun', () => {
+test('settings adds only statusLine and the watcher Stop hook, writes two-space JSON atomically and is unchanged on rerun', () => {
   const original = { permissions: { allow: ['Bash(node:*)'] }, hooks: { Stop: [{ hooks: [{ type: 'command', command: 'keep-me' }] }] }, enabledPlugins: { example: true } };
   writeSettings(original);
   const inode = fs.statSync(settingsFile()).ino;
   fs.chmodSync(settingsFile(), 0o640);
-  assert.deepEqual(configure(), [`set statusLine in ${settingsFile()} -> ${statusline()}`]);
-  const expected = { ...original, statusLine: { type: 'command', command: statusline() } };
+  assert.deepEqual(configure(), [`set statusLine in ${settingsFile()} -> ${statusline()}`, addedStop()]);
+  const expected = { ...original, hooks: { Stop: [...original.hooks.Stop, watcherStop] }, statusLine: { type: 'command', command: statusline() } };
   assert.deepEqual(readSettings(), expected);
   assert.equal(fs.readFileSync(settingsFile(), 'utf8'), JSON.stringify(expected, null, 2) + '\n');
   assert.notEqual(fs.statSync(settingsFile()).ino, inode);
@@ -166,9 +168,9 @@ test('settings adds only statusLine, writes two-space JSON atomically and is unc
 
 test('settings creates a missing file and leaves an existing statusLine untouched with a note', () => {
   configure();
-  assert.deepEqual(readSettings(), { statusLine: { type: 'command', command: statusline() } });
+  assert.deepEqual(readSettings(), { statusLine: { type: 'command', command: statusline() }, hooks: { Stop: [watcherStop] } });
   for (const statusLine of [{ type: 'command', command: 'my-status', padding: 2 }, null, false]) {
-    writeSettings({ statusLine, keep: 1 });
+    writeSettings({ statusLine, keep: 1, hooks: { Stop: [watcherStop] } });
     const before = fs.readFileSync(settingsFile(), 'utf8');
     assert.deepEqual(configure(), [`kept existing statusLine in ${settingsFile()}; it points elsewhere`]);
     assert.equal(fs.readFileSync(settingsFile(), 'utf8'), before);
@@ -177,7 +179,7 @@ test('settings creates a missing file and leaves an existing statusLine untouche
 
 test('settings preserves its existing statusLine options and recognizes home-based commands', () => {
   for (const command of [statusline(), '~/.claude/statusline.sh', '"$HOME/.claude/statusline.sh"', '"${HOME}/.claude/statusline.sh"']) {
-    const original = { statusLine: { type: 'command', command, padding: 3, refreshInterval: 5 } };
+    const original = { statusLine: { type: 'command', command, padding: 3, refreshInterval: 5 }, hooks: { Stop: [watcherStop] } };
     writeSettings(original);
     assert.deepEqual(configure(), []);
     assert.deepEqual(readSettings(), original);
@@ -192,11 +194,11 @@ test('settings removes only stale no-paths commands and retains other hooks and 
     PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: staleCommands[0] }, keep, mentioned] },
       { matcher: 'Read', hooks: staleCommands.slice(1).map((command) => ({ type: 'command', command })) },
       { matcher: 'Write', hooks: [] }],
-    Stop: [{ hooks: [{ type: 'command', command: 'cc-status' }] }],
+    Stop: [{ hooks: [{ type: 'command', command: 'cc-status' }, { type: 'command', command: 'node ~/.claude/skills/kickflip/hooks-plugin/hooks/watcher-stop.mjs', timeout: 5 }] }],
   } });
   const notes = configure();
   assert.deepEqual(notes, staleCommands.map((command) => `removed stale hook PreToolUse: ${command}`));
-  assert.deepEqual(readSettings().hooks, { PreToolUse: [{ matcher: 'Bash', hooks: [keep, mentioned] }, { matcher: 'Write', hooks: [] }], Stop: [{ hooks: [{ type: 'command', command: 'cc-status' }] }] });
+  assert.deepEqual(readSettings().hooks, { PreToolUse: [{ matcher: 'Bash', hooks: [keep, mentioned] }, { matcher: 'Write', hooks: [] }], Stop: [{ hooks: [{ type: 'command', command: 'cc-status' }, { type: 'command', command: 'node ~/.claude/skills/kickflip/hooks-plugin/hooks/watcher-stop.mjs', timeout: 5 }] }] });
   assert.equal(readSettings().keep, true);
   const before = fs.statSync(settingsFile());
   assert.deepEqual(configure(), []);
@@ -209,7 +211,7 @@ test('settings keeps no-paths when the script exists and refuses invalid JSON wi
   const hooks = { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'python3 ~/.claude/hooks/no-paths.py' }] }] };
   writeSettings({ hooks });
   configure();
-  assert.deepEqual(readSettings().hooks, hooks);
+  assert.deepEqual(readSettings().hooks, { ...hooks, Stop: [watcherStop] });
   fs.writeFileSync(settingsFile(), '{broken');
   assert.throws(configure, SyntaxError);
   assert.equal(fs.readFileSync(settingsFile(), 'utf8'), '{broken');
@@ -248,7 +250,7 @@ test('uninstall removes only kickflip status-line links, including its dangling 
   assert.equal(fs.readFileSync(statusline(), 'utf8'), 'keep');
 });
 
-test('plugin keeps builder-stop and runs the Codex share hook for both events through the skills link, Off while Codex is not usable and Auto when unset', () => {
+test('plugin keeps builder-stop and runs the Codex share hook for both events through the skills link, saying Off while Codex is not usable and Auto when unset', () => {
   installLinks({ home, cloneRoot: cloneRoot() });
   const plugin = JSON.parse(fs.readFileSync(path.join(cloneRoot(), 'hooks-plugin', 'hooks', 'hooks.json'), 'utf8'));
   assert.match(plugin.hooks.SubagentStop[0].hooks[0].command, /kickflip\/board\/bin\/builder-stop-hook.mjs/);
@@ -275,7 +277,7 @@ test('plugin keeps builder-stop and runs the Codex share hook for both events th
         assert.equal(result.status, 0, result.stderr);
         assert.equal(result.stderr, '');
         const share = usable !== 'usable' || mode === 'off' ? 'off' : mode === 'always' ? 'always' : 'auto';
-        if (share === 'off') assert.equal(result.stdout, '', `${usable} ${mode}`);
+        if (share === 'off') assert.equal(result.stdout, "The hub's Codex setting is off: Claude builds and reviews, whatever an earlier turn said. Before each build, run `board.mjs builder pick <key>`; builder start refuses any other kind.\n", `${usable} ${mode}`);
         else {
           assert.equal(result.stdout.split('\n').length, 2);
           assert.match(result.stdout, share === 'auto' ? /^The hub's Codex setting is auto: run as codex-share auto\. / : /^The hub's Codex setting is always on: run as codex-share on\. /);
@@ -341,12 +343,13 @@ test('the init command configures links and settings before the hub service and 
   assert.match(first.stdout, /linked .*statusline.sh -> .*skills\/kickflip\/bin\/statusline.mjs/);
   assert.match(first.stdout, /set statusLine in/);
   assert.match(first.stdout, /removed stale hook PreToolUse: python3 ~\/\.claude\/hooks\/no-paths.py/);
-  assert.deepEqual(readSettings(), { keep: 'untouched', hooks: { PreToolUse: [] }, statusLine: { type: 'command', command: statusline() } });
+  assert.match(first.stdout, /added the watcher Stop hook to/);
+  assert.deepEqual(readSettings(), { keep: 'untouched', hooks: { PreToolUse: [], Stop: [watcherStop] }, statusLine: { type: 'command', command: statusline() } });
   const inode = fs.statSync(settingsFile()).ino;
   const second = run();
   assert.equal(second.status, 1);
   assert.equal(second.stdout.split('\n').filter((line) => line.startsWith('checked ')).length, 3);
-  assert.doesNotMatch(second.stdout, /^(?:linked |set statusLine|removed stale)/m);
+  assert.doesNotMatch(second.stdout, /^(?:linked |set statusLine|removed stale|added the watcher)/m);
   assert.equal(fs.statSync(settingsFile()).ino, inode);
 });
 
@@ -469,7 +472,7 @@ test('doctor reports every healthy item and the old hub, Tailscale and site deta
   const items = await doctorReport(options);
   assert.deepEqual(items.map(({ group, item }) => `${group} ${item}`), [
     'prereqs git', 'prereqs node on Claude’s PATH', 'prereqs gh', 'prereqs gh signed in', 'prereqs GitHub clone', 'prereqs Tailscale', 'prereqs Tailscale signed in', 'prereqs tmux', 'prereqs Codex', 'prereqs mattpocock skills',
-    'setup kickflip skill link', 'setup kickflip-hooks link', 'setup ~/.claude/statusline.sh', 'setup settings.json statusLine', 'setup hub login item',
+    'setup kickflip skill link', 'setup kickflip-hooks link', 'setup ~/.claude/statusline.sh', 'setup settings.json statusLine', 'setup settings.json watcher Stop hook', 'setup hub login item',
     'hub hub', 'hub tailscale /', 'hub try ports', 'hub /shop', 'hub /app repo',
   ]);
   assert.ok(items.every((item) => item.state === 'ok' && item.fix === null));
@@ -501,13 +504,14 @@ test('doctor names a missing or out-of-date review skill as optional with the sk
   assert.equal(report.exitCode, 0);
 });
 
-for (const name of ['kickflip skill link', 'kickflip-hooks link', '~/.claude/statusline.sh', 'settings.json statusLine', 'hub login item', 'hub', 'tailscale /']) {
+for (const name of ['kickflip skill link', 'kickflip-hooks link', '~/.claude/statusline.sh', 'settings.json statusLine', 'settings.json watcher Stop hook', 'hub login item', 'hub', 'tailscale /']) {
   test(`doctor marks ${name} fixable and gives the shared fix command`, async () => {
     const { options, responses, plist } = healthyDoctor();
     if (name === 'kickflip skill link') fs.unlinkSync(skillLinks()[0]);
     if (name === 'kickflip-hooks link') fs.unlinkSync(skillLinks()[1]);
     if (name === '~/.claude/statusline.sh') fs.unlinkSync(statusline());
     if (name === 'settings.json statusLine') fs.unlinkSync(settingsFile());
+    if (name === 'settings.json watcher Stop hook') writeSettings({ ...readSettings(), hooks: { Stop: [{ hooks: [{ type: 'command', command: 'cc-status' }] }] } });
     if (name === 'hub login item') fs.unlinkSync(plist);
     if (name === 'hub') options.fetch = async () => { throw new Error('offline'); };
     if (name === 'tailscale /') responses.set('tailscale serve status --json', { status: 0, stdout: '{}' });
@@ -635,6 +639,7 @@ test('doctor keeps reporting after bad settings, stopped login items, malformed 
   for (const value of ['{broken', 'null', '[]']) {
     fs.writeFileSync(settingsFile(), value);
     assert.equal(pick(await doctorReport(options), 'settings.json statusLine').state, 'yours');
+    assert.equal(pick(await doctorReport(options), 'settings.json watcher Stop hook').state, 'yours');
   }
   for (const stdout of ['state = waiting', 'state = exited']) {
     responses.set('launchctl print gui/501/local.claude.kickflip-hub', { status: 0, stdout });

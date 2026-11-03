@@ -12,7 +12,6 @@ import { cloneRoot } from '../shared/repos.mjs';
 import { readUsageGate, pauseReason } from '../shared/usage-gate.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { BoardError, addItem, appendThread, boardConfig, cardName, changeLineup, createLineup, itemSources, parseKey, readJSON, resolveQuestion, setItem, startBuilder, topicQuestions, wavesDir } from './store.mjs';
-import { awaitsConfirm } from './domain.mjs';
 
 const recordsFile = (site) => path.join(site, 'data', 'arch-reviews.json');
 export const readReviews = async (site) => (await readJSON(recordsFile(site), { reviews: [] })).reviews || [];
@@ -110,14 +109,14 @@ export async function startReview(site, board, { now = new Date(), home = os.hom
 // `board.mjs arch file <key>`: each answered finding of the audit card becomes a card in the review's wave, titled
 // with the picked option's label, its detail, practice and the owner's note as notes, chained after the wave's last
 // card (a lineup's, else the wave file's newest), and its question resolved; a Skip pick resolves its question alone.
-// A pick waiting on a confirm, and a question with no answer yet, stay. Once none is left, the audit card closes as
+// A question with no answer yet stays. Once none is left, the audit card closes as
 // done. → {lines}
 export async function fileFindings(site, key) {
   const review = (await readReviews(site)).find((r) => r.key === key) || fail(`${key} is not an architecture review's audit card`);
   const { wave } = parseKey(key);
   const { asked } = await topicQuestions(site, `item:${key}`);
   const lines = [];
-  for (const q of asked.filter((x) => x.state === 'answered' && !awaitsConfirm(x))) {
+  for (const q of asked.filter((x) => x.state === 'answered')) {
     const answer = q.answers.at(-1);
     const option = q.options.find((o) => o.id === answer.choice);
     if (!option) continue;

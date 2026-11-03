@@ -79,7 +79,7 @@ test("the owner's last answer on an unstarted card that nothing stops wakes the 
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
-test("an owner answer opens no confirm: a pick with no note settles its round, a pick with a note waits on Claude out of Needs you, and a note with no take resolves its question", async () => {
+test("an owner answer opens no confirm: a pick settles its round, with a note or none, and a note with no take resolves its question", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
   const pick = { id: 'pick', topic: 'item:t/A1', question: 'Which?', url: 'prototype-rounds.html?q=pick', options: [{ id: 'A', label: 'Badge' }, { id: 'B', label: 'Dot' }], round: 2 };
   const plain = { id: 'plain', topic: 'item:t/A1', question: 'Keep?', options: [{ id: 'A', label: 'Keep' }] };
@@ -95,7 +95,7 @@ test("an owner answer opens no confirm: a pick with no note settles its round, a
     assert.deepEqual(await round(), { n: 2, state: 'closed', take: 'B' });
     assert.equal((await answer('pick', 'B', 'Bigger')).status, 200);
     assert.equal(fs.readFileSync(ownerFile, 'utf8'), untouched);
-    assert.deepEqual(await round(), { n: 2, state: 'making' });
+    assert.deepEqual(await round(), { n: 2, state: 'closed', take: 'B' });
     const b = await board();
     assert.equal(b.owner.find((q) => q.id === 'pick').state, 'answered');
     assert.equal(b.needsSummary, '1 question');
@@ -684,11 +684,13 @@ test("the settings page's rules save writes board.json, keeps its other keys and
   }
 });
 
-test("the settings page's auto-merge toggle writes board.json, keeping its other keys, and wakes Claude only when the value moves", async () => {
+test("the settings page's auto-merge toggle writes board.json, keeping its other keys, wakes Claude only when the value moves, and asks for one GitHub check when it turns on", async () => {
   const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] }));
   const save = (body) => fetch(`${base}/api/settings`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const settingsEvents = async () => (await (await fetch(`${base}/_claude/events?kind=settings`)).json()).map((e) => e.data);
+  const checks = async () => (await (await fetch(`${base}/_claude/events?kind=check-github`)).json()).map((e) => e.data);
+  const before = (await checks()).length;
   try {
     assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false, auto_pull: false } });
     const on = await save({ auto_merge: true });
@@ -699,12 +701,16 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
     const written = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8'));
     assert.deepEqual([written.title, written.rules.length, written.auto_merge], ['T', 1, true]);
     assert.deepEqual(await settingsEvents(), [{ auto_merge: true }]);
+    assert.deepEqual((await checks()).slice(before), [{ reason: 'auto-merge' }]);
     assert.equal((await save({ auto_build: true })).status, 200);
     assert.equal((await (await fetch(`${base}/api/settings`)).json()).settings.auto_build, true);
     assert.deepEqual((await settingsEvents())[0], { auto_build: true });
     assert.equal((await (await save({ auto_merge: true })).json()).id, null);
     for (const bad of [{ auto_merge: 'yes' }, { auto_build: 'yes' }, { auto_deploy: true }, {}, ['x']]) assert.equal((await save(bad)).status, 400, JSON.stringify(bad));
     assert.equal((await settingsEvents()).length, 2);
+    assert.equal((await save({ auto_merge: false })).status, 200);
+    assert.equal((await checks()).length, before + 1);
+    assert.equal((await save({ auto_merge: true })).status, 200);
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8')).auto_merge, true);
     fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', ticket: 'INT-3' }, { id: 'B2', title: 'Two', ticket: 'OPS-4' }] }));
     const internal = await (await save({ tickets: { source: 'internal', prefix: 'OPS' } })).json();
