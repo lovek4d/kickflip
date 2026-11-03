@@ -73,6 +73,22 @@ function saveUsage(input) {
   }
 }
 
+// One file per session, so parallel sessions never overwrite each other's reading.
+function saveContext(input, percent) {
+  const session = input.session_id;
+  if (percent == null || typeof session !== 'string' || !/^[\w-]+$/.test(session)) return;
+  const dir = path.join(os.homedir(), '.claude', 'kickflip', 'context');
+  const file = path.join(dir, `${session}.json`);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify({ percent, at: new Date().toISOString() }) + '\n', { mode: 0o600 });
+    fs.renameSync(tmp, file);
+  } finally {
+    try { fs.unlinkSync(tmp); } catch {}
+  }
+}
+
 try {
   const input = JSON.parse(fs.readFileSync(0, 'utf8'));
   if (input && typeof input === 'object' && !Array.isArray(input)) {
@@ -90,7 +106,7 @@ try {
       usage,
     ], ' · ');
     // Wait for stdout to flush before doing filesystem work; errors stay off both streams.
-    process.stdout.write(line + '\n', () => { try { saveUsage(input); } catch {} });
+    process.stdout.write(line + '\n', () => { try { saveUsage(input); } catch {} try { saveContext(input, ctx); } catch {} });
   }
 } catch { /* Invalid input and every other error leave the status line alone. */ }
 process.exitCode = 0;

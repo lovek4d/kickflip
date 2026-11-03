@@ -228,6 +228,14 @@ test('every page header has a logo, a back arrow where needed, the title and dis
   assert.doesNotMatch(logo, /<script>/);
 });
 
+test("a board's sidebar row shows its session's context window, dimmed with its age once stale", () => {
+  const site = (route, ctx) => ({ route, title: route, board: true, count: 0, icon: '', sub: '<b>Working</b>', ctx });
+  const ago = (ms) => new Date(Date.now() - ms).toISOString();
+  const html = ui.sidebar({ sites: [site('a', { percent: 62, at: ago(60_000) }), site('b', { percent: 91, at: ago(3 * 3600_000) }), site('c', null), site('d')] });
+  const spans = [...html.matchAll(/<span class="sb-ctx[^"]*">[^<]*<\/span>/g)].map((m) => m[0]);
+  assert.deepEqual(spans, ['<span class="sb-ctx">62% ctx</span>', '<span class="sb-ctx stale">91% ctx · 3 h ago</span>']);
+});
+
 test("the Kickflip sidebar lists Hub, notifications, Pages, then Boards with New board last", () => {
   const site = (route, board, count, sub = '') => ({ route, title: route.toUpperCase(), board, count, icon: `<i data-r="${route}"></i>`, sub });
   const data = {

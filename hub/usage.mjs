@@ -105,6 +105,13 @@ export function usageReader({ home = os.homedir(), now = Date.now, cacheMs = 60_
   };
 }
 
+// The context percentage bin/statusline.mjs last saved for a session, {percent, at}, or null.
+export function contextReading(session, { home = os.homedir() } = {}) {
+  if (typeof session !== 'string' || !/^[\w-]+$/.test(session)) return null;
+  const saved = readJson(path.join(home, '.claude', 'kickflip', 'context', `${session}.json`));
+  return num(saved?.percent) == null || !saved.at ? null : { percent: num(saved.percent), at: saved.at };
+}
+
 export async function checkUsagePause({ gate, home = os.homedir(), resume }) {
   const file = path.join(home, '.claude', 'kickflip', 'usage-gate-state.json');
   const previous = readJson(file);

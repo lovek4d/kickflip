@@ -139,3 +139,21 @@ test('status line flushes output before attempting a blocked usage read', async 
     await exited;
   }
 });
+
+test('status line saves each session\'s context percentage by session id, atomically, and only with both', () => {
+  const dir = path.join(home, '.claude', 'kickflip', 'context');
+  const before = Date.now();
+  assert.equal(run({ session_id: 'abc-1', context_window: { used_percentage: 62.7 } }), '62% ctx\n');
+  assert.equal(run({ session_id: 'def_2', context_window: { used_percentage: 5 } }), '5% ctx\n');
+  const saved = JSON.parse(fs.readFileSync(path.join(dir, 'abc-1.json'), 'utf8'));
+  assert.equal(saved.percent, 62);
+  assert.ok(Date.parse(saved.at) >= before && Date.parse(saved.at) <= Date.now());
+  run({ session_id: 'abc-1', context_window: { used_percentage: 70 } });
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'abc-1.json'), 'utf8')).percent, 70);
+  run({ session_id: 'abc-1', context_window: { used_percentage: null } });
+  run({ context_window: { used_percentage: 40 } });
+  run({ session_id: '../escape', context_window: { used_percentage: 40 } });
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['abc-1.json', 'def_2.json']);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'abc-1.json'), 'utf8')).percent, 70);
+  assert.equal(fs.existsSync(usageFile()), false);
+});

@@ -13,8 +13,8 @@
 //   /_hub/api/hub, /_hub/api/settings, /_hub/api/polling?w=HH:MM
 //                     those views' data and words (views.mjs), including integration readiness rows on /_hub/api/hub
 //   /_hub/sidebar.json what the sidebar shows (board/public/ui-sidebar.js): {code, total, start,
-//                     sites: [{route, title, board, state, count, changedAt, created, icon, sub}], hub: {tone, word, detail},
-//                     notifications: {state, text}}, each site's row from its GET /_claude/needs
+//                     sites: [{route, title, board, state, count, changedAt, created, icon, sub, ctx}], hub: {tone, word, detail},
+//                     notifications: {state, text}}, ctx the board's owner session's {percent, at} or null; each site's row from its GET /_claude/needs
 //                     (home.mjs; docs/adr/0010-sites-report-what-waits-through-claude-needs.md)
 //                     starting lists pending boards and their clone/start phase (sessions.mjs)
 //                     usage: {claude, codex}, each null when hidden, else {at, five_hour, seven_day}; windows are
@@ -160,7 +160,7 @@ import { restartBoard, restartable } from './restart-board.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { BOARD_PUBLIC, appFile, colorsVersion, destOf, fileVersion, pageOf, shellHtml } from './shell.mjs';
 import { hubStream } from './stream.mjs';
-import { usageReader, checkUsagePause } from './usage.mjs';
+import { usageReader, checkUsagePause, contextReading } from './usage.mjs';
 import { readUsageGate, setPauseAt, setKeepGoing } from '../shared/usage-gate.mjs';
 import { readiness, readCodex } from './readiness.mjs';
 import { BuildError, startBuild, stopTries, tryTick, initializeTries, fetchTryBranches } from './try.mjs';
@@ -571,7 +571,8 @@ async function sidebarState({ fresh = false } = {}) {
   const boards = listBoards(manifest);
   const { links, listens } = boardLinks(boards);
   const code = hubCodeState();
-  const sites = sidebarSites(rows, waiting, new Set(boards.map((b) => b.route)), listens);
+  const contexts = new Map(boards.map((b) => [b.route, contextReading(b.owner?.session)]).filter(([, reading]) => reading));
+  const sites = sidebarSites(rows, waiting, new Set(boards.map((b) => b.route)), listens, contexts);
   const settings = readSettings();
   const held = hold(now, settings);
   const data = {

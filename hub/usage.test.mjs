@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { usageReader, checkUsagePause } from './usage.mjs';
+import { usageReader, checkUsagePause, contextReading } from './usage.mjs';
 
 const originalHome = process.env.HOME;
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-'));
@@ -153,4 +153,18 @@ test('the hub remembers the gate across ticks and restarts, wakes after paused a
   await check('paused', 'seven_day');
   await check('normal');
   assert.deepEqual(woke, ['five_hour', 'seven_day']);
+});
+
+test('a session\'s context reading is its saved percent and time, null without one', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'context-'));
+  try {
+    fs.mkdirSync(path.join(dir, '.claude', 'kickflip', 'context'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.claude', 'kickflip', 'context', 's-1.json'), JSON.stringify({ percent: 62, at: '2026-11-03T10:00:00.000Z' }));
+    fs.writeFileSync(path.join(dir, '.claude', 'kickflip', 'context', 'bad.json'), '{nope');
+    assert.deepEqual(contextReading('s-1', { home: dir }), { percent: 62, at: '2026-11-03T10:00:00.000Z' });
+    assert.equal(contextReading('bad', { home: dir }), null);
+    assert.equal(contextReading('missing', { home: dir }), null);
+    assert.equal(contextReading('../x', { home: dir }), null);
+    assert.equal(contextReading(undefined, { home: dir }), null);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

@@ -65,6 +65,10 @@ test("the sidebar's rows carry each site's icon, status line and count, and mark
   assert.match(ios.sub, /1 need you.*1 review.*2 todo/);
   assert.equal(learn.sub, '');
   assert.match(gone.sub, />Down</);
+  const ctx = { percent: 62, at: '2026-11-03T10:00:00.000Z' };
+  const [withCtx, without] = sidebarSites(rows, waiting, new Set(['ios', 'gone']), new Map(), new Map([['ios', ctx]]));
+  assert.deepEqual(withCtx.ctx, ctx);
+  assert.equal(without.ctx, null);
 });
 
 test('a first visit opens the board with the most waiting, the most recently changed among equals, and never a site that is not a board', () => {

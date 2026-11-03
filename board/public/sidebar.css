@@ -143,6 +143,8 @@ html.sb-update body.has-sidebar > .top .hub::after, html.sb-update body.has-side
 
 /* A site's status (hub/home.mjs statusLine): the lane chips wrap on their own line, and the status word goes below them. */
 .sidebar .sb-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+.sidebar .sb-ctx { font-size: 12px; color: var(--muted); }
+.sidebar .sb-ctx.stale { opacity: .6; }
 .sidebar .lcs { order: -1; flex: 1 1 100%; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; }
 .sidebar .lc { flex: none; font-size: 11px; font-weight: 600; border-radius: 6px; padding: 0 6px; line-height: 18px; color: var(--tone); background: color-mix(in srgb, var(--tone) 14%, transparent); }
 .sidebar .lc-review { --tone: var(--accent); } .sidebar .lc-progress { --tone: var(--color-notice); } .sidebar .lc-todo { --tone: var(--muted); }

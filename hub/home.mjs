@@ -58,14 +58,14 @@ export function statusLine(state, needs, listen) {
 // The sidebar's site rows, from hub.mjs status() rows, each site's readNeeds answer (a Map by route), the set of
 // routes that are boards and each board's boards.mjs listenState (a Map by route). icon and sub are HTML that board/public/ui-sidebar.js
 // places as given. created is when the site joined the hub, null when the manifest has no time, which ui-sidebar.js
-// switchKeys orders by.
-export function sidebarSites(rows, waiting, boards, listens = new Map()) {
+// switchKeys orders by. ctx is the board's owner session's context reading {percent, at} (usage.mjs), else null.
+export function sidebarSites(rows, waiting, boards, listens = new Map(), contexts = new Map()) {
   return rows.map((r) => {
     const needs = waiting.get(r.route) ?? null;
     const listen = boards.has(r.route) ? listens.get(r.route) ?? 'listening' : undefined;
     return {
       route: r.route, title: r.title, board: boards.has(r.route), state: r.state, count: needs?.count || 0,
-      changedAt: r.changedAt || 0, created: r.created || null, icon: siteIcon(r.route, r), sub: statusLine(r.state, needs, listen),
+      changedAt: r.changedAt || 0, created: r.created || null, icon: siteIcon(r.route, r), sub: statusLine(r.state, needs, listen), ctx: contexts.get(r.route) ?? null,
     };
   });
 }

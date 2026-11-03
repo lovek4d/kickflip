@@ -121,6 +121,15 @@
   }
 
   const ticketsLabel = (t) => (t.source === 'internal' ? `Internal · ${t.prefix}` : t.source === 'github' ? `GitHub issues${t.account ? ` · ${t.account}` : ''}` : `Linear · ${t.team}`);
+  // A board's context window: its owner session's latest percent, dimmed with its age once older than ten minutes.
+  const CTX_STALE_MIN = 10;
+  function contextWords(ctx) {
+    if (!ctx) return '';
+    const minutes = Math.floor((Date.now() - Date.parse(ctx.at)) / 60_000);
+    if (!(minutes >= CTX_STALE_MIN)) return `<span class="sb-ctx">${Math.round(ctx.percent)}% ctx</span>`;
+    const age = minutes < 60 ? `${minutes} min` : minutes < 1440 ? `${Math.floor(minutes / 60)} h` : `${Math.floor(minutes / 1440)} d`;
+    return `<span class="sb-ctx stale">${Math.round(ctx.percent)}% ctx · ${age} ago</span>`;
+  }
   function askedWhen(iso, now) {
     const minutes = Math.floor((now - Date.parse(iso)) / 60_000);
     return minutes < 1 ? 'just now' : minutes < 60 ? `${minutes} min ago` : usageClock(iso);
@@ -153,7 +162,7 @@
     const paused = data?.pause?.state === 'paused';
     const siteRow = (s) => {
       const sub = paused && s.board ? word('wait', 'Paused') + (s.sub || '').replace(/<span class="dot [^"]*"[^>]*><\/span><span class="word [^"]*">[^<]*<\/span>/, '') : s.sub;
-      return row({ href: siteHref(s), icon: s.icon, title: s.title, sub: sub ? `<span class="sb-status">${sub}</span>` : '', on: s.route === here, key: keys?.get(siteHref(s)) });
+      return row({ href: siteHref(s), icon: s.icon, title: s.title, sub: sub || s.ctx ? `<span class="sb-status">${sub}${contextWords(s.ctx)}</span>` : '', on: s.route === here, key: keys?.get(siteHref(s)) });
     };
     const boards = sites.filter((s) => s.board);
     const pages = sites.filter((s) => !s.board);
