@@ -183,7 +183,7 @@ A wave with work items that are all merged, done or dropped. Done shows it as on
 _Avoid_: closed wave, archived wave
 
 **Work item**:
-One unit of work in a wave, usually one PR. Its key is `<wave>/<id>`.
+One unit of work in a wave, usually one PR. Its key is `<wave>/<id>`. It reads as its ticket when the ticket is from the board's source (`#27`, `ENG-12`, `INT-5`), else as its id, and `item add <wave>` takes its id from its ticket ([0132](docs/adr/0132-a-card-is-named-by-its-boards-ticket-source.md)).
 _Avoid_: task (a **new task** is the owner's), ticket (the identity of its work in the board’s ticket source)
 
 **Ticket**:
@@ -402,7 +402,7 @@ _Avoid_: harness, helpers
 
 The board page's scripts in `board/public/` are plain scripts with no bundler, loaded in the order `app.html`, the app shell, lists them, from `/_hub/app/`. The `ui*.js` files hold pure renderers on the `BoardUI` global, which `ui.test.mjs` tests. `app.js` defines `BoardView`, and each `app-*.js` file after it registers one part of the board view with `BoardView.part((B) => …)`. `BoardView.create(root, site, opts)` gives each board its own `B` (state, `ClaudeSite.site`, store, and a `$` scoped to the view's root), and a part adds listeners, intervals, timers, watches and unmount steps only through `B.on`, `B.every`, `B.later`, `B.watch` and `B.atUnmount`, so `unmount()` leaves none behind; `view.test.mjs` checks that. Nothing waits while the owner types: a repaint patches the lanes and each thread in place, and a box being typed in keeps its text, cursor and focus ([0057](docs/adr/0057-a-repaint-patches-in-place-so-nothing-waits-while-you-type.md)). An open card moves to its new place at once and the page follows it: the box being typed in, else the open card's title row, stays where it was on screen ([0063](docs/adr/0063-an-open-card-moves-at-once-and-the-page-follows-it.md)); `view.test.mjs` checks both on a board mounted on `board/mini-dom.mjs`, a small DOM. The board's other views (`view-*.js`) get the same site, `$` and recorders from `BoardView.page(root, site, run)`. The view's state, such as `offline` and `data-board`, sits on its root (`.view-board`), not on `<body>`. A site card names the files it expects to touch from this table ([0022](docs/adr/0022-site-cards-build-in-parallel-when-their-files-dont-overlap.md)).
 
-Refs in text that Claude or the owner wrote are linked by the renderer, never by hand: pass the text through `ui-links.js` (`linkText`, or `linkHtml` for an HTML reply or line) with the item's `linkContext`. A card's ref (`INT-<n>`, or any `ref` on the board) opens its card, a Linear id or PR opens its page, and a bare URL becomes a link. Write refs as plain text in thread lines, replies, questions and plans.
+Refs in text that Claude or the owner wrote are linked by the renderer, never by hand: pass the text through `ui-links.js` (`linkText`, or `linkHtml` for an HTML reply or line) with the item's `linkContext`. A card's ref (`INT-<n>`, `#n` for a GitHub ticket, or any `ref` on the board) or its id opens its card, a Linear id or PR opens its page, and a bare URL becomes a link. Write refs as plain text in thread lines, replies, questions and plans.
 
 | File | Owns |
 | --- | --- |

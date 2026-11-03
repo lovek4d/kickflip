@@ -459,8 +459,8 @@ async function askLinksOf(askId) {
     const wave = await readJSON(s.file, null);
     for (const it of Array.isArray(wave?.items) ? wave.items : []) {
       const key = `${s.slug}/${it.id}`;
-      if (it.from_ask === askId) links.unshift({ key, ref: refOf(wave, it.id, tickets), became: true });
-      else if (key === related) links.push({ key, ref: refOf(wave, it.id, tickets), became: false });
+      if (it.from_ask === askId) links.unshift({ key, ref: refOf(wave, it, tickets), became: true });
+      else if (key === related) links.push({ key, ref: refOf(wave, it, tickets), became: false });
     }
   }
   return links;
@@ -621,7 +621,7 @@ const server = http.createServer(async (req, res) => {
       const key = String(url.searchParams.get('item') || '');
       try {
         const { wave, item, markdown } = await readNotes(here, key);
-        return json(res, 200, { key, ref: refOf(wave, item.id, settingsOf(await config()).tickets), title: item.title, markdown });
+        return json(res, 200, { key, ref: refOf(wave, item, settingsOf(await config()).tickets), title: item.title, markdown });
       } catch (e) { if (e instanceof BoardError) return json(res, 404, { error: e.message }); throw e; }
     }
     if (p === '/_claude/events' && req.method === 'POST') {

@@ -1242,13 +1242,19 @@ test("a Linear id links in its board's own workspace, and a board without a work
   assert.match(ui.linearChips({ linear: [{ id: 'ENG-2310', url: null }] }), /^<span class="chip tone-quiet"[^>]*>ENG-2310<\/span>$/);
 });
 
-test("a bare #n links only in a thread whose item has a repo, and a wave's short id links only from that wave's cards", () => {
+test("a bare #n opens the card it is the ticket of from any thread, else links only in a thread whose item has a repo, and a wave's short id links only from that wave's cards", () => {
   const line = [{ ts: ago(1), who: 'claude', text: 'A1 and A2 wait on #2988' }];
   assert.deepEqual(anchors(ui.threadMessages(line, ui.linkContext(boardItems, 'elig/A1'))), [
     ['#item=elig%2FA1', 'A1', false], ['https://github.com/o/r/pull/2988', '#2988', true],
   ]);
   assert.deepEqual(anchors(ui.threadMessages(line, ui.linkContext(boardItems, 'site/S54'))), []);
   assert.deepEqual(anchors(ui.threadMessages(line, ui.linkContext(boardItems, 'ask:e9'))), []);
+  const hub = [...boardItems, { key: 'hub/INT-269', wave: 'hub', kind: 'work', id: 'INT-269', ref: '#27', internal: true, linear: [], repo: null }];
+  const ticketed = [{ ts: ago(1), who: 'claude', text: '#27 was INT-269; #2988 is a PR' }];
+  for (const key of ['ask:e9', 'elig/A1']) {
+    assert.deepEqual(anchors(ui.threadMessages(ticketed, ui.linkContext(hub, key))).slice(0, 2), [['#item=hub%2FINT-269', '#27', false], ['#item=hub%2FINT-269', 'INT-269', false]]);
+  }
+  assert.deepEqual(anchors(ui.threadMessages(ticketed, ui.linkContext(hub, 'elig/A1'))).at(-1), ['https://github.com/o/r/pull/2988', '#2988', true]);
 });
 
 test('a linked thread line still shows markup in its text as text', () => {

@@ -12,7 +12,7 @@
 
 import { routeRecord } from '../hub/routes.mjs';
 import fs from 'node:fs';
-import { ticketBadge } from './tickets.mjs';
+import { ticketBadge, ticketIn } from './tickets.mjs';
 import { reviewLinks, reviewTime, reviewersOf } from './review.mjs';
 import { remoteFromInput } from '../hub/repos.mjs';
 import vm from 'node:vm';
@@ -42,7 +42,10 @@ const linearRef = (id, tickets) => ({ id, url: tickets?.workspace ? `https://lin
 // Internal items keep their stored ids, which key threads, builder records and events; S<n> reads <prefix>-<n>, INT
 // without an internal ticket source. Other ids read as stored, so a changed prefix never relabels them.
 const internalRef = (id, prefix) => String(id).replace(/^S(\d+)$/, `${prefix || 'INT'}-$1`);
-export const refOf = (wave, id, tickets) => (wave.internal === true ? internalRef(id, tickets?.prefix) : id);
+// A card reads as its ticket when the ticket is from the board's source (#n, TEAM-n or PREFIX-n), else by its id;
+// its key keeps the stored id (docs/adr/0132-a-card-is-named-by-its-boards-ticket-source.md).
+export const refOf = (wave, item, tickets) => (ticketIn(tickets, item.ticket) ? item.ticket
+  : wave.internal === true ? internalRef(item.id, tickets?.prefix) : item.id);
 // A board without a source reads stored tickets as Internal · INT. A stored ticket from another source keeps its own
 // id, unlinked (docs/adr/0081-a-board-has-one-ticket-source.md).
 const ticketOf = (tickets, stored, id, at) => ticketBadge(tickets || (stored ? { source: 'internal', prefix: 'INT' } : null), id, at)
@@ -150,7 +153,7 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
   const reviewNext = pushed && waitsOn === 'owner' ? `merge ${pushed.branch} into ${base}`
     : waitsOn === 'merge' && !autoMerge ? OWNER_MERGE_NEXT[merging ? 'merging' : 'waiting'] : REVIEW_NEXT[waitsOn];
   return {
-    key, kind: 'work', order, wave: slug, waveTitle: wave.title || slug, id: it.id, ref: refOf(wave, it.id, tickets), title: it.title, status: it.status || null,
+    key, kind: 'work', order, wave: slug, waveTitle: wave.title || slug, id: it.id, ref: refOf(wave, it, tickets), title: it.title, status: it.status || null,
     created: it.created || null,
     internal: wave.internal === true, repo: wave.internal === true && !wave.repo ? null : repo,
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, agents, eta, working, reopened: Boolean(reopenAt), awaitsDone,
@@ -160,7 +163,7 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
     merging, starting, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, from: null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || null,
     branch: it.branch || pr?.headRefName || pushed?.branch || null, pushed: lane === 'done' ? null : pushed,
     ticket: tickets?.source === 'linear' && !it.ticket && it.linear?.length ? null
-      : ticketOf(tickets, it.ticket, it.ticket || (wave.internal ? refOf(wave, it.id, tickets) : it.linear?.[0]), { repo, key }),
+      : ticketOf(tickets, it.ticket, it.ticket || (wave.internal ? refOf(wave, it, tickets) : it.linear?.[0]), { repo, key }),
     ticketSource: tickets?.source || null,
     linear: (it.linear || []).map((id) => tickets?.source === 'linear' ? ticketBadge(tickets, id, { key, repo }) || linearRef(id, tickets) : linearRef(id, tickets)),
     pr: it.pr && repo ? { number: it.pr, url: `https://github.com/${repo}/pull/${it.pr}`, ...(pr || {}) } : null,
@@ -252,7 +255,7 @@ const started = (it, worked) => worked.has(it.key) || it.agents.length > 0 || Bo
 function followUp({ slug, wave, f, order, repo, bumpedAt, closedAt, tickets }) {
   const done = Boolean(f.done || closedAt);
   return {
-    key: `${slug}/${f.id}`, kind: 'followup', order, wave: slug, waveTitle: wave.title || slug, id: f.id, ref: f.id, title: f.title, status: null,
+    key: `${slug}/${f.id}`, kind: 'followup', order, wave: slug, waveTitle: wave.title || slug, id: f.id, ref: refOf(wave, f, tickets), title: f.title, status: null,
     repo: wave.internal === true && !wave.repo ? null : repo, finishable: !done,
     lane: done ? 'done' : 'todo', waitsOn: null, builder: null, agents: [], eta: null, working: false, inReviewSince: null,
     deps: [], held: false, risky: false, bumpable: !done, bumpedAt: done ? null : bumpedAt || null, manualSteps: [], fromAsk: null, from: f.from || null, next: null, hasNotes: false, branch: null,
@@ -521,7 +524,7 @@ export function buildBoard(snapshot) {
       const askIds = [it.from_ask, ...folded].filter((id) => asks.has(id));
       const askKeys = new Set(askIds.map((id) => `ask:${id}`));
       const lines = [...(routeRecord(threads, key) || []), ...askIds.flatMap((id) => routeRecord(threads, `ask:${id}`) || [])];
-      if (it.from_ask) madeFrom.set(it.from_ask, [...(madeFrom.get(it.from_ask) || []), { key, ref: refOf(wave, it.id, tickets), became: true }]);
+      if (it.from_ask) madeFrom.set(it.from_ask, [...(madeFrom.get(it.from_ask) || []), { key, ref: refOf(wave, it, tickets), became: true }]);
       const msgs = threadOf(key, { lines, events, owner, working, fromAsk: it.from_ask || null, moved: folded });
       for (const m of msgs) if (m.eventId) threadStates.set(m.eventId, m.state);
       if (msgs.some((m) => m.eventId && m.kind !== 'ask' && routeRecord(working, m.eventId))) worked.add(key);

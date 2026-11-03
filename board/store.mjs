@@ -12,7 +12,7 @@ import { dropQueued, reviseQueued, flushQueue, queueStatus, readSettings } from 
 import { holdLine, windowAt } from '../hub/schedule.mjs';
 import { AT_RE } from '../hub/duration.mjs';
 import { routeRecord } from '../hub/routes.mjs';
-import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleTickets, mcpCreateLine } from './tickets.mjs';
+import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleTickets, mcpCreateLine, cardIdOf } from './tickets.mjs';
 import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { fetchPR, reportOf, githubLogin } from '../hub/pr-report.mjs';
@@ -303,14 +303,16 @@ export async function cardName(site, key) {
     if (!m) return key;
     const source = sources.find((s) => s.slug === m[1]);
     const wave = source && await readJSON(source.file, null);
-    return wave ? refOf(wave, m[2], tickets) : m[2];
+    if (!wave) return m[2];
+    const card = [...(wave.items || []), ...(wave.followups || [])].find((it) => it.id === m[2]);
+    return refOf(wave, card || { id: m[2] }, tickets);
   }
   const folded = site ? routeRecord(await readAskLinks(site), ask) : undefined;
   if (folded) return cardName(site, folded);
   for (const s of sources) {
     const wave = await readJSON(s.file, null);
     const it = (Array.isArray(wave?.items) ? wave.items : []).find((i) => i.from_ask === ask);
-    if (it) return refOf(wave, it.id, tickets);
+    if (it) return refOf(wave, it, tickets);
   }
   return `task ${ask}`;
 }
@@ -1182,7 +1184,7 @@ async function checkNextDeps(site, key, item, next) {
     for (const other of wave?.items || []) {
       const otherKey = `${source.slug}/${other.id}`;
       if (otherKey === key || deps.has(otherKey) || FINISHED.includes(other.status)) continue;
-      const names = [other.id, refOf(wave, other.id)].flatMap((id) => [id, `${source.slug}/${id}`]);
+      const names = [other.id, refOf(wave, other)].flatMap((id) => [id, `${source.slug}/${id}`]);
       if (names.some((name) => mentions.has(name))) fail(`--next names unfinished card ${otherKey}; add it with --deps`);
     }
   }
@@ -1457,22 +1459,29 @@ export const setItem = (site, key, changes, options) => (changes.ticket !== unde
 export const addItem = (site, key, details, options) => ticketWrite(site, () => createItem(site, key, details, options));
 export const addFollowup = (site, slug, details, options) => ticketWrite(site, () => createFollowup(site, slug, details, options));
 
-// → the wave file. A new card starts unstarted: planned, or waiting when it names deps.
+// → {file, key}. A new card starts unstarted: planned, or waiting when it names deps. key is <wave>/<id>, or <wave>
+// alone, which names the card from the ticket made or linked for it.
 async function createItem(site, key, { title, notes, deps, notesFile, ticket, pickUpAt }, options) {
-  const { wave: slug, id } = parseKey(key);
-  domId(id, 'the item id');
+  const { wave: slug, id } = key.includes('/') ? parseKey(key) : { wave: key };
+  if (id !== undefined) domId(id, 'the item id');
   const { source, wave } = await loadWave(site, slug);
-  if (wave.items.some((it) => it.id === id)) fail(`wave "${slug}" already has an item "${id}"`);
+  if (id !== undefined && wave.items.some((it) => it.id === id)) fail(`wave "${slug}" already has an item "${id}"`);
   const item = { id, title: text(title, '--title'), created: new Date().toISOString() };
   if (notes !== undefined) item.notes = text(notes, '--notes');
   if (deps !== undefined) item.deps = await depList(site, slug, deps);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
   item.status = item.deps?.length ? 'waiting' : 'planned';
   if (pickUpAt !== undefined) setHold(item, { until: pickUpTime(pickUpAt) });
-  const line = await assignTicket(site, key, wave, item, ticket, options, source.dir, setTicketCommand(site, key));
+  const link = id === undefined ? `${boardCommand(site)}item add ${slug}/<id> --title <t>` : setTicketCommand(site, key);
+  const line = await assignTicket(site, key, wave, item, ticket, options, source.dir, link);
+  if (id === undefined) {
+    if (line) fail(line);
+    item.id = cardIdOf(item.ticket);
+    if (wave.items.some((it) => it.id === item.id)) fail(`wave "${slug}" already has an item "${item.id}"; link ${item.ticket} with item add ${slug}/<id> --ticket ${item.ticket}`);
+  }
   wave.items.push(item);
   await writeJSON(source.file, wave);
-  return { file: source.file, lines: line ? [line] : [] };
+  return { file: source.file, key: `${slug}/${item.id}`, lines: line ? [line] : [] };
 }
 
 async function createFollowup(site, slug, { id, title, from, ticket }, options) {
@@ -1496,10 +1505,9 @@ export const setFollowupTicket = (site, slug, id, ticket) => ticketWrite(site, a
   return source.file;
 });
 
-const setTicketCommand = (site, key, followup = false) => {
-  const where = site ? `--site ${path.basename(site)} ` : '';
-  return followup ? `board.mjs ${where}followup set ${key.replace('/', ' ')}` : `board.mjs ${where}item set ${key}`;
-};
+const boardCommand = (site) => `board.mjs ${site ? `--site ${path.basename(site)} ` : ''}`;
+const setTicketCommand = (site, key, followup = false) => (followup
+  ? `${boardCommand(site)}followup set ${key.replace('/', ' ')}` : `${boardCommand(site)}item set ${key}`);
 
 // `tickets backfill`: each open card and follow-up with no ticket links the first id in its title, or in its legacy
 // `linear` list, that belongs to the board's source, else gets a new ticket. An internal wave's card whose ticket is
@@ -1678,7 +1686,7 @@ export async function finishLineup(site, slug) {
 export async function readLineupNotes(site, slug, tickets) {
   const { source, wave, lineup } = await findLineup(site, slug);
   const note = await fs.readFile(path.join(source.dir, lineupNoteFile(slug)), 'utf8').catch(() => '');
-  const order = lineup.items.map((id) => refOf(wave, id, tickets)).join(' → ');
+  const order = lineup.items.map((id) => refOf(wave, wave.items.find((it) => it.id === id) || { id }, tickets)).join(' → ');
   return { title: lineup.title, markdown: `**Goal** ${lineup.goal}\n\n**Order** ${order}\n\n${note}` };
 }
 

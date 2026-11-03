@@ -182,7 +182,8 @@ BoardView.part((B) => {
     }
     if (it.branch) rows.push(['Branch', `<code>${esc(it.branch)}</code>`]);
     if (it.status) rows.push(['Status', esc(it.status)]);
-    if (it.deps.length) rows.push(['Waits on', esc(it.deps.join(', '))]);
+    const depRef = (d) => state.board?.items.find((i) => i.key === (d.includes('/') ? d : `${it.wave}/${d}`))?.ref || d;
+    if (it.deps.length) rows.push(['Waits on', linkText(it.deps.map(depRef).join(', '), ctx)]);
     if (it.manualSteps.length) rows.push(['Manual steps', linkText(it.manualSteps.join('; '), ctx)]);
     if (it.from) rows.push(['Filed from', esc(it.from)]);
     if (it.next) rows.push(['Next', linkText(it.next, ctx)]);

@@ -153,10 +153,12 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          --status done, merged or dropped closes the card: it resolves each of its questions (topic
          item:<wave>/<id>) that has an answer, noting "Closed with the card", and prints "resolved: <id>"
          for each. It refuses while one has no answer yet; [--force] closes it and resolves that one too
-  item add <wave>/<id> --title <t> [--notes <t>]          a new card, planned (waiting when it has --deps); never
+  item add <wave>[/<id>] --title <t> [--notes <t>]       a new card, planned (waiting when it has --deps); never
          [--ticket <id>] [--deps <id>,<wave>/<id>]       hand-edit wave.json to add one. Refuses an id the wave has.
          [--notes-file <file>]                           --plan is an alias of --notes-file
          [--pick-up-at <time>]                           holds it until then, as item set's --pick-up-at
+         Without /<id>, the card takes its ticket's id (GH-<n> for issue #n); pass an id only to import a
+         card. Prints "<label> added as <key>": use the key in later commands
   item relate-ask <eventId> <wave>/<id> --summary <t>   folds an ask about an existing item into it: the ask's
                                                          card goes, its message and thread show in the item's
                                                          thread marked Moved, then the summary line. Again with
@@ -457,7 +459,7 @@ const COMMANDS = {
   'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'pushed', 'gh-since', 'from-ask', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force', 'ticket', 'confirmed', 'text'], (site, [key], f, options) =>
     store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, force: f.force, ticket: f.ticket, confirmed: f.confirmed, text: f.text }, options)],
-  'item add': [['wave/id'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket, pickUpAt: f['pick-up-at'] }, options)],
+  'item add': [['wave[/id]'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket, pickUpAt: f['pick-up-at'] }, options)],
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
   'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],
   'ask done': [['eventId'], [], (site, [id]) => store.markAsk(site, id, 'done')],
@@ -588,7 +590,7 @@ const SAID = {
   'prototype add': async (site, [topic], f) => `prototype ${topic} recorded${f.card ? ` for ${await card(site, f.card)}` : ''}`,
   'prototype rm': (site, [topic]) => `prototype ${topic} removed`,
   'item set': async (site, [key], f) => `${await card(site, key)}: ${itemChanges(f)}`,
-  'item add': async (site, [key]) => `${await card(site, key)} added`,
+  'item add': async (site, _, f, { key }) => `${await card(site, key)} added as ${key}`,
   'item relate-ask': async (site, [id, key]) => `task ${id} folded into ${await card(site, key)}`,
   'ask progress': async (site, [id]) => `${await card(site, `ask:${id}`)}: in progress`,
   'ask done': async (site, [id]) => `${await card(site, `ask:${id}`)}: done`,

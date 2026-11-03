@@ -103,6 +103,9 @@ export async function resolveTicket(source, { ticket, title, body = '', repo, ne
   return { ticket: `#${match[2]}`, created: !n };
 }
 
+// The id of a card named from its ticket: the ticket, or GH-<n> for issue #n, since a card id names files and branches.
+export const cardIdOf = (ticket) => (ticket.startsWith('#') ? `GH-${ticket.slice(1)}` : ticket);
+
 // The ids in a card's title that belong to the source, in order: PREFIX-n, #n or TEAM-n.
 export function titleTickets(source, title) {
   const found = source.source === 'github' ? String(title ?? '').match(/(?<![\w#])#[1-9]\d*\b/g) : String(title ?? '').match(/\b[A-Z][A-Z0-9]*-[1-9]\d*\b/g);

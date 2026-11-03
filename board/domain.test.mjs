@@ -824,6 +824,12 @@ test('a card badges only a ticket from its board source, keeps another source\'s
   const ops = build({ source: 'internal', prefix: 'OPS' });
   assert.deepEqual(badges(ops), { S3: ['OPS-3', ...card('w/S3')], 'INT-14': null, C4: own('INT-4'), C5: own('#5'), C6: own('ENG-6'), F7: own('INT-7'), P1: null });
   assert.deepEqual(['S3', 'INT-14'].map((id) => ops.items.find((i) => i.id === id).ref), ['OPS-3', 'INT-14']);
+  const refs = (board) => Object.fromEntries(board.items.filter((i) => i.kind !== 'ask').map((i) => [i.id, i.ref]));
+  const stored = { S3: 'INT-3', 'INT-14': 'INT-14', C4: 'C4', C5: 'C5', C6: 'C6', F7: 'F7', P1: 'P1' };
+  assert.deepEqual(refs(build(undefined)), stored);
+  assert.deepEqual(refs(build({ source: 'internal', prefix: 'INT' })), { ...stored, C4: 'INT-4', F7: 'INT-7' });
+  assert.deepEqual(refs(build({ source: 'github' })), { ...stored, C5: '#5' });
+  assert.deepEqual(refs(build({ source: 'linear', workspace: 'acme', team: 'ENG', project: 'Audit' })), { ...stored, C6: 'ENG-6' });
   assert.deepEqual(badges(build({ source: 'github' })), { S3: null, 'INT-14': null, C4: own('INT-4'), C5: ['#5', 'https://github.com/owner/repo/issues/5'], C6: own('ENG-6'), F7: own('INT-7'), P1: null });
   const linear = build({ source: 'linear', workspace: 'new-workspace', team: 'ENG', project: 'Audit' });
   assert.deepEqual(badges(linear), { S3: null, 'INT-14': null, C4: own('INT-4'), C5: own('#5'), C6: ['ENG-6', 'https://linear.app/new-workspace/issue/ENG-6'], F7: own('INT-7'), P1: null });

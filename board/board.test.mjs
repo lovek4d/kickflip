@@ -185,6 +185,9 @@ test('tickets validate prefixes and link or create in the board source through t
   assert.equal(await cli('item', 'set', 'audit/A1', '--ticket', 'INT-20'), 0);
   assert.equal(await cli('item', 'add', 'audit/C3', '--title', 'Three'), 0);
   assert.equal(read(site('audit', 'data', 'wave.json')).items.at(-1).ticket, 'INT-21');
+  assert.equal(await cli('item', 'add', 'audit', '--title', 'Named by its ticket'), 0);
+  assert.equal(out.at(-1), 'INT-22 added as audit/INT-22');
+  assert.deepEqual(['id', 'ticket', 'title'].map((k) => read(site('audit', 'data', 'wave.json')).items.at(-1)[k]), ['INT-22', 'INT-22', 'Named by its ticket']);
   await saveBoardSettings(site('audit'), { tickets: { source: 'internal', prefix: 'OPS' } });
   assert.equal(await cli('item', 'add', 'audit/D4', '--title', 'Four'), 0);
   assert.equal(read(site('audit', 'data', 'wave.json')).items.at(-1).ticket, 'OPS-1');
@@ -216,6 +219,16 @@ test('tickets validate prefixes and link or create in the board source through t
     ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'Another follow', '--body', '']],
   ]);
   assert.equal(read(waveFile).items.at(-1).ticket, '#42');
+  assert.equal(await cli('item', 'set', 'audit/F6', '--next', 'Then this'), 0);
+  assert.equal(out.at(-1), '#41: next line set');
+  assert.equal(await cli('item', 'add', 'audit', '--title', 'Ten', '--notes', 'From the source'), 0);
+  assert.deepEqual(calls.at(-1), ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'Ten', '--body', 'From the source']]);
+  assert.equal(out.at(-1), '#42 added as audit/GH-42');
+  assert.deepEqual(['id', 'ticket', 'ticket_created'].map((k) => read(waveFile).items.at(-1)[k]), ['GH-42', '#42', true]);
+  const items = read(waveFile).items.length;
+  assert.equal(await cli('item', 'add', 'audit', '--title', 'Eleven'), 1);
+  assert.equal(err.at(-1), 'wave "audit" already has an item "GH-42"; link #42 with item add audit/<id> --ticket #42');
+  assert.equal(read(waveFile).items.length, items);
   const before = fs.readFileSync(waveFile, 'utf8');
   for (const response of [{ status: 1, stderr: 'No such issue' }, { status: 0, stdout: JSON.stringify({ number: 41, url: 'https://github.com/other/repo/issues/41' }) }]) {
     assert.equal(await main(['--site', 'audit', 'item', 'set', 'audit/F6', '--ticket', '#41'], { run: async () => response }), 1);
@@ -312,6 +325,9 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
   for (const flags of [['--status', 'checking'], ['--status', 'planned'], ['--held'], ['--next', 'Then this']]) assert.equal(await cli('item', 'set', 'audit/C3', ...flags), 0);
   assert.equal(linear.calls.length, before);
   assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five'), 0);
+  assert.equal(await cli('item', 'add', 'audit', '--title', 'Named in Linear'), 0);
+  assert.equal(out.at(-1), 'ENG-103 added as audit/ENG-103');
+  assert.deepEqual([item('ENG-103').ticket, world.issues['ENG-103'].input.title], ['ENG-103', 'Named in Linear']);
   const offline = async () => { throw new Error('offline'); };
   assert.equal(await main(['--site', 'audit', 'item', 'set', 'audit/E5', '--status', 'building'], { linearFetch: offline }), 0);
   assert.equal(out.at(-1), 'ticket ENG-102: could not move to In Progress (Could not reach Linear: offline)');
@@ -345,6 +361,10 @@ test("a Linear board without Hub's key records each card and asks the session, i
   assert.equal(await cli('item', 'add', 'audit/B2', '--title', 'Two', '--notes', 'Why'), 0);
   assert.equal(out.at(-1), 'ticket: create the Linear issue "Two" in team ENG, project Backend Audit, through your Linear MCP, then run board.mjs --site audit item set audit/B2 --ticket <id>');
   assert.deepEqual([item('B2').status, item('B2').ticket], ['planned', undefined]);
+  const unnamed = fs.readFileSync(site('audit', 'data', 'wave.json'), 'utf8');
+  assert.equal(await cli('item', 'add', 'audit', '--title', 'Unnamed'), 1);
+  assert.equal(err.at(-1), 'ticket: create the Linear issue "Unnamed" in team ENG, project Backend Audit, through your Linear MCP, then run board.mjs --site audit item add audit/<id> --title <t> --ticket <id>');
+  assert.equal(fs.readFileSync(site('audit', 'data', 'wave.json'), 'utf8'), unnamed);
   assert.equal(await cli('item', 'set', 'audit/B2', '--ticket', 'OPS-4'), 1);
   assert.match(err.at(-1), /match ENG-<number>/);
   assert.equal(await cli('item', 'set', 'audit/B2', '--ticket', 'ENG-4'), 0);

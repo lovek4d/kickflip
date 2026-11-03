@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0132
+---
+
 # The hub board files its cards as GitHub issues
+
+Superseded in part by [0132](0132-a-card-is-named-by-its-boards-ticket-source.md): a card with an issue reads as its issue, `#n`; the card id stays its key, and a new card's id is `GH-<n>`.
 
 hub/INT-13 moved the hub board's tickets off the local wave file. The owner picked A for `tracker`, `tracker-role`, `tracker-old-cards` and `gh-account`: GitHub issues on kickflip's own repo, filed as a gh account the owner names, with the board still the store. This builds on [0081](0081-a-board-has-one-ticket-source.md) and [0088](0088-kickflip-reaches-linear-with-a-key-on-the-mac.md).
 

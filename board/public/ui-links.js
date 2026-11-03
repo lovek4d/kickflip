@@ -6,19 +6,25 @@
   // The Linear id shape store.mjs accepts for a follow-up, which an internal ref shares.
   const LINEAR_ID = /^([A-Z][A-Z0-9]*)-\d+$/;
   const LINEAR_ISSUE = /^https:\/\/linear\.app\/[^/]+\/issue\//;
+  // A GitHub ticket's ref (board/domain.mjs refOf).
+  const ISSUE = /^#\d+$/;
   const prUrl = (repo, n) => `https://github.com/${repo}/pull/${n}`;
 
-  // What a renderer needs to link text shown on item `key` (null for none): each ref to its card's key, the issue url
-  // prefix of each Linear team the board's cards link to (none on a board without a workspace), that item's repo for
-  // a bare #n, and `base`, which a page other than the board sets to './' so a card link opens the board. A ref shaped
-  // like a Linear id, such as INT-<n>, links from anywhere; a wave's own short id, such as B1, links only from that
-  // wave's cards, since a plan for another wave reuses those names.
+  // What a renderer needs to link text shown on item `key` (null for none): each ref, and each card id that differs
+  // from its ref, to its card's key, the issue url prefix of each Linear team the board's cards link to (none on a
+  // board without a workspace), that item's repo for a bare #n that is no card's ref, and `base`, which a page other
+  // than the board sets to './' so a card link opens the board. A ref shaped like a Linear id, such as INT-<n>, or a
+  // ticket #n links from anywhere; a wave's own short id, such as B1, links only from that wave's cards, since a plan
+  // for another wave reuses those names.
   function linkContext(items = [], key = null, { base = '' } = {}) {
     const wave = key && !key.startsWith('ask:') ? key.slice(0, key.indexOf('/')) : null;
     const byRef = new Map();
     for (const i of items) {
-      if (i.kind === 'ask' || !i.ref || (!LINEAR_ID.test(i.ref) && i.wave !== wave)) continue;
-      byRef.set(i.ref, [...(byRef.get(i.ref) || []), i]);
+      if (i.kind === 'ask') continue;
+      for (const ref of new Set([i.ref, i.id])) {
+        if (!ref || (!LINEAR_ID.test(ref) && !ISSUE.test(ref) && i.wave !== wave)) continue;
+        byRef.set(ref, [...(byRef.get(ref) || []), i]);
+      }
     }
     const refs = Object.create(null);
     for (const [ref, list] of byRef) {
@@ -62,11 +68,13 @@
     return anyLink(url, url) + esc(raw.slice(url.length));
   }
 
+  const cardLink = (ref, ctx) => `<a href="${esc(`${ctx.base || ''}#item=${encodeURIComponent(record(ctx.refs, ref))}`)}">${esc(ref)}</a>`;
+
   // The longest hyphen-prefix of a word that is a known ref or a Linear id, then the rest as text.
   function wordLink(word, ctx) {
     for (let w = word; w; w = w.includes('-') ? w.slice(0, w.lastIndexOf('-')) : '') {
       const rest = esc(word.slice(w.length));
-      if (record(ctx.refs, w)) return `<a href="${esc(`${ctx.base || ''}#item=${encodeURIComponent(record(ctx.refs, w))}`)}">${esc(w)}</a>${rest}`;
+      if (record(ctx.refs, w)) return cardLink(w, ctx) + rest;
       const team = LINEAR_ID.exec(w)?.[1];
       const prefix = team && team !== 'INT' && record(ctx.teams, team);
       if (prefix) return out(prefix + w, w) + rest;
@@ -90,7 +98,7 @@
       else if (name) {
         const repo = owner ? `${owner}/${name}` : record(ctx.repos, name);
         html += repo ? out(prUrl(repo, n), all) : esc(all);
-      } else if (bare) html += ctx.repo && !colour(bare) ? out(prUrl(ctx.repo, bare), all) : esc(all);
+      } else if (bare) html += record(ctx.refs, all) ? cardLink(all, ctx) : ctx.repo && !colour(bare) ? out(prUrl(ctx.repo, bare), all) : esc(all);
       else html += wordLink(word, ctx);
     }
     return html + esc(s.slice(at));
