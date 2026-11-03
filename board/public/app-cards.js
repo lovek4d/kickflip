@@ -359,7 +359,7 @@ BoardView.part((B) => {
     if (act === 'finish') {
       const card = $(`details.item[data-key="${CSS.escape(key)}"]`);
       if (card) card.open = false;
-      try { await (it.kind === 'ask' ? B.site.send('ask-done', { id: it.id }) : B.site.send('card-done', { key })); }
+      try { await B.movingHere(key, () => (it.kind === 'ask' ? B.site.send('ask-done', { id: it.id }) : B.site.send('card-done', { key }))); }
       catch { toast('Could not close. Is the host awake?'); }
       await B.loadBoard();
       B.syncDone(key);

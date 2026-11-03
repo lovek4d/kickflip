@@ -1,5 +1,6 @@
 // The last visit's board on the board view: reading and saving it, holding the controls that send until the fresh
-// board lands, and flashing the lines the fresh board changed (docs/adr/0028-the-board-opens-on-the-last-visit.md).
+// board lands, and flashing the lines the fresh board changed (docs/adr/0028-the-board-opens-on-the-last-visit.md)
+// and the cards that changed lanes.
 // Needs app-core.js and ui-snapshot.js; app.js paints it.
 BoardView.part((B) => {
   const { $$, state } = B;
@@ -95,5 +96,30 @@ BoardView.part((B) => {
   }
   const endFlash = () => { before = null; };
 
-  Object.assign(B, { readSnapshot, saveSnapshotSoon, setView, holdForFlash, flashChanged, endFlash });
+  // A card whose lane changed since the page last drew it, a last visit's board included, flashes once in its new
+  // lane, as does a work card that takes the place of a drawn New task (its fromAsk), unless the owner moved it from
+  // this page: movingHere(key, send) holds the card's next lane change unflashed until the first board load started
+  // after send settles.
+  let drawnLanes = new Map();
+  const ownMoves = new Map();
+  async function movingHere(key, send) {
+    ownMoves.set(key, Infinity);
+    try { return await send(); } finally { ownMoves.set(key, B.boardLoad || 0); }
+  }
+  function flashMoved(load = null) {
+    for (const it of state.board.items) {
+      const moved = drawnLanes.has(it.key) ? drawnLanes.get(it.key) !== it.lane : Boolean(it.fromAsk) && drawnLanes.has(`ask:${it.fromAsk}`);
+      const own = ownMoves.get(it.key);
+      if (own !== undefined) { if (moved || (load !== null && load > own)) ownMoves.delete(it.key); continue; }
+      const el = moved && state.view === 'fresh' && B.root.querySelector(`details.item[data-key="${CSS.escape(it.key)}"]`);
+      if (!el) continue;
+      // Re-adding the class after a layout read restarts a flash still running.
+      el.classList.remove('flash');
+      void el.offsetWidth;
+      el.classList.add('flash');
+    }
+    drawnLanes = new Map(state.board.items.map((i) => [i.key, i.lane]));
+  }
+
+  Object.assign(B, { readSnapshot, saveSnapshotSoon, setView, holdForFlash, flashChanged, endFlash, movingHere, flashMoved });
 });

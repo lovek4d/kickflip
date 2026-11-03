@@ -106,7 +106,7 @@ BoardView.part((B) => {
     if (!b) return;
     const key = b.closest('form').dataset.reply;
     b.disabled = true;
-    try { await B.site.send('item-message', { key, text: b.dataset.quick }); loadThread(key, { force: true }); }
+    try { await B.movingHere(key, () => B.site.send('item-message', { key, text: b.dataset.quick })); loadThread(key, { force: true }); }
     catch { toast('Could not send'); }
     b.disabled = false;
   });
@@ -147,7 +147,7 @@ BoardView.part((B) => {
     const btn = f.querySelector('button[type=submit]'); btn.disabled = true;
     try {
       await sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),
-        () => B.site.send('item-message', { key, text, ...(files.length ? { files } : {}) }));
+        () => B.movingHere(key, () => B.site.send('item-message', { key, text, ...(files.length ? { files } : {}) })));
       BoardAttach.clear(id, B.site.root);
       btn.disabled = false;
       loadThread(f.dataset.reply, { force: true });

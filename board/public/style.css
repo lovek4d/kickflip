@@ -401,7 +401,7 @@ button.attach:disabled { opacity: .35; }
 .top .back:active { background: var(--accent-soft); }
 .top .brand :is(h1, h2) { font-size: 17px; font-weight: 600; line-height: 22px; }
 /* The last visit paints dimmed until the fresh board lands; the controls ui-snapshot.js liveControls blocks rest meanwhile.
-   A changed card, or other changed line, gets a builder-orange border that fades once (app-snapshot.js flashChanged). */
+   A changed card or line, and a card that changed lanes, gets a blue border that fades once (app-snapshot.js). */
 main > * { transition: opacity .25s ease; }
 .view-board[data-board="snapshot"]:not(.offline) main > * { opacity: .62; }
 .view-board[data-board="snapshot"] :is(.actions button, button[data-plan], button[data-bump], button[data-confirm="bump"], button[data-edit], button[data-withdraw], button[data-check-github], form[data-reply] button[type=submit], form[data-reply] button[data-quick], form[data-reply] button[data-proto], form[data-reply] button[data-confirm], .prompt button) { opacity: .45; pointer-events: none; }
