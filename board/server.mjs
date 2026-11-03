@@ -146,7 +146,7 @@ import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { buildBoard, ITEM_EVENTS, needsAnswer, ownerActions, pullOf, refOf, startedByAnswer, threadOf } from './domain.mjs';
 import { dropQueued } from '../hub/push.mjs';
-import { createReadStream, watch as watchFiles } from 'node:fs';
+import { createReadStream, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { BoardError, boardConfig, dueQueuedBuilds, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswer, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
@@ -597,16 +597,44 @@ function changed() {
     checkQueued();
   }, Math.max(0, Math.min(CHANGE_QUIET, changeFirst + CHANGE_MAX - now)));
 }
-// A folder that doesn't exist yet, or whose watch fails, is retried; the first watch after a retry signals, since a
+// Each folder in the tree has its own watch, which sees every write to a file in it, including a file a rename
+// replaced; a folder that appears is watched and one that goes is dropped (docs/adr/0159-the-board-watches-each-folder.md).
+// A root that doesn't exist yet, or whose watch fails, is retried; the first watch after a retry signals, since a
 // write may have landed meanwhile.
-function watchTree(dir) {
+const isFolder = (dir) => { try { return statSync(dir).isDirectory(); } catch { return false; } };
+function watchTree(root) {
+  const watches = new Map();
   let retried = false;
+  const unwatch = (folder) => {
+    for (const [dir, w] of watches) if (dir === folder || dir.startsWith(folder + path.sep)) { w.close(); watches.delete(dir); }
+  };
+  const watchFolder = (folder) => {
+    if (watches.has(folder)) return;
+    const w = watchFiles(folder, (_, name) => {
+      if (!String(name || '').endsWith('.tmp')) changed();
+      if (folder === root && !isFolder(root)) return retry();
+      if (!name) return;
+      const entry = path.join(folder, String(name));
+      if (!isFolder(entry)) unwatch(entry);
+      else try { watchFolder(entry); } catch { unwatch(entry); }
+    });
+    watches.set(folder, w);
+    w.on('error', () => (folder === root ? retry() : unwatch(folder)));
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      try { watchFolder(path.join(folder, entry.name)); } catch { unwatch(path.join(folder, entry.name)); }
+    }
+  };
+  let retryTimer = null;
+  const retry = () => {
+    if (retryTimer) return;
+    unwatch(root);
+    retried = true;
+    retryTimer = setTimeout(() => { retryTimer = null; start(); }, 2000).unref();
+  };
   const start = () => {
-    let w;
-    try { w = watchFiles(dir, { recursive: true }, (_, name) => { if (!String(name || '').endsWith('.tmp')) changed(); }); }
-    catch { retried = true; setTimeout(start, 2000).unref(); return; }
+    try { watchFolder(root); } catch { retry(); return; }
     if (retried) changed();
-    w.on('error', () => { w.close(); retried = true; setTimeout(start, 2000).unref(); });
   };
   start();
 }

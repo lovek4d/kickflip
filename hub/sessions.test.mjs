@@ -129,6 +129,7 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
   const source = `
     import fs from 'node:fs';
     import cp from 'node:child_process';
+    import os from 'node:os';
     import { syncBuiltinESMExports } from 'node:module';
     cp.spawnSync = (command, argv, options) => {
       fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify([command, ...argv]) + '\\n');
@@ -139,6 +140,7 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
       if (command === 'systemctl' && argv.join(' ') === '--user is-active kickflip-hub.service') stdout = 'active';
       if (command === 'loginctl' && argv.join(' ') === 'show-user ' + process.getuid() + ' --property=Linger') stdout = 'Linger=yes';
       if (command === 'tailscale' && argv[0] === 'status') stdout = JSON.stringify({ BackendState: 'Running' });
+      if (command === 'tailscale' && argv.join(' ') === 'debug prefs') stdout = JSON.stringify({ OperatorUser: os.userInfo().username });
       if (command === 'tailscale' && argv[0] === 'serve' && argv[1] === 'status') stdout = JSON.stringify({ Web: { host: { Handlers: { '/': { Proxy: 'http://127.0.0.1:${port}' } } } } });
       return { status: 0, stdout, stderr: '' };
     };

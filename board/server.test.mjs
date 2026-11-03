@@ -602,7 +602,7 @@ test('the board, a thread and the static files come gzipped when the browser acc
   }
 });
 
-test('the stream sends a change, uncompressed, after a write to a thread or a wave file', async () => {
+test('the stream sends a change, uncompressed, after a write to a thread or a wave file, also once a rename replaced the file, and in a folder made after the stream opened', async () => {
   const req = http.get(`${base}/api/stream`, { headers: { 'accept-encoding': 'gzip' } });
   const res = await new Promise((resolve, reject) => req.once('response', resolve).once('error', reject));
   try {
@@ -622,6 +622,10 @@ test('the stream sends a change, uncompressed, after a write to a thread or a wa
     for (const write of [
       () => fs.appendFileSync(path.join(site, 'data', 'threads', 't__S1.jsonl'), JSON.stringify({ ts: new Date().toISOString(), who: 'claude', text: 'Live' }) + '\n'),
       () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'S1', title: 'Streamed' }] })),
+      () => { fs.writeFileSync(path.join(site, 'data', 'wave.json.tmp'), JSON.stringify({ items: [{ id: 'S1', title: 'Renamed' }] })); fs.renameSync(path.join(site, 'data', 'wave.json.tmp'), path.join(site, 'data', 'wave.json')); },
+      () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'S1', title: 'In place' }] })),
+      () => fs.mkdirSync(path.join(site, 'data', 'streamed', 'deeper'), { recursive: true }),
+      () => fs.writeFileSync(path.join(site, 'data', 'streamed', 'deeper', 'note.json'), '{}'),
     ]) {
       const signal = nextChange();
       write();

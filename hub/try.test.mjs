@@ -14,6 +14,8 @@ import { until as waitUntil } from '../shared/test-helpers.mjs';
 
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'try-')));
 process.env.HOME = home;
+// The temp HOME hides the user's git identity, so the test repos' commits and merges get one here.
+fs.writeFileSync(path.join(home, '.gitconfig'), '[user]\n\tname = Test\n\temail = test@example.com\n');
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value)); };
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -32,6 +34,8 @@ if (args.join(' ') === 'serve status --json') {
   console.log(fs.readFileSync(path.join(process.env.HOME, 'tailscale.status'), 'utf8'));
 } else if (args.join(' ') === 'status --json') {
   console.log(JSON.stringify({ BackendState: 'Running', Self: { DNSName: 'mac.ts.net.' } }));
+} else if (args.join(' ') === 'debug prefs') {
+  console.log(JSON.stringify({ OperatorUser: require('node:os').userInfo().username }));
 } else if (args.includes('--bg') && fs.existsSync(path.join(process.env.HOME, 'tailscale.fail'))) {
   console.error('permission denied by tailscaled'); process.exit(1);
 }
@@ -57,7 +61,7 @@ const start = (input = {}) => manager.start({ route: 'orch', key: 'w/A1', ...inp
 const tick = () => manager.tick({ manifest });
 const until = (fn) => waitUntil(fn, 'timed out waiting for try state');
 const config = (extra = {}) => write(path.join(site, 'board.json'), { items: 'data/wave.json', slug: 'w', ...extra });
-function commit(dir, name = 'change') { git(dir, 'add', '.'); git(dir, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '--quiet', '-m', name); return git(dir, 'rev-parse', 'HEAD'); }
+function commit(dir, name = 'change') { git(dir, 'add', '.'); git(dir, 'commit', '--quiet', '-m', name); return git(dir, 'rev-parse', 'HEAD'); }
 
 function fakeRelays(t) {
   const relays = [];
