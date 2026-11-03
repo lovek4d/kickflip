@@ -91,7 +91,7 @@ export async function startReview(site, board, { now = new Date(), home = os.hom
       note: `${await cardName(site, key)} is the audit of ${name}: its Notes are the report, and it asks one question per finding. Each finding you don't skip becomes a card after it, built from the option you pick.`,
     });
   }
-  await startBuilder(site, key, { label: 'Architecture review', progress: 'Waiting for Claude to start the review' });
+  await startBuilder(site, key, { label: 'Architecture review' });
   await appendThread(site, key, { text: `Started an architecture review of ${name}. Its report becomes this card's Notes, with one question per finding.` });
 
   const reviews = await readReviews(site);

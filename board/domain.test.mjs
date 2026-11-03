@@ -174,6 +174,14 @@ test("a card lists each agent oldest first, its line is the newest status line s
   assert.deepEqual([changing.agents, changing.eta], [[], null]);
 });
 
+test("a phased status line reads its phase first on the card, and a free-text line from before phases reads as written", () => {
+  const agents = { A1: { main: { kind: 'opus', started: '2026-10-23T10:00:00Z' }, bench: { kind: 'codex', started: '2026-10-23T10:01:00Z' } } };
+  const progress = (...lines) => board({ agents, threads: { 'w/A1': lines.map((l, i) => ({ ts: `2026-10-23T10:0${i + 2}:00Z`, who: 'claude', kind: 'status', ...l })) } }).items.find((i) => i.key === 'w/A1').builder.progress;
+  assert.equal(progress({ phase: 'testing', text: 'Testing: fix for the scroll jump: red first' }), 'Testing · fix for the scroll jump: red first');
+  assert.equal(progress({ phase: 'landing', text: 'Codex landing: rebasing on main' }), 'Codex landing · rebasing on main');
+  assert.equal(progress({ phase: 'testing', text: 'Testing: x' }, { text: 'Cause: steady() anchored the card' }), 'Cause: steady() anchored the card');
+});
+
 test('lanes follow the PR, with CI that is running on a draft or red on any PR in In Progress, and an open follow-up sits in Todo', () => {
   const lanes = (pr) => Object.fromEntries(board({ pr }).items.map((i) => [i.key, i.lane]));
   assert.deepEqual(lanes({ ...greenDraft, checks: { state: 'pending' } }), { 'w/A1': 'progress', 'w/ENG-1': 'todo' });

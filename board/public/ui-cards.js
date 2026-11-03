@@ -122,7 +122,7 @@
     const starting = sending || it.starting;
     return `<button class="build" data-confirm="card-build" data-key="${esc(it.key)}"${starting ? ' disabled' : ''}>${starting ? 'Starting…' : 'Build'}</button>`;
   }
-  const builderLine = (b) => [b.progress || 'Building', b.at && ago(b.at)].filter(Boolean).join(' · ');
+  const builderLine = (b) => [b.progress || 'Starting', b.at && ago(b.at)].filter(Boolean).join(' · ');
   const stalledChip = (it) => it.lane !== 'done' && it.builder?.stalled ? badge('danger', 'Stalled', {
     button: true, title: 'No recent progress. Nudge Claude to check this builder',
     attrs: { type: 'button', 'data-confirm': 'nudge', 'data-key': it.key },

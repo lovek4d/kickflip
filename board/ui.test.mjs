@@ -884,8 +884,9 @@ test('a stalled builder adds a fault-tone button in the chip row and keeps its b
 
 test("a builder line shows the progress and its age, not who is building", () => {
   const at = new Date(Date.now() - 4 * 60000).toISOString();
-  assert.equal(ui.builderLine({ label: 'Opus builder', progress: 'Running tests', at }), 'Running tests · 4m ago');
-  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at: null }), 'Building');
+  assert.equal(ui.builderLine({ label: 'Opus builder', progress: 'Testing · the limiter', at }), 'Testing · the limiter · 4m ago');
+  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at }), 'Starting · 4m ago');
+  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at: null }), 'Starting');
   assert.equal(ui.builderLine({ label: null, progress: 'Making changes', at: null }), 'Making changes');
 });
 

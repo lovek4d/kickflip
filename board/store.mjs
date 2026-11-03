@@ -1815,25 +1815,42 @@ async function builderFile(site, key, dir, agent = 'main') {
 }
 const isoTime = (v, name) => (typeof v === 'string' && /^\d{4}-\d\d-\d\dT/.test(v) && !Number.isNaN(Date.parse(v)) ? new Date(v).toISOString() : fail(`${name} takes an ISO time such as 2026-10-23T16:30:00-07:00`));
 
-// A progress line lives only in the item's thread, as {kind: 'status'} (domain.mjs builderOf reads it),
-// prefixed with the agent's kind unless it is main, and skipped when it repeats the thread's last status line.
-const progressLine = (site, v, name) => (site ? text(v, name).slice(0, 160) : fail(`${name} needs --site, since the line goes to the item's thread`));
-async function statusToThread(site, key, agent = 'main', kind, line, ts) {
+// A progress line is a phase and a detail of at most DETAIL_CAP characters; a longer one is refused, never cut
+// (docs/adr/0137-a-builder-status-line-is-a-phase-and-a-short-detail.md).
+const PHASES = ['reading', 'building', 'testing', 'checking', 'landing'];
+const DETAIL_CAP = 80;
+const PHASE_LIST = 'reading, building, testing, checking or landing';
+function progressLine(site, phase, detail, name) {
+  if (!site) fail(`${name} needs --site, since the line goes to the item's thread`);
+  if (phase === undefined) fail(`${name} needs --phase ${PHASE_LIST}`);
+  if (!PHASES.includes(phase)) fail(`--phase takes ${PHASE_LIST}, not "${phase}"`);
+  const words = text(detail, name);
+  if (words.length > DETAIL_CAP) fail(`${name} is ${words.length} characters; the cap is ${DETAIL_CAP}. Say it shorter.`);
+  return { phase, detail: words };
+}
+
+// A status line lives only in the item's thread, as {kind: 'status'} (domain.mjs builderOf reads it). A progress line
+// keeps its phase and reads "Testing: <detail>", or "Codex testing: <detail>" for an agent other than main, named by
+// its kind; a line with no phase (builder done's note) reads "<detail>" or "Codex: <detail>". A line that repeats the
+// thread's last status line is skipped.
+async function statusToThread(site, key, agent = 'main', kind, { phase, detail }, ts) {
   const who = agent === 'main' ? '' : kind || agent;
-  const body = who ? `${who[0].toUpperCase()}${who.slice(1)}: ${line}` : line;
+  const head = [who, phase].filter(Boolean).join(' ');
+  const body = head ? `${head[0].toUpperCase()}${head.slice(1)}: ${detail}` : detail;
   const file = threadFile(site, key);
   if ((await readLines(file)).filter((m) => m.kind === 'status').pop()?.text === body) return;
-  await appendLine(file, { ts, who: 'claude', kind: 'status', text: body });
+  await appendLine(file, { ts, who: 'claude', kind: 'status', ...(phase ? { phase } : {}), text: body });
 }
 
 // worktree, when given, makes the builder's worktree once every flag has passed (board/worktree.mjs makeWorktree) and
 // returns {path, branch, repo}, which the record keeps for `board.mjs land`. A build (--kind build, codex or opus) on an
 // open card marks it building first, refusing what item set --status building refuses, confirmed included
 // (docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
-export async function startBuilder(site, key, { label, progress, dir, agent = 'main', kind, eta, worktree, confirmed }) {
+export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, eta, worktree, confirmed }) {
   const gate = readUsageGate();
   if (gate.state === 'paused') throw new BoardError(pauseReason(gate));
-  const line = optional(progress, (v) => progressLine(site, v, '--progress'));
+  if (phase !== undefined && progress === undefined) fail('--phase goes with --progress "<detail>"');
+  const line = optional(progress, (v) => progressLine(site, phase, v, '--progress'));
   const file = await builderFile(site, key, dir, agent);
   const now = new Date().toISOString();
   const asked = optional(kind, (v) => (/^[\w.-]{1,30}$/.test(v) ? v : fail('--kind takes a short word such as opus or codex')));
@@ -1873,9 +1890,9 @@ export async function recordedWorktree(site, key, { dir } = {}) {
   return records.sort((a, b) => String(b.started).localeCompare(String(a.started)))[0]?.worktree ?? null;
 }
 
-export async function builderProgress(site, key, progress, { dir, agent = 'main', eta, clearEta }) {
+export async function builderProgress(site, key, progress, { phase, dir, agent = 'main', eta, clearEta }) {
   if (eta !== undefined && clearEta) fail('pass --eta or --clear-eta, not both');
-  const line = progressLine(site, progress, 'builder progress');
+  const line = progressLine(site, phase, progress, 'builder progress');
   const file = await builderFile(site, key, dir, agent);
   const now = new Date().toISOString();
   const { progress: _line, progress_at: _at, done: _done, ...next } = await readJSON(file, { label: 'Builder', started: now });
@@ -1919,7 +1936,7 @@ export async function stopBuilder(site, key, { dir, agent, startedBetween, note 
   const { eta, ...rest } = record;
   const done = new Date().toISOString();
   await writeJSON(file, { ...rest, done, ...(note ? { note } : {}) });
-  if (note) await statusToThread(site, key, agent, record.kind, note, done);
+  if (note) await statusToThread(site, key, agent, record.kind, { detail: note }, done);
   const { id } = parseKey(key);
   const waveDir = path.dirname(path.dirname(file));
   const records = await Promise.all((await builderFiles(waveDir, id)).map((f) => readJSON(f, null)));

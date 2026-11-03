@@ -276,7 +276,8 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          GitHub account runs the board's issue calls as that gh
                                                          login; without one they run as gh's active account
   builder start <wave>/<id> [--agent <name>] [--kind <opus|codex|sonnet|prototype|grill|install|…>] [--label <who>]
-         [--progress <text>] [--eta <ISO time>]          one record per agent on the item; --agent defaults to main.
+         [--phase <phase> --progress <detail>]           one record per agent on the item; --agent defaults to main.
+         [--eta <ISO time>]                              --phase and --progress take what builder progress takes.
                                                          --kind install: a build of the card's install, whose
                                                          Install badge reads Building… meanwhile. --kind codex or
                                                          opus refuses the one builder pick rules out; --kind build
@@ -292,8 +293,13 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          the board's branch of its clone (--repo overrides the clone), kept on
                                                          the record and printed as "worktree: <path>". Refuses when
                                                          that path or branch exists
-  builder progress <wave>/<id> (<text> | --text <t>)     one short present-tense line
-         [--agent <name>]
+  builder progress <wave>/<id> --phase <phase>           one status line: a phase, reading, building, testing,
+         (<detail> | --text <d>) [--agent <name>]        checking or landing, and a present-tense detail of at most
+                                                         80 characters in plain words, which the owner reads at a
+                                                         glance; a longer detail is refused with its length. Hashes,
+                                                         test counts and file names go in the hand-back. The thread
+                                                         line reads "Testing: <detail>", "Codex testing: <detail>"
+                                                         for another agent, and the card "Testing · <detail>"
          [--eta <ISO time> | --clear-eta]                an ETA shows as a line under the card's status
          A progress line, --progress included, needs --site: it is a status line in the item's thread, and
          the card's status shows the newest one from an agent still working
@@ -501,7 +507,7 @@ const COMMANDS = {
   }],
   'main set': [[], ['install', 'install-sha'], (site, _, f) => store.setMainInstall(site, { install: f.install, installSha: f['install-sha'] })],
   'settings set': [['name', 'value'], [], (site, [name, value]) => store.setBoardSetting(site, name, value)],
-  'builder start': [['wave/id'], ['label', 'progress', 'dir', 'agent', 'kind', 'eta', 'worktree', 'repo', 'confirmed'], (site, [key], { worktree, repo, ...f }) => {
+  'builder start': [['wave/id'], ['label', 'phase', 'progress', 'dir', 'agent', 'kind', 'eta', 'worktree', 'repo', 'confirmed'], (site, [key], { worktree, repo, ...f }) => {
     if (repo !== undefined && !worktree) throw new UsageError('--repo goes with --worktree');
     const manifest = readManifest();
     const board = site ? boardAt(site, manifest) : null;
@@ -511,7 +517,7 @@ const COMMANDS = {
     const base = remote ? chosen.branch || 'main' : 'main';
     return store.startBuilder(site, key, { ...f, worktree: worktree && (() => makeWorktree(key.split('/')[1], { repo: source, base, remote })) });
   }],
-  'builder progress': [['wave/id', '...text?'], ['text', 'dir', 'agent', 'eta', 'clear-eta'], (site, [key, ...words], f) => {
+  'builder progress': [['wave/id', '...text?'], ['phase', 'text', 'dir', 'agent', 'eta', 'clear-eta'], (site, [key, ...words], f) => {
     if (words.length && f.text !== undefined) throw new UsageError('builder progress takes its text once: as words or as --text');
     if (!words.length && f.text === undefined) throw new UsageError('builder progress needs its text, as words or as --text');
     return store.builderProgress(site, key, f.text ?? words.join(' '), { ...f, clearEta: f['clear-eta'] });

@@ -329,7 +329,9 @@ function agentsOf(records = {}) {
     name, kind: r.kind || null, label: r.label || null, started: r.started || null, eta: r.done ? null : r.eta || null, done: r.done || null,
   })).sort((a, b) => String(a.started || '').localeCompare(String(b.started || '')) || a.name.localeCompare(b.name));
 }
-// An install builder takes precedence so another running agent cannot hide the install's build state.
+// An install builder takes precedence so another running agent cannot hide the install's build state. A phased line
+// ("Testing: <detail>") reads "Testing · <detail>" on the card; a line with no phase, from builder done's note or from
+// before phases, reads as written (docs/adr/0137-a-builder-status-line-is-a-phase-and-a-short-detail.md).
 function builderOf(agents, lines = [], now) {
   const running = agents.filter((a) => a.started && !a.done);
   const since = running.map((a) => String(a.started || '')).sort()[0];
@@ -337,7 +339,8 @@ function builderOf(agents, lines = [], now) {
   const line = lines.filter((m) => m.kind === 'status' && String(m.ts) >= since).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop();
   const kind = running.some((a) => a.kind === BUILDER_KIND.install) ? BUILDER_KIND.install : running.at(-1).kind;
   const silentSince = line?.ts || since;
-  return { progress: line?.text || null, at: silentSince, kind, silentSince, stalled: now - Date.parse(silentSince) >= BUILDER_STALLED_AFTER };
+  const progress = line ? (line.phase ? line.text.replace(': ', ' · ') : line.text || null) : null;
+  return { progress, at: silentSince, kind, silentSince, stalled: now - Date.parse(silentSince) >= BUILDER_STALLED_AFTER };
 }
 
 // Names the kind once, as "Opus builder" or "Codex benchmarks", never "Opus · Opus builder" (owner, question int42-agents-look).
