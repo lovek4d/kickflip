@@ -236,6 +236,9 @@ _Avoid_: warning colour (for attention), action colour (for blue)
 
 **Follow-up**:
 Work discovered while building a wave, with a ticket from the board’s source. It is a Todo card of that wave, with a Follow-up badge, until it is done, and an open one keeps its wave unfinished ([0034](docs/adr/0034-follow-ups-are-todo-cards-of-their-wave.md)).
+
+**Plan waves**:
+The Show more row at the foot of Todo, shown when two or more work cards or follow-ups there are neither held nor blocked. Confirming sends `plan-waves {keys}`, and the session triages those cards into one or more lineups and asks to confirm each as a board question ([0153](docs/adr/0153-plan-waves-plans-from-any-todo-cards.md)).
 _Avoid_: backlog item, todo
 
 **Lane**:
@@ -473,7 +476,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `rules-editor.js` | `RulesEditor`, the rules list on Board Settings and the Hub page, with its own CSS; `ui.test.mjs` tests its pure parts |
 | `app-threads.js` | Loading a thread, once at a time per card; an open card's thread, its reply box, quick replies and Done |
 | `app-cards.js` | Cards, their open detail with the details list ending in Notes ↗ · Visit/Install ↗ · Review on GitHub ↗ when present, and the workflow row: a follow-up's Build, Merge, Hold, the **action button**, Serve/Build and rightmost the **card Build**, each confirming but Hold, which opens its sheet with the duration picker; try requests, failure-thread links and main’s failed-build log and Retry sheet; the bump icon's bump and unbump, with no confirmation; an ask's detail shows only its action button; the thread's Done confirmation and send |
-| `app-lanes.js` | Lanes, Done's and Asks' Show more, Done's finished-wave folds, the **Waves section** with its filter and Triage, and Plan a wave |
+| `app-lanes.js` | Lanes, Done's and Asks' Show more, Done's finished-wave folds, the **Waves section** with its filter and Triage, and Plan waves |
 | `app-asks.js` | The + sheet and its press-n-twice shortcut, and bump, edit and delete |
 | `app-needs.js` | The Needs you box, led by the board session's pending prompts |
 | `ui-prompts.js` | A pending prompt's Needs you line: its details, Allow once, Always allow and Deny, or a question's options, Skip and Send |

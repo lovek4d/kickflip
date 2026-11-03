@@ -1105,12 +1105,13 @@ test('main is a slim branch bar with a ready link, running status or failed log 
   }
 });
 
-test('Todo offers to plan a wave from its follow-ups once it holds two, with their keys', () => {
-  const todo = [{ key: 'w/A1', kind: 'work' }, { key: 'w/ENG-1', kind: 'followup' }, { key: 'v/ENG-2', kind: 'followup' }];
+test('Todo offers Plan waves in the Show more style once two cards are free, with their keys', () => {
+  const todo = [{ key: 'w/A1', kind: 'work' }, { key: 'w/ENG-1', kind: 'followup' }, { key: 'v/B2', kind: 'work', blockedBy: [] }, { key: 'v/C3', kind: 'work', held: true }, { key: 'v/D4', kind: 'work', blockedBy: [{ ref: 'A1' }] }, { key: 'ask:n1', kind: 'ask' }];
   const html = ui.planButton(todo);
-  assert.equal(/data-plan="([^"]*)"/.exec(html)[1], 'w/ENG-1 v/ENG-2');
-  assert.equal(text(html), 'Plan a wave from these 2 follow-ups →');
-  assert.equal(ui.planButton(todo.slice(0, 2)), '');
+  assert.match(html, /^<button type="button" class="thread-more" data-plan="w\/A1 w\/ENG-1 v\/B2">/);
+  assert.equal(text(html), 'Plan waves');
+  assert.equal(ui.planButton(todo.slice(0, 1)), '');
+  assert.equal(ui.planButton([todo[0], todo[3], todo[4], todo[5]]), '');
 });
 
 test("a card's ETA line gives the time, with the day when not today", () => {

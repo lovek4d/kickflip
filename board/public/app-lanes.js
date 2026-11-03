@@ -110,9 +110,9 @@ BoardView.part((B) => {
     if (more) { moreTaps.set(more.dataset.laneMore, (moreTaps.get(more.dataset.laneMore) || 0) + 1); B.render(); return; }
     const pb = ev.target.closest('button[data-plan]');
     if (pb) {
-      if (!(await B.confirm('Claude groups these follow-ups into a small wave and asks you about the plan in Needs you. Nothing builds until you answer. Start?'))) return;
+      if (!(await B.confirm('Claude triages these Todo cards into one or more waves and asks you about them in Needs you. Nothing builds until you answer. Start?'))) return;
       pb.disabled = true;
-      try { await B.send('plan-followups', { keys: pb.dataset.plan.split(' ') }); pb.textContent = 'Planning… its questions appear in Needs you'; }
+      try { await B.send('plan-waves', { keys: pb.dataset.plan.split(' ') }); pb.textContent = 'Planning… its questions appear in Needs you'; }
       catch { B.notice('Could not send. Is the host awake?'); pb.disabled = false; }
       return;
     }

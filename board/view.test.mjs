@@ -3256,6 +3256,19 @@ test("each lane shows its cards in the order they arrive, with no sort icon in i
   assert.equal(b.root.querySelector('.lane-sort, .lane-sort-menu, [data-lane-sort]'), null);
 });
 
+// docs/adr/0153-plan-waves-plans-from-any-todo-cards.md
+test('Plan waves ends Todo as a Show more row and, once confirmed, sends plan-waves with the free Todo cards', async () => {
+  const cards = [workCard('T1'), workCard('T2', { kind: 'followup' }), workCard('T3', { held: true })];
+  const b = boardOnDom({ open: [], board: boardOf(cards), threads: {}, confirm: true });
+  await b.settle();
+  const btn = b.root.querySelector('#lanes details.lane[data-lane="todo"] .list > button[data-plan]');
+  assert.ok(btn.classList.contains('thread-more'));
+  assert.equal(btn.textContent, 'Plan waves');
+  b.page.fire(b.root, 'click', { target: btn });
+  await b.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['plan-waves', { keys: ['w/T1', 'w/T2'] }]]);
+});
+
 // docs/adr/0144-answered-asks-have-their-own-section-below-done.md
 test('answered asks have their own Asks section below Done, and Done and Asks each show 10 cards, then a Show more that adds 10 and says how many are left', async () => {
   const day = (n) => `2026-10-${String(30 - n).padStart(2, '0')}T08:00:00.000Z`;
