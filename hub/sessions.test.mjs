@@ -669,3 +669,54 @@ test('a paused session wake holds only hub work events, then wakes for an owner 
   await check('normal');
   assert.deepEqual(resumed, ['paused', 'paused']);
 });
+
+test('export bundles a board with its portable entry fields and the three hub settings once no builder is open, and import adds it to another host once with the join line that takes it over', async () => {
+  const dir = path.join(home, 'boards', 'moving');
+  const agent = path.join(dir, 'data', 'agents', 'M1.json');
+  write(path.join(dir, 'board.json'), { title: 'Moving', items: 'data/wave.json' });
+  write(path.join(dir, 'data', 'wave.json'), { title: 'Moving', items: [{ id: 'M1', title: 'One' }] });
+  write(agent, { label: 'Builder', started: '2026-11-01T00:00:00Z' });
+  write(path.join(dir, 'data', 'threads', 'moving__M1.jsonl'), '{"text":"hi"}\n');
+  write(path.join(dir, 'data', '.watch-cursor-s-moving.json'), { 'data/events.jsonl': 3 });
+  write(path.join(dir, 'data', 'watcher.json'), { pid: 1 });
+  write(path.join(dir, 'public', 'prototype-x.html'), '<p>x</p>');
+  const entry = { watch: ['data/events.jsonl'], created: '2026-10-29T00:00:00.000Z', title: 'Moving', description: 'Moves', icon: 'server', color: '#f97316', hub: true, github: 'o/r', branch: 'main' };
+  write(web('manifest.json'), { sites: { moving: { dir, port: 4999, cmd: boardCmd(dir), ...entry, owner: { session: 's-moving', label: "Love's board", model: 'opus', since: '2026-10-29T00:00:00.000Z', repo }, updated: '2026-11-01T00:00:00.000Z', restart_at: 1 } } });
+  const carried = { notifications: { on: true, weekends_off: true, snoozed_until: null }, polling: { windows: [{ from: '08:00', every_minutes: 15 }], hold_overnight: true }, codexShare: 'off' };
+  write(web('settings.json'), { ...carried, rules: [{ id: 'r1', text: 'Old rule' }], pauseAt: 80, keepGoing: { until: 'x' } });
+  for (const f of ['linear.json', 'slack.json', 'integrations.json']) write(web(f), { key: 'secret' });
+  const file = path.join(home, 'moving.tgz');
+
+  const open = await cli(['export', 'moving', '--out', file]);
+  assert.equal(open.status, 1);
+  assert.match(open.stderr, /a builder is open on \/moving: wave\/M1 \(Builder\)/);
+  assert.equal(fs.existsSync(file), false);
+  write(agent, { label: 'Builder', started: '2026-11-01T00:00:00Z', done: '2026-11-01T01:00:00Z' });
+  assert.deepEqual(json(await cli(['export', 'moving', '--out', file])), {
+    route: 'moving', file, entry: ['title', 'description', 'icon', 'color', 'created', 'watch', 'hub', 'github', 'branch'],
+    dropped: ['dir', 'port', 'cmd', 'owner', 'updated', 'restart_at'], settings: ['notifications', 'polling', 'codexShare'],
+  });
+  const listed = execFileSync('tar', ['-tzf', file], { encoding: 'utf8' }).trim().split('\n').filter((l) => !l.endsWith('/')).sort();
+  assert.deepEqual(listed, ['README.md', 'export.json', 'site/board.json', 'site/data/agents/M1.json', 'site/data/threads/moving__M1.jsonl', 'site/data/wave.json', 'site/public/prototype-x.html'].map((f) => `kickflip-board/${f}`));
+  assert.equal((await cli(['export', 'moving', '--out', file])).status, 2);
+
+  const other = path.join(home, 'new-mac');
+  const otherWeb = (...p) => path.join(other, '.claude', 'kickflip', ...p);
+  const mine = path.join(other, 'mine');
+  write(otherWeb('manifest.json'), { sites: { mine: { dir: mine, port: 4600, cmd: boardCmd(mine), hub: true } } });
+  write(otherWeb('settings.json'), { codexShare: 'auto', rules: [{ id: 'r2', text: 'New rule' }], pauseAt: 70 });
+  const imported = json(await cli(['import', file], { env: { HOME: other } }));
+  const moved = otherWeb('sites', 'moving');
+  const site = read(otherWeb('manifest.json')).sites.moving;
+  assert.deepEqual(imported, { route: 'moving', dir: moved, port: site.port, settings: ['notifications', 'polling', 'codexShare'], hub: false, join: "kickflip join moving --session <this session's id> --watch --template board --label 'Love'\\''s board' --model opus --force" });
+  const { hub, ...portable } = entry;
+  assert.deepEqual(site, { ...portable, dir: moved, port: site.port, cmd: [nodeBin(), path.join(SKILL, 'board', 'server.mjs'), moved], updated: site.updated });
+  assert.notEqual(site.port, 4600);
+  assert.deepEqual(read(otherWeb('settings.json')), { ...carried, rules: [{ id: 'r2', text: 'New rule' }], pauseAt: 70 });
+  assert.equal(fs.readFileSync(path.join(moved, 'data', 'threads', 'moving__M1.jsonl'), 'utf8'), '{"text":"hi"}\n');
+  assert.deepEqual(fs.readdirSync(otherWeb()).sort(), ['manifest.json', 'settings.json', 'sites']);
+
+  const again = await cli(['import', file], { env: { HOME: other } });
+  assert.equal(again.status, 1);
+  assert.match(again.stderr, /\/moving already exists on this host/);
+});

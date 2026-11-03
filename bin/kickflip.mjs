@@ -49,6 +49,19 @@
 //               --name must match the board title exactly. The board flagged --hub cannot be closed.
 //   kickflip reopen <route>
 //               restores the closed board's manifest entry and resumes its recorded session
+//   kickflip export <route> [--out <file>]
+//               writes one .tgz (default ./kickflip-<route>.tgz, never over an existing file) holding the board's
+//               folder, without its watcher cursors and watcher record; its manifest entry with only EXPORT_KEYS below,
+//               dropping its folder, port, command, owner session and restart times; the owner's label and model;
+//               settings.json's EXPORT_SETTINGS; and a README.md of the import steps. No other hub file and no key
+//               goes in. Refuses a site that isn't a board, a board whose cards live outside its folder, and a board
+//               with an open builder record. Prints {route, file, entry, dropped, settings}
+//   kickflip import <file>
+//               unpacks an export's board into ~/.claude/kickflip/sites/<route>/, adds its manifest entry with a free
+//               port and this host's board server, and writes its settings over this host's for those keys. A hub
+//               flag is kept only when no other site has it. Refuses a route this host has open, closed or starting,
+//               or whose folder exists. Prints {route, dir, port, settings, hub, join}: `join` is the line a fresh
+//               session runs to take the board over
 //   kickflip hub [--repo <dir>]
 //               opens the hub board's recorded session in this terminal, in its recorded folder and model, or in
 //               --repo when no folder is recorded; with no owner, starts a fresh session in --repo (default cwd)
@@ -256,6 +269,50 @@ async function hubStatus() {
 }
 
 const isFolder = (dir) => { try { return fs.statSync(dir).isDirectory(); } catch { return false; } };
+
+// A manifest entry's fields that hold on another host; the rest name this host's paths, port, session or restarts.
+const EXPORT_KEYS = ['title', 'description', 'icon', 'color', 'created', 'watch', 'filter', 'hub', 'github', 'remote', 'branch'];
+// The hub settings the owner chose to carry (Notifications, Polling, Codex share); never a key or an integration.
+const EXPORT_SETTINGS = ['notifications', 'polling', 'codexShare'];
+const BUNDLE = 'kickflip-board';
+// A watcher's cursor and pid record belong to this host's session (./wait-events.mjs).
+const SESSION_FILE = /^(\.watch-cursor-.*\.json|watcher\.json)$/;
+const pick = (o, keys) => Object.fromEntries(keys.filter((k) => o[k] !== undefined).map((k) => [k, o[k]]));
+const shellQuote = (s) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${String(s).replace(/'/g, `'\\''`)}'`);
+// COPYFILE_DISABLE and --no-xattrs keep macOS's ._ files and extended attributes out, which GNU tar warns about.
+function tar(argv) {
+  const r = spawnSync('tar', argv[0] === '-czf' ? ['--no-xattrs', ...argv] : argv, { encoding: 'utf8', env: { ...process.env, COPYFILE_DISABLE: '1' } });
+  if (r.status !== 0) fail(`tar ${argv[0]} failed: ${(r.stderr || r.error?.message || '').trim()}`);
+}
+function exportReadme(b, file) {
+  const title = b.entry.title || b.route;
+  const settings = Object.keys(b.settings).map((k) => ({ notifications: 'Notifications', polling: 'Polling', codexShare: 'Codex share' })[k]);
+  return `# Moving ${title} (/${b.route}) to another machine
+
+Exported from ${b.from} at ${b.exported_at}. This bundle holds the board's folder and manifest entry${settings.length ? `, and the hub's ${settings.length > 1 ? `${settings.slice(0, -1).join(', ')} and ${settings.at(-1)}` : settings[0]} settings, which import writes over the new machine's` : ''}.
+
+## On the new machine
+
+1. Install Git, Node 22+, Claude Code, gh and Tailscale, and turn on HTTPS certificates for the tailnet.
+2. Run \`npm i -g @lovek4d/kickflip\`, then \`kickflip install\`, and fix what its report marks yours.
+3. Run \`kickflip import ${file}\`. It refuses when /${b.route} already exists there.
+4. Start a fresh Claude Code session in the folder the board works in, and have it run the \`join\` line the import prints, with its own session id. \`--force\` takes the board over.
+5. Once the board answers there, stop its session on the old machine and run \`kickflip leave ${b.route} --force\` there, so only one session acts on its cards. Its files stay on the old machine.
+
+## Set up again
+
+The bundle carries no secret and nothing tied to the old machine. Set these up on the new machine:
+
+- GitHub sign-in: \`gh auth login\`.
+- Linear API key: Hub → Linear.
+- Slack: Claude's Slack connector in the new session, and the hub's Slack identity with \`board.mjs slack set --self-dm <D…> --user <U…>\`.
+- Codex: \`codex login\`, if Codex builds.
+- Notifications: open the Hub page on each phone and tap Turn on.
+- Other hub settings, such as the pause line and Rules for every board, stay on the old machine.
+
+Manifest fields left out, which the new machine sets itself: ${b.dropped.length ? b.dropped.join(', ') : 'none'}.
+`;
+}
 
 // A plain page (docs/adr/0087-a-page-joins-without-a-session.md): the entry has no owner, watch or filter, so no session
 // is woken, nothing is watched and the hub never asks it for needs.
@@ -479,6 +536,76 @@ const commands = {
     const { reopenBoard } = await import('../hub/close-board.mjs');
     try { out(await sessionCall(() => reopenBoard(args._[0]))); }
     catch (e) { if (e.status) fail(e.message, 2); throw e; }
+  },
+
+  async export() {
+    const route = args._[0];
+    if (!validRoute(route)) fail('export needs a route: lowercase letters, digits and dashes', 2);
+    const file = path.resolve(args.out || `kickflip-${route}.tgz`);
+    if (fs.existsSync(file)) fail(`${file} already exists; pass another --out`, 2);
+    const site = routeRecord(readManifest().sites, route) || fail('no site at /' + route);
+    if (!isBoardSite(site)) fail(`/${route} is not a board; export moves a board`, 2);
+    const dir = fs.realpathSync(site.dir);
+    const { itemSources, openBoardBuilders } = await import('../board/store.mjs');
+    const outside = (await itemSources(dir)).find((s) => path.relative(dir, s.file).startsWith('..'));
+    if (outside) fail(`/${route}'s cards live outside its folder (${outside.file}); export moves only a board whose board.json items is a file in its folder`);
+    const builders = await openBoardBuilders(dir);
+    if (builders.length) fail(`a builder is open on /${route}: ${builders.map((b) => `${b.key} (${b.label})`).join(', ')}; export once it is done`);
+    const { readSettingsFile } = await import('../hub/push.mjs');
+    const entry = pick(site, EXPORT_KEYS);
+    const bundle = {
+      kickflip_export: 1, route, exported_at: new Date().toISOString(), from: os.hostname(),
+      entry, owner: pick(site.owner || {}, ['label', 'model']), settings: pick(readSettingsFile(), EXPORT_SETTINGS),
+      dropped: Object.keys(site).filter((k) => !EXPORT_KEYS.includes(k)),
+    };
+    const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-export-'));
+    try {
+      const root = path.join(stage, BUNDLE);
+      const data = path.join(dir, 'data');
+      fs.cpSync(dir, path.join(root, 'site'), { recursive: true, filter: (src) => !(path.dirname(src) === data && SESSION_FILE.test(path.basename(src))) });
+      fs.writeFileSync(path.join(root, 'export.json'), JSON.stringify(bundle, null, 2) + '\n');
+      fs.writeFileSync(path.join(root, 'README.md'), exportReadme(bundle, path.basename(file)));
+      tar(['-czf', file, '-C', stage, BUNDLE]);
+    } finally { fs.rmSync(stage, { recursive: true, force: true }); }
+    out({ route, file, entry: Object.keys(entry), dropped: bundle.dropped, settings: Object.keys(bundle.settings) });
+  },
+
+  async import() {
+    if (!args._[0]) fail('import needs the file kickflip export wrote', 2);
+    const file = path.resolve(args._[0]);
+    if (!fs.existsSync(file)) fail(`no file at ${file}`, 2);
+    fs.mkdirSync(HOME, { recursive: true });
+    const stage = fs.mkdtempSync(path.join(HOME, '.import-'));
+    try {
+      tar(['-xzf', file, '-C', stage]);
+      const bundle = readJSON(path.join(stage, BUNDLE, 'export.json'));
+      if (bundle?.kickflip_export !== 1 || !validRoute(bundle.route) || !isFolder(path.join(stage, BUNDLE, 'site'))) fail(`${file} is not a kickflip export`, 2);
+      const { route } = bundle;
+      const dir = path.join(HOME, 'sites', route);
+      const site = await withLock(async () => {
+        const m = readManifest();
+        if (routeRecord(m.sites, route) || routeRecord(m.closed, route) || routeRecord(m.starting, route)) fail(`/${route} already exists on this host; import never replaces a board`);
+        if (fs.existsSync(dir)) fail(`${dir} already exists; import never replaces a board's folder`);
+        const entry = pick(bundle.entry || {}, EXPORT_KEYS);
+        if (entry.hub && Object.values(m.sites).some((s) => s?.hub)) delete entry.hub;
+        const imported = { ...entry, dir, port: await freePort(m), cmd: [nodeBin(), path.join(SKILL, 'board', 'server.mjs'), dir], updated: new Date().toISOString() };
+        fs.mkdirSync(path.dirname(dir), { recursive: true });
+        fs.renameSync(path.join(stage, BUNDLE, 'site'), dir);
+        m.sites = { ...m.sites, [route]: imported };
+        await writeManifest(m);
+        return imported;
+      });
+      const settings = pick(bundle.settings || {}, EXPORT_SETTINGS);
+      if (Object.keys(settings).length) {
+        const { readSettingsFile, writeSettingsFile } = await import('../hub/push.mjs');
+        writeSettingsFile({ ...readSettingsFile(), ...settings });
+      }
+      const { label, model } = bundle.owner || {};
+      out({
+        route, dir, port: site.port, settings: Object.keys(settings), hub: site.hub === true,
+        join: `kickflip join ${route} --session <this session's id> --watch --template board${label ? ` --label ${shellQuote(label)}` : ''}${model ? ` --model ${shellQuote(model)}` : ''} --force`,
+      });
+    } finally { fs.rmSync(stage, { recursive: true, force: true }); }
   },
 
   async sessions() {
