@@ -2088,7 +2088,7 @@ test('review digest waits without changing the record while Slack is not ready',
   assert.deepEqual(read(file), record);
 });
 
-test('lineup create chains its cards in build order and writes the wave note; add, remove, set and finish keep the order; a wave topic takes triage questions', () => {
+test('lineup create chains its cards in build order and writes the wave note; add, remove, set and finish keep the order; a wave topic takes triage questions, as a wave file\'s does on a board over ~/.claude/waves', () => {
   const file = site('audit', 'data', 'wave.json');
   write(file, { title: 'W', items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two', deps: ['A9'] }, { id: 'A3', title: 'Three' }, { id: 'A4', title: 'Four' }, { id: 'A9', title: 'Elsewhere' }] });
   const b = (...args) => board('--site', 'audit', 'lineup', ...args);
@@ -2119,6 +2119,12 @@ test('lineup create chains its cards in build order and writes the wave note; ad
   assert.equal(board('--site', 'audit', 'question', 'add', '--file', q).code, 0);
   write(q, question('t2', { topic: 'lineup:nope' }));
   assert.match(board('--site', 'audit', 'question', 'add', '--file', q).err, /no wave "nope"/);
+  write(q, question('t3', { topic: 'wave:audit' }));
+  assert.match(board('--site', 'audit', 'question', 'add', '--file', q).err, /board over ~\/\.claude\/waves/);
+  write(q, question('t4', { topic: 'wave:w' }));
+  assert.equal(board('--site', 'orch', 'question', 'add', '--file', q).code, 0);
+  write(q, question('t5', { topic: 'wave:nope' }));
+  assert.match(board('--site', 'orch', 'question', 'add', '--file', q).err, /no wave "nope"/);
 
   assert.equal(b('finish', 'mon').code, 0);
   assert.ok(read(file).lineups[0].finished_at);

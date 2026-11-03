@@ -163,11 +163,11 @@ What the owner calls a wave on a board: a named set of cards from one wave file,
 _Avoid_: wave (in code and `board.mjs`, where a wave is a wave file), group, epic
 
 **Waves section**:
-The lane above In Review with one row per open **lineup**, then on a board over `~/.claude/waves` one per unfinished wave file: its name and "N of M merged", and for a lineup its Goal and Order lines and "Notes ↗ · Triage". Notes opens the goal, order and note through `notes.html?wave=<slug>`. Tapping a row shows only its cards in the lanes, under "Showing <name> only · Show all" ([0109](docs/adr/0109-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md)).
+The lane above In Review with one row per open **lineup**, then on a board over `~/.claude/waves` one per unfinished wave file: its name and "N of M merged", and for a lineup its Goal and Order lines and "Notes ↗ · Triage", while a wave file has Triage at the end of its name line. Notes opens the goal, order and note through `notes.html?wave=<slug>`. Tapping a row shows only its cards in the lanes, under "Showing <name> only · Show all" ([0109](docs/adr/0109-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md)).
 _Avoid_: wave bars, wave filter, pills
 
 **Wave triage**:
-Claude reading the code for a lineup's unstarted cards and proposing to split, merge, add or close cards, as one open board question per change on topic `lineup:<slug>`, which Needs you shows as "<wave> · N questions". The row's Triage confirms, sends `wave-triage {lineup}` and reads Triaging… in orange until the session replies to that event, then "Triage: N open questions" in grey while any is open or answered ([0109](docs/adr/0109-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md)).
+Claude reading the code for a lineup's unstarted cards and proposing to split, merge, add or close cards, as one open board question per change on topic `lineup:<slug>`, which Needs you shows as "<wave> · N questions". For a wave file, Claude checks each unfinished card's PR, CI, reviews and blockers, and whether a merged card already covers a Todo card, fixes what it can, and asks one question per card that needs the owner on topic `wave:<slug>`. The row's Triage confirms, sends `wave-triage {lineup}` or `wave-triage {wave}` and reads Triaging… in orange until the session replies to that event, then "Triage: N open questions" in grey while any is open or answered ([0109](docs/adr/0109-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md)).
 _Avoid_: grooming, refinement
 
 **Reviewers**:

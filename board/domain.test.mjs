@@ -910,7 +910,7 @@ test('review records use one precedence order and date the card from the item re
   assert.equal(Object.hasOwn(board().waves[0], 'watched'), false);
 });
 
-test("the Waves section lists each open lineup with its goal, order, progress and triage, its cards carry its chip, and a wave file shows as a row only on a board over the waves", () => {
+test("the Waves section lists each open lineup with its goal, order, progress and triage, its cards carry its chip, and a wave file shows as a row only on a board over the waves, with triage from wave-triage {wave} and topic wave:<slug>", () => {
   const items = [
     { id: 'INT-1', title: 'One', status: 'done' }, { id: 'INT-2', title: 'Two', status: 'building' }, { id: 'INT-3', title: 'Three', deps: ['INT-2'] },
     { id: 'INT-4', title: 'Four', status: 'dropped' }, { id: 'INT-5', title: 'Five' }, { id: 'INT-6', title: 'Six', status: 'done' }, { id: 'INT-7', title: 'Loose' },
@@ -926,7 +926,7 @@ test("the Waves section lists each open lineup with its goal, order, progress an
     waves: [{ slug: 'hub', wave: { internal: true, items, lineups } }, { slug: 'other', wave: { items: [{ id: 'X1', title: 'Elsewhere' }] } }] });
 
   const idle = build([]);
-  assert.deepEqual(idle.waveRows, [{ slug: 'mon', title: 'Monitor', goal: 'The monitor runs in kickflip.', merged: 1, total: 4,
+  assert.deepEqual(idle.waveRows, [{ kind: 'lineup', slug: 'mon', title: 'Monitor', goal: 'The monitor runs in kickflip.', merged: 1, total: 4,
     order: ['INT-1', 'INT-2', 'INT-3', 'INT-4'].map((ref) => ({ key: `hub/${ref}`, ref })), triage: { running: false, questions: 0 } }]);
   const chip = (id) => idle.items.find((i) => i.id === id).lineup;
   assert.deepEqual([chip('INT-3'), chip('INT-5'), chip('INT-7')], [{ slug: 'mon', title: 'Monitor' }, { slug: 'old', title: 'Old' }, null]);
@@ -935,8 +935,15 @@ test("the Waves section lists each open lineup with its goal, order, progress an
   const asked = build([triage('t1', '2026-11-02T10:00:00Z', { html: '2 questions' }), { id: 'a1', ts: '2026-11-02T10:05:00Z', kind: 'owner-answer', data: { id: 'q2', choice: 'yes' } }],
     { items: [question('q1', 'lineup:mon'), question('q2', 'lineup:mon'), { ...question('q3', 'lineup:mon'), resolved: 'Done', resolved_at: '2026-11-02T09:00:00Z' }] });
   assert.deepEqual(asked.waveRows[0].triage, { running: false, questions: 2 });
-  assert.deepEqual(asked.needs.map((n) => [n.text, n.lineup, n.url]), [['Monitor · 1 question', 'mon', 'questions.html#q1']]);
+  assert.deepEqual(asked.needs.map((n) => [n.text, n.waveRow, n.url]), [['Monitor · 1 question', 'mon', 'questions.html#q1']]);
 
-  assert.deepEqual(build([], {}, true).waveRows.map((r) => [r.slug, r.goal, r.order?.length, r.triage, `${r.merged}/${r.total}`]),
-    [['mon', 'The monitor runs in kickflip.', 4, { running: false, questions: 0 }, '1/4'], ['hub', null, undefined, null, '2/7'], ['other', null, undefined, null, '0/1']]);
+  const idleRow = { running: false, questions: 0 };
+  assert.deepEqual(build([], {}, true).waveRows.map((r) => [r.kind, r.slug, r.goal, r.order?.length, r.triage, `${r.merged}/${r.total}`]),
+    [['lineup', 'mon', 'The monitor runs in kickflip.', 4, idleRow, '1/4'], ['wave', 'hub', null, undefined, idleRow, '2/7'], ['wave', 'other', null, undefined, idleRow, '0/1']]);
+  const waveTriage = (id, ts, reply = null) => ({ id, ts, kind: 'wave-triage', data: { wave: 'other' }, reply });
+  const triaged = (events, owner) => Object.fromEntries(build(events, owner, true).waveRows.map((r) => [`${r.kind}:${r.slug}`, r.triage]));
+  assert.deepEqual(triaged([waveTriage('t2', '2026-11-02T10:00:00Z')]), { 'lineup:mon': idleRow, 'wave:hub': idleRow, 'wave:other': { running: true, questions: 0 } });
+  const fileAsked = build([waveTriage('t2', '2026-11-02T10:00:00Z', { html: '1 question' })], { items: [question('q4', 'wave:other'), question('q5', 'lineup:mon')] }, true);
+  assert.deepEqual(fileAsked.waveRows.map((r) => r.triage.questions), [1, 0, 1]);
+  assert.deepEqual(fileAsked.needs.map((n) => [n.text, n.topic, n.waveRow]), [['Monitor · 1 question', 'lineup:mon', 'mon'], ['other · 1 question', 'wave:other', 'other']]);
 });

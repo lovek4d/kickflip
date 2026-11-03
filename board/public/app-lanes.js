@@ -69,18 +69,21 @@ BoardView.part((B) => {
   }
 
   // The Waves section: a lane of one row per open wave (domain.mjs waveRowsOf). Tapping a row shows only its cards;
-  // Notes and Triage, at the row's foot, act without filtering.
+  // Notes and Triage act without filtering. A lineup has them at the row's foot, and a wave file has only Triage, at
+  // the end of its name line.
   const triaging = new Set();
+  const triageTopic = (r) => `${r.kind}:${r.slug}`;
   function triageLink(r) {
-    if (r.triage.running || triaging.has(r.slug)) return '<span class="wv-busy" role="status"><span class="try-spin" aria-hidden="true"></span>Triaging…</span>';
+    if (r.triage.running || triaging.has(triageTopic(r))) return '<span class="wv-busy" role="status"><span class="try-spin" aria-hidden="true"></span>Triaging…</span>';
     if (r.triage.questions) return `<span class="muted">Triage: ${B.plural(r.triage.questions, 'open question')}</span>`;
-    return `<button type="button" class="wv-link" data-triage="${esc(r.slug)}">Triage</button>`;
+    return `<button type="button" class="wv-link" data-triage="${esc(triageTopic(r))}">Triage</button>`;
   }
   function waveRow(r) {
     const on = r.slug === state.waveFilter;
-    const links = r.triage ? `<div class="wv-links"><span class="external-link"><a href="notes.html?wave=${encodeURIComponent(r.slug)}">Notes ${BoardUI.LINK_ARROW}</a></span><span class="external-link"><span class="external-separator" aria-hidden="true"> · </span>${triageLink(r)}</span></div>` : '';
+    const lineup = r.kind === 'lineup';
+    const links = lineup ? `<div class="wv-links"><span class="external-link"><a href="notes.html?wave=${encodeURIComponent(r.slug)}">Notes ${BoardUI.LINK_ARROW}</a></span><span class="external-link"><span class="external-separator" aria-hidden="true"> · </span>${triageLink(r)}</span></div>` : '';
     return `<div class="wv-row${on ? ' on' : ''}" data-wave-row="${esc(r.slug)}">
-        <div class="wv-id"><button type="button" class="wv-name" aria-pressed="${on}">${BoardUI.WAVE_ICON}<span>${esc(r.title)}</span></button><span class="muted small">${r.merged} of ${r.total} merged</span></div>
+        <div class="wv-id"><button type="button" class="wv-name" aria-pressed="${on}">${BoardUI.WAVE_ICON}<span>${esc(r.title)}</span></button><span class="muted small">${r.merged} of ${r.total} merged</span>${lineup ? '' : `<span class="wv-end">${triageLink(r)}</span>`}</div>
         ${r.goal ? `<div class="wv-note"><b>Goal</b> ${esc(r.goal)}</div>` : ''}
         ${r.order ? `<div class="wv-note"><b>Order</b> ${r.order.map((o) => esc(o.ref)).join(' → ')}</div>` : ''}
         ${links}
@@ -142,14 +145,17 @@ BoardView.part((B) => {
     }
     const tb = ev.target.closest('button[data-triage]');
     if (tb) {
-      const slug = tb.dataset.triage;
-      const row = state.board.waveRows.find((r) => r.slug === slug);
-      if (!(await B.confirm(`Claude reads the code for ${row.title}'s unstarted cards and asks you in Needs you about splitting, merging, adding or closing any. Start?`))) return;
-      triaging.add(slug);
+      const topic = tb.dataset.triage;
+      const row = state.board.waveRows.find((r) => triageTopic(r) === topic);
+      const asks = row.kind === 'lineup'
+        ? `Claude reads the code for ${row.title}'s unstarted cards and asks you in Needs you about splitting, merging, adding or closing any. Start?`
+        : `Claude checks ${row.title}'s unfinished cards, fixes what it can and asks you in Needs you about any that need you. Start?`;
+      if (!(await B.confirm(asks))) return;
+      triaging.add(topic);
       B.render();
-      try { await B.site.send('wave-triage', { lineup: slug }); await B.loadBoard(); }
+      try { await B.site.send('wave-triage', { [row.kind]: row.slug }); await B.loadBoard(); }
       catch { B.notice('Could not send. Is the host awake?'); }
-      finally { triaging.delete(slug); B.render(); }
+      finally { triaging.delete(topic); B.render(); }
       return;
     }
     const go = ev.target.closest('a[data-wave-show]');

@@ -816,6 +816,7 @@ export async function addQuestions(site, input) {
     if (q.topic.startsWith('item:ask:')) await checkAsk(site, q.topic.slice(9), `${name}.topic`);
     else if (q.topic.startsWith('item:')) await loadItem(site, q.topic.slice(5));
     else if (q.topic.startsWith('lineup:')) await findLineup(site, q.topic.slice(7));
+    else if (q.topic.startsWith('wave:')) await triagedWave(site, q.topic.slice(5));
     else if (!topics.has(q.topic)) fail(`topic "${q.topic}" is not declared; add it with: topic add ${q.topic} --title <t>`);
     text(q.question, `${name}.question`);
     for (const k of ['source', 'context']) optional(q[k], (v) => text(v, `${name}.${k}`));
@@ -1323,6 +1324,13 @@ async function findLineup(site, slug) {
     if (lineup) return { source, wave, lineup };
   }
   return fail(`this board has no wave "${slug}"; lineup create makes one`);
+}
+
+// A wave file's triage questions use topic wave:<slug>, and only a board over ~/.claude/waves shows its wave files as
+// Waves rows (domain.mjs waveRowsOf).
+async function triagedWave(site, slug) {
+  if ((await boardConfig(site)).items !== 'waves') fail(`topic wave:${slug} is for a board over ~/.claude/waves; a lineup's triage uses lineup:<slug>`);
+  await loadWave(site, slug);
 }
 
 // The cards named by <wave>/<id> keys, all in one wave file and none in another open lineup. → their ids

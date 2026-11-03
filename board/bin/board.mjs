@@ -43,7 +43,8 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
   question add --file <json>                             one question or an array of them:
          {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
           source?, context?, url?, urgent?, round_of?}; topic is declared, item:<wave>/<id>, item:ask:<eventId>
-          for a New card not sorted yet, or lineup:<slug> for a wave's triage.
+          for a New card not sorted yet, lineup:<slug> for a wave's triage, or wave:<slug> for a wave file's triage on
+          a board over ~/.claude/waves.
          url is http(s), or a site page such as prototype-<topic>.html?q=<id>, stored as given.
          Prototype options keep take order, ids matching take keys; recommended: true tags the recommendation.
          Waiting on you shows fitting takes in a grid, or a chooser above one full-width take for a single take or if any
@@ -166,8 +167,9 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          [--note <t> | --file <f>]
   lineup finish <slug>                                   the wave leaves the Waves section; its cards keep their
                                                          links. A wave whose cards are all Done leaves it too
-         The Waves section's Triage sends wave-triage {lineup}; the row reads Triaging… until you reply to that
-         event, then "Triage: N open questions" while questions on topic lineup:<slug> are open or answered
+         The Waves section's Triage sends wave-triage {lineup}, or {wave} for a wave file's row; the row reads
+         Triaging… until you reply to that event, then "Triage: N open questions" while questions on topic
+         lineup:<slug> or wave:<slug> are open or answered
   tickets backfill [--dry-run]                           gives every open card and follow-up without a ticket one: the first
                                                          id in its title (or legacy linear list) from the board's
                                                          source is linked, else a new ticket is made. Done cards are
