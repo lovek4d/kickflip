@@ -273,8 +273,12 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          Install badge reads Building… meanwhile. --kind claude or
                                                          codex refuses the one builder pick rules out; --kind build
                                                          records the pick's kind and prints "kind: <kind>. <reason>";
-                                                         on the open record a Build tap started, it keeps
-                                                         that tap's kind and worktree.
+                                                         on the open record a Build tap started or --dispatch
+                                                         opened, it keeps that record's kind and worktree.
+         [--dispatch]                                    --dispatch: the session runs this right before it launches
+                                                         an agent of any kind (build, prototype, grill) so the record
+                                                         is open at launch and the card reads Starting; the agent's
+                                                         own builder start takes it up.
                                                          A build (--kind build, claude or codex) on an open card sets
                                                          --status building first, refusing what that refuses;
                                                          Prints "ref: <ref>", the card's label, which commit subjects start with.
@@ -355,7 +359,7 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          KICKFLIP_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/kickflip.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
-const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree', 'dry-run']);
+const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree', 'dry-run', 'dispatch']);
 const REPEATED = new Set(['take']);
 function parse(argv) {
   const flags = Object.create(null);
@@ -501,7 +505,7 @@ const COMMANDS = {
   }],
   'main set': [[], ['install', 'install-sha'], (site, _, f) => store.setMainInstall(site, { install: f.install, installSha: f['install-sha'] })],
   'settings set': [['name', 'value'], [], (site, [name, value]) => store.setBoardSetting(site, name, value)],
-  'builder start': [['wave/id'], ['label', 'phase', 'progress', 'dir', 'agent', 'kind', 'model', 'eta', 'worktree', 'repo'], (site, [key], { worktree, repo, ...f }) => {
+  'builder start': [['wave/id'], ['label', 'phase', 'progress', 'dir', 'agent', 'kind', 'model', 'eta', 'worktree', 'repo', 'dispatch'], (site, [key], { worktree, repo, ...f }) => {
     if (repo !== undefined && !worktree) throw new UsageError('--repo goes with --worktree');
     return store.startBuilder(site, key, { ...f, worktree: worktree && (() => boardWorktree(site, key.split('/')[1], { repo })) });
   }],

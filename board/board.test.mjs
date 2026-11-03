@@ -2251,6 +2251,44 @@ test("a builder's builder start takes up the record the owner's Build tap starte
   assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).worktree, undefined);
 });
 
+test("builder start --dispatch opens the record before the agent launches, for build, prototype and grill, and the agent's own start takes it up", () => {
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'todo' }, { id: 'A2', title: 'Two', status: 'todo' }] });
+  const dispatched = board('--site', 'orch', 'builder', 'start', 'w/A1', '--dispatch', '--kind', 'build', '--model', 'sonnet', '--label', 'Sonnet builder');
+  assert.equal(dispatched.code, 0, dispatched.err);
+  const open = read(at('waves', 'w', 'agents', 'A1.json'));
+  assert.equal(open.dispatched, true);
+  assert.equal(open.tapped, undefined);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status, 'building');
+  const taken = board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build', '--label', 'Sonnet builder');
+  assert.equal(taken.code, 0, taken.err);
+  assert.match(taken.out, new RegExp(`kind: ${open.kind}\\. The session's dispatch picked it\\.`));
+  const { started, ...record } = read(at('waves', 'w', 'agents', 'A1.json'));
+  assert.deepEqual(record, { label: 'Sonnet builder', kind: open.kind, ...(open.model ? { model: open.model } : {}) });
+  assert.ok(started >= open.started);
+  for (const kind of ['prototype', 'grill']) {
+    const r = board('--site', 'orch', 'builder', 'start', 'w/A2', '--dispatch', '--kind', kind, '--model', 'opus', '--label', `${kind} agent`);
+    assert.equal(r.code, 0, r.err);
+    assert.equal(read(at('waves', 'w', 'agents', 'A2.json')).dispatched, true);
+    assert.equal(read(at('waves', 'w', 'wave.json')).items[1].status, 'todo');
+    const own = board('--site', 'orch', 'builder', 'start', 'w/A2', '--kind', kind, '--label', `${kind} agent`);
+    assert.equal(own.code, 0, own.err);
+    const after = read(at('waves', 'w', 'agents', 'A2.json'));
+    assert.equal(after.dispatched, undefined);
+    assert.equal(after.kind, kind);
+  }
+});
+
+test('--dispatch on a record whose worktree the dispatch made keeps it through the agent\'s start, and a record already done is not taken up', () => {
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'building' }] });
+  const wt = { path: '/w/A1', branch: 'A1', repo: '/r' };
+  write(at('waves', 'w', 'agents', 'A1.json'), { label: 'Prototype', kind: 'claude', model: 'opus', started: '2026-11-03T10:00:00.000Z', dispatched: true, worktree: wt });
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'prototype').code, 0);
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, wt);
+  write(at('waves', 'w', 'agents', 'A1.json'), { label: 'Old', kind: 'claude', started: '2026-11-03T10:00:00.000Z', dispatched: true, worktree: wt, done: '2026-11-03T11:00:00.000Z' });
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'prototype').code, 0);
+  assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).worktree, undefined);
+});
+
 test('builder start refuses a Claude pause before making records or a worktree, and runs while going or Off', () => {
   const until = new Date(Date.now() + 3600_000).toISOString();
   const usage = { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at: until }, seven_day: { used_percentage: 96, resets_at: until } };

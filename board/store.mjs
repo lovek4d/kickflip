@@ -1788,11 +1788,13 @@ async function statusToThread(site, key, agent = 'main', builder, { phase, detai
 // returns {path, branch, repo}, which the record keeps for `board.mjs land`. A build (--kind build, claude or codex) on an
 // open card marks it building first, refusing what item set --status building refuses
 // (docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
-// tapped marks a record the owner's Build tap started (startTappedBuild). A builder's own start on that open record
-// takes it up: --kind build keeps the tap's kind, the worktree stays, and the record starts again at now, no longer
-// tapped (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md).
+// tapped marks a record the owner's Build tap started (startTappedBuild); dispatch marks one the session opens right
+// before it launches an agent, of any kind. A builder's own start on that open record takes it up: --kind build keeps
+// the record's kind, its Claude model and worktree stay, and the record starts again at now, no longer tapped or
+// dispatched (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md,
+// docs/adr/0152-the-session-opens-the-builder-record-when-it-dispatches-an-agent.md).
 // → {file, lines, kind, reason, worktree}: reason is the pick's, worktree the path or null.
-export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, model, eta, worktree, tapped }) {
+export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, model, eta, worktree, tapped, dispatch }) {
   const gate = readUsageGate();
   if (gate.state === 'paused') throw new BoardError(pauseReason(gate));
   if (phase !== undefined && progress === undefined) fail('--phase goes with --progress "<detail>"');
@@ -1806,16 +1808,16 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   // docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md: --kind build takes the pick's kind.
   const build = ['build', ...PICKED].includes(asked);
   const before = await readJSON(file, null);
-  const takeUp = before?.tapped && !before.done ? before : null;
-  const pick = takeUp && asked === 'build' ? { kind: providerOf(takeUp.kind), model: takeUp.model, reason: "The owner's Build tap picked it." } : build ? builderPick() : null;
+  const takeUp = (before?.tapped || before?.dispatched) && !before.done ? before : null;
+  const pick = takeUp && asked === 'build' ? { kind: providerOf(takeUp.kind), model: takeUp.model, reason: takeUp.tapped ? "The owner's Build tap picked it." : "The session's dispatch picked it." } : build ? builderPick() : null;
   if (pick && asked !== 'build' && asked !== pick.kind) fail(`--kind ${asked}: ${pick.kind} builds now. ${pick.reason} Pass --kind ${pick.kind}, or --kind build.`);
   const k = pick ? pick.kind : asked;
   if (model !== undefined && !['opus', 'sonnet'].includes(model)) fail('--model takes opus or sonnet');
   if (askedModel !== undefined && k === 'codex') fail('--model is for kind claude; codex needs none');
-  const claude = k === 'claude' ? askedModel ?? pick?.model ?? 'opus' : undefined;
+  const claude = k === 'claude' ? askedModel ?? pick?.model ?? (takeUp && providerOf(takeUp.kind) === 'claude' ? takeUp.model : undefined) ?? 'opus' : undefined;
   const record = {
     label: label === undefined ? 'Builder' : text(label, '--label'), ...(k ? { kind: k } : {}), ...(claude ? { model: claude } : {}), started: now,
-    ...(eta === undefined ? {} : { eta: isoTime(eta, '--eta') }), ...(tapped ? { tapped: true } : {}),
+    ...(eta === undefined ? {} : { eta: isoTime(eta, '--eta') }), ...(tapped ? { tapped: true } : {}), ...(dispatch ? { dispatched: true } : {}),
   };
   const was = build && !dir ? (await loadItem(site, key)).item : undefined;
   const marking = build && !dir && ![...FINISHED, 'building', 'fixing'].includes(was.status);
