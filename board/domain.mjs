@@ -155,11 +155,16 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
   // (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md).
   const newest = thread.filter((m) => m.kind !== 'status').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
   const refusal = lane === 'todo' && newest?.kind === BUILD_REFUSED ? newest.text : null;
+  // docs/adr/0140-each-lane-has-one-fixed-order.md
+  // When the card last came into In Progress: its reopening, else its latest build agent's start, else its status change.
+  const progressSince = reopenAt || agents.filter(builds).map((a) => a.started).filter(Boolean).map(String).sort().pop()
+    || (['building', 'fixing', 'checking'].includes(String(it.status || '').toLowerCase()) ? it.status_at || null : null);
+  const closed = [tappedDone && closedAt, it.status_at, it.merged_at, pr?.mergedAt].filter(Boolean).map(String).sort().pop() || null;
   const reviewNext = pushed && waitsOn === 'owner' ? `merge ${pushed.branch} into ${base}`
     : waitsOn === 'merge' && !autoMerge ? OWNER_MERGE_NEXT[merging ? 'merging' : 'waiting'] : REVIEW_NEXT[waitsOn];
   return {
     key, kind: 'work', order, wave: slug, waveTitle: wave.title || slug, id: it.id, ref: refOf(wave, it, tickets), title: it.title, status: it.status || null,
-    created: it.created || null,
+    created: it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
     internal: wave.internal === true, repo: wave.internal === true && !wave.repo ? null : repo,
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, agents, eta, working, reopened: Boolean(reopenAt), awaitsDone,
     deps: it.deps || [], held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable ? bumpedAt || null : null,
@@ -280,7 +285,7 @@ function followUp({ slug, wave, f, order, repo, bumpedAt, closedAt, tickets }) {
   return {
     key: `${slug}/${f.id}`, kind: 'followup', order, wave: slug, waveTitle: wave.title || slug, id: f.id, ref: refOf(wave, f, tickets), title: f.title, status: null,
     repo: wave.internal === true && !wave.repo ? null : repo, finishable: !done,
-    lane: done ? 'done' : 'todo', waitsOn: null, builder: null, agents: [], eta: null, working: false, inReviewSince: null,
+    lane: done ? 'done' : 'todo', waitsOn: null, builder: null, agents: [], eta: null, working: false, inReviewSince: null, progressSince: null, closedAt: done ? closedAt || null : null,
     deps: [], held: false, risky: false, bumpable: !done, bumpedAt: done ? null : bumpedAt || null, manualSteps: [], fromAsk: null, from: f.from || null, next: null, hasNotes: false, branch: null,
     ticket: ticketOf(tickets, f.ticket, f.ticket || f.id, { repo, key: `${slug}/${f.id}` }),
     linear: [linearRef(f.id, tickets)], pr: null, reviewers: [], review: {},
@@ -322,7 +327,7 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
     internal: false, repo: null, lane: inProgress || onClaude ? 'progress' : done ? 'done' : 'todo', waitsOn: inProgress && !ownerPending ? 'owner' : null, builder: null, agents: [], eta: null, working: msgs.some((m) => m.state === 'working'),
     deps: [], held: false, risky: false, bumpable: !handled, bumpedAt: bumped, manualSteps: [], fromAsk: null, from: null, next: inProgress ? mark.next || null : null, hasNotes: false, branch: null,
     finishable: handled && !done,
-    linear: [], pr: null, reviewers: [], review: {}, inReviewSince: null,
+    linear: [], pr: null, reviewers: [], review: {}, inReviewSince: null, progressSince: inProgress ? mark.at || null : null, closedAt: null,
     threadCount: msgs.length, lastTs, othersAt: handled ? othersAt : [], grilling: false, created: e.ts, updatedAt: handled ? lastTs : e.ts,
     ask: { eventId: e.id, state, askedAt: e.ts, bumpedAt: bumped, edited: Boolean(msg.edited), canEdit: !handled, text: msg.text, files, answerAt, from: msg.from || null },
     fold: null, action: null,
@@ -578,7 +583,7 @@ export function buildBoard(snapshot) {
         mergeAt: cardMerges.get(key), autoMerge, tickets,
       }));
       const card = items[items.length - 1];
-      if (card.lane === 'done') closedWork.set(key, [it.status_at, it.merged_at, pr?.mergedAt].filter(Boolean).map(String).sort().pop() || String(card.updatedAt || ''));
+      if (card.lane === 'done') closedWork.set(key, card.closedAt || String(card.updatedAt || ''));
     });
     (wave.followups || []).forEach((f, n) => items.push(followUp({ slug, wave, f, order: wave.items.length + n, repo, bumpedAt: cardBumps.get(`${slug}/${f.id}`), closedAt: cardDones.get(`${slug}/${f.id}`), tickets })));
   }
@@ -656,10 +661,10 @@ export function buildBoard(snapshot) {
     placeOwnerWait(it, questionById, autoMerge);
     if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it)) it.lane = 'progress';
     it.buildable = buildableOf(it);
+    it.sortAt = SORT_AT[it.lane](it) || it.updatedAt || null;
   }
-  // Items arrive in touched order; the page shows a lane in created order from rank.created, as this device chose.
-  [...items].sort(laneOrder('created')).forEach((it, n) => { it.rank = { created: n }; });
-  items.sort(laneOrder('touched'));
+  // Items arrive in the order the page shows them.
+  items.sort(laneOrder);
 
   const waveRows = waveRowsOf(snapshot, waves, lineups, items, questions, events);
   // Built again after the sort, so the item topics follow the lanes' order.
@@ -696,17 +701,24 @@ export function buildBoard(snapshot) {
   return { kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, waves, waveRows, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, needs, needsSummary: needsSummary(needs), working: workingOn.length, workingOn, checks: checksOf(snapshot, now) };
 }
 
-// The board's order, each lane together, by touched (the card's latest activity) or created (when the card was made).
-// docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md
-// New cards lead Todo, unbumped ones oldest first, so the top one is the next taken (docs/adr/0047-the-plus-makes-a-new-card.md).
-function laneOrder(by) {
+// docs/adr/0140-each-lane-has-one-fixed-order.md
+// The time each lane sorts by, newest first: Todo when the card was made, In Progress and In Review (Stale too) when it
+// came into the lane, and Done when it closed, apart from an answered ask, which keeps its own time in its fold. A card
+// with none falls back to its latest activity.
+const SORT_AT = {
+  todo: (i) => i.created, progress: (i) => i.progressSince, review: (i) => i.inReviewSince, stale: (i) => i.inReviewSince,
+  done: (i) => (i.kind === 'ask' ? i.created : i.closedAt),
+};
+// The board's order, each lane together. New cards lead Todo, oldest first, so the top one is the next taken
+// (docs/adr/0047-the-plus-makes-a-new-card.md); then bumped cards, the latest bump on top
+// (docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md); then the rest newest first by sortAt, a card with no time
+// last, the last added to its wave file on top.
+function laneOrder(a, b) {
   const bumped = (i) => i.bumpedAt || '';
   const unsorted = (i) => (i.isNew ? 0 : 1);
-  const key = (i) => String((by === 'created' ? i.created : i.updatedAt) || '');
-  const age = (a, b) => (a.isNew ? String(a.updatedAt).localeCompare(String(b.updatedAt)) : key(b).localeCompare(key(a)));
-  // A follow-up's filed date would otherwise sort it above the Todo work that has no activity yet.
-  const late = (i) => (by === 'touched' && i.lane === 'todo' && i.kind === 'followup' ? 1 : 0);
-  return (a, b) => LANE_ORDER[a.lane] - LANE_ORDER[b.lane] || unsorted(a) - unsorted(b) || bumped(b).localeCompare(bumped(a)) || late(a) - late(b) || age(a, b) || b.order - a.order || a.key.localeCompare(b.key);
+  const at = (i) => String(i.sortAt || '');
+  const age = a.isNew ? at(a).localeCompare(at(b)) : at(b).localeCompare(at(a));
+  return LANE_ORDER[a.lane] - LANE_ORDER[b.lane] || unsorted(a) - unsorted(b) || bumped(b).localeCompare(bumped(a)) || age || b.order - a.order || a.key.localeCompare(b.key);
 }
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;

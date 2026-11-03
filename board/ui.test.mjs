@@ -899,7 +899,7 @@ test("a builder line shows the progress and its age, not who is building", () =>
 
 test("a New card reads New and its first line, then whether it was moved or edited and whether Claude has started, with bump, edit and delete and no Action needed, and ends with when it was sent", () => {
   const sent = ago(1);
-  const card = (ask, extra = {}) => ui.workLines({ kind: 'ask', id: 'a1', key: 'ask:a1', ref: 'New', isNew: true, title: 'Fix <it>', linear: [], pr: null, deps: [], blockedBy: [], created: sent, updatedAt: sent,
+  const card = (ask, extra = {}) => ui.workLines({ kind: 'ask', id: 'a1', key: 'ask:a1', ref: 'New', isNew: true, title: 'Fix <it>', linear: [], pr: null, deps: [], blockedBy: [], created: sent, updatedAt: sent, sortAt: sent,
     bumpedAt: ask.bumpedAt || null, ask: { askedAt: sent, bumpedAt: null, canEdit: true, text: 'Fix <it>\nand more', files: [], ...ask }, ...extra }, { top: Boolean(ask.bumpedAt) });
   const at = ui.cardTime(sent);
   assert.deepEqual(lines(card({ state: 'waiting' })), ['New Fix <it>', at]);
@@ -971,29 +971,27 @@ test('a work card reads its title, then its next step or builder, its chips, its
 test("a card's last line is the time its lane sorts by, then its hold with no held chip, then its unread messages, with no age badge", () => {
   const created = ago(24 * 5);
   const updatedAt = ago(30);
-  const card = { ...workCard, lane: 'todo', pr: null, reviewers: [], next: null, created, updatedAt };
+  const sortAt = ago(24 * 2);
+  const card = { ...workCard, lane: 'todo', pr: null, reviewers: [], next: null, created, updatedAt, sortAt };
   const last = (html) => lines(html).at(-1);
-  assert.deepEqual(lines(ui.workLines(card)), ['ENG-1 Five', ui.cardTime(updatedAt)]);
-  assert.equal(last(ui.workLines(card, { by: 'touched' })), ui.cardTime(updatedAt));
-  assert.equal(last(ui.workLines(card, { by: 'created' })), ui.cardTime(created));
-  assert.match(ui.workLines(card, { by: 'created' }), new RegExp(`<div class="line6 sub card-time"><time datetime="${created}">`));
-  assert.equal(last(ui.workLines(card, { by: 'created', unread: 1 })), `${ui.cardTime(created)} · 1 new message`);
-  assert.equal(last(ui.workLines(card, { unread: 3 })), `${ui.cardTime(updatedAt)} · 3 new messages`);
+  assert.deepEqual(lines(ui.workLines(card)), ['ENG-1 Five', ui.cardTime(sortAt)]);
+  assert.match(ui.workLines(card), new RegExp(`<div class="line6 sub card-time"><time datetime="${sortAt}">`));
+  assert.equal(last(ui.workLines(card, { unread: 3 })), `${ui.cardTime(sortAt)} · 3 new messages`);
   assert.match(ui.workLines(card, { unread: 3 }), /<span class="card-unread"><span class="sep"> · <\/span>3 new messages<\/span><\/div>/);
   assert.doesNotMatch(text(ui.workLines(card)), /days? ago/);
 
   const held = { ...card, held: true };
-  assert.deepEqual(lines(ui.workLines(held)), ['ENG-1 Five', `${ui.cardTime(updatedAt)} · held`]);
+  assert.deepEqual(lines(ui.workLines(held)), ['ENG-1 Five', `${ui.cardTime(sortAt)} · held`]);
   assert.match(ui.workLines(held), /<span class="card-hold"[^>]*>held<\/span>/);
-  assert.deepEqual(lines(ui.workLines({ ...held, updatedAt: null }, { unread: 1 })), ['ENG-1 Five', 'held · 1 new message']);
+  assert.deepEqual(lines(ui.workLines({ ...held, sortAt: null }, { unread: 1 })), ['ENG-1 Five', 'held · 1 new message']);
   const now = new Date();
   const at = (days, h, m) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + days, h, m);
   const clock = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s?([AP]M)$/i, (_, x) => ` ${x.toLowerCase()}`);
   const until = (d) => ({ ...held, heldUntil: d.toISOString() });
-  assert.equal(last(ui.workLines(until(at(2, 9, 0)), { unread: 2 })), `${ui.cardTime(updatedAt)} · held until ${at(2, 9, 0).toLocaleDateString([], { weekday: 'short' })} ${clock(at(2, 9, 0))} · 2 new messages`);
-  assert.equal(last(ui.workLines(until(at(0, 23, 59)))), `${ui.cardTime(updatedAt)} · held until ${clock(at(0, 23, 59))}`);
-  assert.equal(last(ui.workLines(until(at(6, 9, 0)))), `${ui.cardTime(updatedAt)} · held until ${at(6, 9, 0).toLocaleDateString([], { weekday: 'short' })} ${clock(at(6, 9, 0))}`);
-  assert.equal(last(ui.workLines(until(at(7, 9, 0)))), `${ui.cardTime(updatedAt)} · held until ${at(7, 9, 0).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}, ${clock(at(7, 9, 0))}`);
+  assert.equal(last(ui.workLines(until(at(2, 9, 0)), { unread: 2 })), `${ui.cardTime(sortAt)} · held until ${at(2, 9, 0).toLocaleDateString([], { weekday: 'short' })} ${clock(at(2, 9, 0))} · 2 new messages`);
+  assert.equal(last(ui.workLines(until(at(0, 23, 59)))), `${ui.cardTime(sortAt)} · held until ${clock(at(0, 23, 59))}`);
+  assert.equal(last(ui.workLines(until(at(6, 9, 0)))), `${ui.cardTime(sortAt)} · held until ${at(6, 9, 0).toLocaleDateString([], { weekday: 'short' })} ${clock(at(6, 9, 0))}`);
+  assert.equal(last(ui.workLines(until(at(7, 9, 0)))), `${ui.cardTime(sortAt)} · held until ${at(7, 9, 0).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}, ${clock(at(7, 9, 0))}`);
   assert.doesNotMatch(ui.workLines(until(at(2, 9, 0))), /class="chip[^"]*">held/);
 });
 

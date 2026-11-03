@@ -145,12 +145,11 @@
       : `Held until ${d.toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' })}, ${clock(d)}. ${it.lane === 'todo' ? 'It starts on its own then, once nothing else blocks it.' : 'Claude picks it up again then.'}`;
     return `<span class="card-hold" title="${esc(title)}">${esc(d ? `held until ${heldUntilWords(it.heldUntil)}` : 'held')}</span>`;
   }
-  // A card's last line: the time its lane sorts by (domain.mjs laneOrder), then its hold, then its unread count, which
+  // A card's last line: the time its lane sorts by (domain.mjs sortAt), then its hold, then its unread count, which
   // app-cards.js takes away when the card opens.
-  const SORT_TIME = { touched: 'updatedAt', created: 'created' };
   const SEP = '<span class="sep"> · </span>';
-  function timeLine(it, by, unread) {
-    const iso = it[SORT_TIME[by]];
+  function timeLine(it, unread) {
+    const iso = it.sortAt;
     const parts = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, holdWords(it)].filter(Boolean);
     const count = unread ? `<span class="card-unread">${parts.length ? SEP : ''}${unread} new message${unread === 1 ? '' : 's'}</span>` : '';
     if (!parts.length && !count) return '';
@@ -169,8 +168,7 @@
   const askActions = (it, top) => `<div class="ask-actions">${bumpButton(it, top)}${it.ask.canEdit ? editButton(it.id) : ''}${withdrawButton(it.id)}</div>`;
   const cardActions = (it, top) => (it.isNew ? askActions(it, top) : it.bumpable ? `<div class="ask-actions">${cardBumpButton(it.key, top)}</div>` : '');
   const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' && `<span class="working">${workingLine}</span>`].filter(Boolean).join(' · ');
-  // by is the lane's sort, 'touched' or 'created'.
-  function workLines(it, { unread = 0, top = false, by = 'touched' } = {}) {
+  function workLines(it, { unread = 0, top = false } = {}) {
     const ids = it.kind === 'ask' ? askChip(it) : it.ticket ? ticketChip(it) : it.ticketSource === 'linear' ? linearChips(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
     const blocked = (it.blockedBy || []).map((d) => badge('notice', `blocked by ${esc(d.ref)}`, { href: `#item=${encodeURIComponent(d.key)}` })).join('');
     const wave = it.lineup ? badge('quiet', `${WAVE_ICON}${esc(it.lineup.title)}`, { title: `In the wave ${it.lineup.title}` }) : '';
@@ -186,7 +184,7 @@
       ${status}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
       ${blocked || wave ? `<div class="line5 meta${blocked ? ' blocked' : ''}">${wave}${blocked}</div>` : ''}
-      ${timeLine(it, by, unread)}`;
+      ${timeLine(it, unread)}`;
   }
   const WAVE_ICON = '<svg class="wave-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/><path d="M2 16c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/></svg>';
   const askChip = (it) => badge(it.isNew ? 'notice' : 'quiet', it.isNew ? 'New' : 'Task');
