@@ -6,7 +6,7 @@
 //               --fix runs install's steps, then reports again. --json prints {items:[{group,item,state,detail,fix}]}.
 //               Exit 1 when anything is fixable or yours
 //   kickflip join [--name <board name>] [--hub]
-//               run in a git repo's folder: adds it as a board (docs/adr/0140-kickflip-join-adds-the-current-repository-as-a-board.md).
+//               run in a git repo's folder: adds it as a board (docs/adr/0143-kickflip-join-adds-the-current-repository-as-a-board.md).
 //               Asks for the board name, default the folder's name; with no terminal to ask in, --name is needed. The name
 //               takes letters, digits and spaces, and gives the route, lowercased with dashes for spaces. Records the
 //               folder's origin as `github` and its branch; the board's builders branch from the folder's local main and
@@ -352,7 +352,7 @@ function nameProblem(name) {
 // The board starts on its own cards, data/wave.json, as a New board start does.
 const BOARD_FLAGS = '--template board --items data/wave.json';
 
-// Bare `kickflip join` (docs/adr/0140-kickflip-join-adds-the-current-repository-as-a-board.md): adds the git repo the
+// Bare `kickflip join` (docs/adr/0143-kickflip-join-adds-the-current-repository-as-a-board.md): adds the git repo the
 // cwd is in as a local board, its session starting in the background, or in this terminal with --hub.
 async function joinFolder() {
   const top = git(process.cwd(), 'rev-parse', '--show-toplevel');

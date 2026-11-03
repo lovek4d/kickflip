@@ -1,10 +1,10 @@
 ---
-status: superseded in part by ADR-0073, ADR-0110, ADR-0130 and ADR-0140
+status: superseded in part by ADR-0073, ADR-0110, ADR-0130 and ADR-0143
 ---
 
 # The hub starts a new board's session itself
 
-Superseded in part by [0140](0140-kickflip-join-adds-the-current-repository-as-a-board.md): the session's first prompt names the board with `--name '<board name>'`, which replaces `--title`.
+Superseded in part by [0143](0143-kickflip-join-adds-the-current-repository-as-a-board.md): the session's first prompt names the board with `--name '<board name>'`, which replaces `--title`.
 
 Superseded in part by [0130](0130-a-failed-start-retries-from-its-sheet.md): a failed start's row reads its name and failed to start, and its error line, Dismiss and Retry are in the sheet the row opens.
 

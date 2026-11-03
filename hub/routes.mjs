@@ -9,5 +9,5 @@ export function routeFromName(name) {
 export const routeRecord = (records, route) => (Object.hasOwn(records || {}, route) ? records[route] : undefined);
 
 // The board name `kickflip join --name` takes for route: its title when the title hyphenates to the route, else the
-// route itself, which a join keeps the title for (docs/adr/0140-kickflip-join-adds-the-current-repository-as-a-board.md).
+// route itself, which a join keeps the title for (docs/adr/0143-kickflip-join-adds-the-current-repository-as-a-board.md).
 export const joinName = (route, title) => (title && routeFromName(title) === route ? title : route);

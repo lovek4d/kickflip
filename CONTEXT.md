@@ -19,7 +19,7 @@ A project's shared checkout in `<clone>/.repos/<owner>/<repo>` for a clone or `~
 _Avoid_: repo folder (for the repo choice)
 
 **Local board**:
-A board whose builders branch from its repo's local `main` and land there, with nothing fetched: the hub board, on the running kickflip clone; a board `kickflip join` made, marked `local: true`, on the folder it ran in; and a board with neither a GitHub repo nor a plain git remote, on its session's folder (`hub/boards.mjs` `buildsLocally`). Bare `kickflip join`, run in a git repo's folder, asks for the board name, records the folder's GitHub origin and branch, marks the folder trusted for Claude Code and starts the board's session, in the background or with `--hub` in that terminal ([0140](docs/adr/0140-kickflip-join-adds-the-current-repository-as-a-board.md)).
+A board whose builders branch from its repo's local `main` and land there, with nothing fetched: the hub board, on the running kickflip clone; a board `kickflip join` made, marked `local: true`, on the folder it ran in; and a board with neither a GitHub repo nor a plain git remote, on its session's folder (`hub/boards.mjs` `buildsLocally`). Bare `kickflip join`, run in a git repo's folder, asks for the board name, records the folder's GitHub origin and branch, marks the folder trusted for Claude Code and starts the board's session, in the background or with `--hub` in that terminal ([0143](docs/adr/0143-kickflip-join-adds-the-current-repository-as-a-board.md)).
 _Avoid_: joined board, folder board
 
 **Hub**:
@@ -79,7 +79,7 @@ A route on the hub (`/<route>`) served by one owning Claude session, or by none 
 _Avoid_: app, page (a site has several pages)
 
 **Plain page**:
-A site joined with `kickflip join --name "<name>"` and `--port` (a server its session runs, which reads Down while nothing answers) or `--dir` (files the hub serves itself), without `--session`. It has no owning session, events, watcher or Needs you badge, and shows under Pages like any site that isn't a board. `--watch --session <id>` joins a site with all of those ([0087](docs/adr/0087-a-page-joins-without-a-session.md)). Every join's `--name` gives the site's title and route, the name hyphenated ([0140](docs/adr/0140-kickflip-join-adds-the-current-repository-as-a-board.md)).
+A site joined with `kickflip join --name "<name>"` and `--port` (a server its session runs, which reads Down while nothing answers) or `--dir` (files the hub serves itself), without `--session`. It has no owning session, events, watcher or Needs you badge, and shows under Pages like any site that isn't a board. `--watch --session <id>` joins a site with all of those ([0087](docs/adr/0087-a-page-joins-without-a-session.md)). Every join's `--name` gives the site's title and route, the name hyphenated ([0143](docs/adr/0143-kickflip-join-adds-the-current-repository-as-a-board.md)).
 _Avoid_: minimal site, unwatched site
 
 **Owner**:

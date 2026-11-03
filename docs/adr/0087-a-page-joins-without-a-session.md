@@ -1,10 +1,10 @@
 ---
-status: superseded in part by ADR-0140
+status: superseded in part by ADR-0143
 ---
 
 # A page joins without a session
 
-Superseded in part by [0140](0140-kickflip-join-adds-the-current-repository-as-a-board.md): a join names its site with `--name "<name>"`, which gives its title and route, in place of the route argument and `--title`, and a plain page's rejoin passes `--port`, `--dir` or `--cmd` again.
+Superseded in part by [0143](0143-kickflip-join-adds-the-current-repository-as-a-board.md): a join names its site with `--name "<name>"`, which gives its title and route, in place of the route argument and `--title`, and a plain page's rejoin passes `--port`, `--dir` or `--cmd` again.
 
 Any session can put a page on the hub with one command and no machinery. The owner picked join-shape A on hub/INT-201: `kickflip join <route> --port <n>` or `--dir <folder>`, with no session id, makes a **plain page**, and `--watch` with `--session` opts in to what every join did before. A page that only wants to be seen, such as a course or a tool, had to record an owner, run and relaunch a watcher, write needs.json and follow the handover rules.
 

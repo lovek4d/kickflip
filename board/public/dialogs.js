@@ -233,7 +233,7 @@
       return d;
     };
     const fail = (e) => { if (!closed) { error.textContent = e.message; error.hidden = false; } };
-    // A repo already on the host joins from its folder instead (docs/adr/0140-kickflip-join-adds-the-current-repository-as-a-board.md).
+    // A repo already on the host joins from its folder instead (docs/adr/0143-kickflip-join-adds-the-current-repository-as-a-board.md).
     const joinHint = current ? '' : '<p class="nb-help" data-join-hint>A repo already on the host running Kickflip? Run <code>kickflip join</code> in its folder.</p>';
     function sync() { start.disabled = sending || !(draft.github || draft.remote) || !draft.branch || (!current && (!draft.name.trim() || !tickets?.valid())); }
     // A repo row's id is its GitHub owner/name, or the git link of a repo on another host, which the row names by

@@ -98,7 +98,7 @@ const isWave = (w) => Array.isArray(w?.items);
 export const isBoardSite = (s) => Array.isArray(s?.cmd) && s.cmd.some((a) => /board[/\\]server\.mjs$/.test(a)) && typeof s.dir === 'string';
 // Whether a board's builders branch from its repo's local main and land there, with no fetch: the hub board, a board
 // `kickflip join` made (`local: true`), and a board with neither a GitHub repo nor a plain git remote
-// (docs/adr/0140-kickflip-join-adds-the-current-repository-as-a-board.md).
+// (docs/adr/0143-kickflip-join-adds-the-current-repository-as-a-board.md).
 export const buildsLocally = (s) => s.hub === true || s.local === true || !(s.github || s.remote);
 
 // The waves a board shows, keyed as board/store.mjs itemSources keys them: a file board's slug is board.json `slug`,
