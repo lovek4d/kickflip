@@ -382,13 +382,13 @@ test('the login item replaces the old label, and puts the old one back when the 
   assert.deepEqual(calls, ['bootout gui/501/local.claude.kickflip-hub', `bootstrap gui/501 ${file}`]);
 });
 
-test('the install command moves an old-named HOME before the hub service, and --dry-run changes nothing', () => {
+test('the init command moves an old-named HOME before the hub service, and --dry-run changes nothing', () => {
   const state = oldShape(home, cloneRoot());
   const agents = path.join(home, 'Library', 'LaunchAgents');
   fs.mkdirSync(agents, { recursive: true });
   fs.writeFileSync(path.join(agents, 'local.claude.web-ts-hub.plist'), 'old plist');
   const serviceFile = hubService({ home }).file;
-  const run = (...flags) => spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'install', ...flags], {
+  const run = (...flags) => spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'init', ...flags], {
     env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
   });
   const dry = run('--dry-run');
@@ -445,11 +445,11 @@ test('install checks the hooks source before creating links', () => {
   assert.equal(fs.existsSync(skills), false);
 });
 
-test('the install command refuses conflicting links before touching launchd or hub state', () => {
+test('the init command refuses conflicting links before touching launchd or hub state', () => {
   fs.mkdirSync(skills, { recursive: true });
   const link = path.join(skills, 'kickflip');
   fs.symlinkSync(root, link);
-  const result = spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'install', '--force'], {
+  const result = spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'init', '--force'], {
     env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
   });
   assert.equal(result.status, 1, result.stderr);
@@ -459,11 +459,11 @@ test('the install command refuses conflicting links before touching launchd or h
   assert.equal(fs.existsSync(path.join(home, '.claude', 'kickflip')), false);
 });
 
-test('the install command configures links and settings before the hub service and reports reruns', () => {
+test('the init command configures links and settings before the hub service and reports reruns', () => {
   fs.mkdirSync(path.dirname(statusline()), { recursive: true });
   fs.symlinkSync(path.join(home, 'old-dotfiles-statusline'), statusline());
   writeSettings({ keep: 'untouched', hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'python3 ~/.claude/hooks/no-paths.py' }] }] } });
-  const run = () => spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'install'], {
+  const run = () => spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'init'], {
     env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
   });
   const first = run();

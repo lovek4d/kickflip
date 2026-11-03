@@ -109,7 +109,7 @@
 // (docs/adr/0025-the-hub-polls-github-and-sends-pushes-on-one-interval.md). Every feature that serves
 // boards takes them from boards.mjs listBoards, the one board registry
 // (docs/adr/0040-one-board-registry-for-every-hub-feature.md). The host's service manager keeps the
-// hub itself running (../shared/service.mjs, `kickflip install`).
+// hub itself running (../shared/service.mjs, `kickflip init`).
 // After each poll it records when each board's hub links first failed (boards.mjs recordLinkFaults). As it starts it
 // records the hash of its own code (boards.mjs recordHubCode), so the hub link (boards.mjs hubLink) can tell when the
 // files changed under it (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md), and flags `hub-orchestrator`

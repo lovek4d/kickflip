@@ -11,3 +11,5 @@ Board repo clones and their session folders live in `~/.claude/kickflip/repos/<o
 The Prosperity license still governs the package. Minification makes distribution smaller and keeps readable source in the private repo; a determined user can still read minified JavaScript.
 
 Considered: a compiled single binary per platform with Node SEA or `bun build --compile`, installed by a Homebrew tap or curl script. It needs a build per platform and a download host, while plain files still have to live beside it. Bundling one file per entry point breaks path-based spawns and the hub's own code hash: `hubCode` in hub/boards.mjs follows relative imports.
+
+The command `kickflip install` was later renamed `kickflip init`, with no `install` alias; the text above keeps the old name.

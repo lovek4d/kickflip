@@ -61,7 +61,7 @@ test('the clone paths and default builder repo work directly and through install
       assert.deepEqual([found.root, found.repos, found.repo], [root, path.join(root, '.repos'), root]);
       assert.ok(found.settings.includes(path.join(linked, 'hub', 'permission-hook.mjs')));
       assert.ok(found.hub.at(-1).includes(path.join(linked, 'docs', 'hub-session.md')));
-      assert.match(run(process.execPath, [path.join(entry, 'bin', 'kickflip.mjs')]), /kickflip install/);
+      assert.match(run(process.execPath, [path.join(entry, 'bin', 'kickflip.mjs')]), /kickflip init/);
       const wave = path.join(home, '.claude', 'waves', 'w');
       fs.mkdirSync(wave, { recursive: true });
       fs.writeFileSync(path.join(wave, 'wave.json'), JSON.stringify({ title: 'W', items: [{ id: 'A1', title: 'One' }] }));

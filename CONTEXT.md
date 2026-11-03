@@ -7,11 +7,11 @@ Pages on Love's tailnet that Claude sessions serve, so the owner can follow and 
 ### Hub and sites
 
 **Kickflip folder**:
-The installed npm package or the owner's Git clone used through `npm link`, supplying the running app's code and linked into Claude Code's skills by install. It is separate from the live state in `~/.claude/kickflip/` ([0101](docs/adr/0101-kickflip-ships-as-a-minified-npm-package.md)). Install supplies kickflip's status line and hooks as well as the skill links, so setup is independent of the owner's dotfiles ([0080](docs/adr/0080-kickflip-installs-its-own-status-line-and-hooks.md)).
+The installed npm package or the owner's Git clone used through `npm link`, supplying the running app's code and linked into Claude Code's skills by init. It is separate from the live state in `~/.claude/kickflip/` ([0101](docs/adr/0101-kickflip-ships-as-a-minified-npm-package.md)). Init supplies kickflip's status line and hooks as well as the skill links, so setup is independent of the owner's dotfiles ([0080](docs/adr/0080-kickflip-installs-its-own-status-line-and-hooks.md)).
 _Avoid_: live skill folder
 
 **Doctor**:
-The hub setup check, `kickflip doctor`: each prerequisite, installed piece and site is ok, fixable by kickflip, the owner's to fix with the printed command, optional (Codex installed and logged in, or the mattpocock skills an **architecture review** follows, installed and current) or a note (a down site the hub restarts). `doctor --fix` runs the same setup as first-run `install` and checks again; another tool's status line stays the owner's choice ([0085](docs/adr/0085-doctor-checks-and-fixes-a-hub.md)).
+The hub setup check, `kickflip doctor`: each prerequisite, installed piece and site is ok, fixable by kickflip, the owner's to fix with the printed command, optional (Codex installed and logged in, or the mattpocock skills an **architecture review** follows, installed and current) or a note (a down site the hub restarts). `doctor --fix` runs the same setup as first-run `init` and checks again; another tool's status line stays the owner's choice ([0085](docs/adr/0085-doctor-checks-and-fixes-a-hub.md)).
 _Avoid_: status (the former CLI command)
 
 **Board repo**:
@@ -27,7 +27,7 @@ The one server on the host that answers the tailnet address, lists every site, f
 _Avoid_: portal, gateway
 
 **Host**:
-The machine the hub and its sessions run on, a Mac or a Linux machine. Its **hub service** keeps the hub running: a launchd login item on macOS, a systemd user unit on Linux, chosen by `shared/service.mjs` at install; install, doctor, land's restart and uninstall all go through it ([0093](docs/adr/0093-the-hub-runs-under-the-hosts-service-manager.md)).
+The machine the hub and its sessions run on, a Mac or a Linux machine. Its **hub service** keeps the hub running: a launchd login item on macOS, a systemd user unit on Linux, chosen by `shared/service.mjs` at init; init, doctor, land's restart and uninstall all go through it ([0093](docs/adr/0093-the-hub-runs-under-the-hosts-service-manager.md)).
 _Avoid_: the Mac, server (for the machine)
 
 **Sidebar**:

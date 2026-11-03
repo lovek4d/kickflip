@@ -3,7 +3,7 @@
 //   kickflip doctor [--fix [--dry-run]] [--json]
 //               one line per prereq, installed piece, the hub, Tailscale / and each site (./doctor.mjs): ok,
 //               fixable (by --fix), yours (with the command to run), optional or note. Changes nothing.
-//               --fix runs install's steps, then reports again. --json prints {items:[{group,item,state,detail,fix}]}.
+//               --fix runs init's steps, then reports again. --json prints {items:[{group,item,state,detail,fix}]}.
 //               Exit 1 when anything is fixable or yours
 //   kickflip join [--name <board name>] [--hub]
 //               run in a git repo's folder: adds it as a board (docs/adr/0143-kickflip-join-adds-the-current-repository-as-a-board.md).
@@ -91,14 +91,14 @@
 //               removes the entry and keeps its files; --session (or --force) only for a route a session owns
 //   kickflip restart <route>
 //   kickflip logs <route> [--lines <n>]
-//   kickflip install [--dry-run] | uninstall
-//               install is the first-run name for doctor --fix. It first moves a host set up under the web-ts names to
+//   kickflip init [--dry-run] | uninstall
+//               init is the first-run name for doctor --fix. It first moves a host set up under the web-ts names to
 //               the kickflip ones (./install.mjs migrateHome), then links the running package or clone, hooks plugin
 //               and status line, configures Claude settings, starts the hub's service in place of the running one (../shared/service.mjs:
 //               a launchd login item on macOS, including one under the old label; a systemd user unit on Linux),
 //               and maps Tailscale / to the hub.
 //               Conflicting skill links and real paths are refused. A dangling status-line link can be replaced.
-//               --dry-run prints what install would move, link and start, and changes nothing.
+//               --dry-run prints what init would move, link and start, and changes nothing.
 //               uninstall stops the hub and removes its service, kickflip's status-line link and Tailscale /;
 //               Claude settings and skill links are kept
 //   kickflip update
@@ -167,7 +167,7 @@ const FIRST_SITE_PORT = 4600;
 const COLOR_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
 const [cmd, ...rest] = process.argv.slice(2);
-if (!['install', 'doctor'].includes(cmd)) migrateOnStart();
+if (!['init', 'doctor'].includes(cmd)) migrateOnStart();
 const args = Object.assign(Object.create(null), { _: [] });
 for (let i = 0; i < rest.length; i++) {
   const a = rest[i];
@@ -358,7 +358,7 @@ async function joinFolder() {
   const top = git(process.cwd(), 'rev-parse', '--show-toplevel');
   if (!top) fail(`${process.cwd()} is not in a git repo; run kickflip join in the folder of the repo to add as a board`, 2);
   const folder = fs.realpathSync(top);
-  if (!(await hubStatus())) fail('the hub is not running; run kickflip install to set it up, then kickflip join here again');
+  if (!(await hubStatus())) fail('the hub is not running; run kickflip init to set it up, then kickflip join here again');
   const had = Object.entries(readManifest().sites).find(([, s]) => isBoardSite(s) && s.owner?.repo && realPath(s.owner.repo) === folder);
   if (had) return restartFolderBoard(...had);
   const fallback = path.basename(folder).replace(/[^A-Za-z0-9]+/g, ' ').trim();
@@ -446,7 +446,7 @@ Exported from ${b.from} at ${b.exported_at}. This bundle holds the board's folde
 ## On the new machine
 
 1. Install Git, Node 22+, Claude Code, gh and Tailscale, and turn on HTTPS certificates for the tailnet.
-2. Run \`npm i -g @lovek4d/kickflip\`, then \`kickflip install\`, and fix what its report marks yours.
+2. Run \`npm i -g @lovek4d/kickflip\`, then \`kickflip init\`, and fix what its report marks yours.
 3. Run \`kickflip import ${file}\`. It refuses when /${b.route} already exists there.
 4. Start a fresh Claude Code session in the folder the board works in, and have it run the \`join\` line the import prints, with its own session id. \`--force\` takes the board over.
 5. Once the board answers there, stop its session on the old machine and run \`kickflip leave ${b.route} --force\` there, so only one session acts on its cards. Its files stay on the old machine.
@@ -795,7 +795,7 @@ const commands = {
     out(fs.readFileSync(file, 'utf8').split('\n').slice(-n - 1).join('\n'));
   },
 
-  async install() {
+  async init() {
     args.fix = true;
     await commands.doctor();
   },

@@ -8,7 +8,7 @@ Requires Node 22+.
 
 ```sh
 npm i -g @lovek4d/kickflip
-kickflip install
+kickflip init
 ```
 
 See [Install on a new host](SKILL.md#install-on-a-new-host) in SKILL.md for prerequisites, updates and development from a clone.

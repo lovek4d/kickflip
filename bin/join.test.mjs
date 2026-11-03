@@ -188,7 +188,7 @@ test('leave takes a plain page off without a session, and still asks for the own
   assert.deepEqual(Object.keys(manifest()), []);
 });
 
-test('kickflip join refuses a folder outside git, says to run kickflip install while the hub is down, and needs --name with no terminal to ask in', async () => {
+test('kickflip join refuses a folder outside git, says to run kickflip init while the hub is down, and needs --name with no terminal to ask in', async () => {
   const plain = path.join(home, 'plain');
   fs.mkdirSync(plain, { recursive: true });
   const outside = await cliIn(plain, ['join']);
@@ -197,7 +197,7 @@ test('kickflip join refuses a folder outside git, says to run kickflip install w
   const repo = gitRepo('idle');
   const [down] = await freePorts(1);
   const noHub = await cliIn(repo, ['join', '--name', 'Idle'], { KICKFLIP_HUB_PORT: String(down) });
-  assert.deepEqual([noHub.status, noHub.stderr], [1, 'kickflip: the hub is not running; run kickflip install to set it up, then kickflip join here again\n']);
+  assert.deepEqual([noHub.status, noHub.stderr], [1, 'kickflip: the hub is not running; run kickflip init to set it up, then kickflip join here again\n']);
   const unnamed = await cliIn(repo, ['join']);
   assert.deepEqual([unnamed.status, unnamed.stderr], [2, 'kickflip: join needs --name "<Board name>" when it has no terminal to ask in\n']);
   for (const name of ['Idle-app', 'Idle!', '  ']) {

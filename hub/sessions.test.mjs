@@ -166,8 +166,8 @@ test('doctor CLI exits 1 on a broken HOME, prints commands, and leaves old state
   assert.equal(fs.existsSync(path.join(fixture.scratch, '.claude', 'settings.json')), false);
 });
 
-test('doctor --fix and install CLI run the same setup once and finish with a JSON report', async () => {
-  for (const [name, args] of [['doctor-fix', ['doctor', '--fix']], ['doctor-install', ['install']]]) {
+test('doctor --fix and init CLI run the same setup once and finish with a JSON report', async () => {
+  for (const [name, args] of [['doctor-fix', ['doctor', '--fix']], ['doctor-init', ['init']]]) {
     const fixture = doctorCLI(name, { healthy: true });
     const result = await fixture.run(...args, '--json');
     assert.equal(result.status, 0, result.stderr);
@@ -182,7 +182,7 @@ test('doctor --fix and install CLI run the same setup once and finish with a JSO
 });
 
 test('doctor --fix --dry-run and install --dry-run CLI write no setup and invoke no service', async () => {
-  for (const [name, args] of [['doctor-dry', ['doctor', '--fix']], ['install-dry', ['install']]]) {
+  for (const [name, args] of [['doctor-dry', ['doctor', '--fix']], ['init-dry', ['init']]]) {
     const fixture = doctorCLI(name);
     const result = await fixture.run(...args, '--dry-run');
     assert.equal(result.status, 0, result.stderr);
