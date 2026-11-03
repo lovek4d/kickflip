@@ -1,10 +1,12 @@
 ---
-status: superseded in part by ADR-0131
+status: superseded in part by ADR-0131 and ADR-0138
 ---
 
 # Any work on a card starts it
 
 Superseded in part by [0131](0131-the-cli-and-board-server-do-the-boards-housekeeping.md): the watcher writes the working mark as it prints the message, not `board.mjs working`.
+
+Superseded in part by [0138](0138-a-card-moves-to-in-progress-only-once-building-starts.md): only building starts a card, a build agent's record or a building or fixing status. A grill or prototype agent, a working mark and a recorded prototype leave it in Todo with its Build.
 
 Todo holds only cards nobody has touched since they were filed. A work card is started, and leaves Todo for In Progress, once any of these is true:
 

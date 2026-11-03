@@ -131,7 +131,7 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
   const lastGrill = events.filter((e) => e.kind === 'grill-more').pop();
   // A branch pushed to a plain git remote, which has no PR (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
   const pushed = !it.pr && it.pushed?.branch ? { branch: it.pushed.branch, at: it.pushed.at || null, host: remote?.host || null } : null;
-  let lane = laneOf(it, pr, Boolean(builder), pushed);
+  let lane = laneOf(it, pr, agents.some((a) => a.started && !a.done && builds(a)), pushed);
   if (reopenAt && lane === 'todo') lane = 'progress';
   if (lane === 'review' && inReviewSince && now - Date.parse(inReviewSince) > STALE_AFTER) lane = 'stale';
   let waitsOn = waitsOnOf(lane, pr, builder, (it.status || '').toLowerCase(), pushed);
@@ -265,8 +265,10 @@ function placeOwnerWait(it, questionById, autoMerge) {
 }
 
 // docs/adr/0049-a-started-card-never-returns-to-todo.md
-// docs/adr/0129-any-work-on-a-card-starts-it.md
-const started = (it, worked) => worked.has(it.key) || it.agents.length > 0 || Boolean(it.questions && it.questions.answered + it.questions.replied + it.questions.resolved > 0);
+// docs/adr/0138-a-card-moves-to-in-progress-only-once-building-starts.md
+// A work card has started once building has: a build agent's record, running or finished, or a building or fixing
+// status. A PR, a pushed branch and checking place it on their own (laneOf).
+const started = (it) => it.agents.some(builds) || ['building', 'fixing'].includes(String(it.status || '').toLowerCase());
 
 // An open follow-up is a Todo card of its wave (docs/adr/0034-follow-ups-are-todo-cards-of-their-wave.md).
 function followUp({ slug, wave, f, order, repo, bumpedAt, closedAt, tickets }) {
@@ -322,6 +324,11 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
     fold: null, action: null,
   };
 }
+
+// Grill and prototype agents work toward a build, so they never start a card or put it in In Progress
+// (docs/adr/0138-a-card-moves-to-in-progress-only-once-building-starts.md).
+const NOT_BUILDING = new Set(['grill', 'prototype']);
+const builds = (agent) => !NOT_BUILDING.has(agent.kind);
 
 // An item's agents, oldest first, from its records by agent name.
 function agentsOf(records = {}) {
@@ -501,7 +508,7 @@ function waveRowsOf(snapshot, waves, lineups, items, questions, events) {
 
 // snapshot: {waves: [{slug, wave, agents: {<id>: {<agent>: record}}}], fromWaves,
 //   prs: {"<repo>#<n>": pr}, threads: {<key>: [line]}, events: [event with reply, hidden ones left out],
-//   working: {<event id>: ts}, prototypes: data/prototypes.json's list, checked: data/checked.json, listen, watcher: data/watcher.json, askLinks: {<ask event id>: <wave>/<id>},
+//   working: {<event id>: ts}, checked: data/checked.json, listen, watcher: data/watcher.json, askLinks: {<ask event id>: <wave>/<id>},
 //   askProgress: {<ask event id>: {state: progress|done, at, next, moved}}, owner: owner.json,
 //   autoMerge: board.json's auto_merge (true leaves merging to the GitHub tick, so no card gets the owner's Merge),
 //   autoBuild: board.json's auto_build (true leaves card runs to the hub, so no card gets the owner's Serve / Build),
@@ -537,8 +544,6 @@ export function buildBoard(snapshot) {
   // By card key: when Claude last answered in its thread, and when a Done work card closed.
   const claudeAt = new Map();
   const closedWork = new Map();
-  // Cards a session worked on without a builder: a working mark on a message in its thread, or a prototype recorded for it.
-  const worked = new Set((snapshot.prototypes || []).map((p) => p.card).filter(Boolean));
   const remote = snapshot.github ? null : remoteFromInput(snapshot.remote);
   for (const { slug, wave, agents: records = {} } of snapshot.waves) {
     const repo = snapshot.github || wave.repo || null;
@@ -553,7 +558,6 @@ export function buildBoard(snapshot) {
       const msgs = threadOf(key, { lines, events, owner, working, fromAsk: it.from_ask || null, moved: folded });
       for (const m of msgs) if (m.eventId) threadStates.set(m.eventId, m.state);
       claudeAt.set(key, claudeAtOf(msgs));
-      if (msgs.some((m) => m.eventId && m.kind !== 'ask' && routeRecord(working, m.eventId))) worked.add(key);
       const pr = it.pr && repo ? routeRecord(prs, `${repo}#${it.pr}`) || null : null;
       items.push(workItem({
         slug, wave, it, order, repo, remote, base: snapshot.branch || 'main',
@@ -642,7 +646,7 @@ export function buildBoard(snapshot) {
       .filter((d) => d && d.lane !== 'done' && !d.reopened).map((d) => ({ key: d.key, ref: d.ref }));
     if (it.lane === 'done' && !it.fold && it.updatedAt && now - Date.parse(it.updatedAt) >= DONE_OPEN) it.fold = OLDER_FOLD;
     placeOwnerWait(it, questionById, autoMerge);
-    if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it, worked)) it.lane = 'progress';
+    if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it)) it.lane = 'progress';
     it.buildable = buildableOf(it);
   }
   // Items arrive in touched order; the page shows a lane in created order from rank.created, as this device chose.
@@ -775,11 +779,12 @@ export function needsAnswer(b) {
 
 // docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md
 // For built items in board order: idle while no card has a running builder and none waits in Orchestrator review;
-// pullable lists, top first, the buildable cards with no questions and no grill under way.
+// pullable lists, top first, the buildable cards with no questions, no grill under way and no message a session is
+// working on. A running grill or prototype agent keeps the board from being idle.
 export function pullOf(items) {
   const open = items.filter((i) => i.lane !== 'done');
   const idle = !open.some((i) => i.waitsOn === 'checking' || (i.agents || []).some((a) => !a.done));
-  const pullable = open.filter((i) => i.buildable && !i.questions && !i.grilling).map((i) => i.key);
+  const pullable = open.filter((i) => i.buildable && !i.questions && !i.grilling && !i.working).map((i) => i.key);
   return { idle, pullable };
 }
 

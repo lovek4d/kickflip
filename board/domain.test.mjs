@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, threadOf, needsAnswer } from './domain.mjs';
+import { buildBoard, threadOf, needsAnswer, pullOf } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -74,7 +74,7 @@ test('a green draft waits on Ready in In Review until a builder works on it', ()
   }
 });
 
-test('an unstarted card waiting on its questions stays in Todo with its action, a started one keeps its lane with it, and either shows Open questions', () => {
+test('a card waiting on its questions stays in Todo with its action until building starts, a started one keeps its lane with it, and either shows Open questions', () => {
   const q = { id: 'q1', topic: 'item:w/A1', question: 'Which take?', options: [{ id: 'A', label: 'One' }], url: 'prototype-x.html?q=q1' };
   const card = (opts) => board({ pr: null, ...opts }).items.find((i) => i.key === 'w/A1');
   const waiting = card({ owner: { items: [q] } });
@@ -82,12 +82,12 @@ test('an unstarted card waiting on its questions stays in Todo with its action, 
   assert.deepEqual([waiting.action, waiting.resolvedBy], [{ kind: 'pick', url: 'questions.html#q1', label: 'Prototypes ready: pick a take' }, 'openQuestions']);
   const picked = { id: 'e1', ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A' }, reply: null };
   const answered = card({ owner: { items: [q] }, events: [picked] });
-  assert.deepEqual([answered.lane, answered.action, answered.actionButton], ['progress', null, 'grill']);
+  assert.deepEqual([answered.lane, answered.action, answered.actionButton, answered.buildable], ['todo', null, 'grill', true]);
   const grilled = card({ owner: { items: [{ ...q, url: 'https://example.com/doc' }] } });
   assert.deepEqual([grilled.lane, grilled.waitsOn, grilled.action, grilled.actionButton], ['todo', 'owner', { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' }, 'openQuestions']);
   const more = { ...q, id: 'q2', url: null };
   const regrilled = card({ owner: { items: [q, more] }, events: [picked] });
-  assert.deepEqual([regrilled.lane, regrilled.waitsOn, regrilled.action?.kind, regrilled.actionButton], ['progress', 'owner', 'questions', 'openQuestions']);
+  assert.deepEqual([regrilled.lane, regrilled.waitsOn, regrilled.action?.kind, regrilled.actionButton], ['todo', 'owner', 'questions', 'openQuestions']);
   const building = card({ owner: { items: [q] }, agents: { A1: { main: { label: 'Opus builder', started: '2026-10-23T10:00:00Z' } } } });
   assert.deepEqual([building.lane, building.waitsOn, building.action?.kind, building.actionButton], ['progress', 'builder', 'pick', 'openQuestions']);
   const built = card({ owner: { items: [q] }, agents: { A1: { main: { label: 'Opus builder', started: '2026-10-23T10:00:00Z', done: '2026-10-23T10:30:00Z' } } } });
@@ -109,12 +109,19 @@ test("a card's install shows until the card is Done, and reads older once the PR
   assert.equal(card(), null);
 });
 
-test('a card with a working builder is In Progress whatever its status says', () => {
+test('a card a builder has built on, or whose status says it is building or fixing, is In Progress; a grill or prototype agent leaves it in Todo', () => {
   const started = { label: 'Opus builder', started: '2026-10-23T10:00:00Z' };
   for (const status of [undefined, 'building', 'fixing']) {
     const card = (record) => board({ pr: null, item: { status }, agents: record ? { A1: { main: record } } : {} }).items.find((i) => i.key === 'w/A1');
-    assert.deepEqual([card(null).lane, card(started).lane, card({ ...started, done: '2026-10-23T10:30:00Z' }).lane], ['todo', 'progress', 'progress']);
+    assert.deepEqual([card(null).lane, card(started).lane, card({ ...started, done: '2026-10-23T10:30:00Z' }).lane], [status ? 'progress' : 'todo', 'progress', 'progress']);
     assert.equal(card(null).waitsOn, null);
+  }
+  const card = (record) => board({ pr: null, agents: { A1: { main: record } } }).items.find((i) => i.key === 'w/A1');
+  for (const kind of ['build', 'opus', 'codex']) assert.equal(card({ ...started, kind }).lane, 'progress');
+  for (const kind of ['grill', 'prototype']) {
+    const running = card({ ...started, kind });
+    assert.deepEqual([running.lane, running.buildable, running.builder?.kind], ['todo', true, kind]);
+    assert.deepEqual([card({ ...started, kind, done: '2026-10-23T10:30:00Z' }).lane], ['todo']);
   }
 });
 
@@ -824,7 +831,7 @@ test('a card badges only a ticket from its board source, keeps another source\'s
   assert.deepEqual(legacy.items[0].linear.map((l) => l.url), ['https://linear.app/new-workspace/issue/ENG-9', 'https://linear.app/new-workspace/issue/ENG-10']);
 });
 
-test('a card lists each unfinished dep it is blocked by, a Done one none; an unstarted one sits in Todo, one grilled, built, prototyped or with a message marked working stays In Progress unless held', () => {
+test('a card lists each unfinished dep it is blocked by, a Done one none; one only grilled, prototyped or with a message marked working sits in Todo, one built stays In Progress unless held', () => {
   const items = [
     { id: 'S10', title: 'Ten', status: 'done' },
     { id: 'S11', title: 'Eleven', status: 'building' },
@@ -834,7 +841,9 @@ test('a card lists each unfinished dep it is blocked by, a Done one none; an uns
     { id: 'INT-17', title: 'Seventeen', status: 'waiting' },
     { id: 'INT-18', title: 'Grilled', deps: ['S11'] },
     { id: 'INT-19', title: 'Grilled, held', deps: ['S11'], held: true },
-    { id: 'INT-20', title: 'Built before', status: 'planned' },
+    { id: 'INT-20', title: 'Prototyped by an agent', status: 'planned' },
+    { id: 'INT-27', title: 'Built before', status: 'planned', deps: ['S11'] },
+    { id: 'INT-28', title: 'Built before, held', status: 'planned', held: true },
     { id: 'INT-21', title: 'Landed first', status: 'done', deps: ['S11'] },
     { id: 'INT-22', title: 'Message worked on', deps: ['S11'] },
     { id: 'INT-23', title: 'Prototyped' },
@@ -847,18 +856,23 @@ test('a card lists each unfinished dep it is blocked by, a Done one none; an uns
   const working = { m22: '2026-10-23T09:01:00Z', m26: '2026-10-23T09:01:00Z', a1: '2026-10-23T08:01:00Z' };
   const prototypes = [{ topic: 'shape', title: 'Shape', card: 'site/INT-23', takes: [{ key: 'A', label: 'One' }] }];
   const owner = { items: ['INT-18', 'INT-19'].map((id) => ({ id: `q${id}`, topic: `item:site/${id}`, question: '?', options: [], resolved: 'Picked.', resolved_at: '2026-10-23T10:00:00Z' })) };
-  const agents = { ...runningBuilders('S11', 'INT-15'), 'INT-20': { main: { label: 'Opus', kind: 'prototype', started: '2026-10-23T09:00:00Z', done: '2026-10-23T09:30:00Z' } } };
+  const finished = (kind) => ({ main: { label: 'Opus', kind, started: '2026-10-23T09:00:00Z', done: '2026-10-23T09:30:00Z' } });
+  const agents = { ...runningBuilders('S11', 'INT-15'), 'INT-20': finished('prototype'), 'INT-27': finished('opus'), 'INT-28': finished('opus') };
   const b = buildBoard({ fromWaves: false, owner, events, working, prototypes, waves: [{ slug: 'site', agents, wave: { internal: true, items } }] });
   const card = (id) => b.items.find((i) => i.id === id);
   assert.deepEqual(card('INT-15').blockedBy, [{ key: 'site/S11', ref: 'INT-11' }, { key: 'site/INT-14', ref: 'INT-14' }]);
   assert.equal(card('INT-15').lane, 'progress');
   assert.deepEqual([card('INT-16').blockedBy, card('INT-16').lane], [[], 'todo']);
   assert.deepEqual([card('INT-17').blockedBy, card('S11').lane], [[], 'progress']);
-  assert.deepEqual([card('INT-18').blockedBy, card('INT-18').lane], [[{ key: 'site/S11', ref: 'INT-11' }], 'progress']);
-  assert.deepEqual([card('INT-19').lane, card('INT-20').lane], ['todo', 'progress']);
+  assert.deepEqual([card('INT-18').blockedBy, card('INT-18').lane], [[{ key: 'site/S11', ref: 'INT-11' }], 'todo']);
+  assert.deepEqual([card('INT-19').lane, card('INT-20').lane], ['todo', 'todo']);
+  assert.deepEqual([card('INT-27').blockedBy, card('INT-27').lane, card('INT-28').lane], [[{ key: 'site/S11', ref: 'INT-11' }], 'progress', 'todo']);
   assert.deepEqual([card('INT-21').blockedBy, card('INT-21').lane], [[], 'done']);
-  assert.deepEqual(['INT-22', 'INT-23', 'INT-24', 'INT-25', 'INT-26'].map((id) => card(id).lane), ['progress', 'progress', 'todo', 'todo', 'todo']);
-  assert.equal(card('INT-22').working, true);
+  assert.deepEqual(['INT-22', 'INT-23', 'INT-24', 'INT-25', 'INT-26'].map((id) => card(id).lane), ['todo', 'todo', 'todo', 'todo', 'todo']);
+  assert.deepEqual([card('INT-22').working, card('INT-23').buildable], [true, true]);
+  // The idle pull skips a Todo card a session is working on (docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md).
+  assert.equal(pullOf(b.items).pullable.includes('site/INT-22'), false);
+  assert.equal(pullOf(b.items).pullable.includes('site/INT-23'), true);
 });
 
 test("a checking card sits in In Progress waiting on Claude's check, with no builder line or next step, and still blocks its dependents", () => {

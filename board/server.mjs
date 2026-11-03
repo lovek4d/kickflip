@@ -347,7 +347,7 @@ async function itemSnapshot() {
   })));
   const self = boardAt(here);
   return { github: self?.github, remote: self?.remote, branch: self?.branch, reviewers: cfg.reviewers || [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, waves, threads: threadLines,
-    working: await readWorking(here), prototypes: await readPrototypes(here) };
+    working: await readWorking(here) };
 }
 
 // Reads every source buildBoard needs: wave files and their builder records,
