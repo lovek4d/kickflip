@@ -1,15 +1,15 @@
 // The last board this device showed, which the board page paints dimmed until the fresh board lands, and what the
 // page may do meanwhile (docs/adr/0028-the-board-opens-on-the-last-visit.md). Needs ui.js.
 (function () {
-  const VERSION = 2;
   // Characters, one board's most; app-snapshot.js keeps every board's within three of these.
   const SNAPSHOT_MAX = 900000;
   const ACTIVE_LANES = ['review', 'stale', 'progress', 'todo'];
 
   // threads maps item keys to thread messages (app.js state.threadCache). Threads of `keep` go in first, then the
-  // rest while they fit under max; threads of items no longer on the board are dropped. Null when the board alone won't fit.
-  function packSnapshot(board, threads, { savedAt, keep = [], max = SNAPSHOT_MAX } = {}) {
-    const head = `{"v":${VERSION},"savedAt":${JSON.stringify(savedAt)},"board":${JSON.stringify(board)},"threads":{`;
+  // rest while they fit under max; threads of items no longer on the board are dropped. build is the saving page's
+  // (app.html data-build). Null when the board alone won't fit.
+  function packSnapshot(board, threads, { build, savedAt, keep = [], max = SNAPSHOT_MAX } = {}) {
+    const head = `{"build":${JSON.stringify(build)},"savedAt":${JSON.stringify(savedAt)},"board":${JSON.stringify(board)},"threads":{`;
     if (head.length + 2 > max) return null;
     const onBoard = new Set(board.items.map((i) => i.key));
     let out = head;
@@ -24,11 +24,12 @@
     return `${out}}}`;
   }
 
-  // → {savedAt, board, threads: {key: messages}}, or null for anything packSnapshot didn't write.
-  function unpackSnapshot(raw) {
+  // → {savedAt, board, threads: {key: messages}}, or null for anything packSnapshot didn't write under this build: code
+  // from another build may read the board's shape differently, and a paint that throws stops the live load.
+  function unpackSnapshot(raw, build) {
     let s;
     try { s = JSON.parse(raw); } catch { return null; }
-    if (s?.v !== VERSION || !Array.isArray(s.board?.items) || typeof s.savedAt !== 'string' || !Number.isFinite(Date.parse(s.savedAt))) return null;
+    if (s?.build !== build || !Array.isArray(s.board?.items) || typeof s.savedAt !== 'string' || !Number.isFinite(Date.parse(s.savedAt))) return null;
     const threads = Object.fromEntries(Object.entries(s.threads && typeof s.threads === 'object' ? s.threads : {}).filter(([, m]) => Array.isArray(m)));
     return { savedAt: s.savedAt, board: s.board, threads };
   }

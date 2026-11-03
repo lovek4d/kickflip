@@ -160,25 +160,26 @@ test("a snapshot keeps the board and the threads of its cards, open cards' first
   const savedAt = '2026-10-23T08:00:00.000Z';
   const board = { generatedAt: savedAt, items: [{ key: 'w/A', lane: 'todo' }, { key: 'w/B', lane: 'done' }, { key: 'w/C', lane: 'progress' }] };
   const threads = new Map([['w/B', [{ text: 'b' }]], ['w/A', [{ text: 'a' }]], ['w/gone', [{ text: 'x' }]], ['w/C', [{ text: 'c'.repeat(200) }]]]);
-  const raw = ui.packSnapshot(board, threads, { savedAt, keep: ['w/A'] });
-  const back = plain(ui.unpackSnapshot(raw));
+  const raw = ui.packSnapshot(board, threads, { build: 'b1', savedAt, keep: ['w/A'] });
+  const back = plain(ui.unpackSnapshot(raw, 'b1'));
   assert.deepEqual([back.savedAt, back.board], [savedAt, board]);
   assert.deepEqual(Object.keys(back.threads), ['w/A', 'w/B', 'w/C']);
   assert.deepEqual(back.threads['w/A'], [{ text: 'a' }]);
-  const capped = plain(ui.unpackSnapshot(ui.packSnapshot(board, threads, { savedAt, keep: ['w/A'], max: raw.length - 100 })));
+  const capped = plain(ui.unpackSnapshot(ui.packSnapshot(board, threads, { build: 'b1', savedAt, keep: ['w/A'], max: raw.length - 100 }), 'b1'));
   assert.deepEqual(Object.keys(capped.threads), ['w/A', 'w/B']);
-  assert.equal(ui.packSnapshot(board, threads, { savedAt, max: 50 }), null);
+  assert.equal(ui.packSnapshot(board, threads, { build: 'b1', savedAt, max: 50 }), null);
 });
 
-test('a stored snapshot that is damaged, from another version or undated reads as none', () => {
-  const good = ui.packSnapshot({ items: [{ key: 'w/A', lane: 'todo' }] }, new Map(), { savedAt: '2026-10-23T08:00:00.000Z' });
-  assert.ok(ui.unpackSnapshot(good));
-  for (const raw of [null, '', 'not json', good.slice(0, -3), good.replace(/"v":\d+/, '"v":0'), good.replace('"items":[', '"cards":['), good.replace('2026-10-23T08:00:00.000Z', 'soon')]) {
-    assert.equal(ui.unpackSnapshot(raw), null, String(raw));
+test('a stored snapshot that is damaged, saved under another build or undated reads as none', () => {
+  const good = ui.packSnapshot({ items: [{ key: 'w/A', lane: 'todo' }] }, new Map(), { build: 'b1', savedAt: '2026-10-23T08:00:00.000Z' });
+  assert.ok(ui.unpackSnapshot(good, 'b1'));
+  assert.equal(ui.unpackSnapshot(good, 'b2'), null);
+  for (const raw of [null, '', 'not json', good.slice(0, -3), good.replace('"build":"b1"', '"v":2'), good.replace('"items":[', '"cards":['), good.replace('2026-10-23T08:00:00.000Z', 'soon')]) {
+    assert.equal(ui.unpackSnapshot(raw, 'b1'), null, String(raw));
   }
   const odd = JSON.parse(good);
   odd.threads = { 'w/A': 'text', 'w/B': [{ text: 'b' }] };
-  assert.deepEqual(Object.keys(ui.unpackSnapshot(JSON.stringify(odd)).threads), ['w/B']);
+  assert.deepEqual(Object.keys(ui.unpackSnapshot(JSON.stringify(odd), 'b1').threads), ['w/B']);
 });
 
 test('threads load in the background for every In Review, Stale, In Progress and Todo card that is not already open', () => {

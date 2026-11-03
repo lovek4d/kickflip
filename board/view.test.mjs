@@ -60,7 +60,7 @@ function fakePage(localStorage) {
   const intervals = new Map();
   const timeouts = new Map();
   const watches = [];
-  const document = Object.assign(new Target(), { hidden: false, activeElement: null, documentElement: new El(), querySelector: () => null, createElement: () => new El() });
+  const document = Object.assign(new Target(), { hidden: false, activeElement: null, documentElement: Object.assign(new El(), { dataset: { build: 'build-1' } }), querySelector: () => null, createElement: () => new El() });
   let now = 0;
   const frames = new Map();
   const observers = new Set();
@@ -617,7 +617,7 @@ test("a framed page hands each load's URL and title to the shell, hides the shel
   assert.deepEqual(page.left(), loaded);
 });
 
-test("a board the app shell leaves keeps its fresh board as its last visit, dropping the least recent boards' past the storage budget, and paints live when the shell says nothing changed since, and dimmed otherwise", () => {
+test("a board the app shell leaves keeps its fresh board as its last visit, dropping the least recent boards' past the storage budget, and paints live when the shell says nothing changed since, dimmed otherwise, and not at all under another build", () => {
   const { storage, localStorage } = memoryStorage([['boardSnapshot:https://mac.ts.net/old/', 'x'.repeat(2_000_000)],
     ['boardSnapshot:https://mac.ts.net/recent/', 'y'.repeat(1_000_000)], ['boardSnapshots', JSON.stringify(['boardSnapshot:https://mac.ts.net/recent/', 'boardSnapshot:https://mac.ts.net/old/'])]]);
   const page = fakePage(localStorage);
@@ -641,6 +641,10 @@ test("a board the app shell leaves keeps its fresh board as its last visit, drop
   assert.equal(back({ fresh: { at: board.generatedAt, sig: 's' }, generatedAt: board.generatedAt }), 'fresh');
   assert.equal(back({ fresh: { at: board.generatedAt, sig: 's' }, generatedAt: '2026-10-29T09:00:00.000Z' }), 'snapshot');
   assert.equal(back(null), 'snapshot');
+
+  page.win.document.documentElement.dataset.build = 'build-2';
+  assert.equal(back({ fresh: { at: board.generatedAt, sig: 's' }, generatedAt: board.generatedAt }), undefined);
+  assert.equal(back(null), undefined);
 });
 
 test("two boards' stores never share a key: a New task draft stays on its board, the old shared keys move to the first board opened, and a card's draft keeps its key", () => {

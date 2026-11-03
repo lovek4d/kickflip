@@ -319,7 +319,7 @@ A line in a card's thread written by someone other than the owner, apart from bu
 _Avoid_: inbox, notification. "New" names it only in that count's "N new messages"; a New card is an unsorted ask.
 
 **Last visit**:
-The board and threads this device last showed, kept in its browser storage. The next visit paints it dimmed at first paint, readable at any age, with the controls that send held until the fresh board lands and replaces it in place, flashing a fading blue border round each card or line that changed ([0028](docs/adr/0028-the-board-opens-on-the-last-visit.md)). A board the app shell left fresh and comes back to with no change since paints it live instead ([0055](docs/adr/0055-one-app-for-the-whole-hub.md)). In code it is the snapshot.
+The board and threads this device last showed, kept in its browser storage. The next visit paints it dimmed at first paint, readable at any age, with the controls that send held until the fresh board lands and replaces it in place, flashing a fading blue border round each card or line that changed ([0028](docs/adr/0028-the-board-opens-on-the-last-visit.md)). A board the app shell left fresh and comes back to with no change since paints it live instead ([0055](docs/adr/0055-one-app-for-the-whole-hub.md)). It paints only under the build that saved it, a hash of the shell's file versions (`hub/shell.mjs` `shellHtml`), so code that changed since never reads it; the page then waits for the fresh board. In code it is the snapshot.
 _Avoid_: cache, offline copy, stale board
 
 **Answer banner**:

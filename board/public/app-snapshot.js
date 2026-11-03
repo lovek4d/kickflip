@@ -11,11 +11,12 @@ BoardView.part((B) => {
   // otherwise fail to save.
   const BUDGET = 3 * SNAPSHOT_MAX;
   const ORDER = 'boardSnapshots';
+  const BUILD = document.documentElement.dataset.build;
 
   function readSnapshot() {
     let raw = null;
     try { raw = localStorage.getItem(KEY); } catch {}
-    return raw ? unpackSnapshot(raw) : null;
+    return raw ? unpackSnapshot(raw, BUILD) : null;
   }
   // Makes room for this board's raw snapshot.
   function keepRecent(raw) {
@@ -38,6 +39,7 @@ BoardView.part((B) => {
     saveTimer = null;
     if (state.view !== 'fresh' || !state.board) return;
     const raw = packSnapshot(state.board, state.threadCache, {
+      build: BUILD,
       savedAt: state.board.generatedAt || new Date().toISOString(),
       keep: [...state.openItems, ...preloadKeys(state.board.items, [])],
     });

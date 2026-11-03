@@ -5,6 +5,7 @@
 // own load, curl, an API call, an image. A board server answers its view pages with the shell too, without the
 // sidebar, so a browser that sends no Sec-Fetch-Dest gets it there, and a frame's shell hands its URL to the app around
 // it.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -63,9 +64,18 @@ export const colorsVersion = () => fileVersion(COLORS) || '0';
 
 // app.html, read on each call so an edit is live on the next load, with its /_hub/app/ links versioned. sidebar is the
 // sidebar's rows and sidebarData their data as JSON for a script; a server with neither leaves the sidebar empty, and
-// shell.js fetches /_hub/sidebar.json. touchIcon is the Home Screen icon's URL.
+// shell.js fetches /_hub/sidebar.json. touchIcon is the Home Screen icon's URL. The page's build hashes every linked
+// file's version, so an edit to any of them changes it; a board's last visit paints only under the build that saved it
+// (board/public/ui-snapshot.js).
 export function shellHtml({ sidebar = '', sidebarData = 'null', touchIcon = '/_hub/icon-180.png' } = {}) {
-  const html = versionAppAssets(fs.readFileSync(path.join(BOARD_PUBLIC, 'app.html'), 'utf8'), (name) => { const f = appFile(name); return f && fileVersion(f); });
-  const fill = { sidebar, sidebarData, touchIcon, colorsVersion: colorsVersion() };
-  return html.replace(/\{\{(sidebar|sidebarData|touchIcon|colorsVersion)\}\}/g, (_, k) => fill[k]);
+  const versions = [];
+  const html = versionAppAssets(fs.readFileSync(path.join(BOARD_PUBLIC, 'app.html'), 'utf8'), (name) => {
+    const f = appFile(name);
+    const v = f && fileVersion(f);
+    versions.push(`${name} ${v}`);
+    return v;
+  });
+  const build = crypto.createHash('sha1').update(versions.join('\n')).digest('base64url').slice(0, 16);
+  const fill = { sidebar, sidebarData, touchIcon, colorsVersion: colorsVersion(), build };
+  return html.replace(/\{\{(sidebar|sidebarData|touchIcon|colorsVersion|build)\}\}/g, (_, k) => fill[k]);
 }
