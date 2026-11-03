@@ -35,6 +35,7 @@ export const WAKE_STATE = path.join(WEB, 'wake-state.json');
 const DEAF_STATE = path.join(WEB, 'deaf-state.json');
 export const RESUME_STATE = path.join(WEB, 'resume-state.json');
 const LINK_FAULTS = path.join(WEB, 'link-faults.json');
+export const REPO_FETCH = path.join(WEB, 'repo-fetch.json');
 export const HUB_CODE = path.join(WEB, 'hub-code.json');
 const SUBS = path.join(WEB, 'push', 'subs.json');
 const FINISHED = ['merged', 'dropped'];
@@ -338,7 +339,7 @@ export async function handshake(route, manifest = readManifest()) {
 }
 
 // ---------- links ----------
-export const LINKS = ['github', 'events', 'wakes', 'push', 'slack'];
+export const LINKS = ['github', 'repo-fetch', 'events', 'wakes', 'push', 'slack'];
 
 function githubLink(board, state) {
   const last = state?.lastCheck;
@@ -348,6 +349,13 @@ function githubLink(board, state) {
   if (!(last.boards || []).includes(board.route)) return { link: 'github', ok: false, detail: "The last check didn't reach this board." };
   const n = new Set(board.prs.map(prKey)).size;
   return { link: 'github', ok: true, detail: n ? `${plural(n, 'open PR')}, all in the last check.` : 'No open PRs; the last check reached this board.' };
+}
+
+// fetch is the board's REPO_FETCH record (try.mjs fetchTryBranches), absent for a board the hub doesn't fetch.
+function repoFetchLink(fetch) {
+  if (!fetch) return null;
+  if (fetch.ok) return { link: 'repo-fetch', ok: true, detail: "The hub's last git fetch of this board's repo worked." };
+  return { link: 'repo-fetch', ok: false, detail: `${fetch.error.replace(/[.\s]*$/, '.')} ${fetch.hint}.` };
 }
 
 const EVENTS = {
@@ -429,6 +437,7 @@ export const hubLink = ({ running, onDisk } = hubCodeState()) => (running && run
 const MIN = 60_000;
 export const GRACE = {
   github: (every) => (every + 10) * MIN,
+  'repo-fetch': (every) => (every + 10) * MIN,
   events: () => 2 * MIN,
   wakes: (every) => (every + 10) * MIN,
   push: () => 0,
@@ -466,24 +475,26 @@ function settle(route, links, { settings, now, faults }) {
 
 // Whether each hub link reaches the board → [{link, ok, detail, state, since?}] in LINKS order. ok is the link's
 // state now; state is what the board shows, broken only once ok has stayed false past the link's GRACE.
-//   github  every open PR on a card was in the hub's last check, and that check reached the board
-//   events  the board is listening or asleep (listenState, as the link's listen), so its events reach the session
-//   wakes   the polling interval has daily wakes, and the last one reached the board
-//   push    at least one device is subscribed
-//   slack   every open, non-draft PR has a Slack link for each of the board's and its wave's reviewers
-// ctx overrides what is read from disk: github (github-state.json), settings (polling), wakes (wake-state.json),
-// devices (subscription count), listen (listenState), topics (slack-bridge topic items), faults (as settle takes them;
-// given, nothing is written) and now (ms).
+//   github      every open PR on a card was in the hub's last check, and that check reached the board
+//   repo-fetch  the hub's last git fetch of the board's repo worked; only a board the hub fetches has it
+//   events      the board is listening or asleep (listenState, as the link's listen), so its events reach the session
+//   wakes       the polling interval has daily wakes, and the last one reached the board
+//   push        at least one device is subscribed
+//   slack       every open, non-draft PR has a Slack link for each of the board's and its wave's reviewers
+// ctx overrides what is read from disk: github (github-state.json), fetches (repo-fetch.json), settings (polling),
+// wakes (wake-state.json), devices (subscription count), listen (listenState), topics (slack-bridge topic items),
+// faults (as settle takes them; given, nothing is written) and now (ms).
 export function linksOf(board, ctx = {}) {
   const state = ctx.github ?? readJSON(GITHUB_STATE, {});
   const settings = ctx.settings ?? readSettings();
   const links = [
     githubLink(board, state),
+    repoFetchLink(routeRecord(ctx.fetches ?? readJSON(REPO_FETCH, {}), board.route)),
     eventsLink(ctx.listen ?? listenState(board)),
     wakesLink(board, settings, ctx.wakes ?? readJSON(WAKE_STATE, {})),
     pushLink(ctx.devices ?? (readJSON(SUBS, []) || []).length),
     slackLink(board, state, ctx.topics ?? topicItems()),
-  ];
+  ].filter(Boolean);
   return settle(board.route, links, { settings, now: ctx.now ?? Date.now(), faults: ctx.faults });
 }
 

@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { isTryPort } from '../hub/try.mjs';
-import { githubGitArgv } from '../hub/repos.mjs';
+import { githubGitArgv, gitReachFault } from '../hub/repos.mjs';
+import { isBoardSite } from '../hub/boards.mjs';
 import { cloneRoot as runningClone } from '../shared/repos.mjs';
 import { codexStatus } from '../shared/codex.mjs';
 import { hubService, runCommand } from '../shared/service.mjs';
@@ -18,6 +19,7 @@ const INSTALL = {
 };
 // Checked when gh lists no repo of the owner's own.
 const PUBLIC_REPO = 'cli/cli';
+const REPO_TIMEOUT = 15_000;
 
 // → [{group: prereqs|setup|hub, item, state, detail, fix}]. state is ok; fixable, which `doctor --fix` sets up; yours,
 // which only the person can fix with the fix command; optional, yours but not needed for the hub; or note, which the
@@ -27,8 +29,8 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   const items = [];
   let group;
   const add = (item, state, detail, fix = null) => items.push({ group, item, state, detail, fix: state === 'ok' || state === 'note' ? null : fix });
-  const execute = (command, argv, extraEnv = null) => {
-    try { return run(command, argv, { env: extraEnv ? { ...env, ...extraEnv } : env }); } catch (e) { return { status: 1, error: e.message }; }
+  const execute = (command, argv, extraEnv = null, timeout = undefined) => {
+    try { return run(command, argv, { env: extraEnv ? { ...env, ...extraEnv } : env, ...(timeout && { timeout }) }); } catch (e) { return { status: 1, error: e.message }; }
   };
   const installed = (item, command, argv, fix, missing = 'not on this session’s PATH') => {
     const r = execute(command, argv);
@@ -126,6 +128,18 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
     else if (site.serves === 'port') add('/' + site.route, 'note', `${detail}; its session runs this server, not the hub`);
     else if (site.serves === 'files') add('/' + site.route, 'note', `${detail}; its folder is missing`);
     else add('/' + site.route, 'note', `${detail}; the hub restarts it, see kickflip logs ${site.route}`);
+  }
+  // Each board repo the hub fetches (hub/try.mjs fetchTryBranches), through git's own credential as the hub's fetch
+  // uses it: GitHub clone above reaches a repo through gh's token, so it can pass while these fail.
+  if (git) {
+    for (const [route, site] of Object.entries(manifest.sites || {})) {
+      const repo = site?.owner?.repo;
+      if (!isBoardSite(site) || site.hub === true || !repo) continue;
+      const reach = execute('git', ['-C', repo, 'ls-remote', '--exit-code', 'origin', 'HEAD'], { GIT_TERMINAL_PROMPT: '0' }, REPO_TIMEOUT);
+      const { error, hint } = gitReachFault(reach.error, { github: site.github || '', repo });
+      add(`/${route} repo`, reach.status === 0 ? 'ok' : 'yours',
+        reach.status === 0 ? `git reaches ${site.github || 'origin'} from ${repo}` : `git can’t reach ${site.github || 'origin'} from ${repo}: ${error}`, hint);
+    }
   }
   return items;
 }

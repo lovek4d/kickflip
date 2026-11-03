@@ -537,7 +537,16 @@ function healthyDoctor() {
   fs.writeFileSync(plist, 'plist');
   const port = 19460;
   const site = { route: 'shop', state: 'up', port: 19461, owner: { label: 'Shop owner', session: 's-shop' }, title: 'Shop board' };
+  const appRepo = path.join(home, 'dev', 'app');
+  const boardCmd = ['node', path.join(root, 'board', 'server.mjs')];
+  fs.mkdirSync(path.join(home, '.claude', 'kickflip'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'manifest.json'), JSON.stringify({ sites: {
+    app: { dir: path.join(home, 'sites', 'app'), cmd: boardCmd, github: 'owner/app', owner: { session: 's-app', repo: appRepo } },
+    hub: { dir: path.join(home, 'sites', 'hub'), cmd: boardCmd, hub: true, owner: { session: 's-hub', repo: root } },
+    page: { dir: path.join(home, 'sites', 'page'), owner: { repo: appRepo } },
+  } }));
   const responses = new Map([
+    [`git -C ${appRepo} ls-remote --exit-code origin HEAD`, `${'b'.repeat(40)}\tHEAD`],
     ['git --version', 'git version 2.50.0'],
     ['node --version', 'v24.0.0'],
     ['gh --version', 'gh version 2.80.0'],
@@ -566,25 +575,26 @@ function healthyDoctor() {
       return { ok: true, json: async () => ({ sites: [site] }) };
     },
   };
-  return { options, responses, calls, plist, site };
+  return { options, responses, calls, plist, site, appRepo };
 }
 
 const pick = (items, name) => items.find((entry) => entry.item === name);
 
 test('doctor reports every healthy item and the old hub, Tailscale and site details without running login tools', async () => {
-  const { options, calls } = healthyDoctor();
+  const { options, calls, appRepo } = healthyDoctor();
   const items = await doctorReport(options);
   assert.deepEqual(items.map(({ group, item }) => `${group} ${item}`), [
     'prereqs git', 'prereqs node on Claude’s PATH', 'prereqs gh', 'prereqs gh signed in', 'prereqs GitHub clone', 'prereqs Tailscale', 'prereqs Tailscale signed in', 'prereqs Codex',
     'setup kickflip skill link', 'setup kickflip-hooks link', 'setup ~/.claude/statusline.sh', 'setup settings.json statusLine', 'setup hub login item',
-    'hub hub', 'hub tailscale /', 'hub try ports', 'hub /shop',
+    'hub hub', 'hub tailscale /', 'hub try ports', 'hub /shop', 'hub /app repo',
   ]);
   assert.ok(items.every((item) => item.state === 'ok' && item.fix === null));
-  assert.deepEqual(doctorLines(items).slice(-4), [
+  assert.deepEqual(doctorLines(items).slice(-5), [
     'ok       hub: running on 127.0.0.1:19460',
     'ok       tailscale /: http://127.0.0.1:19460',
     'ok       try ports: none',
     'ok       /shop: up  port 19461  owner Shop owner  Shop board',
+    `ok       /app repo: git reaches owner/app from ${appRepo}`,
   ]);
   assert.ok(calls.includes('gh auth status'));
   assert.equal(pick(items, 'GitHub clone').detail, 'git reaches owner/private over https');
@@ -634,6 +644,19 @@ for (const [name, command, fix] of [
     assert.equal(lines[1], `         → ${item.fix}`);
   });
 }
+
+test('doctor marks a board repo yours when git’s own login can’t reach its origin, while GitHub clone still passes', async () => {
+  const { options, responses, appRepo } = healthyDoctor();
+  const check = `git -C ${appRepo} ls-remote --exit-code origin HEAD`;
+  responses.set(check, { status: 128, stdout: '', error: 'remote: Repository not found.' });
+  const { items, exitCode } = await runDoctor({ ...options, write: () => {} });
+  assert.deepEqual(pick(items, '/app repo'), { group: 'hub', item: '/app repo', state: 'yours',
+    detail: `git can’t reach owner/app from ${appRepo}: remote: Repository not found.`, fix: "git's github.com login can't see owner/app; run gh auth setup-git" });
+  assert.equal(pick(items, 'GitHub clone').state, 'ok');
+  assert.equal(exitCode, 1);
+  responses.set(check, { status: 1, stdout: '', error: 'spawnSync git ETIMEDOUT' });
+  assert.equal(pick(await doctorReport(options), '/app repo').fix, `run git -C ${appRepo} fetch origin to see the whole error`);
+});
 
 test('doctor marks GitHub clone yours when git can’t reach GitHub over https, checking a public repo when gh is signed out', async () => {
   const { options, responses } = healthyDoctor();

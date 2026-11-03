@@ -6,8 +6,9 @@ import net from 'node:net';
 import { execFile, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
-import { listBoards, readManifest, readJSON, saveJSON, GITHUB_STATE } from './boards.mjs';
+import { listBoards, readManifest, readJSON, saveJSON, GITHUB_STATE, REPO_FETCH } from './boards.mjs';
 import { boardRepo, githubFromOrigin } from './board-repo.mjs';
+import { gitReachFault } from './repos.mjs';
 import { readiness } from './readiness.mjs';
 import { buildScriptError } from '../board/build-script.mjs';
 import { appendThread, recordedWorktree } from '../board/store.mjs';
@@ -466,14 +467,26 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
   return { start, tick, stop, lookup, initialize };
 }
 
+// Fetches each non-hub board's branch and writes REPO_FETCH {<route>: {at, ok, error?, hint?}} for the boards it
+// fetched, which boards.mjs linksOf reads as each board's repo-fetch link.
 export async function fetchTryBranches({ manifest = readManifest(), log = console.log } = {}) {
+  const fetched = {};
   for (const board of listBoards(manifest)) {
     const source = boardRepo(board.route, manifest);
     if (source.hub || !source.repo) continue;
     const branch = source.branch || 'main';
-    try { await git(source.repo, 'fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`); }
-    catch (e) { log(`fetch /${board.route}: ${e.message}`); }
+    const at = new Date().toISOString();
+    try {
+      await git(source.repo, 'fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`);
+      fetched[board.route] = { at, ok: true };
+    } catch (e) {
+      log(`fetch /${board.route}: ${e.message}`);
+      let github = board.github;
+      if (!github) { try { github = githubFromOrigin(await git(source.repo, 'remote', 'get-url', 'origin')); } catch {} }
+      fetched[board.route] = { at, ok: false, ...gitReachFault(e.killed ? 'git fetch timed out' : e.stderr, { github: github || '', repo: source.repo }) };
+    }
   }
+  saveJSON(REPO_FETCH, fetched);
 }
 const manager = createTryManager({ waiting: () => readiness.waiting('tailscale') });
 export const startBuild = (...args) => manager.start(...args);

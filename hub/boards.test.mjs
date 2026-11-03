@@ -85,6 +85,8 @@ test('linksOf names each hub link that reaches a board and each that does not', 
   assert.deepEqual(broken({ settings: { wakes: [] } }), ['wakes']);
   assert.deepEqual(broken({ wakes: { last: { due: ['08:00'], failed: ['orch'] } } }), ['wakes']);
   assert.deepEqual(broken({ devices: 0 }), ['push']);
+  assert.deepEqual(linksOf(orch, { ...ok, fetches: { orch: { at: 'T', ok: true } } }).map((l) => l.link), ['github', 'repo-fetch', 'events', 'wakes', 'push', 'slack']);
+  assert.deepEqual(broken({ fetches: { orch: { at: 'T', ok: false, error: 'fatal: unable to access origin', hint: 'run git fetch' } } }), ['repo-fetch']);
   assert.equal(hubLink({ running: 'h1', onDisk: 'h1' }).ok, true);
   assert.equal(hubLink({ running: undefined, onDisk: 'h1' }).ok, false);
   assert.deepEqual(hubLink({ running: 'h0', onDisk: 'h1' }), { link: 'hub', ok: false,
@@ -102,11 +104,12 @@ test('a broken link reads settling until it has stayed broken past its grace per
   const settings = { windows: [{ from: '08:00', every_minutes: 15 }, { from: '22:00', every_minutes: 60 }], wakes: ['08:00'] };
   const now = new Date(2026, 9, 29, 12, 0).getTime();
   const ago = (min) => new Date(now - min * 60_000).toISOString();
-  const faulty = { github: {}, settings, wakes: {}, devices: 0, listen: 'deaf', topics: {}, now };
+  const fetches = { orch: { at: ago(1), ok: false, error: 'remote: Repository not found.', hint: 'run gh auth setup-git' } };
+  const faulty = { github: {}, fetches, settings, wakes: {}, devices: 0, listen: 'deaf', topics: {}, now };
   const states = (faults, at = now) => Object.fromEntries(linksOf(orch, { ...faulty, faults, now: at }).filter((l) => !l.ok).map((l) => [l.link, l.state]));
-  assert.deepEqual(states({}), { github: 'settling', events: 'settling', push: 'broken' });
-  assert.deepEqual(states({ github: ago(24), events: ago(1.9) }), { github: 'settling', events: 'settling', push: 'broken' });
-  assert.deepEqual(states({ github: ago(26), events: ago(2.1) }), { github: 'broken', events: 'broken', push: 'broken' });
+  assert.deepEqual(states({}), { github: 'settling', 'repo-fetch': 'settling', events: 'settling', push: 'broken' });
+  assert.deepEqual(states({ github: ago(24), 'repo-fetch': ago(24), events: ago(1.9) }), { github: 'settling', 'repo-fetch': 'settling', events: 'settling', push: 'broken' });
+  assert.deepEqual(states({ github: ago(26), 'repo-fetch': ago(26), events: ago(2.1) }), { github: 'broken', 'repo-fetch': 'broken', events: 'broken', push: 'broken' });
   assert.equal(linksOf(orch, { ...faulty, faults: { github: ago(26) } })[0].since, ago(26));
   const eight = new Date(2026, 9, 29, 8, 5).getTime();
   assert.equal(states({ github: new Date(eight - 35 * 60_000).toISOString() }, eight).github, 'settling');
@@ -164,7 +167,17 @@ before(async () => {
   write(claude('kickflip', 'settings.json'), { polling: { windows: [{ from: '00:00', every_minutes: 120 }], hold_overnight: false, wakes: ['00:00'] }, notifications: { on: true, weekends_off: false } });
   writePR(home, 11, prView());
   writePR(home, 722, prView());
-  write(path.join(home, 'bin', 'git'), '#!/bin/sh\nexit 1\n');
+  write(path.join(home, 'bin', 'git'), `#!/bin/sh
+for a in "$@"; do
+  if [ "$a" = fetch ]; then
+    [ -e "$HOME/git-fetch-fails" ] || exit 0
+    echo 'remote: Repository not found.' >&2
+    echo "fatal: repository 'https://github.com/o/r.git/' not found" >&2
+    exit 128
+  fi
+done
+exit 1
+`);
   write(path.join(home, 'bin', 'codex'), '#!/bin/sh\nexit 1\n');
   for (const bin of ['gh', 'git', 'codex']) fs.chmodSync(path.join(home, 'bin', bin), 0o755);
   for (const route of ['orch', 'shop']) write(site(route, 'data', 'events.jsonl'), JSON.stringify({ id: `e-${route}`, ts: ago(30), kind: 'ask', data: {} }) + '\n');
@@ -437,6 +450,50 @@ test('while the hub runs older code than its files, the Hub row and Health card 
     assert.ok(hub.groups.flatMap((g) => g.sites).every((x) => x.lines.every((l) => l.link !== 'hub')));
   } finally { write(HUB_CODE, running); }
   assert.match((await page()).hub.detail, /runs the code in its files/);
+});
+
+test("a board whose repo fetch fails gets a Repo fetch link that settles, turns red on Health and the watcher after its grace, and clears on the next fetch", async () => {
+  const manifestFile = claude('kickflip', 'manifest.json');
+  const manifest = read(manifestFile);
+  const faultsFile = claude('kickflip', 'link-faults.json');
+  const failing = path.join(home, 'git-fetch-fails');
+  const cursor = site('shop', 'data', '.watch-cursor-s-shop.json');
+  const watcherFile = site('shop', 'data', 'watcher.json');
+  const kept = [cursor, watcherFile].map((f) => [f, fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null]);
+  const repo = path.join(home, 'shop-repo');
+  fs.mkdirSync(repo, { recursive: true });
+  const detail = "remote: Repository not found. git's github.com login can't see o/r; run gh auth setup-git.";
+  const repoFetch = async () => { try { return (await api('shop')).links.find((l) => l.link === 'repo-fetch'); } catch { return undefined; } };
+  const hubPage = async () => (await fetch(`${base}/_hub/api/hub`)).json();
+  const shopLines = async () => (await hubPage()).groups.flatMap((g) => g.sites).find((s) => s.route === 'shop').lines;
+  write(failing, '');
+  await writeManifestFile({ ...manifest, sites: { ...manifest.sites, shop: { ...manifest.sites.shop, github: 'o/r', owner: { ...manifest.sites.shop.owner, repo } } } });
+  try {
+    await until(async () => { await poll(); return (await repoFetch())?.ok === false; }, 'the failed fetch reaches the board');
+    const settling = await repoFetch();
+    assert.deepEqual([settling.state, settling.detail], ['settling', detail]);
+    await until(async () => {
+      write(faultsFile, { ...read(faultsFile), shop: { ...read(faultsFile).shop, 'repo-fetch': ago(200) } });
+      return (await repoFetch())?.state === 'broken';
+    }, 'the fetch fault turns broken past its grace');
+    await until(async () => (await shopLines()).some((l) => l.link === 'repo-fetch' && l.detail === detail), 'Health lists the broken fetch');
+    const health = (await (await fetch(`${base}/_hub/sidebar.json`)).json()).hub;
+    assert.notEqual(health.word, 'Healthy');
+    assert.ok(health.broken.includes('shop'));
+    write(cursor, { 'data/events.jsonl': 0 });
+    const watched = await cli(path.join(SKILL, 'bin', 'wait-events.mjs'), ['shop', 's-shop']);
+    assert.ok(watched.stdout.split('\n').includes(`link repo-fetch ${detail}`), watched.stdout);
+    fs.rmSync(failing);
+    await until(async () => { await poll(); return (await repoFetch())?.ok === true; }, 'the next good fetch clears the link');
+    assert.equal((await repoFetch()).state, 'ok');
+    assert.equal(read(faultsFile).shop?.['repo-fetch'], undefined);
+    await until(async () => (await shopLines()).every((l) => l.link !== 'repo-fetch'), 'Health drops the fetch line');
+  } finally {
+    fs.rmSync(failing, { force: true });
+    await writeManifestFile(manifest);
+    for (const [f, text] of kept) { if (text === null) fs.rmSync(f, { force: true }); else write(f, text); }
+    await until(() => fetch(`${base}/shop/_claude/health`).then((r) => r.ok, () => false), 'shop server is healthy again');
+  }
 });
 
 test("the daily wake reaches both boards", async () => {

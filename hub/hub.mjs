@@ -117,10 +117,12 @@
 // It runs caffeinate while Keep awake is on, and starts it again as it starts while time is left (awake.mjs).
 // On paused → normal it sends every board usage-resumed {window}, keeping usage-gate-state.json across restarts.
 // Each served card and main has its own Tailscale HTTPS port, through a loopback relay (try.mjs).
-// Every 15 seconds try.mjs refreshes card heads, auto-builds cards and rebuilds main; polls fetch non-hub branches.
+// Every 15 seconds try.mjs refreshes card heads, auto-builds cards and rebuilds main; polls fetch non-hub branches and
+// record each fetch in repo-fetch.json for the board's repo-fetch link.
 // Try worktrees live in ~/.claude/kickflip/try/<route>-main; board data/try.json and data/try/*.log record runs.
 // State lives in ~/.claude/kickflip: manifest.json, logs/<route>.log, run/<route>.pid, github-state.json, wake-state.json,
-// deaf-state.json, link-faults.json, hub-code.json, resume-state.json, prompts.json, linear.json, integrations.json.
+// deaf-state.json, link-faults.json, repo-fetch.json, hub-code.json, resume-state.json, prompts.json, linear.json,
+// integrations.json.
 import http from 'node:http';
 import net from 'node:net';
 import { spawn, execFileSync } from 'node:child_process';

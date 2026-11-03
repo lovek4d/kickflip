@@ -42,7 +42,7 @@
     return `<span class="github${checks.late && !checks.idle ? ' late' : ''}${checks.idle ? ' idle' : ''}" title="${title}">${mark} ${shortSince(checks.at)}${note}</span>`;
   };
 
-  const LINK_NAMES = { github: 'GitHub polling', events: 'Events', wakes: 'Daily wakes', push: 'Push notifications', slack: 'Reviewer links' };
+  const LINK_NAMES = { github: 'GitHub polling', 'repo-fetch': 'Repo fetch', events: 'Events', wakes: 'Daily wakes', push: 'Push notifications', slack: 'Reviewer links' };
   // The Hub links sheet's list, one row per link with a green dot, a muted one while settling, or a red one
   // (docs/adr/0040-one-board-registry-for-every-hub-feature.md).
   const LINK_DOTS = { ok: ['pass', 'Working'], settling: ['', 'Settling'], broken: ['fail', 'Not working'] };

@@ -106,6 +106,19 @@ const publicGit = (run, argv) => run('git', ['-c', 'credential.helper=', ...argv
 export const githubGitArgv = (argv) => ['-c', 'credential.helper=', '-c', 'credential.https://github.com.helper=!gh auth git-credential', ...argv];
 const githubGit = (run, argv) => run('git', githubGitArgv(argv), { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
 
+// Why git couldn't reach a board repo's origin with git's own credential, from its stderr: the remote's own line when
+// it sent one ("remote: Repository not found."), else git's last line, and the fix. github is the repo's owner/name,
+// or '' when unknown. → {error, hint}
+const NO_ACCESS = /not found|authentication failed|could not read username|invalid username or password|permission denied|terminal prompts disabled|\b403\b/i;
+export function gitReachFault(stderr, { github = '', repo }) {
+  const lines = String(stderr || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  const error = lines.find((l) => /^remote:/i.test(l)) || lines.at(-1) || 'git failed without a message';
+  const hint = github && NO_ACCESS.test(lines.join('\n'))
+    ? `git's github.com login can't see ${github}; run gh auth setup-git`
+    : `run git -C ${repo} fetch origin to see the whole error`;
+  return { error, hint };
+}
+
 async function fetchBranch(run, dest, github, branch) {
   const result = await githubGit(run, ['-C', dest, 'fetch', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`]);
   if (result.status !== 0) refuse(`Could not fetch branch "${branch}" from ${github}: ${failure(result, 'git fetch failed')}`, 502);
