@@ -1,10 +1,12 @@
 ---
-status: superseded in part by ADR-0099
+status: superseded in part by ADR-0099 and ADR-0124
 ---
 
 # A device app card carries an Install link
 
 Superseded in part by [0099](0099-a-boards-build-script-serves-or-builds-each-card-and-main.md): the hub owns build triggers and try state; the one badge uses running, failed and stale words without an older-install confirmation, and a try run leaves the card in its lane.
+
+Superseded in part by [0124](0124-only-the-owner-or-auto-build-starts-a-card-run.md): a session no longer builds an install after each push; only the owner's Build and Auto-build start a card run.
 
 A card whose PR builds a device app (iOS, Android) can carry an install: the item's `install` `{url, label?, built_at, sha?}`, set only with `board.mjs item set <key> --install <url> [--install-sha <sha>] [--install-label <text>]` and removed with `--clear-install`.
 

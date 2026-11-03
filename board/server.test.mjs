@@ -649,7 +649,9 @@ test('the board snapshot reads try.json and main.json and ignores the old instal
     const board = await (await fetch(`${base}/api/board`)).json();
     assert.equal(board.main.url, 'https://example.com/main.apk');
     assert.equal(board.main.sha, 'abcdef1');
-    assert.deepEqual(board.items.find((i) => i.key === 't/A1').try, { kind: 'app', state: 'running', stale: false, url: null, port: null, sha: null, changes: true, script: true });
+    assert.deepEqual(board.items.find((i) => i.key === 't/A1').try, { kind: 'app', state: 'running', stale: false, url: null, port: null, sha: null, changes: true, script: true, autoBuild: false });
+    fs.writeFileSync(config, JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't', auto_build: true }));
+    assert.equal((await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/A1').try.autoBuild, true);
     fs.writeFileSync(path.join(site, 'data/try.json'), JSON.stringify({ kind: 'web', main_port: 8500, main: { sha: 'abcdef123', script: true, state: 'ready', https: 8500 }, cards: { 't/A1': { sha: 'abc1234', state: 'ready', https: 8501 } } }));
     const web = await (await fetch(`${base}/api/board`)).json();
     assert.equal(web.main.url, null);

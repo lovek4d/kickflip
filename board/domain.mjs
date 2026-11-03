@@ -457,6 +457,7 @@ function waveRowsOf(snapshot, waves, lineups, items, questions, events) {
 //   working: {<event id>: ts}, checked: data/checked.json, listen, watcher: data/watcher.json, askLinks: {<ask event id>: <wave>/<id>},
 //   askProgress: {<ask event id>: {state: progress|done, at, next, moved}}, owner: owner.json,
 //   autoMerge: board.json's auto_merge (true leaves merging to the GitHub tick, so no card gets the owner's Merge),
+//   autoBuild: board.json's auto_build (true leaves card runs to the hub, so no card gets the owner's Serve / Build),
 //   threads also holds each ask's lines under ask:<event id>;
 //   topicItems: merged topic items, prompts: this board's pending prompts (../hub/prompts.mjs shown), now: ms}
 // moved maps ask:<event id> to the work item whose thread holds that ask.
@@ -515,6 +516,7 @@ export function buildBoard(snapshot) {
   // links to it open that card.
   const moved = new Map();
   const tries = snapshot.try || {};
+  const autoBuild = snapshot.autoBuild === true;
   const kind = ['web', 'app'].includes(tries.kind) ? tries.kind : snapshot.waves.some(({ wave }) => wave.items.some((it) => it.install?.url)) ? 'app' : 'web';
   for (const it of items) {
     if (it.kind !== 'work' || it.lane === 'done') continue;
@@ -524,7 +526,7 @@ export function buildBoard(snapshot) {
     const state = it.builder?.kind === BUILDER_KIND.install ? 'running' : run.state || (kind === 'app' && it.install ? 'ready' : null);
     it.try = { kind, state, stale: Boolean(sha && head && !String(head).toLowerCase().startsWith(String(sha).toLowerCase())),
       url: kind === 'web' ? null : it.install?.url || null, port: kind === 'web' && state === 'ready' ? run.https || null : null,
-      sha: sha || null, changes: run.ahead > 0, script: run.script === true };
+      sha: sha || null, changes: run.ahead > 0, script: run.script === true, autoBuild };
   }
   const run = tries.main;
   const main = run?.script && run.sha ? { slug: run.slug, branch: run.branch || 'main', sha: run.sha.slice(0, 7), at: run.at,

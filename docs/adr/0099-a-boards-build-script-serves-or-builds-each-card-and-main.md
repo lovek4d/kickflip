@@ -1,9 +1,9 @@
 ---
-status: superseded in part by ADR-0102, ADR-0119 and ADR-0122
+status: superseded in part by ADR-0102, ADR-0119, ADR-0122 and ADR-0124
 ---
 # A board's build script serves or builds each card and main
 
-ADR 0102 supersedes the serving path and `KICKFLIP_BASE`. ADR 0119 supersedes what shutdown and startup do with a build still going. ADR 0122 puts a Todo card's Build after Serve or Build, last in the workflow row.
+ADR 0102 supersedes the serving path and `KICKFLIP_BASE`. ADR 0119 supersedes what shutdown and startup do with a build still going. ADR 0122 puts a Todo card's Build after Serve or Build, last in the workflow row. ADR 0124 hides Serve or Build while Auto-build is on or the branch has no changes, and has `board.mjs build` quote the owner's ask.
 
 The owner settled the build-script, script-home, auto-build, serve-limits and try-url questions and confirmed the main bar and card badge in try-builds-confirm A. Every work card and the board's main can have a version to try. One reviewed file in the repo tells the hub how to make it; the owner uses Serve or Build on a card and Auto-build cards in Board Settings.
 

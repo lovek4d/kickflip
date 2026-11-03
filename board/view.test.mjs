@@ -1966,10 +1966,10 @@ test('a card try button confirms, posts through the site URL and reloads; disabl
   assert.deepEqual(b.confirms, ['Serve INT-41? The hub runs its build script.']);
   assert.deepEqual(posts, [['https://mac.ts.net/board-a/api/try', { key: 'w/R1' }]]);
   assert.match(b.root.textContent, /Already running/);
-  await b.change({ board: boardOf([{ ...card, try: { ...card.try, changes: false } }]) });
+  await b.change({ board: boardOf([{ ...card, try: { ...card.try, state: 'ready' } }]) });
   b.page.fire(b.root, 'click', { target: b.root.querySelector('[data-try]') });
   await b.settle();
-  assert.match(b.root.textContent, /No changes to serve: this card’s branch matches main./);
+  assert.match(b.root.textContent, /Nothing new to serve: Visit already shows this card’s latest push./);
   assert.equal(posts.length, 1);
 });
 

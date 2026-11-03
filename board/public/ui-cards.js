@@ -45,14 +45,12 @@
   }
   const tryWords = (kind) => kind === 'app' ? {
     go: 'Build', going: 'Building…', done: 'Install', failed: 'Build failed',
-    none: 'No changes to build: this card’s branch matches main.',
     current: 'Nothing new to build: Install already has this card’s latest push.',
     busy: 'Building now. The badge turns back into Install when the new build is ready.',
     autoSub: 'On: the hub builds each card after each push. Off: a card waits for your Build. Main builds again after every merge either way.',
     saved: (on) => on ? 'Saved. Each push builds its card.' : 'Saved. Cards wait for your Build.',
   } : {
     go: 'Serve', going: 'Serving…', done: 'Visit', failed: 'Serve failed',
-    none: 'No changes to serve: this card’s branch matches main.',
     current: 'Nothing new to serve: Visit already shows this card’s latest push.',
     busy: 'Serving now. The badge turns back into Visit when the new server is up.',
     autoSub: 'On: the hub serves each card after each push. Off: a card waits for your Serve. Main serves again after every merge either way.',
@@ -89,11 +87,13 @@
     const tag = s.href ? 'a' : 'span';
     return `<${tag} class="install tone-${s.tone}"${attrs}>${s.html}</${tag}>`;
   }
+  // A card's Serve / Build, only while the board's Auto-build is off and its branch has changes
+  // (docs/adr/0124-only-the-owner-or-auto-build-starts-a-card-run.md).
   function tryButton(it) {
     const t = tryOf(it);
-    if (it.kind !== 'work' || !t?.script) return '';
+    if (it.kind !== 'work' || !t?.script || t.autoBuild || !t.changes) return '';
     const words = tryWords(t.kind);
-    const reason = !t.changes ? words.none : t.state === 'running' ? words.busy : t.state === 'ready' && !t.stale ? words.current : '';
+    const reason = t.state === 'running' ? words.busy : t.state === 'ready' && !t.stale ? words.current : '';
     return `<button type="button" data-try="${esc(it.key)}"${reason ? ` aria-disabled="true" title="${esc(reason)}" data-tip="${esc(reason)}"` : ''}>${t.state === 'failed' && !reason ? 'Retry' : words.go}</button>`;
   }
   const BRANCH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7"/><path d="M18 10.5c0 4-6 3-11 6"/></svg>';

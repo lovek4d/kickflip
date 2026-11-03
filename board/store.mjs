@@ -1036,6 +1036,19 @@ async function confirmGate(site, key, confirmed) {
 }
 const clip = (s) => (s.length > 120 ? `${s.slice(0, 119)}…` : s);
 
+// docs/adr/0124-only-the-owner-or-auto-build-starts-a-card-run.md
+// The owner's words on this board that can ask for a card run: an ask, an edit to one, a card message, an answer's note.
+const OWNER_WORDS = { ask: 'text', 'ask-edited': 'text', 'item-message': 'text', 'owner-answer': 'note' };
+// → the thread line a session's card run writes once the hub starts it; refuses words the owner didn't write here.
+export async function askedGate(site, key, asked) {
+  needSite(site);
+  if (asked === undefined) fail(`only the owner's Serve / Build and the hub's Auto-build start a card run; pass --asked "<the owner's words>" quoting where the owner asked for ${key}'s run`);
+  const words = text(asked, '--asked').replace(/\s+/g, ' ');
+  const said = (await readLines(path.join(site, 'data', 'events.jsonl'))).map((e) => String(e.data?.[OWNER_WORDS[e.kind]] ?? '').replace(/\s+/g, ' ').toLowerCase());
+  if (!said.some((t) => t.includes(words.toLowerCase()))) fail('--asked must quote the owner\'s words in an ask, card message or answer note on this board');
+  return `Running at the owner's ask: "${words}"`;
+}
+
 async function checkAsk(site, eventId, name = '--from-ask') {
   domId(eventId, name);
   const known = (await readLines(path.join(needSite(site), 'data', 'events.jsonl'))).some((e) => e.id === eventId && e.kind === 'ask');

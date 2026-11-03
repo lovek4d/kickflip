@@ -7,7 +7,7 @@
 //   lineup create|add|remove|set|finish,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
 // <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_pull, github_login}. auto_build asks the hub to
-// run each card's .kickflip/build after each push; main always builds after a merge.
+// run each card's .kickflip/build after each push, and hides the cards' Serve / Build; main always builds after a merge.
 // auto_merge (false when absent) lets the session merge
 // an approved, green, clean PR itself; off, the card shows the owner's Merge (store.mjs settingsOf). rules are the owner's standing instructions to this
 // board's session [{id, text, by, at}] (board.mjs rules, hub/rules.mjs). reviewers are the board's own [{name, slack_user, dm,
@@ -329,7 +329,7 @@ async function itemSnapshot() {
   await Promise.all(waves.flatMap(({ slug, wave }) => wave.items.map(async (it) => {
     threadLines[`${slug}/${it.id}`] = await readLines(threadFile(`${slug}/${it.id}`));
   })));
-  return { github: boardAt(here)?.github, reviewers: cfg.reviewers || [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, tickets: settingsOf(cfg).tickets, waves, threads: threadLines };
+  return { github: boardAt(here)?.github, reviewers: cfg.reviewers || [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, waves, threads: threadLines };
 }
 
 // Reads every source buildBoard needs: wave files and their builder records,

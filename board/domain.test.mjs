@@ -914,7 +914,8 @@ test('try state maps web and app badges using current worktree heads, keeps lane
     const result = buildBoard({ ...snapshot, try: { kind, cards: { 'w/INT-41': current } } });
     const item = result.items[0];
     assert.equal(item.lane, 'review');
-    assert.deepEqual(item.try, { kind, state: 'ready', stale: false, sha: 'abcdef1', changes: true, script: true, url: kind === 'web' ? null : 'https://m/app.apk', port: kind === 'web' ? 8501 : null });
+    assert.deepEqual(item.try, { kind, state: 'ready', stale: false, sha: 'abcdef1', changes: true, script: true, autoBuild: false, url: kind === 'web' ? null : 'https://m/app.apk', port: kind === 'web' ? 8501 : null });
+    assert.equal(buildBoard({ ...snapshot, autoBuild: true, try: { kind, cards: { 'w/INT-41': current } } }).items[0].try.autoBuild, true);
     assert.equal(item.install.url, 'https://m/app.apk');
     const stale = buildBoard({ ...snapshot, try: { kind, cards: { 'w/INT-41': { ...current, head: 'fedcba1', state: 'running' } } } }).items[0];
     assert.equal(stale.try.stale, true);

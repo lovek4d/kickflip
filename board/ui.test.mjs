@@ -814,8 +814,10 @@ test("an open card that can Build shows Build rightmost in its action row, which
   const todo = { ...workCard, pr: null, reviewers: [], key: 'w/A1', lane: 'todo', action: null, actionButton: 'grill', waveTitle: 'W', deps: [], manualSteps: [], holdable: true, hasNotes: true,
     try: { kind: 'web', script: true, changes: false }, buildable: true, starting: false };
   const row = (it) => [...B.detail(it).match(/<div class="action-row workflow">(.*?)<\/div>/)[1].matchAll(/<button[^>]*>(.*?)<\/button>/g)].map(([, label]) => label);
-  assert.deepEqual(row(todo), ['Hold', 'Grill', 'Serve', 'Build']);
-  assert.deepEqual(row({ ...todo, buildable: false }), ['Hold', 'Grill', 'Serve']);
+  assert.deepEqual(row(todo), ['Hold', 'Grill', 'Build']);
+  const changed = { ...todo, try: { ...todo.try, changes: true } };
+  assert.deepEqual(row(changed), ['Hold', 'Grill', 'Serve', 'Build']);
+  assert.deepEqual(row({ ...changed, buildable: false }), ['Hold', 'Grill', 'Serve']);
 });
 
 test('a thread message says Working on it while Claude works on it, and only a pending message can be deleted', () => {
@@ -986,11 +988,13 @@ test('try badges share ready, stale, running, failed and absent states for both 
   }
 });
 
-test('try buttons explain no changes, running and current runs, and offer Retry after failure only on scripted work cards', () => {
+test('try buttons show only while Auto-build is off on a branch with changes, explain running and current runs, and offer Retry after failure only on scripted work cards', () => {
   for (const kind of ['web', 'app']) {
-    const card = { ...workCard, kind: 'work', try: { kind, script: true, changes: true } };
+    const card = { ...workCard, kind: 'work', try: { kind, script: true, changes: true, autoBuild: false } };
     assert.equal(text(ui.tryButton(card)), kind === 'web' ? 'Serve' : 'Build');
-    for (const [change, reason] of [[{ changes: false }, 'No changes to'], [{ state: 'running' }, kind === 'web' ? 'Serving now.' : 'Building now.'], [{ state: 'ready' }, 'Nothing new to']]) {
+    assert.equal(ui.tryButton({ ...card, try: { ...card.try, changes: false } }), '');
+    for (const state of [undefined, 'failed', 'ready']) assert.equal(ui.tryButton({ ...card, try: { ...card.try, state, stale: true, autoBuild: true } }), '');
+    for (const [change, reason] of [[{ state: 'running' }, kind === 'web' ? 'Serving now.' : 'Building now.'], [{ state: 'ready' }, 'Nothing new to']]) {
       const html = ui.tryButton({ ...card, try: { ...card.try, ...change } });
       assert.match(html, /aria-disabled="true"/);
       assert.ok(html.includes(reason));

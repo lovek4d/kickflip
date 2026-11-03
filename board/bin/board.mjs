@@ -227,9 +227,13 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          shows the owner a Merge button, and the session merges on its
                                                          card-merge event. Board Settings' toggle writes it too
   build <wave>/<id> --site <route>                       asks the hub to run this card's .kickflip/build; prints
-                                                         started and exits. install is an alias. The hub records
-                                                         data/try/<id>.log and writes failures to the thread.
-                                                         Web Visit opens https://<host>:<try port>/ at its root
+         --asked "<owner's words>"                       started and exits. install is an alias. Only the owner's
+                                                         Serve / Build and Auto-build start a card run, so --asked
+                                                         must quote the owner's ask, card message or answer note on
+                                                         this board that asked for it; the words go in a thread
+                                                         line on the card. The hub records data/try/<id>.log and
+                                                         writes failures to the thread. Web Visit opens
+                                                         https://<host>:<try port>/ at its root
   main set --install <url> [--install-sha <sha>]          publishes main's app install to data/main.json
   settings set github-login <login>                      the GitHub account Claude posts as on this board. Its
                                                          comments carrying <!-- claude-bridge --> are Claude’s own
@@ -351,7 +355,7 @@ function parse(argv) {
  * the path itself (a reply once read "/private/tmp/…/exp-reply.html"), so it is refused: one
  * token that names an existing file, or that looks like a path to a document.
  */
-const TEXT_FLAGS = ['html', 'text', 'note', 'notes', 'summary', 'title', 'body', 'next', 'progress', 'install-label', 'confirmed'];
+const TEXT_FLAGS = ['html', 'text', 'note', 'notes', 'summary', 'title', 'body', 'next', 'progress', 'install-label', 'confirmed', 'asked'];
 const DOC_PATH = /^(?:\/|~\/|\.{1,2}\/)\S*\.(?:html?|md|json|txt)$/;
 
 function looksLikePath(value) {
@@ -448,9 +452,10 @@ const COMMANDS = {
   'rules edit': [['id'], ['text', 'hub'], (site, [id], f) => store.editRuleIn(site, id, f)],
   'rules remove': [['id'], ['hub'], (site, [id], f) => store.removeRuleFrom(site, id, f)],
   settings: [[], [], async (site) => ({ lines: [JSON.stringify(await store.readBoardSettings(site))] })],
-  build: [['wave/id'], [], async (site, [key]) => {
+  build: [['wave/id'], ['asked'], async (site, [key], f) => {
     if (!site) throw new store.BoardError('build needs --site <route>');
     store.parseKey(key);
+    const line = await store.askedGate(site, key, f.asked);
     try {
       const r = await fetch(`http://127.0.0.1:${process.env.KICKFLIP_HUB_PORT || 4500}/_hub/build`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -458,7 +463,7 @@ const COMMANDS = {
       });
       const out = await r.json();
       if (!r.ok) throw new store.BoardError(out.error || 'The hub refused the build.');
-      return { lines: ['started'] };
+      return { lines: ['started', ...(await store.appendThread(site, key, { text: line })).lines] };
     } catch (e) {
       if (e instanceof store.BoardError) throw e;
       throw new store.BoardError(`Could not start the build: ${e.message}`);

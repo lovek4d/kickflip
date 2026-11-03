@@ -61,7 +61,8 @@ test('the fixed build script has no owner path setting or command override', () 
   assert.match(board('build', 'w/A1').err, /needs --site/);
 });
 
-test('install posts only the route and key to the hub, prints started, and reports refusals plainly', async () => {
+test('install posts only the route and key to the hub once it quotes the owner, prints started, and reports refusals plainly', async () => {
+  fs.appendFileSync(site('orch', 'data', 'events.jsonl'), JSON.stringify({ id: 'e2', ts: '2026-10-23T11:00:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'Please build A1 so I can\n try it' } }) + '\n');
   const seen = [];
   let refuse = false;
   const hub = http.createServer(async (req, res) => {
@@ -74,10 +75,16 @@ test('install posts only the route and key to the hub, prints started, and repor
   await new Promise((resolve, reject) => hub.once('error', reject).listen(0, '127.0.0.1', resolve));
   try {
     const env = { KICKFLIP_HUB_PORT: String(hub.address().port) };
-    const run = () => runAsync('board.mjs', ['--site', 'orch', 'install', 'w/A1'], env);
+    const run = () => runAsync('board.mjs', ['--site', 'orch', 'install', 'w/A1', '--asked', 'build a1 so I can try'], env);
+    for (const asked of [[], ['--asked', 'just build it']]) {
+      const refused = await runAsync('board.mjs', ['--site', 'orch', 'build', 'w/A1', ...asked], env);
+      assert.equal(refused.code, 1);
+      assert.match(refused.err, asked.length ? /--asked must quote the owner's words/ : /pass --asked/);
+    }
+    assert.deepEqual(seen, []);
     assert.deepEqual(await run(), { code: 0, out: 'started\n', err: '' });
     assert.deepEqual(seen, [['POST', '/_hub/build', { route: 'orch', key: 'w/A1' }]]);
-    assert.deepEqual(await runAsync('board.mjs', ['--site', 'orch', 'build', 'w/A1'], env), { code: 0, out: 'started\n', err: '' });
+    assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map(({ who, text }) => [who, text]), [['claude', 'Running at the owner\'s ask: "build a1 so I can try"']]);
     refuse = true;
     assert.deepEqual(await run(), { code: 1, out: '', err: 'An install build is already running for this card.\n' });
   } finally { await new Promise((resolve) => { hub.closeAllConnections(); hub.close(resolve); }); }
