@@ -3155,7 +3155,7 @@ test("every lane's header ends in a grey sort icon whose menu picks Recently cre
   assert.equal(lane('todo').open, opened);
   assert.equal(icon('todo').getAttribute('aria-expanded'), 'true');
   assert.deepEqual(menu().querySelectorAll('button').map((el) => [el.textContent, el.getAttribute('aria-checked'), Boolean(el.querySelector('.tick'))]), [
-    ['Recently touched', 'false', false], ['Recently created', 'true', true],
+    ['Recently created', 'true', true], ['Recently touched', 'false', false],
   ]);
   assert.equal(menu().querySelector('.lane-sort-note').textContent, 'Kept for this lane on this device.');
   assert.equal(b.doc.activeElement, menu().querySelector('[aria-checked="true"]'));

@@ -35,7 +35,7 @@ BoardView.part((B) => {
   }
 
   // Each lane's order, kept per lane on this device: items arrive touched first, and created uses domain.mjs rank.created.
-  const SORTS = { touched: 'Recently touched', created: 'Recently created' };
+  const SORTS = { created: 'Recently created', touched: 'Recently touched' };
   const SORT_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16"/><path d="m3 8 4-4 4 4"/><path d="M17 20V4"/><path d="m13 16 4 4 4-4"/></svg>';
   const TICK = '<svg class="tick" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
   let sortMenu = null;
