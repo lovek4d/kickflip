@@ -130,6 +130,16 @@
   }
   // A builder the Build tap started reads "Waiting for orchestrator" until the session's builder posts its first line.
   const builderLine = (b) => [b.progress || (b.waiting ? 'Waiting for orchestrator' : 'Starting'), b.at && ago(b.at)].filter(Boolean).join(' · ');
+  // Five bars on their own line under the status line while a builder runs: done phases filled, the current one marked.
+  // The phases are store.mjs PHASES (docs/adr/0137-a-builder-status-line-is-a-phase-and-a-short-detail.md,
+  // docs/adr/0148-a-building-card-shows-its-phase-as-five-bars.md).
+  const BUILD_PHASES = ['reading', 'building', 'testing', 'checking', 'landing'];
+  function phaseBars(phase) {
+    const at = BUILD_PHASES.indexOf(phase);
+    if (at < 0) return '';
+    const name = `${phase[0].toUpperCase()}${phase.slice(1)}`;
+    return `<div class="line3 phase-bars"><span class="phase-bars-strip" role="img" aria-label="${name}, step ${at + 1} of ${BUILD_PHASES.length}">${BUILD_PHASES.map((_, i) => `<i class="${i < at ? 'done' : i === at ? 'now' : ''}"></i>`).join('')}</span></div>`;
+  }
   const stalledChip = (it) => it.lane !== 'done' && it.builder?.stalled ? badge('danger', 'Stalled', {
     button: true, title: 'No recent progress. Nudge Claude to check this builder',
     attrs: { type: 'button', 'data-confirm': 'nudge', 'data-key': it.key },
@@ -181,7 +191,7 @@
     const chips = `${stalledChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
     const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)
       : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Orchestrator review</div>'
-      : it.builder ? `<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>${esc(builderLine(it.builder))}</div>`
+      : it.builder ? `<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>${esc(builderLine(it.builder))}</div>${phaseBars(it.builder.phase)}`
       : it.refusal ? `<div class="line3 sub refused">${esc(it.refusal)}</div>`
       : it.working ? `<div class="line3 sub agent">${workingLine}</div>`
       : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.held ? ' idle' : ''}">Next: ${esc(it.next)}</div>` : '';

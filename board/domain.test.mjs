@@ -51,12 +51,12 @@ test('a green draft waits on Ready in In Review until a builder works on it', ()
   const record = { label: 'Opus builder', started: '2026-10-23T10:00:00Z', progress: 'Record line', progress_at: '2026-10-23T10:06:00Z' };
   const earlier = { ts: '2026-10-23T09:00:00Z', who: 'claude', kind: 'status', text: 'Previous run' };
   const fresh = board({ now: Date.parse(record.started), agents: { A1: { main: record } }, threads: { 'w/A1': [earlier] } }).items.find((i) => i.key === 'w/A1');
-  assert.deepEqual(fresh.builder, { progress: null, waiting: false, at: record.started, kind: null, stalled: false, silentSince: record.started });
+  assert.deepEqual(fresh.builder, { progress: null, phase: null, waiting: false, at: record.started, kind: null, stalled: false, silentSince: record.started });
   const lines = [earlier, { ts: '2026-10-23T10:05:00Z', who: 'claude', kind: 'status', text: 'Running tests' }, { ts: '2026-10-23T10:07:00Z', who: 'claude', text: 'Halfway.' }];
   const busy = board({ now: Date.parse('2026-10-23T10:07:00Z'), agents: { A1: { main: record } }, threads: { 'w/A1': lines } });
   const item = busy.items.find((i) => i.key === 'w/A1');
   assert.deepEqual([item.lane, item.waitsOn, item.action], ['progress', 'builder', null]);
-  assert.deepEqual(item.builder, { progress: 'Running tests', waiting: false, at: '2026-10-23T10:05:00Z', kind: null, stalled: false, silentSince: '2026-10-23T10:05:00Z' });
+  assert.deepEqual(item.builder, { progress: 'Running tests', phase: null, waiting: false, at: '2026-10-23T10:05:00Z', kind: null, stalled: false, silentSince: '2026-10-23T10:05:00Z' });
   const finished = board({ agents: { A1: { main: { label: 'Opus builder', started: '2026-10-23T10:00:00Z', progress: 'Running tests', progress_at: '2026-10-23T10:05:00Z', eta: '2026-10-23T11:00:00Z', done: '2026-10-23T10:30:00Z' } } } });
   const after = finished.items.find((i) => i.key === 'w/A1');
   assert.deepEqual([after.lane, after.waitsOn, after.builder, after.eta], ['review', 'ready', null, null]);
@@ -123,6 +123,16 @@ test('a card a builder has built on, or whose status says it is building or fixi
     assert.deepEqual([running.lane, running.buildable, running.builder?.kind], ['todo', true, kind]);
     assert.deepEqual([card({ ...started, kind, done: '2026-10-23T10:30:00Z' }).lane], ['todo']);
   }
+});
+
+test('a builder carries the phase of its newest status line, none before a phased line or from a line without one', () => {
+  const started = '2026-10-23T10:00:00Z';
+  const builder = (lines) => board({ now: Date.parse('2026-10-23T10:30:00Z'), agents: { A1: { main: { label: 'Opus builder', started } } }, threads: { 'w/A1': lines } }).items.find((i) => i.key === 'w/A1').builder;
+  const status = (ts, text, phase) => ({ ts, who: 'claude', kind: 'status', text, ...(phase ? { phase } : {}) });
+  assert.equal(builder([]).phase, null);
+  assert.equal(builder([status('2026-10-23T09:00:00Z', 'Testing: last run', 'testing')]).phase, null);
+  assert.equal(builder([status('2026-10-23T10:05:00Z', 'Reading: spec', 'reading'), status('2026-10-23T10:10:00Z', 'Testing: suite', 'testing')]).phase, 'testing');
+  assert.equal(builder([status('2026-10-23T10:05:00Z', 'Reading: spec', 'reading'), status('2026-10-23T10:10:00Z', 'Done')]).phase, null);
 });
 
 test('an install builder exposes its kind and keeps drafts and ready PRs In Progress until the install lands', () => {

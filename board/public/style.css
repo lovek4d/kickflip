@@ -297,6 +297,10 @@ button.attach:disabled { opacity: .35; }
 .line1 .chip { vertical-align: 1px; margin-right: 2px; }
 .line2.meta { justify-content: flex-start; margin-top: 4px; }
 .line3 { margin-top: 3px; }
+.phase-bars-strip { display: inline-flex; gap: 2px; }
+.phase-bars i { width: 9px; height: 4px; border-radius: 2px; background: var(--line); }
+.phase-bars i.done, .phase-bars i.now { background: var(--color-notice); }
+@media (prefers-reduced-motion: no-preference) { .phase-bars i.now { animation: pulse 1.4s ease-in-out infinite; } }
 .brand { display: grid; grid-template-columns: auto auto minmax(0, 1fr); column-gap: 10px; row-gap: 2px; }
 .brand .hub { grid-row: 1 / span 2; align-self: center; }
 .sub .working { color: var(--color-notice); }

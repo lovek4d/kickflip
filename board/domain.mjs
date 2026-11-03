@@ -386,7 +386,7 @@ function builderOf(agents, lines = [], now) {
   const kind = running.some((a) => a.kind === BUILDER_KIND.install) ? BUILDER_KIND.install : providerOf(running.at(-1).kind);
   const silentSince = line?.ts || since;
   const progress = line ? (line.phase ? line.text.replace(': ', ' · ') : line.text || null) : null;
-  return { progress, waiting: !line && running.some((a) => a.tapped), at: silentSince, kind, silentSince, stalled: now - Date.parse(silentSince) >= BUILDER_STALLED_AFTER };
+  return { progress, phase: line?.phase || null, waiting: !line && running.some((a) => a.tapped), at: silentSince, kind, silentSince, stalled: now - Date.parse(silentSince) >= BUILDER_STALLED_AFTER };
 }
 
 // The model the agent runs: a Claude kind's record holds it as model (opus or sonnet), a record without one reads from its kind.

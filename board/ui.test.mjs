@@ -902,6 +902,18 @@ test("a refused Build's reason takes the card's status line, in place of its nex
   assert.doesNotMatch(html, /Next: /);
 });
 
+test('a building card shows five bars on their own line under its status line, done phases filled and the current one marked', () => {
+  const builder = { progress: 'Testing · the limiter', phase: 'testing', at: null };
+  const html = ui.workLines({ ...workCard, builder });
+  assert.match(html, /<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"><\/span>Testing · the limiter<\/div>\s*<div class="line3 phase-bars"><span class="phase-bars-strip" role="img" aria-label="Testing, step 3 of 5"><i class="done"><\/i><i class="done"><\/i><i class="now"><\/i><i class=""><\/i><i class=""><\/i><\/span><\/div>/);
+  const first = ui.workLines({ ...workCard, builder: { ...builder, phase: 'reading' } });
+  assert.match(first, /<i class="now"><\/i><i class=""><\/i><i class=""><\/i><i class=""><\/i><i class=""><\/i>/);
+  assert.match(ui.workLines({ ...workCard, builder: { ...builder, phase: 'landing' } }), /aria-label="Landing, step 5 of 5"/);
+  for (const none of [{ ...builder, phase: null }, { progress: null, phase: null, waiting: true, at: null }]) assert.doesNotMatch(ui.workLines({ ...workCard, builder: none }), /phase-bars/);
+  assert.doesNotMatch(ui.workLines({ ...workCard, waitsOn: 'checking', builder }), /phase-bars/);
+  assert.doesNotMatch(ui.workLines({ ...workCard, builder: null, next: 'Fix it' }), /phase-bars/);
+});
+
 test("a builder line shows the progress and its age, not who is building", () => {
   const at = new Date(Date.now() - 4 * 60000).toISOString();
   assert.equal(ui.builderLine({ label: 'Opus builder', progress: 'Testing · the limiter', at }), 'Testing · the limiter · 4m ago');
