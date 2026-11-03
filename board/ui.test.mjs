@@ -780,12 +780,11 @@ test("a thread's Done reads Done and is never disabled on a finishable card, ora
   assert.match(ui.doneButton({ key: 'w/A1', kind: 'work', finishable: true, awaitsDone: true }), /^<button type="button" class="closes"/);
   assert.doesNotMatch(ui.doneButton({ key: 'w/A1', kind: 'work', finishable: true }), /class=/);
   assert.deepEqual(done({ key: 'w/A1', kind: 'work', finishable: true }), ['Done', false]);
-  assert.deepEqual(done({ key: 'w/ENG-1', kind: 'followup', finishable: true }), ['Done', false]);
   assert.equal(done({ key: 'w/A1', kind: 'work', finishable: false }), '');
   assert.equal(done(undefined), '');
 });
 
-test("the open card's details list ends with Notes, Install and GitHub links in order, omitting links that do not apply; Notes has no summary or button, and a follow-up's Build is filled orange", () => {
+test("the open card's details list ends with Notes, Install and GitHub links in order, omitting links that do not apply; Notes has no summary or button, and Build is filled orange", () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.match(css, /button\.build, button\.unhold, button\.closes \{[^}]*background: var\(--color-notice\)/);
 
@@ -826,6 +825,26 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
       }
     }
   }
+});
+
+// docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md
+test("the open card's details list shows Parent, Children, Related to, Blocked by and Waits on it as rows of tappable labels, leaving out empty rows; the workflow row has no follow-up Build", () => {
+  const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
+  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
+  app.BoardView = { part: (fn) => fn(B) };
+  vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
+  const link = (ref) => ({ key: `w/GH-${ref.slice(1)}`, ref });
+  const card = { ...workCard, pr: null, reviewers: [], key: 'w/GH-93', ref: '#93', lane: 'todo', action: null, waveTitle: 'W', status: 'planned', next: null, deps: ['GH-80'], manualSteps: [], holdable: true,
+    parent: link('#53'), followUp: true, children: [link('#94'), link('#95')], related: [link('#75')], blockedBy: [link('#80')], waitsOnIt: [link('#99')] };
+  const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
+  assert.deepEqual(rows(card), [['Wave', 'W'], ['Status', 'planned'], ['Parent', '#53'], ['Children', '#94 #95'], ['Related to', '#75'], ['Blocked by', '#80'], ['Waits on it', '#99']]);
+  assert.deepEqual([...B.detail(card).matchAll(/<a class="card-link" href="([^"]*)">([^<]*)<\/a>/g)].map(([, href, ref]) => [href, ref]),
+    [['#item=w%2FGH-53', '#53'], ['#item=w%2FGH-94', '#94'], ['#item=w%2FGH-95', '#95'], ['#item=w%2FGH-75', '#75'], ['#item=w%2FGH-80', '#80'], ['#item=w%2FGH-99', '#99']]);
+  assert.deepEqual(rows({ ...card, parent: null, followUp: false, children: [], related: [], blockedBy: [], waitsOnIt: [] }), [['Wave', 'W'], ['Status', 'planned']]);
+  assert.doesNotMatch(B.detail(card), /data-confirm="build"|Filed from|Waits on</);
+  assert.deepEqual(lines(app.BoardUI.workLines({ ...card, linear: [], ticket: null })).slice(0, 2), ['Five', 'follow-up']);
+  assert.doesNotMatch(app.BoardUI.workLines({ ...card, parent: null, followUp: false }), /follow-up/);
 });
 
 test('the side pages wait out a board restart: a failed request, a 5xx or a body that is not JSON shows Board restarting… and retries with a growing backoff, until about limit ms', async () => {
@@ -997,7 +1016,7 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.deepEqual(lines(ui.workLines(ask)), ['Fix it', 'Working on it']);
   assert.deepEqual(lines(ui.workLines(ask, { unread: 2 })), ['Fix it', 'Working on it', '2 new messages']);
   assert.deepEqual(lines(ui.workLines({ ...internal, waitsOn: 'checking', working: true, next: 'Verify it' })), ['INT-3 Five', 'Orchestrator review']);
-  const followup = { ...workCard, kind: 'followup', key: 'w/ENG-7', id: 'ENG-7', ref: 'ENG-7', linear: [{ id: 'ENG-7', url: 'u' }], pr: null, reviewers: [], next: null, lane: 'todo', deps: [], blockedBy: [] };
+  const followup = { ...workCard, followUp: true, key: 'w/ENG-7', id: 'ENG-7', ref: 'ENG-7', linear: [{ id: 'ENG-7', url: 'u' }], pr: null, reviewers: [], next: null, lane: 'todo', deps: [], blockedBy: [] };
   assert.deepEqual(lines(ui.workLines(followup)), ['ENG-7 Five', 'follow-up']);
   assert.match(ui.workLines(followup), /<a class="chip tone-quiet" href="u"[^>]*>ENG-7<\/a>.*<span class="chip tone-quiet">follow-up<\/span>/s);
 });
@@ -1119,7 +1138,7 @@ test('main is a slim branch bar with a ready link, running status or failed log 
 });
 
 test('Todo offers Plan waves in the Show more style once two cards are free, with their keys', () => {
-  const todo = [{ key: 'w/A1', kind: 'work' }, { key: 'w/ENG-1', kind: 'followup' }, { key: 'v/B2', kind: 'work', blockedBy: [] }, { key: 'v/C3', kind: 'work', held: true }, { key: 'v/D4', kind: 'work', blockedBy: [{ ref: 'A1' }] }, { key: 'ask:n1', kind: 'ask' }];
+  const todo = [{ key: 'w/A1', kind: 'work' }, { key: 'w/ENG-1', kind: 'work', followUp: true }, { key: 'v/B2', kind: 'work', blockedBy: [] }, { key: 'v/C3', kind: 'work', held: true }, { key: 'v/D4', kind: 'work', blockedBy: [{ ref: 'A1' }] }, { key: 'ask:n1', kind: 'ask' }];
   const html = ui.planButton(todo);
   assert.match(html, /^<button type="button" class="thread-more" data-plan="w\/A1 w\/ENG-1 v\/B2">/);
   assert.equal(text(html), 'Plan waves');
@@ -1297,10 +1316,10 @@ const shown = (html) => html.replace(/<[^>]+>/g, '').replace(/&(amp|lt|gt|quot|#
 const anchors = (html) => [...html.matchAll(/<a href="([^"]*)"([^>]*)>([\s\S]*?)<\/a>/g)].map((m) => [m[1], text(m[3]), /target="_blank" rel="noopener"/.test(m[2])]);
 const boardItems = [
   { key: 'site/S54', wave: 'site', kind: 'work', ref: 'INT-54', internal: true, linear: [], repo: null },
-  { key: 'site/INT-56', wave: 'site', kind: 'followup', ref: 'INT-56', internal: true, linear: [{ id: 'INT-56' }], repo: null },
+  { key: 'site/INT-56', wave: 'site', kind: 'work', ref: 'INT-56', internal: true, linear: [{ id: 'INT-56' }], repo: null },
   { key: 'att/A1', wave: 'att', kind: 'work', ref: 'A1', internal: false, linear: [{ id: 'ENG-2310', url: 'https://linear.app/acme/issue/ENG-2310' }], repo: 'acme/app' },
   { key: 'att/A2', wave: 'att', kind: 'work', ref: 'A2', internal: false, linear: [], repo: 'acme/app' },
-  { key: 'att/ENG-2467', wave: 'att', kind: 'followup', ref: 'ENG-2467', internal: false, linear: [{ id: 'ENG-2467', url: 'https://linear.app/acme/issue/ENG-2467' }], repo: 'acme/app' },
+  { key: 'att/ENG-2467', wave: 'att', kind: 'work', ref: 'ENG-2467', internal: false, linear: [{ id: 'ENG-2467', url: 'https://linear.app/acme/issue/ENG-2467' }], repo: 'acme/app' },
   { key: 'elig/A1', wave: 'elig', kind: 'work', ref: 'A1', internal: false, linear: [{ id: 'OPS-7', url: 'https://linear.app/acme/issue/OPS-7' }], repo: 'o/r' },
   { key: 'ask:e9', wave: null, kind: 'ask', ref: 'Ask', internal: false, linear: [], repo: null },
 ];

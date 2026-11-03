@@ -23,13 +23,13 @@ for (const file of ['ui-enums.js', 'ui-order.js']) vm.runInContext(fs.readFileSy
 export const { BUTTON, ACTION_KIND, BUILDER_KIND } = enums.BoardUI;
 const { laneOrder } = enums.BoardUI;
 
-export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'build-followup', 'prototype-request'];
+export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'prototype-request'];
 export const ITEM_STATUSES = ['planned', 'waiting', 'building', 'fixing', 'checking', 'held', 'merged', 'done', 'dropped'];
 export const BUILDER_STALLED_AFTER = 30 * 60000;
 // The thread line's kind for a Build tap the board server refused (store.mjs startTappedBuild).
 export const BUILD_REFUSED = 'build-refused';
 const DAY = 86400000;
-// Done holds closed work cards and follow-ups, Asks the answered asks (docs/adr/0144-answered-asks-have-their-own-section-below-done.md).
+// Done holds closed work cards, Asks the answered asks (docs/adr/0144-answered-asks-have-their-own-section-below-done.md).
 const closedLane = (i) => i.lane === 'done' || i.lane === 'asks';
 // A finished wave's Done cards fold under a row of their own, which board/public/app-lanes.js reads back by this id.
 export const waveFold = (slug) => `wave:${slug}`;
@@ -67,7 +67,7 @@ const droppedCard = (i) => {
   return s === 'dropped' || (i.pr?.state === 'CLOSED' && s !== 'merged' && s !== 'done');
 };
 
-// A wave is finished once it has work items and every work item and follow-up is in Done
+// A wave is finished once it has work items and every work item is in Done
 // (docs/adr/0012-lists-never-cut-silently.md). merged counts the wave's Done cards that weren't dropped.
 function finishedOf(cards) {
   if (!cards.some((i) => i.kind === 'work') || cards.some((i) => i.lane !== 'done')) return null;
@@ -173,7 +173,7 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
     deps: it.deps || [], held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable ? bumpedAt || null : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
-    merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, from: null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || null,
+    merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || null,
     branch: it.branch || pr?.headRefName || pushed?.branch || null, pushed: lane === 'done' ? null : pushed,
     ticket: tickets?.source === 'linear' && !it.ticket && it.linear?.length ? null
       : ticketOf(tickets, it.ticket, it.ticket || (wave.internal ? refOf(wave, it, tickets) : it.linear?.[0]), { repo, key }),
@@ -311,20 +311,6 @@ export function owesNext(item, records) {
   if (item.next || item.pr || item.pushed || item.held || item.queued_at || ['held', 'checking', 'done', 'merged', 'dropped'].includes(status)) return false;
   const agents = records.filter((r) => r?.started);
   return !agents.some((r) => !r.done) && started({ status, agents });
-}
-
-// An open follow-up is a Todo card of its wave (docs/adr/0034-follow-ups-are-todo-cards-of-their-wave.md).
-function followUp({ slug, wave, f, order, repo, bumpedAt, closedAt, tickets }) {
-  const done = Boolean(f.done || closedAt);
-  return {
-    key: `${slug}/${f.id}`, kind: 'followup', order, wave: slug, waveTitle: wave.title || slug, id: f.id, ref: refOf(wave, f, tickets), title: f.title, status: null,
-    repo: wave.internal === true && !wave.repo ? null : repo, finishable: !done,
-    lane: done ? 'done' : 'todo', waitsOn: null, builder: null, agents: [], eta: null, working: false, inReviewSince: null, progressSince: null, closedAt: done ? closedAt || null : null,
-    deps: [], held: false, risky: false, bumpable: !done, bumpedAt: done ? null : bumpedAt || null, manualSteps: [], fromAsk: null, from: f.from || null, next: null, hasNotes: false, branch: null,
-    ticket: ticketOf(tickets, f.ticket, f.ticket || f.id, { repo, key: `${slug}/${f.id}` }),
-    linear: [linearRef(f.id, tickets)], pr: null, reviewers: [], review: {},
-    threadCount: 0, lastTs: null, othersAt: [], grilling: false, created: f.filed || null, updatedAt: f.filed || null, ask: null, fold: null, action: null,
-  };
 }
 
 // An ask is a New card at the top of Todo until Claude replies to it or writes in its thread; then it is an answered ask
@@ -604,6 +590,8 @@ export function buildBoard(snapshot) {
   // By card key: when Claude last answered in its thread, and when a Done work card closed.
   const claudeAt = new Map();
   const closedWork = new Map();
+  // By work card key: the Parent and Related to keys its wave entry stores (linkCards).
+  const storedLinks = new Map();
   const remote = snapshot.github ? null : remoteFromInput(snapshot.remote);
   for (const { slug, wave, agents: records = {} } of snapshot.waves) {
     const repo = snapshot.github || wave.repo || null;
@@ -632,13 +620,11 @@ export function buildBoard(snapshot) {
         mergeAt: cardMerges.get(key), autoMerge, tickets,
       }));
       const card = items[items.length - 1];
+      storedLinks.set(key, { parent: it.parent ? linkKey(slug, it.parent) : null, related: (it.related || []).map((r) => linkKey(slug, r)) });
       if (card.lane === 'done') closedWork.set(key, card.closedAt || String(card.updatedAt || ''));
     });
-    (wave.followups || []).forEach((f, n) => items.push(followUp({ slug, wave, f, order: wave.items.length + n, repo, bumpedAt: cardBumps.get(`${slug}/${f.id}`), closedAt: cardDones.get(`${slug}/${f.id}`), tickets })));
   }
   const works = new Map(items.map((i) => [i.key, i]));
-  // A follow-up files from a card of its wave by id; its view carries that card's label, or the id when the card isn't on the board.
-  for (const it of items) if (it.kind === 'followup' && it.from) it.from = works.get(`${it.wave}/${it.from}`)?.ref || it.from;
   // An ask that became work or was folded into a card shows in that card's thread instead of as a card of its own; old
   // links to it open that card.
   const moved = new Map();
@@ -705,7 +691,7 @@ export function buildBoard(snapshot) {
   const questionById = new Map(questions.map((q) => [q.id, q]));
   for (const it of items) {
     it.blockedBy = it.kind !== 'work' || it.lane === 'done' ? [] : it.deps.map((d) => byKey.get(String(d).includes('/') ? d : `${it.wave}/${d}`))
-      .filter((d) => d && d.lane !== 'done' && !d.reopened).map((d) => ({ key: d.key, ref: d.ref }));
+      .filter((d) => d && d.lane !== 'done' && !d.reopened).map(linkOf);
     placeOwnerWait(it, questionById, autoMerge);
     if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it)) it.lane = 'progress';
     it.unpicked = it.kind === 'work' && it.lane === 'todo' && Boolean(noTakePicked(questions, it.key));
@@ -718,6 +704,7 @@ export function buildBoard(snapshot) {
     it.ready = unstarted && it.state === 'ready' && !it.blockedBy.length && !it.action;
     it.sortAt = SORT_AT[it.lane](it) || it.updatedAt || null;
   }
+  linkCards(items, byKey, storedLinks);
   // Items arrive in the order the page shows them (public/ui-order.js).
   items.sort(laneOrder);
 
@@ -757,6 +744,36 @@ export function buildBoard(snapshot) {
   const answers = items.filter((i) => i.ask?.answerAt).sort((a, b) => b.ask.answerAt.localeCompare(a.ask.answerAt))
     .map((i) => ({ key: i.key, id: i.id, text: i.title, at: i.ask.answerAt }));
   return { kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, waves, waveRows, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, needs, needsSummary: needsSummary(needs), working: workingOn.length, workingOn, checks: checksOf(snapshot, now) };
+}
+
+// docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md
+// A card's links name other cards by {key, ref}. A wave entry stores its Parent and Related to as keys, a bare id
+// naming a card of its own wave, as deps do.
+const linkOf = (card) => ({ key: card.key, ref: card.ref });
+const linkKey = (slug, k) => (String(k).includes('/') ? String(k) : `${slug}/${k}`);
+const byRef = (a, b) => a.ref.localeCompare(b.ref, undefined, { numeric: true });
+// Each work card's Parent (one card or none; a Parent no longer on the board reads as its stored id), its Children
+// (the cards whose Parent it is), its Related to (set on either card, shown on both) and what Waits on it (the cards
+// it blocks, the mirror of blockedBy). A card with a Parent is a follow-up.
+function linkCards(items, byKey, stored) {
+  const children = new Map();
+  const related = new Map();
+  const waits = new Map();
+  const add = (map, key, card) => map.set(key, [...(map.get(key) || []), card]);
+  for (const [key, links] of stored) {
+    if (links.parent) add(children, links.parent, key);
+    for (const r of links.related) if (r !== key) { add(related, key, r); add(related, r, key); }
+  }
+  for (const it of items) for (const d of it.blockedBy || []) add(waits, d.key, it.key);
+  const cards = (keys = []) => [...new Set(keys)].map((k) => byKey.get(k)).filter(Boolean).map(linkOf).sort(byRef);
+  for (const it of items) {
+    const parent = stored.get(it.key)?.parent;
+    it.parent = parent ? { key: parent, ref: byKey.get(parent)?.ref || parent.slice(parent.indexOf('/') + 1) } : null;
+    it.followUp = Boolean(parent);
+    it.children = cards(children.get(it.key));
+    it.related = cards(related.get(it.key));
+    it.waitsOnIt = cards(waits.get(it.key));
+  }
 }
 
 // docs/adr/0140-each-lane-has-one-fixed-order.md

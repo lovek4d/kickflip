@@ -45,7 +45,7 @@ async function withDevice(fn) {
   try { await fn(b, device.received); } finally { await device.close(); }
 }
 
-const wave = () => ({ title: 'W', items: [{ id: 'A1', title: 'One', next: 'Old' }], followups: [{ id: 'ENG-1', title: 'Later', filed: '2026-10-22' }] });
+const wave = () => ({ title: 'W', items: [{ id: 'A1', title: 'One', next: 'Old' }, { id: 'ENG-1', title: 'Later', created: '2026-10-22', parent: 'A1' }] });
 const question = (id, extra = {}) => ({ id, topic: 'site', question: 'Keep it?', options: [{ id: 'A', label: 'Keep', recommended: true }, { id: 'B', label: 'Drop' }], ...extra });
 
 beforeEach(() => {
@@ -153,7 +153,7 @@ test('item add records creation on a planned card, waiting when it has deps, and
   const dep = board('item', 'add', 'w/D4', '--site', 'orch', '--title', 'Four', '--deps', 'Z9');
   assert.equal(dep.code, 1);
   assert.match(dep.err, /no item "Z9"/);
-  assert.equal(read(at('waves', 'w', 'wave.json')).items.length, 3);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items.length, 4);
   assert.equal(board('item', 'add', 'audit/E5', '--site', 'audit', '--title', 'Five').code, 0);
   assert.deepEqual(withoutCreated(read(site('audit', 'data', 'wave.json')).items.at(-1)), { id: 'E5', title: 'Five', status: 'planned', ticket: 'INT-1' });
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].created, undefined);
@@ -196,7 +196,7 @@ test('tickets validate prefixes and link or create in the board source through t
   assert.match(err.at(-1), /match ENG-<number>/);
   assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five', '--ticket', 'ENG-2918'), 0);
   assert.equal(await cli('item', 'set', 'audit/E5', '--ticket', 'ENG-2919'), 0);
-  assert.equal(await cli('followup', 'add', 'audit', '--id', 'follow', '--title', 'Follow', '--ticket', 'ENG-2920'), 0);
+  assert.equal(await cli('item', 'add', 'audit/follow', '--title', 'Follow', '--ticket', 'ENG-2920', '--parent', 'A1'), 0);
   assert.equal(calls.length, 0);
   const waveFile = site('audit', 'data', 'wave.json');
   write(waveFile, { ...read(waveFile), repo: 'o/r' });
@@ -209,7 +209,7 @@ test('tickets validate prefixes and link or create in the board source through t
   write(site('audit', 'data', 'events.jsonl'), JSON.stringify({ id: 'e1', kind: 'ask', data: { text: 'Ask' } }) + '\n');
   write(waveFile, { ...read(waveFile), items: [...read(waveFile).items, { id: 'I9', title: 'From ask', notes: 'Asked why' }] });
   assert.equal(await cli('item', 'set', 'audit/I9', '--from-ask', 'e1', '--text', 'On it.'), 0);
-  assert.equal(await cli('followup', 'add', 'audit', '--id', 'github-follow', '--title', 'Another follow'), 0);
+  assert.equal(await cli('item', 'add', 'audit/github-follow', '--title', 'Another follow', '--parent', 'audit/A1'), 0);
   assert.deepEqual(calls, [
     ['gh', ['issue', 'view', '41', '--repo', 'o/r', '--json', 'number,url']],
     ['gh', ['issue', 'view', '41', '--repo', 'o/r', '--json', 'number,url']],
@@ -372,10 +372,10 @@ test("a Linear board without Hub's key records each card and asks the session, i
   assert.match(err.at(-1), /match ENG-<number>/);
   assert.equal(await cli('item', 'set', 'audit/B2', '--ticket', 'ENG-4'), 0);
   assert.equal(item('B2').ticket, 'ENG-4');
-  assert.equal(await cli('followup', 'add', 'audit', '--id', 'later', '--title', 'Later work'), 0);
-  assert.equal(out.at(-1), 'ticket: create the Linear issue "Later work" in team ENG, project Backend Audit, through your Linear MCP, then run board.mjs --site audit followup set audit later --ticket <id>');
-  assert.equal(await cli('followup', 'set', 'audit', 'later', '--ticket', 'ENG-5'), 0);
-  assert.equal(read(site('audit', 'data', 'wave.json')).followups.find((f) => f.id === 'later').ticket, 'ENG-5');
+  assert.equal(await cli('item', 'add', 'audit/later', '--title', 'Later work', '--parent', 'A1'), 0);
+  assert.equal(out.at(-1), 'ticket: create the Linear issue "Later work" in team ENG, project Backend Audit, through your Linear MCP, then run board.mjs --site audit item set audit/later --ticket <id>');
+  assert.equal(await cli('item', 'set', 'audit/later', '--ticket', 'ENG-5'), 0);
+  assert.equal(item('later').ticket, 'ENG-5');
   write(site('audit', 'data', 'events.jsonl'), JSON.stringify({ id: 'e1', kind: 'ask', data: { text: 'Ask' } }) + '\n');
   const waveFile = site('audit', 'data', 'wave.json');
   write(waveFile, { ...read(waveFile), items: [...read(waveFile).items, { id: 'D4', title: 'Asked' }] });
@@ -385,7 +385,7 @@ test("a Linear board without Hub's key records each card and asks the session, i
     assert.equal(await cli('item', 'set', 'audit/B2', ...flags), 0);
     assert.equal(out.at(-1), `ticket ENG-4: move to ${state} through the Linear MCP if it's assigned to you`);
   }
-  write(waveFile, { ...read(waveFile), items: [{ id: 'E5', title: 'Fix login (ENG-2918)' }, { id: 'F6', title: 'No id yet' }, { id: 'G7', title: 'Done', status: 'done' }], followups: [] });
+  write(waveFile, { ...read(waveFile), items: [{ id: 'E5', title: 'Fix login (ENG-2918)' }, { id: 'F6', title: 'No id yet' }, { id: 'G7', title: 'Done', status: 'done' }] });
   out.length = 0;
   assert.equal(await cli('tickets', 'backfill'), 0);
   assert.deepEqual(out, [
@@ -410,6 +410,7 @@ test('tickets backfill links ids from open cards’ titles that belong to the so
     { id: 'E5', title: 'Legacy', linear: ['ENG-2919'] },
     { id: 'F6', title: 'Gone ENG-4040' },
     { id: 'G7', title: 'Dropped', status: 'dropped' },
+    { id: 'ENG-1', title: 'Later', parent: 'A1' },
   ] });
   assert.equal(await cli('tickets', 'backfill'), 1);
   await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'acme', team: 'ENG', project: 'Backend Audit' } });
@@ -431,7 +432,7 @@ test('tickets backfill links ids from open cards’ titles that belong to the so
   assert.deepEqual(['A1', 'B2', 'C3', 'D4', 'E5', 'F6', 'G7'].map((id) => [item(id).ticket, item(id).ticket_created]), [
     ['ENG-2918', undefined], [undefined, undefined], ['ENG-101', true], ['ENG-5', undefined], ['ENG-2919', undefined], [undefined, undefined], [undefined, undefined],
   ]);
-  assert.deepEqual(read(waveFile).followups[0].ticket, 'ENG-102');
+  assert.equal(item('ENG-1').ticket, 'ENG-102');
   assert.equal(world.issues['ENG-101'].input.projectId, 'proj-audit');
 });
 
@@ -441,7 +442,6 @@ test('an Internal ticket another card holds is refused, and backfill gives a car
   const refused = board('item', 'set', 'w/A1', '--site', 'orch', '--ticket', 'INT-1');
   assert.deepEqual([refused.code, refused.err], [1, 'INT-1 is already the ticket of w/B2\n']);
   assert.equal(board('item', 'add', 'w/C3', '--site', 'orch', '--title', 'Three', '--ticket', 'INT-1').code, 1);
-  assert.equal(board('followup', 'add', 'w', '--site', 'orch', '--id', 'F', '--title', 'F', '--ticket', 'INT-1').code, 1);
   assert.equal(board('item', 'set', 'w/B2', '--site', 'orch', '--ticket', 'INT-1').code, 0);
   write(at('waves', 'w', 'wave.json'), { ...read(at('waves', 'w', 'wave.json')), items: [...read(at('waves', 'w', 'wave.json')).items, { id: 'D4', title: 'Follow-up to INT-1' }, { id: 'E5', title: 'Revisit INT-9' }] });
   const backfill = board('tickets', 'backfill', '--site', 'orch');
@@ -450,7 +450,7 @@ test('an Internal ticket another card holds is refused, and backfill gives a car
   fs.writeFileSync(site('orch', 'board.json'), JSON.stringify({ title: 'Orch', items: 'waves', tickets: { source: 'internal', prefix: 'INT' } }));
   const done = board('tickets', 'backfill', '--site', 'orch');
   assert.equal(done.code, 0, done.err);
-  assert.deepEqual(done.out.trim().split('\n'), ['w/A1 created INT-2', 'w/D4 created INT-3', 'w/E5 linked INT-9', 'w/ENG-1 created INT-10', 'backfill: linked 1, created 3, failed 0']);
+  assert.deepEqual(done.out.trim().split('\n'), ['w/A1 created INT-2', 'w/ENG-1 created INT-3', 'w/D4 created INT-4', 'w/E5 linked INT-9', 'backfill: linked 1, created 3, failed 0']);
 });
 
 test("the hub board files its cards as issues in its entry's GitHub repo, as any local board does, as its Tickets gh account, PR calls stay on the active account, and a missing account fails clearly", () => {
@@ -466,7 +466,7 @@ test("the hub board files its cards as issues in its entry's GitHub repo, as any
   assert.equal(cli('settings', 'set', 'github-login', 'owner').code, 0);
   assert.equal(cli('item', 'add', 'audit/B2', '--title', 'Two').code, 0);
   assert.equal(cli('item', 'add', 'audit/C3', '--title', 'Three', '--ticket', '#9').code, 0);
-  assert.deepEqual(cli('tickets', 'backfill').out.trim().split('\n').slice(-3), ['audit/A1 created #2', 'audit/ENG-1 created #3', 'backfill: linked 0, created 2, failed 0']);
+  assert.deepEqual(cli('tickets', 'backfill').out.trim().split('\n').slice(-2), ['audit/A1 created #2', 'backfill: linked 0, created 1, failed 0']);
   assert.equal(read(site('audit', 'data', 'wave.json')).items.find((it) => it.id === 'Z9').ticket, 'Z9');
   assert.equal(last('item', 'set', 'audit/B2', '--status', 'done', '--text', 'Done.'), 'ticket #1: closed');
   assert.equal(cli('item', 'set', 'audit/C3', '--pr', '7').code, 0);
@@ -475,7 +475,7 @@ test("the hub board files its cards as issues in its entry's GitHub repo, as any
   const issues = tokens(dir).filter((c) => c.args[0] === 'issue').map(({ args, token }) => [args[1], args[args.indexOf('--repo') + 1], token]);
   assert.deepEqual(issues, [
     ['create', 'someone/fork', 'token-lovek4d'], ['view', 'someone/fork', 'token-lovek4d'], ['create', 'someone/fork', 'token-lovek4d'],
-    ['create', 'someone/fork', 'token-lovek4d'], ['close', 'someone/fork', 'token-lovek4d'],
+    ['close', 'someone/fork', 'token-lovek4d'],
   ]);
   const prs = tokens(dir).filter((c) => c.args[0] === 'pr');
   assert.deepEqual(prs.map((c) => c.args[4]), ['someone/fork']);
@@ -1079,17 +1079,68 @@ test('item set --install records a device build with when it was built, takes on
   assert.equal('install' in read(at('waves', 'w', 'wave.json')).items[0], false);
 });
 
-test('a follow-up is filed with a date and leaves its lane when done', () => {
-  assert.equal(board('followup', 'add', 'audit', '--site', 'audit', '--id', 'ENG-7', '--title', 'Tidy', '--from', 'A1').code, 0);
-  assert.equal(board('followup', 'add', 'audit', '--site', 'audit', '--id', 'ENG-7', '--title', 'Again').code, 1);
-  assert.equal(board('followup', 'add', 'audit', '--site', 'audit', '--id', 'bad/id', '--title', 'Tidy').code, 1);
-  assert.equal(board('followup', 'done', 'audit', 'ENG-1', '--site', 'audit').code, 1);
-  assert.equal(board('followup', 'done', 'audit', 'ENG-1', '--site', 'audit', '--text', 'Filed elsewhere.').code, 0);
-  const { followups } = read(site('audit', 'data', 'wave.json'));
-  assert.deepEqual(followups.map((f) => [f.id, Boolean(f.done)]), [['ENG-1', true], ['ENG-7', false]]);
-  assert.match(followups[1].filed, /^\d{4}-\d{2}-\d{2}$/);
-  assert.equal(followups[1].from, 'A1');
-  assert.equal(followups[1].ticket, 'INT-1');
+// docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md
+test('a follow-up is item add --parent; item set sets or clears a Parent and replaces Related to on both sides; the followup commands are gone', () => {
+  const item = (id) => read(site('audit', 'data', 'wave.json')).items.find((i) => i.id === id);
+  const added = board('item', 'add', 'audit/ENG-7', '--site', 'audit', '--title', 'Tidy', '--parent', 'A1');
+  assert.deepEqual([added.code, added.err], [0, '']);
+  assert.deepEqual([item('ENG-7').parent, item('ENG-7').status], ['audit/A1', 'planned']);
+  for (const [args, err] of [
+    [['item', 'add', 'audit/X1', '--title', 'X', '--parent', 'NOPE'], /^wave "audit" has no item "NOPE"/],
+    [['item', 'set', 'audit/ENG-7', '--parent', 'ENG-7'], /^--parent: a card can't be its own Parent/],
+    [['item', 'set', 'audit/A1', '--parent', 'ENG-7'], /^--parent: audit\/ENG-7 is a child of audit\/A1, so it can't be its Parent/],
+    [['item', 'set', 'audit/A1', '--related', 'A1'], /^--related: a card can't be related to itself/],
+  ]) {
+    const r = board(...args, '--site', 'audit');
+    assert.equal(r.code, 1, args.join(' '));
+    assert.match(r.err, err, args.join(' '));
+  }
+  assert.equal(item('X1'), undefined);
+  const gone = board('followup', 'add', 'audit', '--site', 'audit', '--id', 'F', '--title', 'F');
+  assert.deepEqual([gone.code, /unknown command "followup add"/.test(gone.err)], [2, true]);
+  const linked = board('item', 'set', 'audit/A1', '--site', 'audit', '--related', 'ENG-7,audit/ENG-1');
+  assert.deepEqual([linked.code, linked.out], [0, 'A1: related to ENG-7, audit/ENG-1\n']);
+  assert.deepEqual(item('A1').related, ['audit/ENG-7', 'audit/ENG-1']);
+  // Clearing ENG-7's Related to takes it off A1 too, since a link shows on both cards.
+  assert.equal(board('item', 'set', 'audit/ENG-7', '--site', 'audit', '--related', '').code, 0);
+  assert.deepEqual(item('A1').related, ['audit/ENG-1']);
+  assert.equal(board('item', 'set', 'audit/ENG-1', '--site', 'audit', '--related', '').code, 0);
+  assert.equal('related' in item('A1'), false);
+  const cleared = board('item', 'set', 'audit/ENG-7', '--site', 'audit', '--parent', '');
+  assert.deepEqual([cleared.code, cleared.out, 'parent' in item('ENG-7')], [0, 'ENG-7: parent cleared\n', false]);
+  assert.equal(board('item', 'set', 'audit/ENG-7', '--site', 'audit', '--parent', 'audit/ENG-1').out, 'ENG-7: parent audit/ENG-1\n');
+});
+
+// docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md
+test("a wave file's follow-ups move into its items once: ids, titles, tickets and notes kept, done ones done, Filed from as the Parent", async (t) => {
+  const { migrateFollowups } = await import('./store.mjs');
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  t.after(() => { if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome; });
+  const file = site('audit', 'data', 'wave.json');
+  write(file, { title: 'W', items: [{ id: 'A1', title: 'One' }], followups: [
+    { id: 'open-one', title: 'Open', from: 'A1', filed: '2026-11-03', ticket: '#51', ticket_created: true, notes: 'Why' },
+    { id: 'closed-one', title: 'Closed', from: 'A1', filed: '2026-11-02', ticket: '#65', done: true },
+    { id: 'no-from', title: 'Orphan', filed: '2026-11-01' },
+  ] });
+  write(site('audit', 'data', 'threads', 'audit__closed-one.jsonl'), [{ ts: '2026-11-03T10:00:00.000Z', who: 'claude', text: 'Filed.' }, { ts: '2026-11-03T12:00:00.000Z', who: 'claude', text: 'Done.' }].map((l) => JSON.stringify(l)).join('\n') + '\n');
+  assert.deepEqual(await migrateFollowups(site('audit')), ['audit: 3 follow-ups moved to cards (1 done)']);
+  const after = read(file);
+  assert.equal('followups' in after, false);
+  assert.deepEqual(after.items, [
+    { id: 'A1', title: 'One' },
+    { id: 'open-one', title: 'Open', created: '2026-11-03', parent: 'audit/A1', status: 'planned', ticket: '#51', ticket_created: true, notes: 'Why' },
+    { id: 'closed-one', title: 'Closed', created: '2026-11-02', parent: 'audit/A1', status: 'done', status_at: '2026-11-03T12:00:00.000Z', ticket: '#65' },
+    { id: 'no-from', title: 'Orphan', created: '2026-11-01', status: 'planned' },
+  ]);
+  const text = fs.readFileSync(file, 'utf8');
+  assert.deepEqual(await migrateFollowups(site('audit')), []);
+  assert.equal(fs.readFileSync(file, 'utf8'), text);
+  // A follow-up whose id a card already has leaves the file as it is and names the clash.
+  write(file, { items: [{ id: 'A1', title: 'One' }], followups: [{ id: 'A1', title: 'Clash', filed: '2026-11-01' }] });
+  const clash = fs.readFileSync(file, 'utf8');
+  await assert.rejects(migrateFollowups(site('audit')), /audit: follow-up A1 has the id of a card; rename one, then restart the board/);
+  assert.equal(fs.readFileSync(file, 'utf8'), clash);
 });
 
 test("closing a card resolves its answered questions, refuses while one has no answer, changing nothing, and --force closes it anyway", () => {
@@ -1118,7 +1169,7 @@ test("closing a card resolves its answered questions, refuses while one has no a
   const unchanged = () => assert.deepEqual([fs.readFileSync(at('waves', 'w', 'wave.json'), 'utf8'), fs.readFileSync(site('orch', 'data', 'owner.json'), 'utf8')], before);
   for (const [args, err] of [
     [['item', 'set', 'w/A2', '--status', 'dropped'], /^--status dropped: w\/A2 has open questions q6, q7 with no answer yet; pass --force/],
-    [['followup', 'done', 'w', 'ENG-1'], /^followup done: w\/ENG-1 has an open question q9 with no answer yet; pass --force/],
+    [['item', 'set', 'w/ENG-1', '--status', 'done'], /^--status done: w\/ENG-1 has an open question q9 with no answer yet; pass --force/],
     [['item', 'set', 'w/A2', '--next', 'Later', '--force'], /^--force goes with --status done, merged, dropped/],
   ]) {
     const r = board(...args, '--site', 'orch');
@@ -1129,11 +1180,11 @@ test("closing a card resolves its answered questions, refuses while one has no a
   }
 
   assert.equal(board('item', 'set', 'w/A2', '--status', 'dropped', '--force', '--site', 'orch', '--text', 'Dropped.').code, 0);
-  const forced = board('followup', 'done', 'w', 'ENG-1', '--force', '--site', 'orch', '--text', 'Done.');
+  const forced = board('item', 'set', 'w/ENG-1', '--status', 'done', '--force', '--site', 'orch', '--text', 'Done.');
   assert.equal(forced.code, 0, forced.err);
   assert.deepEqual(forced.out.split('\n').filter((l) => l.startsWith('resolved')), ['resolved: q8', 'resolved: q9']);
   const wave = read(at('waves', 'w', 'wave.json'));
-  assert.deepEqual([wave.items[1].status, wave.followups[0].done], ['dropped', true]);
+  assert.deepEqual(['A2', 'ENG-1'].map((id) => wave.items.find((i) => i.id === id).status), ['dropped', 'done']);
   assert.deepEqual(['q5', 'q6', 'q7', 'q8', 'q9'].map((id) => notes()[id]), Array(5).fill('Closed with the card'));
 });
 
@@ -2181,7 +2232,7 @@ test('ask move drops the card an ask became when it has not started, and refuses
   const r = board('ask', 'move', 'e2', '--to', 'audit', '--site', 'orch');
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /dropped: w\/A1/);
-  assert.deepEqual(read(at('waves', 'w', 'wave.json')).items.map((i) => [i.id, i.status]), [['A1', 'dropped'], ['A2', 'building']]);
+  assert.deepEqual(read(at('waves', 'w', 'wave.json')).items.filter((i) => i.id !== 'ENG-1').map((i) => [i.id, i.status]), [['A1', 'dropped'], ['A2', 'building']]);
   assert.deepEqual(lines(site('audit', 'data', 'events.jsonl')).map((e) => e.data.text), ['Filed first']);
   assert.equal(lines(site('orch', 'data', 'threads', 'ask__e2.jsonl'))[0].text, 'Moved to Audit.');
 });

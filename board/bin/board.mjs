@@ -19,7 +19,7 @@ Writes a kickflip board's data files. --site <route> picks ~/.claude/kickflip/si
 board.json says where the board's waves live. Without --site, waves come from ~/.claude/waves.
 Paths resolve under $HOME, so HOME=<dir> points every command at a copy.
 A --file argument of - reads stdin.
-item add and followup add create a ticket in the board’s source unless --ticket <id> links one.
+item add creates a ticket in the board’s source unless --ticket <id> links one.
 Internal defaults to INT; GitHub and Linear create an issue from the title and notes, Linear in the board's team and
 project through Hub's Linear key. A linked ticket must exist in the source; an Internal one no other card holds.
 Asks have no ticket; item set --from-ask creates one when the card has none.
@@ -28,7 +28,7 @@ merged → Done (a GitHub issue closes), only for a ticket assigned to the owner
 can't move prints one "ticket <id>: …" line; the card's change still stands.
 A Linear board without Hub's key hands Linear to the session: a linked id is checked on its pattern alone, and a card
 needing an issue, or a ticket to move, prints a "ticket" line saying what to do through your Linear MCP, such as
-creating the issue and running item set <wave>/<id> --ticket <id> (followup set for a follow-up).
+creating the issue and running item set <wave>/<id> --ticket <id>.
 
   reply <eventId> (--html <text> | --file <path>)        data/replies/<eventId>.html. A reply to an ask resolves its
                                                          answered questions (topic item:ask:<eventId>), and one to
@@ -116,6 +116,10 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          Claude, noting "Recorded in the card's notes", and
                                                          prints "resolved: <id>" for each
          [--deps <id>,<wave>/<id>]                       replaces its blocked-by list; --deps "" clears it
+         [--parent <wave>/<id>]                          sets its Parent, refusing itself or a card below it;
+                                                         --parent "" clears it
+         [--related <id>,<wave>/<id>]                    replaces the cards it is Related to, which both cards
+                                                         show; --related "" clears it, on both
          [--install <url> [--install-sha <sha>]          a device build the owner installs from the card's Install
           [--install-label <text>] | --clear-install]    button, stamped built_at now: itms-services://?action=
                                                          download-manifest&url=https://…/manifest.plist for iOS,
@@ -145,6 +149,10 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          [--ticket <id>] [--deps <id>,<wave>/<id>]       hand-edit wave.json to add one. Refuses an id the wave has.
          [--notes-file <file>]                           --plan is an alias of --notes-file
          [--pick-up-at <time>]                           holds it until then, as item set's --pick-up-at
+         [--parent <wave>/<id>]                          the card it was spun out of, such as one filed from
+                                                         another card's thread, grill or answer: it reads as a
+                                                         follow-up, and its Parent lists it in Children. A card
+                                                         from the + or New task has none
          Without /<id>, the card takes its ticket's id (GH-<n> for issue #n); pass an id only to import a
          card. Prints "<label> added as <key>": use the key in later commands
   item relate-ask <eventId> <wave>/<id> --summary <t>   folds an ask about an existing item into it: the ask's
@@ -171,10 +179,6 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          neither flag it is idle while no card has an open PR.
                                                          Then sends the queued pushes, each on its own, unless
                                                          pushes are held (overnight, snoozed, the weekend or off)
-  followup add <wave> --id <id> --title <t> [--from <item id>] [--ticket <id>]
-  followup done <wave> <id> --text <t> [--force]         closes the follow-up's card as item set --status done does,
-                                                         --text its closing line
-  followup set <wave> <id> --ticket <id>                links the follow-up's ticket in the board's source
   lineup create <slug> --title <t> --goal <t>            a wave, in the owner's words: a named set of cards in
          --cards <wave>/<id>,… (--note <t> | --file <f>)  build order, all from one wave file. Each card is then
                                                          blocked by the one before it (its other deps stay), and
@@ -194,7 +198,7 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          The Waves section's Triage sends wave-triage {lineup}, or {wave} for a wave file's row; the row reads
          Triaging… until you reply to that event, then "Triage: N open questions" while questions on topic
          lineup:<slug> or wave:<slug> are open or answered
-  tickets backfill [--dry-run]                           gives every open card and follow-up without a ticket one: the first
+  tickets backfill [--dry-run]                           gives every open card without a ticket one: the first
                                                          id in its title (or legacy linear list) from the board's
                                                          source is linked, else a new ticket is made. Done cards are
                                                          left alone. Prints each card's result; --dry-run changes and
@@ -452,19 +456,16 @@ const COMMANDS = {
   'prototype add': [['topic'], ['title', 'take', 'card'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take })],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'pushed', 'gh-since', 'from-ask', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force', 'ticket', 'text'], (site, [key], f, options) =>
-    store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps,
+  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'pushed', 'gh-since', 'from-ask', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'parent', 'related', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force', 'ticket', 'text'], (site, [key], f, options) =>
+    store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps, parent: f.parent, related: f.related,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, force: f.force, ticket: f.ticket, text: f.text }, options)],
-  'item add': [['wave[/id]'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket, pickUpAt: f['pick-up-at'] }, options)],
+  'item add': [['wave[/id]'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'parent'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket, pickUpAt: f['pick-up-at'], parent: f.parent }, options)],
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
   'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],
   'ask done': [['eventId'], [], (site, [id]) => store.markAsk(site, id, 'done')],
   'ask unfold': [['eventId'], [], (site, [id]) => store.unfoldAsk(site, id)],
   'ask move': [['eventId'], ['to'], (site, [id], f) => store.moveAsk(site, id, f.to)],
-  'followup add': [['wave'], ['id', 'title', 'from', 'ticket'], (site, [wave], f, options) => store.addFollowup(site, wave, f, options)],
   'tickets backfill': [[], ['dry-run'], (site, _, f, options) => store.backfillTickets(site, { dryRun: f['dry-run'] }, options)],
-  'followup done': [['wave', 'id'], ['force', 'text'], (site, [wave, id], f) => store.finishFollowup(site, wave, id, { force: f.force, text: f.text })],
-  'followup set': [['wave', 'id'], ['ticket'], (site, [wave, id], f) => store.setFollowupTicket(site, wave, id, f.ticket)],
   'lineup create': [['slug'], ['title', 'goal', 'cards', 'note', 'file'], (site, [slug], f) => store.createLineup(site, slug, { title: f.title, goal: f.goal, cards: f.cards, note: noteOf(f) })],
   'lineup add': [['slug', 'wave/id'], ['after'], (site, [slug, key], f) => store.changeLineup(site, slug, { add: key, after: f.after })],
   'lineup remove': [['slug', 'wave/id'], [], (site, [slug, key]) => store.changeLineup(site, slug, { remove: key })],
@@ -568,6 +569,7 @@ function itemChanges(f) {
     f.pr !== undefined && `PR #${f.pr}`, f.pushed !== undefined && `pushed ${f.pushed}`, f['gh-since'] && `GitHub read to ${f['gh-since']}`, f['from-ask'] && `from task ${f['from-ask']}`, f.state,
     f.held && 'held', f.unheld && 'resumed', pickUp !== undefined && (pickUp ? `held until ${pickUp}` : 'resumed'),
     notesFileOf(f) !== undefined && 'notes recorded', f.deps !== undefined && (f.deps ? `blocked by ${f.deps}` : 'deps cleared'),
+    f.parent !== undefined && (f.parent ? `parent ${f.parent}` : 'parent cleared'), f.related !== undefined && (f.related ? `related to ${f.related.split(',').join(', ')}` : 'related cleared'),
     f.install !== undefined && 'install published', f['clear-install'] && 'install cleared',
     f.title !== undefined && 'renamed', f.ticket !== undefined && `ticket ${f.ticket}`,
   ].filter(Boolean).join(', ');
@@ -599,9 +601,6 @@ const SAID = {
   'ask unfold': (site, [id]) => `task ${id} back on a card of its own`,
   'ask move': (site, [id], f) => `task ${id} moved to /${f.to}`,
   checked: (site, _, f, { every }) => (every === null ? 'GitHub checked; no open PR' : `GitHub checked; next in ${every} min`),
-  'followup add': async (site, [wave], f) => `follow-up ${await card(site, `${wave}/${f.id}`)} added`,
-  'followup done': async (site, [wave, id]) => `follow-up ${await card(site, `${wave}/${id}`)}: done`,
-  'followup set': async (site, [wave, id], f) => `follow-up ${await card(site, `${wave}/${id}`)}: ticket ${f.ticket}`,
   'lineup create': (site, [slug]) => `lineup ${slug} created`,
   'lineup add': async (site, [slug, key]) => `${await card(site, key)} added to lineup ${slug}`,
   'lineup remove': async (site, [slug, key]) => `${await card(site, key)} taken out of lineup ${slug}`,

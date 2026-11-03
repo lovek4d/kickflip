@@ -3,7 +3,7 @@
 // runs it with PORT and PREFIX (/<route>) set, and strips the prefix before forwarding.
 // It writes page events, hidden events, uploads and the owner's card taps; agent sessions write the other files
 // below through bin/board.mjs (store.mjs):
-//   reply, thread, topic add, question add|resolve, prototype add|rm, item set|relate-ask, ask progress|done, followup add|done,
+//   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask, ask progress|done,
 //   lineup create|add|remove|set|finish,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
 // <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_pull, github_login}. auto_build asks the hub to
@@ -18,8 +18,9 @@
 // and next is Claude's next step for it. install {url, label?, built_at, sha?} is a device build the card's Install
 // button opens (board.mjs item set --install); public/installs/ holds its files, served without a login like all of
 // public/, since iOS's installer fetches the manifest and .ipa with no cookies. A builder working on an item has a record in
-// agents/<id>.json (or agents/<id>@<agent>.json for each further agent) beside the wave file. A wave's followups [{id, title, from, filed, done}] are
-// Linear tickets filed along the way; they are Todo cards of their wave until done. A wave's lineups [{slug, title, goal,
+// agents/<id>.json (or agents/<id>@<agent>.json for each further agent) beside the wave file. An item's parent is the key of the card it was spun out of, which makes it a follow-up, and
+// its related the keys of cards it is Related to; a wave's older followups list moves into its items as the server
+// starts (store.mjs migrateFollowups). A wave's lineups [{slug, title, goal,
 // items, finished_at?}] are the owner's waves over its cards (store.mjs createLineup). domain.mjs
 // decides lanes and card state from what this server reads.
 //   GET  /, /settings.html, /questions.html, /notes.html
@@ -146,7 +147,7 @@ import { promisify } from 'node:util';
 import { buildBoard, ITEM_EVENTS, needsAnswer, ownerActions, pullOf, refOf, startedByAnswer, threadOf } from './domain.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, watch as watchFiles } from 'node:fs';
-import { BoardError, boardConfig, dueQueuedBuilds, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswer, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, boardConfig, dueQueuedBuilds, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswer, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -886,6 +887,8 @@ async function pushActions() {
   }
 }
 
+// docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md
+try { for (const line of await migrateFollowups(here)) console.log(line); } catch (e) { console.error('follow-up migration:', e.message); }
 await watchBoard();
 setInterval(checkStalled, 60000).unref();
 setInterval(checkPickUps, 60000).unref();

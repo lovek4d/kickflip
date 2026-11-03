@@ -181,10 +181,11 @@ BoardView.part((B) => {
     }
     if (it.branch) rows.push(['Branch', `<code>${esc(it.branch)}</code>`]);
     if (it.status) rows.push(['Status', esc(it.status)]);
-    const depRef = (d) => state.board?.items.find((i) => i.key === (d.includes('/') ? d : `${it.wave}/${d}`))?.ref || d;
-    if (it.deps.length) rows.push(['Waits on', linkText(it.deps.map(depRef).join(', '), ctx)]);
+    // docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md: each link row is a row of labels that open their cards.
+    for (const [label, list] of [['Parent', it.parent ? [it.parent] : []], ['Children', it.children], ['Related to', it.related], ['Blocked by', it.blockedBy], ['Waits on it', it.waitsOnIt]]) {
+      if (list?.length) rows.push([label, list.map(cardLink).join(' ')]);
+    }
     if (it.manualSteps.length) rows.push(['Manual steps', linkText(it.manualSteps.join('; '), ctx)]);
-    if (it.from) rows.push(['Filed from', esc(it.from)]);
     if (it.next) rows.push(['Next', linkText(it.next, ctx)]);
     // docs/adr/0062-notes-is-a-link-in-the-details-list.md
     const external = [
@@ -202,6 +203,7 @@ BoardView.part((B) => {
     </div>`;
   }
 
+  const cardLink = (l) => `<a class="card-link" href="#item=${encodeURIComponent(l.key)}">${esc(l.ref)}</a>`;
   // A card whose branch is pushed to a plain git remote has no PR to link, so its line copies the branch name
   // (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
   const pushedLink = (it) => `<a href="#" data-copy-branch="${esc(it.pushed.branch)}" title="Copy the branch name">${esc(pushedWords(it))}</a>`;
@@ -225,7 +227,6 @@ BoardView.part((B) => {
     nudge: () => 'Nudge Claude to check this builder?',
     grill: (it, ref) => `Ask Claude for questions about ${ref}?`,
     merge: (it, ref) => `Merge ${ref}? Claude squash-merges #${it.pr?.number} if it is still approved, green and clean.`,
-    build: (it, ref) => `Build ${ref}? Claude replies with a short plan, then builds it as a draft.`,
     'card-build': (it, ref) => (it.blockedBy?.length
       ? `${it.held ? 'Unhold and build' : 'Build'} ${ref} once ${it.blockedBy.map((d) => d.ref).join(', ')} ${it.blockedBy.length === 1 ? 'is' : 'are'} done? It waits in In Progress until then.`
       : `${it.held ? `Unhold and build ${ref}?` : `Build ${ref}?`} Claude starts its builder now with the notes as they stand.`),
@@ -244,8 +245,7 @@ BoardView.part((B) => {
     const ask = (act, label, cls = '') => `<button${cls ? ` class="${cls}"` : ''} data-confirm="${act}" data-key="${key}">${label}</button>`;
     const hold = it.kind !== 'work' || !it.holdable ? ''
       : it.held ? (it.buildable ? '' : ask('resume', 'Unhold', 'unhold')) : ask('hold', 'Hold');
-    const build = it.kind === 'followup' && it.lane !== 'done' ? `<button class="build" data-confirm="build" data-key="${key}">Build</button>` : '';
-    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${build}${mergeButton(it, sendingMerge.has(it.key))}${hold}${actionButton(it)}${tryButton(it)}${buildButton(it, sendingBuild.has(it.key))}`)}</div>`;
+    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${mergeButton(it, sendingMerge.has(it.key))}${hold}${actionButton(it)}${tryButton(it)}${buildButton(it, sendingBuild.has(it.key))}`)}</div>`;
   }
 
   // board/domain.mjs actionButtonOf picks the button and resolvedBy its colour (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md).
@@ -382,7 +382,7 @@ BoardView.part((B) => {
     b.disabled = true;
     try {
       if (act === 'nudge') { await B.sentHere(key, () => B.send('builder-nudge', { key })); b.textContent = 'Sent'; toast('Nudge sent'); }
-      else { await B.sentHere(key, () => B.send(act === 'grill' ? 'grill-more' : 'build-followup', { key })); B.loadThread(key, { force: true }); }
+      else { await B.sentHere(key, () => B.send('grill-more', { key })); B.loadThread(key, { force: true }); }
     } catch { redrawActions(key); toast('Could not send. Is the host awake?'); }
   });
 

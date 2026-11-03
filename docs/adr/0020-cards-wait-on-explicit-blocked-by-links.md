@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0156
+---
+
 # Cards wait on explicit blocked-by links
+
+Superseded in part by [0156](0156-a-follow-up-is-a-work-card-with-a-parent.md): the open card lists its unfinished deps in a Blocked by row of card labels, and a blocker lists the cards that Waits on it. The deps and what they gate are unchanged.
 
 Queued work names what it waits on in its `deps`. A card is blocked while any dep hasn't reached Done (`done`, `merged` or `dropped`, or its PR merged or closed). Its card shows a "Blocked by INT-10" chip for each unfinished dep on its last line, linking to that card, and a "Ready to start" chip among its other chips once none is left. A card that reached Done itself shows no Blocked by chip, even when it closed before a dep. An unstarted blocked or ready card sits in Todo; a started one keeps its lane ([0049](0049-a-started-card-never-returns-to-todo.md)).
 

@@ -304,7 +304,7 @@ export async function appendThread(site, key, { text: body, link, who = 'claude'
   else {
     const { wave: slug, id } = parseKey(key);
     const { wave } = await loadWave(site, slug);
-    if (![...wave.items, ...(wave.followups || [])].some((it) => it.id === id)) fail(`wave "${slug}" has no item or follow-up "${id}"`);
+    if (!wave.items.some((it) => it.id === id)) fail(`wave "${slug}" has no item "${id}"`);
   }
   if (!/^[^\n]{1,40}$/.test(who.trim())) fail('--who takes claude, love or a reviewer\'s name');
   if (via !== undefined && !VIA.includes(via)) fail(`--via takes ${VIA.join(' or ')}`);
@@ -323,7 +323,7 @@ export async function readAskLinks(site) {
 }
 
 // A card as the board labels it, for the one-line summaries board/bin/board.mjs and bin/wait-events.mjs print: a work
-// item or follow-up by its ref, an ask (ask:<event id>) by the card it became or was folded into, else "task <id>",
+// item by its ref, an ask (ask:<event id>) by the card it became or was folded into, else "task <id>",
 // the owner's word for an ask (CONTEXT.md New task).
 export async function cardName(site, key) {
   const { tickets } = settingsOf(await boardConfig(site));
@@ -335,7 +335,7 @@ export async function cardName(site, key) {
     const source = sources.find((s) => s.slug === m[1]);
     const wave = source && await readJSON(source.file, null);
     if (!wave) return m[2];
-    const card = [...(wave.items || []), ...(wave.followups || [])].find((it) => it.id === m[2]);
+    const card = (wave.items || []).find((it) => it.id === m[2]);
     return refOf(wave, card || { id: m[2] }, tickets);
   }
   const folded = site ? routeRecord(await readAskLinks(site), ask) : undefined;
@@ -1247,7 +1247,7 @@ function closingLine(site, key, item, status, text) {
 // (done, merged, dropped) adds a `resolved: <id>` line per question it resolved (closeQuestions).
 // notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`. text is the closing line
 // (closingLine), or with fromAsk the item's first thread line.
-async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, install, installSha, installLabel, clearInstall, title, force, text: said, who }, options) {
+async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, parent, related, install, installSha, installLabel, clearInstall, title, force, text: said, who }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
   if (state !== undefined && !CARD_STATES.includes(state)) fail('--state takes ready, grilling or prototyping');
   if (force && !FINISHED.includes(status)) fail(`--force goes with --status ${FINISHED.join(', ')}`);
@@ -1259,7 +1259,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   const hold = holdOf({ held, unheld, pickUpAt });
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, state, hold, notesFile, deps, built, title, ticket].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --notes-file, --deps, --install, --clear-install, --title or --ticket');
+  if ([status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, state, hold, notesFile, deps, parent, related, built, title, ticket].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --notes-file, --deps, --parent, --related, --install, --clear-install, --title or --ticket');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   const { source, wave, item } = await loadItem(site, key);
@@ -1273,6 +1273,11 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     const list = await depList(site, parseKey(key).wave, deps);
     if (list.length) item.deps = list; else delete item.deps;
   }
+  if (parent !== undefined) {
+    const to = await parentKey(site, parseKey(key).wave, key, parent);
+    if (to) item.parent = to; else delete item.parent;
+  }
+  const unrelate = related === undefined ? null : await setRelated(site, key, item, related);
   if (hold !== undefined) setHold(item, hold);
   if (status === 'building' && (item.held || item.status === 'held')) {
     fail(item.pick_up_at ? `${key} is held until ${item.pick_up_at}, when the board resumes it; start it early only with item set ${key} --unheld`
@@ -1328,6 +1333,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (!owedBefore && !['building', 'fixing'].includes(status) && owesNext(item, records)) fail(`that leaves ${key} In Progress with nothing building and no Next; pass --next "<what happens next>"`);
   const mcpLine = ticket !== undefined || (ask && !item.ticket && !item.linear?.length) ? await assignTicket(site, key, wave, item, ticket, options, source.dir, setTicketCommand(site, key)) : null;
   await writeJSON(source.file, wave);
+  if (unrelate) await unrelate();
   const resolved = await resolve();
   // docs/adr/0095-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   if (notesFile !== undefined) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
@@ -1401,17 +1407,15 @@ export async function pickUp(site, key, until, { announce = true } = {}) {
 // The owner's Hold, Resume or Done tap (card-hold {key, hold, until?} or card-done {key}), recorded in the wave file
 // as the board server takes it, with a thread line; a Done unblocks waiting cards as item set --status done does
 // (docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md). A merged or dropped card, and a Hold on a
-// follow-up, are left as they are. → the item set result, or null when nothing was written.
+// are left as they are. → the item set result, or null when nothing was written.
 export async function recordOwnerTap(site, kind, data) {
   const key = String(data?.key || '');
   const { wave: slug, id } = parseKey(key);
   const { source, wave } = await loadWave(site, slug);
-  const followup = (wave.followups || []).find((f) => f.id === id);
   // The owner's line, so it answers none of their messages that wait on Claude.
   const said = { text: 'Marked done.', who: 'love' };
-  if (kind === 'card-done' && followup) return followup.done ? null : finishFollowup(site, slug, id, { force: true, ...said });
-  const item = wave.items.find((it) => it.id === id) || (followup ? null : fail(`wave "${slug}" has no item "${id}"`));
-  if (!item || ['merged', 'dropped'].includes(item.status)) return null;
+  const item = wave.items.find((it) => it.id === id) || fail(`wave "${slug}" has no item "${id}"`);
+  if (['merged', 'dropped'].includes(item.status)) return null;
   if (kind === 'card-done') return setItem(site, key, { status: 'done', force: true, ...said });
   const until = data.hold ? (typeof data.until === 'string' ? new Date(data.until).toISOString() : null) : undefined;
   setHold(item, data.hold ? { until } : null);
@@ -1425,6 +1429,45 @@ async function depList(site, slug, deps) {
   const list = [...new Set(String(deps).split(',').map((d) => d.trim()).filter(Boolean))];
   for (const d of list) await loadItem(site, depKey(slug, d));
   return list;
+}
+
+// docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md
+// --parent for card key of wave slug (key null for a new card): the key of a card that exists, neither key itself nor
+// one of its descendants; "" is none.
+async function parentKey(site, slug, key, parent) {
+  if (!String(parent).trim()) return null;
+  const to = depKey(slug, String(parent).trim());
+  if (to === key) fail("--parent: a card can't be its own Parent");
+  for (let at = to; at;) {
+    const { item } = await loadItem(site, at);
+    if (item.parent && depKey(parseKey(at).wave, item.parent) === key) fail(`--parent: ${to} is a child of ${key}, so it can't be its Parent`);
+    at = item.parent ? depKey(parseKey(at).wave, item.parent) : null;
+  }
+  return to;
+}
+
+// --related for card key: a comma list of cards that exist, replacing the cards it is related to; "" is none. A link
+// shows on both cards whichever stores it, so each card the list leaves out loses its own link to key too: the returned
+// write does that once item's wave file is written.
+async function setRelated(site, key, item, related) {
+  const list = [...new Set(String(related).split(',').map((r) => r.trim()).filter(Boolean).map((r) => depKey(parseKey(key).wave, r)))];
+  if (list.includes(key)) fail("--related: a card can't be related to itself");
+  for (const r of list) await loadItem(site, r);
+  if (list.length) item.related = list; else delete item.related;
+  return async () => {
+    for (const entry of await itemSources(site)) {
+      const wave = await readJSON(entry.file, null);
+      let changed = false;
+      for (const it of Array.isArray(wave?.items) ? wave.items : []) {
+        const own = `${entry.slug}/${it.id}`;
+        if (own === key || list.includes(own) || !(it.related || []).some((r) => depKey(entry.slug, r) === key)) continue;
+        it.related = it.related.filter((r) => depKey(entry.slug, r) !== key);
+        if (!it.related.length) delete it.related;
+        changed = true;
+      }
+      if (changed) await writeJSON(entry.file, wave);
+    }
+  };
 }
 
 export const boardRepoOf = (site, wave) => (site && listBoards().find((b) => samePath(b.dir, site))?.github) || wave.repo;
@@ -1500,7 +1543,7 @@ async function assignTicket(site, self, wave, item, ticket, options, dir, link) 
     if (source.source === 'internal') {
       for (const entry of await itemSources(site)) {
         const w = await readJSON(entry.file, {});
-        for (const it of [...(w.items || []), ...(w.followups || [])]) {
+        for (const it of w.items || []) {
           const ids = [it.ticket, ownId(w, it)];
           max = Math.max(max, ...ids.map((id) => ticketIn(source, id) || 0));
           if (ticket !== undefined && `${entry.slug}/${it.id}` !== self && ids.includes(ticket)) throw Object.assign(new BoardError(`${ticket} is already the ticket of ${entry.slug}/${it.id}`), { held: true });
@@ -1520,16 +1563,17 @@ const ticketWrite = (site, fn) => withFileLock(path.join(site || wavesDir(), 'ti
 export const setItem = (site, key, changes, options) => (changes.ticket !== undefined || changes.fromAsk !== undefined
   ? ticketWrite(site, () => changeItem(site, key, changes, options)) : changeItem(site, key, changes, options));
 export const addItem = (site, key, details, options) => ticketWrite(site, () => createItem(site, key, details, options));
-export const addFollowup = (site, slug, details, options) => ticketWrite(site, () => createFollowup(site, slug, details, options));
 
 // → {file, key}. A new card starts unstarted: planned, or waiting when it names deps. key is <wave>/<id>, or <wave>
-// alone, which names the card from the ticket made or linked for it.
-async function createItem(site, key, { title, notes, deps, notesFile, ticket, pickUpAt }, options) {
+// alone, which names the card from the ticket made or linked for it. parent is the card it was spun out of
+// (docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md).
+async function createItem(site, key, { title, notes, deps, notesFile, ticket, pickUpAt, parent }, options) {
   const { wave: slug, id } = key.includes('/') ? parseKey(key) : { wave: key };
   if (id !== undefined) domId(id, 'the item id');
   const { source, wave } = await loadWave(site, slug);
   if (id !== undefined && wave.items.some((it) => it.id === id)) fail(`wave "${slug}" already has an item "${id}"`);
   const item = { id, title: text(title, '--title'), created: new Date().toISOString() };
+  if (parent !== undefined) item.parent = await parentKey(site, slug, null, parent) || fail('--parent takes a card, such as <wave>/<id>');
   if (notes !== undefined) item.notes = text(notes, '--notes');
   if (deps !== undefined) item.deps = await depList(site, slug, deps);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
@@ -1547,32 +1591,10 @@ async function createItem(site, key, { title, notes, deps, notesFile, ticket, pi
   return { file: source.file, key: `${slug}/${item.id}`, lines: line ? [line] : [] };
 }
 
-async function createFollowup(site, slug, { id, title, from, ticket }, options) {
-  const { source, wave } = await loadWave(site, slug);
-  domId(id, '--id');
-  const followups = wave.followups || [];
-  if (followups.some((f) => f.id === id)) fail(`wave "${slug}" already has follow-up ${id}`);
-  const item = { id, title: text(title, '--title'), ...(from === undefined ? {} : { from: text(from, '--from') }), filed: new Date().toISOString().slice(0, 10) };
-  const line = await assignTicket(site, `${slug}/${id}`, wave, item, ticket, options, source.dir, setTicketCommand(site, `${slug}/${id}`, true));
-  followups.push(item);
-  await writeJSON(source.file, { ...wave, followups });
-  return { file: source.file, lines: line ? [line] : [] };
-}
-
-// `followup set <wave> <id> --ticket <id>`: links a follow-up's ticket, as item set --ticket does a card's.
-export const setFollowupTicket = (site, slug, id, ticket) => ticketWrite(site, async () => {
-  const { source, wave } = await loadWave(site, slug);
-  const f = (wave.followups || []).find((x) => x.id === id) || fail(`wave "${slug}" has no follow-up "${id}"`);
-  await assignTicket(site, `${slug}/${id}`, wave, f, text(ticket, '--ticket'), undefined, source.dir);
-  await writeJSON(source.file, wave);
-  return source.file;
-});
-
 const boardCommand = (site) => `board.mjs ${site ? `--site ${path.basename(site)} ` : ''}`;
-const setTicketCommand = (site, key, followup = false) => (followup
-  ? `${boardCommand(site)}followup set ${key.replace('/', ' ')}` : `${boardCommand(site)}item set ${key}`);
+const setTicketCommand = (site, key) => `${boardCommand(site)}item set ${key}`;
 
-// `tickets backfill`: each open card and follow-up with no ticket links the first id in its title, or in its legacy
+// `tickets backfill`: each open card with no ticket links the first id in its title, or in its legacy
 // `linear` list, that belongs to the board's source, else gets a new ticket. An internal wave's card whose ticket is
 // its own id has none outside the board, so under GitHub or Linear it gets one too. An Internal id another card holds is only
 // a mention, so that card gets a new one. Done cards are left alone. dryRun writes nothing and calls no source. A Linear
@@ -1587,7 +1609,7 @@ async function backfill(site, dryRun, options) {
     const wave = await readJSON(entry.file, null);
     if (!Array.isArray(wave?.items)) continue;
     waves.push({ entry, wave });
-    for (const it of [...wave.items, ...(wave.followups || [])]) {
+    for (const it of wave.items) {
       if (it.ticket) held.add(it.ticket);
       if (wave.internal === true && source.source === 'internal') held.add(String(it.id).replace(/^S(\d+)$/, `${source.prefix}-$1`));
     }
@@ -1596,9 +1618,8 @@ async function backfill(site, dryRun, options) {
   const counts = { linked: 0, created: 0, failed: 0, mcp: 0 };
   const ticketed = (wave, it) => it.ticket && !(source.source !== 'internal' && wave.internal === true && it.ticket === it.id);
   for (const { entry, wave } of waves) {
-    for (const it of [...wave.items, ...(wave.followups || [])]) {
-      const followup = !wave.items.includes(it);
-      if (ticketed(wave, it) || (followup ? it.done : FINISHED.includes(it.status))) continue;
+    for (const it of wave.items) {
+      if (ticketed(wave, it) || FINISHED.includes(it.status)) continue;
       const key = `${entry.slug}/${it.id}`;
       const found = [...titleTickets(source, it.title), ...(it.linear || []).filter((id) => ticketIn(source, id))]
         .find((id) => source.source !== 'internal' || !held.has(id));
@@ -1608,7 +1629,7 @@ async function backfill(site, dryRun, options) {
         continue;
       }
       try {
-        const mcp = await assignTicket(site, key, wave, it, found, options, entry.dir, setTicketCommand(site, key, wave.items.includes(it) === false));
+        const mcp = await assignTicket(site, key, wave, it, found, options, entry.dir, setTicketCommand(site, key));
         if (mcp) { counts.mcp++; lines.push(`${key} ${mcp}`); continue; }
         await writeJSON(entry.file, wave);
         held.add(it.ticket);
@@ -1626,19 +1647,30 @@ async function backfill(site, dryRun, options) {
   return { lines: [...lines, `backfill${dryRun ? ' (dry run)' : ''}: ${total}`] };
 }
 
-// text is the follow-up's closing thread line, which it needs on a site (closingLine), written as who.
-export async function finishFollowup(site, slug, id, { force, text: said, who } = {}) {
-  const { source, wave } = await loadWave(site, slug);
-  const f = (wave.followups || []).find((x) => x.id === id) || fail(`wave "${slug}" has no follow-up "${id}"`);
-  const resolve = await closeQuestions(site, `${slug}/${id}`, 'followup done', force);
-  if (said !== undefined) text(said, '--text');
-  else if (site) fail(`followup done needs --text "<what was done or left>", which becomes ${slug}/${id}'s last thread line`);
-  f.done = true;
-  await writeJSON(source.file, wave);
-  const lines = await resolve();
-  if (site) lines.push(...(await appendThread(site, `${slug}/${id}`, { text: said, who })).lines);
-  return { file: source.file, lines };
-}
+// docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md
+// Moves each wave file's follow-ups, a list kept beside its items until then, into its items, once: each keeps its id,
+// title, ticket and notes, its date as when it was made, and its Filed from as its Parent; a done one is done, closed
+// at its thread's last line. A wave whose follow-up has a card's id is left as it is, and named in the refusal.
+// Run by the board server as it starts. → one line per wave file moved.
+export const migrateFollowups = (site) => ticketWrite(site, async () => {
+  const lines = [];
+  for (const entry of await itemSources(site)) {
+    const wave = await readJSON(entry.file, null);
+    if (!Array.isArray(wave?.items) || !Array.isArray(wave.followups)) continue;
+    const clash = wave.followups.find((f) => wave.items.some((it) => it.id === f.id));
+    if (clash) fail(`${entry.slug}: follow-up ${clash.id} has the id of a card; rename one, then restart the board`);
+    const moved = [];
+    for (const { id, title, from, filed, done, ...rest } of wave.followups) {
+      const closedAt = done ? (site && (await readLines(threadFile(site, `${entry.slug}/${id}`))).map((l) => l.ts).filter(Boolean).sort().pop()) || filed : null;
+      moved.push({ id, title, ...(filed ? { created: filed } : {}), ...(from ? { parent: depKey(entry.slug, from) } : {}),
+        status: done ? 'done' : 'planned', ...(closedAt ? { status_at: closedAt } : {}), ...rest });
+    }
+    const { followups, ...kept } = wave;
+    await writeJSON(entry.file, { ...kept, items: [...wave.items, ...moved] });
+    lines.push(`${entry.slug}: ${moved.length} follow-ups moved to cards (${moved.filter((m) => m.status === 'done').length} done)`);
+  }
+  return lines;
+});
 
 // A lineup is what the owner calls a wave: a named set of one wave file's cards in build order, kept in that file's
 // `lineups` (docs/adr/0109-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md). Its note is lineup-<slug>.md beside

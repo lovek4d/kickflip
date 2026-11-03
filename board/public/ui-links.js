@@ -3,7 +3,7 @@
 // the ui-*.js files that render text.
 (function () {
   const { esc, record } = globalThis.BoardUI;
-  // The Linear id shape store.mjs accepts for a follow-up, which an internal ref shares.
+  // The Linear id shape, which an internal ref shares.
   const LINEAR_ID = /^([A-Z][A-Z0-9]*)-\d+$/;
   const LINEAR_ISSUE = /^https:\/\/linear\.app\/[^/]+\/issue\//;
   // A GitHub ticket's ref (board/domain.mjs refOf).
