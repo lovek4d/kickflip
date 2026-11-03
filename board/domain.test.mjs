@@ -1066,3 +1066,9 @@ test("the Waves section lists each open lineup with its goal, order, progress an
   assert.deepEqual(fileAsked.waveRows.map((r) => r.triage.questions), [1, 0, 1]);
   assert.deepEqual(fileAsked.needs.map((n) => [n.text, n.topic, n.waveRow]), [['Monitor · 1 question', 'lineup:mon', 'mon'], ['other · 1 question', 'wave:other', 'other']]);
 });
+
+test('a follow-up filed from a card carries that card\'s label, or the stored id when the card isn\'t on the board', () => {
+  const wave = { items: [{ id: 'GH-41', title: 'Parent', ticket: '#41' }], followups: [{ id: 'F1', title: 'a', filed: '2026-10-22', from: 'GH-41' }, { id: 'F2', title: 'b', filed: '2026-10-22', from: 'GH-9' }, { id: 'F3', title: 'c', filed: '2026-10-22' }] };
+  const b = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), tickets: { source: 'github' }, waves: [{ slug: 'w', wave }] });
+  assert.deepEqual(['F1', 'F2', 'F3'].map((id) => b.items.find((i) => i.id === id).from), ['#41', 'GH-9', null]);
+});

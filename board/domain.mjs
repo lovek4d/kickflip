@@ -577,6 +577,8 @@ export function buildBoard(snapshot) {
     (wave.followups || []).forEach((f, n) => items.push(followUp({ slug, wave, f, order: wave.items.length + n, repo, bumpedAt: cardBumps.get(`${slug}/${f.id}`), closedAt: cardDones.get(`${slug}/${f.id}`), tickets })));
   }
   const works = new Map(items.map((i) => [i.key, i]));
+  // A follow-up files from a card of its wave by id; its view carries that card's label, or the id when the card isn't on the board.
+  for (const it of items) if (it.kind === 'followup' && it.from) it.from = works.get(`${it.wave}/${it.from}`)?.ref || it.from;
   // An ask that became work or was folded into a card shows in that card's thread instead of as a card of its own; old
   // links to it open that card.
   const moved = new Map();

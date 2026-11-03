@@ -947,7 +947,7 @@ test('a work card reads its title, then its next step or builder, its chips, its
   const blocked = { ...internal, lane: 'todo', deps: ['S1', 'S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }] };
   assert.deepEqual(lines(ui.workLines(blocked)), ['INT-3 Five', 'blocked by INT-2']);
   assert.match(ui.workLines(blocked), /href="#item=site%2FS2"/);
-  assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [] })), ['INT-3 Five', 'ready to start']);
+  assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [] })), ['INT-3 Five']);
   assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [], next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
     ['INT-3 Five', 'Next: Answer 1 question', 'Action needed']);
   const waiting = { ...workCard, lane: 'todo', deps: ['S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }], bumpedAt: ago(1) };
@@ -977,6 +977,7 @@ test("a card's last line is the time its lane sorts by, then its hold with no he
 
   const held = { ...card, held: true };
   assert.deepEqual(lines(ui.workLines(held)), ['ENG-1 Five', `${ui.cardTime(updatedAt)} · held`]);
+  assert.match(ui.workLines(held), /<span class="card-hold"[^>]*>held<\/span>/);
   assert.deepEqual(lines(ui.workLines({ ...held, updatedAt: null }, { unread: 1 })), ['ENG-1 Five', 'held · 1 new message']);
   const now = new Date();
   const at = (days, h, m) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + days, h, m);
