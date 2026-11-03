@@ -438,7 +438,7 @@ test('an ask topic carries when it was asked, for the question pill', () => {
 
 test('a new task is a New card in Todo with no action while it waits or works, and a Done item named by its time once Claude replies or writes in its thread', () => {
   const asks = [askAt('a1', '2026-10-23T09:00:00Z'), askAt('a2', '2026-10-23T10:00:00Z'), askAt('a3', '2026-10-23T08:00:00Z', { reply: { html: 'Yes.' } }), askAt('a4', '2026-10-23T07:00:00Z')];
-  const threads = { 'ask:a4': [{ ts: '2026-10-23T07:30:00Z', who: 'claude', text: 'Answered here.' }] };
+  const threads = { 'ask:a4': [{ ts: '2026-10-23T07:30:00Z', who: 'claude', text: 'Answered here.' }, { ts: '2026-10-23T07:40:00Z', who: 'Sam', via: 'slack', text: 'Agreed' }] };
   const b = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [{ slug: 'w', wave: { items: [{ id: 'A1', title: 'One', status: 'building' }] } }], events: asks, threads, working: { a2: '2026-10-23T10:01:00Z' } });
   const cards = b.items.filter((i) => i.kind === 'ask').map((i) => [i.key, i.lane, refKind(i.ref), i.isNew, i.title, i.ask.state, i.working, i.fold, i.action]);
   assert.deepEqual(cards, [
@@ -812,15 +812,18 @@ test("each lane has one fixed order, each card carrying the time it sorts by: To
   assert.deepEqual(lanesOf(bumped).todo, ['ask:a1', 'ask:a2', 'ENG-1', 'T1', 'ENG-2', 'T2']);
 });
 
-test("an internal card's ref reads INT-<n> with no repo, and each card lists when others wrote in its thread, leaving out builder status lines", () => {
-  const owner = { items: [{ id: 'q1', topic: 'item:site/S3', question: 'Keep it?' }] };
+test("an internal card's ref reads INT-<n> with no repo, and each card lists when Claude or GitHub wrote in its thread, leaving out builder status lines and the owner's answers", () => {
+  const owner = { items: [{ id: 'q1', topic: 'item:site/S3', question: 'Keep it?' }, { id: 'q2', topic: 'item:site/S3', question: 'Ship it?', state: 'resolved' }] };
   const threads = { 'site/S3': [
     { ts: '2026-10-23T09:00:00Z', who: 'claude', text: 'Built.' },
     { ts: '2026-10-23T09:05:00Z', who: 'love', text: 'Thanks' },
     { ts: '2026-10-23T09:10:00Z', who: 'Jamie', via: 'github', text: 'Nit' },
+    { ts: '2026-10-23T09:12:00Z', who: 'Sam', via: 'slack', text: 'Saw it' },
+    { ts: '2026-10-23T09:13:00Z', who: 'love', via: 'slack', text: 'Same' },
     { ts: '2026-10-23T09:15:00Z', who: 'claude', kind: 'status', text: 'Codex: Fixing the nit' },
   ] };
-  const events = [{ id: 'm1', ts: '2026-10-23T09:20:00Z', kind: 'item-message', data: { key: 'site/S3', text: 'Fix it' }, reply: { html: 'Fixed.', at: '2026-10-23T09:30:00Z' } }];
+  const events = [{ id: 'm1', ts: '2026-10-23T09:20:00Z', kind: 'item-message', data: { key: 'site/S3', text: 'Fix it' }, reply: { html: 'Fixed.', at: '2026-10-23T09:30:00Z' } },
+    { id: 'o1', ts: '2026-10-23T09:40:00Z', kind: 'owner-answer', data: { id: 'q2', choice: 'A', note: 'Ship' }, reply: null }];
   const b = buildBoard({
     fromWaves: false, owner, threads, events,
     waves: [

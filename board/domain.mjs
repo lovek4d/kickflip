@@ -108,6 +108,10 @@ const OWNER_MERGE_NEXT = { waiting: 'Approved, Merge shows once CI and the merge
 const FIX_CI = 'Fix the failing CI';
 const TAP_DONE = 'Tap Done once it is settled';
 
+// Only Claude's and GitHub's messages are ever unread, and replies, which are Claude's; never the owner's lines,
+// their answers included, nor status, agent or ask-link lines (ui-threads.js unread).
+const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && !['status', 'agent', 'ask-link'].includes(m.kind);
+
 // said is the owner's messages and answers in the card's thread (threadOf), and askedAt the asked_at of its questions.
 function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agents, eta, thread, events, working, said, askedAt, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, tickets }) {
   const merged = it.status === 'merged' || Boolean(it.merged_at) || pr?.state === 'MERGED' || pr?.state === 'CLOSED';
@@ -126,7 +130,7 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
   const inReviewSince = Object.values(sentAt).filter(Boolean).sort()[0] || null;
   const lastTs = [...thread.map((m) => m.ts), ...events.map((e) => e.ts)].sort().pop() || null;
   // A builder status line is progress, not a message: it is never unread and answers no owner message.
-  const othersAt = [...thread.filter((m) => (m.who || 'claude') !== 'love' && m.kind !== 'status').map((m) => m.ts), ...events.map((e) => e.reply?.at)].filter(Boolean).sort();
+  const othersAt = [...thread.filter((m) => countsUnread({ ...m, who: m.who || 'claude' })).map((m) => m.ts), ...events.map((e) => e.reply?.at)].filter(Boolean).sort();
   const lastGrill = events.filter((e) => e.kind === 'grill-more').pop();
   // A branch pushed to a plain git remote, which has no PR (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
   const pushed = !it.pr && it.pushed?.branch ? { branch: it.pushed.branch, at: it.pushed.at || null, host: remote?.host || null } : null;
@@ -343,7 +347,7 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
   const ownerPending = msgs.some((m) => m.who === 'love' && m.kind !== 'ask' && (m.state === 'waiting' || m.state === 'working'));
   const state = handled ? 'answered' : msg.state;
   const bumped = handled ? null : bumpedAt || null;
-  const othersAt = [...msgs.filter((m) => m.who !== 'love' && m.kind !== 'ask-link').map((m) => m.ts), ...msgs.map((m) => m.reply?.at)].filter(Boolean).sort();
+  const othersAt = [...msgs.filter(countsUnread).map((m) => m.ts), ...msgs.map((m) => m.reply?.at)].filter(Boolean).sort();
   const lastTs = [...msgs.map((m) => m.ts), ...othersAt, ...(inProgress ? [mark.at] : [])].filter(Boolean).sort().pop();
   return {
     key: `ask:${e.id}`, kind: 'ask', order: 0, wave: null, waveTitle: null, id: e.id, ref: handled ? askedLabel(e.ts) : 'New', isNew: !handled, title, status: null,

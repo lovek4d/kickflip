@@ -1146,7 +1146,7 @@ test('a builder status line, and an agent starting or finishing, reads as one li
   assert.doesNotMatch(agents, /class="who"|data-withdraw|data-edit/);
 });
 
-test("an open card's thread shows its newest 3 messages with the lines between them, every unread one when more are unread, a message being edited or waiting on Claude always, and Show more saying how many messages it hides", () => {
+test("an open card's thread shows its newest 3 messages with the lines between them, from its oldest unread one when more are unread, a message being edited always, and Show more saying how many messages it hides", () => {
   const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
   const msgs = [
     { ts: at(0), who: 'claude', text: 'One' },
@@ -1179,11 +1179,35 @@ test("an open card's thread shows its newest 3 messages with the lines between t
   assert.match(unread, /<blockquote class="quote">Two\?<\/blockquote>/);
   assert.equal(more(unread), 'Show more · 2 previous messages');
 
+  const slack = ui.threadMessages(msgs, {}, new Map(), { seenAt: at(4), more: 0 });
+  assert.deepEqual(shown(slack), ['Four', 'Opened #1', 'Five', 'Opus builder finished', 'Six', 'CI green']);
+
   const waiting = ui.threadMessages(msgs.map((m) => (m.eventId ? { ...m, state: 'waiting', reply: null } : m)), {}, new Map(), read);
-  assert.deepEqual(shown(waiting).slice(0, 2), ['Two?', 'Opus builder started']);
-  assert.equal(more(waiting), 'Show more · 1 previous message');
+  assert.deepEqual(shown(waiting), shown(newest));
+  assert.equal(more(waiting), 'Show more · 3 previous messages');
   const editing = ui.threadMessages(msgs, {}, new Map([['e1', { text: 'Two, edited' }]]), read);
   assert.deepEqual(shown(editing).slice(0, 2), ['Two?', 'Two.']);
+});
+
+test("only Claude's and GitHub's messages are unread: the owner's answers after an unread reply fold under Show more past 10 lines, and a batch of answers waits on Claude once, under its last answer", () => {
+  const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
+  const answer = (n) => ({ ts: at(n), who: 'love', via: 'questions', kind: 'owner-answer', text: `Q${n}?\n→ A${n}`, eventId: `o${n}`, reply: null, state: 'waiting' });
+  const grill = { ts: at(0), who: 'love', via: 'site', kind: 'grill-more', text: 'Grill', eventId: 'g1', state: 'replied', reply: { html: 'Questions up.', at: at(1) } };
+  const answers = Array.from({ length: 12 }, (_, i) => answer(10 + i));
+  const bodies = (html) => [...html.matchAll(/<div class="body">([^<]*)/g)].map((m) => m[1].replace(/\n.*/, ''));
+  const waits = (html) => html.split(/(?=<div class="msg )/).filter((h) => h.includes('Waiting for Claude')).map((h) => /Q\d+/.exec(h)[0]);
+
+  const read = ui.threadMessages([grill, ...answers], {}, new Map(), { seenAt: at(59), more: 0 });
+  assert.deepEqual(bodies(read), ['Q19?', 'Q20?', 'Q21?']);
+  assert.deepEqual(waits(read), ['Q21']);
+  const unread = ui.threadMessages([grill, ...answers], {}, new Map(), { seenAt: at(0), more: 0 });
+  assert.deepEqual(bodies(unread), answers.slice(2).map((a) => a.text.replace(/\n.*/, '')));
+  assert.deepEqual(waits(unread), ['Q21']);
+  const all = ui.threadMessages([grill, ...answers], {}, new Map(), null);
+  assert.deepEqual(waits(all), ['Q21']);
+
+  const split = ui.threadMessages([answer(10), answer(11), { ts: at(12), who: 'claude', text: 'On it' }, answer(13), { ts: at(14), who: 'claude', kind: 'status', text: 'Testing' }, answer(15)], {}, new Map(), null);
+  assert.deepEqual(waits(split), ['Q11', 'Q15']);
 });
 
 test("an ask's link line opens the work it became, and a thread line opens a linked card on the board", () => {

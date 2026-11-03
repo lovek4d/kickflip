@@ -27,7 +27,8 @@
   // A message being edited shows its edit box in place of its text; app-asks.js handles the form.
   const editForm = (id, text) => `<form class="edit-form" data-edit-form="${esc(id)}"><textarea rows="3">${esc(text)}</textarea>
         <div class="row"><span></span><span><button type="button" data-edit-cancel>Cancel</button> <button class="primary" type="submit">Save</button></span></div></form>`;
-  const line = (m, links, edits) => (m.kind === 'reply'
+  // batched: an answer followed by another of the owner's answers, which carries the batch's Waiting for Claude.
+  const line = (m, links, edits, batched = false) => (m.kind === 'reply'
     ? `<div class="msg claude reply-msg"><div class="who">Claude · ${esc(time(m.ts))}</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body">${linkHtml(replyBody(m.reply), links)}</div></div>`
     : m.kind === 'ask-link' ? `<div class="msg link"><a href="${esc(m.link)}">${esc(m.text)} →</a></div>`
     : m.kind === 'status' ? `<div class="msg builder-status"><span class="working-dot" aria-hidden="true"></span>${linkText(m.text, links)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
@@ -36,20 +37,23 @@
         <div class="who">${m.who === 'love' ? 'You' : m.who === 'claude' ? 'Claude' : esc(m.who)}${VIA[m.via] || ''}${m.moved ? ' · Moved' : ''}${m.from ? ` · Moved from ${esc(m.from)}` : ''}${m.edited ? ' · Edited' : ''} · ${esc(time(m.ts))}</div>
         <div class="body"${edits.has(m.eventId) ? ' hidden' : ''}>${m.html ? linkHtml(m.html, links) : linkText(m.text, links)}</div>${edits.has(m.eventId) ? editForm(m.eventId, edits.get(m.eventId).text) : ''}${attachments(m.files)}
         ${m.link ? `<div class="small">${cardLink(m.link) || anyLink(m.link, m.link)}</div>` : ''}
-        ${m.eventId ? msgFooter(m) : ''}
+        ${m.eventId && !batched ? msgFooter(m) : ''}
       </div>`);
 
   const STEP = 3;
+  const UNREAD_CAP = 10;
   const NOT_MESSAGE = new Set(['status', 'agent', 'ask-link']);
   const isMessage = (m) => !NOT_MESSAGE.has(m.kind);
-  // The badge's unread test (domain.mjs othersAt, ui-cards.js unreadCount).
-  const unread = (m, seenAt) => Boolean(seenAt) && isMessage(m) && m.who !== 'love' && String(m.ts) > seenAt;
+  // Only Claude's and GitHub's messages are unread, as on the badge (domain.mjs othersAt, ui-cards.js unreadCount).
+  const unread = (m, seenAt) => Boolean(seenAt) && isMessage(m) && (m.who === 'claude' || m.via === 'github') && String(m.ts) > seenAt;
+  const batchedAt = (lines, i) => lines[i].kind === 'owner-answer' && lines.slice(i + 1).find(isMessage)?.kind === 'owner-answer';
+  // The window opens from the oldest unread message, at most UNREAD_CAP messages back; a message being edited always shows.
   function threadWindow(lines, { seenAt = null, more = 0, upto = null }, edits) {
     const counted = lines.flatMap((m, i) => (isMessage(m) && (!upto || String(m.ts) <= upto) ? [i] : []));
     const firstUnread = lines.findIndex((m) => unread(m, seenAt));
     const unreadSpan = firstUnread < 0 ? 0 : counted.filter((i) => i >= firstUnread).length;
-    const want = Math.max(STEP, unreadSpan) + STEP * more;
-    const pinned = lines.findIndex((m) => m.eventId && (edits.has(m.eventId) || ['waiting', 'working'].includes(stateOf(m))));
+    const want = Math.max(STEP, Math.min(UNREAD_CAP, unreadSpan)) + STEP * more;
+    const pinned = lines.findIndex((m) => m.eventId && edits.has(m.eventId));
     const start = Math.min(counted.length > want ? counted[counted.length - want] : 0, pinned < 0 ? Infinity : pinned);
     const hidden = lines.filter((m, i) => i < start && isMessage(m)).length;
     return { start: hidden ? start : 0, hidden };
@@ -65,7 +69,7 @@
     const { start, hidden } = view ? threadWindow(lines, view, edits) : { start: 0, hidden: 0 };
     const shown = lines.slice(start);
     if (start && shown[0].kind === 'reply' && !shown[0].quote) shown[0] = { ...shown[0], quote: lines[start - 1].text || '' };
-    return (hidden ? moreButton(hidden) : '') + shown.map((m) => line(m, links, edits)).join('');
+    return (hidden ? moreButton(hidden) : '') + shown.map((m, i) => line(m, links, edits, batchedAt(lines, start + i))).join('');
   }
 
   // The reply form's Done sends ask-done or card-done; the board applies it before the session follows up.
