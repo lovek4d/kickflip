@@ -13,3 +13,5 @@ The Prosperity license still governs the package. Minification makes distributio
 Considered: a compiled single binary per platform with Node SEA or `bun build --compile`, installed by a Homebrew tap or curl script. It needs a build per platform and a download host, while plain files still have to live beside it. Bundling one file per entry point breaks path-based spawns and the hub's own code hash: `hubCode` in hub/boards.mjs follows relative imports.
 
 The command `kickflip install` was later renamed `kickflip init`, with no `install` alias; the text above keeps the old name.
+
+A `v*` tag later made GitHub Actions the publisher, gated on the suite, the build and a smoke install ([0158](0158-a-v-tag-publishes-kickflip-to-npm.md)).

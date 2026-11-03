@@ -1,0 +1,44 @@
+# A v* tag publishes dist/ to npm as @lovek4d/kickflip (docs/adr/0158-a-v-tag-publishes-kickflip-to-npm.md).
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm 11.5.1 or later; Node 22 ships npm 10.
+      - run: npm install -g npm@11
+      - run: npm ci
+      - name: Test
+        run: |
+          git config --global user.name "kickflip release"
+          git config --global user.email "release@users.noreply.github.com"
+          node --test
+      - run: npm run build
+      - name: Tag matches the package version
+        run: |
+          version="$(node -p "require('./dist/package.json').version")"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match dist/package.json version $version"
+            exit 1
+          fi
+      - name: Smoke install
+        run: |
+          smoke="$(mktemp -d)"
+          npm pack ./dist --pack-destination "$smoke"
+          npm install -g --prefix "$smoke/prefix" "$smoke"/*.tgz
+          "$smoke/prefix/bin/kickflip" > "$smoke/usage.txt"
+          grep -q '^  kickflip doctor' "$smoke/usage.txt"
+      - run: npm publish ./dist --access public
