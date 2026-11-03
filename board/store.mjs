@@ -10,6 +10,7 @@ import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.m
 import { readUsageGate, pauseReason } from '../shared/usage-gate.mjs';
 import { dropQueued, reviseQueued, flushQueue, queueStatus } from '../hub/push.mjs';
 import { holdLine } from '../hub/schedule.mjs';
+import { AT_RE } from '../hub/duration.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleTickets, mcpCreateLine } from './tickets.mjs';
 import { withFileLock } from '../hub/locks.mjs';
@@ -1116,15 +1117,15 @@ export async function setMainInstall(site, { install, installSha }) {
 // → the wave file, and when a dep finishes the items it unblocked as `unblocked: <key>` lines; closing
 // (done, merged, dropped) adds a `resolved: <id>` line per question it resolved (closeQuestions).
 // notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`.
-async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, ghSince, fromAsk, held, unheld, notesFile, deps, install, installSha, installLabel, clearInstall, title, force, confirmed }, options) {
+async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, ghSince, fromAsk, held, unheld, pickUpAt, notesFile, deps, install, installSha, installLabel, clearInstall, title, force, confirmed }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
   if (confirmed !== undefined && status !== 'building') fail('--confirmed goes with --status building');
   if (force && !FINISHED.includes(status)) fail(`--force goes with --status ${FINISHED.join(', ')}`);
   if (next !== undefined && clearNext) fail('pass --next or --clear-next, not both');
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
-  if (held && unheld) fail('pass --held or --unheld, not both');
+  const hold = holdOf({ held, unheld, pickUpAt });
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([status, clearStatus, next, clearNext, pr, ghSince, fromAsk, held, unheld, notesFile, deps, built, title, ticket].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --gh-since, --from-ask, --held, --unheld, --notes-file, --deps, --install, --clear-install, --title or --ticket');
+  if ([status, clearStatus, next, clearNext, pr, ghSince, fromAsk, hold, notesFile, deps, built, title, ticket].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --gh-since, --from-ask, --held, --unheld, --pick-up-at, --notes-file, --deps, --install, --clear-install, --title or --ticket');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   const { source, wave, item } = await loadItem(site, key);
@@ -1135,11 +1136,11 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     const list = await depList(site, parseKey(key).wave, deps);
     if (list.length) item.deps = list; else delete item.deps;
   }
-  // docs/adr/0023-a-card-can-be-held-and-every-card-button-confirms.md
-  if (held) item.held = true;
-  if (unheld) { delete item.held; if (item.status === 'held') delete item.status; }
-  if (held || unheld) item.held_at = new Date().toISOString();
-  if (status === 'building' && (item.held || item.status === 'held')) fail(`${key} is held; start it only once the owner resumes it, with item set ${key} --unheld`);
+  if (hold !== undefined) setHold(item, hold);
+  if (status === 'building' && (item.held || item.status === 'held')) {
+    fail(item.pick_up_at ? `${key} is held until ${item.pick_up_at}, when the board resumes it; start it early only with item set ${key} --unheld`
+      : `${key} is held; start it only once the owner resumes it, with item set ${key} --unheld`);
+  }
   if (status !== undefined) item.status = ITEM_STATUSES.includes(status) ? status : fail(`--status takes ${ITEM_STATUSES.join(', ')}`);
   if (status === 'building') {
     const blockers = await unfinishedDeps(site, parseKey(key).wave, item);
@@ -1190,6 +1191,42 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     await appendEvent({ dir: site }, 'card-unblocked', { key: k });
   }
   return { file: source.file, lines: [...unblocked.map((k) => `unblocked: ${k}`), ...resolved] };
+}
+
+// docs/adr/0023-a-card-can-be-held-and-every-card-button-confirms.md, docs/adr/0118-a-card-can-be-held-until-a-time.md
+// The hold --held, --unheld and --pick-up-at ask for: {until} holds the card, until null meaning until the owner resumes
+// it, null resumes it, and undefined leaves it. --pick-up-at "" clears the time, which resumes the card.
+function holdOf({ held, unheld, pickUpAt }) {
+  if ([held, unheld, pickUpAt !== undefined].filter(Boolean).length > 1) fail('pass one of --held, --unheld and --pick-up-at');
+  if (pickUpAt !== undefined) return pickUpAt === '' ? null : { until: pickUpTime(pickUpAt) };
+  return held ? { until: null } : unheld ? null : undefined;
+}
+// A past time is refused, so a typo can't start a card at once.
+function pickUpTime(value) {
+  const ms = typeof value === 'string' && AT_RE.test(value) ? Date.parse(value) : NaN;
+  if (Number.isNaN(ms)) fail('--pick-up-at takes an ISO time such as 2026-11-04T09:00, the Mac’s local time unless it names an offset, or "" to resume the card');
+  if (ms <= Date.now()) fail(`--pick-up-at ${value} has passed; pass a later time, or --unheld to resume the card now`);
+  return new Date(ms).toISOString();
+}
+function setHold(item, hold) {
+  if (hold) item.held = true; else delete item.held;
+  if (hold?.until) item.pick_up_at = hold.until; else delete item.pick_up_at;
+  if (!hold && item.status === 'held') delete item.status;
+  item.held_at = new Date().toISOString();
+}
+
+// A held card whose pick-up time `until` has passed, as board/server.mjs checkPickUps finds it: resumed in its wave
+// file. announce first adds a thread line and, unless a dep is unfinished, card-unblocked {key, until}, as a finished
+// dep does; it is false when those were sent before a restart cut the write short.
+export async function pickUp(site, key, until, { announce = true } = {}) {
+  const { source, wave, item } = await loadItem(site, key);
+  if (announce) {
+    const at = new Date(until).toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Resumed: its hold until ${at} ended.` });
+    if (!(await unfinishedDeps(site, parseKey(key).wave, item)).length) await appendEvent({ dir: site }, 'card-unblocked', { key, until });
+  }
+  setHold(item, null);
+  await writeJSON(source.file, wave);
 }
 
 // A comma list of deps, each an item that exists; "" is none.
@@ -1251,7 +1288,7 @@ export const addItem = (site, key, details, options) => ticketWrite(site, () => 
 export const addFollowup = (site, slug, details, options) => ticketWrite(site, () => createFollowup(site, slug, details, options));
 
 // → the wave file. A new card starts unstarted: planned, or waiting when it names deps.
-async function createItem(site, key, { title, notes, deps, notesFile, ticket }, options) {
+async function createItem(site, key, { title, notes, deps, notesFile, ticket, pickUpAt }, options) {
   const { wave: slug, id } = parseKey(key);
   domId(id, 'the item id');
   const { source, wave } = await loadWave(site, slug);
@@ -1261,6 +1298,7 @@ async function createItem(site, key, { title, notes, deps, notesFile, ticket }, 
   if (deps !== undefined) item.deps = await depList(site, slug, deps);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
   item.status = item.deps?.length ? 'waiting' : 'planned';
+  if (pickUpAt !== undefined) setHold(item, { until: pickUpTime(pickUpAt) });
   const line = await assignTicket(site, key, wave, item, ticket, options, source.dir, setTicketCommand(site, key));
   wave.items.push(item);
   await writeJSON(source.file, wave);

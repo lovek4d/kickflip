@@ -116,7 +116,10 @@ function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, threa
   const waitsOn = waitsOnOf(lane, pr, builder, (it.status || '').toLowerCase());
   const changing = waitsOn === 'builder' && pr?.state === 'OPEN' && !pr.isDraft;
   const redReady = lane === 'progress' && !waitsOn && pr?.state === 'OPEN' && !pr.isDraft;
-  const held = holdAsk && String(holdAsk.ts) > String(it.held_at || '') ? Boolean(holdAsk.data.hold) : it.status === 'held' || Boolean(it.held);
+  const tapped = holdAsk && String(holdAsk.ts) > String(it.held_at || '');
+  const held = tapped ? Boolean(holdAsk.data.hold) : it.status === 'held' || Boolean(it.held);
+  // docs/adr/0118-a-card-can-be-held-until-a-time.md
+  const heldUntil = held ? (tapped ? holdAsk.data.until : it.pick_up_at) || null : null;
   // docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md
   const bumpable = !held && (lane === 'todo' || (lane === 'progress' && waitsOn !== 'ready' && waitsOn !== 'checking'));
   // The owner's Merge waits on the session until it merges or writes in the thread, such as why it can't merge yet.
@@ -128,7 +131,7 @@ function workItem({ slug, wave, it, order, pr, repo, builder, agents, eta, threa
     created: it.created || null,
     internal: wave.internal === true, repo: wave.internal === true && !wave.repo ? null : repo,
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, agents, eta, working,
-    deps: it.deps || [], held, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable ? bumpedAt || null : null,
+    deps: it.deps || [], held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable ? bumpedAt || null : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
     merging, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, from: null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || null,

@@ -869,7 +869,7 @@ test('a work card reads its title, then its next step or builder, its chips, its
   assert.deepEqual(lines(ui.workLines({ ...workCard, next: null, pr: null, reviewers: [] }, { unread: 1 })), ['ENG-1 Five', '1 new message']);
   assert.doesNotMatch(text(ui.workLines(workCard)), /B5|msg|unread|new/);
   const busy = { ...workCard, held: true, risky: true, builder: { progress: 'Running tests', at: null } };
-  assert.deepEqual(lines(ui.workLines(busy)), ['ENG-1 Five', 'Running tests', 'repo#7 ● CI ✓ J ✗ held risky']);
+  assert.deepEqual(lines(ui.workLines(busy)), ['ENG-1 Five', 'Running tests', 'repo#7 ● CI ✓ J ✗ risky', 'held']);
   const internal = { ...workCard, key: 'site/S3', id: 'S3', ref: 'INT-3', internal: true, pr: null, linear: [{ id: 'ENG-9', url: 'u' }], next: null };
   assert.deepEqual(lines(ui.workLines(internal)), ['INT-3 Five']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, questions: { open: 1, first: 'q1' }, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
@@ -893,12 +893,12 @@ test('a work card reads its title, then its next step or builder, its chips, its
   assert.match(ui.workLines(followup), /<a class="chip tone-quiet" href="u"[^>]*>ENG-7<\/a>.*<span class="chip tone-quiet">follow-up<\/span>/s);
 });
 
-test("a card's last line is the time its lane sorts by, then its unread messages, with no age badge", () => {
+test("a card's last line is the time its lane sorts by, then its hold with no held chip, then its unread messages, with no age badge", () => {
   const created = ago(24 * 5);
   const updatedAt = ago(30);
-  const card = { ...workCard, lane: 'todo', pr: null, reviewers: [], next: null, held: true, created, updatedAt };
+  const card = { ...workCard, lane: 'todo', pr: null, reviewers: [], next: null, created, updatedAt };
   const last = (html) => lines(html).at(-1);
-  assert.deepEqual(lines(ui.workLines(card)), ['ENG-1 Five', 'held', ui.cardTime(updatedAt)]);
+  assert.deepEqual(lines(ui.workLines(card)), ['ENG-1 Five', ui.cardTime(updatedAt)]);
   assert.equal(last(ui.workLines(card, { by: 'touched' })), ui.cardTime(updatedAt));
   assert.equal(last(ui.workLines(card, { by: 'created' })), ui.cardTime(created));
   assert.match(ui.workLines(card, { by: 'created' }), new RegExp(`<div class="line6 sub card-time"><time datetime="${created}">`));
@@ -906,7 +906,19 @@ test("a card's last line is the time its lane sorts by, then its unread messages
   assert.equal(last(ui.workLines(card, { unread: 3 })), `${ui.cardTime(updatedAt)} · 3 new messages`);
   assert.match(ui.workLines(card, { unread: 3 }), /<span class="card-unread"><span class="sep"> · <\/span>3 new messages<\/span><\/div>/);
   assert.doesNotMatch(text(ui.workLines(card)), /days? ago/);
-  assert.deepEqual(lines(ui.workLines({ ...card, updatedAt: null })), ['ENG-1 Five', 'held']);
+
+  const held = { ...card, held: true };
+  assert.deepEqual(lines(ui.workLines(held)), ['ENG-1 Five', `${ui.cardTime(updatedAt)} · held`]);
+  assert.deepEqual(lines(ui.workLines({ ...held, updatedAt: null }, { unread: 1 })), ['ENG-1 Five', 'held · 1 new message']);
+  const now = new Date();
+  const at = (days, h, m) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + days, h, m);
+  const clock = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s?([AP]M)$/i, (_, x) => ` ${x.toLowerCase()}`);
+  const until = (d) => ({ ...held, heldUntil: d.toISOString() });
+  assert.equal(last(ui.workLines(until(at(2, 9, 0)), { unread: 2 })), `${ui.cardTime(updatedAt)} · held until ${at(2, 9, 0).toLocaleDateString([], { weekday: 'short' })} ${clock(at(2, 9, 0))} · 2 new messages`);
+  assert.equal(last(ui.workLines(until(at(0, 23, 59)))), `${ui.cardTime(updatedAt)} · held until ${clock(at(0, 23, 59))}`);
+  assert.equal(last(ui.workLines(until(at(6, 9, 0)))), `${ui.cardTime(updatedAt)} · held until ${at(6, 9, 0).toLocaleDateString([], { weekday: 'short' })} ${clock(at(6, 9, 0))}`);
+  assert.equal(last(ui.workLines(until(at(7, 9, 0)))), `${ui.cardTime(updatedAt)} · held until ${at(7, 9, 0).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}, ${clock(at(7, 9, 0))}`);
+  assert.doesNotMatch(ui.workLines(until(at(2, 9, 0))), /class="chip[^"]*">held/);
 });
 
 test("a card's time reads the time only today, adds the day before today, and adds the year past 365 days", () => {

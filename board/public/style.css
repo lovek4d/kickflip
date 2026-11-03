@@ -394,6 +394,8 @@ main > * { transition: opacity .25s ease; }
 /* ADR 0040: the GitHub mark opens the Hub links sheet, with a red dot while a link is broken; a new board's setup checklist */
 .lane-github .gh-links { position: relative; display: inline-flex; align-items: center; padding: 4px; margin: -4px -2px -4px -4px; font-size: inherit; line-height: 1; color: inherit; }
 .lane-github .links-dot { position: absolute; top: 1px; right: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--color-danger); box-shadow: 0 0 0 1.5px var(--bg); }
+.hold-sheet .hold-lede { margin: 0 0 2px; font-size: 13.5px; line-height: 1.4; }
+.hold-sheet .hub-view .dur-chips .btn { min-height: 44px; font-size: 15px; }
 .sheet .sheet-body { padding: 10px 16px max(12px, calc(env(safe-area-inset-bottom) - var(--app-bottom, 0px))); }
 .hub-links { list-style: none; margin: 0; padding: 0; }
 .hub-links li { display: flex; align-items: baseline; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); min-width: 0; }

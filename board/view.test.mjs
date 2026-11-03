@@ -2058,6 +2058,40 @@ test("every bumpable card, closed or open, carries the bump icon at its top righ
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-bump', { key: 'w/T2' }]]);
 });
 
+test('Hold opens a sheet of the shared duration picker in place of a confirm, whose chip sends card-hold with that choice, and Resume confirms naming the time', async () => {
+  const until = new Date(Date.now() + 2 * 86_400_000).toISOString();
+  const holdChoices = [['1h', '1h'], ['3h', '3h'], ['6h', '6h'], ['1d', '1d'], ['forever', 'Forever']].map(([value, label]) => ({ value, label, until: value === 'forever' ? 'until you resume it' : 'until 4:40pm' }));
+  const cards = [workCard('T1', { ref: 'INT-41', holdable: true }), workCard('P1', { ref: 'INT-43', lane: 'progress', holdable: true }), workCard('H1', { ref: 'INT-42', held: true, heldUntil: until, holdable: true })];
+  const b = boardOnDom({ open: cards.map((c) => c.key), board: { ...boardOf(cards), holdChoices }, threads: {}, confirm: true });
+  await b.settle();
+  const button = (key, act) => b.root.querySelector(`details.item[data-key="${key}"] [data-confirm="${act}"]`);
+  const sheet = b.root.querySelector('#holdSheet');
+  b.page.fire(b.root, 'click', { target: button('w/P1', 'hold') });
+  await b.settle();
+  assert.deepEqual([sheet.open, sheet.querySelector('#holdTitle').textContent, sheet.querySelector('#holdLede').textContent],
+    [true, 'Hold INT-43', 'Claude stops work on it until then. Forever holds it until you resume it.']);
+  b.page.fire(sheet.querySelector('#holdClose'), 'click');
+  b.page.runTimers();
+  assert.equal(sheet.open, false);
+  b.page.fire(b.root, 'click', { target: button('w/T1', 'hold') });
+  await b.settle();
+  assert.deepEqual(b.confirms, []);
+  assert.deepEqual([sheet.open, sheet.querySelector('#holdTitle').textContent, sheet.querySelector('#holdLede').textContent],
+    [true, 'Hold INT-41', 'It won’t start until then. Forever holds it until you resume it.']);
+  const chips = sheet.querySelectorAll('[data-hold-for]');
+  assert.deepEqual(chips.map((c) => [c.textContent, c.getAttribute('aria-label')]), holdChoices.map((c) => [c.label, `${c.label}, ${c.until}`]));
+  assert.ok(sheet.querySelector('.dur-custom [data-hold-at]'));
+  b.page.fire(sheet, 'click', { target: chips[1] });
+  await b.settle();
+  b.page.runTimers();
+  assert.equal(sheet.open, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-hold', { key: 'w/T1', hold: true, for: '3h' }]]);
+  b.page.fire(b.root, 'click', { target: button('w/H1', 'resume') });
+  await b.settle();
+  assert.deepEqual(b.confirms, [`Resume INT-42? It's held until ${b.page.win.BoardUI.heldUntilWords(until)}. It can start again once nothing blocks it.`]);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['card-hold', { key: 'w/H1', hold: false }]);
+});
+
 test('the Stalled chip on closed and open cards confirms before sending a builder nudge and shows a sent notice', async () => {
   for (const open of [[], ['w/S1']]) {
     const item = workCard('S1', { lane: 'progress', builder: { stalled: true, progress: 'Running tests', at: null } });
@@ -2216,10 +2250,10 @@ test("a closed card ends its time line with its count of unread messages, and op
   const chips = (key) => card(key).querySelector('summary .line2')?.children.map((c) => c.textContent) ?? null;
   const last = (key) => card(key).querySelector('summary .card-time')?.textContent ?? null;
   const time = b.page.win.BoardUI.cardTime(at(6));
-  assert.deepEqual([chips('w/A1'), last('w/A1'), chips('w/A2'), last('w/A2')], [null, '2 new messages', ['held'], `${time} · 1 new message`]);
+  assert.deepEqual([chips('w/A1'), last('w/A1'), chips('w/A2'), last('w/A2')], [null, '2 new messages', null, `${time} · held · 1 new message`]);
   for (const key of ['w/A1', 'w/A2']) { card(key).open = true; b.page.fire(b.root, 'toggle', { target: card(key) }); }
   await b.settle();
-  assert.deepEqual([last('w/A1'), last('w/A2')], [null, time]);
+  assert.deepEqual([last('w/A1'), last('w/A2')], [null, `${time} · held`]);
 });
 
 function layOut(b) {

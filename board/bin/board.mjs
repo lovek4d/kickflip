@@ -94,9 +94,16 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          [--from-ask <eventId>]                          the ask it came from: its New card gives way to this item,
                                                          whose thread opens with the ask and its thread; it leaves
                                                          a card it was folded into
-         [--held | --unheld]                             records the owner's card-hold in the wave file;
+         [--held | --unheld | --pick-up-at <time>]       records the owner's card-hold in the wave file;
                                                          the board already shows it. A later --held/--unheld
-                                                         overrides the tap; --unheld also clears a held status
+                                                         overrides the tap; --unheld also clears a held status.
+                                                         --pick-up-at holds it until an ISO time such as
+                                                         2026-11-04T09:00 (the Mac's local time without an
+                                                         offset; a past time is refused), stored as UTC
+                                                         pick_up_at. Within a minute of it the board server
+                                                         resumes the card, adds a thread line, and appends
+                                                         card-unblocked {key, until} unless a dep is unfinished.
+                                                         --held holds it with no time; --pick-up-at "" resumes it
          [--ticket <id>]                                links a ticket in the board’s source
          [--title <t>]                                   renames the card
          [--notes-file <file>]                           the item's notes: a .md file inside its wave's folder,
@@ -132,6 +139,7 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
   item add <wave>/<id> --title <t> [--notes <t>]          a new card, planned (waiting when it has --deps); never
          [--ticket <id>] [--deps <id>,<wave>/<id>]       hand-edit wave.json to add one. Refuses an id the wave has.
          [--notes-file <file>]                           --plan is an alias of --notes-file
+         [--pick-up-at <time>]                           holds it until then, as item set's --pick-up-at
   item relate-ask <eventId> <wave>/<id> --summary <t>   folds an ask about an existing item into it: the ask's
                                                          card goes, its message and thread show in the item's
                                                          thread marked Moved, then the summary line. Again with
@@ -389,10 +397,10 @@ const COMMANDS = {
   'prototype add': [['topic'], ['title', 'take', 'card'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take })],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'gh-since', 'from-ask', 'held', 'unheld', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force', 'ticket', 'confirmed'], (site, [key], f, options) =>
-    store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, ghSince: f['gh-since'], fromAsk: f['from-ask'], held: f.held, unheld: f.unheld, notesFile: notesFileOf(f), deps: f.deps,
+  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'gh-since', 'from-ask', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force', 'ticket', 'confirmed'], (site, [key], f, options) =>
+    store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, ghSince: f['gh-since'], fromAsk: f['from-ask'], held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, force: f.force, ticket: f.ticket, confirmed: f.confirmed }, options)],
-  'item add': [['wave/id'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket }, options)],
+  'item add': [['wave/id'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket, pickUpAt: f['pick-up-at'] }, options)],
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
   'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],
   'ask done': [['eventId'], [], (site, [id]) => store.markAsk(site, id, 'done')],

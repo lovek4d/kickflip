@@ -237,7 +237,7 @@
 
   globalThis.BoardUI = {
     LINK_ARROW,
-    esc, record, time, ago, since, etaLine, cardTime, replyBody, setHTML, fetchJSON, RESTARTING, restartNotice,
+    esc, record, time, ago, since, clock, etaLine, cardTime, replyBody, setHTML, fetchJSON, RESTARTING, restartNotice,
     attachments, attachButton, pendingFiles, protoButton, protoNotice, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, BADGE_TONES, badge,
   };
 })();

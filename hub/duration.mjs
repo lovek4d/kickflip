@@ -1,4 +1,4 @@
-// The one duration picker Snooze and Keep awake share (docs/adr/0112-snooze-and-keep-awake-share-one-duration-picker.md):
+// The one duration picker Snooze, Keep awake and a card's Hold share (docs/adr/0112-snooze-and-keep-awake-share-one-duration-picker.md):
 // its chips, and when a choice ends. An end is stored as an ISO time, or FOREVER for on until turned off.
 export const FOREVER = 'forever';
 
@@ -6,7 +6,7 @@ export const FOREVER = 'forever';
 export const CHOICES = Object.freeze([['1h', '1h'], ['3h', '3h'], ['6h', '6h'], ['1d', '1d'], [FOREVER, 'Forever']]);
 export const MAX_MS = 30 * 86_400_000;
 
-const AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})?$/;
+export const AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})?$/;
 const UNIT_MS = { m: 60_000, h: 3_600_000, d: 86_400_000, w: 7 * 86_400_000 };
 
 // When a choice made at `now` ends: FOREVER for `forever`; `<n>m`, `<n>h`, `<n>d` or `<n>w` of elapsed time, a day

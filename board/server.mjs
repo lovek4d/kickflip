@@ -34,7 +34,8 @@
 //                                current version caches for a year, anything else revalidates by ETag. Every
 //                                text response, the API's included, is gzipped when the request accepts it;
 //                                API JSON stays no-store
-//   GET  /api/board              the board's title (board.json's, as the page shows it), its reviewers' names, and lanes of those items, with
+//   GET  /api/board              the board's title (board.json's, as the page shows it), its reviewers' names, the Hold sheet's
+//                                holdChoices [{value, label, until}] (../hub/views.mjs durationChoices), and lanes of those items, with
 //                                per-item review_link_ts and legacy ~/.claude/slack-bridge/topics/*.json fallbacks,
 //                                data/owner.json and GitHub (gh, cached for 45 s).
 //                                owner.json: {topics: [{id, title, summary}], items: [{id, topic,
@@ -69,7 +70,12 @@
 //                                builder-nudge {key} asks the session to check a builder. The server also appends
 //                                builder-stalled {key, silentSince} once per silent spell, tracked in data/builder-stalled.json
 //                                item set appends card-unblocked {key} when a waiting card's last dep finishes,
-//                                including held cards, so the owning session hears it whoever ran the command
+//                                including held cards, so the owning session hears it whoever ran the command.
+//                                card-hold {key, hold: true, for} is a Hold sheet chip or its Custom time
+//                                (../hub/duration.mjs durationEnd), stored as {key, hold: true, until} or, for
+//                                Forever, {key, hold: true}; a choice that ends in the past or past 30 days → 400 {error}.
+//                                Within a minute of a held card's until or pick_up_at the server resumes it
+//                                (store.mjs pickUp), at most once per time even across a restart
 //   POST /api/upload             the raw file as the body, its name URI-encoded in x-filename and its
 //                                type in content-type → data/uploads/<ms>-<safe name>, returning the
 //                                upload {name, url, path, type, size}: url is relative to the site
@@ -111,12 +117,14 @@ import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { buildBoard, ITEM_EVENTS, needsAnswer, refOf, threadOf } from './domain.mjs';
 import { createReadStream, watch as watchFiles } from 'node:fs';
-import { BoardError, boardConfig, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswer, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, boardConfig, pickUp, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswer, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { routeRecord } from '../hub/routes.mjs';
+import { FOREVER, durationEnd } from '../hub/duration.mjs';
+import { durationChoices } from '../hub/views.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 
@@ -396,7 +404,8 @@ async function board() {
   const listen = self ? listenState(self) : 'deaf';
   const built = buildBoard({ ...(await snapshot()), listen, prompts: self ? pendingFor(self.route).map(shown) : [] });
   const links = self ? linksOf(self, { listen }) : null;
-  return { generatedAt: new Date().toISOString(), title, reviewers: (reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string'), ...built, links, setup: await setupOf(links) };
+  return { generatedAt: new Date().toISOString(), title, reviewers: (reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string'), ...built, links, setup: await setupOf(links),
+    holdChoices: durationChoices(new Date(), 'until you resume it') };
 }
 
 async function itemOf(key) {
@@ -585,6 +594,12 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const kind = String(body.kind || 'message').slice(0, 64);
       delete body.kind;
+      if (kind === 'card-hold' && body.hold && body.for !== undefined) {
+        const end = durationEnd(new Date(), body.for);
+        if (!end) return json(res, 400, { error: 'That hold ends in the past or more than 30 days on. Pick another time.' });
+        delete body.for;
+        if (end !== FOREVER) body.until = end.toISOString();
+      }
       const id = await appendEvent(kind, body);
       if (kind === 'owner-answer') {
         try { await dropQueued([`q-${body.id}`], path.basename(here)); } catch {}
@@ -672,7 +687,30 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// docs/adr/0118-a-card-can-be-held-until-a-time.md
+let checkingPickUps = false;
+async function checkPickUps() {
+  if (checkingPickUps) return;
+  checkingPickUps = true;
+  try {
+    const now = Date.now();
+    const due = buildBoard({ ...(await itemSnapshot()), events: await shownEvents(), now }).items
+      .filter((it) => it.heldUntil && it.lane !== 'done' && Date.parse(it.heldUntil) <= now);
+    // The resumed wave file stops a second pick-up; the event log covers a restart between the event and that write.
+    const sent = due.length ? await readLines(events) : [];
+    for (const { key, heldUntil: until } of due) {
+      await pickUp(here, key, until, { announce: !sent.some((e) => e.kind === 'card-unblocked' && e.data?.key === key && e.data?.until === until) });
+    }
+  } catch (err) {
+    console.error('Pick-up check failed:', err.message);
+  } finally {
+    checkingPickUps = false;
+  }
+}
+
 await watchBoard();
 setInterval(checkStalled, 60000).unref();
+setInterval(checkPickUps, 60000).unref();
 await checkStalled();
+await checkPickUps();
 server.listen(port, '127.0.0.1', () => console.log(`site on http://127.0.0.1:${port}/ (prefix ${prefix || 'none'})`));

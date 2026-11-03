@@ -344,6 +344,13 @@ window.BoardView = (function () {
     <div class="main-log-actions"><button type="button" class="primary" id="mainLogRetry">Retry</button></div>
   </div>
 </dialog>
+<dialog id="holdSheet" class="sheet hold-sheet" aria-labelledby="holdTitle">
+  <div class="sheet-body">
+    <div class="sheet-head"><h2 id="holdTitle" tabindex="-1"></h2><button type="button" class="ghost" id="holdClose" aria-label="Close">✕</button></div>
+    <p id="holdLede" class="hold-lede muted"></p>
+    <div id="holdPicker"></div>
+  </div>
+</dialog>
 <dialog id="linksSheet" class="sheet" aria-labelledby="linksTitle">
   <div class="sheet-body">
     <div class="sheet-head"><h2 id="linksTitle">Hub links</h2><button type="button" class="ghost" id="linksClose" aria-label="Close">✕</button></div>

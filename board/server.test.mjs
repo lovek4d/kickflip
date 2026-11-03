@@ -222,7 +222,7 @@ test("a new task is a New card until it becomes work, whose thread then holds th
   assert.deepEqual(await thread('t/A2'), [[id, 'Fix the header', 'answered'], [reply.id, 'Also the footer', 'answered'], [null, 'Footer too.', undefined]]);
 });
 
-test("an ask's Done and a work card's Hold, Resume and Done apply at once from their events", async () => {
+test("an ask's Done and a work card's Hold, Resume and Done apply at once from their events, a Hold's chosen time with them", async () => {
   const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const { id } = await post('/_claude/events', { kind: 'ask', text: 'Settings prototype' });
   const card = async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === `ask:${id}`);
@@ -237,6 +237,23 @@ test("an ask's Done and a work card's Hold, Resume and Done apply at once from t
   assert.equal((await work()).held, true);
   await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: false });
   assert.equal((await work()).held, false);
+  const board = await (await fetch(`${base}/api/board`)).json();
+  assert.deepEqual(board.holdChoices.map((c) => c.value), ['1h', '3h', '6h', '1d', 'forever']);
+  const before = Date.now();
+  await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: true, for: '3h' });
+  const timed = await work();
+  assert.equal(timed.held, true);
+  assert.ok(Math.abs(Date.parse(timed.heldUntil) - before - 3 * 3_600_000) < 60_000);
+  const at = new Date(Date.now() + 2 * 86_400_000).toISOString();
+  await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: true, for: at });
+  assert.equal((await work()).heldUntil, at);
+  await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: true, for: 'forever' });
+  assert.deepEqual(await work().then((c) => [c.held, c.heldUntil]), [true, null]);
+  const refuse = (choice) => fetch(base + '/_claude/events', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'card-hold', key: 't/A2', hold: true, for: choice }) });
+  for (const choice of [new Date(Date.now() - 60_000).toISOString(), new Date(Date.now() + 31 * 86_400_000).toISOString(), 'soon']) assert.equal((await refuse(choice)).status, 400, choice);
+  const sent = fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).filter((e) => e.kind === 'card-hold').slice(-3).map((e) => e.data);
+  assert.deepEqual(sent, [{ key: 't/A2', hold: true, until: timed.heldUntil }, { key: 't/A2', hold: true, until: at }, { key: 't/A2', hold: true }]);
+  await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: false });
   await post('/_claude/events', { kind: 'card-done', key: 't/A2' });
   assert.deepEqual(await work().then((c) => [c.lane, c.status, c.finishable]), ['done', 'done', false]);
   assert.equal(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'), wave);

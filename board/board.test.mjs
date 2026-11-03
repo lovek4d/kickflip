@@ -1618,6 +1618,38 @@ test('a held item emits its unblocking but never starts until --unheld resumes i
   assert.equal(board('item', 'set', 'd/A2', '--status', 'building', '--site', 'orch').code, 0);
 });
 
+test('--pick-up-at holds a card until a time, read as local time without an offset and stored as UTC; a past time is refused, "" and --unheld resume it, and --held drops the time', () => {
+  write(at('waves', 'd', 'wave.json'), { items: [{ id: 'A1', title: 'One', status: 'planned' }] });
+  const item = (id = 'A1') => read(at('waves', 'd', 'wave.json')).items.find((it) => it.id === id);
+  const later = new Date(Date.now() + 2 * 86_400_000);
+  const pad = (n) => String(n).padStart(2, '0');
+  const local = `${later.getFullYear()}-${pad(later.getMonth() + 1)}-${pad(later.getDate())}T09:00`;
+  const nine = new Date(later.getFullYear(), later.getMonth(), later.getDate(), 9, 0).toISOString();
+  assert.equal(board('item', 'set', 'd/A1', '--pick-up-at', local, '--site', 'orch').code, 0);
+  assert.deepEqual([item().held, item().pick_up_at], [true, nine]);
+  const refused = board('item', 'set', 'd/A1', '--status', 'building', '--site', 'orch');
+  assert.equal(refused.code, 1);
+  assert.match(refused.err, new RegExp(`d/A1 is held until ${nine}.*--unheld`));
+  for (const bad of ['2020-01-01T09:00', '2026-11-04', 'Wed 9am']) {
+    const r = board('item', 'set', 'd/A1', '--pick-up-at', bad, '--site', 'orch');
+    assert.equal(r.code, 1, bad);
+    assert.match(r.err, /--pick-up-at/);
+  }
+  assert.equal(board('item', 'set', 'd/A1', '--pick-up-at', local, '--held', '--site', 'orch').code, 1);
+  assert.equal(board('item', 'set', 'd/A1', '--pick-up-at', later.toISOString(), '--site', 'orch').code, 0);
+  assert.equal(item().pick_up_at, later.toISOString());
+  assert.equal(board('item', 'set', 'd/A1', '--held', '--site', 'orch').code, 0);
+  assert.deepEqual([item().held, item().pick_up_at], [true, undefined]);
+  assert.equal(board('item', 'set', 'd/A1', '--pick-up-at', local, '--site', 'orch').code, 0);
+  assert.equal(board('item', 'set', 'd/A1', '--pick-up-at', '', '--site', 'orch').code, 0);
+  assert.deepEqual([item().held, item().pick_up_at], [undefined, undefined]);
+  assert.equal(board('item', 'set', 'd/A1', '--pick-up-at', local, '--site', 'orch').code, 0);
+  assert.equal(board('item', 'set', 'd/A1', '--unheld', '--site', 'orch').code, 0);
+  assert.deepEqual([item().held, item().pick_up_at], [undefined, undefined]);
+  assert.equal(board('item', 'add', 'd/A2', '--title', 'Two', '--pick-up-at', local, '--site', 'orch').code, 0);
+  assert.deepEqual([item('A2').status, item('A2').held, item('A2').pick_up_at], ['planned', true, nine]);
+});
+
 test('item set --status building waits on a confirm round after a prototype answer with a note, until a clean answer or --confirmed quoting the note', () => {
   const card = (id, url, extra = {}) => question(id, { topic: 'item:w/A1', ...(url ? { url: `${url}?q=${id}` } : {}), ...extra });
   write(site('orch', 'data', 'owner.json'), { topics: [{ id: 'site', title: 'Site' }], items: [

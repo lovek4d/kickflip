@@ -617,7 +617,7 @@ test('a bumped card that has not started, or is running, tops its lane, the late
   ]);
 });
 
-test('a card-hold applies at once unless held_at is newer, including a legacy held status, and only cards outside Done can be held', () => {
+test('a card-hold applies at once unless held_at is newer, including a legacy held status, and only cards outside Done can be held; a held card ends at the newest hold time', () => {
   const hold = (key, ts, value) => ({ id: 'h' + ts, ts, kind: 'card-hold', data: { key, hold: value }, reply: null });
   const items = [
     { id: 'A1', title: 'One', status: 'planned' },
@@ -629,6 +629,18 @@ test('a card-hold applies at once unless held_at is newer, including a legacy he
   const events = [hold('w/A1', '2026-10-23T11:00:00Z', true), hold('w/A2', '2026-10-23T11:10:00Z', false), hold('w/A3', '2026-10-23T11:10:00Z', false), hold('w/A4', '2026-10-23T11:10:00Z', true), hold('w/A1', '2026-10-23T10:00:00Z', false)];
   const cards = Object.fromEntries(askBoard(events, { items }).items.filter((i) => i.kind === 'work').map((i) => [i.id, [i.held, i.holdable]]));
   assert.deepEqual(cards, { A1: [true, true], A2: [false, true], A3: [true, true], A4: [false, true], A5: [false, false] });
+
+  const until = (key, ts, at) => ({ ...hold(key, ts, true), data: { key, hold: true, until: at } });
+  const timed = [
+    { id: 'T1', title: 'Tapped', held: true, pick_up_at: '2026-11-05T17:00:00.000Z', held_at: '2026-10-23T11:00:00Z' },
+    { id: 'T2', title: 'Recorded', held: true, pick_up_at: '2026-11-05T17:00:00.000Z', held_at: '2026-10-23T11:20:00Z' },
+    { id: 'T3', title: 'Forever', held: true, pick_up_at: '2026-11-05T17:00:00.000Z', held_at: '2026-10-23T11:00:00Z' },
+    { id: 'T4', title: 'Resumed', held: true, pick_up_at: '2026-11-05T17:00:00.000Z', held_at: '2026-10-23T11:00:00Z' },
+  ];
+  const taps = [until('w/T1', '2026-10-23T11:10:00Z', '2026-11-04T17:00:00.000Z'), until('w/T2', '2026-10-23T11:10:00Z', '2026-11-04T17:00:00.000Z'),
+    hold('w/T3', '2026-10-23T11:10:00Z', true), hold('w/T4', '2026-10-23T11:10:00Z', false)];
+  const ends = Object.fromEntries(askBoard(taps, { items: timed }).items.map((i) => [i.id, [i.held, i.heldUntil]]));
+  assert.deepEqual(ends, { T1: [true, '2026-11-04T17:00:00.000Z'], T2: [true, '2026-11-05T17:00:00.000Z'], T3: [true, null], T4: [false, null] });
 });
 
 test("every lane lists its newest card first, and a card with no activity after them, the last added on top, with Todo's follow-ups after its work; ranked by created instead, the newest made first, New and bumped cards still on top", () => {

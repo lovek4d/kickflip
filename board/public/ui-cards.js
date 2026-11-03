@@ -1,6 +1,6 @@
 // Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js and ui-enums.js.
 (function () {
-  const { esc, ago, cardTime, etaLine, workingLine, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, LINK_ARROW } = globalThis.BoardUI;
+  const { esc, ago, clock, cardTime, etaLine, workingLine, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, LINK_ARROW } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   function prChips(it) {
     const pr = it.pr;
@@ -119,14 +119,41 @@
     attrs: { type: 'button', 'data-confirm': 'nudge', 'data-key': it.key },
   }) : '';
   const unreadCount = (othersAt, seenAt) => (seenAt ? (othersAt || []).filter((t) => String(t) > seenAt).length : 0);
-  // A card's last line: the time its lane sorts by (domain.mjs laneOrder), then its unread count, which app-cards.js
-  // takes away when the card opens.
+  // When a hold ends, as a card reads it: the time today, the weekday within six days, else the date
+  // (docs/adr/0118-a-card-can-be-held-until-a-time.md).
+  function heldUntilWords(iso, now = new Date()) {
+    const d = new Date(iso);
+    const midnight = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const days = Math.round((midnight(d) - midnight(now)) / 86400000);
+    if (days === 0) return clock(d);
+    if (days > 0 && days < 7) return `${d.toLocaleDateString([], { weekday: 'short' })} ${clock(d)}`;
+    return `${d.toLocaleDateString([], { month: 'numeric', day: 'numeric' })}, ${clock(d)}`;
+  }
+  function holdWords(it) {
+    if (!it.held) return '';
+    const d = it.heldUntil && new Date(it.heldUntil);
+    const title = !d ? 'Held until you resume it.'
+      : `Held until ${d.toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' })}, ${clock(d)}. ${it.lane === 'todo' ? 'It starts on its own then, once nothing else blocks it.' : 'Claude picks it up again then.'}`;
+    return `<span class="card-hold" title="${esc(title)}">${esc(d ? `held until ${heldUntilWords(it.heldUntil)}` : 'held')}</span>`;
+  }
+  // A card's last line: the time its lane sorts by (domain.mjs laneOrder), then its hold, then its unread count, which
+  // app-cards.js takes away when the card opens.
   const SORT_TIME = { touched: 'updatedAt', created: 'created' };
+  const SEP = '<span class="sep"> · </span>';
   function timeLine(it, by, unread) {
     const iso = it[SORT_TIME[by]];
-    const count = unread ? `<span class="card-unread">${iso ? '<span class="sep"> · </span>' : ''}${unread} new message${unread === 1 ? '' : 's'}</span>` : '';
-    if (!iso && !count) return '';
-    return `<div class="line6 sub card-time">${iso ? `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>` : ''}${count}</div>`;
+    const parts = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, holdWords(it)].filter(Boolean);
+    const count = unread ? `<span class="card-unread">${parts.length ? SEP : ''}${unread} new message${unread === 1 ? '' : 's'}</span>` : '';
+    if (!parts.length && !count) return '';
+    return `<div class="line6 sub card-time">${parts.join(SEP)}${count}</div>`;
+  }
+  // The Hold sheet's picker (app-cards.js): /api/board's holdChoices, the chips hub/duration.mjs shares with Snooze and
+  // Keep awake, then Custom. Its .hub-view root takes hub.css's duration picker rules, which view-hub-settings.js
+  // durationPicker's markup also uses.
+  function holdPicker(key, choices) {
+    const chips = choices.map((c) => `<button type="button" class="btn quiet" data-hold-for="${esc(key)}" value="${esc(c.value)}" aria-label="${esc(`${c.label}, ${c.until}`)}">${esc(c.label)}</button>`).join('');
+    return `<div class="hub-view"><div class="dur-chips" role="group" aria-labelledby="holdTitle"><div class="dur-choices">${chips}</div>`
+      + `<div class="dur-custom"><span class="btn quiet" aria-hidden="true">Custom</span><input type="datetime-local" data-hold-at="${esc(key)}" required aria-label="Custom hold until a date and time"></div></div></div>`;
   }
   // A New card's bump, edit and delete, and its line from its ask state (domain.mjs askItem;
   // docs/adr/0047-the-plus-makes-a-new-card.md). top is whether it is the latest bump.
@@ -139,7 +166,7 @@
     const blocked = (it.blockedBy || []).map((d) => badge('notice', `blocked by ${esc(d.ref)}`, { href: `#item=${encodeURIComponent(d.key)}` })).join('');
     const wave = it.lineup ? badge('quiet', `${WAVE_ICON}${esc(it.lineup.title)}`, { title: `In the wave ${it.lineup.title}` }) : '';
     const ready = !blocked && !it.action && it.deps?.length && it.lane === 'todo' ? badge('ready', 'ready to start') : '';
-    const chips = `${stalledChip(it)}${actionChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.held ? badge('quiet', 'held') : ''}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('quiet', 'bumped') : ''}${ready}${installChip(it)}`;
+    const chips = `${stalledChip(it)}${actionChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${it.bumpedAt ? badge('quiet', 'bumped') : ''}${ready}${installChip(it)}`;
     const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)
       : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Orchestrator review</div>'
       : it.builder ? `<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>${esc(builderLine(it.builder))}</div>`
@@ -159,5 +186,5 @@
     return keys.length > 1 ? `<button class="link" data-plan="${esc(keys.join(' '))}">Plan a wave from these ${keys.length} follow-ups →</button>` : '';
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionChip, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, unreadCount, workLines, askChip, askActions, askLine, planButton, WAVE_ICON });
+  Object.assign(globalThis.BoardUI, { prChips, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionChip, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, unreadCount, heldUntilWords, holdPicker, workLines, askChip, askActions, askLine, planButton, WAVE_ICON });
 })();

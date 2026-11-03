@@ -96,3 +96,91 @@ test('automatic builder check-ins run without a browser, once per silent spell a
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a held card resumes itself within a minute of its pick-up time, once per time across a restart, announcing card-unblocked unless a dep is unfinished', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pick-up-'));
+  const siteDir = path.join(dir, 'site');
+  const dataDir = path.join(siteDir, 'data');
+  const clockFile = path.join(dir, 'clock');
+  const setup = path.join(dir, 'setup.mjs');
+  const waveFile = path.join(dataDir, 'wave.json');
+  const eventsFile = path.join(dataDir, 'events.jsonl');
+  let now = Date.parse('2026-11-04T16:30:00Z');
+  const iso = (ms) => new Date(ms).toISOString();
+  const at = iso(now + 30 * 60000);
+  let worker;
+  fs.mkdirSync(path.join(dataDir, 'threads'), { recursive: true });
+  fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't' }));
+  fs.writeFileSync(waveFile, JSON.stringify({ items: [
+    { id: 'A0', title: 'Dep', status: 'building' },
+    { id: 'A1', title: 'Timed', status: 'planned', held: true, pick_up_at: at, held_at: iso(now - 60000) },
+    { id: 'A2', title: 'Blocked', status: 'waiting', deps: ['A0'], held: true, pick_up_at: at, held_at: iso(now - 60000) },
+    { id: 'A3', title: 'Tapped', status: 'planned' },
+    { id: 'A4', title: 'Forever', status: 'planned', held: true, held_at: iso(now - 60000) },
+    { id: 'A5', title: 'Cut short', status: 'planned', held: true, pick_up_at: at, held_at: iso(now - 60000) },
+  ] }));
+  fs.writeFileSync(eventsFile, [
+    { id: 'e1', ts: iso(now - 30000), kind: 'card-hold', data: { key: 't/A3', hold: true, until: at } },
+  ].map((e) => JSON.stringify(e) + '\n').join(''));
+  fs.writeFileSync(clockFile, String(now));
+  fs.writeFileSync(setup, `
+    import http from 'node:http';
+    import fs from 'node:fs';
+    const RealDate = Date;
+    globalThis.Date = class extends RealDate {
+      constructor(...args) { super(...(args.length ? args : [Date.now()])); }
+      static now() { return Number(fs.readFileSync(process.env.BUILDER_TEST_CLOCK, 'utf8')); }
+    };
+    const interval = globalThis.setInterval;
+    interval(() => {}, 1000);
+    globalThis.setInterval = (fn, ms, ...args) => interval(fn, ms === 60000 ? 20 : ms, ...args);
+    http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };
+  `);
+  const read = (file, fallback) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; } };
+  const items = () => Object.fromEntries(read(waveFile, { items: [] }).items.map((it) => [it.id, it]));
+  const unblocked = () => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').map(JSON.parse).filter((e) => e.kind === 'card-unblocked').map((e) => e.data);
+  const threadLines = (id) => (fs.existsSync(path.join(dataDir, 'threads', `t__${id}.jsonl`)) ? fs.readFileSync(path.join(dataDir, 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').length : 0);
+  const start = async () => {
+    worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
+      env: { ...process.env, HOME: dir, BUILDER_TEST_CLOCK: clockFile },
+    });
+    let errors = '';
+    worker.stderr.on('data', (chunk) => { errors += chunk; });
+    await new Promise((resolve, reject) => {
+      worker.stdout.once('data', resolve);
+      worker.once('error', reject);
+      worker.once('exit', (code) => reject(new Error(`Server exited ${code}: ${errors}`)));
+    });
+  };
+  const stop = async () => {
+    if (!worker || worker.exitCode !== null) return;
+    const exited = new Promise((resolve) => worker.once('exit', resolve));
+    worker.kill();
+    await exited;
+  };
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 80));
+  try {
+    await start();
+    await tick();
+    assert.deepEqual(unblocked(), []);
+    assert.equal(items().A1.held, true);
+    await stop();
+
+    fs.appendFileSync(eventsFile, JSON.stringify({ id: 'e2', ts: iso(now), kind: 'card-unblocked', data: { key: 't/A5', until: at } }) + '\n');
+    now += 31 * 60000;
+    fs.writeFileSync(clockFile, String(now));
+    await start();
+    await until(() => !items().A1.held && !items().A2.held && !items().A5.held && items().A3.held_at, 'the due holds resume');
+    assert.deepEqual(unblocked().map((d) => [d.key, d.until]).sort(), [['t/A1', at], ['t/A3', at], ['t/A5', at]]);
+    assert.deepEqual(['A1', 'A2', 'A3', 'A5'].map(threadLines), [1, 1, 1, 0]);
+    assert.deepEqual([items().A1.pick_up_at, items().A4.held], [undefined, true]);
+    await stop();
+    await start();
+    await tick();
+    assert.equal(unblocked().length, 3);
+    assert.deepEqual(['A1', 'A2', 'A3', 'A5'].map(threadLines), [1, 1, 1, 0]);
+  } finally {
+    await stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

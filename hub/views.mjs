@@ -104,7 +104,7 @@ const AWAKE_FOREVER = 'until you turn it off';
 
 const untilWords = (end, now, forever) => (end === FOREVER ? forever : `until ${clock(end, now)}`);
 // The shared duration picker's chips (duration.mjs), each with when it would end if chosen at `now`.
-const durationChoices = (now, forever) => DURATIONS.map(([value, label]) => ({ value, label, until: untilWords(durationEnd(now, value), now, forever) }));
+export const durationChoices = (now, forever) => DURATIONS.map(([value, label]) => ({ value, label, until: untilWords(durationEnd(now, value), now, forever) }));
 const snoozedUntil = (n, now) => (n.on ? endOf(n.snoozed_until, now) : null);
 
 // The hub page's hub settings: the on/off, snooze and weekend controls (docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md),

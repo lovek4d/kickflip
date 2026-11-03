@@ -1,5 +1,6 @@
 /* The hub page and settings modals (view-hub.js, view-hub-settings.js, view-polling.js), whose root carries .hub-view, and the hub's
-   down page (hub/hub.mjs), whose <html> does; served as /_hub/app/hub.css and /_hub/hub.css. Every rule is under
+   down page (hub/hub.mjs), whose <html> does, and the board's Hold sheet picker (ui-cards.js holdPicker), which shares the
+   duration picker's rules; served as /_hub/app/hub.css and /_hub/hub.css. Every rule is under
    .hub-view, since style.css uses the same short class names. The app shell links it after style.css, so a rule here
    wins a tie, and the header is style.css's alone, as on every view; each style.css rule that would reach these rows
    is set back here. */

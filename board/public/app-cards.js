@@ -1,8 +1,9 @@
-// Work cards on the board view: a card in a lane, its expanded detail, its action row with each button's confirmation, and opening it. Needs
+// Work cards on the board view: a card in a lane, its expanded detail, its action row with each button's confirmation or
+// Hold's sheet, and opening it. Needs
 // app-core.js and app-threads.js.
 BoardView.part((B) => {
   const { $, store, state, markSeen, seen, toast, links } = B;
-  const { esc, REVIEW, reviewAge, unreadCount, workLines, linkText, mergeButton, installButton, tryButton, tryWords, BUTTON, LINK_ARROW } = BoardUI;
+  const { esc, REVIEW, reviewAge, unreadCount, workLines, heldUntilWords, holdPicker, linkText, mergeButton, installButton, tryButton, tryWords, BUTTON, LINK_ARROW } = BoardUI;
 
   const mainSheet = $('#mainLogSheet');
   const mainRetry = $('#mainLogRetry');
@@ -98,6 +99,70 @@ BoardView.part((B) => {
     }
   });
 
+  // Hold's sheet: the shared duration picker in place of a confirm, since a chip is already a deliberate tap
+  // (docs/adr/0118-a-card-can-be-held-until-a-time.md). A chip or Custom sends card-hold {key, hold: true, for}.
+  const holdSheet = $('#holdSheet');
+  let holdPicking = null;
+  const localInput = (d) => {
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  function closeHold() {
+    if (!holdSheet.open || holdSheet.classList.contains('closing')) return;
+    holdPicking = null;
+    if (reduceMotion.matches) { holdSheet.close(); return; }
+    holdSheet.classList.add('closing');
+    B.later(180, () => { holdSheet.classList.remove('closing'); holdSheet.close(); });
+  }
+  function openHold(it) {
+    $('#holdTitle').textContent = `Hold ${refFor(it)}`;
+    $('#holdLede').textContent = `${it.lane === 'todo' ? 'It won’t start' : 'Claude stops work on it'} until then. Forever holds it until you resume it.`;
+    $('#holdPicker').innerHTML = holdPicker(it.key, state.board.holdChoices || []);
+    const input = $('#holdPicker [data-hold-at]');
+    const now = Date.now();
+    input.min = localInput(new Date(now + 60_000));
+    input.max = localInput(new Date(now + 30 * 86_400_000));
+    input.value = input.defaultValue = localInput(new Date(now + 3_600_000));
+    holdSheet.classList.remove('closing');
+    holdSheet.showModal();
+    $('#holdTitle').focus({ preventScroll: true });
+  }
+  async function hold(key, choice) {
+    closeHold();
+    try { await B.site.send('card-hold', { key, hold: true, for: choice }); }
+    catch { toast('Could not hold. Is the host awake?'); }
+    B.loadBoard();
+  }
+  B.on($('#holdClose'), 'click', closeHold);
+  B.on(holdSheet, 'click', (ev) => {
+    if (ev.target === holdSheet) { closeHold(); return; }
+    const chip = ev.target.closest('[data-hold-for]');
+    if (chip) { hold(chip.dataset.holdFor, chip.value); return; }
+    const input = ev.target.closest('[data-hold-at]');
+    if (!input) return;
+    holdPicking = input;
+    try { input.showPicker(); } catch { /* iOS opens its wheel on the tap itself. */ }
+  });
+  B.on(holdSheet, 'cancel', (ev) => { ev.preventDefault(); closeHold(); });
+  // A chip's pointerdown comes before Custom's focusout; without this reset Custom sends first and the chip's is lost.
+  B.on(holdSheet, 'pointerdown', (ev) => {
+    if (!ev.target.closest('[data-hold-for]')) return;
+    const input = $('#holdPicker [data-hold-at]');
+    holdPicking = null;
+    if (input) input.value = input.defaultValue;
+  });
+  // Closing an opened picker accepts its suggested time; an unchanged field reached by Tab sends nothing.
+  function holdCustom(input) {
+    if (!input.value || (input !== holdPicking && input.value === input.defaultValue) || !input.checkValidity()) return;
+    const at = new Date(input.value);
+    if (Number.isNaN(at.getTime())) return;
+    holdPicking = null;
+    input.defaultValue = input.value;
+    hold(input.dataset.holdAt, at.toISOString());
+  }
+  B.on(holdSheet, 'change', (ev) => { if (ev.target.matches?.('[data-hold-at]') && document.activeElement !== ev.target) holdCustom(ev.target); });
+  B.on(holdSheet, 'focusout', (ev) => { if (ev.target.matches?.('[data-hold-at]')) holdCustom(ev.target); });
+
   function detail(it) {
     if (it.kind === 'ask') {
       const button = actionButton(it);
@@ -139,8 +204,7 @@ BoardView.part((B) => {
   const sendingMerge = new Set();
   const refFor = (it) => (it.kind !== 'work' || it.internal ? it.ref : it.linear?.[0]?.id || (it.pr ? `#${it.pr.number}` : it.ref));
   const CONFIRM = {
-    hold: (it, ref) => `Hold ${ref}? ${it.lane === 'todo' ? "It won't start" : 'Claude stops work on it'} until you resume it.`,
-    resume: (it, ref) => `Resume ${ref}? It can start again once nothing blocks it.`,
+    resume: (it, ref) => `Resume ${ref}?${it.heldUntil ? ` It's held until ${heldUntilWords(it.heldUntil)}.` : ''} It can start again once nothing blocks it.`,
     bump: (it, ref) => `Move ${ref} to the top of its lane?`,
     nudge: () => 'Nudge Claude to check this builder?',
     grill: (it, ref) => `Ask Claude for questions about ${ref}?`,
@@ -243,10 +307,11 @@ BoardView.part((B) => {
     ev.preventDefault();
     const { key, confirm: act } = b.dataset;
     const it = state.board.items.find((i) => i.key === key);
+    if (it && act === 'hold') { openHold(it); return; }
     if (!it || !(await B.confirm(CONFIRM[act](it, refFor(it))))) return;
-    if (act === 'hold' || act === 'resume') {
-      try { await B.site.send('card-hold', { key, hold: act === 'hold' }); }
-      catch { toast(`Could not ${act}. Is the host awake?`); }
+    if (act === 'resume') {
+      try { await B.site.send('card-hold', { key, hold: false }); }
+      catch { toast('Could not resume. Is the host awake?'); }
       B.loadBoard();
       return;
     }
