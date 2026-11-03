@@ -3,12 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
-import { runInstall, installLinks, installClaudeSettings, migrateHome, uninstallStatusLine, storedPath } from './install.mjs';
+import { spawnSync } from 'node:child_process';
+import { runInstall, installLinks, installClaudeSettings, uninstallStatusLine, storedPath } from './install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
-import { freePorts } from '../shared/test-helpers.mjs';
-import { boardAt } from '../hub/boards.mjs';
 import { doctorReport, doctorLines, runDoctor } from './doctor.mjs';
 
 let home;
@@ -288,155 +286,24 @@ test('plugin keeps builder-stop and runs the Codex share hook for both events th
   }
 });
 
-function oldShape(h, clone = root) {
-  const state = path.join(h, '.claude', 'web-ts');
-  const sk = path.join(h, '.claude', 'skills');
-  fs.mkdirSync(path.join(state, 'sites', 'demo', 'data'), { recursive: true });
-  fs.mkdirSync(path.join(state, 'worktrees', 'INT-1'), { recursive: true });
-  fs.writeFileSync(path.join(state, 'manifest.json'), JSON.stringify({ version: 1, sites: {}, closed: { demo: { site: { dir: path.join(state, 'sites', 'demo'), cmd: ['node', path.join(sk, 'join-web-ts', 'board', 'server.mjs')] } } } }));
-  fs.writeFileSync(path.join(state, 'settings.json'), JSON.stringify({ codexShare: 'auto' }));
-  fs.mkdirSync(sk, { recursive: true });
-  fs.symlinkSync(clone, path.join(sk, 'join-web-ts'));
-  fs.symlinkSync(path.join(sk, 'join-web-ts', 'hooks-plugin'), path.join(sk, 'web-ts-hooks'));
-  fs.symlinkSync(path.join(sk, 'join-web-ts', 'bin', 'statusline.mjs'), path.join(h, '.claude', 'statusline.sh'));
-  return state;
-}
-
-function assertMigrated(h, clone = root) {
-  const sk = path.join(h, '.claude', 'skills');
-  assert.equal(fs.readlinkSync(path.join(h, '.claude', 'web-ts')), 'kickflip');
-  assert.equal(fs.lstatSync(path.join(h, '.claude', 'kickflip')).isDirectory(), true);
-  assert.equal(fs.readlinkSync(path.join(sk, 'kickflip')), clone);
-  assert.equal(fs.readlinkSync(path.join(sk, 'join-web-ts')), clone);
-  assert.equal(fs.readlinkSync(path.join(sk, 'kickflip-hooks')), path.join(sk, 'kickflip', 'hooks-plugin'));
-  assert.equal(fs.existsSync(path.join(sk, 'web-ts-hooks')), false);
-  assert.equal(fs.readlinkSync(path.join(h, '.claude', 'statusline.sh')), path.join(sk, 'kickflip', 'bin', 'statusline.mjs'));
-}
-
-test('migration moves the web-ts state folder and links once, and every old path keeps working', () => {
-  const state = oldShape(home);
-  const moved = migrateHome({ home });
-  assert.deepEqual(moved.conflicts, []);
-  assert.equal(moved.steps.length, 5);
-  assertMigrated(home);
-  const kept = JSON.parse(fs.readFileSync(path.join(state, 'manifest.json'), 'utf8'));
-  assert.deepEqual(kept, JSON.parse(fs.readFileSync(path.join(home, '.claude', 'kickflip', 'manifest.json'), 'utf8')));
-  assert.equal(fs.realpathSync(kept.closed.demo.site.dir), path.join(home, '.claude', 'kickflip', 'sites', 'demo'));
-  assert.equal(boardAt(path.join(home, '.claude', 'kickflip', 'sites', 'demo'), { sites: { demo: kept.closed.demo.site } })?.route, 'demo');
-  assert.equal(fs.realpathSync(path.join(state, 'worktrees', 'INT-1')), path.join(home, '.claude', 'kickflip', 'worktrees', 'INT-1'));
-  assert.deepEqual(migrateHome({ home }), { steps: [], conflicts: [] });
-  assert.ok(installLinks({ home, cloneRoot: root }).every(({ created, replaced }) => !created && !replaced));
-});
-
-test('a migration dry run changes nothing, and a running site keeps writing through its open file', () => {
-  const state = oldShape(home);
-  const plan = migrateHome({ home, dryRun: true });
-  assert.ok(plan.steps.every((step) => step.startsWith('would ')), plan.steps.join('\n'));
-  assert.equal(plan.steps.length, 5);
-  assert.equal(fs.lstatSync(state).isDirectory(), true);
-  assert.deepEqual(fs.readdirSync(skills).sort(), ['join-web-ts', 'web-ts-hooks']);
-  assert.equal(fs.existsSync(path.join(home, '.claude', 'kickflip')), false);
-  const events = fs.openSync(path.join(state, 'sites', 'demo', 'data', 'events.jsonl'), 'a');
-  migrateHome({ home });
-  fs.writeSync(events, 'after the move\n');
-  fs.closeSync(events);
-  assert.equal(fs.readFileSync(path.join(home, '.claude', 'kickflip', 'sites', 'demo', 'data', 'events.jsonl'), 'utf8'), 'after the move\n');
-});
-
-test('migration leaves both state folders alone when both exist', () => {
-  const state = oldShape(home);
-  fs.mkdirSync(path.join(home, '.claude', 'kickflip'));
-  const { conflicts } = migrateHome({ home });
-  assert.equal(conflicts.length, 1);
-  assert.match(conflicts[0], /both folders/);
-  assert.equal(fs.lstatSync(state).isDirectory(), true);
-  assert.deepEqual(fs.readdirSync(path.join(home, '.claude', 'kickflip')), []);
-});
-
-test('the login item replaces the old label, and puts the old one back when the new one does not start', async () => {
+test('the login item restarts under its label and reports when it does not start', async () => {
   const agents = path.join(home, 'Library', 'LaunchAgents');
-  fs.mkdirSync(agents, { recursive: true });
-  const old = path.join(agents, 'local.claude.web-ts-hub.plist');
   const file = path.join(agents, 'local.claude.kickflip-hub.plist');
-  fs.writeFileSync(old, 'old plist');
   const calls = [];
   const installLoginItem = ({ run, wait, dryRun }) => hubService({ platform: 'darwin', home, uid: 501, run: (command, argv) => run(argv) }).install('new plist', { wait, dryRun });
   const options = (bootstrap) => ({ wait: async () => {}, run: (argv) => { calls.push(argv.join(' ')); return argv[0] === 'bootstrap' ? bootstrap(argv) : { status: 3, error: 'not loaded' }; } });
-  assert.deepEqual(await installLoginItem({ ...options(() => ({ status: 0 })), dryRun: true }), [`would stop gui/501/local.claude.web-ts-hub and remove ${old}`, `would write ${file} and start gui/501/local.claude.kickflip-hub`]);
+  assert.deepEqual(await installLoginItem({ ...options(() => ({ status: 0 })), dryRun: true }), [`would write ${file} and start gui/501/local.claude.kickflip-hub`]);
   assert.deepEqual(calls, []);
-  assert.deepEqual(fs.readdirSync(agents), [path.basename(old)]);
+  assert.equal(fs.existsSync(agents), false);
 
-  await assert.rejects(installLoginItem(options((argv) => (argv[2] === file ? { status: 5, error: 'Bootstrap failed: 5' } : { status: 0 }))), { message: 'Bootstrap failed: 5; restarted gui/501/local.claude.web-ts-hub from ' + old });
-  assert.deepEqual(calls, ['bootout gui/501/local.claude.web-ts-hub', 'bootout gui/501/local.claude.kickflip-hub', `bootstrap gui/501 ${file}`, `bootstrap gui/501 ${old}`]);
-  assert.deepEqual(fs.readdirSync(agents), [path.basename(old)]);
-  assert.equal(fs.readFileSync(old, 'utf8'), 'old plist');
-
-  calls.length = 0;
-  assert.deepEqual(await installLoginItem(options(() => ({ status: 0 }))), [`stopped gui/501/local.claude.web-ts-hub and removed ${old}`, `started gui/501/local.claude.kickflip-hub from ${file}`]);
-  assert.deepEqual(calls, ['bootout gui/501/local.claude.web-ts-hub', 'bootout gui/501/local.claude.kickflip-hub', `bootstrap gui/501 ${file}`]);
-  assert.deepEqual(fs.readdirSync(agents), [path.basename(file)]);
-  assert.equal(fs.readFileSync(file, 'utf8'), 'new plist');
+  await assert.rejects(installLoginItem(options(() => ({ status: 5, error: 'Bootstrap failed: 5' }))), { message: 'Bootstrap failed: 5' });
+  assert.deepEqual(calls, ['bootout gui/501/local.claude.kickflip-hub', `bootstrap gui/501 ${file}`]);
 
   calls.length = 0;
   assert.deepEqual(await installLoginItem(options(() => ({ status: 0 }))), [`started gui/501/local.claude.kickflip-hub from ${file}`]);
   assert.deepEqual(calls, ['bootout gui/501/local.claude.kickflip-hub', `bootstrap gui/501 ${file}`]);
-});
-
-test('the init command moves an old-named HOME before the hub service, and --dry-run changes nothing', () => {
-  const state = oldShape(home, cloneRoot());
-  const agents = path.join(home, 'Library', 'LaunchAgents');
-  fs.mkdirSync(agents, { recursive: true });
-  fs.writeFileSync(path.join(agents, 'local.claude.web-ts-hub.plist'), 'old plist');
-  const serviceFile = hubService({ home }).file;
-  const run = (...flags) => spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'init', ...flags], {
-    env: { ...process.env, HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
-  });
-  const dry = run('--dry-run');
-  assert.equal(dry.status, 0, dry.stderr);
-  assert.match(dry.stdout, /^would move .*\.claude\/web-ts -> .*\.claude\/kickflip/m);
-  if (process.platform === 'darwin') assert.match(dry.stdout, /^would stop gui\/\d+\/local\.claude\.web-ts-hub/m);
-  else assert.ok(dry.stdout.includes(`would write ${serviceFile}, enable and start kickflip-hub.service`));
-  assert.equal(fs.existsSync(serviceFile), false);
-  assert.equal(fs.lstatSync(state).isDirectory(), true);
-  assert.deepEqual(fs.readdirSync(skills).sort(), ['join-web-ts', 'web-ts-hooks']);
-  assert.deepEqual(fs.readdirSync(agents), ['local.claude.web-ts-hub.plist']);
-
-  const result = run();
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, process.platform === 'darwin' ? /spawnSync launchctl ENOENT; could not restart gui\/\d+\/local\.claude\.web-ts-hub/ : /systemctl --user daemon-reload: spawnSync systemctl ENOENT/);
-  assert.equal(fs.existsSync(serviceFile), process.platform !== 'darwin');
-  assert.match(result.stdout, /^moved .*\.claude\/web-ts -> .*\.claude\/kickflip/m);
-  assertMigrated(home, cloneRoot());
-  assert.deepEqual(fs.readdirSync(agents), ['local.claude.web-ts-hub.plist']);
-});
-
-test('the hub, the board CLI and the status line each move an old-named HOME before touching state', async () => {
-  const [port] = await freePorts();
-  const run = (h, file, args, input = '') => spawnSync(process.execPath, [path.join(cloneRoot(), ...file), ...args], { env: { ...process.env, HOME: h, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false' }, input, encoding: 'utf8' });
-  const homes = ['board', 'statusline', 'hub'].map((name) => path.join(home, name));
-  for (const h of homes) oldShape(h, cloneRoot());
-
-  assert.equal(run(homes[0], ['board', 'bin', 'board.mjs'], ['--help']).status, 0);
-  assertMigrated(homes[0], cloneRoot());
-
-  const line = run(homes[1], ['bin', 'statusline.mjs'], [], JSON.stringify({ model: { display_name: 'Opus' }, rate_limits: { five_hour: { used_percentage: 5 } } }));
-  assert.equal(line.stdout, 'Opus · 5h: 5%\n');
-  assertMigrated(homes[1], cloneRoot());
-  assert.ok(fs.existsSync(path.join(homes[1], '.claude', 'kickflip', 'usage.json')));
-
-  const hub = spawn(process.execPath, [path.join(cloneRoot(), 'hub', 'hub.mjs')], { env: { ...process.env, HOME: homes[2], KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false' } });
-  const exited = new Promise((resolve) => hub.once('exit', resolve));
-  try {
-    await new Promise((resolve, reject) => {
-      let stdout = '';
-      hub.stdout.on('data', (chunk) => { stdout += chunk; if (stdout.includes('hub on')) resolve(); });
-      hub.once('exit', (code) => reject(new Error(`hub exited ${code}`)));
-    });
-  } finally {
-    hub.kill();
-    await exited;
-  }
-  assertMigrated(homes[2], cloneRoot());
+  assert.deepEqual(fs.readdirSync(agents), [path.basename(file)]);
+  assert.equal(fs.readFileSync(file, 'utf8'), 'new plist');
 });
 
 test('install checks the hooks source before creating links', () => {
@@ -856,8 +723,9 @@ test('doctor --fix invokes install once then prints its new report, even after a
   assert.deepEqual(JSON.parse(output.at(-1)), { items: failed.items });
 });
 
-test('the shared install steps run migration, links, settings, launchd and Tailscale once with injected services', async () => {
-  const state = oldShape(home, root);
+test('the shared install steps run links, settings, launchd and Tailscale once with injected services', async () => {
+  const state = path.join(home, '.claude', 'kickflip');
+  fs.mkdirSync(state, { recursive: true });
   fs.writeFileSync(path.join(state, 'manifest.json'), JSON.stringify({ sites: { shop: { port: 19461 } } }));
   const calls = [];
   const waits = [];
@@ -870,7 +738,6 @@ test('the shared install steps run migration, links, settings, launchd and Tails
     },
     run: (command, argv) => {
       calls.push([command, ...argv]);
-      assert.equal(fs.lstatSync(state).isSymbolicLink(), true);
       assert.equal(fs.realpathSync(skillLinks()[0]), root);
       assert.equal(readSettings().statusLine.command, statusline());
       if (argv.join(' ') === 'serve status --json') return { status: 0, stdout: JSON.stringify({ Web: { host: { Handlers: { '/': { Proxy: `http://127.0.0.1:${port}` }, '/shop/': {}, '/unrelated': {} } } } }) };
@@ -886,7 +753,6 @@ test('the shared install steps run migration, links, settings, launchd and Tails
     ['tailscale', 'serve', '--https=443', '--set-path=/shop/', 'off'],
   ]);
   assert.deepEqual(waits, [500, 300]);
-  assert.equal(logs.filter((line) => line.startsWith('moved ')).length, 1);
   assert.ok(logs.includes('added improve-codebase-architecture, codebase-design, grilling, prototype from mattpocock/skills'));
   const plist = fs.readFileSync(path.join(home, 'Library', 'LaunchAgents', 'local.claude.kickflip-hub.plist'), 'utf8');
   assert.ok(plist.includes(path.join(skills, 'kickflip', 'hub', 'hub.mjs')));
@@ -933,13 +799,12 @@ test('on Linux doctor names apt, npm for Codex, and the systemd service with its
 });
 
 test('doctor --fix --dry-run and install preview all steps without runners, network or HOME writes', async () => {
-  oldShape(home, root);
+  fs.mkdirSync(skills, { recursive: true });
   const before = fs.readdirSync(skills).sort();
   const output = [];
   const result = await runDoctor({ fix: true, dryRun: true, home, cloneRoot: root, port: 19460, write: (line) => output.push(line), run: () => assert.fail('ran command'), fetch: () => assert.fail('fetched'), wait: () => assert.fail('waited') });
   assert.equal(result.exitCode, 0);
   assert.deepEqual(fs.readdirSync(skills).sort(), before);
-  assert.ok(fs.lstatSync(path.join(home, '.claude', 'web-ts')).isDirectory());
   assert.equal(fs.existsSync(settingsFile()), false);
   assert.equal(fs.existsSync(path.join(home, 'Library')), false);
   assert.ok(output.some((line) => line.startsWith('would map tailscale /')));

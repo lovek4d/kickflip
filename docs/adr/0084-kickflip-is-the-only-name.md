@@ -6,3 +6,7 @@ The owner picked option A of `cli-rename-scope` on hub/INT-198: every name that 
 - `install` runs it first, then swaps the login item: it stops the old label, removes its plist and starts the new one, and puts the old one back when the new one won't start. `install --dry-run` prints these steps without making them.
 - The hub, `board.mjs`, `kickflip.mjs`, `wait-events.mjs`, the status line and the builder-stop hook run it as they start. After a land, whichever runs first must move the folder before anything creates `~/.claude/kickflip`; two folders would leave the new code without the manifest.
 - `bin/web-ts.mjs` runs the CLI for sessions that loaded the skill under its old name.
+
+## Update 2026-11-03: the migration is removed
+
+hub/INT-204 (#8) removed `migrateHome()`, its start-up calls, the old login-label swap in `shared/service.mjs` and the `bin/web-ts.mjs` shim. Every host now runs under the kickflip names, and the moved host's saved paths in the manifest, builder records and site pages were rewritten once to `~/.claude/kickflip` and `~/.claude/skills/kickflip`, so nothing reads the old names.

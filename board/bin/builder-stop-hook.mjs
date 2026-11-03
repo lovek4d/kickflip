@@ -92,7 +92,6 @@ async function main() {
   if (!starts.length) return;
   const own = backgroundIdsIn(text);
   if ((input.background_tasks ?? []).some((t) => own.has(t.id))) return;
-  (await import('../../bin/install.mjs')).migrateOnStart();
   const store = await import('../store.mjs');
   for (const s of starts) {
     try {

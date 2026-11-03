@@ -5,72 +5,6 @@ import { SKILLS_SOURCE, addArgv, addCommand, missingSkills } from '../shared/ski
 import { cloneRoot as runningClone } from '../shared/repos.mjs';
 import { hubService, runCommand } from '../shared/service.mjs';
 
-// Moves a host set up under the web-ts names to the kickflip ones (docs/adr/0084-kickflip-is-the-only-name.md): the
-// state folder, keeping a link at its old path; a kickflip skill link beside join-web-ts; the hooks plugin link; and
-// the status line through the new skill link. Each step runs only while its old shape is there, so a rerun does
-// nothing. → {steps, conflicts}: lines saying what moved, or with dryRun what would, and what blocks a move.
-export function migrateHome({ home = os.homedir(), skillsDir = path.join(home, '.claude', 'skills'), dryRun = false } = {}) {
-  const steps = [];
-  const conflicts = [];
-  const lstat = (p) => fs.lstatSync(p, { throwIfNoEntry: false });
-  const act = (done, planned, fn) => {
-    if (dryRun) { steps.push(`would ${planned}`); return; }
-    fn();
-    steps.push(done);
-  };
-
-  const oldState = path.join(home, '.claude', 'web-ts');
-  const state = path.join(home, '.claude', 'kickflip');
-  if (lstat(oldState)?.isDirectory()) {
-    if (lstat(state)) conflicts.push(`${oldState} and ${state} are both folders; merge them by hand, then leave a link at ${oldState}`);
-    else act(`moved ${oldState} -> ${state}, linked from the old path`, `move ${oldState} -> ${state} and link the old path to it`, () => {
-      // A rename keeps every open file and watch in the folder working; another process may have moved it first.
-      try { fs.renameSync(oldState, state); } catch (e) { if (!lstat(state) || lstat(oldState)?.isDirectory()) throw e; }
-      replaceWithLink(oldState, 'kickflip');
-    });
-  }
-
-  const oldSkill = path.join(skillsDir, 'join-web-ts');
-  const skill = path.join(skillsDir, 'kickflip');
-  const oldSkillStat = lstat(oldSkill);
-  if (oldSkillStat && !lstat(skill)) {
-    const target = oldSkillStat.isSymbolicLink() ? path.resolve(skillsDir, fs.readlinkSync(oldSkill)) : oldSkill;
-    act(`linked ${skill} -> ${target}`, `link ${skill} -> ${target}`, () => fs.symlinkSync(target, skill, 'dir'));
-  }
-
-  const oldHooks = path.join(skillsDir, 'web-ts-hooks');
-  const hooks = path.join(skillsDir, 'kickflip-hooks');
-  const real = (p) => { try { return fs.realpathSync(p); } catch { return null; } };
-  const clonePlugin = real(path.join(oldSkillStat ? oldSkill : skill, 'hooks-plugin'));
-  // Two links to one plugin would load its hooks twice in every new session.
-  if (lstat(oldHooks)?.isSymbolicLink() && clonePlugin && real(oldHooks) === clonePlugin) {
-    const target = path.join(skill, 'hooks-plugin');
-    if (!lstat(hooks)) act(`linked ${hooks} -> ${target}`, `link ${hooks} -> ${target}`, () => fs.symlinkSync(target, hooks, 'dir'));
-    act(`removed ${oldHooks}`, `remove ${oldHooks}`, () => fs.unlinkSync(oldHooks));
-  }
-
-  const statusline = path.join(home, '.claude', 'statusline.sh');
-  if (lstat(statusline)?.isSymbolicLink() && path.resolve(path.dirname(statusline), fs.readlinkSync(statusline)) === path.join(oldSkill, 'bin', 'statusline.mjs') && (oldSkillStat || lstat(skill))) {
-    const target = path.join(skill, 'bin', 'statusline.mjs');
-    act(`linked ${statusline} -> ${target}`, `link ${statusline} -> ${target}`, () => replaceWithLink(statusline, target));
-  }
-  return { steps, conflicts };
-}
-
-// For entry points: moves the old names before anything reads or creates state under the new ones.
-export function migrateOnStart() {
-  try { return migrateHome(); } catch (e) { return { steps: [], conflicts: [e.message] }; }
-}
-
-function replaceWithLink(file, target) {
-  const tmp = `${file}.${process.pid}.${Date.now()}.link`;
-  fs.symlinkSync(target, tmp);
-  try { fs.renameSync(tmp, file); } catch (e) {
-    // A process still on the old path can recreate it as an empty folder between the move and the link.
-    try { fs.rmdirSync(file); fs.renameSync(tmp, file); } catch { fs.unlinkSync(tmp); throw e; }
-  }
-}
-
 // Homebrew's node link survives `brew upgrade`, which removes the versioned folder process.execPath names.
 export const nodeBin = () => (fs.existsSync('/opt/homebrew/bin/node') ? '/opt/homebrew/bin/node' : process.execPath);
 // The watcher a site's owning session runs as a background task (bin/wait-events.mjs).
@@ -200,9 +134,6 @@ export async function tailscaleState({ run = runCommand, platform = process.plat
 
 export async function runInstall({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, platform = process.platform, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), fetch = globalThis.fetch, dryRun = false, log = console.log } = {}) {
   const state = path.join(home, '.claude', 'kickflip');
-  const migration = migrateHome({ home, dryRun });
-  for (const step of migration.steps) log(step);
-  if (migration.conflicts.length) throw new Error(migration.conflicts.join('\n'));
   const service = hubService({ platform, home, uid, env, run });
   if (dryRun) {
     try {

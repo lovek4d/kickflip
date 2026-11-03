@@ -33,12 +33,10 @@ import { routeRecord } from '../hub/routes.mjs';
 import { readHubRules, rulesOf, ruleLines } from '../hub/rules.mjs';
 import { boardAt, linksOf, hubLink } from '../hub/boards.mjs';
 import { ackHello, cardName, markWorking, settingsLines, settingsOf, WORKING_KINDS } from '../board/store.mjs';
-import { migrateOnStart } from './install.mjs';
 import { readUsageGate, heldUsageEvent } from '../shared/usage-gate.mjs';
 
 const [route, session] = process.argv.slice(2);
 if (!route || !session) { console.error('usage: wait-events.mjs <route> <session-id>'); process.exit(2); }
-migrateOnStart();
 const MANIFEST = path.join(os.homedir(), '.claude', 'kickflip', 'manifest.json');
 
 function site() {

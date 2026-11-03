@@ -164,7 +164,6 @@ import { usageReader, checkUsagePause } from './usage.mjs';
 import { readUsageGate, setPauseAt, setKeepGoing } from '../shared/usage-gate.mjs';
 import { readiness, readCodex } from './readiness.mjs';
 import { BuildError, startBuild, stopTries, tryTick, initializeTries, fetchTryBranches } from './try.mjs';
-import { migrateOnStart } from '../bin/install.mjs';
 import { serveFiles } from './files.mjs';
 import { LinearError, linearStatus, removeLinearKey, saveLinearKey, savedClient } from './linear.mjs';
 
@@ -172,9 +171,6 @@ const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const COLORS = path.join(HUB_DIR, '..', 'shared', 'colors.css');
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
-const migration = migrateOnStart();
-for (const step of migration.steps) log(`migration: ${step}`);
-for (const conflict of migration.conflicts) log(`migration failed: ${conflict}`);
 
 const HOME = path.join(os.homedir(), '.claude', 'kickflip');
 const MANIFEST = path.join(HOME, 'manifest.json');

@@ -149,7 +149,7 @@ export function hubBoard(manifest = readManifest()) {
   return found ? boardOf(...found) : undefined;
 }
 
-// Saved site folders can name ~/.claude/web-ts, a link to ~/.claude/kickflip (docs/adr/0084-kickflip-is-the-only-name.md).
+// Two paths name one folder when they are equal or resolve to the same real folder, as a saved path through a link does.
 export function samePath(a, b) {
   const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
   return path.resolve(a) === path.resolve(b) || real(a) === real(b);

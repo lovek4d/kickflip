@@ -4,7 +4,6 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 export const LOGIN_LABEL = 'local.claude.kickflip-hub';
-const OLD_LOGIN_LABEL = 'local.claude.web-ts-hub';
 export const UNIT = 'kickflip-hub.service';
 
 export function runCommand(command, argv, { env = process.env, timeout = 10000 } = {}) {
@@ -41,7 +40,6 @@ function launchd({ home, uid, exec }) {
   const agents = path.join(home, 'Library', 'LaunchAgents');
   const domain = `gui/${uid}`;
   const file = path.join(agents, `${LOGIN_LABEL}.plist`);
-  const old = path.join(agents, `${OLD_LOGIN_LABEL}.plist`);
   const launchctl = (argv, options) => exec('launchctl', argv, options);
   return {
     manager: 'launchd',
@@ -69,32 +67,16 @@ function launchd({ home, uid, exec }) {
 </plist>
 `;
     },
-    // Starts the login item in place of the running one, including one under the old label. When the new one won't
-    // start, the old one is put back and started. → note lines.
+    // Starts the login item in place of the running one. → note lines.
     async install(plist, { wait = (ms) => new Promise((r) => setTimeout(r, ms)), dryRun = false } = {}) {
-      let oldPlist = null;
-      try { oldPlist = fs.readFileSync(old, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
-      const notes = [];
-      if (dryRun) {
-        if (oldPlist !== null) notes.push(`would stop ${domain}/${OLD_LOGIN_LABEL} and remove ${old}`);
-        return [...notes, `would write ${file} and start ${domain}/${LOGIN_LABEL}`];
-      }
+      if (dryRun) return [`would write ${file} and start ${domain}/${LOGIN_LABEL}`];
       fs.mkdirSync(agents, { recursive: true });
       fs.writeFileSync(file, plist);
-      if (oldPlist !== null) {
-        launchctl(['bootout', `${domain}/${OLD_LOGIN_LABEL}`]);
-        fs.unlinkSync(old);
-        notes.push(`stopped ${domain}/${OLD_LOGIN_LABEL} and removed ${old}`);
-      }
       launchctl(['bootout', `${domain}/${LOGIN_LABEL}`]);
       await wait(500);
       const started = launchctl(['bootstrap', domain, file]);
-      if (started.status === 0) return [...notes, `started ${domain}/${LOGIN_LABEL} from ${file}`];
-      if (oldPlist === null) throw new Error(started.error);
-      fs.writeFileSync(old, oldPlist);
-      fs.rmSync(file, { force: true });
-      const restored = launchctl(['bootstrap', domain, old]);
-      throw new Error(`${started.error}; ${restored.status === 0 ? `restarted ${domain}/${OLD_LOGIN_LABEL} from ${old}` : `could not restart ${domain}/${OLD_LOGIN_LABEL} either (${restored.error})`}`);
+      if (started.status === 0) return [`started ${domain}/${LOGIN_LABEL} from ${file}`];
+      throw new Error(started.error);
     },
     restart() {
       const r = launchctl(['kickstart', '-k', `${domain}/${LOGIN_LABEL}`], { timeout: RESTART_TIMEOUT });

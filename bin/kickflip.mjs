@@ -97,10 +97,9 @@
 //   kickflip restart <route>
 //   kickflip logs <route> [--lines <n>]
 //   kickflip init [--dry-run] | uninstall
-//               init is the first-run name for doctor --fix. It first moves a host set up under the web-ts names to
-//               the kickflip ones (./install.mjs migrateHome), then links the running package or clone, hooks plugin
+//               init is the first-run name for doctor --fix. It links the running package or clone, hooks plugin
 //               and status line, configures Claude settings, starts the hub's service in place of the running one (../shared/service.mjs:
-//               a launchd login item on macOS, including one under the old label; a systemd user unit on Linux),
+//               a launchd login item on macOS; a systemd user unit on Linux),
 //               and maps Tailscale / to the hub.
 //               Conflicting skill links and real paths are refused. A dangling status-line link can be replaced.
 //               --dry-run prints what init would move, link and start, and changes nothing.
@@ -158,7 +157,7 @@ import { liveSessions } from '../hub/live.mjs';
 import { isBoardSite, writeManifest } from '../hub/boards.mjs';
 import { joinName, routeFromName, routeRecord, validRoute } from '../hub/routes.mjs';
 import { githubFromOrigin } from '../hub/repos.mjs';
-import { migrateOnStart, uninstallStatusLine, storedPath, nodeBin, watcherCommand } from './install.mjs';
+import { uninstallStatusLine, storedPath, nodeBin, watcherCommand } from './install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { runDoctor } from './doctor.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
@@ -172,7 +171,6 @@ const FIRST_SITE_PORT = 4600;
 const COLOR_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
 const [cmd, ...rest] = process.argv.slice(2);
-if (!['init', 'doctor'].includes(cmd)) migrateOnStart();
 const args = Object.assign(Object.create(null), { _: [] });
 for (let i = 0; i < rest.length; i++) {
   const a = rest[i];

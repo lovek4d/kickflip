@@ -171,10 +171,8 @@ test('doctor CLI reports healthy setup as text and JSON with exit 0; status is r
   assert.doesNotMatch(removed.stdout, /kickflip status/);
 });
 
-test('doctor CLI exits 1 on a broken HOME, prints commands, and leaves old state unmigrated', async () => {
+test('doctor CLI exits 1 on a broken HOME and prints commands', async () => {
   const fixture = doctorCLI('doctor-broken');
-  const old = path.join(fixture.scratch, '.claude', 'web-ts');
-  write(path.join(old, 'manifest.json'), { sites: {} });
   const report = await fixture.run('doctor');
   assert.equal(report.status, 1, report.stderr);
   assert.match(report.stdout, /^yours +gh signed in: needs gh\n +→ gh auth login$/m);
@@ -184,7 +182,6 @@ test('doctor CLI exits 1 on a broken HOME, prints commands, and leaves old state
   const structured = await fixture.run('doctor', '--json');
   assert.equal(structured.status, 1);
   assert.ok(JSON.parse(structured.stdout).items.some((item) => item.state === 'yours'));
-  assert.ok(fs.lstatSync(old).isDirectory());
   assert.equal(fs.existsSync(path.join(fixture.scratch, '.claude', 'kickflip')), false);
   assert.equal(fs.existsSync(path.join(fixture.scratch, '.claude', 'settings.json')), false);
 });

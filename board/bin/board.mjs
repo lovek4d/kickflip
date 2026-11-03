@@ -12,7 +12,6 @@ import { ITEM_STATUSES } from '../domain.mjs';
 import { boardAt, readManifest } from '../../hub/boards.mjs';
 import { boardRepo } from '../../hub/board-repo.mjs';
 import { pushKindError } from '../../hub/push.mjs';
-import { migrateOnStart } from '../../bin/install.mjs';
 
 export const USAGE = `usage: node board.mjs <command> [--site <route>] ...
 
@@ -651,7 +650,6 @@ export async function main(argv, options = {}) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) {
-  migrateOnStart();
   const argv = process.argv.slice(2);
   if (!argv.length || argv.includes('--help') || argv[0] === 'help') console.log(USAGE);
   else process.exitCode = await main(argv);

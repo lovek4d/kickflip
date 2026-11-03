@@ -4,7 +4,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { migrateOnStart } from './install.mjs';
 
 process.stdout.on('error', () => {});
 
@@ -91,7 +90,7 @@ try {
       usage,
     ], ' · ');
     // Wait for stdout to flush before doing filesystem work; errors stay off both streams.
-    process.stdout.write(line + '\n', () => { try { migrateOnStart(); saveUsage(input); } catch {} });
+    process.stdout.write(line + '\n', () => { try { saveUsage(input); } catch {} });
   }
 } catch { /* Invalid input and every other error leave the status line alone. */ }
 process.exitCode = 0;
