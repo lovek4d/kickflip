@@ -14,7 +14,7 @@ button:disabled { opacity: .5; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 a.button { display: inline-block; border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; background: var(--panel); color: var(--text); text-decoration: none; }
 /* resolves: the button that clears a card's Action needed (board/domain.mjs resolvedBy), in that badge's notice tone. */
-:is(a, button).resolves, button.build { border-color: var(--color-notice); background: var(--color-notice); color: #1c1407; }
+:is(a, button).resolves, button.build, button.unhold { border-color: var(--color-notice); background: var(--color-notice); color: #1c1407; }
 button.ghost { border-color: transparent; background: transparent; font-size: 18px; padding: 2px 8px; }
 textarea, input { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line);
   border-radius: 8px; padding: 8px 10px; width: 100%; resize: vertical; }

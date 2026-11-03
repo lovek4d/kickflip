@@ -141,7 +141,7 @@
   function holdWords(it) {
     if (!it.held) return '';
     const d = it.heldUntil && new Date(it.heldUntil);
-    const title = !d ? 'Held until you resume it.'
+    const title = !d ? 'Held until you unhold it.'
       : `Held until ${d.toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' })}, ${clock(d)}. ${it.lane === 'todo' ? 'It starts on its own then, once nothing else blocks it.' : 'Claude picks it up again then.'}`;
     return `<span class="card-hold" title="${esc(title)}">${esc(d ? `held until ${heldUntilWords(it.heldUntil)}` : 'held')}</span>`;
   }

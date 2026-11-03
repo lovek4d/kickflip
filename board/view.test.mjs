@@ -1993,7 +1993,7 @@ test("an open card shows its workflow buttons below a final details line of Note
     'w/A2': [['Grill'], [], []],
     'w/A3': [['Writing questions…'], [], []],
     'w/A4': [[], [], []],
-    'w/A5': [['Resume', 'Open questions'], [], []],
+    'w/A5': [['Unhold', 'Open questions'], [], []],
     'w/P1': [['Open questions'], [], ['Open questions']],
     'w/D1': [['Grill'], ['Notes', 'Install', 'Review draft on GitHub'], ['Review draft on GitHub']],
     'w/R1': [['Grill'], ['Install', 'Review on GitHub'], []],
@@ -2240,7 +2240,7 @@ test("every bumpable card, closed or open, carries the bump icon at its top righ
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-bump', { key: 'w/T2' }]]);
 });
 
-test('Hold opens a sheet of the shared duration picker in place of a confirm, whose chip sends card-hold with that choice, and Resume confirms naming the time', async () => {
+test('Hold opens a sheet of the shared duration picker in place of a confirm, whose chip sends card-hold with that choice, and Unhold confirms naming the time', async () => {
   const until = new Date(Date.now() + 2 * 86_400_000).toISOString();
   const holdChoices = [['1h', '1h'], ['3h', '3h'], ['6h', '6h'], ['1d', '1d'], ['forever', 'Forever']].map(([value, label]) => ({ value, label, until: value === 'forever' ? 'until you resume it' : 'until 4:40pm' }));
   const cards = [workCard('T1', { ref: 'INT-41', holdable: true }), workCard('P1', { ref: 'INT-43', lane: 'progress', holdable: true }), workCard('H1', { ref: 'INT-42', held: true, heldUntil: until, holdable: true })];
@@ -2251,7 +2251,7 @@ test('Hold opens a sheet of the shared duration picker in place of a confirm, wh
   b.page.fire(b.root, 'click', { target: button('w/P1', 'hold') });
   await b.settle();
   assert.deepEqual([sheet.open, sheet.querySelector('#holdTitle').textContent, sheet.querySelector('#holdLede').textContent],
-    [true, 'Hold INT-43', 'Claude stops work on it until then. Forever holds it until you resume it.']);
+    [true, 'Hold INT-43', 'Claude stops work on it until then. Forever holds it until you unhold it.']);
   b.page.fire(sheet.querySelector('#holdClose'), 'click');
   b.page.runTimers();
   assert.equal(sheet.open, false);
@@ -2259,7 +2259,7 @@ test('Hold opens a sheet of the shared duration picker in place of a confirm, wh
   await b.settle();
   assert.deepEqual(b.confirms, []);
   assert.deepEqual([sheet.open, sheet.querySelector('#holdTitle').textContent, sheet.querySelector('#holdLede').textContent],
-    [true, 'Hold INT-41', 'It won’t start until then. Forever holds it until you resume it.']);
+    [true, 'Hold INT-41', 'It won’t start until then. Forever holds it until you unhold it.']);
   const chips = sheet.querySelectorAll('[data-hold-for]');
   assert.deepEqual(chips.map((c) => [c.textContent, c.getAttribute('aria-label')]), holdChoices.map((c) => [c.label, `${c.label}, ${c.until}`]));
   assert.ok(sheet.querySelector('.dur-custom [data-hold-at]'));
@@ -2270,7 +2270,7 @@ test('Hold opens a sheet of the shared duration picker in place of a confirm, wh
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-hold', { key: 'w/T1', hold: true, for: '3h' }]]);
   b.page.fire(b.root, 'click', { target: button('w/H1', 'resume') });
   await b.settle();
-  assert.deepEqual(b.confirms, [`Resume INT-42? It's held until ${b.page.win.BoardUI.heldUntilWords(until)}. It can start again once nothing blocks it.`]);
+  assert.deepEqual(b.confirms, [`Unhold INT-42? It's held until ${b.page.win.BoardUI.heldUntilWords(until)}. It can start again once nothing blocks it.`]);
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['card-hold', { key: 'w/H1', hold: false }]);
 });
 

@@ -116,7 +116,7 @@ BoardView.part((B) => {
   }
   function openHold(it) {
     $('#holdTitle').textContent = `Hold ${it.ref}`;
-    $('#holdLede').textContent = `${it.lane === 'todo' ? 'It won’t start' : 'Claude stops work on it'} until then. Forever holds it until you resume it.`;
+    $('#holdLede').textContent = `${it.lane === 'todo' ? 'It won’t start' : 'Claude stops work on it'} until then. Forever holds it until you unhold it.`;
     $('#holdPicker').innerHTML = holdPicker(it.key, state.board.holdChoices || []);
     const input = $('#holdPicker [data-hold-at]');
     const now = Date.now();
@@ -222,7 +222,7 @@ BoardView.part((B) => {
   const sendingMerge = new Set();
   const sendingBuild = new Set();
   const CONFIRM = {
-    resume: (it, ref) => `Resume ${ref}?${it.heldUntil ? ` It's held until ${heldUntilWords(it.heldUntil)}.` : ''} It can start again once nothing blocks it.`,
+    resume: (it, ref) => `Unhold ${ref}?${it.heldUntil ? ` It's held until ${heldUntilWords(it.heldUntil)}.` : ''} It can start again once nothing blocks it.`,
     bump: (it, ref) => `Move ${ref} to the top of its lane?`,
     nudge: () => 'Nudge Claude to check this builder?',
     grill: (it, ref) => `Ask Claude for questions about ${ref}?`,
@@ -241,9 +241,9 @@ BoardView.part((B) => {
 
   function actions(it) {
     const key = esc(it.key);
-    const ask = (act, label) => `<button data-confirm="${act}" data-key="${key}">${label}</button>`;
+    const ask = (act, label, cls = '') => `<button${cls ? ` class="${cls}"` : ''} data-confirm="${act}" data-key="${key}">${label}</button>`;
     const hold = it.kind !== 'work' || !it.holdable ? ''
-      : it.held ? ask('resume', 'Resume') : ask('hold', 'Hold');
+      : it.held ? ask('resume', 'Unhold', 'unhold') : ask('hold', 'Hold');
     const build = it.kind === 'followup' && it.lane !== 'done' ? `<button class="build" data-confirm="build" data-key="${key}">Build</button>` : '';
     return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${build}${mergeButton(it, sendingMerge.has(it.key))}${hold}${actionButton(it)}${tryButton(it)}${buildButton(it, sendingBuild.has(it.key))}`)}</div>`;
   }

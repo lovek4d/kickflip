@@ -207,7 +207,7 @@ A chip on a card or page that shows a status, such as Action needed, Install or 
 _Avoid_: chip (in what the owner reads), tag, label
 
 **Button**:
-A control that acts: it sends something to the board, such as Merge, Hold or Grill, or opens a place to act, such as Open questions. The open card's workflow row holds a follow-up's Build, Merge, Hold or Resume, the **action button**, Serve or Build when the card has a build script and branch changes and Auto-build is off, and last the **card Build** on a Todo card that can start, below the details list whose final line holds Notes, Install and Review on GitHub links in that order ([0067](docs/adr/0067-a-cards-external-links-share-the-last-details-line.md)). A card that can be bumped carries its bump as an icon at its top right instead, closed or open, as a New card does; it confirms like a button ([0019](docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md)). The control that clears the card's **Action needed** is orange.
+A control that acts: it sends something to the board, such as Merge, Hold or Grill, or opens a place to act, such as Open questions. The open card's workflow row holds a follow-up's Build, Merge, Hold or Unhold, the **action button**, Serve or Build when the card has a build script and branch changes and Auto-build is off, and last the **card Build** on a Todo card that can start, below the details list whose final line holds Notes, Install and Review on GitHub links in that order ([0067](docs/adr/0067-a-cards-external-links-share-the-last-details-line.md)). A card that can be bumped carries its bump as an icon at its top right instead, closed or open, as a New card does; it confirms like a button ([0019](docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md)). The control that clears the card's **Action needed** is orange.
 _Avoid_: badge, pill (a pill is only a look)
 
 **Badge tone**:
@@ -296,7 +296,7 @@ The owning session's understanding of a work item so far: what was asked, what i
 _Avoid_: full plan, plan, spec
 
 **Held**:
-A work card the owner paused with its Hold button, which opens the shared duration picker: Forever, until the owner taps Resume, or until a time, its **pick-up time**. Hold and Resume apply on the board at once, and the board server writes them to the wave file with the owner's thread line ([0131](docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md)). It doesn't start, and the session stops work on a running one, until it is resumed ([0106](docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md)). The card's last line reads "held" or "held until Wed 9:00 am" after its time. Every other action-row button, Resume included, asks to confirm first, through `B.confirm` (`dialogs.js`).
+A work card the owner paused with its Hold button, which opens the shared duration picker: Forever, until the owner taps Unhold, or until a time, its **pick-up time**. Hold and Unhold apply on the board at once, and the board server writes them to the wave file with the owner's thread line ([0131](docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md)). It doesn't start, and the session stops work on a running one, until it is resumed ([0106](docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md)). The card's last line reads "held" or "held until Wed 9:00 am" after its time. Every other action-row button, Unhold included, asks to confirm first, through `B.confirm` (`dialogs.js`).
 _Avoid_: paused, frozen, on hold (as a status name)
 
 **Pick-up time**:

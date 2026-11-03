@@ -776,7 +776,7 @@ test("a thread's Done reads Done and is never disabled on a finishable card, ora
 
 test("the open card's details list ends with Notes, Install and GitHub links in order, omitting links that do not apply; Notes has no summary or button, and a follow-up's Build is filled orange", () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(css, /button\.build \{[^}]*background: var\(--color-notice\)/);
+  assert.match(css, /button\.build, button\.unhold \{[^}]*background: var\(--color-notice\)/);
 
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
