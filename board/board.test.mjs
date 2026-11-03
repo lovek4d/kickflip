@@ -2149,6 +2149,20 @@ test('rules refuse a board rule without --site, an empty text, an unknown author
   assert.equal(fs.existsSync(at('kickflip', 'settings.json')), false);
 });
 
+test("a builder's builder start takes up the record the owner's Build tap started: same kind and worktree, its own start time, and no longer waiting", () => {
+  const tapped = { label: 'Codex builder', kind: 'codex', started: '2026-11-03T10:00:00.000Z', tapped: true, worktree: { path: '/w/A1', branch: 'A1', repo: '/r' } };
+  write(at('waves', 'w', 'agents', 'A1.json'), tapped);
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'building' }] });
+  const r = board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build', '--label', 'Codex builder');
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^A1: builder started\nkind: codex\. The owner's Build tap picked it\.\nref: A1\nworktree: \/w\/A1\n/);
+  const { started, ...record } = read(at('waves', 'w', 'agents', 'A1.json'));
+  assert.deepEqual(record, { label: 'Codex builder', kind: 'codex', worktree: tapped.worktree });
+  assert.ok(started > tapped.started);
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build').code, 0);
+  assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).worktree, undefined);
+});
+
 test('builder start refuses a Claude pause before making records or a worktree, and runs while going or Off', () => {
   const until = new Date(Date.now() + 3600_000).toISOString();
   const usage = { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at: until }, seven_day: { used_percentage: 96, resets_at: until } };

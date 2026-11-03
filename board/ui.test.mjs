@@ -844,12 +844,11 @@ test("an open card waiting on the owner's Merge shows a Merge button that confir
   assert.equal(merge(undefined), '');
 });
 
-test("an open card that can Build shows Build rightmost in its action row, which confirms first and reads Starting…, disabled, while it is sent or waits on the session", () => {
+test("an open card that can Build shows Build rightmost in its action row, which confirms first and reads Starting…, disabled, while the board starts it", () => {
   const build = (it, sending) => { const html = ui.buildButton(it, sending); return html && [text(html), /disabled/.test(html), /data-confirm="card-build"/.test(html), /data-key="w\/A1"/.test(html), /class="build"/.test(html)]; };
-  assert.deepEqual(build({ key: 'w/A1', buildable: true, starting: false }), ['Build', false, true, true, true]);
-  assert.deepEqual(build({ key: 'w/A1', buildable: true, starting: false }, true), ['Starting…', true, true, true, true]);
-  assert.deepEqual(build({ key: 'w/A1', buildable: true, starting: true }), ['Starting…', true, true, true, true]);
-  assert.equal(build({ key: 'w/A1', buildable: false, starting: true }), '');
+  assert.deepEqual(build({ key: 'w/A1', buildable: true }), ['Build', false, true, true, true]);
+  assert.deepEqual(build({ key: 'w/A1', buildable: true }, true), ['Starting…', true, true, true, true]);
+  assert.equal(build({ key: 'w/A1', buildable: false }, true), '');
 
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
@@ -857,7 +856,7 @@ test("an open card that can Build shows Build rightmost in its action row, which
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const todo = { ...workCard, pr: null, reviewers: [], key: 'w/A1', lane: 'todo', action: null, actionButton: 'grill', waveTitle: 'W', deps: [], manualSteps: [], holdable: true, hasNotes: true,
-    try: { kind: 'web', script: true, changes: false }, buildable: true, starting: false };
+    try: { kind: 'web', script: true, changes: false }, buildable: true };
   const row = (it) => [...B.detail(it).match(/<div class="action-row workflow">(.*?)<\/div>/)[1].matchAll(/<button[^>]*>(.*?)<\/button>/g)].map(([, label]) => label);
   assert.deepEqual(row(todo), ['Hold', 'Grill', 'Build']);
   const changed = { ...todo, try: { ...todo.try, changes: true } };
@@ -882,11 +881,19 @@ test('a stalled builder adds a fault-tone button in the chip row and keeps its b
   for (const next of [{ ...builder, stalled: false }, null]) assert.doesNotMatch(ui.workLines({ ...workCard, builder: next }), /Stalled|data-confirm="nudge"/);
 });
 
+test("a refused Build's reason takes the card's status line, in place of its next step", () => {
+  const reason = "Couldn't start the build: it's held. Resume it, then tap Build.";
+  const html = ui.workLines({ ...workCard, lane: 'todo', builder: null, next: 'Grill the notes', refusal: reason });
+  assert.match(html, /<div class="line3 sub refused">Couldn&#39;t start the build: it&#39;s held\. Resume it, then tap Build\.<\/div>/);
+  assert.doesNotMatch(html, /Next: /);
+});
+
 test("a builder line shows the progress and its age, not who is building", () => {
   const at = new Date(Date.now() - 4 * 60000).toISOString();
   assert.equal(ui.builderLine({ label: 'Opus builder', progress: 'Testing · the limiter', at }), 'Testing · the limiter · 4m ago');
   assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at }), 'Starting · 4m ago');
   assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at: null }), 'Starting');
+  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, waiting: true, at }), 'Waiting for orchestrator · 4m ago');
   assert.equal(ui.builderLine({ label: null, progress: 'Making changes', at: null }), 'Making changes');
 });
 

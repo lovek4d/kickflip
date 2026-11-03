@@ -25,6 +25,8 @@ export const { BUTTON, ACTION_KIND, BUILDER_KIND } = enums.BoardUI;
 export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'build-followup', 'prototype-request'];
 export const ITEM_STATUSES = ['planned', 'waiting', 'building', 'fixing', 'checking', 'held', 'merged', 'done', 'dropped'];
 export const BUILDER_STALLED_AFTER = 30 * 60000;
+// The thread line's kind for a Build tap the board server refused (store.mjs startTappedBuild).
+export const BUILD_REFUSED = 'build-refused';
 const LANE_ORDER = { review: 0, stale: 1, progress: 2, todo: 3, done: 4 };
 const DAY = 86400000;
 // Done cards older than this fold under one row (docs/adr/0012-lists-never-cut-silently.md).
@@ -110,7 +112,7 @@ const FIX_CI = 'Fix the failing CI';
 const TAP_DONE = 'Tap Done once it is settled';
 
 // said is the owner's messages and answers in the card's thread (threadOf), and askedAt the asked_at of its questions.
-function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agents, eta, thread, events, working, said, askedAt, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, buildAt, autoMerge, tickets }) {
+function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agents, eta, thread, events, working, said, askedAt, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, tickets }) {
   const merged = it.status === 'merged' || Boolean(it.merged_at) || pr?.state === 'MERGED' || pr?.state === 'CLOSED';
   // docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md
   const tappedDone = Boolean(closedAt) && String(closedAt) > String(it.status_at || '');
@@ -149,8 +151,10 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
   // The owner's Merge waits on the session until it merges or writes in the thread, such as why it can't merge yet.
   const lastClaudeAt = thread.filter((m) => (m.who || 'claude') === 'claude' && m.kind !== 'status').map((m) => String(m.ts)).sort().pop() || '';
   const merging = waitsOn === 'merge' && Boolean(mergeAt) && String(mergeAt) > lastClaudeAt;
-  // The owner's Build waits on the session until the card's status changes or Claude writes in the thread.
-  const starting = Boolean(buildAt) && String(buildAt) > lastClaudeAt && String(buildAt) > String(it.status_at || '');
+  // A Build tap the board refused: its reason stays on a Todo card while it is the card's newest line
+  // (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md).
+  const newest = thread.filter((m) => m.kind !== 'status').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
+  const refusal = lane === 'todo' && newest?.kind === BUILD_REFUSED ? newest.text : null;
   const reviewNext = pushed && waitsOn === 'owner' ? `merge ${pushed.branch} into ${base}`
     : waitsOn === 'merge' && !autoMerge ? OWNER_MERGE_NEXT[merging ? 'merging' : 'waiting'] : REVIEW_NEXT[waitsOn];
   return {
@@ -161,7 +165,7 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
     deps: it.deps || [], held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable ? bumpedAt || null : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
-    merging, starting, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, from: null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || null,
+    merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, from: null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || null,
     branch: it.branch || pr?.headRefName || pushed?.branch || null, pushed: lane === 'done' ? null : pushed,
     ticket: tickets?.source === 'linear' && !it.ticket && it.linear?.length ? null
       : ticketOf(tickets, it.ticket, it.ticket || (wave.internal ? refOf(wave, it, tickets) : it.linear?.[0]), { repo, key }),
@@ -334,11 +338,14 @@ const builds = (agent) => !NOT_BUILDING.has(agent.kind);
 function agentsOf(records = {}) {
   return Object.entries(records).filter(([, r]) => r && typeof r === 'object').map(([name, r]) => ({
     name, kind: r.kind || null, label: r.label || null, started: r.started || null, eta: r.done ? null : r.eta || null, done: r.done || null,
+    tapped: r.tapped === true,
   })).sort((a, b) => String(a.started || '').localeCompare(String(b.started || '')) || a.name.localeCompare(b.name));
 }
 // An install builder takes precedence so another running agent cannot hide the install's build state. A phased line
 // ("Testing: <detail>") reads "Testing · <detail>" on the card; a line with no phase, from builder done's note or from
-// before phases, reads as written (docs/adr/0137-a-builder-status-line-is-a-phase-and-a-short-detail.md).
+// before phases, reads as written (docs/adr/0137-a-builder-status-line-is-a-phase-and-a-short-detail.md). waiting: a
+// record the owner's Build tap started, whose builder the session hasn't launched yet, and no status line since
+// (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md).
 function builderOf(agents, lines = [], now) {
   const running = agents.filter((a) => a.started && !a.done);
   const since = running.map((a) => String(a.started || '')).sort()[0];
@@ -347,7 +354,7 @@ function builderOf(agents, lines = [], now) {
   const kind = running.some((a) => a.kind === BUILDER_KIND.install) ? BUILDER_KIND.install : running.at(-1).kind;
   const silentSince = line?.ts || since;
   const progress = line ? (line.phase ? line.text.replace(': ', ' · ') : line.text || null) : null;
-  return { progress, at: silentSince, kind, silentSince, stalled: now - Date.parse(silentSince) >= BUILDER_STALLED_AFTER };
+  return { progress, waiting: !line && running.some((a) => a.tapped), at: silentSince, kind, silentSince, stalled: now - Date.parse(silentSince) >= BUILDER_STALLED_AFTER };
 }
 
 // Names the kind once, as "Opus builder" or "Codex benchmarks", never "Opus · Opus builder" (owner, question int42-agents-look).
@@ -528,7 +535,6 @@ export function buildBoard(snapshot) {
   const cardBumps = latest('card-bump', 'key');
   const cardDones = latest('card-done', 'key');
   const cardMerges = latest('card-merge', 'key');
-  const cardBuilds = latest('card-build', 'key');
   const autoMerge = snapshot.autoMerge === true;
   const tickets = snapshot.tickets;
   const cardHolds = new Map(events.filter((e) => e.kind === 'card-hold').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((e) => [e.data?.key, e]));
@@ -569,7 +575,7 @@ export function buildBoard(snapshot) {
         said: msgs.filter((m) => m.who === 'love' && (m.kind === 'item-message' || m.kind === 'owner-answer')),
         askedAt: (owner.items || []).filter((q) => q.topic === `item:${key}` && q.asked_at).map((q) => q.asked_at),
         topicItems, boardReviewers: snapshot.reviewers || [], now, bumpedAt: cardBumps.get(key), holdAsk: cardHolds.get(key), closedAt: cardDones.get(key),
-        mergeAt: cardMerges.get(key), buildAt: cardBuilds.get(key), autoMerge, tickets,
+        mergeAt: cardMerges.get(key), autoMerge, tickets,
       }));
       const card = items[items.length - 1];
       if (card.lane === 'done') closedWork.set(key, [it.status_at, it.merged_at, pr?.mergedAt].filter(Boolean).map(String).sort().pop() || String(card.updatedAt || ''));

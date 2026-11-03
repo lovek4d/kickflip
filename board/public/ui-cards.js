@@ -115,14 +115,14 @@
     return `<button class="${it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${merging ? ' disabled' : ''}>${merging ? 'Merging…' : 'Merge'}</button>`;
   }
   // The open card's Build, rightmost in its action row, on a card board/domain.mjs marks buildable: it confirms, then sends
-  // card-build, and reads "Starting…" while it is sent or waits on the session
-  // (docs/adr/0122-a-todo-card-that-nothing-blocks-has-build.md).
+  // card-build, and reads "Starting…" while it is sent and the board server starts the build
+  // (docs/adr/0122-a-todo-card-that-nothing-blocks-has-build.md, docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md).
   function buildButton(it, sending = false) {
     if (!it.buildable) return '';
-    const starting = sending || it.starting;
-    return `<button class="build" data-confirm="card-build" data-key="${esc(it.key)}"${starting ? ' disabled' : ''}>${starting ? 'Starting…' : 'Build'}</button>`;
+    return `<button class="build" data-confirm="card-build" data-key="${esc(it.key)}"${sending ? ' disabled' : ''}>${sending ? 'Starting…' : 'Build'}</button>`;
   }
-  const builderLine = (b) => [b.progress || 'Starting', b.at && ago(b.at)].filter(Boolean).join(' · ');
+  // A builder the Build tap started reads "Waiting for orchestrator" until the session's builder posts its first line.
+  const builderLine = (b) => [b.progress || (b.waiting ? 'Waiting for orchestrator' : 'Starting'), b.at && ago(b.at)].filter(Boolean).join(' · ');
   const stalledChip = (it) => it.lane !== 'done' && it.builder?.stalled ? badge('danger', 'Stalled', {
     button: true, title: 'No recent progress. Nudge Claude to check this builder',
     attrs: { type: 'button', 'data-confirm': 'nudge', 'data-key': it.key },
@@ -178,6 +178,7 @@
     const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)
       : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Orchestrator review</div>'
       : it.builder ? `<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>${esc(builderLine(it.builder))}</div>`
+      : it.refusal ? `<div class="line3 sub refused">${esc(it.refusal)}</div>`
       : it.working ? `<div class="line3 sub agent">${workingLine}</div>`
       : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.held ? ' idle' : ''}">Next: ${esc(it.next)}</div>` : '';
     const eta = it.eta && it.builder ? `<div class="line3 sub eta">${esc(etaLine(it.eta))}</div>` : '';

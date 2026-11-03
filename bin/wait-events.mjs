@@ -67,7 +67,7 @@ const PLAIN = {
 };
 const ON_CARD = {
   'item-message': (c) => `message received from ${c}'s thread`,
-  'card-build': (c) => `build asked on ${c}`,
+  'card-build': (c) => `build started on ${c}`,
   'card-merge': (c) => `merge asked on ${c}`,
   'card-done': (c) => `${c} marked done`,
   'card-bump': (c) => `${c} bumped`,

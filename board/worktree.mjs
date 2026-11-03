@@ -1,5 +1,5 @@
 // A builder's git worktree for a site or skill card (docs/adr/0064-every-builder-works-in-a-worktree.md):
-// `board.mjs builder start --worktree` makes it, and `board.mjs land` brings its branch into the live repo's main.
+// `board.mjs builder start --worktree` and the board server's Build tap make it, and `board.mjs land` brings its branch into the live repo's main.
 // Worktrees resolve under $HOME and the repo defaults to the running clone, so a scratch HOME and --repo stand in for
 // the real ones.
 import fs from 'node:fs';
@@ -9,7 +9,8 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { BoardError } from './store.mjs';
-import { hubCode, listBoards } from '../hub/boards.mjs';
+import { boardAt, hubCode, listBoards, readManifest } from '../hub/boards.mjs';
+import { boardRepo } from '../hub/board-repo.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { storedPath } from '../bin/install.mjs';
 import { hubService } from '../shared/service.mjs';
@@ -42,6 +43,17 @@ export function makeWorktree(id, { repo = skillRepo(), base = 'main', remote = f
   const r = git(root, 'worktree', 'add', '--quiet', '-b', id, dir, ref);
   if (!r.ok) fail(`--worktree: git worktree add failed: ${r.err}`);
   return { path: storedPath(dir), branch: id, repo: storedPath(root) };
+}
+
+// The worktree of card id on the board at site: from the board's branch of its shared clone for a board on GitHub or a
+// plain git remote, else from repo, which defaults to the running kickflip clone's main. → as makeWorktree
+export function boardWorktree(site, id, { repo } = {}) {
+  const manifest = readManifest();
+  const board = site ? boardAt(site, manifest) : null;
+  const chosen = board ? boardRepo(board.route, manifest) : {};
+  const remote = Boolean(chosen.github || chosen.remote) && !chosen.hub;
+  const source = repo ?? (remote ? chosen.repo || undefined : undefined);
+  return makeWorktree(id, { repo: source, base: remote ? chosen.branch || 'main' : 'main', remote });
 }
 
 function testFiles(dir) {

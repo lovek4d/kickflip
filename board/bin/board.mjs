@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as store from '../store.mjs';
-import { holdingLandLock, makeWorktree, land, skillRepo, worktreesDir } from '../worktree.mjs';
+import { boardWorktree, holdingLandLock, land, skillRepo, worktreesDir } from '../worktree.mjs';
 import { fileFindings } from '../arch-review.mjs';
 import { ITEM_STATUSES } from '../domain.mjs';
 import { boardAt, readManifest } from '../../hub/boards.mjs';
@@ -281,7 +281,9 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          --kind install: a build of the card's install, whose
                                                          Install badge reads Building… meanwhile. --kind codex or
                                                          opus refuses the one builder pick rules out; --kind build
-                                                         records the pick's kind and prints "kind: <kind>. <reason>".
+                                                         records the pick's kind and prints "kind: <kind>. <reason>";
+                                                         on the open record a Build tap started, it keeps
+                                                         that tap's kind and worktree.
                                                          A build (--kind build, codex or opus) on an open card sets
                                                          --status building first, refusing what that refuses;
          [--confirmed "<owner's words>"]                 --confirmed passes its noted-pick gate. Prints "ref: <ref>",
@@ -509,13 +511,7 @@ const COMMANDS = {
   'settings set': [['name', 'value'], [], (site, [name, value]) => store.setBoardSetting(site, name, value)],
   'builder start': [['wave/id'], ['label', 'phase', 'progress', 'dir', 'agent', 'kind', 'eta', 'worktree', 'repo', 'confirmed'], (site, [key], { worktree, repo, ...f }) => {
     if (repo !== undefined && !worktree) throw new UsageError('--repo goes with --worktree');
-    const manifest = readManifest();
-    const board = site ? boardAt(site, manifest) : null;
-    const chosen = board ? boardRepo(board.route, manifest) : {};
-    const remote = Boolean(chosen.github || chosen.remote) && !chosen.hub;
-    const source = repo ?? (remote ? chosen.repo || undefined : undefined);
-    const base = remote ? chosen.branch || 'main' : 'main';
-    return store.startBuilder(site, key, { ...f, worktree: worktree && (() => makeWorktree(key.split('/')[1], { repo: source, base, remote })) });
+    return store.startBuilder(site, key, { ...f, worktree: worktree && (() => boardWorktree(site, key.split('/')[1], { repo })) });
   }],
   'builder progress': [['wave/id', '...text?'], ['phase', 'text', 'dir', 'agent', 'eta', 'clear-eta'], (site, [key, ...words], f) => {
     if (words.length && f.text !== undefined) throw new UsageError('builder progress takes its text once: as words or as --text');

@@ -77,6 +77,10 @@
 //                                card-hold {key, hold: true, for} is a Hold sheet chip or its Custom time
 //                                (../hub/duration.mjs durationEnd), stored as {key, hold: true, until} or, for
 //                                Forever, {key, hold: true}; a choice that ends in the past or past 30 days → 400 {error}.
+//                                card-build {key} is the owner's Build: the server starts the build itself (store.mjs
+//                                startTappedBuild, board/worktree.mjs boardWorktree) and, once started, appends
+//                                card-build {key, ref, kind, reason, worktree}, which wakes the session to brief and launch
+//                                the builder; a refusal appends no event and leaves its reason in the card's thread.
 //                                card-hold and card-done are written to the wave file too, with the owner's thread
 //                                line, and a Done unblocks waiting cards (store.mjs recordOwnerTap).
 //                                An owner-answer that leaves an unstarted card with nothing stopping it appends
@@ -121,6 +125,7 @@
 // Routes that parse JSON require application/json; /api/upload keeps the file's content type.
 // Claude's reply to event <id> is data/replies/<id>.html, or .json.
 import { topicItems } from './review.mjs';
+import { boardWorktree } from './worktree.mjs';
 import { archOf, readReviews, repoName, startReview } from './arch-review.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
@@ -134,7 +139,7 @@ import { promisify } from 'node:util';
 import { buildBoard, ITEM_EVENTS, needsAnswer, ownerActions, pullOf, refOf, startedByAnswer, threadOf } from './domain.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, watch as watchFiles } from 'node:fs';
-import { BoardError, boardConfig, pickUp, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswer, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, boardConfig, pickUp, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswer, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -644,6 +649,12 @@ const server = http.createServer(async (req, res) => {
         if (!end) return json(res, 400, { error: 'That hold ends in the past or more than 30 days on. Pick another time.' });
         delete body.for;
         if (end !== FOREVER) body.until = end.toISOString();
+      }
+      // docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md
+      if (kind === 'card-build') {
+        const key = String(body.key || '');
+        const started = await startTappedBuild(here, key, () => boardWorktree(here, key.split('/')[1]));
+        return json(res, 200, { id: started ? await appendEvent(kind, started) : null });
       }
       const id = await appendEvent(kind, body);
       if (kind === 'owner-answer') {

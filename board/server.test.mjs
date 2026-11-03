@@ -231,6 +231,63 @@ test('a card with a message marked working or a prototype recorded for it stays 
   }
 });
 
+test("a Build tap starts the build in the board server, moving the card to In Progress reading Waiting for orchestrator and waking the session with its worktree and pick, and a refusal leaves it in Todo with the reason", async () => {
+  const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
+  const origin = path.join(home, 'origin');
+  fs.mkdirSync(origin);
+  git(origin, 'init', '--quiet', '-b', 'main');
+  git(origin, 'config', 'user.name', 'Test');
+  git(origin, 'config', 'user.email', 'test@example.com');
+  fs.writeFileSync(path.join(origin, 'a.txt'), 'a\n');
+  git(origin, 'add', '-A');
+  git(origin, 'commit', '--quiet', '-m', 'base');
+  const clone = path.join(home, 'clone');
+  git(home, 'clone', '--quiet', origin, clone);
+  const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
+  fs.mkdirSync(path.dirname(manifest), { recursive: true });
+  fs.writeFileSync(manifest, JSON.stringify({ sites: { site: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
+  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [
+    { id: 'B1', title: 'Tapped' }, { id: 'B2', title: 'Held', held: true }, { id: 'B3', title: 'Blocked', deps: ['B4'] }, { id: 'B4', title: 'Dep' },
+  ] }));
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const log = () => fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const card = async (id) => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.id === id);
+  const thread = (id) => fs.readFileSync(path.join(site, 'data', 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse);
+  const worktree = path.join(home, '.claude', 'kickflip', 'worktrees', 'B1');
+  const before = log().length;
+  try {
+    assert.equal((await post({ kind: 'card-build', key: 't/B1' })).status, 200);
+    const record = JSON.parse(fs.readFileSync(path.join(site, 'data', 'agents', 'B1.json'), 'utf8'));
+    assert.deepEqual([record.kind, record.label, record.tapped, record.worktree], ['opus', 'Builder', true, { path: worktree, branch: 'B1', repo: clone }]);
+    assert.equal(git(worktree, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'HEAD'));
+    const woke = log().slice(before);
+    assert.deepEqual(woke.map((e) => [e.kind, e.data]), [['card-build', { key: 't/B1', ref: 'B1', kind: 'opus', reason: woke[0].data.reason, worktree }]]);
+    assert.match(woke[0].data.reason, /\S/);
+    const started = await card('B1');
+    assert.deepEqual([started.lane, started.status, started.buildable, started.builder.waiting, started.builder.progress, started.refusal], ['progress', 'building', false, true, null, null]);
+
+    for (const [id, reason] of [['B2', "Couldn't start the build: it's held. Resume it, then tap Build."], ['B3', "Couldn't start the build: it's blocked by B4. It can start once that is done."]]) {
+      assert.equal((await post({ kind: 'card-build', key: `t/${id}` })).status, 200);
+      assert.deepEqual(thread(id).map((m) => [m.who, m.kind, m.text]), [['claude', 'build-refused', reason]]);
+      const refused = await card(id);
+      assert.deepEqual([refused.lane, refused.status, refused.refusal, refused.builder], ['todo', null, reason, null]);
+      assert.equal(fs.existsSync(path.join(site, 'data', 'agents', `${id}.json`)), false);
+    }
+    assert.deepEqual(log().slice(before).map((e) => e.kind), ['card-build']);
+
+    const taken = path.join(home, '.claude', 'kickflip', 'worktrees', 'B4');
+    fs.mkdirSync(taken, { recursive: true });
+    assert.equal((await post({ kind: 'card-build', key: 't/B4' })).status, 200);
+    const leftover = await card('B4');
+    assert.deepEqual([leftover.lane, leftover.status, leftover.refusal], ['todo', null, `Couldn't start the build: --worktree: ${taken} already exists; land or remove it first`]);
+    assert.deepEqual(log().slice(before).map((e) => e.kind), ['card-build']);
+  } finally {
+    fs.rmSync(manifest);
+    fs.rmSync(path.join(site, 'data', 'agents'), { recursive: true, force: true });
+    fs.rmSync(path.join(home, '.claude', 'kickflip', 'worktrees'), { recursive: true, force: true });
+  }
+});
+
 test("a hidden thread message leaves the item's thread", async () => {
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One' }] }));
   const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());

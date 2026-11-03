@@ -51,12 +51,12 @@ test('a green draft waits on Ready in In Review until a builder works on it', ()
   const record = { label: 'Opus builder', started: '2026-10-23T10:00:00Z', progress: 'Record line', progress_at: '2026-10-23T10:06:00Z' };
   const earlier = { ts: '2026-10-23T09:00:00Z', who: 'claude', kind: 'status', text: 'Previous run' };
   const fresh = board({ now: Date.parse(record.started), agents: { A1: { main: record } }, threads: { 'w/A1': [earlier] } }).items.find((i) => i.key === 'w/A1');
-  assert.deepEqual(fresh.builder, { progress: null, at: record.started, kind: null, stalled: false, silentSince: record.started });
+  assert.deepEqual(fresh.builder, { progress: null, waiting: false, at: record.started, kind: null, stalled: false, silentSince: record.started });
   const lines = [earlier, { ts: '2026-10-23T10:05:00Z', who: 'claude', kind: 'status', text: 'Running tests' }, { ts: '2026-10-23T10:07:00Z', who: 'claude', text: 'Halfway.' }];
   const busy = board({ now: Date.parse('2026-10-23T10:07:00Z'), agents: { A1: { main: record } }, threads: { 'w/A1': lines } });
   const item = busy.items.find((i) => i.key === 'w/A1');
   assert.deepEqual([item.lane, item.waitsOn, item.action], ['progress', 'builder', null]);
-  assert.deepEqual(item.builder, { progress: 'Running tests', at: '2026-10-23T10:05:00Z', kind: null, stalled: false, silentSince: '2026-10-23T10:05:00Z' });
+  assert.deepEqual(item.builder, { progress: 'Running tests', waiting: false, at: '2026-10-23T10:05:00Z', kind: null, stalled: false, silentSince: '2026-10-23T10:05:00Z' });
   const finished = board({ agents: { A1: { main: { label: 'Opus builder', started: '2026-10-23T10:00:00Z', progress: 'Running tests', progress_at: '2026-10-23T10:05:00Z', eta: '2026-10-23T11:00:00Z', done: '2026-10-23T10:30:00Z' } } } });
   const after = finished.items.find((i) => i.key === 'w/A1');
   assert.deepEqual([after.lane, after.waitsOn, after.builder, after.eta], ['review', 'ready', null, null]);
@@ -587,7 +587,7 @@ test("with auto-merge off an approved, green, clean PR waits on the owner's Merg
   assert.equal(card({ autoMerge: true, item: { manual_steps: ['Run the backfill'] } }).items[0].action.kind, 'steps');
 });
 
-test("an unstarted Todo card that nothing blocks and that waits on nothing from the owner can Build, and reads starting after the tap until its status changes or Claude writes", () => {
+test("an unstarted Todo card that nothing blocks and that waits on nothing from the owner can Build", () => {
   const q = { id: 'q1', topic: 'item:w/A1', question: 'Which way?', options: [{ id: 'A', label: 'One' }] };
   const card = ({ item = {}, events = [], threads = {}, owner = {}, agents = {}, dep } = {}) => buildBoard({
     fromWaves: false, events, threads, owner, prs: {},
@@ -595,7 +595,7 @@ test("an unstarted Todo card that nothing blocks and that waits on nothing from 
   });
   const one = (b) => b.items.find((i) => i.id === 'A1');
   const fresh = card();
-  assert.deepEqual([one(fresh).lane, one(fresh).buildable, one(fresh).starting, one(fresh).action], ['todo', true, false, null]);
+  assert.deepEqual([one(fresh).lane, one(fresh).buildable, one(fresh).action, one(fresh).refusal], ['todo', true, null, null]);
   assert.equal(fresh.items.find((i) => i.id === 'ENG-1').buildable, false);
   assert.deepEqual(needsAnswer(fresh).items, []);
   assert.equal(one(card({ item: { deps: ['A2'] }, dep: 'building' })).buildable, false);
@@ -606,13 +606,30 @@ test("an unstarted Todo card that nothing blocks and that waits on nothing from 
   assert.equal(one(card({ agents: runningBuilders('A1') })).buildable, false);
   assert.equal(one(card({ item: { status: 'done' } })).buildable, false);
 
-  const tapped = [{ id: 'b1', ts: '2026-10-29T10:00:00Z', kind: 'card-build', data: { key: 'w/A1' } }];
-  const starting = one(card({ events: tapped, item: { status_at: '2026-10-29T09:00:00Z' }, threads: { 'w/A1': [{ ts: '2026-10-29T10:01:00Z', who: 'claude', kind: 'status', text: 'Reading the notes' }] } }));
-  assert.deepEqual([starting.lane, starting.buildable, starting.starting], ['todo', true, true]);
-  const declined = one(card({ events: tapped, threads: { 'w/A1': [{ ts: '2026-10-29T10:02:00Z', who: 'claude', text: 'Not started: INT-2 changes the same file' }] } }));
-  assert.deepEqual([declined.buildable, declined.starting], [true, false]);
-  const moved = one(card({ events: tapped, item: { status: 'waiting', status_at: '2026-10-29T10:03:00Z' } }));
-  assert.deepEqual([moved.buildable, moved.starting], [true, false]);
+});
+
+test("a Build the board started is In Progress reading Waiting for orchestrator until its builder's first status line, and a refused one stays in Todo with its reason while that is the card's newest line", () => {
+  const card = ({ item = {}, threads = {}, agents = {} } = {}) => buildBoard({
+    fromWaves: false, events: [], threads, owner: {}, prs: {}, now: Date.parse('2026-10-29T10:05:00Z'),
+    waves: [{ slug: 'w', agents, wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One', ...item }] } }],
+  }).items[0];
+  const tapped = { A1: { main: { label: 'Opus builder', kind: 'opus', started: '2026-10-29T10:00:00Z', tapped: true } } };
+  const waiting = card({ item: { status: 'building' }, agents: tapped });
+  assert.deepEqual([waiting.lane, waiting.buildable, waiting.builder.waiting, waiting.builder.progress], ['progress', false, true, null]);
+  const line = { ts: '2026-10-29T10:01:00Z', who: 'claude', kind: 'status', phase: 'reading', text: 'Reading: the notes' };
+  const going = card({ item: { status: 'building' }, agents: tapped, threads: { 'w/A1': [line] } });
+  assert.deepEqual([going.builder.waiting, going.builder.progress], [false, 'Reading · the notes']);
+  const taken = card({ item: { status: 'building' }, agents: { A1: { main: { kind: 'opus', started: '2026-10-29T10:02:00Z' } } } });
+  assert.deepEqual([taken.lane, taken.builder.waiting, taken.builder.progress], ['progress', false, null]);
+
+  const refused = { ts: '2026-10-29T10:00:00Z', who: 'claude', kind: 'build-refused', text: "Couldn't start the build: it's held. Resume it, then tap Build." };
+  const held = card({ item: { held: true }, threads: { 'w/A1': [refused] } });
+  assert.deepEqual([held.lane, held.refusal], ['todo', refused.text]);
+  const after = card({ threads: { 'w/A1': [refused, { ts: '2026-10-29T10:03:00Z', who: 'love', text: 'Resumed.' }] } });
+  assert.deepEqual([after.lane, after.refusal, after.buildable], ['todo', null, true]);
+  const status = card({ threads: { 'w/A1': [refused, { ...line, ts: '2026-10-29T10:03:00Z' }] } });
+  assert.equal(status.refusal, refused.text);
+  assert.equal(card({ item: { status: 'building' }, agents: tapped, threads: { 'w/A1': [refused] } }).refusal, null);
 });
 
 test("a card-done moves work and follow-ups to Done and unblocks dependents at once, unless a newer status overrides it, and an owner message or question after it reopens all but a merged card", () => {

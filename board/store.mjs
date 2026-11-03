@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { ITEM_STATUSES, awaitsConfirm, mergeBlockers, ownerQuestion, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
+import { BUILD_REFUSED, ITEM_STATUSES, awaitsConfirm, mergeBlockers, ownerQuestion, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, builderPick } from '../shared/usage-gate.mjs';
 import { reviseQueued, flushQueue, queueStatus, readSettings, pushKindError } from '../hub/push.mjs';
@@ -1846,7 +1846,11 @@ async function statusToThread(site, key, agent = 'main', kind, { phase, detail }
 // returns {path, branch, repo}, which the record keeps for `board.mjs land`. A build (--kind build, codex or opus) on an
 // open card marks it building first, refusing what item set --status building refuses, confirmed included
 // (docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
-export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, eta, worktree, confirmed }) {
+// tapped marks a record the owner's Build tap started (startTappedBuild). A builder's own start on that open record
+// takes it up: --kind build keeps the tap's kind, the worktree stays, and the record starts again at now, no longer
+// tapped (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md).
+// → {file, lines, kind, reason, worktree}: reason is the pick's, worktree the path or null.
+export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, eta, worktree, confirmed, tapped }) {
   const gate = readUsageGate();
   if (gate.state === 'paused') throw new BoardError(pauseReason(gate));
   if (phase !== undefined && progress === undefined) fail('--phase goes with --progress "<detail>"');
@@ -1856,21 +1860,70 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const asked = optional(kind, (v) => (/^[\w.-]{1,30}$/.test(v) ? v : fail('--kind takes a short word such as opus or codex')));
   // docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md: --kind build takes the pick's kind.
   const build = ['build', ...PICKED].includes(asked);
-  const pick = build ? builderPick() : null;
+  const before = await readJSON(file, null);
+  const takeUp = before?.tapped && !before.done ? before : null;
+  const pick = takeUp && asked === 'build' ? { kind: takeUp.kind, reason: "The owner's Build tap picked it." } : build ? builderPick() : null;
   if (pick && asked !== 'build' && asked !== pick.kind) fail(`--kind ${asked}: ${pick.kind} builds now. ${pick.reason} Pass --kind ${pick.kind}, or --kind build.`);
   if (confirmed !== undefined && !build) fail('--confirmed goes with a build: --kind build, codex or opus');
   const k = pick ? pick.kind : asked;
   const record = {
     label: label === undefined ? 'Builder' : text(label, '--label'), ...(k ? { kind: k } : {}), started: now,
-    ...(eta === undefined ? {} : { eta: isoTime(eta, '--eta') }),
+    ...(eta === undefined ? {} : { eta: isoTime(eta, '--eta') }), ...(tapped ? { tapped: true } : {}),
   };
-  const status = build && !dir ? (await loadItem(site, key)).item.status : undefined;
-  const marked = build && !dir && ![...FINISHED, 'building', 'fixing'].includes(status) ? await setItem(site, key, { status: 'building', confirmed }) : { lines: [] };
-  const wt = worktree ? await worktree() : null;
+  const was = build && !dir ? (await loadItem(site, key)).item : undefined;
+  const marking = build && !dir && ![...FINISHED, 'building', 'fixing'].includes(was.status);
+  const marked = marking ? await setItem(site, key, { status: 'building', confirmed }) : { lines: [] };
+  let wt;
+  try { wt = worktree ? await worktree() : takeUp?.worktree ?? null; } catch (e) {
+    // A worktree that can't be made leaves the card unstarted, as it was.
+    if (marking) await restoreStatus(site, key, was);
+    throw e;
+  }
   await writeJSON(file, wt ? { ...record, worktree: wt } : record);
   if (line) await statusToThread(site, key, agent, k, line, now);
   const resolved = await resolveAnswered(site, key, 'Acted on: builder started');
-  return { file, lines: [...(asked === 'build' ? [`kind: ${k}. ${pick.reason}`] : []), ...(site ? [`ref: ${await cardName(site, key)}`] : []), ...(wt ? [`worktree: ${wt.path}`] : []), ...marked.lines, ...resolved] };
+  return {
+    file, kind: k ?? null, reason: pick?.reason ?? null, worktree: wt?.path ?? null,
+    lines: [...(asked === 'build' ? [`kind: ${k}. ${pick.reason}`] : []), ...(site ? [`ref: ${await cardName(site, key)}`] : []), ...(wt ? [`worktree: ${wt.path}`] : []), ...marked.lines, ...resolved],
+  };
+}
+
+// The owner's Build tap, in the board server: it refuses what a build's builder start refuses, in the owner's words,
+// else starts the build as `builder start --kind build --worktree` does, with the record marked tapped, so the card is
+// In Progress reading "Waiting for orchestrator" until the session's builder takes it up. A refusal is a thread line
+// of kind BUILD_REFUSED, which the Todo card shows while it is the card's newest line. worktree makes the worktree, as
+// builder start's does (board/worktree.mjs boardWorktree). → {key, ref, kind, reason, worktree}, or null when refused
+// (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md).
+export async function startTappedBuild(site, key, worktree) {
+  try {
+    await tapRefusals(site, key);
+    const started = await startBuilder(site, key, { kind: 'build', worktree, tapped: true });
+    return { key, ref: await cardName(site, key), kind: started.kind, reason: started.reason, worktree: started.worktree };
+  } catch (e) {
+    if (!(e instanceof BoardError)) throw e;
+    await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', kind: BUILD_REFUSED, text: `Couldn't start the build: ${e.message}` });
+    return null;
+  }
+}
+
+// The refusals of a build's start that the owner can act on, worded for the card; startBuilder still makes every check.
+async function tapRefusals(site, key) {
+  const gate = readUsageGate();
+  if (gate.state === 'paused') fail(pauseReason(gate));
+  const { item } = await loadItem(site, key);
+  if (item.held || item.status === 'held') fail("it's held. Resume it, then tap Build.");
+  const blockers = await unfinishedDeps(site, parseKey(key).wave, item);
+  if (blockers.length) {
+    const names = await Promise.all(blockers.map((k) => cardName(site, k)));
+    fail(`it's blocked by ${names.join(', ')}. It can start once ${blockers.length === 1 ? 'that is' : 'those are'} done.`);
+  }
+  if (await unconfirmedPrototype(site, key)) fail("your prototype pick has a note, so Claude posts the final version for your confirm first.");
+}
+
+async function restoreStatus(site, key, was) {
+  const { source, wave, item } = await loadItem(site, key);
+  for (const field of ['status', 'status_at']) if (was[field] === undefined) delete item[field]; else item[field] = was[field];
+  await writeJSON(source.file, wave);
 }
 
 const PICKED = ['codex', 'opus'];
