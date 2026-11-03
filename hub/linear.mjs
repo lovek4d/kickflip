@@ -77,8 +77,13 @@ export function linearClient(key, { fetch = globalThis.fetch, checked = () => {}
     },
     // → [{id, key, name, projects: [{id, name}]}]
     async teams() {
-      const d = await call('query { teams(first: 100) { nodes { id key name projects(first: 100) { nodes { id name } } } } }');
-      return d.teams.nodes.map((t) => ({ id: t.id, key: t.key, name: t.name, projects: t.projects.nodes.map((p) => ({ id: p.id, name: p.name })) }));
+      // Linear refuses a query whose nested page sizes multiply past its complexity limit ("Query too complex"), so
+      // each team's projects come in a query of their own.
+      const d = await call('query { teams(first: 100) { nodes { id key name } } }');
+      return Promise.all(d.teams.nodes.map(async (t) => {
+        const p = await call('query($id: String!) { team(id: $id) { projects(first: 100) { nodes { id name } } } }', { id: t.id });
+        return { id: t.id, key: t.key, name: t.name, projects: p.team.projects.nodes.map((x) => ({ id: x.id, name: x.name })) };
+      }));
     },
     async createProject(teamKey, name) {
       const t = await team(teamKey);

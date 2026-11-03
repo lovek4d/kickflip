@@ -64,7 +64,9 @@ export function fakeLinear(world) {
     }
     const shape = (t) => ({ id: t.id, key: t.key, name: t.name, states: { nodes: t.states }, projects: { nodes: t.projects } });
     if (query.includes('teams(filter')) return ok({ teams: { nodes: world.teams.filter((t) => t.key === variables.key).map(shape) } });
+    if (query.includes('teams(first') && query.includes('projects(first')) return [400, { errors: [{ message: 'Query too complex' }] }];
     if (query.includes('teams(first')) return ok({ teams: { nodes: world.teams.map(shape) } });
+    if (query.includes('team(id')) return ok({ team: shape(teamOf((t) => t.id === variables.id)) });
     return [400, { errors: [{ message: `unknown query ${query}` }] }];
   }
   return {
