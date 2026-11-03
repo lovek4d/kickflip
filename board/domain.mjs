@@ -182,7 +182,9 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
     pr: it.pr && repo ? { number: it.pr, url: `https://github.com/${repo}/pull/${it.pr}`, ...(pr || {}) } : null,
     reviewers: reviewers.map((r) => r.name), review: reviewOf(reviewers, pr, sentAt), inReviewSince,
     threadCount: thread.length + events.length, lastTs, othersAt,
-    grilling: Boolean(lastGrill && !lastGrill.reply),
+    // buildBoard adds a grilling card with no questions posted yet.
+    grilling: Boolean(lastGrill && !lastGrill.reply) || agents.some((a) => a.kind === 'grill' && a.started && !a.done),
+    state: it.state || null,
     updatedAt: pr?.mergedAt || pr?.updatedAt || it.merged_at || builder?.at || lastTs || null, ask: null, fold: null, action: null,
     install: lane === 'done' ? null : installOf(it.install, pr),
   };
@@ -690,7 +692,7 @@ export function buildBoard(snapshot) {
   const itemTopics = new Map(topicsOf().map((t) => [t.id, t]));
   for (const it of items) {
     const t = itemTopics.get(`item:${it.key}`);
-    if (!t) { it.questions = null; continue; }
+    if (!t) { it.questions = null; it.grilling ||= it.state === 'grilling'; continue; }
     const pending = t.questions.filter((id) => questions.find((q) => q.id === id)?.state !== 'resolved');
     const first = t.questions.find((id) => questions.find((q) => q.id === id)?.state === 'open') || pending[0] || t.questions[0];
     it.questions = { topic: t.id, state: t.state, open: t.open, answered: t.answered, replied: t.replied, resolved: t.resolved, first };
@@ -706,6 +708,11 @@ export function buildBoard(snapshot) {
     it.unpicked = it.kind === 'work' && it.lane === 'todo' && Boolean(noTakePicked(questions, it.key));
     if (it.unpicked && !it.action) it.next = NO_TAKE;
     it.buildable = buildableOf(it);
+    // docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md: an unstarted card from an ask reads New until its
+    // session sets its state, and ready once Ready with nothing blocking it or waiting on the owner.
+    const unstarted = it.kind === 'work' && it.lane === 'todo';
+    it.unsorted = unstarted && Boolean(it.fromAsk) && !it.state;
+    it.ready = unstarted && it.state === 'ready' && !it.blockedBy.length && !it.action;
     it.sortAt = SORT_AT[it.lane](it) || it.updatedAt || null;
   }
   // Items arrive in the order the page shows them (public/ui-order.js).
@@ -836,11 +843,12 @@ export function needsAnswer(b) {
 // docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md
 // For built items in board order: idle while no card has a running builder and none waits in Orchestrator review;
 // pullable lists, top first, the buildable cards nothing blocks, with no questions, no grill under way and no message a
-// session is working on. A running grill or prototype agent keeps the board from being idle.
+// session is working on, leaving out a card still New, grilling or prototyping
+// (docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md). A running grill or prototype agent keeps the board from being idle.
 export function pullOf(items) {
   const open = items.filter((i) => !closedLane(i));
   const idle = !open.some((i) => i.waitsOn === 'checking' || (i.agents || []).some((a) => !a.done));
-  const pullable = open.filter((i) => i.buildable && !i.blockedBy.length && !i.questions && !i.grilling && !i.working).map((i) => i.key);
+  const pullable = open.filter((i) => i.buildable && !i.unsorted && [null, 'ready'].includes(i.state ?? null) && !i.blockedBy.length && !i.questions && !i.grilling && !i.working).map((i) => i.key);
   return { idle, pullable };
 }
 

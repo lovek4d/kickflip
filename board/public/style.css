@@ -83,6 +83,7 @@ button.chip { border: 0; }
 .sub.agent { color: var(--color-notice); }
 .sub.next { color: var(--color-notice); }
 .card-hold, .card-blocked, .card-action { color: var(--color-notice); }
+.card-ready { color: var(--color-success); }
 .sub.next.idle { color: var(--muted); }
 .sub.refused { color: var(--color-danger); }
 .toast-stack { position: fixed; left: 50%; bottom: calc(var(--app-bottom, 0px) + 16px + env(safe-area-inset-bottom));

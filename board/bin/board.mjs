@@ -94,6 +94,8 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          [--from-ask <eventId> --text <t>]               the ask it came from: its New card gives way to this item,
                                                          whose thread opens with the ask and its thread, then --text
                                                          as the item's first line; it leaves a card it was folded into
+         [--state ready|grilling|prototyping]            what a card from an ask does next; it reads New until set.
+                                                         ready refuses while the card has an open question
          [--held | --unheld | --pick-up-at <time>]       holds or resumes the card on the owner's words; the board
                                                          server records the owner's own Hold and Resume taps. A later
                                                          --held/--unheld overrides a tap; --unheld also clears a held status.
@@ -441,8 +443,8 @@ const COMMANDS = {
   'prototype add': [['topic'], ['title', 'take', 'card'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take })],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'pushed', 'gh-since', 'from-ask', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force', 'ticket', 'text'], (site, [key], f, options) =>
-    store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps,
+  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'pushed', 'gh-since', 'from-ask', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'force', 'ticket', 'text'], (site, [key], f, options) =>
+    store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, force: f.force, ticket: f.ticket, text: f.text }, options)],
   'item add': [['wave[/id]'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket, pickUpAt: f['pick-up-at'] }, options)],
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
@@ -550,7 +552,7 @@ function itemChanges(f) {
   return [
     f.status, f['clear-status'] && 'status cleared',
     f.next !== undefined && (f.next.trim() ? 'next line set' : 'next line cleared'), f['clear-next'] && 'next line cleared',
-    f.pr !== undefined && `PR #${f.pr}`, f.pushed !== undefined && `pushed ${f.pushed}`, f['gh-since'] && `GitHub read to ${f['gh-since']}`, f['from-ask'] && `from task ${f['from-ask']}`,
+    f.pr !== undefined && `PR #${f.pr}`, f.pushed !== undefined && `pushed ${f.pushed}`, f['gh-since'] && `GitHub read to ${f['gh-since']}`, f['from-ask'] && `from task ${f['from-ask']}`, f.state,
     f.held && 'held', f.unheld && 'resumed', pickUp !== undefined && (pickUp ? `held until ${pickUp}` : 'resumed'),
     notesFileOf(f) !== undefined && 'notes recorded', f.deps !== undefined && (f.deps ? `blocked by ${f.deps}` : 'deps cleared'),
     f.install !== undefined && 'install published', f['clear-install'] && 'install cleared',

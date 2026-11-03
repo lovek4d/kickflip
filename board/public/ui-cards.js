@@ -162,12 +162,13 @@
       : `Held until ${d.toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' })}, ${clock(d)}. ${it.lane === 'todo' ? 'It starts on its own then, once nothing else blocks it.' : 'Claude picks it up again then.'}`;
     return `<span class="card-hold" title="${esc(title)}">${esc(d ? `held until ${heldUntilWords(it.heldUntil)}` : 'held')}</span>`;
   }
-  // A card's last line: the time its lane sorts by (domain.mjs sortAt), then its hold, what blocks it and Action needed,
-  // then its unread count, which app-cards.js takes away when the card opens.
+  // A card's last line: the time its lane sorts by (domain.mjs sortAt), then its hold, what blocks it, then Action needed
+  // or ready, then its unread count, which app-cards.js takes away when the card opens
+  // (docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md).
   const SEP = '<span class="sep"> · </span>';
   function timeLine(it, unread) {
     const iso = it.sortAt;
-    const parts = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, holdWords(it), blockedWords(it), actionWords(it)].filter(Boolean);
+    const parts = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, holdWords(it), blockedWords(it), actionWords(it), it.ready && '<span class="card-ready">ready</span>'].filter(Boolean);
     const count = unread ? `<span class="card-unread">${parts.length ? SEP : ''}${unread} new message${unread === 1 ? '' : 's'}</span>` : '';
     if (!parts.length && !count) return '';
     return `<div class="line6 sub card-time">${parts.join(SEP)}${count}</div>`;
@@ -186,7 +187,9 @@
   const cardActions = (it, top) => (it.isNew ? askActions(it, top) : it.bumpable ? `<div class="ask-actions">${cardBumpButton(it.key, Boolean(it.bumpedAt))}</div>` : '');
   const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' && `<span class="working">${workingLine}</span>`].filter(Boolean).join(' · ');
   function workLines(it, { unread = 0, top = false } = {}) {
-    const ids = it.kind === 'ask' ? askChip(it) : it.ticket ? ticketChip(it) : it.ticketSource === 'linear' ? linearChips(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
+    const ticket = it.ticket ? ticketChip(it) : it.ticketSource === 'linear' ? linearChips(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
+    // A card from an ask reads New until its session sets ready, grilling or prototyping (domain.mjs unsorted).
+    const ids = it.kind === 'ask' ? askChip(it) : it.unsorted ? `${badge('notice', 'New')} ${ticket}` : ticket;
     const wave = it.lineup ? badge('quiet', `${WAVE_ICON}${esc(it.lineup.title)}`, { title: `In the wave ${it.lineup.title}` }) : '';
     const chips = `${stalledChip(it)}${it.kind === 'followup' ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
     const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)

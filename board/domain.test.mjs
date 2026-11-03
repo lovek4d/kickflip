@@ -1181,3 +1181,36 @@ test('a card-unbump after a card-bump unbumps the card, and a later bump bumps i
   assert.equal(bumpedAt([bump('card-bump', 1), bump('card-unbump', 2)]), null);
   assert.equal(bumpedAt([bump('card-bump', 1), bump('card-unbump', 2), bump('card-bump', 3)]), '2026-11-03T10:03:00.000Z');
 });
+
+// docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md
+test("a card made from an ask reads New until its session sets ready, grilling or prototyping, and only a Ready card the owner owes nothing reads ready and is pullable", () => {
+  const q = { id: 'q1', topic: 'item:w/A1', question: 'Which way?', options: [{ id: 'A', label: 'One' }] };
+  const card = ({ item = {}, owner = {}, agents = {}, dep, events = [] } = {}) => buildBoard({
+    fromWaves: false, events, owner, prs: {},
+    waves: [{ slug: 'w', agents, wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One', from_ask: 'e1', ...item }, ...(dep ? [{ id: 'A2', title: 'Two', status: dep }] : [])] } }],
+  }).items.find((i) => i.id === 'A1');
+  const fields = (c) => [c.unsorted, c.ready, c.grilling];
+  const fresh = card();
+  assert.deepEqual(fields(fresh), [true, false, false]);
+  assert.deepEqual(pullOf([fresh]).pullable, []);
+  assert.equal(card({ item: { from_ask: undefined } }).unsorted, false);
+  const ready = card({ item: { state: 'ready' } });
+  assert.deepEqual(fields(ready), [false, true, false]);
+  assert.deepEqual(pullOf([ready]).pullable, ['w/A1']);
+  assert.equal(card({ item: { state: 'ready', held: true } }).ready, true);
+  assert.equal(card({ item: { state: 'ready', deps: ['A2'] }, dep: 'building' }).ready, false);
+  assert.equal(card({ item: { state: 'ready' }, owner: { items: [q] } }).ready, false);
+  assert.equal(card({ item: { state: 'ready', status: 'building' } }).ready, false);
+  for (const state of ['grilling', 'prototyping']) {
+    const c = card({ item: { state } });
+    assert.deepEqual([c.unsorted, c.ready], [false, false]);
+    assert.deepEqual(pullOf([c]).pullable, []);
+  }
+  // A grill is under way while the card is grilling with no questions posted yet, while a grill agent runs, and while
+  // a Grill tap waits on its reply.
+  assert.deepEqual([card({ item: { state: 'grilling' } }).grilling, card({ item: { state: 'grilling' }, owner: { items: [q] } }).grilling], [true, false]);
+  const grill = { kind: 'grill', started: '2026-10-23T10:00:00Z' };
+  assert.equal(card({ item: { state: 'ready' }, agents: { A1: { main: grill } } }).grilling, true);
+  assert.equal(card({ item: { state: 'ready' }, agents: { A1: { main: { ...grill, done: '2026-10-23T10:30:00Z' } } } }).grilling, false);
+  assert.equal(card({ item: { state: 'ready' }, events: [{ id: 'g1', ts: '2026-10-23T10:00:00Z', kind: 'grill-more', data: { key: 'w/A1' } }] }).grilling, true);
+});

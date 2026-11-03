@@ -1146,6 +1146,8 @@ async function checkAsk(site, eventId, name = '--from-ask') {
 
 // docs/adr/0020-cards-wait-on-explicit-blocked-by-links.md
 const FINISHED = ['done', 'merged', 'dropped'];
+// docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md
+const CARD_STATES = ['ready', 'grilling', 'prototyping'];
 function clearBuildingStatus(item) {
   if (!['building', 'fixing'].includes(item?.status)) return false;
   delete item.status;
@@ -1245,8 +1247,9 @@ function closingLine(site, key, item, status, text) {
 // (done, merged, dropped) adds a `resolved: <id>` line per question it resolved (closeQuestions).
 // notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`. text is the closing line
 // (closingLine), or with fromAsk the item's first thread line.
-async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, held, unheld, pickUpAt, notesFile, deps, install, installSha, installLabel, clearInstall, title, force, text: said, who }, options) {
+async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, install, installSha, installLabel, clearInstall, title, force, text: said, who }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
+  if (state !== undefined && !CARD_STATES.includes(state)) fail('--state takes ready, grilling or prototyping');
   if (force && !FINISHED.includes(status)) fail(`--force goes with --status ${FINISHED.join(', ')}`);
   if (fromAsk !== undefined && FINISHED.includes(status)) fail('--from-ask opens a card; close it in another call');
   if (said !== undefined) text(said, '--text');
@@ -1256,7 +1259,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   const hold = holdOf({ held, unheld, pickUpAt });
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, hold, notesFile, deps, built, title, ticket].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --held, --unheld, --pick-up-at, --notes-file, --deps, --install, --clear-install, --title or --ticket');
+  if ([status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, state, hold, notesFile, deps, built, title, ticket].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --notes-file, --deps, --install, --clear-install, --title or --ticket');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   const { source, wave, item } = await loadItem(site, key);
@@ -1313,6 +1316,12 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     item.gh_since = ghSince;
   }
   if (ask) item.from_ask = ask;
+  // docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md: ready leaves the owner nothing to decide.
+  if (state === 'ready' && site) {
+    const open = (await cardQuestions(site, key)).asked.filter((q) => q.state === 'open').map((q) => q.id);
+    if (open.length) fail(`${key} has ${open.length === 1 ? 'an open question' : 'open questions'} ${open.join(', ')}; it is ready once the owner has answered ${open.length === 1 ? 'it' : 'them'}`);
+  }
+  if (state !== undefined) item.state = state;
   if (built) item.install = built;
   if (built === null) delete item.install;
   // docs/adr/0142-an-in-progress-card-always-has-a-builder-line-or-a-next.md: building and fixing go with a builder start.

@@ -923,6 +923,25 @@ test('item set edits the item in a waves board and in a file board', () => {
   assert.equal(read(site('audit', 'data', 'wave.json')).items[0].status, undefined);
 });
 
+// docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md
+test('item set --state sets ready, grilling or prototyping, with --from-ask too, and refuses any other state and ready while a question is open', () => {
+  const state = () => read(at('waves', 'w', 'wave.json')).items[0].state;
+  const r = board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e1', '--text', 'On it.', '--state', 'grilling');
+  assert.deepEqual([r.code, state()], [0, 'grilling']);
+  assert.match(r.out, /grilling/);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'prototyping').code, 0);
+  assert.equal(state(), 'prototyping');
+  assert.deepEqual(board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'done'), { code: 1, out: '', err: '--state takes ready, grilling or prototyping\n' });
+  write(path.join(home, 'card.json'), question('q1', { topic: 'item:w/A1' }));
+  assert.equal(board('question', 'add', '--site', 'orch', '--file', path.join(home, 'card.json')).code, 0);
+  assert.deepEqual(board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'ready'), { code: 1, out: '', err: 'w/A1 has an open question q1; it is ready once the owner has answered it\n' });
+  assert.equal(state(), 'prototyping');
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'grilling').code, 0);
+  assert.equal(board('question', 'resolve', 'q1', '--site', 'orch', '--note', 'Settled').code, 0);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'ready').code, 0);
+  assert.equal(state(), 'ready');
+});
+
 test('item set --next requires unfinished card ids and refs to be deps, and allows finished cards', () => {
   write(site('audit', 'data', 'wave.json'), { internal: true, items: [
     { id: 'A1', title: 'One', next: 'Old' },
