@@ -583,6 +583,8 @@ test("a question card checks this device's draft over the last answer", () => {
   assert.deepEqual(checked(ui.questionCard(answered)), [true, false]);
   assert.deepEqual(checked(ui.questionCard(answered, { draft: { choice: 'B' } })), [false, true]);
   assert.match(text(ui.questionCard(answered)), /You · .* A\. Keep Waiting for Claude…/);
+  const acted = { ...question, state: 'resolved', answers: [{ ...answered.answers[0], acted: true }] };
+  assert.doesNotMatch(text(ui.questionCard(acted)), /Waiting for Claude/);
 });
 
 const takeCards = (html) => html.split('<article class="take"').slice(1);
@@ -1265,6 +1267,8 @@ test("only Claude's and GitHub's messages are unread: the owner's answers after 
 
   const split = ui.threadMessages([answer(10), answer(11), { ts: at(12), who: 'claude', text: 'On it' }, answer(13), { ts: at(14), who: 'claude', kind: 'status', text: 'Testing' }, answer(15)], {}, new Map(), null);
   assert.deepEqual(waits(split), ['Q11', 'Q15']);
+  const acted = ui.threadMessages([answer(10), { ...answer(11), state: 'answered' }], {}, new Map(), null);
+  assert.deepEqual(waits(acted), ['Q10']);
 });
 
 test("an ask's link line opens the work it became, and a thread line opens a linked card on the board", () => {

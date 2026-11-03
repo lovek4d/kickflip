@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, threadOf, needsAnswer, pullOf, owesNext, startedByAnswer, NO_NEXT, NO_TAKE } from './domain.mjs';
+import { buildBoard, threadOf, ownerQuestion, needsAnswer, pullOf, owesNext, startedByAnswer, NO_NEXT, NO_TAKE } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -1244,4 +1244,23 @@ test("a card made from an ask reads New until its session sets ready, grilling o
   assert.equal(card({ item: { state: 'ready' }, agents: { A1: { main: grill } } }).grilling, true);
   assert.equal(card({ item: { state: 'ready' }, agents: { A1: { main: { ...grill, done: '2026-10-23T10:30:00Z' } } } }).grilling, false);
   assert.equal(card({ item: { state: 'ready' }, events: [{ id: 'g1', ts: '2026-10-23T10:00:00Z', kind: 'grill-more', data: { key: 'w/A1' } }] }).grilling, true);
+});
+
+test("an owner answer stops waiting on Claude once its question is resolved after it, a later round names it, or a build starts after it", () => {
+  const q = (id, extra = {}) => ({ id, topic: 'item:w/A1', question: `${id}?`, ...extra });
+  const owner = { items: [
+    q('resolved', { resolved: 'Acted on: replied', resolved_at: '2026-10-23T12:00:00Z' }),
+    q('reopened', { resolved: 'Earlier', resolved_at: '2026-10-23T10:30:00Z' }),
+    q('rounded'), q('round2', { round_of: 'rounded', round: 2 }),
+    q('before-build'), q('after-build'), q('before-grill'),
+  ] };
+  const answer = (id, ts) => ({ id: `a-${id}`, ts, kind: 'owner-answer', data: { id, choice: 'A' }, reply: null });
+  const events = [answer('resolved', '2026-10-23T11:00:00Z'), answer('reopened', '2026-10-23T11:20:00Z'), answer('rounded', '2026-10-23T11:00:00Z'),
+    answer('before-build', '2026-10-23T11:10:00Z'), answer('before-grill', '2026-10-23T11:20:00Z'), answer('after-build', '2026-10-23T13:30:00Z')];
+  const agents = { grill: { kind: 'grill', started: '2026-10-23T12:30:00Z', done: '2026-10-23T12:40:00Z' }, main: { kind: 'claude', started: '2026-10-23T11:15:00Z' } };
+  const states = (a) => Object.fromEntries(threadOf('w/A1', { events, owner, agents: a }).filter((m) => m.kind === 'owner-answer').map((m) => [m.text.split('?')[0], m.state]));
+  assert.deepEqual(states(agents), { resolved: 'answered', reopened: 'waiting', rounded: 'answered', 'before-build': 'answered', 'before-grill': 'waiting', 'after-build': 'waiting' });
+  assert.equal(states({ grill: agents.grill })['before-build'], 'waiting');
+  // The questions page reads the same resolution from ownerQuestion.
+  assert.deepEqual(['resolved', 'reopened'].map((id) => ownerQuestion(owner.items.find((x) => x.id === id), events).answers.map((a) => a.acted)), [[true], [false]]);
 });

@@ -27,7 +27,7 @@
   // A message being edited shows its edit box in place of its text; app-asks.js handles the form.
   const editForm = (id, text) => `<form class="edit-form" data-edit-form="${esc(id)}"><textarea rows="3">${esc(text)}</textarea>
         <div class="row"><span></span><span><button type="button" data-edit-cancel>Cancel</button> <button class="primary" type="submit">Save</button></span></div></form>`;
-  // batched: an answer followed by another of the owner's answers, which carries the batch's Waiting for Claude.
+  // batched: an answer followed by another of the owner's answers in its state, which carries the batch's Waiting for Claude.
   const line = (m, links, edits, batched = false) => (m.kind === 'reply'
     ? `<div class="msg claude reply-msg"><div class="who">Claude · ${esc(time(m.ts))}</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body">${linkHtml(replyBody(m.reply), links)}</div></div>`
     : m.kind === 'ask-link' ? `<div class="msg link"><a href="${esc(m.link)}">${esc(m.text)} →</a></div>`
@@ -47,7 +47,10 @@
   const isMessage = (m) => !NOT_MESSAGE.has(m.kind);
   // Only Claude's and GitHub's messages are unread, as on the badge (domain.mjs othersAt, ui-cards.js unreadCount).
   const unread = (m, seenAt) => Boolean(seenAt) && isMessage(m) && (m.who === 'claude' || m.via === 'github') && String(m.ts) > seenAt;
-  const batchedAt = (lines, i) => lines[i].kind === 'owner-answer' && lines.slice(i + 1).find(isMessage)?.kind === 'owner-answer';
+  const batchedAt = (lines, i) => {
+    const next = lines.slice(i + 1).find(isMessage);
+    return lines[i].kind === 'owner-answer' && next?.kind === 'owner-answer' && stateOf(next) === stateOf(lines[i]);
+  };
   // The window opens from the oldest unread message, at most UNREAD_CAP messages back; a message being edited always shows.
   function threadWindow(lines, { seenAt = null, more = 0, upto = null }, edits) {
     const counted = lines.flatMap((m, i) => (isMessage(m) && (!upto || String(m.ts) <= upto) ? [i] : []));

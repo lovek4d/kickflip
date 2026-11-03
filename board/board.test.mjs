@@ -2796,3 +2796,28 @@ test('a write that takes a card out of Todo clears its hold and pick-up time', (
   assert.deepEqual(items().slice(0, 4).map((it) => [it.held, it.pick_up_at]), Array(4).fill([undefined, undefined]));
   assert.deepEqual([items()[4].held, items()[4].pick_up_at], [true, nine]);
 });
+
+test("a Next set while the card has an open question clears once its questions are all acted on, or once a build starts; one set with none open stays", () => {
+  const item = (id) => read(at('waves', 'w', 'wave.json')).items.find((it) => it.id === id);
+  const ownerFile = site('orch', 'data', 'owner.json');
+  const ok = (...args) => { const r = board(...args, '--site', 'orch'); assert.equal(r.code, 0, r.err); return r; };
+  ok('item', 'set', 'w/ENG-1', '--next', 'Merge when CI is green');
+  ok('builder', 'start', 'w/ENG-1', '--kind', 'claude');
+  assert.deepEqual([item('ENG-1').next, item('ENG-1').next_on_questions], ['Merge when CI is green', undefined]);
+
+  write(ownerFile, { topics: [], items: [question('pick', { topic: 'item:w/A1' })] });
+  ok('builder', 'start', 'w/A1', '--kind', 'claude');
+  ok('builder', 'done', 'w/A1', '--next', 'Owner picks a tagline on #1');
+  assert.equal(item('A1').next_on_questions, true);
+  addEvents({ id: 'answer-pick', ts: new Date().toISOString(), kind: 'owner-answer', data: { id: 'pick', choice: 'A' } });
+  assert.equal(item('A1').next, 'Owner picks a tagline on #1');
+  ok('question', 'resolve', 'pick', '--note', 'Took A');
+  assert.deepEqual([item('A1').next, item('A1').next_on_questions], [undefined, undefined]);
+
+  write(ownerFile, { ...read(ownerFile), items: [...read(ownerFile).items, question('tone', { topic: 'item:w/A1' })] });
+  ok('item', 'set', 'w/A1', '--next', 'Owner picks a tone');
+  ok('builder', 'start', 'w/A1', '--agent', 'grill', '--kind', 'grill');
+  assert.equal(item('A1').next, 'Owner picks a tone');
+  ok('builder', 'start', 'w/A1', '--kind', 'claude');
+  assert.deepEqual([item('A1').next, item('A1').next_on_questions], [undefined, undefined]);
+});

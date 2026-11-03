@@ -365,7 +365,7 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
 // Grill and prototype agents work toward a build, so they never start a card or put it in In Progress
 // (docs/adr/0138-a-card-moves-to-in-progress-only-once-building-starts.md).
 const NOT_BUILDING = new Set(['grill', 'prototype']);
-const builds = (agent) => !NOT_BUILDING.has(agent.kind);
+export const builds = (agent) => !NOT_BUILDING.has(agent.kind);
 
 // An item's agents, oldest first, from its records by agent name.
 function agentsOf(records = {}) {
@@ -409,10 +409,13 @@ function agentName(a) {
   return label.toLowerCase().includes(kind.toLowerCase()) ? label : `${k} ${lower(label)}`;
 }
 
+// docs/adr/0157-an-answer-stops-waiting-once-its-acted-on.md
+// Whether an owner answer at ts is acted on by its question's resolution: resolved, at or after ts when it records when.
+const resolvedSince = (q, ts) => Boolean(q.resolved) && (!q.resolved_at || String(q.resolved_at) >= String(ts));
 // A question's state: open (no answer yet), answered (waiting for Claude), replied (Claude answered), requested (the
 // owner asked for a prototype of it after its last answer, until the round arrives and resolves it), resolved
 // (owner.json sets `resolved` and `resolved_at`). An answer newer than `resolved_at` reopens it; without `resolved_at`
-// it stays resolved. answerEvents are owner-answer events and requestEvents prototype-request events, oldest first;
+// it stays resolved. Each answer is acted on once the question's resolution covers it. answerEvents are owner-answer events and requestEvents prototype-request events, oldest first;
 // store.mjs reads their states to close a card's questions.
 export function ownerQuestion(q, answerEvents, requestEvents = []) {
   const answers = answerEvents.filter((e) => e.data?.id === q.id);
@@ -422,7 +425,7 @@ export function ownerQuestion(q, answerEvents, requestEvents = []) {
   const req = resolved ? null : requestEvents.filter((e) => e.data?.question === q.id && String(e.ts) > String(last?.ts || '')).at(-1);
   const state = resolved ? 'resolved' : req ? 'requested' : !last ? 'open' : last.reply ? 'replied' : 'answered';
   return { ...q, state, request: req ? { id: req.id, ts: req.ts, note: req.data.note || '' } : null,
-    answers: answers.map((e) => ({ ts: e.ts, choice: e.data.choice || null, note: e.data.note || '', files: e.data.files || [], reply: e.reply })) };
+    answers: answers.map((e) => ({ ts: e.ts, choice: e.data.choice || null, note: e.data.note || '', files: e.data.files || [], reply: e.reply, acted: resolvedSince(q, e.ts) })) };
 }
 
 // docs/adr/0111-a-prototype-round-ends-with-a-one-take-confirm.md
@@ -492,6 +495,12 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
   const askIds = key.startsWith('ask:') ? [key.slice(4)] : [fromAsk, ...moved].filter(Boolean);
   const keys = new Set([key, ...askIds.map((id) => `ask:${id}`)]);
   const asked = new Map((owner.items || []).filter((q) => q.topic === `item:${key}`).map((q) => [q.id, q]));
+  // An answer is acted on, and waits on Claude no more, once its question is resolved after it, a later prototype
+  // round names its question (round_of), or a build starts on the card after it.
+  const rounded = new Set([...asked.values()].map((q) => q.round_of).filter(Boolean));
+  const buildsFrom = agentsOf(agents).filter(builds).map((a) => String(a.started || '')).filter(Boolean);
+  const acted = new Set(events.filter((e) => e.kind === 'owner-answer' && asked.has(e.data?.id))
+    .filter((e) => resolvedSince(asked.get(e.data.id), e.ts) || rounded.has(e.data.id) || buildsFrom.some((s) => s > String(e.ts))).map((e) => e.id));
   const msgs = [
     // First, so a start sorts above the status line `builder start` writes at the same moment.
     ...agentsOf(agents).flatMap((a) => [
@@ -519,7 +528,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     if (!m.eventId) continue;
     if ((m.kind === 'ask' || m.kind === 'item-message') && typeof edits.get(m.eventId) === 'string') Object.assign(m, { text: edits.get(m.eventId), edited: true });
     const linked = m.kind === 'ask' && (links.length > 0 || Boolean(m.moved));
-    m.state = m.reply ? 'replied' : linked || lastClaude > String(m.ts) ? 'answered' : routeRecord(working, m.eventId) ? 'working' : 'waiting';
+    m.state = m.reply ? 'replied' : linked || acted.has(m.eventId) || lastClaude > String(m.ts) ? 'answered' : routeRecord(working, m.eventId) ? 'working' : 'waiting';
     m.canDelete = m.kind === 'item-message' && (m.state === 'working' || m.state === 'waiting');
     m.canEdit = m.canDelete;
   }

@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, ITEM_STATUSES, mergeBlockers, modelName, noTakePicked, ownerQuestion, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
+import { BUILD_REFUSED, ITEM_STATUSES, builds, mergeBlockers, modelName, noTakePicked, ownerQuestion, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, builderPick } from '../shared/usage-gate.mjs';
 import { reviseQueued, flushQueue, queueStatus, readSettings, pushKindError } from '../hub/push.mjs';
@@ -1043,7 +1043,9 @@ export async function resolveQuestion(site, id, note) {
   if (view.state === 'resolved') return ownerFile(site);
   const said = text(note, '--note');
   if (pageTopic(q.url)) roundSettled(owner, q, answers);
-  return markResolved(site, owner, [id], said);
+  const file = await markResolved(site, owner, [id], said);
+  await clearWaitedNext(site, q.topic);
+  return file;
 }
 
 // docs/adr/0114-a-pick-with-no-note-settles-a-prototype-round.md
@@ -1086,7 +1088,31 @@ async function resolveAnsweredOn(site, topic, note) {
   const { owner, asked } = await topicQuestions(site, topic);
   const ids = answeredOnClaude(asked);
   if (ids.length) await markResolved(site, owner, ids, note);
+  await clearWaitedNext(site, topic);
   return ids.map((id) => `resolved: ${id}`);
+}
+
+// docs/adr/0157-an-answer-stops-waiting-once-its-acted-on.md
+// A Next set while its card had an open question waits on the card's questions (the wave entry's next_on_questions).
+const hasOpenQuestion = async (site, key) => Boolean(site) && (await cardQuestions(site, key)).asked.some((q) => q.state === 'open');
+function setNext(item, next, waitsOnQuestions) {
+  item.next = text(next, '--next');
+  if (waitsOnQuestions) item.next_on_questions = true; else delete item.next_on_questions;
+}
+// Clears that Next once a build starts on the card, or once none of the card's questions is left unresolved: the card
+// then reads its builder line or "Next: none set yet". topic is the card's question topic, item:<key>; any other
+// topic, or a card no longer on the board, has no Next to clear.
+async function clearWaitedNext(site, topic, { build = false } = {}) {
+  const key = topic.startsWith('item:') && !topic.startsWith('item:ask:') ? topic.slice(5) : null;
+  if (!key) return;
+  let loaded;
+  try { loaded = await loadItem(site, key); } catch (e) { if (e instanceof BoardError) return; throw e; }
+  const { source, wave, item } = loaded;
+  if (!item.next_on_questions) return;
+  if (!build && (await cardQuestions(site, key)).asked.some((q) => q.state !== 'resolved')) return;
+  delete item.next;
+  delete item.next_on_questions;
+  await writeJSON(source.file, wave);
 }
 
 // Closing a card resolves its questions (topic item:<key>) that have an answer, and refuses while one has none, naming
@@ -1299,10 +1325,12 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   // A newer status_at overrides the owner's card-done in domain.mjs.
   if (status !== undefined || clearStatus) item.status_at = new Date().toISOString();
   if (next !== undefined) {
-    item.next = text(next, '--next');
+    setNext(item, next, await hasOpenQuestion(site, key));
     await checkNextDeps(site, key, item, item.next);
   }
-  if (clearNext) delete item.next;
+  if (clearNext) { delete item.next; delete item.next_on_questions; }
+  // A build starting acts on whatever a Next set during the card's questions waited on.
+  if (status === 'building' && next === undefined && item.next_on_questions) { delete item.next; delete item.next_on_questions; }
   if (pr !== undefined) {
     item.pr = /^[1-9]\d*$/.test(String(pr)) ? Number(pr) : fail('--pr takes a PR number');
     clearBuildingStatus(item);
@@ -1876,6 +1904,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   await writeJSON(file, wt ? { ...record, worktree: wt } : record);
   if (line) await statusToThread(site, key, agent, record, line, now);
   const resolved = await resolveAnswered(site, key, 'Acted on: builder started');
+  if (site && builds({ kind: k })) await clearWaitedNext(site, `item:${key}`, { build: true });
   return {
     file, kind: k ?? null, reason: pick?.reason ?? null, worktree: wt?.path ?? null,
     lines: [...(asked === 'build' ? [`kind: ${k}. ${pick.reason}`] : []), ...(modelName(record) ? [`model: ${modelName(record)}`] : []), ...(site ? [`ref: ${await cardName(site, key)}`] : []), ...(wt ? [`worktree: ${wt.path}`] : []), ...marked.lines, ...resolved],
@@ -2099,7 +2128,7 @@ export async function stopBuilder(site, key, { dir, agent, startedBetween, note,
   const wave = await readJSON(source.file, null);
   const item = wave?.items?.find((it) => it.id === id);
   if (next !== undefined) {
-    (item || fail(`${key} has no item to set --next on`)).next = text(next, '--next');
+    setNext(item || fail(`${key} has no item to set --next on`), next, await hasOpenQuestion(site, key));
     if (site) await checkNextDeps(site, key, item, item.next);
   }
   const cleared = last && clearBuildingStatus(item);

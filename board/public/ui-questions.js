@@ -32,7 +32,7 @@
   function answerHistory(q, links = {}) {
     if (!q.answers.length) return '';
     const body = q.answers.map((a) => `<div class="ans"><div class="muted small">You · ${esc(time(a.ts))}</div>${esc(choiceLabel(q, a.choice))}${a.note ? `<div>${linkText(a.note, links)}</div>` : ''}${attachments(a.files)}</div>
-      ${a.reply ? `<div class="rep"><div class="muted small">Claude</div>${linkHtml(replyBody(a.reply), links)}</div>` : '<div class="muted small" style="margin-top:4px">Waiting for Claude…</div>'}`).join('');
+      ${a.reply ? `<div class="rep"><div class="muted small">Claude</div>${linkHtml(replyBody(a.reply), links)}</div>` : a.acted ? '' : '<div class="muted small" style="margin-top:4px">Waiting for Claude…</div>'}`).join('');
     const last = q.answers[q.answers.length - 1];
     return q.state === 'open' || !last.reply ? body : `<details><summary>Your answer and Claude's reply</summary>${body}</details>`;
   }
