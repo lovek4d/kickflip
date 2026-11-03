@@ -79,8 +79,7 @@ button.chip { border: 0; }
 
 .status { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--color-quiet); display: inline-block; position: relative; }
 .status.progress { border-color: var(--color-notice); background: conic-gradient(var(--color-notice) 0 50%, transparent 50% 100%); }
-.status.review { border-color: var(--color-success); background: conic-gradient(var(--color-success) 0 75%, transparent 75% 100%); }
-.status.todo { border-style: dashed; }
+.status.review { border-color: var(--color-info); background: conic-gradient(var(--color-info) 0 75%, transparent 75% 100%); }
 .sub.agent { color: var(--color-notice); }
 .sub.next { color: var(--color-notice); }
 .sub.next.idle { color: var(--muted); }
