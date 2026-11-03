@@ -347,7 +347,7 @@ test('needs lists each Needs you line: open topics apart from items, then items 
     { kind: 'Question', text: 'A1: One · 1 question · Ready on GitHub', url: '#item=w%2FA1' },
   ]);
   assert.equal(board({ owner, events: answered }).needsSummary, '2 questions · 1 draft waiting on Ready');
-  assert.deepEqual(lines(board({ owner, events: answered, held: true })), [{ kind: 'Question', text: 'Site · 1 question', url: 'questions.html#q1' }]);
+  assert.deepEqual(lines(board({ owner, events: answered, held: true, item: { pr: undefined } })), [{ kind: 'Question', text: 'Site · 1 question', url: 'questions.html#q1' }]);
   assert.deepEqual(lines(board()), [{ kind: 'Tap Ready', text: 'A1: One · Ready on GitHub', url: '#item=w%2FA1' }]);
   assert.deepEqual(lines(board({ pr: { ...greenDraft, isDraft: false } })), []);
   assert.equal(board({ pr: { ...greenDraft, isDraft: false } }).needsSummary, '');
@@ -578,7 +578,12 @@ test("with auto-merge off an approved, green, clean PR waits on the owner's Merg
     assert.equal(card({ pr }).items[0].action, null, JSON.stringify(pr));
   }
   assert.equal(card({ pr: { ...clean, mergeStateStatus: 'BLOCKED' } }).items[0].next, 'Approved, Merge shows once CI and the merge state allow');
-  assert.equal(card({ item: { held: true } }).items[0].action, null);
+  assert.equal(card({ item: { held: true, pr: undefined } }).items[0].action, null);
+  // docs: a card that left Todo never reads held, whatever old data says.
+  const leftTodo = card({ item: { held: true, pick_up_at: '2026-11-05T17:00:00.000Z' } }).items[0];
+  assert.deepEqual([leftTodo.lane, leftTodo.held, leftTodo.heldUntil], ['review', false, null]);
+  const droppedHeld = card({ item: { held: true, status: 'dropped', pr: undefined } }).items[0];
+  assert.deepEqual([droppedHeld.lane, droppedHeld.held], ['done', false]);
   assert.equal(card({ item: { manual_steps: ['Run the backfill'] } }).items[0].action.kind, 'steps');
 
   const tapped = [{ id: 'm1', ts: '2026-10-29T10:00:00Z', kind: 'card-merge', data: { key: 'w/A1' } }];

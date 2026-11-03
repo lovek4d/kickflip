@@ -1351,6 +1351,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
       : `${key} is held; start it only once the owner resumes it, with item set ${key} --unheld`);
   }
   if (status !== undefined) item.status = ITEM_STATUSES.includes(status) ? status : fail(`--status takes ${ITEM_STATUSES.join(', ')}`);
+  if (LEAVES_TODO.includes(status) || pr !== undefined || pushed !== undefined) clearHold(item);
   if (status === 'building') {
     const blockers = await unfinishedDeps(site, parseKey(key).wave, item);
     if (blockers.length) fail(`${key} is blocked by ${blockers.join(', ')}; start it once ${blockers.length === 1 ? 'that is' : 'those are'} done or merged`);
@@ -1434,6 +1435,13 @@ function pickUpTime(value) {
   if (Number.isNaN(ms)) fail('--pick-up-at takes an ISO time such as 2026-11-04T09:00, the Mac’s local time unless it names an offset, or "" to resume the card');
   if (ms <= Date.now()) fail(`--pick-up-at ${value} has passed; pass a later time, or --unheld to resume the card now`);
   return new Date(ms).toISOString();
+}
+// A card that has left Todo is never still held, so --status building, fixing, checking and the finished ones, --pr and
+// --pushed drop its hold and pick-up time.
+const LEAVES_TODO = ['building', 'fixing', 'checking', ...FINISHED];
+function clearHold(item) {
+  delete item.held;
+  delete item.pick_up_at;
 }
 function setHold(item, hold) {
   if (hold) item.held = true; else delete item.held;

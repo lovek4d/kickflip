@@ -140,7 +140,8 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
   const awaitsDone = Boolean(reopenAt) && lane === 'progress' && !waitsOn && !redReady && !ownerPending;
   if (awaitsDone) waitsOn = 'owner';
   const tapped = holdAsk && String(holdAsk.ts) > String(it.held_at || '');
-  const held = tapped ? Boolean(holdAsk.data.hold) : it.status === 'held' || Boolean(it.held);
+  // Only a Todo card reads held; old data can't show one in Done.
+  const held = lane === 'todo' && (tapped ? Boolean(holdAsk.data.hold) : it.status === 'held' || Boolean(it.held));
   // docs/adr/0118-a-card-can-be-held-until-a-time.md
   const heldUntil = held ? (tapped ? holdAsk.data.until : it.pick_up_at) || null : null;
   // docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md

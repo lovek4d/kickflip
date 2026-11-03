@@ -2597,3 +2597,15 @@ test('lineup create chains its cards in build order and writes the wave note; ad
   assert.ok(read(file).lineups[0].finished_at);
   assert.match(b('add', 'mon', 'audit/A2').err, /is finished/);
 });
+
+test('a write that takes a card out of Todo clears its hold and pick-up time', () => {
+  const nine = new Date(Date.now() + 864e5).toISOString();
+  write(at('waves', 'd', 'wave.json'), { items: ['A1', 'A2', 'A3', 'A4', 'A5'].map((id) => ({ id, title: id, held: true, pick_up_at: nine })) });
+  const items = () => read(at('waves', 'd', 'wave.json')).items;
+  assert.equal(board('item', 'set', 'd/A1', '--status', 'dropped', '--site', 'orch', '--text', 'Dropped.').code, 0);
+  assert.equal(board('item', 'set', 'd/A2', '--status', 'checking', '--site', 'orch', '--next', 'Review').code, 0);
+  assert.equal(board('item', 'set', 'd/A3', '--pr', '7', '--site', 'orch').code, 0);
+  assert.equal(board('item', 'set', 'd/A4', '--status', 'done', '--site', 'orch', '--text', 'Done.').code, 0);
+  assert.deepEqual(items().slice(0, 4).map((it) => [it.held, it.pick_up_at]), Array(4).fill([undefined, undefined]));
+  assert.deepEqual([items()[4].held, items()[4].pick_up_at], [true, nine]);
+});
