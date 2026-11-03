@@ -130,15 +130,15 @@
   }
   // A builder the Build tap started reads "Waiting for orchestrator" until the session's builder posts its first line.
   const builderLine = (b) => [b.progress || (b.waiting ? 'Waiting for orchestrator' : 'Starting'), b.at && ago(b.at)].filter(Boolean).join(' · ');
-  // Five bars on their own line under the status line while a builder runs: done phases filled, the current one marked.
-  // The phases are store.mjs PHASES (docs/adr/0137-a-builder-status-line-is-a-phase-and-a-short-detail.md,
-  // docs/adr/0148-a-building-card-shows-its-phase-as-five-bars.md).
+  // Five bars at the end of the time row while a build runs on an In Progress card: done phases filled, the current one
+  // marked. The phases are store.mjs PHASES (docs/adr/0137-a-builder-status-line-is-a-phase-and-a-short-detail.md,
+  // docs/adr/0160-a-building-cards-phase-bars-end-its-time-row.md).
   const BUILD_PHASES = ['reading', 'building', 'testing', 'checking', 'landing'];
   function phaseBars(phase) {
     const at = BUILD_PHASES.indexOf(phase);
     if (at < 0) return '';
     const name = `${phase[0].toUpperCase()}${phase.slice(1)}`;
-    return `<div class="line3 phase-bars"><span class="phase-bars-strip" role="img" aria-label="${name}, step ${at + 1} of ${BUILD_PHASES.length}">${BUILD_PHASES.map((_, i) => `<i class="${i < at ? 'done' : i === at ? 'now' : ''}"></i>`).join('')}</span></div>`;
+    return `<span class="phase-bars" role="img" aria-label="${name}, step ${at + 1} of ${BUILD_PHASES.length}">${BUILD_PHASES.map((_, i) => `<i class="${i < at ? 'done' : i === at ? 'now' : ''}"></i>`).join('')}</span>`;
   }
   const stalledChip = (it) => it.lane !== 'done' && it.builder?.stalled ? badge('danger', 'Stalled', {
     button: true, title: 'No recent progress. Nudge Claude to check this builder',
@@ -163,15 +163,16 @@
     return `<span class="card-hold" title="${esc(title)}">${esc(d ? `held until ${heldUntilWords(it.heldUntil)}` : 'held')}</span>`;
   }
   // A card's last line: the time its lane sorts by (domain.mjs sortAt), then its hold, what blocks it, then Action needed
-  // or ready, then its unread count, which app-cards.js takes away when the card opens
-  // (docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md).
+  // or ready, then its unread count, which app-cards.js takes away when the card opens, then a building card's phase bars
+  // (docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/0160-a-building-cards-phase-bars-end-its-time-row.md).
   const SEP = '<span class="sep"> · </span>';
-  function timeLine(it, unread) {
+  function timeLine(it, unread, bars) {
     const iso = it.sortAt;
     const parts = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, holdWords(it), blockedWords(it), actionWords(it), it.ready && '<span class="card-ready">ready</span>'].filter(Boolean);
     const count = unread ? `<span class="card-unread">${parts.length ? SEP : ''}${unread} new message${unread === 1 ? '' : 's'}</span>` : '';
-    if (!parts.length && !count) return '';
-    return `<div class="line6 sub card-time">${parts.join(SEP)}${count}</div>`;
+    const tail = bars ? `${parts.length || count ? SEP : ''}${bars}` : '';
+    if (!parts.length && !count && !tail) return '';
+    return `<div class="line6 sub card-time">${parts.join(SEP)}${count}${tail}</div>`;
   }
   // The Hold sheet's picker (app-cards.js): /api/board's holdChoices, the chips hub/duration.mjs shares with Snooze and
   // Keep awake, then Custom. Its .hub-view root takes hub.css's duration picker rules, which view-hub-settings.js
@@ -194,7 +195,7 @@
     const chips = `${stalledChip(it)}${it.followUp ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
     const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)
       : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Orchestrator review</div>'
-      : it.builder ? `<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>${esc(builderLine(it.builder))}</div>${phaseBars(it.builder.phase)}`
+      : it.builder ? `<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>${esc(builderLine(it.builder))}</div>`
       : it.refusal ? `<div class="line3 sub refused">${esc(it.refusal)}</div>`
       : it.working ? `<div class="line3 sub agent">${workingLine}</div>`
       : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.held ? ' idle' : ''}">Next: ${esc(it.next)}</div>` : '';
@@ -203,7 +204,7 @@
       ${status}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
       ${wave ? `<div class="line5 meta">${wave}</div>` : ''}
-      ${timeLine(it, unread)}`;
+      ${timeLine(it, unread, it.lane === 'progress' && it.builder && it.waitsOn !== 'checking' ? phaseBars(it.builder.phase) : '')}`;
   }
   const WAVE_ICON = '<svg class="wave-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/><path d="M2 16c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/></svg>';
   const askChip = (it) => (it.isNew ? badge('notice', 'New') : '');

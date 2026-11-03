@@ -1,0 +1,12 @@
+# A building card's phase bars end its time row
+
+This supersedes [0148](0148-a-building-card-shows-its-phase-as-five-bars.md) on where the bars sit and which cards show them. The bars themselves, the phases and the status line stay as 0148 and [0137](0137-a-builder-status-line-is-a-phase-and-a-short-detail.md) have them.
+
+The five phase bars sit inline at the very end of a building card's time row, after a " · " and after the new-messages count, level with the text, the active bar included (`board/public/ui-cards.js` `phaseBars` and `timeLine`, `board/public/style.css` `.card-time .phase-bars`). The status line under the title keeps its dot and words and no longer has a line of bars under it. Opening the card takes the unread count away and leaves the bars. The owner chose take A of prototype `bars-inline-2` on #109 (11/03).
+
+- **Only on an In Progress card with a build running.** A grill or prototype agent on a Todo card keeps its agent line and blinking dot without bars. The owner on #129: "There should not be those in to do. It should only be in progress." Orchestrator review, a builder with no phased line yet, and a card with no builder show none, as before.
+- **The active bar blinks its fill, not its opacity.** It animates `background-color` to 35% notice over transparent, which draws what opacity .35 did. An opacity animation gives the bar its own compositing layer, and Safari can snap that layer a pixel off its siblings at the strip's fractional y, so the active bar sat low.
+
+Considered:
+- keeping the bars on their own line under the status line (0148): the owner picked the bars inline at the time row's end;
+- the bars before the unread count: the owner wanted them last.
