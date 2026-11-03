@@ -852,11 +852,12 @@ export async function addQuestions(site, input) {
   }
   for (const q of questions) {
     const topic = pageTopic(q.url);
-    for (const old of items) {
-      if (old.topic !== q.topic) continue;
-      const view = ownerQuestion(old, answers);
-      // docs/adr/0116-a-confirm-waits-for-claudes-update.md
-      if (q.topic.startsWith('item:') && view.state === 'answered' && !awaitsConfirm(view)) {
+    const views = items.filter((old) => old.topic === q.topic).map((old) => ownerQuestion(old, answers));
+    const waiting = waitingOnConfirm(views);
+    const followed = q.topic.startsWith('item:') ? answeredOnClaude(views) : [];
+    for (const old of views) {
+      if (waiting.includes(old.id)) continue;
+      if (followed.includes(old.id)) {
         setResolved(owner, [old.id], `Followed by ${q.id}`, at);
         resolved.push(old.id);
       } else if (!old.resolved && topic && pageTopic(old.url) === topic) {
@@ -868,6 +869,19 @@ export async function addQuestions(site, input) {
   await writeJSON(ownerFile(site), { ...owner, topics: owner.topics || [], items: [...items, ...questions] });
   await dropQueued([...replaced, ...resolved].map((id) => `q-${id}`), path.basename(site));
   return { file: ownerFile(site), lines: [...replaced.map((id) => `replaced: ${id}`), ...resolved.map((id) => `resolved: ${id}`)] };
+}
+
+// docs/adr/0116-a-confirm-waits-for-claudes-update.md
+// The ids among a topic's ownerQuestion views of picks with a note waiting on their confirm in a round no answer has
+// settled. Only question confirm, question resolve --no-change and closing the card resolve one.
+function waitingOnConfirm(views) {
+  return views.filter((q) => awaitsConfirm(q) && !roundSettledBy(views, roundOf(q))).map((q) => q.id);
+}
+
+// The ids of a topic's answered questions that Claude acting on the card resolves.
+function answeredOnClaude(views) {
+  const waiting = waitingOnConfirm(views);
+  return views.filter((q) => q.state === 'answered' && !waiting.includes(q.id)).map((q) => q.id);
 }
 
 function setResolved(owner, ids, note, at = new Date().toISOString()) {
@@ -979,7 +993,7 @@ async function cardQuestions(site, key) {
 async function resolveAnswered(site, key, note) {
   if (!site) return [];
   const { owner, asked } = await cardQuestions(site, key);
-  const ids = asked.filter((q) => q.state === 'answered').map((q) => q.id);
+  const ids = answeredOnClaude(asked);
   if (ids.length) await markResolved(site, owner, ids, note);
   return ids.map((id) => `resolved: ${id}`);
 }

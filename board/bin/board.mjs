@@ -53,11 +53,11 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          danger|success, to the next row's box indexes (default all); practice: ["<line>", …]
          A prototype url's topic must be recorded (prototype add), its option ids a non-empty subset of the
          take keys in take order, without repeats, and every take file written; a hand-written prototype-*.html
-         is refused. On an item: topic, each question answered and still waiting on Claude, except a pick
-         with a note waiting on question confirm, is resolved, noting "Followed by <new id>", and printed
-         as "resolved: <old id>". Any other unresolved question
-         on the same topic that links the same prototype is resolved, noting "Replaced by <new id>", and
-         printed as "replaced: <old id>". round_of names the question on the same topic whose
+         is refused. A pick with a note waiting on question confirm stays as it is until an answer settles
+         its round. On an item: topic, each other question answered and still waiting on Claude is
+         resolved, noting "Followed by <new id>", and printed as "resolved: <old id>". Any other unresolved
+         question on the same topic that links the same prototype is resolved, noting "Replaced by <new id>",
+         and printed as "replaced: <old id>". round_of names the question on the same topic whose
          prototype-request this answers; the question needs a prototype url, takes the next round
          number, and resolves that one, noting "Followed by prototype round N". Answering or resolving
          a question drops its queued push tagged q-<id> on this site.
@@ -112,7 +112,9 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          or without one the item's short notes text. --plan is an
                                                          alias. Resolves answered questions still waiting on
                                                          Claude, noting "Recorded in the card's notes", and
-                                                         prints "resolved: <id>" for each
+                                                         prints "resolved: <id>" for each, except a pick with a
+                                                         note waiting on question confirm in a round no answer
+                                                         has settled
          [--deps <id>,<wave>/<id>]                       replaces its blocked-by list; --deps "" clears it
          [--install <url> [--install-sha <sha>]          a device build the owner installs from the card's Install
           [--install-label <text>] | --clear-install]    button, stamped built_at now: itms-services://?action=

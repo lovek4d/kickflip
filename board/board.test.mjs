@@ -680,6 +680,23 @@ test('question add with round_of starts the next prototype round on the question
     ['plain', null, 'Followed by prototype round 1'], ['r1', 1, null], ['r1-confirm', 1, 'Followed by prototype round 2'], ['r2', 2, null]]);
 });
 
+test('question add leaves a pick with a note waiting on its confirm until its round settles, then follows it', () => {
+  recordPrototype();
+  const file = site('orch', 'data', 'owner.json');
+  const add = (id) => addPrototypeQuestion(`prototype-site.html?q=${id}`, { id, topic: 'item:w/A1' });
+  assert.equal(add('q1').code, 0);
+  addEvents({ id: 'answer-q1', ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A', note: 'Bigger' } });
+  const second = add('q2');
+  assert.equal(second.code, 0, second.err);
+  assert.deepEqual(second.out.trim().split('\n').slice(1), []);
+  assert.equal(read(file).items.find((q) => q.id === 'q1').resolved, undefined);
+  addEvents({ id: 'answer-q2', ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id: 'q2', choice: 'B', note: '' } });
+  const third = add('q3');
+  assert.equal(third.code, 0, third.err);
+  assert.deepEqual(third.out.trim().split('\n').slice(1), ['resolved: q1', 'resolved: q2']);
+  assert.deepEqual(read(file).items.map((q) => q.resolved ?? null), ['Followed by q3', 'Followed by q3', null]);
+});
+
 test('question add refuses a prototype url missing or with the wrong ?q=', () => {
   recordPrototype();
   prototypeRefusal(addPrototypeQuestion('prototype-site.html#q=q1'), 'question q1.url must be prototype-site.html?q=q1 so the pill can pick');
@@ -897,6 +914,21 @@ test('item set --notes-file, or its alias --plan, names a notes file inside the 
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--title', ' ').code, 1);
   assert.equal(board('item', 'add', 'w/B2', '--site', 'orch', '--title', 'Two', '--notes-file', 'A1-notes.md').code, 0);
   assert.equal(read(at('waves', 'w', 'wave.json')).items.at(-1).plan, 'A1-notes.md');
+});
+
+test('item set notes leaves a pick with a note waiting on its confirm, which question confirm then follows', () => {
+  recordPrototype();
+  write(at('waves', 'w', 'notes.md'), '# Picked A');
+  const file = site('orch', 'data', 'owner.json');
+  assert.equal(addPrototypeQuestion('prototype-site.html?q=q1', { topic: 'item:w/A1' }).code, 0);
+  addEvents({ id: 'answer-q1', ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A', note: 'Bigger' } });
+  const r = board('item', 'set', 'w/A1', '--site', 'orch', '--notes-file', 'notes.md');
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(r.out.trim().split('\n').slice(1), []);
+  assert.equal(read(file).items[0].resolved, undefined);
+  const confirm = board('question', 'confirm', 'q1', '--site', 'orch');
+  assert.equal(confirm.code, 0, confirm.err);
+  assert.deepEqual(confirm.out.trim().split('\n').slice(1), ['confirm: q1-confirm', 'resolved: q1']);
 });
 
 test("item set notes resolves only answered questions, and closing in the same call resolves each question once", () => {
