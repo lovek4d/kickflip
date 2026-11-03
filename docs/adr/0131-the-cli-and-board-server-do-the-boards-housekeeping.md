@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0133
+---
+
 # The CLI and board server do the board's housekeeping
+
+Superseded in part by [0133](0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md): the board server sends every Action needed push, so `question add` and `question confirm` no longer push, and the reminder event is gone.
 
 A step every session takes the same way, after the same trigger, belongs in `board.mjs`, the watcher or the board server, not in SKILL.md for the session to remember. The session keeps the judgement calls.
 

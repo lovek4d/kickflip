@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0133
+---
+
 # Site cards build in parallel when their files don't overlap
+
+Superseded in part by [0133](0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md): a site card's builder lands its own card, and `checking` is left for one that can't.
 
 Each site card declares the files it expects to touch, naming board page scripts from the table in [CONTEXT.md](../../CONTEXT.md#board-page-files). The owning session splits its queued cards by those files. Cards with no file in common build at the same time, each with its own builder. A card that shares a file with one already building waits for it, through its `deps` ([0020](0020-cards-wait-on-explicit-blocked-by-links.md)), so its card reads Blocked by.
 
