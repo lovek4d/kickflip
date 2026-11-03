@@ -1261,6 +1261,46 @@ test('builder start --model records the Claude model and prints it', () => {
   assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--agent', 'x', '--kind', 'codex', '--model', 'opus').code, 1);
 });
 
+// docs/adr/0155-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md
+test('builder call appends a one-line call to the open record, calls prints them, verified marks them checked, and a restart keeps the unverified ones', () => {
+  const main = at('waves', 'w', 'agents', 'A1.json');
+  const noRecord = board('builder', 'call', 'w/A1', 'Kept the old name');
+  assert.deepEqual([noRecord.code, noRecord.err], [1, 'builder call needs an open builder record on w/A1; run builder start first\n']);
+  assert.equal(board('builder', 'start', 'w/A1').code, 0);
+  assert.deepEqual(board('builder', 'calls', 'w/A1'), { code: 0, err: '', out: 'no judgment calls recorded\n' });
+  assert.match(board('builder', 'verified', 'w/A1').err, /no unverified judgment calls/);
+  const said = board('--site', 'orch', 'builder', 'call', 'w/A1', 'Question: does the land check cover every agent?');
+  assert.deepEqual([said.code, said.out], [0, 'judgment call recorded on A1\n']);
+  assert.equal(board('builder', 'call', 'w/A1', 'Kept', 'the old name').code, 0);
+  assert.match(board('builder', 'call', 'w/A1', 'two\nlines').err, /one line/);
+  assert.deepEqual(read(main).calls.map((c) => c.text), ['Question: does the land check cover every agent?', 'Kept the old name']);
+  assert.deepEqual(board('builder', 'calls', 'w/A1').out.trim().split('\n'), ['1. Question: does the land check cover every agent?', '2. Kept the old name', 'not verified yet']);
+
+  // A hand-back closes the record; a restart of the same agent is that build resumed, its calls and worktree kept.
+  write(main, { ...read(main), worktree: { path: '/wt/A1', branch: 'A1', repo: '/repo' } });
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'checking').code, 0);
+  assert.match(board('builder', 'call', 'w/A1', 'Late').err, /needs an open builder record/);
+  assert.equal(board('builder', 'start', 'w/A1').code, 0);
+  assert.deepEqual([read(main).calls.length, read(main).worktree.path], [2, '/wt/A1']);
+  assert.equal(board('builder', 'call', 'w/A1', 'Dropped the cap').code, 0);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'checking').code, 0);
+  // A dispatch on that record, and the agent's own start taking the dispatch up, keep the calls too.
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--dispatch', '--kind', 'claude').code, 0);
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build').code, 0);
+  assert.deepEqual([read(main).calls.length, 'dispatched' in read(main)], [3, false]);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'checking').code, 0);
+
+  const verified = board('--site', 'orch', 'builder', 'verified', 'w/A1', '--note', 'All match the notes.');
+  assert.deepEqual([verified.code, verified.out], [0, 'A1: judgment calls verified\n']);
+  assert.equal(read(main).verified.note, 'All match the notes.');
+  assert.match(board('builder', 'calls', 'w/A1').out, /^3\. Dropped the cap\nverified \S+: All match the notes\.$/m);
+  assert.match(board('builder', 'verified', 'w/A1').err, /no unverified judgment calls/);
+
+  // Once verified, a restart is a new build: its record starts with no calls.
+  assert.equal(board('builder', 'start', 'w/A1').code, 0);
+  assert.deepEqual(['calls' in read(main), 'verified' in read(main), 'worktree' in read(main)], [false, false, false]);
+});
+
 test('builder pick names the kind that builds now, builder start refuses the other, and --kind build takes the pick', () => {
   const noCodex = (...args) => run('board.mjs', args, undefined, { PATH: path.join(home, 'bin') });
   assert.deepEqual(noCodex('builder', 'pick', 'w/A1', '--site', 'orch'), { code: 0, err: '', out: "claude opus: Codex isn't installed on the host.\n" });
@@ -1559,6 +1599,22 @@ test('land on --site needs --text, refuses before landing what closing would ref
   assert.deepEqual(r.out.trim().split('\n').slice(-2), ['A1: landed and done', 'resolved: q1']);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status, 'done');
   assert.equal(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).at(-1).text, 'Checked on the phone.');
+});
+
+test("land refuses while a builder record on the card has unverified judgment calls, naming builder verified, and lands once they're verified", () => {
+  const repo = scratchRepo();
+  assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  assert.equal(board('builder', 'start', 'w/A1', '--agent', 'fix').code, 0);
+  assert.equal(board('builder', 'call', 'w/A1', '--agent', 'fix', 'Kept the old name').code, 0);
+  commit(worktree(), 'shared/notes.md', 'b\n');
+  const main = git(repo, 'rev-parse', 'main');
+  const refused = land();
+  assert.deepEqual([refused.code, refused.err], [1, 'land: w/A1 has judgment calls nobody verified yet; check them with builder calls w/A1 --agent fix, then run builder verified w/A1 --agent fix\n']);
+  assert.equal(git(repo, 'rev-parse', 'main'), main);
+  assert.equal(board('builder', 'verified', 'w/A1', '--agent', 'fix').code, 0);
+  const r = land();
+  assert.equal(r.code, 0, r.err);
+  assert.notEqual(git(repo, 'rev-parse', 'main'), main);
 });
 
 test('land skips tests inside .repos and node_modules at every depth', () => {

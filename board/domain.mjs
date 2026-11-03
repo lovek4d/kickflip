@@ -385,7 +385,7 @@ const builds = (agent) => !NOT_BUILDING.has(agent.kind);
 function agentsOf(records = {}) {
   return Object.entries(records).filter(([, r]) => r && typeof r === 'object').map(([name, r]) => ({
     name, kind: providerOf(r.kind) || null, label: r.label || null, started: r.started || null, eta: r.done ? null : r.eta || null, done: r.done || null,
-    tapped: r.tapped === true,
+    tapped: r.tapped === true, calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null,
   })).sort((a, b) => String(a.started || '').localeCompare(String(b.started || '')) || a.name.localeCompare(b.name));
 }
 // An install builder takes precedence so another running agent cannot hide the install's build state. A phased line
@@ -511,6 +511,9 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     ...agentsOf(agents).flatMap((a) => [
       ...(a.started ? [{ ts: a.started, who: 'claude', kind: 'agent', text: `${agentName(a)} started`, finished: false, eta: a.done ? null : a.eta }] : []),
       ...(a.done ? [{ ts: a.done, who: 'claude', kind: 'agent', text: `${agentName(a)} finished`, finished: true, eta: null }] : []),
+      // Its judgment calls, one entry under its lines: at its finish, or at its newest call while it runs
+      // (docs/adr/0155-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
+      ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
     ...lines.map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.kind === 'status' ? { kind: 'status' } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null })),
     ...events.filter((e) => keys.has(e.data?.key) && ITEM_EVENTS.includes(e.kind))

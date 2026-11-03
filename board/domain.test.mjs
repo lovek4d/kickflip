@@ -416,6 +416,24 @@ test('a message marked working shows on its thread and card until Claude replies
   assert.deepEqual(threadOf('w/A1', { events: [msg('m2', '2026-10-23T10:05:00Z')], agents }).map(({ kind, state }) => [kind, state]), [['item-message', 'waiting'], ['agent', undefined], ['agent', undefined]]);
 });
 
+test("a builder's judgment calls follow its lines in the thread, as one entry with its verification, and an agent with none adds nothing", () => {
+  const calls = [{ at: '2026-10-23T10:08:00Z', text: 'Question: every agent?' }, { at: '2026-10-23T10:09:00Z', text: 'Kept the old name' }];
+  const agents = {
+    main: { label: 'Builder', kind: 'claude', model: 'opus', started: '2026-10-23T10:06:00Z', done: '2026-10-23T10:10:00Z', calls, verified: { at: '2026-10-23T10:12:00Z', note: 'Fine.' } },
+    fix: { label: 'Builder', kind: 'codex', started: '2026-10-23T10:07:00Z', calls: [{ at: '2026-10-23T10:11:00Z', text: 'Left the cap' }] },
+    bench: { label: 'Bench', started: '2026-10-23T10:07:30Z' },
+  };
+  const lines = [{ ts: '2026-10-23T10:10:30Z', who: 'claude', text: 'Handed back.' }];
+  const msgs = threadOf('w/A1', { lines, agents });
+  assert.deepEqual(msgs.map((m) => [m.kind ?? m.text, m.ts]), [
+    ['agent', '2026-10-23T10:06:00Z'], ['agent', '2026-10-23T10:07:00Z'], ['agent', '2026-10-23T10:07:30Z'],
+    ['agent', '2026-10-23T10:10:00Z'], ['calls', '2026-10-23T10:10:00Z'], ['Handed back.', '2026-10-23T10:10:30Z'], ['calls', '2026-10-23T10:11:00Z'],
+  ]);
+  const [mine, theirs] = msgs.filter((m) => m.kind === 'calls');
+  assert.deepEqual([mine.text, mine.calls, mine.verified], ['Claude Opus builder', ['Question: every agent?', 'Kept the old name'], { at: '2026-10-23T10:12:00Z', note: 'Fine.' }]);
+  assert.deepEqual([theirs.calls, theirs.verified], [['Left the cap'], null]);
+});
+
 const refKind = (ref) => (/^(\d+\/\d+ )?\d\d:\d\d$/.test(ref) ? 'asked' : ref);
 const askAt = (id, ts, extra = {}) => ({ id, ts, kind: 'ask', data: { text: `${id} first line\nmore` }, reply: null, ...extra });
 function askBoard(events, { working = {}, items = [{ id: 'A1', title: 'One', status: 'building' }], agents = {}, now = Date.parse('2026-10-23T12:00:00Z') } = {}) {

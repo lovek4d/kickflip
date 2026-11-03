@@ -342,6 +342,10 @@ _Avoid_: worker, bot
 A builder record the session opens with `builder start --dispatch` right before it launches an agent of any kind (build, prototype, grill), so the card's builder line reads "Starting" from the launch and not from the agent's own start. The agent's own `builder start` takes it up as it does a `tapped` record: the kind, a Claude model and the worktree stay, the record starts again at now and is no longer dispatched. The session never posts "a builder is working" itself ([0152](docs/adr/0152-the-session-opens-the-builder-record-when-it-dispatches-an-agent.md)).
 _Avoid_: pre-start, placeholder record
 
+**Judgment call**:
+A decision a builder makes that its brief didn't settle, recorded on its builder record as it makes it (`builder call <key> "<call>"`, one plain line), or a "Question: …" it asks the session before building. The thread shows a record's calls as one collapsed entry under its agent lines. The session checks them against the owner's words and the other cards and marks the record **verified** (`builder verified`); `land` refuses while a record on the card has a call after that mark. A builder start on a record with unverified calls resumes that build, calls and worktree kept ([0155](docs/adr/0155-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md)).
+_Avoid_: guess, assumption, decision log
+
 **Stalled**:
 A builder still recorded as running whose last progress, or start before its first progress, was at least 30 minutes ago. Its card carries a red Stalled button until fresh progress or completion; silence calls for a check, without establishing that the process has failed.
 _Avoid_: stuck, hung, failed

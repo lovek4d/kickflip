@@ -1818,6 +1818,9 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const build = ['build', ...PICKED].includes(asked);
   const before = await readJSON(file, null);
   const takeUp = (before?.tapped || before?.dispatched) && !before.done ? before : null;
+  // A record with unverified judgment calls is a build not yet checked: a start on it resumes that build, a
+  // dispatched or tapped one included (docs/adr/0155-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
+  const resumed = before && unverifiedCalls(before).length ? before : null;
   const pick = takeUp && asked === 'build' ? { kind: providerOf(takeUp.kind), model: takeUp.model, reason: takeUp.tapped ? "The owner's Build tap picked it." : "The session's dispatch picked it." } : build ? builderPick() : null;
   if (pick && asked !== 'build' && asked !== pick.kind) fail(`--kind ${asked}: ${pick.kind} builds now. ${pick.reason} Pass --kind ${pick.kind}, or --kind build.`);
   const k = pick ? pick.kind : asked;
@@ -1827,12 +1830,13 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const record = {
     label: label === undefined ? 'Builder' : text(label, '--label'), ...(k ? { kind: k } : {}), ...(claude ? { model: claude } : {}), started: now,
     ...(eta === undefined ? {} : { eta: isoTime(eta, '--eta') }), ...(tapped ? { tapped: true } : {}), ...(dispatch ? { dispatched: true } : {}),
+    ...(resumed ? { calls: resumed.calls, ...(resumed.verified ? { verified: resumed.verified } : {}) } : {}),
   };
   const was = build && !dir ? (await loadItem(site, key)).item : undefined;
   const marking = build && !dir && ![...FINISHED, 'building', 'fixing'].includes(was.status);
   const marked = marking ? await setItem(site, key, { status: 'building' }) : { lines: [] };
   let wt;
-  try { wt = worktree ? await worktree() : takeUp?.worktree ?? null; } catch (e) {
+  try { wt = worktree ? await worktree() : (takeUp ?? resumed)?.worktree ?? null; } catch (e) {
     // A worktree that can't be made leaves the card unstarted, as it was.
     if (marking) await restoreStatus(site, key, was);
     throw e;
@@ -1969,6 +1973,54 @@ export async function builderProgress(site, key, progress, { phase, dir, agent =
   await writeJSON(file, next);
   await statusToThread(site, key, agent, next, line, now);
   return file;
+}
+
+// A judgment call is one line a builder records as it decides, kept on its record as {at, text}; the session's
+// `builder verified` stamps the record verified {at, note}, which covers every call made before it. land refuses while
+// any record on the card has a call after its stamp
+// (docs/adr/0155-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
+const unverifiedCalls = (record) => (record?.calls || []).filter((c) => !record.verified || c.at > record.verified.at);
+
+export async function recordCall(site, key, call, { dir, agent = 'main' }) {
+  const words = text(call, 'builder call');
+  if (/\n/.test(words)) fail('builder call takes one line; record each call on its own');
+  const file = await builderFile(site, key, dir, agent);
+  const record = await readJSON(file, null);
+  if (!record?.started || record.done) fail(`builder call needs an open builder record on ${key}; run builder start first`);
+  await writeJSON(file, { ...record, calls: [...(record.calls || []), { at: new Date().toISOString(), text: words }] });
+  return file;
+}
+
+// → {lines}: each call numbered, then whether the session verified them.
+export async function listCalls(site, key, { dir, agent = 'main' }) {
+  const record = await readJSON(await builderFile(site, key, dir, agent), null);
+  const calls = record?.calls || [];
+  if (!calls.length) return { lines: ['no judgment calls recorded'] };
+  const { verified } = record;
+  const state = !unverifiedCalls(record).length ? `verified ${verified.at}${verified.note ? `: ${verified.note}` : ''}` : 'not verified yet';
+  return { lines: [...calls.map((c, i) => `${i + 1}. ${c.text}`), state] };
+}
+
+export async function verifyCalls(site, key, { dir, agent = 'main', note }) {
+  const file = await builderFile(site, key, dir, agent);
+  const record = await readJSON(file, null);
+  if (!unverifiedCalls(record).length) fail(`${key} has no unverified judgment calls${agent === 'main' ? '' : ` from agent ${agent}`}; builder calls ${key} lists them`);
+  await writeJSON(file, { ...record, verified: { at: new Date().toISOString(), ...(note === undefined ? {} : { note: text(note, '--note') }) } });
+  return file;
+}
+
+// land's check: refuses while a builder record on the card holds unverified calls, naming the commands per agent.
+export async function checkCallsVerified(site, key, { dir } = {}) {
+  const { id } = parseKey(key);
+  const files = await builderFiles(path.dirname(path.dirname(await builderFile(site, key, dir))), id);
+  const owing = [];
+  for (const file of files) {
+    if (!unverifiedCalls(await readJSON(file, null)).length) continue;
+    const agent = path.basename(file, '.json').slice(String(id).length + 1) || 'main';
+    owing.push(agent === 'main' ? '' : ` --agent ${agent}`);
+  }
+  if (!owing.length) return;
+  fail(`land: ${key} has judgment calls nobody verified yet; check them with ${owing.map((a) => `builder calls ${key}${a}`).join(', ')}, then run ${owing.map((a) => `builder verified ${key}${a}`).join(', ')}`);
 }
 
 const HANDED_BACK = ['checking', 'done', 'merged', 'dropped'];

@@ -1172,6 +1172,18 @@ test('a builder status line, and an agent starting or finishing, reads as one li
   assert.doesNotMatch(agents, /class="who"|data-withdraw|data-edit/);
 });
 
+test("a builder's judgment calls show collapsed under its lines, saying whether the session verified them, and count as no message", () => {
+  const open = { ts: ago(1), who: 'claude', kind: 'calls', text: 'Claude Opus builder', calls: ['Kept <the> old name', 'Question: every agent?'], verified: null };
+  const html = ui.threadMessages([open]);
+  assert.match(html, /^<details class="msg calls"><summary>/);
+  assert.doesNotMatch(html, /<details[^>]* open/);
+  assert.match(text(html), /^Claude Opus builder's judgment calls · 2 · not verified yet Kept <the> old name Question: every agent\?$/);
+  const checked = text(ui.threadMessages([{ ...open, verified: { at: ago(0.5), note: 'Match the notes.' } }]));
+  assert.match(checked, /· 2 · verified .+ Kept <the> old name Question: every agent\? Verified: Match the notes\.$/);
+  const msgs = [{ ts: ago(3), who: 'claude', text: 'One' }, { ts: ago(2), who: 'claude', text: 'Two' }, { ts: ago(1.5), who: 'claude', text: 'Three' }, open];
+  assert.doesNotMatch(ui.threadMessages(msgs, {}, new Map(), { seenAt: ago(9), more: 0 }), /thread-more/);
+});
+
 test("an open card's thread shows its newest 3 messages with the lines between them, from its oldest unread one when more are unread, a message being edited always, and Show more saying how many messages it hides", () => {
   const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
   const msgs = [

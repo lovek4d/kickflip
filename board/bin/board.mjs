@@ -311,6 +311,15 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
   builder pick <wave>/<id>                               who builds the card, from the hub's Codex share and the pause
                                                          line: "codex: <reason>" or "claude opus: <reason>". Pass that kind
                                                          to builder start --kind
+  builder call <wave>/<id> <judgment call>             appends one line to the agent's open builder record: a
+         [--agent <name>]                                judgment call as the builder makes it, or a "Question: …"
+                                                         for the session; refused with no open record. A builder start
+                                                         on a record with unverified calls resumes that build, keeping
+                                                         its calls and worktree. The thread shows them, collapsed
+  builder calls <wave>/<id> [--agent <name>]             prints the record's calls, numbered, then "verified <time>"
+                                                         or "not verified yet"
+  builder verified <wave>/<id> [--agent <name>]          the session's mark that it checked the record's calls; land
+         [--note <t>]                                    refuses while any record on the card has a call after it
   land <wave>/<id> --text <t> [--repo <dir>]             brings the worktree its builder record keeps (else
          [--dir <dir>]
                                                          ~/.claude/kickflip/worktrees/<id> of --repo) into main, one line
@@ -518,12 +527,16 @@ const COMMANDS = {
   }],
   'builder done': [['wave/id'], ['dir', 'agent', 'next'], (site, [key], f) => store.stopBuilder(site, key, { ...f, requireNext: true })],
   'builder pick': [['wave/id'], [], (site, [key]) => store.pickBuilder(site, key)],
+  'builder call': [['wave/id', '...text'], ['dir', 'agent'], (site, [key, ...words], f) => store.recordCall(site, key, words.join(' '), f)],
+  'builder calls': [['wave/id'], ['dir', 'agent'], (site, [key], f) => store.listCalls(site, key, f)],
+  'builder verified': [['wave/id'], ['dir', 'agent', 'note'], (site, [key], f) => store.verifyCalls(site, key, f)],
   land: [['wave/id'], ['repo', 'dir', 'text'], async (site, [key], f) => {
     const id = key.split('/')[1];
     if (site && f.text === undefined) throw new UsageError(`land needs --text "<what was checked>", which closes ${key} as done once it lands`);
     if (!site && f.text !== undefined) throw new UsageError('--text closes the card, which needs --site');
     return holdingLandLock(site ? await store.cardName(site, key) : key, async () => {
       if (site) await store.checkClose(site, key, f.text);
+      await store.checkCallsVerified(site, key, { dir: f.dir });
       const recorded = await store.recordedWorktree(site, key, { dir: f.dir });
       const repo = path.resolve(f.repo ?? recorded?.repo ?? builderRepo(site).repo);
       land({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo });
@@ -606,6 +619,8 @@ const SAID = {
   'builder start': async (site, [key], f) => `${await card(site, key)}: ${builderOf(f)} started`,
   'builder progress': async (site, [key]) => `progress line on ${await card(site, key)}`,
   'builder done': async (site, [key], f) => `${await card(site, key)}: ${builderOf(f)} done`,
+  'builder call': async (site, [key]) => `judgment call recorded on ${await card(site, key)}`,
+  'builder verified': async (site, [key]) => `${await card(site, key)}: judgment calls verified`,
   land: async (site, [key]) => (site ? `${await card(site, key)}: landed and done` : null),
   merge: async (site, [key]) => `${await card(site, key)}: merged`,
   'arch file': async (site, [key]) => `findings of ${await card(site, key)} filed`,
