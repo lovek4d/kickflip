@@ -28,6 +28,11 @@
     <input type="checkbox" class="toggle" id="autoBuild" disabled></label>
   <p class="muted small" id="autoBuildStatus" role="status"></p>
   <p class="muted small">The hub runs <code>.kickflip/build</code> from each card’s branch and from main. Claude wrote it when it set up this board; if builds break, file a card.</p>
+  <h2>Todo</h2>
+  <label class="who" for="autoPull"><span><span>Pull in Todo cards when idle</span>
+    <span class="muted small sub">On: when no builder is running on this board, Claude takes the top Todo card that nothing blocks or holds, and grills or builds it. Off: a Todo card waits until it is unblocked, answered or bumped.</span></span>
+    <input type="checkbox" class="toggle" id="autoPull" disabled></label>
+  <p class="muted small" id="autoPullStatus" role="status"></p>
   <h2>Reviewers</h2>
   <p class="muted small">Everyone here gets each PR link on this board once it's ready, and the weekday digest. Someone you add also gets the links of PRs already in review.</p>
   <div id="list"><p class="muted small">Loading…</p></div>
@@ -292,6 +297,8 @@
       autoMerge.disabled = false;
       $('#autoBuild').checked = d.settings?.auto_build === true;
       $('#autoBuild').disabled = false;
+      $('#autoPull').checked = d.settings?.auto_pull === true;
+      $('#autoPull').disabled = false;
     }).catch(() => { autoMergeStatus.textContent = ticketsStatus.textContent = 'Offline. Is the host awake?'; });
     B.on(autoMerge, 'change', async () => {
       const want = autoMerge.checked;
@@ -329,6 +336,30 @@
         if (!B.alive()) return;
         toggle.checked = !want;
         $('#autoBuildStatus').textContent = e.message || 'Could not save. Is the host awake?';
+      } finally { if (B.alive()) toggle.disabled = false; }
+    });
+
+    // docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md
+    B.on($('#autoPull'), 'change', async () => {
+      const toggle = $('#autoPull');
+      const want = toggle.checked;
+      if (want && !(await BoardDialogs.confirm('Turn on pulling in Todo cards? When no builder runs on this board, Claude takes the top Todo card nothing blocks or holds and grills or builds it, without asking you.', { ok: 'Turn on' }))) {
+        toggle.checked = false;
+        return;
+      }
+      if (!B.alive()) return;
+      toggle.disabled = true;
+      try {
+        const r = await fetch(site.url('api/settings'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ auto_pull: want }) });
+        const out = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(out.error);
+        if (!B.alive()) return;
+        toggle.checked = out.settings.auto_pull === true;
+        $('#autoPullStatus').textContent = toggle.checked ? 'Saved. When no builder runs, Claude pulls in the top Todo card.' : 'Saved. Todo cards wait until they are unblocked, answered or bumped.';
+      } catch (e) {
+        if (!B.alive()) return;
+        toggle.checked = !want;
+        $('#autoPullStatus').textContent = e.message || 'Could not save. Is the host awake?';
       } finally { if (B.alive()) toggle.disabled = false; }
     });
 

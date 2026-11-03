@@ -402,6 +402,54 @@ test('Board Settings saves auto-build immediately, uses kind-specific words and 
   }
 });
 
+test('Board Settings asks before turning auto-pull on, saves off at once and restores the toggle on refusal', async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const root = new page.El();
+  let saved = false, refuse = false, accept = false;
+  const posts = [], confirms = [];
+  page.win.BoardDialogs.confirm = async (text, labels) => { confirms.push(labels?.ok); return accept; };
+  page.win.fetch = async (url, opts = {}) => {
+    let body = {};
+    if (url.endsWith('/api/settings')) {
+      if (opts.method === 'POST') {
+        posts.push(JSON.parse(opts.body));
+        if (refuse) return { ok: false, json: async () => ({ error: 'Cannot save' }) };
+        saved = JSON.parse(opts.body).auto_pull;
+      }
+      body = { settings: { auto_pull: saved } };
+    }
+    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
+  };
+  const view = page.win.AppViews.settings.create(root, '/orch', {});
+  view.mount();
+  await tick();
+  const toggle = root.querySelector('#autoPull');
+  const status = root.querySelector('#autoPullStatus');
+  assert.equal(toggle.disabled, false);
+  assert.equal(toggle.checked, false);
+  toggle.checked = true;
+  page.fire(toggle, 'change');
+  await tick();
+  assert.deepEqual([confirms, posts.length, toggle.checked], [['Turn on'], 0, false]);
+  accept = true;
+  toggle.checked = true;
+  page.fire(toggle, 'change');
+  await tick();
+  assert.deepEqual([confirms.length, posts.at(-1), toggle.checked], [2, { auto_pull: true }, true]);
+  assert.equal(status.textContent, 'Saved. When no builder runs, Claude pulls in the top Todo card.');
+  toggle.checked = false;
+  page.fire(toggle, 'change');
+  await tick();
+  assert.deepEqual([confirms.length, posts.at(-1), toggle.checked], [2, { auto_pull: false }, false]);
+  refuse = true;
+  toggle.checked = true;
+  page.fire(toggle, 'change');
+  await tick();
+  assert.equal(toggle.checked, false);
+  assert.equal(status.textContent, 'Cannot save');
+  view.unmount();
+});
+
 test('Board Settings warns about active work, requires the exact board name and waits for the close response before opening the hub', async () => {
   const page = fakePage(memoryStorage().localStorage);
   const root = new page.El();

@@ -702,3 +702,13 @@ export function needsAnswer(b) {
     building: b.items.some((i) => (i.agents || []).some((a) => !a.done)),
   };
 }
+
+// docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md
+// For built items in board order: idle while no card has a running builder and none waits in Orchestrator review;
+// pullable lists, top first, the buildable cards with no questions and no grill under way.
+export function pullOf(items) {
+  const open = items.filter((i) => i.lane !== 'done');
+  const idle = !open.some((i) => i.waitsOn === 'checking' || (i.agents || []).some((a) => !a.done));
+  const pullable = open.filter((i) => i.buildable && !i.questions && !i.grilling).map((i) => i.key);
+  return { idle, pullable };
+}

@@ -220,7 +220,8 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
   rules remove <id> [--hub]                              refuses an id the list doesn't have
   settings                                               the board's settings as JSON; flags default off, optional
                                                          settings appear when set: {"auto_merge": false,
-                                                         "auto_build": false, "github_login": "owner"}
+                                                         "auto_build": false, "auto_pull": false,
+                                                         "github_login": "owner"}
   settings set auto-merge on|off                         on: the session merges an approved PR once CI is green and
                                                          the merge state is CLEAN. off (the default): the card
                                                          shows the owner a Merge button, and the session merges on its
@@ -236,6 +237,10 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          the hub asks gh api user. Pass "" to clear it
   settings set auto-build on|off                         on: each push builds its card. Off by default.
                                                          Main builds after every merge either way
+  settings set auto-pull on|off                          on: while no builder runs and nothing waits in Orchestrator
+                                                         review, the board server sends card-pull {key} for the top
+                                                         Todo card nothing blocks, holds or asks about. Off by default.
+                                                         Only on the owner's word
   settings set tickets <json>                            the board's ticket source, as Board Settings' Tickets row
                                                          saves it: {"source":"internal","prefix":"OPS"},
                                                          {"source":"github","account":"<gh login>"} or

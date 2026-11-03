@@ -55,7 +55,7 @@ export function setKeepGoing(value, { home = os.homedir(), now = Date.now() } = 
 }
 
 export const heldUsageEvent = (line) => {
-  try { return ['github-change', 'check-github', 'card-unblocked'].includes(JSON.parse(line).kind); } catch { return false; }
+  try { return ['github-change', 'check-github', 'card-unblocked', 'card-pull'].includes(JSON.parse(line).kind); } catch { return false; }
 };
 
 export const pauseReason = (gate) => `Work is paused: Claude's ${gate.window === 'five_hour' ? '5-hour' : 'weekly'} usage is at ${Math.round(gate.used)}%. Resumes at ${gate.resets_at}. The owner can tap Keep going on the Hub page.`;

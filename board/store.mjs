@@ -594,19 +594,19 @@ const writeBoardRules = (site, change) => writeBoardJSON(site, (cfg) => {
 
 const validGithubLogin = (value) => typeof value === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(value);
 const storedTickets = (value) => { try { return value ? ticketSource(value) : null; } catch { return null; } };
-// A board's settings in board.json (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md): auto_merge and
-// auto_build, off when absent, tickets, its one ticket source, and github_login, absent when unset or invalid
-// (docs/adr/0081-a-board-has-one-ticket-source.md).
+// A board's settings in board.json (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md): auto_merge,
+// auto_build and auto_pull, off when absent, tickets, its one ticket source, and github_login, absent when unset or
+// invalid (docs/adr/0081-a-board-has-one-ticket-source.md).
 export const settingsOf = (cfg) => {
   const tickets = storedTickets(cfg?.tickets);
-  return { auto_merge: cfg?.auto_merge === true, auto_build: cfg?.auto_build === true, ...(tickets ? { tickets } : {}), ...(validGithubLogin(cfg?.github_login) ? { github_login: cfg.github_login } : {}) };
+  return { auto_merge: cfg?.auto_merge === true, auto_build: cfg?.auto_build === true, auto_pull: cfg?.auto_pull === true, ...(tickets ? { tickets } : {}), ...(validGithubLogin(cfg?.github_login) ? { github_login: cfg.github_login } : {}) };
 };
 export async function readBoardSettings(site) {
   return settingsOf(await readJSON(path.join(needSite(site), 'board.json'), {}));
 }
-// changes {auto_merge?: boolean, auto_build?: boolean, tickets?: source, github_login?: login | null} → {file, settings, changed}; changed lists the keys whose value moved.
+// changes {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, tickets?: source, github_login?: login | null} → {file, settings, changed}; changed lists the keys whose value moved.
 export function saveBoardSettings(site, changes) {
-  onlyKeys(changes, ['auto_merge', 'auto_build', 'tickets', 'github_login'], 'the settings');
+  onlyKeys(changes, ['auto_merge', 'auto_build', 'auto_pull', 'tickets', 'github_login'], 'the settings');
   if (!Object.keys(changes).length) fail('the settings name nothing to change');
   changes = { ...changes };
   for (const [k, v] of Object.entries(changes)) {
@@ -625,7 +625,7 @@ export function saveBoardSettings(site, changes) {
 // The CLI's `settings set <name> <value>`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
   const key = String(name).replace(/-/g, '_');
-  const names = ['auto_merge', 'auto_build', 'github_login', 'tickets'];
+  const names = ['auto_merge', 'auto_build', 'auto_pull', 'github_login', 'tickets'];
   if (!names.includes(key)) fail(`no board setting "${name}"; settings are ${names.map((k) => k.replace(/_/g, '-')).join(', ')}`);
   if (key === 'tickets') {
     let tickets;

@@ -563,11 +563,11 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
   const save = (body) => fetch(`${base}/api/settings`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const settingsEvents = async () => (await (await fetch(`${base}/_claude/events?kind=settings`)).json()).map((e) => e.data);
   try {
-    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false } });
+    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false, auto_pull: false } });
     const on = await save({ auto_merge: true });
     assert.equal(on.status, 200);
     const out = await on.json();
-    assert.deepEqual(out.settings, { auto_merge: true, auto_build: false });
+    assert.deepEqual(out.settings, { auto_merge: true, auto_build: false, auto_pull: false });
     assert.match(out.id, /^e/);
     const written = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8'));
     assert.deepEqual([written.title, written.rules.length, written.auto_merge], ['T', 1, true]);
@@ -684,10 +684,10 @@ test('the watcher prints the hub rules, then the board rules, then the board set
   try {
     const lines = await watch('rules1');
     assert.match(lines[0], /^event data\/events\.jsonl /);
-    assert.deepEqual(lines.slice(1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off']);
+    assert.deepEqual(lines.slice(1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-pull off']);
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, auto_merge: true }));
     fs.rmSync(path.join(web, 'settings.json'));
-    assert.deepEqual((await watch('rules2')).slice(1), ['setting auto-merge on', 'setting auto-build off']);
+    assert.deepEqual((await watch('rules2')).slice(1), ['setting auto-merge on', 'setting auto-build off', 'setting auto-pull off']);
   } finally {
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
     fs.rmSync(path.join(web, 'settings.json'), { force: true });

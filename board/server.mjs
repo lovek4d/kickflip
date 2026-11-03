@@ -6,7 +6,7 @@
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item set|relate-ask, ask progress|done, followup add|done,
 //   lineup create|add|remove|set|finish,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
-// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, github_login}. auto_build asks the hub to
+// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_pull, github_login}. auto_build asks the hub to
 // run each card's .kickflip/build after each push; main always builds after a merge.
 // auto_merge (false when absent) lets the session merge
 // an approved, green, clean PR itself; off, the card shows the owner's Merge (store.mjs settingsOf). rules are the owner's standing instructions to this
@@ -75,7 +75,9 @@
 //                                (../hub/duration.mjs durationEnd), stored as {key, hold: true, until} or, for
 //                                Forever, {key, hold: true}; a choice that ends in the past or past 30 days → 400 {error}.
 //                                Within a minute of a held card's until or pick_up_at the server resumes it
-//                                (store.mjs pickUp), at most once per time even across a restart
+//                                (store.mjs pickUp), at most once per time even across a restart.
+//                                With auto_pull on, the server appends card-pull {key} for the top pullable Todo card
+//                                while the board is idle (domain.mjs pullOf), one pull at a time, tracked in data/pulled.json
 //   POST /api/upload             the raw file as the body, its name URI-encoded in x-filename and its
 //                                type in content-type → data/uploads/<ms>-<safe name>, returning the
 //                                upload {name, url, path, type, size}: url is relative to the site
@@ -87,8 +89,8 @@
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (store.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
-//   GET  /api/settings           the board's settings, {auto_merge, auto_build} (store.mjs readBoardSettings)
-//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean} → board.json, keeping its other keys, and when the value moved a
+//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull} (store.mjs readBoardSettings)
+//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean} → board.json, keeping its other keys, and when the value moved a
 //                                `settings {<changed setting>: value}` event, which wakes Claude. → {settings, id}; a bad body → 400 {error}
 //   POST /api/try                {key}: forwards a card build or main retry to the hub's loopback /_hub/build
 //   GET  /api/try/main/log       {lines}: last 40 lines of main's log, from at most its last 64 KiB
@@ -115,7 +117,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { buildBoard, ITEM_EVENTS, needsAnswer, refOf, threadOf } from './domain.mjs';
+import { buildBoard, ITEM_EVENTS, needsAnswer, pullOf, refOf, threadOf } from './domain.mjs';
 import { createReadStream, watch as watchFiles } from 'node:fs';
 import { BoardError, boardConfig, pickUp, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswer, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
@@ -127,6 +129,7 @@ import { FOREVER, durationEnd } from '../hub/duration.mjs';
 import { durationChoices } from '../hub/views.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
+import { readUsageGate } from '../shared/usage-gate.mjs';
 
 const template = path.dirname(fileURLToPath(import.meta.url));
 // The hub's Home Screen icon, versioned by mtime the way hub/hub.mjs iconUrl() does, so iOS refetches a replaced icon.
@@ -708,9 +711,47 @@ async function checkPickUps() {
   }
 }
 
+// docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md
+// data/pulled.json {key, at}: key is the pulled card while it stays pullable, at when the marker last changed.
+let checkingPulls = false;
+async function checkPulls() {
+  if (checkingPulls) return;
+  checkingPulls = true;
+  try {
+    const file = path.join(data, 'pulled.json');
+    const marker = await readJSON(file, {});
+    const save = async (key) => {
+      await fs.mkdir(data, { recursive: true });
+      await fs.writeFile(file + '.tmp', JSON.stringify({ key, at: new Date().toISOString() }) + '\n');
+      await fs.rename(file + '.tmp', file);
+    };
+    if (!settingsOf(await config()).auto_pull) { if (marker.key) await save(null); return; }
+    const log = await readLines(events);
+    const hidden = await readHidden(here);
+    const { items } = buildBoard({ ...(await itemSnapshot()), events: log.filter((e) => !hidden.has(e.id)), owner: await readJSON(path.join(data, 'owner.json'), { items: [] }) });
+    const { idle, pullable } = pullOf(items);
+    // The event log covers a restart between appending card-pull and saving the marker.
+    const lastPull = log.filter((e) => e.kind === 'card-pull').at(-1);
+    const current = lastPull && String(lastPull.ts) > String(marker.at || '') ? lastPull.data?.key : marker.key;
+    if (current && pullable.includes(current)) return;
+    if (!idle || !pullable.length || readUsageGate().state === 'paused') { if (current) await save(null); return; }
+    const key = pullable[0];
+    await appendEvent('card-pull', { key });
+    await fs.mkdir(path.dirname(threadFile(key)), { recursive: true });
+    await fs.appendFile(threadFile(key), JSON.stringify({ ts: new Date().toISOString(), who: 'claude', text: 'Pulled in: the board was idle.' }) + '\n');
+    await save(key);
+  } catch (err) {
+    console.error('Pull check failed:', err.message);
+  } finally {
+    checkingPulls = false;
+  }
+}
+
 await watchBoard();
 setInterval(checkStalled, 60000).unref();
 setInterval(checkPickUps, 60000).unref();
+setInterval(checkPulls, 60000).unref();
 await checkStalled();
 await checkPickUps();
+await checkPulls();
 server.listen(port, '127.0.0.1', () => console.log(`site on http://127.0.0.1:${port}/ (prefix ${prefix || 'none'})`));
