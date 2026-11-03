@@ -14,7 +14,7 @@
 //                     those views' data and words (views.mjs), including integration readiness rows on /_hub/api/hub
 //   /_hub/sidebar.json what the sidebar shows (board/public/ui-sidebar.js): {code, total, start,
 //                     sites: [{route, title, board, state, count, changedAt, created, icon, sub, ctx}], hub: {tone, word, detail},
-//                     notifications: {state, text}}, ctx the board's owner session's {percent, at} or null; each site's row from its GET /_claude/needs
+//                     notifications: {state, text}, upgrade}, upgrade null or a newer kickflip on npm (upgrade.mjs state), ctx the board's owner session's {percent, at} or null; each site's row from its GET /_claude/needs
 //                     (home.mjs; docs/adr/0010-sites-report-what-waits-through-claude-needs.md)
 //                     starting lists pending boards and their clone/start phase (sessions.mjs)
 //                     usage: {claude, codex}, each null when hidden, else {at, five_hour, seven_day}; windows are
@@ -44,6 +44,8 @@
 //   /_hub/reopen-board POST {route} restores that entry and resumes its recorded session (close-board.mjs)
 //   /_hub/restart-board POST {route} stops the board's session, restarts its server and, once that answers, resumes
 //                     the session → {route, title, session}, or {error} (restart-board.mjs)
+//   /_hub/upgrade    POST from the sidebar's Upgrade: runs `kickflip update` once no builder runs → {upgrade}, the sidebar's
+//                     upgrade field, or 409 when nothing newer is on npm (upgrade.mjs)
 //   /_hub/wake       POST {route} from a board page's tap while the board is asleep: the session check resumes its
 //                     session now, as for an event that landed → {route, listen} (boards.mjs listenState)
 //   /_hub/status.json the manifest's sites and their process state, as JSON
@@ -165,6 +167,9 @@ import { readUsageGate, setPauseAt, setKeepGoing } from '../shared/usage-gate.mj
 import { readiness, readCodex } from './readiness.mjs';
 import { BuildError, startBuild, stopTries, tryTick, initializeTries, fetchTryBranches } from './try.mjs';
 import { serveFiles } from './files.mjs';
+import { upgrader, CHECK_MS } from './upgrade.mjs';
+import { openBoardBuilders } from '../board/store.mjs';
+import { cloneRoot } from '../shared/repos.mjs';
 import { LinearError, linearStatus, removeLinearKey, saveLinearKey, savedClient } from './linear.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -443,6 +448,7 @@ async function checkUsageGate() {
 
 setInterval(() => {
   tryTick({ manifest: loadManifest() }).catch((e) => log('try tick failed:', e.message));
+  upgrade.tick().catch((e) => log('kickflip update tick failed:', e.message));
   checkUsageGate().catch((e) => log('usage gate failed:', e.message));
   if (!polls.running && Date.now() >= nextPollAt().getTime()) runPoll().catch((e) => log('poll failed:', e.message));
   runWakes();
@@ -587,6 +593,7 @@ async function sidebarState({ fresh = false } = {}) {
     starting: startingBoards(manifest, now.getTime()),
     usage: readUsage({ codexShare: readCodexShare(readCodex()) }),
     pause: readUsageGate(),
+    upgrade: upgrade.state(),
     notifications: !held ? { state: 'on', text: 'On' } : held.why === 'off' ? { state: 'off', text: 'Off' } : { state: 'held', text: capital(holdLine(held, now)) },
   };
   return { data, links, rows, code };
@@ -612,6 +619,36 @@ async function shellPage(here) {
   for (const file of ['ui-page-header.js', 'ui-sidebar.js']) vm.runInContext(fs.readFileSync(path.join(BOARD_PUBLIC, file), 'utf8'), context);
   return shellHtml({ sidebar: context.BoardUI.sidebar(data, { here }), sidebarData: JSON.stringify(data).replace(/</g, '\\u003c'), touchIcon: iconUrl(180) });
 }
+
+// A newer kickflip on npm, checked as the hub starts and hourly; Upgrade runs `kickflip update` once no board's builder
+// runs, logging to logs/kickflip-update.log (docs/adr/0161-the-hub-offers-a-newer-kickflip-from-npm.md).
+const upgrade = upgrader({
+  root: cloneRoot(),
+  builders: async () => (await Promise.all(listBoards(loadManifest()).map((b) => openBoardBuilders(b.dir)))).flat(),
+  run: runUpdate,
+  log,
+  changed: () => stream.refresh(),
+});
+// The update restarts the hub, so it runs in its own process group, where the hub's restart doesn't stop it first.
+function runUpdate() {
+  const file = path.join(LOGS, 'kickflip-update.log');
+  fs.writeFileSync(file, `${new Date().toISOString()} kickflip update\n`);
+  const out = fs.openSync(file, 'a');
+  log('running kickflip update');
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'update'], { detached: true, stdio: ['ignore', out, out] });
+    fs.closeSync(out);
+    child.unref();
+    child.on('error', (e) => resolve({ ok: false, error: e.message }));
+    child.on('exit', (code) => {
+      const last = fs.readFileSync(file, 'utf8').trim().split('\n').at(-1);
+      log(`kickflip update exited ${code}: ${last}`);
+      resolve(code === 0 ? { ok: true } : { ok: false, error: last.replace(/^kickflip: /, '') });
+    });
+  });
+}
+upgrade.check();
+setInterval(() => upgrade.check(), CHECK_MS);
 
 const stream = hubStream({
   targets: () => Object.entries(loadManifest().sites).filter(([, s]) => isBoardSite(s) && s.port).map(([route, s]) => ({ route, port: s.port })),
@@ -733,6 +770,12 @@ async function hubRoute(req, res, url) {
       if (route) log(`restart /${route} failed: ${e.message}`);
       return sendJSON(e.status || 400, { error: e.message });
     } finally { restarting.delete(route); stream.refresh(); }
+  }
+  if (p === '/_hub/upgrade' && req.method === 'POST') {
+    try {
+      await readJSONBody(req);
+      return sendJSON(200, { upgrade: await upgrade.request() });
+    } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
   }
   if (p === '/_hub/wake' && req.method === 'POST') {
     try {

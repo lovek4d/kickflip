@@ -147,9 +147,18 @@
       + `<div class="sheet-actions fs-actions"><button type="button" data-failed-dismiss>Dismiss</button>${s.branch ? '<button type="button" class="primary" data-failed-retry>Retry</button>' : ''}</div></div>`;
   }
 
-  function updateRow(update) {
-    return update ? `<button type="button" class="sb-row sb-update-row" data-app-reload${update === 'reloading' ? ' disabled' : ''}>${tile('up', 'var(--accent)')}`
-      + `<span class="sb-text"><span class="sb-title">New version</span></span><span class="sb-go">${update === 'reloading' ? 'Reloading…' : 'Reload'}</span></button>` : '';
+  // The New version row. update: the app's reload, null | 'ready' | 'reloading', which comes first. upgrade:
+  // /_hub/sidebar.json's npm update, null | {state: available | waiting | updating | failed, version, builders, error}
+  // (hub/upgrade.mjs; docs/adr/0161-the-hub-offers-a-newer-kickflip-from-npm.md).
+  function updateRow(update, upgrade) {
+    const button = (attr, disabled, title, sub, go) => `<button type="button" class="sb-row sb-update-row" ${attr}${disabled ? ' disabled' : ''}>${tile('up', 'var(--accent)')}`
+      + `<span class="sb-text"><span class="sb-title">${title}</span>${sub ? `<span class="sb-sub">${esc(sub)}</span>` : ''}</span>${go ? `<span class="sb-go">${go}</span>` : ''}</button>`;
+    if (update) return button('data-app-reload', update === 'reloading', 'New version', '', update === 'reloading' ? 'Reloading…' : 'Reload');
+    if (!upgrade) return '';
+    if (upgrade.state === 'waiting') return button('data-app-upgrade', true, `Update waits for ${upgrade.builders} builder${upgrade.builders === 1 ? '' : 's'}`, '', '');
+    if (upgrade.state === 'updating') return button('data-app-upgrade', true, 'Update available', '', 'Updating…');
+    if (upgrade.state === 'failed') return button('data-app-upgrade', false, 'Update failed', upgrade.error, 'Upgrade');
+    return button('data-app-upgrade', false, 'Update available', '', 'Upgrade');
   }
 
   // data: /_hub/sidebar.json. here: a site's route or a hub page's path without its leading slash. device: this device's push
@@ -194,7 +203,7 @@
     const close = `<div class="nav"><button type="button" class="sb-close" data-sidebar-close aria-label="Close boards">${svg(ICONS.close, 20)}</button></div>`;
     return header({ lead: 'logo', title: 'Kickflip', level: 2, controls: false, trail: close, logoSrc: '/_hub/kickflip.png',
       leadAttrs: { 'aria-label': 'Hide boards', title: 'Hide boards', 'data-sidebar-close': '' } })
-      + `<div class="sb-scroll"><section class="sb-utility" aria-label="Hub"><div class="sb-update" role="status">${updateRow(update)}</div><div class="sb-group">`
+      + `<div class="sb-scroll"><section class="sb-utility" aria-label="Hub"><div class="sb-update" role="status">${updateRow(update, data?.upgrade)}</div><div class="sb-group">`
       + UTILITY.map((f) => row({ ...f, on: f.href.replace(/\/$/, '') === selected, sub: subs[f.href], mark: f.href === '/_hub/' ? moon : '', ...(f.href === '/_hub/' && usage ? { extra: usage, cls: 'sb-hub-usage' } : {}), key: keys?.get(f.href) })).join('')
       + `</div>${turnOn}</section>`
       + (pages.length ? `<section class="sb-pages" aria-label="Pages"><div class="sb-label">Pages</div><div class="sb-group">${pages.map(siteRow).join('')}</div></section>` : '')

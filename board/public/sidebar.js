@@ -64,13 +64,14 @@
       const logo = [...document.querySelectorAll('.top a.hub')].find(pageLogo);
       if (!logo) return;
       const n = othersWaiting(data, here);
-      logo.setAttribute('aria-label', `Boards${update ? ', new version ready' : ''}${n ? `, ${n} waiting on other boards` : ''}`);
+      logo.setAttribute('aria-label', `Boards${update ? ', new version ready' : data?.upgrade ? ', update available' : ''}${n ? `, ${n} waiting on other boards` : ''}`);
     }
     // switching: {opened, started, timer} while switch mode shows, opened when it opened the drawer, started on performance.now().
     let switching = null;
     let painted = false;
     // A repaint keeps the drawer's scroll, so a new copy doesn't move the list under a finger.
     function paint() {
+      html.classList.toggle('sb-update', Boolean(update || data?.upgrade));
       if (!data) return;
       const scroll = aside.querySelector('.sb-scroll');
       const top = painted ? scroll?.scrollTop : undefined;
@@ -84,7 +85,7 @@
       }
       const fresh = aside.querySelector('.sb-update');
       if (held) fresh.replaceWith(held);
-      const row = updateRow(update);
+      const row = updateRow(update, data.upgrade);
       if (!held || row !== updateHTML) (held || fresh).innerHTML = row;
       updateHTML = row;
       const list = aside.querySelector('.sb-scroll');
@@ -100,7 +101,6 @@
     }
     function setUpdate(state) {
       update = state;
-      html.classList.toggle('sb-update', Boolean(update));
       paint();
     }
 
@@ -159,10 +159,29 @@
         if (!refreshApp.disabled && update !== 'reloading') { setUpdate('reloading'); reload(); }
         return;
       }
+      const upgradeApp = e.target.closest?.('[data-app-upgrade]');
+      if (upgradeApp) { if (!upgradeApp.disabled) upgrade(upgradeApp); return; }
       if (e.target.closest?.('[data-new-board]')) { newBoard(); return; }
       const failed = e.target.closest?.('[data-failed-start]');
       if (failed) openFailed(failed.dataset.failedStart);
     });
+    // Upgrade asks the hub to run kickflip update (docs/adr/0161-the-hub-offers-a-newer-kickflip-from-npm.md). The row
+    // keeps its words until the hub answers with what it did, and a refusal shows as a failed update.
+    let upgrading = false;
+    async function upgrade(button) {
+      if (upgrading) return;
+      upgrading = true;
+      button.disabled = true;
+      let next;
+      try {
+        const response = await fetch('/_hub/upgrade', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+        const body = await response.json().catch(() => ({}));
+        next = response.ok ? body.upgrade : { ...data.upgrade, state: 'failed', error: body.error || 'The hub didn’t answer.' };
+      } catch {
+        next = { ...data.upgrade, state: 'failed', error: 'The hub didn’t answer.' };
+      } finally { upgrading = false; }
+      setData({ ...data, upgrade: next });
+    }
     // A failed start's sheet (docs/adr/0130-a-failed-start-retries-from-its-sheet.md). Dismiss deletes its Starting
     // record; Retry starts it again, and its row reads Starting… until the hub's next copy says otherwise.
     function openFailed(route) {

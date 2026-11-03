@@ -1037,6 +1037,11 @@ test('an open shell shows new hub code before the next Hub paint and reloads onl
   const sidebarData = await sidebar.json();
   assert.ok(sidebarData.code);
   assert.equal(sidebar.headers.get('x-hub-code'), sidebarData.code);
+  // The hub runs from this clone, which never asks npm, so nothing is offered and Upgrade is refused.
+  assert.equal(sidebarData.upgrade, null);
+  const upgrade = await fetch(`${base}/_hub/upgrade`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  assert.deepEqual([upgrade.status, await upgrade.json()], [409, { error: 'kickflip is up to date.' }]);
+  assert.equal((await fetch(`${base}/_hub/upgrade`, { method: 'POST', body: '{}' })).status, 403);
   const html = await (await fetch(`${base}/_hub/`)).text();
   assert.match(html, /<div class="sb-update" role="status"><\/div>/);
   let reloads = 0;
@@ -3320,4 +3325,41 @@ test('a blocked Todo card shows Build, whose confirm says it builds once its blo
   }
   assert.deepEqual(b.confirms, ['Build INT-44 once #53 is done? It waits in In Progress until then.', 'Unhold and build INT-45 once #53 is done? It waits in In Progress until then.']);
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-build', { key: 'w/B1' }], ['card-build', { key: 'w/B2' }]]);
+});
+
+test('Upgrade on the sidebar posts to the hub and shows only what the hub answers', async () => {
+  const page = repoPage();
+  const { win, doc } = page;
+  const posted = [];
+  let answer;
+  win.fetch = (url, options = {}) => {
+    posted.push([url, options.method, options.headers?.['content-type']]);
+    return new Promise((resolve) => { answer = resolve; });
+  };
+  const sidebar = win.Sidebar.mount({ data: { sites: [], upgrade: { state: 'available', version: '0.4.0' } } });
+  const aside = doc.getElementById('sidebar');
+  const button = () => aside.querySelector('[data-app-upgrade]');
+  const title = () => aside.querySelector('.sb-update .sb-title').textContent;
+  assert.equal(title(), 'Update available');
+  assert.ok(doc.documentElement.classList.contains('sb-update'));
+  page.fire(aside, 'click', { target: button() });
+  page.fire(aside, 'click', { target: button() });
+  assert.deepEqual(posted, [['/_hub/upgrade', 'POST', 'application/json']]);
+  assert.equal(title(), 'Update available');
+  assert.equal(aside.querySelector('.sb-update .sb-go').textContent, 'Upgrade');
+  answer(repoResponse({ upgrade: { state: 'waiting', version: '0.4.0', builders: 2 } }));
+  await tick(); await tick();
+  assert.equal(title(), 'Update waits for 2 builders');
+  assert.equal(button().disabled, true);
+  sidebar.setData({ sites: [], upgrade: { state: 'available', version: '0.4.0' } });
+  page.fire(aside, 'click', { target: button() });
+  answer({ ok: false, status: 409, text: async () => JSON.stringify({ error: 'kickflip is up to date.' }), json: async () => ({ error: 'kickflip is up to date.' }) });
+  await tick(); await tick();
+  assert.equal(title(), 'Update failed');
+  assert.match(aside.querySelector('.sb-update').textContent, /kickflip is up to date\./);
+  assert.equal(button().disabled, false);
+  sidebar.setData({ sites: [], upgrade: null });
+  assert.equal(button(), null);
+  assert.equal(doc.documentElement.classList.contains('sb-update'), false);
+  sidebar.close();
 });

@@ -1562,3 +1562,24 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   assert.equal(ui.statusLine(null, { pause }), `<span class="late">Paused until ${until}</span>`);
   assert.doesNotMatch(ui.statusLine(null, { pause: { ...pause, state: 'going' } }), /Paused/);
 });
+
+test('the New version row offers the npm update, waits for builders and gives Reload priority', () => {
+  const row = (update, upgrade) => ui.updateRow(update, upgrade);
+  assert.equal(row(null, null), '');
+  const available = row(null, { state: 'available', version: '0.4.0' });
+  assert.match(available, /<button type="button" class="sb-row sb-update-row" data-app-upgrade>/);
+  assert.equal(text(available), 'Update available Upgrade');
+  const waiting = row(null, { state: 'waiting', version: '0.4.0', builders: 2 });
+  assert.match(waiting, /data-app-upgrade disabled/);
+  assert.equal(text(waiting), 'Update waits for 2 builders');
+  assert.equal(text(row(null, { state: 'waiting', version: '0.4.0', builders: 1 })), 'Update waits for 1 builder');
+  const updating = row(null, { state: 'updating', version: '0.4.0' });
+  assert.match(updating, /disabled/);
+  assert.equal(text(updating), 'Update available Updating…');
+  const failed = row(null, { state: 'failed', version: '0.4.0', error: 'npm <update> failed' });
+  assert.doesNotMatch(failed, /disabled/);
+  assert.equal(text(failed), 'Update failed npm <update> failed Upgrade');
+  assert.equal(text(row('ready', { state: 'available', version: '0.4.0' })), 'New version Reload');
+  const html = ui.sidebar({ sites: [], upgrade: { state: 'available', version: '0.4.0' } });
+  assert.match(html, /<div class="sb-update" role="status"><button[^>]*data-app-upgrade>/);
+});
