@@ -74,7 +74,7 @@
   // (docs/adr/0136-a-card-waiting-only-to-be-closed-has-no-action-needed.md).
   function doneButton(it) {
     if (!it?.finishable) return '';
-    const tone = it.resolvedBy === BUTTON.markDone ? 'resolves' : it.awaitsDone ? 'primary' : '';
+    const tone = it.resolvedBy === BUTTON.markDone ? 'resolves' : it.awaitsDone ? 'closes' : '';
     return `<button type="button"${tone ? ` class="${tone}"` : ''} data-confirm="finish" data-key="${esc(it.key)}">Done</button>`;
   }
 
