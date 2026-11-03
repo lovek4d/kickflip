@@ -542,11 +542,12 @@ async function waitingCounts(rows, { fresh = false } = {}) {
 const badgeTotal = (waiting) => [...waiting.values()].reduce((n, w) => n + (w?.count || 0), 0) + pendingFor(null).length;
 
 // ---------- sidebar ----------
-// Each board's linksOf and listenState (boards.mjs), cached as long as the sites' needs, since every open page asks
-// for the sidebar. → {links: Map of route to linksOf, listens: Map of route to listenState}
-const linksCache = { at: 0, value: null };
+// Each board's listenState (boards.mjs), read on every call since a session's watcher starts and exits underneath, and
+// its linksOf, cached as long as the sites' needs, since every open page asks for the sidebar. A board's links are built
+// again when its listen state differs from the one they were built with, since the events link follows it.
+// → {links: Map of route to linksOf, listens: Map of route to listenState}
+const linksCache = new Map(); // route → {at, listen, links}
 function boardLinks(boards) {
-  if (linksCache.value && Date.now() - linksCache.at < NEEDS_TTL) return linksCache.value;
   const links = new Map();
   const listens = new Map();
   const ctx = { running: liveSessions(), wakes: readJSON(RESUME_STATE, {}) };
@@ -554,11 +555,15 @@ function boardLinks(boards) {
     try {
       const listen = listenState(b, ctx);
       listens.set(b.route, listen);
-      links.set(b.route, linksOf(b, { listen }));
+      let c = linksCache.get(b.route);
+      if (!c || c.listen !== listen || Date.now() - c.at >= NEEDS_TTL) {
+        c = { at: Date.now(), listen, links: linksOf(b, { listen }) };
+        linksCache.set(b.route, c);
+      }
+      links.set(b.route, c.links);
     } catch (e) { log(`links of ${b.route} failed:`, e.message); links.set(b.route, []); }
   }
-  Object.assign(linksCache, { at: Date.now(), value: { links, listens } });
-  return linksCache.value;
+  return { links, listens };
 }
 
 // What /_hub/sidebar.json serves, with each board's links, the hub's code hashes and the status rows behind it for the
@@ -610,6 +615,7 @@ async function shellPage(here) {
 
 const stream = hubStream({
   targets: () => Object.entries(loadManifest().sites).filter(([, s]) => isBoardSite(s) && s.port).map(([route, s]) => ({ route, port: s.port })),
+  watched: () => listBoards(loadManifest()).map(({ route, dir }) => ({ route, dir })),
   sidebar: async ({ fresh }) => (await sidebarState({ fresh })).data,
   log,
 });
@@ -737,7 +743,7 @@ async function hubRoute(req, res, url) {
       await sessionCheck.running;
       runSessionCheck();
       await sessionCheck.running;
-      linksCache.at = 0;
+      linksCache.clear();
       stream.changed(route);
       return sendJSON(200, { route, listen: listenState(board) });
     } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }

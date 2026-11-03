@@ -524,6 +524,27 @@ test('listening again ends the outage, a watcher whose session is not running do
   assert.equal(device.received.filter((p) => p.tag === 'deaf-shop').length, 2);
 });
 
+test("the sidebar reads a board's listening fresh: a watcher starting or exiting shows on the very next read, with its events link", async () => {
+  const sub = async () => (await (await fetch(`${base}/_hub/sidebar.json`)).json()).sites.find((x) => x.route === 'shop').sub;
+  const watcherFile = site('shop', 'data', 'watcher.json');
+  const kept = fs.existsSync(watcherFile) ? fs.readFileSync(watcherFile, 'utf8') : null;
+  const w = sleeper();
+  const s = liveSession('s-shop');
+  try {
+    write(watcherFile, { pid: w.pid, since: ago(20), exited_at: ago(10) });
+    assert.match(await sub(), /not listening/);
+    write(watcherFile, { pid: w.pid, since: ago(0) });
+    assert.doesNotMatch(await sub(), /not listening/);
+    assert.equal(linkState((await api('shop')).links).events, true);
+    write(watcherFile, { pid: w.pid, since: ago(20), exited_at: ago(10) });
+    assert.match(await sub(), /not listening/);
+  } finally {
+    w.kill();
+    s.kill();
+    if (kept === null) fs.rmSync(watcherFile, { force: true }); else write(watcherFile, kept);
+  }
+});
+
 test('a board whose stopped session the hub can wake is asleep, then waking once the hub resumed it, and pushes nothing; one it cannot wake is deaf and pushes once', async () => {
   write(site('nap', 'board.json'), { title: 'Nap', items: 'data/items.json' });
   write(site('nap', 'data', 'events.jsonl'), JSON.stringify({ id: 'e-nap', ts: ago(30), kind: 'ask', data: {} }) + '\n');

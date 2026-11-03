@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import os from 'node:os';
+import path from 'node:path';
 import { pageOf, versionAppAssets } from './shell.mjs';
 import { hubStream } from './stream.mjs';
 import { until } from '../shared/test-helpers.mjs';
@@ -150,5 +152,29 @@ test("a board's change reaches /_hub/stream as change {route} with the sidebar's
     relay.close();
     await board.stop();
     await new Promise((r) => hub.close(r));
+  }
+});
+
+test("a watcher file written or removed in a board's data folder sends the sidebar at once, without a board change", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'stream-watch-'));
+  fs.mkdirSync(path.join(dir, 'data'));
+  let listening = false;
+  const relay = hubStream({ targets: () => [], watched: () => [{ route: 'ios', dir }], sidebar: async () => ({ listening }), retryMs: 30, settleMs: 10, sidebarMs: 60_000 });
+  const hub = http.createServer((req, res) => relay.handle(req, res));
+  await new Promise((resolve, reject) => hub.once('error', reject).listen(0, '127.0.0.1', resolve));
+  const page = listen(hub.address().port);
+  try {
+    await until(() => page.events.length === 1, 'the initial sidebar');
+    listening = true;
+    fs.writeFileSync(path.join(dir, 'data', 'watcher.json'), '{"pid":1}');
+    await until(() => page.events.some((e) => e.data.listening), 'the sidebar after the watcher starts');
+    listening = false;
+    fs.rmSync(path.join(dir, 'data', 'watcher.json'));
+    await until(() => page.events.at(-1).data.listening === false && page.events.length === 3, 'the sidebar after the watcher goes');
+  } finally {
+    page.close();
+    relay.close();
+    await new Promise((r) => hub.close(r));
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

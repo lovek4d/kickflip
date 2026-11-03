@@ -4,14 +4,18 @@
 // `event: change` with data {route}. A board whose stream comes back, such as after a restart, gets one change too,
 // since it may have changed while its stream was down. `event: sidebar` carries what /_hub/sidebar.json would answer
 // whenever that differs from the last one sent: after a board's change, and on a timer for what no stream reports,
-// such as a site going down or a page's waiting count.
+// such as a site going down or a page's waiting count; and when a board's data/watcher.json is written or removed, since
+// a session's watcher starting or exiting is what the sidebar's listening word follows (boards.mjs listenState).
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
 
 // targets() → [{route, port}], the boards to hold; sidebar({fresh}) → the sidebar data, fresh naming the routes whose
-// waiting counts to refetch. → {handle(req, res), close(), changed(route), refresh()}
-export function hubStream({ targets, sidebar, retryMs = 2000, sidebarMs = 15_000, pingMs = 25_000, settleMs = 300, log = () => {} }) {
+// waiting counts to refetch; watched() → [{route, dir}], the boards whose data/watcher.json to watch. → {handle(req, res), close(), changed(route), refresh()}
+export function hubStream({ targets, watched = () => [], sidebar, retryMs = 2000, sidebarMs = 15_000, pingMs = 25_000, settleMs = 300, log = () => {} }) {
   const clients = new Set();
   const upstreams = new Map(); // route → {port, req}
+  const watchers = new Map(); // dir → fs.FSWatcher on dir/data
   const opened = new Set(); // routes whose stream has opened since the first page started listening
   let lastSidebar = null;
   let timers = [];
@@ -30,7 +34,7 @@ export function hubStream({ targets, sidebar, retryMs = 2000, sidebarMs = 15_000
     write(`event: sidebar\ndata: ${json}\n\n`);
   }
   function sidebarSoon(route) {
-    pendingFresh.add(route);
+    if (route) pendingFresh.add(route);
     if (sidebarTimer) return;
     sidebarTimer = setTimeout(() => {
       sidebarTimer = null;
@@ -81,9 +85,25 @@ export function hubStream({ targets, sidebar, retryMs = 2000, sidebarMs = 15_000
     for (const [route, port] of want) if (!upstreams.has(route)) connect(route, port);
   }
 
+  // fs.watch on the data folder, not the file, which is replaced when written; a folder that doesn't exist yet is tried again on the next reconcile.
+  function watchWatchers() {
+    let want;
+    try { want = new Set(watched().map((w) => w.dir)); } catch (e) { log(`stream watched failed: ${e.message}`); return; }
+    for (const [dir, w] of watchers) if (!want.has(dir)) { w.close(); watchers.delete(dir); }
+    for (const dir of want) {
+      if (watchers.has(dir)) continue;
+      try {
+        const w = fs.watch(path.join(dir, 'data'), (_, name) => { if (name === 'watcher.json') sidebarSoon(); });
+        w.on('error', () => { w.close(); watchers.delete(dir); });
+        watchers.set(dir, w);
+      } catch {}
+    }
+  }
+
   function startHolding() {
     reconcile();
-    timers = [setInterval(reconcile, retryMs), setInterval(() => refreshSidebar(), sidebarMs), setInterval(() => write(': ping\n\n'), pingMs)];
+    watchWatchers();
+    timers = [setInterval(() => { reconcile(); watchWatchers(); }, retryMs), setInterval(() => refreshSidebar(), sidebarMs), setInterval(() => write(': ping\n\n'), pingMs)];
   }
   function stopHolding() {
     for (const t of timers) clearInterval(t);
@@ -93,6 +113,8 @@ export function hubStream({ targets, sidebar, retryMs = 2000, sidebarMs = 15_000
     pendingFresh = new Set();
     for (const u of upstreams.values()) u.req?.destroy();
     upstreams.clear();
+    for (const w of watchers.values()) w.close();
+    watchers.clear();
     opened.clear();
     lastSidebar = null;
   }
