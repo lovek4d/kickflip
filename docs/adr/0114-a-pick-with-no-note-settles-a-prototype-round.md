@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0116
+---
+
 # A pick with no note settles a prototype round
+
+Superseded in part by [0116](0116-a-confirm-waits-for-claudes-update.md): a pick with a note opens no confirm until the session runs `question confirm` on the updated take, and `question resolve --no-change` settles one whose note needed no change.
 
 The owner asked on hub/INT-256 that a pick with no note on a prototype question need no "Is this it?" confirm: "no note selection should not require a confirmation single prototype flow". A pick with no note already is the take, so the confirm only asked the owner the same thing twice. They added: "answering a question with note only should also resolve it". This amends [0111](0111-a-prototype-round-ends-with-a-one-take-confirm.md).
 

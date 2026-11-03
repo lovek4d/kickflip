@@ -86,7 +86,7 @@
   }
   // A confirm links its one take alone, and says why it is asked.
   const confirmLines = (q) => !q.confirm_of || q.state === 'resolved' ? ''
-    : `<a class="pill proto pr-open" href="${esc(withParam(q.url, 'take', q.options[0].id))}">Open the prototype →</a>${q.state === 'open' ? `<div class="pr-rule">${RULE_ICON}A prototype round ends with a one-take confirm</div>` : ''}`;
+    : `<a class="pill proto pr-open" href="${esc(withParam(q.url, 'take', q.options[0].id))}">Open the prototype →</a>${q.state === 'open' ? `<div class="pr-rule">${RULE_ICON}A pick with a note gets a one-take confirm once Claude has updated the take.</div>` : ''}`;
   // An owner question from /api/board; draft is this device's unsent {choice, note}; links its ui-links.js linkContext;
   // fit(option id) supplies the measured grid and full-width heights.
   function questionCard(q, { n = 0, draft = {}, links = {}, fit = () => null } = {}) {

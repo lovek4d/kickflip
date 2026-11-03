@@ -313,25 +313,35 @@ export function ownerQuestion(q, answerEvents, requestEvents = []) {
 }
 
 // docs/adr/0111-a-prototype-round-ends-with-a-one-take-confirm.md
-// The prototype round a question belongs to: owner.json's `round`, set by `question add` with `round_of` and on the
-// board's confirm, else 1 for a question on a prototype page and 0 for any other.
+// The prototype round a question belongs to: owner.json's `round`, set by `question add` with `round_of` and by
+// `question confirm`, else 1 for a question on a prototype page and 0 for any other.
 export const roundOf = (q) => q.round ?? (PROTOTYPE_URL.test(q.url || '') ? 1 : 0);
+// docs/adr/0116-a-confirm-waits-for-claudes-update.md
+// An ownerQuestion view whose last answer picks one of its prototype takes with a note: it waits on Claude until
+// `question confirm` opens its confirm or `question resolve --no-change` resolves it.
+export function awaitsConfirm(q) {
+  const a = q.answers.at(-1);
+  return Boolean(a?.note.trim()) && q.state !== 'resolved' && !q.confirm_of && PROTOTYPE_URL.test(q.url || '')
+    && (q.options || []).some((o) => o.id === a.choice);
+}
 // docs/adr/0114-a-pick-with-no-note-settles-a-prototype-round.md
 // The answer that settles round n among a topic's questions (ownerQuestion views): the newest of any answer to the
-// round's confirm and a question's last answer when it picks one of its takes with no note; undefined while none has.
+// round's confirm, a question's last answer when it picks one of its takes with no note, and the answer a
+// `--no-change` resolve covers (owner.json `no_change`, that answer's ts); undefined while none has.
 export function roundSettledBy(qs, n) {
-  const settles = (q, a) => q.confirm_of || (!a.note.trim() && (q.options || []).some((o) => o.id === a.choice));
+  const settles = (q, a) => q.confirm_of || q.no_change === a.ts || (!a.note.trim() && (q.options || []).some((o) => o.id === a.choice));
   return qs.filter((q) => roundOf(q) === n && q.answers.length).map((q) => [q, q.answers.at(-1)])
     .filter(([q, a]) => settles(q, a)).map(([, a]) => a)
     .sort((x, y) => String(x.ts).localeCompare(String(y.ts))).at(-1);
 }
-// A topic's latest round: making while a question in it is requested, closed once an answer settles it, back while one
-// of its questions is unresolved, else none.
+// A topic's latest round: making while a question in it is requested or awaits its confirm, closed once an answer
+// settles it, back while one of its questions is unresolved, else none.
 function roundState(qs) {
   const req = qs.find((q) => q.state === 'requested');
   if (req) return { n: roundOf(req) + 1, state: 'making' };
   const n = Math.max(0, ...qs.map(roundOf));
   if (!n) return null;
+  if (qs.some((q) => roundOf(q) === n && awaitsConfirm(q))) return { n, state: 'making' };
   const settled = roundSettledBy(qs, n);
   if (settled) return { n, state: 'closed', take: settled.choice };
   return qs.some((q) => roundOf(q) === n && q.state !== 'resolved') ? { n, state: 'back' } : null;

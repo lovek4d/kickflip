@@ -233,7 +233,7 @@ test("an answer after a question was resolved reopens it, but a Done card's topi
   assert.deepEqual([closed.owner[0].state, closed.ownerTopics.find((t) => t.id === 'item:w/A1').state, closed.items.find((i) => i.key === 'w/A1').questions.state], ['answered', 'resolved', 'resolved']);
 });
 
-test("a prototype request holds its question as requested until the round arrives, and the topic's round reads making, back, then closed with the take of a pick with no note or of the confirm a noted pick opens", () => {
+test("a prototype request holds its question as requested until the round arrives, and the topic's round reads making, back, making again while a noted pick waits on Claude, then closed with the take of a pick with no note, of a noted pick resolved with --no-change, or of its confirm", () => {
   const plain = { id: 'plain', topic: 'item:w/A1', question: 'Where does search sit?', options: [{ id: 'A', label: 'Above' }, { id: 'B', label: 'Behind an icon' }] };
   const takes = { id: 'takes', topic: 'item:w/A1', question: 'Which take?', url: 'prototype-search.html?q=takes', options: [{ id: 'A', label: 'Above' }, { id: 'B', label: 'Icon' }], round: 1, round_of: 'plain' };
   const confirm = { id: 'takes-confirm', topic: 'item:w/A1', question: 'Is this it?', url: 'prototype-search.html?q=takes-confirm', options: [{ id: 'B', label: 'Icon' }], round: 1, confirm_of: 'takes' };
@@ -261,6 +261,8 @@ test("a prototype request holds its question as requested until the round arrive
   assert.deepEqual(view(back, [answer('takes', null, '2026-10-23T12:00:00Z', 'Neither')]).round, { n: 1, state: 'back' });
   const confirming = [back[0], resolved(takes, 'Followed by Is this it?', '2026-10-23T12:00:01Z'), confirm];
   const picked = [answer('takes', 'B', '2026-10-23T12:00:00Z', 'Bigger icon')];
+  assert.deepEqual(view(back, picked), { states: [['plain', 'resolved'], ['takes', 'answered']], round: { n: 1, state: 'making' }, open: 0, requested: 0, needs: 0 });
+  assert.deepEqual(view([back[0], resolved({ ...takes, no_change: '2026-10-23T12:00:00Z' }, 'Kept.', '2026-10-23T12:30:00Z')], picked).round, { n: 1, state: 'closed', take: 'B' });
   assert.deepEqual(view(confirming, picked).round, { n: 1, state: 'back' });
   assert.deepEqual(view(confirming, [...picked, answer('takes-confirm', 'B', '2026-10-23T13:00:00Z')]).round, { n: 1, state: 'closed', take: 'B' });
   assert.deepEqual(view(confirming, [...picked, request('takes-confirm', '2026-10-23T13:00:00Z')]).round, { n: 2, state: 'making' });

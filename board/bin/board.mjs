@@ -53,17 +53,24 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          danger|success, to the next row's box indexes (default all); practice: ["<line>", …]
          A prototype url's topic must be recorded (prototype add), its option ids a non-empty subset of the
          take keys in take order, without repeats, and every take file written; a hand-written prototype-*.html
-         is refused. On an item: topic, each question answered and still waiting on Claude is resolved,
-         noting "Followed by <new id>", and printed as "resolved: <old id>". Any other unresolved question
+         is refused. On an item: topic, each question answered and still waiting on Claude, except a pick
+         with a note waiting on question confirm, is resolved, noting "Followed by <new id>", and printed
+         as "resolved: <old id>". Any other unresolved question
          on the same topic that links the same prototype is resolved, noting "Replaced by <new id>", and
          printed as "replaced: <old id>". round_of names the question on the same topic whose
          prototype-request this answers; the question needs a prototype url, takes the next round
          number, and resolves that one, noting "Followed by prototype round N". Answering or resolving
          a question drops its queued push tagged q-<id> on this site.
-  question resolve <id> --note <text>                    sets resolved and resolved_at; refuses a question on a
+  question resolve <id> --note <text> [--no-change]      sets resolved and resolved_at; refuses a question on a
          prototype page until an answer settles its round: a pick with no note, or any answer to the
-         "Is this it?" confirm the board opens on a pick with a note. A question already resolved,
-         such as one an answer with a note and no option resolved, is left as it is
+         "Is this it?" confirm that question confirm opens. A pick with a note waits on you: update the
+         take, then run question confirm, or pass --no-change when the note needs no change to the take,
+         which says so in the note and settles the round. A question already resolved, such as one an
+         answer with a note and no option resolved, is left as it is
+  question confirm <id> [--url <prototype page>]         opens the one-take "Is this it?" confirm on the take the
+         owner picked with a note on prototype question <id>, once you have updated that take: same topic
+         and round, on --url's recorded prototype-<topic>.html (else <id>'s), whose take files must exist.
+         It resolves <id>, noting "Followed by Is this it?", and replaces an open confirm on the topic
   prototype add <topic> --title <t> --take <K>:<label>   records a prototype in data/prototypes.json: the board
          [--take <K>:<label> …] [--card <wave>/<id>]     serves prototype-<topic>.html from its one template, with
                                                          the title, a back arrow to --card (else the board), the
@@ -276,7 +283,7 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
          KICKFLIP_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/kickflip.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
-const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree', 'dry-run']);
+const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree', 'dry-run', 'no-change']);
 const REPEATED = new Set(['take']);
 const KICKFLIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'bin', 'kickflip.mjs');
 
@@ -377,7 +384,8 @@ const COMMANDS = {
   thread: [['wave/id'], ['text', 'link', 'who', 'via'], (site, [key], f) => store.appendThread(site, key, f)],
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
   'question add': [[], ['file'], (site, _, f) => store.addQuestions(site, readJSONInput(f.file))],
-  'question resolve': [['id'], ['note'], (site, [id], f) => store.resolveQuestion(site, id, f.note)],
+  'question resolve': [['id'], ['note', 'no-change'], (site, [id], f) => store.resolveQuestion(site, id, f.note, { noChange: f['no-change'] })],
+  'question confirm': [['id'], ['url'], (site, [id], f) => store.confirmQuestion(site, id, f.url)],
   'prototype add': [['topic'], ['title', 'take', 'card'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take })],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],

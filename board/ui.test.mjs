@@ -643,7 +643,7 @@ test('a question waiting on its prototype reads Prototype requested with a spinn
   const confirm = { ...question, id: 'c1', question: 'Is this it?', url: 'prototype-search.html?q=c1', options: [{ id: 'B', label: 'Icon' }], round: 1, confirm_of: 'q1' };
   const open = ui.questionCard(confirm);
   assert.match(open, /<a class="pill proto pr-open" href="prototype-search\.html\?q=c1&amp;take=B">Open the prototype →<\/a>/);
-  assert.match(text(open), /A prototype round ends with a one-take confirm/);
+  assert.match(text(open), /A pick with a note gets a one-take confirm once Claude has updated the take\./);
   assert.deepEqual(frames(open), ['prototype-search.html?q=c1&take=B']);
   assert.doesNotMatch(ui.questionCard({ ...confirm, state: 'answered', answers: [{ ts: ago(1), choice: 'B', note: '', reply: null }] }), /one-take confirm/);
   assert.doesNotMatch(ui.questionCard({ ...confirm, url: 'prototype-search.html?q=c1', confirm_of: undefined }), /pr-open|one-take confirm/);

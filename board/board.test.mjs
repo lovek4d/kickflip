@@ -596,17 +596,20 @@ test('prototype rm refuses while an open question links the prototype', () => {
   assert.equal(board('prototype', 'rm', 'site', '--site', 'orch').code, 0);
 });
 
-test("question resolve refuses a prototype question until a pick with no note or an answer to its round's one-take confirm settles the round, naming the confirm, and leaves one a note resolved as it is", () => {
+test("question resolve refuses a prototype question until its round settles: a pick with no note, or --no-change on a pick with a note, which says so in the note; and leaves one a note resolved as it is", () => {
   recordPrototype();
   assert.equal(addPrototypeQuestion().code, 0);
   const file = site('orch', 'data', 'owner.json');
   const fresh = read(file);
-  const resolve = (id) => board('question', 'resolve', id, '--site', 'orch', '--note', 'Picked A.');
-  const unsettled = { code: 1, out: '', err: 'q1 is in prototype round 1, which no pick has settled yet; a pick with no note settles it, and one with a note opens an "Is this it?" confirm\n' };
-  assert.deepEqual(resolve('q1'), unsettled);
+  const resolve = (id, ...more) => board('question', 'resolve', id, '--site', 'orch', '--note', 'Picked A.', ...more);
+  assert.deepEqual(resolve('q1'), { code: 1, out: '', err: 'q1 is in prototype round 1, which no pick has settled yet; a pick with no note settles it, and one with a note waits for question confirm\n' });
+  const notNoted = { code: 1, out: '', err: "--no-change resolves a prototype question whose last answer picks a take with a note; q1's doesn't\n" };
+  assert.deepEqual(resolve('q1', '--no-change'), notNoted);
   addEvents({ id: 'answer-q1-noted', ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A', note: 'Bigger' } });
-  assert.deepEqual(resolve('q1'), unsettled);
+  const waits = { code: 1, out: '', err: 'q1 has a pick with a note that waits on Claude: update take A, then run question confirm q1; or pass --no-change when the note needs no change to the take\n' };
+  assert.deepEqual(resolve('q1'), waits);
   addEvents({ id: 'answer-q1', ts: '2026-10-23T10:30:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A', note: '' } });
+  assert.deepEqual(resolve('q1', '--no-change'), notNoted);
   assert.equal(resolve('q1').code, 0);
   assert.equal(read(file).items[0].resolved, 'Picked A.');
   addEvents({ id: 'answer-q1-note', ts: '2026-10-23T10:40:00Z', kind: 'owner-answer', data: { id: 'q1', choice: null, note: 'Make it blue' } });
@@ -616,13 +619,41 @@ test("question resolve refuses a prototype question until a pick with no note or
   assert.deepEqual(read(file), noted);
   write(file, fresh);
   addEvents({ id: 'answer-q1-again', ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A', note: 'Bigger still' } });
-  addConfirm('q1', false);
-  const waiting = 'is in prototype round 1, whose confirm q1-confirm ("Is this it?") has no answer yet; the round ends when the owner answers it\n';
-  assert.deepEqual(resolve('q1'), { code: 1, out: '', err: `q1 ${waiting}` });
-  assert.deepEqual(resolve('q1-confirm'), { code: 1, out: '', err: `q1-confirm ${waiting}` });
-  assert.ok(read(file).items.every((q) => !q.resolved));
-  addEvents({ id: 'answer-q1-confirm', ts: '2026-10-23T12:00:00Z', kind: 'owner-answer', data: { id: 'q1-confirm', choice: 'A' } });
-  for (const id of ['q1', 'q1-confirm']) assert.equal(resolve(id).code, 0);
+  assert.deepEqual(resolve('q1'), waits);
+  assert.equal(resolve('q1', '--no-change').code, 0);
+  const [q] = read(file).items;
+  assert.deepEqual([q.resolved, q.no_change], ['Picked A. The note needed no change to take A.', '2026-10-23T11:00:00Z']);
+});
+
+test('question confirm opens the one-take confirm on a pick with a note, on its own or another recorded prototype, replacing an open one, and question resolve waits on its answer', () => {
+  recordPrototype();
+  recordPrototype('site-two');
+  assert.equal(addPrototypeQuestion().code, 0);
+  const file = site('orch', 'data', 'owner.json');
+  const confirm = (...more) => board('question', 'confirm', 'q1', '--site', 'orch', ...more);
+  const refused = (err, ...more) => assert.deepEqual(confirm(...more), { code: 1, out: '', err: err + '\n' });
+  refused("q1 has no pick with a note on a prototype question's take to confirm; question confirm follows one");
+  addEvents({ id: 'answer-q1-plain', ts: '2026-10-23T09:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'B', note: '' } });
+  refused("q1 has no pick with a note on a prototype question's take to confirm; question confirm follows one");
+  addEvents({ id: 'answer-q1', ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'B', note: 'Bigger' } });
+  refused('--url must name a recorded prototype page, prototype-<topic>.html, not "https://example.com/x"', '--url', 'https://example.com/x');
+  refused('confirm q1-confirm.url names prototype-nope.html, which is not a recorded prototype; record it with board.mjs prototype add nope --title "…" --take A:"…", then write its take files', '--url', 'prototype-nope.html');
+  assert.deepEqual(read(file).items.map((q) => q.id), ['q1']);
+
+  assert.deepEqual(confirm(), { code: 0, err: '', out: [`question confirm → ${file}`, 'confirm: q1-confirm', 'resolved: q1', ''].join('\n') });
+  const [asked, opened] = read(file).items;
+  assert.equal(asked.resolved, 'Followed by Is this it?');
+  assert.deepEqual(opened, { id: 'q1-confirm', topic: 'site', source: 'Prototype round 1 · confirm', question: 'Is this it?',
+    context: 'Take B, “Drop”. Send to keep it, or ask for another prototype.', url: 'prototype-site.html?q=q1-confirm', options: [{ id: 'B', label: 'Drop' }], round: 1, confirm_of: 'q1' });
+
+  assert.deepEqual(confirm('--url', 'prototype-site-two.html'), { code: 0, err: '', out: [`question confirm → ${file}`, 'confirm: q1-confirm-2', 'replaced: q1-confirm', ''].join('\n') });
+  const items = read(file).items;
+  assert.deepEqual(items.map((q) => [q.id, q.url, q.resolved ?? null]), [['q1', 'prototype-site.html?q=q1', 'Followed by Is this it?'],
+    ['q1-confirm', 'prototype-site.html?q=q1-confirm', 'Replaced by q1-confirm-2'], ['q1-confirm-2', 'prototype-site-two.html?q=q1-confirm-2', null]]);
+  const resolve = () => board('question', 'resolve', 'q1-confirm-2', '--site', 'orch', '--note', 'Kept B.');
+  assert.deepEqual(resolve(), { code: 1, out: '', err: 'q1-confirm-2 is in prototype round 1, whose confirm q1-confirm-2 ("Is this it?") has no answer yet; the round ends when the owner answers it\n' });
+  addEvents({ id: 'answer-q1-confirm-2', ts: '2026-10-23T12:00:00Z', kind: 'owner-answer', data: { id: 'q1-confirm-2', choice: 'B' } });
+  assert.equal(resolve().code, 0);
 });
 
 test('question add with round_of starts the next prototype round on the question it answers, resolving that one as followed by the round', () => {

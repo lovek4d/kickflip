@@ -42,36 +42,29 @@ test('an owner answer drops queued question pushes only for this site', async ()
   assert.deepEqual(JSON.parse(fs.readFileSync(queue, 'utf8')), { items: keep });
 });
 
-test("an owner answer picking a prototype question's take with a note opens its one-take confirm, replacing an open one; a pick with no note, an answer to the confirm or one with no take opens none; and a note with no take resolves its question", async () => {
+test("an owner answer opens no confirm: a pick with no note settles its round, a pick with a note waits on Claude out of Needs you, and a note with no take resolves its question", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
   const pick = { id: 'pick', topic: 'item:t/A1', question: 'Which?', url: 'prototype-rounds.html?q=pick', options: [{ id: 'A', label: 'Badge' }, { id: 'B', label: 'Dot' }], round: 2 };
   const plain = { id: 'plain', topic: 'item:t/A1', question: 'Keep?', options: [{ id: 'A', label: 'Keep' }] };
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [pick, plain] }));
   const answer = (id, choice, note = '') => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answer', id, choice, note }) });
   const items = () => JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items;
-  const round = async () => (await (await fetch(`${base}/api/board`)).json()).ownerTopics.find((t) => t.questions.includes('pick')).round;
-  const confirm = (id, take, label) => ({ id, topic: 'item:t/A1', source: 'Prototype round 2 · confirm', question: 'Is this it?',
-    context: `Take ${take}, “${label}”. Send to keep it, or ask for another prototype.`, url: `prototype-rounds.html?q=${id}`, options: [{ id: take, label }], round: 2, confirm_of: 'pick' });
+  const board = async () => (await fetch(`${base}/api/board`)).json();
+  const round = async () => (await board()).ownerTopics.find((t) => t.questions.includes('pick')).round;
   try {
     const untouched = fs.readFileSync(ownerFile, 'utf8');
     assert.equal((await answer('pick', 'B')).status, 200);
     assert.equal(fs.readFileSync(ownerFile, 'utf8'), untouched);
     assert.deepEqual(await round(), { n: 2, state: 'closed', take: 'B' });
     assert.equal((await answer('pick', 'B', 'Bigger')).status, 200);
-    assert.deepEqual(items().map((q) => [q.id, q.resolved ?? null]), [['pick', 'Followed by Is this it?'], ['plain', null], ['pick-confirm', null]]);
-    assert.deepEqual(items()[2], confirm('pick-confirm', 'B', 'Dot'));
-    assert.deepEqual(await round(), { n: 2, state: 'back' });
-    assert.equal((await answer('pick', 'A', 'Smaller')).status, 200);
-    assert.deepEqual(items().map((q) => [q.id, q.resolved ?? null]), [['pick', 'Followed by Is this it?'], ['plain', null], ['pick-confirm', 'Replaced by pick-confirm-2'], ['pick-confirm-2', null]]);
-    assert.deepEqual(items()[3], confirm('pick-confirm-2', 'A', 'Badge'));
-    const before = fs.readFileSync(ownerFile, 'utf8');
-    for (const [id, choice, note] of [['pick-confirm-2', 'A', 'Ship it'], ['plain', 'A', 'Fine'], ['pick', null, ''], ['missing', 'A', 'x'], ['missing', null, 'x']]) assert.equal((await answer(id, choice, note)).status, 200);
-    assert.equal(fs.readFileSync(ownerFile, 'utf8'), before);
-    assert.deepEqual(await round(), { n: 2, state: 'closed', take: 'A' });
+    assert.equal(fs.readFileSync(ownerFile, 'utf8'), untouched);
+    assert.deepEqual(await round(), { n: 2, state: 'making' });
+    const b = await board();
+    assert.equal(b.owner.find((q) => q.id === 'pick').state, 'answered');
+    assert.equal(b.needsSummary, '1 question');
     assert.equal((await answer('plain', null, 'Keep it, but rename it')).status, 200);
     assert.equal(items().find((q) => q.id === 'plain').resolved, 'Answered with a note');
-    const board = await (await fetch(`${base}/api/board`)).json();
-    assert.equal(board.owner.find((q) => q.id === 'plain').state, 'resolved');
+    assert.equal((await board()).owner.find((q) => q.id === 'plain').state, 'resolved');
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
