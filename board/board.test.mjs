@@ -90,11 +90,14 @@ test('install posts only the route and key to the hub once it quotes the owner, 
   } finally { await new Promise((resolve) => { hub.closeAllConnections(); hub.close(resolve); }); }
 });
 
-test('reply answers a known event and refuses an unknown one', () => {
-  assert.equal(board('reply', 'e1', '--site', 'orch', '--html', '<p>Done.</p>').code, 0);
+test('reply answers a known event, naming its card, and refuses an unknown one', () => {
+  assert.deepEqual(board('reply', 'e1', '--site', 'orch', '--html', '<p>Done.</p>'), { code: 0, err: '', out: 'reply written to task e1\n' });
   assert.equal(fs.readFileSync(site('orch', 'data', 'replies', 'e1.html'), 'utf8'), '<p>Done.</p>');
   assert.equal(run('board.mjs', ['reply', 'e1', '--site', 'orch', '--file', '-'], '<p>Again.</p>').code, 0);
   assert.equal(fs.readFileSync(site('orch', 'data', 'replies', 'e1.html'), 'utf8'), '<p>Again.</p>');
+  write(at('waves', 'internal', 'wave.json'), { internal: true, items: [{ id: 'S80', title: 'Legacy' }] });
+  fs.appendFileSync(site('orch', 'data', 'events.jsonl'), JSON.stringify({ id: 'e2', ts: '2026-10-23T11:00:00Z', kind: 'item-message', data: { key: 'internal/S80', text: 'Still on?' } }) + '\n');
+  assert.deepEqual(board('reply', 'e2', '--site', 'orch', '--html', '<p>Yes.</p>'), { code: 0, err: '', out: 'reply written to INT-80\n' });
   const r = board('reply', 'e9', '--site', 'orch', '--html', 'x');
   assert.equal(r.code, 1);
   assert.match(r.err, /no event "e9"/);
@@ -562,7 +565,7 @@ const prototypeRefusal = (result, line) => {
 
 test('prototype add records a topic and prints the take files to write; list shows it and rm drops it, keeping the files', () => {
   const r = board('prototype', 'add', 'hub-moon', '--site', 'orch', '--title', 'Hub moon', '--card', 'w/A1', '--take', 'A:Moon with hover text', '--take', 'B:Moon with tap bubble');
-  assert.deepEqual(r, { code: 0, err: '', out: [`prototype add → ${site('orch', 'data', 'prototypes.json')}`, 'page prototype-hub-moon.html', `take A ${takePath('hub-moon', 'A')}`, `take B ${takePath('hub-moon', 'B')}`, ''].join('\n') });
+  assert.deepEqual(r, { code: 0, err: '', out: ['prototype hub-moon recorded for A1', 'page prototype-hub-moon.html', `take A ${takePath('hub-moon', 'A')}`, `take B ${takePath('hub-moon', 'B')}`, ''].join('\n') });
   const [record] = read(site('orch', 'data', 'prototypes.json')).prototypes;
   assert.deepEqual({ ...record, at: undefined }, { topic: 'hub-moon', title: 'Hub moon', card: 'w/A1', takes: [{ key: 'A', label: 'Moon with hover text' }, { key: 'B', label: 'Moon with tap bubble' }], at: undefined });
   assert.equal(board('prototype', 'list', '--site', 'orch').out, 'hub-moon · Hub moon · A: Moon with hover text, B: Moon with tap bubble · w/A1\n');
@@ -647,13 +650,13 @@ test('question confirm opens the one-take confirm on a pick with a note, on its 
   refused('confirm q1-confirm.url names prototype-nope.html, which is not a recorded prototype; record it with board.mjs prototype add nope --title "…" --take A:"…", then write its take files', '--url', 'prototype-nope.html');
   assert.deepEqual(read(file).items.map((q) => q.id), ['q1']);
 
-  assert.deepEqual(confirm(), { code: 0, err: '', out: [`question confirm → ${file}`, 'confirm: q1-confirm', 'resolved: q1', ''].join('\n') });
+  assert.deepEqual(confirm(), { code: 0, err: '', out: ['"Is this it?" confirm opened on question q1', 'confirm: q1-confirm', 'resolved: q1', ''].join('\n') });
   const [asked, opened] = read(file).items;
   assert.equal(asked.resolved, 'Followed by Is this it?');
   assert.deepEqual(opened, { id: 'q1-confirm', topic: 'site', source: 'Prototype round 1 · confirm', question: 'Is this it?',
     context: 'Take B, “Drop”. Send to keep it, or ask for another prototype.', url: 'prototype-site.html?q=q1-confirm', options: [{ id: 'B', label: 'Drop' }], round: 1, confirm_of: 'q1' });
 
-  assert.deepEqual(confirm('--url', 'prototype-site-two.html'), { code: 0, err: '', out: [`question confirm → ${file}`, 'confirm: q1-confirm-2', 'replaced: q1-confirm', ''].join('\n') });
+  assert.deepEqual(confirm('--url', 'prototype-site-two.html'), { code: 0, err: '', out: ['"Is this it?" confirm opened on question q1', 'confirm: q1-confirm-2', 'replaced: q1-confirm', ''].join('\n') });
   const items = read(file).items;
   assert.deepEqual(items.map((q) => [q.id, q.url, q.resolved ?? null]), [['q1', 'prototype-site.html?q=q1', 'Followed by Is this it?'],
     ['q1-confirm', 'prototype-site.html?q=q1-confirm', 'Replaced by q1-confirm-2'], ['q1-confirm-2', 'prototype-site-two.html?q=q1-confirm-2', null]]);
@@ -756,7 +759,7 @@ test('a question re-asked on the same topic with the same prototype resolves the
   write(site('orch', 'data', 'owner.json'), { topics: [{ id: 'site', title: 'Site' }], items: [{ ...on('done', 'item:w/A1', 'site'), resolved: 'Picked A.', resolved_at: '2026-10-23T00:00:00Z' }] });
   for (const q of [on('moon', 'item:w/A1', 'site'), on('elsewhere', 'site', 'site'), on('different', 'item:w/A1', 'other')]) assert.deepEqual(add(q).out.split('\n').slice(1), ['']);
   const r = add(on('moon-2', 'item:w/A1', 'site'));
-  assert.deepEqual(r, { code: 0, err: '', out: `question add → ${site('orch', 'data', 'owner.json')}\nreplaced: moon\n` });
+  assert.deepEqual(r, { code: 0, err: '', out: 'question moon-2 added on A1\nreplaced: moon\n' });
   const owner = read(site('orch', 'data', 'owner.json')).items;
   assert.deepEqual(owner.map((q) => [q.id, q.resolved ?? null]), [['done', 'Picked A.'], ['moon', 'Replaced by moon-2'], ['elsewhere', null], ['different', null], ['moon-2', null]]);
   assert.ok(!Number.isNaN(Date.parse(owner[1].resolved_at)));
@@ -1198,7 +1201,7 @@ test('builder start --worktree makes a worktree on a new branch from main, keeps
   commit(repo, 'landed.txt', 'locally landed');
   const r = board('builder', 'start', 'w/A1', '--worktree', '--repo', repo);
   assert.equal(r.code, 0, r.err);
-  assert.equal(r.out, `start w/A1\nworktree: ${worktree()}\n`);
+  assert.equal(r.out, `A1: builder started\nworktree: ${worktree()}\n`);
   assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo });
   assert.equal(git(worktree(), 'rev-parse', '--abbrev-ref', 'HEAD'), 'A1');
   assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(repo, 'rev-parse', 'main'));

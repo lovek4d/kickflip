@@ -402,7 +402,10 @@ const COMMANDS = {
   }],
   thread: [['wave/id'], ['text', 'link', 'who', 'via'], (site, [key], f) => store.appendThread(site, key, f)],
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
-  'question add': [[], ['file'], (site, _, f) => store.addQuestions(site, readJSONInput(f.file))],
+  'question add': [[], ['file'], async (site, _, f) => {
+    const input = readJSONInput(f.file);
+    return { ...(await store.addQuestions(site, input)), asked: [input].flat() };
+  }],
   'question resolve': [['id'], ['note', 'no-change'], (site, [id], f) => store.resolveQuestion(site, id, f.note, { noChange: f['no-change'] })],
   'question confirm': [['id'], ['url'], (site, [id], f) => store.confirmQuestion(site, id, f.url)],
   'prototype add': [['topic'], ['title', 'take', 'card'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take })],
@@ -502,6 +505,74 @@ const COMMANDS = {
 
 COMMANDS.install = COMMANDS.build;
 
+const card = (site, key) => store.cardName(site, key);
+const plural = (list, word) => `${word}${list.length === 1 ? '' : 's'} ${list.join(', ')}`;
+const builderOf = (f) => (f.agent === undefined || f.agent === 'main' ? 'builder' : `builder ${f.agent}`);
+
+function itemChanges(f) {
+  const pickUp = f['pick-up-at'];
+  return [
+    f.status, f['clear-status'] && 'status cleared',
+    f.next !== undefined && (f.next.trim() ? 'next line set' : 'next line cleared'), f['clear-next'] && 'next line cleared',
+    f.pr !== undefined && `PR #${f.pr}`, f['gh-since'] && `GitHub read to ${f['gh-since']}`, f['from-ask'] && `from task ${f['from-ask']}`,
+    f.held && 'held', f.unheld && 'resumed', pickUp !== undefined && (pickUp ? `held until ${pickUp}` : 'resumed'),
+    notesFileOf(f) !== undefined && 'notes recorded', f.deps !== undefined && (f.deps ? `blocked by ${f.deps}` : 'deps cleared'),
+    f.install !== undefined && 'install published', f['clear-install'] && 'install cleared',
+    f.title !== undefined && 'renamed', f.ticket !== undefined && `ticket ${f.ticket}`,
+  ].filter(Boolean).join(', ');
+}
+
+/*
+ * The one line a command prints before its own lines, naming the card and what it did. A board's session adds no
+ * text of its own outside a typed prompt, so these lines are what its terminal shows (bin/wait-events.mjs QUIET).
+ * A command left out, such as a read, prints only its own lines.
+ * name: (site, args, flags, result) → line
+ */
+const SAID = {
+  reply: async (site, [id]) => `reply written to ${await store.eventCard(site, id)}`,
+  working: async (site, [id]) => `${await store.eventCard(site, id)}: working on it`,
+  thread: async (site, [key]) => `thread line on ${await card(site, key)}`,
+  'topic add': (site, [id]) => `topic ${id} added`,
+  'question add': async (site, _, f, { asked }) => {
+    const topics = [...new Set(asked.map((q) => q.topic))];
+    const on = topics.length !== 1 ? '' : topics[0].startsWith('item:') ? ` on ${await card(site, topics[0].slice(5))}` : ` on topic ${topics[0]}`;
+    return `${plural(asked.map((q) => q.id), 'question')} added${on}`;
+  },
+  'question resolve': (site, [id]) => `question ${id} resolved`,
+  'question confirm': (site, [id]) => `"Is this it?" confirm opened on question ${id}`,
+  'prototype add': async (site, [topic], f) => `prototype ${topic} recorded${f.card ? ` for ${await card(site, f.card)}` : ''}`,
+  'prototype rm': (site, [topic]) => `prototype ${topic} removed`,
+  'item set': async (site, [key], f) => `${await card(site, key)}: ${itemChanges(f)}`,
+  'item add': async (site, [key]) => `${await card(site, key)} added`,
+  'item relate-ask': async (site, [id, key]) => `task ${id} folded into ${await card(site, key)}`,
+  'ask progress': async (site, [id]) => `${await card(site, `ask:${id}`)}: in progress`,
+  'ask done': async (site, [id]) => `${await card(site, `ask:${id}`)}: done`,
+  'ask unfold': (site, [id]) => `task ${id} back on a card of its own`,
+  'ask move': (site, [id], f) => `task ${id} moved to /${f.to}`,
+  'hello-ack': (site, [id]) => `hello ${id} answered`,
+  checked: (site, _, f) => (f.idle ? 'GitHub checked; no open PR' : `GitHub checked; next in ${f.every ?? 30} min`),
+  'followup add': async (site, [wave], f) => `follow-up ${await card(site, `${wave}/${f.id}`)} added`,
+  'followup done': async (site, [wave, id]) => `follow-up ${await card(site, `${wave}/${id}`)}: done`,
+  'followup set': async (site, [wave, id], f) => `follow-up ${await card(site, `${wave}/${id}`)}: ticket ${f.ticket}`,
+  'lineup create': (site, [slug]) => `lineup ${slug} created`,
+  'lineup add': async (site, [slug, key]) => `${await card(site, key)} added to lineup ${slug}`,
+  'lineup remove': async (site, [slug, key]) => `${await card(site, key)} taken out of lineup ${slug}`,
+  'lineup set': (site, [slug]) => `lineup ${slug} updated`,
+  'lineup finish': (site, [slug]) => `lineup ${slug} finished`,
+  'review sent': async (site, [key, name]) => `review link to ${name} recorded on ${await card(site, key)}`,
+  'review react': async (site, [key, name, emoji]) => `${emoji} on ${name}'s review link recorded on ${await card(site, key)}`,
+  'review digest sent': (site, [name]) => `digest to ${name} recorded`,
+  'reviewers set': () => 'reviewers replaced',
+  'reviewers add': () => 'reviewers added',
+  'reviewers remove': (site, names) => `${plural(names, 'reviewer')} removed`,
+  'rules add': (site, _, f) => `${f.hub ? 'hub' : 'board'} rule added`,
+  'rules edit': (site, [id], f) => `${f.hub ? 'hub' : 'board'} rule ${id} reworded`,
+  'rules remove': (site, [id], f) => `${f.hub ? 'hub' : 'board'} rule ${id} removed`,
+  'builder start': async (site, [key], f) => `${await card(site, key)}: ${builderOf(f)} started`,
+  'builder progress': async (site, [key]) => `progress line on ${await card(site, key)}`,
+  'builder done': async (site, [key], f) => `${await card(site, key)}: ${builderOf(f)} done`,
+};
+
 export async function main(argv, options = {}) {
   try {
     const { flags, rest } = parse(argv);
@@ -519,11 +590,9 @@ export async function main(argv, options = {}) {
     checkInputs(allowed, opts);
     const site = route === undefined ? null : await store.siteDir(route);
     const result = await run(site, args, opts, options);
-    const { file, lines = [] } = typeof result === 'object' && result ? result : { file: result };
-    // A read, such as rules list, names no file and prints only its lines.
-    if (name.startsWith('builder ')) console.log(`${name.slice(8)} ${args[0]}`);
-    else if (file !== undefined) console.log(`${name} → ${file}`);
-    for (const line of lines) console.log(line);
+    const said = routeRecord(SAID, name);
+    if (said) console.log(await said(site, args, opts, result));
+    for (const line of (typeof result === 'object' && result?.lines) || []) console.log(line);
     return 0;
   } catch (e) {
     if (e instanceof UsageError) { console.error(`${e.message} (node board.mjs --help lists the commands)`); return 2; }

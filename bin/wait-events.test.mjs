@@ -25,7 +25,7 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   write(path.join(state, 'usage.json'), usage(reset));
   write(cursor, { 'data/events.jsonl': 0 });
   write(events, '');
-  const add = (kind) => fs.appendFileSync(events, JSON.stringify({ id: kind, kind, ts: new Date().toISOString() }) + '\n');
+  const add = (kind, data) => fs.appendFileSync(events, JSON.stringify({ id: kind, kind, ts: new Date().toISOString(), data }) + '\n');
   for (const kind of ['github-change', 'check-github', 'card-unblocked']) add(kind);
   const start = () => {
     const child = spawn(process.execPath, [new URL('./wait-events.mjs', import.meta.url).pathname, 'shop', 's1'], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: '1' } });
@@ -42,12 +42,12 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   await new Promise((resolve) => setTimeout(resolve, 2500));
   assert.equal(first.child.exitCode, null);
   assert.equal(first.stdout(), '');
-  add('item-message');
+  add('item-message', { key: 'w/A1' });
   const out = await first.done;
   assert.deepEqual([out.code, out.stderr], [0, '']);
-  assert.match(out.stdout, /event data\/events.jsonl .*"kind":"item-message"/);
+  assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"item-message".*\nmessage received from A1's thread$/m);
   assert.doesNotMatch(out.stdout, /"kind":"github-change"|"kind":"check-github"|"kind":"card-unblocked"/);
-  assert.match(out.stdout, new RegExp(`rule hub Hub rule[^]*rule board Board rule[^]*setting auto-merge off[^]*usage paused ${reset} five_hour 91%`));
+  assert.match(out.stdout, new RegExp(`rule hub Hub rule[^]*rule board Board rule[^]*setting auto-merge off[^]*\\nquiet [^\\n]*AskUserQuestion[^]*usage paused ${reset} five_hour 91%`));
   const saved = JSON.parse(fs.readFileSync(cursor, 'utf8'));
   assert.equal(saved['data/events.jsonl'], 4);
   assert.equal(saved.$usageHeld['data/events.jsonl'].length, 3);

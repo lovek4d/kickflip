@@ -5,13 +5,15 @@
 // Watches the files in the site's manifest `watch` list (relative to its dir),
 // counting lines that match `filter` (a regex; every line when unset).
 // Prints and exits on:
-//   event <file> <line>       new matching lines (several, batched for 2 s), then on a board:
+//   event <file> <line>       new matching lines (several, batched for 2 s), each followed by one plain line saying
+//                             what came in and on which card (plainLine), then on a board:
 //   rule hub <text>           each hub rule (settings.json `rules`), then
 //   rule board <text>         each of the board's own (board.json `rules`): the owner's standing instructions,
 //                             printed with every wake (docs/adr/0039-rules-live-on-settings-at-hub-and-board-level.md), then
 //   setting <name> <value>    each board setting from board.json: auto-merge, auto-build and auto-pull on|off,
 //                             github-login <login> and tickets <json> when set
 //                             (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md), then
+//   quiet <text>              the fixed instruction to keep the terminal quiet (QUIET), then
 //   usage paused <iso> <window> <used>%  while Claude is paused, after rules/settings; hub work events wait for reset
 //   link <name> <detail>      each hub link that doesn't reach the board (../hub/boards.mjs linksOf), the list its
 //                             Hub links sheet shows (docs/adr/0040-one-board-registry-for-every-hub-feature.md), at
@@ -28,7 +30,7 @@ import os from 'node:os';
 import { routeRecord } from '../hub/routes.mjs';
 import { readHubRules, rulesOf, ruleLines } from '../hub/rules.mjs';
 import { boardAt, linksOf, hubLink } from '../hub/boards.mjs';
-import { settingsLines, settingsOf } from '../board/store.mjs';
+import { cardName, settingsLines, settingsOf } from '../board/store.mjs';
 import { migrateOnStart } from './install.mjs';
 import { readUsageGate, heldUsageEvent } from '../shared/usage-gate.mjs';
 
@@ -49,6 +51,44 @@ function matching(s) {
     res[f] = re ? lines.filter((l) => re.test(l)) : lines;
   }
   return res;
+}
+
+const QUIET = "quiet The owner doesn't read this session's terminal. Answer a prompt typed in it in full. A wake, a task "
+  + "notification or a builder's result is not one: write no text of your own, since board.mjs and this watcher print one "
+  + "line for each thing done. Talk and questions go on the board, never AskUserQuestion; only a failure the board can't "
+  + 'show, such as the hub being down, gets one line here.';
+
+const PLAIN = {
+  ask: (e) => `new task ${e.id} received`,
+  'owner-answer': (e) => `answer received to question ${e.data?.id}`,
+};
+const ON_CARD = {
+  'item-message': (c) => `message received from ${c}'s thread`,
+  'card-build': (c) => `build asked on ${c}`,
+  'card-merge': (c) => `merge asked on ${c}`,
+  'card-done': (c) => `${c} marked done`,
+  'card-bump': (c) => `${c} bumped`,
+  'ask-bump': (c) => `${c} bumped`,
+  'ask-edited': (c) => `${c} edited`,
+  'ask-done': (c) => `${c} marked done`,
+  'ask-withdrawn': (c) => `${c} deleted`,
+  'card-hold': (c, e) => `${c} ${e.data?.hold ? 'held' : 'resumed'}`,
+  'card-unblocked': (c) => `${c} unblocked`,
+  'card-pull': (c) => `${c} pulled in`,
+  'prototype-request': (c) => `prototype asked on ${c}`,
+};
+
+// One plain line per event line, from its kind and card (data.key, or data.id for an ask-* event), or null for a
+// line that isn't an event. A card name that can't be read falls back to the key, so the cursor still moves.
+async function plainLine(dir, line) {
+  let e;
+  try { e = JSON.parse(line); } catch { return null; }
+  if (typeof e?.kind !== 'string') return null;
+  const key = typeof e.data?.key === 'string' ? e.data.key : e.kind.startsWith('ask-') && typeof e.data?.id === 'string' ? `ask:${e.data.id}` : null;
+  const card = key && await cardName(dir, key).catch(() => key);
+  if (routeRecord(PLAIN, e.kind)) return PLAIN[e.kind](e);
+  if (card && routeRecord(ON_CARD, e.kind)) return ON_CARD[e.kind](card, e);
+  return card ? `${e.kind} on ${card}` : `${e.kind} received`;
 }
 
 const s0 = site();
@@ -94,13 +134,18 @@ for (;;) {
     const held = Object.create(null);
     for (const [f, lines] of Object.entries(waiting)) {
       held[f] = lines.filter((line) => !eligible(line, gate));
-      for (const line of lines.filter((line) => eligible(line, gate))) console.log(`event ${f} ${line}`);
+      for (const line of lines.filter((line) => eligible(line, gate))) {
+        console.log(`event ${f} ${line}`);
+        const plain = await plainLine(s.dir, line);
+        if (plain) console.log(plain);
+      }
     }
     // A board is a site with a board.json; other sites get no rules.
     let board = null;
     try { board = JSON.parse(fs.readFileSync(path.resolve(s.dir, 'board.json'), 'utf8')); } catch (e) { if (e.code !== 'ENOENT') board = {}; }
     if (board) for (const line of ruleLines(readHubRules(), rulesOf(board))) console.log(`rule ${line}`);
     if (board) for (const line of settingsLines(settingsOf(board))) console.log(line);
+    if (board) console.log(QUIET);
     if (gate.state === 'paused') console.log(`usage paused ${gate.resets_at} ${gate.window} ${gate.used}%`);
     // This watcher still runs, so the events link reads as reaching the board. A failure here must not keep the
     // cursor below from moving, or the same events would wake the session again.

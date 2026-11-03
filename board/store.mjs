@@ -286,6 +286,38 @@ export async function readAskLinks(site) {
   return (await readJSON(askLinksFile(site), {})).links || {};
 }
 
+// A card as the board labels it, for the one-line summaries board/bin/board.mjs and bin/wait-events.mjs print: a work
+// item or follow-up by its ref, an ask (ask:<event id>) by the card it became or was folded into, else "task <id>",
+// the owner's word for an ask (CONTEXT.md New task).
+export async function cardName(site, key) {
+  const { tickets } = settingsOf(await boardConfig(site));
+  const sources = await itemSources(site);
+  const ask = /^ask:(.+)$/.exec(key)?.[1];
+  if (ask === undefined) {
+    const m = /^([^/\s]+)\/([^/\s]+)$/.exec(key);
+    if (!m) return key;
+    const source = sources.find((s) => s.slug === m[1]);
+    const wave = source && await readJSON(source.file, null);
+    return wave ? refOf(wave, m[2], tickets) : m[2];
+  }
+  const folded = site ? routeRecord(await readAskLinks(site), ask) : undefined;
+  if (folded) return cardName(site, folded);
+  for (const s of sources) {
+    const wave = await readJSON(s.file, null);
+    const it = (Array.isArray(wave?.items) ? wave.items : []).find((i) => i.from_ask === ask);
+    if (it) return refOf(wave, it.id, tickets);
+  }
+  return `task ${ask}`;
+}
+
+// The card an event in data/events.jsonl belongs to (cardName), or "the <kind> event" for one about no card.
+export async function eventCard(site, eventId) {
+  const e = (await readLines(path.join(site, 'data', 'events.jsonl'))).find((x) => x.id === eventId);
+  if (e?.kind === 'ask') return cardName(site, `ask:${eventId}`);
+  if (typeof e?.data?.key === 'string') return cardName(site, e.data.key);
+  return `the ${e?.kind} event`;
+}
+
 export async function relateAsk(site, eventId, key, summary) {
   needSite(site);
   domId(eventId, 'the event id');

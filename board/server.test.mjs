@@ -666,7 +666,7 @@ test('the board snapshot reads try.json and main.json and ignores the old instal
   }
 });
 
-test('the watcher prints the hub rules, then the board rules, then the board settings, after the event lines', async () => {
+test('the watcher prints the hub rules, then the board rules, the board settings and the quiet line, after each event line and its plain line', async () => {
   const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
   const web = path.join(home, '.claude', 'kickflip');
   fs.mkdirSync(web, { recursive: true });
@@ -686,10 +686,12 @@ test('the watcher prints the hub rules, then the board rules, then the board set
   try {
     const lines = await watch('rules1');
     assert.match(lines[0], /^event data\/events\.jsonl /);
-    assert.deepEqual(lines.slice(1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-pull off']);
+    assert.match(lines[1], /^new task \S+ received$/);
+    assert.match(lines.at(-1), /^quiet .*AskUserQuestion/);
+    assert.deepEqual(lines.slice(2, -1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-pull off']);
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, auto_merge: true }));
     fs.rmSync(path.join(web, 'settings.json'));
-    assert.deepEqual((await watch('rules2')).slice(1), ['setting auto-merge on', 'setting auto-build off', 'setting auto-pull off']);
+    assert.deepEqual((await watch('rules2')).slice(2, -1), ['setting auto-merge on', 'setting auto-build off', 'setting auto-pull off']);
   } finally {
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
     fs.rmSync(path.join(web, 'settings.json'), { force: true });
