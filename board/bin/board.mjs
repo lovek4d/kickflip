@@ -275,16 +275,20 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          {"source":"linear","workspace","team","project"}. A
                                                          GitHub account runs the board's issue calls as that gh
                                                          login; without one they run as gh's active account
-  builder start <wave>/<id> [--agent <name>] [--kind <opus|codex|sonnet|prototype|grill|install|…>] [--label <who>]
+  builder start <wave>/<id> [--agent <name>] [--kind <claude|codex|prototype|grill|install|…>] [--label <who>]
+         [--model <opus|sonnet>]                         the Claude model running the builder, recorded and printed as
+                                                         "model: Claude Sonnet" (kind claude defaults to opus; codex
+                                                         prints "model: Codex"). The thread's agent line reads it: "Claude
+                                                         Sonnet builder started"; the label carries no model word.
          [--phase <phase> --progress <detail>]           one record per agent on the item; --agent defaults to main.
          [--eta <ISO time>]                              --phase and --progress take what builder progress takes.
                                                          --kind install: a build of the card's install, whose
-                                                         Install badge reads Building… meanwhile. --kind codex or
-                                                         opus refuses the one builder pick rules out; --kind build
+                                                         Install badge reads Building… meanwhile. --kind claude or
+                                                         codex refuses the one builder pick rules out; --kind build
                                                          records the pick's kind and prints "kind: <kind>. <reason>";
                                                          on the open record a Build tap started, it keeps
                                                          that tap's kind and worktree.
-                                                         A build (--kind build, codex or opus) on an open card sets
+                                                         A build (--kind build, claude or codex) on an open card sets
                                                          --status building first, refusing what that refuses;
          [--confirmed "<owner's words>"]                 --confirmed passes its noted-pick gate. Prints "ref: <ref>",
                                                          the card's label, which commit subjects start with.
@@ -313,7 +317,7 @@ creating the issue and running item set <wave>/<id> --ticket <id> (followup set 
                                                          and land close the records themselves
          builder takes --dir <dir> for a wave file in <dir>; its records go in <dir>/agents
   builder pick <wave>/<id>                               who builds the card, from the hub's Codex share and the pause
-                                                         line: "codex: <reason>" or "opus: <reason>". Pass that kind
+                                                         line: "codex: <reason>" or "claude opus: <reason>". Pass that kind
                                                          to builder start --kind
   land <wave>/<id> --text <t> [--repo <dir>]             brings the worktree its builder record keeps (else
          [--dir <dir>]
@@ -512,7 +516,7 @@ const COMMANDS = {
   }],
   'main set': [[], ['install', 'install-sha'], (site, _, f) => store.setMainInstall(site, { install: f.install, installSha: f['install-sha'] })],
   'settings set': [['name', 'value'], [], (site, [name, value]) => store.setBoardSetting(site, name, value)],
-  'builder start': [['wave/id'], ['label', 'phase', 'progress', 'dir', 'agent', 'kind', 'eta', 'worktree', 'repo', 'confirmed'], (site, [key], { worktree, repo, ...f }) => {
+  'builder start': [['wave/id'], ['label', 'phase', 'progress', 'dir', 'agent', 'kind', 'model', 'eta', 'worktree', 'repo', 'confirmed'], (site, [key], { worktree, repo, ...f }) => {
     if (repo !== undefined && !worktree) throw new UsageError('--repo goes with --worktree');
     return store.startBuilder(site, key, { ...f, worktree: worktree && (() => boardWorktree(site, key.split('/')[1], { repo })) });
   }],

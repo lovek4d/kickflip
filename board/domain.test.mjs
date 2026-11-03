@@ -140,7 +140,7 @@ test('an install builder exposes its kind and keeps drafts and ready PRs In Prog
     assert.deepEqual([finished.lane, finished.builder, finished.install.older], ['review', null, false]);
   }
   const other = card(greenDraft, { install: { ...record, done: '2026-10-30T10:10:00Z' }, main: { kind: 'opus', started: '2026-10-30T10:01:00Z' } });
-  assert.equal(other.builder.kind, 'opus');
+  assert.equal(other.builder.kind, 'claude');
 });
 
 test('a builder stalls after 30 minutes without progress, clears on progress or done, and ignores ordinary thread lines', () => {
@@ -175,7 +175,7 @@ test("a card lists each agent oldest first, its line is the newest status line s
     { ts: '2026-10-23T10:09:00Z', who: 'claude', kind: 'status', text: 'Codex: Running benchmarks' },
   ] };
   const item = board({ agents, threads }).items.find((i) => i.key === 'w/A1');
-  assert.deepEqual(item.agents.map((a) => [a.name, a.kind, a.label]), [['main', 'opus', 'Opus builder'], ['bench', 'codex', null], ['lint', 'sonnet', null]]);
+  assert.deepEqual(item.agents.map((a) => [a.name, a.kind, a.label]), [['main', 'claude', 'Opus builder'], ['bench', 'codex', null], ['lint', 'claude', null]]);
   assert.deepEqual([item.builder.progress, item.builder.at, item.eta], ['Codex: Running benchmarks', '2026-10-23T10:09:00Z', '2026-10-23T16:30:00Z']);
   const changing = board({ pr: { ...greenDraft, isDraft: false, reviewDecision: 'CHANGES_REQUESTED' }, agents: {} }).items.find((i) => i.key === 'w/A1');
   assert.deepEqual([changing.agents, changing.eta], [[], null]);

@@ -1183,9 +1183,9 @@ test('agent.mjs still writes builder records, beside the wave file it names', ()
 
 test('builder keeps one record per agent on an item, with its kind and an ETA it can change or clear', () => {
   assert.equal(board('item', 'set', 'w/A1', '--status', 'building').code, 0);
-  assert.equal(board('builder', 'start', 'w/A1', '--label', 'Opus builder', '--kind', 'opus').code, 0);
+  assert.equal(board('builder', 'start', 'w/A1', '--label', 'Opus builder', '--kind', 'claude').code, 0);
   assert.equal(board('builder', 'start', 'w/A1', '--agent', 'bench', '--kind', 'bench', '--eta', '2026-10-23T16:30:00-07:00').code, 0);
-  assert.deepEqual([read(at('waves', 'w', 'agents', 'A1.json')).kind, read(at('waves', 'w', 'agents', 'A1@bench.json')).eta], ['opus', '2026-10-23T23:30:00.000Z']);
+  assert.deepEqual([read(at('waves', 'w', 'agents', 'A1.json')).kind, read(at('waves', 'w', 'agents', 'A1@bench.json')).eta], ['claude', '2026-10-23T23:30:00.000Z']);
   assert.equal(board('builder', 'progress', 'w/A1', 'Still', 'running', '--phase', 'testing', '--site', 'orch', '--agent', 'bench', '--eta', '2026-10-24T01:00:00Z').code, 0);
   assert.equal(read(at('waves', 'w', 'agents', 'A1@bench.json')).eta, '2026-10-24T01:00:00.000Z');
   assert.equal(board('builder', 'progress', 'w/A1', 'Done soon', '--phase', 'testing', '--site', 'orch', '--agent', 'bench', '--clear-eta').code, 0);
@@ -1281,21 +1281,31 @@ test('a hand-back closes ordinary builders while an install survives until expli
   }
 });
 
+test('builder start --model records the Claude model and prints it', () => {
+  assert.equal(board('item', 'set', 'w/A1', '--status', 'building').code, 0);
+  const r = board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'claude', '--model', 'sonnet', '--label', 'Sonnet builder');
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^model: Claude Sonnet$/m);
+  assert.deepEqual(['kind', 'model'].map((f) => read(at('waves', 'w', 'agents', 'A1.json'))[f]), ['claude', 'sonnet']);
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--agent', 'x', '--kind', 'codex', '--model', 'opus').code, 1);
+});
+
 test('builder pick names the kind that builds now, builder start refuses the other, and --kind build takes the pick', () => {
   const noCodex = (...args) => run('board.mjs', args, undefined, { PATH: path.join(home, 'bin') });
-  assert.deepEqual(noCodex('builder', 'pick', 'w/A1', '--site', 'orch'), { code: 0, err: '', out: "opus: Codex isn't installed on the host.\n" });
+  assert.deepEqual(noCodex('builder', 'pick', 'w/A1', '--site', 'orch'), { code: 0, err: '', out: "claude opus: Codex isn't installed on the host.\n" });
   assert.equal(noCodex('builder', 'pick', 'w/Z9', '--site', 'orch').code, 1);
   const refused = noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'codex');
-  assert.deepEqual([refused.code, refused.err], [1, "--kind codex: opus builds now. Codex isn't installed on the host. Pass --kind opus, or --kind build.\n"]);
+  assert.deepEqual([refused.code, refused.err], [1, "--kind codex: claude builds now. Codex isn't installed on the host. Pass --kind claude, or --kind build.\n"]);
   assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A1.json')), false);
   const picked = noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'build');
   assert.equal(picked.code, 0, picked.err);
-  assert.match(picked.out, /^kind: opus\. Codex isn't installed on the host\.$/m);
+  assert.match(picked.out, /^kind: claude\. Codex isn't installed on the host\.\nmodel: Claude Opus$/m);
   assert.match(picked.out, /^ref: A1$/m);
-  assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).kind, 'opus');
+  assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).kind, 'claude');
+  assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).model, 'opus');
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status, 'building');
   write(at('waves', 'w', 'wave.json'), { ...read(at('waves', 'w', 'wave.json')), items: [...read(at('waves', 'w', 'wave.json')).items, { id: 'A2', title: 'Two', deps: ['A1'] }] });
-  const blocked = noCodex('builder', 'start', 'w/A2', '--site', 'orch', '--kind', 'opus');
+  const blocked = noCodex('builder', 'start', 'w/A2', '--site', 'orch', '--kind', 'claude');
   assert.equal(blocked.code, 1);
   assert.match(blocked.err, /A1/);
   assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A2.json')), false);
@@ -1597,7 +1607,7 @@ test('land refuses a rebase that conflicts, naming the files, and leaves the bra
 
 test("builder start and progress on --site write each new status line to the item's thread as its phase and detail, named by a further agent's kind", () => {
   assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--phase', 'reading', '--progress', 'the plan').code, 0);
-  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--agent', 'bench', '--kind', 'opus', '--phase', 'testing', '--progress', 'the benchmark').code, 0);
+  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--agent', 'bench', '--kind', 'claude', '--phase', 'testing', '--progress', 'the benchmark').code, 0);
   assert.equal(board('builder', 'progress', 'w/A1', 'the', 'benchmark', '--phase', 'testing', '--site', 'orch', '--agent', 'bench').code, 0);
   assert.equal(board('builder', 'progress', 'w/A1', '--phase', 'building', 'the', 'limiter', '--site', 'orch').code, 0);
   assert.equal(board('builder', 'progress', 'w/A1', '--site', 'orch', '--phase', 'checking', '--text', 'the page at phone width').code, 0);
@@ -1610,7 +1620,7 @@ test("builder start and progress on --site write each new status line to the ite
   const msgs = lines(site('orch', 'data', 'threads', 'w__A1.jsonl'));
   assert.deepEqual(msgs.map(({ who, kind, phase, text }) => [who, kind, phase, text]), [
     ['claude', 'status', 'reading', 'Reading: the plan'],
-    ['claude', 'status', 'testing', 'Opus testing: the benchmark'],
+    ['claude', 'status', 'testing', 'Claude Opus testing: the benchmark'],
     ['claude', 'status', 'building', 'Building: the limiter'],
     ['claude', 'status', 'checking', 'Checking: the page at phone width'],
   ]);
@@ -2280,7 +2290,7 @@ test("a builder's builder start takes up the record the owner's Build tap starte
   write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'building' }] });
   const r = board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build', '--label', 'Codex builder');
   assert.equal(r.code, 0, r.err);
-  assert.match(r.out, /^A1: builder started\nkind: codex\. The owner's Build tap picked it\.\nref: A1\nworktree: \/w\/A1\n/);
+  assert.match(r.out, /^A1: builder started\nkind: codex\. The owner's Build tap picked it\.\nmodel: Codex\nref: A1\nworktree: \/w\/A1\n/);
   const { started, ...record } = read(at('waves', 'w', 'agents', 'A1.json'));
   assert.deepEqual(record, { label: 'Codex builder', kind: 'codex', worktree: tapped.worktree });
   assert.ok(started > tapped.started);

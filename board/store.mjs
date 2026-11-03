@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, ITEM_STATUSES, awaitsConfirm, mergeBlockers, ownerQuestion, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
+import { BUILD_REFUSED, ITEM_STATUSES, awaitsConfirm, mergeBlockers, modelName, ownerQuestion, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, builderPick } from '../shared/usage-gate.mjs';
 import { reviseQueued, flushQueue, queueStatus, readSettings, pushKindError } from '../hub/push.mjs';
@@ -1850,8 +1850,8 @@ function progressLine(site, phase, detail, name) {
 // keeps its phase and reads "Testing: <detail>", or "Codex testing: <detail>" for an agent other than main, named by
 // its kind; a line with no phase (builder done's note) reads "<detail>" or "Codex: <detail>". A line that repeats the
 // thread's last status line is skipped.
-async function statusToThread(site, key, agent = 'main', kind, { phase, detail }, ts) {
-  const who = agent === 'main' ? '' : kind || agent;
+async function statusToThread(site, key, agent = 'main', builder, { phase, detail }, ts) {
+  const who = agent === 'main' ? '' : modelName(builder) || builder.kind || agent;
   const head = [who, phase].filter(Boolean).join(' ');
   const body = head ? `${head[0].toUpperCase()}${head.slice(1)}: ${detail}` : detail;
   const file = threadFile(site, key);
@@ -1860,31 +1860,37 @@ async function statusToThread(site, key, agent = 'main', kind, { phase, detail }
 }
 
 // worktree, when given, makes the builder's worktree once every flag has passed (board/worktree.mjs makeWorktree) and
-// returns {path, branch, repo}, which the record keeps for `board.mjs land`. A build (--kind build, codex or opus) on an
+// returns {path, branch, repo}, which the record keeps for `board.mjs land`. A build (--kind build, claude or codex) on an
 // open card marks it building first, refusing what item set --status building refuses, confirmed included
 // (docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
 // tapped marks a record the owner's Build tap started (startTappedBuild). A builder's own start on that open record
 // takes it up: --kind build keeps the tap's kind, the worktree stays, and the record starts again at now, no longer
 // tapped (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md).
 // → {file, lines, kind, reason, worktree}: reason is the pick's, worktree the path or null.
-export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, eta, worktree, confirmed, tapped }) {
+export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, model, eta, worktree, confirmed, tapped }) {
   const gate = readUsageGate();
   if (gate.state === 'paused') throw new BoardError(pauseReason(gate));
   if (phase !== undefined && progress === undefined) fail('--phase goes with --progress "<detail>"');
   const line = optional(progress, (v) => progressLine(site, phase, v, '--progress'));
   const file = await builderFile(site, key, dir, agent);
   const now = new Date().toISOString();
-  const asked = optional(kind, (v) => (/^[\w.-]{1,30}$/.test(v) ? v : fail('--kind takes a short word such as opus or codex')));
+  const given = optional(kind, (v) => (/^[\w.-]{1,30}$/.test(v) ? v : fail('--kind takes a short word such as claude or codex')));
+  // A legacy --kind opus or sonnet is kind claude with that model.
+  const asked = providerOf(given);
+  const askedModel = model ?? (given === 'opus' || given === 'sonnet' ? given : undefined);
   // docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md: --kind build takes the pick's kind.
   const build = ['build', ...PICKED].includes(asked);
   const before = await readJSON(file, null);
   const takeUp = before?.tapped && !before.done ? before : null;
-  const pick = takeUp && asked === 'build' ? { kind: takeUp.kind, reason: "The owner's Build tap picked it." } : build ? builderPick() : null;
+  const pick = takeUp && asked === 'build' ? { kind: providerOf(takeUp.kind), model: takeUp.model, reason: "The owner's Build tap picked it." } : build ? builderPick() : null;
   if (pick && asked !== 'build' && asked !== pick.kind) fail(`--kind ${asked}: ${pick.kind} builds now. ${pick.reason} Pass --kind ${pick.kind}, or --kind build.`);
-  if (confirmed !== undefined && !build) fail('--confirmed goes with a build: --kind build, codex or opus');
+  if (confirmed !== undefined && !build) fail('--confirmed goes with a build: --kind build, claude or codex');
   const k = pick ? pick.kind : asked;
+  if (model !== undefined && !['opus', 'sonnet'].includes(model)) fail('--model takes opus or sonnet');
+  if (askedModel !== undefined && k === 'codex') fail('--model is for kind claude; codex needs none');
+  const claude = k === 'claude' ? askedModel ?? pick?.model ?? 'opus' : undefined;
   const record = {
-    label: label === undefined ? 'Builder' : text(label, '--label'), ...(k ? { kind: k } : {}), started: now,
+    label: label === undefined ? 'Builder' : text(label, '--label'), ...(k ? { kind: k } : {}), ...(claude ? { model: claude } : {}), started: now,
     ...(eta === undefined ? {} : { eta: isoTime(eta, '--eta') }), ...(tapped ? { tapped: true } : {}),
   };
   const was = build && !dir ? (await loadItem(site, key)).item : undefined;
@@ -1897,11 +1903,11 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
     throw e;
   }
   await writeJSON(file, wt ? { ...record, worktree: wt } : record);
-  if (line) await statusToThread(site, key, agent, k, line, now);
+  if (line) await statusToThread(site, key, agent, record, line, now);
   const resolved = await resolveAnswered(site, key, 'Acted on: builder started');
   return {
     file, kind: k ?? null, reason: pick?.reason ?? null, worktree: wt?.path ?? null,
-    lines: [...(asked === 'build' ? [`kind: ${k}. ${pick.reason}`] : []), ...(site ? [`ref: ${await cardName(site, key)}`] : []), ...(wt ? [`worktree: ${wt.path}`] : []), ...marked.lines, ...resolved],
+    lines: [...(asked === 'build' ? [`kind: ${k}. ${pick.reason}`] : []), ...(modelName(record) ? [`model: ${modelName(record)}`] : []), ...(site ? [`ref: ${await cardName(site, key)}`] : []), ...(wt ? [`worktree: ${wt.path}`] : []), ...marked.lines, ...resolved],
   };
 }
 
@@ -2000,12 +2006,12 @@ async function restoreStatus(site, key, was) {
   await writeJSON(source.file, wave);
 }
 
-const PICKED = ['codex', 'opus'];
-// `builder pick`: the kind builder start takes for a card's build. → {lines: ["<codex|opus>: <reason>"]}
+const PICKED = ['codex', 'claude'];
+// `builder pick`: the kind builder start takes for a card's build. → {lines: ["codex: <reason>" or "claude opus: <reason>"]}
 export async function pickBuilder(site, key) {
   await loadItem(site, key);
-  const { kind, reason } = builderPick();
-  return { lines: [`${kind}: ${reason}`] };
+  const { kind, model, reason } = builderPick();
+  return { lines: [`${[kind, model].filter(Boolean).join(' ')}: ${reason}`] };
 }
 
 // The worktree the item's newest builder record keeps ({path, branch, repo}), or null when none keeps one.
@@ -2026,7 +2032,7 @@ export async function builderProgress(site, key, progress, { phase, dir, agent =
   if (eta !== undefined) next.eta = isoTime(eta, '--eta');
   if (clearEta) delete next.eta;
   await writeJSON(file, next);
-  await statusToThread(site, key, agent, next.kind, line, now);
+  await statusToThread(site, key, agent, next, line, now);
   return file;
 }
 
@@ -2082,7 +2088,7 @@ export async function stopBuilder(site, key, { dir, agent, startedBetween, note,
     fail(`builder done closes ${key}'s last open builder, which leaves it In Progress with no Next; pass --next "<what happens next>", or hand it back with item set ${key} --status checking or land`);
   }
   await writeJSON(file, stopped);
-  if (note) await statusToThread(site, key, agent, record.kind, { detail: note }, done);
+  if (note) await statusToThread(site, key, agent, record, { detail: note }, done);
   if (cleared || next !== undefined) await writeJSON(source.file, wave);
   return file;
 }

@@ -58,16 +58,16 @@ export const heldUsageEvent = (line) => {
   try { return ['github-change', 'check-github', 'card-unblocked', 'card-pull'].includes(JSON.parse(line).kind); } catch { return false; }
 };
 
-// Who builds a card, codex or opus: Codex while it is usable, the Codex share in effect is auto or always, and Codex
-// is under the pause line, else Opus (docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md).
-// → {kind, reason}
+// Who builds a card, codex or claude (Opus today): Codex while it is usable, the Codex share in effect is auto or always, and Codex
+// is under the pause line, else Claude (docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md).
+// → {kind, model?, reason}
 export function builderPick({ home = os.homedir(), now = Date.now() } = {}) {
   const status = codexStatus({ home });
-  if (!status.usable) return { kind: 'opus', reason: status.words };
+  if (!status.usable) return { kind: 'claude', model: 'opus', reason: status.words };
   const codexShare = effectiveCodexShare(readSettingsFile(home).codexShare, status);
-  if (codexShare === 'off') return { kind: 'opus', reason: 'Codex share is off.' };
+  if (codexShare === 'off') return { kind: 'claude', model: 'opus', reason: 'Codex share is off.' };
   const gate = readUsageGate({ home, now });
-  if (gate.codex.past) return { kind: 'opus', reason: `Codex is at ${Math.round(gate.codex.used)}%, past the ${gate.pause_at}% line until ${gate.codex.resets_at}.` };
+  if (gate.codex.past) return { kind: 'claude', model: 'opus', reason: `Codex is at ${Math.round(gate.codex.used)}%, past the ${gate.pause_at}% line until ${gate.codex.resets_at}.` };
   return { kind: 'codex', reason: `Codex share is ${codexShare} and Codex is under the ${gate.pause_at}% line.` };
 }
 

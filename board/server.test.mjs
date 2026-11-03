@@ -260,10 +260,10 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
   try {
     assert.equal((await post({ kind: 'card-build', key: 't/B1' })).status, 200);
     const record = JSON.parse(fs.readFileSync(path.join(site, 'data', 'agents', 'B1.json'), 'utf8'));
-    assert.deepEqual([record.kind, record.label, record.tapped, record.worktree], ['opus', 'Builder', true, { path: worktree, branch: 'B1', repo: clone }]);
+    assert.deepEqual([record.kind, record.label, record.tapped, record.worktree], ['claude', 'Builder', true, { path: worktree, branch: 'B1', repo: clone }]);
     assert.equal(git(worktree, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'HEAD'));
     const woke = log().slice(before);
-    assert.deepEqual(woke.map((e) => [e.kind, e.data]), [['card-build', { key: 't/B1', ref: 'B1', kind: 'opus', reason: woke[0].data.reason, worktree }]]);
+    assert.deepEqual(woke.map((e) => [e.kind, e.data]), [['card-build', { key: 't/B1', ref: 'B1', kind: 'claude', reason: woke[0].data.reason, worktree }]]);
     assert.match(woke[0].data.reason, /\S/);
     const started = await card('B1');
     assert.deepEqual([started.lane, started.status, started.buildable, started.builder.waiting, started.builder.progress, started.refusal], ['progress', 'building', false, true, null, null]);
@@ -426,16 +426,16 @@ test("the board lists each agent's record on an item, and the item's thread show
     { ts: '2026-10-23T10:10:00Z', who: 'claude', text: 'Halfway.' },
   ].map((l) => JSON.stringify(l)).join('\n') + '\n');
   const item = (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/A3');
-  assert.deepEqual(item.agents.map((a) => [a.name, a.kind]), [['main', 'opus'], ['bench', 'codex']]);
+  assert.deepEqual(item.agents.map((a) => [a.name, a.kind]), [['main', 'claude'], ['bench', 'codex']]);
   assert.deepEqual([item.waitsOn, item.builder.progress, item.eta], ['builder', 'Codex: Running benchmarks', '2026-10-23T16:30:00Z']);
   const thread = (await (await fetch(`${base}/api/thread?key=t%2FA3`)).json()).map((m) => [m.kind || m.who, m.text, m.finished ?? null, m.eta ?? null]);
   assert.deepEqual(thread, [
-    ['agent', 'Opus builder started', false, null],
+    ['agent', 'Claude Opus builder started', false, null],
     ['status', 'Planning', null, null],
-    ['agent', 'Codex started', false, '2026-10-23T16:30:00Z'],
+    ['agent', 'Codex builder started', false, '2026-10-23T16:30:00Z'],
     ['status', 'Codex: Running benchmarks', null, null],
     ['claude', 'Halfway.', null, null],
-    ['agent', 'Opus builder finished', true, null],
+    ['agent', 'Claude Opus builder finished', true, null],
   ]);
 });
 

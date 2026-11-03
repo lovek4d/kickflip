@@ -10,7 +10,7 @@ try {
   let stored;
   try { stored = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'kickflip', 'settings.json'), 'utf8')).codexShare; } catch {}
   const codexShare = effectiveCodexShare(stored, codexStatus());
-  const pick = 'Before each build, run `board.mjs builder pick <key>`: it prints codex or opus and why, from this setting and the pause line, and builder start refuses the other kind (--kind build takes the pick). Hand codex builds and reviews to Codex as ~/.claude/skills/codex-share/SKILL.md describes (read it first).';
+  const pick = 'Before each build, run `board.mjs builder pick <key>`: it prints codex or claude (with its model) and why, from this setting and the pause line, and builder start refuses the other kind (--kind build takes the pick). Hand codex builds and reviews to Codex as ~/.claude/skills/codex-share/SKILL.md describes (read it first).';
   if (codexShare === 'auto') {
     console.log(`The hub's Codex setting is auto: run as codex-share auto. ${pick} When Codex reports it is out of usage, Opus builders take over until it resets.`);
   } else if (codexShare === 'always') {

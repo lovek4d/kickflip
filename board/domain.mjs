@@ -365,7 +365,7 @@ const builds = (agent) => !NOT_BUILDING.has(agent.kind);
 // An item's agents, oldest first, from its records by agent name.
 function agentsOf(records = {}) {
   return Object.entries(records).filter(([, r]) => r && typeof r === 'object').map(([name, r]) => ({
-    name, kind: r.kind || null, label: r.label || null, started: r.started || null, eta: r.done ? null : r.eta || null, done: r.done || null,
+    name, kind: providerOf(r.kind) || null, label: r.label || null, started: r.started || null, eta: r.done ? null : r.eta || null, done: r.done || null,
     tapped: r.tapped === true,
   })).sort((a, b) => String(a.started || '').localeCompare(String(b.started || '')) || a.name.localeCompare(b.name));
 }
@@ -379,18 +379,29 @@ function builderOf(agents, lines = [], now) {
   const since = running.map((a) => String(a.started || '')).sort()[0];
   if (since === undefined) return null;
   const line = lines.filter((m) => m.kind === 'status' && String(m.ts) >= since).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop();
-  const kind = running.some((a) => a.kind === BUILDER_KIND.install) ? BUILDER_KIND.install : running.at(-1).kind;
+  const kind = running.some((a) => a.kind === BUILDER_KIND.install) ? BUILDER_KIND.install : providerOf(running.at(-1).kind);
   const silentSince = line?.ts || since;
   const progress = line ? (line.phase ? line.text.replace(': ', ' · ') : line.text || null) : null;
   return { progress, waiting: !line && running.some((a) => a.tapped), at: silentSince, kind, silentSince, stalled: now - Date.parse(silentSince) >= BUILDER_STALLED_AFTER };
 }
 
-// Names the kind once, as "Opus builder" or "Codex benchmarks", never "Opus · Opus builder" (owner, question int42-agents-look).
-function agentName({ kind, label }) {
+// The model the agent runs: a Claude kind's record holds it as model (opus or sonnet), a record without one reads from its kind.
+// Records written before kind became the provider hold kind opus or sonnet, which read as kind claude with that model.
+const MODEL_NAMES = { opus: 'Claude Opus', sonnet: 'Claude Sonnet', codex: 'Codex' };
+export const modelName = ({ model, kind }) => MODEL_NAMES[model] || MODEL_NAMES[kind] || (kind === 'claude' ? MODEL_NAMES.opus : null);
+export const providerOf = (kind) => (kind === 'opus' || kind === 'sonnet' ? 'claude' : kind);
+
+// "Claude Opus builder", "Claude Sonnet builder", "Codex benchmarks": the model once, never "Claude Opus · Opus builder"
+// (owner, question int42-agents-look; owner ask on #89). A kind that is no model keeps its own word ("Prototype sketch").
+function agentName(a) {
+  const model = modelName(a);
+  const { kind, label } = a;
+  const lower = (t) => t[0].toLowerCase() + t.slice(1);
+  if (model) return `${model} ${lower(label?.replace(/^(?:claude\s+)?(?:opus|sonnet|codex)\b\s*/i, '') || 'builder')}`;
   const k = kind ? kind[0].toUpperCase() + kind.slice(1) : '';
   if (!k) return label || 'Builder';
   if (!label) return k;
-  return label.toLowerCase().includes(kind.toLowerCase()) ? label : `${k} ${label[0].toLowerCase()}${label.slice(1)}`;
+  return label.toLowerCase().includes(kind.toLowerCase()) ? label : `${k} ${lower(label)}`;
 }
 
 // A question's state: open (no answer yet), answered (waiting for Claude), replied (Claude answered), requested (the

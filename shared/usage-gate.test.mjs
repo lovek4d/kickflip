@@ -122,10 +122,10 @@ test('the reader exposes Codex past the line only while effective share is on', 
   const read = () => readUsageGate({ home: f.home, now });
   const pick = () => builderPick({ home: f.home, now });
   assert.deepEqual(read().codex, { past: true, window: 'five_hour', used: 91, resets_at: until });
-  assert.deepEqual(pick(), { kind: 'opus', reason: `Codex is at 91%, past the 90% line until ${until}.` });
+  assert.deepEqual(pick(), { kind: 'claude', model: 'opus', reason: `Codex is at 91%, past the 90% line until ${until}.` });
   f.write('settings.json', { codexShare: 'off' });
   assert.equal(read().codex.past, false);
-  assert.deepEqual(pick(), { kind: 'opus', reason: 'Codex share is off.' });
+  assert.deepEqual(pick(), { kind: 'claude', model: 'opus', reason: 'Codex share is off.' });
   f.write('settings.json', { pauseAt: 95, codexShare: 'always' });
   assert.equal(read().codex.past, false);
   assert.deepEqual(pick(), { kind: 'codex', reason: 'Codex share is always and Codex is under the 95% line.' });
@@ -133,5 +133,5 @@ test('the reader exposes Codex past the line only while effective share is on', 
   assert.equal(read().codex.past, true);
   fs.rmSync(path.join(f.home, '.codex', 'auth.json'));
   assert.equal(read().codex.past, false);
-  assert.deepEqual(pick(), { kind: 'opus', reason: "Codex isn't logged in on the host." });
+  assert.deepEqual(pick(), { kind: 'claude', model: 'opus', reason: "Codex isn't logged in on the host." });
 });
