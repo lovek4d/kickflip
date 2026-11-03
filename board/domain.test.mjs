@@ -432,7 +432,7 @@ test("a builder's judgment calls follow its lines in the thread, as one entry wi
     ['agent', '2026-10-23T10:10:00Z'], ['calls', '2026-10-23T10:10:00Z'], ['Handed back.', '2026-10-23T10:10:30Z'], ['calls', '2026-10-23T10:11:00Z'],
   ]);
   const [mine, theirs] = msgs.filter((m) => m.kind === 'calls');
-  assert.deepEqual([mine.text, mine.calls, mine.verified], ['Claude Opus builder', ['Question: every agent?', 'Kept the old name'], { at: '2026-10-23T10:12:00Z', note: 'Fine.' }]);
+  assert.deepEqual([mine.text, mine.calls, mine.verified], ['Claude Opus implementer', ['Question: every agent?', 'Kept the old name'], { at: '2026-10-23T10:12:00Z', note: 'Fine.' }]);
   assert.deepEqual([theirs.calls, theirs.verified], [['Left the cap'], null]);
 });
 

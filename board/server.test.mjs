@@ -314,20 +314,20 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.equal(queuedAnswer.board.items.find((i) => i.id === 'B3').queued, true);
     const queued = await card('B3');
     assert.deepEqual([queued.lane, queued.queued, queued.status, queued.builder, queued.next, queued.buildable, queued.blockedBy.map((d) => d.ref)], ['progress', true, null, null, null, false, ['B4']]);
-    assert.deepEqual(thread('B3').map((m) => [m.who, m.text]), [['claude', 'Build queued: it starts once B4 is done.']]);
+    assert.deepEqual(thread('B3').map((m) => [m.who, m.text]), [['claude', 'Implement queued: it starts once B4 is done.']]);
     assert.equal(fs.existsSync(path.join(site, 'data', 'agents', 'B3.json')), false);
     assert.equal(fs.existsSync(path.join(home, '.claude', 'kickflip', 'worktrees', 'B3')), false);
     assert.equal((await post({ kind: 'card-build', key: 't/B5' })).status, 200);
     const unheldQueued = await card('B5');
     assert.deepEqual([unheldQueued.held, unheldQueued.lane, unheldQueued.queued], [false, 'progress', true]);
-    assert.deepEqual(thread('B5').map((m) => m.text), ['Resumed.', 'Build queued: it starts once B4 is done.']);
+    assert.deepEqual(thread('B5').map((m) => m.text), ['Resumed.', 'Implement queued: it starts once B4 is done.']);
     assert.deepEqual(log().slice(before).map((e) => e.kind), ['card-build', 'card-build']);
 
     const taken = path.join(home, '.claude', 'kickflip', 'worktrees', 'B4');
     fs.mkdirSync(taken, { recursive: true });
     assert.equal((await post({ kind: 'card-build', key: 't/B4' })).status, 200);
     const leftover = await card('B4');
-    assert.deepEqual([leftover.lane, leftover.status, leftover.refusal], ['todo', null, `Couldn't start the build: --worktree: ${taken} already exists; land or remove it first`]);
+    assert.deepEqual([leftover.lane, leftover.status, leftover.refusal], ['todo', null, `Couldn't start implementing: --worktree: ${taken} already exists; land or remove it first`]);
     assert.deepEqual(log().slice(before).map((e) => e.kind), ['card-build', 'card-build']);
 
     // The blocker finishing starts both queued builds in the server, each waking the session once, with no card-unblocked.
@@ -485,12 +485,12 @@ test("the board lists each agent's record on an item, and the item's thread show
   assert.deepEqual([item.waitsOn, item.builder.progress, item.eta], ['builder', 'Codex: Running benchmarks', '2026-10-23T16:30:00Z']);
   const thread = (await (await fetch(`${base}/api/thread?key=t%2FA3`)).json()).map((m) => [m.kind || m.who, m.text, m.finished ?? null, m.eta ?? null]);
   assert.deepEqual(thread, [
-    ['agent', 'Claude Opus builder started', false, null],
+    ['agent', 'Claude Opus implementer started', false, null],
     ['status', 'Planning', null, null],
-    ['agent', 'Codex builder started', false, '2026-10-23T16:30:00Z'],
+    ['agent', 'Codex implementer started', false, '2026-10-23T16:30:00Z'],
     ['status', 'Codex: Running benchmarks', null, null],
     ['claude', 'Halfway.', null, null],
-    ['agent', 'Claude Opus builder finished', true, null],
+    ['agent', 'Claude Opus implementer finished', true, null],
   ]);
 });
 

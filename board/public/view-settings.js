@@ -30,11 +30,11 @@
   <p class="muted small">The hub runs <code>.kickflip/build</code> from each card’s branch and from main. Claude wrote it when it set up this board; if builds break, file a card.</p>
   <h2>Todo</h2>
   <label class="who" for="autoPull"><span><span>Pull in Todo cards when idle</span>
-    <span class="muted small sub">On: when no builder is running on this board, Claude takes the top Todo card that nothing blocks or holds, and grills or builds it. Off: a Todo card waits until it is unblocked, answered or bumped.</span></span>
+    <span class="muted small sub">On: when no implementer is running on this board, Claude takes the top Todo card that nothing blocks or holds, and grills or implements it. Off: a Todo card waits until it is unblocked, answered or bumped.</span></span>
     <input type="checkbox" class="toggle" id="autoPull" disabled></label>
   <p class="muted small" id="autoPullStatus" role="status"></p>
   <label class="who" for="autoTriage"><span><span>Triage Todo when idle</span>
-    <span class="muted small sub">On: once a day, when no builder is running and Todo changed, Claude looks for duplicate cards, cards another covers, cards ready to close and stale deps. It links cards and merges clear duplicates itself, and asks you about the rest under one topic. Off: Todo is left as it is.</span></span>
+    <span class="muted small sub">On: once a day, when no implementer is running and Todo changed, Claude looks for duplicate cards, cards another covers, cards ready to close and stale deps. It links cards and merges clear duplicates itself, and asks you about the rest under one topic. Off: Todo is left as it is.</span></span>
     <input type="checkbox" class="toggle" id="autoTriage" disabled></label>
   <p class="muted small" id="autoTriageStatus" role="status"></p>
   <h2>Reviewers</h2>
@@ -113,7 +113,7 @@
       $('#closeBoardTypeName').textContent = d.title;
       const warnings = [...(d.prs || []).map((p) => `<li>PR #${esc(p.pr)} (${esc(p.repo)}) — ${esc(p.wave)}/${esc(p.id)}</li>`),
         ...(d.builders || []).map((b) => `<li>${esc(b.label)} — ${esc(b.key)}</li>`)];
-      $('#closeBoardWarning').innerHTML = warnings.length ? `<h3>This board still has active work</h3><ul>${warnings.join('')}</ul><p>Running builder records will be closed with a note. PRs stay open on GitHub; this board stops polling them.</p>` : '';
+      $('#closeBoardWarning').innerHTML = warnings.length ? `<h3>This board still has active work</h3><ul>${warnings.join('')}</ul><p>Running implementers will be stopped with a note. PRs stay open on GitHub; this board stops polling them.</p>` : '';
     };
     loadClosure().catch(() => { if (B.alive()) $('#closeBoardReason').textContent = 'Could not load Close board. Is the host awake?'; });
     B.on(closeRow, 'click', async () => {
@@ -358,7 +358,7 @@
         $(`#${id}Status`).textContent = e.message || 'Could not save. Is the host awake?';
       } finally { if (B.alive()) toggle.disabled = false; }
     });
-    todoToggle('autoPull', 'auto_pull', (on) => (on ? 'Saved. When no builder runs, Claude pulls in the top Todo card.' : 'Saved. Todo cards wait until they are unblocked, answered or bumped.'));
+    todoToggle('autoPull', 'auto_pull', (on) => (on ? 'Saved. When no implementer runs, Claude pulls in the top Todo card.' : 'Saved. Todo cards wait until they are unblocked, answered or bumped.'));
     todoToggle('autoTriage', 'auto_triage', (on) => (on ? 'Saved. Once a day, when the board is idle and Todo changed, Claude triages it.' : 'Saved. Todo is left as it is.'));
 
     // Saving writes board.json through POST api/rules, whose `rules {scope: "board"}` event wakes Claude to acknowledge

@@ -1951,7 +1951,7 @@ export async function startTappedBuild(site, key, worktree) {
     }
   } catch (e) {
     if (!(e instanceof BoardError)) throw e;
-    await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', kind: BUILD_REFUSED, text: `Couldn't start the build: ${e.message}` });
+    await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', kind: BUILD_REFUSED, text: `Couldn't start implementing: ${e.message}` });
     return null;
   }
 }
@@ -1965,8 +1965,8 @@ async function tapRefusals(site, key) {
   if (gate.state === 'paused') fail(pauseReason(gate));
   const { item } = await loadItem(site, key);
   const held = item.held || item.status === 'held' ? { held: item.held, status: item.status, pick_up_at: item.pick_up_at, held_at: item.held_at } : null;
-  if (held && item.status && item.status !== 'held') fail("it's held. Unhold it, then tap Build.");
-  if (await unpickedPrototype(site, key)) fail('no take is picked on its prototypes. Pick one, then tap Build.');
+  if (held && item.status && item.status !== 'held') fail("it's held. Unhold it, then tap Implement.");
+  if (await unpickedPrototype(site, key)) fail('no take is picked on its prototypes. Pick one, then tap Implement.');
   const blockers = await Promise.all((await unfinishedDeps(site, parseKey(key).wave, item)).map((k) => cardName(site, k)));
   return { held, blockers };
 }
@@ -1976,7 +1976,7 @@ async function queueBuild(site, key, blockers) {
   if (!item.queued_at) {
     item.queued_at = new Date().toISOString();
     await writeJSON(source.file, wave);
-    await appendLine(threadFile(site, key), { ts: item.queued_at, who: 'claude', text: `Build queued: it starts once ${blockers.join(', ')} ${blockers.length === 1 ? 'is' : 'are'} done.` });
+    await appendLine(threadFile(site, key), { ts: item.queued_at, who: 'claude', text: `Implement queued: it starts once ${blockers.join(', ')} ${blockers.length === 1 ? 'is' : 'are'} done.` });
   }
   return { key, ref: await cardName(site, key), queued: blockers };
 }
@@ -1999,7 +1999,7 @@ export async function dueQueuedBuilds(site) {
 export async function startQueuedBuild(site, key, worktree) {
   let started;
   try { started = await startTappedBuild(site, key, worktree); } catch (e) {
-    await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', kind: BUILD_REFUSED, text: `Couldn't start the build: ${e.message}` });
+    await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', kind: BUILD_REFUSED, text: `Couldn't start implementing: ${e.message}` });
     started = null;
   }
   if (!started) {

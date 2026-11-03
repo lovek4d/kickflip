@@ -50,9 +50,9 @@ export function siteHealth(r, links) {
 
 // builder: the Claude model's word for who builds when Codex doesn't (BUILDER_WORDS).
 const CODEX_CHOICES = [
-  { value: 'always', label: 'Always on', description: () => 'Codex builds and reviews. Work pauses when it runs out.' },
-  { value: 'auto', label: 'Auto', description: (builder) => `Codex builds and reviews, and ${builder} takes over while it's out.` },
-  { value: 'off', label: 'Off', description: (builder) => `${builder} builds and reviews.` },
+  { value: 'always', label: 'Always on', description: () => 'Codex implements and reviews. Work pauses when it runs out.' },
+  { value: 'auto', label: 'Auto', description: (builder) => `Codex implements and reviews, and ${builder} takes over while it's out.` },
+  { value: 'off', label: 'Off', description: (builder) => `${builder} implements and reviews.` },
 ];
 
 // The Usage card's Codex block (docs/adr/0092-codex-share-follows-whether-codex-is-usable.md). share is the setting in

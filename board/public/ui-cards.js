@@ -121,14 +121,15 @@
     const merging = sending || it.merging;
     return `<button class="${it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${merging ? ' disabled' : ''}>${merging ? 'Merging…' : 'Merge'}</button>`;
   }
-  // The open card's Build, rightmost in its action row, on a card board/domain.mjs marks buildable: it confirms, then sends
-  // card-build, and reads "Starting…" while it is sent and the board server starts the build
-  // (docs/adr/0122-a-todo-card-that-nothing-blocks-has-build.md, docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md).
+  // The open card's Implement, rightmost in its action row, on a card board/domain.mjs marks buildable: it confirms, then
+  // sends card-build, and reads "Starting…" while it is sent and the board server starts the implementer. Build and Serve
+  // mean the package only (docs/adr/0122-a-todo-card-that-nothing-blocks-has-build.md,
+  // docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md, docs/adr/0166-a-todo-cards-button-reads-implement.md).
   function buildButton(it, sending = false) {
     if (!it.buildable) return '';
-    return `<button class="build" data-confirm="card-build" data-key="${esc(it.key)}"${sending ? ' disabled' : ''}>${sending ? 'Starting…' : 'Build'}</button>`;
+    return `<button class="build" data-confirm="card-build" data-key="${esc(it.key)}"${sending ? ' disabled' : ''}>${sending ? 'Starting…' : 'Implement'}</button>`;
   }
-  // A builder the Build tap started reads "Waiting for orchestrator" until the session's builder posts its first line.
+  // A builder the Implement tap started reads "Waiting for orchestrator" until the session's builder posts its first line.
   const builderLine = (b) => [b.progress || (b.waiting ? 'Waiting for orchestrator' : 'Starting'), b.at && ago(b.at)].filter(Boolean).join(' · ');
   // Five bars at the end of the time row while a build runs on an In Progress card: done phases filled, the current one
   // marked. The phases are store.mjs PHASES (docs/adr/0137-a-builder-status-line-is-a-phase-and-a-short-detail.md,
@@ -141,7 +142,7 @@
     return `<span class="phase-bars" role="img" aria-label="${name}, step ${at + 1} of ${BUILD_PHASES.length}">${BUILD_PHASES.map((_, i) => `<i class="${i < at ? 'done' : i === at ? 'now' : ''}"></i>`).join('')}</span>`;
   }
   const stalledChip = (it) => it.lane !== 'done' && it.builder?.stalled ? badge('danger', 'Stalled', {
-    button: true, title: 'No recent progress. Nudge Claude to check this builder',
+    button: true, title: 'No recent progress. Nudge Claude to check this implementer',
     attrs: { type: 'button', 'data-confirm': 'nudge', 'data-key': it.key },
   }) : '';
   const unreadCount = (othersAt, seenAt) => (seenAt ? (othersAt || []).filter((t) => String(t) > seenAt).length : 0);

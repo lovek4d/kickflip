@@ -278,7 +278,7 @@
       if (!edited) draft.name = nameOf(selected).split('/').at(-1);
       error.hidden = true;
       const shared = selected.shared.map((b) => b.title).join(', ');
-      content.innerHTML = `<button type="button" data-back-repos>‹ Back</button><p class="nb-next">${current ? 'Repo details' : '2 · Board details'}</p><div class="nb-selected"><strong>${esc(nameOf(selected))}</strong><span class="nb-help">${esc(access(selected))}</span><p>${selected.cloned ? shared ? `Shared with ${esc(shared)}` : 'Already cloned in .repos' : 'Clones to'}<code class="nb-clone">${esc(selected.clone)}</code></p></div><label class="nb-field"><span>Default branch for this board</span><select name="branch" disabled><option value="">Loading branches…</option></select><span class="nb-help" data-branch-help></span></label><p class="nb-next">Each board’s builders work in separate worktrees off this clone. Sharing the clone doesn’t share their working files.</p>${current ? '<p class="nb-next">New builders and GitHub links will use the selected repo.</p>' : `<label class="nb-field"><span>Name</span><input name="name" type="text" value="${esc(draft.name)}" required maxlength="60" autocomplete="off"></label><label class="nb-field"><span>What it’s for</span><input name="purpose" type="text" value="${esc(draft.purpose)}" maxlength="240"><span class="nb-help">One line to get the board started. Optional.</span></label><p class="nb-next">The hub ${selected.cloned ? 'reuses the clone' : 'clones the repo'} and starts your board. You can keep using your other boards.</p>`}`;
+      content.innerHTML = `<button type="button" data-back-repos>‹ Back</button><p class="nb-next">${current ? 'Repo details' : '2 · Board details'}</p><div class="nb-selected"><strong>${esc(nameOf(selected))}</strong><span class="nb-help">${esc(access(selected))}</span><p>${selected.cloned ? shared ? `Shared with ${esc(shared)}` : 'Already cloned in .repos' : 'Clones to'}<code class="nb-clone">${esc(selected.clone)}</code></p></div><label class="nb-field"><span>Default branch for this board</span><select name="branch" disabled><option value="">Loading branches…</option></select><span class="nb-help" data-branch-help></span></label><p class="nb-next">Each board’s implementers work in separate worktrees off this clone. Sharing the clone doesn’t share their working files.</p>${current ? '<p class="nb-next">New implementers and GitHub links will use the selected repo.</p>' : `<label class="nb-field"><span>Name</span><input name="name" type="text" value="${esc(draft.name)}" required maxlength="60" autocomplete="off"></label><label class="nb-field"><span>What it’s for</span><input name="purpose" type="text" value="${esc(draft.purpose)}" maxlength="240"><span class="nb-help">One line to get the board started. Optional.</span></label><p class="nb-next">The hub ${selected.cloned ? 'reuses the clone' : 'clones the repo'} and starts your board. You can keep using your other boards.</p>`}`;
       if (!current) {
         content.querySelectorAll('.nb-next')[content.querySelectorAll('.nb-next').length - 1].insertAdjacentHTML('beforebegin', '<div class="nb-field tk-section" role="group" aria-labelledby="nbTicketsLabel"><span id="nbTicketsLabel">Tickets</span><span class="nb-help">Where this board’s cards get their tickets. You can change it in Board settings.</span><div data-board-tickets></div></div>');
         tickets = ticketsControl(content.querySelector('[data-board-tickets]'), { value: draft.tickets, linear, loadLinear: async () => (linear = await request('/_hub/api/linear')),
@@ -294,7 +294,7 @@
         field('branch').innerHTML = d.branches.map((b) => `<option value="${esc(b)}"${b === draft.branch ? ' selected' : ''}>${esc(b)}${b === d.defaultBranch ? ' (repo default)' : ''}</option>`).join('');
         field('branch').value = draft.branch;
         field('branch').disabled = false;
-        el.querySelector('[data-branch-help]').textContent = draft.branch ? `New builders branch from ${draft.branch}.` : 'This repo has no branches yet.';
+        el.querySelector('[data-branch-help]').textContent = draft.branch ? `New implementers branch from ${draft.branch}.` : 'This repo has no branches yet.';
         sync();
       } catch (e) { fail(e); }
     }
@@ -315,7 +315,7 @@
     form.addEventListener('change', (e) => {
       if (e.target.getAttribute('name') === 'branch') {
         draft.branch = e.target.value;
-        el.querySelector('[data-branch-help]').textContent = `New builders branch from ${draft.branch}.`;
+        el.querySelector('[data-branch-help]').textContent = `New implementers branch from ${draft.branch}.`;
         sync();
       }
     });

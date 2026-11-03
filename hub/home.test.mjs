@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { siteStatus, laneChips, readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
 
-test('the status word is the most urgent of down, not listening, starting, need you, working, waking, asleep and building, lowercase for listening', () => {
+test('the status word is the most urgent of down, not listening, starting, need you, working, waking, asleep and implementing, lowercase for listening', () => {
   const up = { state: 'up', working: 1, count: 2, lanes: { review: 1, progress: 0, todo: 0 }, building: true };
   const word = (s) => siteStatus(s)?.word ?? null;
   assert.equal(word({ ...up, state: 'down', listen: 'deaf' }), 'Down');
@@ -19,7 +19,7 @@ test('the status word is the most urgent of down, not listening, starting, need 
   assert.equal(word({ ...up, state: 'starting' }), 'Starting');
   assert.equal(word(up), '2 need you');
   assert.equal(word({ ...up, count: 0 }), 'Working');
-  assert.equal(word({ ...up, working: 0, count: 0 }), 'Building');
+  assert.equal(word({ ...up, working: 0, count: 0 }), 'Implementing');
   assert.equal(word({ ...up, working: 0, count: 0, building: false }), null);
   assert.equal(word({ state: 'up' }), null);
   assert.deepEqual(

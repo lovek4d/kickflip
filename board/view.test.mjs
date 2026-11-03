@@ -404,7 +404,7 @@ test('Board Settings saves auto-build immediately, uses kind-specific words and 
 
 // docs/adr/0165-an-idle-board-triages-its-todo-once-a-day.md
 for (const [key, id, on] of [
-  ['auto_pull', 'autoPull', 'Saved. When no builder runs, Claude pulls in the top Todo card.'],
+  ['auto_pull', 'autoPull', 'Saved. When no implementer runs, Claude pulls in the top Todo card.'],
   ['auto_triage', 'autoTriage', 'Saved. Once a day, when the board is idle and Todo changed, Claude triages it.'],
 ]) test(`Board Settings turns ${key} on and off with no confirmation and restores the toggle on refusal`, async () => {
   const page = fakePage(memoryStorage().localStorage);
@@ -601,7 +601,7 @@ test("Restart on a board's row of the Hub page confirms, reads Restarting until 
   assert.equal(button().textContent, 'Restart');
   page.fire(root.querySelector('.hub-status'), 'click', { target: button() });
   await settle();
-  assert.deepEqual(confirms, [['This stops The <Shop>’s session mid-task, along with any builder it started, then restarts its server and resumes the session. Its cards and threads stay. For a stuck board. Restart The <Shop>?', undefined]]);
+  assert.deepEqual(confirms, [['This stops The <Shop>’s session mid-task, along with any implementer it started, then restarts its server and resumes the session. Its cards and threads stay. For a stuck board. Restart The <Shop>?', undefined]]);
   assert.deepEqual(posts, [['/_hub/restart-board', { route: 'shop' }]]);
   assert.equal(row().querySelector('.sub').textContent, 'Restarting · stopping its session, then starting it again');
   assert.equal(button().textContent, 'Restarting…');
@@ -1289,7 +1289,7 @@ test('New board chooses a searchable repo before board details, defaults its bra
     assert.equal(field('branch').value, 'trunk');
     assert.equal(start.disabled, false);
     assert.match(sheet.textContent, /Clones to.*\/clone\/.repos\/owner\/project/);
-    assert.match(sheet.textContent, /builders work in separate worktrees/);
+    assert.match(sheet.textContent, /implementers work in separate worktrees/);
     field('name').value = '';
     page.fire(form, 'input', { target: field('name') });
     assert.equal(start.disabled, true);
@@ -2401,7 +2401,7 @@ test('the Stalled chip on closed and open cards confirms before sending a builde
     const chip = () => b.root.querySelector('summary .line2 button[data-confirm="nudge"]');
     b.page.fire(b.root, 'click', { target: chip() });
     await b.settle();
-    assert.deepEqual(confirms, ['Nudge Claude to check this builder?']);
+    assert.deepEqual(confirms, ['Nudge Claude to check this implementer?']);
     assert.deepEqual(b.sent, []);
     accept = true;
     b.page.fire(b.root, 'click', { target: chip() });
@@ -3374,7 +3374,7 @@ test('answered asks have their own Asks section below Done, and Done and Asks ea
   assert.deepEqual([keys('done'), more('done')], [done.map((c) => c.key), null]);
 });
 
-test('a held Todo card that can build shows Build in place of Unhold, whose confirm says it also unholds, and sends card-build', async () => {
+test('a held Todo card that can be implemented shows Implement in place of Unhold, whose confirm says it also unholds, and sends card-build', async () => {
   const cards = [workCard('H1', { ref: 'INT-42', held: true, holdable: true, buildable: true })];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
   await b.settle();
@@ -3382,12 +3382,12 @@ test('a held Todo card that can build shows Build in place of Unhold, whose conf
   assert.equal(detail.querySelector('[data-confirm="resume"]'), null);
   b.page.fire(b.root, 'click', { target: detail.querySelector('[data-confirm="card-build"]') });
   await b.settle();
-  assert.deepEqual(b.confirms, ['Unhold and build INT-42? Claude starts its builder now with the notes as they stand.']);
+  assert.deepEqual(b.confirms, ['Unhold and implement INT-42? Claude starts its implementer now with the notes as they stand.']);
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['card-build', { key: 'w/H1' }]);
 });
 
 // docs/adr/0145-build-on-a-blocked-card-queues-it.md
-test('a blocked Todo card shows Build, whose confirm says it builds once its blockers are done, and sends card-build', async () => {
+test('a blocked Todo card shows Implement, whose confirm says it is implemented once its blockers are done, and sends card-build', async () => {
   const blockedBy = [{ key: 'w/A9', ref: '#53' }];
   const cards = [workCard('B1', { ref: 'INT-44', buildable: true, blockedBy }), workCard('B2', { ref: 'INT-45', held: true, holdable: true, buildable: true, blockedBy })];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
@@ -3396,7 +3396,7 @@ test('a blocked Todo card shows Build, whose confirm says it builds once its blo
     b.page.fire(b.root, 'click', { target: b.root.querySelector(`details.item[data-key="${key}"] .detail [data-confirm="card-build"]`) });
     await b.settle();
   }
-  assert.deepEqual(b.confirms, ['Build INT-44 once #53 is done? It waits in In Progress until then.', 'Unhold and build INT-45 once #53 is done? It waits in In Progress until then.']);
+  assert.deepEqual(b.confirms, ['Implement INT-44 once #53 is done? It waits in In Progress until then.', 'Unhold and implement INT-45 once #53 is done? It waits in In Progress until then.']);
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-build', { key: 'w/B1' }], ['card-build', { key: 'w/B2' }]]);
 });
 
@@ -3422,7 +3422,7 @@ test('Upgrade on the sidebar posts to the hub and shows only what the hub answer
   assert.equal(aside.querySelector('.sb-update .sb-go').textContent, 'Upgrade');
   answer(repoResponse({ upgrade: { state: 'waiting', version: '0.4.0', builders: 2 } }));
   await tick(); await tick();
-  assert.equal(title(), 'Update waits for 2 builders');
+  assert.equal(title(), 'Update waits for 2 implementers');
   assert.equal(button().disabled, true);
   sidebar.setData({ sites: [], upgrade: { state: 'available', version: '0.4.0' } });
   page.fire(aside, 'click', { target: button() });

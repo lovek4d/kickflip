@@ -872,6 +872,8 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
   assert.deepEqual([...B.detail(card).matchAll(/<a class="card-link" href="([^"]*)">([^<]*)<\/a>/g)].map(([, href, ref]) => [href, ref]),
     [['#item=w%2FGH-53', '#53'], ['#item=w%2FGH-94', '#94'], ['#item=w%2FGH-95', '#95'], ['#item=w%2FGH-75', '#75'], ['#item=w%2FGH-80', '#80'], ['#item=w%2FGH-99', '#99']]);
   assert.deepEqual(rows({ ...card, parent: null, followUp: false, children: [], related: [], blockedBy: [], waitsOnIt: [] }), [['Wave', 'W'], ['Status', 'planned']]);
+  // An In Progress card whose agent works on it reads implementing; Build only means the package (docs/adr/0166-a-todo-cards-button-reads-implement.md).
+  assert.deepEqual(rows({ ...card, status: 'building', parent: null, followUp: false, children: [], related: [], blockedBy: [], waitsOnIt: [] }), [['Wave', 'W'], ['Status', 'implementing']]);
   assert.doesNotMatch(B.detail(card), /data-confirm="build"|Filed from|Waits on</);
   assert.deepEqual(lines(app.BoardUI.workLines({ ...card, linear: [], ticket: null })).slice(0, 2), ['Five', 'follow-up']);
   assert.doesNotMatch(app.BoardUI.workLines({ ...card, parent: null, followUp: false }), /follow-up/);
@@ -904,9 +906,9 @@ test("an open card waiting on the owner's Merge shows a Merge button that confir
   assert.equal(merge(undefined), '');
 });
 
-test("an open card that can Build shows Build rightmost in its action row, which confirms first and reads Starting…, disabled, while the board starts it", () => {
+test("an open card that can be implemented shows Implement rightmost in its action row, which confirms first and reads Starting…, disabled, while the board starts it", () => {
   const build = (it, sending) => { const html = ui.buildButton(it, sending); return html && [text(html), /disabled/.test(html), /data-confirm="card-build"/.test(html), /data-key="w\/A1"/.test(html), /class="build"/.test(html)]; };
-  assert.deepEqual(build({ key: 'w/A1', buildable: true }), ['Build', false, true, true, true]);
+  assert.deepEqual(build({ key: 'w/A1', buildable: true }), ['Implement', false, true, true, true]);
   assert.deepEqual(build({ key: 'w/A1', buildable: true }, true), ['Starting…', true, true, true, true]);
   assert.equal(build({ key: 'w/A1', buildable: false }, true), '');
 
@@ -918,11 +920,11 @@ test("an open card that can Build shows Build rightmost in its action row, which
   const todo = { ...workCard, pr: null, reviewers: [], key: 'w/A1', lane: 'todo', action: null, actionButton: 'grill', waveTitle: 'W', deps: [], manualSteps: [], holdable: true, hasNotes: true,
     try: { kind: 'web', script: true, changes: false }, buildable: true };
   const row = (it) => [...B.detail(it).match(/<div class="action-row workflow">(.*?)<\/div>/)[1].matchAll(/<button[^>]*>(.*?)<\/button>/g)].map(([, label]) => label);
-  assert.deepEqual(row(todo), ['Hold', 'Grill', 'Build']);
+  assert.deepEqual(row(todo), ['Hold', 'Grill', 'Implement']);
   const changed = { ...todo, try: { ...todo.try, changes: true } };
-  assert.deepEqual(row(changed), ['Hold', 'Grill', 'Serve', 'Build']);
+  assert.deepEqual(row(changed), ['Hold', 'Grill', 'Serve', 'Implement']);
   assert.deepEqual(row({ ...changed, buildable: false }), ['Hold', 'Grill', 'Serve']);
-  assert.deepEqual(row({ ...todo, held: true }), ['Grill', 'Build']);
+  assert.deepEqual(row({ ...todo, held: true }), ['Grill', 'Implement']);
   assert.deepEqual(row({ ...todo, held: true, buildable: false }), ['Unhold', 'Grill']);
   assert.match(B.detail({ ...todo, held: true }), /data-confirm="card-build"/);
 });
@@ -941,13 +943,14 @@ test('a stalled builder adds a fault-tone button in the chip row and keeps its b
   const html = ui.workLines({ ...workCard, builder });
   assert.match(html, /<div class="line2 meta"><button class="chip tone-danger"[^>]*type="button"[^>]*data-confirm="nudge"[^>]*data-key="w\/B5"[^>]*>Stalled<\/button>/);
   assert.match(html, /<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"><\/span>Running tests<\/div>/);
+  assert.match(html, /title="No recent progress\. Nudge Claude to check this implementer"/);
   for (const next of [{ ...builder, stalled: false }, null]) assert.doesNotMatch(ui.workLines({ ...workCard, builder: next }), /Stalled|data-confirm="nudge"/);
 });
 
-test("a refused Build's reason takes the card's status line, in place of its next step", () => {
-  const reason = "Couldn't start the build: it's held. Resume it, then tap Build.";
+test("a refused Implement's reason takes the card's status line, in place of its next step", () => {
+  const reason = "Couldn't start implementing: it's held. Unhold it, then tap Implement.";
   const html = ui.workLines({ ...workCard, lane: 'todo', builder: null, next: 'Grill the notes', refusal: reason });
-  assert.match(html, /<div class="line3 sub refused">Couldn&#39;t start the build: it&#39;s held\. Resume it, then tap Build\.<\/div>/);
+  assert.match(html, /<div class="line3 sub refused">Couldn&#39;t start implementing: it&#39;s held\. Unhold it, then tap Implement\.<\/div>/);
   assert.doesNotMatch(html, /Next: /);
 });
 
@@ -1561,8 +1564,8 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   const hub = context.HubUI;
   const card = hub.usageCard({ claude: reading, codex: reading }, null, pause);
   assert.match(text(card), /Codex .*Pause work at 10% buffer − 90% \+/);
-  assert.match(text(card), /Claude’s new work waits.*Codex hands its work to Claude builders/);
-  for (const builder of ['Opus', 'Sonnet']) assert.match(text(hub.usageCard({ claude: reading }, null, pause, { model: builder.toLowerCase(), builder, choices: [], description: '' })), new RegExp(`Codex hands its work to ${builder} builders`));
+  assert.match(text(card), /Claude’s new work waits.*Codex hands its work to Claude implementers/);
+  for (const builder of ['Opus', 'Sonnet']) assert.match(text(hub.usageCard({ claude: reading }, null, pause, { model: builder.toLowerCase(), builder, choices: [], description: '' })), new RegExp(`Codex hands its work to ${builder} implementers`));
   assert.equal([...card.matchAll(/class="ub-mark" style="left:90%"/g)].length, 4);
   assert.match(card, /form class="segments ub-step" method="post" action="\/_hub\/settings\/pause-at"/);
   assert.match(card, /value="85" aria-label="Pause 5% sooner"/);
@@ -1603,8 +1606,8 @@ test('the New version row offers the npm update, waits for builders and gives Re
   assert.equal(text(available), 'Update available Upgrade');
   const waiting = row(null, { state: 'waiting', version: '0.4.0', builders: 2 });
   assert.match(waiting, /data-app-upgrade disabled/);
-  assert.equal(text(waiting), 'Update waits for 2 builders');
-  assert.equal(text(row(null, { state: 'waiting', version: '0.4.0', builders: 1 })), 'Update waits for 1 builder');
+  assert.equal(text(waiting), 'Update waits for 2 implementers');
+  assert.equal(text(row(null, { state: 'waiting', version: '0.4.0', builders: 1 })), 'Update waits for 1 implementer');
   const updating = row(null, { state: 'updating', version: '0.4.0' });
   assert.match(updating, /disabled/);
   assert.equal(text(updating), 'Update available Updating…');

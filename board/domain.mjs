@@ -263,7 +263,7 @@ export function noTakePicked(questions, key) {
   return last && !(last.q.options || []).some((o) => o.id === last.a.choice) ? { id: last.q.id, note: last.a.note.replace(/\s+/g, ' ').trim() } : null;
 }
 // A Todo card's line while noTakePicked holds it.
-export const NO_TAKE = "No take picked, so it isn't ready to build";
+export const NO_TAKE = "No take picked, so it isn't ready to implement";
 
 // The open card's button that resolves each action kind, which the board page colours orange: an action button, the
 // PR's Review on GitHub, or Merge.
@@ -402,15 +402,18 @@ const MODEL_NAMES = { opus: 'Claude Opus', sonnet: 'Claude Sonnet', codex: 'Code
 export const modelName = ({ model, kind }) => MODEL_NAMES[model] || MODEL_NAMES[kind] || (kind === 'claude' ? MODEL_NAMES.opus : null);
 export const providerOf = (kind) => (kind === 'opus' || kind === 'sonnet' ? 'claude' : kind);
 
-// "Claude Opus builder", "Claude Sonnet builder", "Codex benchmarks": the model once, never "Claude Opus · Opus builder"
-// (owner, question int42-agents-look; owner ask on #89). A kind that is no model keeps its own word ("Prototype sketch").
+// "Claude Opus implementer", "Claude Sonnet implementer", "Codex benchmarks": the model once, never "Claude Opus · Opus
+// implementer" (owner, question int42-agents-look; owner ask on #89). A label's builder reads implementer, since Build
+// means the package (docs/adr/0166-a-todo-cards-button-reads-implement.md). A kind that is no model keeps its own word
+// ("Prototype sketch").
 function agentName(a) {
   const model = modelName(a);
-  const { kind, label } = a;
+  const { kind } = a;
+  const label = a.label?.replace(/\bbuilder\b/, 'implementer').replace(/\bBuilder\b/, 'Implementer');
   const lower = (t) => t[0].toLowerCase() + t.slice(1);
-  if (model) return `${model} ${lower(label?.replace(/^(?:claude\s+)?(?:opus|sonnet|codex)\b\s*/i, '') || 'builder')}`;
+  if (model) return `${model} ${lower(label?.replace(/^(?:claude\s+)?(?:opus|sonnet|codex)\b\s*/i, '') || 'implementer')}`;
   const k = kind ? kind[0].toUpperCase() + kind.slice(1) : '';
-  if (!k) return label || 'Builder';
+  if (!k) return label || 'Implementer';
   if (!label) return k;
   return label.toLowerCase().includes(kind.toLowerCase()) ? label : `${k} ${lower(label)}`;
 }

@@ -107,14 +107,14 @@ test("the hub page's Codex share says what each choice means while Codex is usab
   assert.deepEqual(unusable(view({ codex: NOT_INSTALLED })), unusable(view()));
   assert.deepEqual(unusable(view({ codex: LOGGED_OUT })), [false, 'Not logged in', 'off', 'off', "Codex isn't logged in on the host.", 'codex login']);
   const meanings = {
-    always: 'Codex builds and reviews. Work pauses when it runs out.',
-    auto: "Codex builds and reviews, and Claude takes over while it's out.",
-    off: 'Claude builds and reviews.',
+    always: 'Codex implements and reviews. Work pauses when it runs out.',
+    auto: "Codex implements and reviews, and Claude takes over while it's out.",
+    off: 'Claude implements and reviews.',
   };
   // The Claude model names who takes over: the forced model, or Claude under Auto.
   for (const [claudeModel, word] of [['opus', 'Opus'], ['sonnet', 'Sonnet'], ['auto', 'Claude']]) {
-    assert.equal(view({ codexShare: 'auto', codex: USABLE, claudeModel }).description, `Codex builds and reviews, and ${word} takes over while it's out.`);
-    assert.equal(view({ codexShare: 'off', codex: USABLE, claudeModel }).description, `${word} builds and reviews.`);
+    assert.equal(view({ codexShare: 'auto', codex: USABLE, claudeModel }).description, `Codex implements and reviews, and ${word} takes over while it's out.`);
+    assert.equal(view({ codexShare: 'off', codex: USABLE, claudeModel }).description, `${word} implements and reviews.`);
   }
   for (const [codexShare, description] of Object.entries(meanings)) {
     const v = view({ codexShare, codex: USABLE });
@@ -619,13 +619,13 @@ test("the hub page's Usage card opens Codex's block with Codex share, bars under
   }
 
   live.paint(hub('off'));
-  assert.match(codex().textContent, /^CodexAlways onAutoOffClaude builds and reviews\./);
+  assert.match(codex().textContent, /^CodexAlways onAutoOffClaude implements and reviews\./);
   assert.equal(codex().querySelector('.u-asof'), null);
   assert.equal(codex().querySelectorAll('.u-bar, .u-share-fix, [disabled], [aria-disabled]').length, 0);
   assert.equal(selected(), 'off');
   assert.deepEqual(codex().querySelectorAll('.segments button').map((b) => b.textContent), ['Always on', 'Auto', 'Off']);
   assert.equal(codex().querySelector('.segments').getAttribute('aria-label'), 'Codex share');
-  assert.equal(codex().querySelector('.u-share-desc').textContent, 'Claude builds and reviews.');
+  assert.equal(codex().querySelector('.u-share-desc').textContent, 'Claude implements and reviews.');
   assert.deepEqual(root.querySelectorAll('.usage .u-head .title').map((el) => el.textContent), ['Claude', 'Codex']);
 
   for (const value of ['auto', 'always', 'off']) {
@@ -635,7 +635,7 @@ test("the hub page's Usage card opens Codex's block with Codex share, bars under
     assert.equal(selected(), value);
     assert.equal(codex().querySelector('.u-share-desc').textContent, hub(value).codex.description);
     assert.equal(codex().querySelectorAll('.u-bar').length, value === 'off' ? 0 : 2);
-    assert.match(codex().textContent, value === 'off' ? /^CodexAlways onAutoOffClaude builds and reviews\./ : /^Codexread [^]*?Always onAutoOff[^]*?(?:runs out|it's out)\.5-hour42% · resets/);
+    assert.match(codex().textContent, value === 'off' ? /^CodexAlways onAutoOffClaude implements and reviews\./ : /^Codexread [^]*?Always onAutoOff[^]*?(?:runs out|it's out)\.5-hour42% · resets/);
   }
   assert.equal(sidebarChanges, 3);
   refused = true;

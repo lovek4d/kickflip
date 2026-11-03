@@ -32,7 +32,7 @@ export function siteStatus({ state, working, count: waiting, building, listen } 
   if (working) return { tone: 'working', word: 'Working' };
   if (listen === 'waking') return { tone: 'asleep', word: 'waking…' };
   if (listen === 'asleep') return { tone: 'asleep', word: 'asleep' };
-  if (building) return { tone: 'building', word: 'Building' };
+  if (building) return { tone: 'building', word: 'Implementing' };
   return null;
 }
 

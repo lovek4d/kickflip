@@ -180,7 +180,8 @@ BoardView.part((B) => {
       }
     }
     if (it.branch) rows.push(['Branch', `<code>${esc(it.branch)}</code>`]);
-    if (it.status) rows.push(['Status', esc(it.status)]);
+    // building is an implementer at work, since Build means the package (docs/adr/0166-a-todo-cards-button-reads-implement.md).
+    if (it.status) rows.push(['Status', esc(it.status === 'building' ? 'implementing' : it.status)]);
     // docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md: each link row is a row of labels that open their cards.
     for (const [label, list] of [['Parent', it.parent ? [it.parent] : []], ['Children', it.children], ['Related to', it.related], ['Blocked by', it.blockedBy], ['Waits on it', it.waitsOnIt]]) {
       if (list?.length) rows.push([label, list.map(cardLink).join(' ')]);
@@ -226,12 +227,12 @@ BoardView.part((B) => {
   const sendingBuild = new Set();
   const CONFIRM = {
     resume: (it, ref) => `Unhold ${ref}?${it.heldUntil ? ` It's held until ${heldUntilWords(it.heldUntil)}.` : ''} It can start again once nothing blocks it.`,
-    nudge: () => 'Nudge Claude to check this builder?',
+    nudge: () => 'Nudge Claude to check this implementer?',
     grill: (it, ref) => `Ask Claude for questions about ${ref}?`,
     merge: (it, ref) => `Merge ${ref}? Claude squash-merges #${it.pr?.number} if it is still approved, green and clean.`,
     'card-build': (it, ref) => (it.blockedBy?.length
-      ? `${it.held ? 'Unhold and build' : 'Build'} ${ref} once ${it.blockedBy.map((d) => d.ref).join(', ')} ${it.blockedBy.length === 1 ? 'is' : 'are'} done? It waits in In Progress until then.`
-      : `${it.held ? `Unhold and build ${ref}?` : `Build ${ref}?`} Claude starts its builder now with the notes as they stand.`),
+      ? `${it.held ? 'Unhold and implement' : 'Implement'} ${ref} once ${it.blockedBy.map((d) => d.ref).join(', ')} ${it.blockedBy.length === 1 ? 'is' : 'are'} done? It waits in In Progress until then.`
+      : `${it.held ? `Unhold and implement ${ref}?` : `Implement ${ref}?`} Claude starts its implementer now with the notes as they stand.`),
     finish: (it, ref) => (it.kind === 'ask' ? `Mark this task done? "${it.title}" moves to Done.`
       : `Close ${ref}? It moves to Done and Claude stops work on it.${it.pr?.state === 'OPEN' ? ' Its PR stays open on GitHub.' : it.pushed ? ` Its branch stays on ${it.pushed.host || 'the remote'}.` : ''}`),
   };

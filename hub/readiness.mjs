@@ -11,7 +11,7 @@ import { tailscaleState, tailscaleInstallHint } from '../bin/install.mjs';
 
 const INTEGRATIONS = [
   ['github', 'GitHub', 'GitHub polling and PR reports wait on this.'],
-  ['codex', 'Codex', 'Codex builds and reviews wait on this; Codex share stays Off.'],
+  ['codex', 'Codex', 'Codex implementing and reviewing wait on this; Codex share stays Off.'],
   ['linear', 'Linear', 'Linear moves and picking Linear for a board’s tickets wait on this.'],
   ['slack', 'Slack', 'Reviewer DMs and digests wait on this.'],
   ['tailscale', 'Tailscale', 'Try builds wait on this.'],

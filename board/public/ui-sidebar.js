@@ -155,7 +155,7 @@
       + `<span class="sb-text"><span class="sb-title">${title}</span>${sub ? `<span class="sb-sub">${esc(sub)}</span>` : ''}</span>${go ? `<span class="sb-go">${go}</span>` : ''}</button>`;
     if (update) return button('data-app-reload', update === 'reloading', 'New version', '', update === 'reloading' ? 'Reloading…' : 'Reload');
     if (!upgrade) return '';
-    if (upgrade.state === 'waiting') return button('data-app-upgrade', true, `Update waits for ${upgrade.builders} builder${upgrade.builders === 1 ? '' : 's'}`, '', '');
+    if (upgrade.state === 'waiting') return button('data-app-upgrade', true, `Update waits for ${upgrade.builders} implementer${upgrade.builders === 1 ? '' : 's'}`, '', '');
     if (upgrade.state === 'updating') return button('data-app-upgrade', true, 'Update available', '', 'Updating…');
     if (upgrade.state === 'failed') return button('data-app-upgrade', false, 'Update failed', upgrade.error, 'Upgrade');
     return button('data-app-upgrade', false, 'Update available', '', 'Upgrade');

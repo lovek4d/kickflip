@@ -22,7 +22,7 @@ test('readiness shares fixed row order, ready details, fixes, waits and waiting 
   const reader = readinessReader({ now: () => now, probes: probesOf(off()) });
   const missing = await reader.rows();
   assert.ok(missing.every((r) => !r.ready && r.missing && r.fix));
-  assert.deepEqual(missing.map((r) => r.waits), ['GitHub polling and PR reports wait on this.', 'Codex builds and reviews wait on this; Codex share stays Off.', 'Linear moves and picking Linear for a board’s tickets wait on this.', 'Reviewer DMs and digests wait on this.', 'Try builds wait on this.', 'Pushes wait on this.']);
+  assert.deepEqual(missing.map((r) => r.waits), ['GitHub polling and PR reports wait on this.', 'Codex implementing and reviewing wait on this; Codex share stays Off.', 'Linear moves and picking Linear for a board’s tickets wait on this.', 'Reviewer DMs and digests wait on this.', 'Try builds wait on this.', 'Pushes wait on this.']);
   assert.equal(missing[0].fix.command, 'gh auth login');
   assert.equal(missing[1].fix.command, 'install codex');
   assert.deepEqual(missing[2].fix, { settings: 'linear', label: 'Hub settings › Linear', text: 'Add one in' });
