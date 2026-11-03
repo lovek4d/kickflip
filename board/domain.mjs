@@ -399,7 +399,7 @@ function ownerTopics(topics, questions, closed = new Set()) {
 
 // An item's thread: Claude's and GitHub's lines, the owner's messages and
 // buttons from the board, and their answers to the item's questions,
-// oldest first. working maps the event ids `board.mjs working` marked.
+// oldest first. working maps the event ids marked working in data/working.json (bin/wait-events.mjs writes them).
 // Each owner message has a state: replied (Claude replied to its event), answered (a Claude line
 // came after it), working (marked, neither yet) or waiting. An item-message still working or
 // waiting can be deleted or edited, and shows its latest ask-edited text (docs/adr/0014-a-pending-ask-can-be-deleted-or-bumped.md). An ask's thread
@@ -638,11 +638,36 @@ export function buildBoard(snapshot) {
     const card = cardOf(e);
     return card === null || (byKey.has(card) && closedAt(card) < String(routeRecord(working, e.id)));
   };
-  const workingCount = events.filter((e) => routeRecord(working, e.id) && live(e) && (threadStates.has(e.id) ? threadStates.get(e.id) === 'working' : !e.reply)).length;
+  const workingOn = events.filter((e) => routeRecord(working, e.id) && live(e) && (threadStates.has(e.id) ? threadStates.get(e.id) === 'working' : !e.reply))
+    .map((e) => ({ id: e.id, kind: e.kind, key: cardOf(e), data: e.data, since: routeRecord(working, e.id) }));
   // The page shows those this browser hasn't seen in the answer banner (docs/adr/0016-every-ask-is-a-card.md).
   const answers = items.filter((i) => i.ask?.answerAt).sort((a, b) => b.ask.answerAt.localeCompare(a.ask.answerAt))
     .map((i) => ({ key: i.key, id: i.id, text: i.title, at: i.ask.answerAt }));
-  return { kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, waves, waveRows, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, needs, needsSummary: needsSummary(needs), working: workingCount, checks: checksOf(snapshot, now) };
+  return { kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, waves, waveRows, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, needs, needsSummary: needsSummary(needs), working: workingOn.length, workingOn, checks: checksOf(snapshot, now) };
+}
+
+// docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md
+const REMIND_AFTER = 30 * 60000;
+// What has waited on the session REMIND_AFTER, from a built board and the snapshot's waves: a card in Orchestrator
+// review with no running builder, since its status changed or its last builder finished, and a message marked Working
+// that has no reply or later Claude line, since its mark. A spell names one wait; a new status, builder or mark starts
+// another. → [{spell, key, what, since}], key null for a wave's triage
+export function remindersOf(built, waves, now) {
+  const due = (since) => Boolean(since) && now - Date.parse(since) >= REMIND_AFTER;
+  const out = [];
+  for (const it of built.items) {
+    if (it.kind !== 'work' || it.lane === 'done' || it.held || it.waitsOn !== 'checking' || (it.agents || []).some((a) => !a.done)) continue;
+    const raw = waves.find((w) => w.slug === it.wave)?.wave.items.find((x) => x.id === it.id);
+    const since = [raw?.status_at, ...(it.agents || []).map((a) => a.done)].filter(Boolean).map(String).sort().pop();
+    if (due(since)) out.push({ spell: `checking:${it.key}`, key: it.key, what: 'has waited 30 min in Orchestrator review', since });
+  }
+  for (const w of built.workingOn || []) {
+    if (!due(w.since)) continue;
+    const triage = w.kind === 'wave-triage' ? (w.data?.lineup || w.data?.wave) : null;
+    out.push({ spell: `working:${w.id}`, key: triage ? null : w.key, since: w.since,
+      what: triage ? `the triage of wave ${triage} has waited 30 min for a reply` : 'has had a message marked Working for 30 min with no reply' });
+  }
+  return out;
 }
 
 // The board's order, each lane together, by touched (the card's latest activity) or created (when the card was made).

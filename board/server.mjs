@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Shared board server for kickflip sites: node board/server.mjs <site dir>. The hub
 // runs it with PORT and PREFIX (/<route>) set, and strips the prefix before forwarding.
-// It writes page events, hidden events and uploads; agent sessions write the other files
+// It writes page events, hidden events, uploads and the owner's card taps; agent sessions write the other files
 // below through bin/board.mjs (store.mjs):
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item set|relate-ask, ask progress|done, followup add|done,
 //   lineup create|add|remove|set|finish,
@@ -39,7 +39,7 @@
 //                                per-item review_link_ts and legacy ~/.claude/slack-bridge/topics/*.json fallbacks,
 //                                data/owner.json and GitHub (gh, cached for 45 s).
 //                                owner.json: {topics: [{id, title, summary}], items: [{id, topic,
-//                                question, context, url, options, urgent, asked_at, resolved, resolved_at, round, round_of, confirm_of}]};
+//                                question, context, url, options, urgent, asked_at, push_tag, resolved, resolved_at, round, round_of, confirm_of}]};
 //                                Waiting on you shows an open `urgent` question alone, first
 //                                checks comes from data/checked.json (board.mjs checked),
 //                                whether the board hears its events (../hub/boards.mjs listenState) and Claude's latest writes;
@@ -75,6 +75,11 @@
 //                                card-hold {key, hold: true, for} is a Hold sheet chip or its Custom time
 //                                (../hub/duration.mjs durationEnd), stored as {key, hold: true, until} or, for
 //                                Forever, {key, hold: true}; a choice that ends in the past or past 30 days → 400 {error}.
+//                                card-hold and card-done are written to the wave file too, with the owner's thread
+//                                line, and a Done unblocks waiting cards (store.mjs recordOwnerTap).
+//                                An owner-answer drops the queued push of its questions once all are settled.
+//                                The server appends reminder {key, what, spell, since} once per wait of 30 minutes
+//                                on the session (domain.mjs remindersOf), tracked in data/reminders.json.
 //                                Within a minute of a held card's until or pick_up_at the server resumes it
 //                                (store.mjs pickUp), at most once per time even across a restart.
 //                                With auto_pull on, the server appends card-pull {key} for the top pullable Todo card
@@ -122,13 +127,12 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { buildBoard, ITEM_EVENTS, needsAnswer, pullOf, refOf, threadOf } from './domain.mjs';
+import { buildBoard, ITEM_EVENTS, needsAnswer, pullOf, refOf, remindersOf, threadOf } from './domain.mjs';
 import { createReadStream, watch as watchFiles } from 'node:fs';
-import { BoardError, boardConfig, pickUp, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswer, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, boardConfig, dropAnsweredPush, pickUp, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswer, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
-import { dropQueued } from '../hub/push.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { FOREVER, durationEnd } from '../hub/duration.mjs';
 import { durationChoices } from '../hub/views.mjs';
@@ -343,12 +347,12 @@ async function itemSnapshot() {
 
 // Reads every source buildBoard needs: wave files and their builder records,
 // PR state from gh, item threads, page events with Claude's replies, owner
-// questions and legacy review-link fallbacks.
-async function snapshot() {
+// questions and legacy review-link fallbacks. github: false leaves PR state out, for the minute checks.
+async function snapshot({ github = true } = {}) {
   const items = await itemSnapshot();
   const { waves, threads: threadLines, working } = items;
   const prs = Object.create(null);
-  await Promise.all(waves.flatMap(({ wave }) => {
+  if (github) await Promise.all(waves.flatMap(({ wave }) => {
     const repo = items.github || wave.repo;
     return repo ? wave.items.filter((it) => it.pr).map(async (it) => { prs[`${repo}#${it.pr}`] = await prState(repo, it.pr); }) : [];
   }));
@@ -632,8 +636,12 @@ const server = http.createServer(async (req, res) => {
       }
       const id = await appendEvent(kind, body);
       if (kind === 'owner-answer') {
-        try { await dropQueued([`q-${body.id}`], path.basename(here)); } catch {}
+        try { await dropAnsweredPush(here, String(body.id)); } catch {}
         await resolveNoteAnswer(here, body);
+      }
+      // The event shows the tap at once (domain.mjs); a failed write leaves it to the session's follow-up.
+      if (kind === 'card-hold' || kind === 'card-done') {
+        try { await recordOwnerTap(here, kind, body); } catch (e) { console.error(`Recording ${kind} failed:`, e.message); }
       }
       return json(res, 200, { id });
     }
@@ -778,11 +786,43 @@ async function checkPulls() {
   }
 }
 
+// docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md
+// data/reminders.json {<spell>: since}: the waits already reminded of (domain.mjs remindersOf), so each spell sends one
+// reminder {key, what, spell, since}; the event log covers a restart between appending one and saving the marker.
+let checkingReminders = false;
+async function checkReminders() {
+  if (checkingReminders) return;
+  checkingReminders = true;
+  try {
+    const file = path.join(data, 'reminders.json');
+    const previous = await readJSON(file, {});
+    const shot = await snapshot({ github: false });
+    const due = remindersOf(buildBoard(shot), shot.waves, Date.now());
+    const current = Object.fromEntries(due.map((r) => [r.spell, r.since]));
+    let sent;
+    for (const r of due.filter((x) => routeRecord(previous, x.spell) !== x.since)) {
+      sent ||= await readLines(events);
+      if (!sent.some((e) => e.kind === 'reminder' && e.data?.spell === r.spell && e.data?.since === r.since)) await appendEvent('reminder', r);
+    }
+    if (JSON.stringify(current) !== JSON.stringify(previous)) {
+      await fs.mkdir(data, { recursive: true });
+      await fs.writeFile(file + '.tmp', JSON.stringify(current) + '\n');
+      await fs.rename(file + '.tmp', file);
+    }
+  } catch (err) {
+    console.error('Reminder check failed:', err.message);
+  } finally {
+    checkingReminders = false;
+  }
+}
+
 await watchBoard();
 setInterval(checkStalled, 60000).unref();
 setInterval(checkPickUps, 60000).unref();
 setInterval(checkPulls, 60000).unref();
+setInterval(checkReminders, 60000).unref();
 await checkStalled();
 await checkPickUps();
 await checkPulls();
+await checkReminders();
 server.listen(port, '127.0.0.1', () => console.log(`site on http://127.0.0.1:${port}/ (prefix ${prefix || 'none'})`));

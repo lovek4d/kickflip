@@ -128,7 +128,7 @@ import { ICON_KEYS } from '../hub/icons.mjs';
 import { liveSessions } from '../hub/live.mjs';
 import { isBoardSite, writeManifest } from '../hub/boards.mjs';
 import { routeRecord, validRoute } from '../hub/routes.mjs';
-import { migrateOnStart, uninstallStatusLine, storedPath, nodeBin } from './install.mjs';
+import { migrateOnStart, uninstallStatusLine, storedPath, nodeBin, watcherCommand } from './install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { runDoctor } from './doctor.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
@@ -415,7 +415,7 @@ const commands = {
       route, url: siteUrl(route), dir: result.site.dir, port: result.site.port, owner: result.site.owner,
       createdFromStarter: result.created, previousOwner: result.previousOwner,
       log: path.join(LOGS, route + '.log'),
-      watcher: `${nodeBin()} ${path.join(SKILL, 'bin', 'wait-events.mjs')} ${route} ${args.session}`,
+      watcher: watcherCommand(route, args.session, SKILL),
       hub: hub ? 'running' : 'NOT running: run `kickflip doctor --fix`',
       ...(handshake ? { handshake } : {}),
       ...(poll ? { poll } : {}),

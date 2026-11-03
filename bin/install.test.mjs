@@ -261,7 +261,7 @@ test('plugin keeps builder-stop and runs the Codex share hook for both events th
   fs.mkdirSync(bin);
   fs.symlinkSync(process.execPath, path.join(bin, 'node'));
   const auth = path.join(home, '.codex', 'auth.json');
-  const said = { auto: /Opus builders take over until it resets/, always: /Opus builders take over until it resets/ };
+  const said = { auto: /builder pick <key>.*Opus builders take over until it resets/, always: /builder pick <key>.*pause that work until the usage-reset probe answers/ };
   for (const event of ['UserPromptSubmit', 'SessionStart']) {
     const { command } = plugin.hooks[event][0].hooks[0];
     assert.match(command, /\$HOME\/\.claude\/skills\/kickflip\//);

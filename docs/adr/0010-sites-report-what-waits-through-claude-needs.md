@@ -1,10 +1,12 @@
 ---
-status: superseded in part by ADR-0077
+status: superseded in part by ADR-0077 and ADR-0131
 ---
 
 # Sites report what waits on the owner through `GET /_claude/needs`, and the hub reads only that
 
 Superseded in part by [0077](0077-need-you-outranks-working.md): "N need you" outranks Working, so the sub line's word follows that ADR's order.
+
+Superseded in part by [0131](0131-the-cli-and-board-server-do-the-boards-housekeeping.md): the watcher writes a board's working marks; `board.mjs working` is gone.
 
 Any site may serve `GET /_claude/needs`, returning `{items: [{kind, text, url}], working, summary, lanes, building}`:
 - `kind` is a short label, such as "Question" or "Tap Ready";

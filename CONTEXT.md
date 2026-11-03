@@ -296,7 +296,7 @@ The owning session's understanding of a work item so far: what was asked, what i
 _Avoid_: full plan, plan, spec
 
 **Held**:
-A work card the owner paused with its Hold button, which opens the shared duration picker: Forever, until the owner taps Resume, or until a time, its **pick-up time**. Hold and Resume apply on the board at once; the session records the tap in the wave file afterwards. It doesn't start, and the session stops work on a running one, until it is resumed ([0106](docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md)). The card's last line reads "held" or "held until Wed 9:00 am" after its time. Every other action-row button, Resume included, asks to confirm first, through `B.confirm` (`dialogs.js`).
+A work card the owner paused with its Hold button, which opens the shared duration picker: Forever, until the owner taps Resume, or until a time, its **pick-up time**. Hold and Resume apply on the board at once, and the board server writes them to the wave file with the owner's thread line ([0131](docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md)). It doesn't start, and the session stops work on a running one, until it is resumed ([0106](docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md)). The card's last line reads "held" or "held until Wed 9:00 am" after its time. Every other action-row button, Resume included, asks to confirm first, through `B.confirm` (`dialogs.js`).
 _Avoid_: paused, frozen, on hold (as a status name)
 
 **Pick-up time**:
@@ -367,8 +367,12 @@ Claude's answer to one event, shown under it on the page.
 _Avoid_: response, comment
 
 **Pending message**:
-A New card's message, or the owner's message in a thread, that Claude hasn't answered yet: no reply, and in a thread no later Claude line other than a builder status line or agent line. It reads "Working on it" once the session marks it started, and the owner can edit or delete it.
+A New card's message, or the owner's message in a thread, that Claude hasn't answered yet: no reply, and in a thread no later Claude line other than a builder status line or agent line. It reads "Working on it" once the watcher prints it to the session, and the owner can edit or delete it.
 _Avoid_: unread, queued
+
+**Reminder**:
+The board server's `reminder` event, once per wait of 30 minutes on the session: a card in Orchestrator review with no running builder, a pending message reading Working on it, or a wave triage with no reply. The watcher holds it while work is paused ([0131](docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md)).
+_Avoid_: nudge (the owner's tap on Stalled), stalled
 
 **Prototype**:
 A page that shows each option of one owner question as it would ship, built from the board's real components fed fake data. An agent records it with `board.mjs prototype add <topic>` in the site's `data/prototypes.json`, with its title, card and takes, and writes only the take files; the board serves `prototype-<topic>.html` from its one template, `board/public/prototype.html`. `question add` accepts a prototype url only for a recorded topic, with option ids a non-empty subset of its take keys in order, without repeats, and every take file written ([0089](docs/adr/0089-the-board-serves-every-prototype-from-one-template.md)).

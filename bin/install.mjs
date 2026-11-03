@@ -73,6 +73,8 @@ function replaceWithLink(file, target) {
 
 // Homebrew's node link survives `brew upgrade`, which removes the versioned folder process.execPath names.
 export const nodeBin = () => (fs.existsSync('/opt/homebrew/bin/node') ? '/opt/homebrew/bin/node' : process.execPath);
+// The watcher a site's owning session runs as a background task (bin/wait-events.mjs).
+export const watcherCommand = (route, session, root = runningClone()) => `${nodeBin()} ${path.join(root, 'bin', 'wait-events.mjs')} ${route} ${session}`;
 
 export function storedPath(realPath, { home = os.homedir(), skillsDir = path.join(home, '.claude', 'skills'), cloneRoot = runningClone() } = {}) {
   if (typeof realPath !== 'string' || !path.isAbsolute(realPath)) return realPath;

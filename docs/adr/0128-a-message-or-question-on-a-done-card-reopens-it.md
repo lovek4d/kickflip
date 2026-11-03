@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0131
+---
+
 # A message or question on a Done card reopens it until the owner's Done
+
+Superseded in part by [0131](0131-the-cli-and-board-server-do-the-boards-housekeeping.md): the board server records a newer `card-done` in the wave file; the session doesn't.
 
 An owner message in a Done card's thread, or a question Claude adds on it, reopens the card on the board with no step from the session. It sits in In Progress until Claude answers, then waits in In Review with Action needed until the owner presses Done. A merged card stays closed.
 

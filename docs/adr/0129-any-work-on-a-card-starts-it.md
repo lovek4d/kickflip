@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0131
+---
+
 # Any work on a card starts it
+
+Superseded in part by [0131](0131-the-cli-and-board-server-do-the-boards-housekeeping.md): the watcher writes the working mark as it prints the message, not `board.mjs working`.
 
 Todo holds only cards nobody has touched since they were filed. A work card is started, and leaves Todo for In Progress, once any of these is true:
 

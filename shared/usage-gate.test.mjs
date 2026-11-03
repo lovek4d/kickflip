@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { usageGate, readUsageGate, setPauseAt, setKeepGoing, heldUsageEvent } from './usage-gate.mjs';
+import { usageGate, readUsageGate, setPauseAt, setKeepGoing, heldUsageEvent, builderPick } from './usage-gate.mjs';
 
 const now = Date.parse('2026-11-01T21:00:00Z');
 const until = new Date(now + 3600_000).toISOString();
@@ -99,7 +99,7 @@ test('CLI reads without a hub and changes the line and Keep going directly', (t)
 });
 
 test('only the hub work kinds are held', () => {
-  for (const kind of ['github-change', 'check-github', 'card-unblocked', 'card-pull']) assert.equal(heldUsageEvent(JSON.stringify({ kind })), true);
+  for (const kind of ['github-change', 'check-github', 'card-unblocked', 'card-pull', 'reminder']) assert.equal(heldUsageEvent(JSON.stringify({ kind })), true);
   for (const kind of ['ask', 'item-message', 'owner-answer', 'hello', 'usage-resumed', 'rules', 'unknown']) assert.equal(heldUsageEvent(JSON.stringify({ kind })), false);
   assert.equal(heldUsageEvent('broken'), false);
 });
@@ -120,13 +120,18 @@ test('the reader exposes Codex past the line only while effective share is on', 
   process.env.PATH = bin;
   t.after(() => { process.env.PATH = oldPath; });
   const read = () => readUsageGate({ home: f.home, now });
+  const pick = () => builderPick({ home: f.home, now });
   assert.deepEqual(read().codex, { past: true, window: 'five_hour', used: 91, resets_at: until });
+  assert.deepEqual(pick(), { kind: 'opus', reason: `Codex is at 91%, past the 90% line until ${until}.` });
   f.write('settings.json', { codexShare: 'off' });
   assert.equal(read().codex.past, false);
+  assert.deepEqual(pick(), { kind: 'opus', reason: 'Codex share is off.' });
   f.write('settings.json', { pauseAt: 95, codexShare: 'always' });
   assert.equal(read().codex.past, false);
+  assert.deepEqual(pick(), { kind: 'codex', reason: 'Codex share is always and Codex is under the 95% line.' });
   setPauseAt(90, { home: f.home });
   assert.equal(read().codex.past, true);
   fs.rmSync(path.join(f.home, '.codex', 'auth.json'));
   assert.equal(read().codex.past, false);
+  assert.deepEqual(pick(), { kind: 'opus', reason: "Codex isn't logged in on the host." });
 });

@@ -6,7 +6,8 @@
 // counting lines that match `filter` (a regex; every line when unset).
 // Prints and exits on:
 //   event <file> <line>       new matching lines (several, batched for 2 s), each followed by one plain line saying
-//                             what came in and on which card (plainLine), then on a board:
+//                             what came in and on which card (plainLine); on a board it marks each ask,
+//                             item-message and wave-triage working in data/working.json, then prints:
 //   rule hub <text>           each hub rule (settings.json `rules`), then
 //   rule board <text>         each of the board's own (board.json `rules`): the owner's standing instructions,
 //                             printed with every wake (docs/adr/0039-rules-live-on-settings-at-hub-and-board-level.md), then
@@ -30,7 +31,7 @@ import os from 'node:os';
 import { routeRecord } from '../hub/routes.mjs';
 import { readHubRules, rulesOf, ruleLines } from '../hub/rules.mjs';
 import { boardAt, linksOf, hubLink } from '../hub/boards.mjs';
-import { cardName, settingsLines, settingsOf } from '../board/store.mjs';
+import { cardName, markWorking, settingsLines, settingsOf, WORKING_KINDS } from '../board/store.mjs';
 import { migrateOnStart } from './install.mjs';
 import { readUsageGate, heldUsageEvent } from '../shared/usage-gate.mjs';
 
@@ -76,6 +77,7 @@ const ON_CARD = {
   'card-unblocked': (c) => `${c} unblocked`,
   'card-pull': (c) => `${c} pulled in`,
   'prototype-request': (c) => `prototype asked on ${c}`,
+  reminder: (c, e) => `reminder: ${c} ${e.data?.what}`,
 };
 
 // One plain line per event line, from its kind and card (data.key, or data.id for an ask-* event), or null for a
@@ -88,6 +90,7 @@ async function plainLine(dir, line) {
   const card = key && await cardName(dir, key).catch(() => key);
   if (routeRecord(PLAIN, e.kind)) return PLAIN[e.kind](e);
   if (card && routeRecord(ON_CARD, e.kind)) return ON_CARD[e.kind](card, e);
+  if (e.kind === 'reminder') return `reminder: ${e.data?.what}`;
   return card ? `${e.kind} on ${card}` : `${e.kind} received`;
 }
 
@@ -132,17 +135,22 @@ for (;;) {
     const waiting = pending(seen);
     if (!Object.values(waiting).some((lines) => lines.some((line) => eligible(line, gate)))) continue;
     const held = Object.create(null);
+    const started = [];
     for (const [f, lines] of Object.entries(waiting)) {
       held[f] = lines.filter((line) => !eligible(line, gate));
       for (const line of lines.filter((line) => eligible(line, gate))) {
         console.log(`event ${f} ${line}`);
         const plain = await plainLine(s.dir, line);
         if (plain) console.log(plain);
+        try { const e = JSON.parse(line); if (WORKING_KINDS.includes(e.kind) && typeof e.id === 'string') started.push(e.id); } catch {}
       }
     }
     // A board is a site with a board.json; other sites get no rules.
     let board = null;
     try { board = JSON.parse(fs.readFileSync(path.resolve(s.dir, 'board.json'), 'utf8')); } catch (e) { if (e.code !== 'ENOENT') board = {}; }
+    // The session takes each one it is handed, so its page reads "Working on it" from now
+    // (docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md).
+    if (board) await markWorking(s.dir, started).catch((e) => console.log(`working marks not written (${e.message})`));
     if (board) for (const line of ruleLines(readHubRules(), rulesOf(board))) console.log(`rule ${line}`);
     if (board) for (const line of settingsLines(settingsOf(board))) console.log(line);
     if (board) console.log(QUIET);

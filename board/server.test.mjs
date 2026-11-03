@@ -27,19 +27,30 @@ after(() => { child?.kill(); fs.rmSync(home, { recursive: true, force: true }); 
 
 const upload = (body, name, type) => fetch(`${base}/api/upload`, { method: 'POST', headers: { 'x-filename': encodeURIComponent(name), 'content-type': type }, body });
 
-test('an owner answer drops queued question pushes only for this site', async () => {
+test('an owner answer drops a queued question push only for this site, once every question it was sent for is answered', async () => {
   const queue = path.join(home, '.claude', 'kickflip', 'push', 'queue.json');
+  const ownerFile = path.join(site, 'data', 'owner.json');
   fs.mkdirSync(path.dirname(queue), { recursive: true });
+  const asked = (id) => ({ id, topic: 'item:t/A1', question: 'Keep?', options: [{ id: 'A', label: 'Keep' }], push_tag: 'q-q1' });
+  fs.writeFileSync(ownerFile, JSON.stringify({ items: [asked('q1'), asked('q2')] }));
   const keep = [{ tag: 'q-q1', url: '/audit/prototype-site.html?q=q1' }, { tag: 'unrelated', url: '/site/' }, { tag: 'q-q1', url: '/site-other/' }];
-  fs.writeFileSync(queue, JSON.stringify({ items: [{ tag: 'q-q1', url: '/site/prototype-site.html?q=q1' }, ...keep] }));
-  const r = await fetch(`${base}/_claude/events`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answer', id: 'q1', choice: 'A' }),
+  const queued = [{ tag: 'q-q1', url: '/site/questions.html?from=push#q1' }, ...keep];
+  fs.writeFileSync(queue, JSON.stringify({ items: queued }));
+  const answer = (id) => fetch(`${base}/_claude/events`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answer', id, choice: 'A' }),
   });
-  assert.equal(r.status, 200);
-  const { id } = await r.json();
-  const events = fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  assert.deepEqual(events.find((e) => e.id === id).data, { id: 'q1', choice: 'A' });
-  assert.deepEqual(JSON.parse(fs.readFileSync(queue, 'utf8')), { items: keep });
+  try {
+    const r = await answer('q1');
+    assert.equal(r.status, 200);
+    const { id } = await r.json();
+    const events = fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    assert.deepEqual(events.find((e) => e.id === id).data, { id: 'q1', choice: 'A' });
+    assert.deepEqual(JSON.parse(fs.readFileSync(queue, 'utf8')), { items: queued });
+    assert.equal((await answer('q2')).status, 200);
+    assert.deepEqual(JSON.parse(fs.readFileSync(queue, 'utf8')), { items: keep });
+  } finally {
+    fs.writeFileSync(ownerFile, '{"items":[]}');
+  }
 });
 
 test("an owner answer opens no confirm: a pick with no note settles its round, a pick with a note waits on Claude out of Needs you, and a note with no take resolves its question", async () => {
@@ -248,9 +259,11 @@ test("an ask's Done and a work card's Hold, Resume and Done apply at once from t
   assert.deepEqual(await card().then((c) => [c.lane, c.fold, c.finishable]), ['done', 'asks', false]);
   const work = async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/A2');
   assert.deepEqual(await work().then((c) => [c.lane, c.held, c.finishable]), ['todo', false, true]);
-  const wave = fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8');
+  const filed = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items.find((i) => i.id === 'A2');
+  const said = () => fs.readFileSync(path.join(site, 'data', 'threads', 't__A2.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).filter((m) => m.who === 'love').map((m) => m.text);
   await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: true });
   assert.equal((await work()).held, true);
+  assert.deepEqual([filed().held, filed().pick_up_at], [true, undefined]);
   await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: false });
   assert.equal((await work()).held, false);
   const board = await (await fetch(`${base}/api/board`)).json();
@@ -263,6 +276,7 @@ test("an ask's Done and a work card's Hold, Resume and Done apply at once from t
   const at = new Date(Date.now() + 2 * 86_400_000).toISOString();
   await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: true, for: at });
   assert.equal((await work()).heldUntil, at);
+  assert.deepEqual([filed().held, filed().pick_up_at], [true, at]);
   await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: true, for: 'forever' });
   assert.deepEqual(await work().then((c) => [c.held, c.heldUntil]), [true, null]);
   const refuse = (choice) => fetch(base + '/_claude/events', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'card-hold', key: 't/A2', hold: true, for: choice }) });
@@ -272,7 +286,10 @@ test("an ask's Done and a work card's Hold, Resume and Done apply at once from t
   await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: false });
   await post('/_claude/events', { kind: 'card-done', key: 't/A2' });
   assert.deepEqual(await work().then((c) => [c.lane, c.status, c.finishable]), ['done', 'done', false]);
-  assert.equal(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'), wave);
+  assert.deepEqual([filed().status, filed().held], ['done', undefined]);
+  const lines = said();
+  assert.deepEqual([lines.slice(0, 2), lines.slice(4)], [['Held.', 'Resumed.'], ['Held.', 'Resumed.', 'Marked done.']]);
+  assert.match(lines[2], /^Held until .+\.$/);
 });
 
 test('a watcher that just exited on an event still counts as listening, until its session stops', async () => {
@@ -689,13 +706,14 @@ test('the watcher prints the hub rules, then the board rules, the board settings
   fs.writeFileSync(path.join(web, 'manifest.json'), JSON.stringify({ sites: { t: { dir: site } } }));
   fs.writeFileSync(path.join(web, 'settings.json'), JSON.stringify({ polling: {}, rules: [{ id: 'h1', text: 'Screenshots in every PR', by: 'owner', at: 'x' }] }));
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, rules: [{ id: 'b1', text: 'Ask before\ntouching main', by: 'claude', at: 'x' }, { text: 'no id' }] }));
-  const watch = async (session) => {
+  const ask = () => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ask', text: 'Wake' }) });
+  const watch = async (session, wake = ask) => {
     const watcher = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'wait-events.mjs'), 't', session], { env: { ...process.env, HOME: home } });
     const out = [];
     watcher.stdout.on('data', (c) => out.push(String(c)));
     const exited = new Promise((resolve) => watcher.once('exit', resolve));
     await until(() => fs.existsSync(path.join(site, 'data', `.watch-cursor-${session}.json`)), 'watcher did not initialize its cursor');
-    await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ask', text: 'Wake' }) });
+    await wake();
     assert.equal(await exited, 0);
     return out.join('').trim().split('\n');
   };
@@ -703,11 +721,18 @@ test('the watcher prints the hub rules, then the board rules, the board settings
     const lines = await watch('rules1');
     assert.match(lines[0], /^event data\/events\.jsonl /);
     assert.match(lines[1], /^new task \S+ received$/);
+    const asked = lines[1].split(' ')[2];
+    assert.ok(Date.parse(JSON.parse(fs.readFileSync(path.join(site, 'data', 'working.json'), 'utf8')).events[asked]));
+    assert.equal((await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === `ask:${asked}`).working, true);
     assert.match(lines.at(-1), /^quiet .*AskUserQuestion/);
     assert.deepEqual(lines.slice(2, -1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-pull off']);
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, auto_merge: true }));
     fs.rmSync(path.join(web, 'settings.json'));
     assert.deepEqual((await watch('rules2')).slice(2, -1), ['setting auto-merge on', 'setting auto-build off', 'setting auto-pull off']);
+    const remind = (data) => () => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: `r-${Date.now()}`, ts: new Date().toISOString(), kind: 'reminder', data }) + '\n');
+    fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', status: 'checking' }] }));
+    assert.equal((await watch('remind1', remind({ key: 't/A1', what: 'has waited 30 min in Orchestrator review' })))[1], 'reminder: A1 has waited 30 min in Orchestrator review');
+    assert.equal((await watch('remind2', remind({ key: null, what: 'the triage of wave t has waited 30 min for a reply' })))[1], 'reminder: the triage of wave t has waited 30 min for a reply');
   } finally {
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
     fs.rmSync(path.join(web, 'settings.json'), { force: true });

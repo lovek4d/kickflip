@@ -208,11 +208,11 @@ export async function sendToBoards(boards, kind, data) {
 
 // ---------- listening ----------
 // Whether a watcher (bin/wait-events.mjs) runs for the board, from data/watcher.json {pid, since, exited_at}: its pid
-// alive and running wait-events.mjs, since pids get reused, or an exit within the relaunch grace.
-export function watcherRunning(dir, now = Date.now()) {
+// alive and running wait-events.mjs, since pids get reused, or an exit within the relaunch grace (ms).
+export function watcherRunning(dir, now = Date.now(), { grace = RELAUNCH_GRACE } = {}) {
   const w = readJSON(path.join(dir, 'data', 'watcher.json'), null);
   if (!Number.isInteger(w?.pid)) return false;
-  if (typeof w.exited_at === 'string' && now - Date.parse(w.exited_at) <= RELAUNCH_GRACE) return true;
+  if (typeof w.exited_at === 'string') return now - Date.parse(w.exited_at) <= grace;
   try { process.kill(w.pid, 0); } catch (e) { if (e.code !== 'EPERM') return false; }
   try { return execFileSync('ps', ['-p', String(w.pid), '-o', 'command='], { encoding: 'utf8', timeout: 3000 }).includes('wait-events.mjs'); } catch { return false; }
 }

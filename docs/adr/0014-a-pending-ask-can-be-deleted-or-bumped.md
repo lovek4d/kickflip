@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0131
+---
+
 # A pending ask or thread message can be deleted or edited, and a pending ask bumped
+
+Superseded in part by [0131](0131-the-cli-and-board-server-do-the-boards-housekeeping.md): the watcher marks an ask or thread message Working as it prints it; `board.mjs working` is gone.
 
 An ask still waiting for Claude has three buttons: bump to top, edit and delete. The owner's message in an item's thread has edit and delete while it is pending: no reply and no Claude line after it.
 

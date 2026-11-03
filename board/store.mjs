@@ -7,9 +7,9 @@ import path from 'node:path';
 import os from 'node:os';
 import { ITEM_STATUSES, awaitsConfirm, ownerQuestion, refOf, roundOf, roundSettledBy } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
-import { readUsageGate, pauseReason } from '../shared/usage-gate.mjs';
-import { dropQueued, reviseQueued, flushQueue, queueStatus } from '../hub/push.mjs';
-import { holdLine } from '../hub/schedule.mjs';
+import { readUsageGate, pauseReason, builderPick } from '../shared/usage-gate.mjs';
+import { dropQueued, reviseQueued, flushQueue, queueStatus, readSettings } from '../hub/push.mjs';
+import { holdLine, windowAt } from '../hub/schedule.mjs';
 import { AT_RE } from '../hub/duration.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleTickets, mcpCreateLine } from './tickets.mjs';
@@ -107,24 +107,28 @@ export async function writeReply(site, eventId, html) {
   const file = path.join(site, 'data', 'replies', `${eventId}.html`);
   await replace(file, text(html, 'the reply'));
   const key = event.kind === 'ask' ? `ask:${eventId}` : event.kind === 'item-message' && typeof event.data?.key === 'string' ? event.data.key : null;
-  return { file, lines: key ? await freshenPush(site, key, htmlText(html)) : [] };
+  const lines = key ? await freshenPush(site, key, htmlText(html)) : [];
+  // docs/adr/0095-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
+  const triaged = event.kind === 'wave-triage' ? ['lineup', 'wave'].filter((k) => typeof event.data?.[k] === 'string').map((k) => `${k}:${event.data[k]}`) : [];
+  const topic = event.kind === 'ask' ? `item:ask:${eventId}` : triaged[0];
+  if (topic) lines.push(...await resolveAnsweredOn(site, topic, 'Acted on: replied'));
+  return { file, lines };
 }
 
-// An event the session has started, such as an ask or a thread message, reads "Working on it" until
+// An event the watcher handed the session, such as an ask or a thread message, reads "Working on it" until
 // Claude replies to it (or, in a thread, writes a later line); domain.mjs decides which.
 const workingFile = (site) => path.join(site, 'data', 'working.json');
 export async function readWorking(site) {
   return (await readJSON(workingFile(site), {})).events || {};
 }
 
-export async function setWorking(site, eventId) {
-  needSite(site);
-  domId(eventId, 'the event id');
-  const known = (await readLines(path.join(site, 'data', 'events.jsonl'))).some((e) => e.id === eventId);
-  if (!known) fail(`no event "${eventId}" in this site's data/events.jsonl`);
+// The kinds bin/wait-events.mjs marks working as it hands them to the session (docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md).
+export const WORKING_KINDS = ['ask', 'item-message', 'wave-triage'];
+export async function markWorking(site, eventIds) {
+  if (!eventIds.length) return;
+  const at = new Date().toISOString();
   const events = await readWorking(site);
-  await writeJSON(workingFile(site), { events: { ...events, [eventId]: new Date().toISOString() } });
-  return workingFile(site);
+  await writeJSON(workingFile(site), { events: { ...events, ...Object.fromEntries(eventIds.map((id) => [id, routeRecord(events, id) || at])) } });
 }
 
 // Replies ride along on the next push (docs/adr/0011-replies-ride-along-on-the-next-push.md).
@@ -437,19 +441,22 @@ export async function moveAsk(site, eventId, route) {
   const link = `/${route}/#item=${encodeURIComponent(`ask:${id}`)}`;
   await appendLine(threadFile(site, `ask:${eventId}`), { ts: at, who: 'claude', text: `Moved to ${target.title}.`, link });
   // The ask has already gone to the other board, so a dropped card's open question can't stop it.
-  for (const key of state?.items || []) await setItem(site, key, { status: 'dropped', force: true });
+  for (const key of state?.items || []) await setItem(site, key, { status: 'dropped', force: true, text: `Dropped: its ask moved to ${target.title}.` });
   return { file: path.join(target.dir, 'data', 'events.jsonl'), lines: [`moved to ${link}`, ...(state?.items || []).map((k) => `dropped: ${k}`)] };
 }
 
 // When the session last checked GitHub, and how often it checks (docs/adr/0021-the-board-shows-github-checks-and-watcher-health.md).
 const checkedFile = (site) => path.join(site, 'data', 'checked.json');
-// idle: no timer checks until the next wave, so the last check is never late.
+// idle: no timer checks until the next wave, so the last check is never late. every defaults to the minutes of the
+// polling window now (Hub settings' Polling).
 export async function writeChecked(site, every, { idle = false } = {}) {
   needSite(site);
   if (idle && every !== undefined) fail('pass --every or --idle, not both');
-  const minutes = idle ? null : /^[1-9]\d{0,3}$/.test(String(every ?? '30')) ? Number(every ?? '30') : fail('--every takes the minutes between checks, such as 30');
-  await writeJSON(checkedFile(site), idle ? { at: new Date().toISOString(), every: null, idle: true } : { at: new Date().toISOString(), every: minutes });
-  return { file: checkedFile(site), lines: await flushAfterTick() };
+  const now = new Date();
+  const minutes = idle ? null : every === undefined ? windowAt(now, readSettings()).every_minutes
+    : /^[1-9]\d{0,3}$/.test(String(every)) ? Number(every) : fail('--every takes the minutes between checks, such as 30');
+  await writeJSON(checkedFile(site), idle ? { at: now.toISOString(), every: null, idle: true } : { at: now.toISOString(), every: minutes });
+  return { file: checkedFile(site), every: minutes, lines: await flushAfterTick() };
 }
 
 // A tick's pushes go out as it ends rather than at the next slot (docs/adr/0030-pushes-go-by-kind-and-each-arrives-on-its-own.md).
@@ -910,9 +917,40 @@ export async function addQuestions(site, input) {
       }
     }
   }
-  await writeJSON(ownerFile(site), { ...owner, topics: owner.topics || [], items: [...items, ...questions.map((q) => ({ ...q, asked_at: at }))] });
-  await dropQueued([...replaced, ...resolved].map((id) => `q-${id}`), path.basename(site));
+  const written = { ...owner, topics: owner.topics || [], items: [...items, ...questions.map((q) => ({ ...q, asked_at: at, push_tag: `q-${questions[0].id}` }))] };
+  await writeJSON(ownerFile(site), written);
+  await dropSettledPushes(site, written, [...replaced, ...resolved]);
   return { file: ownerFile(site), lines: [...replaced.map((id) => `replaced: ${id}`), ...resolved.map((id) => `resolved: ${id}`)] };
+}
+
+// docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md
+// question add pushes its questions once, tagged push_tag (q-<first id>); a question without one, such as a confirm,
+// has q-<id>. A tag's queued push is dropped once every question carrying it is answered or resolved.
+const pushTagOf = (q) => q.push_tag || `q-${q.id}`;
+async function dropSettledPushes(site, owner, ids) {
+  if (!ids.length) return;
+  const answered = new Set((await readLines(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'owner-answer').map((e) => e.data?.id));
+  const items = owner.items || [];
+  const tags = new Set(items.filter((q) => ids.includes(q.id)).map(pushTagOf));
+  const settled = [...tags].filter((tag) => items.filter((q) => pushTagOf(q) === tag).every((q) => q.resolved || answered.has(q.id)));
+  await dropQueued(settled, path.basename(site));
+}
+
+// The board server calls this once an owner answer to question id is in data/events.jsonl.
+export async function dropAnsweredPush(site, id) {
+  await dropSettledPushes(site, await readJSON(ownerFile(site), { items: [] }), [id]);
+}
+
+// The push question add and question confirm send for the questions they wrote: one action push now, titled from the
+// card or topic, opening Waiting on you at the first of them. → {kind, title, body, url, tag, now} for board.mjs push.
+export async function questionPush(site, asked) {
+  const [first] = asked;
+  const topic = String(first.topic);
+  const owner = await readJSON(ownerFile(site), { topics: [] });
+  const name = topic.startsWith('item:') ? await cardName(site, topic.slice(5))
+    : (owner.topics || []).find((t) => t.id === topic)?.title || topic.replace(/^(?:lineup|wave):/, '');
+  const count = asked.length === 1 ? (first.confirm_of ? 'Is this it?' : '1 question') : `${asked.length} questions`;
+  return { kind: 'action', title: `${name}: ${count}`, body: pushLine(first.question), url: `/${path.basename(site)}/questions.html#${encodeURIComponent(first.id)}`, tag: pushTagOf(first), now: true };
 }
 
 // docs/adr/0116-a-confirm-waits-for-claudes-update.md
@@ -935,7 +973,7 @@ function setResolved(owner, ids, note, at = new Date().toISOString()) {
 async function markResolved(site, owner, ids, note) {
   setResolved(owner, ids, note);
   await writeJSON(ownerFile(site), owner);
-  await dropQueued(ids.map((id) => `q-${id}`), path.basename(site));
+  await dropSettledPushes(site, owner, ids);
   return ownerFile(site);
 }
 
@@ -1014,9 +1052,10 @@ export async function confirmQuestion(site, id, url) {
   const at = new Date().toISOString();
   setResolved(owner, stale, `Replaced by ${cid}`, at);
   setResolved(owner, [id], 'Followed by Is this it?', at);
-  await writeJSON(ownerFile(site), { ...owner, topics: owner.topics || [], items: [...items, confirm] });
-  await dropQueued(stale.map((x) => `q-${x}`), path.basename(site));
-  return { file: ownerFile(site), lines: [`confirm: ${cid}`, ...stale.map((x) => `replaced: ${x}`), ...(q.state === 'resolved' ? [] : [`resolved: ${id}`])] };
+  const written = { ...owner, topics: owner.topics || [], items: [...items, confirm] };
+  await writeJSON(ownerFile(site), written);
+  await dropSettledPushes(site, written, [...stale, id]);
+  return { file: ownerFile(site), asked: [confirm], lines: [`confirm: ${cid}`, ...stale.map((x) => `replaced: ${x}`), ...(q.state === 'resolved' ? [] : [`resolved: ${id}`])] };
 }
 
 async function ownerAnswers(site) {
@@ -1027,16 +1066,18 @@ async function ownerAnswers(site) {
   }));
 }
 
-async function cardQuestions(site, key) {
+async function topicQuestions(site, topic) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   const answers = await ownerAnswers(site);
-  const asked = (owner.items || []).filter((q) => q.topic === `item:${key}`).map((q) => ownerQuestion(q, answers));
+  const asked = (owner.items || []).filter((q) => q.topic === topic).map((q) => ownerQuestion(q, answers));
   return { owner, asked };
 }
+const cardQuestions = (site, key) => topicQuestions(site, `item:${key}`);
 
-async function resolveAnswered(site, key, note) {
+const resolveAnswered = (site, key, note) => resolveAnsweredOn(site, `item:${key}`, note);
+async function resolveAnsweredOn(site, topic, note) {
   if (!site) return [];
-  const { owner, asked } = await cardQuestions(site, key);
+  const { owner, asked } = await topicQuestions(site, topic);
   const ids = answeredOnClaude(asked);
   if (ids.length) await markResolved(site, owner, ids, note);
   return ids.map((id) => `resolved: ${id}`);
@@ -1054,6 +1095,14 @@ async function closeQuestions(site, key, by, force) {
     if (ids.length) await markResolved(site, owner, ids, 'Closed with the card');
     return ids.map((id) => `resolved: ${id}`);
   };
+}
+
+// Refuses what `item set <key> --status done --text <said>` would refuse for its questions or its text, writing nothing,
+// so board.mjs land can check before it lands.
+export async function checkClose(site, key, said) {
+  await loadItem(site, key);
+  text(said, '--text');
+  await closeQuestions(needSite(site), key, 'land', false);
 }
 
 // docs/adr/0091-a-prototype-answer-with-a-note-gets-a-confirm-round.md
@@ -1185,13 +1234,27 @@ export async function setMainInstall(site, { install, installSha }) {
   return { file, lines: ['main install set'] };
 }
 
+// docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md
+// The thread line closing a card writes as its last: --text, which done and dropped need on a site, or for merged
+// "Merged PR #n.". → the line, or null.
+function closingLine(site, key, item, status, text) {
+  if (status === 'merged') return text ?? (item.status === 'merged' ? null : item.pr ? `Merged PR #${item.pr}.` : 'Merged.');
+  if (text === undefined && site) fail(`--status ${status} needs --text "<what was done or left>", which becomes ${key}'s last thread line`);
+  return text ?? null;
+}
+
 // → the wave file, and when a dep finishes the items it unblocked as `unblocked: <key>` lines; closing
 // (done, merged, dropped) adds a `resolved: <id>` line per question it resolved (closeQuestions).
-// notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`.
-async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, held, unheld, pickUpAt, notesFile, deps, install, installSha, installLabel, clearInstall, title, force, confirmed }, options) {
+// notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`. text is the closing line
+// (closingLine), or with fromAsk the item's first thread line.
+async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, held, unheld, pickUpAt, notesFile, deps, install, installSha, installLabel, clearInstall, title, force, confirmed, text: said, who }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
   if (confirmed !== undefined && status !== 'building') fail('--confirmed goes with --status building');
   if (force && !FINISHED.includes(status)) fail(`--force goes with --status ${FINISHED.join(', ')}`);
+  if (fromAsk !== undefined && FINISHED.includes(status)) fail('--from-ask opens a card; close it in another call');
+  if (said !== undefined) text(said, '--text');
+  if (said !== undefined && fromAsk === undefined && !FINISHED.includes(status)) fail(`--text goes with --from-ask or --status ${FINISHED.join(', ')}`);
+  if (fromAsk !== undefined && said === undefined) fail('--from-ask needs --text "<first line>", the item\'s first thread line after the ask');
   if (next !== undefined && clearNext) fail('pass --next or --clear-next, not both');
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   const hold = holdOf({ held, unheld, pickUpAt });
@@ -1200,6 +1263,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   const { source, wave, item } = await loadItem(site, key);
+  const statusBefore = item.status;
   const wasFinished = FINISHED.includes(item.status);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
   if (title !== undefined) item.title = text(title, '--title');
@@ -1219,6 +1283,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   }
   const confirmLine = status === 'building' ? await confirmGate(site, key, confirmed) : null;
   const resolve = FINISHED.includes(status) ? await closeQuestions(site, key, `--status ${status}`, force) : async () => [];
+  const lastLine = FINISHED.includes(status) ? closingLine(site, key, { ...item, status: statusBefore }, status, said) : null;
   if (clearStatus) delete item.status;
   // A newer status_at overrides the owner's card-done in domain.mjs.
   if (status !== undefined || clearStatus) item.status_at = new Date().toISOString();
@@ -1252,7 +1317,10 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   const resolved = await resolve();
   // docs/adr/0095-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   if (notesFile !== undefined) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
+  if (status === 'building') resolved.push(...await resolveAnswered(site, key, 'Acted on: build started'));
   if (confirmLine) resolved.push(...(await appendThread(site, key, { text: confirmLine })).lines);
+  if (ask) resolved.push(...(await appendThread(site, key, { text: said })).lines);
+  if (lastLine && site) resolved.push(...(await appendThread(site, key, { text: lastLine, who })).lines);
   if (mcpLine) resolved.push(mcpLine);
   const target = ticketTarget({ status, pr: pr ?? pushed });
   const moved = target && await moveTicket(await boardSource(site), item, target, { ...options, repo: boardRepoOf(site, wave) });
@@ -1307,6 +1375,28 @@ export async function pickUp(site, key, until, { announce = true } = {}) {
   }
   setHold(item, null);
   await writeJSON(source.file, wave);
+}
+
+// The owner's Hold, Resume or Done tap (card-hold {key, hold, until?} or card-done {key}), recorded in the wave file
+// as the board server takes it, with a thread line; a Done unblocks waiting cards as item set --status done does
+// (docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md). A merged or dropped card, and a Hold on a
+// follow-up, are left as they are. → the item set result, or null when nothing was written.
+export async function recordOwnerTap(site, kind, data) {
+  const key = String(data?.key || '');
+  const { wave: slug, id } = parseKey(key);
+  const { source, wave } = await loadWave(site, slug);
+  const followup = (wave.followups || []).find((f) => f.id === id);
+  // The owner's line, so it answers none of their messages that wait on Claude.
+  const said = { text: 'Marked done.', who: 'love' };
+  if (kind === 'card-done' && followup) return followup.done ? null : finishFollowup(site, slug, id, { force: true, ...said });
+  const item = wave.items.find((it) => it.id === id) || (followup ? null : fail(`wave "${slug}" has no item "${id}"`));
+  if (!item || ['merged', 'dropped'].includes(item.status)) return null;
+  if (kind === 'card-done') return setItem(site, key, { status: 'done', force: true, ...said });
+  const until = data.hold ? (typeof data.until === 'string' ? new Date(data.until).toISOString() : null) : undefined;
+  setHold(item, data.hold ? { until } : null);
+  await writeJSON(source.file, wave);
+  const at = until && new Date(until).toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return appendThread(site, key, { text: data.hold ? (at ? `Held until ${at}.` : 'Held.') : 'Resumed.', who: 'love' });
 }
 
 // A comma list of deps, each an item that exists; "" is none.
@@ -1465,13 +1555,18 @@ async function backfill(site, dryRun, options) {
   return { lines: [...lines, `backfill${dryRun ? ' (dry run)' : ''}: ${total}`] };
 }
 
-export async function finishFollowup(site, slug, id, { force } = {}) {
+// text is the follow-up's closing thread line, which it needs on a site (closingLine), written as who.
+export async function finishFollowup(site, slug, id, { force, text: said, who } = {}) {
   const { source, wave } = await loadWave(site, slug);
   const f = (wave.followups || []).find((x) => x.id === id) || fail(`wave "${slug}" has no follow-up "${id}"`);
   const resolve = await closeQuestions(site, `${slug}/${id}`, 'followup done', force);
+  if (said !== undefined) text(said, '--text');
+  else if (site) fail(`followup done needs --text "<what was done or left>", which becomes ${slug}/${id}'s last thread line`);
   f.done = true;
   await writeJSON(source.file, wave);
-  return { file: source.file, lines: await resolve() };
+  const lines = await resolve();
+  if (site) lines.push(...(await appendThread(site, `${slug}/${id}`, { text: said, who })).lines);
+  return { file: source.file, lines };
 }
 
 // A lineup is what the owner calls a wave: a named set of one wave file's cards in build order, kept in that file's
@@ -1618,7 +1713,11 @@ export async function startBuilder(site, key, { label, progress, dir, agent = 'm
   const line = optional(progress, (v) => progressLine(site, v, '--progress'));
   const file = await builderFile(site, key, dir, agent);
   const now = new Date().toISOString();
-  const k = optional(kind, (v) => (/^[\w.-]{1,30}$/.test(v) ? v : fail('--kind takes a short word such as opus or codex')));
+  const asked = optional(kind, (v) => (/^[\w.-]{1,30}$/.test(v) ? v : fail('--kind takes a short word such as opus or codex')));
+  // docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md: --kind build takes the pick's kind.
+  const pick = ['build', ...PICKED].includes(asked) ? builderPick() : null;
+  if (pick && asked !== 'build' && asked !== pick.kind) fail(`--kind ${asked}: ${pick.kind} builds now. ${pick.reason} Pass --kind ${pick.kind}, or --kind build.`);
+  const k = pick ? pick.kind : asked;
   const record = {
     label: label === undefined ? 'Builder' : text(label, '--label'), ...(k ? { kind: k } : {}), started: now,
     ...(eta === undefined ? {} : { eta: isoTime(eta, '--eta') }),
@@ -1626,7 +1725,16 @@ export async function startBuilder(site, key, { label, progress, dir, agent = 'm
   const wt = worktree ? await worktree() : null;
   await writeJSON(file, wt ? { ...record, worktree: wt } : record);
   if (line) await statusToThread(site, key, agent, k, line, now);
-  return { file, lines: wt ? [`worktree: ${wt.path}`] : [] };
+  const resolved = await resolveAnswered(site, key, 'Acted on: builder started');
+  return { file, lines: [...(asked === 'build' ? [`kind: ${k}. ${pick.reason}`] : []), ...(wt ? [`worktree: ${wt.path}`] : []), ...resolved] };
+}
+
+const PICKED = ['codex', 'opus'];
+// `builder pick`: the kind builder start takes for a card's build. → {lines: ["<codex|opus>: <reason>"]}
+export async function pickBuilder(site, key) {
+  await loadItem(site, key);
+  const { kind, reason } = builderPick();
+  return { lines: [`${kind}: ${reason}`] };
 }
 
 // The worktree the item's newest builder record keeps ({path, branch, repo}), or null when none keeps one.
