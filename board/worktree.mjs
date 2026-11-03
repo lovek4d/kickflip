@@ -21,7 +21,8 @@ export const worktreesDir = () => path.join(os.homedir(), '.claude', 'kickflip',
 const fail = (msg) => { throw new BoardError(msg); };
 
 function git(cwd, ...args) {
-  const r = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
+  // core.commentChar=';' keeps a "#N: ..." subject: git's default cleanup strips lines starting with # when it rewrites a message.
+  const r = spawnSync('git', ['-C', cwd, '-c', 'core.commentChar=;', ...args], { encoding: 'utf8' });
   return { ok: r.status === 0, out: (r.stdout || '').trim(), err: (r.stderr || r.error?.message || '').trim().split('\n')[0] };
 }
 const short = (repo, ref) => git(repo, 'rev-parse', '--short', ref).out;
@@ -214,6 +215,9 @@ export function land({ path: dir, branch, repo }, { say = console.log, runTests 
     }
     say(`rebased ${branch} onto main (${short(repo, 'main')})`);
   }
+
+  const blank = git(repo, 'log', '--format=%h %s', `main..${branch}`).out.split('\n').filter((l) => l && !l.includes(' '));
+  if (blank.length) fail(`${branch} has a commit with an empty subject (${blank[0]}); reword it in ${dir} and land again`);
 
   refuseDuplicateAdr(dir);
 

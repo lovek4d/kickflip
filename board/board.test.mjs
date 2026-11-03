@@ -1531,6 +1531,34 @@ test("a local board, or one with no GitHub repo or git remote, branches from its
   assert.equal(fs.readFileSync(path.join(project, 'card.txt'), 'utf8'), 'card');
 });
 
+test('land keeps a "#N: subject" commit through its rebase, and refuses a commit with an empty subject before fast-forwarding main', () => {
+  const repo = scratchRepo();
+  assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  write(path.join(worktree(), 'board', 'server.mjs'), '2\n');
+  git(worktree(), 'add', '-A');
+  git(worktree(), '-c', 'core.commentChar=;', 'commit', '--quiet', '-m', '#7: subject');
+  commit(repo, 'shared/notes.md', 'b\n');
+  const before = git(repo, 'rev-parse', 'main');
+  const r = land();
+  assert.equal(r.code, 0, r.err);
+  assert.equal(git(repo, 'log', '-1', '--format=%s', 'main'), '#7: subject');
+  assert.equal(git(repo, 'rev-parse', 'main~1'), before);
+});
+
+test('land refuses a commit with an empty subject, naming it, and leaves main as it was', () => {
+  const repo = scratchRepo();
+  assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  write(path.join(worktree(), 'board', 'server.mjs'), '2\n');
+  git(worktree(), 'add', '-A');
+  git(worktree(), 'commit', '--quiet', '--allow-empty-message', '--cleanup=verbatim', '-m', '');
+  const sha = git(worktree(), 'rev-parse', '--short', 'HEAD');
+  const main = git(repo, 'rev-parse', 'main');
+  const r = land();
+  assert.equal(r.code, 1);
+  assert.match(r.err, new RegExp(`empty subject \\(${sha}\\)`));
+  assert.equal(git(repo, 'rev-parse', 'main'), main);
+});
+
 test('land rebases onto a moved main, fast-forwards main, and removes the worktree and branch; a repo other than the running kickflip clone restarts nothing', () => {
   const repo = scratchRepo();
   assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
