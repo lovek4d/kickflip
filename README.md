@@ -18,7 +18,7 @@ See [Install on a new host](SKILL.md#install-on-a-new-host) in SKILL.md for prer
 Kickflip is licensed under the [Prosperity Public License 3.0.0](LICENSE).
 
 - **Free for noncommercial use:** personal use, hobby projects, study and research, and use by charities, schools and government.
-- **Companies** get a 30-day trial. After that, using kickflip for work needs a commercial license from Love Kharod; reach Love at work@lovek4d.com.
+- **Companies** get a 30-day trial. After that, using kickflip for work needs a commercial license from Love Kharod; reach Love at love@kickflip.sh.
 - **Ever** (https://www.evercars.com) holds a free commercial license with no end date.
 
 Contributing? See [CONTRIBUTING.md](CONTRIBUTING.md).
