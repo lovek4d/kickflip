@@ -48,6 +48,7 @@
 //                                board, state reading broken only past the link's grace period
 //                                (../hub/boards.mjs linksOf), null when the manifest has no board here; setup:
 //                                {events, github} while the join handshake's checklist shows, else null
+//                                arch: the header bulb's {repo, waits, last} (arch-review.mjs archOf), null off the manifest
 //   GET  /api/links              {links}: the same list alone
 //   GET  /api/thread?key=w/id    data/threads/<w>__<id>.jsonl ({ts, who, text, link, via}; who is
 //                                claude, love or a reviewer's name; via github or slack) plus the page's own
@@ -83,6 +84,9 @@
 //                                upload {name, url, path, type, size}: url is relative to the site
 //                                (uploads/<file>) and path is absolute. Over 20 MB → 413
 //   GET  /uploads/<file>         a stored upload with its type; nothing else under data/ is served
+//   POST /api/arch-review        {} starts an architecture review of the board's repo (arch-review.mjs startReview) and appends
+//                                arch-review {key, repo, github, branch, wave, lineup, scope?} → {key, id, existing: false};
+//                                while a review is open → {key, ref, existing: true}; a review that must wait → 409 {error}
 //   POST /api/hide               {id, hidden} → data/hidden.json; the page clears an event for
 //                                every device, without waking Claude
 //   GET  /api/rules              {board, hub}: board.json's rules and the hub's from settings.json (hub/rules.mjs)
@@ -108,6 +112,7 @@
 // Routes that parse JSON require application/json; /api/upload keeps the file's content type.
 // Claude's reply to event <id> is data/replies/<id>.html, or .json.
 import { topicItems } from './review.mjs';
+import { archOf, readReviews, repoName, startReview } from './arch-review.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -130,6 +135,8 @@ import { durationChoices } from '../hub/views.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { readUsageGate } from '../shared/usage-gate.mjs';
+import { reviewWaits } from '../shared/skills.mjs';
+import { boardRepo } from '../hub/board-repo.mjs';
 
 const template = path.dirname(fileURLToPath(import.meta.url));
 // The hub's Home Screen icon, versioned by mtime the way hub/hub.mjs iconUrl() does, so iOS refetches a replaced icon.
@@ -408,7 +415,24 @@ async function board() {
   const built = buildBoard({ ...(await snapshot()), listen, prompts: self ? pendingFor(self.route).map(shown) : [] });
   const links = self ? linksOf(self, { listen }) : null;
   return { generatedAt: new Date().toISOString(), title, reviewers: (reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string'), ...built, links, setup: await setupOf(links),
-    holdChoices: durationChoices(new Date(), 'until you resume it') };
+    holdChoices: durationChoices(new Date(), 'until you resume it'), arch: self ? archOf(await readReviews(here), built.items, built.owner, { repo: repoName(boardRepo(self.route)), waits: reviewWaits() }) : null };
+}
+
+// docs/adr/0125-the-bulb-runs-an-architecture-review-of-the-boards-repo.md: one review at a time, so a second Run while
+// one is open answers with that one's card. Runs one at a time, so two taps make one review.
+let reviewing = Promise.resolve();
+function runReview() {
+  const run = reviewing.then(async () => {
+    const self = boardAt(here);
+    if (!self) throw Object.assign(new BoardError('This board isn’t in the hub’s manifest.'), { status: 404 });
+    const { arch } = await board();
+    if (arch.last?.open) return { key: arch.last.key, ref: arch.last.ref, existing: true };
+    const { key, data } = await startReview(here, self);
+    const id = await appendEvent('arch-review', data);
+    return { key, id, existing: false };
+  });
+  reviewing = run.catch(() => {});
+  return run;
 }
 
 async function itemOf(key) {
@@ -653,6 +677,10 @@ const server = http.createServer(async (req, res) => {
       try { saved = await saveBoardSettings(here, body); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
       const id = saved.changed.length ? await appendEvent('settings', Object.fromEntries(saved.changed.map((k) => [k, saved.settings[k]]))) : null;
       return json(res, 200, { settings: saved.settings, id });
+    }
+    if (p === '/api/arch-review' && req.method === 'POST') {
+      await readBody(req);
+      try { return json(res, 200, await runReview()); } catch (e) { if (e instanceof BoardError) return json(res, e.status || 400, { error: e.message }); throw e; }
     }
     if (p === '/api/hide' && req.method === 'POST') {
       const body = await readBody(req);

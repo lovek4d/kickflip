@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { SKILLS_SOURCE, addArgv, addCommand, missingSkills } from '../shared/skills.mjs';
 import { cloneRoot as runningClone } from '../shared/repos.mjs';
 import { hubService, runCommand } from '../shared/service.mjs';
 
@@ -206,12 +207,19 @@ export async function runInstall({ home = os.homedir(), cloneRoot = runningClone
       for (const { link, target, created, replaced } of installLinks({ home, cloneRoot, dryRun })) log(`would ${created || replaced ? 'link' : 'check'} ${link} -> ${target}`);
     } catch (e) { log(`would refuse: ${e.message}`); }
     log(`would merge statusLine and remove stale hooks in ${path.join(home, '.claude', 'settings.json')}`);
+    const missing = missingSkills(home);
+    if (missing.length) log(`would add ${missing.join(', ')} from ${SKILLS_SOURCE} with ${addCommand(missing)}`);
     for (const note of await service.install(null, { wait, dryRun })) log(note);
     log(`would map tailscale / to the hub on ${port} and remove old site mounts`);
     return;
   }
   for (const { link, target, created, replaced } of installLinks({ home, cloneRoot })) log(`${created || replaced ? 'linked' : 'checked'} ${link} -> ${target}`);
   for (const note of installClaudeSettings({ home })) log(note);
+  const missing = missingSkills(home);
+  if (missing.length) {
+    const added = run('npx', addArgv(missing), { env, timeout: 300_000 });
+    log(added.status === 0 ? `added ${missing.join(', ')} from ${SKILLS_SOURCE}` : `could not add ${missing.join(', ')} from ${SKILLS_SOURCE}: ${added.error}; run ${addCommand(missing)}`);
+  }
   const node = nodeBin();
   const entry = storedPath(path.join(cloneRoot, 'hub', 'hub.mjs'), { home, cloneRoot });
   fs.mkdirSync(state, { recursive: true });

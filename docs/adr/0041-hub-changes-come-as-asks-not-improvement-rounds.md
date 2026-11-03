@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0125
+---
+
 # Hub changes come as asks, not Improvements rounds
+
+Superseded in part by [0125](0125-the-bulb-runs-an-architecture-review-of-the-boards-repo.md): a bulb is back in the board header, for an architecture review.
 
 There is no Improvements bulb and no Improvements round. A change to the hub or the board template comes in as an ask on the `/hub-orchestrator` board, and a choice it needs from the owner is an open question on that ask's card ([0029](0029-a-card-is-grilled-through-its-own-open-questions.md)). This supersedes [0018](0018-the-next-improvements-round-follows-each-sent-round.md), [0026](0026-the-next-improvements-round-waits-for-two-real-questions.md) and [0027](0027-one-improvements-round-covers-the-hub-and-every-site.md).
 

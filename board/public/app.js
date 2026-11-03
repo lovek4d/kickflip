@@ -160,6 +160,7 @@ window.BoardView = (function () {
       if (d.title && document.title !== d.title) document.title = d.title;
       steady(() => {
         B.renderHeader(d);
+        B.renderArch(d);
         B.renderWaves(d);
         BoardUI.setHTML($('#tryMain'), BoardUI.mainBar(d.main));
         B.renderMainLog(d.main, load);
@@ -314,7 +315,7 @@ window.BoardView = (function () {
   }
 
   function markup({ title = '' } = {}) {
-    return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png' })}
+    return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', bulb: true })}
 <main>
   <section id="setup" class="setup" aria-live="polite" hidden></section>
   <section id="answers" class="answer-banner" hidden></section>
@@ -349,6 +350,12 @@ window.BoardView = (function () {
     <div class="sheet-head"><h2 id="holdTitle" tabindex="-1"></h2><button type="button" class="ghost" id="holdClose" aria-label="Close">✕</button></div>
     <p id="holdLede" class="hold-lede muted"></p>
     <div id="holdPicker"></div>
+  </div>
+</dialog>
+<dialog id="archSheet" class="sheet arch-sheet" aria-labelledby="archTitle">
+  <div class="sheet-body">
+    <div class="sheet-head"><h2 id="archTitle">Architecture review</h2><button type="button" class="ghost" id="archClose" aria-label="Close sheet">✕</button></div>
+    <div id="archBody" class="arch-body"></div>
   </div>
 </dialog>
 <dialog id="linksSheet" class="sheet" aria-labelledby="linksTitle">

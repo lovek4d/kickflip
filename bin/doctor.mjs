@@ -6,6 +6,7 @@ import { githubGitArgv, gitReachFault } from '../hub/repos.mjs';
 import { isBoardSite } from '../hub/boards.mjs';
 import { cloneRoot as runningClone } from '../shared/repos.mjs';
 import { codexStatus } from '../shared/codex.mjs';
+import { REVIEW_SKILLS, SKILLS_SOURCE, addCommand, skillsState, updateCommand } from '../shared/skills.mjs';
 import { hubService, runCommand } from '../shared/service.mjs';
 import { inspectLinks, ownsStatusLine, hubStatus, tailscaleState, runInstall } from './install.mjs';
 
@@ -57,6 +58,10 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   for (const entry of ts.prereqs) add(entry.item, entry.state, entry.detail, entry.fix);
   const codex = codexStatus({ home, env, platform });
   add('Codex', codex.usable ? 'ok' : 'optional', codex.usable ? 'installed and logged in' : `${codex.reason}; Codex builds and reviews need it`, codex.fix);
+  const skills = skillsState({ home, run: execute, gh: ghAuth });
+  if (skills.missing.length) add('mattpocock skills', 'optional', `${skills.missing.join(', ')} not installed; architecture reviews need ${skills.missing.length === 1 ? 'it' : 'them'}`, addCommand(skills.missing));
+  else if (skills.stale.length) add('mattpocock skills', 'optional', `${skills.stale.join(', ')} out of date with ${SKILLS_SOURCE}`, updateCommand(skills.stale));
+  else add('mattpocock skills', 'ok', `${REVIEW_SKILLS.join(', ')} installed${skills.checked ? ' and current' : ''}`);
 
   group = 'setup';
   const linkItems = ['kickflip skill link', 'kickflip-hooks link', '~/.claude/statusline.sh'];

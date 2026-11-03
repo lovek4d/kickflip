@@ -8,6 +8,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { installLinks, installClaudeSettings, nodeBin } from '../bin/install.mjs';
 import { hubService } from '../shared/service.mjs';
+import { REVIEW_SKILLS } from '../shared/skills.mjs';
 
 const SKILL = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sessions-')));
@@ -102,6 +103,7 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
     write(path.join(scratch, '.codex', 'auth.json'), '{}');
     write(path.join(scratch, 'doctor-bin', 'codex'), '#!/bin/sh\nexit 1\n');
     fs.chmodSync(path.join(scratch, 'doctor-bin', 'codex'), 0o755);
+    for (const name of REVIEW_SKILLS) write(path.join(scratch, '.claude', 'skills', name, 'SKILL.md'), `# ${name}\n`);
   }
   const source = `
     import fs from 'node:fs';

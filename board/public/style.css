@@ -372,6 +372,20 @@ button.attach:disabled { opacity: .35; }
 .top .nav #refresh, .top .nav a.icon { display: inline-flex; align-items: center; justify-content: center; margin: 0; padding: 4px; border: 0; line-height: 1; }
 .top .nav #status { line-height: 1.1; white-space: nowrap; }
 .top .nav #refresh:disabled, .top .nav a.icon[aria-disabled="true"] { opacity: .35; pointer-events: none; }
+/* ADR 0125: the bulb sits between refresh and the gear, and glows orange while an architecture review runs */
+.top .nav .arch-bulb { display: inline-flex; align-items: center; justify-content: center; margin: 0; padding: 4px; border: 0; line-height: 1; color: var(--muted); }
+.top .nav .arch-bulb:hover { color: var(--text); }
+.top .nav .arch-bulb[hidden] { display: none; }
+.top .nav .arch-bulb.running { color: var(--color-notice); }
+.arch-bulb.running svg { filter: drop-shadow(0 0 4px currentColor); }
+@media (prefers-reduced-motion: no-preference) { .arch-bulb.running svg { animation: arch-glow 1.4s ease-in-out infinite; } }
+@keyframes arch-glow { 50% { filter: drop-shadow(0 0 1px currentColor); opacity: .55; } }
+.arch-body { display: grid; gap: 12px; padding-bottom: 6px; }
+.arch-body p { margin: 0; font-size: 13.5px; line-height: 1.45; }
+.arch-last { display: grid; gap: 3px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-size: 13.5px; }
+.arch-last .muted { font-size: 12.5px; }
+.arch-body .arch-waits { color: var(--color-notice); }
+.arch-body .arch-run { width: 100%; min-height: 44px; font-size: 15px; }
 /* INT-64: offline, the header's time and refresh turn red */
 .view-board.offline .refresh #refresh, .refresh .link-state.offline { color: var(--color-danger); }
 .back { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; color: var(--accent); text-decoration: none; }
@@ -558,7 +572,7 @@ main > * { transition: opacity .25s ease; }
     border-bottom: 0; border-top: 1px solid var(--line); padding-top: 4px; padding-bottom: max(4px, env(safe-area-inset-bottom));
   }
   .top .phone-logo { display: inline-flex; margin-left: 0; }
-  .top .nav #refresh, .top .nav a.icon { min-width: 44px; min-height: 44px; }
+  .top .nav #refresh, .top .nav a.icon, .top .nav .arch-bulb { min-width: 44px; min-height: 44px; }
   body > main, body.has-sidebar > :not(.sidebar) > main { padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: calc(96px + var(--app-bottom, 0px) + env(safe-area-inset-bottom)); }
   .view-frame:not(.own-header) { padding-bottom: var(--app-bottom, 0px); }
   .sheet { bottom: max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px)));

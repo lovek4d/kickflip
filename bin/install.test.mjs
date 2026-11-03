@@ -526,10 +526,25 @@ test('the uninstall command removes the owned status-line link and preserves ski
 });
 
 const CLONE_CONFIG = '-c credential.helper= -c credential.https://github.com.helper=!gh auth git-credential';
+const SKILLS_TREE = 'gh api repos/mattpocock/skills/git/trees/HEAD?recursive=1 --jq .tree[] | select(.type == "tree") | .path + " " + .sha';
+const SKILL_FOLDERS = { 'improve-codebase-architecture': 'skills/engineering', 'codebase-design': 'skills/engineering', grilling: 'skills/productivity', prototype: 'skills/engineering' };
+// Installs the review skills as the skills CLI does, a SKILL.md each and a lock entry with the folder's tree sha.
+function reviewSkills(names = Object.keys(SKILL_FOLDERS)) {
+  const lock = { version: 3, skills: {} };
+  for (const name of names) {
+    fs.mkdirSync(path.join(skills, name), { recursive: true });
+    fs.writeFileSync(path.join(skills, name, 'SKILL.md'), `# ${name}\n`);
+    lock.skills[name] = { source: 'mattpocock/skills', sourceType: 'github', skillPath: `${SKILL_FOLDERS[name]}/${name}/SKILL.md`, skillFolderHash: `sha-${name}` };
+  }
+  fs.mkdirSync(path.join(home, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.agents', '.skill-lock.json'), JSON.stringify(lock));
+  return Object.keys(SKILL_FOLDERS).map((name) => `${SKILL_FOLDERS[name]}/${name} sha-${name}`).join('\n') + '\n';
+}
 
 function healthyDoctor() {
   install();
   configure();
+  const tree = reviewSkills();
   fs.mkdirSync(path.join(home, '.codex'));
   fs.writeFileSync(path.join(home, '.codex', 'auth.json'), '{}');
   const plist = path.join(home, 'Library', 'LaunchAgents', 'local.claude.kickflip-hub.plist');
@@ -557,6 +572,7 @@ function healthyDoctor() {
     ['tailscale status --json', JSON.stringify({ BackendState: 'Running', Self: { DNSName: 'mac.tail.ts.net.' } })],
     ['tailscale serve status --json', JSON.stringify({ Web: { 'mac.tail.ts.net:443': { Handlers: { '/': { Proxy: `http://127.0.0.1:${port}` } } } } })],
     ['launchctl print gui/501/local.claude.kickflip-hub', 'state = running'],
+    [SKILLS_TREE, tree],
   ].map(([key, stdout]) => [key, { status: 0, stdout }]));
   const calls = [];
   const env = { PATH: path.join(home, 'doctor-bin'), HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false' };
@@ -584,7 +600,7 @@ test('doctor reports every healthy item and the old hub, Tailscale and site deta
   const { options, calls, appRepo } = healthyDoctor();
   const items = await doctorReport(options);
   assert.deepEqual(items.map(({ group, item }) => `${group} ${item}`), [
-    'prereqs git', 'prereqs node on Claude’s PATH', 'prereqs gh', 'prereqs gh signed in', 'prereqs GitHub clone', 'prereqs Tailscale', 'prereqs Tailscale signed in', 'prereqs Codex',
+    'prereqs git', 'prereqs node on Claude’s PATH', 'prereqs gh', 'prereqs gh signed in', 'prereqs GitHub clone', 'prereqs Tailscale', 'prereqs Tailscale signed in', 'prereqs Codex', 'prereqs mattpocock skills',
     'setup kickflip skill link', 'setup kickflip-hooks link', 'setup ~/.claude/statusline.sh', 'setup settings.json statusLine', 'setup hub login item',
     'hub hub', 'hub tailscale /', 'hub try ports', 'hub /shop', 'hub /app repo',
   ]);
@@ -597,9 +613,24 @@ test('doctor reports every healthy item and the old hub, Tailscale and site deta
     `ok       /app repo: git reaches owner/app from ${appRepo}`,
   ]);
   assert.ok(calls.includes('gh auth status'));
+  assert.equal(pick(items, 'mattpocock skills').detail, 'improve-codebase-architecture, codebase-design, grilling, prototype installed and current');
   assert.equal(pick(items, 'GitHub clone').detail, 'git reaches owner/private over https');
   assert.ok(!calls.some((call) => /^(?:codex|claude) | login$| bootstrap | bootout /.test(call)));
   assert.deepEqual(await runDoctor({ ...options, write: () => {} }), { items, exitCode: 0 });
+});
+
+test('doctor names a missing or out-of-date review skill as optional with the skills CLI command that fixes it', async () => {
+  const { options, responses } = healthyDoctor();
+  responses.set(SKILLS_TREE, { status: 0, stdout: responses.get(SKILLS_TREE).stdout.replace('sha-grilling', 'sha-newer') });
+  let report = await runDoctor({ ...options, write: () => {} });
+  assert.deepEqual(pick(report.items, 'mattpocock skills'), { group: 'prereqs', item: 'mattpocock skills', state: 'optional', detail: 'grilling out of date with mattpocock/skills', fix: 'npx skills update grilling -g -y' });
+  assert.equal(report.exitCode, 0);
+  fs.rmSync(path.join(skills, 'prototype'), { recursive: true });
+  fs.rmSync(path.join(skills, 'codebase-design'), { recursive: true });
+  report = await runDoctor({ ...options, write: () => {} });
+  assert.deepEqual(pick(report.items, 'mattpocock skills'), { group: 'prereqs', item: 'mattpocock skills', state: 'optional', detail: 'codebase-design, prototype not installed; architecture reviews need them',
+    fix: 'npx skills add mattpocock/skills -g -y -a claude-code --skill codebase-design prototype' });
+  assert.equal(report.exitCode, 0);
 });
 
 for (const name of ['kickflip skill link', 'kickflip-hooks link', '~/.claude/statusline.sh', 'settings.json statusLine', 'hub login item', 'hub', 'tailscale /']) {
@@ -846,6 +877,7 @@ test('the shared install steps run migration, links, settings, launchd and Tails
     },
   });
   assert.deepEqual(calls, [
+    ['npx', '--yes', 'skills', 'add', 'mattpocock/skills', '-g', '-y', '-a', 'claude-code', '--skill', 'improve-codebase-architecture', 'codebase-design', 'grilling', 'prototype'],
     ['launchctl', 'bootout', 'gui/501/local.claude.kickflip-hub'],
     ['launchctl', 'bootstrap', 'gui/501', path.join(home, 'Library', 'LaunchAgents', 'local.claude.kickflip-hub.plist')],
     ['tailscale', 'serve', '--bg', '19460'],
@@ -854,12 +886,14 @@ test('the shared install steps run migration, links, settings, launchd and Tails
   ]);
   assert.deepEqual(waits, [500, 300]);
   assert.equal(logs.filter((line) => line.startsWith('moved ')).length, 1);
+  assert.ok(logs.includes('added improve-codebase-architecture, codebase-design, grilling, prototype from mattpocock/skills'));
   const plist = fs.readFileSync(path.join(home, 'Library', 'LaunchAgents', 'local.claude.kickflip-hub.plist'), 'utf8');
   assert.ok(plist.includes(path.join(skills, 'kickflip', 'hub', 'hub.mjs')));
   assert.match(plist, /<key>KICKFLIP_HUB_PORT<\/key><string>19460<\/string>/);
 });
 
 test('on Linux the shared install steps start a systemd user unit in place of a login item', async () => {
+  reviewSkills();
   const calls = [];
   await runInstall({ home, cloneRoot: root, port: 19460, uid: 1000, platform: 'linux', wait: async () => {}, log: () => {},
     fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
