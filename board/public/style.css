@@ -206,12 +206,12 @@ code { overflow-wrap: anywhere; }
 .note-tools .attach { margin-top: 2px; }
 
 /* Compose button and sheet */
-main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
-.fab { position: fixed; z-index: 6; right: calc(16px + max(env(safe-area-inset-right), env(safe-area-inset-bottom))); bottom: calc(var(--app-bottom, 0px) + 16px + env(safe-area-inset-bottom));
-  width: 56px; height: 56px; padding: 0; border-radius: 50%; border: 0; background: var(--accent); color: #fff;
+main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
+.fab { position: fixed; z-index: 6; right: calc((16px + max(env(safe-area-inset-right), env(safe-area-inset-bottom))) * 2 / 3); bottom: calc(var(--app-bottom, 0px) + (16px + env(safe-area-inset-bottom)) * 2 / 3);
+  width: 75px; height: 75px; padding: 0; border-radius: 50%; border: 0; background: var(--accent); color: #fff;
   display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
 .fab:active { transform: scale(.96); }
-.view-board .toast-stack { bottom: calc(var(--app-bottom, 0px) + 80px + env(safe-area-inset-bottom)); }
+.view-board .toast-stack { bottom: calc(var(--app-bottom, 0px) + 94px + env(safe-area-inset-bottom)); }
 /* A phone sheet pads its content above the keyboard (--kb, dialogs.js fitSheet) and stays on the screen's bottom
    edge while the keyboard covers the bar: iOS reports its height late, so moving the sheet up leaves a strip below. */
 .sheet { position: fixed; inset: auto 0 0 0; margin: 0 auto; width: 100%; max-width: 560px;
