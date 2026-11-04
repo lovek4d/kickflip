@@ -885,7 +885,7 @@ export function buildBoard(snapshot) {
         slug, wave, it, order, repo, remote, base: snapshot.branch || 'main',
         prs: cardPRs(it, repo).map((p) => ({ ...p, gh: routeRecord(prs, prKeyOf(p)) || null })),
         ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now), reachedPhase: reachedPhaseOf(agents, routeRecord(threads, key)), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
-        worktree: worktreeOf(routeRecord(records, it.id)),
+        worktree: worktreeOf(routeRecord(records, it.id)) ?? it.worktree?.path ?? null,
         thread: lines,
         events: [...inLogOrder(index, [key, ...askKeys].map((k) => index.byKey.get(k))), ...askIds.map((id) => asks.get(id))],
         working: msgs.some((m) => m.state === 'working'),

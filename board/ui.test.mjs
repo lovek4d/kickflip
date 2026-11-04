@@ -1039,6 +1039,7 @@ test("a card with a worktree opens it in VS Code from its Links line after Notes
   assert.deepEqual(rows(open).at(-1), ['Links', 'Notes · Open in VS Code']);
   assert.match(B.detail(open), /<a href="vscode:\/\/file\/Users\/me\/\.claude\/kickflip\/worktrees\/A%201" title="Open the worktree in VS Code">Open in VS Code /);
   assert.deepEqual(rows({ ...open, hasNotes: false }).at(-1), ['Links', 'Open in VS Code']);
+  for (const lane of ['progress', 'review']) assert.match(B.detail({ ...open, lane }), /Open in VS Code/);
   assert.doesNotMatch(B.detail({ ...open, worktree: null }), /vscode:|Open in VS Code/);
   B.state.board.onHost = false;
   assert.doesNotMatch(B.detail(open), /vscode:|Open in VS Code/);

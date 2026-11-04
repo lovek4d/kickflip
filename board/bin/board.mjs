@@ -633,6 +633,8 @@ const COMMANDS = {
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
   'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'parent', 'related', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'text', 'check'], async (site, [key], f, options) => {
     if (f.status === 'done' && site) await store.checkNotReopened(site, key);
+    // docs/adr/2026-11-05-0000-a-card-in-progress-has-its-worktree-until-done.md
+    if (f.status === 'building' && site && boardAt(site)) await store.ensureWorktree(site, key, (opts) => boardWorktree(site, key.split('/')[1], opts));
     return store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps, parent: f.parent, related: f.related,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, text: f.text, check: f.check }, options);
   }],

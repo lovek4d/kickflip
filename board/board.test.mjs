@@ -991,7 +991,6 @@ test('on a board whose repo is a plain git remote, item set --pushed records the
   const cmd = [process.execPath, fileURLToPath(new URL('./server.mjs', import.meta.url))];
   write(at('kickflip', 'manifest.json'), { sites: { audit: { dir: site('audit'), cmd, remote: 'git@gitlab.com:acme/audit.git', branch: 'main' }, orch: { dir: site('orch'), cmd, github: 'o/r' } } });
   assert.equal(board('builder', 'start', 'audit/A1', '--site', 'audit').code, 0);
-  assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--status', 'building').code, 0);
   const r = board('item', 'set', 'audit/A1', '--site', 'audit', '--pushed', 'A1');
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /^A1: pushed A1\n/);
@@ -1750,6 +1749,21 @@ test("builder start stores the installed link for the kickflip fallback repo, an
   assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo: project });
   assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(project, 'rev-parse', 'main'));
   assert.deepEqual(branches(clone), ['main']);
+});
+
+test("item set --status building gives the card its worktree before any builder runs and a later build start keeps it", () => {
+  const repo = scratchRepo();
+  write(at('kickflip', 'manifest.json'), { sites: { orch: { dir: site('orch'), port: 1, cmd: [process.execPath, '/skill/board/server.mjs', site('orch')], owner: { repo } } } });
+  const set = board('--site', 'orch', 'item', 'set', 'w/A1', '--status', 'building');
+  assert.equal(set.code, 0, set.err);
+  assert.equal(git(worktree(), 'rev-parse', '--abbrev-ref', 'HEAD'), 'A1');
+  assert.deepEqual(read(at('waves', 'w', 'wave.json')).items.find((i) => i.id === 'A1').worktree, { path: worktree(), branch: 'A1', repo });
+  assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A1.json')), false);
+  commit(worktree(), 'work.txt', 'built');
+  const started = board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build');
+  assert.equal(started.code, 0, started.err);
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo });
+  assert.equal(fs.readFileSync(path.join(worktree(), 'work.txt'), 'utf8'), 'built');
 });
 
 test('a board builder uses its shared clone and selected remote branch without changing the clone checkout', () => {
@@ -3004,6 +3018,10 @@ test('ask move refuses a route that is not another board, and an ask that is not
 
 test('ask move drops the card an ask became when it has not started, and refuses one that has', () => {
   boardsManifest();
+  // A card set to building gets a worktree from the board's repo.
+  const manifest = read(at('kickflip', 'manifest.json'));
+  manifest.sites.orch.owner = { repo: scratchRepo() };
+  write(at('kickflip', 'manifest.json'), manifest);
   addEvents({ id: 'e2', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Filed first' } }, { id: 'e3', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Started' } });
   board('item', 'set', 'w/A1', '--from-ask', 'e2', '--state', 'grilling', '--site', 'orch', '--text', 'Filed.');
   board('item', 'add', 'w/A2', '--title', 'Two', '--site', 'orch');

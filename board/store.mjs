@@ -2325,7 +2325,8 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   let wt;
   let remade = null;
   // A build started again on the card keeps the worktree its last record left, while that is still there.
-  const left = ownWorktree && build && agent === 'main' && before?.worktree?.path && existsSync(before.worktree.path) ? before.worktree : null;
+  // So does one the card was given on entering In Progress (ensureWorktree), which no record keeps.
+  const left = ownWorktree && build && agent === 'main' ? [before?.worktree, was?.worktree].find((w) => w?.path && existsSync(w.path)) ?? null : null;
   const kept = (takeUp ?? resumed)?.worktree ?? left;
   const make = worktree ?? (build && agent === 'main' && !kept ? ownWorktree : undefined);
   try {
@@ -2471,6 +2472,19 @@ export async function pickBuilder(site, key) {
   const { item } = await loadItem(site, key);
   const { kind, model, reason } = builderPick({ card: item });
   return { lines: [`${[kind, model].filter(Boolean).join(' ')}: ${reason}`] };
+}
+
+// A card moving to In Progress has its worktree before any builder runs: made by make (as builder start's) unless
+// the card already has one on disk, and kept on the wave item until land removes it, since no builder record may exist yet.
+export async function ensureWorktree(site, key, make) {
+  const { source, wave, item } = await loadItem(site, key);
+  if (item.worktree?.path && existsSync(item.worktree.path)) return null;
+  const recorded = await recordedWorktree(site, key);
+  if (recorded?.path && existsSync(recorded.path)) return null;
+  const { remade, ...wt } = await make({ busy: [] });
+  item.worktree = wt;
+  await writeJSON(source.file, wave);
+  return wt;
 }
 
 // The worktree the item's newest builder record keeps ({path, branch, repo}), or null when none keeps one.
