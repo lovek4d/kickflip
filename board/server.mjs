@@ -1266,9 +1266,11 @@ async function runAuto() {
 
 // docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
 // A build the server started ({key, kind, model, worktree}, startTappedBuild's) launches its builder here, Claude or
-// Codex. A launch that fails puts the card back in Todo with the reason (store.mjs abandonLaunch). → null, the
-// tap's event id, since no event wakes the session.
+// Codex. A launch that fails puts the card back in Todo with the reason (store.mjs abandonLaunch). The start wrote
+// the card's files, so the cached board is dropped: one built mid-start would show the card neither pullable nor
+// building, and the next pull would fill its slot again. → null, the tap's event id, since no event wakes the session.
 async function handOff(started) {
+  dataVersion++;
   if (!started || started.queued) return null;
   const entry = { kind: started.kind, model: started.model, relaunched: false };
   try {
