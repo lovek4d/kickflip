@@ -10,9 +10,9 @@ A follow-up is an ordinary work card. It holds questions, is held, bumped, block
 - **Related to**: similar cards that should be cross-referenced, set by hand with `item set --related <key,…>`. A link shows on both cards whichever one stores it, and `--related` replaces the card's whole list on both sides: a card it leaves out loses its own link back.
 - **Waits on it**: the cards it blocks, the mirror of Blocked by.
 
-A card with a Parent carries the quiet follow-up badge; there is no separate tag. A Parent no longer on the board still makes the card a follow-up and reads as its stored id.
+A card with a Parent shows no badge for it: its Parent link is the only marker. A Parent no longer on the board still reads as its stored id.
 
-**Look** (prototype `link-model`, take A). The open card's details list has a row each for Parent, Children, Related to, Blocked by and Waits on it, each a row of labels that open their cards, after Status; an empty row is left out. Blocked by lists only the deps not yet Done, as the time line's "blocked by" does. The collapsed card shows only the follow-up badge and "blocked by" on its time line.
+**Look** (prototype `link-model`, take A). The open card's details list has a row each for Parent, Children, Related to, Blocked by and Waits on it, each a row of labels that open their cards, after Status; an empty row is left out. Blocked by lists only the deps not yet Done, as the time line's "blocked by" does. The collapsed card shows only "blocked by" on its time line.
 
 **Commands.** `followup add`, `followup done` and `followup set` are gone, with the follow-up's Build button and its `build-followup` event: a follow-up builds through the card Build like any card, and Plan waves takes it as any free Todo card ([0153](0153-plan-waves-plans-from-any-todo-cards.md)).
 

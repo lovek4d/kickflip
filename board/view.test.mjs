@@ -3408,7 +3408,7 @@ test("each lane shows its cards in the order they arrive, with no sort icon in i
 
 // docs/adr/0153-plan-waves-plans-from-any-todo-cards.md
 test('Plan waves ends Todo as a Show more row and, once confirmed, sends plan-waves with the free Todo cards', async () => {
-  const cards = [workCard('T1'), workCard('T2', { followUp: true }), workCard('T3', { held: true })];
+  const cards = [workCard('T1'), workCard('T2'), workCard('T3', { held: true })];
   const b = boardOnDom({ open: [], board: boardOf(cards), threads: {}, confirm: true });
   await b.settle();
   const btn = b.root.querySelector('#lanes details.lane[data-lane="todo"] .list > button[data-plan]');

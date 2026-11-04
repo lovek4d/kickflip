@@ -881,17 +881,17 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const link = (ref) => ({ key: `w/GH-${ref.slice(1)}`, ref });
   const card = { ...workCard, pr: null, reviewers: [], key: 'w/GH-93', ref: '#93', lane: 'todo', action: null, waveTitle: 'W', status: 'planned', next: null, deps: ['GH-80'], manualSteps: [], holdable: true,
-    parent: link('#53'), followUp: true, children: [link('#94'), link('#95')], related: [link('#75')], blockedBy: [link('#80')], waitsOnIt: [link('#99')] };
+    parent: link('#53'), children: [link('#94'), link('#95')], related: [link('#75')], blockedBy: [link('#80')], waitsOnIt: [link('#99')] };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
   assert.deepEqual(rows(card), [['Wave', 'W'], ['Status', 'planned'], ['Parent', '#53'], ['Children', '#94 #95'], ['Related to', '#75'], ['Blocked by', '#80'], ['Waits on it', '#99']]);
   assert.deepEqual([...B.detail(card).matchAll(/<a class="card-link" href="([^"]*)">([^<]*)<\/a>/g)].map(([, href, ref]) => [href, ref]),
     [['#item=w%2FGH-53', '#53'], ['#item=w%2FGH-94', '#94'], ['#item=w%2FGH-95', '#95'], ['#item=w%2FGH-75', '#75'], ['#item=w%2FGH-80', '#80'], ['#item=w%2FGH-99', '#99']]);
-  assert.deepEqual(rows({ ...card, parent: null, followUp: false, children: [], related: [], blockedBy: [], waitsOnIt: [] }), [['Wave', 'W'], ['Status', 'planned']]);
+  assert.deepEqual(rows({ ...card, parent: null, children: [], related: [], blockedBy: [], waitsOnIt: [] }), [['Wave', 'W'], ['Status', 'planned']]);
   // An In Progress card whose agent works on it reads implementing; Build only means the package (docs/adr/0166-a-todo-cards-button-reads-implement.md).
-  assert.deepEqual(rows({ ...card, status: 'building', parent: null, followUp: false, children: [], related: [], blockedBy: [], waitsOnIt: [] }), [['Wave', 'W'], ['Status', 'implementing']]);
+  assert.deepEqual(rows({ ...card, status: 'building', parent: null, children: [], related: [], blockedBy: [], waitsOnIt: [] }), [['Wave', 'W'], ['Status', 'implementing']]);
   assert.doesNotMatch(B.detail(card), /data-confirm="build"|Filed from|Waits on</);
-  assert.deepEqual(lines(app.BoardUI.workLines({ ...card, linear: [], ticket: null })).slice(0, 2), ['Five', 'follow-up']);
-  assert.doesNotMatch(app.BoardUI.workLines({ ...card, parent: null, followUp: false }), /follow-up/);
+  assert.deepEqual(lines(app.BoardUI.workLines({ ...card, linear: [], ticket: null })).slice(0, 2), ['Five', 'blocked by #80']);
+  assert.doesNotMatch(app.BoardUI.workLines(card), /follow-up/);
 });
 
 test('the side pages wait out a board restart: a failed request, a 5xx or a body that is not JSON shows Board restarting… and retries with a growing backoff, until about limit ms', async () => {
@@ -1078,9 +1078,9 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.deepEqual(lines(ui.workLines(ask)), ['Fix it', 'Working on it']);
   assert.deepEqual(lines(ui.workLines(ask, { unread: 2 })), ['Fix it', 'Working on it', '2 new messages']);
   assert.deepEqual(lines(ui.workLines({ ...internal, waitsOn: 'checking', working: true, next: 'Verify it' })), ['INT-3 Five', 'Orchestrator review']);
-  const followup = { ...workCard, followUp: true, key: 'w/ENG-7', id: 'ENG-7', ref: 'ENG-7', linear: [{ id: 'ENG-7', url: 'u' }], pr: null, reviewers: [], next: null, lane: 'todo', deps: [], blockedBy: [] };
-  assert.deepEqual(lines(ui.workLines(followup)), ['ENG-7 Five', 'follow-up']);
-  assert.match(ui.workLines(followup), /<a class="chip tone-quiet" href="u"[^>]*>ENG-7<\/a>.*<span class="chip tone-quiet">follow-up<\/span>/s);
+  const followup = { ...workCard, key: 'w/ENG-7', id: 'ENG-7', ref: 'ENG-7', linear: [{ id: 'ENG-7', url: 'u' }], pr: null, reviewers: [], next: null, lane: 'todo', deps: [], blockedBy: [] };
+  assert.deepEqual(lines(ui.workLines(followup)), ['ENG-7 Five']);
+  assert.doesNotMatch(ui.workLines(followup), /follow-up/);
 });
 
 test("a card's last line is the time its lane sorts by, then its hold with no held chip, then its unread messages, with no age badge", () => {
@@ -1200,7 +1200,7 @@ test('main is a slim branch bar with a ready link, running status or failed log 
 });
 
 test('Todo offers Plan waves in the Show more style once two cards are free, with their keys', () => {
-  const todo = [{ key: 'w/A1', kind: 'work' }, { key: 'w/ENG-1', kind: 'work', followUp: true }, { key: 'v/B2', kind: 'work', blockedBy: [] }, { key: 'v/C3', kind: 'work', held: true }, { key: 'v/D4', kind: 'work', blockedBy: [{ ref: 'A1' }] }, { key: 'ask:n1', kind: 'ask' }];
+  const todo = [{ key: 'w/A1', kind: 'work' }, { key: 'w/ENG-1', kind: 'work' }, { key: 'v/B2', kind: 'work', blockedBy: [] }, { key: 'v/C3', kind: 'work', held: true }, { key: 'v/D4', kind: 'work', blockedBy: [{ ref: 'A1' }] }, { key: 'ask:n1', kind: 'ask' }];
   const html = ui.planButton(todo);
   assert.match(html, /^<button type="button" class="thread-more" data-plan="w\/A1 w\/ENG-1 v\/B2">/);
   assert.equal(text(html), 'Plan waves');

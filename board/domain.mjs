@@ -815,7 +815,6 @@ function linkCards(items, byKey, stored) {
   for (const it of items) {
     const parent = stored.get(it.key)?.parent;
     it.parent = parent ? { key: parent, ref: byKey.get(parent)?.ref || parent.slice(parent.indexOf('/') + 1) } : null;
-    it.followUp = Boolean(parent);
     it.children = cards(children.get(it.key));
     it.related = cards(related.get(it.key));
     it.waitsOnIt = cards(waits.get(it.key));

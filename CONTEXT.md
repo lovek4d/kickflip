@@ -219,7 +219,7 @@ A work item about the sites themselves rather than the product. Its legacy ref `
 _Avoid_: meta task, chore
 
 **Badge**:
-A chip on a card or page that shows a status, such as Install or a PR's state. It may link to what it is about: on a closed card, Install goes straight to the thing to act on (owner, question `badge-tap`). A card's badges are its ticket ID, wave chip, follow-up, risky, New on an unsorted ask, and PR and try-build state; held, blocked by and Action needed are orange words on its time line instead, and ready a green one, and a bump shows only as the filled bump icon ([0145](docs/adr/0145-build-on-a-blocked-card-queues-it.md)). A badge never acts on the board; a **button** does.
+A chip on a card or page that shows a status, such as Install or a PR's state. It may link to what it is about: on a closed card, Install goes straight to the thing to act on (owner, question `badge-tap`). A card's badges are its ticket ID, wave chip, risky, New on an unsorted ask, and PR and try-build state; held, blocked by and Action needed are orange words on its time line instead, and ready a green one, and a bump shows only as the filled bump icon ([0145](docs/adr/0145-build-on-a-blocked-card-queues-it.md)). A badge never acts on the board; a **button** does.
 _Avoid_: chip (in what the owner reads), tag, label
 
 **Button**:
@@ -239,7 +239,7 @@ A colour says whose turn it is: red (danger) for faults, such as failed, down, n
 _Avoid_: warning colour (for attention), action colour (for blue)
 
 **Follow-up**:
-A work item with a **Parent**: work spun out of another card. It is an ordinary card in every way and carries the quiet follow-up badge ([0156](docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md)).
+A work item with a **Parent**: work spun out of another card. It is an ordinary card in every way, shown only by its Parent link ([0156](docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md)).
 _Avoid_: backlog item, todo, follow-up tag
 
 **Parent**:

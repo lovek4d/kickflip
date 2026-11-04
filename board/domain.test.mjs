@@ -1184,7 +1184,7 @@ test("the Waves section lists each open lineup with its goal, order, progress an
 });
 
 // docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md
-test('a card links to its Parent, lists its Children and its Related to cards on both sides, and a blocker lists what Waits on it; a card with a Parent is a follow-up, even one whose Parent left the board', () => {
+test('a card links to its Parent, lists its Children and its Related to cards on both sides, and a blocker lists what Waits on it; a card whose Parent left the board still links to its stored id', () => {
   const wave = { items: [
     { id: 'GH-53', title: 'Parent', ticket: '#53', related: ['w/GH-75'] },
     { id: 'GH-93', title: 'Second child', ticket: '#93', parent: 'w/GH-53', deps: ['GH-80'] },
@@ -1203,7 +1203,6 @@ test('a card links to its Parent, lists its Children and its Related to cards on
   assert.deepEqual(refs(card('GH-93').related), ['#75']);
   assert.deepEqual(refs(card('GH-80').waitsOnIt), ['#93']);
   assert.deepEqual(refs(card('GH-93').blockedBy), ['#80']);
-  assert.deepEqual(['GH-53', 'GH-93', 'GH-87', 'GH-80', 'GH-9'].map((id) => card(id).followUp), [false, true, true, false, true]);
   // A Parent no longer on the board reads as its stored id.
   assert.deepEqual([card('GH-9').parent, card('GH-53').parent], [{ key: 'w/GH-404', ref: 'GH-404' }, null]);
   assert.equal(b.items.every((i) => i.kind === 'work'), true);

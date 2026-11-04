@@ -192,7 +192,7 @@
     const ticket = it.ticket ? ticketChip(it) : it.ticketSource === 'linear' ? linearChips(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
     // A card from an ask reads New until its session sets ready, grilling or prototyping (domain.mjs unsorted).
     const ids = it.kind === 'ask' ? askChip(it) : it.unsorted ? `${badge('notice', 'New')} ${ticket}` : ticket;
-    const chips = `${stalledChip(it)}${it.followUp ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
+    const chips = `${stalledChip(it)}${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
     const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)
       : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Orchestrator review</div>'
       : it.builder ? `<div class="line3 sub agent${it.builder.planner ? ' planner' : ''}"><span class="working-dot" aria-hidden="true"></span>${esc(builderLine(it.builder))}</div>`
