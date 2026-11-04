@@ -1540,6 +1540,12 @@ test("only Claude's and GitHub's messages are unread: the owner's answers after 
   assert.deepEqual(waits(acted), ['Q10']);
 });
 
+test('a thread line with a log field links to open the log', () => {
+  const html = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'Builder launched headless on Claude Sonnet in /wt/A1.', log: 'builder-A1-2026.log' }]);
+  assert.match(html, /<a href="log\.html\?file=builder-A1-2026\.log">Open the log →<\/a>/);
+  assert.doesNotMatch(html, /its log is/);
+});
+
 test("an ask's link line opens the work it became, and a thread line opens a linked card on the board", () => {
   assert.match(ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'ask-link', text: 'Became INT-21', link: '#item=site%2FS21' }]), /<a href="#item=site%2FS21">Became INT-21 →<\/a>/);
   const html = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'Asked to keep it', link: '#item=ask:e1' }]);

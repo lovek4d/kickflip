@@ -190,7 +190,9 @@
 //                                and the same answer; 403 {error} from anyone else, 400 {error} for a bad body or settings file
 //   POST /api/try                {key}: forwards a card build or main retry to the hub's loopback /_hub/build
 //   POST /api/try/main/pull      {}: Main's refresh icon, forwarded to the hub's loopback /_hub/pull → {commits, error?}
-//   GET  /api/try/main/log       {lines}: last 40 lines of main's log, from at most its last 64 KiB
+//   GET  /api/log?file=<name>.log {text, truncated, size}: the last 256 KiB of that file in ~/.claude/kickflip/logs, by name
+//                                only; log.html shows it and re-reads while it grows
+//   GET  /api/try/main/log      {lines}: last 40 lines of main's log, from at most its last 64 KiB
 // data/try.json is the hub's run state; data/main.json holds main's published install link.
 //   GET  /_claude/events         events not hidden, newest first, each with Claude's reply if written
 //   GET  /_claude/needs          {items: [{kind, text, url}], working, summary, lanes: {review, progress, todo}, building}:
@@ -1026,6 +1028,23 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, { lines: lines.slice(-40) });
       } catch (e) {
         if (e.code === 'ENOENT') return json(res, 200, { lines: [] });
+        throw e;
+      } finally { await file?.close(); }
+    }
+    if (p === '/api/log' && req.method === 'GET') {
+      const name = url.searchParams.get('file') || '';
+      if (!/^[\w.-]+\.log$/.test(name) || name.startsWith('.')) return json(res, 400, { error: 'file takes a log file’s name.' });
+      let file;
+      try {
+        file = await fs.open(path.join(os.homedir(), '.claude', 'kickflip', 'logs', name), 'r');
+        const { size } = await file.stat();
+        const start = Math.max(0, size - 256 * 1024);
+        const buffer = Buffer.alloc(size - start);
+        const { bytesRead } = await file.read(buffer, 0, buffer.length, start);
+        const text = buffer.subarray(0, bytesRead).toString('utf8');
+        return json(res, 200, { text: start ? text.slice(text.indexOf('\n') + 1) : text, truncated: start > 0, size });
+      } catch (e) {
+        if (e.code === 'ENOENT') return json(res, 404, { error: 'No such log.' });
         throw e;
       } finally { await file?.close(); }
     }

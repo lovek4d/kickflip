@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Log</title>
+<link rel="stylesheet" href="colors.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!--header {"lead":"back","title":"Log","titleId":"ref","backHref":"./","controls":false}-->
+<main>
+  <p class="muted" id="note"></p>
+  <pre class="log" id="log">Loading the log…</pre>
+</main>
+<style>
+  /* The tail of a builder's log (GET /api/log), newest at the bottom. */
+  pre.log { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+</style>
+<script>
+// Shows the tail of the log named by ?file=, last lines in view, and re-reads it every 3 seconds while it grows;
+// the page stays where the reader scrolled to when they've left the bottom.
+(function () {
+  const name = new URLSearchParams(location.search).get('file') || '';
+  const log = document.getElementById('log');
+  const note = document.getElementById('note');
+  document.getElementById('ref').textContent = name || 'Log';
+  document.title = name || 'Log';
+  let size = -1;
+  async function read() {
+    try {
+      const r = await fetch('api/log?file=' + encodeURIComponent(name), { cache: 'no-store' });
+      const body = await r.json();
+      if (!r.ok) { log.textContent = body.error || 'Could not load this log.'; return; }
+      if (body.size === size) return;
+      const atEnd = size === -1 || innerHeight + scrollY >= document.documentElement.scrollHeight - 40;
+      size = body.size;
+      log.textContent = body.text || 'The log is empty so far.';
+      note.textContent = body.truncated ? 'Showing the last 256 KiB.' : '';
+      if (atEnd) scrollTo(0, document.documentElement.scrollHeight);
+    } catch { /* the next read tries again */ }
+  }
+  read();
+  setInterval(read, 3000);
+})();
+</script>
+</body>
+</html>

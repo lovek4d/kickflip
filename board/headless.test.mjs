@@ -117,6 +117,17 @@ test("on a board whose builders launch headless, the server launches the builder
     assert.ok(built.argv[1].includes(path.join(data, 'h1.md')) && built.argv[1].includes('builder start t/H1 --kind build'));
     assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'agents', 'H1.json'), 'utf8')).dispatched, 'tap');
     assert.match(thread('H1').at(-1).text, /^Builder launched headless/);
+    const launch = thread('H1').at(-1);
+    assert.match(launch.text, /^Builder launched headless on .* in .*H1\.$/);
+    assert.match(launch.log, /^builder-H1-.*\.log$/);
+    const logs = path.join(home, '.claude', 'kickflip', 'logs');
+    fs.writeFileSync(path.join(logs, launch.log), 'x'.repeat(300_000) + '\nlast line\n');
+    const tail = await fetch(`${base}/api/log?file=${launch.log}`).then((r) => r.json());
+    assert.equal(tail.truncated, true);
+    assert.ok(tail.text.endsWith('last line\n') && tail.text.length < 262_144);
+    for (const bad of ['../../site/board.json', '..%2F..%2Fsite%2Fboard.json', 'a/b.log', '.hidden.log', 'notes.txt', '']) assert.equal((await fetch(`${base}/api/log?file=${bad}`)).status, 400, bad);
+    assert.equal((await fetch(`${base}/api/log?file=missing.log`)).status, 404);
+    assert.match(await fetch(`${base}/log.html`).then((r) => r.text()), /api\/log\?file=/);
     assert.deepEqual(log().filter((e) => e.kind === 'card-build'), []);
 
     boardJSON({ auto_pull: true });

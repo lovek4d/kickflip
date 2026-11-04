@@ -122,6 +122,6 @@ export async function launchBuilder(site, { key, model }, { lander = false } = {
   const card = { ...facts, route, base: builderRepo(site).base, rules };
   const picked = model || 'opus';
   const launched = await launchHeadless({ cwd: facts.worktree, prompt: lander ? landerBrief(card) : builderBrief(card), model: picked, log: logFile(key.split('/')[1], lander ? 'lander' : 'builder') });
-  await appendThread(site, key, { text: `${lander ? 'Lander' : 'Builder'} launched headless on ${modelName({ model: picked })} in ${facts.worktree}; its log is ${launched.log}.` });
+  await appendThread(site, key, { text: `${lander ? 'Lander' : 'Builder'} launched headless on ${modelName({ model: picked })} in ${facts.worktree}.`, log: path.basename(launched.log) });
   return launched;
 }

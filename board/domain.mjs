@@ -620,6 +620,13 @@ const inLogOrder = (index, lists) => {
   const found = lists.filter((l) => l?.length);
   return found.length > 1 ? found.flat().sort((a, b) => index.order.get(a) - index.order.get(b)) : [...(found[0] || [])];
 };
+// A launch line written before lines carried a log field ends "; its log is <path>." with the path under the logs folder:
+// that becomes the line's log (the file's name) and the text without the clause.
+const LEGACY_LOG = /; its log is \S*\/\.claude\/kickflip\/logs\/([^/\s]+\.log)\.$/;
+const withLog = (m) => {
+  const legacy = !m.log && typeof m.text === 'string' ? LEGACY_LOG.exec(m.text) : null;
+  return legacy ? { ...m, text: `${m.text.slice(0, legacy.index)}.`, log: legacy[1] } : m;
+};
 export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, fromAsk = null, links = [], agents = {}, moved = [], index = threadIndex(events, owner) }) {
   const askIds = key.startsWith('ask:') ? [key.slice(4)] : [fromAsk, ...moved].filter(Boolean);
   const keys = [...new Set([key, ...askIds.map((id) => `ask:${id}`)])];
@@ -641,7 +648,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
-    ...lines.map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}) } : {}),
+    ...lines.map(withLog).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}) } : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply,

@@ -1833,3 +1833,14 @@ test("the hub's side added to a shared build gives the board built with it", () 
   assert.deepEqual(withHub(buildBoard(snapshot), { listen: 'asleep', prompts: [perm] }), buildBoard({ ...snapshot, listen: 'asleep', prompts: [perm] }));
   assert.deepEqual(withHub(buildBoard(snapshot), {}), buildBoard(snapshot));
 });
+
+test('a thread line stores its log, and an old launch line naming a log under the logs folder gets the same log field', () => {
+  const at = (text, log) => threadOf('w/A1', { lines: [{ ts: '2026-11-04T19:10:00Z', text, ...(log ? { log } : {}) }] })[0];
+  const kept = at('Builder launched headless on Claude Sonnet in /wt/GH-222.', 'builder-GH-222-x.log');
+  assert.deepEqual([kept.text, kept.log], ['Builder launched headless on Claude Sonnet in /wt/GH-222.', 'builder-GH-222-x.log']);
+  const old = at('Lander launched headless on Claude Sonnet in /wt/GH-222; its log is /Users/lovek4d/.claude/kickflip/logs/lander-GH-222-2026-11-04T19-10-31-120Z.log.');
+  assert.deepEqual([old.text, old.log], ['Lander launched headless on Claude Sonnet in /wt/GH-222.', 'lander-GH-222-2026-11-04T19-10-31-120Z.log']);
+  const elsewhere = at('Builder launched headless on Claude Sonnet in /wt/A; its log is /tmp/x.log.');
+  assert.equal(elsewhere.log, undefined);
+  assert.match(elsewhere.text, /its log is \/tmp/);
+});
