@@ -164,7 +164,7 @@ import { capital, hubView, settingsView, flushView, SNOOZE_REFUSED, AWAKE_REFUSE
 import { caffeinate, setKeepAwake, awakeUntil, awakeUnsupported } from './awake.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
 import { checkIncoming } from './incoming.mjs';
-import { listBoards, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON } from './boards.mjs';
+import { listBoards, isListening, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON } from './boards.mjs';
 import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
@@ -172,7 +172,7 @@ import { readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
 import { checkSessions, compactFullContexts, startingBoards } from './sessions.mjs';
 import { repoService, repoLookupRoute } from './repos.mjs';
 import { boardRepo, changeBoardRepo, migrateBoardRepos, migrateHubBoard } from './board-repo.mjs';
-import { requestBoard, retryBoard, dismissBoard, clonePercent } from './new-board.mjs';
+import { requestBoard, retryBoard, dismissBoard, clonePercent, settleStarts } from './new-board.mjs';
 import { boardClosure, closeBoard, closedBoards, reopenBoard } from './close-board.mjs';
 import { restartBoard, restartable } from './restart-board.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
@@ -533,6 +533,7 @@ setInterval(() => {
   owner.check().then(presenceChanged, (e) => log('presence check failed:', e.message)).finally(() => {
     if (!polls.running && Date.now() >= nextPollAt().getTime()) runPoll().catch((e) => log('poll failed:', e.message));
   });
+  settleStarts({ listening: (board) => isListening(board) && status().some((r) => r.route === board.route && r.state === 'up') }).then((landed) => { if (landed.length) stream.refresh(); }, (e) => log('settling starts failed:', e.message));
   runWakes();
   awake.apply();
   prunePrompts().catch((e) => log('prompt expiry failed:', e.message)).finally(runSessionCheck);
@@ -665,14 +666,16 @@ async function sidebarState({ fresh = false } = {}) {
   const { links, listens } = boardLinks(boards);
   const code = hubCodeState();
   const contexts = new Map(boards.map((b) => [b.route, contextReading(b.owner?.session)]).filter(([, reading]) => reading));
-  const sites = sidebarSites(rows, waiting, new Set(boards.map((b) => b.route)), listens, contexts);
+  const starting = startingBoards(manifest, now.getTime(), clonePercent, (route) => listens.get(route) === 'listening' && rows.some((r) => r.route === route && r.state === 'up'));
+  const landing = new Set(starting.map((s) => s.route));
+  const sites = sidebarSites(rows, waiting, new Set(boards.map((b) => b.route)), listens, contexts).filter((s) => !landing.has(s.route));
   const settings = readSettings();
   const held = hold(now, settings);
   const data = {
     code: code.running ?? null,
     total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links, hubLink(code)),
     home: fs.realpathSync(os.homedir()),
-    starting: startingBoards(manifest, now.getTime(), clonePercent),
+    starting,
     usage: readUsage({ codexShare: readCodexShare(readCodex()) }),
     pause: readUsageGate(),
     upgrade: upgrade.state(),

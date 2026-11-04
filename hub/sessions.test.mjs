@@ -267,7 +267,7 @@ test('start on a route with no site waits in starting until that session joins',
   assert.equal(manifest().sites.fresh, undefined);
   assert.match((await cli(['sessions'])).stdout, new RegExp(`^/fresh  ${r.session}  not live  ${otherRepo}  \\(starting: not joined yet\\)$`, 'm'));
   json(await cli(['join', '--name', 'fresh', '--session', r.session], { cwd: otherRepo }));
-  assert.deepEqual([manifest().sites.fresh.owner.session, manifest().sites.fresh.owner.repo, manifest().starting], [r.session, otherRepo, undefined]);
+  assert.deepEqual([manifest().sites.fresh.owner.session, manifest().sites.fresh.owner.repo, Boolean(manifest().starting.fresh.joined_at)], [r.session, otherRepo, true]);
 });
 
 test("start trusts a clone the hub made under its realpath before claude --bg, so a board that didn't start starts on a retry, and trusts no other folder", async (t) => {
@@ -463,7 +463,7 @@ test('start, join and resume accept routes named after object properties', async
     const started = json(await cli(['start', route, '--repo', repo]));
     assert.equal(manifest().starting[route].session, started.session);
     json(await cli(['join', '--name', route, '--session', started.session, '--template', 'board', '--port', String(4650 + i)]));
-    assert.equal(Object.hasOwn(manifest().starting || {}, route), false);
+    assert.equal(Object.hasOwn(manifest().starting, route), true, 'the joined route lands until it listens');
     assert.equal(manifest().sites[route].owner.session, started.session);
     const resumed = json(await cli(['resume', route]));
     assert.equal(resumed.session, started.session);

@@ -616,7 +616,8 @@ const commands = {
       };
       const model = args.model || kept?.model;
       if (model) site.owner.model = model;
-      if (routeRecord(m.starting, route)) { delete m.starting[route]; if (!Object.keys(m.starting).length) delete m.starting; }
+      const landing = routeRecord(m.starting, route);
+      if (landing) m.starting[route] = { ...landing, joined_at: landing.joined_at || now };
       site.updated = now;
       m.sites = { ...m.sites, [route]: site };
       await writeManifest(m);

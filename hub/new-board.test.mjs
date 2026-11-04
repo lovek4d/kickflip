@@ -16,7 +16,7 @@ fs.writeFileSync(claudeConfig, '{}');
 const shownConfig = '~/claude-config/.claude.json';
 const config = () => JSON.parse(fs.readFileSync(claudeConfig, 'utf8'));
 const trusted = (dir) => config().projects?.[dir]?.hasTrustDialogAccepted === true;
-const { requestBoard, retryBoard, dismissBoard, clonePercent } = await import('./new-board.mjs');
+const { requestBoard, retryBoard, dismissBoard, clonePercent, settleStarts } = await import('./new-board.mjs');
 const { repoService, repoPath, validateBranch, runRepo, githubGitArgv } = await import('./repos.mjs');
 const { boardRepo, changeBoardRepo, migrateBoardRepos, githubFromOrigin } = await import('./board-repo.mjs');
 const { startingBoards, STARTING_WAIT, BG_SETTINGS } = await import('./sessions.mjs');
@@ -99,7 +99,7 @@ test('new repo requests clone before starting a session and store the board bran
   assert.ok(rec.phase_at >= pending.asked_at && rec.since >= rec.phase_at);
   assert.ok(fs.existsSync(path.join(repo, '.git')));
   const at = Date.parse(rec.asked_at);
-  assert.deepEqual(startingBoards(readManifest(), at), [{ route: 'bob-s-audit', title: "Bob's audit", repo, step: 'landing', stepAt: rec.since, branch: 'release/next', tickets: { source: 'internal', prefix: 'INT' }, askedAt: rec.asked_at, failed: false }]);
+  assert.deepEqual(startingBoards(readManifest(), at), [{ route: 'bob-s-audit', title: "Bob's audit", repo, step: 'starting', stepAt: rec.phase_at, branch: 'release/next', tickets: { source: 'internal', prefix: 'INT' }, askedAt: rec.asked_at, failed: false }]);
   assert.equal(startingBoards(readManifest(), at + STARTING_WAIT)[0].failed, true);
   noEvents();
   await assert.rejects(dismissBoard(request.route), { status: 400 });
@@ -169,7 +169,7 @@ test("a fresh clone's progress stays in hub memory as one percent, reaching the 
   assert.equal(clonePercent('progress-board'), undefined);
   assert.deepEqual(changes, [9, undefined]);
   const rec = readManifest().starting['progress-board'];
-  assert.deepEqual(startingBoards(readManifest(), Date.now(), clonePercent).map((s) => [s.step, s.stepAt, s.percent]), [['landing', rec.since, undefined]]);
+  assert.deepEqual(startingBoards(readManifest(), Date.now(), clonePercent).map((s) => [s.step, s.stepAt, s.percent]), [['starting', rec.phase_at, undefined]], 'a recorded session is still starting orchestrator');
   const m = readManifest();
   delete m.starting['progress-board'].session;
   saveJSON(manifestFile, m);
@@ -511,7 +511,8 @@ test('join transfers the reserved repo and branch before or after the start resu
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(siteDir, 'board.json'))).tickets, { source: 'internal', prefix: 'OPS' });
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(siteDir, 'data', 'wave.json'))).items, []);
     assert.deepEqual(boardRepo(route), { github: 'owner/project', branch: 'develop', repo: clone });
-    assert.equal(readManifest().starting, undefined);
+    assert.deepEqual(Object.keys(readManifest().starting), [route], 'the joined record stays until the board listens');
+    assert.ok(readManifest().starting[route].joined_at);
     run([]);
     assert.equal(readManifest().sites[route].owner.repo, clone);
   }
@@ -559,4 +560,26 @@ test('repo names ending in .lock have independent clone locks', async () => {
   assert.equal(paths.length, 2);
   assert.ok(paths.every((repo) => fs.statSync(path.join(repo, '.git')).isDirectory()));
   assert.equal(await repos.ensure('owner/lock-test'), paths[0]);
+});
+
+test('a joined board lands until its server answers and it listens: landing counts from the join, a late one reads why and can only be dismissed, and a listening one is settled away', async () => {
+  const route = 'landing-board';
+  const joinedAt = new Date(Date.now() - 5000).toISOString();
+  const siteDir = path.join(home, 'landing-site');
+  fs.mkdirSync(siteDir, { recursive: true });
+  const record = { title: 'Landing board', repo: siteDir, github: 'owner/project', branch: 'main', tickets: { source: 'internal' }, asked_at: new Date().toISOString(), session: 'landing-session', since: joinedAt, joined_at: joinedAt };
+  const joined = { sites: { [route]: { ...board, dir: siteDir, title: 'Landing board', owner: { session: 'landing-session', repo: siteDir, since: joinedAt } } }, starting: { [route]: record } };
+  saveJSON(manifestFile, joined);
+  const asked = Date.parse(record.asked_at);
+  const rows = (listening, at = asked) => startingBoards(readManifest(), at, clonePercent, listening);
+  assert.deepEqual(rows(() => false).map((s) => [s.route, s.step, s.stepAt, s.joined, s.failed]), [[route, 'landing', joinedAt, true, false]]);
+  assert.deepEqual(rows(() => true), [], 'a listening board is a board, not a starting row');
+  const late = rows(() => false, asked + STARTING_WAIT)[0];
+  assert.deepEqual([late.failed, late.error], [true, 'Its session joined, but the board is not listening yet.']);
+  await assert.rejects(retryBoard(route), { status: 400 });
+  assert.deepEqual(await settleStarts({ listening: () => false }), [], 'a board that is not listening keeps its row');
+  assert.deepEqual(await settleStarts({ listening: (b) => b.route === route }), [route]);
+  assert.equal(readManifest().starting, undefined);
+  saveJSON(manifestFile, { ...joined, starting: { [route]: { ...record, asked_at: new Date(Date.now() - STARTING_WAIT).toISOString() } } });
+  assert.deepEqual(await dismissBoard(route), { route }, 'a joined board that never listened can be dismissed once it reads failed');
 });

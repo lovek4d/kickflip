@@ -1,5 +1,5 @@
 import { ticketSource } from '../board/tickets.mjs';
-import { readManifest, withManifestLock, writeManifest } from './boards.mjs';
+import { isListening, listBoards, readManifest, withManifestLock, writeManifest } from './boards.mjs';
 import { ROUTE_RE, routeFromName, routeRecord } from './routes.mjs';
 import { repoService, validateGithub, validateBranch, validateRemote } from './repos.mjs';
 import { startFailed, startSession, stopSession } from './sessions.mjs';
@@ -127,7 +127,7 @@ export async function requestBoard(input, { run, live, repos = repoService(), ch
 // The route's Starting record when its start failed (sessions.mjs startFailed), else refuses with action's verb.
 function failedStart(manifest, route, action) {
   const pending = routeRecord(manifest.starting, route);
-  if (!pending || routeRecord(manifest.sites, route) || !startFailed(pending)) refuse(`Only a board that didn’t start can be ${action}.`);
+  if (!pending || (routeRecord(manifest.sites, route) && !pending.joined_at) || !startFailed(pending)) refuse(`Only a board that didn’t start can be ${action}.`);
   return pending;
 }
 
@@ -138,6 +138,7 @@ function failedStart(manifest, route, action) {
 // home, so the session starts in the folder the clone goes to. → {route, started} as requestBoard's.
 export async function retryBoard(route, { run, live, stop, repos = repoService(), changed = () => {} } = {}) {
   const before = failedStart(readManifest(), route, 'retried');
+  if (before.joined_at) refuse('Its session joined; a board that is not listening yet can only be dismissed.');
   if (!before.branch) refuse('Only a board asked for with New board can be retried; make it again with New board.');
   try { await stopSession(before, { live, stop }); } catch (e) { refuse(`Couldn’t stop its earlier session: ${e.message}`, 502); }
   const board = await withManifestLock(async () => {
@@ -158,5 +159,21 @@ export async function dismissBoard(route) {
     if (!Object.keys(manifest.starting).length) delete manifest.starting;
     await writeManifest(manifest);
     return { route };
+  });
+}
+
+// Drops the Starting records of boards that have landed: joined, and now listening (docs/adr/2026-11-04-2030-landing-it-lasts-until-the-board-listens.md),
+// or whose board is gone. → the routes dropped
+export async function settleStarts({ listening = isListening } = {}) {
+  if (!Object.values(readManifest().starting || {}).some((rec) => rec.joined_at)) return [];
+  return withManifestLock(async () => {
+    const manifest = readManifest();
+    const boards = new Map(listBoards(manifest).map((b) => [b.route, b]));
+    const landed = Object.entries(manifest.starting || {}).filter(([route, rec]) => rec.joined_at && (!boards.has(route) || listening(boards.get(route)))).map(([route]) => route);
+    if (!landed.length) return [];
+    for (const route of landed) delete manifest.starting[route];
+    if (!Object.keys(manifest.starting).length) delete manifest.starting;
+    await writeManifest(manifest);
+    return landed;
   });
 }

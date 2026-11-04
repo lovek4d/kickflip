@@ -154,11 +154,12 @@
       + `<dl class="fs-facts">${fact('Repo', s.repo && esc(repoLabel(s.repo, home)))}${fact('Branch', s.branch && `<code>${esc(s.branch)}</code>`)}`
       + `${fact('Tickets', s.tickets && esc(ticketsLabel(s.tickets)))}${fact('Asked', s.askedAt && esc(askedWhen(s.askedAt, now)))}</dl>`
       + '<p class="fs-refused" role="alert" hidden></p>'
-      + `<div class="sheet-actions fs-actions"><button type="button" data-failed-dismiss>Dismiss</button>${s.branch ? '<button type="button" class="primary" data-failed-retry>Retry</button>' : ''}</div></div>`;
+      + `<div class="sheet-actions fs-actions"><button type="button" data-failed-dismiss>Dismiss</button>${s.branch && !s.joined ? '<button type="button" class="primary" data-failed-retry>Retry</button>' : ''}</div></div>`;
   }
 
   // A starting board's three steps (docs/adr/2026-11-04-1914-a-new-board-shows-its-start-steps-and-clone-progress.md):
-  // s.step is cloning, starting (the orchestrator's session) or landing (the session joining the hub), since s.stepAt.
+  // s.step is cloning, starting (the orchestrator's session, until it joins the hub) or landing (the joined board, until it
+  // listens), since s.stepAt.
   // Cloning fills its bar to git's percent; the later steps run the bars' pulse, never a fill.
   const START_STEPS = { cloning: 'cloning', starting: 'starting orchestrator', landing: 'landing it' };
   const STEP_KEYS = Object.keys(START_STEPS);

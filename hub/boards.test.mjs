@@ -707,8 +707,8 @@ test("New board validates through HTTP, reports a failed clone and preserves rep
     const join = await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['join', '--name', request.name, '--session', 's-backend', '--template', 'board', '--repo', repo, '--port', String(auditPort)]);
     assert.equal(join.status, 0, join.stderr);
     const joined = await sidebar();
-    assert.equal(joined.starting.some((s) => s.route === pending.route), false);
-    assert.equal(joined.sites.find((s) => s.route === pending.route).board, true);
+    assert.deepEqual(joined.starting.filter((s) => s.route === pending.route).map((s) => [s.step, s.joined]), [['landing', true]], 'a joined board is landing until it listens');
+    assert.equal(joined.sites.some((s) => s.route === pending.route), false, 'its board row waits behind the landing row');
     assert.equal(read(manifestFile).sites[pending.route].github, request.github);
     assert.equal(read(manifestFile).sites[pending.route].branch, request.branch);
     const timed = read(manifestFile);
@@ -829,8 +829,8 @@ test('object property names work as page routes and as new boards through HTTP a
       write(site(route, 'data', 'items.json'), { items: [{ id: 'constructor', title: 'Review', status: 'planned' }] });
       await until(() => fetch(`${base}/${route}/_claude/health`).then((r) => r.ok, () => false), `${route} server becomes healthy`);
       const side = await get('/_hub/sidebar.json?fresh=1');
-      assert.equal(side.starting.some((s) => s.route === route), false);
-      assert.equal(side.sites.find((s) => s.route === route).board, true);
+      assert.deepEqual(side.starting.filter((s) => s.route === route).map((s) => s.step), ['landing']);
+      assert.equal(side.sites.some((s) => s.route === route), false);
       const data = await get(`/${route}/api/board`);
       assert.equal(data.items.find((it) => it.key === `${route}/constructor`).title, 'Review');
       assert.deepEqual(data.items.find((it) => it.key === `${route}/constructor`).agents, []);

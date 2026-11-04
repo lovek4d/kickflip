@@ -452,6 +452,7 @@ test("a failed start's sheet names it, shows its error or the 15-minute wait, wh
   for (const [tickets, label] of [[{ source: 'github' }, 'GitHub issues'], [{ source: 'github', account: 'octo' }, 'GitHub issues · octo'], [{ source: 'linear', workspace: 'acme', team: 'ENG', project: 'p1' }, 'Linear · ENG']]) {
     assert.ok(ui.failedStart({ ...failed, tickets }, { now }).includes(`<dt>Tickets</dt><dd>${label}</dd>`), label);
   }
+  assert.doesNotMatch(ui.failedStart({ ...failed, joined: true }, { now }), /data-failed-retry/, 'a joined board that is not listening can only be dismissed');
   const timedOut = { ...failed, error: undefined, askedAt: ago(0.5) };
   assert.match(text(ui.failedStart(timedOut, { now })), /failed to start ✕ Its session didn't answer within 15 minutes\. Repo .* Asked just now Dismiss Retry$/);
   assert.match(text(ui.failedStart({ ...timedOut, askedAt: ago(59) }, { now })), /Asked 59 min ago/);

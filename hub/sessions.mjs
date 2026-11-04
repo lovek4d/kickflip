@@ -39,22 +39,29 @@ const COMPACT_STATE = path.join(os.homedir(), '.claude', 'kickflip', 'compact-st
 export const startFailed = (rec, now = Date.now()) => Boolean(rec.error) || now - Date.parse(rec.asked_at || rec.since) >= STARTING_WAIT;
 
 // A Starting record's step (docs/adr/2026-11-04-1914-a-new-board-shows-its-start-steps-and-clone-progress.md): cloning;
-// starting, the orchestrator's session, from the clone's end; or landing, once a session is recorded, until it joins.
+// starting, the orchestrator's session, from the clone's end until it joins; or landing, from its join until the board
+// is listening (docs/adr/2026-11-04-2030-landing-it-lasts-until-the-board-listens.md).
 // → {step, stepAt}, stepAt when the step began
 function startStep(rec) {
-  if (rec.session) return { step: 'landing', stepAt: rec.since };
+  if (rec.joined_at) return { step: 'landing', stepAt: rec.joined_at };
   if (rec.phase === 'cloning') return { step: 'cloning', stepAt: rec.asked_at };
   return { step: 'starting', stepAt: rec.phase_at || rec.asked_at || rec.since };
 }
 
-// The sidebar's Starting rows. clonePercent(route) is a running clone's percent (new-board.mjs), which a cloning row carries.
-export function startingBoards(manifest, now = Date.now(), clonePercent = () => undefined) {
-  return Object.entries(manifest.starting || {}).filter(([route]) => !routeRecord(manifest.sites, route)).map(([route, rec]) => ({
-    route, title: rec.title || rec.label || route, repo: rec.repo, ...startStep(rec),
-    ...(rec.phase === 'cloning' && clonePercent(route) !== undefined ? { percent: clonePercent(route) } : {}),
-    ...(rec.branch ? { branch: rec.branch, tickets: rec.tickets } : {}),
-    askedAt: rec.asked_at || rec.since, failed: startFailed(rec, now), ...(rec.error ? { error: rec.error } : {}),
-  }));
+// The sidebar's Starting rows. clonePercent(route) is a running clone's percent (new-board.mjs), which a cloning row
+// carries. listening(route) is whether a joined board hears its events: its row stays until then, and a late one reads
+// why it failed. A record whose route has joined shows only while landing.
+export function startingBoards(manifest, now = Date.now(), clonePercent = () => undefined, listening = () => true) {
+  return Object.entries(manifest.starting || {}).filter(([route, rec]) => (routeRecord(manifest.sites, route) ? rec.joined_at && !listening(route) : true)).map(([route, rec]) => {
+    const failed = startFailed(rec, now);
+    return {
+      route, title: rec.title || rec.label || route, repo: rec.repo, ...startStep(rec),
+      ...(rec.phase === 'cloning' && clonePercent(route) !== undefined ? { percent: clonePercent(route) } : {}),
+      ...(rec.branch ? { branch: rec.branch, tickets: rec.tickets } : {}),
+      askedAt: rec.asked_at || rec.since, failed, ...(rec.joined_at ? { joined: true } : {}),
+      ...(rec.error ? { error: rec.error } : failed && rec.joined_at ? { error: 'Its session joined, but the board is not listening yet.' } : {}),
+    };
+  });
 }
 // "none" is the value that turns isolation off; Claude Code drops any other value and isolates. The PermissionRequest
 // hook sends the session's prompts to the phone, and its timeout stays a minute past the hook's own wait
