@@ -436,6 +436,9 @@ command fails and changes nothing.
                                                          mark it broken and append owner-check-broken {key, check,
                                                          error}; fix it with item set --check. land takes it too
          builder takes --dir <dir> for a wave file in <dir>; its records go in <dir>/agents
+  lander <wave>/<id>                                     relaunch the headless lander of a card it stopped on (a usage
+                                                         pause ends one): the card goes back to checking and the
+                                                         server launches a fresh lander; refused unless it is building
   builder pick <wave>/<id>                               who builds the card, from the hub's Codex share and the pause
                                                          line, and for claude which model, from the hub's Claude model
                                                          and the card's --size and --model: "codex: <reason>" or
@@ -759,6 +762,11 @@ const COMMANDS = {
       land({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base, ref: site ? await store.cardName(site, key) : undefined });
       return site ? store.setItem(site, key, { status: 'done', text: f.text, ownerStep: f['owner-step'], check: f.check }) : { lines: [] };
     });
+  }],
+  lander: [['wave/id'], [], async (site, [key]) => {
+    if (!site) throw new UsageError('lander needs --site <route>');
+    await store.relaunchLander(site, key);
+    return { lines: [`${await store.cardName(site, key)} is back at checking; the server launches a lander for it within a minute`] };
   }],
   merge: [['wave/id'], ['after-approval', 'confirmed'], async (site, [key], f) => (site && await store.heldMerge(site, key) ? landHeld(site, key)
     : store.mergeCard(site, key, { afterApproval: f['after-approval'], confirmed: f.confirmed }))],

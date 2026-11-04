@@ -240,8 +240,8 @@ import { localDay, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
-import { BOARD_CLI, launchBuilder, reviveBuilders } from './headless.mjs';
-import { BoardError, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, landable, migrateFollowups, stripDeadFields, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders } from './headless.mjs';
+import { BoardError, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, landable, relaunchLander, migrateFollowups, stripDeadFields, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -1324,20 +1324,28 @@ function runHeldMerge(key) {
   child.unref();
 }
 
-// data/landers.json {<key>: <verified at>}: the verification each launched lander was for, so each gets one lander.
-// A card whose verified build waits to land (store.mjs landable) gets a headless lander.
+// data/landers.json {<key>: {verified, pid}}: the verification each launched lander was for, so each gets one lander,
+// and its process. A card whose verified build waits to land (store.mjs landable) gets a headless lander. A lander whose
+// process has gone while its card still reads building stopped partway (the usage pause ends a headless run): its card
+// goes back to checking (store.mjs relaunchLander) and gets a fresh lander in this pass.
 async function launchLanders() {
   const file = path.join(data, 'landers.json');
-  const sent = await readJSON(file, {});
-  const due = (await landable(here)).filter((c) => sent[c.key] !== c.verified);
+  const sent = Object.fromEntries(Object.entries(await readJSON(file, {})).map(([k, v]) => [k, typeof v === 'string' ? { verified: v, pid: null } : v]));
+  const pidGone = new Set();
+  for (const [key, entry] of Object.entries(sent)) {
+    if (!entry.pid || pidAlive(entry.pid)) continue;
+    try { await relaunchLander(here, key); pidGone.add(key); } catch (e) { if (!(e instanceof BoardError)) throw e; }
+  }
+  const kept = Object.fromEntries(Object.entries(sent).filter(([k]) => !pidGone.has(k)));
+  const due = (await landable(here)).filter((c) => kept[c.key]?.verified !== c.verified);
   if (!due.length) return;
   for (const c of due) {
-    try { await launchBuilder(here, c, { lander: true }); await trackLaunch(c.key, null); } catch (e) {
+    try { kept[c.key] = { verified: c.verified, pid: (await launchBuilder(here, c, { lander: true })).pid }; await trackLaunch(c.key, null); } catch (e) {
+      kept[c.key] = { verified: c.verified, pid: null };
       await appendThread(here, c.key, { text: `Couldn't launch the lander headless (${e.message}); land it with board.mjs land ${c.key}.` });
     }
-    sent[c.key] = c.verified;
   }
-  await fs.writeFile(file + '.tmp', JSON.stringify(sent) + '\n');
+  await fs.writeFile(file + '.tmp', JSON.stringify(kept) + '\n');
   await fs.rename(file + '.tmp', file);
 }
 

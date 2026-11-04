@@ -149,6 +149,57 @@ test("on a board whose builders launch headless, the server launches the builder
   }
 });
 
+// docs/adr/2026-11-04-2230-a-lander-the-pause-stopped-starts-again.md
+test('a lander whose process is gone while its card reads building (the usage pause ended it) is launched again, and board.mjs lander does the same by hand', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-lander-'));
+  const site = path.join(home, 'site');
+  const data = path.join(site, 'data');
+  fs.mkdirSync(path.join(data, 'agents'), { recursive: true });
+  const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
+  const clone = path.join(home, 'clone');
+  fs.mkdirSync(clone);
+  git(clone, 'init', '--quiet', '-b', 'main');
+  const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
+  fs.mkdirSync(path.dirname(manifest), { recursive: true });
+  fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', headless_builders: true }));
+  const worktree = path.join(home, 'wt');
+  fs.mkdirSync(worktree);
+  fs.writeFileSync(path.join(data, 'agents', 'H3.json'), JSON.stringify({ started: '2026-11-04T01:00:00.000Z', done: '2026-11-04T02:00:00.000Z', kind: 'claude', model: 'opus', calls: [{ at: '2026-11-04T01:30:00.000Z', text: 'Kept it small' }], verified: { at: '2026-11-04T03:00:00.000Z' }, worktree: { path: worktree, branch: 'H3', repo: clone } }));
+  const waveFile = path.join(data, 'wave.json');
+  fs.writeFileSync(waveFile, JSON.stringify({ items: [{ id: 'H3', title: 'Verified', status: 'checking', next: "Verify the builder's judgment calls" }] }));
+  const seen = path.join(home, 'claude-runs.jsonl');
+  const fake = path.join(home, 'claude');
+  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, '{}\\n');\n`);
+  fs.chmodSync(fake, 0o755);
+  const runs = () => (fs.existsSync(seen) ? fs.readFileSync(seen, 'utf8').trim().split('\n').filter(Boolean).length : 0);
+  const status = () => JSON.parse(fs.readFileSync(waveFile, 'utf8')).items[0].status;
+  const [port] = await freePorts();
+  const child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
+  try {
+    await new Promise((resolve, reject) => { child.stdout.once('data', resolve); child.once('exit', reject); });
+    await until(() => runs() === 1, 'the lander launches');
+    // The lander started (building) and then its process went with the pause.
+    const building = () => { const w = JSON.parse(fs.readFileSync(waveFile, 'utf8')); w.items[0].status = 'building'; fs.writeFileSync(waveFile, JSON.stringify(w)); };
+    building();
+    await until(() => runs() === 2, 'the stopped lander launches again');
+    assert.equal(status(), 'checking');
+    // The one command does the same by hand.
+    building();
+    const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', 'board.mjs');
+    fs.mkdirSync(path.join(home, '.claude', 'kickflip', 'sites'), { recursive: true });
+    fs.symlinkSync(site, path.join(home, '.claude', 'kickflip', 'sites', 'shop'));
+    const out = execFileSync(process.execPath, [cli, '--site', 'shop', 'lander', 't/H3'], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
+    assert.match(out, /back at checking/);
+    assert.equal(status(), 'checking');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'landers.json'), 'utf8'))['t/H3'], undefined);
+    await until(() => runs() === 3, 'the relaunched lander launches');
+  } finally {
+    child.kill();
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 // docs/adr/2026-11-04-1010-a-dead-headless-builder-is-relaunched-once.md
 test('a headless builder whose process exited with its record open is relaunched once, then handed back; one held by the pause launches when asked; a closed record drops', async () => {
   const launched = [];

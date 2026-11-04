@@ -2584,6 +2584,20 @@ export async function landable(site) {
   return out;
 }
 
+// data/landers.json {<key>: {verified, pid}}: the verification each launched lander was for and its process. A card
+// whose lander stopped partway (the usage pause ends a headless run) stays at building with no process; this sets it back
+// to checking and drops its entry, so landable finds it and the server launches a fresh lander. → the thread line.
+export async function relaunchLander(site, key) {
+  const { item } = await loadItem(site, key);
+  if (item.status !== 'building') fail(`${key} is ${item.status || 'not started'}; only a card at building has a stopped lander to relaunch`);
+  await setItem(site, key, { status: 'checking', next: 'A lander relaunches to land the verified build' });
+  const file = path.join(site, 'data', 'landers.json');
+  const sent = await readJSON(file, {});
+  delete sent[key];
+  await fs.writeFile(file + '.tmp', JSON.stringify(sent) + '\n');
+  await fs.rename(file + '.tmp', file);
+}
+
 // land's check: refuses while a builder record on the card holds unverified calls, naming the commands per agent.
 export async function checkCallsVerified(site, key, { dir } = {}) {
   const { id } = parseKey(key);

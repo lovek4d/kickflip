@@ -92,7 +92,7 @@ export function launchHeadless({ bin = claudeBin(), cwd, prompt, model, log }) {
   });
 }
 
-const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+export const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 
 // docs/adr/2026-11-04-1010-a-dead-headless-builder-is-relaunched-once.md
 // tracked is {<key>: {model, pid, relaunched}}, the headless builds the server launched or meant to launch (pid null: held
