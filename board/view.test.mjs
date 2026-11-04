@@ -3164,7 +3164,7 @@ test("Waiting on you's eye on each question, after its attach button, asks for a
   assert.equal($('details.done'), null);
   release();
   await v.settle();
-  assert.deepEqual(v.shown(), { pills: [], questions: ['q1', 'q2'], status: 'prototype requested. 1 still open, answer it any time.', hash: '#q1' });
+  assert.deepEqual(v.shown(), { pills: [], questions: ['q1', 'q2'], status: 'prototype requested. 1 still open.', hash: '#q1' });
   assert.ok($('#qstatus .try-spin'));
   assert.ok($('details.done section.q[data-q="q2"]'));
   assert.equal($('details.done section.q[data-q="q2"] [data-proto]'), null);

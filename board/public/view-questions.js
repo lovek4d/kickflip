@@ -300,7 +300,7 @@
       const left = topics.find((t) => t.id === from)?.open || 0;
       if (next?.topic === from) {
         topicId = from;
-        sentLine = countOpen ? `${footer.replace(/\.?$/, '.')} ${left} still open, answer ${left === 1 ? 'it' : 'them'} any time.` : footer;
+        sentLine = countOpen ? `${footer.replace(/\.?$/, '.')} ${left} still open.` : footer;
         shown = sigNow();
         const y = scrollY;
         render();
