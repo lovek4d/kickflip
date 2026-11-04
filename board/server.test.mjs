@@ -22,7 +22,7 @@ before(async () => {
   base = `http://127.0.0.1:${port}`;
   fs.writeFileSync(path.join(home, 'push-stub.mjs'), "import fs from 'node:fs'; fs.appendFileSync(process.env.STUB_CALLS, JSON.stringify(process.argv.slice(3)) + '\\n'); console.log('sent');");
   const pushEnv = { KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, path.join(home, 'push-stub.mjs'), 'push']), STUB_CALLS: path.join(home, 'push-calls.jsonl') };
-  child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), ...pushEnv } });
+  child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), PREFIX: '', ...pushEnv } });
   await new Promise((resolve, reject) => { child.stdout.once('data', resolve); child.once('exit', reject); });
   await until(() => fs.existsSync(path.join(site, 'data', 'action-pushes.json')), 'the first Action needed check');
 });
@@ -812,7 +812,7 @@ test('with thousands of folders and lock folders coming and going, the board ans
   }
   fs.writeFileSync(path.join(own, 'site', 'board.json'), JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't' }));
   const [port] = await freePorts();
-  const server = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), path.join(own, 'site')], { env: { ...process.env, HOME: own, PORT: String(port) } });
+  const server = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), path.join(own, 'site')], { env: { ...process.env, HOME: own, PORT: String(port), PREFIX: '' } });
   const exited = new Promise((resolve) => server.once('exit', resolve));
   let req, churn;
   try {
@@ -1423,7 +1423,7 @@ test('with Idle notification on, the board pushes "<board> has gone idle" once 1
       await until(() => !state(), 'turning it off forgets the stretch');
       console.log(JSON.stringify({ seen, pushes: pushes() }));
       process.exit(0);
-    `], { env: { ...process.env, HOME: dir, KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, path.join(dir, 'push-stub.mjs'), 'push']), STUB_CALLS: calls }, encoding: 'utf8', timeout: 60000 });
+    `], { env: { ...process.env, HOME: dir, PREFIX: '', KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, path.join(dir, 'push-stub.mjs'), 'push']), STUB_CALLS: calls }, encoding: 'utf8', timeout: 60000 });
     assert.equal(result.status, 0, result.stderr);
     const out = JSON.parse(result.stdout.trim().split('\n').at(-1));
     assert.deepEqual(out.seen, [0, 1], 'nothing at 14 minutes, and no second push in one stretch');
