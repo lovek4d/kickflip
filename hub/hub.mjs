@@ -159,7 +159,7 @@ import { capital, hubView, settingsView, pollingView, flushView, SNOOZE_REFUSED,
 import { caffeinate, setKeepAwake, awakeUntil, awakeUnsupported } from './awake.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
 import { checkIncoming } from './incoming.mjs';
-import { listBoards, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, runningHubCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON } from './boards.mjs';
+import { listBoards, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON } from './boards.mjs';
 import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
@@ -222,7 +222,8 @@ function loadManifest() {
 }
 
 // ---------- supervisor ----------
-// route -> { child, key, state, since, exitCode, restarts, nextStart, up }
+// route -> { child, key, state, since, exitCode, restarts, nextStart, up, code, waitedOn, why }: code is a board server's
+// boardCode as it started, waitedOn the newer code it waits on a builder to run, why 'code' from that restart's stop until the new server answers or crashes
 const procs = new Map();
 // Every child spawned and not yet exited, including one whose route has left procs.
 const children = new Set();
@@ -254,6 +255,7 @@ function start(route, site) {
   const [cmd, ...args] = site.cmd;
   const env = { ...process.env, ...(site.env || {}), PORT: String(site.port), PREFIX: '/' + route, KICKFLIP_ROUTE: route };
   fs.writeSync(out, `\n--- ${new Date().toISOString()} hub starting: ${site.cmd.join(' ')} (port ${site.port})\n`);
+  p.code = isBoardSite(site) ? boardCode(site) : null;
   let child;
   try {
     child = spawn(cmd, args, { cwd: site.cwd || site.dir, env, stdio: ['ignore', out, out], detached: true });
@@ -276,7 +278,7 @@ function start(route, site) {
     try { fs.unlinkSync(pidFile(route)); } catch {}
     const ranLong = Date.now() - p.since > 60_000;
     if (ranLong) p.restarts = 0;
-    Object.assign(p, { child: null, state: p.stopping ? 'stopped' : 'crashed', exitCode: code ?? sig, nextStart: Date.now() + backoff(p.restarts++) });
+    Object.assign(p, { child: null, state: p.stopping ? 'stopped' : 'crashed', exitCode: code ?? sig, nextStart: Date.now() + backoff(p.restarts++), why: p.stopping ? p.why : undefined });
     p.stopping = false;
     log(`${route} exited (${code ?? sig})`);
   };
@@ -347,6 +349,18 @@ async function reconcile() {
       p.nextStart = Date.now() + 1500;
       continue;
     }
+    // docs/adr/2026-11-04-0056-a-board-server-whose-code-changed-restarts-between-builders.md
+    const onDisk = p?.child && p.code && !p.stopping && !restarting.has(route) && !closingResponses.has(route) ? boardCode(site) : null;
+    if (onDisk && onDisk !== p.code) {
+      if (!(await openBoardBuilders(site.dir)).length) {
+        log(`${route} runs older code than its files; restarting it`);
+        stop(route);
+        Object.assign(p, { restarts: 0, nextStart: Date.now() + 1500, why: 'code' });
+        continue;
+      }
+      if (p.waitedOn !== onDisk) log(`${route} runs older code than its files; restarts once no builder runs`);
+      p.waitedOn = onDisk;
+    }
     if (!p || (!p.child && Date.now() >= (p.nextStart || 0))) start(route, site);
   }
   first = false;
@@ -354,7 +368,7 @@ async function reconcile() {
     const site = routeRecord(sites, route);
     if (!site) continue;
     p.up = p.child ? await probe(site.port) : false;
-    if (p.child && p.up) p.state = 'up';
+    if (p.child && p.up) Object.assign(p, { state: 'up' }, p.stopping ? {} : { why: undefined });
   }
 }
 const reconciling = setInterval(() => reconcile().catch((e) => log('reconcile failed:', e.message)), 2000);
@@ -1171,7 +1185,8 @@ function downPage(route, site) {
   const serves = servesOf(site);
   const [tone, said] = serves === 'port' ? ['down', `down · nothing answers on port ${site.port}`]
     : serves === 'files' ? ['down', 'down · its folder is missing']
-      : p.child ? ['wait', 'starting · waiting for it to answer'] : ['down', `down · restarting${exit}`];
+      : p.why === 'code' ? ['wait', 'restarting · its code changed']
+        : p.child ? ['wait', 'starting · waiting for it to answer'] : ['down', `down · restarting${exit}`];
   const lede = serves === 'cmd' ? 'The hub runs every site and restarts one that stops.' : serves === 'port' ? 'Its session runs this server, so it comes back when that session starts it again.' : 'The hub serves this page from a folder that is no longer there.';
   return `${head(`${site.title || route} is down`, '<meta http-equiv="refresh" content="5">')}
 <a class="back" href="/_hub/">‹ Hub</a>

@@ -96,7 +96,8 @@ export const reviewerLogins = (list) => Object.fromEntries((Array.isArray(list) 
   .filter((r) => typeof r?.github === 'string' && r.github && typeof r.name === 'string' && r.name).map((r) => [r.github.toLowerCase(), r.name]));
 const isWave = (w) => Array.isArray(w?.items);
 
-export const isBoardSite = (s) => Array.isArray(s?.cmd) && s.cmd.some((a) => /board[/\\]server\.mjs$/.test(a)) && typeof s.dir === 'string';
+const BOARD_SERVER = /board[/\\]server\.mjs$/;
+export const isBoardSite = (s) => Array.isArray(s?.cmd) && s.cmd.some((a) => BOARD_SERVER.test(a)) && typeof s.dir === 'string';
 // Whether a board's builders branch from its repo's local copy of its branch and land there, with no fetch: a board
 // `kickflip join` made (`local: true`), the hub board among them, and a board with neither a GitHub repo nor a plain git remote
 // (docs/adr/2026-11-03-0248-kickflip-join-adds-the-current-repository-as-a-board.md).
@@ -411,6 +412,11 @@ export function hubCode(entry = path.join(SKILL_DIR, 'hub', 'hub.mjs')) {
   for (const f of files) h.update(f).update('\0').update(seen.get(path.join(root, f))).update('\0');
   return { hash: h.digest('hex').slice(0, 12), files };
 }
+
+// The code a board site's server runs, as hubCode hashes it from the board/server.mjs in its cmd, resolved from the
+// folder the hub starts it in (docs/adr/2026-11-04-0056-a-board-server-whose-code-changed-restarts-between-builders.md).
+// → hash
+export const boardCode = (site) => hubCode(path.resolve(site.cwd || site.dir, site.cmd.find((a) => BOARD_SERVER.test(a)))).hash;
 
 // Run by the hub as it starts, so the hub link can tell when its files changed under it. → {hash, files, pid, at}
 export function recordHubCode() {

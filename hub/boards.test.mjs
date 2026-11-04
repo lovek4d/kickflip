@@ -17,7 +17,7 @@ const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SKILL = path.join(HUB_DIR, '..');
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'boards-'));
 process.env.HOME = home;
-const { listBoards, linksOf, hubLink, oldestUnheard, hubCode, HUB_CODE, listenState, checkListening, RESUME_STATE, withManifestLock, saveJSON } = await import('./boards.mjs');
+const { listBoards, linksOf, hubLink, oldestUnheard, hubCode, boardCode, HUB_CODE, listenState, checkListening, RESUME_STATE, withManifestLock, saveJSON } = await import('./boards.mjs');
 
 const claude = (...p) => path.join(home, '.claude', ...p);
 const site = (route, ...p) => claude('kickflip', 'sites', route, ...p);
@@ -128,6 +128,19 @@ test('the hub code hash covers hub.mjs and what it imports through the skill, an
   write(path.join(root, 'shared', 'b.mjs'), 'export const b = 2;\n');
   assert.notEqual(hubCode(path.join(root, 'hub', 'hub.mjs')).hash, first.hash);
   assert.ok(['hub/boards.mjs', 'hub/github.mjs', 'hub/push.mjs', 'hub/schedule.mjs'].every((f) => hubCode().files.includes(f)));
+});
+
+test("a board server's code hash covers its board/server.mjs entry, found in its cmd from its folder, and what it imports", () => {
+  const root = fs.mkdtempSync(path.join(home, 'board-code-'));
+  write(path.join(root, 'board', 'server.mjs'), "import './store.mjs';\n");
+  write(path.join(root, 'board', 'store.mjs'), "export { b } from '../shared/b.mjs';\n");
+  write(path.join(root, 'shared', 'b.mjs'), 'export const b = 1;\n');
+  const absolute = { dir: root, cmd: [process.execPath, path.join(root, 'board', 'server.mjs'), root] };
+  const relative = { dir: root, cmd: ['node', 'board/server.mjs', '.'] };
+  const first = boardCode(absolute);
+  assert.equal(boardCode(relative), first);
+  write(path.join(root, 'shared', 'b.mjs'), 'export const b = 2;\n');
+  assert.notEqual(boardCode(absolute), first);
 });
 
 test("oldestUnheard finds the oldest line past the owner's watcher cursor, or past when the session took the site without one", () => {
