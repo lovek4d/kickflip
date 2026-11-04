@@ -95,9 +95,10 @@ test('the server archives Done cards past the newest 100 as it starts, sends the
   try {
     await new Promise((resolve, reject) => { child.stdout.on('data', (d) => String(d).includes('site on') && resolve()); child.once('exit', reject); });
     await until(async () => (await readArchive(site)).length === count - DONE_KEPT - 3, 'the start archives every card past the newest 100 but the kept 3');
-    const board = await (await fetch(`${base}/api/board`)).json();
+    // The server sees its archive's writes to the wave file once its file watcher does.
+    let board;
+    await until(async () => (board = await (await fetch(`${base}/api/board`)).json()).items.filter((i) => i.lane === 'done').length === DONE_KEPT + 3, 'the board leaves the archived cards out');
     const done = board.items.filter((i) => i.lane === 'done');
-    assert.equal(done.length, DONE_KEPT + 3);
     assert.equal(board.doneArchived, count - DONE_KEPT - 3);
     assert.ok(done.every((c) => !('agents' in c) && !('created' in c)), 'Done cards come slim');
     assert.ok(board.items.find((i) => i.key === 't/O1').created !== undefined, 'open cards come whole');

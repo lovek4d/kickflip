@@ -541,6 +541,10 @@ function roundState(qs) {
   return qs.some((q) => roundOf(q) === n && q.state !== 'resolved') ? { n, state: 'back' } : null;
 }
 
+const add = (map, key, value) => { const list = map.get(key); if (list) list.push(value); else map.set(key, [value]); };
+// list grouped by keyOf, each group in the list's order. → Map
+const groupBy = (list, keyOf) => { const map = new Map(); for (const x of list) add(map, keyOf(x), x); return map; };
+
 // A topic is resolved once every question in it is; questions without a known topic share "Other".
 // A card's questions use topic `item:<key>`: `item:<wave>/<id>`, or `item:ask:<event id>` for a New card not yet sorted.
 // The board supplies its title when owner.json has none, and names the card as card, so the page's board can leave the
@@ -550,8 +554,9 @@ function ownerTopics(topics, questions, closed = new Set()) {
   const known = new Set(topics.map((t) => t.id));
   const all = [...topics];
   if (questions.some((q) => !known.has(q.topic))) all.push({ id: '', title: 'Other' });
+  const byTopic = groupBy(questions, (q) => (known.has(q.topic) ? q.topic : ''));
   return all.map((t) => {
-    const qs = questions.filter((q) => (known.has(q.topic) ? q.topic : '') === t.id);
+    const qs = byTopic.get(t.id) || [];
     const count = (s) => qs.filter((q) => q.state === s).length;
     const settled = qs.every((q) => q.state === 'resolved') || (closed.has(t.id) && !count('open'));
     const state = qs.length && settled ? 'resolved' : 'open';
@@ -586,15 +591,43 @@ const actionText = (e, asked) => {
 // A Claude line answers the owner's messages before it; an agent's lines and the orchestrator's answer to a builder don't.
 const claudeAtOf = (msgs) => [...msgs.filter((m) => m.who === 'claude' && !['status', 'agent', BUILDER_ASK.answer].includes(m.kind)).map((m) => m.ts),
   ...msgs.filter((m) => m.kind === 'ask').map((m) => m.reply?.at)].filter(Boolean).map(String).sort().pop() || '';
-export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, fromAsk = null, links = [], agents = {}, moved = [] }) {
+// docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
+// The event log and owner questions grouped once per build, so each card's thread picks its own instead of scanning
+// them all: byKey the item events by card key, answers the owner-answer events by their question's topic, asks the
+// ask events by id, edits each ask-edited event's text and editFiles their files by the event they edit, questions
+// owner.json's questions by topic, and order each event's place in the log. Each list keeps the log's order.
+export function threadIndex(events, owner = {}) {
+  const questions = new Map();
+  const topicOf = new Map();
+  for (const q of owner.items || []) { add(questions, q.topic, q); topicOf.set(q.id, q.topic); }
+  const byKey = new Map(), answers = new Map(), asks = new Map(), edits = new Map(), editFiles = new Map(), order = new Map();
+  events.forEach((e, i) => {
+    order.set(e, i);
+    if (e.data?.key && ITEM_EVENTS.includes(e.kind)) add(byKey, e.data.key, e);
+    if (e.kind === 'owner-answer' && topicOf.has(e.data?.id)) add(answers, topicOf.get(e.data.id), e);
+    if (e.kind === 'ask') asks.set(e.id, e);
+  });
+  for (const e of events.filter((x) => x.kind === 'ask-edited').sort((a, b) => String(a.ts).localeCompare(String(b.ts)))) {
+    edits.set(e.data?.id, e.data?.text);
+    for (const f of e.data?.files || []) add(editFiles, e.data?.id, f);
+  }
+  return { byKey, answers, asks, edits, editFiles, questions, order };
+}
+// The events of several of an index's lists in the log's order.
+const inLogOrder = (index, lists) => {
+  const found = lists.filter((l) => l?.length);
+  return found.length > 1 ? found.flat().sort((a, b) => index.order.get(a) - index.order.get(b)) : [...(found[0] || [])];
+};
+export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, fromAsk = null, links = [], agents = {}, moved = [], index = threadIndex(events, owner) }) {
   const askIds = key.startsWith('ask:') ? [key.slice(4)] : [fromAsk, ...moved].filter(Boolean);
-  const keys = new Set([key, ...askIds.map((id) => `ask:${id}`)]);
-  const asked = new Map((owner.items || []).filter((q) => q.topic === `item:${key}`).map((q) => [q.id, q]));
+  const keys = [...new Set([key, ...askIds.map((id) => `ask:${id}`)])];
+  const asked = new Map((index.questions.get(`item:${key}`) || []).map((q) => [q.id, q]));
+  const answers = index.answers.get(`item:${key}`) || [];
   // An answer is acted on, and waits on Claude no more, once its question is resolved after it, a later prototype
   // round names its question (round_of), or a build starts on the card after it.
   const rounded = new Set([...asked.values()].map((q) => q.round_of).filter(Boolean));
   const buildsFrom = agentsOf(agents).filter(builds).map((a) => String(a.started || '')).filter(Boolean);
-  const acted = new Set(events.filter((e) => e.kind === 'owner-answer' && asked.has(e.data?.id))
+  const acted = new Set(answers
     .filter((e) => resolvedSince(asked.get(e.data.id), e.ts) || rounded.has(e.data.id) || buildsFrom.some((s) => s > String(e.ts))).map((e) => e.id));
   const msgs = [
     // First, so a start sorts above the status line `builder start` writes at the same moment.
@@ -608,27 +641,25 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     ]),
     ...lines.map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}) } : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null })),
-    ...events.filter((e) => keys.has(e.data?.key) && ITEM_EVENTS.includes(e.kind))
+    ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply,
         ...(isRequest(e, 'grill') || isRequest(e, 'prototype') ? { request: true } : {}) })),
-    ...events.filter((e) => e.kind === 'owner-answer' && asked.has(e.data?.id)).map((e) => {
+    ...answers.map((e) => {
       const answer = [e.data.label || e.data.choice, e.data.note].filter(Boolean).join(' · ');
       return { ts: e.ts, who: 'love', via: 'questions', kind: e.kind, text: `${asked.get(e.data.id).question}\n→ ${answer}`, files: e.data.files || [], eventId: e.id, reply: e.reply };
     }),
-    ...events.filter((e) => e.kind === 'ask' && askIds.includes(e.id))
+    ...inLogOrder(index, [...new Set(askIds)].map((id) => (index.asks.has(id) ? [index.asks.get(id)] : [])))
       .flatMap((e) => [{ ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, ...(moved.includes(e.id) ? { moved: true } : {}),
         ...(typeof e.data?.from?.title === 'string' ? { from: e.data.from.title } : {}) },
         ...(e.data?.quick === true ? [{ ts: e.ts, who: 'love', kind: 'quick-build', request: true, text: QUICK_BUILD }] : []),
         ...links.map((l) => ({ ts: e.ts, who: 'claude', kind: 'ask-link', text: `${l.became ? 'Became' : 'Added to'} ${l.ref}`, link: `#item=${encodeURIComponent(l.key)}`, html: null, via: null }))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
   const lastClaude = claudeAtOf(msgs);
-  const editEvents = events.filter((e) => e.kind === 'ask-edited').sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
-  const edits = new Map(editEvents.map((e) => [e.data?.id, e.data?.text]));
-  const editFiles = (id) => editEvents.filter((e) => e.data?.id === id).flatMap((e) => e.data.files || []);
+  const { edits, editFiles } = index;
   for (const m of msgs) {
     if (!m.eventId) continue;
     if ((m.kind === 'ask' || m.kind === 'item-message') && typeof edits.get(m.eventId) === 'string') {
-      Object.assign(m, { text: edits.get(m.eventId), edited: true, files: [...m.files, ...editFiles(m.eventId)] });
+      Object.assign(m, { text: edits.get(m.eventId), edited: true, files: [...m.files, ...(editFiles.get(m.eventId) || [])] });
     }
     const linked = m.kind === 'ask' && (links.length > 0 || Boolean(m.moved));
     m.state = m.reply ? 'replied' : linked || acted.has(m.eventId) || lastClaude > String(m.ts) ? 'answered' : routeRecord(working, m.eventId) ? 'working' : 'waiting';
@@ -720,7 +751,7 @@ export const lineupPhases = (lineup) => lineup.phases || lineup.items.map((id) =
 export function buildBoard(snapshot) {
   const { owner = {}, topicItems = {}, events = [], threads = {}, prs = {}, working = {} } = snapshot;
   const now = snapshot.now ?? Date.now();
-  const itemEvents = events.filter((e) => e.data?.key && ITEM_EVENTS.includes(e.kind));
+  const index = threadIndex(events, owner);
   const withdrawn = new Set(events.filter((e) => e.kind === 'ask-withdrawn' && !e.data?.key).map((e) => e.data?.id));
   const asks = new Map(events.filter((e) => e.kind === 'ask' && !withdrawn.has(e.id)).map((e) => [e.id, e]));
   const latest = (kind, field) => new Map(events.filter((e) => e.kind === kind).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((e) => [e.data?.[field], e.ts]));
@@ -758,7 +789,7 @@ export function buildBoard(snapshot) {
       const askKeys = new Set(askIds.map((id) => `ask:${id}`));
       const lines = [...(routeRecord(threads, key) || []), ...askIds.flatMap((id) => routeRecord(threads, `ask:${id}`) || [])];
       if (it.from_ask) madeFrom.set(it.from_ask, [...(madeFrom.get(it.from_ask) || []), { key, ref: refOf(wave, it, tickets), became: true }]);
-      const msgs = threadOf(key, { lines, events, owner, working, fromAsk: it.from_ask || null, moved: folded });
+      const msgs = threadOf(key, { lines, events, owner, working, fromAsk: it.from_ask || null, moved: folded, index });
       for (const m of msgs) if (m.eventId) threadStates.set(m.eventId, m.state);
       claudeAt.set(key, claudeAtOf(msgs));
       items.push(workItem({
@@ -767,10 +798,10 @@ export function buildBoard(snapshot) {
         ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now), reachedPhase: reachedPhaseOf(agents, routeRecord(threads, key)), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
         worktree: worktreeOf(routeRecord(records, it.id)),
         thread: lines,
-        events: [...itemEvents.filter((e) => e.data.key === key || askKeys.has(e.data.key)), ...askIds.map((id) => asks.get(id))],
+        events: [...inLogOrder(index, [key, ...askKeys].map((k) => index.byKey.get(k))), ...askIds.map((id) => asks.get(id))],
         working: msgs.some((m) => m.state === 'working'),
         said: msgs.filter((m) => m.who === 'love' && (m.kind === 'item-message' || m.kind === 'owner-answer')),
-        askedAt: (owner.items || []).filter((q) => q.topic === `item:${key}` && q.asked_at).map((q) => q.asked_at),
+        askedAt: (index.questions.get(`item:${key}`) || []).filter((q) => q.asked_at).map((q) => q.asked_at),
         topicItems, boardReviewers: snapshot.reviewers || [], now, bumpedAt: cardBumps.get(key), holdAsk: cardHolds.get(key), closedAt: cardDones.get(key),
         mergeAt: cardMerges.get(key), autoMerge, tickets,
       }));
@@ -804,11 +835,13 @@ export function buildBoard(snapshot) {
 
   const askProgress = snapshot.askProgress || {};
   const askDones = latest('ask-done', 'id');
-  const answerEvents = events.filter((e) => e.kind === 'owner-answer');
-  const requestEvents = events.filter((e) => e.kind === 'prototype-request');
-  const questions = (owner.items || []).map((q) => ownerQuestion(q, answerEvents, requestEvents));
+  const answerEvents = groupBy(events.filter((e) => e.kind === 'owner-answer'), (e) => e.data?.id);
+  const requestEvents = groupBy(events.filter((e) => e.kind === 'prototype-request'), (e) => e.data?.question);
+  const questions = (owner.items || []).map((q) => ownerQuestion(q, answerEvents.get(q.id) || [], requestEvents.get(q.id) || []));
+  const questionById = new Map(questions.map((q) => [q.id, q]));
+  const questionsOn = groupBy(questions, (q) => q.topic);
   const pendingOn = (topic) => {
-    const qs = questions.filter((q) => q.topic === topic);
+    const qs = questionsOn.get(topic) || [];
     return { open: qs.filter((q) => q.state === 'open').length, answered: qs.filter((q) => q.state === 'answered').length };
   };
   for (const e of asks.values()) {
@@ -819,7 +852,7 @@ export function buildBoard(snapshot) {
     if (links.length) { moved.set(key, links[0].key); continue; }
     // An ask linked to a card the board no longer holds went with it to the archive (store.mjs archiveCards).
     if (routeRecord(askLinks, e.id)) { moved.set(key, routeRecord(askLinks, e.id)); continue; }
-    const msgs = threadOf(key, { lines: routeRecord(threads, key) || [], events, working, links });
+    const msgs = threadOf(key, { lines: routeRecord(threads, key) || [], events, working, links, index });
     for (const m of msgs) if (m.eventId) threadStates.set(m.eventId, m.state);
     claudeAt.set(key, claudeAtOf(msgs));
     items.push(askItem(e, msgs, bumps.get(e.id), links.length > 0 || Boolean(routeRecord(askLinks, e.id)), routeRecord(askProgress, e.id), askDones.get(e.id), pendingOn(`item:${key}`)));
@@ -844,17 +877,16 @@ export function buildBoard(snapshot) {
   for (const it of items) {
     const t = itemTopics.get(`item:${it.key}`);
     if (!t) { it.questions = null; continue; }
-    const pending = t.questions.filter((id) => questions.find((q) => q.id === id)?.state !== 'resolved');
-    const first = t.questions.find((id) => questions.find((q) => q.id === id)?.state === 'open') || pending[0] || t.questions[0];
+    const pending = t.questions.filter((id) => questionById.get(id)?.state !== 'resolved');
+    const first = t.questions.find((id) => questionById.get(id)?.state === 'open') || pending[0] || t.questions[0];
     // askedAt: when each open question was asked, which the card counts as new questions; fromAsks: every open one is a
     // builder's ask the orchestrator deferred to the owner.
-    const open = t.questions.map((id) => questions.find((q) => q.id === id)).filter((q) => q?.state === 'open');
+    const open = t.questions.map((id) => questionById.get(id)).filter((q) => q?.state === 'open');
     it.questions = { topic: t.id, state: t.state, open: t.open, answered: t.answered, replied: t.replied, resolved: t.resolved, first,
       askedAt: open.map((q) => q.asked_at).filter(Boolean).sort(), fromAsks: open.length > 0 && open.every((q) => q.ask) };
   }
   // A card waits on each dep until it reaches Done, which a reopened dep still counts as, and a Done card waits on nothing (docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md).
   const byKey = new Map(items.map((i) => [i.key, i]));
-  const questionById = new Map(questions.map((q) => [q.id, q]));
   for (const it of items) {
     it.blockedBy = it.kind !== 'work' || it.lane === 'done' ? [] : it.deps.map((d) => byKey.get(String(d).includes('/') ? d : `${it.wave}/${d}`))
       .filter((d) => d && d.lane !== 'done' && !d.reopened).map(linkOf);
@@ -913,11 +945,20 @@ export function buildBoard(snapshot) {
   const topicList = topicsOf();
   const reviews = reviewsOf({ on: snapshot.autoReview, incoming: snapshot.incoming, records: snapshot.reviewRecords, events, now,
     refs: new Map(items.filter((i) => i.kind === 'work').map((i) => [i.key, i.ref])) });
-  const needs = [...promptLines(snapshot.prompts), ...needsOf(items, topicList, questions), ...reviewNeeds(reviews)];
+  const needs = [...needsOf(items, topicList, questions), ...reviewNeeds(reviews)];
   // The page shows those this browser hasn't seen in the answer banner (docs/adr/2026-10-29-1639-every-ask-is-a-card.md).
   const answers = items.filter((i) => i.ask?.answerAt).sort((a, b) => b.ask.answerAt.localeCompare(a.ask.answerAt))
     .map((i) => ({ key: i.key, id: i.id, text: i.title, at: i.ask.answerAt }));
-  return { kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, waves, waveBands, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, reviews, needs, needsSummary: needsSummary(needs), working: workingOn.length, workingOn, checks: checksOf(snapshot, now) };
+  return withHub({ kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, waves, waveBands, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, reviews, needs, working: workingOn.length, workingOn, checks: checksOf(snapshot, now) }, snapshot);
+}
+
+// docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
+// A built board with the hub's side added: prompts, this board's pending prompts (../hub/prompts.mjs shown), lead Needs
+// you, and listen (hub/boards.mjs listenState) names the watcher's state. buildBoard adds its snapshot's; the server
+// adds them to the build it shares, so the hub's state, which changes outside the board's data, is read each time.
+export function withHub(built, { listen, prompts } = {}) {
+  const needs = [...promptLines(prompts), ...built.needs];
+  return { ...built, needs, needsSummary: needsSummary(needs), checks: { ...built.checks, watcher: { listening: 'running', asleep: 'asleep', waking: 'waking' }[listen] || 'stopped' } };
 }
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
@@ -959,23 +1000,22 @@ const SORT_AT = {
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-// checked is data/checked.json {at, every (minutes), idle?}, listen whether the board hears its events
-// (hub/boards.mjs listenState), watcher data/watcher.json {since} or null, replyAt the newest reply file's time
+// checked is data/checked.json {at, every (minutes), idle?}, watcher data/watcher.json {since} or null, replyAt the newest reply file's time
 // (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md). claudeAt is the newest write of Claude's the
 // board can see: a reply, a Claude thread line, a working mark, a builder record or a watcher start. checked.json
 // doesn't count, since the hub writes it on every poll (hub/github.mjs).
-function checksOf({ checked, listen, watcher, replyAt, threads = {}, working = {}, waves = [] }, now) {
+function checksOf({ checked, watcher, replyAt, threads = {}, working = {}, waves = [] }, now) {
   const every = Number(checked?.every) || 30;
   const writes = [
     replyAt, watcher?.since, ...Object.values(working),
     ...Object.values(threads).flat().filter((l) => (l.who || 'claude') === 'claude').map((l) => l.ts),
     ...waves.flatMap((w) => Object.values(w.agents || {}).flatMap((byAgent) => Object.values(byAgent || {})).map((r) => r?.done || r?.started)),
   ].filter((t) => typeof t === 'string' && !Number.isNaN(Date.parse(t)));
-  const claudeAt = writes.sort((a, b) => Date.parse(a) - Date.parse(b)).pop() || null;
+  const claudeAt = writes.reduce((latest, t) => (latest && Date.parse(latest) > Date.parse(t) ? latest : t), null);
   const idle = Boolean(checked?.idle);
   return {
     at: checked?.at || null, every: idle ? null : every, idle, late: !idle && Boolean(checked?.at) && now - Date.parse(checked.at) > 2 * every * 60000,
-    watcher: { listening: 'running', asleep: 'asleep', waking: 'waking' }[listen] || 'stopped', claudeAt,
+    claudeAt,
   };
 }
 

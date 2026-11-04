@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, MAX_IMPLEMENTERS, todoOf, owesNext, startedByAnswer, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary } from './domain.mjs';
+import { buildBoard, withHub, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, MAX_IMPLEMENTERS, todoOf, owesNext, startedByAnswer, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -1777,4 +1777,26 @@ test("the idle push sums up the cards landed and waves finished since the last i
   assert.equal(idleSummary(built.items, '2026-11-04T10:00:00Z'), `2 cards landed: ${ref('A3')}, ${ref('A2')} · Monitor finished`);
   assert.equal(idleSummary(built.items, '2026-11-04T10:15:00Z'), `1 card landed: ${ref('A3')} · Monitor finished`);
   assert.equal(idleSummary(built.items, '2026-11-04T10:30:00Z'), 'Nothing closed since the last idle notification.');
+});
+
+// docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md: the board groups events by card once per build,
+// and lines at the same moment keep the event log's order.
+test("a card's thread keeps the event log's order across its own key, its ask's and its questions, and shows its ask once", () => {
+  const ts = '2026-10-23T10:00:00Z';
+  const ask = { id: 'k0', ts: '2026-10-23T09:00:00Z', kind: 'ask', data: { text: 'Make one' }, reply: null };
+  const msg = (id, key) => ({ id, ts, kind: 'item-message', data: { key, text: id }, reply: null });
+  const answer = (id, q) => ({ id, ts, kind: 'owner-answer', data: { id: q, choice: 'A' }, reply: null });
+  const events = [ask, msg('m1', 'w/A1'), answer('a2', 'q2'), msg('m2', 'ask:k0'), answer('a1', 'q1'), msg('m3', 'w/A1')];
+  const owner = { items: [{ id: 'q1', topic: 'item:w/A1', question: 'One?' }, { id: 'q2', topic: 'item:w/A1', question: 'Two?' }] };
+  assert.deepEqual(threadOf('w/A1', { events, owner, fromAsk: 'k0' }).map((m) => m.eventId), ['k0', 'm1', 'm2', 'm3', 'a2', 'a1']);
+  assert.deepEqual(threadOf('w/A1', { events, owner, fromAsk: 'k0', moved: ['k0'] }).map((m) => m.eventId), ['k0', 'm1', 'm2', 'm3', 'a2', 'a1']);
+});
+
+// docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md: the server shares one build of its data and adds
+// the hub's side, the session's pending prompts and whether it listens, to each board it serves.
+test("the hub's side added to a shared build gives the board built with it", () => {
+  const perm = { id: 'p1', tool: 'Bash', action: 'run npm test', detail: 'npm test', rule: 'Bash(npm test)', questions: null, cwd: '~/r', at: '2026-10-30T10:00:00Z' };
+  const snapshot = { now: Date.parse('2026-10-30T11:00:00Z'), fromWaves: false, waves: [], events: [], checked: { at: '2026-10-30T10:59:00Z', every: 30 } };
+  assert.deepEqual(withHub(buildBoard(snapshot), { listen: 'asleep', prompts: [perm] }), buildBoard({ ...snapshot, listen: 'asleep', prompts: [perm] }));
+  assert.deepEqual(withHub(buildBoard(snapshot), {}), buildBoard(snapshot));
 });

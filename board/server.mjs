@@ -213,7 +213,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { archivedOf, buildBoard, DONE_KEPT, idleStep, idleSummary, ITEM_EVENTS, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, refOf, startedByAnswer, strictlyIdle, threadOf, todoOf } from './domain.mjs';
+import { archivedOf, buildBoard, withHub, DONE_KEPT, idleStep, idleSummary, ITEM_EVENTS, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, refOf, startedByAnswer, strictlyIdle, threadOf, todoOf } from './domain.mjs';
 import { localDay } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
@@ -264,6 +264,7 @@ const types = {
 const gzip = promisify(zlib.gzip);
 const COMPRESSIBLE = /^(text\/|application\/json|image\/svg\+xml)/;
 async function send(res, code, headers, body) {
+  if (!['GET', 'HEAD'].includes(res.req?.method)) dataVersion++;
   const h = { ...headers };
   let out = Buffer.isBuffer(body) ? body : Buffer.from(body ?? '');
   if (COMPRESSIBLE.test(h['content-type'] || '')) {
@@ -329,8 +330,9 @@ async function recordAnswers(answers) {
   const again = (a) => asked.has(String(a.id)) && picksNoTake(asked.get(String(a.id)), a.choice);
   const ids = await appendEvents(answers.map((a) => ['owner-answer', again(a) ? { ...a, prototype_again: true } : a]));
   await resolveNoteAnswers(here, answers);
+  dataVersion++;
   // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
-  const built = buildBoard(await snapshot({ github: false }));
+  const built = await sharedBoard();
   const started = [...new Set(answers.map((a) => startedByAnswer(built, String(a.id))).filter(Boolean))];
   if (started.length) await appendEvents(started.map((key) => ['card-unblocked', { key }]));
   return ids;
@@ -410,7 +412,9 @@ async function prState(repo, n) {
       if (v) {
         const { statusCheckRollup, latestReviews, ...rest } = v;
         const reviews = Object.fromEntries((latestReviews || []).map((r) => [r.author?.login, r.state]));
-        entry.value = { ...rest, checks: checksOf(statusCheckRollup), reviews, codexOpen };
+        const value = { ...rest, checks: checksOf(statusCheckRollup), reviews, codexOpen };
+        if (JSON.stringify(value) !== JSON.stringify(entry.value)) dataVersion++;
+        entry.value = value;
       }
       entry.at = Date.now();
       entry.loading = null;
@@ -443,8 +447,14 @@ async function readAgents(dir) {
   return out;
 }
 
-async function itemSnapshot() {
-  const cfg = await config();
+// What the board reads from outside the folders the server watches: board.json, this board's entry in the hub's
+// manifest (its GitHub repo, git remote and branch) and the Slack bridge's topic items.
+async function outsideData() {
+  const self = boardAt(here);
+  return { cfg: await config(), github: self?.github, remote: self?.remote, branch: self?.branch, topicItems: topicItems() };
+}
+
+async function itemSnapshot({ cfg, github, remote, branch }) {
   const fromWaves = cfg.items === 'waves';
   const sources = await itemSources(here);
   const waves = (await Promise.all(sources.map(async (s) => {
@@ -457,20 +467,19 @@ async function itemSnapshot() {
   await Promise.all(waves.flatMap(({ slug, wave }) => wave.items.map(async (it) => {
     threadLines[`${slug}/${it.id}`] = await readLines(threadFile(`${slug}/${it.id}`));
   })));
-  const self = boardAt(here);
-  return { github: self?.github, remote: self?.remote, branch: self?.branch, reviewers: cfg.reviewers || [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, autoPull: settingsOf(cfg).auto_pull, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, waves, threads: threadLines,
+  return { github, remote, branch, reviewers: cfg.reviewers || [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, autoPull: settingsOf(cfg).auto_pull, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, waves, threads: threadLines,
     working: await readWorking(here), autoReview: settingsOf(cfg).auto_review, incoming: await readJSON(path.join(data, 'incoming.json'), null),
     reviewRecords: await readJSON(path.join(data, 'reviews.json'), {}) };
 }
 
 // Reads every source buildBoard needs: wave files and their builder records,
 // PR state from gh, item threads, page events with Claude's replies, owner
-// questions and legacy review-link fallbacks. github: false leaves PR state out, for the minute checks.
-async function snapshot({ github = true } = {}) {
-  const items = await itemSnapshot();
+// questions and legacy review-link fallbacks; outside is outsideData's.
+async function snapshot(outside) {
+  const items = await itemSnapshot(outside);
   const { waves, threads: threadLines, working } = items;
   const prs = Object.create(null);
-  if (github) await Promise.all(waves.flatMap(({ wave }) => {
+  await Promise.all(waves.flatMap(({ wave }) => {
     const repo = items.github || wave.repo;
     return wave.items.flatMap((it) => cardPRs(it, repo)).map(async (p) => { prs[prKeyOf(p)] = await prState(p.repo, p.number); });
   }));
@@ -482,11 +491,33 @@ async function snapshot({ github = true } = {}) {
   }));
 
   return {
-    ...items, route: prefix.slice(1) || path.basename(here), try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
+    ...items, try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
     checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
     owner: await readJSON(path.join(data, 'owner.json'), { items: [] }),
-    topicItems: await topicItems(),
+    topicItems: outside.topicItems,
   };
+}
+
+const route = prefix.slice(1) || path.basename(here);
+
+// docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
+// The version of the board's data: it steps on each write the watcher sees (changed); in a request that may write as
+// it starts, so it reads the files as they are, before each read after its writes (pageBoard, recordAnswers) and as it
+// answers (send); each minute, since the board reads the clock; and each time gh brings back a changed PR state.
+// sharedBoard builds the board once per data version and outsideData, read on each call, and every reader of
+// that pair shares the one build, which none of them changes. The hub's side, the session's prompts and whether it
+// listens, is board()'s to add (withHub).
+let dataVersion = 0;
+let shared = null;
+async function sharedBoard() {
+  const outside = await outsideData();
+  const key = JSON.stringify([dataVersion, outside]);
+  if (shared?.key !== key) {
+    const built = snapshot(outside).then(buildBoard);
+    shared = { key, built };
+    built.catch(() => { if (shared?.built === built) shared = null; });
+  }
+  return shared.built;
 }
 
 let checkingStalled = false;
@@ -498,7 +529,7 @@ async function checkStalled() {
     const previous = await readJSON(file, {});
     const current = Object.create(null);
     let sent;
-    for (const { key, lane, builder } of buildBoard(await itemSnapshot()).items) {
+    for (const { key, lane, builder } of (await sharedBoard()).items) {
       if (lane === 'done' || !builder?.stalled) continue;
       current[key] = builder.silentSince;
       if (routeRecord(previous, key) !== builder.silentSince) {
@@ -543,8 +574,8 @@ async function board() {
   const { title, reviewers } = await config();
   const self = boardAt(here);
   const listen = self ? listenState(self) : 'deaf';
-  const built = buildBoard({ ...(await snapshot()), listen, prompts: self ? pendingFor(self.route).map(shown) : [] });
-  for (const it of built.items) if (it.worktree && !existsSync(it.worktree)) it.worktree = null;
+  const built = withHub(await sharedBoard(), { listen, prompts: self ? pendingFor(self.route).map(shown) : [] });
+  built.items = built.items.map((it) => (it.worktree && !existsSync(it.worktree) ? { ...it, worktree: null } : it));
   const links = self ? linksOf(self, { listen }) : null;
   return { generatedAt, title, reviewers: (reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string'), ...built, links, setup: await setupOf(links),
     holdChoices: HOLD_CHOICES, arch: self ? archOf(await readReviews(here), built.items, built.owner, { repo: repoName(boardRepo(self.route)), waits: reviewWaits() }) : null };
@@ -558,6 +589,7 @@ async function board() {
 // title, summary and askedAt to its card while the card is on the board: the page names the topic from the card
 // (view-questions.js), so a card's change patches the card alone (docs/adr/2026-11-04-0332-the-board-sends-per-card-patches.md).
 async function pageBoard(req) {
+  if (!['GET', 'HEAD'].includes(req.method)) dataVersion++;
   const b = { ...(await board()), onHost: await fromHost(req), doneArchived: await archiveCount(here) };
   b.owner = b.owner.filter((q) => q.state !== 'resolved');
   b.items = b.items.map((i) => (i.lane === 'done' ? slimDone(i) : i));
@@ -729,6 +761,7 @@ const CHANGE_MAX = 500;
 let changeTimer = null;
 let changeFirst = 0;
 function changed() {
+  dataVersion++;
   const now = Date.now();
   if (!changeTimer) changeFirst = now;
   clearTimeout(changeTimer);
@@ -810,6 +843,7 @@ async function watchBoard() {
 
 const server = http.createServer(async (req, res) => {
   try {
+    if (req.method !== 'GET' && req.method !== 'HEAD') dataVersion++;
     if (req.method !== 'GET' && req.method !== 'HEAD' && crossSite(req.headers)) {
       res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
       res.end('Requests must come from the app’s own pages.');
@@ -827,7 +861,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, b, { etag });
     }
     if (p === '/api/questions') {
-      const built = buildBoard(await snapshot({ github: false }));
+      const built = await sharedBoard();
       const ids = new Set(built.ownerTopics.find((t) => t.id === String(url.searchParams.get('topic') ?? ''))?.questions || []);
       return json(res, 200, { questions: built.owner.filter((q) => ids.has(q.id) && q.state === 'resolved') });
     }
@@ -842,7 +876,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, needsAnswer(await board()));
     }
     if (p === '/api/working') {
-      const built = buildBoard(await snapshot({ github: false }));
+      const built = await sharedBoard();
       const refs = new Map(built.items.filter((i) => i.kind === 'work').map((i) => [i.key, i.ref]));
       return json(res, 200, { working: built.workingOn.map((w) => ({ id: w.id, kind: w.kind, card: refs.get(w.key) || null, since: w.since })) });
     }
@@ -881,7 +915,7 @@ const server = http.createServer(async (req, res) => {
       // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
       if (kind === 'lineup-move') {
         const slug = String(body.lineup || '');
-        const phases = lineupMoved(buildBoard(await snapshot({ github: false })), slug, String(body.key || ''), body.by === -1 ? -1 : body.by === 1 ? 1 : 0);
+        const phases = lineupMoved(await sharedBoard(), slug, String(body.key || ''), body.by === -1 ? -1 : body.by === 1 ? 1 : 0);
         if (!phases) return json(res, 400, { error: `That card can't move that way in the wave "${slug}".` });
         try { await changeLineup(here, slug, { phases: phases.map((p) => p.join(',')) }); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
         return json(res, 200, { id: null, board: await answerBoard(req, since) });
@@ -1036,7 +1070,7 @@ async function checkPickUps() {
   checkingPickUps = true;
   try {
     const now = Date.now();
-    const due = buildBoard({ ...(await itemSnapshot()), events: await shownEvents(), now }).items
+    const due = (await sharedBoard()).items
       .filter((it) => it.heldUntil && it.lane !== 'done' && Date.parse(it.heldUntil) <= now);
     // The resumed wave file stops a second pick-up; the event log covers a restart between the event and that write.
     const sent = due.length ? await readLines(events) : [];
@@ -1074,8 +1108,7 @@ function checkAuto() {
 async function runAuto() {
   const settings = settingsOf(await config());
   const log = await readLines(events);
-  const hidden = await readHidden(here);
-  const { items, reviews } = buildBoard({ ...(await itemSnapshot()), events: log.filter((e) => !hidden.has(e.id)), owner: await readJSON(path.join(data, 'owner.json'), { items: [] }) });
+  const { items, reviews } = await sharedBoard();
   const { idle, pullable, waiting, starts, pulls, plannable } = pullOf(items, { cap: settings.max_implementers, pulled: await sentOf(PULL, log) });
   heldByPause = readUsageGate().state === 'paused';
   const ready = idle && !heldByPause;
@@ -1256,8 +1289,7 @@ function checkActions() {
 async function pushActions() {
   const file = path.join(data, 'action-pushes.json');
   const previous = await readJSON(file, null);
-  const shot = await snapshot();
-  const actions = ownerActions(buildBoard(shot));
+  const actions = ownerActions(await sharedBoard());
   const current = Object.fromEntries(actions.map((a) => [a.tag, { kind: a.kind, ids: a.questions.map((q) => q.id) }]));
   if (previous) {
     for (const a of actions) {
@@ -1265,11 +1297,11 @@ async function pushActions() {
       const fresh = a.questions.filter((q) => !was?.ids?.includes(q.id));
       if (was?.kind === a.kind && !fresh.length) continue;
       const url = fresh.length ? `questions.html#${encodeURIComponent(fresh[0].id)}` : a.url;
-      try { await sendPush(here, { kind: 'action', title: a.title, body: fresh[0]?.question || a.body, url: `/${shot.route}/${url}`, tag: a.tag, now: a.now }); }
+      try { await sendPush(here, { kind: 'action', title: a.title, body: fresh[0]?.question || a.body, url: `/${route}/${url}`, tag: a.tag, now: a.now }); }
       catch (e) { if (e instanceof BoardError) console.error(`Push ${a.tag} not sent:`, e.message.split('\n').at(-2) || e.message); else throw e; }
     }
     const gone = Object.keys(previous).filter((tag) => !routeRecord(current, tag));
-    if (gone.length) await dropQueued(gone, shot.route);
+    if (gone.length) await dropQueued(gone, route);
   }
   if (JSON.stringify(current) !== JSON.stringify(previous)) {
     await fs.mkdir(data, { recursive: true });
@@ -1300,12 +1332,11 @@ async function stepIdle() {
   const cfg = await config();
   if (!settingsOf(cfg).idle_notification) return fs.rm(file, { force: true });
   const previous = await readJSON(file, {});
-  const shot = await snapshot();
-  const built = buildBoard(shot);
+  const built = await sharedBoard();
   const idle = strictlyIdle(built, { pulled: await sentOf(PULL, await readLines(events)) });
   const { state, push } = idleStep(previous, { idle, now: new Date() });
   if (push) {
-    try { await sendPush(here, { kind: 'reminder', title: `${cfg.title || shot.route} has gone idle`, body: idleSummary(built.items, previous.last), url: `/${shot.route}/`, tag: 'idle', now: true }); }
+    try { await sendPush(here, { kind: 'reminder', title: `${cfg.title || route} has gone idle`, body: idleSummary(built.items, previous.last), url: `/${route}/`, tag: 'idle', now: true }); }
     catch (e) { if (e instanceof BoardError) console.error('Idle push not sent:', e.message.split('\n').at(-2) || e.message); else throw e; }
   }
   if (JSON.stringify(state) !== JSON.stringify(previous)) {
@@ -1332,7 +1363,7 @@ function checkArchive() {
   return archiving;
 }
 async function archiveDone() {
-  if (!archivedOf(buildBoard(await snapshot({ github: false }))).length) return;
+  if (!archivedOf(await sharedBoard()).length) return;
   const picks = archivedOf(await board());
   const moved = picks.length ? await archiveCards(here, picks.map((c) => ({ key: c.key, card: slimDone(c) }))) : [];
   if (moved.length) console.log(`Done archive: ${moved.length} card${moved.length === 1 ? '' : 's'} moved`);
@@ -1342,12 +1373,15 @@ async function archiveDone() {
 try { for (const line of await migrateFollowups(here)) console.log(line); } catch (e) { console.error('follow-up migration:', e.message); }
 await checkArchive();
 await watchBoard();
-setInterval(checkStalled, 60000).unref();
-setInterval(reviveHeadless, 60000).unref();
-setInterval(checkPickUps, 60000).unref();
-setInterval(() => { if (heldByPause && readUsageGate().state !== 'paused') checkAuto(); }, 60000).unref();
-setInterval(checkActions, 60000).unref();
-setInterval(checkIdle, 60000).unref();
+setInterval(() => {
+  dataVersion++;
+  checkStalled();
+  reviveHeadless();
+  checkPickUps();
+  if (heldByPause && readUsageGate().state !== 'paused') checkAuto();
+  checkActions();
+  checkIdle();
+}, 60000).unref();
 await checkStalled();
 await checkPickUps();
 await checkAuto();

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { freePorts } from '../shared/test-helpers.mjs';
+import { boardSees, freePorts } from '../shared/test-helpers.mjs';
 import { REVIEW_SKILLS } from '../shared/skills.mjs';
 
 const serverFile = path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs');
@@ -38,7 +38,7 @@ async function boardServer({ items = 'data/wave.json', site: entry = {}, skills 
   await new Promise((resolve, reject) => { child.stdout.once('data', resolve); child.once('exit', reject); });
   const base = `http://127.0.0.1:${port}`;
   return {
-    home, site,
+    home, site, base,
     arch: async () => (await (await fetch(`${base}/api/board`)).json()).arch,
     run: async () => { const r = await fetch(`${base}/api/arch-review`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); return { status: r.status, body: await r.json() }; },
     events: () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []),
@@ -68,7 +68,7 @@ test('Run makes a wave whose first card is the audit, wakes the session, and whi
 
   const owner = { items: [{ id: 'f1', topic: 'item:app/INT-1', question: 'Split the store?', options: [{ id: 'A', label: 'Split' }, { id: 'skip', label: 'Skip' }] },
     { id: 'f2', topic: 'item:app/INT-1', question: 'Merge the readers?', options: [{ id: 'A', label: 'Merge' }, { id: 'skip', label: 'Skip' }] }] };
-  fs.writeFileSync(path.join(b.site, 'data', 'owner.json'), JSON.stringify(owner));
+  await boardSees(b.base, () => fs.writeFileSync(path.join(b.site, 'data', 'owner.json'), JSON.stringify(owner)));
   ({ last } = await b.arch());
   assert.deepEqual([last.open, last.running, last.findings], [true, false, 2]);
 
@@ -76,7 +76,7 @@ test('Run makes a wave whose first card is the audit, wakes the session, and whi
   done.items.find((it) => it.id === 'INT-1').status = 'done';
   done.items.push({ id: 'INT-9', title: 'Split the store', status: 'done' }, { id: 'INT-10', title: 'Merge the readers', status: 'dropped' });
   done.lineups[0].phases.push(['INT-9'], ['INT-10']);
-  fs.writeFileSync(path.join(b.site, 'data', 'wave.json'), JSON.stringify(done));
+  await boardSees(b.base, () => fs.writeFileSync(path.join(b.site, 'data', 'wave.json'), JSON.stringify(done)));
   ({ last } = await b.arch());
   assert.deepEqual([last.open, last.running, last.findings, last.built], [false, false, 2, 1]);
 

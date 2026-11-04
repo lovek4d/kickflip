@@ -29,6 +29,15 @@ export async function until(predicate, message, timeout = 30000) {
   }
 }
 
+// docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md: a board server sees a write made outside it once
+// its file watcher reports it. Runs write, then waits until the board served at base is no longer the one before it.
+export async function boardSees(base, write) {
+  const version = async () => (await (await fetch(`${base}/api/board`)).json()).version;
+  const before = await version();
+  await write();
+  await until(async () => (await version()) !== before, 'the board server sees the write');
+}
+
 // A stand-in for Linear's GraphQL API over world {key, viewer, org, teams: [{id, key, name, states, projects}], issues:
 // {<identifier>: {team, assignee, state}}}, answering by the operation each query names. fetch replaces the global
 // one; serve() puts the same API on a loopback port for a hub's KICKFLIP_LINEAR_URL.
