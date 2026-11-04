@@ -496,6 +496,41 @@ test('the poll fetches each non-hub board branch into its origin ref without a n
   assert.equal(git(repo, 'rev-parse', 'refs/remotes/origin/develop'), sha);
 });
 
+// A git ahead of the real one on PATH: its fetch runs the shell body first, and every other command is the real git.
+async function withFetchGit(body, run) {
+  const real = execFileSync('/usr/bin/which', ['git'], { encoding: 'utf8' }).trim();
+  const dir = path.join(home, 'fetch-git');
+  write(path.join(dir, 'git'), `#!/bin/sh\ncase " $* " in *" fetch "*) ${body} ;; esac\nexec ${real} "$@"\n`);
+  fs.chmodSync(path.join(dir, 'git'), 0o700);
+  const saved = process.env.PATH;
+  process.env.PATH = `${dir}:${saved}`;
+  try { await run(); } finally { process.env.PATH = saved; }
+}
+const repoFetch = () => read(path.join(home, '.claude', 'kickflip', 'repo-fetch.json')).orch;
+
+test('the poll waits out a GitHub board fetch that takes longer than a few seconds, with git prompts off', async () => {
+  const remote = path.join(site, 'remote.git');
+  git(repo, 'clone', '--quiet', '--bare', repo, remote);
+  git(repo, 'remote', 'set-url', 'origin', remote);
+  write(path.join(repo, 'remote'), 'main');
+  const sha = commit(repo, 'remote main');
+  git(repo, 'push', '--quiet', 'origin', 'main');
+  git(repo, 'update-ref', '-d', 'refs/remotes/origin/main');
+  await withFetchGit('[ "$GIT_TERMINAL_PROMPT" = 0 ] || exit 9; sleep 3.5', () => fetchTryBranches({ manifest, log() {} }));
+  assert.equal(repoFetch().ok, true);
+  assert.equal(git(repo, 'rev-parse', 'refs/remotes/origin/main'), sha);
+});
+
+test('a GitHub board fetch git refuses records git\'s own error and the sign-in fix', async () => {
+  const lines = [];
+  await withFetchGit(`echo "fatal: could not read Username for 'https://github.com': terminal prompts disabled" >&2; exit 128`,
+    () => fetchTryBranches({ manifest, log: (line) => lines.push(line) }));
+  assert.deepEqual({ ...repoFetch(), at: undefined }, { at: undefined, ok: false,
+    error: "fatal: could not read Username for 'https://github.com': terminal prompts disabled",
+    hint: "git's github.com login can't see example/project; run gh auth setup-git" });
+  assert.match(lines[0], /^fetch \/orch after \d+ ms: Command failed/);
+});
+
 test('on a plain git remote board the poll moves a pushed card to Done once its branch is merged or gone from the remote, and leaves an unmerged one In Review', async () => {
   const remote = path.join(site, 'remote.git');
   git(repo, 'clone', '--quiet', '--bare', repo, remote);

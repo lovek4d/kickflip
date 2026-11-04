@@ -479,8 +479,11 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
   return { start, tick, stop, lookup, initialize };
 }
 
-// A remote board's git, with git's own credential and its prompts off (repos.mjs remoteGitEnv).
-const remoteGit = async (dir, ...args) => (await execFileAsync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 10_000, env: remoteGitEnv() })).stdout;
+// Git that reaches a board repo's origin, GitHub or a remote board's: git's own credential with its prompts off
+// (repos.mjs remoteGitEnv), so a credential it can't get fails with git's error instead of waiting, and 10 s for a
+// fetch from a private https origin, which waits on two round trips and the keychain.
+const ORIGIN_TIMEOUT_MS = 10_000;
+const originGit = async (dir, ...args) => (await execFileAsync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: ORIGIN_TIMEOUT_MS, env: remoteGitEnv() })).stdout;
 
 // Fetches the branch of each board that isn't local (board-repo.mjs boardRepo) and writes REPO_FETCH {<route>: {at, ok, error?, hint?}} for the boards it
 // fetched, which boards.mjs linksOf reads as each board's repo-fetch link. On a board whose repo is a plain git
@@ -492,16 +495,15 @@ export async function fetchTryBranches({ manifest = readManifest(), log = consol
     if (source.local || !source.repo) continue;
     const branch = source.branch || 'main';
     const at = new Date().toISOString();
+    const started = Date.now();
     try {
-      const refspec = `+refs/heads/${branch}:refs/remotes/origin/${branch}`;
-      if (board.remote) await remoteGit(source.repo, 'fetch', '--quiet', '--no-tags', 'origin', refspec);
-      else await git(source.repo, 'fetch', '--quiet', '--no-tags', 'origin', refspec);
+      await originGit(source.repo, 'fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`);
       fetched[board.route] = { at, ok: true };
     } catch (e) {
-      log(`fetch /${board.route}: ${e.message}`);
+      log(`fetch /${board.route} after ${Date.now() - started} ms: ${e.message}`);
       let github = board.github;
       if (!github && !board.remote) { try { github = githubFromOrigin(await git(source.repo, 'remote', 'get-url', 'origin')); } catch {} }
-      fetched[board.route] = { at, ok: false, ...gitReachFault(e.killed ? 'git fetch timed out' : e.stderr, { github: github || '', remote: board.remote, repo: source.repo }) };
+      fetched[board.route] = { at, ok: false, ...gitReachFault(e.killed ? `git fetch timed out after ${ORIGIN_TIMEOUT_MS / 1000} s` : e.stderr, { github: github || '', remote: board.remote, repo: source.repo }) };
       continue;
     }
     if (board.remote) {
@@ -520,7 +522,7 @@ async function settlePushed(board, repo, branch, log) {
     .filter((it) => it.pushed?.branch && !it.pr && !['done', 'merged', 'dropped'].includes(String(it.status).toLowerCase()))
     .map((it) => ({ key: `${slug}/${it.id}`, branch: it.pushed.branch })));
   if (!open.length) return;
-  const heads = new Map((await remoteGit(repo, 'ls-remote', '--heads', 'origin')).split('\n')
+  const heads = new Map((await originGit(repo, 'ls-remote', '--heads', 'origin')).split('\n')
     .map((line) => /^([\da-f]+)\trefs\/heads\/(.+)$/.exec(line)).filter(Boolean).map((m) => [m[2], m[1]]));
   const host = remoteFromInput(board.remote)?.host || 'the remote';
   for (const card of open) {
