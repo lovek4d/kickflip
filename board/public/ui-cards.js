@@ -6,16 +6,19 @@
   // title (docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md). A card with several PRs shows a
   // badge for each, in its order (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
   const PR_LOOK = {
-    [PR_STATE.open]: { tone: 'ready', mark: ' ✓', label: 'Ready for review' },
+    [PR_STATE.open]: { tone: 'quiet', mark: ' ✓', label: 'Open' },
     [PR_STATE.draft]: { tone: 'notice', mark: ' ●', label: 'Draft' },
     [PR_STATE.merged]: { tone: 'merged', mark: ' ✓', label: 'Merged' },
     [PR_STATE.closed]: { tone: 'danger', mark: ' ✗', label: 'Closed' },
   };
+  // An open PR reads green only while it waits on a reviewer alone: CI passed and no reviewer asked for changes.
+  const waitsOnReviewer = (pr) => pr.checks?.state === 'pass' && pr.reviewDecision !== 'CHANGES_REQUESTED';
   const prChips = (it) => (it.prs || []).map(prChip).join('');
   // A PR's short name, its repo's name and number: kickflip#6.
   const prName = (pr) => `${(pr.url.match(/github\.com\/[^/]+\/([^/]+)\//) || [])[1] || ''}#${pr.number}`;
   function prChip(pr) {
-    const look = PR_LOOK[pr.status] || { tone: 'quiet', mark: '', label: '' };
+    const base = PR_LOOK[pr.status] || { tone: 'quiet', mark: '', label: '' };
+    const look = pr.status === PR_STATE.open && waitsOnReviewer(pr) ? { ...base, tone: 'ready', label: 'Ready for review' } : base;
     const CI = { pass: { tone: 'ready', mark: '✓' }, fail: { tone: 'danger', mark: '✗' }, pending: { tone: 'notice', mark: '●' } }[pr.checks?.state] || { tone: 'quiet', mark: '?' };
     const ci = pr.checks && pr.state === 'OPEN' ? badge(CI.tone, `CI ${CI.mark}`, { title: `CI ${pr.checks.state}` }) : '';
     const codex = pr.state === 'OPEN' && pr.codexOpen ? badge('notice', `codex ${esc(pr.codexOpen)}`, { title: `${pr.codexOpen} Codex finding${pr.codexOpen === 1 ? '' : 's'} not answered yet` }) : '';

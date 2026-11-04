@@ -111,6 +111,9 @@ test('PR chips show the repo with an orange dot for a draft or a green check onc
   const ready = ui.prChips({ prs: [openPR] });
   assert.equal(text(ready), 'repo#7 ✓ CI ✓');
   assert.match(ready, /^<a class="chip tone-ready" [^>]*title="Ready for review" [^>]*aria-label="repo#7: Ready for review">/);
+  const badgeTone = (pr) => /^<a class="chip (tone-\w+)"/.exec(ui.prChips({ prs: [{ ...openPR, ...pr }] }))[1];
+  assert.deepEqual([{}, { reviewDecision: 'REVIEW_REQUIRED' }, { checks: { state: 'fail' } }, { checks: { state: 'pending' } }, { checks: undefined }, { reviewDecision: 'CHANGES_REQUESTED' }].map(badgeTone),
+    ['tone-ready', 'tone-ready', 'tone-quiet', 'tone-quiet', 'tone-quiet', 'tone-quiet']);
   const ci = (state) => /<span class="chip (tone-\w+)" title="CI/.exec(ui.prChips({ prs: [{ ...openPR, checks: { state } }] }))[1];
   assert.deepEqual(['pass', 'fail', 'pending', 'unknown'].map(ci), ['tone-ready', 'tone-danger', 'tone-notice', 'tone-quiet']);
 });
