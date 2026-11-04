@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, threadOf, ownerQuestion, needsAnswer, pullOf, todoOf, owesNext, startedByAnswer, NO_NEXT, NO_TAKE } from './domain.mjs';
+import { buildBoard, threadOf, ownerQuestion, needsAnswer, pullOf, todoOf, owesNext, startedByAnswer, NO_NEXT, PROTOTYPE_AGAIN } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -650,14 +650,19 @@ test("an unstarted Todo card that waits on nothing from the owner can Build, a b
   assert.equal(one(card({ agents: runningBuilders('A1') })).buildable, false);
   assert.equal(one(card({ item: { status: 'done' } })).buildable, false);
 
-  // A prototype answer with no take picked leaves the card unready to build, saying so; a pick, note or not, makes it ready.
+  // A prototype answer with no take picked leaves the card unready to build and prototyping again, which the idle board
+  // can plan; a pick, note or not, makes it ready (docs/adr/0172-a-prototype-answer-with-no-pick-prototypes-again.md).
   const takes = { id: 'p1', topic: 'item:w/A1', question: 'Which take?', url: 'prototype-x.html?q=p1', options: [{ id: 'A', label: 'One' }, { id: 'B', label: 'Two' }] };
   const answer = (n, choice, note) => ({ id: `a${n}`, ts: `2026-10-23T10:0${n}:00Z`, kind: 'owner-answer', data: { id: 'p1', choice, note }, reply: null });
   const unpicked = card({ owner: { items: [takes] }, events: [answer(1, 'A', ''), answer(2, null, 'Neither: try a darker moon')] });
-  assert.deepEqual([one(unpicked).lane, one(unpicked).buildable, one(unpicked).next, one(unpicked).action], ['todo', false, NO_TAKE, null]);
+  assert.deepEqual([one(unpicked).lane, one(unpicked).buildable, one(unpicked).next, one(unpicked).action, one(unpicked).state], ['todo', false, PROTOTYPE_AGAIN, null, 'prototyping']);
+  assert.equal(PROTOTYPE_AGAIN, 'Prototype again');
   assert.equal(startedByAnswer(unpicked, 'p1'), null);
+  // The board resolves a note with no take (store.mjs resolveNoteAnswers), which leaves the card for the idle board to plan.
+  const noted = card({ owner: { items: [{ ...takes, resolved: 'Answered with a note' }] }, events: [answer(2, null, 'Neither: try a darker moon')] });
+  assert.deepEqual([pullOf(noted.items).plannable.includes('w/A1'), pullOf(unpicked.items).plannable.includes('w/A1')], [true, false]);
   const picked = card({ owner: { items: [takes] }, events: [answer(2, null, 'Neither'), answer(3, 'B', 'but with the moon on the left')] });
-  assert.deepEqual([one(picked).buildable, one(picked).next], [true, null]);
+  assert.deepEqual([one(picked).buildable, one(picked).next, one(picked).state], [true, null, null]);
   assert.equal(startedByAnswer(picked, 'p1'), 'w/A1');
 
 });

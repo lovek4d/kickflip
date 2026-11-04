@@ -105,6 +105,29 @@ test("an owner answer opens no confirm: a pick settles its round, with a note or
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
+// docs/adr/0172-a-prototype-answer-with-no-pick-prototypes-again.md
+test("an owner answer that picks no take on a card's prototype says so in its event, and the card prototypes again", async () => {
+  const ownerFile = path.join(site, 'data', 'owner.json');
+  const eventsFile = path.join(site, 'data', 'events.jsonl');
+  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'P1', title: 'Moon' }] }));
+  const takes = { id: 'moon', topic: 'item:t/P1', question: 'Which?', url: 'prototype-moon.html?q=moon', options: [{ id: 'A', label: 'Light' }, { id: 'B', label: 'Dark' }] };
+  const plain = { id: 'keep', topic: 'item:t/P1', question: 'Keep?', options: [{ id: 'A', label: 'Keep' }] };
+  fs.writeFileSync(ownerFile, JSON.stringify({ items: [takes, plain] }));
+  const answer = (id, choice, note) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answer', id, choice, note }) });
+  const last = () => JSON.parse(fs.readFileSync(eventsFile, 'utf8').trim().split('\n').at(-1));
+  try {
+    assert.equal((await answer('keep', null, 'Rename it')).status, 200);
+    assert.equal(last().data.prototype_again, undefined);
+    const r = await answer('moon', null, 'Neither: try a darker moon');
+    assert.equal(r.status, 200);
+    assert.deepEqual([last().kind, last().data.prototype_again], ['owner-answer', true]);
+    const card = (await r.json()).board.items.find((i) => i.key === 't/P1');
+    assert.deepEqual([card.state, card.next, card.buildable], ['prototyping', 'Prototype again', false]);
+    assert.equal((await answer('moon', 'B', '')).status, 200);
+    assert.equal(last().data.prototype_again, undefined);
+  } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
+});
+
 test("one owner-answers request records every answer as one-by-one answers would, in one write, returning the board once, or on any it can't record records none and says why", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
   const eventsFile = path.join(site, 'data', 'events.jsonl');

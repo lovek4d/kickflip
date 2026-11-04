@@ -254,16 +254,20 @@ function actionButtonOf(it) {
 const buildableOf = (it) => it.kind === 'work' && it.lane === 'todo' && !it.action && !it.unpicked;
 
 // docs/adr/0150-a-prototype-pick-is-the-builds-go.md
-// The newest answer to card key's prototype questions (ownerQuestion views) when it picks none of their takes, the owner
-// having cleared the pick to leave only a note: the card isn't ready to build. → {id, note}, or null.
+// Whether an answer choosing choice on question q (an owner.json item) is a card's prototype answer that picks none of
+// its takes, the owner having cleared the pick to leave only a note.
+export const picksNoTake = (q, choice) => /^item:/.test(q.topic || '') && PROTOTYPE_URL.test(q.url || '') && !(q.options || []).some((o) => o.id === choice);
+// The newest answer to card key's prototype questions (ownerQuestion views) when it picks none of their takes: the card
+// isn't ready to build. → {id, note}, or null.
 export function noTakePicked(questions, key) {
   const answers = questions.filter((q) => q.topic === `item:${key}` && PROTOTYPE_URL.test(q.url || ''))
     .flatMap((q) => q.answers.map((a) => ({ q, a }))).sort((x, y) => String(x.a.ts).localeCompare(String(y.a.ts)));
   const last = answers.at(-1);
-  return last && !(last.q.options || []).some((o) => o.id === last.a.choice) ? { id: last.q.id, note: last.a.note.replace(/\s+/g, ' ').trim() } : null;
+  return last && picksNoTake(last.q, last.a.choice) ? { id: last.q.id, note: last.a.note.replace(/\s+/g, ' ').trim() } : null;
 }
-// A Todo card's line while noTakePicked holds it.
-export const NO_TAKE = "No take picked, so it isn't ready to implement";
+// docs/adr/0172-a-prototype-answer-with-no-pick-prototypes-again.md
+// A Todo card's Next while noTakePicked holds it: the card is prototyping, and the next round is its way out.
+export const PROTOTYPE_AGAIN = 'Prototype again';
 
 // The open card's button that resolves each action kind, which the board page colours orange: an action button, the
 // PR's Review on GitHub, or Merge.
@@ -725,7 +729,8 @@ export function buildBoard(snapshot) {
     placeOwnerWait(it, questionById, autoMerge);
     if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it)) it.lane = 'progress';
     it.unpicked = it.kind === 'work' && it.lane === 'todo' && Boolean(noTakePicked(questions, it.key));
-    if (it.unpicked && !it.action) it.next = NO_TAKE;
+    if (it.unpicked) it.state = 'prototyping';
+    if (it.unpicked && !it.action) it.next = PROTOTYPE_AGAIN;
     it.buildable = buildableOf(it);
     // docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md: an unstarted card from an ask reads New until its
     // session sets its state, and ready once Ready with nothing blocking it or waiting on the owner.
@@ -897,7 +902,8 @@ export function needsAnswer(b) {
 // session is working on, leaving out a card still New, grilling or prototyping
 // (docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md): ready cards first, then cards with no state, each in
 // board order (docs/adr/0170-the-idle-pull-takes-ready-cards-first.md). plannable lists, top first, the buildable cards
-// not set ready that aren't held, with no planner running, no grill under way, no question waiting on the owner or on
+// not set ready, and the cards prototyping again with nothing waiting on the owner
+// (docs/adr/0172-a-prototype-answer-with-no-pick-prototypes-again.md), that aren't held, with no planner running, no grill under way, no question waiting on the owner or on
 // Claude and no message a session is working on; empty while any card has a grill under way or a planner running.
 export function pullOf(items) {
   const open = items.filter((i) => !closedLane(i));
@@ -906,7 +912,7 @@ export function pullOf(items) {
   const candidates = open.filter((i) => i.buildable && [null, 'ready'].includes(i.state ?? null) && !i.unsorted && !i.blockedBy.length && !i.questions && !i.grilling && !i.working);
   const pullable = [...candidates.filter((i) => i.state === 'ready'), ...candidates.filter((i) => i.state !== 'ready')].map((i) => i.key);
   const planning = open.some((i) => i.grilling || running(i).some(plans));
-  const plannable = planning ? [] : open.filter((i) => i.buildable && i.state !== 'ready' && !i.held && !i.questions?.open && !i.questions?.answered && !i.working).map((i) => i.key);
+  const plannable = planning ? [] : open.filter((i) => (i.buildable || (i.unpicked && !i.action)) && i.state !== 'ready' && !i.held && !i.questions?.open && !i.questions?.answered && !i.working).map((i) => i.key);
   return { idle, pullable, plannable };
 }
 

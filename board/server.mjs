@@ -73,7 +73,9 @@
 //                                the one round trip (docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md)
 //                                ask, item-message and owner-answer may carry files: [upload]
 //                                An owner-answer with a note and no take resolves its question (store.mjs
-//                                resolveNoteAnswers).
+//                                resolveNoteAnswers). One to a card's prototype question that picks no take is
+//                                recorded with prototype_again: true: the card reads prototyping with Next "Prototype
+//                                again", and the session draws the next round (domain.mjs picksNoTake).
 //                                owner-answers {answers: [owner-answer data]} is Waiting on you's Send: one owner-answer
 //                                line per answer, appended in one write with each answer's side effects → {ids, board};
 //                                an answer naming no question in owner.json, or none at all, → 400 {error} and nothing
@@ -156,7 +158,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { buildBoard, ITEM_EVENTS, needsAnswer, ownerActions, pullOf, refOf, startedByAnswer, threadOf, todoOf } from './domain.mjs';
+import { buildBoard, ITEM_EVENTS, needsAnswer, ownerActions, picksNoTake, pullOf, refOf, startedByAnswer, threadOf, todoOf } from './domain.mjs';
 import { localDay } from '../hub/schedule.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, existsSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
@@ -261,10 +263,14 @@ async function appendEvents(list) {
   return lines.map((e) => e.id);
 }
 
-// Owner answers [{id, ...}] → their event ids, appended in one write. A note with no take resolves its question, and an
+// Owner answers [{id, ...}] → their event ids, appended in one write. An answer to a card's prototype question that
+// picks no take carries prototype_again: true, which asks the session for the next round
+// (docs/adr/0172-a-prototype-answer-with-no-pick-prototypes-again.md). A note with no take resolves its question, and an
 // answer that leaves an unstarted card with nothing stopping it appends card-unblocked for that card once.
 async function recordAnswers(answers) {
-  const ids = await appendEvents(answers.map((a) => ['owner-answer', a]));
+  const asked = new Map(((await readJSON(path.join(data, 'owner.json'), { items: [] })).items || []).map((q) => [q.id, q]));
+  const again = (a) => asked.has(String(a.id)) && picksNoTake(asked.get(String(a.id)), a.choice);
+  const ids = await appendEvents(answers.map((a) => ['owner-answer', again(a) ? { ...a, prototype_again: true } : a]));
   await resolveNoteAnswers(here, answers);
   // docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
   const built = buildBoard(await snapshot({ github: false }));

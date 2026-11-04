@@ -2157,7 +2157,7 @@ test("item set --status building takes a prototype pick's note as guidance, and 
 
   assert.equal(board('item', 'set', 'w/A1', '--clear-status', '--site', 'orch').code, 0);
   answer('q2', null, 'Neither: try a darker moon');
-  assert.deepEqual(start(), { code: 1, out: '', err: 'w/A1 has no take picked: the owner\'s answer to q2 picks none ("Neither: try a darker moon"); act on its note, with another prototype round when it asks for one, and build once a take is picked\n' });
+  assert.deepEqual(start(), { code: 1, out: '', err: 'w/A1 has no take picked: the owner\'s answer to q2 picks none ("Neither: try a darker moon"), so it prototypes again: draw the next round from that note, or grill when the note asks a question, and build once a take is picked\n' });
   assert.equal(status(), undefined);
   assert.equal(start('--confirmed', 'try a darker moon').code, 2);
   answer('q2', 'B');

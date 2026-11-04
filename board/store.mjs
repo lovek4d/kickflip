@@ -1320,7 +1320,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   // docs/adr/0145-build-on-a-blocked-card-queues-it.md: a build that starts, or a card that closes, ends its queued build.
   if (status === 'building' || FINISHED.includes(status)) delete item.queued_at;
   const unpicked = status === 'building' && site ? await unpickedPrototype(site, key) : null;
-  if (unpicked) fail(`${key} has no take picked: the owner's answer to ${unpicked.id} picks none${unpicked.note ? ` ("${clip(unpicked.note)}")` : ''}; act on its note, with another prototype round when it asks for one, and build once a take is picked`);
+  if (unpicked) fail(`${key} has no take picked: the owner's answer to ${unpicked.id} picks none${unpicked.note ? ` ("${clip(unpicked.note)}")` : ''}, so it prototypes again: draw the next round from that note, or grill when the note asks a question, and build once a take is picked`);
   const resolve = FINISHED.includes(status) ? await closeQuestions(site, key, `--status ${status}`, force) : async () => [];
   const lastLine = FINISHED.includes(status) ? closingLine(site, key, { ...item, status: statusBefore }, status, said) : null;
   if (clearStatus) delete item.status;
@@ -1974,7 +1974,7 @@ async function tapRefusals(site, key) {
   const { item } = await loadItem(site, key);
   const held = item.held || item.status === 'held' ? { held: item.held, status: item.status, pick_up_at: item.pick_up_at, held_at: item.held_at } : null;
   if (held && item.status && item.status !== 'held') fail("it's held. Unhold it, then tap Implement.");
-  if (await unpickedPrototype(site, key)) fail('no take is picked on its prototypes. Pick one, then tap Implement.');
+  if (await unpickedPrototype(site, key)) fail('no take is picked on its prototypes, so it prototypes again. Pick a take from the next round, then tap Implement.');
   const blockers = await Promise.all((await unfinishedDeps(site, parseKey(key).wave, item)).map((k) => cardName(site, k)));
   return { held, blockers };
 }

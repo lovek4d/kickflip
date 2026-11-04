@@ -138,7 +138,8 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
          questions, noting "Acted on: build started".
          --status building refuses while the item is held or a dep isn't done, merged or dropped,
          and while the newest owner answer to its questions that link a prototype-*.html page picks
-         no take; a pick's note is the build's guidance;
+         no take, which leaves the card prototyping with Next "Prototype again" until the next
+         round's pick; a pick's note is the build's guidance;
          done, merged and dropped print "unblocked: <wave>/<id>" and append card-unblocked {key}
          once per unblocking, including held cards: start each unheld card next.
          building and fixing count as working only while a builder record on the card is open.
