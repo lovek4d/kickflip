@@ -120,20 +120,20 @@
       : main.state === 'ready' && url ? badge('ready', `${words.done} ${LINK_ARROW}`, { href: url, attrs: main.kind === 'web' ? EXTERNAL : {} }) : '';
     return `<div class="tb-main" role="region" aria-label="Main’s version">${BRANCH}<div class="tb-main-text">${esc(main.slug)} · <strong>${esc(main.branch)}</strong>@<code>${esc(main.sha)}</code> · ${esc(ago(main.at))}</div><div class="meta">${chip}</div></div>`;
   }
-  // The open card's Merge, while the board's auto-merge is off: it confirms, then sends card-merge, and reads "Merging…"
-  // while it is sent or waits on the session (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md).
-  function mergeButton(it, sending = false) {
+  // The open card's Merge, while the board's auto-merge is off: it confirms, then sends card-merge, waiting while the
+  // server records it (app-cards.js), and reads "Merging…" while it waits on the session
+  // (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md).
+  function mergeButton(it) {
     if (it?.action?.kind !== ACTION_KIND.merge && !it?.merging) return '';
-    const merging = sending || it.merging;
-    return `<button class="${it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${merging ? ' disabled' : ''}>${merging ? 'Merging…' : 'Merge'}</button>`;
+    return `<button class="${it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${it.merging ? ' disabled' : ''}>${it.merging ? 'Merging…' : 'Merge'}</button>`;
   }
   // The open card's Implement, rightmost in its action row, on a card board/domain.mjs marks buildable: it confirms, then
-  // sends card-build, and reads "Starting…" while it is sent and the board server starts the implementer. Build and Serve
+  // sends card-build, waiting while the board server starts the implementer (app-cards.js). Build and Serve
   // mean the package only (docs/adr/2026-11-02-1745-a-todo-card-that-nothing-blocks-has-build.md,
   // docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md, docs/adr/2026-11-03-1549-a-todo-cards-button-reads-implement.md).
-  function buildButton(it, sending = false) {
+  function buildButton(it) {
     if (!it.buildable) return '';
-    return `<button class="build" data-confirm="card-build" data-key="${esc(it.key)}"${sending ? ' disabled' : ''}>${sending ? 'Starting…' : 'Implement'}</button>`;
+    return `<button class="build" data-confirm="card-build" data-key="${esc(it.key)}">Implement</button>`;
   }
   // A builder reads "starting" until its first status line, from the Implement tap or the session's dispatch on.
   const builderLine = (b) => [b.progress || 'starting', b.at && ago(b.at)].filter(Boolean).join(' · ');

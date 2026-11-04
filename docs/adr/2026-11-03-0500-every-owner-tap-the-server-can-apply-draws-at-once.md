@@ -1,4 +1,9 @@
+---
+status: superseded in part by 2026-11-03-1850-a-tap-waits-for-the-server-to-record-it
+---
 # Every owner tap the server can apply draws at once
+
+Superseded in part by [a tap waits for the server to record it](2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md): nothing draws before the server answers. A tap that saves something waits on its button, and a refusal toasts the server's reason; the bump icon pulses until the card moves instead of fading.
 
 This supersedes in part [the board applies the owner's Hold, Resume and Done at once](2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md), which applied Hold, Resume and Done at once but still showed them only once the page reloaded, and generalises it into the board's rule for every owner tap.
 

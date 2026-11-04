@@ -2247,16 +2247,43 @@ test("every bumpable card, closed or open, carries the bump icon at its top righ
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-bump', { key: 'w/T3' }], ['card-unbump', { key: 'w/T2' }]]);
 });
 
-// docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md
-// A send that waits for the test: answer() settles the oldest, with the server's board, or fails it.
+// docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md
+// A send that waits for the test: answer() settles the oldest, with the server's board, or refuses it with reason.
 function heldSends() {
   const waiting = [];
-  const send = (kind, data, server) => new Promise((resolve, reject) => { waiting.push({ ok: () => resolve({ id: 'e1', board: structuredClone(server.board) }), fail: () => reject(new Error('send failed: 502')) }); });
-  return { send, answer: (ok = true) => waiting.shift()[ok ? 'ok' : 'fail'](), waiting };
+  const send = (kind, data, server) => new Promise((resolve, reject) => {
+    waiting.push({ ok: () => resolve({ id: 'e1', board: structuredClone(server.board) }), fail: (reason) => reject(Object.assign(new Error('send failed: 500'), { status: 500, reason })) });
+  });
+  return { send, answer: (ok = true, reason = '') => waiting.shift()[ok ? 'ok' : 'fail'](reason), waiting };
 }
 const boardGets = (b) => b.gets.filter((p) => p.endsWith('/api/board')).length;
+// A waiting button is disabled, marked busy, and keeps its content, which style.css hides behind a spinner.
+const waitState = (el) => [el.disabled, el.classList.contains('tap-waiting'), el.getAttribute('aria-busy')];
+const WAITING = [true, true, 'true'];
+const IDLE = [false, false, null];
+const REFUSED = 'Couldn’t write t/T1 to its wave file: EACCES: permission denied';
 
-test("a bump or unbump moves the card at once, the icon's fill fading on a toast's timing, and lands from the POST's board with no reload of its own; a board landing meanwhile keeps the tap drawn, and a failed one is undone with a toast that it didn't go through", async () => {
+test("waitOn keeps a button waiting through a repaint that replaces it, found again by its data attributes, and settling gives it back the disabled state of its latest markup", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const { Element } = miniDom(page.Target, page.win.document);
+  const { setHTML, waitOn } = page.win.BoardUI;
+  const root = page.win.document.body.appendChild(new Element('div'));
+  const row = (lead, disabled) => `<${lead}></${lead}><button class="primary" data-confirm="hold" data-key="w/T1"${disabled ? ' disabled' : ''}>Hold</button><button>Other</button>`;
+  setHTML(root, row('span', false));
+  const hold = () => root.querySelector('[data-confirm="hold"]');
+  let answer;
+  const first = hold();
+  const sent = waitOn(first, new Promise((resolve) => { answer = resolve; }));
+  assert.deepEqual([waitState(hold()), hold().getAttribute('class')], [WAITING, 'primary tap-waiting']);
+  setHTML(root, `<p></p>${row('em', true)}`);
+  assert.notEqual(hold(), first);
+  assert.deepEqual([waitState(hold()), hold().textContent, waitState(root.querySelector('button:not([data-key])'))], [WAITING, 'Hold', IDLE]);
+  answer('ok');
+  assert.equal(await sent, 'ok');
+  assert.deepEqual([hold().disabled, hold().classList.contains('tap-waiting'), hold().getAttribute('aria-busy')], [true, false, null]);
+});
+
+test("a bump or unbump waits for the server: its icon pulses, disabled, and the card stays put through a board landing meanwhile, until the POST's board moves it with no reload of its own; a refusal leaves the card where it was and toasts the server's reason", async () => {
   const T1 = workCard('T1', { bumpable: true, bumpedAt: '2026-10-30T09:00:00.000Z', sortAt: '2026-10-01T00:00:00.000Z', order: 0 });
   const T2 = workCard('T2', { bumpable: true, sortAt: '2026-10-03T00:00:00.000Z', order: 1 });
   const T3 = workCard('T3', { bumpable: true, sortAt: '2026-10-02T00:00:00.000Z', order: 2 });
@@ -2265,38 +2292,31 @@ test("a bump or unbump moves the card at once, the icon's fill fading on a toast
   await b.settle();
   const order = () => b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key);
   const icon = (key) => b.root.querySelector(`details.item[data-key="${key}"] button[data-card-bump]`);
-  const loads = boardGets(b);
   assert.deepEqual(order(), ['w/T1', 'w/T2', 'w/T3']);
 
   b.page.fire(b.root, 'click', { target: icon('w/T3') });
-  assert.deepEqual(order(), ['w/T3', 'w/T1', 'w/T2']);
-  assert.deepEqual([icon('w/T3').classList.contains('bumped'), icon('w/T3').classList.contains('bump-in')], [true, true]);
+  assert.deepEqual([order(), waitState(icon('w/T3')), icon('w/T3').classList.contains('bumped')], [['w/T1', 'w/T2', 'w/T3'], WAITING, false]);
+  await b.change({});
+  assert.deepEqual([order(), waitState(icon('w/T3'))], [['w/T1', 'w/T2', 'w/T3'], WAITING], 'a repaint keeps the icon waiting');
+  const loads = boardGets(b);
   b.server.board = boardOf([{ ...T3, bumpedAt: '2026-10-30T10:00:00.000Z' }, T1, T2]);
   sends.answer();
   await b.settle();
-  assert.deepEqual(order(), ['w/T3', 'w/T1', 'w/T2']);
+  assert.deepEqual([order(), waitState(icon('w/T3')), icon('w/T3').classList.contains('bumped')], [['w/T3', 'w/T1', 'w/T2'], IDLE, true]);
   assert.equal(boardGets(b), loads);
   assert.match(b.root.textContent, /Moved to the top/);
-  b.page.runTimers(150);
-  assert.equal(icon('w/T3').classList.contains('bump-in'), false);
 
-  // A signal's load that lands while the unbump is in flight still shows it unbumped.
   b.page.fire(b.root, 'click', { target: icon('w/T1') });
-  assert.deepEqual(order(), ['w/T3', 'w/T2', 'w/T1']);
-  assert.deepEqual([icon('w/T1').classList.contains('bumped'), icon('w/T1').classList.contains('bump-out')], [false, true]);
-  await b.change({});
-  assert.equal(boardGets(b), loads + 1);
-  assert.deepEqual(order(), ['w/T3', 'w/T2', 'w/T1']);
-  sends.answer(false);
+  assert.deepEqual([order(), waitState(icon('w/T1'))], [['w/T3', 'w/T1', 'w/T2'], WAITING]);
+  sends.answer(false, 'Couldn’t write the event: the board folder is read-only.');
   await b.settle();
-  assert.deepEqual(order(), ['w/T3', 'w/T1', 'w/T2']);
-  assert.deepEqual([icon('w/T1').classList.contains('bumped'), icon('w/T1').classList.contains('bump-in')], [true, true]);
-  assert.match(b.root.textContent, /That didn’t go through/);
+  assert.deepEqual([order(), waitState(icon('w/T1')), icon('w/T1').classList.contains('bumped')], [['w/T3', 'w/T1', 'w/T2'], IDLE, true]);
+  assert.match(b.root.textContent, /Couldn’t write the event: the board folder is read-only\./);
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-bump', { key: 'w/T3' }], ['card-unbump', { key: 'w/T1' }]]);
   b.view.unmount();
 });
 
-test("a New card's bump moves it to the top at once, and a load built before the board on screen doesn't undo it", async () => {
+test("a New card's bump waits for the server, its icon pulsing, and the card moves only once the POST's board lands; a refusal toasts the reason and a load built before the board on screen doesn't undo a bump", async () => {
   const ask = (id, at, extra) => ({ ...askCard(id, 'todo'), isNew: true, bumpable: true, sortAt: at, created: at, ask: { eventId: id, bumpedAt: null }, ...extra });
   const a1 = ask('a1', '2026-10-30T09:00:00.000Z');
   const a2 = ask('a2', '2026-10-30T09:30:00.000Z');
@@ -2304,16 +2324,89 @@ test("a New card's bump moves it to the top at once, and a load built before the
   const b = boardOnDom({ board: boardOf([a1, a2]), threads: {}, send: sends.send });
   await b.settle();
   const order = () => b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key);
-  assert.deepEqual(order(), ['ask:a1', 'ask:a2']);
-  b.page.fire(b.root, 'click', { target: b.root.querySelector('details.item[data-key="ask:a2"] button[data-bump]') });
-  assert.deepEqual(order(), ['ask:a2', 'ask:a1']);
+  const icon = (id) => b.root.querySelector(`details.item[data-key="ask:${id}"] button[data-bump]`);
+  b.page.fire(b.root, 'click', { target: icon('a2') });
+  assert.deepEqual([order(), waitState(icon('a2'))], [['ask:a1', 'ask:a2'], WAITING]);
+  sends.answer(false, 'The board server is restarting. Try again in a moment.');
+  await b.settle();
+  assert.deepEqual([order(), waitState(icon('a2'))], [['ask:a1', 'ask:a2'], IDLE]);
+  assert.match(b.root.textContent, /The board server is restarting\. Try again in a moment\./);
+
+  b.page.fire(b.root, 'click', { target: icon('a2') });
   b.server.board = { ...boardOf([{ ...a2, bumpedAt: '2026-10-30T10:00:01.000Z' }, a1]), generatedAt: '2026-10-30T10:00:02.000Z' };
   sends.answer();
   await b.settle();
   assert.deepEqual(order(), ['ask:a2', 'ask:a1']);
+  assert.match(b.root.textContent, /Bumped to the top/);
   await b.change({ board: boardOf([a1, a2]) });
   assert.deepEqual(order(), ['ask:a2', 'ask:a1']);
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['ask-bump', { id: 'a2' }]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['ask-bump', { id: 'a2' }], ['ask-bump', { id: 'a2' }]]);
+  b.view.unmount();
+});
+
+test("deleting a New card is one events POST: its trash icon waits, the card stays until the server answers, then leaves with the POST's board; a refusal keeps the card and toasts the reason", async () => {
+  const a1 = { ...askCard('a1', 'todo'), isNew: true, ask: { eventId: 'a1' } };
+  const a2 = { ...askCard('a2', 'todo'), isNew: true, ask: { eventId: 'a2' } };
+  const sends = heldSends();
+  const b = boardOnDom({ board: boardOf([a1, a2]), threads: {}, send: sends.send, confirm: true });
+  await b.settle();
+  const keys = () => b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key);
+  const trash = (id) => b.root.querySelector(`details.item[data-key="ask:${id}"] button[data-withdraw]`);
+  b.page.fire(b.root, 'click', { target: trash('a1') });
+  await b.settle();
+  assert.deepEqual([keys(), waitState(trash('a1'))], [['ask:a1', 'ask:a2'], WAITING]);
+  b.server.board = boardOf([a2]);
+  sends.answer();
+  await b.settle();
+  assert.deepEqual(keys(), ['ask:a2']);
+  assert.match(b.root.textContent, /Deleted/);
+
+  b.page.fire(b.root, 'click', { target: trash('a2') });
+  await b.settle();
+  sends.answer(false, 'Couldn’t write the event: the board folder is read-only.');
+  await b.settle();
+  assert.deepEqual([keys(), waitState(trash('a2'))], [['ask:a2'], IDLE]);
+  assert.match(b.root.textContent, /the board folder is read-only/);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['ask-withdrawn', { id: 'a1' }], ['ask-withdrawn', { id: 'a2' }]]);
+  assert.deepEqual(b.posts, [], 'nothing posts besides the one events POST');
+  b.view.unmount();
+});
+
+test("Done, Unhold, Implement, Merge and a Hold sheet chip each wait on their button, disabled with its label kept, while the card stays as it was; Done closes its card once the server answers, and a refusal toasts the server's reason", async () => {
+  const merge = { kind: 'merge', url: '#item=w%2FM1', label: 'Merge' };
+  const holdChoices = [{ value: '1h', label: '1h', until: 'until 4:40pm' }];
+  const cards = [workCard('T1', { finishable: true, holdable: true }), workCard('H1', { held: true, holdable: true }), workCard('B1', { buildable: true }), workCard('M1', { lane: 'review', action: merge })];
+  const sends = heldSends();
+  const b = boardOnDom({ open: cards.map((c) => c.key), board: { ...boardOf(cards), holdChoices }, threads: {}, send: sends.send, confirm: true });
+  await b.settle();
+  const button = (key, act) => b.root.querySelector(`details.item[data-key="${key}"] [data-confirm="${act}"]`);
+  const card = (key) => b.root.querySelector(`details.item[data-key="${key}"]`);
+  for (const [key, act, label] of [['w/H1', 'resume', 'Unhold'], ['w/B1', 'card-build', 'Implement'], ['w/M1', 'merge', 'Merge']]) {
+    b.page.fire(b.root, 'click', { target: button(key, act) });
+    await b.settle();
+    assert.deepEqual([...waitState(button(key, act)), button(key, act).textContent], [...WAITING, label], act);
+    sends.answer(false, REFUSED);
+    await b.settle();
+    assert.deepEqual(waitState(button(key, act)), [false, false, null], act);
+  }
+  assert.equal(b.root.querySelectorAll('.toast').length >= 1, true);
+  assert.match(b.root.textContent, /Couldn’t write t\/T1 to its wave file/);
+
+  b.page.fire(b.root, 'click', { target: button('w/T1', 'hold') });
+  b.page.fire(b.root.querySelector('#holdSheet'), 'click', { target: b.root.querySelector('#holdSheet [data-hold-for]') });
+  assert.deepEqual(waitState(button('w/T1', 'hold')), WAITING);
+  sends.answer(false, REFUSED);
+  await b.settle();
+  assert.deepEqual(waitState(button('w/T1', 'hold')), IDLE);
+
+  b.page.fire(b.root, 'click', { target: button('w/T1', 'finish') });
+  await b.settle();
+  assert.deepEqual([waitState(button('w/T1', 'finish')), card('w/T1').open, card('w/T1').closest('.lane').dataset.lane], [WAITING, true, 'todo']);
+  b.server.board = { ...boardOf([workCard('T1', { lane: 'done', status: 'done' }), ...cards.slice(1)]), holdChoices };
+  sends.answer();
+  await b.settle();
+  assert.deepEqual([card('w/T1').open, card('w/T1').closest('.lane').dataset.lane], [false, 'done']);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).map(([kind]) => kind), ['card-hold', 'card-build', 'card-merge', 'card-hold', 'card-done']);
   b.view.unmount();
 });
 
@@ -2332,28 +2425,35 @@ test("Done lands from the events POST's board in one round trip, with no reload 
   b.view.unmount();
 });
 
-test("an edit shows its new text at once, in the thread and on the New card, and a failed save puts the old text back and reopens the edit box with what was typed", async () => {
+test("an edit's Save waits for the server with the edit box open and the old text on the card; once it answers the new text shows in the thread and on the New card, and a refusal keeps the box with what was typed and toasts the reason", async () => {
   const mine = { ts: '2026-10-30T10:00:00.000Z', who: 'love', kind: 'ask', text: 'Fix the header', eventId: 'a1', canEdit: true, canDelete: true, state: 'waiting' };
+  const card = { ...askCard('a1', 'todo'), isNew: true, title: 'Fix the header', ask: { eventId: 'a1', text: 'Fix the header' } };
   const sends = heldSends();
-  const b = boardOnDom({ open: ['ask:a1'], board: boardOf([{ ...askCard('a1', 'todo'), isNew: true, title: 'Fix the header', ask: { eventId: 'a1', text: 'Fix the header' } }]), threads: { 'ask:a1': [mine] }, send: sends.send });
+  const b = boardOnDom({ open: ['ask:a1'], board: boardOf([card]), threads: { 'ask:a1': [mine] }, send: sends.send });
   await b.settle();
-  const edit = async (text) => {
-    b.page.fire(b.root, 'click', { target: b.root.querySelector('.msg[data-event="a1"] button[data-edit]') });
-    await b.settle();
-    const form = b.root.querySelector('.msg[data-event="a1"] .edit-form');
-    form.querySelector('textarea').value = text;
-    b.page.fire(b.root, 'submit', { target: form });
-  };
-  const body = () => b.root.querySelector('.msg[data-event="a1"] .body')?.textContent;
+  const form = () => b.root.querySelector('.msg[data-event="a1"] .edit-form');
+  const save = () => form().querySelector('button[type="submit"]');
   const title = () => b.root.querySelector('details.item[data-key="ask:a1"] summary').textContent;
-  await edit('Fix the footer');
-  assert.equal(body(), 'Fix the footer');
-  assert.match(title(), /Fix the footer/);
-  sends.answer(false);
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('.msg[data-event="a1"] button[data-edit]') });
   await b.settle();
-  assert.equal(b.root.querySelector('.msg[data-event="a1"] .edit-form textarea').value, 'Fix the footer');
+  form().querySelector('textarea').value = 'Fix the footer';
+  b.page.fire(b.root, 'submit', { target: form() });
+  assert.deepEqual([waitState(save()), form().querySelector('textarea').value], [WAITING, 'Fix the footer']);
   assert.match(title(), /Fix the header/);
-  assert.match(b.root.textContent, /That didn’t go through/);
+  sends.answer(false, 'The board server is restarting. Try again in a moment.');
+  await b.settle();
+  assert.deepEqual([waitState(save()), form().querySelector('textarea').value], [IDLE, 'Fix the footer']);
+  assert.match(title(), /Fix the header/);
+  assert.match(b.root.textContent, /The board server is restarting/);
+
+  b.page.fire(b.root, 'submit', { target: form() });
+  b.server.board = boardOf([{ ...card, title: 'Fix the footer', ask: { eventId: 'a1', text: 'Fix the footer', edited: true } }]);
+  b.server.threads = { 'ask:a1': [{ ...mine, text: 'Fix the footer', edited: true }] };
+  sends.answer();
+  await b.settle();
+  assert.equal(form(), null);
+  assert.equal(b.root.querySelector('.msg[data-event="a1"] .body').textContent, 'Fix the footer');
+  assert.match(title(), /Fix the footer/);
   b.view.unmount();
 });
 

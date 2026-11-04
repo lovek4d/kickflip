@@ -114,8 +114,6 @@ BoardView.part((B) => {
     quiet.set(draftKey, Date.now() + 1000);
   }
 
-  // A deleted ask is hidden on the server, so it leaves every device (docs/adr/2026-10-29-1639-dismissals-hide-on-the-server.md).
-  const hide = (id, hidden) => fetch(B.site.url('api/hide'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, hidden }) });
   // The ui-links.js linkContext for text shown on item `key`'s card or thread.
   const links = (key) => BoardUI.linkContext(state.board?.items || [], key);
   const svg = (body, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
@@ -126,5 +124,5 @@ BoardView.part((B) => {
   const confirm = (message, labels) => dialogs.confirm(message, { ...labels, signal: controller.signal });
   const notice = dialogs.notice;
 
-  Object.assign(B, { steady, restorePlace, plural, seen, markSeen, quieted, sendDraft, hide, links, svg, confirm, notice });
+  Object.assign(B, { steady, restorePlace, plural, seen, markSeen, quieted, sendDraft, links, svg, confirm, notice });
 });

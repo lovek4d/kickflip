@@ -929,22 +929,20 @@ test('the side pages wait out a board restart: a failed request, a 5xx or a body
   assert.equal(ui.restartNotice().includes(ui.RESTARTING), true);
 });
 
-test("an open card waiting on the owner's Merge shows a Merge button that confirms first, and reads Merging…, disabled, while it is sent or waits on the session", () => {
-  const merge = (it, sending) => { const html = ui.mergeButton(it, sending); return html && [text(html), /disabled/.test(html), /data-confirm="merge"/.test(html), /data-key="w\/A1"/.test(html)]; };
+test("an open card waiting on the owner's Merge shows a Merge button that confirms first, and reads Merging…, disabled, while it waits on the session", () => {
+  const merge = (it) => { const html = ui.mergeButton(it); return html && [text(html), /disabled/.test(html), /data-confirm="merge"/.test(html), /data-key="w\/A1"/.test(html)]; };
   const waiting = { key: 'w/A1', action: { kind: 'merge', url: '#item=w%2FA1', label: 'Merge' }, merging: false };
   assert.deepEqual(merge(waiting), ['Merge', false, true, true]);
-  assert.deepEqual(merge(waiting, true), ['Merging…', true, true, true]);
   assert.deepEqual(merge({ key: 'w/A1', action: null, merging: true }), ['Merging…', true, true, true]);
   assert.equal(merge({ key: 'w/A1', action: { kind: 'steps', url: '#item=w%2FA1', label: 'Run the manual steps, then merge' }, merging: false }), '');
   assert.equal(merge({ key: 'w/A1', action: null, merging: false }), '');
   assert.equal(merge(undefined), '');
 });
 
-test("an open card that can be implemented shows Implement rightmost in its action row, which confirms first and reads Starting…, disabled, while the board starts it", () => {
-  const build = (it, sending) => { const html = ui.buildButton(it, sending); return html && [text(html), /disabled/.test(html), /data-confirm="card-build"/.test(html), /data-key="w\/A1"/.test(html), /class="build"/.test(html)]; };
+test("an open card that can be implemented shows Implement rightmost in its action row, which confirms first", () => {
+  const build = (it) => { const html = ui.buildButton(it); return html && [text(html), /disabled/.test(html), /data-confirm="card-build"/.test(html), /data-key="w\/A1"/.test(html), /class="build"/.test(html)]; };
   assert.deepEqual(build({ key: 'w/A1', buildable: true }), ['Implement', false, true, true, true]);
-  assert.deepEqual(build({ key: 'w/A1', buildable: true }, true), ['Starting…', true, true, true, true]);
-  assert.equal(build({ key: 'w/A1', buildable: false }, true), '');
+  assert.equal(build({ key: 'w/A1', buildable: false }), '');
 
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);

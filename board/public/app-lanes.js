@@ -122,7 +122,7 @@ BoardView.part((B) => {
     const notes = band.kind === 'lineup' ? `<span class="external-link"><a href="notes.html?wave=${encodeURIComponent(band.slug)}">Notes ${BoardUI.LINK_ARROW}</a></span><span class="external-separator" aria-hidden="true"> · </span>` : '';
     const next = band.next;
     const go = !next ? '' : next.ready
-      ? `<button type="button" class="wv-link" data-confirm="card-build" data-key="${esc(next.key)}"${B.startingBuild(next.key) ? ' disabled' : ''}>${B.startingBuild(next.key) ? 'Starting…' : 'Implement'}</button>`
+      ? `<button type="button" class="wv-link" data-confirm="card-build" data-key="${esc(next.key)}">Implement</button>`
       : `<span class="wb-next">next: ${esc(next.ref)} ${esc(next.word)}</span>`;
     const pop = goalShown === band.slug && band.goal ? `<div class="wb-pop" role="tooltip">${esc(band.goal)}</div>` : '';
     const head = `<div class="wb-head" data-band-toggle="${esc(band.slug)}" role="button" tabindex="0" aria-expanded="${open}">${BoardUI.WAVE_ICON}`

@@ -1,10 +1,12 @@
 ---
-status: superseded in part by 2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping
+status: superseded in part by 2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping and 2026-11-03-1850-a-tap-waits-for-the-server-to-record-it
 ---
 
 # A pending ask or thread message can be deleted or edited, and a pending ask bumped
 
 Superseded in part by [the CLI and board server do the board's housekeeping](2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md): the watcher marks an ask or thread message Working as it prints it; `board.mjs working` is gone.
+
+Superseded in part by [a tap waits for the server to record it](2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md): Delete is one events POST that records `ask-withdrawn` and hides the message, and the card or message leaves once the server has answered.
 
 An ask still waiting for Claude has three buttons: bump to top, edit and delete. The owner's message in an item's thread has edit and delete while it is pending: no reply and no Claude line after it.
 

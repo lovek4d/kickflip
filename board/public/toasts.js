@@ -1,5 +1,5 @@
 (function () {
-  // How long a toast fades in and out; the board's bump icon fades its fill on the same timing (app.js fadeBump).
+  // How long a toast fades in and out.
   const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
   const enterTime = () => reduced() ? 80 : 150;
   const exitTime = () => reduced() ? 100 : 200;
@@ -177,5 +177,5 @@
     }
     return { toast, destroy };
   }
-  globalThis.BoardToasts = { create, enterTime, exitTime };
+  globalThis.BoardToasts = { create };
 })();

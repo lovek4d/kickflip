@@ -7,7 +7,7 @@ BoardView.part((B) => {
 
   function unseenAnswers(d) {
     const dismissed = Object.assign(Object.create(null), store.get(DISMISSED, {}));
-    return (d.answers || []).filter((a) => seen[a.key] && a.at > seen[a.key] && !(dismissed[a.id] >= a.at) && !state.withdrawnAsks.has(a.id));
+    return (d.answers || []).filter((a) => seen[a.key] && a.at > seen[a.key] && !(dismissed[a.id] >= a.at));
   }
 
   function renderBanner(d) {

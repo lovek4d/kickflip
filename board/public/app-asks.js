@@ -2,8 +2,8 @@
 // pending thread message (docs/adr/2026-10-29-1639-a-pending-ask-can-be-deleted-or-bumped.md,
 // docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md). Needs app-core.js and app-threads.js.
 BoardView.part((B) => {
-  const { $, store, state, toast, quieted, sendDraft, hide } = B;
-  const { attachButton } = BoardUI;
+  const { $, store, state, toast, quieted, sendDraft } = B;
+  const { attachButton, waitOn } = BoardUI;
 
   // The ask box is a bottom sheet: a <dialog> opened from the + button. Closing keeps the draft.
   const sheet = $('#sheet');
@@ -78,21 +78,16 @@ BoardView.part((B) => {
     } catch { $('#askStatus').textContent = 'Could not send'; }
   });
 
-  // A bump moves the New card to the top at once, its icon filling as it goes
-  // (docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md).
-  async function bumpAsk(id) {
-    const icon = `button[data-bump="${CSS.escape(id)}"]`;
-    const at = new Date().toISOString();
-    const sending = B.send('ask-bump', { id }, B.drawItem(`ask:${id}`, (it) => ({ ...it, bumpedAt: at, ask: { ...it.ask, bumpedAt: at } })));
-    B.fadeBump(icon, true);
-    try { await sending; toast('Bumped to the top'); } catch { B.fadeBump(icon, false); toast(B.FAILED); }
+  // A bump moves the New card to the top once the server has recorded it, button (its icon, or the prototype button
+  // that bumps it) waiting meanwhile (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
+  async function bumpAsk(id, button) {
+    try { await waitOn(button, B.send('ask-bump', { id })); toast('Bumped to the top'); } catch (e) { B.failed(e); }
   }
   B.on(B.root, 'click', (ev) => {
     const bump = ev.target.closest('button[data-bump]');
     if (!bump) return;
     ev.preventDefault();
-    bump.disabled = true;
-    bumpAsk(bump.dataset.bump);
+    bumpAsk(bump.dataset.bump, bump);
   });
   B.bumpAsk = bumpAsk;
   // A New card's icons sit on the card; a message in a thread, an ask's included, carries its thread's key.
@@ -146,17 +141,16 @@ BoardView.part((B) => {
     if (!(await B.confirm('Delete this message? Claude will skip it.'))) return;
     const id = del.dataset.withdraw;
     const { key, msg } = await pendingMessage(del, id);
-    state.edits.delete(id);
-    BoardAttach.clear('edit:' + id, B.site.root);
-    state.withdrawnAsks.add(id);
-    B.render();
-    if (msg) msg.hidden = true;
+    // One request records the withdrawal and hides the message, and the card or message leaves once it has
+    // (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
     try {
-      await B.send('ask-withdrawn', { id, ...(key ? { key } : {}) });
-      await hide(id, true);
+      await waitOn(del, B.send('ask-withdrawn', { id, ...(key ? { key } : {}) }));
+      state.edits.delete(id);
+      BoardAttach.clear('edit:' + id, B.site.root);
+      if (msg) msg.hidden = true;
       toast('Deleted');
       if (key) B.loadThread(key, { force: true });
-    } catch { state.withdrawnAsks.delete(id); B.render(); if (msg) msg.hidden = false; toast(B.FAILED); }
+    } catch (e) { B.failed(e); }
   });
   B.on(B.root, 'submit', async (ev) => {
     const form = ev.target.closest('form.edit-form');
@@ -169,23 +163,19 @@ BoardView.part((B) => {
     if (!text) { toast('Write something, or delete the message'); return; }
     if (BoardAttach.busy(form.dataset.composer, B.site.root)) return;
     const files = BoardAttach.files(form.dataset.composer, B.site.root);
-    // The new text and files show at once, in the thread and on the New card; a failed save puts the old text back and
-    // reopens the edit box with what was typed and attached (docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md).
+    // The edit box stays open, its Save waiting, until the server has recorded the edit; then the new text and files
+    // show, in the thread and on the New card, and a refusal leaves the box as it was
+    // (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
+    e.text = text;
+    try {
+      await waitOn(form.querySelector('button[type="submit"]'), B.send('ask-edited', { ...e.data, text, ...(files.length ? { files } : {}) }));
+    } catch (err) { B.failed(err); return; }
     const before = state.threadCache.get(e.thread);
     if (before) state.threadCache.set(e.thread, before.map((m) => (m.eventId === id ? { ...m, text, edited: true, files: [...(m.files || []), ...files] } : m)));
     closeEditor(id);
-    const title = text.split('\n')[0];
-    try {
-      await B.send('ask-edited', { ...e.data, text, ...(files.length ? { files } : {}) }, B.drawItem(`ask:${id}`, (it) => ({ ...it, title, ask: { ...it.ask, text, edited: true } })));
-      BoardAttach.clear(form.dataset.composer, B.site.root);
-      toast('Edited');
-      B.loadThread(e.thread, { force: true });
-    } catch {
-      if (before) state.threadCache.set(e.thread, before);
-      state.edits.set(id, { ...e, text });
-      B.repaintThread(e.thread);
-      toast(B.FAILED);
-    }
+    BoardAttach.clear(form.dataset.composer, B.site.root);
+    toast('Edited');
+    B.loadThread(e.thread, { force: true });
   });
   // The asks watch polls every 10 s while an ask waits for its reply, sooner than the board's own refresh.
   let asksSeen = false;

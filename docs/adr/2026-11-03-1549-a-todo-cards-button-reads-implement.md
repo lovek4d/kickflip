@@ -1,4 +1,9 @@
+---
+status: superseded in part by 2026-11-03-1850-a-tap-waits-for-the-server-to-record-it
+---
 # A Todo card's button reads Implement, and Build and Serve only mean the package
+
+Superseded in part by [a tap waits for the server to record it](2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md): Implement waits with a spinner while the board server starts it, in place of "Starting…".
 
 Build meant two things on the board: the Todo card's button that starts an agent on the card, and the button and badge that build or serve a worktree or main with the **build script**. Owner-facing words now keep Build for the package and call work on a card implementing:
 

@@ -3,7 +3,7 @@
 // app-core.js and app-threads.js.
 BoardView.part((B) => {
   const { $, store, state, markSeen, seen, toast, links } = B;
-  const { esc, ago, REVIEW, reviewAge, unreadCount, workLines, BUILD_PHASES, buildPhase, phaseMotion, heldUntilWords, holdPicker, linkText, mergeButton, buildButton, installButton, tryButton, tryWords, BUTTON, LINK_ARROW } = BoardUI;
+  const { esc, ago, REVIEW, reviewAge, unreadCount, workLines, BUILD_PHASES, buildPhase, phaseMotion, heldUntilWords, holdPicker, linkText, mergeButton, buildButton, installButton, tryButton, tryWords, waitOn, BUTTON, LINK_ARROW } = BoardUI;
 
   const mainSheet = $('#mainLogSheet');
   const mainRetry = $('#mainLogRetry');
@@ -127,10 +127,12 @@ BoardView.part((B) => {
     holdSheet.showModal();
     $('#holdTitle').focus({ preventScroll: true });
   }
+  // The card's Hold waits while the server records the hold (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
   async function hold(key, choice) {
     closeHold();
-    try { await B.sentHere(key, () => B.send('card-hold', { key, hold: true, for: choice })); }
-    catch { toast('Could not hold. Is the host awake?'); }
+    const button = $(`button[data-confirm="hold"][data-key="${CSS.escape(key)}"]`);
+    try { await waitOn(button, B.sentHere(key, () => B.send('card-hold', { key, hold: true, for: choice }))); }
+    catch (e) { B.failed(e); }
   }
   B.on($('#holdClose'), 'click', closeHold);
   B.on(holdSheet, 'click', (ev) => {
@@ -223,8 +225,6 @@ BoardView.part((B) => {
     });
   });
 
-  const sendingMerge = new Set();
-  const sendingBuild = new Set();
   const CONFIRM = {
     resume: (it, ref) => `Unhold ${ref}?${it.heldUntil ? ` It's held until ${heldUntilWords(it.heldUntil)}.` : ''} It can start again once nothing blocks it.`,
     nudge: () => 'Nudge Claude to check this implementer?',
@@ -248,7 +248,7 @@ BoardView.part((B) => {
     const ask = (act, label, cls = '') => `<button${cls ? ` class="${cls}"` : ''} data-confirm="${act}" data-key="${key}">${label}</button>`;
     const hold = it.kind !== 'work' || !it.holdable ? ''
       : it.held ? (it.buildable ? '' : ask('resume', 'Unhold', 'unhold')) : ask('hold', 'Hold');
-    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${mergeButton(it, sendingMerge.has(it.key))}${hold}${actionButton(it)}${tryButton(it)}${buildButton(it, sendingBuild.has(it.key))}`)}</div>`;
+    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${mergeButton(it)}${hold}${actionButton(it)}${tryButton(it)}${buildButton(it)}`)}</div>`;
   }
 
   // board/domain.mjs actionButtonOf picks the button and resolvedBy its colour (docs/adr/2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo.md).
@@ -376,19 +376,16 @@ BoardView.part((B) => {
   });
 
   // A work card's bump icon bumps it, or unbumps a bumped one, with no confirm
-  // (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md), and the card moves at once
-  // (docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md).
+  // (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md). The icon pulses until the server has recorded it, and the card
+  // moves as its answer lands (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
   B.on(B.root, 'click', async (ev) => {
     const b = ev.target.closest('button[data-card-bump]');
     if (!b) return;
     ev.preventDefault();
     const key = b.dataset.cardBump;
     const unbump = b.hasAttribute('data-bumped');
-    const icon = `button[data-card-bump="${CSS.escape(key)}"]`;
-    const sending = B.sentHere(key, () => B.send(unbump ? 'card-unbump' : 'card-bump', { key }, B.drawItem(key, (it) => ({ ...it, bumpedAt: unbump ? null : new Date().toISOString() }))));
-    B.fadeBump(icon, !unbump);
-    try { await sending; toast(unbump ? 'Unbumped' : 'Moved to the top'); }
-    catch { B.fadeBump(icon, unbump); toast(B.FAILED); }
+    try { await waitOn(b, B.sentHere(key, () => B.send(unbump ? 'card-unbump' : 'card-bump', { key }))); toast(unbump ? 'Unbumped' : 'Moved to the top'); }
+    catch (e) { B.failed(e); }
   });
 
   B.on(B.root, 'click', async (ev) => {
@@ -399,39 +396,22 @@ BoardView.part((B) => {
     const it = state.board.items.find((i) => i.key === key);
     if (it && act === 'hold') { openHold(it); return; }
     if (!it || !(await B.confirm(CONFIRM[act](it, it.ref)))) return;
-    if (act === 'resume') {
-      try { await B.sentHere(key, () => B.send('card-hold', { key, hold: false })); }
-      catch { toast('Could not resume. Is the host awake?'); }
-      return;
-    }
-    // docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md
-    if (act === 'merge') {
-      sendingMerge.add(key);
-      redrawActions(key);
-      try { await B.sentHere(key, () => B.send('card-merge', { key })); }
-      catch { toast('Could not send. Is the host awake?'); }
-      sendingMerge.delete(key);
-      redrawActions(key);
-      return;
-    }
-    // A wave band's Implement (app-lanes.js) sends the same tap, and both read Starting… while it is sent.
-    if (act === 'card-build') {
-      sendingBuild.add(key);
-      B.render();
-      try { await B.sentHere(key, () => B.send('card-build', { key })); }
-      catch { toast('Could not send. Is the host awake?'); }
-      sendingBuild.delete(key);
-      B.render();
-      return;
-    }
-    // docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md
-    // The card closes first, or app-core.js steady would anchor it and scroll the page after it into Done.
-    if (act === 'finish') {
-      const card = $(`details.item[data-key="${CSS.escape(key)}"]`);
-      if (card) card.open = false;
-      try { await B.sentHere(key, () => (it.kind === 'ask' ? B.send('ask-done', { id: it.id }) : B.send('card-done', { key }))); }
-      catch { toast('Could not close. Is the host awake?'); }
-      B.syncDone(key);
+    // Unhold, Merge (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md), Implement and Done wait while the
+    // server records them (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
+    const sent = { resume: ['card-hold', { key, hold: false }], merge: ['card-merge', { key }], 'card-build': ['card-build', { key }],
+      finish: it.kind === 'ask' ? ['ask-done', { id: it.id }] : ['card-done', { key }] }[act];
+    if (sent) {
+      // Done closes its card once the server answers, before the answer's board lands, or app-core.js steady would
+      // anchor it and scroll the page after it into Done (docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md).
+      const close = act === 'finish' ? () => {
+        const card = $(`details.item[data-key="${CSS.escape(key)}"]`);
+        if (card) BoardUI.closeDetails(card);
+        state.openItems.delete(key);
+        store.set('openItems', [...state.openItems]);
+      } : null;
+      try { await waitOn(b, B.sentHere(key, () => B.send(...sent, close))); }
+      catch (e) { B.failed(e); }
+      if (act === 'finish') B.syncDone(key);
       return;
     }
     const row = $(`.actions[data-actions="${CSS.escape(key)}"]`);
@@ -443,5 +423,5 @@ BoardView.part((B) => {
     } catch { redrawActions(key); toast('Could not send. Is the host awake?'); }
   });
 
-  Object.assign(B, { captureStrips, moveStrips, detail, card, startingBuild: (key) => sendingBuild.has(key) });
+  Object.assign(B, { captureStrips, moveStrips, detail, card });
 });

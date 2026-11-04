@@ -513,6 +513,42 @@ test("the events POST answers with the board as the tap left it, so a bump, unbu
   assert.deepEqual(Object.keys(said).sort(), ['board', 'id']);
 });
 
+// docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md
+test("a Hold or Done whose wave file couldn't be written is refused with why and records no event, as is one on a merged card", async () => {
+  const wave = path.join(site, 'data', 'wave.json');
+  fs.writeFileSync(wave, JSON.stringify({ items: [{ id: 'W1', title: 'One' }] }));
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => [r.status, await r.json()]);
+  const logged = () => fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').length;
+  const before = logged();
+  // The wave file's write goes through a temp file named for the server's pid; a folder in its place fails it.
+  const blocker = path.join(site, 'data', `wave.json.${child.pid}.tmp`);
+  fs.mkdirSync(blocker);
+  try {
+    for (const tap of [{ kind: 'card-hold', key: 't/W1', hold: true }, { kind: 'card-done', key: 't/W1' }]) {
+      const [status, out] = await post(tap);
+      assert.equal(status, 500, tap.kind);
+      assert.match(out.error, /^Couldn’t write t\/W1 to its wave file: EISDIR/, tap.kind);
+    }
+  } finally { fs.rmdirSync(blocker); }
+  assert.equal(logged(), before);
+  assert.deepEqual(JSON.parse(fs.readFileSync(wave, 'utf8')).items[0], { id: 'W1', title: 'One' });
+  fs.writeFileSync(wave, JSON.stringify({ items: [{ id: 'W1', title: 'One', status: 'merged' }] }));
+  assert.deepEqual(await post({ kind: 'card-done', key: 't/W1' }), [400, { error: 't/W1 is already merged or dropped, so its wave file stays as it is.' }]);
+  assert.equal(logged(), before);
+  const [held] = await post({ kind: 'card-hold', key: 't/W1', hold: true });
+  assert.equal(held, 400);
+});
+
+test("deleting a New card is one events POST that records ask-withdrawn and hides the ask, and its board has the card gone", async () => {
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+  const { id } = await post({ kind: 'ask', text: 'Never mind' });
+  const out = await post({ kind: 'ask-withdrawn', id });
+  assert.equal(out.board.items.some((i) => i.key === `ask:${id}`), false);
+  const log = fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+  assert.deepEqual(log.find((e) => e.id === out.id).data, { id });
+  assert.ok(JSON.parse(fs.readFileSync(path.join(site, 'data', 'hidden.json'), 'utf8')).events.includes(id));
+});
+
 test('a watcher that just exited on an event still counts as listening, until its session stops', async () => {
   const session = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
   const procStart = execFileSync('ps', ['-o', 'lstart=', '-p', String(session.pid)], { encoding: 'utf8', env: { ...process.env, TZ: 'UTC' } }).trim();

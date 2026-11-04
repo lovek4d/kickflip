@@ -1,9 +1,11 @@
 ---
-status: superseded in part by 2026-11-03-1718-a-card-reads-starting-from-its-tap-with-one-dispatched-mark
+status: superseded in part by 2026-11-03-1718-a-card-reads-starting-from-its-tap-with-one-dispatched-mark and 2026-11-03-1850-a-tap-waits-for-the-server-to-record-it
 ---
 # A Build tap starts the build in the board server
 
 Superseded in part by [a card reads starting from its tap, with one dispatched mark](2026-11-03-1718-a-card-reads-starting-from-its-tap-with-one-dispatched-mark.md): the tap's record is marked `dispatched: 'tap'`, not `tapped`, and the card reads "starting" from the tap, not "Waiting for orchestrator".
+
+Superseded in part by [a tap waits for the server to record it](2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md): the button waits with a spinner while its event is sent, and no longer reads "Starting…".
 
 This supersedes in part [a Todo card that nothing blocks has Build](2026-11-02-1745-a-todo-card-that-nothing-blocks-has-build.md), on what a tap does and what the session does, and extends [the board records what it knows, and commands make the rule calls](2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md) to the deterministic half of a build.
 

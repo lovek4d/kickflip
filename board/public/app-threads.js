@@ -122,7 +122,7 @@ BoardView.part((B) => {
       const n = protoNotice(pending, latest);
       if (!n.bump) { B.notice(n.text); return; }
       if (!(await B.confirm(n.text))) return;
-      await B.bumpAsk(pending);
+      await B.bumpAsk(pending, b);
       return;
     }
     if (!(await B.confirm('Ask Claude for prototypes of this item?'))) return;

@@ -214,7 +214,46 @@
     }
     lastHtml.set(el, html);
     if (openDetails.size) for (const d of el.querySelectorAll('details:not([open])')) if (openDetails.has(detailsKey(d))) d.open = true;
+    for (const w of waits) { const b = waitingButton(w); if (b && !b.classList.contains('tap-waiting')) markWaiting(b, w); }
     return true;
+  }
+
+  // Closes <details> d at once: its toggle event comes a task later, and a setHTML before it would reopen it.
+  function closeDetails(d) {
+    openDetails.delete(detailsKey(d));
+    d.open = false;
+  }
+
+  // A tap that saves something waits for the server (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md):
+  // waitOn(button, promise) disables the button until promise settles, and style.css button.tap-waiting keeps its colour
+  // and width and shows a spinner in its text colour in place of its content, or pulses a bump icon orange. A repaint
+  // meanwhile (setHTML) patches the button back to its markup, so setHTML marks it again, found by its id and data
+  // attributes when the repaint replaced it. Settling restores the disabled state its latest markup had. → promise
+  const waits = new Set();
+  function markWaiting(b, w) {
+    w.el = b;
+    w.disabled = b.disabled;
+    b.disabled = true;
+    b.classList.add('tap-waiting');
+    b.setAttribute('aria-busy', 'true');
+  }
+  const waitingButton = (w) => (w.el.isConnected && w.el.matches(w.selector) ? w.el
+    : w.named ? document.body.querySelector(w.selector) : null);
+  function waitOn(button, promise) {
+    const named = [...button.attributes].filter(({ name }) => name === 'id' || name.startsWith('data-'));
+    const w = { selector: button.tagName.toLowerCase() + named.map(({ name, value }) => (value ? `[${name}="${CSS.escape(value)}"]` : `[${name}]`)).join(''), named: named.length > 0 };
+    markWaiting(button, w);
+    waits.add(w);
+    const done = () => {
+      waits.delete(w);
+      const b = waitingButton(w);
+      if (!b?.classList.contains('tap-waiting')) return;
+      b.classList.remove('tap-waiting');
+      b.removeAttribute('aria-busy');
+      b.disabled = w.disabled;
+    };
+    promise.then(done, done);
+    return promise;
   }
 
   // While a board restarts, the hub answers its own 502 page, and a request can fail outright. fetchJSON waits that out:
@@ -243,7 +282,7 @@
 
   globalThis.BoardUI = {
     LINK_ARROW,
-    esc, record, time, ago, since, clock, etaLine, cardTime, replyBody, setHTML, fetchJSON, RESTARTING, restartNotice,
+    esc, record, time, ago, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, waitOn, fetchJSON, RESTARTING, restartNotice,
     attachments, attachButton, dropZone, pendingFiles, protoButton, protoNotice, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, BADGE_TONES, badge,
   };
 })();

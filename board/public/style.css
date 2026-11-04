@@ -310,19 +310,9 @@ main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .ask-actions .icon:disabled { opacity: .35; }
 .ask-actions .icon.bumped { color: var(--color-notice); opacity: 1; }
 .ask-actions .icon.bumped svg { fill: currentColor; }
-/* A tap's bump fades the icon's fill in, and an unbump fades it out, on a toast's timing, which app.js fadeBump sets as --bump-fade */
-.ask-actions .icon { --bump-fade: 0ms; }
-@keyframes bump-in { from { color: var(--muted); } }
-@keyframes bump-fill-in { from { fill: transparent; } }
-@keyframes bump-out { from { color: var(--color-notice); opacity: 1; } }
-@keyframes bump-fill-out { from { fill: var(--color-notice); } to { fill: transparent; } }
-.ask-actions .icon.bump-in { animation: bump-in var(--bump-fade) linear; }
-.ask-actions .icon.bump-in svg { animation: bump-fill-in var(--bump-fade) linear; }
-.ask-actions .icon.bump-out { animation: bump-out var(--bump-fade) linear; }
-.ask-actions .icon.bump-out svg { animation: bump-fill-out var(--bump-fade) linear; }
 /* A work card's empty bump icon always shows on touch screens; with a hover pointer it shows while the card is hovered or holds focus */
 @media (hover: hover) {
-  .item button[data-card-bump]:not(.bumped) { opacity: 0; }
+  .item button[data-card-bump]:not(.bumped, .tap-waiting) { opacity: 0; }
   .item:hover button[data-card-bump]:not(.bumped), .item:focus-within button[data-card-bump]:not(.bumped) { opacity: 1; }
 }
 .working-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--color-notice); margin-right: 5px; vertical-align: 1px; }
@@ -664,6 +654,21 @@ main > * { transition: opacity .25s ease; }
 .try-spin { display: inline-block; width: 10px; height: 10px; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: try-spin .8s linear infinite; flex: none; }
 @keyframes try-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .try-spin { animation: none; } }
+/* A tap that saves something waits for the server (ui.js waitOn, docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md): its
+   button keeps its own colours and width, disabled, and its content gives way to a spinner in its text colour; a bump icon
+   keeps its arrow and pulses orange until the card moves */
+button.tap-waiting, button.tap-waiting:disabled, .ask-actions .icon.tap-waiting:disabled { cursor: default; opacity: 1; }
+button.tap-waiting:not([data-card-bump], [data-bump]) { position: relative; -webkit-text-fill-color: transparent; }
+button.tap-waiting:not([data-card-bump], [data-bump]) > * { visibility: hidden; }
+button.tap-waiting:not([data-card-bump], [data-bump])::after { content: ''; position: absolute; inset: 0; margin: auto; width: 12px; height: 12px; box-sizing: border-box;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: try-spin .8s linear infinite; }
+@keyframes wait-orange { 50% { color: var(--color-notice); opacity: 1; } }
+button.tap-waiting:is([data-card-bump], [data-bump]) { color: var(--muted); animation: wait-orange 1s ease-in-out infinite; }
+button.tap-waiting:is([data-card-bump], [data-bump]) svg { fill: currentColor; }
+@media (prefers-reduced-motion: reduce) {
+  button.tap-waiting::after { animation: none; }
+  button.tap-waiting:is([data-card-bump], [data-bump]) { animation: none; color: var(--color-notice); }
+}
 .install { display: inline-flex; align-items: center; gap: 4px; }
 .external-links .install.tone-ready { color: var(--color-success); }
 .external-links .install.tone-danger { color: var(--color-danger); }

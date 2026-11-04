@@ -100,8 +100,11 @@
 //                                lineup-move {lineup, key, by: -1 | 1} is a wave band card's ⋯ Move up or Move down: the
 //                                server reorders the lineup's Todo cards (domain.mjs lineupMoved, store.mjs changeLineup)
 //                                and answers {id: null, board}, appending no event; a move it can't make → 400 {error}.
-//                                card-hold and card-done are written to the wave file too, with the owner's thread
-//                                line, and a Done unblocks waiting cards (store.mjs recordOwnerTap).
+//                                card-hold and card-done are written to the wave file first, with the owner's thread
+//                                line, and a Done unblocks waiting cards (store.mjs recordOwnerTap); one whose wave
+//                                file couldn't be written, or whose card is merged or dropped, → 400 or 500 {error}
+//                                and no event (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
+//                                ask-withdrawn {id, key?} also hides that event (POST /api/hide), in the one request.
 //                                An owner-answer that leaves an unstarted card with nothing stopping it appends
 //                                card-unblocked {key} (domain.mjs startedByAnswer).
 //                                Each new or changed Action needed, and each topic's new open questions, push the
@@ -764,12 +767,18 @@ const server = http.createServer(async (req, res) => {
         if (refused) return json(res, 400, { error: refused });
         return json(res, 200, { ids: await recordAnswers(body.answers), board: await board() });
       }
+      // A Hold or Done is written to the card's wave file before its event, and one that couldn't be is refused with
+      // why, recording nothing (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
+      if (kind === 'card-hold' || kind === 'card-done') {
+        const key = String(body.key || '');
+        let written;
+        try { written = await recordOwnerTap(here, kind, body); }
+        catch (e) { return json(res, e instanceof BoardError ? 400 : 500, { error: `Couldn’t write ${key} to its wave file: ${e.message}` }); }
+        if (!written) return json(res, 400, { error: `${key} is already merged or dropped, so its wave file stays as it is.` });
+      }
       const id = await appendEvent(kind, body);
       if (kind === 'prototype-request' && body.question) await resolveRequestedQuestion(here, String(body.question));
-      // The event shows the tap at once (domain.mjs); a failed write leaves it to the session's follow-up.
-      if (kind === 'card-hold' || kind === 'card-done') {
-        try { await recordOwnerTap(here, kind, body); } catch (e) { console.error(`Recording ${kind} failed:`, e.message); }
-      }
+      if (kind === 'ask-withdrawn') await setHidden(here, String(body.id || ''), true);
       // docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md
       return json(res, 200, { id, board: await board() });
     }
