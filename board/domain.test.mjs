@@ -1844,3 +1844,13 @@ test('a thread line stores its log, and an old launch line naming a log under th
   assert.equal(elsewhere.log, undefined);
   assert.match(elsewhere.text, /its log is \/tmp/);
 });
+
+test("a re-ask of a resolved question is pending while its reask-request is newer than the question's resolved_at, and reads as a muted 're-ask requested' entry in the card's thread", () => {
+  const q = { id: 'q1', topic: 'item:w/A1', question: 'Which?', options: [{ id: 'A', label: 'Yes' }], resolved: 'Picked A', resolved_at: '2026-10-23T11:00:00Z' };
+  const reask = (ts) => ({ id: `r-${ts}`, ts, kind: 'reask-request', data: { key: 'w/A1', question: 'q1' }, reply: null });
+  assert.equal(ownerQuestion(q, [], [], []).reask, null);
+  assert.equal(ownerQuestion(q, [], [], [reask('2026-10-23T10:00:00Z')]).reask, null, 'one the question was resolved after is done');
+  assert.deepEqual(ownerQuestion(q, [], [], [reask('2026-10-23T10:00:00Z'), reask('2026-10-23T12:00:00Z')]).reask, { id: 'r-2026-10-23T12:00:00Z', ts: '2026-10-23T12:00:00Z' });
+  const msgs = threadOf('w/A1', { events: [reask('2026-10-23T12:00:00Z')], owner: { items: [q] } });
+  assert.deepEqual(msgs.map((m) => [m.kind, m.text, Boolean(m.request)]), [['reask-request', 're-ask requested', true]]);
+});

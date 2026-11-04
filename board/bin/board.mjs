@@ -42,7 +42,7 @@ command fails and changes nothing.
   topic add <id> --title <t> [--summary <s>]             a question topic in data/owner.json
   question add --file <json>                             one question or an array of them:
          {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
-          source?, context?, url?, urgent?, round_of?, ask?}; topic is declared, item:<wave>/<id>, item:ask:<eventId>
+          source?, context?, url?, urgent?, round_of?, reask_of?, ask?}; topic is declared, item:<wave>/<id>, item:ask:<eventId>
           for a New card not sorted yet, lineup:<slug> for a wave's triage, or wave:<slug> for a wave file's triage on
           a board over ~/.claude/waves. A question on a done or merged card reopens it.
          url is http(s), or a site page such as prototype-<topic>.html?q=<id>, stored as given.
@@ -59,6 +59,8 @@ command fails and changes nothing.
          and printed as "replaced: <old id>". round_of names the question on the same topic whose
          prototype-request this answers; the question needs a prototype url, takes the next round
          number, and resolves that one, noting "Followed by prototype round N".
+         reask_of names a resolved question on the same topic that the owner asked to ask again
+         (reask-request): it resolves that one again, noting "Asked again as <new id>", printed as "resolved: <old id>".
          ask names a builder ask the session deferred on the item (builder defer): the question puts it to the
          owner, and while a card's only open questions are such, it waits on them with no Action needed.
          The board server pushes the new open questions itself, under the card's tag (item-<wave>/<id>, or

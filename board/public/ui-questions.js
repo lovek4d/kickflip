@@ -1,16 +1,16 @@
 // Owner questions, for Waiting on you (view-questions.js). Needs ui.js and ui-links.js.
 (function () {
-  const { esc, time, replyBody, attachments, attachButton, dropZone, protoButton, linkText, linkHtml, badge, opensHere, LINK_ARROW } = globalThis.BoardUI;
+  const { esc, time, ago, replyBody, attachments, attachButton, dropZone, protoButton, linkText, linkHtml, badge, opensHere, LINK_ARROW } = globalThis.BoardUI;
   // A short id such as A or C2 leads the label; a word id such as "inline" would repeat it. prototype-switcher.js answerLabel matches.
   const lead = (o) => (/^[A-Z][0-9]?$/i.test(o.id) ? `${o.id}. ` : '');
   const choiceLabel = (q, id) => { const o = q.options.find((x) => x.id === id); return o ? `${q.multi ? '' : lead(o)}${o.label}` : id || ''; };
-  const option = (o, { type = 'radio', name, checked = false, numbered = true, shown = false }) => `<label class="opt"${shown ? ' aria-current="true"' : ''}><input type="${type}" name="${esc(name)}" value="${esc(o.id)}" ${checked ? 'checked' : ''}>
+  const option = (o, { type = 'radio', name, checked = false, numbered = true, shown = false, locked = false }) => `<label class="opt"${shown ? ' aria-current="true"' : ''}><input type="${type}" name="${esc(name)}" value="${esc(o.id)}" ${checked ? 'checked' : ''}${locked ? ' disabled' : ''}>
         <span><span class="lbl">${numbered ? esc(lead(o)) : ''}${esc(o.label)}</span>${o.recommended ? '<span class="rec">Recommended</span>' : ''}<div class="det">${esc(o.detail || '')}</div></span></label>`;
 
   const SPIN = '<span class="try-spin" aria-hidden="true"></span>';
   // A question's eye sends `prototype-request {key?, question, note, choice}` for that question alone, which resolves it
-  // (view-questions.js); a resolved question has none.
-  const questionEye = (q) => q.state === 'resolved' ? '' : protoButton('q:' + q.id, null, { label: 'Ask for a prototype instead' });
+  // (view-questions.js).
+  const questionEye = (q) => protoButton('q:' + q.id, null, { label: 'Ask for a prototype instead' });
   const noteComposer = (q, note) => `<div class="composer" data-composer="${esc('q:' + q.id)}">${dropZone(`<textarea class="note" rows="2" placeholder="Note (optional)">${esc(note || '')}</textarea>`)}
       <div class="note-tools">${attachButton()}${questionEye(q)}<div class="pending-files" data-files></div></div></div>`;
 
@@ -18,7 +18,6 @@
     open: { label: 'open', tone: 'normal' },
     answered: { label: 'waiting for claude', tone: 'notice' },
     replied: { label: 'claude replied', tone: 'ready' },
-    resolved: { label: 'resolved', tone: 'quiet' },
   };
   // docs/adr/2026-11-02-1332-a-prototype-round-ends-with-a-one-take-confirm.md
   // A topic's latest prototype round from /api/board ownerTopics: {n, state: making|back|closed, take}.
@@ -86,11 +85,33 @@
     return `<div class="takes">${q.options.map((o) => `<article class="take" data-opt="${esc(o.id)}">${option(o, { name, checked: chosen === o.id })}${takeBody(q, o, links, fit)}</article>`).join('')}</div>`;
   }
   // A confirm links its one take alone, and says why it is asked.
-  const confirmLines = (q) => !q.confirm_of || q.state === 'resolved' ? ''
+  const confirmLines = (q) => !q.confirm_of ? ''
     : `<a class="pill proto pr-open" href="${esc(withParam(q.url, 'take', q.options[0].id))}">Open the prototype →</a>${q.state === 'open' ? `<div class="pr-rule">${RULE_ICON}A pick with a note gets a one-take confirm once Claude has updated the take.</div>` : ''}`;
+  // docs/adr/2026-11-04-2001-a-resolved-question-is-read-only-and-can-be-asked-again.md
+  // A resolved question, read-only: its green resolved badge asks Claude to ask it again (view-questions.js sends
+  // `reask-request` once the owner confirms), how it was resolved and when it was acted on (resolved_at), its last pick
+  // checked among locked options, and its last note and Claude's reply. reask is a re-ask under way, which locks the badge.
+  function resolvedCard(q, links) {
+    const last = q.answers[q.answers.length - 1];
+    const outcome = q.resolved ? `${esc(q.resolved)}${/[.!?]$/.test(q.resolved) ? '' : '.'}` : '';
+    const acted = q.resolved_at ? ` <span class="acted" title="${esc(time(q.resolved_at))}">acted on ${esc(ago(q.resolved_at))}</span>.` : '';
+    const said = last && (last.note || last.reply || last.files?.length) ? `<div class="ans"><div class="muted small">You · ${esc(time(last.ts))}</div>${last.note ? `<div>${linkText(last.note, links)}</div>` : ''}${attachments(last.files)}</div>
+      ${last.reply ? `<div class="rep"><div class="muted small">Claude</div>${linkHtml(replyBody(last.reply), links)}</div>` : ''}` : '';
+    return `<section class="q resolved" id="${esc(q.id)}" data-q="${esc(q.id)}">
+      <div class="row" style="margin:0"><span class="muted small">${esc(q.source || '')}</span>${badge('ready', 'resolved', { button: true, title: 'Ask this question again', attrs: { type: 'button', 'data-reask': q.id, disabled: q.reask ? '' : null } })}</div>
+      <h3>${linkText(q.question, links)}</h3>
+      ${q.context ? `<div class="ctx">${linkText(q.context, links)}</div>` : ''}
+      ${questionLink(q.url)}
+      ${outcome || acted ? `<div class="small muted resolved-line">${outcome}${acted}</div>` : ''}
+      ${q.options.map((o) => option(o, { name: 'c-' + q.id, checked: last?.choice === o.id, locked: true })).join('')}
+      ${said}
+      ${q.reask ? '<div class="small muted reask-line">re-ask requested</div>' : ''}
+    </section>`;
+  }
   // An owner question from /api/board; draft is this device's unsent {choice, note}; links its ui-links.js linkContext;
   // fit(option id) supplies the measured grid and full-width heights.
   function questionCard(q, { n = 0, draft = {}, links = {}, fit = () => null } = {}) {
+    if (q.state === 'resolved') return resolvedCard(q, links);
     const last = q.answers[q.answers.length - 1];
     const chosen = draft.choice ?? (last ? last.choice : null);
     return `<section class="q ${q.urgent && q.state === 'open' ? 'urgent' : ''}" id="${esc(q.id)}" data-q="${esc(q.id)}">
@@ -99,7 +120,6 @@
       ${q.context ? `<div class="ctx">${linkText(q.context, links)}</div>` : ''}
       ${framed(q) ? '' : questionLink(q.url)}
       ${confirmLines(q)}
-      ${q.state === 'resolved' && q.resolved ? `<div class="small muted" style="margin-bottom:8px">Resolved: ${esc(q.resolved)}${/[.!?]$/.test(q.resolved) ? '' : '.'} A new answer reopens it.</div>` : ''}
       ${inline(q) ? takes(q, chosen, links, fit) : q.options.map((o) => option(o, { name: 'c-' + q.id, checked: chosen === o.id })).join('')}
       ${noteComposer(q, draft.note)}
       ${answerHistory(q, links)}

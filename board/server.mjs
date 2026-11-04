@@ -101,6 +101,9 @@
 //                                recorded (docs/adr/2026-11-03-1519-send-records-every-ready-answer-in-one-request.md).
 //                                prototype-request {key?, question?, note?, choice?} asks for prototypes of a card, or of one question,
 //                                which it resolves, noting "Prototype requested" (store.mjs resolveRequestedQuestion)
+//                                reask-request {key?, question} asks the session to ask a resolved question again from the
+//                                card's current notes; one naming a question that isn't resolved → 400 {error}. The
+//                                question reads reask until question add names it in reask_of (domain.mjs ownerQuestion)
 //                                builder-nudge {key} asks the session to check a builder. The server also appends
 //                                builder-stalled {key, silentSince} once per silent spell, tracked in data/builder-stalled.json
 //                                item set appends card-unblocked {key} when a waiting card's last dep finishes,
@@ -351,6 +354,12 @@ async function answersRefused(answers) {
   const asked = new Set(((await readJSON(path.join(data, 'owner.json'), { items: [] })).items || []).map((q) => q.id));
   const gone = answers.filter((a) => !asked.has(String(a?.id)));
   return gone.length ? `${gone.map((a) => String(a?.id)).join(', ')} ${gone.length === 1 ? 'is' : 'are'} no longer asked here. Reload to see what is, then send again.` : null;
+}
+
+// A re-ask names a question the owner sees resolved; any other is refused with why.
+async function reaskRefused(id) {
+  const q = (await sharedBoard()).owner.find((x) => x.id === id);
+  return !q ? `${id} is no longer asked here. Reload to see what is.` : q.state !== 'resolved' ? `${id} isn’t resolved, so there is nothing to ask again.` : null;
 }
 
 async function withReply(e) {
@@ -986,6 +995,10 @@ const server = http.createServer(async (req, res) => {
         }
         const ids = await appendEvents([...(remove.length ? [['reviewers-removed', { remove }]] : []), ...(add.length ? [['reviewers', { add }]] : [])]);
         return json(res, 200, { id: ids.at(-1), board: await answerBoard(req, since) });
+      }
+      if (kind === 'reask-request') {
+        const refused = await reaskRefused(String(body.question || ''));
+        if (refused) return json(res, 400, { error: refused });
       }
       const id = await appendEvent(kind, body);
       if (kind === 'prototype-request' && body.question) await resolveRequestedQuestion(here, String(body.question));

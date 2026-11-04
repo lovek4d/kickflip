@@ -1019,7 +1019,7 @@ export async function addQuestions(site, input) {
   const topics = new Set((owner.topics || []).map((t) => t.id));
   for (const [i, q] of questions.entries()) {
     const name = `question ${q?.id ?? i + 1}`;
-    onlyKeys(q, ['id', 'topic', 'source', 'question', 'context', 'url', 'urgent', 'options', 'round_of', 'ask'], name);
+    onlyKeys(q, ['id', 'topic', 'source', 'question', 'context', 'url', 'urgent', 'options', 'round_of', 'reask_of', 'ask'], name);
     if (taken.has(domId(q.id, `${name}.id`))) fail(`question id "${q.id}" is already used`);
     taken.add(q.id);
     text(q.topic, `${name}.topic`);
@@ -1041,6 +1041,12 @@ export async function addQuestions(site, input) {
       if (from.topic !== q.topic) fail(`${name}.round_of names ${id} on topic ${from.topic}; a round stays on its question's topic, ${q.topic}`);
       if (!pageTopic(q.url)) fail(`${name}.round_of needs a url on a recorded prototype, prototype-<topic>.html?q=${q.id}`);
     });
+    optional(q.reask_of, (id) => {
+      const from = items.find((x) => x.id === id);
+      if (!from) fail(`${name}.reask_of names no question "${id}" in owner.json`);
+      if (from.topic !== q.topic) fail(`${name}.reask_of names ${id} on topic ${from.topic}; a re-ask stays on its question's topic, ${q.topic}`);
+      if (!from.resolved) fail(`${name}.reask_of names ${id}, which is not resolved; only a resolved question is asked again`);
+    });
   }
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   const answers = await ownerAnswers(site);
@@ -1052,6 +1058,11 @@ export async function addQuestions(site, input) {
     q.round = roundOf(items.find((x) => x.id === q.round_of)) + 1;
     setResolved(owner, [q.round_of], `Followed by prototype round ${q.round}`, at);
     resolved.push(q.round_of);
+  }
+  // A re-ask resolves its question again, which ends the owner's pending reask-request (domain.mjs ownerQuestion).
+  for (const q of questions.filter((x) => x.reask_of)) {
+    setResolved(owner, [q.reask_of], `Asked again as ${q.id}`, at);
+    resolved.push(q.reask_of);
   }
   for (const q of questions) {
     const topic = pageTopic(q.url);

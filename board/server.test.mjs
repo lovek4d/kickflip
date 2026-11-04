@@ -161,6 +161,32 @@ test("a prototype request on a question resolves it with its note and pick kept 
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
+test("a re-ask request on a resolved question is recorded, marks it pending in the topic's resolved questions and reads 're-ask requested' in the card's thread; one on a question that isn't resolved records nothing", async () => {
+  const ownerFile = path.join(site, 'data', 'owner.json');
+  const eventsFile = path.join(site, 'data', 'events.jsonl');
+  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'K1', title: 'Again' }] }));
+  const ask = (id, extra = {}) => ({ id, topic: 'item:t/K1', question: `${id}?`, options: [{ id: 'A', label: 'This' }], ...extra });
+  fs.writeFileSync(ownerFile, JSON.stringify({ items: [ask('done', { resolved: 'Picked A', resolved_at: '2026-10-23T10:00:00Z' }), ask('live')] }));
+  const send = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const lines = () => (fs.existsSync(eventsFile) ? fs.readFileSync(eventsFile, 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  try {
+    const before = lines().length;
+    for (const question of ['live', 'gone']) {
+      const r = await send({ kind: 'reask-request', key: 't/K1', question });
+      assert.equal(r.status, 400);
+      assert.match((await r.json()).error, /isn’t resolved|no longer asked here/);
+    }
+    assert.equal(lines().length, before);
+    const r = await send({ kind: 'reask-request', key: 't/K1', question: 'done' });
+    assert.equal(r.status, 200);
+    assert.deepEqual([lines().at(-1).kind, lines().at(-1).data], ['reask-request', { key: 't/K1', question: 'done' }]);
+    const resolved = (await (await fetch(`${base}/api/questions?topic=${encodeURIComponent('item:t/K1')}`)).json()).questions;
+    assert.deepEqual(resolved.map((q) => [q.id, q.reask?.ts === lines().at(-1).ts]), [['done', true]]);
+    const thread = (await (await fetch(`${base}/api/thread?key=t%2FK1`)).json()).map((m) => [m.text, Boolean(m.request)]);
+    assert.deepEqual(thread, [['re-ask requested', true]]);
+  } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
+});
+
 test("one owner-answers request records every answer as one-by-one answers would, in one write, returning the board once, or on any it can't record records none and says why", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
   const eventsFile = path.join(site, 'data', 'events.jsonl');

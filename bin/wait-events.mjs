@@ -87,6 +87,7 @@ const ON_CARD = {
   'card-pull': (c) => `${c} pulled in`,
   'card-plan': (c) => `plan asked on ${c}`,
   'prototype-request': (c) => `prototype asked on ${c}`,
+  'reask-request': (c) => `question asked again on ${c}`,
   'builder-ask': (c, e) => `${e.data?.ask} from ${c}'s builder: ${e.data?.text}`,
 };
 

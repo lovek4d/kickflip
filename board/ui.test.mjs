@@ -836,8 +836,28 @@ test("a topic's prototype round chip is blue with a spinner while being made, bl
   assert.equal(ui.roundChip({ n: 2, state: 'closed', take: 'B' }), '<span class="chip tone-quiet">Round 2 closed · take B</span>');
 });
 
-test('a resolved question says how it was resolved', () => {
-  assert.match(text(ui.questionCard({ ...question, state: 'resolved', resolved: 'Kept it.' })), /Resolved: Kept it\. A new answer reopens it\./);
+test('a resolved question is read-only: its pick checked and locked, no note box or eye, how it was resolved and when it was acted on, and the note said once', () => {
+  const at = new Date(Date.now() - 3 * 3600_000).toISOString();
+  const answer = { ts: new Date(Date.now() - 4 * 3600_000).toISOString(), choice: 'B', note: 'Drop it, it is noise', files: [], reply: null, acted: true };
+  const html = ui.questionCard({ ...question, state: 'resolved', resolved: 'Kept it', resolved_at: at, answers: [answer], reask: null });
+  assert.match(text(html), /Kept it\. acted on 3h ago ?\./);
+  assert.doesNotMatch(html, /A new answer reopens it|<textarea|data-proto|<details/);
+  assert.deepEqual([...html.matchAll(/<input [^>]*>/g)].map((m) => [/value="(\w)"/.exec(m[0])[1], /\bchecked\b/.test(m[0]), /\bdisabled\b/.test(m[0])]), [['A', false, true], ['B', true, true]]);
+  assert.equal(html.split('Drop it, it is noise').length, 2, 'the note shows once');
+  assert.doesNotMatch(text(html), /You · [^]*B\. Drop/, 'the pick is the checked option, not said again');
+  assert.match(html, /<button class="chip tone-ready" title="Ask this question again" type="button" data-reask="q1">resolved<\/button>/);
+  assert.doesNotMatch(html, /re-ask requested/);
+  const pending = ui.questionCard({ ...question, state: 'resolved', resolved: 'Kept it', resolved_at: at, answers: [answer], reask: { id: 'r1', ts: new Date().toISOString() } });
+  assert.match(pending, /data-reask="q1" disabled="">resolved<\/button>/);
+  assert.match(text(pending), /re-ask requested/);
+});
+
+test("a resolved question keeps Claude's reply under the note, and one with no answer shows no answer box", () => {
+  const answer = { ts: new Date().toISOString(), choice: 'A', note: '', files: [], reply: { html: '<p>Done that.</p>' }, acted: true };
+  const html = ui.questionCard({ ...question, state: 'resolved', resolved: 'Kept it', answers: [answer] });
+  assert.match(text(html), /Claude Done that\./);
+  assert.doesNotMatch(text(html), /acted on/, 'with no resolved_at it says no time');
+  assert.doesNotMatch(ui.questionCard({ ...question, state: 'resolved', resolved: 'Kept it' }), /class="ans/);
 });
 
 test('a topic pill is named by the card id its title starts with, else by its whole title', () => {

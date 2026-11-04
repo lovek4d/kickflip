@@ -9,6 +9,8 @@
 // with its note box as the note and its pick so far as the choice (docs/adr/2026-11-02-1822-each-question-has-its-own-prototype-eye.md).
 // The board server resolves the question with it, and once it is recorded the page moves on as a Send does
 // (docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md).
+// A topic's resolved questions fold under "resolved (N)", read-only; a resolved question's badge, once confirmed, sends
+// `reask-request {key?, question}` (docs/adr/2026-11-04-2001-a-resolved-question-is-read-only-and-can-be-asked-again.md).
 // fits: each framed take's measured size, kept across repaints and visits so a take redraws at its size at once.
 (globalThis.AppViews ||= {}).questions = ((fits) => ({
   className: 'view-questions',
@@ -68,11 +70,11 @@
     }
     const topicHead = (t) => t ? `<div class="topichead muted small"><span>${esc(t.title)}${t.summary ? ` · ${esc(t.summary)}` : ''}</span>${roundChip(t.round)}</div>` : '';
 
-    // Only questions changed here since their last answer, or with files attached, are sent.
+    // Only open questions changed here since their last answer, or with files attached, are sent; a resolved one is read-only.
     const filesOf = (q) => BoardAttach.files('q:' + q.id, site.root);
     const uploading = (qs) => qs.some((q) => BoardAttach.busy('q:' + q.id, site.root));
     function pending(qs) {
-      return qs.filter((q) => {
+      return qs.filter((q) => q.state !== 'resolved').filter((q) => {
         const d = getDraft(q.id);
         if (filesOf(q).length) return true;
         if (!('choice' in d) && !d.note) return false;
@@ -117,7 +119,7 @@
         : `${topicBar()}${topicHead(t)}`;
       el.innerHTML = `${head}<form id="qform">
         ${live.map((q, i) => questionCard(q, { n: soloId ? 0 : i + 1, draft: getDraft(q.id), links: links(q), fit: fitOf(q) })).join('')}
-        ${done.length ? `<details class="done"><summary>Resolved · ${done.length}</summary>${done.map((q) => questionCard(q, { draft: getDraft(q.id), links: links(q), fit: fitOf(q) })).join('')}</details>` : ''}
+        ${done.length ? `<details class="done resolved-group"><summary><span class="caret" aria-hidden="true">›</span><span>resolved (${done.length})</span><span class="names">${done.map((q) => esc(q.id)).join(', ')}</span></summary>${done.map((q) => questionCard(q, { links: links(q) })).join('')}</details>` : ''}
         <div class="bar"><span class="muted small${sentLine ? ' sent' : ''}" id="qstatus" role="status">${statusHtml(sentLine)}</span><span class="send-hint" aria-hidden="true">${/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘↵' : 'Ctrl+↵'}</span><button class="primary" type="submit" id="send">Send</button></div>
       </form>${soloId ? '' : waitingTopics() + resolvedTopics()}`;
       BoardAttach.paintAll();
@@ -265,6 +267,21 @@
       await moveOnOnceLoaded(at, `Prototype requested${at.name ? ` for ${at.name}` : ''}.`, out, PROTOTYPE_REQUESTED);
     }
 
+    // A resolved question's badge asks Claude to ask it again from the card's current notes, once the owner confirms.
+    // The topic's resolved questions load again, so the question shows its re-ask under way.
+    async function askAgain(q, button) {
+      if (!(await BoardDialogs.confirm('Ask this again from today’s context?')) || !B.alive()) return;
+      const st = $('#qstatus');
+      const key = q.topic?.startsWith('item:') ? q.topic.slice(5) : null;
+      let out;
+      try { out = await BoardUI.waitOn(button, send('reask-request', { ...(key ? { key } : {}), question: q.id })); }
+      catch (e) { st.textContent = e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?'; return; }
+      if (!B.alive()) return;
+      resolved = { topic: null, n: 0, questions: [] };
+      if (!land(out.board, false)) await load(false);
+      repaint(false);
+    }
+
     function updateBar() {
       const qs = visible();
       const n = pending(qs).length;
@@ -283,7 +300,7 @@
       topicId = t ? t.id : null;
     }
 
-    const sigNow = () => JSON.stringify([soloId, topicId, topics.map((t) => [t.id, t.state, t.open, t.answered, t.round]), visible().map((q) => [q.id, q.state, q.answers.length, q.answers.map((a) => Boolean(a.reply))])]);
+    const sigNow = () => JSON.stringify([soloId, topicId, topics.map((t) => [t.id, t.state, t.open, t.answered, t.round]), visible().map((q) => [q.id, q.state, q.answers.length, q.answers.map((a) => Boolean(a.reply)), Boolean(q.reask)])]);
     // One load at a time: a load waiting out a board restart would otherwise overlap the next poll's. A load asked for
     // while one runs shares it. → true when the board's answer landed in this view.
     let loading = null;
@@ -362,6 +379,8 @@
       if (ev.target.id === 'showAll') { soloId = null; sentLine = ''; shown = ''; render(); return; }
       const eye = ev.target.closest && ev.target.closest('[data-proto]');
       if (eye) { askPrototype(byId(eye.closest('section.q').dataset.q), eye); return; }
+      const reask = ev.target.closest && ev.target.closest('[data-reask]');
+      if (reask) { if (!reask.disabled) askAgain(byId(reask.dataset.reask), reask); return; }
       const b = ev.target.closest && ev.target.closest('[data-topic]');
       if (b) { soloId = null; topicId = b.dataset.topic; sentLine = ''; shown = ''; render(); scrollTo(0, 0); }
     });

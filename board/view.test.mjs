@@ -3414,6 +3414,11 @@ function questionsOnDom({ topics, questions, at, next, gate = null, items = [] }
       topics.find((t) => t.id === q.topic).round = { n: (q.round || 0) + 1, state: 'making' };
       return { id: 'e1', board: structuredClone(boardBody()) };
     }
+    // A re-ask request marks its resolved question pending, as board/server.mjs's ownerQuestion reads it.
+    if (kind === 'reask-request') {
+      q.reask = { id: 'rr1', ts: '2026-10-30T10:00:00.000Z' };
+      return { id: 'rr1', board: structuredClone(boardBody()) };
+    }
     // An owner-answers batch is recorded all or none, as board/server.mjs records it, once gate (if any) settles.
     await gate?.promise;
     if (gate?.refuse) throw Object.assign(new Error('send failed: 400'), { status: 400, reason: gate.refuse });
@@ -3517,6 +3522,34 @@ test("Waiting on you loads a topic's resolved questions only once the topic show
   await v.send();
   assert.deepEqual([v.shown().status, resolvedShown()], ['sent 1 answer · 1 still open', ['r1']]);
   assert.deepEqual(v.gets.slice(loads), [], 'the Send downloads nothing beyond its own answer');
+  v.unmount();
+});
+
+test("Waiting on you groups a topic's resolved questions under a collapsed 'resolved (N)' naming them, read-only; tapping one's green resolved badge confirms, then asks Claude to ask it again", async () => {
+  const question = (id, state = 'open') => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state,
+    ...(state === 'resolved' ? { resolved: 'Picked A', resolved_at: '2026-10-30T09:00:00.000Z', reask: null } : {}) });
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('r1', 'resolved'), question('r2', 'resolved')], at: 'q1' });
+  const confirms = [];
+  let agree = false;
+  v.page.win.BoardDialogs.confirm = async (message) => { confirms.push(message); return agree; };
+  await v.settle();
+  const $ = (sel) => v.root.querySelector(sel);
+  const group = $('details.done.resolved-group');
+  assert.equal(group.hasAttribute('open'), false);
+  assert.deepEqual(group.querySelector('summary').querySelectorAll('span').map((s) => s.textContent), ['›', 'resolved (2)', 'r1, r2']);
+  assert.deepEqual(group.querySelectorAll('section.q').map((s) => s.dataset.q), ['r1', 'r2']);
+  assert.equal(group.querySelectorAll('textarea').length, 0);
+  const tap = () => $('section.q[data-q="r1"] [data-reask]');
+  v.page.fire(v.root, 'click', { target: tap() });
+  await v.settle();
+  assert.deepEqual([confirms, v.sent], [['Ask this again from today’s context?'], []]);
+  agree = true;
+  v.page.fire(v.root, 'click', { target: tap() });
+  await v.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['reask-request', { key: 'w/T1', question: 'r1' }]]);
+  assert.equal(tap().disabled, true);
+  assert.match($('section.q[data-q="r1"]').textContent, /re-ask requested/);
+  assert.equal($('section.q[data-q="r2"] [data-reask]').disabled, false);
   v.unmount();
 });
 

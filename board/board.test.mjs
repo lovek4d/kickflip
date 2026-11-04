@@ -799,6 +799,25 @@ test('question add with round_of starts the next prototype round on the question
     ['plain', null, 'Followed by prototype round 1'], ['r1', 1, null], ['r1-confirm', 1, 'Followed by prototype round 2'], ['r2', 2, null]]);
 });
 
+test('question add with reask_of asks a resolved question again on its topic, resolving the old one again as asked again', () => {
+  const add = (q) => { write(path.join(home, 'q.json'), q); return board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')); };
+  const on = (id, extra = {}) => question(id, { topic: 'item:w/A1', ...extra });
+  assert.equal(add([on('old'), on('live')]).code, 0);
+  const file = site('orch', 'data', 'owner.json');
+  for (const [q, err] of [
+    [on('new', { reask_of: 'nope' }), 'question new.reask_of names no question "nope" in owner.json'],
+    [on('new', { reask_of: 'old', topic: 'site' }), 'question new.reask_of names old on topic item:w/A1; a re-ask stays on its question\'s topic, site'],
+    [on('new', { reask_of: 'live' }), 'question new.reask_of names live, which is not resolved; only a resolved question is asked again'],
+  ]) assert.deepEqual(add(q), { code: 1, out: '', err: err + '\n' });
+  write(file, { ...read(file), items: read(file).items.map((q) => (q.id === 'old' ? { ...q, resolved: 'Picked A', resolved_at: '2026-10-23T10:00:00Z' } : q)) });
+  const out = add(on('new', { reask_of: 'old' }));
+  assert.equal(out.code, 0, out.err);
+  assert.deepEqual(out.out.split('\n').slice(1), ['resolved: old', '']);
+  const items = read(file).items;
+  assert.deepEqual(items.map((q) => [q.id, q.resolved ?? null, q.reask_of ?? null]), [['old', 'Asked again as new', null], ['live', null, null], ['new', null, 'old']]);
+  assert.ok(items[0].resolved_at > '2026-10-23T10:00:00Z');
+});
+
 test('question add follows a pick with a note as it follows any answered question on the card', () => {
   recordPrototype();
   const file = site('orch', 'data', 'owner.json');

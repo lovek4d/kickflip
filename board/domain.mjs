@@ -25,7 +25,7 @@ for (const file of ['ui-enums.js', 'ui-order.js']) vm.runInContext(fs.readFileSy
 export const { BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE } = enums.BoardUI;
 const { laneOrder } = enums.BoardUI;
 
-export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'prototype-request'];
+export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'prototype-request', 'reask-request'];
 export const ITEM_STATUSES = ['planned', 'waiting', 'building', 'fixing', 'checking', 'held', 'merged', 'done', 'dropped'];
 export const BUILDER_STALLED_AFTER = 30 * 60000;
 // The thread line's kind for a Build tap the board server refused (store.mjs startTappedBuild).
@@ -506,14 +506,17 @@ const resolvedSince = (q, ts) => Boolean(q.resolved) && (!q.resolved_at || Strin
 // prototype-request for it after its last answer, which the board server resolves it with
 // (docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md). answerEvents are owner-answer events and
 // requestEvents prototype-request events, oldest first; store.mjs reads their states to close a card's questions.
-export function ownerQuestion(q, answerEvents, requestEvents = []) {
+// reask is the owner's newest reask-request for a resolved question while it is newer than `resolved_at`: question add
+// with reask_of resolves the question again once the session asks it again.
+export function ownerQuestion(q, answerEvents, requestEvents = [], reaskEvents = []) {
   const answers = answerEvents.filter((e) => e.data?.id === q.id);
   const last = answers[answers.length - 1] || null;
   const reopened = Boolean(q.resolved && q.resolved_at && last && String(last.ts) > q.resolved_at);
   const resolved = q.resolved && !reopened;
   const req = requestEvents.filter((e) => e.data?.question === q.id && String(e.ts) > String(last?.ts || '')).at(-1);
+  const reask = resolved ? reaskEvents.filter((e) => e.data?.question === q.id && String(e.ts) > String(q.resolved_at || '')).at(-1) : null;
   const state = resolved ? 'resolved' : !last ? 'open' : last.reply ? 'replied' : 'answered';
-  return { ...q, state, request: req ? { id: req.id, ts: req.ts, note: req.data.note || '', choice: req.data.choice || null } : null,
+  return { ...q, state, request: req ? { id: req.id, ts: req.ts, note: req.data.note || '', choice: req.data.choice || null } : null, reask: reask ? { id: reask.id, ts: reask.ts } : null,
     answers: answers.map((e) => ({ ts: e.ts, choice: e.data.choice || null, note: e.data.note || '', files: e.data.files || [], reply: e.reply, acted: resolvedSince(q, e.ts) })) };
 }
 
@@ -580,9 +583,9 @@ function ownerTopics(topics, questions, closed = new Set()) {
 // answered. A work item's thread also takes the owner's messages from its asks' threads; the caller adds their lines.
 // agents is the item's builder records by agent name: each adds a line when it started and one when it finished,
 // which, like status lines, answer no message.
-// A Grill or Prototype tap is a request entry, muted, not a message from the owner; the session builds the planner's
-// prompt from the event (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
-const ACTION_LABELS = { 'mark-ready': 'Mark ready', 'grill-more': 'grill requested', 'prototype-request': 'prototype requested' };
+// A Grill or Prototype tap, or a resolved question's re-ask, is a request entry, muted, not a message from the owner;
+// the session builds the planner's prompt from the event (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
+const ACTION_LABELS = { 'mark-ready': 'Mark ready', 'grill-more': 'grill requested', 'prototype-request': 'prototype requested', 'reask-request': 're-ask requested' };
 const QUICK_BUILD = 'quick build: no grill, as you asked';
 const actionText = (e, asked) => {
   if (e.kind !== 'prototype-request' || !asked.has(e.data.question)) return e.data.text || routeRecord(ACTION_LABELS, e.kind) || '';
@@ -652,7 +655,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply,
-        ...(isRequest(e, 'grill') || isRequest(e, 'prototype') ? { request: true } : {}) })),
+        ...(isRequest(e, 'grill') || isRequest(e, 'prototype') || e.kind === 'reask-request' ? { request: true } : {}) })),
     ...answers.map((e) => {
       const answer = [e.data.label || e.data.choice, e.data.note].filter(Boolean).join(' · ');
       return { ts: e.ts, who: 'love', via: 'questions', kind: e.kind, text: `${asked.get(e.data.id).question}\n→ ${answer}`, files: e.data.files || [], eventId: e.id, reply: e.reply };
@@ -849,7 +852,8 @@ export function buildBoard(snapshot) {
   const askDones = latest('ask-done', 'id');
   const answerEvents = groupBy(events.filter((e) => e.kind === 'owner-answer'), (e) => e.data?.id);
   const requestEvents = groupBy(events.filter((e) => e.kind === 'prototype-request'), (e) => e.data?.question);
-  const questions = (owner.items || []).map((q) => ownerQuestion(q, answerEvents.get(q.id) || [], requestEvents.get(q.id) || []));
+  const reaskEvents = groupBy(events.filter((e) => e.kind === 'reask-request'), (e) => e.data?.question);
+  const questions = (owner.items || []).map((q) => ownerQuestion(q, answerEvents.get(q.id) || [], requestEvents.get(q.id) || [], reaskEvents.get(q.id) || []));
   const questionById = new Map(questions.map((q) => [q.id, q]));
   const questionsOn = groupBy(questions, (q) => q.topic);
   const pendingOn = (topic) => {
