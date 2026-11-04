@@ -18,6 +18,7 @@ import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleT
 import { LINEAR_NEEDS_KEY, linearStatus, linearWorks } from '../hub/linear.mjs';
 import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
+import { merge3 } from './merge3.mjs';
 import { fetchPR, reportOf, githubLogin, postToPR, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
 import { allLanded, cardPRs, hasPR, leastReady, parsePRRef, prKeyOf, prNames, prURL, storedPRs } from '../shared/card-prs.mjs';
 import { reviewLinks, topicItems, reviewersOf } from './review.mjs';
@@ -32,7 +33,16 @@ const fail = (msg) => { throw new BoardError(msg); };
 export const sitesDir = () => path.join(os.homedir(), '.claude', 'kickflip', 'sites');
 export const wavesDir = () => path.join(os.homedir(), '.claude', 'waves');
 
-export const readJSON = async (f, fallback) => { try { return JSON.parse(await fs.readFile(f, 'utf8')); } catch { return fallback; } };
+// An object read from a file carries the text it was read from, so writeJSON can merge in what others wrote meanwhile.
+const READ_AS = Symbol('read as');
+export const readJSON = async (f, fallback) => {
+  let text;
+  try { text = await fs.readFile(f, 'utf8'); } catch { return fallback; }
+  try {
+    const value = JSON.parse(text);
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? { ...value, [READ_AS]: text } : value;
+  } catch { return fallback; }
+};
 const readLines = async (f) => { try { return (await fs.readFile(f, 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
 
 async function replace(file, text) {
@@ -41,7 +51,17 @@ async function replace(file, text) {
   await fs.writeFile(tmp, text);
   await fs.rename(tmp, file);
 }
-const writeJSON = (file, value) => replace(file, JSON.stringify(value, null, 2) + '\n');
+// A value read through readJSON is written under the file's lock, merged with whatever was written to the file since that
+// read (merge3), so concurrent processes' changes to different parts of one file all survive.
+const writeJSON = (file, value) => {
+  const { [READ_AS]: readAs, ...mine } = value ?? {};
+  if (readAs === undefined) return replace(file, JSON.stringify(value, null, 2) + '\n');
+  return withFileLock(file, async () => {
+    const base = JSON.parse(readAs);
+    const current = JSON.parse(await fs.readFile(file, 'utf8').catch(() => readAs));
+    await replace(file, JSON.stringify(merge3(base, mine, current), null, 2) + '\n');
+  });
+};
 async function appendLine(file, value) {
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.appendFile(file, JSON.stringify(value) + '\n');
