@@ -94,7 +94,8 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
                                                          time such as 2026-10-23T11:00:00Z, stored as given
          [--from-ask <eventId> --text <t>]               the ask it came from: its New card gives way to this item,
                                                          whose thread opens with the ask and its thread, then --text
-                                                         as the item's first line; it leaves a card it was folded into
+                                                         as the item's first line; it leaves a card it was folded into; refuses a card
+                                                         from another ask (use item relate-ask)
          [--state ready|grilling|prototyping]            what a card from an ask does next; it reads New until set.
                                                          ready refuses while the card has an open question
          [--held | --unheld | --pick-up-at <time>]       holds or resumes the card on the owner's words; the board

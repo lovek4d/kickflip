@@ -2268,6 +2268,16 @@ test('ask move drops the card an ask became when it has not started, and refuses
   assert.equal(lines(site('orch', 'data', 'threads', 'ask__e2.jsonl'))[0].text, 'Moved to Audit.');
 });
 
+test('item set --from-ask on a card that came from another ask refuses and points to relate-ask; the same ask again stays fine', () => {
+  addEvents({ id: 'e2', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'A second ask' } });
+  assert.equal(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--site', 'orch', '--text', 'On it.').code, 0);
+  const r = board('item', 'set', 'w/A1', '--from-ask', 'e2', '--site', 'orch', '--text', 'Also this.');
+  assert.equal(r.code, 1);
+  assert.match(r.err, /w\/A1 came from ask "e1".*item relate-ask e2 w\/A1 --summary/);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].from_ask, 'e1');
+  assert.equal(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--site', 'orch', '--text', 'Again.').code, 0);
+});
+
 test('item set records when the status last changed, and only then', () => {
   board('item', 'set', 'w/A1', '--status', 'building', '--site', 'orch');
   const first = read(at('waves', 'w', 'wave.json')).items[0].status_at;
