@@ -61,3 +61,16 @@ export function liveSessions({ dir = SESSIONS_DIR, starts = processStarts } = {}
   const records = sessionRecords(dir);
   return new Map(liveOf(records, starts([...new Set(records.map((r) => r.pid))])).map((r) => [r.sessionId, r]));
 }
+
+// pid's parent pid, or null once pid no longer runs.
+export function parentOf(pid) {
+  try { return Number(execFileSync('ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8', timeout: 3000 }).trim()) || null; } catch { return null; }
+}
+
+// Whether the Claude Code session that launched a process has died, for bin/wait-events.mjs: its parent (the shell
+// the session ran it in) changed, that shell's parent (the session's process) changed, which happens when the session
+// dies and the shell is reparented to launchd, or the session no longer runs at all. start is [parent, grandparent] as
+// the process started (docs/adr/2026-11-03-2010-a-watcher-exits-when-its-session-dies.md).
+export function sessionGone(session, start, { ppid = process.ppid, parent = parentOf, live = liveSessions } = {}) {
+  return ppid !== start[0] || parent(start[0]) !== start[1] || !live().has(session);
+}

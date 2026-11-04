@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { freePorts, until } from '../shared/test-helpers.mjs';
+import { freePorts, until, ownSession } from '../shared/test-helpers.mjs';
 
 let home, site, child, base;
 const uploads = () => path.join(site, 'data', 'uploads');
@@ -1040,6 +1040,7 @@ test('the watcher prints the hub rules, then the board rules, the board settings
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, rules: [{ id: 'b1', text: 'Ask before\ntouching main', by: 'claude', at: 'x' }, { text: 'no id' }] }));
   const ask = () => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ask', text: 'Wake' }) });
   const watch = async (session, wake = ask) => {
+    ownSession(home, session);
     const watcher = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'wait-events.mjs'), 't', session], { env: { ...process.env, HOME: home } });
     const out = [];
     watcher.stdout.on('data', (c) => out.push(String(c)));

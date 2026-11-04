@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
-import { liveOf, liveSessions } from './live.mjs';
+import { liveOf, liveSessions, parentOf, sessionGone } from './live.mjs';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'live-'));
 const sleepers = [];
@@ -45,4 +45,24 @@ test('liveSessions reads the session records and checks each pid and its start t
   assert.deepEqual([...live.keys()], ['live-one']);
   assert.equal(live.get('live-one').cwd, '/repo');
   assert.equal(liveSessions({ dir: path.join(dir, 'none') }).size, 0);
+});
+
+test("a watcher's session is gone once its shell or the shell's parent changes, or the session stops running", () => {
+  const live = (...ids) => () => new Map(ids.map((id) => [id, {}]));
+  const parent = (map) => (pid) => map[pid] ?? null;
+  const at = { ppid: 20, parent: parent({ 20: 10 }), live: live('s1') };
+  assert.equal(sessionGone('s1', [20, 10], at), false);
+  assert.equal(sessionGone('s1', [20, 10], { ...at, ppid: 1 }), true, 'the shell died and the watcher went to launchd');
+  assert.equal(sessionGone('s1', [20, 10], { ...at, parent: parent({ 20: 1 }) }), true, 'the session died and its shell went to launchd');
+  assert.equal(sessionGone('s1', [20, 10], { ...at, parent: parent({}) }), true, 'the shell no longer runs');
+  assert.equal(sessionGone('s1', [20, 10], { ...at, live: live('s2') }), true, 'the session no longer runs');
+});
+
+test('parentOf reads a running process\'s parent with ps, and null once it has exited', async () => {
+  const c = await sleeper();
+  assert.equal(parentOf(c.pid), process.pid);
+  const exited = new Promise((resolve) => c.once('exit', resolve));
+  c.kill();
+  await exited;
+  assert.equal(parentOf(c.pid), null);
 });

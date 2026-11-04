@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { ownSession } from '../shared/test-helpers.mjs';
 
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'close-board-')));
 process.env.HOME = home;
@@ -262,6 +263,7 @@ test('reopen rewinds to the cursor saved before stopping even if the old watcher
   } });
   assert.deepEqual(read(cursor), { 'data/events.jsonl': 0 });
   const watcherFile = fileURLToPath(new URL('../bin/wait-events.mjs', import.meta.url));
+  ownSession(home, id);
   const watcher = spawn(process.execPath, [watcherFile, 'shop', id], { env: { ...process.env, HOME: home }, stdio: ['ignore', 'pipe', 'pipe'] });
   const result = await new Promise((resolve, reject) => {
     let stdout = '';
@@ -272,6 +274,7 @@ test('reopen rewinds to the cursor saved before stopping even if the old watcher
     watcher.on('error', (error) => { clearTimeout(timeout); reject(error); });
     watcher.on('close', (code) => { clearTimeout(timeout); resolve({ code, stdout, stderr }); });
   });
+  fs.rmSync(path.join(home, '.claude', 'sessions', `${process.pid}-${id}.json`));
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stdout, /event data\/events.jsonl .*"id":"waiting"/);
 });

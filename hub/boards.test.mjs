@@ -11,7 +11,7 @@ import { startFakeDevice } from './fake-device.mjs';
 import { withFileLock } from './locks.mjs';
 import { PR_VIEW_FIELDS } from './pr-report.mjs';
 import { fakeGh, prView, writePR, writeUser, calls } from '../shared/fake-gh.mjs';
-import { freePorts, until } from '../shared/test-helpers.mjs';
+import { freePorts, until, ownSession } from '../shared/test-helpers.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SKILL = path.join(HUB_DIR, '..');
@@ -488,7 +488,10 @@ test("a board whose repo fetch fails gets a Repo fetch link that settles, reads 
     assert.notEqual(health.word, 'healthy');
     assert.match(health.detail, /^\d+ of \d+ sites up · \d+ links? failing/);
     write(cursor, { 'data/events.jsonl': 0 });
+    ownSession(home, 's-shop');
+    kept.push([claude('sessions', `${process.pid}-s-shop.json`), null]);
     const watched = await cli(path.join(SKILL, 'bin', 'wait-events.mjs'), ['shop', 's-shop']);
+    fs.rmSync(claude('sessions', `${process.pid}-s-shop.json`));
     assert.ok(watched.stdout.split('\n').includes(`link repo-fetch ${detail}`), watched.stdout);
     fs.rmSync(failing);
     await until(async () => { await poll(); return (await repoFetch())?.ok === true; }, 'the next good fetch clears the link');

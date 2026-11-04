@@ -1,4 +1,7 @@
+import fs from 'node:fs';
 import net from 'node:net';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { setTimeout } from 'node:timers/promises';
 
@@ -104,3 +107,11 @@ export const linearWorld = () => ({
   ],
   issues: {},
 });
+
+// Records the test process as Claude Code session `session` under home, so a bin/wait-events.mjs it spawns there
+// has a live owning session (hub/live.mjs sessionGone).
+export function ownSession(home, session, pid = process.pid) {
+  const procStart = execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, TZ: 'UTC' } }).trim();
+  fs.mkdirSync(path.join(home, '.claude', 'sessions'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'sessions', `${pid}-${session}.json`), JSON.stringify({ pid, sessionId: session, cwd: home, procStart, kind: 'bg' }));
+}

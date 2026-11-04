@@ -26,12 +26,17 @@
 //   site-removed              the route left the manifest: stop, don't relaunch
 // On start it writes <site dir>/data/watcher.json {pid, since}, and adds exited_at when it exits; a board reads it
 // to say whether a watcher runs (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md).
+// It first stops the watcher that file records for the same route and session (../hub/boards.mjs stopPreviousWatcher),
+// and exits printing nothing, its events left for the next watcher, once the session that launched it has died
+// (../hub/live.mjs sessionGone), checked on each wake and again before it prints
+// (docs/adr/2026-11-03-2010-a-watcher-exits-when-its-session-dies.md).
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { routeRecord } from '../hub/routes.mjs';
 import { readHubRules, rulesOf, ruleLines } from '../hub/rules.mjs';
-import { boardAt, linksOf, hubLink } from '../hub/boards.mjs';
+import { boardAt, linksOf, hubLink, stopPreviousWatcher } from '../hub/boards.mjs';
+import { parentOf, sessionGone } from '../hub/live.mjs';
 import { ackHello, cardName, markWorking, settingsLines, settingsOf, WORKING_KINDS } from '../board/store.mjs';
 import { readUsageGate, heldUsageEvent } from '../shared/usage-gate.mjs';
 
@@ -103,6 +108,9 @@ if (!s0) { console.log('site-removed'); process.exit(0); }
 // ran is still reported. Without it, the first run starts from the current counts.
 const cursorFile = path.resolve(s0.dir, 'data', `.watch-cursor-${session}.json`);
 const watcherFile = path.resolve(s0.dir, 'data', 'watcher.json');
+const parents = [process.ppid, parentOf(process.ppid)];
+const orphaned = () => { if (sessionGone(session, parents)) process.exit(0); };
+stopPreviousWatcher(s0.dir, route, session);
 try {
   fs.mkdirSync(path.dirname(cursorFile), { recursive: true });
   fs.writeFileSync(watcherFile, JSON.stringify({ pid: process.pid, since: new Date().toISOString() }));
@@ -128,11 +136,13 @@ for (;;) {
   if (s === undefined) continue;
   if (s === null) { console.log('site-removed'); process.exit(0); }
   if (s.owner?.session && s.owner.session !== session) { console.log('handed-over ' + JSON.stringify(s.owner)); process.exit(0); }
+  orphaned();
   const pending = (seen) => Object.fromEntries(Object.entries(seen).map(([f, lines]) => [f, [...(routeRecord(base.$usageHeld, f) || []), ...lines.slice(routeRecord(base, f) || 0)]]));
   const eligible = (line, gate) => gate.state !== 'paused' || !heldUsageEvent(line);
   const currentGate = readUsageGate();
   if (Object.values(pending(matching(s))).some((lines) => lines.some((line) => eligible(line, currentGate)))) {
     await new Promise((r) => setTimeout(r, 2000));
+    orphaned();
     const seen = matching(s);
     const gate = readUsageGate();
     const waiting = pending(seen);

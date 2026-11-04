@@ -192,7 +192,22 @@ export function watcherRunning(dir, now = Date.now(), { grace = RELAUNCH_GRACE }
   if (!Number.isInteger(w?.pid)) return false;
   if (typeof w.exited_at === 'string') return now - Date.parse(w.exited_at) <= grace;
   try { process.kill(w.pid, 0); } catch (e) { if (e.code !== 'EPERM') return false; }
-  try { return execFileSync('ps', ['-p', String(w.pid), '-o', 'command='], { encoding: 'utf8', timeout: 3000 }).includes('wait-events.mjs'); } catch { return false; }
+  return commandOf(w.pid).includes('wait-events.mjs');
+}
+const commandOf = (pid) => { try { return execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 3000 }); } catch { return ''; } };
+const escaped = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Stops the watcher data/watcher.json records when it still runs and watches route for session, so one left by a
+// session that died doesn't race the new one for its events
+// (docs/adr/2026-11-03-2010-a-watcher-exits-when-its-session-dies.md). A record
+// with exited_at is a watcher that exited on an event, and its pid may now be anything's, so it is left alone, as is a
+// pid whose command line isn't wait-events.mjs for this route and session. → the pid stopped, or null.
+export function stopPreviousWatcher(dir, route, session, { command = commandOf, kill = process.kill } = {}) {
+  const w = readJSON(path.join(dir, 'data', 'watcher.json'), null);
+  if (!Number.isInteger(w?.pid) || w.pid === process.pid || typeof w.exited_at === 'string') return null;
+  if (!new RegExp(`wait-events\\.mjs['"]?\\s+['"]?${escaped(route)}['"]?\\s+['"]?${escaped(session)}['"]?(\\s|$)`).test(command(w.pid))) return null;
+  try { kill(w.pid, 'SIGTERM'); } catch { return null; }
+  return w.pid;
 }
 
 // Whether the board hears its events: its owner session runs and a watcher runs for it. A watcher outlives its
