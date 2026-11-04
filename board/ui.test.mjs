@@ -1549,6 +1549,9 @@ test('a builder status line, and an agent starting or finishing, reads as one li
   assert.match(css, /\.msg\.request \{[^}]*color: var\(--muted\)/);
   // One fixed box for every mark, so the text starts at the same place.
   assert.match(css, /\.mark \{[^}]*width: 18px;[^}]*margin-right: 5px/);
+  // The calls line's summary drops the native marker so its caret is the mark; the list starts at the text's edge, with no per-line margin.
+  assert.match(css, /\.msg\.calls summary \{[^}]*list-style: none/);
+  assert.match(css, /\.msg\.calls ol \{[^}]*padding-left: 23px/);
 });
 
 // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
@@ -1584,7 +1587,8 @@ test("a card's open questions asked since it was last seen are one blue line in 
 test("a builder's judgment calls show collapsed under its lines, saying whether the session verified them, and count as no message", () => {
   const open = { ts: ago(1), who: 'claude', kind: 'calls', text: 'Claude Opus builder', calls: ['Kept <the> old name', 'Question: every agent?'], verified: null };
   const html = ui.threadMessages([open]);
-  assert.match(html, /^<details class="msg calls"><summary>/);
+  assert.match(html, /^<details class="msg calls"><summary><span class="mark" aria-hidden="true">/);
+  assert.ok(html.includes(ui.MARK_ICONS['judgment calls']));
   assert.doesNotMatch(html, /<details[^>]* open/);
   assert.match(text(html), /^Claude Opus builder's judgment calls · 2 · not verified yet Kept <the> old name Question: every agent\?$/);
   const checked = text(ui.threadMessages([{ ...open, verified: { at: ago(0.5), note: 'Match the notes.' } }]));

@@ -74,6 +74,7 @@
     'grill requested': mini('<path d="M12 3c1 3 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-6 1-9z"/>'),
     'quick build: no grill, as you asked': mini('<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>'),
     'answers submitted': mini('<path d="M20 6 9 17l-5-5"/>'),
+    'judgment calls': mini('<path d="m9 6 6 6-6 6"/>'),
     questions: mini('<path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"/>', ' big'),
   };
   const mark = (inner = '') => `<span class="mark" aria-hidden="true">${inner}</span>`;
