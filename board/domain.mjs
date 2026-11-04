@@ -274,13 +274,12 @@ const asking = (it) => Boolean(it.questions && it.questions.state !== 'resolved'
 const ASKING = new Set([ACTION_KIND.pick, ACTION_KIND.questions]);
 
 // The open card's one workflow button, which board/public/app-cards.js only labels: openQuestions while it has open
-// questions, held or not, markDone for an ask waiting on the owner's Done, grill otherwise, and none on a Done card or
-// on an ask with neither.
+// questions, held or not, markDone for an ask waiting on the owner's Done, and none otherwise. A grill or prototype is
+// asked for from the thread's fire and eye (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
 function actionButtonOf(it) {
   if (closedLane(it)) return null;
   if (asking(it)) return BUTTON.openQuestions;
-  if (it.action?.kind === ACTION_KIND.done) return BUTTON.markDone;
-  return it.kind === 'ask' ? null : BUTTON.grill;
+  return it.action?.kind === ACTION_KIND.done ? BUTTON.markDone : null;
 }
 
 // docs/adr/2026-11-02-1745-a-todo-card-that-nothing-blocks-has-build.md
@@ -433,6 +432,23 @@ function planningOf(kind, events, agents, askedAt) {
     && !agents.some((a) => a.kind === kind && a.done && String(a.started) > String(last.ts)));
 }
 
+// docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md
+// How long a prototype request may wait with no prototype agent running before the board raises it to the session.
+export const PROTOTYPE_WAIT = 30 * 60000;
+// The prototype requests on a built board's open cards still waiting on their prototype, while no prototype agent runs on
+// the card: the card's own request while it is under way, and each of its questions reading requested.
+// → [{key, request, question?, since}], since being the request's time.
+export function prototypeWaits(built, events) {
+  const out = [];
+  for (const it of built.items) {
+    if (closedLane(it) || (it.agents || []).some((a) => a.kind === 'prototype' && a.started && !a.done)) continue;
+    const own = it.prototyping && events.filter((e) => e.data?.key === it.key && isRequest(e, 'prototype')).pop();
+    if (own) out.push({ key: it.key, request: own.id, since: own.ts });
+    for (const q of built.owner.filter((x) => x.topic === `item:${it.key}` && x.state === 'requested')) out.push({ key: it.key, request: q.request.id, question: q.id, since: q.request.ts });
+  }
+  return out;
+}
+
 // An item's agents, oldest first, from its records by agent name.
 function agentsOf(records = {}) {
   return Object.entries(records).filter(([, r]) => r && typeof r === 'object').map(([name, r]) => ({
@@ -500,11 +516,12 @@ function agentName(a) {
 // docs/adr/2026-11-03-1313-an-answer-stops-waiting-once-its-acted-on.md
 // Whether an owner answer at ts is acted on by its question's resolution: resolved, at or after ts when it records when.
 const resolvedSince = (q, ts) => Boolean(q.resolved) && (!q.resolved_at || String(q.resolved_at) >= String(ts));
-// A question's state: open (no answer yet), answered (waiting for Claude), replied (Claude answered), resolved
-// (owner.json sets `resolved` and `resolved_at`). An answer newer than `resolved_at` reopens it; without `resolved_at`
-// it stays resolved. Each answer is acted on once the question's resolution covers it. request is the owner's newest
-// prototype-request for it after its last answer, which the board server resolves it with
-// (docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md). answerEvents are owner-answer events and
+// A question's state: open (no answer yet), answered (waiting for Claude), replied (Claude answered), requested (a
+// prototype was asked for it), resolved (owner.json sets `resolved` and `resolved_at`). An answer newer than
+// `resolved_at` reopens it; without `resolved_at` it stays resolved. Each answer is acted on once the question's
+// resolution covers it. request is the owner's newest prototype-request for it after its last answer: the question reads
+// requested until a question naming it in round_of resolves it
+// (docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md). answerEvents are owner-answer events and
 // requestEvents prototype-request events, oldest first; store.mjs reads their states to close a card's questions.
 // reask is the owner's newest reask-request for a resolved question while it is newer than `resolved_at`: question add
 // with reask_of resolves the question again once the session asks it again.
@@ -515,7 +532,7 @@ export function ownerQuestion(q, answerEvents, requestEvents = [], reaskEvents =
   const resolved = q.resolved && !reopened;
   const req = requestEvents.filter((e) => e.data?.question === q.id && String(e.ts) > String(last?.ts || '')).at(-1);
   const reask = resolved ? reaskEvents.filter((e) => e.data?.question === q.id && String(e.ts) > String(q.resolved_at || '')).at(-1) : null;
-  const state = resolved ? 'resolved' : !last ? 'open' : last.reply ? 'replied' : 'answered';
+  const state = resolved ? 'resolved' : req ? 'requested' : !last ? 'open' : last.reply ? 'replied' : 'answered';
   return { ...q, state, request: req ? { id: req.id, ts: req.ts, note: req.data.note || '', choice: req.data.choice || null } : null, reask: reask ? { id: reask.id, ts: reask.ts } : null,
     answers: answers.map((e) => ({ ts: e.ts, choice: e.data.choice || null, note: e.data.note || '', files: e.data.files || [], reply: e.reply, acted: resolvedSince(q, e.ts) })) };
 }
@@ -583,15 +600,24 @@ function ownerTopics(topics, questions, closed = new Set()) {
 // answered. A work item's thread also takes the owner's messages from its asks' threads; the caller adds their lines.
 // agents is the item's builder records by agent name: each adds a line when it started and one when it finished,
 // which, like status lines, answer no message.
-// A Grill or Prototype tap, or a resolved question's re-ask, is a request entry, muted, not a message from the owner;
-// the session builds the planner's prompt from the event (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
+// A Grill or Prototype tap with nothing typed, or a resolved question's re-ask, is a request entry, muted, not a message
+// from the owner; the session builds the planner's prompt from the event (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
+// A request with text, a question's prototype request (its question, pick and note) and an answer are the owner's
+// messages, with the tap's words as their footer's status
+// (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
 const ACTION_LABELS = { 'mark-ready': 'Mark ready', 'grill-more': 'grill requested', 'prototype-request': 'prototype requested', 'reask-request': 're-ask requested' };
+const ANSWERS_SUBMITTED = 'answers submitted';
 const QUICK_BUILD = 'quick build: no grill, as you asked';
 const actionText = (e, asked) => {
-  if (e.kind !== 'prototype-request' || !asked.has(e.data.question)) return e.data.text || routeRecord(ACTION_LABELS, e.kind) || '';
+  if (e.kind !== 'prototype-request' || !asked.has(e.data.question)) return e.data.text || (e.data.files?.length ? '' : routeRecord(ACTION_LABELS, e.kind)) || '';
   const q = asked.get(e.data.question);
   const o = (q.options || []).find((x) => x.id === e.data.choice);
-  return [`Prototype please:${q.question}`, o && `${o.id}. ${o.label}`, e.data.note].filter(Boolean).join('\n→ ');
+  return [q.question, o && `${o.id}. ${o.label}`, e.data.note].filter(Boolean).join('\n→ ');
+};
+// A Grill or Prototype request: bare (the request line) or carrying the owner's text, files or question (a message with its status).
+const requestOf = (e, asked) => {
+  if (e.kind !== 'grill-more' && e.kind !== 'prototype-request') return e.kind === 'reask-request' ? { request: true } : {};
+  return (e.data.question ? asked.has(e.data.question) : String(e.data.text || '').trim() || e.data.files?.length) ? { status: ACTION_LABELS[e.kind] } : { request: true };
 };
 // A Claude line answers the owner's messages before it; an agent's lines and the orchestrator's answer to a builder don't.
 const claudeAtOf = (msgs) => [...msgs.filter((m) => m.who === 'claude' && !['status', 'agent', BUILDER_ASK.answer].includes(m.kind)).map((m) => m.ts),
@@ -655,10 +681,10 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply,
-        ...(isRequest(e, 'grill') || isRequest(e, 'prototype') || e.kind === 'reask-request' ? { request: true } : {}) })),
+        ...requestOf(e, asked) })),
     ...answers.map((e) => {
       const answer = [e.data.label || e.data.choice, e.data.note].filter(Boolean).join(' · ');
-      return { ts: e.ts, who: 'love', via: 'questions', kind: e.kind, text: `${asked.get(e.data.id).question}\n→ ${answer}`, files: e.data.files || [], eventId: e.id, reply: e.reply };
+      return { ts: e.ts, who: 'love', via: 'questions', kind: e.kind, text: `${asked.get(e.data.id).question}\n→ ${answer}`, files: e.data.files || [], eventId: e.id, reply: e.reply, status: ANSWERS_SUBMITTED };
     }),
     ...inLogOrder(index, [...new Set(askIds)].map((id) => (index.asks.has(id) ? [index.asks.get(id)] : [])))
       .flatMap((e) => [{ ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, ...(moved.includes(e.id) ? { moved: true } : {}),

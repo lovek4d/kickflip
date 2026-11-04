@@ -815,6 +815,17 @@ test("a question's link opens in place on this hub, and outside the board anywhe
   assert.match(linear, /target="_blank" rel="noopener">INT-1 <svg class="link-arrow"[^>]*>[^]*<\/svg><\/a>/);
 });
 
+// docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md
+test('a question asked for a prototype reads prototype requested with a spinner, locked at the pick and note the request sent, with no eye, until its round arrives', () => {
+  const asked = { ...question, state: 'requested', request: { id: 'r1', ts: ago(1), note: 'On a phone', choice: question.options[0].id } };
+  const html = ui.questionCard(asked);
+  assert.match(html, /<span class="try-spin" aria-hidden="true"><\/span>prototype requested/);
+  assert.doesNotMatch(html, /data-proto|<textarea/);
+  assert.equal((html.match(/<input [^>]*disabled/g) || []).length, question.options.length);
+  assert.match(html, new RegExp(`value="${question.options[0].id}" checked disabled`));
+  assert.match(text(html), /On a phone/);
+});
+
 // docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md
 test('an open question has its eye on and nothing locked, a resolved one has no eye; a confirm links its one take alone and says why it is asked', () => {
   assert.match(ui.questionCard(question), /<button type="button" class="attach proto-ask" data-proto="q:q1" aria-label="Ask for a prototype instead" title="Ask for a prototype instead">/);
@@ -1073,7 +1084,7 @@ test("an open card waiting on the owner's Merge shows a Merge button that confir
   assert.equal(merge(undefined), '');
 });
 
-test("an open card that can be implemented shows Implement rightmost in its action row, which confirms first, plain until the card is ready and builder orange once it is, beside Grill and Prototype", () => {
+test("an open card that can be implemented shows Implement rightmost in its action row, which confirms first, plain until the card is ready and builder orange once it is, with no Grill or Prototype beside it", () => {
   const build = (it) => { const html = ui.buildButton(it); return html && [text(html), /disabled/.test(html), /data-confirm="card-build"/.test(html), /data-key="w\/A1"/.test(html), /class="([^"]*)"/.exec(html)[1]]; };
   const todoCard = { key: 'w/A1', kind: 'work', lane: 'todo' };
   assert.deepEqual(build({ ...todoCard, buildable: true }), ['Implement', false, true, true, 'build']);
@@ -1090,16 +1101,16 @@ test("an open card that can be implemented shows Implement rightmost in its acti
   const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
-  const todo = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', lane: 'todo', action: null, actionButton: 'grill', waveTitle: 'W', deps: [], manualSteps: [], holdable: true, hasNotes: true,
+  const todo = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', lane: 'todo', action: null, actionButton: null, waveTitle: 'W', deps: [], manualSteps: [], holdable: true, hasNotes: true,
     try: { kind: 'web', script: true, changes: false }, buildable: true };
   const row = (it) => [...B.detail(it).match(/<div class="action-row workflow">(.*?)<\/div>/)[1].matchAll(/<button[^>]*>(.*?)<\/button>/g)].map(([, label]) => label);
-  assert.deepEqual(row(todo), ['Hold', 'Grill', 'Prototype', 'Implement']);
+  assert.deepEqual(row(todo), ['Hold', 'Implement']);
   const changed = { ...todo, try: { ...todo.try, changes: true } };
-  assert.deepEqual(row(changed), ['Hold', 'Grill', 'Prototype', 'Serve', 'Implement']);
-  assert.deepEqual(row({ ...changed, buildable: false }), ['Hold', 'Grill', 'Prototype', 'Serve', 'Implement']);
-  assert.deepEqual(row({ ...changed, lane: 'progress' }), ['Hold', 'Grill', 'Prototype', 'Serve']);
-  assert.deepEqual(row({ ...todo, held: true }), ['Grill', 'Prototype', 'Implement']);
-  assert.deepEqual(row({ ...todo, held: true, buildable: false }), ['Unhold', 'Grill', 'Prototype', 'Implement']);
+  assert.deepEqual(row(changed), ['Hold', 'Serve', 'Implement']);
+  assert.deepEqual(row({ ...changed, buildable: false }), ['Hold', 'Serve', 'Implement']);
+  assert.deepEqual(row({ ...changed, lane: 'progress' }), ['Hold', 'Serve']);
+  assert.deepEqual(row({ ...todo, held: true }), ['Implement']);
+  assert.deepEqual(row({ ...todo, held: true, buildable: false }), ['Unhold', 'Implement']);
   assert.match(B.detail({ ...todo, held: true }), /data-confirm="card-build"/);
 });
 
@@ -1229,11 +1240,6 @@ test("a New card reads New and its first line, then whether it was moved or edit
   assert.deepEqual(lines(asked), ['New Fix <it>', 'Next: Answer 1 question', `${at} · Action needed`]);
 });
 
-test('a pending prototype request offers a bump unless it is already the latest bump', () => {
-  assert.deepEqual({ ...ui.protoNotice('e1', 'e9') }, { text: 'Prototypes are being made. Bump them to the top of the queue?', bump: true });
-  assert.deepEqual({ ...ui.protoNotice('e1', 'e1') }, { text: 'Prototypes are being made.', bump: false });
-});
-
 const lines = (html) => html.split('<div class="line').slice(1).map((l) => text('<div class="line' + l));
 const workCard = { kind: 'work', key: 'w/B5', id: 'B5', ref: 'B5', title: 'Five', internal: false, held: false, risky: false, threadCount: 4,
   linear: [{ id: 'ENG-1', url: 'https://linear.app/x/ENG-1' }], pr: { ...openPR, isDraft: true, status: 'draft' }, prs: [{ ...openPR, isDraft: true, status: 'draft' }], reviewers: ['Jamie'], review: { Jamie: { state: 'unsent' } },
@@ -1301,10 +1307,6 @@ test("a card's last line is the time its lane sorts by, then its hold with no he
   assert.match(ui.workLines(card), new RegExp(`<div class="line6 sub card-time"><time datetime="${sortAt}">`));
   assert.equal(last(ui.workLines(card, { unread: 3 })), `${ui.cardTime(sortAt)} · 3 new messages`);
   assert.match(ui.workLines(card, { unread: 3 }), /<span class="card-unread"><span class="sep"> · <\/span>3 new messages<\/span><\/div>/);
-  // New questions come before new messages, in the same chip.
-  assert.equal(last(ui.workLines(card, { unread: 1, newQuestions: 1 })), `${ui.cardTime(sortAt)} · 1 new question · 1 new message`);
-  assert.equal(last(ui.workLines(card, { newQuestions: 2 })), `${ui.cardTime(sortAt)} · 2 new questions`);
-  assert.match(ui.workLines(card, { newQuestions: 1 }), /<span class="card-unread"><span class="sep"> · <\/span>1 new question<\/span><\/div>/);
   assert.doesNotMatch(text(ui.workLines(card)), /days? ago/);
 
   const held = { ...card, held: true };
@@ -1475,26 +1477,62 @@ test('a builder status line, and an agent starting or finishing, reads as one li
     { ts: ago(0.8), who: 'claude', kind: 'agent', text: 'Opus builder started', finished: false, eta: null },
     { ts: ago(0.5), who: 'claude', kind: 'agent', text: 'Opus builder <b>finished</b>', finished: true, eta: null },
   ]);
-  assert.match(agents, /^<div class="msg agent started"><span class="agent-dot" aria-hidden="true"><\/span>Codex started/);
-  assert.match(agents, /<div class="msg agent started"><span class="agent-dot" aria-hidden="true"><\/span>Opus builder started/);
-  assert.match(agents, /<div class="msg agent finished"><span class="agent-dot" aria-hidden="true"><\/span>Opus builder &lt;b&gt;finished/);
+  const dot = '<span class="mark" aria-hidden="true"><span class="agent-dot"><\\/span><\\/span>';
+  assert.match(agents, new RegExp(`^<div class="msg agent started">${dot}Codex started`));
+  assert.match(agents, new RegExp(`<div class="msg agent started">${dot}Opus builder started`));
+  assert.match(agents, new RegExp(`<div class="msg agent finished">${dot}Opus builder &lt;b&gt;finished`));
   assert.match(text(agents), /^Codex started · \S.* · ETA about .+ Opus builder started · [^·]+ Opus builder <b>finished<\/b> · [^·]+$/);
   assert.doesNotMatch(agents, /class="who"|data-withdraw|data-edit/);
   const planner = ui.threadMessages([
     { ts: ago(1), who: 'claude', kind: 'agent', text: 'Claude Sonnet prototype started', finished: false, eta: null, planner: true },
     { ts: ago(0.8), who: 'claude', kind: 'status', text: 'Reading: the notes', planner: true },
   ]);
-  assert.match(planner, /<div class="msg agent started planner"><span class="agent-dot" aria-hidden="true"><\/span>Claude Sonnet prototype started/);
-  assert.match(planner, /<div class="msg builder-status planner"><span class="working-dot" aria-hidden="true"><\/span>Reading: the notes/);
-  // A Grill or Prototype tap, and a Quick build ask's note, are a muted request entry, not a message from the owner.
+  assert.match(planner, /<div class="msg agent started planner"><span class="mark" aria-hidden="true"><span class="agent-dot"><\/span><\/span>Claude Sonnet prototype started/);
+  assert.match(planner, /<div class="msg builder-status planner"><span class="mark" aria-hidden="true"><span class="working-dot"><\/span><\/span>Reading: the notes/);
+  // A bare Grill or Prototype tap, and a Quick build ask's note, are a muted request entry, not a message from the owner,
+  // led by its icon in the same box as the dots.
   const requests = ui.threadMessages([
     { ts: ago(2), who: 'love', via: 'site', kind: 'grill-more', request: true, text: 'grill requested', eventId: 'g1', state: 'waiting', files: [] },
     { ts: ago(1), who: 'love', via: 'site', kind: 'prototype-request', request: true, text: 'prototype requested', eventId: 'p1', state: 'waiting', files: [] },
+    { ts: ago(0.5), who: 'love', kind: 'quick-build', request: true, text: 'quick build: no grill, as you asked' },
   ]);
-  assert.match(requests, /^<div class="msg request">grill requested <span class="muted">· [^<]+<\/span><\/div><div class="msg request">prototype requested <span class="muted">/);
+  assert.match(requests, new RegExp(`^<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['grill requested']}</span>grill requested <span class="muted">· [^<]+</span></div><div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['prototype requested'].replace(/[.*+?()[\]]/g, '\\$&')}</span>prototype requested <span class="muted">`));
+  assert.match(requests, /<div class="msg request"><span class="mark" aria-hidden="true"><\/span>quick build/);
   assert.doesNotMatch(requests, /class="who"|Waiting for Claude|data-event/);
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.match(css, /\.msg\.request \{[^}]*color: var\(--muted\)/);
+  // One fixed box for every mark, so the text starts at the same place.
+  assert.match(css, /\.mark \{[^}]*width: 18px;[^}]*margin-right: 5px/);
+});
+
+// docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
+test("a request with text, a question's prototype request and an answer are the owner's message with the tap's status in the footer, Waiting for Claude to its right until Claude picks it up; a batch of answers carries one footer", () => {
+  const msg = (extra) => ({ ts: ago(1), who: 'love', via: 'site', kind: 'prototype-request', text: 'Phone width first', eventId: 'p1', state: 'waiting', files: [], status: 'prototype requested', ...extra });
+  const foot = (html) => /<div class="reply muted small">(.*?)<\/div>/s.exec(html)?.[1];
+  const status = (words) => `<span class="foot-status"><span class="mark" aria-hidden="true">${ui.MARK_ICONS[words]}</span>${words}</span>`;
+  assert.equal(foot(ui.threadMessages([msg()])), `${status('prototype requested')}Waiting for Claude…`);
+  assert.match(ui.threadMessages([msg()]), /<div class="body">Phone width first<\/div>/);
+  assert.equal(foot(ui.threadMessages([msg({ state: 'answered' })])), status('prototype requested'));
+  assert.match(foot(ui.threadMessages([msg({ state: 'working' })])), /^<span class="foot-status">.*prototype requested<\/span><span class="thinking">/);
+  assert.equal(foot(ui.threadMessages([msg({ kind: 'grill-more', status: 'grill requested' })])), `${status('grill requested')}Waiting for Claude…`);
+  const answer = (id, ts) => ({ ts, who: 'love', via: 'questions', kind: 'owner-answer', text: `${id}?\n→ A`, eventId: id, state: 'waiting', files: [], status: 'answers submitted' });
+  const batch = ui.threadMessages([answer('a1', ago(2)), answer('a2', ago(1))]);
+  assert.equal(batch.match(/answers submitted/g).length, 1);
+  assert.equal(foot(batch.slice(batch.indexOf('data-event="a2"'))), `${status('answers submitted')}Waiting for Claude…`);
+  // An owner message with no tap behind it keeps its plain footer.
+  assert.equal(foot(ui.threadMessages([msg({ kind: 'item-message', status: undefined })])), 'Waiting for Claude…');
+});
+
+test("a card's open questions asked since it was last seen are one blue line in its thread, with a plain question mark, linking to the first", () => {
+  const questions = { first: 'q 1', askedAt: ['2026-11-04T10:00:00Z', '2026-11-04T11:00:00Z', '2026-11-04T12:00:00Z'] };
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  assert.deepEqual(plain(ui.newQuestionsLine(questions, '2026-11-04T10:30:00Z')), [{ ts: '2026-11-04T12:00:00Z', who: 'claude', kind: 'questions', text: '2 new questions', link: 'questions.html#q%201' }]);
+  assert.equal(ui.newQuestionsLine(questions, '2026-11-04T11:30:00Z')[0].text, '1 new question');
+  assert.deepEqual(plain([ui.newQuestionsLine(questions, '2026-11-04T12:00:00Z'), ui.newQuestionsLine(questions, null), ui.newQuestionsLine(null, '2026-11-04T10:30:00Z')]), [[], [], []]);
+  const html = ui.threadMessages(ui.newQuestionsLine(questions, '2026-11-04T10:30:00Z'));
+  assert.match(html, new RegExp(`^<div class="msg builder-status planner new-questions"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.questions}</span><a href="questions.html#q%201">2 new questions</a>`));
+  assert.match(ui.MARK_ICONS.questions, /class="mark-icon big"/);
+  assert.doesNotMatch(ui.MARK_ICONS.questions, /<circle/);
 });
 
 test("a builder's judgment calls show collapsed under its lines, saying whether the session verified them, and count as no message", () => {

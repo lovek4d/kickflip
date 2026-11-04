@@ -263,8 +263,6 @@ BoardView.part((B) => {
   const CONFIRM = {
     resume: (it, ref) => `Unhold ${ref}?${it.heldUntil ? ` It's held until ${heldUntilWords(it.heldUntil)}.` : ''} It can start again once nothing blocks it.`,
     nudge: () => 'Nudge Claude to check this implementer?',
-    grill: (it, ref) => `Ask Claude for questions about ${ref}?`,
-    prototype: (it, ref) => `Ask Claude for prototypes of ${ref}?`,
     merge: (it, ref) => (openPRs(it).length > 1
       ? `Merge ${ref}? Claude squash-merges ${openPRs(it).map(prName).join(', ')} in turn if they are still approved, green and clean.`
       : `Merge ${ref}? Claude squash-merges ${openPRs(it).map(prName).join('')} if it is still approved, green and clean.`),
@@ -294,21 +292,21 @@ BoardView.part((B) => {
   const ACTION_BUTTONS = {
     [BUTTON.openQuestions]: (it) => `<a${classes(it, BUTTON.openQuestions, 'button')} href="questions.html#${esc(it.questions.first)}">Open questions</a>`,
     [BUTTON.markDone]: (it) => `<button${classes(it, BUTTON.markDone)} data-confirm="finish" data-key="${esc(it.key)}">Mark as done</button>`,
-    // Grill and Prototype each ask for a planner; both wait while either is under way.
-    [BUTTON.grill]: (it) => ['grill', 'prototype'].map((act) => `<button data-confirm="${act}" data-key="${esc(it.key)}"${it.grilling || it.prototyping ? ' disabled' : ''}>${act === 'grill' ? 'Grill' : 'Prototype'}</button>`).join(''),
   };
   const actionButton = (it) => ACTION_BUTTONS[it.actionButton]?.(it) || '';
 
   // The latest bump among New cards takes no second bump (docs/adr/2026-10-29-1639-a-pending-ask-can-be-deleted-or-bumped.md).
   const latestBump = (it) => Boolean(it.isNew && it.bumpedAt) && !state.board.items.some((i) => i.isNew && (i.bumpedAt || '') > it.bumpedAt);
   // band {step, actions} draws the card in a wave band (app-lanes.js).
-  // Its open questions asked since this browser last opened it count as new, as its messages do.
+  // Its open questions asked since this browser last opened it are one more unread message: the thread's "N new
+  // questions" line (app-threads.js; docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
   function card(it, band = {}) {
     const unseen = (times) => (state.openItems.has(it.key) ? 0 : unreadCount(times, seen[it.key]));
+    const unread = unseen(it.othersAt) + Math.min(1, unseen(it.questions?.askedAt));
     return `<details class="item" data-key="${esc(it.key)}" ${state.openItems.has(it.key) ? 'open' : ''}>
           <summary class="work">
             <span class="status ${it.lane}"></span>
-            <div class="title-wrap">${workLines(it, { unread: unseen(it.othersAt), newQuestions: unseen(it.questions?.askedAt), top: latestBump(it), ...band })}</div>
+            <div class="title-wrap">${workLines(it, { unread, top: latestBump(it), ...band })}</div>
           </summary>
           ${state.openItems.has(it.key) ? detail(it) : ''}
         </details>`;
@@ -450,7 +448,7 @@ BoardView.part((B) => {
     if (!it || !(await B.confirm(CONFIRM[act](it, it.ref)))) return;
     // Unhold, Merge (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md), Implement and Done wait while the
     // server records them (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
-    const sent = { grill: ['grill-more', { key }], prototype: ['prototype-request', { key }], resume: ['card-hold', { key, hold: false }], merge: ['card-merge', { key }], 'card-build': ['card-build', { key }],
+    const sent = { resume: ['card-hold', { key, hold: false }], merge: ['card-merge', { key }], 'card-build': ['card-build', { key }],
       finish: it.kind === 'ask' ? ['ask-done', { id: it.id }] : ['card-done', { key }] }[act];
     if (sent) {
       // Done closes its card once the server answers, before the answer's board lands, or app-core.js steady would
@@ -461,7 +459,7 @@ BoardView.part((B) => {
         state.openItems.delete(key);
         store.set('openItems', [...state.openItems]);
       } : null;
-      try { await waitOn(b, B.sentHere(key, () => B.send(...sent, close))); if (act === 'grill' || act === 'prototype') B.loadThread(key, { force: true }); }
+      try { await waitOn(b, B.sentHere(key, () => B.send(...sent, close))); }
       catch (e) { B.failed(e); }
       if (act === 'finish') B.syncDone(key);
       return;

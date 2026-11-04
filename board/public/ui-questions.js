@@ -8,9 +8,9 @@
         <span><span class="lbl">${numbered ? esc(lead(o)) : ''}${esc(o.label)}</span>${o.recommended ? '<span class="rec">Recommended</span>' : ''}<div class="det">${esc(o.detail || '')}</div></span></label>`;
 
   const SPIN = '<span class="try-spin" aria-hidden="true"></span>';
-  // A question's eye sends `prototype-request {key?, question, note, choice}` for that question alone, which resolves it
-  // (view-questions.js).
-  const questionEye = (q) => protoButton('q:' + q.id, null, { label: 'Ask for a prototype instead' });
+  // A question's eye sends `prototype-request {key?, question, note, choice}` for that question alone, which then reads
+  // requested until its prototype round arrives (view-questions.js).
+  const questionEye = (q) => protoButton('q:' + q.id, { label: 'Ask for a prototype instead' });
   const noteComposer = (q, note) => `<div class="composer" data-composer="${esc('q:' + q.id)}">${dropZone(`<textarea class="note" rows="2" placeholder="Note (optional)">${esc(note || '')}</textarea>`)}
       <div class="note-tools">${attachButton()}${questionEye(q)}<div class="pending-files" data-files></div></div></div>`;
 
@@ -18,6 +18,7 @@
     open: { label: 'open', tone: 'normal' },
     answered: { label: 'waiting for claude', tone: 'notice' },
     replied: { label: 'claude replied', tone: 'ready' },
+    requested: { label: `${SPIN}prototype requested`, tone: 'normal' },
   };
   // docs/adr/2026-11-02-1332-a-prototype-round-ends-with-a-one-take-confirm.md
   // A topic's latest prototype round from /api/board ownerTopics: {n, state: making|back|closed, take}.
@@ -76,13 +77,13 @@
     // Every take loads so one outside the viewport can still decide the question's layout.
     return `<div class="take-shot${h ? '' : ' measuring'}"${h ? ` style="height:${Math.round(h)}px"` : ''}><iframe src="${esc(withParam(q.url, 'take', o.id))}" title="${esc(o.label)}"></iframe></div>`;
   }
-  function takes(q, chosen, links, fit) {
+  function takes(q, chosen, links, fit, locked = false) {
     const name = 'c-' + q.id;
     if (fullTakes(q, fit)) {
       const shown = q.options.find((o) => o.id === chosen) || q.options.find((o) => o.recommended) || q.options[0];
-      return `<div class="takes takes-full"><div class="take-choices" role="group" aria-label="Takes">${q.options.map((o) => option(o, { name, checked: chosen === o.id, shown: o === shown })).join('')}</div><article class="take" data-opt="${esc(shown.id)}">${takeBody(q, shown, links, fit, true)}</article></div>`;
+      return `<div class="takes takes-full"><div class="take-choices" role="group" aria-label="Takes">${q.options.map((o) => option(o, { name, checked: chosen === o.id, shown: o === shown, locked })).join('')}</div><article class="take" data-opt="${esc(shown.id)}">${takeBody(q, shown, links, fit, true)}</article></div>`;
     }
-    return `<div class="takes">${q.options.map((o) => `<article class="take" data-opt="${esc(o.id)}">${option(o, { name, checked: chosen === o.id })}${takeBody(q, o, links, fit)}</article>`).join('')}</div>`;
+    return `<div class="takes">${q.options.map((o) => `<article class="take" data-opt="${esc(o.id)}">${option(o, { name, checked: chosen === o.id, locked })}${takeBody(q, o, links, fit)}</article>`).join('')}</div>`;
   }
   // A confirm links its one take alone, and says why it is asked.
   const confirmLines = (q) => !q.confirm_of ? ''
@@ -110,18 +111,21 @@
   }
   // An owner question from /api/board; draft is this device's unsent {choice, note}; links its ui-links.js linkContext;
   // fit(option id) supplies the measured grid and full-width heights.
+  // A question waiting on the prototype the owner asked for is locked at the pick and note the request sent until its
+  // round arrives (docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md).
   function questionCard(q, { n = 0, draft = {}, links = {}, fit = () => null } = {}) {
     if (q.state === 'resolved') return resolvedCard(q, links);
     const last = q.answers[q.answers.length - 1];
-    const chosen = draft.choice ?? (last ? last.choice : null);
+    const locked = q.state === 'requested';
+    const chosen = locked ? q.request.choice : draft.choice ?? (last ? last.choice : null);
     return `<section class="q ${q.urgent && q.state === 'open' ? 'urgent' : ''}" id="${esc(q.id)}" data-q="${esc(q.id)}">
-      <div class="row" style="margin:0"><span class="muted small">${n ? n + '. ' : ''}${esc(q.source || '')}</span>${badge(QUESTION_STATE[q.state].tone, esc(QUESTION_STATE[q.state].label))}</div>
+      <div class="row" style="margin:0"><span class="muted small">${n ? n + '. ' : ''}${esc(q.source || '')}</span>${badge(QUESTION_STATE[q.state].tone, QUESTION_STATE[q.state].label)}</div>
       <h3>${linkText(q.question, links)}</h3>
       ${q.context ? `<div class="ctx">${linkText(q.context, links)}</div>` : ''}
       ${framed(q) ? '' : questionLink(q.url)}
       ${confirmLines(q)}
-      ${inline(q) ? takes(q, chosen, links, fit) : q.options.map((o) => option(o, { name: 'c-' + q.id, checked: chosen === o.id })).join('')}
-      ${noteComposer(q, draft.note)}
+      ${inline(q) ? takes(q, chosen, links, fit, locked) : q.options.map((o) => option(o, { name: 'c-' + q.id, checked: chosen === o.id, locked })).join('')}
+      ${locked ? (q.request.note ? `<div class="ans"><div class="muted small">You · ${esc(time(q.request.ts))}</div><div>${linkText(q.request.note, links)}</div></div>` : '') : noteComposer(q, draft.note)}
       ${answerHistory(q, links)}
     </section>`;
   }

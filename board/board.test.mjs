@@ -774,6 +774,18 @@ test("question resolve refuses a prototype question until a pick settles its rou
   assert.deepEqual(read(file), noted);
 });
 
+// docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md
+test('question resolve refuses a question the owner asked a prototype of; the round naming it in round_of resolves it', () => {
+  recordPrototype();
+  const add = (q) => { write(path.join(home, 'q.json'), q); return board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')); };
+  assert.equal(add(question('asked', { topic: 'item:w/A1' })).code, 0);
+  addEvents({ id: 'r-asked', ts: '2026-10-23T10:00:00Z', kind: 'prototype-request', data: { key: 'w/A1', question: 'asked', note: '' } });
+  assert.deepEqual(board('question', 'resolve', 'asked', '--site', 'orch', '--note', 'Answered in the thread.'),
+    { code: 1, out: '', err: 'asked waits on the prototype the owner asked for; question add with round_of asked resolves it\n' });
+  assert.equal(add(question('r1', { topic: 'item:w/A1', url: 'prototype-site.html?q=r1', round_of: 'asked' })).code, 0);
+  assert.equal(read(site('orch', 'data', 'owner.json')).items[0].resolved, 'Followed by prototype round 1');
+});
+
 test('question add with round_of starts the next prototype round on the question it answers, resolving that one as followed by the round', () => {
   recordPrototype();
   recordPrototype('next');

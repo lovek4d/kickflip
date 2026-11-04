@@ -99,8 +99,12 @@
 //                                line per answer, appended in one write with each answer's side effects → {ids, board};
 //                                an answer naming no question in owner.json, or none at all, → 400 {error} and nothing
 //                                recorded (docs/adr/2026-11-03-1519-send-records-every-ready-answer-in-one-request.md).
-//                                prototype-request {key?, question?, note?, choice?} asks for prototypes of a card, or of one question,
-//                                which it resolves, noting "Prototype requested" (store.mjs resolveRequestedQuestion)
+//                                prototype-request {key?, text?, files?, question?, note?, choice?} and grill-more {key, text?, files?}
+//                                ask for prototypes or a grill of a card, with the owner's text, or prototypes of one
+//                                question, which reads requested until a question naming it in round_of resolves it
+//                                (domain.mjs ownerQuestion). The server appends prototype-overdue {key, request,
+//                                question?, since} once per request still waiting on its prototype after
+//                                PROTOTYPE_WAIT with no prototype agent running on the card (domain.mjs prototypeWaits)
 //                                reask-request {key?, question} asks the session to ask a resolved question again from the
 //                                card's current notes; one naming a question that isn't resolved → 400 {error}. The
 //                                question reads reask until question add names it in reask_of (domain.mjs ownerQuestion)
@@ -223,13 +227,13 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { archivedOf, buildBoard, withHub, DONE_KEPT, idleStep, idleSummary, ITEM_EVENTS, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, refOf, startedByAnswer, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { archivedOf, buildBoard, withHub, DONE_KEPT, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, refOf, startedByAnswer, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, existsSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { launchBuilder, reviveBuilders } from './headless.mjs';
-import { BoardError, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, landable, migrateFollowups, stripDeadFields, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, landable, migrateFollowups, stripDeadFields, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -598,6 +602,27 @@ async function checkStalled() {
     console.error('Builder check failed:', err.message);
   } finally {
     checkingStalled = false;
+  }
+}
+
+// docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md
+// Raises each prototype request left waiting PROTOTYPE_WAIT with no prototype agent running to the session, once per
+// request: the event log says which went out.
+let checkingPrototypes = false;
+async function checkPrototypeWaits() {
+  if (checkingPrototypes) return;
+  checkingPrototypes = true;
+  try {
+    const log = await readLines(events);
+    const raised = new Set(log.filter((e) => e.kind === 'prototype-overdue').map((e) => e.data?.request));
+    for (const wait of prototypeWaits(await sharedBoard(), log)) {
+      if (raised.has(wait.request) || Date.now() - Date.parse(wait.since) < PROTOTYPE_WAIT) continue;
+      await appendEvent('prototype-overdue', wait);
+    }
+  } catch (err) {
+    console.error('Prototype check failed:', err.message);
+  } finally {
+    checkingPrototypes = false;
   }
 }
 
@@ -1009,7 +1034,6 @@ const server = http.createServer(async (req, res) => {
         if (refused) return json(res, 400, { error: refused });
       }
       const id = await appendEvent(kind, body);
-      if (kind === 'prototype-request' && body.question) await resolveRequestedQuestion(here, String(body.question));
       if (kind === 'ask-withdrawn') await setHidden(here, String(body.id || ''), true);
       // docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md
       return json(res, 200, { id, board: await answerBoard(req, since) });
@@ -1471,6 +1495,7 @@ await watchBoard();
 setInterval(() => {
   dataVersion++;
   checkStalled();
+  checkPrototypeWaits();
   reviveHeadless();
   checkPickUps();
   if (heldByPause && readUsageGate().state !== 'paused') checkAuto();
@@ -1479,6 +1504,7 @@ setInterval(() => {
   checkIdle();
 }, 60000).unref();
 await checkStalled();
+await checkPrototypeWaits();
 await checkPickUps();
 await checkAuto();
 checkActions();

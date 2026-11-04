@@ -1,7 +1,7 @@
 // A card's thread: the orchestrator's lines (who claude, named Orchestrator), its builders' asks, the owner's messages and
 // their replies. Needs ui.js, ui-links.js and ui-enums.js.
 (function () {
-  const { esc, time, etaLine, replyBody, attachments, attachButton, dropZone, editButton, withdrawButton, workingLine, linkText, linkHtml, anyLink, BUTTON } = globalThis.BoardUI;
+  const { esc, time, etaLine, replyBody, attachments, attachButton, dropZone, editButton, withdrawButton, workingLine, linkText, linkHtml, anyLink, mark, statusMark, BUTTON } = globalThis.BoardUI;
   const VIA = { slack: ' · Slack', github: ' · GitHub' };
   // A link to a card on this board (#item=<key>) or on another board (/<route>/#item=<key>, an ask's move), or ''.
   function cardLink(link) {
@@ -13,10 +13,13 @@
   }
   // A message's state comes from domain.mjs threadOf.
   const stateOf = (m) => m.state || (m.reply ? 'replied' : 'waiting');
-  const msgFooter = (m) => ({
-    working: () => `<div class="reply muted small">${workingLine}</div>`,
-    waiting: () => '<div class="reply muted small">Waiting for Claude…</div>',
-  }[stateOf(m)] || (() => ''))();
+  // A message's footer: the tap it came from (m.status, such as "answers submitted"), then, to its right, Claude's
+  // pick-up while it waits (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
+  const PICK_UP = { working: workingLine, waiting: 'Waiting for Claude…' };
+  const msgFooter = (m) => {
+    const parts = [m.status && `<span class="foot-status">${statusMark(m.status)}${esc(m.status)}</span>`, PICK_UP[stateOf(m)]].filter(Boolean);
+    return parts.length ? `<div class="reply muted small">${parts.join('')}</div>` : '';
+  };
   // Each reply becomes Claude's own message at the time it was written, quoting the owner's message
   // when other messages came between them. A reply with no time follows its message.
   const withReplies = (msgs) => {
@@ -30,14 +33,15 @@
   const editForm = (id, text) => `<form class="edit-form" data-edit-form="${esc(id)}" data-composer="edit:${esc(id)}">${dropZone(`<textarea rows="3">${esc(text)}</textarea>`)}
         <div class="pending-files" data-files></div>
         <div class="row">${attachButton()}<span><button type="button" data-edit-cancel>Cancel</button> <button class="primary" type="submit">Save</button></span></div></form>`;
-  // batched: an answer followed by another of the owner's answers in its state, which carries the batch's Waiting for Claude.
+  // batched: an answer followed by another of the owner's answers in its state, which carries the batch's footer.
   const line = (m, links, edits, batched = false) => (m.kind === 'reply'
     ? `<div class="msg claude reply-msg"><div class="who">Orchestrator · ${esc(time(m.ts))}</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body">${linkHtml(replyBody(m.reply), links)}</div></div>`
     : m.kind === 'ask-link' ? `<div class="msg link"><a href="${esc(m.link)}">${esc(m.text)} →</a></div>`
-    : m.request ? `<div class="msg request">${esc(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
-    : m.kind === 'status' ? `<div class="msg builder-status${m.planner ? ' planner' : ''}"><span class="working-dot" aria-hidden="true"></span>${linkText(m.text, links)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
+    : m.request ? `<div class="msg request">${statusMark(m.text)}${esc(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
+    : m.kind === 'questions' ? `<div class="msg builder-status planner new-questions">${statusMark('questions')}<a href="${esc(m.link)}">${esc(m.text)}</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
+    : m.kind === 'status' ? `<div class="msg builder-status${m.planner ? ' planner' : ''}">${mark('<span class="working-dot"></span>')}${linkText(m.text, links)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.kind === 'calls' ? `<details class="msg calls"><summary>${esc(m.text)}'s judgment calls · ${m.calls.length} · ${m.verified ? `verified ${esc(time(m.verified.at))}` : 'not verified yet'}</summary><ol>${m.calls.map((c) => `<li>${linkText(c, links)}</li>`).join('')}</ol>${m.verified?.note ? `<div class="small">Verified: ${linkText(m.verified.note, links)}</div>` : ''}</details>`
-    : m.kind === 'agent' ? `<div class="msg agent ${m.finished ? 'finished' : 'started'}${m.planner ? ' planner' : ''}"><span class="agent-dot" aria-hidden="true"></span>${esc(m.text)} <span class="muted">· ${esc(time(m.ts))}${m.eta ? ` · ${esc(etaLine(m.eta))}` : ''}</span></div>` : `<div class="msg ${m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : ''}>
+    : m.kind === 'agent' ? `<div class="msg agent ${m.finished ? 'finished' : 'started'}${m.planner ? ' planner' : ''}">${mark('<span class="agent-dot"></span>')}${esc(m.text)} <span class="muted">· ${esc(time(m.ts))}${m.eta ? ` · ${esc(etaLine(m.eta))}` : ''}</span></div>` : `<div class="msg ${m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : ''}>
         ${m.canDelete || m.canEdit ? `<div class="ask-actions">${m.canEdit ? editButton(m.eventId) : ''}${m.canDelete ? withdrawButton(m.eventId) : ''}</div>` : ''}
         <div class="who">${m.who === 'love' ? 'You' : m.who === 'claude' ? 'Orchestrator' : esc(m.who)}${VIA[m.via] || ''}${m.moved ? ' · Moved' : ''}${m.from ? ` · Moved from ${esc(m.from)}` : ''}${m.edited ? ' · Edited' : ''} · ${esc(time(m.ts))}</div>
         <div class="body"${edits.has(m.eventId) ? ' hidden' : ''}>${m.html ? linkHtml(m.html, links) : linkText(m.text, links)}</div>${edits.has(m.eventId) ? editForm(m.eventId, edits.get(m.eventId).text) : ''}${attachments(m.files)}
@@ -48,7 +52,7 @@
 
   const STEP = 3;
   const UNREAD_CAP = 10;
-  const NOT_MESSAGE = new Set(['status', 'agent', 'calls', 'ask-link']);
+  const NOT_MESSAGE = new Set(['status', 'agent', 'calls', 'ask-link', 'questions']);
   const isMessage = (m) => !NOT_MESSAGE.has(m.kind);
   // Only Claude's and GitHub's messages are unread, as on the badge (domain.mjs othersAt, ui-cards.js unreadCount); the
   // orchestrator's answer to a builder's ask never is.
@@ -92,5 +96,14 @@
     return `<button type="button"${tone ? ` class="${tone}"` : ''} data-confirm="finish" data-key="${esc(it.key)}">Done</button>`;
   }
 
-  Object.assign(globalThis.BoardUI, { threadMessages, withReplies, doneButton });
+  // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
+  // A card's open questions asked since seenAt as one blue line in its thread, at the newest one's time, linking to the
+  // first: it.questions from the board. → [line], or [] with none new or no seen mark.
+  function newQuestionsLine(questions, seenAt) {
+    const fresh = seenAt ? (questions?.askedAt || []).filter((t) => String(t) > seenAt) : [];
+    if (!fresh.length) return [];
+    return [{ ts: fresh.at(-1), who: 'claude', kind: 'questions', text: `${fresh.length} new question${fresh.length === 1 ? '' : 's'}`, link: `questions.html#${encodeURIComponent(questions.first)}` }];
+  }
+
+  Object.assign(globalThis.BoardUI, { threadMessages, withReplies, doneButton, newQuestionsLine });
 })();

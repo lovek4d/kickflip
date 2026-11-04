@@ -365,6 +365,24 @@ button.sub.agent.stalled { display: block; width: 100%; padding: 0; border: 0; b
 .msg.calls summary { cursor: pointer; color: var(--muted); }
 .msg.calls ol { margin: 4px 0; padding-left: 20px; }
 .agent-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; margin-right: 5px; vertical-align: 1px; }
+/* Every thread status line's leading mark, icon or dot, sits centred in one 18px box, so the text after it always starts
+   at the same place; the box is 12px tall so line heights stay
+   (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md). */
+.mark { display: inline-block; position: relative; width: 18px; height: 12px; margin-right: 5px; vertical-align: -1px; flex: none; }
+.mark > * { position: absolute; inset: 0; margin: auto; }
+.mark .working-dot, .mark .agent-dot { margin: auto; vertical-align: 0; }
+.mark-icon { width: 12px; height: 12px; }
+/* New questions' plain question mark is a size up from its siblings. */
+.mark-icon.big { width: 18px; height: 18px; }
+.msg.new-questions a { color: inherit; }
+/* A message's footer: the tap it came from, then Claude's pick-up to its right. */
+.msg .reply { display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 2px; }
+.msg-foot .foot-status { display: inline-flex; align-items: center; }
+/* The thread's eye and fire are toggles: pressed reads as chosen, and the hint under the box says what Send posts. */
+form[data-reply] .tools { display: inline-flex; flex: none; }
+button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chip); }
+.flag-hint { margin: 4px 2px 0; min-height: 1.2em; color: var(--muted); font-size: 12px; }
+.flag-hint.on { color: var(--accent); }
 /* INT-30: card line order */
 .line6 { margin-top: 4px; }
 .card-time time { font-variant-numeric: tabular-nums; }

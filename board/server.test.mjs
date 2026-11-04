@@ -132,8 +132,8 @@ test("an owner answer that picks no take on a card's prototype says so in its ev
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
-// docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md
-test("a prototype request on a question resolves it with its note and pick kept on the event, the topic's round reads making and the card prototypes; one on a card resolves nothing", async () => {
+// docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md
+test("a prototype request on a question keeps its note and pick on the event and leaves owner.json alone: the question reads requested, the topic's round reads making and the card prototypes", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
   const eventsFile = path.join(site, 'data', 'events.jsonl');
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'R1', title: 'Search' }] }));
@@ -141,7 +141,6 @@ test("a prototype request on a question resolves it with its note and pick kept 
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [plain] }));
   const send = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const last = () => JSON.parse(fs.readFileSync(eventsFile, 'utf8').trim().split('\n').at(-1));
-  const items = () => JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items;
   try {
     const untouched = fs.readFileSync(ownerFile, 'utf8');
     assert.equal((await send({ kind: 'prototype-request', key: 't/R1' })).status, 200);
@@ -150,11 +149,9 @@ test("a prototype request on a question resolves it with its note and pick kept 
     const r = await send({ kind: 'prototype-request', key: 't/R1', question: 'where', note: 'Show it on a phone', choice: 'B' });
     assert.equal(r.status, 200);
     assert.deepEqual([last().kind, last().data], ['prototype-request', { key: 't/R1', question: 'where', note: 'Show it on a phone', choice: 'B' }]);
-    const q = items()[0];
-    assert.equal(q.resolved, 'Prototype requested');
-    assert.ok(q.resolved_at >= last().ts);
+    assert.equal(fs.readFileSync(ownerFile, 'utf8'), untouched);
     const b = (await r.json()).board;
-    assert.deepEqual([b.owner, b.ownerTopics.find((t) => t.id === 'item:t/R1').resolved], [[], 1]);
+    assert.deepEqual([b.owner.map((q) => [q.id, q.state]), b.ownerTopics.find((t) => t.id === 'item:t/R1').open], [[['where', 'requested']], 0]);
     assert.deepEqual(b.ownerTopics.find((t) => t.id === 'item:t/R1').round, { n: 1, state: 'making' });
     const card = b.items.find((i) => i.key === 't/R1');
     assert.deepEqual([card.state, card.next, card.buildable], ['prototyping', 'Prototype again', false]);

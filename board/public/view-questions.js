@@ -7,8 +7,9 @@
 // whose options are prototype takes frames each take with ?take= (docs/adr/2026-10-29-1639-a-questions-takes-show-inline.md).
 // Each question's eye sends `prototype-request {key?, question, note, choice}` for that question instead of an answer,
 // with its note box as the note and its pick so far as the choice (docs/adr/2026-11-02-1822-each-question-has-its-own-prototype-eye.md).
-// The board server resolves the question with it, and once it is recorded the page moves on as a Send does
-// (docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md).
+// The question then reads prototype requested, locked, until its prototype round arrives, and once the request is
+// recorded the page moves on as a Send does (docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md,
+// docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md).
 // A topic's resolved questions fold under "resolved (N)", read-only; a resolved question's badge, once confirmed, sends
 // `reask-request {key?, question}` (docs/adr/2026-11-04-2001-a-resolved-question-is-read-only-and-can-be-asked-again.md).
 // fits: each framed take's measured size, kept across repaints and visits so a take redraws at its size at once.
@@ -74,7 +75,7 @@
     const filesOf = (q) => BoardAttach.files('q:' + q.id, site.root);
     const uploading = (qs) => qs.some((q) => BoardAttach.busy('q:' + q.id, site.root));
     function pending(qs) {
-      return qs.filter((q) => q.state !== 'resolved').filter((q) => {
+      return qs.filter((q) => q.state !== 'resolved' && q.state !== 'requested').filter((q) => {
         const d = getDraft(q.id);
         if (filesOf(q).length) return true;
         if (!('choice' in d) && !d.note) return false;

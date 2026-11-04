@@ -1,5 +1,7 @@
 # A question asked for a prototype is resolved, and the page moves on
 
+Superseded in part by [a prototype request waits for its prototype](2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md): the request no longer resolves its question; the question reads requested until its round arrives.
+
 The owner, on #157: "Requesting a prototype in the open questions should effectively resolve that item in which a prototype was requested … it should just stay resolved and we should get a new prototype. … if that was the last item, move to the next item or return to the board." This supersedes [each question has its own prototype eye](2026-11-02-1822-each-question-has-its-own-prototype-eye.md)'s locked "prototype requested" card and [a prototype round ends with a one-take confirm](2026-11-02-1332-a-prototype-round-ends-with-a-one-take-confirm.md)'s `requested` state.
 
 - **The request resolves its question.** The board server records `prototype-request {key?, question, note, choice}` unchanged, then resolves that question in owner.json, noting "Prototype requested" (`board/store.mjs` `resolveRequestedQuestion`), before it answers the tap. The event, with its note and pick, is the round's input, and the session draws the round from it as before. The next round arrives as a new question with `round_of` the old one, which `question add` re-notes "Followed by prototype round N". An answer newer than the resolution reopens the question, as any answer does.

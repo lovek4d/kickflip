@@ -218,15 +218,15 @@
     return `<span class="card-hold" title="${esc(title)}">${esc(d ? `held until ${heldUntilWords(it.heldUntil)}` : 'held')}</span>`;
   }
   // A card's last line: the time its lane sorts by (domain.mjs sortAt), then its hold, what blocks it, then Action needed
-  // or ready, then an In Progress card's phase bars, then its new questions and unread messages, questions first, which app-cards.js
+  // or ready, then an In Progress card's phase bars, then its unread messages, new questions counting as one, which app-cards.js
   // takes away when the card opens (docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md,
   // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md).
   const SEP = '<span class="sep"> · </span>';
   const newWords = (n, word) => n && `${n} new ${word}${n === 1 ? '' : 's'}`;
-  function timeLine(it, unread, questions, bars) {
+  function timeLine(it, unread, bars) {
     const iso = it.sortAt;
     const parts = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, holdWords(it), blockedWords(it), actionWords(it), it.ready && '<span class="card-ready">ready</span>'].filter(Boolean);
-    const news = [newWords(questions, 'question'), newWords(unread, 'message')].filter(Boolean).join(' · ');
+    const news = newWords(unread, 'message');
     const count = news ? `<span class="card-unread">${parts.length || bars ? SEP : ''}${news}</span>` : '';
     const tail = bars ? `${parts.length ? SEP : ''}${bars}` : '';
     if (!parts.length && !count && !tail) return '';
@@ -255,7 +255,7 @@
   const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' && workingLine].filter(Boolean).join(' · ');
   // In a wave band (app-lanes.js), step is the number of the card's phase in its wave, shown inside its id chip, and actions replace
   // its bump with the band's ⋯ menu.
-  function workLines(it, { unread = 0, newQuestions = 0, top = false, step = 0, actions = null } = {}) {
+  function workLines(it, { unread = 0, top = false, step = 0, actions = null } = {}) {
     const ticket = it.ticket ? ticketChip(it) : it.ticketSource === 'linear' ? linearChips(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
     // A card from an ask reads New until its session sets ready, grilling or prototyping (domain.mjs unsorted).
     const chip = step ? ticket.replace(/^<[^>]*>/, (open) => `${open}<span class="wn">${step}</span>`) : ticket;
@@ -272,7 +272,7 @@
     return `${actions ?? cardActions(it, top)}<div class="line1 title">${ids ? `${ids} ` : ''}${esc(it.title)}</div>
       ${status}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
-      ${timeLine(it, unread, newQuestions, phaseBars(phaseStrip(it)))}`;
+      ${timeLine(it, unread, phaseBars(phaseStrip(it)))}`;
   }
   const WAVE_ICON = '<svg class="wave-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/><path d="M2 16c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/></svg>';
   const askChip = (it) => (it.isNew ? badge('notice', 'New') : '');

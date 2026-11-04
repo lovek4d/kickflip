@@ -1069,7 +1069,7 @@ export async function addQuestions(site, input) {
     });
   }
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
-  const answers = await ownerAnswers(site);
+  const { answers, requests } = await ownerEvents(site);
   const at = new Date().toISOString();
   const replaced = [];
   const resolved = [];
@@ -1086,7 +1086,7 @@ export async function addQuestions(site, input) {
   }
   for (const q of questions) {
     const topic = pageTopic(q.url);
-    const views = items.filter((old) => old.topic === q.topic).map((old) => ownerQuestion(old, answers));
+    const views = items.filter((old) => old.topic === q.topic).map((old) => ownerQuestion(old, answers, requests));
     const followed = q.topic.startsWith('item:') ? answeredOnClaude(views) : [];
     for (const old of views) {
       if (followed.includes(old.id)) {
@@ -1123,9 +1123,11 @@ export async function resolveQuestion(site, id, note) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   const q = (owner.items || []).find((x) => x.id === id);
   if (!q) fail(`no question "${id}" in owner.json`);
-  const answers = await ownerAnswers(site);
-  const view = ownerQuestion(q, answers);
+  const { answers, requests } = await ownerEvents(site);
+  const view = ownerQuestion(q, answers, requests);
   if (view.state === 'resolved') return ownerFile(site);
+  // docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md
+  if (view.state === 'requested') fail(`${id} waits on the prototype the owner asked for; question add with round_of ${id} resolves it`);
   const said = text(note, '--note');
   if (pageTopic(q.url)) roundSettled(owner, q, answers);
   const file = await markResolved(site, owner, [id], said);
@@ -1143,15 +1145,6 @@ export async function resolveNoteAnswers(site, answers) {
   await writeJSON(ownerFile(site), owner);
 }
 
-// docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md
-// A prototype request for question id resolves it, noting "Prototype requested": the request is that round's input.
-export async function resolveRequestedQuestion(site, id) {
-  const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
-  if (!owner.items?.some((q) => q.id === id)) return;
-  setResolved(owner, [id], 'Prototype requested');
-  await writeJSON(ownerFile(site), owner);
-}
-
 // docs/adr/2026-11-03-0504-a-prototype-pick-is-the-builds-go.md
 // Refuses while no answer settles q's round.
 function roundSettled(owner, q, answers) {
@@ -1160,18 +1153,21 @@ function roundSettled(owner, q, answers) {
   if (!roundSettledBy(round, n)) fail(`${q.id} is in prototype round ${n}, which no pick has settled yet; a pick settles it`);
 }
 
-async function ownerAnswers(site) {
-  const answers = (await readLines(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'owner-answer');
-  return Promise.all(answers.map(async (e) => {
+// The owner's answers, each with whether it has a reply, and prototype requests, from the event log: what
+// domain.mjs ownerQuestion reads a question's state from. → {answers, requests}
+async function ownerEvents(site) {
+  const events = await readLines(path.join(site, 'data', 'events.jsonl'));
+  const answers = await Promise.all(events.filter((e) => e.kind === 'owner-answer').map(async (e) => {
     const replied = await Promise.all(['html', 'json'].map((ext) => fs.stat(path.join(site, 'data', 'replies', `${e.id}.${ext}`)).then((s) => s.isFile(), () => false)));
     return { ...e, reply: e.reply || replied.some(Boolean) };
   }));
+  return { answers, requests: events.filter((e) => e.kind === 'prototype-request') };
 }
 
 export async function topicQuestions(site, topic) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
-  const answers = await ownerAnswers(site);
-  const asked = (owner.items || []).filter((q) => q.topic === topic).map((q) => ownerQuestion(q, answers));
+  const { answers, requests } = await ownerEvents(site);
+  const asked = (owner.items || []).filter((q) => q.topic === topic).map((q) => ownerQuestion(q, answers, requests));
   return { owner, asked };
 }
 const cardQuestions = (site, key) => topicQuestions(site, `item:${key}`);
@@ -1245,8 +1241,8 @@ export async function checkClose(site, key, said, ownerStep) {
 // The card's noTakePicked, from owner.json and the owner's answers. → {id, note}, or null.
 async function unpickedPrototype(site, key) {
   const owner = await readJSON(ownerFile(site), { items: [] });
-  const answers = await ownerAnswers(site);
-  return noTakePicked((owner.items || []).map((q) => ownerQuestion(q, answers)), key);
+  const { answers, requests } = await ownerEvents(site);
+  return noTakePicked((owner.items || []).map((q) => ownerQuestion(q, answers, requests)), key);
 }
 const clip = (s) => (s.length > 120 ? `${s.slice(0, 119)}…` : s);
 

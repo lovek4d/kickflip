@@ -683,3 +683,71 @@ test('an idle board with auto review on sends pr-review for one incoming PR at a
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md
+test("a question's prototype request still waiting 30 minutes on with no prototype agent running is raised as prototype-overdue, once across a restart", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'prototype-overdue-'));
+  const siteDir = path.join(dir, 'site');
+  const dataDir = path.join(siteDir, 'data');
+  const clockFile = path.join(dir, 'clock');
+  const setup = path.join(dir, 'setup.mjs');
+  const eventsFile = path.join(dataDir, 'events.jsonl');
+  let now = Date.parse('2026-10-30T10:00:00Z');
+  let worker;
+  fs.mkdirSync(path.join(dataDir, 'threads'), { recursive: true });
+  fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't' }));
+  fs.writeFileSync(path.join(dataDir, 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One' }] }));
+  fs.writeFileSync(path.join(dataDir, 'owner.json'), JSON.stringify({ items: [{ id: 'q0', topic: 'item:t/A1', question: 'Where?', options: [{ id: 'A', label: 'Top' }] }] }));
+  const since = new Date(now - 20 * 60000).toISOString();
+  fs.writeFileSync(eventsFile, JSON.stringify({ id: 'r1', ts: since, kind: 'prototype-request', data: { key: 't/A1', question: 'q0', note: '' } }) + '\n');
+  fs.writeFileSync(clockFile, String(now));
+  fs.writeFileSync(setup, `
+    import http from 'node:http';
+    import fs from 'node:fs';
+    const RealDate = Date;
+    globalThis.Date = class extends RealDate {
+      constructor(...args) { super(...(args.length ? args : [Date.now()])); }
+      static now() { return Number(fs.readFileSync(process.env.BUILDER_TEST_CLOCK, 'utf8')); }
+    };
+    const interval = globalThis.setInterval;
+    interval(() => {}, 1000);
+    globalThis.setInterval = (fn, ms, ...args) => interval(fn, ms === 60000 ? 20 : ms, ...args);
+    http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };
+  `);
+  const overdue = () => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse).filter((e) => e.kind === 'prototype-overdue').map((e) => e.data);
+  const start = async () => {
+    worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
+      env: { ...process.env, HOME: dir, BUILDER_TEST_CLOCK: clockFile },
+    });
+    let errors = '';
+    worker.stderr.on('data', (chunk) => { errors += chunk; });
+    await new Promise((resolve, reject) => {
+      worker.stdout.once('data', resolve);
+      worker.once('error', reject);
+      worker.once('exit', (code) => reject(new Error(`Server exited ${code}: ${errors}`)));
+    });
+  };
+  const stop = async () => {
+    if (!worker || worker.exitCode !== null) return;
+    const exited = new Promise((resolve) => worker.once('exit', resolve));
+    worker.kill();
+    await exited;
+  };
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 120));
+  try {
+    await start();
+    await tick();
+    assert.deepEqual(overdue(), [], 'twenty minutes in, it still waits quietly');
+    now += 11 * 60000;
+    put(clockFile, String(now));
+    await until(() => overdue().length === 1, 'the request is raised past 30 minutes');
+    assert.deepEqual(overdue(), [{ key: 't/A1', request: 'r1', question: 'q0', since }]);
+    await stop();
+    await start();
+    await tick();
+    assert.equal(overdue().length, 1);
+  } finally {
+    await stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

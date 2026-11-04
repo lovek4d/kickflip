@@ -2349,22 +2349,22 @@ test('a tap anywhere on an asleep board, refresh included, asks the hub to wake 
   b.view.unmount();
 });
 
-test("an open card shows its workflow buttons below a final details line of Notes, Install and GitHub links, and colours orange the control that clears Action needed: Open questions links to its first question, Grill asks for questions and stays Grill, disabled, while a grill runs, and an ask's Mark as done confirms and sends ask-done", async () => {
+test("an open card shows its workflow buttons below a final details line of Notes, Install and GitHub links, and colours orange the control that clears Action needed: Open questions links to its first question, a grilling card reads preheating, and an ask's Mark as done confirms and sends ask-done", async () => {
   const draft = { state: 'OPEN', isDraft: true, number: 7, url: 'https://github.com/o/r/pull/7', checks: { state: 'pass' } };
   const ready = { ...draft, isDraft: false };
   const install = { url: 'itms-services://?action=download-manifest&url=https://m/x/manifest.plist', label: null, older: false };
   const asking = { actionButton: 'openQuestions', questions: { first: 'q7', open: 1, state: 'open' } };
   const cards = [
     workCard('A1', { ...asking, action: { kind: 'questions', url: 'questions.html#q7', label: 'Answer 1 question' }, resolvedBy: 'openQuestions' }),
-    workCard('A2', { actionButton: 'grill', bumpable: true }),
-    workCard('A3', { actionButton: 'grill', grilling: true }),
+    workCard('A2', { actionButton: null, bumpable: true }),
+    workCard('A3', { actionButton: null, grilling: true }),
     workCard('A4', { actionButton: null, lane: 'done' }),
     workCard('A5', { ...asking, held: true, holdable: true, action: null, resolvedBy: null }),
     workCard('P1', { ...asking, action: { kind: 'pick', url: 'questions.html#q7', label: 'Prototypes ready: pick a take' }, resolvedBy: 'openQuestions' }),
-    workCard('D1', { lane: 'review', actionButton: 'grill', pr: draft, hasNotes: true, install, action: { kind: 'ready', url: draft.url, label: 'Tap Ready on GitHub' }, resolvedBy: 'github' }),
-    workCard('R1', { lane: 'review', actionButton: 'grill', pr: ready, install }),
-    workCard('S1', { lane: 'review', actionButton: 'grill', pr: ready, manualSteps: ['Run the backfill'], action: { kind: 'steps', url: '#item=w%2FS1', label: 'Run the manual steps, then merge' }, resolvedBy: 'github' }),
-    workCard('M1', { lane: 'review', actionButton: 'grill', pr: ready, action: { kind: 'merge', url: '#item=w%2FM1', label: 'Merge' }, resolvedBy: 'merge' }),
+    workCard('D1', { lane: 'review', actionButton: null, pr: draft, hasNotes: true, install, action: { kind: 'ready', url: draft.url, label: 'Tap Ready on GitHub' }, resolvedBy: 'github' }),
+    workCard('R1', { lane: 'review', actionButton: null, pr: ready, install }),
+    workCard('S1', { lane: 'review', actionButton: null, pr: ready, manualSteps: ['Run the backfill'], action: { kind: 'steps', url: '#item=w%2FS1', label: 'Run the manual steps, then merge' }, resolvedBy: 'github' }),
+    workCard('M1', { lane: 'review', actionButton: null, pr: ready, action: { kind: 'merge', url: '#item=w%2FM1', label: 'Merge' }, resolvedBy: 'merge' }),
     { ...askCard('a1', 'review'), ref: '10:00', actionButton: 'markDone', finishable: true, action: { kind: 'done', url: '#item=ask%3Aa1', label: 'Pick a take' }, resolvedBy: 'markDone' },
     { ...askCard('a2', 'done'), ref: '10:00', actionButton: null },
   ];
@@ -2382,15 +2382,15 @@ test("an open card shows its workflow buttons below a final details line of Note
   const shown = (key) => ['.action-row.workflow a, .action-row.workflow button', '.external-links a', '.actions .resolves, .external-links .resolves'].map((selector) => labels(row(key)?.querySelectorAll(selector) || []));
   assert.deepEqual(Object.fromEntries(cards.map((c) => [c.key, shown(c.key)])), {
     'w/A1': [['Open questions', 'Implement'], [], ['Open questions']],
-    'w/A2': [['Grill', 'Prototype', 'Implement'], [], []],
-    'w/A3': [['Grill', 'Prototype', 'Implement'], [], []],
+    'w/A2': [['Implement'], [], []],
+    'w/A3': [['Implement'], [], []],
     'w/A4': [[], [], []],
     'w/A5': [['Unhold', 'Open questions', 'Implement'], [], []],
     'w/P1': [['Open questions', 'Implement'], [], ['Open questions']],
-    'w/D1': [['Grill', 'Prototype'], ['Notes', 'Install', 'Review draft on GitHub'], ['Review draft on GitHub']],
-    'w/R1': [['Grill', 'Prototype'], ['Install', 'Review on GitHub'], []],
-    'w/S1': [['Grill', 'Prototype'], ['Review on GitHub'], ['Review on GitHub']],
-    'w/M1': [['Merge', 'Grill', 'Prototype'], ['Review on GitHub'], ['Merge']],
+    'w/D1': [[], ['Notes', 'Install', 'Review draft on GitHub'], ['Review draft on GitHub']],
+    'w/R1': [[], ['Install', 'Review on GitHub'], []],
+    'w/S1': [[], ['Review on GitHub'], ['Review on GitHub']],
+    'w/M1': [['Merge'], ['Review on GitHub'], ['Merge']],
     'ask:a1': [['Mark as done'], [], ['Mark as done']],
     'ask:a2': [[], [], []],
   });
@@ -2403,36 +2403,53 @@ test("an open card shows its workflow buttons below a final details line of Note
   assert.equal(row('w/D1').querySelector('.actions .install, .actions a[target="_blank"]'), null);
   assert.equal(row('w/R1').querySelector('.external-links .resolves'), null);
 
-  b.page.fire(b.root, 'click', { target: row('w/A2').querySelector('button') });
   b.page.fire(b.root, 'click', { target: row('ask:a1').querySelector('button') });
   await b.settle();
-  assert.deepEqual(b.confirms, ['Ask Claude for questions about A2?', 'Mark this task done? "Task a1" moves to Done.']);
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['grill-more', { key: 'w/A2' }], ['ask-done', { id: 'a1' }]]);
-  assert.equal(row('w/A3').querySelector('.action-row.workflow button').disabled, true);
-  assert.equal(row('w/A2').querySelector('.action-row.workflow button').disabled, false);
+  assert.deepEqual(b.confirms, ['Mark this task done? "Task a1" moves to Done.']);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['ask-done', { id: 'a1' }]]);
   assert.match(b.root.querySelector('details.item[data-key="w/A3"] summary .line3.sub.agent.planner').textContent, /preheating/);
   assert.equal(b.root.querySelector('details.item[data-key="w/A2"] summary .line3.planner'), null);
 });
 
-test("a card's Prototype sits beside Grill and confirms, then sends prototype-request; both stay disabled while a grill or prototype is under way, and a prototyping card reads prototyping in planner blue", async () => {
-  const cards = [workCard('A1', { actionButton: 'grill' }), workCard('A2', { actionButton: 'grill', prototyping: true }), workCard('A3', { actionButton: 'grill', grilling: true })];
-  const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
+// docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
+test("the thread's eye and fire are toggles, one at a time, that Send carries: nothing typed sends the bare request, typed text goes with it, /prototype and /grill in the text do the same, and a plain reply stays an item-message", async () => {
+  const cards = [workCard('A1'), workCard('A2', { prototyping: true })];
+  const b = boardOnDom({ open: ['w/A1'], board: boardOf(cards), threads: { 'w/A1': [] } });
   await b.settle();
-  const buttons = (key) => [...b.root.querySelectorAll(`details.item[data-key="${key}"] .action-row.workflow button`)].map((el) => [el.textContent.trim(), el.disabled]);
-  assert.deepEqual(buttons('w/A1'), [['Grill', false], ['Prototype', false], ['Implement', false]]);
-  assert.deepEqual(buttons('w/A2'), [['Grill', true], ['Prototype', true], ['Implement', false]]);
-  assert.deepEqual(buttons('w/A3'), [['Grill', true], ['Prototype', true], ['Implement', false]]);
   assert.match(b.root.querySelector('details.item[data-key="w/A2"] summary .line3.sub.agent.planner').textContent, /^prototyping$/);
-  b.page.fire(b.root, 'click', { target: b.root.querySelector('details.item[data-key="w/A1"] button[data-confirm="prototype"]') });
-  await b.settle();
-  assert.deepEqual(b.confirms, ['Ask Claude for prototypes of A1?']);
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['prototype-request', { key: 'w/A1' }]]);
+  const form = () => b.root.querySelector('form[data-reply="w/A1"]');
+  const eye = () => form().querySelector('button[data-proto]');
+  const fire = () => form().querySelector('button[data-grill]');
+  const pressed = () => [eye().getAttribute('aria-pressed'), fire().getAttribute('aria-pressed')];
+  const hint = () => form().querySelector('[data-hint]').textContent;
+  const send = async (text) => { form().querySelector('textarea').value = text; b.page.fire(b.root, 'submit', { target: form() }); await b.settle(); };
+  assert.equal(b.root.querySelector('details.item[data-key="w/A1"] .action-row.workflow button[data-confirm="grill"], details.item[data-key="w/A1"] button[data-confirm="prototype"]'), null);
+  assert.match(form().querySelector('textarea').getAttribute('placeholder'), /\/prototype or \/grill/);
+  assert.deepEqual([pressed(), hint()], [['false', 'false'], 'Tap the eye or the fire to request a prototype or a grill']);
+  b.page.fire(b.root, 'click', { target: eye() });
+  assert.deepEqual([pressed(), hint()], [['true', 'false'], 'posts one gray line: prototype requested']);
+  b.page.fire(b.root, 'click', { target: fire() });
+  assert.deepEqual(pressed(), ['false', 'true']);
+  b.page.fire(b.root, 'click', { target: fire() });
+  assert.deepEqual(pressed(), ['false', 'false']);
+  b.page.fire(b.root, 'click', { target: eye() });
+  await send('');
+  assert.deepEqual(pressed(), ['false', 'false'], 'Send clears the choice');
+  b.page.fire(b.root, 'click', { target: fire() });
+  await send('Ask about the colours');
+  await send('/prototype Phone width first');
+  await send('/grill');
+  await send('Just a reply');
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [
+    ['prototype-request', { key: 'w/A1' }], ['grill-more', { key: 'w/A1', text: 'Ask about the colours' }],
+    ['prototype-request', { key: 'w/A1', text: 'Phone width first' }], ['grill-more', { key: 'w/A1' }], ['item-message', { key: 'w/A1', text: 'Just a reply' }],
+  ]);
   b.view.unmount();
 });
 
 test('Implement is on every Todo card, plain while its questions wait on the owner and builder orange once it is ready, and its tap sends card-build either way', async () => {
   const asking = { actionButton: 'openQuestions', buildable: false, questions: { first: 'q7', open: 1, state: 'open' }, action: { kind: 'questions', url: 'questions.html#q7', label: 'Answer 1 question' } };
-  const cards = [workCard('Q1', asking), workCard('R1', { actionButton: 'grill', buildable: true, ready: true })];
+  const cards = [workCard('Q1', asking), workCard('R1', { buildable: true, ready: true })];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
   await b.settle();
   const implement = (key) => b.root.querySelector(`details.item[data-key="${key}"] button[data-confirm="card-build"]`);
@@ -2695,8 +2712,8 @@ test('confirmations are the browser\'s own window.confirm, whatever labels a cal
 
 test("every bumpable card, closed or open, carries the bump icon at its top right and no bump in its button rows; the icon sends card-bump with no confirm, and on a bumped card it is filled and sends card-unbump", async () => {
   const cards = [
-    workCard('T1', { bumpable: true, bumpedAt: '2026-10-30T09:00:00.000Z', actionButton: 'grill' }),
-    workCard('T2', { bumpable: true, bumpedAt: '2026-10-30T08:00:00.000Z', actionButton: 'grill' }),
+    workCard('T1', { bumpable: true, bumpedAt: '2026-10-30T09:00:00.000Z' }),
+    workCard('T2', { bumpable: true, bumpedAt: '2026-10-30T08:00:00.000Z' }),
     workCard('T3', { bumpable: true, holdable: true }),
     workCard('P1', { lane: 'progress', bumpable: true, bumpedAt: '2026-10-30T07:00:00.000Z', holdable: true }),
     workCard('H1', { bumpable: false, held: true, holdable: true }),
@@ -2709,7 +2726,7 @@ test("every bumpable card, closed or open, carries the bump icon at its top righ
     'w/T1': ['Unbump', true, false], 'w/T2': ['Unbump', true, false], 'w/T3': ['Bump to top', false, false], 'w/P1': ['Unbump', true, false], 'w/H1': null,
   });
   for (const key of ['w/T1', 'w/T3', 'w/H1']) assert.equal(card(key).querySelector('.detail .actions [data-card-bump]'), null, key);
-  assert.deepEqual(['w/T1', 'w/T3'].map((key) => card(key).querySelector('.detail .action-row.workflow').textContent.trim()), ['GrillPrototypeImplement', 'HoldImplement']);
+  assert.deepEqual(['w/T1', 'w/T3'].map((key) => card(key).querySelector('.detail .action-row.workflow').textContent.trim()), ['Implement', 'HoldImplement']);
 
   b.page.fire(b.root, 'click', { target: icon('w/T3') });
   await b.settle();
@@ -3154,7 +3171,7 @@ test("every owner action kind the board derives makes exactly one of the open ca
   for (const i of built.items) {
     const [controls, orange] = shown.counts[i.key];
     // Grill draws with its Prototype twin.
-    assert.deepEqual([controls - without.counts[i.key][0], orange], [i.actionButton === 'grill' ? 2 : i.actionButton ? 1 : 0, i.action ? 1 : 0], `${i.key}: ${i.actionButton}, ${i.action?.kind}`);
+    assert.deepEqual([controls - without.counts[i.key][0], orange], [i.actionButton ? 1 : 0, i.action ? 1 : 0], `${i.key}: ${i.actionButton}, ${i.action?.kind}`);
   }
 
   for (const [name, values] of Object.entries({ BUTTON, ACTION_KIND })) {
@@ -3164,7 +3181,7 @@ test("every owner action kind the board derives makes exactly one of the open ca
       assert.deepEqual(Object.entries(e).filter(([k, v]) => k !== v), [], name);
     }
   }
-  assert.throws(() => { BUTTON.grill = 'markDone'; }, TypeError);
+  assert.throws(() => { BUTTON.merge = 'markDone'; }, TypeError);
 });
 
 test("Needs you shows each pending prompt with its details and answers it from the line: Allow once and Deny on the tap, Always allow after a confirmation naming its rule, one question's option on the tap, and several questions with Send once each has a pick", async () => {
