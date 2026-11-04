@@ -1,20 +1,26 @@
 // Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js and ui-enums.js.
 (function () {
-  const { esc, ago, clock, cardTime, etaLine, workingLine, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, LINK_ARROW } = globalThis.BoardUI;
+  const { esc, ago, clock, cardTime, etaLine, workingLine, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, LINK_ARROW } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
+  // The PR badge is the one place a PR's state shows: its mark and tone, marked like the reviewer and CI chips, and its
+  // title (docs/adr/0181-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md).
+  const PR_LOOK = {
+    [PR_STATE.open]: { tone: 'ready', mark: ' ✓', label: 'Ready for review' },
+    [PR_STATE.draft]: { tone: 'notice', mark: ' ●', label: 'Draft' },
+    [PR_STATE.merged]: { tone: 'merged', mark: ' ✓', label: 'Merged' },
+    [PR_STATE.closed]: { tone: 'danger', mark: ' ✗', label: 'Closed' },
+  };
   function prChips(it) {
     const pr = it.pr;
     if (!pr) return '';
-    const st = pr.state === 'MERGED' ? badge('ready', 'merged') : pr.state === 'CLOSED' ? badge('danger', 'closed') : '';
-    // An open PR's chip ends with its state, marked like the reviewer and CI chips.
-    const open = pr.state === 'OPEN' ? (pr.isDraft ? { tone: 'notice', mark: ' ●', label: 'Draft' } : { tone: 'ready', mark: ' ✓', label: 'Ready for review' }) : { tone: 'quiet', mark: '', label: '' };
+    const look = PR_LOOK[pr.status] || { tone: 'quiet', mark: '', label: '' };
     const CI = { pass: { tone: 'ready', mark: '✓' }, fail: { tone: 'danger', mark: '✗' }, pending: { tone: 'notice', mark: '●' } }[pr.checks?.state] || { tone: 'quiet', mark: '?' };
     const ci = pr.checks && pr.state === 'OPEN' ? badge(CI.tone, `CI ${CI.mark}`, { title: `CI ${pr.checks.state}` }) : '';
     const repo = (pr.url.match(/github\.com\/[^/]+\/([^/]+)\//) || [])[1] || '';
     const codex = pr.state === 'OPEN' && pr.codexOpen ? badge('notice', `codex ${esc(pr.codexOpen)}`, { title: `${pr.codexOpen} Codex finding${pr.codexOpen === 1 ? '' : 's'} not answered yet` }) : '';
     const name = `${repo}#${pr.number}`;
-    const label = open.label ? { title: open.label, attrs: { ...EXTERNAL, 'aria-label': `${name}: ${open.label}` } } : { attrs: EXTERNAL };
-    return `${badge(open.tone, `${esc(name)}${open.mark}`, { href: pr.url, ...label })}${st}${ci}${codex}`;
+    const label = look.label ? { title: look.label, attrs: { ...EXTERNAL, 'aria-label': `${name}: ${look.label}` } } : { attrs: EXTERNAL };
+    return `${badge(look.tone, `${esc(name)}${look.mark}`, { href: pr.url, ...label })}${ci}${codex}`;
   }
   const linearChips = (it) => (it.linear || []).map((l) => badge('quiet', esc(l.id), { href: l.url, title: `${l.id} in Linear`, attrs: EXTERNAL })).join('');
   const ticketChip = (it) => !it.ticket ? '' : !it.ticket.url ? badge('quiet', esc(it.ticket.id), { title: `${it.ticket.id} · not from this board’s ticket source` }) : badge('quiet', esc(it.ticket.id), { href: it.ticket.url, title: `${it.ticket.id}${it.ticket.source === 'internal' ? ' · this board’s own ticket' : it.ticket.source === 'github' ? ' on GitHub' : ' in Linear'}`, attrs: it.ticket.source === 'internal' ? {} : EXTERNAL });

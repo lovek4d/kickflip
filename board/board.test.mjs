@@ -604,11 +604,11 @@ test('question add appends valid questions and rejects the whole file otherwise'
     return board('question', 'add', '--site', 'orch', '--file', path.join(home, 'card.json'));
   };
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'merged', '--force').code, 0);
-  assert.deepEqual(onCard('q-merged'), { code: 1, out: '', err: 'w/A1 is merged and stays closed; ask on an open card or a declared topic\n' });
+  assert.equal(onCard('q-merged').code, 0);
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'done', '--force', '--text', 'Done.').code, 0);
   assert.equal(onCard('q-done').code, 0);
   const added = read(site('orch', 'data', 'owner.json')).items;
-  assert.deepEqual(added.map((q) => q.id), ['q1', 'q2', 'q4', 'q-done']);
+  assert.deepEqual(added.map((q) => q.id), ['q1', 'q2', 'q4', 'q-merged', 'q-done']);
   assert.ok(added.every((q) => !Number.isNaN(Date.parse(q.asked_at))));
 });
 

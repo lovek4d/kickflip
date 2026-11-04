@@ -701,7 +701,7 @@ test("a Build the board started is In Progress reading starting until its builde
   assert.equal(card({ item: { status: 'building' }, agents: tapped, threads: { 'w/A1': [refused] } }).refusal, null);
 });
 
-test("a card-done moves a card to Done and unblocks dependents at once, unless a newer status overrides it, and an owner message or question after it reopens all but a merged card", () => {
+test("a card-done moves a card to Done and unblocks dependents at once, unless a newer status overrides it, and an owner message or question after it reopens it, a merged card too", () => {
   const close = (key, ts) => ({ id: 'c' + ts, ts, kind: 'card-done', data: { key }, reply: null });
   const items = [
     { id: 'A1', title: 'One', status: 'building' },
@@ -733,13 +733,35 @@ test("a card-done moves a card to Done and unblocks dependents at once, unless a
   const state = (s, id) => (({ lane, waitsOn, status, action, actionButton, next }) => [lane, waitsOn, status, action?.kind ?? null, actionButton, next])(card(s, id));
   assert.deepEqual(state(said, 'A4'), ['progress', null, null, null, 'grill', NO_NEXT]);
   assert.deepEqual(card(said, 'A6').blockedBy, []);
-  assert.deepEqual(state(said, 'A7'), ['done', null, 'merged', null, null, null]);
+  assert.deepEqual(state(said, 'A7'), ['progress', null, null, null, 'grill', NO_NEXT]);
+  assert.equal(card(said, 'A7').reopened, true);
   assert.deepEqual(state(said, 'A8'), ['review', 'owner', null, 'questions', 'openQuestions', 'Answer 1 question']);
   const answered = { ...said, threads: { 'w/A4': [{ ts: '2026-10-23T11:40:00Z', who: 'claude', text: 'Done that.' }] } };
   assert.deepEqual(state(answered, 'A4'), ['review', 'owner', null, null, 'grill', 'Tap Done once it is settled']);
   assert.deepEqual((({ awaitsDone, bumpable, resolvedBy }) => [awaitsDone, bumpable, resolvedBy])(card(answered, 'A4')), [true, false, null]);
   assert.deepEqual(needsAnswer(buildBoard(answered)).items.filter((l) => l.url === '#item=w%2FA4'), []);
   assert.deepEqual(state({ ...answered, events: [...answered.events, close('w/A4', '2026-10-23T11:50:00Z')] }, 'A4'), ['done', null, 'done', null, null, null]);
+  const mergedAnswered = { ...said, threads: { 'w/A7': [{ ts: '2026-10-23T11:40:00Z', who: 'claude', text: 'Done that.' }] } };
+  assert.deepEqual(state(mergedAnswered, 'A7'), ['review', 'owner', null, null, 'grill', 'Tap Done once it is settled']);
+  assert.deepEqual(state({ ...mergedAnswered, events: [...mergedAnswered.events, close('w/A7', '2026-10-23T11:50:00Z')] }, 'A7'), ['done', null, 'merged', null, null, null]);
+});
+
+test('a message on a card whose PR merged reopens it after the merge, not before, and its PR still reads merged', () => {
+  const msg = (ts) => ({ id: `m-${ts}`, ts, kind: 'item-message', data: { key: 'w/A1', text: 'One more thing' }, reply: null });
+  const merged = { ...greenDraft, isDraft: false, state: 'MERGED', mergedAt: '2026-10-23T11:00:00Z' };
+  const card = (events, item = {}) => board({ pr: merged, events, item: { status: 'building', status_at: '2026-10-23T10:00:00Z', ...item } }).items.find((i) => i.key === 'w/A1');
+  assert.deepEqual([card([msg('2026-10-23T10:30:00Z')]).lane, card([]).pr.status], ['done', 'merged']);
+  const reopened = card([msg('2026-10-23T11:30:00Z')]);
+  assert.deepEqual([reopened.lane, reopened.reopened, reopened.pr.status, reopened.closedAt], ['progress', true, 'merged', null]);
+  assert.equal(card([msg('2026-10-23T11:30:00Z')], { status: 'dropped' }).lane, 'done');
+});
+
+test("a card's PR carries one state: open, draft, merged once GitHub or the card says so, closed, or none before GitHub is read", () => {
+  const status = (pr, item = {}) => board({ pr, item }).items.find((i) => i.key === 'w/A1').pr.status;
+  assert.deepEqual([
+    status({ ...greenDraft, isDraft: false }), status(greenDraft), status({ ...greenDraft, state: 'MERGED' }), status({ ...greenDraft, state: 'CLOSED' }),
+    status(null), status(null, { status: 'merged' }), status(null, { merged_at: '2026-10-23T11:00:00Z' }),
+  ], ['open', 'draft', 'merged', 'closed', null, 'merged', 'merged']);
 });
 
 test('a withdrawn ask leaves the board', () => {

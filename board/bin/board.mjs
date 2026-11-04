@@ -44,7 +44,7 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
          {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
           source?, context?, url?, urgent?, round_of?}; topic is declared, item:<wave>/<id>, item:ask:<eventId>
           for a New card not sorted yet, lineup:<slug> for a wave's triage, or wave:<slug> for a wave file's triage on
-          a board over ~/.claude/waves. A merged card's topic is refused; a question on a done card reopens it.
+          a board over ~/.claude/waves. A question on a done or merged card reopens it.
          url is http(s), or a site page such as prototype-<topic>.html?q=<id>, stored as given.
          Prototype options keep take order, ids matching take keys; recommended: true tags the recommendation.
          Waiting on you shows fitting takes in a grid, or a chooser above one full-width take for a single take or if any

@@ -17,7 +17,7 @@ const beforeComposer = (chunk) => chunk.split('<div class="composer"')[0];
 const options = (html) => html.split(/<label class="opt"[^>]*>/).slice(1).map(beforeComposer);
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
-const openPR = { number: 7, url: 'https://github.com/o/repo/pull/7', state: 'OPEN', isDraft: false, checks: { state: 'pass' } };
+const openPR = { number: 7, url: 'https://github.com/o/repo/pull/7', state: 'OPEN', isDraft: false, status: 'open', checks: { state: 'pass' } };
 
 const colorsCss = fs.readFileSync(new URL('../shared/colors.css', import.meta.url), 'utf8');
 const definedIn = (src) => new Set([...src.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]));
@@ -77,10 +77,10 @@ test('a closed ask in the Asks lane shows the done icon a done work card shows',
   assert.match(asks, new RegExp(`\\{\\s*${done[2].trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\}`));
 });
 
-test('a badge takes one of the five tones, each coloured by a shared colour constant, as a span or a link, and refuses any other tone', () => {
+test('a badge takes one of the six tones, each coloured by a shared colour constant, as a span or a link, and refuses any other tone', () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   const shared = definedIn(colorsCss);
-  assert.deepEqual(plain(ui.BADGE_TONES), ['quiet', 'normal', 'notice', 'danger', 'ready']);
+  assert.deepEqual(plain(ui.BADGE_TONES), ['quiet', 'normal', 'notice', 'danger', 'ready', 'merged']);
   for (const tone of ui.BADGE_TONES) {
     assert.equal(ui.badge(tone, 'A &amp; B'), `<span class="chip tone-${tone}">A &amp; B</span>`);
     const color = new RegExp(`\\.chip\\.tone-${tone}\\s*\\{[^}]*color:\\s*var\\((--color-[\\w-]+)\\)`).exec(css)?.[1];
@@ -105,7 +105,7 @@ test('a merged PR shows no review chips', () => {
 });
 
 test('PR chips show the repo with an orange dot for a draft or a green check once ready, then CI and unanswered Codex findings', () => {
-  const draft = ui.prChips({ pr: { ...openPR, isDraft: true, codexOpen: 2 } });
+  const draft = ui.prChips({ pr: { ...openPR, isDraft: true, status: 'draft', codexOpen: 2 } });
   assert.equal(text(draft), 'repo#7 ● CI ✓ codex 2');
   assert.match(draft, /^<a class="chip tone-notice" [^>]*title="Draft" [^>]*aria-label="repo#7: Draft">/);
   const ready = ui.prChips({ pr: openPR });
@@ -113,8 +113,21 @@ test('PR chips show the repo with an orange dot for a draft or a green check onc
   assert.match(ready, /^<a class="chip tone-ready" [^>]*title="Ready for review" [^>]*aria-label="repo#7: Ready for review">/);
   const ci = (state) => /<span class="chip (tone-\w+)" title="CI/.exec(ui.prChips({ pr: { ...openPR, checks: { state } } }))[1];
   assert.deepEqual(['pass', 'fail', 'pending', 'unknown'].map(ci), ['tone-ready', 'tone-danger', 'tone-notice', 'tone-quiet']);
-  assert.equal(text(ui.prChips({ pr: { ...openPR, state: 'MERGED', codexOpen: 2 } })), 'repo#7 merged');
-  assert.equal(text(ui.prChips({ pr: { ...openPR, state: 'CLOSED' } })), 'repo#7 closed');
+});
+
+test("the PR badge alone shows the PR's state, linking to the PR: a purple check once merged, a red cross once closed, a plain name before GitHub is read", () => {
+  assert.deepEqual(plain(ui.PR_STATE), { open: 'open', draft: 'draft', merged: 'merged', closed: 'closed' });
+  const merged = ui.prChips({ pr: { ...openPR, state: 'MERGED', status: 'merged', codexOpen: 2 } });
+  assert.equal(text(merged), 'repo#7 ✓');
+  assert.match(merged, /^<a class="chip tone-merged" href="https:\/\/github\.com\/o\/repo\/pull\/7" title="Merged" [^>]*aria-label="repo#7: Merged">[^<]*<\/a>$/);
+  const closed = ui.prChips({ pr: { ...openPR, state: 'CLOSED', status: 'closed' } });
+  assert.equal(text(closed), 'repo#7 ✗');
+  assert.match(closed, /^<a class="chip tone-danger" [^>]*title="Closed" [^>]*aria-label="repo#7: Closed">[^<]*<\/a>$/);
+  assert.match(ui.prChips({ pr: { ...openPR, state: undefined, checks: undefined, status: null } }), /^<a class="chip tone-quiet" href="[^"]+" target="_blank" rel="noopener">repo#7<\/a>$/);
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  const [light, dark] = colorsCss.split('@media (prefers-color-scheme: dark)');
+  assert.match(css, /\.chip\.tone-merged \{ color: var\(--color-merged\); \}/);
+  assert.deepEqual([/--purple:\s*([^;]+);/.exec(light)?.[1], /--purple:\s*([^;]+);/.exec(dark)?.[1]], ['#8250df', '#ab7df8']);
 });
 
 test('the header reads the time since the last change signal or refresh, and the In Review header when GitHub was checked, each saying when it needs a look', () => {
@@ -1034,7 +1047,7 @@ test('a pending prototype request offers a bump unless it is already the latest 
 
 const lines = (html) => html.split('<div class="line').slice(1).map((l) => text('<div class="line' + l));
 const workCard = { kind: 'work', key: 'w/B5', id: 'B5', ref: 'B5', title: 'Five', internal: false, held: false, risky: false, threadCount: 4,
-  linear: [{ id: 'ENG-1', url: 'https://linear.app/x/ENG-1' }], pr: { ...openPR, isDraft: true }, reviewers: ['Jamie'], review: { Jamie: { state: 'unsent' } },
+  linear: [{ id: 'ENG-1', url: 'https://linear.app/x/ENG-1' }], pr: { ...openPR, isDraft: true, status: 'draft' }, reviewers: ['Jamie'], review: { Jamie: { state: 'unsent' } },
   questions: null, builder: null, working: false, next: 'Waiting for PR reviewers' };
 
 test('ticket badges use the board source, link internally or externally, and leave asks without a ticket', () => {

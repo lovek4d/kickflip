@@ -970,12 +970,6 @@ async function checkPrototype(site, q, name) {
   }
 }
 
-// docs/adr/0128-a-message-or-question-on-a-done-card-reopens-it.md
-async function refuseMergedCard(site, key) {
-  const { item } = await loadItem(site, key);
-  if (item.status === 'merged' || item.merged_at) fail(`${key} is merged and stays closed; ask on an open card or a declared topic`);
-}
-
 // A question file holds one question or an array of them; all are checked before any is added.
 export async function addQuestions(site, input) {
   needSite(site);
@@ -992,7 +986,7 @@ export async function addQuestions(site, input) {
     taken.add(q.id);
     text(q.topic, `${name}.topic`);
     if (q.topic.startsWith('item:ask:')) await checkAsk(site, q.topic.slice(9), `${name}.topic`);
-    else if (q.topic.startsWith('item:')) await refuseMergedCard(site, q.topic.slice(5));
+    else if (q.topic.startsWith('item:')) await loadItem(site, q.topic.slice(5));
     else if (q.topic.startsWith('lineup:')) await findLineup(site, q.topic.slice(7));
     else if (q.topic.startsWith('wave:')) await triagedWave(site, q.topic.slice(5));
     else if (!topics.has(q.topic)) fail(`topic "${q.topic}" is not declared; add it with: topic add ${q.topic} --title <t>`);

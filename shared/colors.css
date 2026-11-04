@@ -4,12 +4,13 @@
    planner lines; --on-accent is the label on an accent fill (docs/adr/0169-one-human-blue.md). */
 :root {
   --bg: #fbfbfc; --panel: #ffffff; --line: #e6e6ea; --text: #1b1b1f; --muted: #6b6b76;
-  --accent: #2b6cb0; --accent-soft: #eef6ff; --on-accent: #ffffff; --ok: #1f9d55; --warn: #c27c0e; --bad: #d1435b;
+  --accent: #2b6cb0; --accent-soft: #eef6ff; --on-accent: #ffffff; --ok: #1f9d55; --warn: #c27c0e; --bad: #d1435b; --purple: #8250df;
   --chip: #f1f1f4; --band: #f2f2f5; --claude: #fdf3e4;
   --color-quiet: var(--muted); --color-info: var(--accent); --color-notice: var(--warn); --color-danger: var(--bad); --color-success: var(--ok);
+  --color-merged: var(--purple);
 }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #111114; --panel: #18181c; --line: #2a2a31; --text: #ececf1; --muted: #9a9aa6;
-    --accent: #6fa8e8; --accent-soft: #1b2533; --on-accent: #0b0b0e; --ok: #3ccf7f; --warn: #e3a33a; --bad: #f0687f;
+    --accent: #6fa8e8; --accent-soft: #1b2533; --on-accent: #0b0b0e; --ok: #3ccf7f; --warn: #e3a33a; --bad: #f0687f; --purple: #ab7df8;
     --chip: #24242b; --band: #202026; --claude: #2d2416; }
 }

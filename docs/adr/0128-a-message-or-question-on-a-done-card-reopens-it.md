@@ -1,10 +1,12 @@
 ---
-status: superseded in part by ADR-0131, ADR-0136
+status: superseded in part by ADR-0131, ADR-0136, ADR-0181
 ---
 
 # A message or question on a Done card reopens it until the owner's Done
 
 Superseded in part by [0131](0131-the-cli-and-board-server-do-the-boards-housekeeping.md): the board server records a newer `card-done` in the wave file; the session doesn't.
+
+Superseded in part by [0181](0181-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md): a merged card reopens like a done card, and `question add` takes its topic.
 
 Superseded in part by [0136](0136-a-card-waiting-only-to-be-closed-has-no-action-needed.md): once Claude has answered, the card waits in In Review with no Action needed, keeps Grill, and its thread's Done is primary.
 

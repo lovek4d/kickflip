@@ -81,7 +81,7 @@
     : `<button class="ghost icon" data-card-bump="${esc(key)}" aria-pressed="false" aria-label="Bump to top" title="Bump to top">${BUMP}</button>`);
   const workingLine = '<span class="working-dot" aria-hidden="true"></span>Working on it';
   // html is markup the caller has escaped; href, title and attrs values are escaped here.
-  const BADGE_TONES = Object.freeze(['quiet', 'normal', 'notice', 'danger', 'ready']);
+  const BADGE_TONES = Object.freeze(['quiet', 'normal', 'notice', 'danger', 'ready', 'merged']);
   function badge(tone, html, { href, title, button = false, attrs = {} } = {}) {
     if (!BADGE_TONES.includes(tone)) throw new Error(`unknown badge tone: ${tone}`);
     const extra = Object.entries({ href, title, ...attrs }).filter(([, v]) => v != null).map(([k, v]) => ` ${k}="${esc(v)}"`).join('');

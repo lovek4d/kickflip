@@ -21,7 +21,7 @@ import vm from 'node:vm';
 // Page scripts with no exports, which the page loads as is, so node runs them the same way.
 const enums = vm.createContext({});
 for (const file of ['ui-enums.js', 'ui-order.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), enums);
-export const { BUTTON, ACTION_KIND, BUILDER_KIND } = enums.BoardUI;
+export const { BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE } = enums.BoardUI;
 const { laneOrder } = enums.BoardUI;
 
 export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'prototype-request'];
@@ -54,13 +54,22 @@ const ticketOf = (tickets, stored, id, at) => ticketBadge(tickets || (stored ? {
 // The lane before owner waits are placed: In Progress while Claude acts next, In Review while the reviewers do, or
 // while a pushed branch waits on the owner's merge (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
 // buildBoard places a card that only the owner can move on (docs/adr/0045-the-lane-follows-who-acts-next.md).
-function laneOf(item, pr, running, pushed) {
+// A reopened card has left Done whatever its PR's state.
+function laneOf(item, pr, running, pushed, reopened) {
   const s = (item.status || '').toLowerCase();
-  if (s === 'merged' || s === 'done' || s === 'dropped' || pr?.state === 'MERGED' || pr?.state === 'CLOSED') return 'done';
+  if (s === 'merged' || s === 'done' || s === 'dropped' || (!reopened && (pr?.state === 'MERGED' || pr?.state === 'CLOSED'))) return 'done';
   if (running || s === 'checking') return 'progress';
   if (pushed) return 'review';
   if (pr && pr.state === 'OPEN' && !pr.isDraft) return pr.checks?.state === 'fail' ? 'progress' : 'review';
   return pr ? 'progress' : 'todo';
+}
+
+// The state of a card's PR (ui-enums.js PR_STATE): merged once GitHub or the card says so, or null before GitHub is read.
+function prStateOf(pr, it) {
+  if (pr?.state === 'MERGED' || it.status === 'merged' || it.merged_at) return PR_STATE.merged;
+  if (pr?.state === 'CLOSED') return PR_STATE.closed;
+  if (pr?.state === 'OPEN') return pr.isDraft ? PR_STATE.draft : PR_STATE.open;
+  return null;
 }
 
 const droppedCard = (i) => {
@@ -115,13 +124,17 @@ const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && !['sta
 
 // said is the owner's messages and answers in the card's thread (threadOf), and askedAt the asked_at of its questions.
 function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, tickets }) {
-  const merged = it.status === 'merged' || Boolean(it.merged_at) || pr?.state === 'MERGED' || pr?.state === 'CLOSED';
+  const prStatus = prStateOf(pr, it);
   // docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md
   const tappedDone = Boolean(closedAt) && String(closedAt) > String(it.status_at || '');
-  if (tappedDone) it = { ...it, status: 'done' };
-  // docs/adr/0128-a-message-or-question-on-a-done-card-reopens-it.md
-  const doneAt = String((tappedDone ? closedAt : it.status_at) || '');
-  const reopenAt = it.status === 'done' && !merged
+  if (tappedDone && it.status !== 'merged') it = { ...it, status: 'done' };
+  // When the card last closed: the owner's Done, its done or merged status, or its PR's merge.
+  const closed = [tappedDone && closedAt, it.status_at, it.merged_at, pr?.mergedAt].filter(Boolean).map(String).sort().pop() || null;
+  // A done or merged card reopens; a dropped one, or one whose PR closed unmerged, doesn't
+  // (docs/adr/0128-a-message-or-question-on-a-done-card-reopens-it.md,
+  // docs/adr/0181-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md).
+  const doneAt = String(closed || '');
+  const reopenAt = ['done', 'merged'].includes(it.status) || (prStatus === PR_STATE.merged && it.status !== 'dropped')
     ? [...said.filter((m) => m.kind === 'item-message').map((m) => m.ts), ...askedAt].map(String).filter((t) => t > doneAt).sort().pop() : undefined;
   if (reopenAt) it = { ...it, status: undefined, next: undefined };
   const ownerPending = Boolean(reopenAt) && said.some((m) => String(m.ts) > doneAt && (m.state === 'waiting' || m.state === 'working'));
@@ -135,7 +148,7 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
   const lastGrill = events.filter((e) => e.kind === 'grill-more').pop();
   // A branch pushed to a plain git remote, which has no PR (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
   const pushed = !it.pr && it.pushed?.branch ? { branch: it.pushed.branch, at: it.pushed.at || null, host: remote?.host || null } : null;
-  let lane = laneOf(it, pr, agents.some((a) => a.started && !a.done && builds(a)), pushed);
+  let lane = laneOf(it, pr, agents.some((a) => a.started && !a.done && builds(a)), pushed, Boolean(reopenAt));
   if (reopenAt && lane === 'todo') lane = 'progress';
   if (lane === 'review' && inReviewSince && now - Date.parse(inReviewSince) > STALE_AFTER) lane = 'stale';
   let waitsOn = waitsOnOf(lane, pr, builder, (it.status || '').toLowerCase(), pushed);
@@ -162,7 +175,6 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
   // When the card last came into In Progress: its reopening, else its latest build agent's start, else its status change.
   const progressSince = reopenAt || agents.filter(builds).map((a) => a.started).filter(Boolean).map(String).sort().pop() || it.queued_at
     || (['building', 'fixing', 'checking'].includes(String(it.status || '').toLowerCase()) ? it.status_at || null : null);
-  const closed = [tappedDone && closedAt, it.status_at, it.merged_at, pr?.mergedAt].filter(Boolean).map(String).sort().pop() || null;
   const reviewNext = pushed && waitsOn === 'owner' ? `merge ${pushed.branch} into ${base}`
     : waitsOn === 'merge' && !autoMerge ? OWNER_MERGE_NEXT[merging ? 'merging' : 'waiting'] : REVIEW_NEXT[waitsOn];
   return {
@@ -180,7 +192,7 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
       : ticketOf(tickets, it.ticket, it.ticket || (wave.internal ? refOf(wave, it, tickets) : it.linear?.[0]), { repo, key }),
     ticketSource: tickets?.source || null,
     linear: (it.linear || []).map((id) => tickets?.source === 'linear' ? ticketBadge(tickets, id, { key, repo }) || linearRef(id, tickets) : linearRef(id, tickets)),
-    pr: it.pr && repo ? { number: it.pr, url: `https://github.com/${repo}/pull/${it.pr}`, ...(pr || {}) } : null,
+    pr: it.pr && repo ? { number: it.pr, url: `https://github.com/${repo}/pull/${it.pr}`, ...(pr || {}), status: prStatus } : null,
     reviewers: reviewers.map((r) => r.name), review: reviewOf(reviewers, pr, sentAt), inReviewSince,
     threadCount: thread.length + events.length, lastTs, othersAt,
     // buildBoard adds a grilling card with no questions posted yet.
