@@ -9,7 +9,7 @@ import path from 'node:path';
 import { BoardError } from './store.mjs';
 
 export const PERMISSIONS = [
-  { id: 'pushMain', name: 'Push main after a land', allows: 'Lets the session push main once a card lands.', rule: 'Bash(git push origin main)' },
+  { id: 'pushMain', name: 'Push main after a land', allows: 'Pushes main to origin as each card lands, and lets the session push it.', rule: 'Bash(git push origin main)' },
   { id: 'pushTags', name: 'Push release tags', allows: 'Lets the session push a v* release tag.', rule: 'Bash(git push origin v*)' },
   { id: 'draftPr', name: 'Open draft PRs', allows: 'Lets the session open a PR as a draft.', rule: 'Bash(gh pr create --draft *)' },
 ];

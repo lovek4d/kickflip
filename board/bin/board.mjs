@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 import * as store from '../store.mjs';
 import { boardWorktree, builderRepo, holdingLandLock, land, worktreesDir } from '../worktree.mjs';
 import { fileFindings } from '../arch-review.mjs';
+import { finishCard } from '../finish.mjs';
 import { ITEM_STATUSES } from '../domain.mjs';
 import { boardAt, readManifest } from '../../hub/boards.mjs';
 import { boardRepo } from '../../hub/board-repo.mjs';
@@ -386,15 +387,25 @@ command fails and changes nothing.
          the card's status shows the newest one from an agent still working. builder progress refuses
          without an open record for that agent, as builder call does
   builder done <wave>/<id> [--agent <name>]              marks that agent's record done; the item's thread
-         [--next <t>]                                    shows when it started and finished; clears building/fixing
-                                                         when the card has no open builder records left. Closing the
-                                                         last one of a card left In Progress with no Next is refused
-                                                         without --next, which sets it; item set --status checking
-                                                         and land close the records themselves. On a record with
-                                                         unverified judgment calls it hands the card back instead:
-                                                         --status checking with Next "Answer the builder's
+         [--next <t>] [--text <what you checked>]        shows when it started and finished; clears building/fixing
+                                                         when the card has no open builder records left. On a
+                                                         record with unverified judgment calls it hands the card
+                                                         back: --status checking with Next "Answer the builder's
                                                          questions" when a call starts "Question:", else "Verify
-                                                         the builder's judgment calls"; --next is refused there
+                                                         the builder's judgment calls"; --next is refused there.
+                                                         Else, on a board, the main build's record that keeps a
+                                                         worktree finishes the card, as land does, --text its
+                                                         closing line: lands it, closes the card and its ticket
+                                                         and, with the board's "Push main after a land" on, pushes
+                                                         the branch to origin; on a GitHub board it pushes the
+                                                         card's branch, opens a draft PR and moves the card to it,
+                                                         and on a plain git remote pushes the branch for the
+                                                         owner's merge (item set --pushed). A finish that fails
+                                                         refuses with the reason and leaves the record open; one
+                                                         refused while another agent's record is open names it.
+                                                         --next stops a build without finishing it. Closing the
+                                                         last record of a card left In Progress with no Next is
+                                                         refused without --next, which sets it
          [--owner-step <t>]                              a step only the owner can do once the code lands: the card
                                                          then waits in In Review with it as its Next, its ticket
                                                          open, until the owner's Done; refused on a card already
@@ -427,7 +438,13 @@ command fails and changes nothing.
   builder asks <wave>/<id>                               prints each ask, then its answer, its deferral or "waiting on
                                                          the orchestrator"
   builder verified <wave>/<id> [--agent <name>]          the session's mark that it checked the record's calls; land
-         [--note <t>]                                    refuses while any record on the card has a call after it
+         [--note <t>]                                    refuses while any record on the card has a call after it.
+                                                         On a handed-back build (checking, no builder open, every
+                                                         call verified) it finishes the card in the same step, as
+                                                         builder done does, --note its closing line (else "Judgment
+                                                         calls verified."). While a question on the card is open it
+                                                         says so and the card waits; a finish that fails keeps the
+                                                         mark, the card checking, and says why
   land <wave>/<id> --text <t> [--repo <dir>]             brings the worktree its builder record keeps (else
          [--dir <dir>]
                                                          ~/.claude/kickflip/worktrees/<id> of --repo) into the board's
@@ -442,11 +459,14 @@ command fails and changes nothing.
                                                          fast-forwards the branch in the repo;
                                                          restarts the hub when its code changed, else each board
                                                          server when board/ changed; removes the worktree and its
-                                                         branch. Never pushes. One land runs at a time on the host: a
+                                                         branch. Without --site it never pushes. One land runs at a time on the host: a
                                                          second refuses, naming the card landing. With --site, --text <what was checked>
                                                          is required, and once it lands the card closes as item set
                                                          --status done --text does; it refuses first what that close
-                                                         would. --owner-step <t>, as builder done takes it, keeps the
+                                                         would. With --site it is builder done's finish: the push
+                                                         after a land, and on a GitHub or plain-remote board the
+                                                         branch push (and draft PR) instead of the fast-forward.
+                                                         --owner-step <t>, as builder done takes it, keeps the
                                                          landed card in In Review on that step until the owner's
                                                          Done. KICKFLIP_RESTART_CMD='["<cmd>"]' replaces
                                                          the restarts, called with hub or board <route>
@@ -663,10 +683,18 @@ const COMMANDS = {
     if (!words.length && f.text === undefined) throw new UsageError('builder progress needs its text, as words or as --text');
     return store.builderProgress(site, key, f.text ?? words.join(' '), { ...f, clearEta: f['clear-eta'] });
   }],
-  'builder done': [['wave/id'], ['dir', 'agent', 'next', 'owner-step'], async (site, [key], { 'owner-step': ownerStep, ...f }) => {
+  'builder done': [['wave/id'], ['dir', 'agent', 'next', 'owner-step', 'text'], async (site, [key], { 'owner-step': ownerStep, text, ...f }) => {
     if (ownerStep !== undefined && (!site || f.dir)) throw new UsageError('--owner-step goes on a board card: pass --site, not --dir');
     if (ownerStep !== undefined) await store.setItem(site, key, { ownerStep });
-    return (site && !f.dir && await store.handBackCalls(site, key, f)) || store.stopBuilder(site, key, { ...f, requireNext: true });
+    const onBoard = site && !f.dir;
+    const handed = onBoard && await store.handBackCalls(site, key, f);
+    if (handed) return handed;
+    if (onBoard && f.next === undefined && await store.finishesCard(site, key, f)) {
+      if (text === undefined) throw new store.BoardError(`builder done finishes ${key}: pass --text "<what you checked>", or --next "<what happens next>" to stop without finishing`);
+      return finishCard(site, key, { text, ownerStep });
+    }
+    if (text !== undefined) throw new UsageError('--text goes on a builder done that finishes the card: the main build, with a worktree and no --next');
+    return store.stopBuilder(site, key, { ...f, requireNext: true });
   }],
   'builder pick': [['wave/id'], [], (site, [key]) => store.pickBuilder(site, key)],
   'builder call': [['wave/id', '...text'], ['dir', 'agent'], (site, [key, ...words], f) => store.recordCall(site, key, words.join(' '), f)],
@@ -675,12 +703,22 @@ const COMMANDS = {
   'builder answer': [['wave/id', 'ask'], ['text'], (site, [key, id], f) => store.answerBuilder(site, key, id, f.text)],
   'builder defer': [['wave/id', 'ask'], ['text'], (site, [key, id], f) => store.answerBuilder(site, key, id, f.text, { deferred: true })],
   'builder asks': [['wave/id'], [], (site, [key]) => store.listAsks(site, key)],
-  'builder verified': [['wave/id'], ['dir', 'agent', 'note'], (site, [key], f) => store.verifyCalls(site, key, f)],
+  'builder verified': [['wave/id'], ['dir', 'agent', 'note'], async (site, [key], f) => {
+    await store.verifyCalls(site, key, f);
+    const next = site && !f.dir ? await store.verifiedFinish(site, key) : null;
+    if (!next) return {};
+    if (next.waits.length) return { lines: [`${await store.cardName(site, key)} finishes once the owner answers ${next.waits.join(', ')}`] };
+    try { return await finishCard(site, key, { text: f.note ?? 'Judgment calls verified.' }); } catch (e) {
+      if (!(e instanceof store.BoardError)) throw e;
+      throw Object.assign(new store.BoardError(`judgment calls verified, but ${await store.cardName(site, key)} didn't finish: ${e.message}`), { exitCode: e.exitCode });
+    }
+  }],
   land: [['wave/id'], ['repo', 'dir', 'text', 'owner-step'], async (site, [key], f) => {
     const id = key.split('/')[1];
     if (site && f.text === undefined) throw new UsageError(`land needs --text "<what was checked>", which closes ${key} as done once it lands`);
     if (!site && f.text !== undefined) throw new UsageError('--text closes the card, which needs --site');
     if (!site && f['owner-step'] !== undefined) throw new UsageError('--owner-step keeps a board card open, which needs --site');
+    if (site && f.dir === undefined) return finishCard(site, key, { text: f.text, ownerStep: f['owner-step'], repo: f.repo });
     return holdingLandLock(site ? await store.cardName(site, key) : key, async () => {
       if (site) await store.checkClose(site, key, f.text, f['owner-step']);
       await store.checkCallsVerified(site, key, { dir: f.dir });
@@ -763,13 +801,14 @@ const SAID = {
   'rules remove': (site, [id], f) => `${f.hub ? 'hub' : 'board'} rule ${id} removed`,
   'builder start': async (site, [key], f, result) => `${await card(site, key)}: ${result.alreadyOpen ? 'already open: the Implement tap opened its record; launch the agent, whose own builder start takes it up' : `${builderOf(f)} started`}`,
   'builder progress': async (site, [key]) => `progress line on ${await card(site, key)}`,
-  'builder done': async (site, [key], f) => `${await card(site, key)}: ${builderOf(f)} done${f['owner-step'] === undefined ? '' : `; owner step "${f['owner-step'].trim()}"`}`,
+  'builder done': async (site, [key], f, result) => `${await card(site, key)}: ${result?.said ?? `${builderOf(f)} done${f['owner-step'] === undefined ? '' : `; owner step "${f['owner-step'].trim()}"`}`}`,
   'builder call': async (site, [key]) => `judgment call recorded on ${await card(site, key)}`,
   'builder ask': async (site, [key], f, { id }) => `${await card(site, key)}: asked the orchestrator, ${id}`,
   'builder answer': async (site, [key, id]) => `${await card(site, key)}: ${id} answered`,
   'builder defer': async (site, [key, id]) => `${await card(site, key)}: ${id} deferred to the owner`,
-  'builder verified': async (site, [key]) => `${await card(site, key)}: judgment calls verified`,
-  land: async (site, [key], f) => (!site ? null : f['owner-step'] === undefined ? `${await card(site, key)}: landed and done`
+  'builder verified': async (site, [key], f, result) => `${await card(site, key)}: judgment calls verified${result?.said ? `; ${result.said}` : ''}`,
+  land: async (site, [key], f, result) => (!site ? null : result?.said ? `${await card(site, key)}: ${result.said}`
+    : f['owner-step'] === undefined ? `${await card(site, key)}: landed and done`
     : `${await card(site, key)}: landed; waits on the owner step "${f['owner-step'].trim()}"`),
   merge: async (site, [key]) => `${await card(site, key)}: merged`,
   'arch file': async (site, [key]) => `findings of ${await card(site, key)} filed`,

@@ -2060,6 +2060,164 @@ test('land refuses a rebase that conflicts, naming the files, and leaves the bra
   assert.deepEqual(restarts(), []);
 });
 
+// docs/adr/2026-11-04-1611-finishing-a-build-is-one-step.md
+const finishEnv = { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) };
+const onOrch = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, finishEnv);
+const record = (id = 'A1') => read(at('waves', 'w', 'agents', `${id}.json`));
+const itemOf = (id = 'A1') => read(at('waves', 'w', 'wave.json')).items.find((i) => i.id === id);
+const threadOf = (id = 'A1') => lines(site('orch', 'data', 'threads', `w__${id}.jsonl`));
+
+test('builder done on a build that keeps a worktree finishes the card: it needs --text, lands it and closes the card and its record; a failed finish refuses with the reason and keeps the builder on', () => {
+  const repo = scratchRepo();
+  assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  commit(worktree(), 'broken.test.mjs', "import test from 'node:test';\ntest('broken', () => { throw new Error('nope'); });\n", 'A1: work');
+  const main = git(repo, 'rev-parse', 'main');
+  const bare = onOrch('builder', 'done', 'w/A1');
+  assert.deepEqual([bare.code, bare.err], [1, 'builder done finishes w/A1: pass --text "<what you checked>", or --next "<what happens next>" to stop without finishing\n']);
+  const failed = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.');
+  assert.equal(failed.code, 1);
+  assert.match(failed.err, /^tests failed in .* \(1 failing\); nothing landed/);
+  assert.deepEqual([git(repo, 'rev-parse', 'main'), record().done, itemOf().status], [main, undefined, undefined]);
+
+  fs.rmSync(path.join(worktree(), 'broken.test.mjs'));
+  git(worktree(), 'commit', '--quiet', '-am', 'A1: fixed');
+  const r = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.');
+  assert.equal(r.code, 0, r.err);
+  assert.ok(r.out.includes('\nA1: landed and done\n'), r.out);
+  assert.notEqual(git(repo, 'rev-parse', 'main'), main);
+  assert.equal(itemOf().status, 'done');
+  assert.equal(typeof record().done, 'string');
+  assert.equal(threadOf().at(-1).text, 'Checked it.');
+  assert.equal(fs.existsSync(worktree()), false);
+});
+
+test("builder done --next on a build stops it without finishing, an --agent helper's done only stops its own record, and the main build's done refuses while a helper is still open", () => {
+  const repo = scratchRepo();
+  assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  assert.equal(onOrch('builder', 'start', 'w/A1', '--agent', 'lint').code, 0);
+  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  const main = git(repo, 'rev-parse', 'main');
+  const busy = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.');
+  assert.deepEqual([busy.code, busy.err], [1, 'builder done would finish w/A1 while agent lint is still open; run builder done w/A1 --agent lint first\n']);
+  assert.equal(onOrch('builder', 'done', 'w/A1', '--agent', 'lint').code, 0);
+  const stopped = onOrch('builder', 'done', 'w/A1', '--next', 'Check the build');
+  assert.equal(stopped.code, 0, stopped.err);
+  assert.deepEqual([git(repo, 'rev-parse', 'main'), typeof record().done, itemOf().next], [main, 'string', 'Check the build']);
+});
+
+test("a finish on a local board pushes its branch to origin once it lands when the board's push switch is on; off, nothing is pushed, and a push that fails is said without undoing the land", () => {
+  const repo = scratchRepo();
+  write(at('waves', 'w', 'wave.json'), { title: 'W', items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two' }, { id: 'A3', title: 'Three' }] });
+  const origin = path.join(home, 'origin.git');
+  git(home, 'init', '--quiet', '--bare', origin);
+  git(repo, 'remote', 'add', 'origin', origin);
+  git(repo, 'push', '--quiet', 'origin', 'main');
+  const manifest = read(at('kickflip', 'manifest.json'));
+  manifest.sites.orch.owner = { repo };
+  write(at('kickflip', 'manifest.json'), manifest);
+  const finish = (id) => {
+    assert.equal(onOrch('builder', 'start', `w/${id}`, '--kind', 'build').code, 0);
+    commit(at('kickflip', 'worktrees', id), `${id}.txt`, 'built\n', `${id}: work`);
+    const r = onOrch('builder', 'done', `w/${id}`, '--text', 'Checked it.');
+    assert.equal(r.code, 0, r.err);
+    return r;
+  };
+  const before = git(origin, 'rev-parse', 'main');
+  assert.ok(!finish('A1').out.includes('origin'));
+  assert.equal(git(origin, 'rev-parse', 'main'), before);
+
+  write(path.join(repo, '.claude', 'settings.local.json'), { permissions: { allow: ['Bash(git push origin main)'] } });
+  write(path.join(repo, '.git', 'info', 'exclude'), '.claude\n');
+  assert.ok(finish('A2').out.includes('\npushed main to origin\n'));
+  assert.equal(git(origin, 'rev-parse', 'main'), git(repo, 'rev-parse', 'main'));
+
+  git(repo, 'remote', 'set-url', 'origin', path.join(home, 'gone.git'));
+  const failed = finish('A3');
+  assert.match(failed.out, /\nlanded, but main didn't reach origin: .+; push it with git -C .+ push origin main\n/);
+  assert.equal(itemOf('A3').status, 'done');
+  assert.match(threadOf('A3').at(-1).text, /^Landed, but main didn't reach origin: /);
+});
+
+test('builder verified on a handed-back build finishes the card in the same step, its note the closing line', () => {
+  const repo = scratchRepo();
+  assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  assert.equal(onOrch('builder', 'call', 'w/A1', 'Kept the old name').code, 0);
+  const main = git(repo, 'rev-parse', 'main');
+  assert.equal(onOrch('builder', 'done', 'w/A1').code, 0);
+  assert.deepEqual([itemOf().status, git(repo, 'rev-parse', 'main')], ['checking', main]);
+  const r = onOrch('builder', 'verified', 'w/A1', '--note', 'The old name holds.');
+  assert.equal(r.code, 0, r.err);
+  assert.ok(r.out.includes('\nA1: judgment calls verified; landed and done\n'), r.out);
+  assert.notEqual(git(repo, 'rev-parse', 'main'), main);
+  assert.equal(itemOf().status, 'done');
+  assert.equal(threadOf().at(-1).text, 'The old name holds.');
+});
+
+test("builder verified leaves a card checking while one of its questions is open, and a finish that fails keeps the stamp and says why", () => {
+  const repo = scratchRepo();
+  assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  commit(worktree(), 'shared/notes.md', 'branch\n', 'A1: work');
+  assert.equal(onOrch('builder', 'call', 'w/A1', 'Kept the old name').code, 0);
+  assert.equal(onOrch('builder', 'done', 'w/A1').code, 0);
+  write(site('orch', 'data', 'owner.json'), { topics: [], items: [question('q1', { topic: 'item:w/A1' })] });
+  const waits = onOrch('builder', 'verified', 'w/A1');
+  assert.deepEqual([waits.code, waits.err], [0, '']);
+  assert.equal(waits.out, "A1: judgment calls verified\nA1 finishes once the owner answers q1\n");
+  assert.deepEqual([itemOf().status, typeof record().verified.at], ['checking', 'string']);
+
+  write(site('orch', 'data', 'owner.json'), { topics: [], items: [] });
+  assert.equal(onOrch('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
+  assert.equal(onOrch('builder', 'call', 'w/A1', 'Kept the old colour').code, 0);
+  assert.equal(onOrch('builder', 'done', 'w/A1').code, 0);
+  commit(repo, 'shared/notes.md', 'main\n');
+  const main = git(repo, 'rev-parse', 'main');
+  const failed = onOrch('builder', 'verified', 'w/A1');
+  assert.equal(failed.code, 1);
+  assert.equal(failed.err, `judgment calls verified, but A1 didn't finish: rebasing A1 onto main conflicts in shared/notes.md; resolve it in ${worktree()} and land again\n`);
+  assert.deepEqual([itemOf().status, git(repo, 'rev-parse', 'main'), onOrch('builder', 'calls', 'w/A1').out.includes('\nverified ')], ['checking', main, true]);
+});
+
+// A shared clone of origin (the scratch repo), on a board whose repo is origin's GitHub project, or a plain git remote.
+function remoteBoard(fields) {
+  const origin = scratchRepo();
+  const clone = path.join(home, 'clone');
+  git(home, 'clone', '--quiet', origin, clone);
+  const manifest = read(at('kickflip', 'manifest.json'));
+  Object.assign(manifest.sites.orch, { branch: 'main', owner: { repo: clone }, ...fields(origin) });
+  write(at('kickflip', 'manifest.json'), manifest);
+  return origin;
+}
+
+test('on a GitHub board, builder done sends the build for review: it pushes the branch, opens a draft PR, and the card moves to it with its record closed', () => {
+  const ghDir = path.join(home, 'gh');
+  const origin = remoteBoard(() => ({ github: 'owner/project' }));
+  const env = { ...finishEnv, PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
+  const b = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, env);
+  assert.equal(b('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
+  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  const main = git(origin, 'rev-parse', 'main');
+  const r = b('builder', 'done', 'w/A1', '--text', 'Checked it on the phone.');
+  assert.equal(r.code, 0, r.err);
+  assert.ok(r.out.includes('\nA1: draft PR #100 opened\n'), r.out);
+  assert.deepEqual([git(origin, 'rev-parse', 'A1'), git(origin, 'rev-parse', 'main')], [git(worktree(), 'rev-parse', 'HEAD'), main]);
+  assert.deepEqual(calls(ghDir).find((a) => a[0] === 'pr'), ['pr', 'create', '--draft', '--repo', 'owner/project', '--base', 'main', '--head', 'A1', '--title', 'A1: One', '--body', 'Checked it on the phone.']);
+  assert.deepEqual([itemOf().prs, itemOf().status, typeof record().done], [[{ number: 100 }], undefined, 'string']);
+  assert.equal(threadOf().at(-1).text, 'Checked it on the phone.');
+  assert.equal(fs.existsSync(worktree()), true);
+});
+
+test('on a plain git remote, builder done pushes the branch and the card waits on the merge', () => {
+  const origin = remoteBoard((dir) => ({ remote: dir }));
+  assert.equal(onOrch('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
+  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  const r = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.');
+  assert.equal(r.code, 0, r.err);
+  assert.ok(r.out.includes('\nA1: pushed A1 for its merge\n'), r.out);
+  assert.equal(git(origin, 'rev-parse', 'A1'), git(worktree(), 'rev-parse', 'HEAD'));
+  assert.deepEqual([itemOf().pushed.branch, typeof record().done], ['A1', 'string']);
+});
+
 test("builder start and progress on --site write each new status line to the item's thread as its phase and detail, named by a further agent's kind", () => {
   assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--phase', 'reading', '--progress', 'the plan').code, 0);
   assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--agent', 'bench', '--kind', 'claude', '--phase', 'testing', '--progress', 'the benchmark').code, 0);

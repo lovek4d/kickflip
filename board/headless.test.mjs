@@ -11,22 +11,23 @@ import { builderBrief, landerBrief, launchHeadless, reviveBuilders, BOARD_CLI } 
 const card = { route: 'shop', key: 'w/A1', ref: 'ENG-1', title: 'Make it go', notes: '/s/waves/w/a1.md', worktree: '/wt/A1', base: 'main', rules: ['Use Node 22+'] };
 
 // docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
-test("a headless builder's brief names its card, notes, worktree and rules, and has it report, ask, record calls and land itself", () => {
+test("a headless builder's brief names its card, notes, worktree and rules, and has it report, ask, record calls and finish with builder done", () => {
   const brief = builderBrief(card);
   const b = `node ${BOARD_CLI} --site shop`;
   for (const want of [
     'ENG-1', 'Make it go', '/s/waves/w/a1.md', 'Work only in /wt/A1', 'Use Node 22+',
     `${b} builder start w/A1 --kind build`, `${b} builder progress w/A1 --phase`, `${b} builder call w/A1`, `${b} builder ask w/A1`,
-    `${b} builder asks w/A1`, `${b} land w/A1 --text`, `${b} builder done w/A1`, "git -c core.commentChar=';' rebase main", 'Never push',
+    `${b} builder asks w/A1`, `${b} builder done w/A1 --text`, "git -c core.commentChar=';' rebase main", 'Never push',
   ]) assert.ok(brief.includes(want), `the brief has ${want}`);
-  assert.ok(brief.indexOf('builder call') < brief.indexOf(`${b} land`), 'calls come before the land step');
+  assert.ok(!brief.includes(`${b} land`), 'done finishes the card, so the brief never runs land');
+  assert.ok(brief.indexOf('builder call') < brief.indexOf(`${b} builder done`), 'calls come before the finishing step');
   assert.match(builderBrief({ ...card, notes: null }), /no notes file/);
 });
 
-test("a lander's brief takes up the card's verified build, acts on the owner's answers, and lands it itself", () => {
+test("a lander's brief takes up the card's verified build, acts on the owner's answers, and finishes it with builder done", () => {
   const brief = landerBrief({ ...card, answers: [{ ask: 'ask1', question: 'Keep the badge?', answer: 'Drop it: too loud' }] });
   const b = `node ${BOARD_CLI} --site shop`;
-  for (const want of [`${b} builder start w/A1 --kind build`, 'ask1 "Keep the badge?": Drop it: too loud', "git -c core.commentChar=';' rebase main", `${b} land w/A1 --text`, 'Never push']) {
+  for (const want of [`${b} builder start w/A1 --kind build`, 'ask1 "Keep the badge?": Drop it: too loud', "git -c core.commentChar=';' rebase main", `${b} builder done w/A1 --text`, 'Never push']) {
     assert.ok(brief.includes(want), `the lander's brief has ${want}`);
   }
 });
@@ -103,7 +104,7 @@ test("on a board whose builders launch headless, the server launches the builder
     await until(() => runs().length === 1, 'the lander launches');
     const [landing] = runs();
     assert.equal(landing.cwd, fs.realpathSync(lander));
-    assert.match(landing.argv[1], /land t\/H3 --text/);
+    assert.match(landing.argv[1], /builder done t\/H3 --text/);
     assert.equal(thread('H3').at(-1).text.startsWith('Lander launched headless'), true);
 
     const tapped = await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'card-build', key: 't/H1' }) }).then((r) => r.json());
@@ -127,7 +128,7 @@ test("on a board whose builders launch headless, the server launches the builder
     // The owner's answer to H4's question lets its lander go, once.
     fs.writeFileSync(path.join(data, 'owner.json'), JSON.stringify({ topics: [], items: [{ id: 'h4q', topic: 'item:t/H4', question: 'Which?', options: [{ id: 'A', label: 'This' }], resolved: true, resolved_at: '2026-11-04T04:00:00.000Z' }] }));
     await until(() => runs().length === 4, "H4's lander launches");
-    assert.match(runs()[3].argv[1], /land t\/H4 --text/);
+    assert.match(runs()[3].argv[1], /builder done t\/H4 --text/);
     boardJSON({ auto_pull: true, title: 'Shop again' });
     await new Promise((resolve) => setTimeout(resolve, 400));
     assert.equal(runs().length, 4, 'each verification gets one lander');

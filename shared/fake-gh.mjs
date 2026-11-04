@@ -108,6 +108,12 @@ if (args.length === 4 && args[0] === 'api' && args[1] === 'graphql' && args[2] =
   if (errors.length) { console.error('gh: ' + errors[0].message); process.exit(1); }
   process.exit(0);
 }
+// gh pr create --repo <repo> …: answers the new PR's URL, numbered 100 plus the creates before it.
+if (args[0] === 'pr' && args[1] === 'create' && args.includes('--repo')) {
+  const n = fs.readFileSync(path.join(dir, 'calls.jsonl'), 'utf8').split('\\n').filter((l) => l.startsWith('["pr","create"')).length;
+  console.log('https://github.com/' + args[args.indexOf('--repo') + 1] + '/pull/' + (99 + n));
+  process.exit(0);
+}
 let file;
 let list = false;
 if (args.length === 7 && args[0] === 'pr' && args[1] === 'view' && /^\\d+$/.test(args[2]) && args[3] === '--repo' && args[5] === '--json' && args[6] === ${JSON.stringify(PR_VIEW_FIELDS)}) file = fixture('pr', args[4], args[2]);

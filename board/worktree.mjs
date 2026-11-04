@@ -20,7 +20,7 @@ export const skillRepo = cloneRoot;
 export const worktreesDir = () => path.join(os.homedir(), '.claude', 'kickflip', 'worktrees');
 const fail = (msg) => { throw new BoardError(msg); };
 
-function git(cwd, ...args) {
+export function git(cwd, ...args) {
   // core.commentChar=';' keeps a "#N: ..." subject: git's default cleanup strips lines starting with # when it rewrites a message.
   const r = spawnSync('git', ['-C', cwd, '-c', 'core.commentChar=;', ...args], { encoding: 'utf8' });
   return { ok: r.status === 0, out: (r.stdout || '').trim(), err: (r.stderr || r.error?.message || '').trim().split('\n')[0] };
@@ -231,6 +231,17 @@ function refuseBadMessages(repo, base, branch, ref) {
   }
 }
 
+// Runs the worktree's full suite, refusing on a failure with each failing test and outcome, what the refusal left undone.
+export function passTests(dir, { say = console.log, runTests = nodeTests, outcome }) {
+  const tests = runTests(dir);
+  if (!tests.ok) fail([
+    `tests failed in ${dir} (${tests.fail} failing); ${outcome}`,
+    ...(tests.failures?.length ? tests.failures : [tests.error || 'test runner failed without test diagnostics']),
+    ...(tests.log ? [`Full test output: ${tests.log}`] : tests.logError ? [tests.logError] : []),
+  ].join('\n'));
+  say(`tests passed: ${tests.pass}`);
+}
+
 export function land({ path: dir, branch, repo, base, ref }, { say = console.log, runTests = nodeTests, restart = restartRunner, boards = () => listBoards(), clone = skillRepo() } = {}) {
   if (!fs.existsSync(dir)) fail(`no worktree at ${dir}`);
   const head = git(repo, 'symbolic-ref', '--quiet', '--short', 'HEAD').out;
@@ -253,13 +264,7 @@ export function land({ path: dir, branch, repo, base, ref }, { say = console.log
   refuseNumberedAdr(repo, base, branch);
   refuseBadMessages(repo, base, branch, ref);
 
-  const tests = runTests(dir);
-  if (!tests.ok) fail([
-    `tests failed in ${dir} (${tests.fail} failing); nothing landed`,
-    ...(tests.failures?.length ? tests.failures : [tests.error || 'test runner failed without test diagnostics']),
-    ...(tests.log ? [`Full test output: ${tests.log}`] : tests.logError ? [tests.logError] : []),
-  ].join('\n'));
-  say(`tests passed: ${tests.pass}`);
+  passTests(dir, { say, runTests, outcome: 'nothing landed' });
 
   const changed = git(repo, 'diff', '--name-only', base, branch).out.split('\n').filter(Boolean);
   const merged = git(repo, 'merge', '--quiet', '--ff-only', branch);

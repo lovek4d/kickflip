@@ -1,9 +1,10 @@
 // docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
 // On a board whose builders launch headless (board.json headless_builders), the board server launches each build as
 // `claude -p <brief>` in the card's worktree instead of waking its session to brief and dispatch one, and a lander the
-// same way once the session has verified a handed-back build's judgment calls. The brief is built from the card: its
-// notes file, the hub's and board's rules, and the board's CLI. A builder lands its own work (board.mjs land), resolving
-// any rebase conflict itself; only judgment calls and deferred asks go to the session.
+// same way for a handed-back build whose verified calls didn't finish it (a question was open, or the finish refused).
+// The brief is built from the card: its notes file, the hub's and board's rules, and the board's CLI. A builder
+// finishes its own work with builder done (finish.mjs), resolving any rebase conflict itself; only judgment calls and
+// deferred asks go to the session.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -21,13 +22,15 @@ const cli = (route) => `node ${BOARD_CLI} --site ${route}`;
 const rebase = (base) => `git -c core.commentChar=';' rebase ${base}`;
 const ruleLines = (rules) => (rules.length ? ['Rules from the hub and this board:', ...rules.map((r) => `- ${r}`), ''] : []);
 
-const landSteps = ({ route, key, worktree, base }) => [
-  `Land it yourself: run \`${cli(route)} land ${key} --text "<what you checked>"\`. It rebases onto ${base}, reruns the full test suite and fast-forwards ${base}.`,
-  `- On a conflict it undoes its rebase and names the files: run \`${rebase(base)}\` in ${worktree}, resolve each conflict keeping both sides' intent, continue with \`git -c core.commentChar=';' rebase --continue\`, rerun the tests, and land again.`,
-  '- On failing tests, fix them, commit, and land again.',
-  '- While another card is landing it refuses, naming that card: wait a minute and land again.',
-  `- Landing never goes to the orchestrator. If land refuses for a reason you can't fix, record it with \`${cli(route)} builder call ${key} "<why>"\` and run \`${cli(route)} builder done ${key}\`.`,
+// docs/adr/2026-11-04-1611-finishing-a-build-is-one-step.md: builder done finishes the card.
+const finishSteps = ({ route, key, worktree, base }) => [
+  `- With no unverified calls, done finishes the card itself: it rebases onto ${base}, reruns the full test suite, fast-forwards ${base} and closes the card (on a board with pull requests it pushes the branch and opens a draft PR instead).`,
+  `- On a conflict it undoes its rebase and names the files: run \`${rebase(base)}\` in ${worktree}, resolve each conflict keeping both sides' intent, continue with \`git -c core.commentChar=';' rebase --continue\`, rerun the tests, and run done again.`,
+  '- On failing tests, fix them, commit, and run done again.',
+  '- While another card is landing it refuses, naming that card: wait a minute and run done again.',
+  `- Finishing never goes to the orchestrator. If done refuses for a reason you can't fix, record it with \`${cli(route)} builder call ${key} "<why>"\` and run done again: with the call it hands the card back.`,
 ];
+const finishCommand = ({ route, key }) => `\`${cli(route)} builder done ${key} --text "<what you checked>"\``;
 
 // The standard brief for a card's headless builder. card: {route, key, ref, title, notes, worktree, base, rules}.
 export function builderBrief({ route, key, ref, title, notes, worktree, base, rules = [] }) {
@@ -46,9 +49,9 @@ export function builderBrief({ route, key, ref, title, notes, worktree, base, ru
     "Write tests first, and run the full suite once, in the foreground, at the end. Where the repo keeps ADRs, write one named with a timestamp: docs/adr/YYYY-MM-DD-HHMM-<slug>.md.",
     `Commit with \`git -c core.commentChar=';' commit -F <file>\`, the subject "${ref}: <what the card now does>".`,
     '',
-    'To finish:',
-    `- If you recorded a judgment call, run \`${b} builder done ${key}\` and stop: it hands the card back for the orchestrator to verify your calls, and the board launches a lander once it has.`,
-    `- Otherwise: ${landSteps({ route, key, worktree, base }).join('\n')}`,
+    `To finish, run ${finishCommand({ route, key })}.`,
+    "- If you recorded a judgment call, it hands the card back for the orchestrator to verify your calls; stop there: the orchestrator's verification finishes the card.",
+    ...finishSteps({ route, key, worktree, base }),
     '',
     'Never push.',
   ].join('\n');
@@ -68,7 +71,8 @@ export function landerBrief({ route, key, ref, title, worktree, base, answers = 
       ...answers.map((a) => `- ${a.ask} "${a.question}": ${a.answer}`),
     ] : []),
     '',
-    ...landSteps({ route, key, worktree, base }),
+    `To finish, run ${finishCommand({ route, key })}.`,
+    ...finishSteps({ route, key, worktree, base }),
     '',
     'Never push.',
   ].join('\n');

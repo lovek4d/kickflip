@@ -2486,6 +2486,38 @@ export async function handBackCalls(site, key, { dir, agent = 'main', next }) {
   return { lines: [`handed back: checking, Next "${asks}"`, ...set.lines] };
 }
 
+// docs/adr/2026-11-04-1611-finishing-a-build-is-one-step.md
+// Whether `builder done` from agent finishes the card (board.mjs finishCard): the main build's open record that keeps a
+// worktree. Refuses while another agent's record on the card is open, other than an install build, since finishing
+// closes every record.
+export async function finishesCard(site, key, { agent = 'main' }) {
+  if (agent !== 'main') return false;
+  const file = await builderFile(site, key, undefined, agent);
+  const record = await readJSON(file, null);
+  if (!record?.started || record.done || !record.worktree?.path) return false;
+  const { id } = parseKey(key);
+  for (const other of await builderFiles(path.dirname(path.dirname(file)), id)) {
+    const r = other === file ? null : await readJSON(other, null);
+    if (!r?.started || r.done || r.kind === 'install') continue;
+    const name = path.basename(other, '.json').slice(String(id).length + 1);
+    fail(`builder done would finish ${key} while agent ${name} is still open; run builder done ${key} --agent ${name} first`);
+  }
+  return true;
+}
+
+// What `builder verified` does next: null when the card isn't a handed-back build whose every call is now verified
+// (checking, no builder open, its newest worktree still there); else {waits: [question id]} while the card's questions
+// are open, or {} when verifying finishes it.
+export async function verifiedFinish(site, key) {
+  const { source, item } = await loadItem(site, key);
+  if (item.status !== 'checking') return null;
+  const records = (await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)))).filter(Boolean);
+  if (records.some((r) => unverifiedCalls(r).length || (r.started && !r.done && r.kind !== 'install'))) return null;
+  const tree = await recordedWorktree(site, key);
+  if (!tree || !existsSync(tree.path)) return null;
+  return { waits: (await cardQuestions(site, key)).asked.filter((q) => q.state === 'open').map((q) => q.id) };
+}
+
 // docs/adr/2026-11-02-1952-a-message-or-question-on-a-done-card-reopens-it.md: a done card the owner messaged since it closed reads
 // reopened, and only the owner's Done closes it again.
 export async function checkNotReopened(site, key) {
