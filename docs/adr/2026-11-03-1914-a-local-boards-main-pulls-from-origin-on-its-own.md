@@ -1,0 +1,12 @@
+# A local board's Main pulls from origin on its own
+
+#60 came from #53's grill. A board on GitHub or a plain git remote already fetches its branch on every poll, and Main rebuilds when origin moves (`hub/try.mjs` `fetchTryBranches`, `tick`). A local board (`kickflip join`, the hub board included) builds from its folder's own branch, which nothing ever pulled, so commits pushed from elsewhere never reached its Main. The owner settled it over four prototype rounds (11/03), last on `main-pull-red-3`, take A.
+
+- **Every poll pulls.** After the poll's fetch, each local board whose folder has an origin fetches its recorded branch (#81's default branch, else `main`) with the origin env and timeout (`originGit`) and fast-forwards it (`pullBranch`). Main rebuilds when that brought commits; cards are left alone.
+- **Fast-forward only.** In the worktree that has the branch checked out it runs `git merge --ff-only`, refusing while that worktree has uncommitted changes to tracked files; when no worktree has it, the branch ref moves in place. A branch ahead of origin is left as it is. Anything else refuses with the reason: "can’t pull: local changes", "can’t pull: main has split from origin", or git's own fetch error.
+- **try.json records it.** `pull {at, error?, running?}` beside `main`; a restart drops `running`. A folder with no origin has no record and no icon.
+- **The refresh icon.** Main's bar shows the header's refresh icon, a ghost button, right of its timestamp. A tap pulls now through `/api/try/main/pull` → the hub's loopback `/_hub/pull`, and the icon alone spins, disabled, until the server answers. Visit stays Visit; it changes to Serving…/Building… only once Main rebuilds after a pull that brought commits.
+- **A failed pull turns the icon red.** The reason is a hover tooltip on a hover pointer, where a click pulls again and never pins it, and a popover a tap opens on touch, which a tap anywhere closes.
+- **New commits send `main-pulled {branch, from, to, commits}`.** What a board does on it is its own rule. On the hub board, that rule restarts the hub once no builder runs, since a pull there changes the hub's own code. It stays a board rule rather than built-in logic, as the owner settled.
+
+Considered: a pull button or an "x new commits" item only, without the automatic pull. The owner chose both: pull on every poll, and the icon to pull now. Also considered: a "can't pull: local changes" line on Main's bar; the owner preferred the red icon with its reason on hover or tap.

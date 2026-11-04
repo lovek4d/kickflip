@@ -144,6 +144,7 @@
 //                                `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id}; a bad body → 400 {error}
 //   POST /api/try                {key}: forwards a card build or main retry to the hub's loopback /_hub/build
+//   POST /api/try/main/pull      {}: Main's refresh icon, forwarded to the hub's loopback /_hub/pull → {commits, error?}
 //   GET  /api/try/main/log       {lines}: last 40 lines of main's log, from at most its last 64 KiB
 // data/try.json is the hub's run state; data/main.json holds main's published install link.
 //   GET  /_claude/events         events not hidden, newest first, each with Claude's reply if written
@@ -808,6 +809,17 @@ const server = http.createServer(async (req, res) => {
         if (e.code === 'ENOENT') return json(res, 200, { lines: [] });
         throw e;
       } finally { await file?.close(); }
+    }
+    if (p === '/api/try/main/pull' && req.method === 'POST') {
+      const body = await readBody(req);
+      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length) return json(res, 400, { error: 'Send an empty object.' });
+      try {
+        const response = await fetch(`http://127.0.0.1:${process.env.KICKFLIP_HUB_PORT || 4500}/_hub/pull`, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ route: prefix.slice(1) || path.basename(here) }), signal: AbortSignal.timeout(30_000),
+        });
+        return json(res, response.status, await response.json());
+      } catch (e) { return json(res, 502, { error: `Could not pull: ${e.message}` }); }
     }
     if (p === '/api/try' && req.method === 'POST') {
       const body = await readBody(req);

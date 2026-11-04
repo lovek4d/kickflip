@@ -607,6 +607,133 @@ test('on a plain git remote board the poll moves a pushed card to Done once its 
   assert.equal(read(path.join(site, 'data', 'wave.json')).items[1].status, 'merged');
 });
 
+// A local board whose folder's origin is a bare repo here, with a second clone that pushes to it. → push(file) commits
+// file in that clone, pushes it to branch and answers the new tip.
+function originFor(branch = 'main') {
+  const remote = path.join(site, 'remote.git');
+  git(repo, 'clone', '--quiet', '--bare', repo, remote);
+  git(repo, 'remote', 'set-url', 'origin', remote);
+  git(repo, 'fetch', '--quiet', 'origin');
+  const other = path.join(site, 'other');
+  git(site, 'clone', '--quiet', '--branch', branch, remote, other);
+  Object.assign(manifest.sites.orch, { local: true, branch });
+  return (file = 'pushed') => { write(path.join(other, file), file); commit(other, file); git(other, 'push', '--quiet', 'origin', branch); return git(other, 'rev-parse', 'HEAD'); };
+}
+const pullEvents = () => { const events = []; manager = createTryManager({ now: () => clock, log() {}, event: async (board, kind, data) => { events.push([board.route, kind, data]); return 'e1'; } }); return events; };
+
+test("the poll fast-forwards a local board's checked-out branch from origin, sends main-pulled, and leaves it alone when nothing is new", async () => {
+  const push = originFor();
+  const events = pullEvents();
+  const from = git(repo, 'rev-parse', 'main');
+  push('one');
+  const to = push('two');
+  assert.deepEqual(await manager.pullMains({ manifest }), ['orch']);
+  assert.equal(git(repo, 'rev-parse', 'main'), to);
+  assert.equal(fs.readFileSync(path.join(repo, 'two'), 'utf8'), 'two');
+  assert.equal(git(repo, 'status', '--porcelain'), '');
+  assert.deepEqual(events, [['orch', 'main-pulled', { branch: 'main', from, to, commits: 2 }]]);
+  assert.deepEqual(Object.keys(state().pull), ['at']);
+  assert.deepEqual(await manager.pullMains({ manifest }), []);
+  assert.equal(events.length, 1);
+  assert.equal(state().pull.error, undefined);
+});
+
+test("a pull uses the board's recorded branch, and moves it without a checkout when no worktree has it", async () => {
+  git(repo, 'branch', 'trunk');
+  const push = originFor('trunk');
+  const events = pullEvents();
+  const tip = push();
+  assert.equal(git(repo, 'symbolic-ref', '--short', 'HEAD'), 'main');
+  const main = git(repo, 'rev-parse', 'main');
+  assert.deepEqual(await manager.pullMains({ manifest }), ['orch']);
+  assert.equal(git(repo, 'rev-parse', 'trunk'), tip);
+  assert.equal(git(repo, 'rev-parse', 'main'), main);
+  assert.equal(events[0][2].branch, 'trunk');
+});
+
+test('a pull only fast-forwards: local changes, a split from origin or a failed fetch refuse with the reason and leave the branch', async () => {
+  const push = originFor();
+  const events = pullEvents();
+  push();
+  const before = git(repo, 'rev-parse', 'main');
+  write(path.join(repo, 'file'), 'edited here');
+  assert.deepEqual(await manager.pullMains({ manifest }), []);
+  assert.equal(state().pull.error, 'can’t pull: local changes');
+  assert.equal(git(repo, 'rev-parse', 'main'), before);
+  git(repo, 'checkout', '--quiet', '--', 'file');
+
+  write(path.join(repo, 'local'), 'local');
+  commit(repo, 'local only');
+  const split = git(repo, 'rev-parse', 'main');
+  assert.deepEqual(await manager.pullMains({ manifest }), []);
+  assert.equal(state().pull.error, 'can’t pull: main has split from origin');
+  assert.equal(git(repo, 'rev-parse', 'main'), split);
+
+  git(repo, 'reset', '--quiet', '--hard', 'refs/remotes/origin/main');
+  write(path.join(repo, 'ahead'), 'ahead');
+  const ahead = commit(repo, 'ahead of origin');
+  assert.deepEqual(await manager.pullMains({ manifest }), []);
+  assert.equal(state().pull.error, undefined);
+  assert.equal(git(repo, 'rev-parse', 'main'), ahead);
+
+  await withFetchGit(`echo "fatal: unable to access 'https://example.com/': Could not resolve host" >&2; exit 128`, () => manager.pullMains({ manifest }));
+  assert.equal(state().pull.error, "can’t pull: fatal: unable to access 'https://example.com/': Could not resolve host");
+  assert.deepEqual(events, []);
+});
+
+test('only a local board with an origin pulls; a GitHub board keeps its fetch and a folder with no origin has no pull record', async () => {
+  const push = originFor();
+  push();
+  const before = git(repo, 'rev-parse', 'main');
+  delete manifest.sites.orch.local;
+  assert.deepEqual(await manager.pullMains({ manifest }), []);
+  assert.equal(git(repo, 'rev-parse', 'main'), before);
+  manifest.sites.orch.local = true;
+  git(repo, 'remote', 'remove', 'origin');
+  assert.deepEqual(await manager.pullMains({ manifest }), []);
+  assert.equal(state().pull, undefined);
+});
+
+test('the pull reads running while it fetches, which a restart clears', async () => {
+  originFor();
+  pullEvents();
+  let pulling;
+  await withFetchGit('sleep 0.6', async () => {
+    pulling = manager.pullMains({ manifest });
+    await until(() => fs.existsSync(path.join(site, 'data', 'try.json')) && state().pull?.running === true);
+    await pulling;
+  });
+  assert.equal(state().pull.running, undefined);
+  const record = { ...state(), pull: { at: 'earlier', running: true } };
+  write(path.join(site, 'data', 'try.json'), record);
+  await manager.stop();
+  manager = createTryManager({ now: () => clock, log() {} });
+  await manager.initialize(manifest);
+  assert.deepEqual(state().pull, { at: 'earlier' });
+});
+
+test("a tap pulls now and rebuilds Main only when the pull brought commits; it refuses a board that isn't local", async () => {
+  setScript('process.exit(0);', repo);
+  commit(repo, 'script');
+  const push = originFor();
+  pullEvents();
+  await manager.tick({ manifest });
+  await until(() => state().main?.state === 'ready');
+  const built = state().main.sha;
+  assert.deepEqual(await manager.pull({ route: 'orch' }, { manifest }), { commits: 0 });
+  assert.equal(state().main.sha, built);
+  const tip = push();
+  assert.deepEqual(await manager.pull({ route: 'orch' }, { manifest }), { commits: 1 });
+  await until(() => state().main?.sha === tip && state().main.state === 'ready');
+  write(path.join(repo, 'file'), 'edited here');
+  push('again');
+  assert.deepEqual(await manager.pull({ route: 'orch' }, { manifest }), { commits: 0, error: 'can’t pull: local changes' });
+  await assert.rejects(manager.pull({ route: 'orch', key: 'x' }, { manifest }), { status: 400 });
+  await assert.rejects(manager.pull({ route: 'nope' }, { manifest }), { status: 404 });
+  delete manifest.sites.orch.local;
+  await assert.rejects(manager.pull({ route: 'orch' }, { manifest }), { status: 409 });
+});
+
 test('the hub build route enforces loopback and fixed inputs', async () => {
   const free = async () => {
     const server = http.createServer();
@@ -644,6 +771,15 @@ test('the hub build route enforces loopback and fixed inputs', async () => {
     assert.equal(await post({ ...input, key: 'main' }), 409);
     assert.equal(await post(input), 202);
     await until(() => state().cards['w/A1']?.state === 'ready');
+    const pull = (body, headers = {}) => new Promise((resolve, reject) => {
+      const request = http.request({ host: '127.0.0.1', port, path: '/_hub/pull', method: 'POST', headers: { 'content-type': 'application/json', ...headers } }, (response) => {
+        response.resume(); response.on('end', () => resolve(response.statusCode));
+      });
+      request.on('error', reject); request.end(JSON.stringify(body));
+    });
+    for (const headers of [{ origin: 'https://mac.ts.net' }, { 'x-forwarded-for': '100.64.0.1' }, { host: 'mac.ts.net' }]) assert.equal(await pull({ route: 'orch' }, headers), 403);
+    assert.equal(await pull({ route: 'orch', key: 'main' }), 400);
+    assert.equal(await pull({ route: 'orch' }), 409);
   } finally { hub.kill('SIGTERM'); await exited; }
 });
 

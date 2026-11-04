@@ -850,7 +850,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const clicks = [], later = [];
-  const B = { $: () => ({}), alive: () => false, on: (el, type, fn) => { if (type === 'click') clicks.push(fn); }, later: (ms, fn) => later.push([ms, fn]), store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
+  const B = { $: () => ({}), alive: () => false, on: (el, type, fn) => { if (type === 'click') clicks.push(fn); }, later: (ms, fn) => later.push([ms, fn]), store: {}, state: { board: { items: [] }, mainPull: { sending: false, open: false } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
@@ -1225,6 +1225,23 @@ test('main is a slim branch bar with a ready link, running status or failed log 
     assert.doesNotMatch(ui.mainBar({ ...main, state: 'running' }), /href=|<button/);
     assert.match(ui.mainBar({ ...main, state: 'failed' }), /<button[^>]*data-main-log=""[^>]*aria-haspopup="dialog"/);
   }
+});
+
+test("a local board's Main has a refresh icon right of its timestamp that spins while a pull runs and turns red with the reason when one fails", () => {
+  const main = { kind: 'web', slug: 'owner/repo', branch: 'main', sha: '1234567', at: ago(2), state: 'ready', url: null, port: 8500 };
+  assert.doesNotMatch(ui.mainBar({ ...main, pull: null }), /data-main-pull/);
+  const idle = ui.mainBar({ ...main, pull: { running: false, error: null } });
+  assert.match(idle, /<\/code> · [^<]+<span class="main-pull"><button class="ghost gh-refresh" type="button" data-main-pull aria-label="Pull main now"><svg/);
+  assert.doesNotMatch(idle, /role="tooltip"/);
+  assert.equal(text(idle).includes('Visit'), true);
+  for (const html of [ui.mainBar({ ...main, pull: { running: true, error: null } }), ui.mainBar({ ...main, pull: { running: false, error: null } }, { sending: true })]) {
+    assert.match(html, /class="ghost gh-refresh spinning" type="button" data-main-pull aria-label="Pulling main" aria-disabled="true"/);
+    assert.equal(text(html).includes('Visit'), true);
+  }
+  const failed = ui.mainBar({ ...main, pull: { running: false, error: 'can’t pull: local changes' } });
+  assert.match(failed, /class="ghost gh-refresh failed" type="button" data-main-pull aria-label="can’t pull: local changes"/);
+  assert.match(failed, /<span class="main-pull-why" role="tooltip">can’t pull: local changes<\/span>/);
+  assert.match(ui.mainBar({ ...main, pull: { running: false, error: 'x' } }, { open: true }), /class="main-pull-why open"/);
 });
 
 test('Todo offers Plan waves in the Show more style once two cards are free, with their keys', () => {

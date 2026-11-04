@@ -99,6 +99,41 @@ BoardView.part((B) => {
     }
   });
 
+  // Main's refresh icon pulls now, spinning until the server answers. After a failed pull, a hover pointer's click
+  // pulls again while its reason shows on hover; a touch tap opens the reason instead, and a tap anywhere closes it.
+  // An open reason shifts left as far as it would run past the screen's right edge, less the 16px gutter.
+  function paintMain() {
+    BoardUI.setHTML($('#tryMain'), BoardUI.mainBar(state.board?.main, state.mainPull));
+    const why = $('#tryMain .main-pull-why.open');
+    if (!why) return;
+    const over = why.getBoundingClientRect().right - (innerWidth - 16);
+    if (over > 0) why.style.left = `${-over}px`;
+  }
+  B.on(B.root, 'click', async (ev) => {
+    const button = ev.target.closest('button[data-main-pull]');
+    if (!button) {
+      if (state.mainPull.open) { state.mainPull.open = false; paintMain(); }
+      return;
+    }
+    ev.preventDefault();
+    const pull = state.board?.main?.pull;
+    if (!pull || pull.running || state.mainPull.sending) return;
+    if (pull.error && !matchMedia('(hover: hover)').matches) {
+      state.mainPull.open = !state.mainPull.open;
+      paintMain();
+      return;
+    }
+    state.mainPull = { sending: true, open: false };
+    paintMain();
+    try {
+      const response = await fetch(B.site.url('api/try/main/pull'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+      const out = await response.json();
+      if (!response.ok) throw new Error(out.error || 'The hub refused the pull.');
+    } catch (error) { if (B.alive()) toast(error.message || 'Could not pull. Is the host awake?'); }
+    state.mainPull.sending = false;
+    if (B.alive()) { paintMain(); B.reload(); }
+  });
+
   // Hold's sheet: the shared duration picker in place of a confirm, since a chip is already a deliberate tap
   // (docs/adr/2026-11-02-1727-a-card-can-be-held-until-a-time.md). A chip or Custom sends card-hold {key, hold: true, for}.
   const holdSheet = $('#holdSheet');

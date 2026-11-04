@@ -737,7 +737,9 @@ export function buildBoard(snapshot) {
   }
   const run = tries.main;
   const main = run?.script && run.sha ? { slug: run.slug, branch: run.branch || 'main', sha: run.sha.slice(0, 7), at: run.at,
-    kind, state: run.state || null, url: kind === 'web' ? null : snapshot.main?.install?.url || null, port: kind === 'web' && run.state === 'ready' ? run.https || null : null } : null;
+    kind, state: run.state || null, url: kind === 'web' ? null : snapshot.main?.install?.url || null, port: kind === 'web' && run.state === 'ready' ? run.https || null : null,
+    // A local board's pull from origin (hub/try.mjs pullMain), which Main's refresh icon shows.
+    pull: tries.pull ? { running: tries.pull.running === true, error: tries.pull.error || null } : null } : null;
 
   const askProgress = snapshot.askProgress || {};
   const askDones = latest('ask-done', 'id');

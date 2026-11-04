@@ -2204,6 +2204,63 @@ test('main paints above the lanes, card failures scroll to their thread and main
   b.view.unmount();
 });
 
+test("Main's refresh icon pulls now and spins only itself until the server answers; a failed pull's tap opens its reason on touch and retries on a hover pointer", async () => {
+  const main = { kind: 'web', state: 'ready', slug: 'o/r', branch: 'main', sha: 'abcdef1', at: new Date().toISOString(), url: null, port: 8500, pull: { running: false, error: null } };
+  const data = { ...boardOf([]), main };
+  const b = boardOnDom({ board: data, threads: {} });
+  await b.settle();
+  const original = b.page.win.fetch;
+  const posts = [];
+  let answer;
+  b.page.win.fetch = async (url, opts = {}) => {
+    if (url.endsWith('/api/try/main/pull')) {
+      posts.push([url, opts.body]);
+      return new Promise((resolve) => { answer = (out, ok = true) => resolve({ ok, json: async () => out }); });
+    }
+    return original(url, opts);
+  };
+  const icon = () => b.root.querySelector('#tryMain [data-main-pull]');
+  b.page.fire(b.root, 'click', { target: icon() });
+  await b.settle();
+  assert.deepEqual(posts, [['https://mac.ts.net/board-a/api/try/main/pull', '{}']]);
+  assert.equal(icon().getAttribute('aria-disabled'), 'true');
+  assert.match(icon().getAttribute('class'), /spinning/);
+  assert.match(b.root.querySelector('#tryMain').textContent, /Visit/);
+  b.page.fire(b.root, 'click', { target: icon() });
+  await b.settle();
+  assert.equal(posts.length, 1);
+  answer({ commits: 0 });
+  await b.settle();
+  assert.equal(icon().getAttribute('aria-disabled'), null);
+
+  const failed = { ...data, main: { ...main, pull: { running: false, error: 'can’t pull: local changes' } } };
+  b.page.win.innerWidth = 390;
+  await b.change({ board: failed });
+  assert.match(icon().getAttribute('class'), /failed/);
+  const why = () => b.root.querySelector('#tryMain .main-pull-why');
+  assert.equal(why().textContent, 'can’t pull: local changes');
+  assert.doesNotMatch(why().getAttribute('class'), /open/);
+  b.page.fire(b.root, 'click', { target: icon() });
+  await b.settle();
+  assert.match(why().getAttribute('class'), /open/);
+  assert.equal(posts.length, 1);
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('#lanes') });
+  await b.settle();
+  assert.doesNotMatch(why().getAttribute('class'), /open/);
+
+  const noHover = b.page.win.matchMedia;
+  b.page.win.matchMedia = (query) => ({ ...noHover(query), matches: query === '(hover: hover)' || noHover(query).matches });
+  b.page.fire(b.root, 'click', { target: icon() });
+  await b.settle();
+  assert.equal(posts.length, 2);
+  assert.equal(why(), null);
+  b.page.win.matchMedia = noHover;
+  answer({ error: 'The hub is stopping.' }, false);
+  await b.settle();
+  assert.match(b.root.textContent, /The hub is stopping\./);
+  b.view.unmount();
+});
+
 test('confirmations are the browser\'s own window.confirm, whatever labels a caller passes, and an aborted signal answers false without asking', async () => {
   const page = fakePage(memoryStorage().localStorage);
   const native = [];

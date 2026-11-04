@@ -111,6 +111,8 @@ window.BoardView = (function () {
       threadCache: new Map(),
       edits: new Map(),
       githubPending: null,
+      // Main's refresh icon (ui-cards.js mainPull): a tap waiting on the server, and the failed pull's reason open on touch.
+      mainPull: { sending: false, open: false },
     };
     const signal = opts.signal ? (fn) => { if (B.alive()) B.own(opts.signal(fn)); } : null;
     // B.keep(fn): a part adds fn() → {…} to what the board keeps as it unmounts, read before any part's unmount step.
@@ -159,7 +161,7 @@ window.BoardView = (function () {
       steady(() => {
         B.renderHeader(d);
         B.renderArch(d);
-        BoardUI.setHTML($('#tryMain'), BoardUI.mainBar(d.main));
+        BoardUI.setHTML($('#tryMain'), BoardUI.mainBar(d.main, state.mainPull));
         B.renderMainLog(d.main, load);
         for (const el of $$('details.item[open]')) state.openItems.add(el.dataset.key);
         for (const it of d.items) if (!it.isNew) markSeen(it, !state.openItems.has(it.key));

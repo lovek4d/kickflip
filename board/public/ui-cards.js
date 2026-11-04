@@ -112,14 +112,26 @@
     return `<button type="button" data-try="${esc(it.key)}"${reason ? ` aria-disabled="true" title="${esc(reason)}" data-tip="${esc(reason)}"` : ''}>${t.state === 'failed' && !reason ? 'Retry' : words.go}</button>`;
   }
   const BRANCH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7"/><path d="M18 10.5c0 4-6 3-11 6"/></svg>';
-  function mainBar(main) {
+  // Main's refresh icon on a local board (docs/adr/2026-11-03-1914-a-local-boards-main-pulls-from-origin-on-its-own.md),
+  // the header's refresh icon as a ghost button right of the timestamp: it spins while a pull runs or a tap waits on the
+  // server, and turns red when the last pull failed, with the reason as a tooltip on hover or a popover a tap opens
+  // (`open`). Visit is left alone: it changes only once Main rebuilds.
+  function mainPull(pull, { sending = false, open = false } = {}) {
+    if (!pull) return '';
+    const busy = pull.running || sending;
+    const failed = !busy && pull.error;
+    const label = busy ? 'Pulling main' : failed ? pull.error : 'Pull main now';
+    const why = failed ? `<span class="main-pull-why${open ? ' open' : ''}" role="tooltip">${esc(pull.error)}</span>` : '';
+    return `<span class="main-pull"><button class="ghost gh-refresh${busy ? ' spinning' : ''}${failed ? ' failed' : ''}" type="button" data-main-pull aria-label="${esc(label)}"${busy ? ' aria-disabled="true"' : ''}>${BoardUI.refreshIcon(14)}</button>${why}</span>`;
+  }
+  function mainBar(main, pulling) {
     if (!main) return '';
     const words = tryWords(main.kind);
     const url = tryURL(main);
     const chip = main.state === 'running' ? badge('notice', spinner + esc(words.going), { attrs: { role: 'status' } })
       : main.state === 'failed' ? badge('danger', esc(words.failed), { button: true, attrs: { type: 'button', 'data-main-log': '', 'aria-haspopup': 'dialog' }, title: 'Read main’s build log and retry this tip.' })
       : main.state === 'ready' && url ? badge('ready', `${words.done} ${LINK_ARROW}`, { href: url, attrs: main.kind === 'web' ? EXTERNAL : {} }) : '';
-    return `<div class="tb-main" role="region" aria-label="Main’s version">${BRANCH}<div class="tb-main-text">${esc(main.slug)} · <strong>${esc(main.branch)}</strong>@<code>${esc(main.sha)}</code> · ${esc(ago(main.at))}</div><div class="meta">${chip}</div></div>`;
+    return `<div class="tb-main" role="region" aria-label="Main’s version">${BRANCH}<div class="tb-main-text">${esc(main.slug)} · <strong>${esc(main.branch)}</strong>@<code>${esc(main.sha)}</code> · ${esc(ago(main.at))}${mainPull(main.pull, pulling)}</div><div class="meta">${chip}</div></div>`;
   }
   // The open card's Merge, while the board's auto-merge is off: it confirms, then sends card-merge, waiting while the
   // server records it (app-cards.js), and reads "Merging…" while it waits on the session

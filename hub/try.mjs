@@ -6,7 +6,7 @@ import net from 'node:net';
 import { execFile, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
-import { listBoards, readManifest, readJSON, saveJSON, GITHUB_STATE, REPO_FETCH } from './boards.mjs';
+import { listBoards, readManifest, readJSON, saveJSON, appendEvent, GITHUB_STATE, REPO_FETCH } from './boards.mjs';
 import { boardRepo, githubFromOrigin } from './board-repo.mjs';
 import { gitReachFault, remoteFromInput, remoteGitEnv } from './repos.mjs';
 import { readiness } from './readiness.mjs';
@@ -75,7 +75,7 @@ export async function installWorktree(board, key, manifest) {
   } catch { return ''; }
 }
 
-export function createTryManager({ now = Date.now, answers = probe, log = console.log, waiting = async () => null } = {}) {
+export function createTryManager({ now = Date.now, answers = probe, log = console.log, waiting = async () => null, event = appendEvent } = {}) {
   const boards = new Map();
   const runs = new Map();
   const starting = new Set();
@@ -83,6 +83,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
   const cardPorts = new Map();
   const mainPorts = new Map();
   const lastHeads = new Map();
+  const pulls = new Map();
   let stopping = false;
   let ticking = null;
   let queued = null;
@@ -92,7 +93,8 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     if (boards.has(board.dir)) return boards.get(board.dir);
     const file = path.join(board.dir, 'data', 'try.json');
     const saved = readJSON(file, { kind: null, main: null, cards: {} });
-    const state = { ...(isTryPort(saved.main_port) ? { main_port: saved.main_port } : {}), kind: saved.kind || null, main: saved.main || null, cards: { ...saved.cards } };
+    const state = { ...(isTryPort(saved.main_port) ? { main_port: saved.main_port } : {}), kind: saved.kind || null, main: saved.main || null, cards: { ...saved.cards },
+      ...(saved.pull ? { pull: { ...saved.pull, running: undefined } } : {}) };
     const record = { state, file, written: JSON.stringify(saved) };
     boards.set(board.dir, record);
     if (state.main_port) mainPorts.set(board.dir, state.main_port);
@@ -488,13 +490,69 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     })().finally(() => { ticking = null; });
     return ticking;
   }
+  // docs/adr/2026-11-03-1914-a-local-boards-main-pulls-from-origin-on-its-own.md: fast-forwards a local board's branch
+  // from origin (pullBranch) and records try.json pull {at, error?, running?}, which Main's refresh icon shows; new commits
+  // send the board main-pulled {branch, from, to, commits}. One pull runs at a time on a board; a second call shares it.
+  // → {commits, error?}, or null for a folder with no origin
+  function pullMain(board, manifest) {
+    if (pulls.has(board.dir)) return pulls.get(board.dir);
+    const running = (async () => {
+      const source = boardRepo(board.route, manifest);
+      const branch = source.branch || 'main';
+      const { state } = stateOf(board);
+      state.pull = { ...state.pull, running: true };
+      persist(board);
+      let pulled, error;
+      try { pulled = await pullBranch(source.repo, branch); }
+      catch (e) { error = e.message; }
+      if (pulled === null) delete state.pull;
+      else state.pull = { at: stamp(), ...(error ? { error } : {}) };
+      persist(board);
+      if (pulled === null) return null;
+      if (error) { log(`pull /${board.route}: ${error}`); return { commits: 0, error }; }
+      if (pulled.commits) {
+        log(`pull /${board.route}: ${branch} fast-forwarded ${pulled.commits} commit${pulled.commits === 1 ? '' : 's'} to ${pulled.to.slice(0, 7)}`);
+        try { await event(board, 'main-pulled', { branch, ...pulled }); } catch (e) { log(`pull /${board.route}: could not send main-pulled (${e.message})`); }
+      }
+      return { commits: pulled.commits };
+    })().finally(() => pulls.delete(board.dir));
+    pulls.set(board.dir, running);
+    return running;
+  }
+  // The poll's pull of every local board, or only routes. → the routes whose pull brought commits
+  async function pullMains({ manifest = readManifest(), routes } = {}) {
+    await initialize(manifest);
+    const pulled = [];
+    for (const board of listBoards(manifest)) {
+      if (stopping) break;
+      if (routes && !routes.includes(board.route)) continue;
+      const source = boardRepo(board.route, manifest);
+      if (!source.local || !source.repo) continue;
+      if ((await pullMain(board, manifest))?.commits) pulled.push(board.route);
+    }
+    return pulled;
+  }
+  // Main's refresh icon: pulls now, and rebuilds Main at once when the pull brought commits.
+  async function pull(input, { manifest = readManifest() } = {}) {
+    await initialize(manifest);
+    if (stopping) throw new BuildError('The hub is stopping. Try again after it restarts.', 503);
+    if (!input || Array.isArray(input) || typeof input !== 'object' || Object.keys(input).some((k) => k !== 'route') || typeof input.route !== 'string') throw new BuildError('Send only the board route.');
+    const board = listBoards(manifest).find((b) => b.route === input.route);
+    if (!board) throw new BuildError(`/${input.route} is not a board.`, 404);
+    const source = boardRepo(board.route, manifest);
+    if (!source.local || !source.repo) throw new BuildError('This board fetches its branch on every poll; only a local board pulls.', 409);
+    const result = await pullMain(board, manifest);
+    if (!result) throw new BuildError('This board’s folder has no origin to pull from.', 409);
+    if (result.commits) tick({ manifest, routes: [board.route] }).catch((e) => log(`try /${board.route} main: ${e.message}`));
+    return result;
+  }
   async function stop() {
     stopping = true;
     // A build still going keeps `running`, so the next hub starts it again (docs/adr/2026-11-02-1731-a-build-the-hub-stops-starts-again-after-it-restarts.md).
     const stopped = Promise.all([...runs.values()].map((run) => run.ready ? stopRun(run) : halt(run)));
-    await Promise.all([stopped, ticking]);
+    await Promise.all([stopped, ticking, ...pulls.values()]);
   }
-  return { start, tick, stop, lookup, initialize };
+  return { start, tick, stop, lookup, initialize, pull, pullMains };
 }
 
 // Git that reaches a board repo's origin, GitHub or a remote board's: git's own credential with its prompts off
@@ -502,6 +560,36 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
 // fetch from a private https origin, which waits on two round trips and the keychain.
 const ORIGIN_TIMEOUT_MS = 10_000;
 const originGit = async (dir, ...args) => (await execFileAsync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: ORIGIN_TIMEOUT_MS, env: remoteGitEnv() })).stdout;
+
+// Fast-forwards branch in repo to origin's: fetched first with originGit, then merged --ff-only in the worktree that has
+// it checked out, refusing while that worktree has uncommitted changes, or moved in place when no worktree has it. A
+// branch ahead of origin stays as it is. Throws "can’t pull: <reason>" when it can't fast-forward or the fetch fails.
+// → {from, to, commits}, commits 0 when nothing is new, or null when repo has no origin
+export async function pullBranch(repo, branch, { run = originGit } = {}) {
+  const git = async (...args) => (await run(...args)).trim();
+  const refuse = (reason) => { throw new Error(`can’t pull: ${reason}`); };
+  try { await git(repo, 'config', '--get', 'remote.origin.url'); } catch { return null; }
+  try { await git(repo, 'fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`); }
+  catch (e) { refuse(e.killed ? `git fetch timed out after ${ORIGIN_TIMEOUT_MS / 1000} s` : gitReachFault(e.stderr, { repo }).error); }
+  try {
+    const from = await git(repo, 'rev-parse', '--verify', `refs/heads/${branch}^{commit}`);
+    const to = await git(repo, 'rev-parse', '--verify', `refs/remotes/origin/${branch}^{commit}`);
+    const isAncestor = (a, b) => git(repo, 'merge-base', '--is-ancestor', a, b).then(() => true, (e) => { if (e.code === 1) return false; throw e; });
+    if (from === to || await isAncestor(to, from)) return { from, to: from, commits: 0 };
+    if (!await isAncestor(from, to)) refuse(`${branch} has split from origin`);
+    const commits = Number(await git(repo, 'rev-list', '--count', `${from}..${to}`));
+    const worktree = (await git(repo, 'worktree', 'list', '--porcelain')).split('\n\n')
+      .map((block) => block.split('\n')).find((lines) => lines.includes(`branch refs/heads/${branch}`))?.[0].slice('worktree '.length);
+    if (worktree) {
+      if (await git(worktree, 'status', '--porcelain', '--untracked-files=no')) refuse('local changes');
+      await git(worktree, 'merge', '--ff-only', '--quiet', to);
+    } else await git(repo, 'update-ref', `refs/heads/${branch}`, to, from);
+    return { from, to, commits };
+  } catch (e) {
+    if (e.message.startsWith('can’t pull: ')) throw e;
+    refuse(String(e.stderr || e.message).trim().split('\n').at(-1));
+  }
+}
 
 // Fetches the branch of each board that isn't local (board-repo.mjs boardRepo) and writes REPO_FETCH {<route>: {at, ok, error?, hint?}} for the boards it
 // fetched, which boards.mjs linksOf reads as each board's repo-fetch link. On a board whose repo is a plain git
@@ -560,5 +648,7 @@ async function settlePushed(board, repo, branch, log) {
 const manager = createTryManager({ waiting: () => readiness.waiting('tailscale') });
 export const startBuild = (...args) => manager.start(...args);
 export const tryTick = (...args) => manager.tick(...args);
+export const pullNow = (...args) => manager.pull(...args);
+export const pullMains = (...args) => manager.pullMains(...args);
 export const stopTries = () => manager.stop();
 export const initializeTries = (...args) => manager.initialize(...args);

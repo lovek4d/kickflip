@@ -932,6 +932,11 @@ test('try forwards only the board route and key over loopback, returning hub sta
     assert.equal(refusal.status, 409);
     assert.deepEqual(await refusal.json(), { error: 'Already running' });
     for (const body of [{ route: 'other', key: 't/A1' }, {}, []]) assert.equal((await post(body)).status, 400);
+    const pull = (body) => fetch(`http://127.0.0.1:${boardPort}/api/try/main/pull`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const pulled = await pull({});
+    assert.equal(pulled.status, 409);
+    assert.deepEqual(seen.at(-1).slice(0, 2), ['/_hub/pull', { route: 'own-route' }]);
+    assert.equal((await pull({ route: 'other' })).status, 400);
   } finally {
     server.kill(); await exited;
     await new Promise((resolve) => { hub.closeAllConnections(); hub.close(resolve); });
