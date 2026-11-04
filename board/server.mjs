@@ -86,6 +86,11 @@
 //                                builder-stalled {key, silentSince} once per silent spell, tracked in data/builder-stalled.json
 //                                item set appends card-unblocked {key} when a waiting card's last dep finishes,
 //                                including held cards, so the owning session hears it whoever ran the command.
+//                                reviewers {add?: [name], remove?: [name]} is Board settings' reviewers Save: the server
+//                                removes the names from board.json and unfinished waves itself (store.mjs removeReviewers)
+//                                and appends reviewers-removed {remove}, a record the session doesn't act on; names to add
+//                                are appended as reviewers {add} for the session. An unknown name or a list that isn't
+//                                one → 400 {error} and nothing recorded.
 //                                card-bump {key} and card-unbump {key} are a work card's bump icon, sent with no confirm.
 //                                card-hold {key, hold: true, for} is a Hold sheet chip or its Custom time
 //                                (../hub/duration.mjs durationEnd), stored as {key, hold: true, until} or, for
@@ -184,7 +189,7 @@ import { localDay } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, existsSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
-import { BoardError, addTopic, boardConfig, changeLineup, dueQueuedBuilds, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, addTopic, boardConfig, changeLineup, dueQueuedBuilds, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -805,6 +810,18 @@ const server = http.createServer(async (req, res) => {
         try { written = await recordOwnerTap(here, kind, body); }
         catch (e) { return json(res, e instanceof BoardError ? 400 : 500, { error: `Couldn’t write ${key} to its wave file: ${e.message}` }); }
         if (!written) return json(res, 400, { error: `${key} is already merged or dropped, so its wave file stays as it is.` });
+      }
+      // A remove is written here and recorded as reviewers-removed; an add stays a `reviewers {add}` event, since finding
+      // the person's Slack and GitHub ids needs the session (docs/adr/2026-11-04-0119-the-board-server-removes-reviewers-itself.md).
+      if (kind === 'reviewers') {
+        const names = (v) => (v === undefined ? [] : Array.isArray(v) && v.every((n) => typeof n === 'string' && n.trim()) ? v.map((n) => n.trim()) : null);
+        const add = names(body.add), remove = names(body.remove);
+        if (!add || !remove || (!add.length && !remove.length)) return json(res, 400, { error: 'Send the names to add or remove, each as a list.' });
+        if (remove.length) {
+          try { await removeReviewers(here, remove); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
+        }
+        const ids = await appendEvents([...(remove.length ? [['reviewers-removed', { remove }]] : []), ...(add.length ? [['reviewers', { add }]] : [])]);
+        return json(res, 200, { id: ids.at(-1), board: await board() });
       }
       const id = await appendEvent(kind, body);
       if (kind === 'prototype-request' && body.question) await resolveRequestedQuestion(here, String(body.question));

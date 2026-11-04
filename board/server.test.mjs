@@ -1182,3 +1182,42 @@ test("/api/permissions writes the board folder's settings.local.json from the ho
     fs.rmSync(folder, { recursive: true, force: true });
   }
 });
+
+// docs/adr/2026-11-04-0119-the-board-server-removes-reviewers-itself.md
+test("Save on the settings page's reviewers removes names in the server, records reviewers-removed, and leaves only an add for the session", async () => {
+  const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
+  const ann = { name: 'Ann', slack_user: 'U1', dm: 'D1', github: 'ann' }, bob = { name: 'Bob', slack_user: 'U2', dm: 'D2', github: 'bob' };
+  const read = (file) => JSON.parse(fs.readFileSync(path.join(site, file), 'utf8'));
+  const send = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'reviewers', ...body }) });
+  const events = async (kind) => (await (await fetch(`${base}/_claude/events?kind=${kind}`)).json()).map((e) => e.data);
+  const waveFile = path.join(site, 'data', 'wave.json');
+  const wavePrev = fs.existsSync(waveFile) ? fs.readFileSync(waveFile) : null;
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, reviewers: [ann, bob] }));
+  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ reviewers: [ann, bob], items: [{ id: 'R1', title: 'R', status: 'planned' }] }));
+  try {
+    const before = [(await events('reviewers')).length, (await events('reviewers-removed')).length];
+    const r = await send({ add: ['Cy'], remove: ['ann'] });
+    assert.equal(r.status, 200);
+    const out = await r.json();
+    assert.deepEqual(out.board.reviewers, ['Bob']);
+    assert.deepEqual([read('board.json').reviewers, read('board.json').title, read('data/wave.json').reviewers], [[bob], 'T', [bob]]);
+    const [added, gone] = [await events('reviewers'), await events('reviewers-removed')];
+    assert.deepEqual([added.length, added[0], gone.length, gone[0]], [before[0] + 1, { add: ['Cy'] }, before[1] + 1, { remove: ['ann'] }]);
+
+    const removed = await (await send({ add: [], remove: ['Bob'] })).json();
+    assert.deepEqual([removed.board.reviewers, read('board.json').reviewers], [[], []]);
+    assert.equal((await events('reviewers')).length, before[0] + 1, 'a remove alone records no reviewers event for the session');
+    assert.equal(removed.id, (await (await fetch(`${base}/_claude/events?kind=reviewers-removed`)).json())[0].id);
+
+    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, reviewers: [ann] }));
+    const refused = await send({ remove: ['Zed'] });
+    assert.equal(refused.status, 400);
+    assert.match((await refused.json()).error, /Zed/);
+    assert.deepEqual([read('board.json').reviewers, (await events('reviewers-removed')).length], [[ann], before[1] + 2]);
+    assert.equal((await send({ remove: 'Ann' })).status, 400, 'names come as a list');
+    assert.equal((await send({})).status, 400, 'a Save names someone');
+  } finally {
+    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
+    if (wavePrev) fs.writeFileSync(waveFile, wavePrev); else fs.rmSync(waveFile, { force: true });
+  }
+});

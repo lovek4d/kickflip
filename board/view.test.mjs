@@ -407,6 +407,51 @@ test('Board Settings saves auto-build immediately, uses kind-specific words and 
   }
 });
 
+// docs/adr/2026-11-04-0119-the-board-server-removes-reviewers-itself.md
+test("Board Settings' reviewers Save draws the server's list at once: a remove reads Saved, an add waits on Claude, a refusal shows why", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const root = new page.El();
+  const sent = [];
+  let refuse = '';
+  const base = page.win.ClaudeSite.site;
+  page.win.ClaudeSite.site = (r) => ({ ...base(r), send: async (kind, data) => {
+    sent.push([kind, JSON.parse(JSON.stringify(data))]);
+    if (refuse) throw Object.assign(new Error('send failed: 400'), { status: 400, reason: refuse });
+    return { id: `e${sent.length}`, board: { reviewers: ['Bob'] } };
+  } });
+  page.win.fetch = async (url) => {
+    const body = url.endsWith('/api/board') ? { reviewers: ['Ann', 'Bob'] } : {};
+    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
+  };
+  const view = page.win.AppViews.settings.create(root, '/orch', {});
+  view.mount();
+  await tick();
+  const list = root.querySelector('#list'), status = root.querySelector('#saveStatus'), save = root.querySelector('#save');
+  const tapRemove = (name) => page.fire(list, 'click', { target: { closest: () => ({ dataset: { name } }) } });
+  const saveNow = async () => { page.fire(save, 'click'); await tick(); await tick(); };
+  assert.match(list.innerHTML, /Ann[^]*Bob/);
+  tapRemove('Ann');
+  assert.equal(save.disabled, false);
+  await saveNow();
+  assert.deepEqual(sent.at(-1), ['reviewers', { add: [], remove: ['Ann'] }]);
+  assert.equal(status.textContent, 'Saved');
+  assert.doesNotMatch(list.innerHTML, /Ann/);
+  assert.equal(save.disabled, true);
+
+  root.querySelector('#addName').value = 'Cy';
+  page.fire(root.querySelector('#addForm'), 'submit');
+  await saveNow();
+  assert.deepEqual(sent.at(-1), ['reviewers', { add: ['Cy'], remove: [] }]);
+  assert.equal(status.textContent, 'Sent. Claude updates the list and replies below.');
+
+  refuse = 'this board has no reviewer "Bob"';
+  tapRemove('Bob');
+  await saveNow();
+  assert.equal(status.textContent, 'this board has no reviewer "Bob"');
+  assert.equal(save.disabled, false, 'a refused Save keeps what was staged');
+  view.unmount();
+});
+
 // docs/adr/2026-11-03-1551-an-idle-board-triages-its-todo-once-a-day.md, docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
 for (const [key, id, on] of [
   ['auto_pull', 'autoPull', 'Saved. Claude starts ready Todo cards while an implementer slot is free.'],

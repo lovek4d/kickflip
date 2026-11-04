@@ -572,10 +572,10 @@ function checkReviewers(list, name) {
 
 // The board's list, also written to each wave file with an unfinished card, so its open PRs reach the same people.
 async function writeReviewers(site, change) {
-  const file = path.join(needSite(site), 'board.json');
-  const cfg = await readJSON(file, {});
-  const reviewers = checkReviewers(change(cfg.reviewers || []), 'the reviewers');
-  await writeJSON(file, { ...cfg, reviewers });
+  const { file, reviewers } = await writeBoardJSON(site, (cfg) => {
+    const reviewers = checkReviewers(change(cfg.reviewers || []), 'the reviewers');
+    return { set: { reviewers }, reviewers };
+  });
   const lines = [];
   for (const source of await itemSources(site)) {
     const wave = await readJSON(source.file, null);
@@ -736,7 +736,7 @@ export function removeReviewers(site, names) {
 
 // Rules: the hub's in settings.json and this board's in board.json `rules` (../hub/rules.mjs;
 // docs/adr/2026-10-29-1639-rules-live-on-settings-at-hub-and-board-level.md). The settings page and the CLI both write board.json,
-// so board rule and setting writes run one at a time.
+// so board rule, setting and reviewer writes run one at a time.
 const hubSettingsFile = () => path.join(os.homedir(), '.claude', 'kickflip', 'settings.json');
 const ruleCall = (fn) => { try { return fn(); } catch (e) { if (e instanceof RuleError) fail(e.message); throw e; } };
 export const readBoardRules = async (site) => rulesOf(await readJSON(path.join(site, 'board.json'), {}));

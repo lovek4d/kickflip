@@ -1,6 +1,7 @@
 // Board Settings, a modal the app shell (shell.js) mounts over its board for /<route>/settings.html.
-// Saving reviewers sends a `reviewers` event {add: [name], remove: [name]}; Claude finds each new person's Slack and
-// GitHub accounts, writes the list with board.mjs reviewers, and replies. Tickets save on each change, and Done, ✕,
+// Saving reviewers sends a `reviewers` event {add: [name], remove: [name]}; the server removes names itself and the list
+// redraws from its answer, while Claude finds each new person's Slack and GitHub accounts, adds them with board.mjs
+// reviewers, and replies. Tickets save on each change, and Done, ✕,
 // Escape and the backdrop wait for that save to land before closing. An unsaved edit marks [data-dirty], and the shell
 // asks before closing the modal then.
 (globalThis.AppViews ||= {}).settings = {
@@ -285,10 +286,11 @@
     B.on($('#save'), 'click', async () => {
       const status = $('#saveStatus');
       try {
-        await BoardUI.waitOn($('#save'), site.send('reviewers', { add: [...add], remove: [...remove] }));
+        const out = await BoardUI.waitOn($('#save'), site.send('reviewers', { add: [...add], remove: [...remove] }));
+        status.textContent = add.size ? 'Sent. Claude updates the list and replies below.' : 'Saved';
+        current = out.board.reviewers;
         add.clear(); remove.clear(); render();
-        status.textContent = 'Sent. Claude updates the list and replies below.';
-      } catch { status.textContent = 'Could not send. Is the host awake?'; }
+      } catch (e) { status.textContent = e?.reason || 'Could not send. Is the host awake?'; }
     });
     B.watch((events) => {
       $('#replies').innerHTML = events.map((e) => `<div class="reply">${e.reply ? (e.reply.html ?? '') : '<span class="muted small">Waiting for Claude…</span>'}</div>`).join('');
