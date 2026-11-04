@@ -1,4 +1,9 @@
+---
+status: superseded in part by ADR-0174
+---
 # The session opens the builder record when it dispatches an agent
+
+Superseded in part by [0174](0174-a-card-reads-starting-from-its-tap-with-one-dispatched-mark.md): the record is marked `dispatched: 'session'`, and a dispatch on a record the tap opened changes nothing.
 
 This extends [0139](0139-a-build-tap-starts-the-build-in-the-board-server.md), whose take-over of a `tapped` record now covers any dispatch, and [0137](0137-a-builder-status-line-is-a-phase-and-a-short-detail.md), whose "Starting" now begins at launch.
 

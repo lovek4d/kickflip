@@ -1,4 +1,9 @@
+---
+status: superseded in part by ADR-0174
+---
 # A Build tap starts the build in the board server
+
+Superseded in part by [0174](0174-a-card-reads-starting-from-its-tap-with-one-dispatched-mark.md): the tap's record is marked `dispatched: 'tap'`, not `tapped`, and the card reads "starting" from the tap, not "Waiting for orchestrator".
 
 This supersedes in part [0122](0122-a-todo-card-that-nothing-blocks-has-build.md), on what a tap does and what the session does, and extends [0133](0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md) to the deterministic half of a build.
 

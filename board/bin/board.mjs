@@ -302,7 +302,12 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
          [--dispatch]                                    --dispatch: the session runs this right before it launches
                                                          an agent of any kind (build, prototype, grill) so the record
                                                          is open at launch and the card reads Starting; the agent's
-                                                         own builder start takes it up.
+                                                         own builder start takes it up. On a record the Build tap
+                                                         opened it changes nothing and prints "already open". The
+                                                         record keeps dispatched: tap or session, whoever opened it.
+                                                         --agent <other name> refuses while the tap's main record
+                                                         is open and not taken up.
+                                                         A build's start clears the card's Next.
                                                          A build (--kind build, claude or codex) on an open card sets
                                                          --status building first, refusing what that refuses;
                                                          Prints "ref: <ref>", the card's label, which commit subjects start with.
@@ -322,7 +327,8 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
                                                          for another agent, and the card "Testing · <detail>"
          [--eta <ISO time> | --clear-eta]                an ETA shows as a line under the card's status
          A progress line, --progress included, needs --site: it is a status line in the item's thread, and
-         the card's status shows the newest one from an agent still working
+         the card's status shows the newest one from an agent still working. builder progress refuses
+         without an open record for that agent, as builder call does
   builder done <wave>/<id> [--agent <name>]              marks that agent's record done; the item's thread
          [--next <t>]                                    shows when it started and finished; clears building/fixing
                                                          when the card has no open builder records left. Closing the
@@ -537,9 +543,9 @@ const COMMANDS = {
   }],
   'main set': [[], ['install', 'install-sha'], (site, _, f) => store.setMainInstall(site, { install: f.install, installSha: f['install-sha'] })],
   'settings set': [['name', 'value'], [], (site, [name, value]) => store.setBoardSetting(site, name, value)],
-  'builder start': [['wave/id'], ['label', 'phase', 'progress', 'dir', 'agent', 'kind', 'model', 'eta', 'worktree', 'repo', 'dispatch'], (site, [key], { worktree, repo, ...f }) => {
+  'builder start': [['wave/id'], ['label', 'phase', 'progress', 'dir', 'agent', 'kind', 'model', 'eta', 'worktree', 'repo', 'dispatch'], (site, [key], { worktree, repo, dispatch, ...f }) => {
     if (repo !== undefined && !worktree) throw new UsageError('--repo goes with --worktree');
-    return store.startBuilder(site, key, { ...f, worktree: worktree && ((opts) => boardWorktree(site, key.split('/')[1], { repo, ...opts })) });
+    return store.startBuilder(site, key, { ...f, dispatch: dispatch ? 'session' : undefined, worktree: worktree && ((opts) => boardWorktree(site, key.split('/')[1], { repo, ...opts })) });
   }],
   'builder progress': [['wave/id', '...text?'], ['phase', 'text', 'dir', 'agent', 'eta', 'clear-eta'], (site, [key, ...words], f) => {
     if (words.length && f.text !== undefined) throw new UsageError('builder progress takes its text once: as words or as --text');
@@ -635,7 +641,7 @@ const SAID = {
   'rules add': (site, _, f) => `${f.hub ? 'hub' : 'board'} rule added`,
   'rules edit': (site, [id], f) => `${f.hub ? 'hub' : 'board'} rule ${id} reworded`,
   'rules remove': (site, [id], f) => `${f.hub ? 'hub' : 'board'} rule ${id} removed`,
-  'builder start': async (site, [key], f) => `${await card(site, key)}: ${builderOf(f)} started`,
+  'builder start': async (site, [key], f, result) => `${await card(site, key)}: ${result.alreadyOpen ? 'already open: the Implement tap opened its record; launch the agent, whose own builder start takes it up' : `${builderOf(f)} started`}`,
   'builder progress': async (site, [key]) => `progress line on ${await card(site, key)}`,
   'builder done': async (site, [key], f) => `${await card(site, key)}: ${builderOf(f)} done`,
   'builder call': async (site, [key]) => `judgment call recorded on ${await card(site, key)}`,

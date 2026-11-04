@@ -1822,6 +1822,7 @@ test('builder progress and start --progress refuse a missing or unknown phase an
   }
   assert.equal(fs.existsSync(site('orch', 'data', 'threads', 'w__A1.jsonl')), false);
   assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A1.json')), false);
+  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch').code, 0);
   assert.equal(board('builder', 'progress', 'w/A1', 'x'.repeat(80), '--phase', 'landing', '--site', 'orch').code, 0);
 });
 
@@ -2460,8 +2461,8 @@ test('rules refuse a board rule without --site, an empty text, an unknown author
   assert.equal(fs.existsSync(at('kickflip', 'settings.json')), false);
 });
 
-test("a builder's builder start takes up the record the owner's Build tap started: same kind and worktree, its own start time, and no longer waiting", () => {
-  const tapped = { label: 'Codex builder', kind: 'codex', started: '2026-11-03T10:00:00.000Z', tapped: true, worktree: { path: '/w/A1', branch: 'A1', repo: '/r' } };
+test("a builder's builder start takes up the record the owner's Build tap started: same kind and worktree, its own start time, and no longer dispatched", () => {
+  const tapped = { label: 'Codex builder', kind: 'codex', started: '2026-11-03T10:00:00.000Z', dispatched: 'tap', worktree: { path: '/w/A1', branch: 'A1', repo: '/r' } };
   write(at('waves', 'w', 'agents', 'A1.json'), tapped);
   write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'building' }] });
   const r = board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build', '--label', 'Codex builder');
@@ -2479,8 +2480,7 @@ test("builder start --dispatch opens the record before the agent launches, for b
   const dispatched = board('--site', 'orch', 'builder', 'start', 'w/A1', '--dispatch', '--kind', 'build', '--model', 'sonnet', '--label', 'Sonnet builder');
   assert.equal(dispatched.code, 0, dispatched.err);
   const open = read(at('waves', 'w', 'agents', 'A1.json'));
-  assert.equal(open.dispatched, true);
-  assert.equal(open.tapped, undefined);
+  assert.equal(open.dispatched, 'session');
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status, 'building');
   const taken = board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build', '--label', 'Sonnet builder');
   assert.equal(taken.code, 0, taken.err);
@@ -2491,7 +2491,7 @@ test("builder start --dispatch opens the record before the agent launches, for b
   for (const kind of ['prototype', 'grill']) {
     const r = board('--site', 'orch', 'builder', 'start', 'w/A2', '--dispatch', '--kind', kind, '--model', 'opus', '--label', `${kind} agent`);
     assert.equal(r.code, 0, r.err);
-    assert.equal(read(at('waves', 'w', 'agents', 'A2.json')).dispatched, true);
+    assert.equal(read(at('waves', 'w', 'agents', 'A2.json')).dispatched, 'session');
     assert.equal(read(at('waves', 'w', 'wave.json')).items[1].status, 'todo');
     const own = board('--site', 'orch', 'builder', 'start', 'w/A2', '--kind', kind, '--label', `${kind} agent`);
     assert.equal(own.code, 0, own.err);
@@ -2504,12 +2504,52 @@ test("builder start --dispatch opens the record before the agent launches, for b
 test('--dispatch on a record whose worktree the dispatch made keeps it through the agent\'s start, and a record already done is not taken up', () => {
   write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'building' }] });
   const wt = { path: '/w/A1', branch: 'A1', repo: '/r' };
-  write(at('waves', 'w', 'agents', 'A1.json'), { label: 'Prototype', kind: 'claude', model: 'opus', started: '2026-11-03T10:00:00.000Z', dispatched: true, worktree: wt });
+  write(at('waves', 'w', 'agents', 'A1.json'), { label: 'Prototype', kind: 'claude', model: 'opus', started: '2026-11-03T10:00:00.000Z', dispatched: 'session', worktree: wt });
   assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'prototype').code, 0);
   assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, wt);
-  write(at('waves', 'w', 'agents', 'A1.json'), { label: 'Old', kind: 'claude', started: '2026-11-03T10:00:00.000Z', dispatched: true, worktree: wt, done: '2026-11-03T11:00:00.000Z' });
+  write(at('waves', 'w', 'agents', 'A1.json'), { label: 'Old', kind: 'claude', started: '2026-11-03T10:00:00.000Z', dispatched: 'session', worktree: wt, done: '2026-11-03T11:00:00.000Z' });
   assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'prototype').code, 0);
   assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).worktree, undefined);
+});
+
+test("--dispatch on a record the Build tap opened leaves it alone and says it's already open", () => {
+  const tapped = { label: 'Builder', kind: 'codex', started: '2026-11-03T10:00:00.000Z', dispatched: 'tap', worktree: { path: '/w/A1', branch: 'A1', repo: '/r' } };
+  write(at('waves', 'w', 'agents', 'A1.json'), tapped);
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'building' }] });
+  const r = board('--site', 'orch', 'builder', 'start', 'w/A1', '--dispatch', '--kind', 'build', '--worktree');
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.out, "A1: already open: the Implement tap opened its record; launch the agent, whose own builder start takes it up\n");
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')), tapped);
+});
+
+test('builder start under another agent name refuses while the Build tap opened the main record and nobody took it up', () => {
+  write(at('waves', 'w', 'agents', 'A1.json'), { label: 'Builder', kind: 'codex', started: '2026-11-03T10:00:00.000Z', dispatched: 'tap' });
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'building' }] });
+  const r = board('--site', 'orch', 'builder', 'start', 'w/A1', '--agent', 'bench', '--kind', 'bench');
+  assert.equal(r.code, 1);
+  assert.match(r.err, /the Implement tap opened w\/A1's main builder record and no agent has taken it up; run builder start w\/A1 without --agent first/);
+  assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A1@bench.json')), false);
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build').code, 0);
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--agent', 'bench', '--kind', 'bench').code, 0);
+});
+
+test('starting a build clears the card\'s Next; a planner\'s start keeps it', () => {
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'todo', next: 'Implement' }, { id: 'A2', title: 'Two', status: 'todo', next: 'Answer the questions' }] });
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A2', '--kind', 'grill').code, 0);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[1].next, 'Answer the questions');
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'claude').code, 0);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].next, undefined);
+});
+
+test('builder progress refuses without an open builder record, as builder call does', () => {
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'todo' }] });
+  const none = board('--site', 'orch', 'builder', 'progress', 'w/A1', '--phase', 'reading', 'the notes');
+  assert.equal(none.code, 1);
+  assert.match(none.err, /builder progress needs an open builder record on w\/A1; run builder start first/);
+  assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A1.json')), false);
+  write(at('waves', 'w', 'agents', 'A1.json'), { label: 'Builder', started: '2026-11-03T10:00:00.000Z', done: '2026-11-03T11:00:00.000Z' });
+  assert.match(board('--site', 'orch', 'builder', 'progress', 'w/A1', '--phase', 'reading', 'the notes').err, /needs an open builder record/);
+  assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).done, '2026-11-03T11:00:00.000Z');
 });
 
 test('builder start refuses a Claude pause before making records or a worktree, and runs while going or Off', () => {
@@ -2866,13 +2906,13 @@ test('a write that takes a card out of Todo clears its hold and pick-up time', (
   assert.deepEqual([items()[4].held, items()[4].pick_up_at], [true, nine]);
 });
 
-test("a Next set while the card has an open question clears once its questions are all acted on, or once a build starts; one set with none open stays", () => {
+test("a Next set while the card has an open question clears once its questions are all acted on, and any Next clears once a build starts", () => {
   const item = (id) => read(at('waves', 'w', 'wave.json')).items.find((it) => it.id === id);
   const ownerFile = site('orch', 'data', 'owner.json');
   const ok = (...args) => { const r = board(...args, '--site', 'orch'); assert.equal(r.code, 0, r.err); return r; };
   ok('item', 'set', 'w/ENG-1', '--next', 'Merge when CI is green');
   ok('builder', 'start', 'w/ENG-1', '--kind', 'claude');
-  assert.deepEqual([item('ENG-1').next, item('ENG-1').next_on_questions], ['Merge when CI is green', undefined]);
+  assert.deepEqual([item('ENG-1').next, item('ENG-1').next_on_questions], [undefined, undefined]);
 
   write(ownerFile, { topics: [], items: [question('pick', { topic: 'item:w/A1' })] });
   ok('builder', 'start', 'w/A1', '--kind', 'claude');

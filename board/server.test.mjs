@@ -286,7 +286,7 @@ test('a card with a message marked working or a prototype recorded for it stays 
   }
 });
 
-test("a Build tap starts the build in the board server, moving the card to In Progress reading Waiting for orchestrator and waking the session with its worktree and pick, and a refusal leaves it in Todo with the reason; on a blocked card it queues the build, which the server starts once the blocker is done", async () => {
+test("a Build tap starts the build in the board server, moving the card to In Progress reading starting and waking the session with its worktree and pick, and a refusal leaves it in Todo with the reason; on a blocked card it queues the build, which the server starts once the blocker is done", async () => {
   const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
   const origin = path.join(home, 'origin');
   fs.mkdirSync(origin);
@@ -302,7 +302,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
   fs.mkdirSync(path.dirname(manifest), { recursive: true });
   fs.writeFileSync(manifest, JSON.stringify({ sites: { site: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [
-    { id: 'B1', title: 'Tapped' }, { id: 'B2', title: 'Held', held: true, pick_up_at: '2099-01-01T00:00:00.000Z' }, { id: 'B3', title: 'Blocked', deps: ['B4'] }, { id: 'B4', title: 'Dep' },
+    { id: 'B1', title: 'Tapped', next: 'Implement' }, { id: 'B2', title: 'Held', held: true, pick_up_at: '2099-01-01T00:00:00.000Z' }, { id: 'B3', title: 'Blocked', deps: ['B4'] }, { id: 'B4', title: 'Dep' },
     { id: 'B5', title: 'Held and blocked', deps: ['B4'], held: true }, { id: 'B6', title: 'Leftover worktree' }, { id: 'B7', title: 'Leftover work' },
   ] }));
   const wave = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'));
@@ -315,19 +315,20 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
   try {
     assert.equal((await post({ kind: 'card-build', key: 't/B1' })).status, 200);
     const record = JSON.parse(fs.readFileSync(path.join(site, 'data', 'agents', 'B1.json'), 'utf8'));
-    assert.deepEqual([record.kind, record.label, record.tapped, record.worktree], ['claude', 'Builder', true, { path: worktree, branch: 'B1', repo: clone }]);
+    assert.deepEqual([record.kind, record.label, record.dispatched, record.worktree], ['claude', 'Builder', 'tap', { path: worktree, branch: 'B1', repo: clone }]);
     assert.equal(git(worktree, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'HEAD'));
+    assert.equal(wave().items.find((i) => i.id === 'B1').next, undefined);
     const woke = log().slice(before);
     assert.deepEqual(woke.map((e) => [e.kind, e.data]), [['card-build', { key: 't/B1', ref: 'B1', kind: 'claude', model: 'opus', reason: woke[0].data.reason, worktree }]]);
     assert.match(woke[0].data.reason, /\S/);
     const started = await card('B1');
-    assert.deepEqual([started.lane, started.status, started.buildable, started.builder.waiting, started.builder.progress, started.refusal], ['progress', 'building', false, true, null, null]);
+    assert.deepEqual([started.lane, started.status, started.buildable, started.builder.progress, started.refusal], ['progress', 'building', false, null, null]);
 
     const held = await card('B2');
     assert.deepEqual([held.held, held.buildable], [true, true]);
     assert.equal((await post({ kind: 'card-build', key: 't/B2' })).status, 200);
     const unheld = await card('B2');
-    assert.deepEqual([unheld.held, unheld.lane, unheld.status, unheld.builder.waiting, unheld.refusal], [false, 'progress', 'building', true, null]);
+    assert.deepEqual([unheld.held, unheld.lane, unheld.status, unheld.builder.progress, unheld.refusal], [false, 'progress', 'building', null, null]);
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items[1].pick_up_at, undefined);
     assert.deepEqual(thread('B2').map((m) => [m.who, m.text]), [['love', 'Resumed.']]);
     assert.deepEqual(log().slice(before).map((e) => e.kind), ['card-build', 'card-build']);
@@ -362,7 +363,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.deepEqual(woken, ['t/B3', 't/B5']);
     for (const id of ['B3', 'B5']) {
       const startedQueued = await card(id);
-      assert.deepEqual([startedQueued.lane, startedQueued.status, startedQueued.queued, startedQueued.builder.waiting], ['progress', 'building', false, true]);
+      assert.deepEqual([startedQueued.lane, startedQueued.status, startedQueued.queued, startedQueued.builder.progress], ['progress', 'building', false, null]);
       assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'agents', `${id}.json`), 'utf8')).worktree.path, path.join(home, '.claude', 'kickflip', 'worktrees', id));
       assert.equal(wave().items.find((i) => i.id === id).queued_at, undefined);
     }

@@ -378,7 +378,7 @@ export const builds = (agent) => !plans(agent);
 function agentsOf(records = {}) {
   return Object.entries(records).filter(([, r]) => r && typeof r === 'object').map(([name, r]) => ({
     name, kind: providerOf(r.kind) || null, model: r.model || (r.kind === 'opus' || r.kind === 'sonnet' ? r.kind : null), label: r.label || null, started: r.started || null, eta: r.done ? null : r.eta || null, done: r.done || null,
-    tapped: r.tapped === true, calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null,
+    calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null,
   })).sort((a, b) => String(a.started || '').localeCompare(String(b.started || '')) || a.name.localeCompare(b.name));
 }
 // The worktree path the newest builder record keeping one names (board/worktree.mjs makeWorktree), or null. The board
@@ -389,9 +389,9 @@ function worktreeOf(records = {}) {
 
 // An install builder takes precedence so another running agent cannot hide the install's build state. A phased line
 // ("Testing: <detail>") reads "Testing · <detail>" on the card; a line with no phase, from builder done's note or from
-// before phases, reads as written (docs/adr/0137-a-builder-status-line-is-a-phase-and-a-short-detail.md). waiting: a
-// record the owner's Build tap started, whose builder the session hasn't launched yet, and no status line since
-// (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md). While a build runs, its line wins over a running
+// before phases, reads as written (docs/adr/0137-a-builder-status-line-is-a-phase-and-a-short-detail.md). Before the
+// first line the card reads starting, whoever opened the record
+// (docs/adr/0174-a-card-reads-starting-from-its-tap-with-one-dispatched-mark.md). While a build runs, its line wins over a running
 // planner's; with only planners running the line is theirs, marked planner
 // (docs/adr/0167-planners-and-implementers-are-two-kinds-of-agent.md).
 function builderOf(agents, lines = [], now) {
@@ -404,7 +404,7 @@ function builderOf(agents, lines = [], now) {
   const kind = running.some((a) => a.kind === BUILDER_KIND.install) ? BUILDER_KIND.install : providerOf(running.at(-1).kind);
   const silentSince = line?.ts || since;
   const progress = line ? (line.phase ? line.text.replace(': ', ' · ') : line.text || null) : null;
-  return { progress, phase: line?.phase || null, waiting: !line && running.some((a) => a.tapped), at: silentSince, kind, planner, silentSince, stalled: now - Date.parse(silentSince) >= BUILDER_STALLED_AFTER };
+  return { progress, phase: line?.phase || null, at: silentSince, kind, planner, silentSince, stalled: now - Date.parse(silentSince) >= BUILDER_STALLED_AFTER };
 }
 
 // The model the agent runs: a Claude kind's record holds it as model (opus or sonnet), a record without one reads from its kind.

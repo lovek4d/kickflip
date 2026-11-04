@@ -1099,17 +1099,26 @@ function setNext(item, next, waitsOnQuestions) {
   item.next = text(next, '--next');
   if (waitsOnQuestions) item.next_on_questions = true; else delete item.next_on_questions;
 }
-// Clears that Next once a build starts on the card, or once none of the card's questions is left unresolved: the card
-// then reads its builder line or "Next: none set yet". topic is the card's question topic, item:<key>; any other
-// topic, or a card no longer on the board, has no Next to clear.
-async function clearWaitedNext(site, topic, { build = false } = {}) {
+// Clears that Next once none of the card's questions is left unresolved: the card then reads "Next: none set yet".
+// topic is the card's question topic, item:<key>; any other topic, or a card no longer on the board, has no Next to clear.
+async function clearWaitedNext(site, topic) {
   const key = topic.startsWith('item:') && !topic.startsWith('item:ask:') ? topic.slice(5) : null;
   if (!key) return;
   let loaded;
   try { loaded = await loadItem(site, key); } catch (e) { if (e instanceof BoardError) return; throw e; }
   const { source, wave, item } = loaded;
   if (!item.next_on_questions) return;
-  if (!build && (await cardQuestions(site, key)).asked.some((q) => q.state !== 'resolved')) return;
+  if ((await cardQuestions(site, key)).asked.some((q) => q.state !== 'resolved')) return;
+  delete item.next;
+  delete item.next_on_questions;
+  await writeJSON(source.file, wave);
+}
+
+// A build's start clears the card's Next, whatever it waits on: the card reads its builder line
+// (docs/adr/0174-a-card-reads-starting-from-its-tap-with-one-dispatched-mark.md).
+async function clearNext(site, key) {
+  const { source, wave, item } = await loadItem(site, key);
+  if (item.next === undefined && item.next_on_questions === undefined) return;
   delete item.next;
   delete item.next_on_questions;
   await writeJSON(source.file, wave);
@@ -1879,15 +1888,20 @@ const PLANNER_MODEL = { prototype: 'sonnet', grill: 'opus' };
 // and the card's thread. A build (--kind build, claude or codex) on an
 // open card marks it building first, refusing what item set --status building refuses
 // (docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
-// tapped marks a record the owner's Build tap started (startTappedBuild); dispatch marks one the session opens right
-// before it launches an agent, of any kind. A builder's own start on that open record takes it up: --kind build keeps
-// the record's kind, its Claude model and worktree stay, and the record starts again at now, no longer tapped or
-// dispatched (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md,
-// docs/adr/0152-the-session-opens-the-builder-record-when-it-dispatches-an-agent.md).
+// dispatch marks the record open before its agent runs, as dispatched: 'tap' for the owner's Build tap
+// (startTappedBuild) or 'session' for the session's --dispatch right before it launches an agent of any kind. A
+// builder's own start on that open record takes it up: --kind build keeps the record's kind, its Claude model and
+// worktree stay, and the record starts again at now, no longer dispatched. A session's dispatch on a record the tap
+// opened leaves it as it is, and a start under another agent name refuses until main's tap-opened record is taken up
+// (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md,
+// docs/adr/0152-the-session-opens-the-builder-record-when-it-dispatches-an-agent.md,
+// docs/adr/0174-a-card-reads-starting-from-its-tap-with-one-dispatched-mark.md).
+// A build's start clears the card's Next.
 // A Claude build takes the hub's Claude model when it is Opus or Sonnet, refusing a --model it rules out, and otherwise
 // the pick's, which reads the card's size and model (docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md).
-// → {file, lines, kind, model, reason, worktree}: model is the Claude model or null, reason the pick's, worktree the path or null.
-export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, model, eta, worktree, tapped, dispatch }) {
+// → {file, lines, kind, model, reason, worktree}: model is the Claude model or null, reason the pick's, worktree the path or null;
+// {file, alreadyOpen: true, lines: []} for a session's dispatch on a record the tap opened.
+export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, model, eta, worktree, dispatch }) {
   const gate = readUsageGate();
   if (gate.state === 'paused') throw new BoardError(pauseReason(gate));
   if (phase !== undefined && progress === undefined) fail('--phase goes with --progress "<detail>"');
@@ -1901,12 +1915,15 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   // docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md: --kind build takes the pick's kind.
   const build = ['build', ...PICKED].includes(asked);
   const before = await readJSON(file, null);
-  const takeUp = (before?.tapped || before?.dispatched) && !before.done ? before : null;
+  const tapOpen = (record) => record?.dispatched === 'tap' && !record.done;
+  if (dispatch === 'session' && tapOpen(before)) return { file, alreadyOpen: true, lines: [] };
+  if (agent !== 'main' && tapOpen(await readJSON(await builderFile(site, key, dir), null))) fail(`the Implement tap opened ${key}'s main builder record and no agent has taken it up; run builder start ${key} without --agent first`);
+  const takeUp = before?.dispatched && !before.done ? before : null;
   const was = build && !dir ? (await loadItem(site, key)).item : undefined;
   // A record with unverified judgment calls is a build not yet checked: a start on it resumes that build, a
-  // dispatched or tapped one included (docs/adr/0155-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
+  // dispatched one included (docs/adr/0155-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
   const resumed = before && unverifiedCalls(before).length ? before : null;
-  const pick = takeUp && asked === 'build' ? { kind: providerOf(takeUp.kind), model: takeUp.model, reason: takeUp.tapped ? "The owner's Build tap picked it." : "The session's dispatch picked it." } : build ? builderPick({ card: was ?? {} }) : null;
+  const pick = takeUp && asked === 'build' ? { kind: providerOf(takeUp.kind), model: takeUp.model, reason: takeUp.dispatched === 'tap' ? "The owner's Build tap picked it." : "The session's dispatch picked it." } : build ? builderPick({ card: was ?? {} }) : null;
   if (pick && asked !== 'build' && asked !== pick.kind) fail(`--kind ${asked}: ${pick.kind} builds now. ${pick.reason} Pass --kind ${pick.kind}, or --kind build.`);
   const k = pick ? pick.kind : asked;
   if (model !== undefined && !['opus', 'sonnet'].includes(model)) fail('--model takes opus or sonnet');
@@ -1917,7 +1934,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
     : plans({ kind: k }) ? askedModel ?? (takeUp?.kind === k ? takeUp.model : undefined) ?? PLANNER_MODEL[k] : undefined;
   const record = {
     label: label === undefined ? 'Builder' : text(label, '--label'), ...(k ? { kind: k } : {}), ...(claude ? { model: claude } : {}), started: now,
-    ...(eta === undefined ? {} : { eta: isoTime(eta, '--eta') }), ...(tapped ? { tapped: true } : {}), ...(dispatch ? { dispatched: true } : {}),
+    ...(eta === undefined ? {} : { eta: isoTime(eta, '--eta') }), ...(dispatch ? { dispatched: dispatch } : {}),
     ...(resumed ? { calls: resumed.calls, ...(resumed.verified ? { verified: resumed.verified } : {}) } : {}),
   };
   const marking = build && !dir && ![...FINISHED, 'building', 'fixing'].includes(was.status);
@@ -1939,7 +1956,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   if (remade && site) await appendThread(site, key, { text: remade });
   if (line) await statusToThread(site, key, agent, record, line, now);
   const resolved = await resolveAnswered(site, key, 'Acted on: builder started');
-  if (site && builds({ kind: k })) await clearWaitedNext(site, `item:${key}`, { build: true });
+  if (site && build) await clearNext(site, key);
   return {
     file, kind: k ?? null, model: claude ?? null, reason: pick?.reason ?? null, worktree: wt?.path ?? null,
     lines: [...(asked === 'build' ? [`kind: ${k}. ${pick.reason}`] : []), ...(modelName(record) ? [`model: ${modelName(record)}`] : []), ...(site ? [`ref: ${await cardName(site, key)}`] : []), ...(wt ? [`worktree: ${wt.path}`] : []), ...(remade ? [remade] : []), ...marked.lines, ...resolved],
@@ -1947,8 +1964,8 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
 }
 
 // The owner's Build tap, in the board server: it refuses what a build's builder start refuses, in the owner's words,
-// else starts the build as `builder start --kind build --worktree` does, with the record marked tapped, so the card is
-// In Progress reading "Waiting for orchestrator" until the session's builder takes it up. A refusal is a thread line
+// else starts the build as `builder start --kind build --worktree` does, with the record marked dispatched: 'tap', so the
+// card is In Progress reading "Starting" until its builder's first status line. A refusal is a thread line
 // of kind BUILD_REFUSED, which the Todo card shows while it is the card's newest line. worktree makes the worktree, as
 // builder start's does (board/worktree.mjs boardWorktree). → {key, ref, kind, reason, worktree}, or null when refused
 // (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md).
@@ -1961,7 +1978,7 @@ export async function startTappedBuild(site, key, worktree) {
     if (held) await recordOwnerTap(site, 'card-hold', { key, hold: false });
     if (blockers.length) return await queueBuild(site, key, blockers);
     try {
-      const started = await startBuilder(site, key, { kind: 'build', worktree, tapped: true });
+      const started = await startBuilder(site, key, { kind: 'build', worktree, dispatch: 'tap' });
       return { key, ref: await cardName(site, key), kind: started.kind, ...(started.model ? { model: started.model } : {}), reason: started.reason, worktree: started.worktree };
     } catch (e) {
       if (held) await restoreHold(site, key, held);
@@ -2062,12 +2079,12 @@ export async function builderProgress(site, key, progress, { phase, dir, agent =
   if (eta !== undefined && clearEta) fail('pass --eta or --clear-eta, not both');
   const line = progressLine(site, phase, progress, 'builder progress');
   const file = await builderFile(site, key, dir, agent);
-  const now = new Date().toISOString();
-  const { progress: _line, progress_at: _at, done: _done, ...next } = await readJSON(file, { label: 'Builder', started: now });
-  if (eta !== undefined) next.eta = isoTime(eta, '--eta');
-  if (clearEta) delete next.eta;
-  await writeJSON(file, next);
-  await statusToThread(site, key, agent, next, line, now);
+  const record = await readJSON(file, null);
+  if (!record?.started || record.done) fail(`builder progress needs an open builder record on ${key}; run builder start first`);
+  if (eta !== undefined) record.eta = isoTime(eta, '--eta');
+  if (clearEta) delete record.eta;
+  if (eta !== undefined || clearEta) await writeJSON(file, record);
+  await statusToThread(site, key, agent, record, line, new Date().toISOString());
   return file;
 }
 

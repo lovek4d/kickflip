@@ -989,7 +989,7 @@ test('a building card in In Progress ends its time row with five bars, before th
   const first = ui.workLines({ ...building, builder: { ...builder, phase: 'reading' } });
   assert.match(first, /<i class="now"><\/i><i class=""><\/i><i class=""><\/i><i class=""><\/i><i class=""><\/i>/);
   assert.match(ui.workLines({ ...building, builder: { ...builder, phase: 'landing' } }), /aria-label="Landing, step 5 of 5"/);
-  for (const none of [{ ...builder, phase: null }, { progress: null, phase: null, waiting: true, at: null }]) assert.doesNotMatch(ui.workLines({ ...building, builder: none }), /phase-bars/);
+  for (const none of [{ ...builder, phase: null }, { progress: null, phase: null, at: null }]) assert.doesNotMatch(ui.workLines({ ...building, builder: none }), /phase-bars/);
   assert.doesNotMatch(ui.workLines({ ...building, waitsOn: 'checking' }), /phase-bars/);
   assert.doesNotMatch(ui.workLines({ ...building, builder: null, next: 'Fix it' }), /phase-bars/);
 });
@@ -1007,9 +1007,8 @@ test("a planner's line on a card is marked planner, keeping its dot, and never h
 test("a builder line shows the progress and its age, not who is building", () => {
   const at = new Date(Date.now() - 4 * 60000).toISOString();
   assert.equal(ui.builderLine({ label: 'Opus builder', progress: 'Testing · the limiter', at }), 'Testing · the limiter · 4m ago');
-  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at }), 'Starting · 4m ago');
-  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at: null }), 'Starting');
-  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, waiting: true, at }), 'Waiting for orchestrator · 4m ago');
+  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at }), 'starting · 4m ago');
+  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at: null }), 'starting');
   assert.equal(ui.builderLine({ label: null, progress: 'Making changes', at: null }), 'Making changes');
 });
 

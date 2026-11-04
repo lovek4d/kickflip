@@ -129,8 +129,8 @@
     if (!it.buildable) return '';
     return `<button class="build" data-confirm="card-build" data-key="${esc(it.key)}"${sending ? ' disabled' : ''}>${sending ? 'Starting…' : 'Implement'}</button>`;
   }
-  // A builder the Implement tap started reads "Waiting for orchestrator" until the session's builder posts its first line.
-  const builderLine = (b) => [b.progress || (b.waiting ? 'Waiting for orchestrator' : 'Starting'), b.at && ago(b.at)].filter(Boolean).join(' · ');
+  // A builder reads "starting" until its first status line, from the Implement tap or the session's dispatch on.
+  const builderLine = (b) => [b.progress || 'starting', b.at && ago(b.at)].filter(Boolean).join(' · ');
   // Five bars at the end of the time row while a build runs on an In Progress card: done phases filled, the current one
   // marked. The phases are store.mjs PHASES (docs/adr/0137-a-builder-status-line-is-a-phase-and-a-short-detail.md,
   // docs/adr/0160-a-building-cards-phase-bars-end-its-time-row.md).
