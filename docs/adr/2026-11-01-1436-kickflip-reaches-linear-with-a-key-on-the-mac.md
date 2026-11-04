@@ -1,10 +1,12 @@
 ---
-status: superseded in part by 2026-11-02-1712-a-board-picks-linear-only-while-hubs-key-works
+status: superseded in part by 2026-11-02-1712-a-board-picks-linear-only-while-hubs-key-works and 2026-11-04-0227-every-new-card-gets-a-ticket-in-the-boards-current-source
 ---
 
 # kickflip reaches Linear with a key on the Mac
 
 The Tickets control's typed fields without a key are superseded by [a board picks Linear only while Hub's key works](2026-11-02-1712-a-board-picks-linear-only-while-hubs-key-works.md).
+
+Working without a key through the session’s Linear MCP is superseded by [every new card gets a ticket in the board’s current source](2026-11-04-0227-every-new-card-gets-a-ticket-in-the-boards-current-source.md): a board on Linear needs Hub’s key, and falls back to internal tickets when the key is removed.
 
 The owner settled `linear-access`, `status-sync` and `ticket-when` (A each) on hub/INT-184: kickflip talks to Linear itself with the owner's personal API key, so a board on Linear lists, creates and moves its tickets the way a GitHub board does through `gh`, and each card moves its ticket one way. The key is optional and takes precedence: without one, the board's session does that Linear work through its own Linear MCP, because the hub process and `board.mjs` can't reach an MCP. This builds out [a board has one ticket source](2026-11-01-1348-a-board-has-one-ticket-source.md)'s Linear source.
 

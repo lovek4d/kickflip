@@ -25,9 +25,9 @@ Asks have no ticket; item set --from-ask creates one when the card has none.
 A card moves its ticket one way: --status building or fixing → In Progress, --pr → In Review, --status done or
 merged → Done (a GitHub issue closes), only for a ticket assigned to the owner or created by kickflip. A ticket that
 can't move prints one "ticket <id>: …" line; the card's change still stands.
-A Linear board without Hub's key hands Linear to the session: a linked id is checked on its pattern alone, and a card
-needing an issue, or a ticket to move, prints a "ticket" line saying what to do through your Linear MCP, such as
-creating the issue and running item set <wave>/<id> --ticket <id>.
+Linear needs Hub's Linear key: settings set tickets refuses it without one, and once the key is removed the hub
+moves every Linear board to internal tickets. A card is never left without a ticket: if Linear can't make one, the
+command fails and changes nothing.
 
   reply <eventId> (--html <text> | --file <path>)        data/replies/<eventId>.html. A reply to an ask resolves its
                                                          answered questions (topic item:ask:<eventId>), and one to

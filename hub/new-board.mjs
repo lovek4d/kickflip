@@ -3,7 +3,7 @@ import { readManifest, withManifestLock, writeManifest } from './boards.mjs';
 import { ROUTE_RE, routeFromName, routeRecord } from './routes.mjs';
 import { repoService, validateGithub, validateBranch, validateRemote } from './repos.mjs';
 import { startFailed, startSession, stopSession } from './sessions.mjs';
-import { savedClient } from './linear.mjs';
+import { LINEAR_NEEDS_KEY, linearWorks, savedClient } from './linear.mjs';
 
 const refuse = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 
@@ -85,13 +85,14 @@ async function start(route, { purpose, repo, github, remote, branch }, { run, li
 
 // Reserves the route on a Starting row, then starts the board's session in the background
 // (docs/adr/2026-10-31-0137-the-hub-starts-a-new-boards-session.md). run and live go to sessions.mjs startSession. Tickets with
-// new_project create that Linear project first, through linear (linear.mjs savedClient by default); without a key the
-// project keeps its name, and the board's session creates it through its Linear MCP.
+// new_project create that Linear project first, through linear (linear.mjs savedClient by default). Linear tickets
+// need Hub's working key, or the linear passed in.
 // → {route, started}: started settles once the outcome is on the Starting row, as {session} or {error}, and never rejects.
 export async function requestBoard(input, { run, live, repos = repoService(), changed = () => {}, linear } = {}) {
   const board = details(input);
   const { route, github, remote, newProject } = board;
   let { tickets } = board;
+  if (tickets.source === 'linear' && !linear && !linearWorks()) refuse(LINEAR_NEEDS_KEY);
   const repo = repos.path(github || remote);
   const client = newProject === undefined ? null : linear || savedClient();
   if (client) {

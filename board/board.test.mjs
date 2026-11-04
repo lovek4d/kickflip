@@ -191,12 +191,6 @@ test('tickets validate prefixes and link or create in the board source through t
   await saveBoardSettings(site('audit'), { tickets: { source: 'internal', prefix: 'OPS' } });
   assert.equal(await cli('item', 'add', 'audit/D4', '--title', 'Four'), 0);
   assert.equal(read(site('audit', 'data', 'wave.json')).items.at(-1).ticket, 'OPS-1');
-  await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'another', team: 'ENG', project: 'Audit' } });
-  assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five', '--ticket', 'OTHER-1'), 1);
-  assert.match(err.at(-1), /match ENG-<number>/);
-  assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five', '--ticket', 'ENG-2918'), 0);
-  assert.equal(await cli('item', 'set', 'audit/E5', '--ticket', 'ENG-2919'), 0);
-  assert.equal(await cli('item', 'add', 'audit/follow', '--title', 'Follow', '--ticket', 'ENG-2920', '--parent', 'A1'), 0);
   assert.equal(calls.length, 0);
   const waveFile = site('audit', 'data', 'wave.json');
   write(waveFile, { ...read(waveFile), repo: 'o/r' });
@@ -357,44 +351,34 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
   assert.deepEqual(gh.at(-1), ['issue', 'close', '41', '--repo', 'o/r']);
 });
 
-test("a Linear board without Hub's key records each card and asks the session, in ticket lines, to create, link and move its issues through the Linear MCP", async (t) => {
+test("a board still on Linear after Hub's key went refuses new tickets, links and backfills, never leaving a card without one, and its moves say the key is missing", async (t) => {
   const { saveBoardSettings, out, err, linear, cli, item } = await ticketCli(t);
-  fs.rmSync(at('kickflip', 'linear.json'));
-  await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'acme', team: 'ENG', project: 'Backend Audit' } });
+  await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'acme', team: 'ENG', project: 'proj-audit' } });
   assert.equal(await cli('item', 'add', 'audit/B2', '--title', 'Two', '--notes', 'Why'), 0);
-  assert.equal(out.at(-1), 'ticket: create the Linear issue "Two" in team ENG, project Backend Audit, through your Linear MCP, then run board.mjs --site audit item set audit/B2 --ticket <id>');
-  assert.deepEqual([item('B2').status, item('B2').ticket], ['planned', undefined]);
-  const unnamed = fs.readFileSync(site('audit', 'data', 'wave.json'), 'utf8');
-  assert.equal(await cli('item', 'add', 'audit', '--title', 'Unnamed'), 1);
-  assert.equal(err.at(-1), 'ticket: create the Linear issue "Unnamed" in team ENG, project Backend Audit, through your Linear MCP, then run board.mjs --site audit item add audit/<id> --title <t> --ticket <id>');
-  assert.equal(fs.readFileSync(site('audit', 'data', 'wave.json'), 'utf8'), unnamed);
-  assert.equal(await cli('item', 'set', 'audit/B2', '--ticket', 'OPS-4'), 1);
-  assert.match(err.at(-1), /match ENG-<number>/);
-  assert.equal(await cli('item', 'set', 'audit/B2', '--ticket', 'ENG-4'), 0);
-  assert.equal(item('B2').ticket, 'ENG-4');
-  assert.equal(await cli('item', 'add', 'audit/later', '--title', 'Later work', '--parent', 'A1'), 0);
-  assert.equal(out.at(-1), 'ticket: create the Linear issue "Later work" in team ENG, project Backend Audit, through your Linear MCP, then run board.mjs --site audit item set audit/later --ticket <id>');
-  assert.equal(await cli('item', 'set', 'audit/later', '--ticket', 'ENG-5'), 0);
-  assert.equal(item('later').ticket, 'ENG-5');
-  write(site('audit', 'data', 'events.jsonl'), JSON.stringify({ id: 'e1', kind: 'ask', data: { text: 'Ask' } }) + '\n');
+  assert.equal(item('B2').ticket, 'ENG-101');
+  const calls = linear.calls.length;
+  fs.rmSync(at('kickflip', 'linear.json'));
+  const noKey = 'Hub has no Linear key, so this board can’t create Linear tickets; add it in Hub settings › Linear, or pick another ticket source.';
   const waveFile = site('audit', 'data', 'wave.json');
+  write(site('audit', 'data', 'events.jsonl'), JSON.stringify({ id: 'e1', kind: 'ask', data: { text: 'Ask' } }) + '\n');
   write(waveFile, { ...read(waveFile), items: [...read(waveFile).items, { id: 'D4', title: 'Asked' }] });
-  assert.equal(await cli('item', 'set', 'audit/D4', '--from-ask', 'e1', '--state', 'ready', '--text', 'On it.'), 0);
-  assert.equal(out.at(-1), 'ticket: create the Linear issue "Asked" in team ENG, project Backend Audit, through your Linear MCP, then run board.mjs --site audit item set audit/D4 --ticket <id>');
-  for (const [flags, state] of [[['--status', 'building'], 'In Progress'], [['--pr', '9'], 'In Review'], [['--status', 'done', '--text', 'Done.'], 'Done']]) {
+  const before = fs.readFileSync(waveFile, 'utf8');
+  for (const args of [['item', 'add', 'audit/C3', '--title', 'Three'], ['item', 'add', 'audit', '--title', 'Unnamed'], ['item', 'add', 'audit/later', '--title', 'Later', '--parent', 'A1'],
+    ['item', 'set', 'audit/B2', '--ticket', 'ENG-4'], ['item', 'set', 'audit/D4', '--from-ask', 'e1', '--state', 'ready', '--text', 'On it.']]) {
+    assert.equal(await cli(...args), 1, args.join(' '));
+    assert.equal(err.at(-1), noKey);
+  }
+  assert.equal(fs.readFileSync(waveFile, 'utf8'), before);
+  for (const flags of [['--status', 'building'], ['--pr', '9'], ['--status', 'done', '--text', 'Done.']]) {
     assert.equal(await cli('item', 'set', 'audit/B2', ...flags), 0);
-    assert.equal(out.at(-1), `ticket ENG-4: move to ${state} through the Linear MCP if it's assigned to you`);
+    assert.equal(out.at(-1), 'ticket ENG-101: not moved, Hub has no Linear key');
   }
   write(waveFile, { ...read(waveFile), items: [{ id: 'E5', title: 'Fix login (ENG-2918)' }, { id: 'F6', title: 'No id yet' }, { id: 'G7', title: 'Done', status: 'done' }] });
   out.length = 0;
   assert.equal(await cli('tickets', 'backfill'), 0);
-  assert.deepEqual(out, [
-    'audit/E5 linked ENG-2918',
-    'audit/F6 ticket: create the Linear issue "No id yet" in team ENG, project Backend Audit, through your Linear MCP, then run board.mjs --site audit item set audit/F6 --ticket <id>',
-    'backfill: linked 1, created 0, failed 0, 1 to create through the Linear MCP',
-  ]);
-  assert.deepEqual(['E5', 'F6', 'G7'].map((id) => item(id).ticket), ['ENG-2918', undefined, undefined]);
-  assert.equal(linear.calls.length, 0);
+  assert.deepEqual(out, [`audit/E5 failed: ${noKey}`, `audit/F6 failed: ${noKey}`, 'backfill: linked 0, created 0, failed 2']);
+  assert.deepEqual(['E5', 'F6', 'G7'].map((id) => item(id).ticket), [undefined, undefined, undefined]);
+  assert.equal(linear.calls.length, calls);
 });
 
 test('tickets backfill links ids from open cards’ titles that belong to the source, creates the rest, leaves done cards, and changes nothing on a dry run', async (t) => {

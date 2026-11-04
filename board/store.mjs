@@ -14,7 +14,8 @@ import { reviseQueued, flushQueue, queueStatus, readSettings, pushKindError, rea
 import { holdLine, windowAt } from '../hub/schedule.mjs';
 import { AT_RE } from '../hub/duration.mjs';
 import { routeRecord } from '../hub/routes.mjs';
-import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleTickets, mcpCreateLine, cardIdOf } from './tickets.mjs';
+import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleTickets, cardIdOf } from './tickets.mjs';
+import { LINEAR_NEEDS_KEY, linearStatus, linearWorks } from '../hub/linear.mjs';
 import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { fetchPR, reportOf, githubLogin, postToPR, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
@@ -784,6 +785,7 @@ export function saveBoardSettings(site, changes) {
   for (const [k, v] of Object.entries(changes)) {
     if (k === 'tickets') {
       try { changes.tickets = ticketSource(v); } catch (e) { fail(e.message); }
+      if (changes.tickets.source === 'linear' && !linearWorks()) fail(LINEAR_NEEDS_KEY);
       // Issues need a repo on GitHub, as Board Settings' Tickets row shows (dialogs.js ticketsControl).
       const board = changes.tickets.source === 'github' && site ? listBoards().find((b) => samePath(b.dir, site)) : null;
       if (board && !board.github) fail('GitHub issues need the board’s repo on GitHub, and this board’s repo isn’t; pick internal or linear');
@@ -800,6 +802,21 @@ export function saveBoardSettings(site, changes) {
     const settings = settingsOf({ ...cfg, ...changes });
     return { set: changes, settings, changed: Object.keys(changes).filter((k) => JSON.stringify(before[k]) !== JSON.stringify(settings[k])) };
   });
+}
+// Once Hub has no Linear key, each board in the manifest on Linear falls back to internal tickets, and its session
+// hears of it as any source change, by a settings event. Its old cards keep their Linear tickets. Run by the hub as it
+// starts and when Hub settings removes the key
+// (docs/adr/2026-11-04-0227-every-new-card-gets-a-ticket-in-the-boards-current-source.md). → one line per board moved
+export async function fallBackFromLinear() {
+  if (linearStatus().set) return [];
+  const lines = [];
+  for (const board of listBoards()) {
+    if ((await readBoardSettings(board.dir)).tickets?.source !== 'linear') continue;
+    const { settings } = await saveBoardSettings(board.dir, { tickets: { source: 'internal' } });
+    await appendEvent(board, 'settings', { tickets: settings.tickets });
+    lines.push(`/${board.route} fell back to internal tickets: Hub has no Linear key`);
+  }
+  return lines;
 }
 // The CLI's `settings set <name> <value>`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
@@ -1435,7 +1452,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (built === null) delete item.install;
   // docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md: building and fixing go with a builder start.
   if (!owedBefore && !['building', 'fixing'].includes(status) && owesNext(item, records)) fail(`that leaves ${key} In Progress with nothing building and no Next; pass --next "<what happens next>"`);
-  const mcpLine = ticket !== undefined || (ask && !item.ticket && !item.linear?.length) ? await assignTicket(site, key, wave, item, ticket, options, source.dir, setTicketCommand(site, key)) : null;
+  if (ticket !== undefined || (ask && !item.ticket && !item.linear?.length)) await assignTicket(site, key, wave, item, ticket, options, source.dir);
   await writeJSON(source.file, wave);
   if (unrelate) await unrelate();
   const resolved = await resolve();
@@ -1444,7 +1461,6 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (status === 'building') resolved.push(...await resolveAnswered(site, key, 'Acted on: build started'));
   if (ask) resolved.push(...(await appendThread(site, key, { text: said })).lines);
   if (lastLine && site) resolved.push(...(await appendThread(site, key, { text: lastLine, who })).lines);
-  if (mcpLine) resolved.push(mcpLine);
   // The ticket stays open while the card waits on its owner step.
   const target = item.owner_step && FINISHED.includes(status) ? null : ticketTarget({ status, pr: pr ?? pushed });
   const moved = target && await moveTicket(await boardSource(site), item, target, { ...options, repo: boardRepoOf(site, wave) });
@@ -1687,9 +1703,9 @@ async function ownerMergeWaits(site, key) {
 }
 
 // Sets item.ticket from the board's source, and ticket_created when kickflip made it. self is the card's <wave>/<id>:
-// an Internal ticket another card holds is refused. → null, or the line asking the session to make a Linear issue
-// through its MCP and link it with link, the board.mjs command that sets this card's ticket.
-async function assignTicket(site, self, wave, item, ticket, options, dir, link) {
+// an Internal ticket another card holds is refused. Every path that makes a card comes through here
+// (board/ticket-paths.test.mjs).
+async function assignTicket(site, self, wave, item, ticket, options, dir) {
   try {
     const cfg = await boardConfig(site);
     const source = ticketSource(cfg.tickets || { source: 'internal' });
@@ -1708,10 +1724,8 @@ async function assignTicket(site, self, wave, item, ticket, options, dir, link) 
     }
     const body = ticket === undefined && source.source !== 'internal' && item.plan ? await fs.readFile(await planPath(dir, item.plan), 'utf8') : item.notes || '';
     const r = await resolveTicket(source, { ticket, title: item.title, body, repo: boardRepoOf(site, wave), next: max + 1 }, options);
-    if (r.mcp) { delete item.ticket; delete item.ticket_created; return mcpCreateLine(source, item.title, link); }
     item.ticket = r.ticket;
     if (r.created && source.source !== 'internal') item.ticket_created = true; else delete item.ticket_created;
-    return null;
   } catch (e) { if (e instanceof BoardError) throw e; fail(e.message); }
 }
 
@@ -1736,26 +1750,20 @@ async function createItem(site, key, { title, notes, deps, notesFile, ticket, pi
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
   item.status = item.deps?.length ? 'waiting' : 'planned';
   if (pickUpAt !== undefined) setHold(item, { until: pickUpTime(pickUpAt) });
-  const link = id === undefined ? `${boardCommand(site)}item add ${slug}/<id> --title <t>` : setTicketCommand(site, key);
-  const line = await assignTicket(site, key, wave, item, ticket, options, source.dir, link);
+  await assignTicket(site, key, wave, item, ticket, options, source.dir);
   if (id === undefined) {
-    if (line) fail(line);
     item.id = cardIdOf(item.ticket);
     if (wave.items.some((it) => it.id === item.id)) fail(`wave "${slug}" already has an item "${item.id}"; link ${item.ticket} with item add ${slug}/<id> --ticket ${item.ticket}`);
   }
   wave.items.push(item);
   await writeJSON(source.file, wave);
-  return { file: source.file, key: `${slug}/${item.id}`, lines: line ? [line] : [] };
+  return { file: source.file, key: `${slug}/${item.id}`, lines: [] };
 }
-
-const boardCommand = (site) => `board.mjs ${site ? `--site ${path.basename(site)} ` : ''}`;
-const setTicketCommand = (site, key) => `${boardCommand(site)}item set ${key}`;
 
 // `tickets backfill`: each open card with no ticket links the first id in its title, or in its legacy
 // `linear` list, that belongs to the board's source, else gets a new ticket. An internal wave's card whose ticket is
 // its own id has none outside the board, so under GitHub or Linear it gets one too. An Internal id another card holds is only
-// a mention, so that card gets a new one. Done cards are left alone. dryRun writes nothing and calls no source. A Linear
-// board without Hub's key links ids on their pattern and prints a create line for each of the rest.
+// a mention, so that card gets a new one. Done cards are left alone. dryRun writes nothing and calls no source.
 // → {file, lines}: one line per card, then a count.
 export const backfillTickets = (site, { dryRun = false } = {}, options) => ticketWrite(needSite(site), () => backfill(site, dryRun, options));
 async function backfill(site, dryRun, options) {
@@ -1772,7 +1780,7 @@ async function backfill(site, dryRun, options) {
     }
   }
   const lines = [];
-  const counts = { linked: 0, created: 0, failed: 0, mcp: 0 };
+  const counts = { linked: 0, created: 0, failed: 0 };
   const ticketed = (wave, it) => it.ticket && !(source.source !== 'internal' && wave.internal === true && it.ticket === it.id);
   for (const { entry, wave } of waves) {
     for (const it of wave.items) {
@@ -1786,8 +1794,7 @@ async function backfill(site, dryRun, options) {
         continue;
       }
       try {
-        const mcp = await assignTicket(site, key, wave, it, found, options, entry.dir, setTicketCommand(site, key));
-        if (mcp) { counts.mcp++; lines.push(`${key} ${mcp}`); continue; }
+        await assignTicket(site, key, wave, it, found, options, entry.dir);
         await writeJSON(entry.file, wave);
         held.add(it.ticket);
         counts[found ? 'linked' : 'created']++;
@@ -1800,7 +1807,7 @@ async function backfill(site, dryRun, options) {
     }
   }
   const total = dryRun ? `would link ${counts.linked}, create ${counts.created}`
-    : `linked ${counts.linked}, created ${counts.created}, failed ${counts.failed}${counts.mcp ? `, ${counts.mcp} to create through the Linear MCP` : ''}`;
+    : `linked ${counts.linked}, created ${counts.created}, failed ${counts.failed}`;
   return { lines: [...lines, `backfill${dryRun ? ' (dry run)' : ''}: ${total}`] };
 }
 

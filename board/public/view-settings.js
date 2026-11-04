@@ -15,6 +15,7 @@
   <h2>Tickets</h2>
   <p class="muted small">Every card on this board has a ticket from here. A new card gets a new ticket unless you name one.</p>
   <form id="ticketsForm" class="tk-section"><div id="boardTickets">Loading…</div></form>
+  <div class="tk-inline" id="ticketsKey" hidden></div>
   <p class="muted small" id="ticketsStatus" role="status"></p>
   <h2>Auto</h2>
   <label class="who" for="autoPull"><span><span>Auto implement Todo cards</span>
@@ -306,6 +307,8 @@
       savedTickets = d.settings?.tickets || null;
       tickets = BoardDialogs.ticketsControl($('#boardTickets'), { value: savedTickets || { source: 'internal', prefix: 'INT' }, repo: () => repo.github || '', title: () => ctx.siteTitle || '',
         loadLinear: async () => (await get('/_hub/api/linear')).body,
+        keyState: async () => (await get('/_hub/api/settings')).body.linear, keySlot: $('#ticketsKey'),
+        keyBusy: (on) => LinearKey.doneBusy(modal.querySelectorAll('[data-settings-dismiss]'), on),
         change(_value, _valid, { loaded, typing } = {}) {
           if (!loaded) ticketsTouched = true;
           if (typing) syncTickets(); else saveTickets();

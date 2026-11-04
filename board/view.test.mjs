@@ -1748,7 +1748,7 @@ test('bare repo lookups debounce, cancel when edited or closed, and ignore stale
   assert.equal(urls.some((url) => url.includes('cancel') || url.includes('first')), false);
 });
 
-test('Board Settings saves each Tickets change at once, opens Hub’s key modal for Linear without a working key, and Done waits for a save', async () => {
+test('Board Settings saves each Tickets change at once, shows the source and Hub’s key as a status word, opens the key field inline for Linear without a working key, and Done waits for a save', async () => {
   const page = repoPage(true);
   const { doc, Element } = page;
   const root = doc.body.appendChild(new Element('div'));
@@ -1788,6 +1788,8 @@ test('Board Settings saves each Tickets change at once, opens Hub’s key modal 
   const tapLinear = async () => { page.fire(control, 'click', { target: control.querySelector('[data-tk-source="linear"]') }); await tick(); await tick(); };
   assert.equal(root.querySelector('#ticketsSave'), null);
   assert.match(control.textContent, /opens an issue there as gh account lovek4d/);
+  await tick();
+  assert.equal(control.querySelector('[data-tk-status]').textContent, 'github · Linear refused the key');
   page.fire(control, 'click', { target: control.querySelector('[data-tk-source="internal"]') }); await tick();
   assert.deepEqual(posts.at(-1), { tickets: { source: 'internal', prefix: 'INT' } });
   assert.equal(status.textContent, 'Saved');
@@ -1805,34 +1807,36 @@ test('Board Settings saves each Tickets change at once, opens Hub’s key modal 
   assert.deepEqual(posts.at(-1), { tickets: { source: 'internal', prefix: 'OPS' } });
   assert.equal(form.hasAttribute('data-dirty'), false);
 
+  const word = () => control.querySelector('[data-tk-status]').textContent;
+  assert.equal(word(), 'internal · Linear refused the key');
   await tapLinear();
-  let keyModal = doc.getElementById('linearKeyModal');
-  assert.equal(keyModal.open, true);
+  assert.equal(doc.getElementById('linearKeyModal'), null);
+  const keySlot = root.querySelector('#ticketsKey');
+  let inline = keySlot.hidden ? null : keySlot;
   assert.equal(modal.open, true);
   assert.equal(pressed(), 'internal');
-  assert.match(keyModal.textContent, /doesn’t work · Linear refused the key/);
-  assert.equal(keyModal.querySelector(`a[href="${KEYS.url}"]`).textContent, KEYS.label);
-  assert.equal(keyModal.querySelector('.lk-form button'), null);
-  page.fire(keyModal, 'click', { target: keyModal.querySelector('.settings-footer [data-lk-done]') });
-  assert.equal(doc.getElementById('linearKeyModal'), null);
-  await tick();
+  assert.match(inline.textContent, /Linear needs a key\. Paste one here\./);
+  assert.match(inline.textContent, /doesn’t work · Linear refused the key/);
+  assert.equal(inline.querySelector(`a[href="${KEYS.url}"]`).textContent, KEYS.label);
+  assert.equal(inline.querySelector('.lk-form button'), null);
+  page.fire(control, 'click', { target: control.querySelector('[data-tk-source="internal"]') }); await tick();
+  assert.deepEqual([keySlot.hidden, keySlot.innerHTML], [true, '']);
   assert.equal(pressed(), 'internal');
   assert.equal(posts.length, 3);
 
   await tapLinear();
-  keyModal = doc.getElementById('linearKeyModal');
+  inline = keySlot.hidden ? null : keySlot;
   hold = Promise.withResolvers();
-  page.fire(keyModal.querySelector('.setting-content'), 'paste', { target: keyModal.querySelector('#linearKey'), clipboardData: { getData: () => ' lin_api_new ' } });
+  page.fire(inline.querySelector('main'), 'paste', { target: inline.querySelector('#linearKey'), clipboardData: { getData: () => ' lin_api_new ' } });
   assert.deepEqual(keyPosts, ['key=lin_api_new']);
-  assert.match(keyModal.textContent, /Checking the key with Linear…/);
-  const keyDone = keyModal.querySelector('.settings-footer [data-lk-done]');
-  assert.equal(keyDone.getAttribute('aria-busy'), 'true');
-  page.fire(keyModal, 'click', { target: keyDone });
-  assert.equal(keyModal.open, true);
+  assert.match(inline.textContent, /Checking the key with Linear…/);
+  assert.deepEqual([done.getAttribute('aria-busy'), done.disabled], ['true', true]);
   hold.resolve(); hold = null;
   await tick(); await tick(); await tick();
-  assert.equal(doc.getElementById('linearKeyModal'), null);
+  assert.equal(keySlot.hidden, true);
   assert.equal(pressed(), 'linear');
+  assert.equal(word(), 'linear · connected');
+  assert.equal(control.querySelector('[data-tk-status]').classList.contains('on'), true);
   assert.equal(control.querySelector('[data-tk="team"]').value, 'ENG');
   assert.equal(control.querySelector('[data-tk="workspaceText"]'), null);
   assert.deepEqual(posts.at(-1), { tickets: { source: 'linear', workspace: 'acme', team: 'ENG', project: 'p1' } });
@@ -1879,6 +1883,30 @@ test('the shared Tickets control shows Linear teams and projects with a supplied
   assert.equal(control.valid(), true);
   assert.deepEqual(JSON.parse(JSON.stringify(control.read())), { source: 'linear', workspace: 'another', team: 'ENG', project: 'p1' });
   control.destroy();
+});
+
+test("Board Settings' Tickets source row reads its live state as a status word, from the source and Hub's Linear key", async () => {
+  const page = repoPage(true);
+  const words = [];
+  for (const [value, key, word] of [
+    [{ source: 'internal', prefix: 'INT' }, { set: false }, 'internal · no Linear key'],
+    [{ source: 'internal', prefix: 'OPS' }, { set: true }, 'internal · linear key saved'],
+    [{ source: 'github' }, { set: false }, 'github · no Linear key'],
+    [{ source: 'internal', prefix: 'INT' }, { set: true, refused: true }, 'internal · Linear refused the key'],
+  ]) {
+    const root = page.doc.body.appendChild(new page.Element('div'));
+    const control = page.win.BoardDialogs.ticketsControl(root, { value, repo: () => 'o/r', keyState: async () => key, loadLinear: async () => ({ set: false }) });
+    assert.equal(root.querySelector('[data-tk-status]'), null);
+    await tick();
+    const status = root.querySelector('[data-tk-status]');
+    words.push([status.textContent, status.getAttribute('role'), status.classList.contains('on')]);
+    assert.equal(word, status.textContent);
+    control.destroy();
+  }
+  assert.deepEqual(words.map(([, role, on]) => [role, on]), Array(4).fill(['status', false]));
+  const plain = page.doc.body.appendChild(new page.Element('div'));
+  page.win.BoardDialogs.ticketsControl(plain, { value: { source: 'internal', prefix: 'INT' } }).destroy();
+  assert.equal(plain.querySelector('[data-tk-status]'), null);
 });
 
 test("Board Settings' Tickets control loads Linear once it is the source and creates a new project in the chosen team", async () => {

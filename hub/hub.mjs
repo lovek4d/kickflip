@@ -179,7 +179,7 @@ import { readiness, readCodex } from './readiness.mjs';
 import { BuildError, startBuild, stopTries, tryTick, initializeTries, fetchTryBranches, pullNow, pullMains } from './try.mjs';
 import { serveFiles } from './files.mjs';
 import { upgrader, CHECK_MS } from './upgrade.mjs';
-import { openBoardBuilders } from '../board/store.mjs';
+import { fallBackFromLinear, openBoardBuilders } from '../board/store.mjs';
 import { recordRefusal } from '../board/permissions.mjs';
 import { restartRunner } from '../board/worktree.mjs';
 import { hubService } from '../shared/service.mjs';
@@ -376,6 +376,9 @@ reconcile().catch((e) => log('reconcile failed:', e.message));
 
 // ---------- polling ----------
 try { if (migrateSettings()) log('settings: migrated the push schedule to the polling interval'); } catch (e) { log('settings migration failed:', e.message); }
+// A board on Linear falls back to internal tickets while Hub has no Linear key (store.mjs fallBackFromLinear).
+const linearFallback = async () => { try { for (const line of await fallBackFromLinear()) log(`linear: ${line}`); } catch (e) { log('linear fallback failed:', e.message); } };
+await linearFallback();
 
 const FIRST_POLL_MS = 60_000;
 const ERROR_LOG_MS = 60 * 60_000;
@@ -1016,7 +1019,7 @@ async function hubRoute(req, res, url) {
   if (p === '/_hub/settings/linear' && req.method === 'POST') {
     const f = new URLSearchParams(await readBody(req, 4 * 1024));
     try {
-      if (f.has('remove')) { removeLinearKey(); log('linear: key removed'); }
+      if (f.has('remove')) { removeLinearKey(); log('linear: key removed'); await linearFallback(); }
       else log(`linear: key ${(await saveLinearKey(f.get('key'))).refused ? 'refused by Linear' : 'saved'}`);
     } catch (e) {
       if (!(e instanceof LinearError)) throw e;

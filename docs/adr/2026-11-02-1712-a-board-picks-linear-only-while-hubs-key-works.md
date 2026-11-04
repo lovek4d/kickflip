@@ -1,4 +1,10 @@
+---
+status: superseded in part by 2026-11-04-0227-every-new-card-gets-a-ticket-in-the-boards-current-source
+---
+
 # A board picks Linear only while Hub's key works
+
+`settings set tickets` and `ticket` lines for the Linear MCP without a key are superseded by [every new card gets a ticket in the board’s current source](2026-11-04-0227-every-new-card-gets-a-ticket-in-the-boards-current-source.md).
 
 The owner asked on hub/INT-253 to "reject opening board linear without a working linear key", with a link to where the key is made and dropdowns in place of free text, and settled take A of prototype `linear-gate-2`: "Key modal on top". This supersedes in part [kickflip reaches Linear with a key on the Mac](2026-11-01-1436-kickflip-reaches-linear-with-a-key-on-the-mac.md), whose Tickets control took a typed workspace, team and project without a key.
 

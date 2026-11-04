@@ -27,6 +27,11 @@ export function linearStatus(home) {
   return { set: true, ...(saved.refused_at ? { refused: true } : {}), ...(saved.workspace ? { workspace: saved.workspace, url_key: saved.url_key } : {}) };
 }
 
+// A board picks Linear for its tickets only while Hub's key is saved and Linear hasn't refused it
+// (docs/adr/2026-11-04-0227-every-new-card-gets-a-ticket-in-the-boards-current-source.md).
+export const linearWorks = (home) => { const status = linearStatus(home); return status.set && !status.refused; };
+export const LINEAR_NEEDS_KEY = 'Linear needs Hub’s Linear key; add it in Hub settings › Linear first, or pick Internal or GitHub issues.';
+
 function writeKeyFile(saved) {
   const file = keyFile();
   fs.mkdirSync(path.dirname(file), { recursive: true });

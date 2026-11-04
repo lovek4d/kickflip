@@ -170,8 +170,11 @@ test('Retry starts a failed start again from its record, stopping a timed-out st
   saveJSON(manifestFile, { sites });
   const repo = path.join(base, 'owner/project');
   const tickets = { source: 'linear', workspace: 'acme', team: 'ENG', project: 'p1' };
+  const keyFile = path.join(home, '.claude', 'kickflip', 'linear.json');
+  fs.writeFileSync(keyFile, JSON.stringify({ key: 'lin_api_test_key' }));
   const broken = claude({ status: 1, stdout: '', stderr: 'Not signed in · run claude /login' });
   const first = await requestBoard({ ...input('Retry me'), purpose: 'Try it again', tickets }, { run: broken.run, live, repos });
+  fs.rmSync(keyFile);
   assert.match((await first.started).error, /Not signed in/);
   const failedAt = readManifest().starting['retry-me'].asked_at;
   const working = claude();
@@ -315,7 +318,7 @@ test('invalid repo identities, branches, fields and reserved routes are refused 
   assert.equal(repoPath('org/-repo', base), path.join(base, 'org/-repo'));
 });
 
-test("a New board on Linear's New project… creates that project in its team on Start and keeps its id, unless the route is taken, or keeps its name without a key", async () => {
+test("a New board on Linear's New project… creates that project in its team on Start and keeps its id, unless the route is taken, and Linear is refused without Hub's key", async () => {
   saveJSON(manifestFile, { sites: { taken: board } });
   const { run } = claude();
   const world = linearWorld();
@@ -327,8 +330,11 @@ test("a New board on Linear's New project… creates that project in its team on
   await request.started;
   assert.deepEqual(world.teams[1].projects, [{ id: 'proj-101', name: 'Fresh board' }]);
   assert.deepEqual(readManifest().starting['fresh-board'].tickets, { source: 'linear', workspace: 'acme', team: 'OPS', project: 'proj-101' });
-  await (await requestBoard({ ...input('No key'), tickets }, { run, live, repos })).started;
-  assert.deepEqual(readManifest().starting['no-key'].tickets, { source: 'linear', workspace: 'acme', team: 'OPS', project: 'Fresh board' });
+  const before = readManifest();
+  for (const asked of [tickets, { source: 'linear', workspace: 'acme', team: 'OPS', project: 'proj-101' }]) {
+    await assert.rejects(requestBoard({ ...input('No key'), tickets: asked }, { run, live, repos }), { status: 400, message: 'Linear needs Hub’s Linear key; add it in Hub settings › Linear first, or pick Internal or GitHub issues.' });
+  }
+  assert.deepEqual(readManifest(), before);
 });
 
 test('clone paths refuse symlink escapes through .repos, owner, repo and ancestors', async () => {
