@@ -96,9 +96,11 @@ async function loadWave(site, slug) {
   return { source, wave };
 }
 
+// A card in the archive comes back to its wave file for any command that names it (restoreArchived).
 async function loadItem(site, key) {
   const { wave: slug, id } = parseKey(key);
-  const loaded = await loadWave(site, slug);
+  let loaded = await loadWave(site, slug);
+  if (!loaded.wave.items.some((it) => it.id === id) && await restoreArchived(site, key)) loaded = await loadWave(site, slug);
   const item = loaded.wave.items.find((it) => it.id === id) || fail(`wave "${slug}" has no item "${id}"`);
   return { ...loaded, item };
 }
@@ -303,11 +305,7 @@ const VIA = ['github', 'slack'];
 export async function appendThread(site, key, { text: body, link, who = 'claude', via }) {
   needSite(site);
   if (String(key).startsWith('ask:')) await checkAsk(site, key.slice(4), 'the ask');
-  else {
-    const { wave: slug, id } = parseKey(key);
-    const { wave } = await loadWave(site, slug);
-    if (!wave.items.some((it) => it.id === id)) fail(`wave "${slug}" has no item "${id}"`);
-  }
+  else await loadItem(site, key);
   if (!/^[^\n]{1,40}$/.test(who.trim())) fail('--who takes claude, love or a reviewer\'s name');
   if (via !== undefined && !VIA.includes(via)) fail(`--via takes ${VIA.join(' or ')}`);
   const line = { ts: new Date().toISOString(), who: who.trim(), text: text(body, '--text'), link: optional(link, (v) => pageUrl(v, '--link')), via };
@@ -1852,6 +1850,80 @@ export const migrateFollowups = (site) => ticketWrite(site, async () => {
   }
   return lines;
 });
+
+// docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md
+// data/done-archive.json {cards: [{key, wave, archived_at, card, item, questions, asks}]}, newest closed first: the
+// Done cards that left the board, each with its page card as the board last sent it (domain.mjs slimDone), its wave
+// file entry and its resolved questions from owner.json. The board build never reads it; GET /api/done pages it and
+// GET /api/thread reads an archived card's entry. An empty archive is no file. Its thread, notes and builder records stay
+// where they are. asks are the asks the card was made from that its move linked to it in data/ask-links.json, so the
+// board still reads them as gone into that card.
+export const archiveFile = (site) => path.join(site, 'data', 'done-archive.json');
+const archiveWrite = (site, fn) => withFileLock(path.join(site, 'done-archive'), fn, { heartbeat: true });
+export const readArchive = async (site) => (await readJSON(archiveFile(site), { cards: [] })).cards || [];
+// An entry's place, which GET /api/done's before= cursor names: newest first by its card's sortAt (its closing time),
+// then by key.
+export const archiveRank = (a) => `${a.card?.sortAt || ''}|${a.key}`;
+const byClosed = (a, b) => (archiveRank(a) < archiveRank(b) ? 1 : archiveRank(a) > archiveRank(b) ? -1 : 0);
+async function writeArchive(site, cards) {
+  if (cards.length) await writeJSON(archiveFile(site), { cards: cards.sort(byClosed) });
+  else await fs.rm(archiveFile(site), { force: true });
+}
+
+// Moves picks [{key, card}] (server.mjs from domain.mjs archivedOf) from their wave files to the archive,
+// with their resolved questions; a pick no longer finished in its wave file stays. The archive is written first, so
+// a stop part way leaves a card in both, and the next run moves it again. → the keys moved.
+export const archiveCards = (site, picks) => archiveWrite(site, async () => {
+  const wanted = new Map(picks.map((p) => [p.key, p]));
+  const at = new Date().toISOString();
+  const moved = [];
+  const writes = [];
+  for (const source of await itemSources(site)) {
+    const wave = await readJSON(source.file, null);
+    if (!Array.isArray(wave?.items)) continue;
+    const leaving = wave.items.filter((it) => wanted.has(`${source.slug}/${it.id}`) && FINISHED.includes(it.status));
+    if (!leaving.length) continue;
+    for (const item of leaving) moved.push({ ...wanted.get(`${source.slug}/${item.id}`), wave: source.slug, archived_at: at, item });
+    writes.push([source.file, { ...wave, items: wave.items.filter((it) => !leaving.includes(it)) }]);
+  }
+  if (!moved.length) return [];
+  const owner = await readJSON(ownerFile(site), { items: [] });
+  const topics = new Map(moved.map((m) => [`item:${m.key}`, m]));
+  for (const m of moved) m.questions = (owner.items || []).filter((q) => q.topic === `item:${m.key}` && q.resolved);
+  const links = await readAskLinks(site);
+  for (const m of moved) m.asks = m.item.from_ask && routeRecord(links, m.item.from_ask) === undefined ? [m.item.from_ask] : [];
+  const keys = new Set(moved.map((m) => m.key));
+  await writeArchive(site, [...(await readArchive(site)).filter((a) => !keys.has(a.key)), ...moved.map(({ key, wave, archived_at, card, item, questions, asks }) => ({ key, wave, archived_at, card, item, questions, asks }))]);
+  if (moved.some((m) => m.asks.length)) await writeJSON(askLinksFile(site), { links: { ...links, ...Object.fromEntries(moved.flatMap((m) => m.asks.map((id) => [id, m.key]))) } });
+  for (const [file, wave] of writes) await writeJSON(file, wave);
+  const kept = (owner.items || []).filter((q) => !(topics.has(q.topic) && q.resolved));
+  if (kept.length !== (owner.items || []).length) await writeJSON(ownerFile(site), { ...owner, items: kept });
+  return [...keys];
+});
+
+// Puts archived card key back in its wave file, with its questions, for a command that names it. → whether it was
+// archived.
+async function restoreArchived(site, key) {
+  if (!site || !existsSync(archiveFile(site))) return false;
+  return archiveWrite(site, async () => {
+    const archive = await readArchive(site);
+    const entry = archive.find((a) => a.key === key);
+    if (!entry) return false;
+    const source = (await itemSources(site)).find((s) => s.slug === entry.wave);
+    const wave = source && await readJSON(source.file, null);
+    if (!Array.isArray(wave?.items)) return false;
+    if (!wave.items.some((it) => it.id === entry.item.id)) await writeJSON(source.file, { ...wave, items: [...wave.items, entry.item] });
+    const owner = await readJSON(ownerFile(site), { items: [] });
+    const have = new Set((owner.items || []).map((q) => q.id));
+    const back = (entry.questions || []).filter((q) => !have.has(q.id));
+    if (back.length) await writeJSON(ownerFile(site), { ...owner, items: [...(owner.items || []), ...back] });
+    const links = await readAskLinks(site);
+    const linked = (entry.asks || []).filter((id) => routeRecord(links, id) === key);
+    if (linked.length) await writeJSON(askLinksFile(site), { links: Object.fromEntries(Object.entries(links).filter(([id]) => !linked.includes(id))) });
+    await writeArchive(site, archive.filter((a) => a !== entry));
+    return true;
+  });
+}
 
 // A lineup is what the owner calls a wave: a named set of one wave file's cards in build order, kept in that file's
 // `lineups` (docs/adr/2026-11-02-1202-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md). Its note is lineup-<slug>.md beside

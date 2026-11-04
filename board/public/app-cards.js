@@ -381,7 +381,7 @@ BoardView.part((B) => {
     const key = el.dataset.key;
     if (el.open) {
       state.openItems.add(key);
-      const it = state.board.items.find((i) => i.key === key);
+      const it = state.board.items.find((i) => i.key === key) || state.archived.cards.find((i) => i.key === key);
       markSeen(it);
       const unread = el.querySelector('summary .card-unread');
       const line = unread?.parentNode;

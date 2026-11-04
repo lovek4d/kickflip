@@ -1557,6 +1557,15 @@ test("todoOf reads the Todo a triage sees: its cards' keys, titles and deps, and
   assert.equal(todo([{ id: 'A3', title: 'Running', status: 'building' }]), '');
 });
 
+// docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md
+test('a triage sees Stale cards beside Todo, and never Done ones, which leave the board by the archive rule', () => {
+  const card = (key, lane) => ({ key, lane, title: key, deps: [] });
+  const todo = todoOf([card('w/T1', 'todo')]);
+  assert.notEqual(todoOf([card('w/T1', 'todo'), card('w/S1', 'stale')]), todo);
+  assert.match(todoOf([card('w/S1', 'stale')]), /w\/S1/);
+  assert.equal(todoOf([card('w/T1', 'todo'), card('w/D1', 'done')]), todo);
+});
+
 // docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md
 test("a running planner's line is the card's builder line, marked planner, until a build runs, whose line wins; before its first line a planner reads its kind's word, preheating for a grill and prototyping for a prototype", () => {
   const status = (ts, text, extra = {}) => ({ ts, who: 'claude', kind: 'status', text, ...extra });

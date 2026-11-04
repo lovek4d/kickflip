@@ -8,7 +8,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { freePorts, until } from '../shared/test-helpers.mjs';
 import { miniDom } from './mini-dom.mjs';
-import { buildBoard, BUTTON, ACTION_KIND } from './domain.mjs';
+import { buildBoard, slimDone, BUTTON, ACTION_KIND } from './domain.mjs';
 
 const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-order.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
   'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-arch.js', 'app-banner.js', 'app-snapshot.js',
@@ -2186,6 +2186,7 @@ function boardOnDom({ open = [], seen = {}, board, threads, confirm = false, rea
     // A board with a version answers 304 to a request naming it, as board/server.mjs does.
     if (u.pathname.endsWith('/api/board') && server.board.version && opts.headers?.['if-none-match'] === `"${server.board.version}"`) return { ok: false, status: 304, json: async () => { throw new Error('a 304 has no body'); } };
     if (u.pathname.endsWith('/api/board')) downloads.push(server.board.version);
+    if (u.pathname.endsWith('/api/done')) return { ok: true, status: 200, json: async () => structuredClone(server.done(u.searchParams)) };
     const body = u.pathname.endsWith('/api/board') ? server.board : server.threads[u.searchParams.get('key')] || [];
     return { ok: true, status: 200, json: async () => structuredClone(body) };
   };
@@ -4108,6 +4109,71 @@ test('answered asks have their own Asks section below Done, and Done and Asks ea
   b.page.fire(b.root, 'click', { target: more('done') });
   await b.settle();
   assert.deepEqual([keys('done'), more('done')], [done.map((c) => c.key), null]);
+});
+
+// docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md
+test('past the 100 Done cards the board carries, Show more fetches the next 100 from the archive, 10 shown per tap, and an archived card opens', async () => {
+  const day = (n) => new Date(Date.parse('2026-11-04T10:00:00Z') - n * 60000).toISOString();
+  const card = (n) => workCard(`D${n}`, { lane: 'done', sortAt: day(n) });
+  const archive = Array.from({ length: 130 }, (_, n) => card(100 + n));
+  const b = boardOnDom({ board: { ...boardOf(Array.from({ length: 100 }, (_, n) => card(n))), doneArchived: true }, threads: { 'w/D205': [{ ts: day(205), who: 'claude', text: 'Old news.' }] } });
+  const asked = [];
+  b.server.done = (params) => {
+    asked.push(params.get('before'));
+    const from = params.get('before') ? archive.findIndex((c) => `${c.sortAt}|${c.key}` === params.get('before')) + 1 : 0;
+    const cards = archive.slice(from, from + 100);
+    return { cards, left: archive.length - from - cards.length };
+  };
+  await b.settle();
+  const lane = () => b.root.querySelector('#lanes details.lane[data-lane="done"]');
+  const shown = () => lane().querySelectorAll('details.item').length;
+  const more = () => lane().querySelector('[data-lane-more]');
+  const tap = async (n = 1) => { for (let i = 0; i < n; i++) { b.page.fire(b.root, 'click', { target: more() }); await b.settle(); } };
+  const seen = () => [shown(), more()?.textContent ?? null, lane().querySelector('summary .count').textContent];
+  assert.deepEqual(seen(), [10, 'Show more · 90+ older cards', '100+']);
+  await tap(9);
+  assert.deepEqual([...seen(), asked], [100, 'Show more · older cards', '100+', []]);
+  await tap();
+  assert.deepEqual([...seen(), asked], [110, 'Show more · 120 older cards', '230', [null]]);
+  await tap(9);
+  assert.deepEqual([...seen(), asked.length], [200, 'Show more · 30 older cards', '230', 1]);
+  await tap();
+  assert.deepEqual([...seen(), asked], [210, 'Show more · 20 older cards', '230', [null, `${day(199)}|w/D199`]]);
+  await tap(2);
+  assert.deepEqual(seen(), [230, null, '230']);
+  const old = lane().querySelector('details.item[data-key="w/D205"]');
+  old.open = true;
+  b.page.fire(b.root, 'toggle', { target: old });
+  await b.settle();
+  assert.match(old.querySelector('.detail').innerHTML, /Old news\./);
+  b.view.unmount();
+});
+
+test('a slim Done card draws as the whole card does, closed and open', async () => {
+  const t = (m) => `2026-11-04T0${m}:00:00.000Z`;
+  const built = buildBoard({
+    waves: [{ slug: 'w', agents: { A1: { main: { kind: 'claude', started: t(1), done: t(2) } } }, wave: { title: 'W', repo: 'o/r', items: [
+      { id: 'A1', title: 'Merged', status: 'merged', pr: 7, status_at: t(3), branch: 'a1', plan: 'a1.md', manual_steps: ['Restart the hub'], parent: 'A2', related: ['A3'] },
+      { id: 'A2', title: 'Parent', status: 'done', status_at: t(4), notes: 'Why' },
+      { id: 'A3', title: 'Dropped', status: 'dropped', status_at: t(5) },
+      { id: 'A4', title: 'Open', status: 'planned', deps: ['A2'] },
+    ] } }],
+    prs: { 'o/r#7': { state: 'MERGED', mergedAt: t(3), title: 'Merged', checks: { state: 'pass' }, reviews: {} } },
+    owner: { items: [{ id: 'q1', topic: 'item:w/A1', question: 'Which?', options: [{ id: 'a', label: 'A' }], resolved: 'Answered', resolved_at: t(2) }] },
+    threads: { 'w/A1': [{ ts: t(2), who: 'love', text: 'Ship it' }], 'w/A2': [{ ts: t(4), who: 'claude', text: 'Done.' }] }, events: [],
+  });
+  const done = built.items.filter((i) => i.lane === 'done');
+  assert.equal(done.length, 3);
+  const draw = async (items) => {
+    const b = boardOnDom({ open: done.map((i) => i.key), seen: { 'w/A1': t(0) }, board: { ...built, ...boardOf(items), waveBands: built.waveBands }, threads: {} });
+    await b.settle();
+    const html = b.root.querySelector('#lanes details.lane[data-lane="done"]').innerHTML;
+    b.view.unmount();
+    return html;
+  };
+  const whole = await draw(built.items);
+  assert.match(whole, /Restart the hub/);
+  assert.equal(await draw(built.items.map((i) => (i.lane === 'done' ? slimDone(i) : i))), whole);
 });
 
 test('a held Todo card that can be implemented shows Implement in place of Unhold, whose confirm says it also unholds, and sends card-build', async () => {

@@ -816,6 +816,8 @@ export function buildBoard(snapshot) {
     const links = [...(madeFrom.get(e.id) || [])];
     if (related && !links.some((l) => l.key === related.key)) links.push({ key: related.key, ref: related.ref, became: false });
     if (links.length) { moved.set(key, links[0].key); continue; }
+    // An ask linked to a card the board no longer holds went with it to the archive (store.mjs archiveCards).
+    if (routeRecord(askLinks, e.id)) { moved.set(key, routeRecord(askLinks, e.id)); continue; }
     const msgs = threadOf(key, { lines: routeRecord(threads, key) || [], events, working, links });
     for (const m of msgs) if (m.eventId) threadStates.set(m.eventId, m.state);
     claudeAt.set(key, claudeAtOf(msgs));
@@ -1074,8 +1076,32 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
 // For built items: the Todo a triage looks at, one line per Todo card, and per ready card in In Progress's Queued
 // section, with its key, title and deps, sorted, so a card
 // added, dropped, renamed or relinked changes it. '' when Todo is empty.
+// A triage also reads the Stale cards; Done cards leave the board by archivedOf, never by a triage
+// (docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md).
 export function todoOf(items) {
-  return items.filter((i) => i.lane === 'todo' || (i.queued && i.buildable)).map((i) => JSON.stringify([i.key, i.title, i.deps || []])).sort().join('\n');
+  return items.filter((i) => i.lane === 'todo' || i.lane === 'stale' || (i.queued && i.buildable)).map((i) => JSON.stringify([i.key, i.title, i.deps || []])).sort().join('\n');
+}
+
+// docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md
+// The board keeps its newest DONE_KEPT Done cards, and GET /api/done pages the archive in as many at a time.
+export const DONE_KEPT = 100;
+// The fields of a Done card the page draws: the Done lane's card and its open detail (ui-cards.js workLines,
+// app-cards.js), the wave bands' "N done" links (app-lanes.js), unread counts (othersAt), the Notes and Open questions
+// links, and ui-snapshot.js updateSign. No page file reads `agents`, and the rest are set on a Done card only to be sent.
+export const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'status', 'wave', 'waveTitle', 'fold', 'internal', 'ticket', 'ticketSource', 'linear', 'pr', 'prs',
+  'review', 'reviewers', 'risky', 'sortAt', 'threadCount', 'othersAt', 'hasNotes', 'questions', 'next', 'ask', 'action', 'actionButton', 'builder', 'working', 'waitsOn',
+  'reachedPhase', 'grilling', 'refusal', 'install', 'parent', 'children', 'related', 'waitsOnIt', 'blockedBy', 'ready', 'finishable', 'reopened', 'manualSteps', 'branch', 'worktree'];
+export const slimDone = (it) => Object.fromEntries(DONE_FIELDS.filter((f) => f in it).map((f) => [f, it[f]]));
+
+// The built board's Done cards that move to the archive (store.mjs archiveCards): past the newest `keep` by when they
+// closed, finished in their wave file, and none that the board still counts or links: a card in a wave band, one an
+// unfinished card names as a dep, parent, child or related card, and one with a question not yet resolved.
+export function archivedOf(built, keep = DONE_KEPT) {
+  const banded = new Set((built.waveBands || []).flatMap((b) => b.keys));
+  const linked = new Set(built.items.filter((i) => i.lane !== 'done').flatMap((i) => [
+    ...(i.deps || []).map((d) => (String(d).includes('/') ? String(d) : `${i.wave}/${d}`)), i.parent?.key, ...(i.children || []).map((c) => c.key), ...(i.related || []).map((r) => r.key)]));
+  return built.items.filter((i) => i.lane === 'done' && i.kind === 'work').sort((a, b) => String(b.closedAt || '').localeCompare(String(a.closedAt || '')))
+    .slice(keep).filter((i) => ['done', 'merged', 'dropped'].includes(i.status) && !banded.has(i.key) && !linked.has(i.key) && (!i.questions || i.questions.state === 'resolved'));
 }
 
 // The push tag tied to a card's thread: ask-<event id> for ask:<event id>, item-<wave>/<id> for a work item.

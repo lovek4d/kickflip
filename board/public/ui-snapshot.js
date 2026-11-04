@@ -5,21 +5,10 @@
   const SNAPSHOT_MAX = 900000;
   const ACTIVE_LANES = ['review', 'stale', 'progress', 'todo'];
 
-  // The fields of a Done card that the page reads: the Done lane's card (ui-cards.js workLines, app-cards.js), the wave
-  // bands' "N done" links (app-lanes.js), unread counts (othersAt), the Notes and Open questions links, and updateSign.
-  // No page file reads `agents`, and the rest are set on a Done card only to be sent.
-  const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'status', 'wave', 'waveTitle', 'fold', 'internal', 'ticket', 'ticketSource', 'linear', 'pr', 'prs',
-    'review', 'reviewers', 'risky', 'sortAt', 'threadCount', 'othersAt', 'hasNotes', 'questions', 'next', 'ask', 'action', 'actionButton', 'builder', 'working', 'waitsOn',
-    'reachedPhase', 'grilling', 'refusal', 'install', 'parent', 'children', 'related', 'waitsOnIt', 'blockedBy', 'ready', 'reopened'];
-  const pick = (it, fields) => Object.fromEntries(fields.filter((f) => f in it).map((f) => [f, it[f]]));
-
-  // What a first paint shows of board: open lanes whole and Done cards cut to DONE_FIELDS (none when openOnly). It keeps
-  // no version, since it isn't the board that version names, so the first reload downloads the whole board
-  // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md).
-  const firstPaint = ({ version: _, ...board }, openOnly) => ({
-    ...board,
-    items: board.items.flatMap((it) => (it.lane !== 'done' ? [it] : openOnly ? [] : [pick(it, DONE_FIELDS)])),
-  });
+  // What a first paint shows of board: every card as the board sent it, Done cards already slim (board/domain.mjs
+  // slimDone), or the open lanes alone when openOnly. It keeps no version, since it isn't the board that version names,
+  // so the first reload downloads the whole board (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md).
+  const firstPaint = ({ version: _, ...board }, openOnly) => ({ ...board, items: openOnly ? board.items.filter((it) => it.lane !== 'done') : board.items });
 
   // threads maps item keys to thread messages (app.js state.threadCache). The board goes in as firstPaint, then threads of
   // `keep` first and the rest while they fit under max; threads of items no longer on the board are dropped. When the

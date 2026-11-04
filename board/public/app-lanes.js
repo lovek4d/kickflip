@@ -15,14 +15,43 @@ BoardView.part((B) => {
   // docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md
   // A capped lane shows STEP cards, and each Show more tap adds STEP more, kept in memory per lane. A card the owner has
   // open stays shown past the cap. Show more says how many are left (docs/adr/2026-10-29-1639-lists-never-cut-silently.md).
+  // older is how many cards wait past `cards` in the archive, null when some do but how many isn't known yet; the tap
+  // that would show past `cards` fetches them first.
   const STEP = 10;
   const moreTaps = new Map();
-  function cappedRows(laneId, cards) {
+  function cappedRows(laneId, cards, older = 0) {
     const lastOpen = cards.findLastIndex((it) => state.openItems.has(it.key));
     const shown = Math.max(STEP * (1 + (moreTaps.get(laneId) || 0)), lastOpen + 1);
-    const left = cards.length - shown;
+    const left = Math.max(0, cards.length - shown);
+    const n = left + (older || 0);
+    const words = older === null ? (left ? `${left}+ older cards` : 'older cards') : `${n} older card${n === 1 ? '' : 's'}`;
+    const fetches = older !== 0 && shown + STEP > cards.length;
     return cards.slice(0, shown).map((it) => B.card(it)).join('')
-      + (left > 0 ? `<button type="button" class="thread-more" data-lane-more="${laneId}">Show more <span class="n">· ${left} older card${left === 1 ? '' : 's'}</span></button>` : '');
+      + (n > 0 || older === null ? `<button type="button" class="thread-more" data-lane-more="${laneId}"${fetches ? ' data-fetch' : ''}>Show more <span class="n">· ${words}</span></button>` : '');
+  }
+
+  // docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md
+  // Done shows the board's Done cards, then those paged in from the archive (GET /api/done), 100 a page, newest first.
+  // The board says whether the archive holds any (doneArchived); each page says how many are older than it (left).
+  const { archived } = state;
+  const olderThanBoard = (d) => (!d.doneArchived && !archived.cards.length ? 0 : archived.left);
+  function doneRows(d, open) {
+    const onBoard = new Set(d.items.map((i) => i.key));
+    const cards = [...open, ...archived.cards.filter((c) => !onBoard.has(c.key))].sort((a, b) => String(b.sortAt || '').localeCompare(String(a.sortAt || '')));
+    return cappedRows('done', cards, olderThanBoard(d));
+  }
+  function doneCount(d, items) {
+    const onBoard = new Set(d.items.map((i) => i.key));
+    const older = olderThanBoard(d);
+    return `${items.length + archived.cards.filter((c) => !onBoard.has(c.key)).length + (older || 0)}${older === null ? '+' : ''}`;
+  }
+  async function fetchOlder() {
+    const last = archived.cards.at(-1);
+    const r = await fetch(B.site.url(`api/done${last ? `?before=${encodeURIComponent(`${last.sortAt}|${last.key}`)}` : ''}`), { cache: 'no-store' });
+    if (!r.ok) throw new Error(`done ${r.status}`);
+    const page = await r.json();
+    archived.cards.push(...page.cards);
+    archived.left = page.left;
   }
 
   // A fold's open state lives in storage, not in setHTML's summary-text match, because its row's count changes.
@@ -71,9 +100,9 @@ BoardView.part((B) => {
       const expanded = laneState[lane.id] ?? lane.open;
       const open = items.filter((i) => !i.fold);
       const rows = lane.id === 'todo' ? todoRows(d, shown, open) : lane.id === 'progress' ? progressRows(open)
-        : (lane.capped ? cappedRows(lane.id, open) : open.map((it) => B.card(it)).join('')) + waveFolds(d, items);
+        : (lane.id === 'done' ? doneRows(d, open) : lane.capped ? cappedRows(lane.id, open) : open.map((it) => B.card(it)).join('')) + waveFolds(d, items);
       return `<details class="lane" data-lane="${lane.id}" ${expanded ? 'open' : ''}>
-        <summary><span class="lane-name">${lane.name}</span><span class="count">${items.length}</span>${lane.id === 'review' ? B.githubHeader(d) : ''}</summary>
+        <summary><span class="lane-name">${lane.name}</span><span class="count">${lane.id === 'done' ? doneCount(d, items) : items.length}</span>${lane.id === 'review' ? B.githubHeader(d) : ''}</summary>
         <div class="list">${rows || '<div class="empty">Nothing here.</div>'}
         ${lane.id === 'todo' ? BoardUI.planButton(items) : ''}</div>
       </details>`;
@@ -182,7 +211,15 @@ BoardView.part((B) => {
     const review = ev.target.closest('a[data-review-open]');
     if (review) { ev.preventDefault(); openReview(Number(review.dataset.reviewOpen)); return; }
     const more = ev.target.closest('[data-lane-more]');
-    if (more) { moreTaps.set(more.dataset.laneMore, (moreTaps.get(more.dataset.laneMore) || 0) + 1); B.render(); return; }
+    if (more) {
+      if (more.hasAttribute('data-fetch')) {
+        try { await waitOn(more, fetchOlder()); } catch { B.toast('Could not load older cards. Is the host awake?'); return; }
+        if (!B.alive()) return;
+      }
+      moreTaps.set(more.dataset.laneMore, (moreTaps.get(more.dataset.laneMore) || 0) + 1);
+      B.render();
+      return;
+    }
     const pb = ev.target.closest('button[data-plan]');
     if (pb) {
       if (!(await B.confirm('Claude triages these Todo cards into one or more waves and asks you about them in Needs you. Nothing is implemented until you answer. Start?'))) return;

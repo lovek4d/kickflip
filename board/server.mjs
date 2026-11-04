@@ -56,6 +56,12 @@
 //                                owner leaves resolved questions out; ownerTopics still lists and counts them (pageBoard).
 //                                version tags everything but generatedAt and is the ETag: a request whose If-None-Match
 //                                names it answers 304 with no body (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md)
+//                                Done cards come slim (domain.mjs slimDone), the newest 100 and the ones the Done
+//                                archive keeps back; doneArchived: whether data/done-archive.json holds older ones
+//   GET  /api/done?before=<sortAt>|<key>
+//                                {cards, left}: the next 100 archived Done cards, slim, newest first, older than the
+//                                cursor (none: from the newest), and how many older ones are left after them
+//                                (docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md)
 //   GET  /api/questions?topic=<id>
 //                                {questions}: that topic's resolved questions, as /api/board's owner would list them
 //   GET  /api/links              {links}: the same list alone
@@ -140,7 +146,7 @@
 //                                idle board gets card-plan {key} for the top plannable card, one at a time, tracked in
 //                                data/planned.json, which asks the session for a grill or prototype on it.
 //                                With auto_triage on, an idle board whose Todo changed since the last triage (domain.mjs
-//                                todoOf) gets todo-triage {date, topic} first, at most once a host day, tracked in
+//                                todoOf) gets todo-triage {date, topic} first (Todo and Stale), at most once a host day, tracked in
 //                                data/triaged.json; no pull goes out until Claude replies to it
 //                                With auto_review on, an idle board with nothing pulled sends pr-review {pr, head, repo,
 //                                title, author, url, touches, asked} for the next incoming PR the hub's poll listed in
@@ -202,13 +208,13 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { buildBoard, idleStep, idleSummary, ITEM_EVENTS, lineupMoved, needsAnswer, ownerActions, picksNoTake, pullOf, refOf, startedByAnswer, strictlyIdle, threadOf, todoOf } from './domain.mjs';
+import { archivedOf, buildBoard, DONE_KEPT, idleStep, idleSummary, ITEM_EVENTS, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, refOf, startedByAnswer, strictlyIdle, threadOf, todoOf } from './domain.mjs';
 import { localDay } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, existsSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { launchBuilder } from './headless.mjs';
-import { BoardError, addTopic, appendThread, boardConfig, changeLineup, landable, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, addTopic, appendThread, archiveCards, archiveFile, archiveRank, readArchive, boardConfig, changeLineup, landable, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -541,11 +547,13 @@ async function board() {
 
 // docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
 // The board a page reads, from /api/board or an events POST's answer: board() with this request's onHost, leaving out
-// the resolved questions (GET /api/questions answers a topic's), and its version, a tag of everything in it but
-// generatedAt, which GET /api/board also sends as its ETag.
+// the resolved questions (GET /api/questions answers a topic's), with its Done cards slim and whether older ones wait in
+// the archive (docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md), and its version, a tag of
+// everything in it but generatedAt, which GET /api/board also sends as its ETag.
 async function pageBoard(req) {
-  const b = { ...(await board()), onHost: await fromHost(req) };
+  const b = { ...(await board()), onHost: await fromHost(req), doneArchived: existsSync(archiveFile(here)) };
   b.owner = b.owner.filter((q) => q.state !== 'resolved');
+  b.items = b.items.map((i) => (i.lane === 'done' ? slimDone(i) : i));
   const { generatedAt: _, ...content } = b;
   return { ...b, version: crypto.createHash('sha1').update(JSON.stringify(content)).digest('base64url').slice(0, 20) };
 }
@@ -567,12 +575,15 @@ function runReview() {
   return run;
 }
 
+// A card's wave file entry and builder records, else its archive entry's (store.mjs readArchive), whose questions its
+// thread reads beside owner.json's.
 async function itemOf(key) {
   const [slug, id] = key.split('/');
   const source = (await itemSources(here)).find((s) => s.slug === slug);
   const wave = source ? await readJSON(source.file, null) : null;
-  const item = (Array.isArray(wave?.items) && wave.items.find((it) => it.id === id)) || null;
-  return { item, agents: item ? routeRecord(await readAgents(path.join(source.dir, 'agents')), id) || {} : {} };
+  const archived = !wave?.items?.some((it) => it.id === id) && (await readArchive(here)).find((a) => a.key === key);
+  const item = (Array.isArray(wave?.items) && wave.items.find((it) => it.id === id)) || archived?.item || null;
+  return { item, questions: archived?.questions || [], agents: item && source ? routeRecord(await readAgents(path.join(source.dir, 'agents')), id) || {} : {} };
 }
 
 // The work items an ask became (their from_ask) or was related to (data/ask-links.json), as domain.mjs threadOf's links.
@@ -592,9 +603,10 @@ async function askLinksOf(askId) {
 }
 
 async function thread(key) {
-  const owner = await readJSON(path.join(data, 'owner.json'), { items: [] });
-  const asked = new Set((owner.items || []).filter((q) => q.topic === `item:${key}`).map((q) => q.id));
-  const { item, agents } = key.startsWith('ask:') ? { item: null, agents: {} } : await itemOf(key);
+  const { item, agents, questions } = key.startsWith('ask:') ? { item: null, agents: {}, questions: [] } : await itemOf(key);
+  const stored = await readJSON(path.join(data, 'owner.json'), { items: [] });
+  const owner = { ...stored, items: [...(stored.items || []), ...questions] };
+  const asked = new Set(owner.items.filter((q) => q.topic === `item:${key}`).map((q) => q.id));
   const own = key.startsWith('ask:');
   const askId = own ? key.slice(4) : item?.from_ask || null;
   // A work item's thread holds the asks it came from or that were folded into it, with their threads (domain.mjs threadOf).
@@ -697,6 +709,7 @@ function changed() {
   changeTimer = setTimeout(() => {
     changeTimer = null;
     broadcast(`event: change\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`);
+    checkArchive();
     checkStalled();
     checkActions();
     checkAuto();
@@ -791,6 +804,11 @@ const server = http.createServer(async (req, res) => {
       const built = buildBoard(await snapshot({ github: false }));
       const ids = new Set(built.ownerTopics.find((t) => t.id === String(url.searchParams.get('topic') ?? ''))?.questions || []);
       return json(res, 200, { questions: built.owner.filter((q) => ids.has(q.id) && q.state === 'resolved') });
+    }
+    if (p === '/api/done') {
+      const before = String(url.searchParams.get('before') || '');
+      const older = (await readArchive(here)).filter((a) => !before || archiveRank(a) < before);
+      return json(res, 200, { cards: older.slice(0, DONE_KEPT).map((a) => a.card), left: Math.max(0, older.length - DONE_KEPT) });
     }
     if (p === '/api/links') return json(res, 200, { links: (await board()).links });
     if (p === '/api/stream' && req.method === 'GET') return stream(req, res);
@@ -1221,8 +1239,32 @@ async function stepIdle() {
   }
 }
 
+// docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md
+// The Done cards past the newest DONE_KEPT move to the archive with their resolved questions (domain.mjs archivedOf,
+// store.mjs archiveCards), as the server starts and after each board change. Their page cards are slimmed from the board
+// a page reads, PR states included. A check asked for while one runs runs again after it.
+let archiving = null;
+let archiveAgain = false;
+function checkArchive() {
+  if (archiving) { archiveAgain = true; return archiving; }
+  archiving = (async () => {
+    do {
+      archiveAgain = false;
+      try { await archiveDone(); } catch (err) { console.error('Done archive failed:', err.message); }
+    } while (archiveAgain);
+  })().finally(() => { archiving = null; });
+  return archiving;
+}
+async function archiveDone() {
+  if (!archivedOf(buildBoard(await snapshot({ github: false }))).length) return;
+  const picks = archivedOf(await board());
+  const moved = picks.length ? await archiveCards(here, picks.map((c) => ({ key: c.key, card: slimDone(c) }))) : [];
+  if (moved.length) console.log(`Done archive: ${moved.length} card${moved.length === 1 ? '' : 's'} moved`);
+}
+
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 try { for (const line of await migrateFollowups(here)) console.log(line); } catch (e) { console.error('follow-up migration:', e.message); }
+await checkArchive();
 await watchBoard();
 setInterval(checkStalled, 60000).unref();
 setInterval(checkPickUps, 60000).unref();

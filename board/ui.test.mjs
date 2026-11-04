@@ -226,33 +226,25 @@ test("a snapshot keeps the board and the threads of its cards, open cards' first
   assert.equal(ui.packSnapshot(board, threads, { build: 'b1', savedAt, max: 50 }), null);
 });
 
-// A board of today's shape and size, as /api/board answers it: 309 Done cards with agents, a few open cards and their open question.
+// A board of today's shape and size, as /api/board answers it: its 100 Done cards slim (board/domain.mjs slimDone), a few
+// open cards and their open question.
 function bigBoard() {
-  const prose = 'x'.repeat(3000);
   const done = (n) => ({ key: `hub/GH-${n}`, kind: 'work', id: `GH-${n}`, ref: `#${n}`, title: `Done card ${n}`, lane: 'done', status: 'done', wave: 'hub', waveTitle: 'Hub', internal: true,
-    ticket: { id: `#${n}`, source: 'github' }, ticketSource: 'github', prs: [], threadCount: 9, lastTs: ago(1), othersAt: [ago(3), ago(2), ago(1)], hasNotes: true, sortAt: ago(1),
-    questions: { topic: `item:hub/GH-${n}`, state: 'resolved', open: 0, answered: 0, replied: 0, resolved: 3, first: 'q1' }, lineup: { slug: 's', title: 'S' }, created: ago(5), updatedAt: ago(1),
-    agents: [{ name: 'main', calls: [{ at: ago(1), text: prose.slice(0, 600) }, { at: ago(1), text: prose.slice(0, 600) }] }] });
+    ticket: { id: `#${n}`, source: 'github' }, ticketSource: 'github', prs: [], threadCount: 9, othersAt: [ago(3), ago(2), ago(1)], hasNotes: true, sortAt: ago(1),
+    questions: { topic: `item:hub/GH-${n}`, state: 'resolved', open: 0, answered: 0, replied: 0, resolved: 3, first: 'q1' }, manualSteps: [] });
   const open = [{ key: 'hub/GH-1', lane: 'todo', ref: '#1', title: 'Todo', questions: { state: 'open', open: 1, answered: 0, replied: 0, first: 'live' }, agents: [{ name: 'main' }] },
     { key: 'hub/GH-2', lane: 'progress', ref: '#2', title: 'Progress', builder: { progress: 'building' }, prs: [{ state: 'OPEN' }] }];
-  return { generatedAt: ago(0), title: 'Hub', items: [...open, ...Array.from({ length: 309 }, (_, n) => done(100 + n))],
+  return { generatedAt: ago(0), title: 'Hub', items: [...open, ...Array.from({ length: 100 }, (_, n) => done(100 + n))],
     owner: [{ id: 'live', topic: 'item:hub/GH-1', state: 'open', question: 'Which?' }], waveBands: [{ slug: 'hub', keys: ['hub/GH-1', 'hub/GH-100'] }] };
 }
 const packed = (board, o = {}) => ui.packSnapshot(board, new Map(), { build: 'b1', savedAt: board.generatedAt, ...o });
 
-test('a snapshot keeps no version, and keeps Done cards to what the Done lane, band links and updateSign read', () => {
+test('a snapshot keeps no version, and keeps every card as the board sent it', () => {
   const board = bigBoard();
   const back = plain(ui.unpackSnapshot(packed({ ...board, version: 'v1' }), 'b1'));
-  assert.deepEqual(back.board.owner, board.owner);
   assert.equal(back.board.version, undefined, "a reload names no version for a snapshot's board, so it downloads the whole one");
-  const dones = back.board.items.filter((i) => i.lane === 'done');
-  assert.equal(dones.length, 309);
-  const [d] = dones;
-  const live = board.items.find((i) => i.key === d.key);
-  assert.equal(d.agents, undefined);
-  assert.equal(d.created, undefined);
-  for (const field of ['key', 'ref', 'title', 'lane', 'status', 'othersAt', 'hasNotes', 'questions', 'threadCount', 'prs', 'sortAt', 'ticket', 'wave']) assert.deepEqual(d[field], live[field], field);
-  assert.equal(ui.updateSign(d), ui.updateSign(live));
+  assert.deepEqual(back.board.items, board.items);
+  assert.deepEqual(back.board.owner, board.owner);
 });
 
 test("a snapshot of a board at today's size fits under the cap and draws open lanes as the live board does", () => {
