@@ -274,6 +274,7 @@ command fails and changes nothing.
                                                          "auto_build": false, "auto_pull": false,
                                                          "max_implementers": 10,
                                                          "auto_triage": false, "auto_review": false,
+                                                         "headless_builders": false,
                                                          "github_login": "owner"}
   settings set auto-merge on|off                         on: the session merges an approved PR once CI is green and
                                                          the merge state is CLEAN. off (the default): the card
@@ -310,7 +311,18 @@ command fails and changes nothing.
                                                          touches, asked} for one incoming PR at a time that touches
                                                          this board's cards or asks the owner for review. Off by
                                                          default. Only on the owner's word
-  settings set auto-triage on|off                        on: while the board is idle and Todo changed since the last
+  settings set headless-builders on|off                  on: the board server launches each Claude build itself, as
+                                                         claude -p in the card's worktree with a brief built from the
+                                                         card's notes and rules, for the Implement tap, a queued start
+                                                         and Auto implement's pull, instead of waking you with
+                                                         card-build or card-pull; a codex pick, or a launch that
+                                                         fails, still sends card-build. The builder lands its own
+                                                         work; once you verify a handed-back build's calls and its
+                                                         card has no open question, the server launches a headless
+                                                         lander. item set --state ready then refuses a card without
+                                                         --size, a notes file, or the id of each answered question in
+                                                         that file. Off by default. Only on the owner's word
+  settings set auto-triage on|off                       on: while the board is idle and Todo changed since the last
                                                          triage, at most once a day and before any pull, the board
                                                          server declares topic todo-triage-<date> ("Todo triage
                                                          <date>") and sends todo-triage {date, topic}; the pull

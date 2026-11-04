@@ -6,7 +6,7 @@
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask, ask progress|done,
 //   lineup create|add|remove|set|finish,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
-// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review, github_login}. auto_build asks the hub to
+// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review, headless_builders, github_login}. auto_build asks the hub to
 // run each card's .kickflip/build after each push, and hides the cards' Serve / Build; main always builds after a merge.
 // auto_merge (false when absent) lets the session merge
 // an approved, green, clean PR itself; off, the card shows the owner's Merge (store.mjs settingsOf). rules are the owner's standing instructions to this
@@ -110,6 +110,13 @@
 //                                it the same way, from the top of In Progress's Queued section (checkAuto, store.mjs
 //                                startQueuedBuild; docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md,
 //                                docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md).
+//                                With headless_builders on, a started Claude build launches here instead, as claude -p
+//                                in its worktree (headless.mjs launchBuilder), with no card-build, and Auto implement's
+//                                pull starts and launches the build itself, with no card-pull, its record marked
+//                                dispatched: 'hub'; a codex pick or a failed launch still appends card-build. A
+//                                checking card whose calls are all verified and that has no open question gets one
+//                                headless lander per verification, tracked in data/landers.json (store.mjs landable;
+//                                docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md).
 //                                lineup-move {lineup, key, by: -1 | 1} is a wave band card's ⋯ Move up or Move down: the
 //                                server reorders the lineup's Todo cards (domain.mjs lineupMoved, store.mjs changeLineup)
 //                                and answers {id: null, board}, appending no event; a move it can't make → 400 {error}.
@@ -155,8 +162,8 @@
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (store.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
-//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review} (store.mjs readBoardSettings)
-//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean} → board.json, keeping its other keys, and when the value moved a
+//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review, headless_builders} (store.mjs readBoardSettings)
+//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean, headless_builders?: boolean} → board.json, keeping its other keys, and when the value moved a
 //                                `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id}; a bad body → 400 {error}
 //   GET  /api/permissions        {onHost, file, permissions: [{id, name, allows, rule, on, refused}]}: the board's session
@@ -197,7 +204,8 @@ import { localDay } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, existsSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
-import { BoardError, addTopic, boardConfig, changeLineup, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { launchBuilder } from './headless.mjs';
+import { BoardError, addTopic, appendThread, boardConfig, changeLineup, landable, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -817,7 +825,7 @@ const server = http.createServer(async (req, res) => {
       if (kind === 'card-build') {
         const key = String(body.key || '');
         const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts));
-        return json(res, 200, { id: started && !started.queued ? await appendEvent(kind, started) : null, board: await pageBoard(req) });
+        return json(res, 200, { id: await handOff(started), board: await pageBoard(req) });
       }
       // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
       if (kind === 'lineup-move') {
@@ -1019,17 +1027,52 @@ async function runAuto() {
   heldByPause = readUsageGate().state === 'paused';
   const ready = idle && !heldByPause;
   for (const key of heldByPause ? [] : starts) {
-    const started = await startQueuedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts));
-    if (started && !started.queued) await appendEvent('card-build', started);
+    await handOff(await startQueuedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts)));
   }
+  if (settings.headless_builders && !heldByPause) await launchLanders();
   if (await checkTriage(settings, log, items, ready)) return;
-  if (await sendPulls(PULL, settings.auto_pull, waiting, heldByPause ? [] : pulls)) return;
+  const startPull = async (key) => handOff(await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub'));
+  if (await sendPulls(PULL, settings.auto_pull, waiting, heldByPause ? [] : pulls, settings.headless_builders ? startPull : null)) return;
   const unready = pullable.length ? [] : plannable;
   const planned = (await sentOf(PLAN, log)).filter((k) => unready.includes(k));
   if (await sendPulls(PLAN, settings.auto_pull, planned, ready && !planned.length ? unready.slice(0, 1) : [])) return;
   // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md: one review at a time, after any pull.
   const { due, repo } = reviews;
   if (ready && due) await appendEvent('pr-review', { pr: due.number, head: due.head, repo, title: due.title, author: due.author, url: due.url, touches: due.touches, asked: Boolean(due.asked) });
+}
+
+// docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
+// A build the server started ({key, kind, model, worktree}, startTappedBuild's) goes to its builder: on a board whose
+// builders launch headless a Claude build launches here, and anything else, or a launch that fails, wakes the session
+// with card-build to brief and launch it. → the card-build event's id, or null.
+async function handOff(started) {
+  if (!started || started.queued) return null;
+  if (settingsOf(await config()).headless_builders && started.kind === 'claude') {
+    try {
+      await launchBuilder(here, started);
+      return null;
+    } catch (e) {
+      await appendThread(here, started.key, { text: `Couldn't launch the builder headless (${e.message}), so the orchestrator launches it.` });
+    }
+  }
+  return appendEvent('card-build', started);
+}
+
+// data/landers.json {<key>: <verified at>}: the verification each launched lander was for, so each gets one lander.
+// A card whose verified build waits to land (store.mjs landable) gets a headless lander.
+async function launchLanders() {
+  const file = path.join(data, 'landers.json');
+  const sent = await readJSON(file, {});
+  const due = (await landable(here)).filter((c) => sent[c.key] !== c.verified);
+  if (!due.length) return;
+  for (const c of due) {
+    try { await launchBuilder(here, c, { lander: true }); } catch (e) {
+      await appendThread(here, c.key, { text: `Couldn't launch the lander headless (${e.message}); land it with board.mjs land ${c.key}.` });
+    }
+    sent[c.key] = c.verified;
+  }
+  await fs.writeFile(file + '.tmp', JSON.stringify(sent) + '\n');
+  await fs.rename(file + '.tmp', file);
 }
 
 // docs/adr/2026-11-03-1551-an-idle-board-triages-its-todo-once-a-day.md
@@ -1074,12 +1117,14 @@ async function sentOf({ kind, file }, log) {
   const since = log.filter((e) => e.kind === kind && String(e.ts) > at).map((e) => e.data?.key).filter(Boolean);
   return [...new Set([...markedOf(marker), ...since])];
 }
-// With on, sends kind {key} with its thread line for each of go and marks keep and go as sent; off, clears the marker.
-// The marker is written only when its keys move, since each write is itself a board change. → true while any is marked.
-async function sendPulls({ kind, file: name, line }, on, keep, go) {
+// With on, sends kind {key} with its thread line for each of go, or with start starts each itself, and marks keep and
+// go as sent; off, clears the marker. The marker is written only when its keys move, since each write is itself a
+// board change. → true while any is marked.
+async function sendPulls({ kind, file: name, line }, on, keep, go, start = null) {
   const file = path.join(data, name);
   const keys = on ? [...keep, ...go] : [];
   for (const key of on ? go : []) {
+    if (start) { await start(key); continue; }
     await appendEvent(kind, { key });
     await fs.mkdir(path.dirname(threadFile(key)), { recursive: true });
     await fs.appendFile(threadFile(key), JSON.stringify({ ts: new Date().toISOString(), who: 'claude', text: line }) + '\n');

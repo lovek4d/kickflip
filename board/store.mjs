@@ -765,21 +765,23 @@ const storedTickets = (value) => { try { return value ? ticketSource(value) : nu
 // A board's settings in board.json (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md): auto_merge,
 // auto_build, auto_pull (Auto implement Todo cards), auto_triage and auto_review, off when absent, max_implementers, a
 // whole number from 1 to 99 and MAX_IMPLEMENTERS when absent
-// (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md), tickets, its one ticket source, and
-// github_login, absent when unset or invalid (docs/adr/2026-11-01-1348-a-board-has-one-ticket-source.md).
+// (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md), headless_builders, off when absent
+// (docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md), tickets, its one
+// ticket source, and github_login, absent when unset or invalid (docs/adr/2026-11-01-1348-a-board-has-one-ticket-source.md).
 const validMaxImplementers = (value) => Number.isInteger(value) && value >= 1 && value <= 99;
 export const settingsOf = (cfg) => {
   const tickets = storedTickets(cfg?.tickets);
   return { auto_merge: cfg?.auto_merge === true, auto_build: cfg?.auto_build === true, auto_pull: cfg?.auto_pull === true,
     max_implementers: validMaxImplementers(cfg?.max_implementers) ? cfg.max_implementers : MAX_IMPLEMENTERS, auto_triage: cfg?.auto_triage === true, auto_review: cfg?.auto_review === true,
+    headless_builders: cfg?.headless_builders === true,
     ...(tickets ? { tickets } : {}), ...(validGithubLogin(cfg?.github_login) ? { github_login: cfg.github_login } : {}) };
 };
 export async function readBoardSettings(site) {
   return settingsOf(await readJSON(path.join(needSite(site), 'board.json'), {}));
 }
-// changes {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean, tickets?: source, github_login?: login | null} → {file, settings, changed}; changed lists the keys whose value moved.
+// changes {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean, headless_builders?: boolean, tickets?: source, github_login?: login | null} → {file, settings, changed}; changed lists the keys whose value moved.
 export function saveBoardSettings(site, changes) {
-  onlyKeys(changes, ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'auto_triage', 'auto_review', 'tickets', 'github_login'], 'the settings');
+  onlyKeys(changes, ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'auto_triage', 'auto_review', 'headless_builders', 'tickets', 'github_login'], 'the settings');
   if (!Object.keys(changes).length) fail('the settings name nothing to change');
   changes = { ...changes };
   for (const [k, v] of Object.entries(changes)) {
@@ -821,7 +823,7 @@ export async function fallBackFromLinear() {
 // The CLI's `settings set <name> <value>`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
   const key = String(name).replace(/-/g, '_');
-  const names = ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'auto_triage', 'auto_review', 'github_login', 'tickets'];
+  const names = ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'auto_triage', 'auto_review', 'headless_builders', 'github_login', 'tickets'];
   if (!names.includes(key)) fail(`no board setting "${name}"; settings are ${names.map((k) => k.replace(/_/g, '-')).join(', ')}`);
   if (key === 'tickets') {
     let tickets;
@@ -1294,6 +1296,18 @@ async function checkNextDeps(site, key, item, next) {
   }
 }
 
+// docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
+// On a board whose builders launch headless, ready means a builder can start from the card alone: it has a size, a
+// notes file, and that file names the id of every question on the card the owner answered.
+async function checkNotesComplete(site, key, dir, item) {
+  const starts = 'a headless builder starts from it, so pass';
+  if (!item.size) fail(`${key} has no size; ${starts} --size small or large with --state ready`);
+  if (!item.plan) fail(`${key} has no notes file; ${starts} --notes-file <file.md> with --state ready`);
+  const notes = await fs.readFile(await planPath(dir, item.plan), 'utf8');
+  const left = (await cardQuestions(site, key)).asked.filter((q) => q.answers.length && !notes.includes(q.id)).map((q) => q.id);
+  if (left.length) fail(`${key}'s notes leave out the answered question${left.length === 1 ? '' : 's'} ${left.join(', ')}; record each answer in ${item.plan}, naming its id, before it is ready`);
+}
+
 // docs/adr/2026-10-29-1639-a-full-plan-opens-as-a-page-on-the-site.md
 async function planPath(dir, rel) {
   const bad = (why) => fail(`a notes file is a .md file inside ${dir}, named relative to it: "${rel}" ${why}`);
@@ -1447,6 +1461,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (state === 'ready' && site) {
     const open = (await cardQuestions(site, key)).asked.filter((q) => q.state === 'open').map((q) => q.id);
     if (open.length) fail(`${key} has ${open.length === 1 ? 'an open question' : 'open questions'} ${open.join(', ')}; it is ready once the owner has answered ${open.length === 1 ? 'it' : 'them'}`);
+    if ((await readBoardSettings(site)).headless_builders) await checkNotesComplete(site, key, source.dir, item);
   }
   if (state !== undefined) item.state = state;
   if (built) item.install = built;
@@ -2029,7 +2044,8 @@ const PLANNER_MODEL = { prototype: 'sonnet', grill: 'opus' };
 // open card marks it building first, refusing what item set --status building refuses
 // (docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
 // dispatch marks the record open before its agent runs, as dispatched: 'tap' for the owner's Build tap
-// (startTappedBuild) or 'session' for the session's --dispatch right before it launches an agent of any kind. A
+// (startTappedBuild), 'hub' for a pull the board server starts on a board whose builders launch headless
+// (docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md), or 'session' for the session's --dispatch right before it launches an agent of any kind. A
 // builder's own start on that open record takes it up: --kind build keeps the record's kind, its Claude model and
 // worktree stay, and the record starts again at now, no longer dispatched. A session's dispatch on a record the tap
 // opened leaves it as it is, and a start under another agent name refuses until main's tap-opened record is taken up
@@ -2058,7 +2074,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   // docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md: --kind build takes the pick's kind.
   const build = ['build', ...PICKED].includes(asked);
   const before = await readJSON(file, null);
-  const tapOpen = (record) => record?.dispatched === 'tap' && !record.done;
+  const tapOpen = (record) => ['tap', 'hub'].includes(record?.dispatched) && !record.done;
   if (dispatch === 'session' && tapOpen(before)) return { file, alreadyOpen: true, lines: [] };
   if (agent !== 'main' && tapOpen(await readJSON(await builderFile(site, key, dir), null))) fail(`the Implement tap opened ${key}'s main builder record and no agent has taken it up; run builder start ${key} without --agent first`);
   const takeUp = before?.dispatched && !before.done ? before : null;
@@ -2066,7 +2082,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   // A record with unverified judgment calls is a build not yet checked: a start on it resumes that build, a
   // dispatched one included (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
   const resumed = before && unverifiedCalls(before).length ? before : null;
-  const pick = takeUp && asked === 'build' ? { kind: providerOf(takeUp.kind), model: takeUp.model, reason: takeUp.dispatched === 'tap' ? "The owner's Build tap picked it." : "The session's dispatch picked it." } : build ? builderPick({ card: was ?? {} }) : null;
+  const pick = takeUp && asked === 'build' ? { kind: providerOf(takeUp.kind), model: takeUp.model, reason: { tap: "The owner's Build tap picked it.", hub: "The board's pull picked it." }[takeUp.dispatched] ?? "The session's dispatch picked it." } : build ? builderPick({ card: was ?? {} }) : null;
   if (pick && asked !== 'build' && asked !== pick.kind) fail(`--kind ${asked}: ${pick.kind} builds now. ${pick.reason} Pass --kind ${pick.kind}, or --kind build.`);
   const k = pick ? pick.kind : asked;
   const line = asLine && forAgent(asLine, plans({ kind: k }), '--progress');
@@ -2120,13 +2136,14 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
 // A card an unfinished dep blocks is queued instead: no record and no worktree, its wave entry's queued_at the tap's
 // time, and a thread line; the board server starts it once nothing blocks it and an implementer slot is free (startQueuedBuild). → {key, ref, queued:
 // [blocker names]} (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
-export async function startTappedBuild(site, key, worktree) {
+// dispatch 'hub' is a pull the board server starts itself, on a board whose builders launch headless.
+export async function startTappedBuild(site, key, worktree, dispatch = 'tap') {
   try {
     const { held, blockers } = await tapRefusals(site, key);
     if (held) await recordOwnerTap(site, 'card-hold', { key, hold: false });
     if (blockers.length) return await queueBuild(site, key, blockers);
     try {
-      const started = await startBuilder(site, key, { kind: 'build', worktree, dispatch: 'tap' });
+      const started = await startBuilder(site, key, { kind: 'build', worktree, dispatch });
       return { key, ref: await cardName(site, key), kind: started.kind, ...(started.model ? { model: started.model } : {}), reason: started.reason, worktree: started.worktree };
     } catch (e) {
       if (held) await restoreHold(site, key, held);
@@ -2324,6 +2341,38 @@ export async function verifyCalls(site, key, { dir, agent = 'main', note }) {
   }
   await writeJSON(file, { ...record, verified: { at: new Date().toISOString(), ...(note === undefined ? {} : { note: text(note, '--note') }) } });
   return file;
+}
+
+// docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
+// What a headless builder's brief is built from: {key, ref, title, notes: the notes file's path or null, worktree: the
+// newest record's worktree path or null, answers: the owner's answer to each deferred ask put to them, [{ask, question,
+// answer}]}.
+export async function briefFacts(site, key) {
+  const { source, item } = await loadItem(site, key);
+  const said = (q, a) => [(q.options || []).find((o) => o.id === a.choice)?.label, a.note].filter(Boolean).join(': ') || 'answered';
+  const answers = (await cardQuestions(site, key)).asked.filter((q) => q.ask && q.answers.length).map((q) => ({ ask: q.ask, question: q.question, answer: said(q, q.answers.at(-1)) }));
+  return { key, ref: await cardName(site, key), title: item.title || key, notes: item.plan ? path.join(source.dir, item.plan) : null, worktree: (await recordedWorktree(site, key))?.path ?? null, answers };
+}
+
+// The cards a headless lander lands: checking, every call on their records verified, none of their questions open,
+// and their worktree still there. → [{key, verified, model}], verified the newest verification's time and model the
+// newest record's Claude model.
+export async function landable(site) {
+  const out = [];
+  for (const source of await itemSources(site)) {
+    const wave = await readJSON(source.file, null);
+    for (const item of wave?.items || []) {
+      if (item.status !== 'checking') continue;
+      const records = (await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)))).filter(Boolean);
+      const verified = records.map((r) => r.verified?.at).filter(Boolean).sort().at(-1);
+      if (!verified || records.some((r) => unverifiedCalls(r).length)) continue;
+      const key = `${source.slug}/${item.id}`;
+      if ((await cardQuestions(site, key)).asked.some((q) => q.state === 'open')) continue;
+      const newest = records.filter((r) => r.worktree?.path).sort((a, b) => String(b.started).localeCompare(String(a.started)))[0];
+      if (newest && existsSync(newest.worktree.path)) out.push({ key, verified, model: newest.model });
+    }
+  }
+  return out;
 }
 
 // land's check: refuses while a builder record on the card holds unverified calls, naming the commands per agent.

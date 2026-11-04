@@ -1039,6 +1039,28 @@ test('item set --state sets ready, grilling or prototyping, with --from-ask too,
   assert.equal(state(), 'ready');
 });
 
+// docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
+test('on a board whose builders launch headless, ready refuses a card without a size, without a notes file, or whose notes leave out an answered question', () => {
+  const state = () => read(at('waves', 'w', 'wave.json')).items[0].state;
+  assert.deepEqual(board('settings', 'set', 'headless-builders', 'on', '--site', 'orch'), { code: 0, out: 'headless-builders on\n', err: '' });
+  assert.equal(read(site('orch', 'board.json')).headless_builders, true);
+  assert.match(board('settings', '--site', 'orch').out, /"headless_builders":true/);
+  assert.deepEqual(board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'ready'), { code: 1, out: '', err: 'w/A1 has no size; a headless builder starts from it, so pass --size small or large with --state ready\n' });
+  assert.deepEqual(board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'ready', '--size', 'small'), { code: 1, out: '', err: 'w/A1 has no notes file; a headless builder starts from it, so pass --notes-file <file.md> with --state ready\n' });
+  assert.equal(state(), undefined);
+  write(path.join(home, 'card.json'), question('q1', { topic: 'item:w/A1' }));
+  assert.equal(board('question', 'add', '--site', 'orch', '--file', path.join(home, 'card.json')).code, 0);
+  fs.appendFileSync(site('orch', 'data', 'events.jsonl'), JSON.stringify({ id: 'e2', ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A' } }) + '\n');
+  write(at('waves', 'w', 'a1.md'), '# A1\n\nKeep it.\n');
+  assert.deepEqual(board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'ready', '--size', 'small', '--notes-file', 'a1.md'), { code: 1, out: '', err: "w/A1's notes leave out the answered question q1; record each answer in a1.md, naming its id, before it is ready\n" });
+  write(at('waves', 'w', 'a1.md'), '# A1\n\n- q1: keep it.\n');
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'ready', '--size', 'small', '--notes-file', 'a1.md').code, 0);
+  assert.equal(state(), 'ready');
+  // A board without it keeps ready as it was.
+  assert.equal(board('settings', 'set', 'headless-builders', 'off', '--site', 'orch').code, 0);
+  assert.equal(board('item', 'set', 'w/ENG-1', '--site', 'orch', '--state', 'ready').code, 0);
+});
+
 test('item set --next requires unfinished card ids and refs to be deps, and allows finished cards', () => {
   write(site('audit', 'data', 'wave.json'), { internal: true, items: [
     { id: 'A1', title: 'One', next: 'Old' },
@@ -2656,12 +2678,12 @@ test("reviewers set, add and remove keep the board's own reviewers in its board.
 test("settings prints the board's settings as JSON, off when absent, and settings set auto-merge on|off writes board.json keeping its other keys", () => {
   const cfg = () => read(site('orch', 'board.json'));
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] });
-  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_pull":false,"max_implementers":10,"auto_triage":false,"auto_review":false}\n', err: '' });
+  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_pull":false,"max_implementers":10,"auto_triage":false,"auto_review":false,"headless_builders":false}\n', err: '' });
   const on = board('settings', 'set', 'auto-merge', 'on', '--site', 'orch');
   assert.equal(on.code, 0);
   assert.match(on.out, /^auto-merge on$/m);
   assert.deepEqual(cfg(), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }], auto_merge: true });
-  assert.equal(board('settings', '--site', 'orch').out, '{"auto_merge":true,"auto_build":false,"auto_pull":false,"max_implementers":10,"auto_triage":false,"auto_review":false}\n');
+  assert.equal(board('settings', '--site', 'orch').out, '{"auto_merge":true,"auto_build":false,"auto_pull":false,"max_implementers":10,"auto_triage":false,"auto_review":false,"headless_builders":false}\n');
   assert.equal(board('settings', 'set', 'auto-merge', 'off', '--site', 'orch').code, 0);
   assert.equal(cfg().auto_merge, false);
 
@@ -2908,7 +2930,7 @@ test('main set publishes an install with the same URL and sha checks as card ins
 
 test('github-login settings lines and API validation support set and clear', async () => {
   const { settingsOf, settingsLines, saveBoardSettings } = await import('./store.mjs');
-  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting github-login owner']);
+  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off', 'setting github-login owner']);
   assert.ok(!('github_login' in settingsOf({ github_login: 'bad login' })));
   await saveBoardSettings(site('orch'), { github_login: 'owner' });
   await saveBoardSettings(site('orch'), { github_login: null });

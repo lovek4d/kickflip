@@ -83,7 +83,7 @@ export function claudeBin() {
 }
 
 // A session's environment names its own session and parent; a claude started under it would take them as its own.
-const inherited = (k) => k === 'CLAUDECODE' || k === 'CLAUDE_PID' || k === 'CLAUDE_EFFORT' || k.startsWith('CLAUDE_CODE_');
+export const inherited = (k) => k === 'CLAUDECODE' || k === 'CLAUDE_PID' || k === 'CLAUDE_EFFORT' || k.startsWith('CLAUDE_CODE_');
 
 // tmux, for the hub board's foreground session. The hub service's PATH may lack Homebrew's or the system's bin.
 export function tmuxBin() {
