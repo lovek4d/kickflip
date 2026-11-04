@@ -616,7 +616,7 @@ const COMMANDS = {
       await store.checkCallsVerified(site, key, { dir: f.dir });
       const recorded = await store.recordedWorktree(site, key, { dir: f.dir });
       const { repo, base } = builderRepo(site, { repo: f.repo ?? recorded?.repo });
-      land({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base });
+      land({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base, ref: site ? await store.cardName(site, key) : undefined });
       return site ? store.setItem(site, key, { status: 'done', text: f.text }) : { lines: [] };
     });
   }],

@@ -1437,7 +1437,7 @@ const git = (cwd, ...args) => {
   assert.equal(r.status, 0, r.stderr);
   return r.stdout.trim();
 };
-const commit = (dir, file, text) => { write(path.join(dir, file), text); git(dir, 'add', '-A'); git(dir, 'commit', '--quiet', '-m', `change ${file}`); };
+const commit = (dir, file, text, subject = `change ${file}`) => { write(path.join(dir, file), text); git(dir, 'add', '-A'); git(dir, 'commit', '--quiet', '-m', subject); };
 function scratchRepo() {
   const repo = path.join(home, 'repo');
   fs.mkdirSync(repo, { recursive: true });
@@ -1611,6 +1611,33 @@ test('land refuses a new ADR named with a number instead of a timestamp, naming 
   assert.deepEqual(fs.readdirSync(path.join(repo, 'docs', 'adr')).sort(), ['0007-old.md', '2026-11-03-1111-fine.md', '2026-11-03-1112-numbered-again.md']);
 });
 
+test("land --site refuses a commit whose subject doesn't start with the card's ref and a colon, and one whose message still holds a \"# Conflicts:\" note, naming the commit, and changes nothing", () => {
+  const repo = scratchRepo();
+  assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  const landOn = () => run('board.mjs', ['land', 'w/A1', '--site', 'orch', '--text', 'Checked.'], undefined, { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) });
+  const say = (message) => { write(path.join(worktree(), 'card.txt'), message); git(worktree(), 'add', '-A'); git(worktree(), '-c', 'core.commentChar=;', 'commit', '--quiet', '-m', message); return git(worktree(), 'rev-parse', '--short', 'HEAD'); };
+  const main = git(repo, 'rev-parse', 'main');
+
+  const bare = say('no ref here');
+  assert.deepEqual([landOn().code, landOn().err], [1, `land: commit ${bare} "no ref here" doesn't start with "A1: "; reword it and land again\n`]);
+  git(worktree(), 'reset', '--quiet', '--hard', 'main');
+
+  const noSpace = say('A1:no space');
+  assert.match(landOn().err, new RegExp(`^land: commit ${noSpace} "A1:no space" doesn't start with`));
+  git(worktree(), 'reset', '--quiet', '--hard', 'main');
+
+  const noted = say('A1: fine\n\nCo-Authored-By: X\n\n# Conflicts:\n#\tshared/notes.md');
+  const r = landOn();
+  assert.deepEqual([r.code, r.out, r.err], [1, '', `land: commit ${noted} "A1: fine" still holds a "# Conflicts:" note in its message; amend it out and land again\n`]);
+  assert.equal(git(repo, 'rev-parse', 'main'), main);
+  assert.ok(fs.existsSync(worktree()));
+
+  git(worktree(), '-c', 'core.commentChar=;', 'commit', '--quiet', '--amend', '-m', 'A1: fine\n\nCo-Authored-By: X');
+  const landed = landOn();
+  assert.equal(landed.code, 0, landed.err);
+  assert.equal(git(repo, 'log', '-1', '--format=%s', 'main'), 'A1: fine');
+});
+
 test('land refuses a worktree with uncommitted changes, with no commit beyond main, or whose suite fails, leaving main and the worktree as they were', () => {
   const repo = scratchRepo();
   assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
@@ -1690,7 +1717,7 @@ test("a local board, or one with no GitHub repo or git remote, branches from its
   setOrch({ owner: { repo: project } });
   fs.rmSync(at('waves', 'w', 'agents'), { recursive: true });
   git(project, 'worktree', 'add', '--quiet', '-b', 'A1', worktree(), 'main');
-  commit(worktree(), 'card.txt', 'card');
+  commit(worktree(), 'card.txt', 'card', 'A1: card');
   const landed = run('board.mjs', ['land', 'w/A1', '--site', 'orch', '--text', 'Checked.'], undefined, { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) });
   assert.equal(landed.code, 0, landed.err);
   assert.match(landed.out, new RegExp(`main fast-forwarded to \\w+ in ${project}`));
@@ -1711,7 +1738,7 @@ test('a local board whose recorded branch is trunk branches from trunk and lands
   const started = board('--site', 'orch', 'builder', 'start', 'w/A1', '--worktree');
   assert.equal(started.code, 0, started.err);
   assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(project, 'rev-parse', 'trunk'));
-  commit(worktree(), 'card.txt', 'card');
+  commit(worktree(), 'card.txt', 'card', 'A1: card');
 
   git(project, 'switch', '--quiet', '-c', 'feature');
   const landTrunk = () => run('board.mjs', ['land', 'w/A1', '--site', 'orch', '--text', 'Checked.'], undefined, { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) });
@@ -1807,7 +1834,7 @@ test("land into the running kickflip clone restarts only the code that changed: 
 test('land on --site needs --text, refuses before landing what closing would refuse, and closes the card as done once it lands', () => {
   const repo = scratchRepo();
   assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
-  commit(worktree(), 'shared/notes.md', 'b\n');
+  commit(worktree(), 'shared/notes.md', 'b\n', 'A1: notes');
   const landOn = (...more) => run('board.mjs', ['land', 'w/A1', '--site', 'orch', ...more], undefined, {
     KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']),
   });

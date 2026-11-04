@@ -220,7 +220,18 @@ function refuseNumberedAdr(repo, base, branch) {
   if (numbered) fail(`land: ${numbered} is named with a number; name it docs/adr/YYYY-MM-DD-HHMM-${path.basename(numbered).replace(/^\d{4}-/, '')}, the time you wrote it, and land again`);
 }
 
-export function land({ path: dir, branch, repo, base }, { say = console.log, runTests = nodeTests, restart = restartRunner, boards = () => listBoards(), clone = skillRepo() } = {}) {
+// Every commit the branch adds starts its subject with the card's ref and a colon ("#114: ..."), and none still holds
+// the "# Conflicts:" note a `rebase --continue` under core.commentChar=';' keeps as message text.
+function refuseBadMessages(repo, base, branch, ref) {
+  const commits = git(repo, 'log', '--format=%h', `${base}..${branch}`).out.split('\n').filter(Boolean);
+  for (const c of commits) {
+    const subject = git(repo, 'log', '-1', '--format=%s', c).out;
+    if (ref && !subject.startsWith(`${ref}: `)) fail(`land: commit ${c} "${subject}" doesn't start with "${ref}: "; reword it and land again`);
+    if (/^# Conflicts:/m.test(git(repo, 'log', '-1', '--format=%B', c).out)) fail(`land: commit ${c} "${subject}" still holds a "# Conflicts:" note in its message; amend it out and land again`);
+  }
+}
+
+export function land({ path: dir, branch, repo, base, ref }, { say = console.log, runTests = nodeTests, restart = restartRunner, boards = () => listBoards(), clone = skillRepo() } = {}) {
   if (!fs.existsSync(dir)) fail(`no worktree at ${dir}`);
   const head = git(repo, 'symbolic-ref', '--quiet', '--short', 'HEAD').out;
   if (head !== base) fail(`${repo} is on ${head || 'a detached HEAD'}, not ${base}; switch it to ${base} (git -C ${repo} switch ${base}) and land again`);
@@ -240,6 +251,7 @@ export function land({ path: dir, branch, repo, base }, { say = console.log, run
   if (blank.length) fail(`${branch} has a commit with an empty subject (${blank[0]}); reword it in ${dir} and land again`);
 
   refuseNumberedAdr(repo, base, branch);
+  refuseBadMessages(repo, base, branch, ref);
 
   const tests = runTests(dir);
   if (!tests.ok) fail([
