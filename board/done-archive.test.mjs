@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until } from '../shared/test-helpers.mjs';
 import { buildBoard, archivedOf, slimDone, DONE_KEPT } from './domain.mjs';
-import { archiveCards, readArchive, appendThread, setItem } from './store.mjs';
+import { archiveCards, readArchive, appendThread, setItem, stripDeadFields } from './store.mjs';
 
 const at = (n) => new Date(Date.parse('2026-11-04T10:00:00Z') - n * 60000).toISOString();
 // count Done cards D0 (newest) … D<count-1>, then O1, an open card depending on D<count-2>, and O2, in an open
@@ -31,6 +31,13 @@ test('the Done cards past the newest 100 leave the board, except one in an open 
   assert.equal(DONE_KEPT, 100);
   assert.deepEqual(archivedOf(built).map((c) => c.key), ['t/D100', 't/D101', 't/D102']);
   assert.deepEqual(archivedOf(buildBoard(snapshotOf(DONE_KEPT))), []);
+});
+
+test('a card made from an ask that the archive also linked to it counts the ask once', () => {
+  const events = [{ id: 'a1', ts: at(9), kind: 'ask', data: { text: 'Make a badge' } }];
+  const count = (askLinks) => buildBoard({ waves: [{ slug: 't', wave: { items: [{ id: 'D1', title: 'D', status: 'done', from_ask: 'a1' }] }, agents: {} }], owner: { items: [] },
+    threads: { 't/D1': [{ ts: at(1), who: 'claude', text: 'Landed.' }] }, events, askLinks }).items.find((i) => i.key === 't/D1').threadCount;
+  assert.equal(count({ a1: 't/D1' }), count({}));
 });
 
 test('a slim Done card keeps what the page draws and leaves the rest out', () => {
@@ -60,14 +67,15 @@ test('an archived card leaves the wave file with its resolved questions, its thr
   const { home, site, read } = siteOf(DONE_KEPT + 6);
   try {
     const threadBefore = fs.readFileSync(path.join(site, 'data', 'threads', 't__D102.jsonl'), 'utf8');
-    const picks = [{ key: 't/D102', card: { key: 't/D102', title: 'Done 102', sortAt: at(102) } }, { key: 't/D101', card: { key: 't/D101', title: 'Done 101', sortAt: at(101) } }];
+    const picks = [{ key: 't/D102', closed_at: at(102) }, { key: 't/D101', closed_at: at(101) }];
     await archiveCards(site, picks);
     assert.deepEqual(read('wave.json').items.filter((it) => /^D10[12]$/.test(it.id)), []);
     assert.equal(read('wave.json').items.length, DONE_KEPT + 6);
     assert.deepEqual(read('owner.json').items.map((q) => q.id), ['q-open', 'q-other']);
     const archive = await readArchive(site);
-    assert.deepEqual(archive.map((a) => [a.key, a.wave, a.card.title, a.item.title, a.questions.map((q) => q.id)]),
-      [['t/D101', 't', 'Done 101', 'Done 101', []], ['t/D102', 't', 'Done 102', 'Done 102', ['q-done']]], 'newest closed first');
+    assert.deepEqual(archive.map((a) => [a.key, a.wave, a.closed_at, a.item.title, a.questions.map((q) => q.id)]),
+      [['t/D101', 't', at(101), 'Done 101', []], ['t/D102', 't', at(102), 'Done 102', ['q-done']]], 'newest closed first');
+    assert.ok(archive.every((a) => !('card' in a)), 'an entry keeps no page card');
     assert.equal(fs.readFileSync(path.join(site, 'data', 'threads', 't__D102.jsonl'), 'utf8'), threadBefore, 'the thread stays whole');
     await archiveCards(site, picks);
     assert.equal((await readArchive(site)).length, 2, 'archiving twice moves nothing twice');
@@ -86,9 +94,44 @@ test('an archived card leaves the wave file with its resolved questions, its thr
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
+test("the strip drops what nothing reads: an archive entry's page card for its closing time, an item's summary, a question's push_tag and no_change", async () => {
+  const { home, site, read } = siteOf(3);
+  const write = (f, v) => fs.writeFileSync(path.join(site, 'data', f), JSON.stringify(v));
+  try {
+    const q = { id: 'q-old', topic: 'item:t/X1', question: 'Old?', resolved: 'Answered', resolved_at: at(9), push_tag: 'item-t/X1', no_change: true };
+    write('done-archive.json', { cards: [
+      { key: 't/X1', wave: 't', archived_at: at(1), card: { key: 't/X1', title: 'Old', sortAt: at(8) }, item: { id: 'X1', title: 'Old', status: 'done', summary: 'Gone' }, questions: [q], asks: [] },
+      { key: 't/X2', wave: 't', archived_at: at(1), closed_at: at(9), item: { id: 'X2', title: 'Kept', status: 'done' }, questions: [], asks: [] }] });
+    const wave = read('wave.json');
+    wave.items[1].summary = 'Gone too';
+    write('wave.json', wave);
+    const owner = read('owner.json');
+    Object.assign(owner.items[2], { push_tag: 'item-t/D0', no_change: false });
+    write('owner.json', owner);
+
+    await stripDeadFields(site);
+    assert.deepEqual(read('done-archive.json').cards, [
+      { key: 't/X1', wave: 't', archived_at: at(1), closed_at: at(8), item: { id: 'X1', title: 'Old', status: 'done' }, questions: [{ id: 'q-old', topic: 'item:t/X1', question: 'Old?', resolved: 'Answered', resolved_at: at(9) }], asks: [] },
+      { key: 't/X2', wave: 't', archived_at: at(1), closed_at: at(9), item: { id: 'X2', title: 'Kept', status: 'done' }, questions: [], asks: [] }]);
+    assert.ok(read('wave.json').items.every((it) => !('summary' in it)));
+    assert.deepEqual(read('owner.json').items[2], ownerOf(3).items[2]);
+    const before = ['wave.json', 'owner.json', 'done-archive.json'].map((f) => fs.statSync(path.join(site, 'data', f)).mtimeMs);
+    await stripDeadFields(site);
+    assert.deepEqual(['wave.json', 'owner.json', 'done-archive.json'].map((f) => fs.statSync(path.join(site, 'data', f)).mtimeMs), before, 'a stripped board writes nothing');
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
 test('the server archives Done cards past the newest 100 as it starts, sends the rest slim, and pages the archive in 100 at a time', async () => {
   const count = 2 * DONE_KEPT + 36;
   const { home, site, read } = siteOf(count);
+  const write = (f, v) => fs.writeFileSync(path.join(site, 'data', f), JSON.stringify(v));
+  const wave = read('wave.json');
+  wave.items[0].summary = 'Nothing reads this.';
+  wave.items[0].parent = `t/D${count - 5}`;
+  write('wave.json', wave);
+  const owner = read('owner.json');
+  Object.assign(owner.items.find((q) => q.id === 'q-other'), { push_tag: 'item-t/D0', no_change: true });
+  write('owner.json', owner);
   const [port] = await freePorts();
   const base = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [fileURLToPath(new URL('./server.mjs', import.meta.url)), site], { env: { ...process.env, HOME: home, PORT: String(port) } });
@@ -108,10 +151,19 @@ test('the server archives Done cards past the newest 100 as it starts, sends the
 
     const first = await (await fetch(`${base}/api/done`)).json();
     assert.deepEqual([first.cards.length, first.cards[0].key, first.cards.at(-1).key, first.left], [DONE_KEPT, 't/D100', 't/D199', count - DONE_KEPT - 3 - DONE_KEPT]);
-    assert.ok(first.cards.every((c) => c.lane === 'done' && !('agents' in c)));
+    assert.ok(first.cards.every((c) => c.lane === 'done' && !('agents' in c) && !('created' in c)), 'paged cards come slim');
+    assert.deepEqual([first.cards[0].title, first.cards[0].status, first.cards[0].sortAt, first.cards[0].wave], ['Done 100', 'done', at(100), 't'], 'a paged card is built as it pages in');
     const last = first.cards.at(-1);
     const second = await (await fetch(`${base}/api/done?before=${encodeURIComponent(`${last.sortAt}|${last.key}`)}`)).json();
     assert.deepEqual([second.cards.map((c) => c.key), second.left], [Array.from({ length: count - 3 - 200 }, (_, n) => `t/D${200 + n}`), 0]);
+    const answered = second.cards.find((c) => c.key === `t/D${count - 4}`);
+    assert.equal(answered.questions?.state, 'resolved', "a paged card reads its archived questions");
+    assert.ok(answered.threadCount >= 1, 'and its thread');
+    assert.deepEqual(second.cards.find((c) => c.key === `t/D${count - 5}`).children.map((c) => c.key), ['t/D0'], 'a paged card links the board cards that name it');
+    assert.ok((await readArchive(site)).every((a) => !('card' in a) && a.closed_at));
+    assert.equal(read('wave.json').items.find((it) => it.id === 'D0').summary, undefined, 'the start strips an item summary');
+    assert.deepEqual(Object.keys(read('owner.json').items.find((q) => q.id === 'q-other')).filter((k) => ['push_tag', 'no_change', 'resolved_at'].includes(k)), ['resolved_at'],
+      "the start strips a question's push_tag and no_change and keeps resolved_at");
 
     const archived = `t/D${count - 4}`;
     assert.ok((await readArchive(site)).some((a) => a.key === archived));

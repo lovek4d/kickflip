@@ -251,6 +251,8 @@ const KNOWN = {
   'board/store.mjs restoreArchived': 'an archived card and its questions back, with the ticket they had',
   'board/domain.mjs buildBoard': 'the board view, read only',
   'board/server.mjs thread': "an archived card's questions read beside owner.json's, read only",
+  'board/server.mjs withArchived': 'archived cards read beside their wave files to build a Done page, read only',
+  'board/server.mjs snapshot': "archived cards' questions read beside owner.json's to build a Done page, read only",
   'bin/doctor.mjs doctorReport': "doctor's report rows",
   'hub/push.mjs deliver': 'the push queue',
   'hub/push.mjs flushQueue': 'the push queue',

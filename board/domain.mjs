@@ -784,7 +784,8 @@ export function buildBoard(snapshot) {
     waves.push({ slug, title: wave.title || slug, status: wave.status || null, internal: Boolean(wave.internal), finished: null, reviewers: (wave.reviewers || []).map((r) => r.name) });
     wave.items.forEach((it, order) => {
       const key = `${slug}/${it.id}`;
-      const folded = foldedInto.get(key) || [];
+      // An archived card's own ask is linked to it as well (store.mjs archiveCards), and counts once, as its from_ask.
+      const folded = (foldedInto.get(key) || []).filter((id) => id !== it.from_ask);
       const askIds = [it.from_ask, ...folded].filter((id) => asks.has(id));
       const askKeys = new Set(askIds.map((id) => `ask:${id}`));
       const lines = [...(routeRecord(threads, key) || []), ...askIds.flatMap((id) => routeRecord(threads, `ask:${id}`) || [])];

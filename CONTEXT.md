@@ -271,7 +271,7 @@ The Show more row at the foot of Todo, shown when two or more work cards there a
 _Avoid_: backlog item, todo
 
 **Done archive**:
-`data/done-archive.json`, where a finished work card goes once 100 newer Done cards close, with its resolved questions and the asks it was made from, unless a lineup band, an unfinished card or an open question still needs it. The board build never reads it. The Done list pages it in 100 at a time as Show more reaches the cards the page holds, and a command that names an archived card brings it back to its wave file. Its thread stays whole ([the board keeps the newest 100 Done cards, and older ones page in from an archive](docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md)).
+`data/done-archive.json`, where a finished work card goes once 100 newer Done cards close, with its resolved questions and the asks it was made from, unless a lineup band, an unfinished card or an open question still needs it. The board build never reads it. The Done list pages it in 100 at a time as Show more reaches the cards the page holds, each card built as it pages in ([archived Done cards are built as they page in](docs/adr/2026-11-04-1056-archived-done-cards-are-built-as-they-page-in.md)), and a command that names an archived card brings it back to its wave file. Its thread stays whole ([the board keeps the newest 100 Done cards, and older ones page in from an archive](docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md)).
 _Avoid_: history, old cards
 
 **Lane**:

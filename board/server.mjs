@@ -64,8 +64,10 @@
 //                                archive keeps back; doneArchived: how many Done cards data/done-archive.json holds
 //   GET  /api/done?before=<sortAt>|<key>
 //                                {cards, left}: the next 100 archived Done cards, slim, newest first, older than the
-//                                cursor (none: from the newest), and how many older ones are left after them
-//                                (docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md)
+//                                cursor (none: from the newest), and how many older ones are left after them, each
+//                                built from its archive entry as it pages in
+//                                (docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md,
+//                                docs/adr/2026-11-04-1056-archived-done-cards-are-built-as-they-page-in.md)
 //   GET  /api/questions?topic=<id>
 //                                {questions}: that topic's resolved questions, as /api/board's owner would list them
 //   GET  /api/links              {links}: the same list alone
@@ -222,7 +224,7 @@ import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, existsSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { launchBuilder, reviveBuilders } from './headless.mjs';
-import { BoardError, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, landable, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, landable, migrateFollowups, stripDeadFields, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -457,14 +459,30 @@ async function outsideData() {
   return { cfg: await config(), github: self?.github, remote: self?.remote, branch: self?.branch, topicItems: topicItems() };
 }
 
-async function itemSnapshot({ cfg, github, remote, branch }) {
-  const fromWaves = cfg.items === 'waves';
-  const sources = await itemSources(here);
-  const waves = (await Promise.all(sources.map(async (s) => {
+// The wave files the board reads, each with its builder records.
+async function liveWaves() {
+  return (await Promise.all((await itemSources(here)).map(async (s) => {
     const wave = await readJSON(s.file, null);
     if (!wave || !Array.isArray(wave.items)) return null;
     return { slug: s.slug, wave, agents: await readAgents(path.join(s.dir, 'agents')) };
   }))).filter(Boolean);
+}
+
+// The wave files with archive entries' items (store.mjs readArchive) back among their cards, so an archived card links
+// to the live cards it names and that name it, as it did on the board.
+async function withArchived(entries) {
+  const waves = await liveWaves();
+  for (const a of entries) {
+    const into = waves.find((w) => w.slug === a.wave);
+    if (into) into.wave.items.push(a.item);
+    else waves.push({ slug: a.wave, wave: { items: [a.item] }, agents: {} });
+  }
+  return waves;
+}
+
+async function itemSnapshot({ cfg, github, remote, branch }, waves) {
+  const fromWaves = cfg.items === 'waves';
+  waves ??= await liveWaves();
 
   const threadLines = Object.create(null);
   await Promise.all(waves.flatMap(({ slug, wave }) => wave.items.map(async (it) => {
@@ -477,14 +495,19 @@ async function itemSnapshot({ cfg, github, remote, branch }) {
 
 // Reads every source buildBoard needs: wave files and their builder records,
 // PR state from gh, item threads, page events with Claude's replies, owner
-// questions and legacy review-link fallbacks; outside is outsideData's.
-async function snapshot(outside) {
-  const items = await itemSnapshot(outside);
+// questions and legacy review-link fallbacks; outside is outsideData's. With archive entries, it reads their cards and
+// questions beside the wave files' and owner.json's, and their PR states only as the server last read them, asking
+// GitHub nothing for them.
+async function snapshot(outside, archived = []) {
+  const items = await itemSnapshot(outside, archived.length ? await withArchived(archived) : undefined);
   const { waves, threads: threadLines, working } = items;
   const prs = Object.create(null);
-  await Promise.all(waves.flatMap(({ wave }) => {
+  const archivedKeys = new Set(archived.map((a) => a.key));
+  await Promise.all(waves.flatMap(({ slug, wave }) => {
     const repo = items.github || wave.repo;
-    return wave.items.flatMap((it) => cardPRs(it, repo)).map(async (p) => { prs[prKeyOf(p)] = await prState(p.repo, p.number); });
+    return wave.items.flatMap((it) => cardPRs(it, repo).map(async (p) => {
+      prs[prKeyOf(p)] = archivedKeys.has(`${slug}/${it.id}`) ? prCache.get(prKeyOf(p))?.value ?? null : await prState(p.repo, p.number);
+    }));
   }));
   const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'item-message', 'wave-triage', 'overnight-triage']);
   const pageEvents = await Promise.all((await shownEvents()).map((e) => (needsReply.has(e.kind) || routeRecord(working, e.id) ? withReply(e) : { ...e, reply: null })));
@@ -496,9 +519,21 @@ async function snapshot(outside) {
   return {
     ...items, try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
     checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
-    owner: await readJSON(path.join(data, 'owner.json'), { items: [] }),
+    owner: ((owner) => ({ ...owner, items: [...(owner.items || []), ...archived.flatMap((a) => a.questions || [])] }))(await readJSON(path.join(data, 'owner.json'), { items: [] })),
     topicItems: outside.topicItems,
   };
+}
+
+// docs/adr/2026-11-04-1056-archived-done-cards-are-built-as-they-page-in.md
+// A page of archive entries as the slim Done cards the page draws, built with the board's own cards as the board
+// builds them, each in the entries' order with its closing time as sortAt, which the next page's cursor names.
+async function archivedCards(entries) {
+  if (!entries.length) return [];
+  const built = new Map(buildBoard(await snapshot(await outsideData(), entries)).items.map((i) => [i.key, i]));
+  return entries.map((a) => {
+    const it = built.get(a.key);
+    return slimDone({ ...it, sortAt: a.closed_at, worktree: it.worktree && !existsSync(it.worktree) ? null : it.worktree });
+  });
 }
 
 const route = prefix.slice(1) || path.basename(here);
@@ -871,7 +906,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/done') {
       const before = String(url.searchParams.get('before') || '');
       const older = (await readArchive(here)).filter((a) => !before || archiveRank(a) < before);
-      return json(res, 200, { cards: older.slice(0, DONE_KEPT).map((a) => a.card), left: Math.max(0, older.length - DONE_KEPT) });
+      return json(res, 200, { cards: await archivedCards(older.slice(0, DONE_KEPT)), left: Math.max(0, older.length - DONE_KEPT) });
     }
     if (p === '/api/links') return json(res, 200, { links: (await board()).links });
     if (p === '/api/stream' && req.method === 'GET') return stream(req, res);
@@ -1367,8 +1402,8 @@ async function stepIdle() {
 
 // docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md
 // The Done cards past the newest DONE_KEPT move to the archive with their resolved questions (domain.mjs archivedOf,
-// store.mjs archiveCards), as the server starts and after each board change. Their page cards are slimmed from the board
-// a page reads, PR states included. A check asked for while one runs runs again after it.
+// store.mjs archiveCards), as the server starts and after each board change, each with when it closed. A check asked
+// for while one runs runs again after it.
 let archiving = null;
 let archiveAgain = false;
 function checkArchive() {
@@ -1384,12 +1419,13 @@ function checkArchive() {
 async function archiveDone() {
   if (!archivedOf(await sharedBoard()).length) return;
   const picks = archivedOf(await board());
-  const moved = picks.length ? await archiveCards(here, picks.map((c) => ({ key: c.key, card: slimDone(c) }))) : [];
+  const moved = picks.length ? await archiveCards(here, picks.map((c) => ({ key: c.key, closed_at: c.sortAt }))) : [];
   if (moved.length) console.log(`Done archive: ${moved.length} card${moved.length === 1 ? '' : 's'} moved`);
 }
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 try { for (const line of await migrateFollowups(here)) console.log(line); } catch (e) { console.error('follow-up migration:', e.message); }
+try { await stripDeadFields(here); } catch (e) { console.error('dead-field strip:', e.message); }
 await checkArchive();
 await watchBoard();
 setInterval(() => {
