@@ -1,5 +1,5 @@
-// The board view's lanes, the Auto Review lane leading them, and the Waves section above them: each lane's header and cards, Done's and Asks' Show more,
-// Done's finished-wave folds, and the wave rows that filter the lanes and start a wave's triage.
+// The board view's lanes and the Auto Review lane leading them: each lane's header and cards, Done's and Asks' Show more,
+// Done's finished-wave folds, and Todo's wave bands with their Implement, triage and card order.
 // Needs app-core.js and app-cards.js.
 BoardView.part((B) => {
   const { $, store, state } = B;
@@ -62,7 +62,7 @@ BoardView.part((B) => {
     $(`[data-review="${number}"]`)?.scrollIntoView({ block: 'start' });
   }
 
-  // shown is the board's items after the wave filter and pending deletes.
+  // shown is the board's items less pending deletes.
   function lanesHtml(d, shown) {
     const laneState = store.get('lanes', {});
     return reviewsHtml(d) + LANES.map((lane) => {
@@ -71,7 +71,8 @@ BoardView.part((B) => {
       if (lane.hideEmpty && !items.length) return '';
       const expanded = laneState[lane.id] ?? lane.open;
       const open = items.filter((i) => !i.fold);
-      const rows = (lane.capped ? cappedRows(lane.id, open) : open.map((it) => B.card(it)).join('')) + waveFolds(d, items);
+      const rows = lane.id === 'todo' ? todoRows(d, shown, open)
+        : (lane.capped ? cappedRows(lane.id, open) : open.map((it) => B.card(it)).join('')) + waveFolds(d, items);
       return `<details class="lane" data-lane="${lane.id}" ${expanded ? 'open' : ''}>
         <summary><span class="lane-name">${lane.name}</span><span class="count">${items.length}</span>${lane.id === 'review' ? B.githubHeader(d) : ''}</summary>
         <div class="list">${rows || '<div class="empty">Nothing here.</div>'}
@@ -80,9 +81,15 @@ BoardView.part((B) => {
     }).join('');
   }
 
-  // The Waves section: a lane of one row per open wave (domain.mjs waveRowsOf). Tapping a row shows only its cards;
-  // Notes and Triage act without filtering. A lineup has them at the row's foot, and a wave file has only Triage, at
-  // the end of its name line.
+  // docs/adr/0180-waves-are-bands-in-todo.md
+  // Todo's wave bands (domain.mjs waveBandsOf), then its cards in no wave under Not in a wave. A band's open state lives
+  // in storage once the owner taps its head; until then only the first band whose next card is ready (a wave file's:
+  // any Todo card) starts open. A band's name shows its goal as a tooltip, or a popover on a long-press. menu is the
+  // card whose ⋯ menu is open, moving the card whose move is being sent and movingBy its way, goalShown the band whose goal popover is open.
+  let menu = null;
+  let moving = null;
+  let movingBy = 0;
+  let goalShown = null;
   const triaging = new Set();
   const triageTopic = (r) => `${r.kind}:${r.slug}`;
   function triageLink(r) {
@@ -90,28 +97,63 @@ BoardView.part((B) => {
     if (r.triage.questions) return `<span class="muted">Triage: ${B.plural(r.triage.questions, 'open question')}</span>`;
     return `<button type="button" class="wv-link" data-triage="${esc(triageTopic(r))}">Triage</button>`;
   }
-  function waveRow(r) {
-    const on = r.slug === state.waveFilter;
-    const lineup = r.kind === 'lineup';
-    const links = lineup ? `<div class="wv-links"><span class="external-link"><a href="notes.html?wave=${encodeURIComponent(r.slug)}">Notes ${BoardUI.LINK_ARROW}</a></span><span class="external-link"><span class="external-separator" aria-hidden="true"> · </span>${triageLink(r)}</span></div>` : '';
-    return `<div class="wv-row${on ? ' on' : ''}" data-wave-row="${esc(r.slug)}">
-        <div class="wv-id"><button type="button" class="wv-name" aria-pressed="${on}">${BoardUI.WAVE_ICON}<span>${esc(r.title)}</span></button><span class="muted small">${r.merged} of ${r.total} merged</span>${lineup ? '' : `<span class="wv-end">${triageLink(r)}</span>`}</div>
-        ${r.goal ? `<div class="wv-note"><b>Goal</b> ${esc(r.goal)}</div>` : ''}
-        ${r.order ? `<div class="wv-note"><b>Order</b> ${r.order.map((o) => esc(o.ref)).join(' → ')}</div>` : ''}
-        ${links}
-      </div>`;
+  const bandStore = (slug) => FOLDS[`band:${slug}`].store;
+  const bandOpen = (band, first) => store.get(bandStore(band.slug), band.slug === first);
+  const LANE_WORDS = { progress: 'in progress', review: 'in review', stale: 'stale' };
+  const DOTS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
+
+  function todoRows(d, shown, todo) {
+    const bands = d.waveBands || [];
+    const byKey = new Map(shown.map((i) => [i.key, i]));
+    const banded = new Set(bands.flatMap((b) => b.keys));
+    const loose = todo.filter((i) => !banded.has(i.key));
+    const first = bands.find((b) => (b.next ? b.next.ready : b.keys.some((k) => byKey.get(k)?.ready)))?.slug;
+    if (!bands.length) return loose.map((it) => B.card(it)).join('');
+    return bands.map((b) => bandHtml(b, b.keys.map((k) => byKey.get(k)).filter(Boolean), bandOpen(b, first))).join('')
+      + (loose.length ? `<div class="wb-loose"><div class="wb-head wb-loosehead"><span class="lane-name">Not in a wave</span><span class="count">${loose.length}</span></div>${loose.map((it) => B.card(it)).join('')}</div>` : '');
   }
-  function renderWaves(d) {
-    const rows = d.waveRows || [];
-    if (state.waveFilter && !rows.some((r) => r.slug === state.waveFilter)) { state.waveFilter = null; store.set('wave', null); }
-    const open = store.get('lanes', {}).waves ?? true;
-    const shown = rows.find((r) => r.slug === state.waveFilter);
-    BoardUI.setHTML($('#waves'), rows.length ? `<details class="lane" data-lane="waves" ${open ? 'open' : ''}>
-        <summary><span class="lane-name">Waves</span><span class="count">${rows.length}</span></summary>
-        <div class="list">${rows.map(waveRow).join('')}</div>
-      </details>${shown ? `<div class="wv-showing muted small">Showing ${esc(shown.title)} only · <button type="button" class="wv-all">Show all</button></div>` : ''}` : '');
+
+  function bandHtml(band, cards, open) {
+    const todo = cards.filter((i) => i.lane === 'todo');
+    const done = cards.filter((i) => i.lane === 'done');
+    const now = cards.filter((i) => LANE_WORDS[i.lane]).map((i) => `${esc(i.ref)} ${LANE_WORDS[i.lane]}`);
+    const progress = [`${band.merged} of ${band.total} merged`, ...now].join(' · ');
+    const name = `<span class="lane-name wb-name"${band.goal ? ` title="${esc(band.goal)}" data-goal="${esc(band.slug)}"` : ''}>${esc(band.title)}</span>`;
+    const notes = band.kind === 'lineup' ? `<span class="external-link"><a href="notes.html?wave=${encodeURIComponent(band.slug)}">Notes ${BoardUI.LINK_ARROW}</a></span><span class="external-separator" aria-hidden="true"> · </span>` : '';
+    const next = band.next;
+    const go = !next ? '' : next.ready
+      ? `<button type="button" class="wv-link" data-confirm="card-build" data-key="${esc(next.key)}"${B.startingBuild(next.key) ? ' disabled' : ''}>${B.startingBuild(next.key) ? 'Starting…' : 'Implement'}</button>`
+      : `<span class="wb-next">next: ${esc(next.ref)} ${esc(next.word)}</span>`;
+    const pop = goalShown === band.slug && band.goal ? `<div class="wb-pop" role="tooltip">${esc(band.goal)}</div>` : '';
+    const head = `<div class="wb-head" data-band-toggle="${esc(band.slug)}" role="button" tabindex="0" aria-expanded="${open}">${BoardUI.WAVE_ICON}`
+      + `<span class="wb-label">${name} <span class="count">${todo.length}</span> <span class="count">· ${progress}</span></span>`
+      + `<span class="wb-end"><span class="wb-links">${notes}${triageLink(band)}</span>${go}</span>${pop}</div>`;
+    if (!open) return `<section class="wb" data-band="${esc(band.slug)}">${head}</section>`;
+    const doneRow = done.length ? `<div class="wb-done">${done.length} done · ${done.map((i) => `<a class="card-link" href="#item=${encodeURIComponent(i.key)}">${esc(i.ref)}</a>`).join(', ')}</div>` : '';
+    const step = (it) => (band.kind === 'lineup' ? band.keys.indexOf(it.key) + 1 : 0);
+    const actions = (it, at) => (band.kind !== 'lineup' ? null : cardMenu(band.slug, it.key, at, todo.length));
+    return `<section class="wb" data-band="${esc(band.slug)}" data-open>${head}<div class="wb-body">${doneRow}${todo.map((it, at) => B.card(it, { step: step(it), actions: actions(it, at) })).join('')}</div></section>`;
   }
-  const showWave = (slug) => { state.waveFilter = slug; store.set('wave', slug); B.render(); };
+
+  // A lineup card's ⋯ and, while open, its menu: Move up and Move down among the band's Todo cards. A move waits for
+  // the server (board/server.mjs lineup-move), reading Moving… meanwhile.
+  function cardMenu(slug, key, at, count) {
+    const shown = menu === key;
+    const item = (by, label) => {
+      const sending = moving === key && movingBy === by;
+      const off = moving === key || (by < 0 ? at === 0 : at === count - 1);
+      return `<button type="button" role="menuitem" data-band-move="${by}" data-band="${esc(slug)}" data-key="${esc(key)}"${off ? ' disabled' : ''}>${sending ? 'Moving…' : label}</button>`;
+    };
+    return `<div class="ask-actions"><button type="button" class="ghost icon wb-dots" data-band-menu="${esc(key)}" aria-label="Card menu" aria-haspopup="menu" aria-expanded="${shown}">${DOTS}</button>`
+      + (shown ? `<div class="wb-menu" role="menu">${item(-1, '↑ Move up')}${item(1, '↓ Move down')}</div>` : '') + '</div>';
+  }
+
+  // Opens the band holding card key or named slug, for a #item= link or a Needs you line.
+  function openBand({ key, slug }) {
+    const band = (state.board?.waveBands || []).find((b) => b.slug === slug || b.keys.includes(key));
+    if (band) store.set(bandStore(band.slug), true);
+    return band;
+  }
 
   B.on(B.root, 'toggle', (ev) => {
     const el = ev.target;
@@ -149,7 +191,7 @@ BoardView.part((B) => {
     const tb = ev.target.closest('button[data-triage]');
     if (tb) {
       const topic = tb.dataset.triage;
-      const row = state.board.waveRows.find((r) => triageTopic(r) === topic);
+      const row = state.board.waveBands.find((r) => triageTopic(r) === topic);
       const asks = row.kind === 'lineup'
         ? `Claude reads the code for ${row.title}'s unstarted cards and asks you in Needs you about splitting, merging, adding or closing any. Start?`
         : `Claude checks ${row.title}'s unfinished cards, fixes what it can and asks you in Needs you about any that need you. Start?`;
@@ -161,12 +203,62 @@ BoardView.part((B) => {
       finally { triaging.delete(topic); B.render(); }
       return;
     }
-    const go = ev.target.closest('a[data-wave-show]');
-    if (go) { ev.preventDefault(); showWave(go.dataset.waveShow); $('#waves').scrollIntoView({ block: 'start' }); return; }
-    if (ev.target.closest('.wv-all')) { showWave(null); return; }
-    const row = ev.target.closest('.wv-row');
-    if (row && !ev.target.closest('a')) showWave(row.dataset.waveRow !== state.waveFilter ? row.dataset.waveRow : null);
+    const show = ev.target.closest('a[data-band-show]');
+    if (show) {
+      ev.preventDefault();
+      if (!openBand({ slug: show.dataset.bandShow })) return;
+      const s = store.get('lanes', {}); s.todo = true; store.set('lanes', s);
+      B.render();
+      $(`.wb[data-band="${CSS.escape(show.dataset.bandShow)}"]`)?.scrollIntoView({ block: 'start' });
+    }
   });
 
-  Object.assign(B, { FOLDS, lanesHtml, renderWaves, openReview });
+  // A band's ⋯ menu and its moves, its head's fold and its name's goal popover. A long-press on the name (touch only;
+  // a mouse has the tooltip) opens the popover, and the click that ends the press neither folds the band nor closes it.
+  let press = null;
+  let pressed = false;
+  const endPress = () => { press?.(); press = null; };
+  B.on(B.root, 'pointerdown', (ev) => {
+    pressed = false;
+    const name = ev.target.closest?.('[data-goal]');
+    if (!name || ev.pointerType === 'mouse') return;
+    endPress();
+    press = B.later(450, () => { press = null; pressed = true; goalShown = name.dataset.goal; B.render(); });
+  });
+  for (const type of ['pointerup', 'pointercancel']) B.on(B.root, type, endPress);
+  B.on(B.root, 'contextmenu', (ev) => { if (ev.target.closest?.('[data-goal]')) ev.preventDefault(); });
+  B.on(B.root, 'click', async (ev) => {
+    if (pressed) { pressed = false; ev.preventDefault(); return; }
+    if (goalShown) { goalShown = null; B.render(); if (ev.target.closest('.wb-head')) return; }
+    const dots = ev.target.closest('button[data-band-menu]');
+    if (dots) { ev.preventDefault(); menu = menu === dots.dataset.bandMenu ? null : dots.dataset.bandMenu; B.render(); return; }
+    const mv = ev.target.closest('button[data-band-move]');
+    if (mv) {
+      ev.preventDefault();
+      if (mv.disabled || moving) return;
+      const { band, key } = mv.dataset;
+      moving = key;
+      movingBy = Number(mv.dataset.bandMove);
+      B.render();
+      try { await B.send('lineup-move', { lineup: band, key, by: movingBy }); }
+      catch { B.toast('Could not move it. Is the host awake?'); }
+      moving = null;
+      menu = null;
+      B.render();
+      return;
+    }
+    if (menu && !ev.target.closest('.wb-menu')) { menu = null; B.render(); if (ev.target.closest('summary')) { ev.preventDefault(); return; } }
+    const head = ev.target.closest('[data-band-toggle]');
+    if (head && !ev.target.closest('a, button')) {
+      const slug = head.dataset.bandToggle;
+      store.set(bandStore(slug), head.getAttribute('aria-expanded') !== 'true');
+      B.render();
+    }
+  });
+  B.on(B.root, 'keydown', (ev) => {
+    const head = ev.target.closest?.('[data-band-toggle]');
+    if (head && ev.target === head && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); head.click(); }
+  });
+
+  Object.assign(B, { FOLDS, lanesHtml, openReview, openBand });
 });

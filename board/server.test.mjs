@@ -988,7 +988,7 @@ test("a wave's triage runs from its wave-triage event until Claude replies, and 
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ internal: true, items: [{ id: 'S1', title: 'One' }, { id: 'S2', title: 'Two', deps: ['S1'] }],
     lineups: [{ slug: 'mon', title: 'Monitor', goal: 'Runs in kickflip.', items: ['S1', 'S2'] }] }));
   fs.writeFileSync(path.join(site, 'data', 'lineup-mon.md'), 'Why: one PR each.\n');
-  const row = async () => (await (await fetch(`${base}/api/board`)).json()).waveRows[0];
+  const row = async () => (await (await fetch(`${base}/api/board`)).json()).waveBands[0];
   assert.deepEqual((await row()).triage, { running: false, questions: 0 });
   const { id } = await (await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'wave-triage', lineup: 'mon' }) })).json();
   assert.equal((await row()).triage.running, true);
@@ -997,6 +997,31 @@ test("a wave's triage runs from its wave-triage event until Claude replies, and 
   const notes = await fetch(`${base}/api/notes?wave=mon`);
   assert.deepEqual(await notes.json(), { title: 'Monitor', markdown: '**Goal** Runs in kickflip.\n\n**Order** INT-1 → INT-2\n\nWhy: one PR each.\n' });
   assert.equal((await fetch(`${base}/api/notes?wave=nope`)).status, 404);
+});
+
+// docs/adr/0180-waves-are-bands-in-todo.md
+test("a lineup-move tap reorders the wave's unstarted cards, chains them again and answers with the board, appending no event; a move past the end is refused", async () => {
+  const waveFile = path.join(site, 'data', 'wave.json');
+  const saved = fs.readFileSync(waveFile, 'utf8');
+  fs.writeFileSync(waveFile, JSON.stringify({ internal: true, items: [{ id: 'M1', title: 'One' }, { id: 'M2', title: 'Two', deps: ['M1'] }, { id: 'M3', title: 'Three', deps: ['M2'] }],
+    lineups: [{ slug: 'mv', title: 'Move', goal: 'G', items: ['M1', 'M2', 'M3'] }] }));
+  const move = (key, by) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'lineup-move', lineup: 'mv', key, by }) });
+  const before = (await (await fetch(`${base}/_claude/events`)).json()).length;
+  try {
+    const r = await move('t/M3', -1);
+    assert.equal(r.status, 200);
+    const { id, board } = await r.json();
+    assert.equal(id, null);
+    assert.deepEqual(board.waveBands[0].keys, ['t/M1', 't/M3', 't/M2']);
+    const wave = JSON.parse(fs.readFileSync(waveFile, 'utf8'));
+    assert.deepEqual([wave.lineups[0].items, wave.items.map((it) => it.deps || [])], [['M1', 'M3', 'M2'], [[], ['M3'], ['M1']]]);
+    const refused = await move('t/M1', -1);
+    assert.equal(refused.status, 400);
+    assert.match((await refused.json()).error, /can't move/);
+    assert.equal((await (await fetch(`${base}/_claude/events`)).json()).length, before);
+  } finally {
+    fs.writeFileSync(waveFile, saved);
+  }
 });
 
 test("/api/board names a card's worktree while its folder exists, and says whether the request's browser runs on the host", async () => {

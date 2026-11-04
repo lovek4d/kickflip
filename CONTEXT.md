@@ -183,15 +183,15 @@ A set of work items built and reviewed together, with its reviewers.
 _Avoid_: batch, sprint, epic
 
 **Lineup**:
-What the owner calls a wave on a board: a named set of cards from one wave file, in build order, with a goal and a short note. Only the owner asks for one, with the +, or Claude proposes one as a board question when it spots a grouping in Todo. `board.mjs lineup create` makes each card blocked by the one before it and writes the note to `lineup-<slug>.md` beside the wave file; each card stays one PR and starts on its own as it unblocks. Its cards carry a grey chip with its name, in the row under their other chips. It is open until `lineup finish` or until all its cards are Done ([0109](docs/adr/0109-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md)).
+What the owner calls a wave on a board: a named set of cards from one wave file, in build order, with a goal and a short note. Only the owner asks for one, with the +, or Claude proposes one as a board question when it spots a grouping in Todo. `board.mjs lineup create` makes each card blocked by the one before it and writes the note to `lineup-<slug>.md` beside the wave file; each card stays one PR and starts on its own as it unblocks. Todo shows it as a **wave band**. It is open until `lineup finish` or until all its cards are Done ([0109](docs/adr/0109-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md)).
 _Avoid_: wave (in code and `board.mjs`, where a wave is a wave file), group, epic
 
-**Waves section**:
-The lane above In Review with one row per open **lineup**, then on a board over `~/.claude/waves` one per unfinished wave file: its name and "N of M merged", and for a lineup its Goal and Order lines and "Notes ↗ · Triage", while a wave file has Triage at the end of its name line. Notes opens the goal, order and note through `notes.html?wave=<slug>`. Tapping a row shows only its cards in the lanes, under "Showing <name> only · Show all" ([0109](docs/adr/0109-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md)).
-_Avoid_: wave bars, wave filter, pills
+**Wave band**:
+A wave shown inside Todo: one band per open **lineup**, then on a board over `~/.claude/waves` one per unfinished wave file, above Todo's cards in no wave ("Not in a wave"). Its head reads its name (the goal as its tooltip, or a long-press popover), its Todo count, "N of M merged" and its started cards, then "Notes ↗ · Triage" (a wave file has only Triage), then Implement for a lineup's next card when it is ready, else "next: #N <why not>". Open, it lists its Todo cards in wave order with step numbers and a ⋯ menu that moves a card up or down, after one "N done" line. Only the first band with a ready next card starts open ([0180](docs/adr/0180-waves-are-bands-in-todo.md)).
+_Avoid_: Waves section, wave bars, wave filter, pills
 
 **Wave triage**:
-Claude reading the code for a lineup's unstarted cards and proposing to split, merge, add or close cards, as one open board question per change on topic `lineup:<slug>`, which Needs you shows as "<wave> · N questions". For a wave file, Claude checks each unfinished card's PR, CI, reviews and blockers, and whether a merged card already covers a Todo card, fixes what it can, and asks one question per card that needs the owner on topic `wave:<slug>`. The row's Triage confirms, sends `wave-triage {lineup}` or `wave-triage {wave}` and reads Triaging… in orange until the session replies to that event, then "Triage: N open questions" in grey while any is open or answered ([0109](docs/adr/0109-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md)).
+Claude reading the code for a lineup's unstarted cards and proposing to split, merge, add or close cards, as one open board question per change on topic `lineup:<slug>`, which Needs you shows as "<wave> · N questions". For a wave file, Claude checks each unfinished card's PR, CI, reviews and blockers, and whether a merged card already covers a Todo card, fixes what it can, and asks one question per card that needs the owner on topic `wave:<slug>`. A band's Triage confirms, sends `wave-triage {lineup}` or `wave-triage {wave}` and reads Triaging… in orange until the session replies to that event, then "Triage: N open questions" in grey while any is open or answered ([0109](docs/adr/0109-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md)).
 _Avoid_: grooming, refinement
 
 **Architecture review**:
@@ -203,7 +203,7 @@ The people who get a board's PR links once they are ready, and the weekday diges
 _Avoid_: approvers, watchers
 
 **Finished wave**:
-A wave with work items that are all merged, done or dropped. Done shows it as one row that opens to its cards, and it leaves the **Waves section** ([ADR 0012](docs/adr/0012-lists-never-cut-silently.md)).
+A wave with work items that are all merged, done or dropped. Done shows it as one row that opens to its cards, and its **wave band** leaves Todo ([ADR 0012](docs/adr/0012-lists-never-cut-silently.md)).
 _Avoid_: closed wave, archived wave
 
 **Work item**:
@@ -508,7 +508,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `rules-editor.js` | `RulesEditor`, the rules list on Board Settings and the Hub page, with its own CSS; `ui.test.mjs` tests its pure parts |
 | `app-threads.js` | Loading a thread, once at a time per card; an open card's thread, its reply box, quick replies and Done |
 | `app-cards.js` | Cards, their open detail with the details list ending in Notes ↗ · Visit/Install ↗ · Review on GitHub ↗ when present, and the workflow row: Merge, Hold, the **action button**, Serve/Build and rightmost **Implement**, each confirming but Hold, which opens its sheet with the duration picker; try requests, failure-thread links and main’s failed-build log and Retry sheet; the bump icon's bump and unbump, with no confirmation; an ask's detail shows only its action button; the thread's Done confirmation and send |
-| `app-lanes.js` | Lanes, Done's and Asks' Show more, Done's finished-wave folds, the **Waves section** with its filter and Triage, and Plan waves |
+| `app-lanes.js` | Lanes, Done's and Asks' Show more, Done's finished-wave folds, Todo's **wave bands** with their Implement, Triage and ⋯ moves, and Plan waves |
 | `app-asks.js` | The + sheet and its press-n-twice shortcut, and bump, edit and delete |
 | `app-needs.js` | The Needs you box, led by the board session's pending prompts |
 | `ui-prompts.js` | A pending prompt's Needs you line: its details, Allow once, Always allow and Deny, or a question's options, Skip and Send |

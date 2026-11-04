@@ -2878,7 +2878,7 @@ test('review digest waits without changing the record while Slack is not ready',
   assert.deepEqual(read(file), record);
 });
 
-test('lineup create chains its cards in build order and writes the wave note; add, remove, set and finish keep the order; a wave topic takes triage questions, as a wave file\'s does on a board over ~/.claude/waves', () => {
+test('lineup create chains its cards in build order and writes the wave note; add, remove, set and finish keep the order and set --order rewrites it; a wave topic takes triage questions, as a wave file\'s does on a board over ~/.claude/waves', () => {
   const file = site('audit', 'data', 'wave.json');
   write(file, { title: 'W', items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two', deps: ['A9'] }, { id: 'A3', title: 'Three' }, { id: 'A4', title: 'Four' }, { id: 'A9', title: 'Elsewhere' }] });
   const b = (...args) => board('--site', 'audit', 'lineup', ...args);
@@ -2903,6 +2903,13 @@ test('lineup create chains its cards in build order and writes the wave note; ad
   assert.deepEqual(read(file).lineups[0].items, ['A1', 'A4', 'A3']);
   assert.equal(read(file).lineups[0].title, 'Monitor in kickflip');
   assert.equal(fs.readFileSync(site('audit', 'data', 'lineup-mon.md'), 'utf8'), 'Why: smaller.\n');
+  const ordered = b('set', 'mon', '--order', 'audit/A3,audit/A1,audit/A4');
+  assert.equal(ordered.code, 0, ordered.err);
+  assert.match(ordered.out, /order: A3 → A1 → A4/);
+  assert.deepEqual(read(file).lineups[0].items, ['A3', 'A1', 'A4']);
+  assert.deepEqual(deps(), { A1: ['A3'], A2: ['A9'], A3: [], A4: ['A1'], A9: [] });
+  assert.match(b('set', 'mon', '--order', 'audit/A3,audit/A1').err, /--order lists each of the wave's cards once/);
+  assert.match(b('set', 'mon', '--order', 'audit/A3,audit/A1,audit/A2').err, /--order lists each of the wave's cards once/);
 
   const q = path.join(home, 'q.json');
   write(q, question('t1', { topic: 'lineup:mon' }));

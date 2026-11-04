@@ -190,19 +190,21 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
          --cards <wave>/<id>,… (--note <t> | --file <f>)  build order, all from one wave file. Each card is then
                                                          blocked by the one before it (its other deps stay), and
                                                          the note goes to lineup-<slug>.md beside the wave file.
-                                                         The board's Waves section shows it with its goal and
-                                                         order, its cards carry its chip, and Notes opens the
-                                                         goal, the order and the note. Refuses a card already in
+                                                         Todo shows it as a band of its cards in order, its goal
+                                                         on its name, and Notes opens the goal, the order and
+                                                         the note. Refuses a card already in
                                                          another open wave. Prints the order by card label
   lineup add <slug> <wave>/<id> [--after <wave>/<id>]    puts a card in the wave, last unless --after, and chains
                                                          the order again
   lineup remove <slug> <wave>/<id>                       takes a card out: it loses its links to the wave's cards,
                                                          and the card after it is blocked by the one before
-  lineup set <slug> [--title <t>] [--goal <t>]           renames the wave, sets its goal or rewrites its note
-         [--note <t> | --file <f>]
-  lineup finish <slug>                                   the wave leaves the Waves section; its cards keep their
+  lineup set <slug> [--title <t>] [--goal <t>]           renames the wave, sets its goal, rewrites its note or
+         [--note <t> | --file <f>]                       puts its cards in a new build order (--order, every
+         [--order <wave>/<id>,…]                         card once) and chains them again. A card's ⋯ in its
+                                                         band moves it up or down the same way
+  lineup finish <slug>                                   the wave's band leaves Todo; its cards keep their
                                                          links. A wave whose cards are all Done leaves it too
-         The Waves section's Triage sends wave-triage {lineup}, or {wave} for a wave file's row; the row reads
+         A band's Triage sends wave-triage {lineup}, or {wave} for a wave file's band; it reads
          Triaging… until you reply to that event, then "Triage: N open questions" while questions on topic
          lineup:<slug> or wave:<slug> are open or answered
   tickets backfill [--dry-run]                           gives every open card without a ticket one: the first
@@ -506,7 +508,7 @@ const COMMANDS = {
   'lineup create': [['slug'], ['title', 'goal', 'cards', 'note', 'file'], (site, [slug], f) => store.createLineup(site, slug, { title: f.title, goal: f.goal, cards: f.cards, note: noteOf(f) })],
   'lineup add': [['slug', 'wave/id'], ['after'], (site, [slug, key], f) => store.changeLineup(site, slug, { add: key, after: f.after })],
   'lineup remove': [['slug', 'wave/id'], [], (site, [slug, key]) => store.changeLineup(site, slug, { remove: key })],
-  'lineup set': [['slug'], ['title', 'goal', 'note', 'file'], (site, [slug], f) => store.changeLineup(site, slug, { title: f.title, goal: f.goal, note: noteOf(f) })],
+  'lineup set': [['slug'], ['title', 'goal', 'note', 'file', 'order'], (site, [slug], f) => store.changeLineup(site, slug, { title: f.title, goal: f.goal, note: noteOf(f), order: f.order })],
   'lineup finish': [['slug'], [], (site, [slug]) => store.finishLineup(site, slug)],
   slack: [[], [], () => ({ lines: [JSON.stringify(readSlack())] })],
   'slack set': [[], ['self-dm', 'user', 'domain', 'timezone'], async (site, _, f) => {

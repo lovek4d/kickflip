@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, todoOf, owesNext, startedByAnswer, NO_NEXT, PROTOTYPE_AGAIN } from './domain.mjs';
+import { buildBoard, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, todoOf, owesNext, startedByAnswer, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -1145,15 +1145,19 @@ test('review records use one precedence order and date the card from the item re
   assert.equal(Object.hasOwn(board().waves[0], 'watched'), false);
 });
 
-test("the Waves section lists each open lineup with its goal, order, progress and triage, its cards carry its chip, and a wave file shows as a row only on a board over the waves, with triage from wave-triage {wave} and topic wave:<slug>", () => {
+// docs/adr/0180-waves-are-bands-in-todo.md
+test("each open lineup is a wave band with its cards in order, its next unstarted card ready or why not, progress and triage, its cards carry its slug; a wave file is a band only on a board over the waves, with triage from wave-triage {wave} and topic wave:<slug>", () => {
   const items = [
-    { id: 'INT-1', title: 'One', status: 'done' }, { id: 'INT-2', title: 'Two', status: 'building' }, { id: 'INT-3', title: 'Three', deps: ['INT-2'] },
+    { id: 'INT-1', title: 'One', status: 'done' }, { id: 'INT-2', title: 'Two', status: 'building' }, { id: 'INT-3', title: 'Three', deps: ['INT-2'], state: 'ready' },
     { id: 'INT-4', title: 'Four', status: 'dropped' }, { id: 'INT-5', title: 'Five' }, { id: 'INT-6', title: 'Six', status: 'done' }, { id: 'INT-7', title: 'Loose' },
+    { id: 'INT-8', title: 'Eight', state: 'ready' }, { id: 'INT-9', title: 'Nine', state: 'grilling', deps: ['INT-8'] }, { id: 'INT-10', title: 'Ten', held: true },
   ];
   const lineups = [
     { slug: 'mon', title: 'Monitor', goal: 'The monitor runs in kickflip.', items: ['INT-1', 'INT-2', 'INT-3', 'INT-4'] },
     { slug: 'old', title: 'Old', goal: 'Gone.', items: ['INT-5'], finished_at: '2026-11-01T00:00:00Z' },
     { slug: 'all-done', title: 'All done', goal: 'Shipped.', items: ['INT-6'] },
+    { slug: 'go', title: 'Go', goal: 'Ready to go.', items: ['INT-8', 'INT-9'] },
+    { slug: 'hold', title: 'Hold', goal: 'Held.', items: ['INT-10'] },
   ];
   const question = (id, topic) => ({ id, topic, question: 'Split it?', options: [{ id: 'yes', label: 'Yes' }] });
   const triage = (id, ts, reply = null) => ({ id, ts, kind: 'wave-triage', data: { lineup: 'mon' }, reply });
@@ -1161,26 +1165,52 @@ test("the Waves section lists each open lineup with its goal, order, progress an
     waves: [{ slug: 'hub', wave: { internal: true, items, lineups } }, { slug: 'other', wave: { items: [{ id: 'X1', title: 'Elsewhere' }] } }] });
 
   const idle = build([]);
-  assert.deepEqual(idle.waveRows, [{ kind: 'lineup', slug: 'mon', title: 'Monitor', goal: 'The monitor runs in kickflip.', merged: 1, total: 4,
-    order: ['INT-1', 'INT-2', 'INT-3', 'INT-4'].map((ref) => ({ key: `hub/${ref}`, ref })), triage: { running: false, questions: 0 } }]);
+  const keys = (...ids) => ids.map((id) => `hub/${id}`);
+  assert.deepEqual(idle.waveBands[0], { kind: 'lineup', slug: 'mon', title: 'Monitor', goal: 'The monitor runs in kickflip.', merged: 1, total: 4,
+    keys: keys('INT-1', 'INT-2', 'INT-3', 'INT-4'), next: { key: 'hub/INT-3', ref: 'INT-3', ready: false, word: 'waits on INT-2' }, triage: { running: false, questions: 0 } });
+  assert.deepEqual(idle.waveBands.map((b) => [b.slug, b.next]), [
+    ['mon', { key: 'hub/INT-3', ref: 'INT-3', ready: false, word: 'waits on INT-2' }],
+    ['go', { key: 'hub/INT-8', ref: 'INT-8', ready: true, word: 'ready' }],
+    ['hold', { key: 'hub/INT-10', ref: 'INT-10', ready: false, word: 'held' }],
+  ]);
   const chip = (id) => idle.items.find((i) => i.id === id).lineup;
   assert.deepEqual([chip('INT-3'), chip('INT-5'), chip('INT-7')], [{ slug: 'mon', title: 'Monitor' }, { slug: 'old', title: 'Old' }, null]);
 
-  assert.deepEqual(build([triage('t1', '2026-11-02T10:00:00Z')]).waveRows[0].triage, { running: true, questions: 0 });
+  assert.deepEqual(build([triage('t1', '2026-11-02T10:00:00Z')]).waveBands[0].triage, { running: true, questions: 0 });
   const asked = build([triage('t1', '2026-11-02T10:00:00Z', { html: '2 questions' }), { id: 'a1', ts: '2026-11-02T10:05:00Z', kind: 'owner-answer', data: { id: 'q2', choice: 'yes' } }],
     { items: [question('q1', 'lineup:mon'), question('q2', 'lineup:mon'), { ...question('q3', 'lineup:mon'), resolved: 'Done', resolved_at: '2026-11-02T09:00:00Z' }] });
-  assert.deepEqual(asked.waveRows[0].triage, { running: false, questions: 2 });
-  assert.deepEqual(asked.needs.map((n) => [n.text, n.waveRow, n.url]), [['Monitor · 1 question', 'mon', 'questions.html#q1']]);
+  assert.deepEqual(asked.waveBands[0].triage, { running: false, questions: 2 });
+  assert.deepEqual(asked.needs.map((n) => [n.text, n.band, n.url]), [['Monitor · 1 question', 'mon', 'questions.html#q1']]);
 
   const idleRow = { running: false, questions: 0 };
-  assert.deepEqual(build([], {}, true).waveRows.map((r) => [r.kind, r.slug, r.goal, r.order?.length, r.triage, `${r.merged}/${r.total}`]),
-    [['lineup', 'mon', 'The monitor runs in kickflip.', 4, idleRow, '1/4'], ['wave', 'hub', null, undefined, idleRow, '2/7'], ['wave', 'other', null, undefined, idleRow, '0/1']]);
+  const files = build([], {}, true).waveBands.filter((b) => b.kind === 'wave');
+  assert.deepEqual(files.map((b) => [b.slug, b.goal, b.next, b.triage, `${b.merged}/${b.total}`]), [['hub', null, null, idleRow, '2/10'], ['other', null, null, idleRow, '0/1']]);
+  assert.deepEqual(files[1].keys, ['other/X1']);
   const waveTriage = (id, ts, reply = null) => ({ id, ts, kind: 'wave-triage', data: { wave: 'other' }, reply });
-  const triaged = (events, owner) => Object.fromEntries(build(events, owner, true).waveRows.map((r) => [`${r.kind}:${r.slug}`, r.triage]));
-  assert.deepEqual(triaged([waveTriage('t2', '2026-11-02T10:00:00Z')]), { 'lineup:mon': idleRow, 'wave:hub': idleRow, 'wave:other': { running: true, questions: 0 } });
+  const triaged = (events, owner) => Object.fromEntries(build(events, owner, true).waveBands.map((r) => [`${r.kind}:${r.slug}`, r.triage]));
+  assert.deepEqual(triaged([waveTriage('t2', '2026-11-02T10:00:00Z')]), { 'lineup:mon': idleRow, 'lineup:go': idleRow, 'lineup:hold': idleRow, 'wave:hub': idleRow, 'wave:other': { running: true, questions: 0 } });
   const fileAsked = build([waveTriage('t2', '2026-11-02T10:00:00Z', { html: '1 question' })], { items: [question('q4', 'wave:other'), question('q5', 'lineup:mon')] }, true);
-  assert.deepEqual(fileAsked.waveRows.map((r) => r.triage.questions), [1, 0, 1]);
-  assert.deepEqual(fileAsked.needs.map((n) => [n.text, n.topic, n.waveRow]), [['Monitor · 1 question', 'lineup:mon', 'mon'], ['other · 1 question', 'wave:other', 'other']]);
+  assert.deepEqual(fileAsked.waveBands.map((r) => r.triage.questions), [1, 0, 0, 0, 1]);
+  assert.deepEqual(fileAsked.needs.map((n) => [n.text, n.topic, n.band]), [['Monitor · 1 question', 'lineup:mon', 'mon'], ['other · 1 question', 'wave:other', 'other']]);
+});
+
+// docs/adr/0180-waves-are-bands-in-todo.md
+test("a wave's card moves up or down among its unstarted cards, past any started or done card between them, and not past either end", () => {
+  const items = [
+    { id: 'A1', title: 'One', status: 'done' }, { id: 'A2', title: 'Two' }, { id: 'A3', title: 'Three', status: 'building' },
+    { id: 'A4', title: 'Four' }, { id: 'A5', title: 'Five' },
+  ];
+  const built = buildBoard({ now: Date.parse('2026-11-02T12:00:00Z'), events: [], owner: {},
+    waves: [{ slug: 'w', wave: { internal: true, items, lineups: [{ slug: 'mon', title: 'Monitor', goal: 'G', items: ['A1', 'A2', 'A3', 'A4', 'A5'] }] } }] });
+  const order = (key, by) => lineupMoved(built, 'mon', key, by)?.map((k) => k.slice(2)).join(' ');
+  assert.equal(order('w/A2', 1), 'A1 A4 A3 A2 A5');
+  assert.equal(order('w/A4', -1), 'A1 A4 A3 A2 A5');
+  assert.equal(order('w/A4', 1), 'A1 A2 A3 A5 A4');
+  assert.equal(order('w/A2', -1), undefined);
+  assert.equal(order('w/A5', 1), undefined);
+  assert.equal(order('w/A3', -1), undefined);
+  assert.equal(order('w/A1', 1), undefined);
+  assert.equal(lineupMoved(built, 'nope', 'w/A2', 1), null);
 });
 
 // docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md

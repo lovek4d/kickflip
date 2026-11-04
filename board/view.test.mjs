@@ -3324,63 +3324,115 @@ test('legacy hub links open one modal, guard dirty rules on every dismissal, res
   assert.deepEqual(page.left(), baseline);
 });
 
-test("the Waves section sits above the lanes: tapping a wave's row shows only its cards, its cards carry no wave chip, with blocked by on the time line, and Triage confirms, sends wave-triage and reads Triaging… then its open questions, at a lineup's foot or at the end of a wave file's name line", async () => {
-  const row = (triage) => ({ kind: 'lineup', slug: 'mon', title: 'Monitor', goal: 'Runs in kickflip.', order: [{ key: 'w/A1', ref: 'A1' }, { key: 'w/A2', ref: 'A2' }], merged: 1, total: 2, triage });
-  const mon = { slug: 'mon', title: 'Monitor' };
-  const cards = [workCard('A1', { lane: 'done', lineup: mon }), workCard('A2', { lineup: mon, blockedBy: [{ key: 'w/A9', ref: 'A9' }] }), workCard('A3', { lineup: { slug: 'col', title: 'Colour' } }), workCard('A4')];
+// docs/adr/0180-waves-are-bands-in-todo.md
+test("each wave is a band in Todo above its loose cards: only the first with a ready next card starts open, its goal on its name, Implement or what the next card waits on, Notes and Triage in its head, its Todo cards in order with step numbers and its done ones one line", async () => {
   const idle = { running: false, questions: 0 };
-  const file = (triage) => ({ kind: 'wave', slug: 'w', title: 'Pilot', goal: null, order: null, merged: 1, total: 4, triage });
-  const withRows = (triage, extra = {}, fileTriage = idle) => ({ ...boardOf(cards), waveRows: [row(triage), { ...row(triage), slug: 'col', title: 'Colour', order: [{ key: 'w/A3', ref: 'A3' }] }, file(fileTriage)], ...extra });
-  const b = boardOnDom({ board: withRows(idle), threads: {}, confirm: true });
+  const band = (slug, title, keys, next, extra = {}) => ({ kind: 'lineup', slug, title, goal: `${title} goal.`, keys: keys.map((id) => `w/${id}`), next, merged: 1, total: keys.length, triage: idle, ...extra });
+  const cards = [workCard('A3'), workCard('A2', { blockedBy: [{ key: 'w/A9', ref: 'A9' }] }), workCard('A5'), workCard('A6', { ready: true, buildable: true }), workCard('A7'), workCard('A4'),
+    workCard('A8', { lane: 'progress' }), workCard('A1', { lane: 'done' })];
+  const bands = (mon = idle, pilot = idle) => [
+    band('mon', 'Monitor', ['A1', 'A2', 'A8', 'A5'], { key: 'w/A2', ref: 'A2', ready: false, word: 'waits on A9' }, { triage: mon }),
+    band('go', 'Go', ['A6', 'A7'], { key: 'w/A6', ref: 'A6', ready: true, word: 'ready' }, { merged: 0 }),
+    { kind: 'wave', slug: 'pilot', title: 'Pilot', goal: null, keys: ['w/A4'], next: null, merged: 0, total: 1, triage: pilot },
+  ];
+  let moving = null;
+  const send = (kind, data, server) => (kind === 'lineup-move' ? new Promise((resolve) => { moving = () => resolve({ id: null, board: structuredClone(server.board) }); }) : { id: 'e1', board: structuredClone(server.board) });
+  const b = boardOnDom({ board: { ...boardOf(cards), waveBands: bands() }, threads: {}, confirm: true, send });
   await b.settle();
-  const waves = b.root.querySelector('#waves details.lane[data-lane="waves"]');
-  assert.deepEqual([waves.querySelector('.lane-name').textContent, waves.querySelector('.count').textContent], ['Waves', '3']);
-  const fileRow = () => b.root.querySelector('.wv-row[data-wave-row="w"]');
-  assert.deepEqual([fileRow().querySelector('.wv-id').textContent, fileRow().querySelector('.wv-links'), fileRow().querySelector('a[href^="notes.html"]')], ['Pilot1 of 4 mergedTriage', null, null]);
-  assert.equal(fileRow().querySelector('.wv-id .wv-end [data-triage]').textContent, 'Triage');
-  const mine = waves.querySelector('.wv-row[data-wave-row="mon"]');
-  assert.deepEqual(mine.querySelectorAll('.wv-note').map((n) => n.textContent), ['Goal Runs in kickflip.', 'Order A1 → A2']);
-  assert.match(mine.querySelector('.wv-id').textContent, /Monitor1 of 2 merged/);
-  assert.equal(mine.querySelector('.wv-links a').getAttribute('href'), 'notes.html?wave=mon');
-  const metaRow = (key) => b.root.querySelector(`#lanes details.item[data-key="${key}"] .line5`);
-  assert.equal(metaRow('w/A2'), null);
-  assert.equal(b.root.querySelector('#lanes details.item[data-key="w/A2"] .card-time .card-blocked').getAttribute('href'), '#item=w%2FA9');
-  assert.equal(metaRow('w/A3'), null);
-  assert.equal(metaRow('w/A4'), null);
+  assert.equal(b.root.querySelector('#waves'), null);
+  const todo = () => b.root.querySelector('details.lane[data-lane="todo"] > .list');
+  const head = (slug) => b.root.querySelector(`.wb[data-band="${slug}"] > .wb-head`);
+  const shown = (slug) => b.root.querySelectorAll(`.wb[data-band="${slug}"] details.item`).map((el) => el.dataset.key);
+  assert.deepEqual(todo().children.map((el) => el.dataset.band || el.getAttribute('class')), ['mon', 'go', 'pilot', 'wb-loose', 'thread-more']);
+  assert.deepEqual(b.root.querySelectorAll('.wb-loose details.item').map((el) => el.dataset.key), ['w/A3']);
+  assert.equal(b.root.querySelector('.wb-loose .lane-name').textContent, 'Not in a wave');
+  assert.deepEqual(['mon', 'go', 'pilot'].map((slug) => head(slug).getAttribute('aria-expanded')), ['false', 'true', 'false']);
+  assert.deepEqual(shown('mon'), []);
 
-  const lanes = () => b.root.querySelectorAll('#lanes details.item').map((el) => el.dataset.key).sort();
-  b.page.fire(b.root, 'click', { target: mine.querySelector('.wv-note') });
-  await b.settle();
-  assert.deepEqual(lanes(), ['w/A1', 'w/A2']);
-  assert.equal(b.root.querySelector('.wv-showing').textContent, 'Showing Monitor only · Show all');
-  assert.equal(b.root.querySelector('.wv-row[data-wave-row="mon"]').classList.contains('on'), true);
-  b.page.fire(b.root, 'click', { target: b.root.querySelector('.wv-all') });
-  await b.settle();
-  assert.deepEqual(lanes(), ['w/A1', 'w/A2', 'w/A3', 'w/A4']);
-  assert.equal(b.root.querySelector('.wv-showing'), null);
+  assert.equal(head('go').querySelector('[data-goal]').getAttribute('title'), 'Go goal.');
+  assert.equal(b.root.querySelector('.wb-goal'), null);
+  assert.equal(head('go').querySelector('.wb-label').textContent, 'Go 2 · 0 of 2 merged');
+  assert.equal(head('go').querySelector('a[href="notes.html?wave=go"]').textContent.trim(), 'Notes');
+  assert.equal(head('go').querySelector('button[data-triage]').textContent, 'Triage');
+  assert.equal(head('pilot').querySelector('a[href^="notes.html"]'), null);
+  assert.equal(head('pilot').querySelector('button[data-triage]').textContent, 'Triage');
+  const implement = head('go').querySelector('button[data-confirm="card-build"]');
+  assert.deepEqual([implement.textContent, implement.dataset.key], ['Implement', 'w/A6']);
+  assert.equal(head('mon').querySelector('button[data-confirm]'), null);
+  assert.equal(head('mon').querySelector('.wb-next').textContent, 'next: A2 waits on A9');
+  assert.equal(head('mon').querySelector('.wb-label').textContent, 'Monitor 2 · 1 of 4 merged · A8 in progress');
+  assert.deepEqual(shown('go'), ['w/A6', 'w/A7']);
+  assert.deepEqual(b.root.querySelectorAll('.wb[data-band="go"] .wn').map((n) => n.textContent), ['1', '2']);
 
-  b.page.fire(b.root, 'click', { target: b.root.querySelector('.wv-row[data-wave-row="mon"] [data-triage]') });
+  b.page.fire(b.root, 'click', { target: head('mon').querySelector('.wb-label') });
   await b.settle();
-  assert.match(b.confirms.at(-1), /Monitor's unstarted cards/);
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['wave-triage', { lineup: 'mon' }]]);
-  assert.deepEqual(lanes(), ['w/A1', 'w/A2', 'w/A3', 'w/A4']);
-  b.page.fire(b.root, 'click', { target: fileRow().querySelector('[data-triage]') });
+  assert.equal(head('mon').getAttribute('aria-expanded'), 'true');
+  assert.deepEqual(shown('mon'), ['w/A2', 'w/A5']);
+  assert.deepEqual(b.root.querySelectorAll('.wb[data-band="mon"] .wn').map((n) => n.textContent), ['2', '4']);
+  const done = b.root.querySelector('.wb[data-band="mon"] .wb-done');
+  assert.equal(done.textContent, '1 done · A1');
+  assert.equal(done.querySelector('a').getAttribute('href'), '#item=w%2FA1');
+  assert.deepEqual(shown('pilot'), []);
+  b.page.fire(b.root, 'click', { target: head('go') });
+  await b.settle();
+  assert.equal(head('go').getAttribute('aria-expanded'), 'false');
+  b.page.fire(b.root, 'click', { target: head('go') });
+  await b.settle();
+
+  b.page.fire(b.root, 'click', { target: head('go').querySelector('button[data-confirm="card-build"]') });
+  await b.settle();
+  assert.match(b.confirms.at(-1), /^Implement A6\? Claude starts its implementer now/);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-build', { key: 'w/A6' }]]);
+  assert.equal(head('go').getAttribute('aria-expanded'), 'true');
+
+  const menuOf = (key) => b.root.querySelector(`.wb details.item[data-key="${key}"] button[data-band-menu]`);
+  assert.equal(b.root.querySelector('.wb-loose button[data-band-menu]'), null);
+  assert.equal(b.root.querySelector('.wb[data-band="pilot"] button[data-band-menu]'), null);
+  const tap = b.page.fire(b.root, 'click', { target: menuOf('w/A6') });
+  await b.settle();
+  assert.equal(tap.defaultPrevented, true);
+  const items = () => b.root.querySelectorAll('.wb-menu button').map((x) => [x.textContent, x.disabled]);
+  assert.deepEqual(items(), [['↑ Move up', true], ['↓ Move down', false]]);
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('.wb-menu button[data-band-move="1"]') });
+  await b.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).at(-1), ['lineup-move', { lineup: 'go', key: 'w/A6', by: 1 }]);
+  assert.deepEqual(items(), [['↑ Move up', true], ['Moving…', true]]);
+  b.server.board = { ...b.server.board, waveBands: bands().map((x) => (x.slug === 'go' ? { ...x, keys: ['w/A7', 'w/A6'] } : x)) };
+  moving();
+  await b.settle();
+  assert.equal(b.root.querySelector('.wb-menu'), null);
+  assert.deepEqual(shown('go'), ['w/A7', 'w/A6']);
+
+  b.page.fire(b.root, 'click', { target: head('pilot').querySelector('[data-triage]') });
   await b.settle();
   assert.match(b.confirms.at(-1), /Pilot's unfinished cards/);
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).at(-1), ['wave-triage', { wave: 'w' }]);
-  assert.deepEqual(lanes(), ['w/A1', 'w/A2', 'w/A3', 'w/A4']);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).at(-1), ['wave-triage', { wave: 'pilot' }]);
+  assert.equal(head('pilot').getAttribute('aria-expanded'), 'false');
+  await b.change({ board: { ...b.server.board, waveBands: bands({ running: true, questions: 0 }, { running: false, questions: 1 }) } });
+  assert.equal(head('mon').querySelector('.wv-busy').textContent, 'Triaging…');
+  assert.equal(head('pilot').querySelector('.wb-links').textContent, 'Triage: 1 open question');
 
-  await b.change({ board: withRows({ running: true, questions: 0 }, {}, { running: true, questions: 0 }) });
-  assert.equal(b.root.querySelector('.wv-row[data-wave-row="mon"] .wv-busy').textContent, 'Triaging…');
-  assert.equal(fileRow().querySelector('.wv-id .wv-end .wv-busy').textContent, 'Triaging…');
-  const needs = [{ kind: 'Question', title: 'Monitor', text: 'Monitor · 2 questions', url: 'questions.html#q1', topic: 'lineup:mon', waveRow: 'mon', questions: { open: 2, url: 'questions.html#q1' } }];
-  await b.change({ board: withRows({ running: false, questions: 2 }, { needs }, { running: false, questions: 1 }) });
-  assert.equal(b.root.querySelector('.wv-row[data-wave-row="mon"] .wv-links .muted').textContent, 'Triage: 2 open questions');
-  assert.equal(fileRow().querySelector('.wv-id .wv-end').textContent, 'Triage: 1 open question');
-  assert.equal(b.root.querySelector('#waiting li').textContent, 'Monitor · 2 questions');
-  b.page.fire(b.root, 'click', { target: b.root.querySelector('#waiting a[data-wave-show]') });
+  const touch = (type) => b.page.fire(b.root, type, { target: head('go').querySelector('[data-goal]'), pointerType: 'touch' });
+  touch('pointerdown');
+  b.page.runTimers(600);
   await b.settle();
-  assert.deepEqual(lanes(), ['w/A1', 'w/A2']);
+  assert.equal(head('go').querySelector('.wb-pop').textContent, 'Go goal.');
+  touch('pointerup');
+  b.page.fire(b.root, 'click', { target: head('go').querySelector('[data-goal]') });
+  await b.settle();
+  assert.deepEqual([head('go').getAttribute('aria-expanded'), head('go').querySelector('.wb-pop').textContent], ['true', 'Go goal.']);
+  b.page.fire(b.root, 'click', { target: todo() });
+  await b.settle();
+  assert.equal(b.root.querySelector('.wb-pop'), null);
+
+  b.page.fire(b.root, 'click', { target: head('mon') });
+  await b.settle();
+  const needs = [{ kind: 'Question', title: 'Monitor', text: 'Monitor · 2 questions', url: 'questions.html#q1', topic: 'lineup:mon', band: 'mon', questions: { open: 2, url: 'questions.html#q1' } }];
+  await b.change({ board: { ...b.server.board, needs } });
+  assert.equal(head('mon').getAttribute('aria-expanded'), 'false');
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('#waiting a[data-band-show]') });
+  await b.settle();
+  assert.equal(head('mon').getAttribute('aria-expanded'), 'true');
 });
 
 // docs/adr/0140-each-lane-has-one-fixed-order.md

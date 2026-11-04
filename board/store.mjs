@@ -1769,7 +1769,7 @@ async function findLineup(site, slug) {
 }
 
 // A wave file's triage questions use topic wave:<slug>, and only a board over ~/.claude/waves shows its wave files as
-// Waves rows (domain.mjs waveRowsOf).
+// wave bands (domain.mjs waveBandsOf).
 async function triagedWave(site, slug) {
   if ((await boardConfig(site)).items !== 'waves') fail(`topic wave:${slug} is for a board over ~/.claude/waves; a lineup's triage uses lineup:<slug>`);
   await loadWave(site, slug);
@@ -1824,10 +1824,10 @@ export async function createLineup(site, slug, { title, goal, cards, note }) {
   return writeLineup(site, source, wave, lineup, note);
 }
 
-// Adds a card after --after (default last) or removes one, then chains the order again; also renames, sets the goal or
-// rewrites the note.
-export async function changeLineup(site, slug, { add, after, remove, title, goal, note }) {
-  if ([add, remove, title, goal, note].every((v) => v === undefined)) fail('nothing to change: pass --add, --remove, --title, --goal, --note or --file');
+// Adds a card after --after (default last), removes one or puts every card in a new order (a band's ⋯ move,
+// domain.mjs lineupMoved), then chains the order again; also renames, sets the goal or rewrites the note.
+export async function changeLineup(site, slug, { add, after, remove, order, title, goal, note }) {
+  if ([add, remove, order, title, goal, note].every((v) => v === undefined)) fail('nothing to change: pass --add, --remove, --order, --title, --goal, --note or --file');
   if (after !== undefined && add === undefined) fail('--after goes with --add');
   const { source, wave, lineup } = await findLineup(site, slug);
   if (lineup.finished_at) fail(`the wave "${slug}" is finished`);
@@ -1845,13 +1845,18 @@ export async function changeLineup(site, slug, { add, after, remove, title, goal
     if (lineup.items.length === 1) fail(`${remove} is the wave's last card; lineup finish ${slug} ends the wave`);
     lineup.items = lineup.items.filter((x) => x !== id);
   }
+  if (order !== undefined) {
+    const ids = lineupCards(source, wave, String(order).split(',').map((k) => k.trim()).filter(Boolean), slug);
+    if (ids.length !== lineup.items.length || new Set(ids).size !== ids.length || ids.some((id) => !lineup.items.includes(id))) fail("--order lists each of the wave's cards once");
+    lineup.items = ids;
+  }
   if (title !== undefined) lineup.title = text(title, '--title');
   if (goal !== undefined) lineup.goal = text(goal, '--goal');
   chain(source, wave, [...new Set([...before, ...lineup.items])], lineup.items);
   return writeLineup(site, source, wave, lineup, note);
 }
 
-// A finished wave leaves the Waves section; its cards keep their links.
+// A finished wave's band leaves Todo; its cards keep their links.
 export async function finishLineup(site, slug) {
   const { source, wave, lineup } = await findLineup(site, slug);
   lineup.finished_at = new Date().toISOString();

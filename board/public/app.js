@@ -112,7 +112,6 @@ window.BoardView = (function () {
       withdrawnAsks: new Set(),
       edits: new Map(),
       githubPending: null,
-      waveFilter: store.get('wave', null),
     };
     const signal = opts.signal ? (fn) => { if (B.alive()) B.own(opts.signal(fn)); } : null;
     // B.keep(fn): a part adds fn() → {…} to what the board keeps as it unmounts, read before any part's unmount step.
@@ -161,15 +160,13 @@ window.BoardView = (function () {
       steady(() => {
         B.renderHeader(d);
         B.renderArch(d);
-        B.renderWaves(d);
         BoardUI.setHTML($('#tryMain'), BoardUI.mainBar(d.main));
         B.renderMainLog(d.main, load);
         const live = d.items.filter((i) => !state.withdrawnAsks.has(i.id));
-        const shown = state.waveFilter ? live.filter((i) => i.wave === state.waveFilter || i.lineup?.slug === state.waveFilter) : live;
         for (const el of $$('details.item[open]')) state.openItems.add(el.dataset.key);
         for (const it of d.items) if (!it.isNew) markSeen(it, !state.openItems.has(it.key));
         // An open card's thread is renderThread's (app-threads.js), so a lane repaint leaves it as it is.
-        setHTML($('#lanes'), B.lanesHtml(d, shown), { keep: '[data-thread]' });
+        setHTML($('#lanes'), B.lanesHtml(d, live), { keep: '[data-thread]' });
         for (const key of state.openItems) if (state.threadCache.has(key)) B.renderThread(key, state.threadCache.get(key));
         B.renderNeeds(d);
         B.renderBanner(d);
@@ -197,7 +194,7 @@ window.BoardView = (function () {
       replyKey = m[2] ? focusKey : null;
       state.openItems.add(focusKey);
       const it = state.board?.items.find((i) => i.key === focusKey);
-      if (it) { const s = store.get('lanes', {}); s[it.lane] = true; store.set('lanes', s); }
+      if (it) { const s = store.get('lanes', {}); s[it.lane] = true; store.set('lanes', s); B.openBand({ key: focusKey }); }
       if (it?.fold) store.set(B.FOLDS[it.fold].store, true);
     }
     B.on(window, 'hashchange', () => { readHash(); if (state.board) { render(); scrollToFocus(); } });
@@ -391,7 +388,6 @@ window.BoardView = (function () {
   <section id="setup" class="setup" aria-live="polite" hidden></section>
   <section id="answers" class="answer-banner" hidden></section>
   <section id="waiting" class="waiting" hidden></section>
-  <div id="waves"></div>
   <div id="tryMain"></div>
   <div id="lanes"></div>
 </main>

@@ -97,6 +97,9 @@
 //                                On a card an unfinished dep blocks, the tap queues the build instead (queued_at, no
 //                                event), and once nothing blocks it the server starts it the same way, after any board
 //                                change and every minute (store.mjs startQueuedBuild; docs/adr/0145-build-on-a-blocked-card-queues-it.md).
+//                                lineup-move {lineup, key, by: -1 | 1} is a wave band card's ⋯ Move up or Move down: the
+//                                server reorders the lineup's Todo cards (domain.mjs lineupMoved, store.mjs changeLineup)
+//                                and answers {id: null, board}, appending no event; a move it can't make → 400 {error}.
 //                                card-hold and card-done are written to the wave file too, with the owner's thread
 //                                line, and a Done unblocks waiting cards (store.mjs recordOwnerTap).
 //                                An owner-answer that leaves an unstarted card with nothing stopping it appends
@@ -165,11 +168,11 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { buildBoard, ITEM_EVENTS, needsAnswer, ownerActions, picksNoTake, pullOf, refOf, startedByAnswer, threadOf, todoOf } from './domain.mjs';
+import { buildBoard, ITEM_EVENTS, lineupMoved, needsAnswer, ownerActions, picksNoTake, pullOf, refOf, startedByAnswer, threadOf, todoOf } from './domain.mjs';
 import { localDay } from '../hub/schedule.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, existsSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
-import { BoardError, addTopic, boardConfig, dueQueuedBuilds, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, addTopic, boardConfig, changeLineup, dueQueuedBuilds, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -746,6 +749,14 @@ const server = http.createServer(async (req, res) => {
         const key = String(body.key || '');
         const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts));
         return json(res, 200, { id: started && !started.queued ? await appendEvent(kind, started) : null, board: await board() });
+      }
+      // docs/adr/0180-waves-are-bands-in-todo.md
+      if (kind === 'lineup-move') {
+        const slug = String(body.lineup || '');
+        const order = lineupMoved(buildBoard(await snapshot({ github: false })), slug, String(body.key || ''), body.by === -1 ? -1 : body.by === 1 ? 1 : 0);
+        if (!order) return json(res, 400, { error: `That card can't move that way in the wave "${slug}".` });
+        try { await changeLineup(here, slug, { order: order.join(',') }); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
+        return json(res, 200, { id: null, board: await board() });
       }
       if (kind === 'owner-answer') return json(res, 200, { id: (await recordAnswers([body]))[0], board: await board() });
       if (kind === 'owner-answers') {

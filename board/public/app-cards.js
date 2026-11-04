@@ -261,11 +261,12 @@ BoardView.part((B) => {
 
   // The latest bump among New cards takes no second bump (docs/adr/0014-a-pending-ask-can-be-deleted-or-bumped.md).
   const latestBump = (it) => Boolean(it.isNew && it.bumpedAt) && !state.board.items.some((i) => i.isNew && (i.bumpedAt || '') > it.bumpedAt);
-  function card(it) {
+  // band {step, actions} draws the card in a wave band (app-lanes.js).
+  function card(it, band = {}) {
     return `<details class="item" data-key="${esc(it.key)}" ${state.openItems.has(it.key) ? 'open' : ''}>
           <summary class="work">
             <span class="status ${it.lane}"></span>
-            <div class="title-wrap">${workLines(it, { unread: state.openItems.has(it.key) ? 0 : unreadCount(it.othersAt, seen[it.key]), top: latestBump(it) })}</div>
+            <div class="title-wrap">${workLines(it, { unread: state.openItems.has(it.key) ? 0 : unreadCount(it.othersAt, seen[it.key]), top: latestBump(it), ...band })}</div>
           </summary>
           ${state.openItems.has(it.key) ? detail(it) : ''}
         </details>`;
@@ -361,13 +362,14 @@ BoardView.part((B) => {
       redrawActions(key);
       return;
     }
+    // A wave band's Implement (app-lanes.js) sends the same tap, and both read Starting… while it is sent.
     if (act === 'card-build') {
       sendingBuild.add(key);
-      redrawActions(key);
+      B.render();
       try { await B.sentHere(key, () => B.send('card-build', { key })); }
       catch { toast('Could not send. Is the host awake?'); }
       sendingBuild.delete(key);
-      redrawActions(key);
+      B.render();
       return;
     }
     // docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md
@@ -389,5 +391,5 @@ BoardView.part((B) => {
     } catch { redrawActions(key); toast('Could not send. Is the host awake?'); }
   });
 
-  Object.assign(B, { detail, card });
+  Object.assign(B, { detail, card, startingBuild: (key) => sendingBuild.has(key) });
 });

@@ -140,23 +140,41 @@ button.chip { border: 0; }
 .calls ul { margin: 4px 0 8px; padding-left: 18px; font-size: 13px; }
 button.link { background: none; border: 0; color: var(--accent); padding: 8px 12px; font-size: 13px; cursor: pointer; }
 .wave-icon { display: inline-block; vertical-align: -2px; flex: none; }
-.wv-row { padding: 10px 12px; border-top: 1px solid var(--line); min-width: 0; cursor: pointer; }
-.wv-row:first-child { border-top: 0; }
-.wv-row.on { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
-.wv-id { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; min-width: 0; }
-.wv-name { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; min-width: 0; padding: 0; border: 0; background: none;
-  font: inherit; font-weight: 600; color: var(--text); text-align: left; overflow-wrap: anywhere; cursor: pointer; }
-.wv-name .wave-icon { color: var(--color-quiet); }
-.wv-row.on .wv-name, .wv-row.on .wv-name .wave-icon { color: var(--accent); }
-.wv-id .muted { white-space: nowrap; }
-.wv-note { margin-top: 4px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
-.wv-note b { color: var(--text); font-weight: 600; }
-.wv-links { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 0; margin-top: 6px; font-size: 13px; }
 .wv-link { border: 0; background: none; padding: 0; min-height: 0; color: var(--accent); font: inherit; cursor: pointer; }
-.wv-end { margin-left: auto; padding-left: 8px; font-size: 13px; white-space: nowrap; }
+.wv-link:disabled { color: var(--muted); cursor: default; }
 .wv-busy { display: inline-flex; align-items: center; gap: 6px; color: var(--color-notice); }
-.wv-showing { margin-top: 14px; }
-.wv-all { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; }
+/* docs/adr/0180-waves-are-bands-in-todo.md: each wave is a lane-style band inside Todo's list. */
+.wb + .wb, .wb-loose { border-top: 1px solid var(--line); }
+.wb-head { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-height: 34px; padding: 5px 12px;
+  background: var(--band); font-size: 13px; font-weight: 500; cursor: pointer; user-select: none; }
+.wb-head:hover { background: color-mix(in srgb, var(--band), var(--text) 5%); }
+.wb-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.wb-head .wave-icon { color: var(--muted); }
+.wb-head .count { color: var(--muted); font-weight: 400; }
+.wb[data-open] > .wb-head { border-bottom: 1px solid var(--line); }
+.wb-label { flex: 1 1 12em; min-width: 0; overflow-wrap: anywhere; }
+.wb-name { -webkit-touch-callout: none; }
+.wb-end { display: flex; align-items: baseline; gap: 10px; margin-left: auto; font-weight: 400; }
+.wb-links { display: inline-flex; align-items: baseline; white-space: nowrap; }
+.wb-next { color: var(--muted); white-space: nowrap; }
+.wb-head .wv-link { font-weight: 500; }
+.wb-pop { position: absolute; left: 34px; right: 12px; top: calc(100% - 2px); z-index: 6; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); box-shadow: 0 6px 18px rgba(0,0,0,.18); color: var(--text); font-weight: 400; line-height: 1.35; overflow-wrap: anywhere; cursor: default; }
+.wb-done { padding: 8px 12px; font-size: 12.5px; color: var(--muted); }
+.wb-done a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.wb-loosehead { cursor: default; }
+.wb-loosehead:hover { background: var(--band); }
+/* A wave card's step number, inside its id chip, and its ⋯ menu. */
+.wn { color: var(--muted); font-variant-numeric: tabular-nums; padding-right: 5px; margin-right: 4px; border-right: 1px solid var(--line); }
+.wb .item, .wb .item > summary .title-wrap { position: relative; }
+.wb-dots[aria-expanded="true"] { color: var(--text); background: var(--chip); }
+.wb-dots svg { display: block; }
+.wb-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; display: grid; min-width: 160px; padding: 4px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 6px 18px rgba(0,0,0,.18); }
+.wb-menu button { border: 0; background: none; text-align: left; padding: 8px 10px; min-height: 0; border-radius: 6px; font: inherit; font-size: 13px; color: var(--text); cursor: pointer; }
+.wb-menu button:hover:not(:disabled) { background: var(--chip); }
+.wb-menu button:disabled { color: var(--muted); cursor: default; }
+.lane[data-lane="todo"] > .list:has(.wb) { overflow: visible; }
 .nav a.icon { display: inline-flex; align-items: center; padding: 4px; color: var(--muted); }
 .nav a.icon:hover { color: var(--text); }
 .refresh { display: inline-flex; align-items: center; gap: 2px; line-height: 1.3; min-width: 0; }

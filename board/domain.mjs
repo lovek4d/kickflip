@@ -568,12 +568,15 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
   return msgs;
 }
 
-// The Waves section's rows: each open lineup, the owner's wave (docs/adr/0109-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md),
-// then on a board over ~/.claude/waves each unfinished wave file. Each lineup card gets `lineup` {slug, title} for its
-// chip, an open lineup's over a finished one's. A lineup is open until finished_at or until all its cards are Done.
-// A row's kind is lineup or wave (a wave file). Triage runs from the newest wave-triage {<kind>: <slug>} event until
-// that event's reply, and its questions use topic <kind>:<slug>.
-function waveRowsOf(snapshot, waves, lineups, items, questions, events) {
+// docs/adr/0180-waves-are-bands-in-todo.md
+// The wave bands in Todo: each open lineup, the owner's wave (docs/adr/0109-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md),
+// then on a board over ~/.claude/waves each unfinished wave file. A lineup is open until finished_at or until all its
+// cards are Done. A band's keys are its cards, a lineup's in build order and a wave file's in lane order; next is a
+// lineup's first card still in Todo, ready when Implement can start it now, else word says why not. A band's kind is
+// lineup or wave (a wave file). Triage runs from the newest wave-triage {<kind>: <slug>} event until that event's
+// reply, and its questions use topic <kind>:<slug>. Each lineup card gets `lineup` {slug, title}, an open lineup's over a
+// finished one's, which arch-review.mjs archOf counts a review's wave by.
+function waveBandsOf(snapshot, waves, lineups, items, questions, events) {
   const triageOf = (kind, slug) => {
     const last = events.filter((e) => e.kind === 'wave-triage' && e.data?.[kind] === slug).pop();
     const pending = questions.filter((q) => q.topic === `${kind}:${slug}` && (q.state === 'open' || q.state === 'answered')).length;
@@ -585,12 +588,39 @@ function waveRowsOf(snapshot, waves, lineups, items, questions, events) {
     .map((x) => ({ ...x, open: !x.l.finished_at && x.cards.some((i) => i.lane !== 'done') }))
     .sort((a, b) => Number(a.open) - Number(b.open));
   for (const { l, cards } of open) for (const i of cards) i.lineup = { slug: l.slug, title: l.title };
-  const rows = open.filter((x) => x.open).map(({ l, cards }) => ({ kind: 'lineup', slug: l.slug, title: l.title, goal: l.goal,
-    order: cards.map((i) => ({ key: i.key, ref: i.ref })), merged: merged(cards), total: cards.length, triage: triageOf('lineup', l.slug) }));
-  if (!snapshot.fromWaves) return rows;
-  return [...rows, ...waves.filter((w) => !w.finished).map((w) => ({ w, cards: items.filter((i) => i.wave === w.slug && i.kind !== 'ask') }))
-    .filter(({ cards }) => cards.length).map(({ w, cards }) => ({ kind: 'wave', slug: w.slug, title: w.title, goal: null, order: null, merged: merged(cards), total: cards.length,
-      triage: triageOf('wave', w.slug) }))];
+  const bands = open.filter((x) => x.open)
+    .map(({ l, cards }) => ({ kind: 'lineup', slug: l.slug, title: l.title, goal: l.goal, keys: cards.map((i) => i.key), next: nextOf(cards),
+      merged: merged(cards), total: cards.length, triage: triageOf('lineup', l.slug) }));
+  if (!snapshot.fromWaves) return bands;
+  return [...bands, ...waves.filter((w) => !w.finished).map((w) => ({ w, cards: items.filter((i) => i.wave === w.slug && i.kind !== 'ask') }))
+    .filter(({ cards }) => cards.length).map(({ w, cards }) => ({ kind: 'wave', slug: w.slug, title: w.title, goal: null, keys: cards.map((i) => i.key), next: null,
+      merged: merged(cards), total: cards.length, triage: triageOf('wave', w.slug) }))];
+}
+// A lineup's next card: its first still in Todo, and the word for whether Implement can start it.
+function nextOf(cards) {
+  const it = cards.find((i) => i.lane === 'todo');
+  if (!it) return null;
+  const ready = it.ready && it.buildable;
+  const word = ready ? 'ready' : it.held ? 'held' : it.blockedBy.length ? `waits on ${it.blockedBy.map((d) => d.ref).join(', ')}`
+    : it.action ? 'needs you' : it.unsorted ? 'new' : it.state || 'not ready';
+  return { key: it.key, ref: it.ref, ready, word };
+}
+
+// docs/adr/0180-waves-are-bands-in-todo.md
+// Lineup slug's order once its card key moves by one place (-1 up, 1 down) among the lineup's cards still in Todo,
+// which keep the places they hold; started and done cards stay where they are. → the keys in their new order, or null
+// when the lineup isn't open or the card is not in Todo or already at that end.
+export function lineupMoved(built, slug, key, by) {
+  const band = built.waveBands.find((b) => b.kind === 'lineup' && b.slug === slug);
+  if (!band) return null;
+  const lanes = new Map(built.items.map((i) => [i.key, i.lane]));
+  const movable = band.keys.filter((k) => lanes.get(k) === 'todo');
+  const from = movable.indexOf(key);
+  const to = from + by;
+  if (from < 0 || to < 0 || to >= movable.length) return null;
+  [movable[from], movable[to]] = [movable[to], movable[from]];
+  let at = 0;
+  return band.keys.map((k) => (lanes.get(k) === 'todo' ? movable[at++] : k));
 }
 
 // snapshot: {waves: [{slug, wave, agents: {<id>: {<agent>: record}}}], fromWaves,
@@ -752,7 +782,7 @@ export function buildBoard(snapshot) {
   // Items arrive in the order the page shows them (public/ui-order.js).
   items.sort(laneOrder);
 
-  const waveRows = waveRowsOf(snapshot, waves, lineups, items, questions, events);
+  const waveBands = waveBandsOf(snapshot, waves, lineups, items, questions, events);
   // Built again after the sort, so the item topics follow the lanes' order.
   const topicList = topicsOf();
   const reviews = reviewsOf({ on: snapshot.autoReview, incoming: snapshot.incoming, records: snapshot.reviewRecords, events, now,
@@ -789,7 +819,7 @@ export function buildBoard(snapshot) {
   // The page shows those this browser hasn't seen in the answer banner (docs/adr/0016-every-ask-is-a-card.md).
   const answers = items.filter((i) => i.ask?.answerAt).sort((a, b) => b.ask.answerAt.localeCompare(a.ask.answerAt))
     .map((i) => ({ key: i.key, id: i.id, text: i.title, at: i.ask.answerAt }));
-  return { kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, waves, waveRows, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, reviews, needs, needsSummary: needsSummary(needs), working: workingOn.length, workingOn, checks: checksOf(snapshot, now) };
+  return { kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, waves, waveBands, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, reviews, needs, needsSummary: needsSummary(needs), working: workingOn.length, workingOn, checks: checksOf(snapshot, now) };
 }
 
 // docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md
@@ -861,8 +891,8 @@ function needsOf(items, topics, questions) {
   const firstOpen = (ids) => ids.find((id) => questions.find((q) => q.id === id)?.state === 'open') || ids[0];
   const fromTopics = topics.filter((t) => t.state !== 'resolved' && t.open > 0 && !onItems.has(t.id)).map((t) => {
     const url = `questions.html#${firstOpen(t.questions)}`;
-    const waveRow = /^(?:lineup|wave):(.+)$/.exec(t.id)?.[1] || null;
-    return { kind: 'Question', title: t.title, text: `${t.title} · ${plural(t.open, 'question')}`, url, topic: t.id, waveRow, questions: { open: t.open, url }, ready: null };
+    const band = /^(?:lineup|wave):(.+)$/.exec(t.id)?.[1] || null;
+    return { kind: 'Question', title: t.title, text: `${t.title} · ${plural(t.open, 'question')}`, url, topic: t.id, band, questions: { open: t.open, url }, ready: null };
   });
   const fromItems = items.filter((it) => !it.held).map((it) => {
     const asking = it.questions && it.questions.state !== 'resolved' && it.questions.open > 0 ? { open: it.questions.open, url: `questions.html#${it.questions.first}` } : null;

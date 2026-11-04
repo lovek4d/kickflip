@@ -188,10 +188,13 @@
   const askActions = (it, top) => `<div class="ask-actions">${bumpButton(it, top)}${it.ask.canEdit ? editButton(it.id) : ''}${withdrawButton(it.id)}</div>`;
   const cardActions = (it, top) => (it.isNew ? askActions(it, top) : it.bumpable ? `<div class="ask-actions">${cardBumpButton(it.key, Boolean(it.bumpedAt))}</div>` : '');
   const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' && `<span class="working">${workingLine}</span>`].filter(Boolean).join(' · ');
-  function workLines(it, { unread = 0, top = false } = {}) {
+  // In a wave band (app-lanes.js), step is the card's place in its wave, shown inside its id chip, and actions replace
+  // its bump with the band's ⋯ menu.
+  function workLines(it, { unread = 0, top = false, step = 0, actions = null } = {}) {
     const ticket = it.ticket ? ticketChip(it) : it.ticketSource === 'linear' ? linearChips(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
     // A card from an ask reads New until its session sets ready, grilling or prototyping (domain.mjs unsorted).
-    const ids = it.kind === 'ask' ? askChip(it) : it.unsorted ? `${badge('notice', 'New')} ${ticket}` : ticket;
+    const chip = step ? ticket.replace(/^<[^>]*>/, (open) => `${open}<span class="wn">${step}</span>`) : ticket;
+    const ids = it.kind === 'ask' ? askChip(it) : it.unsorted ? `${badge('notice', 'New')} ${chip}` : chip;
     const chips = `${stalledChip(it)}${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
     const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)
       : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Orchestrator review</div>'
@@ -200,7 +203,7 @@
       : it.working ? `<div class="line3 sub agent">${workingLine}</div>`
       : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.held ? ' idle' : ''}">Next: ${esc(it.next)}</div>` : '';
     const eta = it.eta && it.builder ? `<div class="line3 sub eta">${esc(etaLine(it.eta))}</div>` : '';
-    return `${cardActions(it, top)}<div class="line1 title">${ids ? `${ids} ` : ''}${esc(it.title)}</div>
+    return `${actions ?? cardActions(it, top)}<div class="line1 title">${ids ? `${ids} ` : ''}${esc(it.title)}</div>
       ${status}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
       ${timeLine(it, unread, it.lane === 'progress' && it.builder && !it.builder.planner && it.waitsOn !== 'checking' ? phaseBars(it.builder.phase) : '')}`;
