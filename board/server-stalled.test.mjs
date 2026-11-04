@@ -429,3 +429,104 @@ test('an idle board with auto-triage on sends todo-triage under its dated topic 
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// docs/adr/0170-the-idle-pull-takes-ready-cards-first.md
+test('an idle board with auto-pull on and nothing to pull sends card-plan for its top unready Todo card, one at a time, never while one is planned or paused', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-plan-'));
+  const siteDir = path.join(dir, 'site');
+  const dataDir = path.join(siteDir, 'data');
+  const clockFile = path.join(dir, 'clock');
+  const setup = path.join(dir, 'setup.mjs');
+  const waveFile = path.join(dataDir, 'wave.json');
+  const eventsFile = path.join(dataDir, 'events.jsonl');
+  const ownerFile = path.join(dataDir, 'owner.json');
+  const agentFile = path.join(dataDir, 'agents', 'B3.json');
+  const usageFile = path.join(dir, '.claude', 'kickflip', 'usage.json');
+  const now = Date.parse('2026-11-03T16:00:00Z');
+  const iso = (ms) => new Date(ms).toISOString();
+  let worker;
+  fs.mkdirSync(path.dirname(agentFile), { recursive: true });
+  fs.mkdirSync(path.join(dataDir, 'threads'));
+  fs.mkdirSync(path.dirname(usageFile), { recursive: true });
+  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't', auto_pull: true }));
+  const wave = { items: [
+    { id: 'B1', title: 'Asking', status: 'planned', state: 'grilling' },
+    { id: 'B2', title: 'Also unready', status: 'planned', state: 'prototyping' },
+    { id: 'B3', title: 'Unready', status: 'planned', state: 'prototyping' },
+  ] };
+  fs.writeFileSync(waveFile, JSON.stringify(wave));
+  const question = (id, key) => ({ id, topic: `item:${key}`, question: 'Which?', options: [{ id: 'a', label: 'A' }] });
+  fs.writeFileSync(ownerFile, JSON.stringify({ topics: [], items: [question('q1', 't/B1')] }));
+  fs.writeFileSync(eventsFile, '');
+  put(usageFile, JSON.stringify({ claude: { at: iso(now), five_hour: { used_percentage: 95, resets_at: iso(now + 3600000) }, seven_day: { used_percentage: 40, resets_at: iso(now + 86400000) } } }));
+  fs.writeFileSync(clockFile, String(now));
+  fs.writeFileSync(setup, `
+    import http from 'node:http';
+    import fs from 'node:fs';
+    const RealDate = Date;
+    globalThis.Date = class extends RealDate {
+      constructor(...args) { super(...(args.length ? args : [Date.now()])); }
+      static now() { return Number(fs.readFileSync(process.env.BUILDER_TEST_CLOCK, 'utf8')); }
+    };
+    const interval = globalThis.setInterval;
+    interval(() => {}, 1000);
+    globalThis.setInterval = (fn, ms, ...args) => interval(fn, ms === 60000 ? 20 : ms, ...args);
+    http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };
+  `);
+  const logged = (kind) => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse).filter((e) => e.kind === kind).map((e) => e.data.key);
+  const thread = (id) => (fs.existsSync(path.join(dataDir, 'threads', `t__${id}.jsonl`)) ? fs.readFileSync(path.join(dataDir, 'threads', `t__${id}.jsonl`), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l).text) : []);
+  const start = async () => {
+    worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
+      env: { ...process.env, HOME: dir, BUILDER_TEST_CLOCK: clockFile },
+    });
+    let errors = '';
+    worker.stderr.on('data', (chunk) => { errors += chunk; });
+    await new Promise((resolve, reject) => {
+      worker.stdout.once('data', resolve);
+      worker.once('error', reject);
+      worker.once('exit', (code) => reject(new Error(`Server exited ${code}: ${errors}`)));
+    });
+  };
+  const stop = async () => {
+    if (!worker || worker.exitCode !== null) return;
+    const exited = new Promise((resolve) => worker.once('exit', resolve));
+    worker.kill();
+    await exited;
+  };
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 80));
+  try {
+    await start();
+    await tick();
+    assert.deepEqual(logged('card-plan'), []);
+    fs.rmSync(usageFile);
+    await until(() => logged('card-plan').length === 1 && thread('B3').length === 1, 'the idle board asks for a plan');
+    assert.deepEqual(logged('card-plan'), ['t/B3']);
+    assert.deepEqual(thread('B3'), ['Asked for a grill or prototype: nothing in Todo was ready to build.']);
+    await stop();
+    await start();
+    await tick();
+    await tick();
+    assert.deepEqual(logged('card-plan'), ['t/B3']);
+
+    // The session starts a prototype: nothing else is planned while it runs, and B3 is planned no more once it posts a question.
+    put(agentFile, JSON.stringify({ kind: 'prototype', started: iso(now) }));
+    await tick();
+    await tick();
+    assert.deepEqual(logged('card-plan'), ['t/B3']);
+    put(ownerFile, JSON.stringify({ topics: [], items: [question('q1', 't/B1'), question('q2', 't/B3')] }));
+    put(agentFile, JSON.stringify({ kind: 'prototype', started: iso(now), done: iso(now) }));
+    await until(() => logged('card-plan').length === 2, 'the next unready card is planned');
+    assert.deepEqual(logged('card-plan'), ['t/B3', 't/B2']);
+
+    // A ready card is pulled, not planned.
+    wave.items.push({ id: 'B4', title: 'Ready', status: 'planned', state: 'ready' });
+    put(waveFile, JSON.stringify(wave));
+    await until(() => logged('card-pull').length === 1, 'a ready card is pulled');
+    assert.deepEqual(logged('card-pull'), ['t/B4']);
+    assert.deepEqual(logged('card-plan'), ['t/B3', 't/B2']);
+    assert.deepEqual(thread('B1'), []);
+  } finally {
+    await stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

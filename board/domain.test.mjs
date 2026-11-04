@@ -1325,3 +1325,29 @@ test('only a running build keeps the board from being idle: a running planner le
   for (const kind of ['prototype', 'grill']) assert.equal(pullOf([card([{ kind, started: '2026-10-23T10:00:00Z', done: null }])]).idle, true, kind);
   assert.equal(pullOf([card([{ kind: 'claude', started: '2026-10-23T10:00:00Z', done: null }])]).idle, false);
 });
+
+// docs/adr/0170-the-idle-pull-takes-ready-cards-first.md
+test('the pull takes ready cards first in board order, then cards with no state; with none pullable it plans the top unready card while nothing is being planned', () => {
+  const card = (key, more = {}) => ({ key, lane: 'todo', kind: 'work', buildable: true, state: null, blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
+  const items = [card('w/A1'), card('w/A2', { state: 'ready' }), card('w/A3'), card('w/A4', { state: 'ready' })];
+  assert.deepEqual(pullOf(items).pullable, ['w/A2', 'w/A4', 'w/A1', 'w/A3']);
+  assert.deepEqual(pullOf(items).plannable, ['w/A1', 'w/A3']);
+
+  const asked = { topic: 'item:w/B2', open: 1, answered: 0 };
+  const unready = [
+    card('w/B0', { state: 'ready', blockedBy: [{ key: 'w/X' }] }),
+    card('w/B1', { state: 'grilling', held: true }),
+    card('w/B2', { state: 'grilling', questions: asked, buildable: false }),
+    card('w/B3', { state: 'prototyping', questions: { topic: 'item:w/B3', open: 0, answered: 1 } }),
+    card('w/B4', { state: 'grilling', questions: { topic: 'item:w/B4', open: 0, answered: 0 } }),
+    card('w/B5', { blockedBy: [{ key: 'w/X' }] }),
+  ];
+  assert.deepEqual(pullOf(unready).pullable, []);
+  assert.deepEqual(pullOf(unready).plannable, ['w/B4', 'w/B5']);
+  const planning = [
+    [card('w/C1', { state: 'grilling', grilling: true })],
+    [card('w/C1', { state: 'prototyping', agents: [{ kind: 'prototype', started: '2026-11-03T10:00:00Z', done: null }] })],
+  ];
+  for (const extra of planning) assert.deepEqual(pullOf([...unready, ...extra]).plannable, [], JSON.stringify(extra));
+  assert.deepEqual(pullOf([...unready, card('w/C1', { state: 'grilling', agents: [{ kind: 'grill', started: '2026-11-03T10:00:00Z', done: '2026-11-03T10:30:00Z' }] })]).plannable, ['w/B4', 'w/B5', 'w/C1']);
+});

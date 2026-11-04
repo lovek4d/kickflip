@@ -78,6 +78,7 @@ const ON_CARD = {
   'card-hold': (c, e) => `${c} ${e.data?.hold ? 'held' : 'resumed'}`,
   'card-unblocked': (c) => `${c} unblocked`,
   'card-pull': (c) => `${c} pulled in`,
+  'card-plan': (c) => `plan asked on ${c}`,
   'prototype-request': (c) => `prototype asked on ${c}`,
 };
 

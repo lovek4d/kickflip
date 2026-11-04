@@ -266,7 +266,9 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
                                                          Main builds after every merge either way
   settings set auto-pull on|off                          on: while no builder runs and nothing waits in Orchestrator
                                                          review, the board server sends card-pull {key} for the top
-                                                         Todo card nothing blocks, holds or asks about. Off by default.
+                                                         Todo card nothing blocks, holds or asks about, ready cards
+                                                         first; with none, card-plan {key} for the top unready
+                                                         card to grill or prototype. Off by default.
                                                          Only on the owner's word
   settings set auto-triage on|off                        on: while the board is idle and Todo changed since the last
                                                          triage, at most once a day and before any pull, the board

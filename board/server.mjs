@@ -104,7 +104,9 @@
 //                                Within a minute of a held card's until or pick_up_at the server resumes it
 //                                (store.mjs pickUp), at most once per time even across a restart.
 //                                With auto_pull on, the server appends card-pull {key} for the top pullable Todo card
-//                                while the board is idle (domain.mjs pullOf), one pull at a time, tracked in data/pulled.json.
+//                                while the board is idle (domain.mjs pullOf), one pull at a time, tracked in data/pulled.json;
+//                                with nothing to pull, card-plan {key} for the top plannable card the same way, tracked in
+//                                data/planned.json, which asks the session for a grill or prototype on it.
 //                                With auto_triage on, an idle board whose Todo changed since the last triage (domain.mjs
 //                                todoOf) gets todo-triage {date, topic} first, at most once a host day, tracked in
 //                                data/triaged.json; no pull goes out until Claude replies to it
@@ -884,10 +886,11 @@ async function checkIdle() {
     const log = await readLines(events);
     const hidden = await readHidden(here);
     const { items } = buildBoard({ ...(await itemSnapshot()), events: log.filter((e) => !hidden.has(e.id)), owner: await readJSON(path.join(data, 'owner.json'), { items: [] }) });
-    const { idle, pullable } = pullOf(items);
+    const { idle, pullable, plannable } = pullOf(items);
     const ready = idle && readUsageGate().state !== 'paused';
     if (await checkTriage(settings, log, items, ready)) return;
-    await checkPull(settings, log, pullable, ready);
+    await checkPull(PULL, settings, log, pullable, ready);
+    await checkPull(PLAN, settings, log, pullable.length ? [] : plannable, ready);
   } catch (err) {
     console.error('Idle check failed:', err.message);
   } finally {
@@ -921,9 +924,14 @@ async function checkTriage(settings, log, items, ready) {
 }
 
 // docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md
-// data/pulled.json {key, at}: key is the pulled card while it stays pullable, at when the marker last changed.
-async function checkPull(settings, log, pullable, ready) {
-  const file = path.join(data, 'pulled.json');
+// The pull sends card-pull {key} for the top pullable card, tracked in data/pulled.json. With nothing to pull it sends
+// card-plan {key} for the top plannable card instead, tracked in data/planned.json
+// (docs/adr/0170-the-idle-pull-takes-ready-cards-first.md).
+const PULL = { kind: 'card-pull', file: 'pulled.json', line: 'Pulled in: the board was idle.' };
+const PLAN = { kind: 'card-plan', file: 'planned.json', line: 'Asked for a grill or prototype: nothing in Todo was ready to build.' };
+// The marker {key, at}: key is the card sent while it stays in keys, at when the marker last changed.
+async function checkPull({ kind, file: name, line }, settings, log, keys, ready) {
+  const file = path.join(data, name);
   const marker = await readJSON(file, {});
   const save = async (key) => {
     await fs.mkdir(data, { recursive: true });
@@ -931,15 +939,15 @@ async function checkPull(settings, log, pullable, ready) {
     await fs.rename(file + '.tmp', file);
   };
   if (!settings.auto_pull) { if (marker.key) await save(null); return; }
-  // The event log covers a restart between appending card-pull and saving the marker.
-  const lastPull = log.filter((e) => e.kind === 'card-pull').at(-1);
-  const current = lastPull && String(lastPull.ts) > String(marker.at || '') ? lastPull.data?.key : marker.key;
-  if (current && pullable.includes(current)) return;
-  if (!ready || !pullable.length) { if (current) await save(null); return; }
-  const key = pullable[0];
-  await appendEvent('card-pull', { key });
+  // The event log covers a restart between appending the event and saving the marker.
+  const last = log.filter((e) => e.kind === kind).at(-1);
+  const current = last && String(last.ts) > String(marker.at || '') ? last.data?.key : marker.key;
+  if (current && keys.includes(current)) return;
+  if (!ready || !keys.length) { if (current) await save(null); return; }
+  const key = keys[0];
+  await appendEvent(kind, { key });
   await fs.mkdir(path.dirname(threadFile(key)), { recursive: true });
-  await fs.appendFile(threadFile(key), JSON.stringify({ ts: new Date().toISOString(), who: 'claude', text: 'Pulled in: the board was idle.' }) + '\n');
+  await fs.appendFile(threadFile(key), JSON.stringify({ ts: new Date().toISOString(), who: 'claude', text: line }) + '\n');
   await save(key);
 }
 

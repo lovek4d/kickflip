@@ -1,0 +1,14 @@
+# The idle pull takes ready cards first, and plans the top card when none is ready
+
+The owner asked on #148 that the idle pull ([0123](0123-an-idle-board-pulls-in-its-top-todo-card.md)) "prioritize items that have already been grilled or prototyped and are now marked as ready", and settled it in a grill: "cards that all are already get built before we start grilling or prototyping new cards", and "If there's nothing ready to be built, we should make more things move towards being ready to be built."
+
+- **Ready first.** `domain.mjs` `pullOf` lists the pullable cards with state ready first, then those with no state, each in board order, so the owner's bump order still decides within each. Nothing records whether a card was grilled; ready is the session's word for it, so a card set ready without a grill is pulled like any other ready card. A fresh card goes to grilling or prototyping unless it is trivial enough to build from its notes (SKILL.md). What ready requires beyond that, such as a size, is #139's.
+- **Plan when nothing is pullable.** With auto-pull on, an idle board and no pullable card, the board server sends `card-plan {key}` for the top plannable card and writes "Asked for a grill or prototype: nothing in Todo was ready to build." in its thread. Plannable is a buildable Todo card not set ready, not held, with no planner running, no question open for the owner or answered and waiting on Claude, and no message a session is working on; a blocked card can be planned, since a grill needs no dep finished. The session decides grill or prototype (a prototype for UI work).
+- **One plan at a time.** No card is plannable while any card has a grill under way or a planner running, since planners don't keep the board from being idle ([0167](0167-planners-and-implementers-are-two-kinds-of-agent.md)) and would otherwise start one a minute. `data/planned.json` keeps the planned card as `data/pulled.json` does for the pull, with the event log covering a restart; the next plan waits until that card stops being plannable.
+- **Order and gate kept.** Triage still goes before either ([0165](0165-an-idle-board-triages-its-todo-once-a-day.md)), and `card-plan` waits at the pause line and joins the events the hub holds until reset, like `card-pull` ([0094](0094-work-pauses-at-the-pause-line.md)).
+
+Considered:
+- ranking by evidence of a grill (answered questions, a prototype record): ready already says it, and the owner keeps ready for cards that need no more deciding;
+- leaving no-state cards out of the pull: they still build when nothing ready waits, which the owner kept;
+- the board picking grill or prototype: the board can't tell UI work from its fields, and the session can;
+- a plan per minute while grills run: planners don't count against idle, so this would grill the whole Todo at once.
