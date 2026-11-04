@@ -36,7 +36,8 @@
 //                                text response, the API's included, is gzipped when the request accepts it;
 //                                API JSON stays no-store
 //   GET  /api/board              the board's title (board.json's, as the page shows it), its reviewers' names, the Hold sheet's
-//                                holdChoices [{value, label, until}] (../hub/views.mjs durationChoices), and lanes of those items, with
+//                                holdChoices [{value, label, ms}] (../hub/duration.mjs CHOICES, ms each one's length, null for Forever;
+//                                the page words when it ends), and lanes of those items, with
 //                                per-item review_link_ts and legacy ~/.claude/slack-bridge/topics/*.json fallbacks,
 //                                data/owner.json and GitHub (gh, cached for 45 s).
 //                                owner.json: {topics: [{id, title, summary}], items: [{id, topic,
@@ -51,7 +52,12 @@
 //                                {events, github} while the join handshake's checklist shows, else null
 //                                arch: the header bulb's {repo, waits, last} (arch-review.mjs archOf), null off the manifest
 //                                onHost: whether this request's browser runs on the hub's machine (on-host.mjs fromHost);
-//                                a work card's worktree is its builder's worktree path while that folder exists, else null
+//                                a work card's worktree is its builder's worktree path while that folder exists, else null.
+//                                owner leaves resolved questions out; ownerTopics still lists and counts them (pageBoard).
+//                                version tags everything but generatedAt and is the ETag: a request whose If-None-Match
+//                                names it answers 304 with no body (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md)
+//   GET  /api/questions?topic=<id>
+//                                {questions}: that topic's resolved questions, as /api/board's owner would list them
 //   GET  /api/links              {links}: the same list alone
 //   GET  /api/working            {working: [{id, kind, card, since}]}: each event marked Working on it with no answer yet,
 //                                card its work card's ref or null (hooks-plugin/hooks/watcher-stop.mjs reads it)
@@ -69,7 +75,7 @@
 //   GET  /api/notes?wave=<slug>  {title, markdown}: a lineup's goal, order and note (store.mjs readLineupNotes)
 //   GET  /plan.html?…            redirects to notes.html with the same query, since pushes and threads link it
 //   POST /_claude/events         {kind, ...data} → one line in data/events.jsonl; wakes Claude. → {id, board}: the
-//                                event's id and /api/board's answer as the tap left it, so the page draws the tap from
+//                                event's id and /api/board's answer as the tap left it, version included, so the page draws the tap from
 //                                the one round trip (docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md)
 //                                ask, item-message and owner-answer may carry files: [upload]
 //                                An owner-answer with a note and no take resolves its question (store.mjs
@@ -196,8 +202,7 @@ import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
 import { routeRecord } from '../hub/routes.mjs';
-import { FOREVER, durationEnd } from '../hub/duration.mjs';
-import { durationChoices } from '../hub/views.mjs';
+import { CHOICES, FOREVER, durationEnd } from '../hub/duration.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { readUsageGate } from '../shared/usage-gate.mjs';
@@ -249,7 +254,7 @@ async function send(res, code, headers, body) {
   res.writeHead(code, h);
   res.end(res.req?.method === 'HEAD' ? undefined : out);
 }
-const json = (res, code, body) => send(res, code, { 'content-type': types['.json'], 'cache-control': 'no-store' }, JSON.stringify(body));
+const json = (res, code, body, headers = {}) => send(res, code, { 'content-type': types['.json'], 'cache-control': 'no-store', ...headers }, JSON.stringify(body));
 
 // A page names each local script and stylesheet by its version, so a pinned file caches for good and an edit
 // reaches the browser through the page, which revalidates on every visit (docs/adr/2026-10-29-1639-the-board-opens-on-the-last-visit.md).
@@ -506,6 +511,10 @@ async function setupOf(links) {
   return steps;
 }
 
+// The Hold sheet's chips by length, so the board's version doesn't change with the clock; the page words when each ends
+// (ui-cards.js holdPicker).
+const HOLD_CHOICES = CHOICES.map(([value, label]) => ({ value, label, ms: value === FOREVER ? null : durationEnd(new Date(0), value) - new Date(0) }));
+
 // generatedAt is when the board began reading, so of two boards the later one holds every change the earlier one does.
 async function board() {
   const generatedAt = new Date().toISOString();
@@ -516,7 +525,18 @@ async function board() {
   for (const it of built.items) if (it.worktree && !existsSync(it.worktree)) it.worktree = null;
   const links = self ? linksOf(self, { listen }) : null;
   return { generatedAt, title, reviewers: (reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string'), ...built, links, setup: await setupOf(links),
-    holdChoices: durationChoices(new Date(), 'until you unhold it'), arch: self ? archOf(await readReviews(here), built.items, built.owner, { repo: repoName(boardRepo(self.route)), waits: reviewWaits() }) : null };
+    holdChoices: HOLD_CHOICES, arch: self ? archOf(await readReviews(here), built.items, built.owner, { repo: repoName(boardRepo(self.route)), waits: reviewWaits() }) : null };
+}
+
+// docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
+// The board a page reads, from /api/board or an events POST's answer: board() with this request's onHost, leaving out
+// the resolved questions (GET /api/questions answers a topic's), and its version, a tag of everything in it but
+// generatedAt, which GET /api/board also sends as its ETag.
+async function pageBoard(req) {
+  const b = { ...(await board()), onHost: fromHost(req) };
+  b.owner = b.owner.filter((q) => q.state !== 'resolved');
+  const { generatedAt: _, ...content } = b;
+  return { ...b, version: crypto.createHash('sha1').update(JSON.stringify(content)).digest('base64url').slice(0, 20) };
 }
 
 // docs/adr/2026-11-02-1813-the-bulb-runs-an-architecture-review-of-the-boards-repo.md: one review at a time, so a second Run while
@@ -749,7 +769,17 @@ const server = http.createServer(async (req, res) => {
     if (prefix && (p === prefix || p.startsWith(prefix + '/'))) p = p.slice(prefix.length) || '/';
 
     if (p === '/_claude/health') return json(res, 200, { ok: true });
-    if (p === '/api/board') return json(res, 200, { ...(await board()), onHost: fromHost(req) });
+    if (p === '/api/board') {
+      const b = await pageBoard(req);
+      const etag = `W/"${b.version}"`;
+      if (sameTag(req.headers['if-none-match'], etag)) { res.writeHead(304, { etag, 'cache-control': 'no-store', vary: 'accept-encoding' }).end(); return; }
+      return json(res, 200, b, { etag });
+    }
+    if (p === '/api/questions') {
+      const built = buildBoard(await snapshot({ github: false }));
+      const ids = new Set(built.ownerTopics.find((t) => t.id === String(url.searchParams.get('topic') ?? ''))?.questions || []);
+      return json(res, 200, { questions: built.owner.filter((q) => ids.has(q.id) && q.state === 'resolved') });
+    }
     if (p === '/api/links') return json(res, 200, { links: (await board()).links });
     if (p === '/api/stream' && req.method === 'GET') return stream(req, res);
     if (p === '/_claude/needs') {
@@ -787,7 +817,7 @@ const server = http.createServer(async (req, res) => {
       if (kind === 'card-build') {
         const key = String(body.key || '');
         const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts));
-        return json(res, 200, { id: started && !started.queued ? await appendEvent(kind, started) : null, board: await board() });
+        return json(res, 200, { id: started && !started.queued ? await appendEvent(kind, started) : null, board: await pageBoard(req) });
       }
       // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
       if (kind === 'lineup-move') {
@@ -795,13 +825,13 @@ const server = http.createServer(async (req, res) => {
         const order = lineupMoved(buildBoard(await snapshot({ github: false })), slug, String(body.key || ''), body.by === -1 ? -1 : body.by === 1 ? 1 : 0);
         if (!order) return json(res, 400, { error: `That card can't move that way in the wave "${slug}".` });
         try { await changeLineup(here, slug, { order: order.join(',') }); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
-        return json(res, 200, { id: null, board: await board() });
+        return json(res, 200, { id: null, board: await pageBoard(req) });
       }
-      if (kind === 'owner-answer') return json(res, 200, { id: (await recordAnswers([body]))[0], board: await board() });
+      if (kind === 'owner-answer') return json(res, 200, { id: (await recordAnswers([body]))[0], board: await pageBoard(req) });
       if (kind === 'owner-answers') {
         const refused = await answersRefused(body.answers);
         if (refused) return json(res, 400, { error: refused });
-        return json(res, 200, { ids: await recordAnswers(body.answers), board: await board() });
+        return json(res, 200, { ids: await recordAnswers(body.answers), board: await pageBoard(req) });
       }
       // A Hold or Done is written to the card's wave file before its event, and one that couldn't be is refused with
       // why, recording nothing (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
@@ -822,13 +852,13 @@ const server = http.createServer(async (req, res) => {
           try { await removeReviewers(here, remove); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
         }
         const ids = await appendEvents([...(remove.length ? [['reviewers-removed', { remove }]] : []), ...(add.length ? [['reviewers', { add }]] : [])]);
-        return json(res, 200, { id: ids.at(-1), board: await board() });
+        return json(res, 200, { id: ids.at(-1), board: await pageBoard(req) });
       }
       const id = await appendEvent(kind, body);
       if (kind === 'prototype-request' && body.question) await resolveRequestedQuestion(here, String(body.question));
       if (kind === 'ask-withdrawn') await setHidden(here, String(body.id || ''), true);
       // docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md
-      return json(res, 200, { id, board: await board() });
+      return json(res, 200, { id, board: await pageBoard(req) });
     }
     if (p === '/api/rules' && req.method === 'GET') return json(res, 200, { board: await readBoardRules(here), hub: readHubRules() });
     if (p === '/api/rules' && req.method === 'POST') {

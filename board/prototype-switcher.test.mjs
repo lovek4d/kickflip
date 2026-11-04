@@ -71,7 +71,8 @@ test("a pick answers with the label questions.html sends for that option", () =>
   for (const o of question.options) assert.equal(sw.answerLabel(o), ui.choiceLabel(question, o.id));
 });
 
-function prototypePage(url, { framed = false, owner, next = owner[1] || null }) {
+// resolved: the questions of its topic /api/board leaves out, which /api/questions answers.
+function prototypePage(url, { framed = false, owner, resolved = [], next = owner[1] || null }) {
   const listeners = [];
   const el = () => {
     const e = { hidden: false, value: '', textContent: '', innerHTML: '', parts: {}, classList: { add() {} },
@@ -94,7 +95,8 @@ function prototypePage(url, { framed = false, owner, next = owner[1] || null }) 
     const data = new Map();
     return { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, v), removeItem: (k) => data.delete(k) };
   };
-  const topics = [{ id: 'item:w/A1', title: 'INT-1: Snooze', state: 'open', open: owner.length }];
+  const topics = [{ id: 'item:w/A1', title: 'INT-1: Snooze', state: 'open', open: owner.length, questions: [...owner, ...resolved].map((q) => q.id) }];
+  const asked = [];
   const move = (to) => { noticesAtMove.push(shared.sessionStorage.getItem('sent:orch')); moves.push(to); };
   const u = new URL(url);
   const win = {
@@ -105,7 +107,7 @@ function prototypePage(url, { framed = false, owner, next = owner[1] || null }) 
     sessionStorage: storage(),
     document: { getElementById: () => null, head: { insertAdjacentHTML: (_, html) => { styles += html; } }, body: { append: (el) => controls.push(el) }, documentElement: { classList: { add: (name) => classes.push(name) } },
       createElement: el, querySelector: () => null, addEventListener: (type, fn) => listeners.push({ target: 'document', type, fn }) },
-    fetch: async () => { fetches++; return { json: async () => ({ owner, ownerTopics: topics }) }; },
+    fetch: async (to) => { fetches++; asked.push(String(to)); return { json: async () => (/api\/questions/.test(to) ? { questions: resolved } : { owner, ownerTopics: topics }) }; },
     ClaudeSite: { url: (p) => new URL(p, 'https://mac.ts.net/orch/').href, send: async (kind, data) => { sent.push([kind, data]); return {}; } },
   };
   win.window = win;
@@ -137,7 +139,7 @@ function prototypePage(url, { framed = false, owner, next = owner[1] || null }) 
     for (const l of listeners.filter((x) => x.target === pill && x.type === 'click')) l.fn({ target: { closest: () => ({ dataset: { ps: 'pick' } }) } });
     await settle();
   };
-  return { pick, pillName: () => /<span class="ps-name"[^>]*>([^<]*)</.exec(controls[0]?.parts['.ps-pill']?.innerHTML || '')?.[1], sent, moves, noticesAtMove, decisions, loaded, styles, rendered, classes, controls, replacements, take: mounted.take, current: () => win.PrototypeSwitcher.current, fetches: () => fetches, notice: () => shared.BoardUI.sentNotice.take('orch'), localNotice: () => win.sessionStorage.getItem('sent:orch') };
+  return { pick, pillName: () => /<span class="ps-name"[^>]*>([^<]*)</.exec(controls[0]?.parts['.ps-pill']?.innerHTML || '')?.[1], sent, moves, noticesAtMove, decisions, loaded, styles, rendered, classes, controls, replacements, take: mounted.take, current: () => win.PrototypeSwitcher.current, fetches: () => fetches, asked, notice: () => shared.BoardUI.sentNotice.take('orch'), localNotice: () => win.sessionStorage.getItem('sent:orch') };
 }
 
 test('a pick on a prototype page sends the answer, then moves on to the next open question in its place, or with none left to the board, through the app shell around a framed page', async () => {
@@ -186,4 +188,13 @@ test('a take embedded by Waiting on you renders only that take without fetching 
   assert.deepEqual(page.replacements.map((args) => String(args[2])), ['https://mac.ts.net/orch/prototype-snooze.html?q=q1&take=A']);
   assert.equal(page.fetches(), 0);
   assert.deepEqual(page.moves, []);
+});
+
+// docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
+test("a prototype page for a resolved question, which /api/board leaves out, loads it from its topic's resolved questions and can still change the pick", async () => {
+  const done = { ...answered('B'), topic: 'item:w/A1', state: 'resolved' };
+  const page = prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1', { owner: [], resolved: [done], next: null });
+  await page.pick();
+  assert.deepEqual(page.asked, ['https://mac.ts.net/orch/api/board', 'https://mac.ts.net/orch/api/questions?topic=item%3Aw%2FA1', 'https://mac.ts.net/orch/api/board', 'https://mac.ts.net/orch/api/questions?topic=item%3Aw%2FA1']);
+  assert.deepEqual(plain(page.sent), [['owner-answer', { id: 'q1', question: 'Which snooze?', choice: 'A', label: 'A. Named chips', note: '' }]]);
 });

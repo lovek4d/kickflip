@@ -226,7 +226,7 @@ test("a snapshot keeps the board and the threads of its cards, open cards' first
   assert.equal(ui.packSnapshot(board, threads, { build: 'b1', savedAt, max: 50 }), null);
 });
 
-// A board of today's shape and size (about 1.5 MB): 555 resolved questions, 309 Done cards with agents, and a few open cards.
+// A board of today's shape and size, as /api/board answers it: 309 Done cards with agents, a few open cards and their open question.
 function bigBoard() {
   const prose = 'x'.repeat(3000);
   const done = (n) => ({ key: `hub/GH-${n}`, kind: 'work', id: `GH-${n}`, ref: `#${n}`, title: `Done card ${n}`, lane: 'done', status: 'done', wave: 'hub', waveTitle: 'Hub', internal: true,
@@ -235,17 +235,16 @@ function bigBoard() {
     agents: [{ name: 'main', calls: [{ at: ago(1), text: prose.slice(0, 600) }, { at: ago(1), text: prose.slice(0, 600) }] }] });
   const open = [{ key: 'hub/GH-1', lane: 'todo', ref: '#1', title: 'Todo', questions: { state: 'open', open: 1, answered: 0, replied: 0, first: 'live' }, agents: [{ name: 'main' }] },
     { key: 'hub/GH-2', lane: 'progress', ref: '#2', title: 'Progress', builder: { progress: 'building' }, prs: [{ state: 'OPEN' }] }];
-  const resolved = (n) => ({ id: `r${n}`, topic: 't', state: 'resolved', question: prose.slice(0, 300), context: prose.slice(0, 500), options: [{ id: 'a', label: prose.slice(0, 500) }], answers: [{ text: prose.slice(0, 300) }] });
   return { generatedAt: ago(0), title: 'Hub', items: [...open, ...Array.from({ length: 309 }, (_, n) => done(100 + n))],
-    owner: [{ id: 'live', topic: 'item:hub/GH-1', state: 'open', question: 'Which?' }, ...Array.from({ length: 555 }, (_, n) => resolved(n))], waveBands: [{ slug: 'hub', keys: ['hub/GH-1', 'hub/GH-100'] }] };
+    owner: [{ id: 'live', topic: 'item:hub/GH-1', state: 'open', question: 'Which?' }], waveBands: [{ slug: 'hub', keys: ['hub/GH-1', 'hub/GH-100'] }] };
 }
 const packed = (board, o = {}) => ui.packSnapshot(board, new Map(), { build: 'b1', savedAt: board.generatedAt, ...o });
 
-test('a snapshot leaves out resolved questions and keeps Done cards to what the Done lane, band links and updateSign read', () => {
+test('a snapshot keeps no version, and keeps Done cards to what the Done lane, band links and updateSign read', () => {
   const board = bigBoard();
-  assert.ok(JSON.stringify(board).length > 1400000);
-  const back = plain(ui.unpackSnapshot(packed(board), 'b1'));
-  assert.deepEqual(back.board.owner.map((q) => q.id), ['live']);
+  const back = plain(ui.unpackSnapshot(packed({ ...board, version: 'v1' }), 'b1'));
+  assert.deepEqual(back.board.owner, board.owner);
+  assert.equal(back.board.version, undefined, "a reload names no version for a snapshot's board, so it downloads the whole one");
   const dones = back.board.items.filter((i) => i.lane === 'done');
   assert.equal(dones.length, 309);
   const [d] = dones;
@@ -984,6 +983,16 @@ test('the side pages wait out a board restart: a failed request, a 5xx or a body
   await assert.rejects(ui.fetchJSON('x', { fetch: down.fetch, sleep, limit: 3000 }), /the board answered 502/);
   assert.equal(down.calls.length, 4);
   assert.equal(ui.restartNotice().includes(ui.RESTARTING), true);
+});
+
+// docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
+test('a side page names the board it holds by its version, and an unchanged board answers 304 with no body', async () => {
+  const asked = [];
+  const fetch = async (url, opts) => { asked.push(opts.headers || {}); return opts.headers?.['if-none-match'] === '"v1"' ? { ok: false, status: 304, text: async () => '' } : { ok: true, status: 200, text: async () => '{"version":"v2"}' }; };
+  assert.deepEqual(plain(await ui.fetchJSON('api/board', { fetch, tag: 'v1' })), { ok: true, status: 304, body: null });
+  assert.deepEqual(plain(await ui.fetchJSON('api/board', { fetch, tag: 'v0' })), { ok: true, status: 200, body: { version: 'v2' } });
+  await ui.fetchJSON('api/board', { fetch });
+  assert.deepEqual(plain(asked), [{ 'if-none-match': '"v1"' }, { 'if-none-match': '"v0"' }, {}]);
 });
 
 test("an open card waiting on the owner's Merge shows a Merge button that confirms first, and waits, disabled with its label kept behind the spinner, while the session merges it", () => {

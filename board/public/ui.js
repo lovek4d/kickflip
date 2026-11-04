@@ -283,15 +283,18 @@
   // While a board restarts, the hub answers its own 502 page, and a request can fail outright. fetchJSON waits that out:
   // on a network error, a 5xx or a body that isn't JSON it calls onWait(waitedMs) and retries with a growing backoff,
   // then throws once about limit ms have passed. Any other answer resolves {ok, status, body}, a 404's {error} included.
+  // tag is the version of the board the page holds: an unchanged board answers 304, which resolves with body null
+  // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md).
   const RESTARTING = 'Board restarting…';
   const restartNotice = () => `<span class="muted small restarting">${RESTARTING}</span>`;
-  async function fetchJSON(url, { onWait = () => {}, limit = 30000, fetch: get = globalThis.fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  async function fetchJSON(url, { onWait = () => {}, limit = 30000, tag = null, fetch: get = globalThis.fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
     let waited = 0;
     let delay = 500;
     for (;;) {
       let failure;
       try {
-        const r = await get(url, { cache: 'no-store' });
+        const r = await get(url, { cache: 'no-store', ...(tag ? { headers: { 'if-none-match': `"${tag}"` } } : {}) });
+        if (r.status === 304) return { ok: true, status: 304, body: null };
         const body = await r.text().then((t) => JSON.parse(t)).catch(() => undefined);
         if (body !== undefined && r.status < 500) return { ok: r.ok, status: r.status, body };
         failure = new Error(r.status >= 500 ? `the board answered ${r.status}` : 'the board did not answer with JSON');

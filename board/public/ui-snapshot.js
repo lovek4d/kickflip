@@ -13,12 +13,12 @@
     'reachedPhase', 'grilling', 'refusal', 'install', 'parent', 'children', 'related', 'waitsOnIt', 'blockedBy', 'ready', 'reopened'];
   const pick = (it, fields) => Object.fromEntries(fields.filter((f) => f in it).map((f) => [f, it[f]]));
 
-  // What a first paint shows of board: open lanes whole, Done cards cut to DONE_FIELDS (none when openOnly), and no
-  // resolved questions.
-  const firstPaint = (board, openOnly) => ({
+  // What a first paint shows of board: open lanes whole and Done cards cut to DONE_FIELDS (none when openOnly). It keeps
+  // no version, since it isn't the board that version names, so the first reload downloads the whole board
+  // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md).
+  const firstPaint = ({ version: _, ...board }, openOnly) => ({
     ...board,
     items: board.items.flatMap((it) => (it.lane !== 'done' ? [it] : openOnly ? [] : [pick(it, DONE_FIELDS)])),
-    ...(board.owner && { owner: board.owner.filter((q) => q.state !== 'resolved') }),
   });
 
   // threads maps item keys to thread messages (app.js state.threadCache). The board goes in as firstPaint, then threads of

@@ -28,6 +28,11 @@
     const hashId = () => { const h = location.hash.slice(1); try { return decodeURIComponent(h); } catch { return h; } };
 
     let all = [];
+    // The shown topic's resolved questions, which /api/board leaves out: GET /api/questions answers them as the topic
+    // shows, and again once its resolved count changes or after a failed load, at its next draw (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md).
+    let resolved = { topic: null, n: 0, questions: [] };
+    // The version of the board last read, which the next load names so an unchanged board downloads nothing.
+    let version = null;
     let items = [];
     let topics = [];
     let topicId = null;
@@ -46,7 +51,7 @@
     };
     B.atUnmount(() => clearTakeResources());
 
-    const byId = (id) => all.find((q) => q.id === id);
+    const byId = (id) => all.find((q) => q.id === id) || resolved.questions.find((q) => q.id === id);
     const topicOf = (qid) => topics.find((t) => t.questions.includes(qid)) || null;
     const openTopics = () => topics.filter((t) => t.state !== 'resolved');
     const links = (q) => linkContext(items, q.topic?.startsWith('item:') ? q.topic.slice(5) : null, { base: './' });
@@ -80,8 +85,21 @@
       return t ? t.questions.map(byId).filter(Boolean) : [];
     }
 
+    function loadResolved() {
+      const t = soloId ? null : topics.find((x) => x.id === topicId);
+      if (!t?.resolved || (resolved.topic === t.id && resolved.n === t.resolved)) return;
+      resolved = { topic: t.id, n: t.resolved, questions: [] };
+      const asked = resolved;
+      fetchJSON(site.url('api/questions?topic=' + encodeURIComponent(t.id)), { sleep: B.sleep }).then(({ body }) => {
+        if (!B.alive() || resolved !== asked) return;
+        asked.questions = body.questions || [];
+        repaint(false);
+      }, () => { if (resolved === asked) resolved = { topic: null, n: 0, questions: [] }; });
+    }
+
     function render() {
       clearTakeResources();
+      loadResolved();
       const el = $('#page');
       const qs = visible();
       if (!qs.length) {
@@ -222,10 +240,12 @@
     }
     // After a recorded tap: a load that started before it went out would read its question as still open.
     // `footer` is a line or, for a Send, a function of the reloaded board giving the whole line.
-    async function moveOnOnceLoaded({ from, pills }, what, footer = what) {
+    // The tap's POST answers with the board as it left it, which lands here in place of a reload.
+    async function moveOnOnceLoaded({ from, pills }, what, out, footer = what) {
       await loading;
-      if (await load(false)) moveOn(from, pills, what, typeof footer === 'function' ? footer() : footer, typeof footer !== 'function');
-      else if (B.alive()) { if (typeof footer === 'function') footer = footer(); sentLine = footer; $('#qstatus').innerHTML = statusHtml(footer); $('#qstatus').classList.add('sent'); }
+      if (!B.alive()) return;
+      land(out.board, false);
+      moveOn(from, pills, what, typeof footer === 'function' ? footer() : footer, typeof footer !== 'function');
     }
 
     // The tapped Prototype button waits (ui.js waitOn) while the request is sent.
@@ -236,10 +256,11 @@
       st.textContent = '';
       const d = getDraft(q.id);
       const last = q.answers[q.answers.length - 1];
-      try { await BoardUI.waitOn(button, site.send('prototype-request', { ...(key ? { key } : {}), question: q.id, note: (d.note || '').trim(), choice: d.choice ?? (last ? last.choice : null) })); }
+      let out;
+      try { out = await BoardUI.waitOn(button, site.send('prototype-request', { ...(key ? { key } : {}), question: q.id, note: (d.note || '').trim(), choice: d.choice ?? (last ? last.choice : null) })); }
       catch (e) { st.textContent = e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?'; return; }
       setDraft(q.id, {});
-      await moveOnOnceLoaded(at, `Prototype requested${at.name ? ` for ${at.name}` : ''}.`, PROTOTYPE_REQUESTED);
+      await moveOnOnceLoaded(at, `Prototype requested${at.name ? ` for ${at.name}` : ''}.`, out, PROTOTYPE_REQUESTED);
     }
 
     function updateBar() {
@@ -269,28 +290,37 @@
     async function fetchBoard(first) {
       const page = $('#page');
       try {
-        const { body: d } = await fetchJSON(site.url('api/board'), { onWait: () => { if (first) page.innerHTML = restartNotice(); }, sleep: B.sleep });
+        const { body: d } = await fetchJSON(site.url('api/board'), { tag: version, onWait: () => { if (first) page.innerHTML = restartNotice(); }, sleep: B.sleep });
         if (!B.alive()) return false;
-        all = d.owner || [];
-        items = d.items || [];
-        topics = d.ownerTopics || [];
-        site.syncBadge();
-        if (first) pick(hashId());
-        else if (soloId && byId(soloId)?.state !== 'open') pick('');
-        else if (!topics.some((t) => t.id === topicId)) pick('');
-        loaded = true;
-        const sig = sigNow();
-        const active = document.activeElement;
-        if (sig !== shown && !(active && active.tagName === 'TEXTAREA')) {
-          shown = sig;
-          const y = scrollY;
-          render();
-          scrollTo(0, first ? 0 : y);
-        }
+        if (d) land(d, first);
+        repaint(first);
         return true;
       } catch (e) {
         if (first) page.innerHTML = `<p class="muted">Could not load the questions: ${esc(e.message)}</p>`;
         return false;
+      }
+    }
+    // A board from a load or a tap's POST.
+    function land(d, first) {
+      version = d.version;
+      all = d.owner;
+      items = d.items;
+      topics = d.ownerTopics;
+      site.syncBadge();
+      if (first) pick(hashId());
+      else if (soloId && byId(soloId)?.state !== 'open') pick('');
+      else if (!topics.some((t) => t.id === topicId)) pick('');
+      loaded = true;
+    }
+    // Draws what changed, unless the owner is typing a note.
+    function repaint(first) {
+      const sig = sigNow();
+      const active = document.activeElement;
+      if (sig !== shown && !(active && active.tagName === 'TEXTAREA')) {
+        shown = sig;
+        const y = scrollY;
+        render();
+        scrollTo(0, first ? 0 : y);
       }
     }
 
@@ -386,13 +416,14 @@
         const files = filesOf(q);
         return { id: q.id, question: q.question, choice, label: choiceLabel(q, choice), note: (d.note || '').trim(), ...(files.length ? { files } : {}) };
       });
-      try { await BoardUI.waitOn($('#send'), site.send('owner-answers', { answers })); }
+      let out;
+      try { out = await BoardUI.waitOn($('#send'), site.send('owner-answers', { answers })); }
       catch (e) { st.textContent = e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?'; return; }
       for (const q of list) {
         setDraft(q.id, {});
         BoardAttach.clear('q:' + q.id, site.root);
       }
-      await moveOnOnceLoaded(at, `Sent ${list.length} answer${list.length === 1 ? '' : 's'}${at.name ? ` to ${at.name}` : ''}.`, () => {
+      await moveOnOnceLoaded(at, `Sent ${list.length} answer${list.length === 1 ? '' : 's'}${at.name ? ` to ${at.name}` : ''}.`, out, () => {
         const open = all.filter((q) => q.state === 'open').length;
         return `sent ${list.length} answer${list.length === 1 ? '' : 's'}${open ? ` · ${open} still open` : ''}`;
       });

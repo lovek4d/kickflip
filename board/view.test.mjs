@@ -2108,12 +2108,16 @@ function boardOnDom({ open = [], seen = {}, board, threads, confirm = false, rea
   page.win.ClaudeSite.site = (r) => ({ ...site(r), send: async (kind, data) => { sent.push([kind, data]); return send ? send(kind, data, server) : { id: `e${sent.length}`, board: structuredClone(server.board) }; } });
   const posts = [];
   const gets = [];
+  const downloads = [];
   page.win.fetch = async (url, opts = {}) => {
     const u = new URL(url, 'https://mac.ts.net/');
     if (opts.method === 'POST') { posts.push([u.pathname, JSON.parse(opts.body)]); return { ok: true, status: 200, json: async () => ({ ok: true }) }; }
     gets.push(u.pathname);
+    // A board with a version answers 304 to a request naming it, as board/server.mjs does.
+    if (u.pathname.endsWith('/api/board') && server.board.version && opts.headers?.['if-none-match'] === `"${server.board.version}"`) return { ok: false, status: 304, json: async () => { throw new Error('a 304 has no body'); } };
+    if (u.pathname.endsWith('/api/board')) downloads.push(server.board.version);
     const body = u.pathname.endsWith('/api/board') ? server.board : server.threads[u.searchParams.get('key')] || [];
-    return { ok: true, json: async () => structuredClone(body) };
+    return { ok: true, status: 200, json: async () => structuredClone(body) };
   };
   const root = page.win.document.body.appendChild(new Element('div'));
   root.innerHTML = page.win.BoardView.markup({ title: 'A' });
@@ -2122,11 +2126,33 @@ function boardOnDom({ open = [], seen = {}, board, threads, confirm = false, rea
   view.mount();
   const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
   const change = async (next) => { Object.assign(server, next); signalled(); await settle(); };
-  return { page, root, view, settle, change, sent, confirms, confirmLabels, posts, gets, server, doc: page.win.document };
+  return { page, root, view, settle, change, sent, confirms, confirmLabels, posts, gets, downloads, server, doc: page.win.document };
 }
 const askCard = (id, lane) => ({ key: `ask:${id}`, id, kind: 'ask', lane, title: `Task ${id}`, deps: [], othersAt: [] });
 const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items, waves: [], needs: [], answers: [] });
 const workCard = (id, extra) => ({ key: `w/${id}`, id, kind: 'work', lane: 'todo', title: `Work ${id}`, ref: id, internal: true, waveTitle: 'W', deps: [], manualSteps: [], othersAt: [], ...extra });
+
+// docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
+test("the board reloads naming the version it shows, so an unchanged board downloads nothing, and a tap's own change signal finds the POST's board current: one tap, one download", async () => {
+  const T1 = workCard('T1', { bumpable: true, sortAt: '2026-10-01T00:00:00.000Z', order: 0 });
+  const T2 = workCard('T2', { bumpable: true, sortAt: '2026-10-02T00:00:00.000Z', order: 1 });
+  const first = { ...boardOf([T1, T2]), version: 'v1' };
+  const bumped = { ...boardOf([{ ...T2, bumpedAt: '2026-10-30T10:00:00.000Z' }, T1]), generatedAt: '2026-10-30T10:00:01.000Z', version: 'v2' };
+  const b = boardOnDom({ board: first, threads: {}, send: (kind, data, server) => { server.board = bumped; return { id: 'e1', board: structuredClone(bumped) }; } });
+  await b.settle();
+  const order = () => b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key);
+  assert.deepEqual([b.downloads, order()], [['v1'], ['w/T1', 'w/T2']]);
+  await b.change({});
+  assert.deepEqual([boardGets(b), b.downloads, order()], [2, ['v1'], ['w/T1', 'w/T2']], 'the reload answers 304 and the board stays');
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('details.item[data-key="w/T2"] button[data-card-bump]') });
+  await b.settle();
+  assert.deepEqual(order(), ['w/T2', 'w/T1']);
+  await b.change({});
+  assert.deepEqual([b.sent.map(([k]) => k), boardGets(b), b.downloads, order()], [['card-bump'], 3, ['v1'], ['w/T2', 'w/T1']], "the tap's change signal downloads nothing");
+  await b.change({ board: { ...bumped, title: 'Renamed', version: 'v3' } });
+  assert.deepEqual([b.downloads, b.root.querySelector('.top h1').textContent], [['v1', 'v3'], 'Renamed']);
+  b.view.unmount();
+});
 
 test('a tap anywhere on an asleep board, refresh included, asks the hub to wake its session once, and the header reads asleep, then waking… until it listens', async () => {
   const checks = (watcher) => ({ at: '2026-10-30T10:00:00.000Z', every: 30, late: false, watcher, claudeAt: null });
@@ -2692,7 +2718,7 @@ test("deleting a New card is one events POST: its trash icon waits, the card sta
 
 test("Done, Unhold, Implement, Merge and a Hold sheet chip each wait on their button, disabled with its label kept, while the card stays as it was; Done closes its card once the server answers, and a refusal toasts the server's reason", async () => {
   const merge = { kind: 'merge', url: '#item=w%2FM1', label: 'Merge' };
-  const holdChoices = [{ value: '1h', label: '1h', until: 'until 4:40pm' }];
+  const holdChoices = [{ value: '1h', label: '1h', ms: 3_600_000 }];
   const cards = [workCard('T1', { finishable: true, holdable: true }), workCard('H1', { held: true, holdable: true }), workCard('B1', { buildable: true }), workCard('M1', { lane: 'review', action: merge })];
   const sends = heldSends();
   const b = boardOnDom({ open: cards.map((c) => c.key), board: { ...boardOf(cards), holdChoices }, threads: {}, send: sends.send, confirm: true });
@@ -2856,7 +2882,7 @@ test("a question's note on Waiting on you takes attachments the same way as the 
 
 test('Hold opens a sheet of the shared duration picker in place of a confirm, whose chip sends card-hold with that choice, and Unhold confirms naming the time', async () => {
   const until = new Date(Date.now() + 2 * 86_400_000).toISOString();
-  const holdChoices = [['1h', '1h'], ['3h', '3h'], ['6h', '6h'], ['1d', '1d'], ['forever', 'Forever']].map(([value, label]) => ({ value, label, until: value === 'forever' ? 'until you unhold it' : 'until 4:40pm' }));
+  const holdChoices = [['1h', '1h', 3_600_000], ['3h', '3h', 10_800_000], ['6h', '6h', 21_600_000], ['1d', '1d', 86_400_000], ['forever', 'Forever', null]].map(([value, label, ms]) => ({ value, label, ms }));
   const cards = [workCard('T1', { ref: 'INT-41', holdable: true }), workCard('P1', { ref: 'INT-43', lane: 'progress', holdable: true }), workCard('H1', { ref: 'INT-42', held: true, heldUntil: until, holdable: true })];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: { ...boardOf(cards), holdChoices }, threads: {}, confirm: true });
   await b.settle();
@@ -2875,7 +2901,9 @@ test('Hold opens a sheet of the shared duration picker in place of a confirm, wh
   assert.deepEqual([sheet.open, sheet.querySelector('#holdTitle').textContent, sheet.querySelector('#holdLede').textContent],
     [true, 'Hold INT-41', 'It won’t start until then. Forever holds it until you unhold it.']);
   const chips = sheet.querySelectorAll('[data-hold-for]');
-  assert.deepEqual(chips.map((c) => [c.textContent, c.getAttribute('aria-label')]), holdChoices.map((c) => [c.label, `${c.label}, ${c.until}`]));
+  // The page words each chip's end from its length when the sheet opens.
+  const words = (ms) => (ms === null ? 'until you unhold it' : `until ${b.page.win.BoardUI.heldUntilWords(new Date(Date.now() + ms))}`);
+  assert.deepEqual(chips.map((c) => [c.textContent, c.getAttribute('aria-label')]), holdChoices.map((c) => [c.label, `${c.label}, ${words(c.ms)}`]));
   assert.ok(sheet.querySelector('.dur-custom [data-hold-at]'));
   b.page.fire(sheet, 'click', { target: chips[1] });
   await b.settle();
@@ -3181,10 +3209,19 @@ function questionsOnDom({ topics, questions, at, next, gate = null }) {
   const ownerTopics = () => topics.map((t) => {
     const qs = server.questions.filter((q) => q.topic === t.id);
     const count = (s) => qs.filter((q) => q.state === s).length;
-    return { ...t, state: 'open', questions: qs.map((q) => q.id), open: count('open'), answered: count('answered') };
+    return { ...t, state: qs.every((q) => q.state === 'resolved') ? 'resolved' : 'open', questions: qs.map((q) => q.id), open: count('open'), answered: count('answered'), resolved: count('resolved') };
   }).filter((t) => t.questions.length);
-  const body = (url) => (new URL(url, base).pathname.endsWith('/api/board') ? { ...boardOf([]), owner: server.questions, ownerTopics: ownerTopics() } : []);
-  page.win.fetch = async (url) => { const b = structuredClone(body(url)); return { ok: true, status: 200, text: async () => JSON.stringify(b), json: async () => b }; };
+  // As board/server.mjs answers: /api/board leaves resolved questions out, and /api/questions?topic= answers a topic's.
+  const boardBody = () => ({ ...boardOf([]), owner: server.questions.filter((q) => q.state !== 'resolved'), ownerTopics: ownerTopics() });
+  const body = (u) => (u.pathname.endsWith('/api/board') ? boardBody()
+    : u.pathname.endsWith('/api/questions') ? { questions: server.questions.filter((q) => q.topic === u.searchParams.get('topic') && q.state === 'resolved') } : []);
+  const gets = [];
+  page.win.fetch = async (url) => {
+    const u = new URL(url, base);
+    gets.push(u.pathname + u.search);
+    const b = structuredClone(body(u));
+    return { ok: true, status: 200, text: async () => JSON.stringify(b), json: async () => b };
+  };
   const site = page.win.ClaudeSite.site;
   const sent = [];
   page.win.ClaudeSite.site = (r) => ({ ...site(r), send: async (kind, data) => {
@@ -3196,7 +3233,7 @@ function questionsOnDom({ topics, questions, at, next, gate = null }) {
       if (gate?.refuse) throw Object.assign(new Error('send failed: 400'), { status: 400, reason: gate.refuse });
       Object.assign(q, { state: 'resolved', resolved: 'Prototype requested', request: { id: 'r1', ts: '2026-10-30T10:00:00.000Z', note: data.note, choice: data.choice } });
       topics.find((t) => t.id === q.topic).round = { n: (q.round || 0) + 1, state: 'making' };
-      return {};
+      return { id: 'e1', board: structuredClone(boardBody()) };
     }
     // An owner-answers batch is recorded all or none, as board/server.mjs records it, once gate (if any) settles.
     await gate?.promise;
@@ -3206,7 +3243,7 @@ function questionsOnDom({ topics, questions, at, next, gate = null }) {
       q.state = 'answered';
       q.answers.push({ ts: '2026-10-30T10:00:00.000Z', choice: a.choice, note: '', files: [], reply: null });
     }
-    return {};
+    return { ids: data.answers.map((_, n) => `e${n}`), board: structuredClone(boardBody()) };
   } });
   Object.assign(page.win, { scrollTo() {}, scrollY: 0, sessionStorage: memoryStorage().localStorage });
   page.win.BoardAttach.paintAll = () => {};
@@ -3243,7 +3280,7 @@ function questionsOnDom({ topics, questions, at, next, gate = null }) {
   const shown = () => shell.board ? { board: shell.board.querySelector('.toast')?.textContent || '' }
     : { pills: shell.root.querySelectorAll('.topics button').map((b) => [b.dataset.topic, b.getAttribute('aria-pressed')]),
       questions: shell.root.querySelectorAll('section.q').map((s) => s.dataset.q), status: $('#qstatus').textContent, hash: page.win.location.hash };
-  return { settle, answer, send, shown, decisions, sent, root: shell.root, page, idle, unmount: () => questionsView.unmount() };
+  return { settle, answer, send, shown, decisions, sent, gets, server, root: shell.root, page, idle, unmount: () => questionsView.unmount() };
 }
 
 test("Waiting on you's Send follows the shared next question, leaving an urgent question's solo view, staying on the current topic or going to the board with its Sent toast", async () => {
@@ -3279,6 +3316,29 @@ test("Waiting on you's Send follows the shared next question, leaving an urgent 
   urgent.answer('q3');
   await urgent.send();
   assert.deepEqual(urgent.shown(), { pills: [['item:w/T1', 'true'], ['item:w/T2', 'false']], questions: ['q1'], status: 'sent 1 answer · 2 still open', hash: '#q1' });
+});
+
+// docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
+test("Waiting on you loads a topic's resolved questions only once the topic shows, and its Send draws from the POST's board with no reload of its own", async () => {
+  const question = (id, topic, state = 'open') => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state });
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'item:w/T2', title: 'INT-2: Old' }],
+    questions: [question('q1', 'item:w/T1'), question('q2', 'item:w/T1'), question('r1', 'item:w/T1', 'resolved'), question('r2', 'item:w/T2', 'resolved')], at: 'q1' });
+  await v.settle();
+  const $ = (sel) => v.root.querySelector(sel);
+  const resolvedShown = () => v.root.querySelectorAll('details.done section.q').map((s) => s.dataset.q);
+  assert.deepEqual(v.gets, ['/board-a/api/board', '/board-a/api/questions?topic=item%3Aw%2FT1']);
+  assert.deepEqual([v.shown().questions, resolvedShown()], [['q1', 'q2', 'r1'], ['r1']]);
+  v.page.fire(v.root, 'click', { target: v.root.querySelector('details.done button[data-topic="item:w/T2"]') });
+  await v.settle();
+  assert.deepEqual([v.gets.at(-1), resolvedShown()], ['/board-a/api/questions?topic=item%3Aw%2FT2', ['r2']]);
+  v.page.fire(v.root, 'click', { target: v.root.querySelector('button[data-topic="item:w/T1"]') });
+  await v.settle();
+  const loads = v.gets.length;
+  v.answer('q1');
+  await v.send();
+  assert.deepEqual([v.shown().status, resolvedShown()], ['sent 1 answer · 1 still open', ['r1']]);
+  assert.deepEqual(v.gets.slice(loads), [], 'the Send downloads nothing beyond its own answer');
+  v.unmount();
 });
 
 // docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md

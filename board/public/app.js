@@ -263,13 +263,16 @@ window.BoardView = (function () {
       const threads = [...state.openItems].map((k) => B.loadThread(k, { from: started?.threads.get(k) || null, force: via !== 'poll' }));
       let landed = false;
       try {
-        const board = await (started?.board || fetch(B.site.url('api/board'), { cache: 'no-store' })
-          .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`board ${r.status}`)))));
-        land(board, load);
+        // A reload names the version of the board on screen, and an unchanged board answers 304 with no body
+        // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md).
+        const tag = state.view === 'fresh' ? state.board.version : null;
+        const board = await (started?.board || fetch(B.site.url('api/board'), { cache: 'no-store', ...(tag ? { headers: { 'if-none-match': `"${tag}"` } } : {}) })
+          .then((r) => (r.status === 304 ? null : r.ok ? r.json() : Promise.reject(new Error(`board ${r.status}`)))));
+        if (board) land(board, load); else B.linkUp();
         landed = true;
         if (!preloaded) {
           preloaded = true;
-          for (const key of preloadKeys(board.items, state.openItems)) B.loadThread(key);
+          for (const key of preloadKeys(state.board.items, state.openItems)) B.loadThread(key);
         }
       } catch (e) {
         B.linkDown();

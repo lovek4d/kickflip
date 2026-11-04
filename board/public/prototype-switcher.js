@@ -154,8 +154,13 @@
       let board = null;
       try {
         board = await (await fetch(site.url('api/board'), { cache: 'no-store' })).json();
-        question = (board.owner || []).find((q) => q.id === qid) || null;
-        topics = board.ownerTopics || [];
+        topics = board.ownerTopics;
+        // A resolved question is left out of /api/board, and its topic's resolved questions hold it
+        // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md).
+        const topic = topics.find((t) => t.questions.includes(qid));
+        question = board.owner.find((q) => q.id === qid)
+          || (topic && (await (await fetch(site.url('api/questions?topic=' + encodeURIComponent(topic.id)), { cache: 'no-store' })).json()).questions.find((q) => q.id === qid))
+          || null;
         if (!question) note('This prototype’s question is gone, so there is nothing to pick.');
       } catch { /* keep the last question shown */ }
       if (fromPush && pickedChoice(question)) {

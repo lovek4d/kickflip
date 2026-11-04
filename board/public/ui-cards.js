@@ -233,9 +233,12 @@
   }
   // The Hold sheet's picker (app-cards.js): /api/board's holdChoices, the chips hub/duration.mjs shares with Snooze and
   // Keep awake, then Custom. Its .hub-view root takes hub.css's duration picker rules, which view-hub-settings.js
-  // durationPicker's markup also uses.
-  function holdPicker(key, choices) {
-    const chips = choices.map((c) => `<button type="button" class="btn quiet" data-hold-for="${esc(key)}" value="${esc(c.value)}" aria-label="${esc(`${c.label}, ${c.until}`)}">${esc(c.label)}</button>`).join('');
+  // durationPicker's markup also uses. Each chip's length (ms, null for Forever) is worded as when it would end if picked
+  // at `now`, here rather than on the server, so the board's version doesn't change with the clock
+  // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md).
+  const holdUntil = (c, now) => (c.ms === null ? 'until you unhold it' : `until ${heldUntilWords(new Date(now.getTime() + c.ms), now)}`);
+  function holdPicker(key, choices, now = new Date()) {
+    const chips = choices.map((c) => `<button type="button" class="btn quiet" data-hold-for="${esc(key)}" value="${esc(c.value)}" aria-label="${esc(`${c.label}, ${holdUntil(c, now)}`)}">${esc(c.label)}</button>`).join('');
     return `<div class="hub-view"><div class="dur-chips" role="group" aria-labelledby="holdTitle"><div class="dur-choices">${chips}</div>`
       + `<div class="dur-custom"><span class="btn quiet" aria-hidden="true">Custom</span><input type="datetime-local" data-hold-at="${esc(key)}" required aria-label="Custom hold until a date and time"></div></div></div>`;
   }

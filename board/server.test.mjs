@@ -5,7 +5,7 @@ import http from 'node:http';
 import zlib from 'node:zlib';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until, ownSession } from '../shared/test-helpers.mjs';
 
@@ -101,7 +101,11 @@ test("an owner answer opens no confirm: a pick settles its round, with a note or
     assert.equal(b.needsSummary, '1 question');
     assert.equal((await answer('plain', null, 'Keep it, but rename it')).status, 200);
     assert.equal(items().find((q) => q.id === 'plain').resolved, 'Answered with a note');
-    assert.equal((await board()).owner.find((q) => q.id === 'plain').state, 'resolved');
+    const after = await board();
+    assert.equal(after.owner.find((q) => q.id === 'plain'), undefined);
+    const topic = after.ownerTopics.find((t) => t.questions.includes('plain')).id;
+    const resolved = (await (await fetch(`${base}/api/questions?topic=${encodeURIComponent(topic)}`)).json()).questions;
+    assert.deepEqual(resolved.map((q) => [q.id, q.state]), [['plain', 'resolved']]);
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
@@ -150,7 +154,7 @@ test("a prototype request on a question resolves it with its note and pick kept 
     assert.equal(q.resolved, 'Prototype requested');
     assert.ok(q.resolved_at >= last().ts);
     const b = (await r.json()).board;
-    assert.equal(b.owner[0].state, 'resolved');
+    assert.deepEqual([b.owner, b.ownerTopics.find((t) => t.id === 'item:t/R1').resolved], [[], 1]);
     assert.deepEqual(b.ownerTopics.find((t) => t.id === 'item:t/R1').round, { n: 1, state: 'making' });
     const card = b.items.find((i) => i.key === 't/R1');
     assert.deepEqual([card.state, card.next, card.buildable], ['prototyping', 'Prototype again', false]);
@@ -184,7 +188,8 @@ test("one owner-answers request records every answer as one-by-one answers would
       ['owner-answer', { id: 'b1b', question: 'b1b?', choice: null, label: '', note: 'Rename it' }],
       ['card-unblocked', { key: 't/B1' }]]);
     assert.deepEqual(out.ids, added.slice(0, 2).map((e) => e.id));
-    assert.deepEqual(out.board.owner.filter((q) => q.topic === 'item:t/B1').map((q) => [q.id, q.state]), [['b1a', 'answered'], ['b1b', 'resolved']]);
+    assert.deepEqual(out.board.owner.filter((q) => q.topic === 'item:t/B1').map((q) => [q.id, q.state]), [['b1a', 'answered']]);
+    assert.deepEqual(out.board.ownerTopics.find((t) => t.id === 'item:t/B1').questions, ['b1a', 'b1b']);
     assert.equal(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items.find((q) => q.id === 'b1b').resolved, 'Answered with a note');
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
@@ -1237,4 +1242,78 @@ test("Save on the settings page's reviewers removes names in the server, records
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
     if (wavePrev) fs.writeFileSync(waveFile, wavePrev); else fs.rmSync(waveFile, { force: true });
   }
+});
+
+// docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
+test("/api/board leaves resolved questions out while its topics still count and list them, and /api/questions answers a topic's resolved questions", async () => {
+  const ownerFile = path.join(site, 'data', 'owner.json');
+  const ask = (id, topic, extra = {}) => ({ id, topic, question: `${id}?`, options: [{ id: 'A', label: 'This' }], ...extra });
+  const done = { resolved: 'Acted on', resolved_at: '2026-10-30T10:00:00.000Z' };
+  fs.writeFileSync(ownerFile, JSON.stringify({ topics: [{ id: 'plan', title: 'Plan' }, { id: 'old', title: 'Old' }],
+    items: [ask('open1', 'plan'), ask('gone1', 'plan', done), ask('gone2', 'old', done), ask('gone3', 'old', done)] }));
+  const get = async (p) => (await fetch(`${base}${p}`)).json();
+  try {
+    const b = await get('/api/board');
+    assert.deepEqual(b.owner.map((q) => q.id), ['open1']);
+    assert.deepEqual(b.ownerTopics.map((t) => [t.id, t.state, t.questions, t.open, t.resolved]),
+      [['plan', 'open', ['open1', 'gone1'], 1, 1], ['old', 'resolved', ['gone2', 'gone3'], 0, 2]]);
+    const old = await get('/api/questions?topic=old');
+    assert.deepEqual(old.questions.map((q) => [q.id, q.state, q.resolved, q.options.length]), [['gone2', 'resolved', 'Acted on', 1], ['gone3', 'resolved', 'Acted on', 1]]);
+    assert.deepEqual((await get('/api/questions?topic=plan')).questions.map((q) => q.id), ['gone1']);
+    assert.deepEqual(await get('/api/questions?topic=nowhere'), { questions: [] });
+  } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
+});
+
+test("/api/board carries its version as its ETag: a reload naming it answers 304 with no body until the board changes, and an events POST's board carries the version the next reload has", async () => {
+  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'E1', title: 'Tagged' }, { id: 'E2', title: 'Other' }] }));
+  const first = await raw('/api/board', { 'accept-encoding': 'gzip' });
+  const tag = first.headers.etag;
+  const body = JSON.parse(zlib.gunzipSync(first.body));
+  assert.equal(tag, `W/"${body.version}"`);
+  assert.match(body.version, /^[\w-]{8,}$/);
+  const again = await raw('/api/board', { 'accept-encoding': 'gzip', 'if-none-match': `"${body.version}"` });
+  assert.deepEqual([again.status, again.body.length, again.headers.etag, again.headers['cache-control']], [304, 0, tag, 'no-store']);
+  const posted = await (await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'card-bump', key: 't/E2' }) })).json();
+  assert.notEqual(posted.board.version, body.version);
+  assert.equal(posted.board.onHost, true);
+  const stale = await raw('/api/board', { 'if-none-match': tag });
+  assert.equal(stale.status, 200);
+  assert.equal(JSON.parse(stale.body).version, posted.board.version);
+  assert.equal((await raw('/api/board', { 'if-none-match': `"${posted.board.version}"` })).status, 304);
+});
+
+test("the board's version depends on its data alone: a minute later with nothing changed it is the same, and the Hold choices carry their lengths, not clock words", () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'board-version-')));
+  const at = path.join(dir, 'site');
+  fs.mkdirSync(path.join(at, 'data'), { recursive: true });
+  fs.writeFileSync(path.join(at, 'board.json'), JSON.stringify({ title: 'V', items: 'data/wave.json', slug: 'v' }));
+  fs.writeFileSync(path.join(at, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'V1', title: 'Todo' }, { id: 'V2', title: 'Held', held: true }] }));
+  const server = path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs');
+  try {
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      import http from 'node:http';
+      import { mock } from 'node:test';
+      mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-04T10:00:20Z') });
+      let server;
+      mock.method(http.Server.prototype, 'listen', function () { server = this; return this; });
+      process.argv[2] = ${JSON.stringify(at)};
+      await import(${JSON.stringify(server)});
+      const get = () => new Promise((resolve) => {
+        const req = { method: 'GET', url: '/api/board', headers: {}, socket: { remoteAddress: '127.0.0.1' } };
+        const res = { req, writeHead() { return this; }, end(body) { resolve(JSON.parse(body)); } };
+        server.emit('request', req, res);
+      });
+      const first = await get();
+      mock.timers.tick(61000);
+      const later = await get();
+      console.log(JSON.stringify({ versions: [first.version, later.version], times: [first.generatedAt, later.generatedAt], holdChoices: later.holdChoices }));
+      process.exit(0);
+    `], { env: { ...process.env, HOME: dir }, encoding: 'utf8', timeout: 20000 });
+    assert.equal(result.status, 0, result.stderr);
+    const out = JSON.parse(result.stdout);
+    assert.notEqual(out.times[0], out.times[1]);
+    assert.equal(out.versions[0], out.versions[1]);
+    assert.deepEqual(out.holdChoices, [{ value: '1h', label: '1h', ms: 3_600_000 }, { value: '3h', label: '3h', ms: 10_800_000 }, { value: '6h', label: '6h', ms: 21_600_000 },
+      { value: '1d', label: '1d', ms: 86_400_000 }, { value: 'forever', label: 'Forever', ms: null }]);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
