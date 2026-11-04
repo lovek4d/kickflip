@@ -310,6 +310,42 @@ test('with auto implement on the board sends card-pull for the top pullable Todo
   }
 });
 
+// docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md
+test('a tapped card whose blockers are done waits in Queued while In Progress is at Maximum parallel implementers, and the server starts it once a slot frees', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'queue-cap-'));
+  const siteDir = path.join(dir, 'site');
+  const dataDir = path.join(siteDir, 'data');
+  const waveFile = path.join(dataDir, 'wave.json');
+  const agentFile = path.join(dataDir, 'agents', 'A0.json');
+  const setup = path.join(dir, 'setup.mjs');
+  const iso = (ms) => new Date(ms).toISOString();
+  const now = Date.now();
+  let worker;
+  fs.mkdirSync(path.dirname(agentFile), { recursive: true });
+  fs.mkdirSync(path.join(dataDir, 'threads'));
+  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't', max_implementers: 1 }));
+  put(waveFile, JSON.stringify({ items: [
+    { id: 'A0', title: 'Running', status: 'building' },
+    { id: 'A9', title: 'Blocker', status: 'done' },
+    { id: 'Q1', title: 'Tapped', deps: ['A9'], queued_at: iso(now - 60000) },
+  ] }));
+  put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000) }));
+  fs.writeFileSync(setup, "import http from 'node:http'; http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };");
+  const queuedAt = () => JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === 'Q1').queued_at;
+  try {
+    worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], { env: { ...process.env, HOME: dir } });
+    await new Promise((resolve, reject) => { worker.stdout.once('data', resolve); worker.once('exit', (code) => reject(new Error(`Server exited ${code}`))); });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(queuedAt(), iso(now - 60000), 'the running build holds the only slot');
+    // The start is tried once the build finishes; with no repo here it is refused, which clears the queue.
+    put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), done: iso(now) }));
+    await until(() => queuedAt() === undefined, 'the queued card starts once a slot frees');
+  } finally {
+    if (worker?.exitCode === null) { const exited = new Promise((resolve) => worker.once('exit', resolve)); worker.kill(); await exited; }
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // docs/adr/2026-11-03-1551-an-idle-board-triages-its-todo-once-a-day.md
 test('an idle board with auto-triage on sends todo-triage under its dated topic before any pull, at most once a day and only when Todo changed', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-triage-'));

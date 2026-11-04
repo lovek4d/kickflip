@@ -1331,10 +1331,67 @@ test('a queued build puts its card In Progress, blocked, from when it was queued
   const card = (id) => b.items.find((i) => i.id === id);
   const q = card('A2');
   assert.deepEqual([q.lane, q.queued, q.buildable, q.next, q.builder, q.sortAt, q.blockedBy.length], ['progress', true, false, null, null, queuedAt, 1]);
-  assert.deepEqual([card('A3').lane, card('A3').queued], ['todo', true]);
+  assert.deepEqual([card('A3').lane, card('A3').queued], ['todo', false]);
   assert.equal(pullOf(b.items).pullable.includes('w/A2'), false);
   assert.equal(owesNext(items[1], []), false);
   assert.equal(owesNext({ ...items[1], queued_at: undefined, status: 'building' }, []), true);
+});
+
+// docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md
+test('the Queued section holds tapped cards, and with Auto implement on every ready card; bumped first, the rest oldest first, owing no Next', () => {
+  const at = (m) => `2026-11-04T10:${String(m).padStart(2, '0')}:00.000Z`;
+  const items = [
+    { id: 'A1', title: 'Blocker', status: 'building' },
+    { id: 'R1', title: 'Ready old', state: 'ready', created: at(1) },
+    { id: 'R2', title: 'Ready new', state: 'ready', created: at(2) },
+    { id: 'Q1', title: 'Tapped', deps: ['A1'], queued_at: at(3) },
+    { id: 'G1', title: 'Grilled', state: 'ready', created: at(4) },
+    { id: 'T1', title: 'Not ready', created: at(5) },
+    { id: 'H1', title: 'Held ready', state: 'ready', held: true, created: at(6) },
+  ];
+  const resolved = { id: 'q1', topic: 'item:w/G1', question: 'Which?', resolved: true, resolved_at: at(0), options: [{ id: 'A', label: 'A' }] };
+  const built = ({ autoPull, events = [] }) => buildBoard({ fromWaves: false, autoPull, events, owner: { items: [resolved] }, now: Date.parse(at(30)),
+    waves: [{ slug: 'w', agents: runningBuilders('A1'), wave: { internal: true, items } }] });
+  const lanes = (b) => b.items.filter((i) => i.kind === 'work').map((i) => `${i.id}:${i.lane}${i.queued ? ':queued' : ''}`);
+  const on = built({ autoPull: true });
+  assert.deepEqual(lanes(on), ['A1:progress', 'R1:progress:queued', 'R2:progress:queued', 'Q1:progress:queued', 'G1:progress:queued', 'H1:todo', 'T1:todo']);
+  const card = (b, id) => b.items.find((i) => i.id === id);
+  assert.deepEqual(['R1', 'Q1'].map((id) => [card(on, id).next, card(on, id).sortAt, card(on, id).bumpable]), [[null, at(1), true], [null, at(3), true]]);
+  assert.deepEqual(lanes(built({ autoPull: false })), ['A1:progress', 'Q1:progress:queued', 'H1:todo', 'T1:todo', 'G1:todo', 'R2:todo', 'R1:todo'], 'with Auto implement off the queue holds only tapped cards');
+
+  const bump = (kind, key, m) => ({ id: `${kind}${m}`, ts: at(m), kind, data: { key } });
+  const queue = (b) => b.items.filter((i) => i.queued).map((i) => i.id);
+  assert.deepEqual(queue(built({ autoPull: true, events: [bump('card-bump', 'w/Q1', 10), bump('card-bump', 'w/R2', 11)] })), ['R2', 'Q1', 'R1', 'G1'], 'the latest bump is on top');
+  assert.deepEqual(queue(built({ autoPull: true, events: [bump('card-bump', 'w/G1', 10), bump('card-unbump', 'w/G1', 11)] })), ['R1', 'R2', 'Q1', 'G1'], 'an unbump returns the card to its place by time');
+  assert.deepEqual(lanes(built({ autoPull: false, events: [bump('card-bump', 'w/R1', 10)] })).slice(0, 3), ['A1:progress', 'Q1:progress:queued', 'R1:todo'], 'with Auto implement off a bump orders Todo');
+});
+
+test("the queue drains from its top while In Progress is under the cap: a tapped card starts once nothing blocks it, a ready one is pulled, and queued cards hold no slot", () => {
+  const at = (m) => `2026-11-04T10:${String(m).padStart(2, '0')}:00.000Z`;
+  const items = (blocker) => [
+    { id: 'A1', title: 'Running', status: 'building' },
+    { id: 'A2', title: 'Blocker', status: blocker },
+    { id: 'Q1', title: 'Tapped', deps: ['A2'], queued_at: at(1) },
+    { id: 'R1', title: 'Ready', state: 'ready', created: at(2) },
+    { id: 'R2', title: 'Ready too', state: 'ready', created: at(3) },
+  ];
+  const built = (blocker) => buildBoard({ fromWaves: false, autoPull: true, now: Date.parse(at(30)),
+    waves: [{ slug: 'w', agents: runningBuilders('A1'), wave: { internal: true, items: items(blocker) } }] }).items;
+  const free = built('done');
+  assert.deepEqual(pick(pullOf(free, { cap: 1 })), [[], []], 'a full In Progress takes nothing; the queued cards do not count');
+  assert.deepEqual(pick(pullOf(free, { cap: 2 })), [['w/Q1'], []]);
+  assert.deepEqual(pick(pullOf(free, { cap: 3 })), [['w/Q1'], ['w/R1']]);
+  assert.deepEqual(pick(pullOf(free, { cap: 3, pulled: ['w/R1'] })), [['w/Q1'], []], 'a pulled card not started keeps its slot');
+  assert.deepEqual(pick(pullOf(built('building'), { cap: 2 })), [[], ['w/R1']], 'a blocked tapped card at the top lets the next card go');
+  function pick({ starts, pulls }) { return [starts, pulls]; }
+});
+
+test('a ready card whose questions are all resolved is pullable; an answer that reopens one waits on Claude', () => {
+  const owner = { items: [{ id: 'q1', topic: 'item:w/A1', question: 'Which?', resolved: true, resolved_at: '2026-11-04T09:00:00.000Z', options: [{ id: 'A', label: 'A' }] }] };
+  const answer = { id: 'e1', ts: '2026-11-04T08:00:00.000Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A' } };
+  const card = (events) => buildBoard({ fromWaves: false, owner, events, waves: [{ slug: 'w', wave: { internal: true, items: [{ id: 'A1', title: 'One', state: 'ready' }] } }] }).items;
+  assert.deepEqual(pullOf(card([answer])).pullable, ['w/A1']);
+  assert.deepEqual(pullOf(card([{ ...answer, ts: '2026-11-04T10:00:00.000Z' }])).pullable, [], 'an answer after the resolve reopens it, waiting on Claude');
 });
 
 test('a card-unbump after a card-bump unbumps the card, and a later bump bumps it again', () => {

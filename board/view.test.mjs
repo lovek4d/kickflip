@@ -3718,6 +3718,27 @@ test('legacy hub links open one modal, guard dirty rules on every dismissal, res
   assert.deepEqual(page.left(), baseline);
 });
 
+// docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md
+test("In Progress lists its Queued cards in one Queued section below its other cards, in the server's order, each with its bump icon; a wave band names a queued card queued", async () => {
+  const queued = (id, extra) => workCard(id, { lane: 'progress', queued: true, bumpable: true, ...extra });
+  const cards = [workCard('P1', { lane: 'progress', bumpable: true }), queued('Q2', { bumpedAt: '2026-11-04T10:00:00.000Z' }), queued('Q1'), workCard('T1')];
+  const band = { kind: 'wave', slug: 'w', title: 'W', goal: null, keys: ['w/Q1', 'w/T1'], next: null, merged: 0, total: 2, triage: { running: false, questions: 0 } };
+  const b = boardOnDom({ board: { ...boardOf(cards), waveBands: [band] }, threads: {} });
+  await b.settle();
+  const list = b.root.querySelector('details.lane[data-lane="progress"] > .list');
+  assert.deepEqual(list.children.map((el) => el.dataset.key || el.getAttribute('class')), ['w/P1', 'wb-loose lane-queue']);
+  const section = list.querySelector('.lane-queue');
+  assert.deepEqual([section.querySelector('.lane-name').textContent, section.querySelector('.count').textContent], ['Queued', '2']);
+  assert.deepEqual(section.querySelectorAll('details.item').map((el) => el.dataset.key), ['w/Q2', 'w/Q1']);
+  assert.deepEqual(['w/Q2', 'w/Q1'].map((key) => section.querySelector(`details.item[data-key="${key}"] button[data-card-bump]`).getAttribute('aria-label')), ['Unbump', 'Bump to top']);
+  assert.equal(b.root.querySelector('details.lane[data-lane="progress"] > summary .count').textContent, '3');
+  assert.match(b.root.querySelector('.wb[data-band="w"] .wb-label').textContent, /Q1 queued/);
+
+  const none = boardOnDom({ board: boardOf([workCard('P1', { lane: 'progress' })]), threads: {} });
+  await none.settle();
+  assert.equal(none.root.querySelector('.lane-queue'), null);
+});
+
 // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
 test("each wave is a band in Todo above its loose cards: only the first with a ready next card starts open, its goal on its name, Implement or what the next card waits on, Notes and Triage in its head, its Todo cards in order with step numbers and its done ones one line", async () => {
   const idle = { running: false, questions: 0 };

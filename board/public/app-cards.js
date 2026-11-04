@@ -150,7 +150,7 @@ BoardView.part((B) => {
   }
   function openHold(it) {
     $('#holdTitle').textContent = `Hold ${it.ref}`;
-    $('#holdLede').textContent = `${it.lane === 'todo' ? 'It won’t start' : 'Claude stops work on it'} until then. Forever holds it until you unhold it.`;
+    $('#holdLede').textContent = `${it.lane === 'todo' || it.queued ? 'It won’t start' : 'Claude stops work on it'} until then. Forever holds it until you unhold it.`;
     $('#holdPicker').innerHTML = holdPicker(it.key, state.board.holdChoices || []);
     const input = $('#holdPicker [data-hold-at]');
     const now = Date.now();

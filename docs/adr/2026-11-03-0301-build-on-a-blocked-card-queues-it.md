@@ -1,4 +1,10 @@
+---
+status: superseded in part by 2026-11-04-0121-in-progress-has-a-queued-section
+---
+
 # Build on a blocked card queues it, and blocked, bumped and Action needed leave the badges
+
+Superseded in part by [In Progress has a Queued section, and the pull takes its top under the cap](2026-11-04-0121-in-progress-has-a-queued-section.md): a queued build waits in the Queued section and starts from its top once an implementer slot is free.
 
 This supersedes in part [a Todo card that nothing blocks has Build](2026-11-02-1745-a-todo-card-that-nothing-blocks-has-build.md) and [a held Todo card shows Build in place of Unhold](2026-11-03-0234-a-held-todo-card-shows-build-in-place-of-unhold.md), which gave Build only to cards nothing blocks; [a Build tap starts the build in the board server](2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md), which refused a blocked tap; [cards wait on explicit blocked-by links](2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md), on the Blocked by chips and on `card-unblocked` going out for every card a dep frees; [a card that hasn't started, or is running, can be bumped](2026-10-29-1639-a-card-that-hasnt-started-can-be-bumped.md) and [a card can be held, and every card button confirms](2026-10-29-1639-a-card-can-be-held-and-every-card-button-confirms.md), on the bump confirming and dimming on the lane's latest bump; and [the lane follows who acts next, and a card waiting on the owner says Action needed](2026-10-29-1639-the-lane-follows-who-acts-next.md), on Action needed being a badge.
 

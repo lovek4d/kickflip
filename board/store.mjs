@@ -2078,7 +2078,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
 // builder start's does (board/worktree.mjs boardWorktree). → {key, ref, kind, reason, worktree}, or null when refused
 // (docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md).
 // A card an unfinished dep blocks is queued instead: no record and no worktree, its wave entry's queued_at the tap's
-// time, and a thread line; the board server starts it once nothing blocks it (startQueuedBuild). → {key, ref, queued:
+// time, and a thread line; the board server starts it once nothing blocks it and an implementer slot is free (startQueuedBuild). → {key, ref, queued:
 // [blocker names]} (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
 export async function startTappedBuild(site, key, worktree) {
   try {
@@ -2122,19 +2122,6 @@ async function queueBuild(site, key, blockers) {
     await appendLine(threadFile(site, key), { ts: item.queued_at, who: 'claude', text: `Implement queued: it starts once ${blockers.join(', ')} ${blockers.length === 1 ? 'is' : 'are'} done.` });
   }
   return { key, ref: await cardName(site, key), queued: blockers };
-}
-
-// The board's queued builds that nothing holds or blocks any more, which the board server starts (startQueuedBuild).
-export async function dueQueuedBuilds(site) {
-  const due = [];
-  for (const s of await itemSources(site)) {
-    const wave = await readJSON(s.file, null);
-    for (const it of Array.isArray(wave?.items) ? wave.items : []) {
-      if (!it.queued_at || it.held || it.status === 'held' || FINISHED.includes(it.status)) continue;
-      if (!(await unfinishedDeps(site, s.slug, it)).length) due.push(`${s.slug}/${it.id}`);
-    }
-  }
-  return due;
 }
 
 // A queued build whose last blocker finished starts as the owner's Build tap does. One the start refuses, or that

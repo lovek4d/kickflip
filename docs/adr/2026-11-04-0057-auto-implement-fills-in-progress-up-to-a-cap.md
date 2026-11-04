@@ -1,4 +1,10 @@
+---
+status: superseded in part by 2026-11-04-0121-in-progress-has-a-queued-section
+---
+
 # Auto implement fills In Progress up to Maximum parallel implementers, on every board change
+
+Superseded in part by [In Progress has a Queued section, and the pull takes its top under the cap](2026-11-04-0121-in-progress-has-a-queued-section.md): with Auto implement on, ready cards wait in In Progress's Queued section, and the free slots take the queue from its top.
 
 The owner asked on #177 (11/03) whether the pull should wait for idle at all: "just it automatically tries to suck in to do tasks. At any time, because the orchestrator should be free, right? Maybe we cap at 10 in progress items at a time, and that can be set on a per board basis in settings." On the #127 thread (11/04) they renamed the switch to an auto-implement one: with it on, a card whose grill completes never reads ready in Todo, it goes straight to In Progress. The #177 grill settled the rest.
 

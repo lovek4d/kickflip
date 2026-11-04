@@ -1,5 +1,5 @@
 ---
-status: superseded in part by 2026-11-03-0259-answered-asks-have-their-own-section-below-done
+status: superseded in part by 2026-11-03-0259-answered-asks-have-their-own-section-below-done and 2026-11-04-0121-in-progress-has-a-queued-section
 ---
 
 # Each lane has one fixed order

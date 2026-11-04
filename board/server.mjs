@@ -100,8 +100,10 @@
 //                                card-build {key, ref, kind, model, reason, worktree}, model only for claude, which wakes the session to brief and launch
 //                                the builder; a refusal appends no event and leaves its reason in the card's thread.
 //                                On a card an unfinished dep blocks, the tap queues the build instead (queued_at, no
-//                                event), and once nothing blocks it the server starts it the same way, after any board
-//                                change and every minute (store.mjs startQueuedBuild; docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
+//                                event), and once nothing blocks it and an implementer slot is free the server starts
+//                                it the same way, from the top of In Progress's Queued section (checkAuto, store.mjs
+//                                startQueuedBuild; docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md,
+//                                docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md).
 //                                lineup-move {lineup, key, by: -1 | 1} is a wave band card's ⋯ Move up or Move down: the
 //                                server reorders the lineup's Todo cards (domain.mjs lineupMoved, store.mjs changeLineup)
 //                                and answers {id: null, board}, appending no event; a move it can't make → 400 {error}.
@@ -189,7 +191,7 @@ import { localDay } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, existsSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
-import { BoardError, addTopic, boardConfig, changeLineup, dueQueuedBuilds, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, addTopic, boardConfig, changeLineup, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -429,7 +431,7 @@ async function itemSnapshot() {
     threadLines[`${slug}/${it.id}`] = await readLines(threadFile(`${slug}/${it.id}`));
   })));
   const self = boardAt(here);
-  return { github: self?.github, remote: self?.remote, branch: self?.branch, reviewers: cfg.reviewers || [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, waves, threads: threadLines,
+  return { github: self?.github, remote: self?.remote, branch: self?.branch, reviewers: cfg.reviewers || [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, autoPull: settingsOf(cfg).auto_pull, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, waves, threads: threadLines,
     working: await readWorking(here), autoReview: settingsOf(cfg).auto_review, incoming: await readJSON(path.join(data, 'incoming.json'), null),
     reviewRecords: await readJSON(path.join(data, 'reviews.json'), {}) };
 }
@@ -666,7 +668,6 @@ function changed() {
     broadcast(`event: change\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`);
     checkStalled();
     checkActions();
-    checkQueued();
     checkAuto();
   }, Math.max(0, Math.min(CHANGE_QUIET, changeFirst + CHANGE_MAX - now)));
 }
@@ -958,31 +959,11 @@ async function checkPickUps() {
   }
 }
 
-// docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md
-// Starts each queued build nothing holds or blocks any more, as the owner's Build tap would, waking the session with
-// card-build. The pause line keeps them queued. A check asked for while one runs runs again after it.
-let checkingQueued = null;
-let queuedAgain = false;
-function checkQueued() {
-  if (checkingQueued) { queuedAgain = true; return checkingQueued; }
-  checkingQueued = (async () => {
-    do {
-      queuedAgain = false;
-      try {
-        if (readUsageGate().state === 'paused') continue;
-        for (const key of await dueQueuedBuilds(here)) {
-          const started = await startQueuedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts));
-          if (started && !started.queued) await appendEvent('card-build', started);
-        }
-      } catch (err) { console.error('Queued build check failed:', err.message); }
-    } while (queuedAgain);
-  })().finally(() => { checkingQueued = null; });
-  return checkingQueued;
-}
-
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
-// The Auto jobs, run on every board change and once at start: triage, then the pull, then a plan, then a review.
-// The pull fills every free implementer slot whatever else runs; triage, the plan and the review wait for an idle
+// The Auto jobs, run on every board change and once at start: the queued starts, triage, then the pull, then a plan,
+// then a review. The queue's top fills the free implementer slots (domain.mjs pullOf): a tapped card nothing blocks
+// any more starts as the owner's Build tap would, waking the session with card-build, whether Auto implement is on or
+// not (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md, docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md). The pull fills every free implementer slot whatever else runs; triage, the plan and the review wait for an idle
 // board. A triage sent or under way holds the pull until its reply, and a card pulled and not yet started holds the
 // plan and the review. None goes out while usage is paused; the minute check runs the jobs again once a pause lifts,
 // since the pause lives outside the board's data. A check asked for while one runs runs again after it.
@@ -1004,9 +985,13 @@ async function runAuto() {
   const log = await readLines(events);
   const hidden = await readHidden(here);
   const { items, reviews } = buildBoard({ ...(await itemSnapshot()), events: log.filter((e) => !hidden.has(e.id)), owner: await readJSON(path.join(data, 'owner.json'), { items: [] }) });
-  const { idle, pullable, waiting, pulls, plannable } = pullOf(items, { cap: settings.max_implementers, pulled: await sentOf(PULL, log) });
+  const { idle, pullable, waiting, starts, pulls, plannable } = pullOf(items, { cap: settings.max_implementers, pulled: await sentOf(PULL, log) });
   heldByPause = readUsageGate().state === 'paused';
   const ready = idle && !heldByPause;
+  for (const key of heldByPause ? [] : starts) {
+    const started = await startQueuedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts));
+    if (started && !started.queued) await appendEvent('card-build', started);
+  }
   if (await checkTriage(settings, log, items, ready)) return;
   if (await sendPulls(PULL, settings.auto_pull, waiting, heldByPause ? [] : pulls)) return;
   const unready = pullable.length ? [] : plannable;
@@ -1125,10 +1110,8 @@ setInterval(checkStalled, 60000).unref();
 setInterval(checkPickUps, 60000).unref();
 setInterval(() => { if (heldByPause && readUsageGate().state !== 'paused') checkAuto(); }, 60000).unref();
 setInterval(checkActions, 60000).unref();
-setInterval(checkQueued, 60000).unref();
 await checkStalled();
 await checkPickUps();
 await checkAuto();
 checkActions();
-checkQueued();
 server.listen(port, '127.0.0.1', () => console.log(`site on http://127.0.0.1:${port}/ (prefix ${prefix || 'none'})`));
