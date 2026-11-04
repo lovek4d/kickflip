@@ -277,8 +277,9 @@ export function queueStatus(now = new Date()) {
 }
 
 // What a push may be about (docs/adr/0006-pushes-only-when-something-waits-on-the-owner.md): action, a card's Action
-// needed appearing or changing; prompt, a background session's pending prompt; fault, something only the owner can fix.
-export const PUSH_KINDS = ['action', 'prompt', 'fault'];
+// needed appearing or changing; prompt, a background session's pending prompt; fault, something only the owner can fix;
+// reminder, a push the owner asked a session for in words (docs/adr/0182-more-of-the-skill-moves-into-code.md).
+export const PUSH_KINDS = ['action', 'prompt', 'fault', 'reminder'];
 export class PushKindError extends Error {}
 export const pushKindError = (kind) => (PUSH_KINDS.includes(kind) ? null
   : `a push needs --kind ${PUSH_KINDS.join('|')}${kind === undefined || kind === true ? '' : `, not "${kind}"`}; news goes on the board, not in a push`);

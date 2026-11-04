@@ -375,7 +375,7 @@ A builder still recorded as running whose last progress, or start before its fir
 _Avoid_: stuck, hung, failed
 
 **Worktree**:
-The git worktree a builder works in, never the folder the session, a running app or the hub uses. A board's is `~/.claude/kickflip/worktrees/<card id>` on branch `<card id>` from its chosen repo branch, or from local main for a **local board**, of the board's own folder, the hub board's included (`hub/board-repo.mjs` decides which), made by `board.mjs builder start --worktree` and kept on the builder record; the owning session checks and commits there, then **lands** it (`board.mjs land`): rebased onto main, tested, fast-forwarded into the live folder's main, the hub or board servers restarted, the worktree and branch removed. A repo card's comes from wave-build ([0064](docs/adr/0064-every-builder-works-in-a-worktree.md)).
+The git worktree a builder works in, never the folder the session, a running app or the hub uses. A board's is `~/.claude/kickflip/worktrees/<card id>` on branch `<card id>` from its chosen repo branch, or from local main for a **local board**, of the board's own folder, the hub board's included (`hub/board-repo.mjs` decides which), made by a build's `board.mjs builder start` (or `--worktree`, or the Implement tap) and kept on the builder record; the owning session checks and commits there, then **lands** it (`board.mjs land`): rebased onto main, tested, fast-forwarded into the live folder's main, the hub or board servers restarted, the worktree and branch removed. A repo card's comes from wave-build ([0064](docs/adr/0064-every-builder-works-in-a-worktree.md)).
 _Avoid_: copy, checkout, live folder (for the builder's)
 
 ### Talking with the owner

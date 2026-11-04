@@ -1,5 +1,5 @@
 // A builder's git worktree for a site or skill card (docs/adr/0064-every-builder-works-in-a-worktree.md):
-// `board.mjs builder start --worktree` and the board server's Build tap make it, and `board.mjs land` brings its branch into the live repo's main.
+// A build's `board.mjs builder start` (with or without --worktree) and the board server's Build tap make it, and `board.mjs land` brings its branch into the live repo's main.
 // Worktrees resolve under $HOME and the repo defaults to the running clone, so a scratch HOME and --repo stand in for
 // the real ones.
 import fs from 'node:fs';

@@ -11,7 +11,6 @@ import { fileFindings } from '../arch-review.mjs';
 import { ITEM_STATUSES } from '../domain.mjs';
 import { boardAt, readManifest } from '../../hub/boards.mjs';
 import { boardRepo } from '../../hub/board-repo.mjs';
-import { pushKindError } from '../../hub/push.mjs';
 
 export const USAGE = `usage: node board.mjs <command> [--site <route>] ...
 
@@ -80,6 +79,12 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
                                                          open question links it
   pr <wave>/<id>                                         one JSON line: the card's PR state, checks and new events,
                                                          using the board's repo, github-login and the card's gh_since
+  pr comment <pr> --body <text>                          posts Claude's words on the board repo's PR <pr> through gh,
+  pr reply <pr> <comment id> --body <text>               or replies in that review comment's thread, as the board's
+                                                         github-login (else gh's account), adding "🤖 " before and a
+                                                         blank line and <!-- claude-bridge --> after, the marker pr
+                                                         reads as Claude's own. Refuses words that already carry
+                                                         either. Prints the post's url
   item set <wave>/<id> [--status <s> | --clear-status]   edits the item in its wave file
          [--next <t> | --clear-next] [--pr <n>]          status: ${ITEM_STATUSES.join(', ')}
                                                          an empty --next "" clears it, as --clear-next does
@@ -95,7 +100,8 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
          [--from-ask <eventId> --text <t>]               the ask it came from: its New card gives way to this item,
                                                          whose thread opens with the ask and its thread, then --text
                                                          as the item's first line; it leaves a card it was folded into; refuses a card
-                                                         from another ask (use item relate-ask)
+                                                         from another ask (use item relate-ask), and one with no
+                                                         state when --state is missing
          [--state ready|grilling|prototyping]            what a card from an ask does next; it reads New until set.
                                                          ready refuses while the card has an open question
          [--held | --unheld | --pick-up-at <time>]       holds or resumes the card on the owner's words; the board
@@ -150,7 +156,9 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
          Every --status or --clear-status records status_at; a later status change overrides the tap.
          --status done, merged or dropped closes the card: it resolves each of its questions (topic
          item:<wave>/<id>) that has an answer, noting "Closed with the card", and prints "resolved: <id>"
-         for each. It refuses while one has no answer yet; [--force] closes it and resolves that one too
+         for each. It refuses while one has no answer yet; [--force] closes it and resolves that one too.
+         --status done refuses a done card the owner messaged since it closed: it reads reopened, and closes
+         again only on the owner's Done
   item add <wave>[/<id>] --title <t> [--notes <t>]       a new card, planned (waiting when it has --deps); never
          [--ticket <id>] [--deps <id>,<wave>/<id>]       hand-edit wave.json to add one. Refuses an id the wave has.
          [--notes-file <file>]                           --plan is an alias of --notes-file
@@ -330,7 +338,11 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
                                                          ~/.claude/kickflip/worktrees/<id> on a new branch <id> from
                                                          the board's branch of its clone (--repo overrides the clone), kept on
                                                          the record and printed as "worktree: <path>". Refuses when
-                                                         that path or branch exists
+                                                         that path or branch exists, unless it is a leftover
+                                                         holding no work, which it remakes. A build's main record
+                                                         on a board makes it without --worktree when it keeps none
+                                                         (a taken-up or resumed record's, or the worktree the
+                                                         card's last record left while it is still there)
   builder progress <wave>/<id> --phase <phase>           one status line: a phase, reading, building, testing,
          (<detail> | --text <d>) [--agent <name>]        checking or landing, and a present-tense detail of at most
                                                          80 characters in plain words, which the owner reads at a
@@ -347,7 +359,11 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
                                                          when the card has no open builder records left. Closing the
                                                          last one of a card left In Progress with no Next is refused
                                                          without --next, which sets it; item set --status checking
-                                                         and land close the records themselves
+                                                         and land close the records themselves. On a record with
+                                                         unverified judgment calls it hands the card back instead:
+                                                         --status checking with Next "Answer the builder's
+                                                         questions" when a call starts "Question:", else "Verify
+                                                         the builder's judgment calls"; --next is refused there
          builder takes --dir <dir> for a wave file in <dir>; its records go in <dir>/agents
   builder pick <wave>/<id>                               who builds the card, from the hub's Codex share and the pause
                                                          line, and for claude which model, from the hub's Claude model
@@ -396,15 +412,16 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
                                                          Prints "filed: <ref> from <id>", "skipped: <id>", and
                                                          "waiting: <ids>" while any are unanswered; once none is, it
                                                          closes the audit card as done
-  push --kind action|prompt|fault --title <t>            runs kickflip push with these flags, adding
+  push --kind fault|reminder --title <t>                 runs kickflip push with these flags, adding
        [--body <b>] [--url </route/path>]                "· and N replies" to the body for the replies
        [--tag <tag>] [--now | --urgent]                  written since the site's last push through this
-                                                         command (none before its first). The board server pushes
-                                                         each card's Action needed itself, so this is for a fault,
-                                                         what only the owner can fix. It records the push in
-                                                         data/push-state.json only when kickflip push succeeds,
-                                                         and exits with kickflip push's code. Refused without an
-                                                         allowed --kind: news stays on the board. Without --now
+                                                         command (none before its first). A session pushes only a
+                                                         fault, what only the owner can fix, or a reminder the
+                                                         owner asked for in words ("push me when it's all done"):
+                                                         the board server pushes each card's Action needed and the
+                                                         hub a session's prompt, so any other --kind is refused. It records the
+                                                         push in data/push-state.json only when kickflip push
+                                                         succeeds, and exits with kickflip push's code. Without --now
                                                          it queues until the tick ends (checked) or the hub's
                                                          next check; --now sends at once unless pushes are held
                                                          (overnight, snoozed or the weekend). --urgent: a
@@ -481,6 +498,14 @@ function noteOf(f) {
 // name: [positional args, allowed flags, run(site, args, flags) → message]
 const COMMANDS = {
   pr: [['wave/id'], [], async (site, [key]) => ({ lines: [JSON.stringify(await store.prReport(site, key))] })],
+  'pr comment': [['pr'], ['body'], (site, [pr], f) => {
+    if (f.body === undefined) throw new UsageError('pr comment needs --body "<what Claude says>"');
+    return store.postPR(site, pr, { body: f.body });
+  }],
+  'pr reply': [['pr', 'comment-id'], ['body'], (site, [pr, replyTo], f) => {
+    if (f.body === undefined) throw new UsageError('pr reply needs --body "<what Claude says>"');
+    return store.postPR(site, pr, { replyTo, body: f.body });
+  }],
   reply: [['eventId'], ['html', 'file'], (site, [id], f) => {
     if ((f.html === undefined) === (f.file === undefined)) throw new UsageError('reply takes --html or --file');
     return store.writeReply(site, id, f.html ?? readInput(f.file));
@@ -495,9 +520,11 @@ const COMMANDS = {
   'prototype add': [['topic'], ['title', 'take', 'card'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take })],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'pushed', 'gh-since', 'from-ask', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'parent', 'related', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'text'], (site, [key], f, options) =>
-    store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps, parent: f.parent, related: f.related,
-      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, text: f.text }, options)],
+  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'pushed', 'gh-since', 'from-ask', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'parent', 'related', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'text'], async (site, [key], f, options) => {
+    if (f.status === 'done' && site) await store.checkNotReopened(site, key);
+    return store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps, parent: f.parent, related: f.related,
+      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, text: f.text }, options);
+  }],
   'item add': [['wave[/id]'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'parent', 'size', 'model'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket, pickUpAt: f['pick-up-at'], parent: f.parent, size: f.size, model: f.model }, options)],
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
   'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],
@@ -562,14 +589,17 @@ const COMMANDS = {
   'settings set': [['name', 'value'], [], (site, [name, value]) => store.setBoardSetting(site, name, value)],
   'builder start': [['wave/id'], ['label', 'phase', 'progress', 'dir', 'agent', 'kind', 'model', 'eta', 'worktree', 'repo', 'dispatch'], (site, [key], { worktree, repo, dispatch, ...f }) => {
     if (repo !== undefined && !worktree) throw new UsageError('--repo goes with --worktree');
-    return store.startBuilder(site, key, { ...f, dispatch: dispatch ? 'session' : undefined, worktree: worktree && ((opts) => boardWorktree(site, key.split('/')[1], { repo, ...opts })) });
+    const make = (opts) => boardWorktree(site, key.split('/')[1], { repo, ...opts });
+    // A build on a board works in its own worktree even when the start doesn't ask for one (store.mjs startBuilder).
+    const onBoard = site && f.dir === undefined && boardAt(site);
+    return store.startBuilder(site, key, { ...f, dispatch: dispatch ? 'session' : undefined, worktree: worktree ? make : undefined, ownWorktree: onBoard ? make : undefined });
   }],
   'builder progress': [['wave/id', '...text?'], ['phase', 'text', 'dir', 'agent', 'eta', 'clear-eta'], (site, [key, ...words], f) => {
     if (words.length && f.text !== undefined) throw new UsageError('builder progress takes its text once: as words or as --text');
     if (!words.length && f.text === undefined) throw new UsageError('builder progress needs its text, as words or as --text');
     return store.builderProgress(site, key, f.text ?? words.join(' '), { ...f, clearEta: f['clear-eta'] });
   }],
-  'builder done': [['wave/id'], ['dir', 'agent', 'next'], (site, [key], f) => store.stopBuilder(site, key, { ...f, requireNext: true })],
+  'builder done': [['wave/id'], ['dir', 'agent', 'next'], async (site, [key], f) => (site && !f.dir && await store.handBackCalls(site, key, f)) || store.stopBuilder(site, key, { ...f, requireNext: true })],
   'builder pick': [['wave/id'], [], (site, [key]) => store.pickBuilder(site, key)],
   'builder call': [['wave/id', '...text'], ['dir', 'agent'], (site, [key, ...words], f) => store.recordCall(site, key, words.join(' '), f)],
   'builder calls': [['wave/id'], ['dir', 'agent'], (site, [key], f) => store.listCalls(site, key, f)],
@@ -591,8 +621,7 @@ const COMMANDS = {
   'arch file': [['wave/id'], [], (site, [key]) => (site ? fileFindings(site, key) : Promise.reject(new store.BoardError('arch file needs --site <route>')))],
   checked: [[], ['every', 'idle'], (site, _, f) => store.writeChecked(site, f.every, { idle: f.idle })],
   push: [[], ['kind', 'title', 'body', 'url', 'tag', 'urgent', 'now'], (site, _, f) => {
-    const refused = pushKindError(f.kind);
-    if (refused) throw new UsageError(refused);
+    if (f.kind !== 'fault' && f.kind !== 'reminder') throw new UsageError(`a session pushes only --kind fault or reminder${f.kind === undefined || f.kind === true ? '' : `, not "${f.kind}"`}: the board server pushes Action needed, and news goes on the board`);
     if (f.title === undefined) throw new UsageError('push needs --title');
     return store.sendPush(site, f);
   }],

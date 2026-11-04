@@ -112,12 +112,13 @@
 //   kickflip update
 //               installs @lovek4d/kickflip@latest globally with npm, then restarts the hub.
 //               A clone refuses (exit 2); update it with git pull
-//   kickflip push --kind action|prompt|fault --title <t> [--body <b>] [--url </route/path>] [--tag <tag>]
+//   kickflip push --kind action|prompt|fault|reminder --title <t> [--body <b>] [--url </route/path>] [--tag <tag>]
 //               [--now | --urgent]
 //               notify every device that turned on notifications on the Hub page; a tap opens --url.
 //               --kind says what waits on the owner (../hub/push.mjs PUSH_KINDS): action, a card's Action needed
 //               appearing or changing; prompt, a background session's prompt; fault, something only the owner
-//               can fix. A push without one is refused (exit 2): news stays on the board.
+//               can fix; reminder, a push the owner asked for in words. A push without one is refused (exit 2):
+//               news stays on the board.
 //               The push queues, replacing a queued one with the same
 //               --tag, and goes out after the hub's next GitHub check on the polling interval
 //               (/_hub/settings/polling) or when a GitHub tick ends (board.mjs checked); a board's

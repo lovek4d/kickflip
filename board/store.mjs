@@ -2,7 +2,7 @@
 // ~/.claude/kickflip/sites; `site` null means a board over ~/.claude/waves alone. Every write
 // is validated first, JSON files are replaced by rename, and JSONL files are appended to.
 import fs from 'node:fs/promises';
-import { constants as fsConstants } from 'node:fs';
+import { constants as fsConstants, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
@@ -17,7 +17,7 @@ import { routeRecord } from '../hub/routes.mjs';
 import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleTickets, mcpCreateLine, cardIdOf } from './tickets.mjs';
 import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
-import { fetchPR, reportOf, githubLogin } from '../hub/pr-report.mjs';
+import { fetchPR, reportOf, githubLogin, postToPR, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
 import { reviewLinks, topicItems, reviewersOf } from './review.mjs';
 import { readiness } from '../hub/readiness.mjs';
 import { slackDay } from '../hub/slack.mjs';
@@ -1323,6 +1323,8 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (ask) await refuseMoved(site, ask);
   const { source, wave, item } = await loadItem(site, key);
   if (ask && item.from_ask && item.from_ask !== ask) fail(`${key} came from ask "${item.from_ask}", so ask "${ask}" can't be its from-ask; to fold it in: item relate-ask ${ask} ${key} --summary "<line>"`);
+  // docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md
+  if (ask && state === undefined && !item.state) fail('--from-ask files a card, which reads New until it has a state: pass --state ready, grilling or prototyping');
   const statusBefore = item.status;
   const wasFinished = FINISHED.includes(item.status);
   const records = await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)));
@@ -1555,6 +1557,21 @@ export async function prReport(site, key) {
   try {
     const me = settingsOf(await boardConfig(site)).github_login || await githubLogin();
     return reportOf(await fetchPR({ repo, pr: item.pr, since }), { pr: item.pr, since, me });
+  } catch (e) { fail(e.message); }
+}
+
+// `pr comment` and `pr reply`: Claude's words on one of the board repo's PRs, posted as the board's github-login with
+// the prefix and marker added (hub/pr-report.mjs postToPR), so the next `pr` leaves them out. → {lines}
+export async function postPR(site, pr, { replyTo, body }) {
+  const command = replyTo === undefined ? 'pr comment' : 'pr reply';
+  if (!/^[1-9]\d*$/.test(pr)) fail(`${command} takes a PR number`);
+  if (replyTo !== undefined && !/^[1-9]\d*$/.test(replyTo)) fail('pr reply takes the id of the review comment it answers');
+  const words = text(body, '--body').trim();
+  if (words.startsWith(CLAUDE_PREFIX.trim()) || words.includes(CLAUDE_MARK)) fail(`${command} adds the ${CLAUDE_PREFIX.trim()} prefix and the claude-bridge marker itself; pass only your words`);
+  const repo = boardRepoOf(needSite(site), {}) || fail(`${command} needs a board on GitHub; this board has no repo there`);
+  try {
+    const url = await postToPR({ repo, pr: Number(pr), replyTo, words, login: settingsOf(await boardConfig(site)).github_login });
+    return { lines: [`posted on PR #${pr}: ${url}`] };
   } catch (e) { fail(e.message); }
 }
 
@@ -1926,11 +1943,14 @@ const PLANNER_MODEL = { prototype: 'sonnet', grill: 'opus' };
 // docs/adr/0152-the-session-opens-the-builder-record-when-it-dispatches-an-agent.md,
 // docs/adr/0174-a-card-reads-starting-from-its-tap-with-one-dispatched-mark.md).
 // A build's start clears the card's Next.
+// worktree makes the card's worktree (board/worktree.mjs boardWorktree), as --worktree and the tap ask. ownWorktree makes
+// it only for a main build whose record keeps none, so every build on a board works in a worktree
+// (docs/adr/0064-every-builder-works-in-a-worktree.md, docs/adr/0182-more-of-the-skill-moves-into-code.md).
 // A Claude build takes the hub's Claude model when it is Opus or Sonnet, refusing a --model it rules out, and otherwise
 // the pick's, which reads the card's size and model (docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md).
 // → {file, lines, kind, model, reason, worktree}: model is the Claude model or null, reason the pick's, worktree the path or null;
 // {file, alreadyOpen: true, lines: []} for a session's dispatch on a record the tap opened.
-export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, model, eta, worktree, dispatch }) {
+export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, model, eta, worktree, ownWorktree, dispatch }) {
   const gate = readUsageGate();
   if (gate.state === 'paused') throw new BoardError(pauseReason(gate));
   if (phase !== undefined && progress === undefined) fail('--phase goes with --progress "<detail>"');
@@ -1970,12 +1990,16 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const marked = marking ? await setItem(site, key, { status: 'building' }) : { lines: [] };
   let wt;
   let remade = null;
+  // A build started again on the card keeps the worktree its last record left, while that is still there.
+  const left = ownWorktree && build && agent === 'main' && before?.worktree?.path && existsSync(before.worktree.path) ? before.worktree : null;
+  const kept = (takeUp ?? resumed)?.worktree ?? left;
+  const make = worktree ?? (build && agent === 'main' && !kept ? ownWorktree : undefined);
   try {
-    if (worktree) {
+    if (make) {
       const others = await builderFiles(path.dirname(path.dirname(file)), parseKey(key).id);
       const busy = (await Promise.all(others.filter((f) => f !== file).map((f) => readJSON(f, null)))).filter((r) => r?.worktree?.path && !r.done).map((r) => r.worktree.path);
-      ({ remade, ...wt } = await worktree({ busy }));
-    } else wt = (takeUp ?? resumed)?.worktree ?? null;
+      ({ remade, ...wt } = await make({ busy }));
+    } else wt = kept;
   } catch (e) {
     // A worktree that can't be made leaves the card unstarted, as it was.
     if (marking) await restoreStatus(site, key, was);
@@ -2163,6 +2187,29 @@ export async function checkCallsVerified(site, key, { dir } = {}) {
   }
   if (!owing.length) return;
   fail(`land: ${key} has judgment calls nobody verified yet; check them with ${owing.map((a) => `builder calls ${key}${a}`).join(', ')}, then run ${owing.map((a) => `builder verified ${key}${a}`).join(', ')}`);
+}
+
+// `builder done`'s hand-back for a record with unverified calls: the card goes to checking with the Next the calls ask
+// for, a question first (docs/adr/0155-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
+// → {lines}, or null when the record has none.
+export async function handBackCalls(site, key, { dir, agent = 'main', next }) {
+  const record = await readJSON(await builderFile(site, key, dir, agent), null);
+  const calls = record && !record.done ? unverifiedCalls(record) : [];
+  if (!calls.length) return null;
+  if (next !== undefined) fail(`builder done sets ${key}'s Next itself while its record has judgment calls; run it without --next`);
+  const asks = calls.some((c) => c.text.startsWith('Question:')) ? "Answer the builder's questions" : "Verify the builder's judgment calls";
+  const set = await setItem(site, key, { status: 'checking', next: asks });
+  return { lines: [`handed back: checking, Next "${asks}"`, ...set.lines] };
+}
+
+// docs/adr/0128-a-message-or-question-on-a-done-card-reopens-it.md: a done card the owner messaged since it closed reads
+// reopened, and only the owner's Done closes it again.
+export async function checkNotReopened(site, key) {
+  const { item } = await loadItem(site, key);
+  if (item.status !== 'done' || item.merged_at) return;
+  const doneAt = String(item.status_at || '');
+  const events = await readLines(path.join(site, 'data', 'events.jsonl'));
+  if (events.some((e) => e.kind === 'item-message' && e.data?.key === key && String(e.ts) > doneAt)) fail(`the owner reopened ${await cardName(site, key)} with a message; it closes on the owner's Done`);
 }
 
 const HANDED_BACK = ['checking', 'done', 'merged', 'dropped'];

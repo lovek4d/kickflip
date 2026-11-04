@@ -56,8 +56,8 @@ function matching(s) {
 const QUIET = "quiet The owner doesn't read this session's terminal. Answer a prompt typed in it in full. A wake, a task "
   + "notification or a builder's result is not one: write no text of your own, since board.mjs and this watcher print one "
   + "line for each thing done. Talk and questions go on the board, never AskUserQuestion; only a failure the board can't "
-  + 'show, such as the hub being down, gets one line here. Each message to the owner stands alone: name cards by label (#96), never '
-  + '"below", "above", "here" or "this session".';
+  + 'show, such as the hub being down, gets one line here. Each message to the owner stands alone in its card\'s thread: name cards '
+  + 'by label (#96), and a pointer such as "above" or "here" must make sense in that thread, never point into this session.';
 
 const PLAIN = {
   ask: (e) => `new task ${e.id} received`,

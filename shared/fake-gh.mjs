@@ -64,6 +64,11 @@ if (args.length === 6 && args[0] === 'pr' && args[1] === 'merge' && /^\\d+$/.tes
   if (refused) { console.error(refused); process.exit(1); }
   process.exit(0);
 }
+// A comment or review-comment reply posted with gh api <endpoint> -f body=…: answers the endpoint as its html_url.
+if (args.length === 4 && args[0] === 'api' && args[2] === '-f' && args[3].startsWith('body=') && /^repos\\/[^/]+\\/[^/]+\\/(issues\\/\\d+\\/comments|pulls\\/\\d+\\/comments\\/\\d+\\/replies)$/.test(args[1])) {
+  console.log(JSON.stringify({ html_url: 'https://github.com/' + args[1].slice('repos/'.length) }));
+  process.exit(0);
+}
 let file;
 let list = false;
 if (args.length === 7 && args[0] === 'pr' && args[1] === 'view' && /^\\d+$/.test(args[2]) && args[3] === '--repo' && args[5] === '--json' && args[6] === ${JSON.stringify(PR_VIEW_FIELDS)}) file = path.join(dir, 'pr', args[2] + '.json');

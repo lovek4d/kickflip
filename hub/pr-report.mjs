@@ -14,6 +14,25 @@ function gh(args, env = process.env) {
   });
 }
 
+// Every GitHub post Claude writes opens with the robot and ends with the marker reportOf reads as Claude's own.
+export const CLAUDE_PREFIX = '🤖 ';
+export const CLAUDE_MARK = '<!-- claude-bridge -->';
+
+// Posts Claude's words on PR pr of repo: a comment, or with replyTo a reply in that review comment's thread, as login
+// when given (its token from gh's own store, read each time since it can be rotated), else as gh's active account.
+// → the post's url
+export async function postToPR({ repo, pr, replyTo, words, login }) {
+  let env = process.env;
+  if (login) {
+    const token = await new Promise((resolve) => execFile('gh', ['auth', 'token', '-u', login], { env: { ...env, PATH: [env.PATH, GH_PATH].filter(Boolean).join(':') } }, (err, stdout) => resolve(err ? '' : stdout.trim())));
+    if (!token) throw new Error(`gh has no ${login} account; run gh auth login`);
+    env = { ...env, GH_TOKEN: token };
+  }
+  const endpoint = replyTo === undefined ? `repos/${repo}/issues/${pr}/comments` : `repos/${repo}/pulls/${pr}/comments/${replyTo}/replies`;
+  try { return (await gh(['api', endpoint, '-f', `body=${CLAUDE_PREFIX}${words}\n\n${CLAUDE_MARK}`], env)).html_url; }
+  catch (e) { throw new Error(`${repo}#${pr}: ${e.message}`); }
+}
+
 export async function fetchPR({ repo, pr, since }) {
   let view;
   try { view = await gh(['pr', 'view', String(pr), '--repo', repo, '--json', PR_VIEW_FIELDS]); }
@@ -34,7 +53,7 @@ export function reportOf({ view, issueComments, reviewComments, reviews }, { pr,
     ...reviewComments.map((c) => ({ ...comment(c, 'review_comment'), path: c.path ?? null, line: c.line ?? null, in_reply_to: c.in_reply_to_id ?? null, url: c.html_url ?? null })),
     ...reviews.map((r) => ({ kind: 'review', id: r.id ?? null, login: r.user?.login ?? null, at: r.submitted_at ?? null, body: r.body ?? null, state: r.state ?? null, url: r.html_url ?? null })),
   ].filter((e) => e.at != null && e.at > since).map((e) => ({
-    ...e, who: e.login === me ? (/<!-- claude-bridge -->/.test(e.body ?? '') ? 'me' : 'user')
+    ...e, who: e.login === me ? ((e.body ?? '').includes(CLAUDE_MARK) ? 'me' : 'user')
       : /codex/.test(e.login) ? 'codex' : /\[bot\]$|^linear/.test(e.login) ? 'bot' : 'reviewer',
   })).filter((e) => e.who !== 'me' && e.who !== 'bot').sort((a, b) => a.at < b.at ? -1 : a.at > b.at ? 1 : 0);
   const checks = view.statusCheckRollup ?? [];

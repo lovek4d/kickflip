@@ -208,7 +208,7 @@ test('tickets validate prefixes and link or create in the board source through t
   assert.equal(await cli('item', 'add', 'audit/H8', '--title', 'Eight', '--notes-file', 'notes.md'), 0);
   write(site('audit', 'data', 'events.jsonl'), JSON.stringify({ id: 'e1', kind: 'ask', data: { text: 'Ask' } }) + '\n');
   write(waveFile, { ...read(waveFile), items: [...read(waveFile).items, { id: 'I9', title: 'From ask', notes: 'Asked why' }] });
-  assert.equal(await cli('item', 'set', 'audit/I9', '--from-ask', 'e1', '--text', 'On it.'), 0);
+  assert.equal(await cli('item', 'set', 'audit/I9', '--from-ask', 'e1', '--state', 'ready', '--text', 'On it.'), 0);
   assert.equal(await cli('item', 'add', 'audit/github-follow', '--title', 'Another follow', '--parent', 'audit/A1'), 0);
   assert.deepEqual(calls, [
     ['gh', ['issue', 'view', '41', '--repo', 'o/r', '--json', 'number,url']],
@@ -379,7 +379,7 @@ test("a Linear board without Hub's key records each card and asks the session, i
   write(site('audit', 'data', 'events.jsonl'), JSON.stringify({ id: 'e1', kind: 'ask', data: { text: 'Ask' } }) + '\n');
   const waveFile = site('audit', 'data', 'wave.json');
   write(waveFile, { ...read(waveFile), items: [...read(waveFile).items, { id: 'D4', title: 'Asked' }] });
-  assert.equal(await cli('item', 'set', 'audit/D4', '--from-ask', 'e1', '--text', 'On it.'), 0);
+  assert.equal(await cli('item', 'set', 'audit/D4', '--from-ask', 'e1', '--state', 'ready', '--text', 'On it.'), 0);
   assert.equal(out.at(-1), 'ticket: create the Linear issue "Asked" in team ENG, project Backend Audit, through your Linear MCP, then run board.mjs --site audit item set audit/D4 --ticket <id>');
   for (const [flags, state] of [[['--status', 'building'], 'In Progress'], [['--pr', '9'], 'In Review'], [['--status', 'done', '--text', 'Done.'], 'Done']]) {
     assert.equal(await cli('item', 'set', 'audit/B2', ...flags), 0);
@@ -487,6 +487,34 @@ test("the hub board files its cards as issues in its entry's GitHub repo, as any
   assert.equal(last('item', 'set', 'audit/C3', '--status', 'done', '--text', 'Done.'), 'ticket #9: could not move to Done (gh has no nobody account; run gh auth login)');
   assert.equal(issueCalls(), before);
   assert.equal(cli('settings', 'set', 'tickets', '{"source":"github","account":"-bad"}').code, 1);
+});
+
+test("pr comment and pr reply post Claude's words through gh with the robot prefix and the claude-bridge marker, as the board's github-login", () => {
+  const dir = path.join(home, 'fake-gh');
+  const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
+  writeAccounts(dir, { owner: 'token-owner' });
+  write(at('kickflip', 'manifest.json'), { sites: { orch: { dir: site('orch'), port: 1, github: 'o/r', cmd: [process.execPath, '/skill/board/server.mjs', site('orch')] } } });
+  const cli = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, env);
+  const posts = () => tokens(dir).filter((c) => c.args[0] === 'api').map(({ args, token }) => [args[1], args[3], token]);
+
+  const comment = cli('pr', 'comment', '7', '--body', 'Fixed in abc1234.');
+  assert.equal(comment.code, 0, comment.err);
+  assert.equal(comment.out, 'posted on PR #7: https://github.com/o/r/issues/7/comments\n');
+  assert.equal(cli('settings', 'set', 'github-login', 'owner').code, 0);
+  assert.equal(cli('pr', 'reply', '7', '901', '--body', 'Not changed: the owner kept it.').code, 0);
+  assert.deepEqual(posts(), [
+    ['repos/o/r/issues/7/comments', 'body=🤖 Fixed in abc1234.\n\n<!-- claude-bridge -->', null],
+    ['repos/o/r/pulls/7/comments/901/replies', 'body=🤖 Not changed: the owner kept it.\n\n<!-- claude-bridge -->', 'token-owner'],
+  ]);
+
+  for (const [args, err] of [
+    [['pr', 'comment', '7', '--body', '🤖 Fixed.'], 'pr comment adds the 🤖 prefix and the claude-bridge marker itself; pass only your words'],
+    [['pr', 'comment', '7', '--body', 'Fixed.\n\n<!-- claude-bridge -->'], 'pr comment adds the 🤖 prefix and the claude-bridge marker itself; pass only your words'],
+    [['pr', 'comment', 'x7', '--body', 'Fixed.'], 'pr comment takes a PR number'],
+    [['pr', 'reply', '7', 'abc', '--body', 'Fixed.'], 'pr reply takes the id of the review comment it answers'],
+    [['pr', 'comment', '7'], 'pr comment needs --body "<what Claude says>"'],
+  ]) assert.deepEqual([cli(...args).code, cli(...args).err.split(' (node board')[0].trim()], [args.length === 3 ? 2 : 1, err]);
+  assert.equal(posts().length, 2);
 });
 
 test("merge squashes a card's PR once GitHub would merge it, with no commit after the approval unexplained and manual steps on the owner's word, and says why it won't on the card the owner asked to merge", () => {
@@ -904,10 +932,10 @@ test('item set edits the item in a waves board and in a file board', () => {
       assert.equal(read(file).items[0].status, ['building', 'fixing'].includes(status) ? undefined : status);
     }
   }
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e9', '--text', 'On it.').code, 1);
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e1', '--text', 'On it.').code, 0);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e9', '--state', 'ready', '--text', 'On it.').code, 1);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e1', '--state', 'ready', '--text', 'On it.').code, 0);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].ticket, 'INT-1');
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e1', '--text', 'On it.').code, 0);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e1', '--state', 'ready', '--text', 'On it.').code, 0);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].ticket, 'INT-1');
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].from_ask, 'e1');
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'checking', '--next', '').code, 0);
@@ -1456,6 +1484,28 @@ test('builder start --worktree makes a worktree on a new branch from main, keeps
   assert.equal(board('builder', 'start', 'w/A1', '--repo', repo).code, 2);
 });
 
+test("a build start on a board makes the card's worktree when its record keeps none, and the agent taking up a dispatched record keeps that one", () => {
+  const repo = scratchRepo();
+  write(at('kickflip', 'manifest.json'), { sites: { orch: { dir: site('orch'), port: 1, cmd: [process.execPath, '/skill/board/server.mjs', site('orch')], owner: { repo } } } });
+  const dispatched = board('--site', 'orch', 'builder', 'start', 'w/A1', '--dispatch', '--kind', 'claude');
+  assert.equal(dispatched.code, 0, dispatched.err);
+  assert.ok(dispatched.out.includes(`worktree: ${worktree()}\n`), dispatched.out);
+  assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(repo, 'rev-parse', 'main'));
+  const taken = board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build', '--label', 'Opus implementer');
+  assert.equal(taken.code, 0, taken.err);
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo });
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--agent', 'notes', '--label', 'Notes').code, 0);
+  assert.equal(read(at('waves', 'w', 'agents', 'A1@notes.json')).worktree, undefined);
+  assert.deepEqual(branches(repo), ['A1', 'main']);
+
+  commit(worktree(), 'work.txt', 'built');
+  assert.equal(board('--site', 'orch', 'builder', 'done', 'w/A1', '--next', 'Check the build').code, 0);
+  const again = board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build');
+  assert.equal(again.code, 0, again.err);
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo });
+  assert.equal(fs.readFileSync(path.join(worktree(), 'work.txt'), 'utf8'), 'built');
+});
+
 test('builder start --worktree remakes a leftover worktree that holds no work from current main, saying so, and refuses one holding commits or changes, naming them', () => {
   const repo = scratchRepo();
   const leftover = () => git(repo, 'worktree', 'add', '--quiet', '-b', 'A1', worktree(), 'main');
@@ -1917,29 +1967,31 @@ test('push adds the replies written since the last push to the body, and records
   };
 
   reply('e1', 60_000);
-  assert.equal(push(0, '--kind', 'action', '--title', 'Question', '--body', 'Pick one', '--url', '/orch/questions.html').code, 0);
+  assert.equal(push(0, '--kind', 'fault', '--title', 'Question', '--body', 'Pick one', '--url', '/orch/questions.html').code, 0);
   assert.ok(!Number.isNaN(Date.parse(read(state).last_push)));
 
   write(state, { last_push: new Date(Date.now() - 30_000).toISOString() });
   reply('e2', 10_000);
   reply('e3', 5_000);
-  const failed = push(3, '--kind', 'action', '--title', 'Ready', '--body', 'A1 is green', '--tag', 'ready-A1', '--urgent');
+  const failed = push(3, '--kind', 'fault', '--title', 'Ready', '--body', 'A1 is green', '--tag', 'ready-A1', '--urgent');
   assert.equal(failed.code, 3);
   const kept = read(state).last_push;
-  assert.equal(push(0, '--kind', 'action', '--title', 'Ready', '--tag', 'ready-A1').code, 0);
+  assert.equal(push(0, '--kind', 'fault', '--title', 'Ready', '--tag', 'ready-A1').code, 0);
   assert.ok(Date.parse(read(state).last_push) > Date.parse(kept));
   assert.equal(push(0, '--kind', 'fault', '--title', 'Orch is down').code, 0);
-  assert.equal(push(0, '--kind', 'action', '--title', 'e1 waits on your Done', '--tag', 'ask-e1', '--now').code, 0);
+  assert.equal(push(0, '--kind', 'fault', '--title', 'e1 waits on your Done', '--tag', 'ask-e1', '--now').code, 0);
+  assert.equal(push(0, '--kind', 'reminder', '--title', 'Everything is done', '--now').code, 0);
 
   assert.deepEqual(lines(calls), [
-    ['push', '--kind', 'action', '--title', 'Question', '--body', 'Pick one', '--url', '/orch/questions.html?from=push'],
-    ['push', '--kind', 'action', '--title', 'Ready', '--body', 'A1 is green · and 2 replies', '--tag', 'ready-A1', '--urgent'],
-    ['push', '--kind', 'action', '--title', 'Ready', '--body', 'and 2 replies', '--tag', 'ready-A1'],
+    ['push', '--kind', 'fault', '--title', 'Question', '--body', 'Pick one', '--url', '/orch/questions.html?from=push'],
+    ['push', '--kind', 'fault', '--title', 'Ready', '--body', 'A1 is green · and 2 replies', '--tag', 'ready-A1', '--urgent'],
+    ['push', '--kind', 'fault', '--title', 'Ready', '--body', 'and 2 replies', '--tag', 'ready-A1'],
     ['push', '--kind', 'fault', '--title', 'Orch is down'],
-    ['push', '--kind', 'action', '--title', 'e1 waits on your Done', '--tag', 'ask-e1', '--now'],
+    ['push', '--kind', 'fault', '--title', 'e1 waits on your Done', '--tag', 'ask-e1', '--now'],
+    ['push', '--kind', 'reminder', '--title', 'Everything is done', '--now'],
   ]);
-  assert.equal(board('push', '--site', 'orch', '--kind', 'action').code, 2);
-  assert.equal(board('push', '--kind', 'action', '--title', 'No site').code, 1);
+  assert.equal(board('push', '--site', 'orch', '--kind', 'fault').code, 2);
+  assert.equal(board('push', '--kind', 'fault', '--title', 'No site').code, 1);
 });
 
 test("a Claude thread line or reply rewrites its item's queued push to the latest message, and a sent push stays sent", () => {
@@ -1951,10 +2003,10 @@ test("a Claude thread line or reply rewrites its item's queued push to the lates
   const lastPush = () => write(site('orch', 'data', 'push-state.json'), { last_push: new Date(Date.now() - 60_000).toISOString() });
   write(site('orch', 'data', 'replies', 'old.html'), '<p>Earlier.</p>');
 
-  assert.equal(board('push', '--site', 'orch', '--kind', 'action', '--title', 'e1 waits on your Done', '--body', 'Too early', '--tag', 'ask-e1').code, 0);
+  assert.equal(board('push', '--site', 'orch', '--kind', 'fault', '--title', 'e1 waits on your Done', '--body', 'Too early', '--tag', 'ask-e1').code, 0);
   lastPush();
-  assert.equal(board('push', '--site', 'orch', '--kind', 'action', '--title', 'e1 waits on your Done', '--body', 'First answer', '--tag', 'ask-e1').code, 0);
-  assert.equal(board('push', '--site', 'orch', '--kind', 'action', '--title', 'One needs you', '--body', 'Pick a layout', '--url', '/orch/prototype-layout.html?q=w-layout', '--tag', 'item-w/A1').code, 0);
+  assert.equal(board('push', '--site', 'orch', '--kind', 'fault', '--title', 'e1 waits on your Done', '--body', 'First answer', '--tag', 'ask-e1').code, 0);
+  assert.equal(board('push', '--site', 'orch', '--kind', 'fault', '--title', 'One needs you', '--body', 'Pick a layout', '--url', '/orch/prototype-layout.html?q=w-layout', '--tag', 'item-w/A1').code, 0);
   assert.deepEqual(queue(), { 'ask-e1': 'First answer · and 1 reply', 'item-w/A1': 'Pick a layout' });
   const urls = () => Object.fromEntries(read(queueFile).items.map((i) => [i.tag, i.url]));
   assert.equal(urls()['item-w/A1'], '/orch/prototype-layout.html?q=w-layout&from=push');
@@ -1978,11 +2030,19 @@ test("a Claude thread line or reply rewrites its item's queued push to the lates
   assert.deepEqual(read(queueFile).items, []);
 });
 
-test('a push without an allowed kind is refused with one line, by board.mjs and kickflip push alike, and nothing goes', () => withDevice(async (b, received) => {
+test('a push without an allowed kind is refused with one line, board.mjs allowing only a fault, and nothing goes', () => withDevice(async (b, received) => {
   const webTs = (...args) => runAsync(path.join('..', '..', 'bin', 'kickflip.mjs'), ['push', ...args], { KICKFLIP_HUB_PORT: '9' });
   for (const r of [
     await b('push', '--site', 'orch', '--title', 'Answered: keep it?', '--now'),
     await b('push', '--site', 'orch', '--kind', 'info', '--title', '2 PRs merged'),
+    await b('push', '--site', 'orch', '--kind', 'action', '--title', 'A1 asks: Which layout?', '--tag', 'item-w/A1'),
+    await b('push', '--site', 'orch', '--kind', 'prompt', '--title', 'Orch wants to run tests'),
+  ]) {
+    assert.equal(r.code, 2, r.err);
+    assert.match(r.err, /a session pushes only --kind fault/);
+    assert.equal(r.err.trim().split('\n').length, 1, r.err);
+  }
+  for (const r of [
     await webTs('--title', 'Orch board connected', '--now'),
     await webTs('--kind', 'info', '--title', 'Morning digest'),
   ]) {
@@ -2000,14 +2060,14 @@ test("after a thread's push has gone, Claude's lines and replies there push noth
   const seen = () => received.map(({ title, body, url, tag }) => [tag, title, body, url]);
   const url = '/orch/#item=w%2FA1';
 
-  assert.equal((await b('push', '--site', 'orch', '--kind', 'action', '--now', '--title', 'A1 asks: Which layout?', '--body', 'Grid · List', '--url', url, '--tag', 'item-w/A1')).code, 0);
+  assert.equal((await b('push', '--site', 'orch', '--kind', 'fault', '--now', '--title', 'A1 asks: Which layout?', '--body', 'Grid · List', '--url', url, '--tag', 'item-w/A1')).code, 0);
   assert.equal((await b('thread', 'w/A1', '--site', 'orch', '--text', 'Grid fits the phone')).code, 0);
   assert.equal((await b('reply', 'm1', '--site', 'orch', '--html', '<p>Filed as follow-up INT-56</p>')).code, 0);
   assert.equal((await b('reply', 'e1', '--site', 'orch', '--html', '<p>Yes, keep it</p>')).code, 0);
   assert.equal((await b('thread', 'w/A1', '--site', 'orch', '--text', 'Done', '--answer')).code, 2);
   assert.equal(received.length, 1);
 
-  assert.equal((await b('push', '--site', 'orch', '--kind', 'action', '--now', '--title', 'A1 asks: Which colour?', '--body', 'Blue · Red', '--url', url, '--tag', 'item-w/A1')).code, 0);
+  assert.equal((await b('push', '--site', 'orch', '--kind', 'fault', '--now', '--title', 'A1 asks: Which colour?', '--body', 'Blue · Red', '--url', url, '--tag', 'item-w/A1')).code, 0);
   assert.deepEqual(seen(), [
     ['item-w/A1', 'A1 asks: Which layout?', 'Grid · List', `${url}&reply`],
     ['item-w/A1', 'A1 asks: Which colour?', 'Blue · Red · and 2 replies', `${url}&reply`],
@@ -2015,9 +2075,15 @@ test("after a thread's push has gone, Claude's lines and replies there push noth
   assert.deepEqual(read(at('kickflip', 'push', 'queue.json')).items, []);
 }));
 
+test('a reminder the owner asked for goes out as kickflip push sends a fault', () => withDevice(async (b, received) => {
+  const r = await b('push', '--site', 'orch', '--kind', 'reminder', '--title', 'Everything is done', '--body', 'Orch has nothing in progress', '--url', '/orch/', '--now');
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(received.map(({ title, body }) => [title, body]), [['Everything is done', 'Orch has nothing in progress']]);
+}));
+
 test('checked sends the queued pushes at the end of a tick, a board\'s several as one summary', () => withDevice(async (b, received) => {
-  assert.equal((await b('push', '--site', 'orch', '--kind', 'action', '--title', 'A2 waits on Merge', '--body', 'Green and approved', '--url', '/orch/')).code, 0);
-  assert.equal((await b('push', '--site', 'orch', '--kind', 'action', '--title', 'A1 waits on Ready', '--url', '/orch/#item=w%2FA1', '--tag', 'item-w/A1')).code, 0);
+  assert.equal((await b('push', '--site', 'orch', '--kind', 'fault', '--title', 'A2 waits on Merge', '--body', 'Green and approved', '--url', '/orch/')).code, 0);
+  assert.equal((await b('push', '--site', 'orch', '--kind', 'fault', '--title', 'A1 waits on Ready', '--url', '/orch/#item=w%2FA1', '--tag', 'item-w/A1')).code, 0);
   assert.equal(received.length, 0);
   assert.equal((await b('checked', '--site', 'orch', '--every', '15')).code, 0);
   assert.deepEqual(received.map(({ title, body, tag, url }) => [title, body, tag, url]), [['2 updates on orch', 'A2 waits on Merge · A1 waits on Ready', 'summary:orch', '/orch/']]);
@@ -2212,10 +2278,13 @@ test('item relate-ask folds an ask into an item with one summary line, ask unfol
   assert.deepEqual(read(site('orch', 'data', 'ask-links.json')), { links: {} });
   assert.match(board('ask', 'unfold', 'e1', '--site', 'orch').err, /ask "e1" is not folded into a card/);
   board('item', 'relate-ask', 'e1', 'w/A1', '--summary', 'Back in', '--site', 'orch');
-  assert.equal(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--site', 'orch', '--text', 'Building it.').code, 0);
+  const stateless = board('item', 'set', 'w/A1', '--from-ask', 'e1', '--site', 'orch', '--text', 'Building it.');
+  assert.deepEqual([stateless.code, stateless.err], [1, '--from-ask files a card, which reads New until it has a state: pass --state ready, grilling or prototyping\n']);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].from_ask, undefined);
+  assert.equal(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--state', 'grilling', '--site', 'orch', '--text', 'Building it.').code, 0);
   assert.deepEqual([read(site('orch', 'data', 'ask-links.json')), read(at('waves', 'w', 'wave.json')).items[0].from_ask], [{ links: {} }, 'e1']);
   assert.equal(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).at(-1).text, 'Building it.');
-  assert.match(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--site', 'orch').err, /^--from-ask needs --text/);
+  assert.match(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--state', 'ready', '--site', 'orch').err, /^--from-ask needs --text/);
 });
 
 function boardsManifest() {
@@ -2252,7 +2321,7 @@ test("ask move sends a New ask to another board with the owner's latest text, it
 
   assert.match(board('ask', 'move', 'e2', '--to', 'audit', '--site', 'orch').err, /ask "e2" was already moved to \/audit/);
   assert.match(board('ask', 'progress', 'e2', '--site', 'orch').err, /ask "e2" was moved to \/audit/);
-  assert.match(board('item', 'set', 'w/A1', '--from-ask', 'e2', '--site', 'orch', '--text', 'On it.').err, /ask "e2" was moved to \/audit/);
+  assert.match(board('item', 'set', 'w/A1', '--from-ask', 'e2', '--state', 'ready', '--site', 'orch', '--text', 'On it.').err, /ask "e2" was moved to \/audit/);
   assert.equal(lines(site('audit', 'data', 'events.jsonl')).length, 1);
 });
 
@@ -2288,9 +2357,9 @@ test('ask move refuses a route that is not another board, and an ask that is not
 test('ask move drops the card an ask became when it has not started, and refuses one that has', () => {
   boardsManifest();
   addEvents({ id: 'e2', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Filed first' } }, { id: 'e3', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Started' } });
-  board('item', 'set', 'w/A1', '--from-ask', 'e2', '--site', 'orch', '--text', 'Filed.');
+  board('item', 'set', 'w/A1', '--from-ask', 'e2', '--state', 'ready', '--site', 'orch', '--text', 'Filed.');
   board('item', 'add', 'w/A2', '--title', 'Two', '--site', 'orch');
-  board('item', 'set', 'w/A2', '--from-ask', 'e3', '--status', 'building', '--site', 'orch', '--text', 'Building it.');
+  board('item', 'set', 'w/A2', '--from-ask', 'e3', '--state', 'ready', '--status', 'building', '--site', 'orch', '--text', 'Building it.');
   assert.match(board('ask', 'move', 'e3', '--to', 'audit', '--site', 'orch').err, /ask "e3" became w\/A2, which has started/);
   const r = board('ask', 'move', 'e2', '--to', 'audit', '--site', 'orch');
   assert.equal(r.code, 0, r.err);
@@ -2302,12 +2371,12 @@ test('ask move drops the card an ask became when it has not started, and refuses
 
 test('item set --from-ask on a card that came from another ask refuses and points to relate-ask; the same ask again stays fine', () => {
   addEvents({ id: 'e2', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'A second ask' } });
-  assert.equal(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--site', 'orch', '--text', 'On it.').code, 0);
-  const r = board('item', 'set', 'w/A1', '--from-ask', 'e2', '--site', 'orch', '--text', 'Also this.');
+  assert.equal(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--state', 'ready', '--site', 'orch', '--text', 'On it.').code, 0);
+  const r = board('item', 'set', 'w/A1', '--from-ask', 'e2', '--state', 'ready', '--site', 'orch', '--text', 'Also this.');
   assert.equal(r.code, 1);
   assert.match(r.err, /w\/A1 came from ask "e1".*item relate-ask e2 w\/A1 --summary/);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].from_ask, 'e1');
-  assert.equal(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--site', 'orch', '--text', 'Again.').code, 0);
+  assert.equal(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--state', 'ready', '--site', 'orch', '--text', 'Again.').code, 0);
 });
 
 test('item set records when the status last changed, and only then', () => {
@@ -2985,4 +3054,34 @@ test('builder start saves a planner\'s model, Sonnet for a prototype and Opus fo
   assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map(({ text, planner }) => [text, planner]), [
     ['Reading: the notes', true], ['Prototype building: the takes', true], ['Claude Opus testing: the fix', undefined],
   ]);
+});
+
+test('builder done on a record with judgment calls hands the card back as checking, with the Next its calls ask for', () => {
+  const item = () => read(at('waves', 'w', 'wave.json')).items[0];
+  const record = () => read(at('waves', 'w', 'agents', 'A1.json'));
+  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--label', 'Builder').code, 0);
+  assert.equal(board('builder', 'call', 'w/A1', '--site', 'orch', 'Kept the old label').code, 0);
+  const refused = board('builder', 'done', 'w/A1', '--site', 'orch', '--next', 'Land it');
+  assert.deepEqual([refused.code, refused.err], [1, "builder done sets w/A1's Next itself while its record has judgment calls; run it without --next\n"]);
+  const done = board('builder', 'done', 'w/A1', '--site', 'orch');
+  assert.equal(done.code, 0, done.err);
+  assert.equal(done.out, "A1: builder done\nhanded back: checking, Next \"Verify the builder's judgment calls\"\n");
+  assert.deepEqual([item().status, item().next, Boolean(record().done)], ['checking', "Verify the builder's judgment calls", true]);
+
+  assert.equal(board('builder', 'verified', 'w/A1', '--site', 'orch').code, 0);
+  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--label', 'Builder').code, 0);
+  assert.equal(board('builder', 'call', 'w/A1', '--site', 'orch', 'Question: keep the old label?').code, 0);
+  assert.equal(board('builder', 'call', 'w/A1', '--site', 'orch', 'Kept the old colour').code, 0);
+  assert.equal(board('builder', 'done', 'w/A1', '--site', 'orch').code, 0);
+  assert.deepEqual([item().status, item().next], ['checking', "Answer the builder's questions"]);
+});
+
+test('item set --status done refuses a done card the owner reopened with a message; it closes on their Done', () => {
+  write(at('waves', 'w', 'wave.json'), { title: 'W', items: [{ id: 'A1', title: 'One', status: 'done', status_at: '2026-10-23T10:00:00Z' }] });
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'done', '--text', 'Still done.').code, 0);
+  fs.appendFileSync(site('orch', 'data', 'events.jsonl'), JSON.stringify({ id: 'm1', ts: new Date(Date.now() + 1000).toISOString(), kind: 'item-message', data: { key: 'w/A1', text: 'One more thing' } }) + '\n');
+  const closed = read(at('waves', 'w', 'wave.json')).items[0].status_at;
+  const r = board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'done', '--text', 'Answered.');
+  assert.deepEqual([r.code, r.err], [1, "the owner reopened A1 with a message; it closes on the owner's Done\n"]);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status_at, closed);
 });
