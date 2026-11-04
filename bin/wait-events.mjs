@@ -87,6 +87,7 @@ const ON_CARD = {
   'card-pull': (c) => `${c} pulled in`,
   'card-plan': (c) => `plan asked on ${c}`,
   'prototype-request': (c) => `prototype asked on ${c}`,
+  'builder-ask': (c, e) => `${e.data?.ask} from ${c}'s builder: ${e.data?.text}`,
 };
 
 // One plain line per event line, from its kind and card (data.key, or data.id for an ask-* event), or null for a

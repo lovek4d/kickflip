@@ -666,6 +666,17 @@ test('a thread message shows its text as written, never as markup', () => {
   assert.match(text(html), /<img src=x onerror=alert\(1\)> done/);
 });
 
+test("a thread names the board's session Orchestrator and a builder by its model", () => {
+  const html = ui.threadMessages([
+    { ts: ago(3), who: 'Claude Opus builder', kind: 'builder-ask', text: 'Stay orange?' },
+    { ts: ago(2), who: 'claude', kind: 'builder-answer', text: 'Go quiet.' },
+    { ts: ago(1), who: 'claude', text: 'Landed.' },
+  ]);
+  assert.match(text(html), /^Claude Opus builder · .* Stay orange\? Orchestrator · .* Go quiet\. Orchestrator · .* Landed\.$/);
+  assert.match(html, /<div class="msg other"[^>]*>\s*<div class="who">Claude Opus builder ·/);
+  assert.match(html, /<div class="msg claude"[^>]*>\s*<div class="who">Orchestrator ·/);
+});
+
 test('a thread names who wrote each message and where', () => {
   const html = ui.threadMessages([
     { ts: ago(2), who: 'Jamie', via: 'github', text: 'Looks good' },
@@ -1225,6 +1236,10 @@ test("a card's last line is the time its lane sorts by, then its hold with no he
   assert.match(ui.workLines(card), new RegExp(`<div class="line6 sub card-time"><time datetime="${sortAt}">`));
   assert.equal(last(ui.workLines(card, { unread: 3 })), `${ui.cardTime(sortAt)} · 3 new messages`);
   assert.match(ui.workLines(card, { unread: 3 }), /<span class="card-unread"><span class="sep"> · <\/span>3 new messages<\/span><\/div>/);
+  // New questions come before new messages, in the same chip.
+  assert.equal(last(ui.workLines(card, { unread: 1, newQuestions: 1 })), `${ui.cardTime(sortAt)} · 1 new question · 1 new message`);
+  assert.equal(last(ui.workLines(card, { newQuestions: 2 })), `${ui.cardTime(sortAt)} · 2 new questions`);
+  assert.match(ui.workLines(card, { newQuestions: 1 }), /<span class="card-unread"><span class="sep"> · <\/span>1 new question<\/span><\/div>/);
   assert.doesNotMatch(text(ui.workLines(card)), /days? ago/);
 
   const held = { ...card, held: true };

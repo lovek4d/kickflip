@@ -302,11 +302,13 @@ BoardView.part((B) => {
   // The latest bump among New cards takes no second bump (docs/adr/2026-10-29-1639-a-pending-ask-can-be-deleted-or-bumped.md).
   const latestBump = (it) => Boolean(it.isNew && it.bumpedAt) && !state.board.items.some((i) => i.isNew && (i.bumpedAt || '') > it.bumpedAt);
   // band {step, actions} draws the card in a wave band (app-lanes.js).
+  // Its open questions asked since this browser last opened it count as new, as its messages do.
   function card(it, band = {}) {
+    const unseen = (times) => (state.openItems.has(it.key) ? 0 : unreadCount(times, seen[it.key]));
     return `<details class="item" data-key="${esc(it.key)}" ${state.openItems.has(it.key) ? 'open' : ''}>
           <summary class="work">
             <span class="status ${it.lane}"></span>
-            <div class="title-wrap">${workLines(it, { unread: state.openItems.has(it.key) ? 0 : unreadCount(it.othersAt, seen[it.key]), top: latestBump(it), ...band })}</div>
+            <div class="title-wrap">${workLines(it, { unread: unseen(it.othersAt), newQuestions: unseen(it.questions?.askedAt), top: latestBump(it), ...band })}</div>
           </summary>
           ${state.openItems.has(it.key) ? detail(it) : ''}
         </details>`;

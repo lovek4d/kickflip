@@ -44,13 +44,16 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   assert.equal(first.child.exitCode, null);
   assert.equal(first.stdout(), '');
   add('item-message', { key: 'w/A1' });
+  add('builder-ask', { key: 'w/A1', ask: 'ask1', agent: 'main', text: 'Stay orange?' });
   const out = await first.done;
   assert.deepEqual([out.code, out.stderr], [0, '']);
   assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"item-message".*\nmessage received from A1's thread$/m);
+  // A builder's ask wakes the session while usage is paused: the builder is mid-build.
+  assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"builder-ask".*\nask1 from A1's builder: Stay orange\?$/m);
   assert.doesNotMatch(out.stdout, /"kind":"github-change"|"kind":"check-github"|"kind":"card-unblocked"/);
   assert.match(out.stdout, new RegExp(`rule hub Hub rule[^]*rule board Board rule[^]*setting auto-merge off[^]*\\nquiet [^\\n]*AskUserQuestion[^]*usage paused ${reset} five_hour 91%`));
   const saved = JSON.parse(fs.readFileSync(cursor, 'utf8'));
-  assert.equal(saved['data/events.jsonl'], 4);
+  assert.equal(saved['data/events.jsonl'], 5);
   assert.equal(saved.$usageHeld['data/events.jsonl'].length, 3);
   const second = start();
   await until(() => JSON.parse(fs.readFileSync(watcher, 'utf8')).pid === second.child.pid, 'replacement watcher started');

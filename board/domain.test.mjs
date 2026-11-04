@@ -27,6 +27,29 @@ function board({ agents = {}, pr = greenDraft, owner = {}, events = [], topicIte
   });
 }
 
+test("a builder's ask and the orchestrator's answer leave the card quiet, and the question it defers waits on the owner with no Action needed", () => {
+  const msg = { id: 'e9', ts: '2026-10-23T10:01:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'How is it going?' } };
+  const threads = { 'w/A1': [
+    { ts: '2026-10-23T10:02:00Z', who: 'Claude Opus builder', kind: 'builder-ask', ask: 'ask1', text: 'Stay orange?' },
+    { ts: '2026-10-23T10:03:00Z', who: 'claude', kind: 'builder-answer', ask: 'ask1', text: 'Go quiet.' },
+  ] };
+  const quiet = board({ pr: null, item: { pr: undefined, status: 'building' }, threads, events: [msg], agents: { A1: { main: { kind: 'claude', model: 'opus', started: '2026-10-23T10:00:00Z' } } } });
+  const card = quiet.items.find((i) => i.key === 'w/A1');
+  assert.deepEqual([card.othersAt, card.waitsOn, card.action], [[], 'builder', null]);
+  const thread = threadOf('w/A1', { lines: threads['w/A1'], events: [msg] });
+  assert.deepEqual(thread.map((m) => [m.kind, m.who, m.ask ?? null, m.state ?? null]), [
+    ['item-message', 'love', null, 'waiting'], ['builder-ask', 'Claude Opus builder', 'ask1', null], ['builder-answer', 'claude', 'ask1', null]]);
+
+  // At review: the deferred question waits on the owner from In Progress, with Open questions and no Action needed.
+  const owner = { items: [{ id: 'q-ask', topic: 'item:w/A1', ask: 'ask2', question: 'Fold Done?', asked_at: '2026-10-23T11:00:00Z' }] };
+  const asked = board({ pr: null, item: { pr: undefined, status: 'checking' }, owner }).items.find((i) => i.key === 'w/A1');
+  assert.deepEqual([asked.lane, asked.waitsOn, asked.action, asked.actionButton, asked.next], ['progress', 'owner', null, 'openQuestions', 'Answer 1 question']);
+  assert.deepEqual(asked.questions.askedAt, ['2026-10-23T11:00:00Z']);
+  // Any other open question still needs the owner's action.
+  const both = board({ pr: null, item: { pr: undefined, status: 'checking' }, owner: { items: [...owner.items, { id: 'q2', topic: 'item:w/A1', question: 'Ship it?', asked_at: '2026-10-23T11:05:00Z' }] } }).items.find((i) => i.key === 'w/A1');
+  assert.deepEqual([both.waitsOn, both.action?.kind, both.questions.askedAt], ['checking', 'questions', ['2026-10-23T11:00:00Z', '2026-10-23T11:05:00Z']]);
+});
+
 test('manifest github selects PR state and card links ahead of wave repo with a wave fallback', () => {
   const waves = [{ slug: 'w', wave: { repo: 'old/project', items: [{ id: 'A1', pr: 7 }, { id: 'F1', parent: 'A1' }] } }];
   const prs = { 'new/project#7': { ...greenDraft, title: 'selected' }, 'old/project#7': { state: 'CLOSED', title: 'legacy' } };

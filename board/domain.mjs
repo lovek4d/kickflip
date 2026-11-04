@@ -30,6 +30,8 @@ export const ITEM_STATUSES = ['planned', 'waiting', 'building', 'fixing', 'check
 export const BUILDER_STALLED_AFTER = 30 * 60000;
 // The thread line's kind for a Build tap the board server refused (store.mjs startTappedBuild).
 export const BUILD_REFUSED = 'build-refused';
+// The thread line kinds of a builder's ask and the orchestrator's answer or deferral of it (store.mjs askOrchestrator).
+export const BUILDER_ASK = Object.freeze({ ask: 'builder-ask', answer: 'builder-answer' });
 const DAY = 86400000;
 // Done holds closed work cards, Asks the answered asks (docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md).
 const closedLane = (i) => i.lane === 'done' || i.lane === 'asks';
@@ -121,8 +123,10 @@ const FIX_CI = 'Fix the failing CI';
 const TAP_DONE = 'Tap Done once it is settled';
 
 // Only Claude's and GitHub's messages are ever unread, and replies, which are Claude's; never the owner's lines,
-// their answers included, nor status, agent or ask-link lines (ui-threads.js unread).
-const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && !['status', 'agent', 'ask-link'].includes(m.kind);
+// their answers included, nor status, agent or ask-link lines, nor the orchestrator's answer to a builder's ask, which
+// leaves the card quiet (ui-threads.js unread; docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md).
+const QUIET_KINDS = ['status', 'agent', 'ask-link', BUILDER_ASK.answer];
+const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && !QUIET_KINDS.includes(m.kind);
 
 // said is the owner's messages and answers in the card's thread (threadOf), and askedAt the asked_at of its questions.
 // prs is the card's PRs, [{repo, number, gh}], gh being GitHub's state or null before it is read; the least-ready one
@@ -311,8 +315,14 @@ const RESOLVED_BY = Object.freeze({
 // waiting on the reviewers, keeps its lane; either way it carries its action. A reopened card that waits only on the
 // owner's Done goes to In Review with no action
 // (docs/adr/2026-11-03-0137-a-card-waiting-only-to-be-closed-has-no-action-needed.md).
+// A card whose only open questions are its builder's deferred asks waits on the owner from where it is, with Open
+// questions and no Action needed (docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md).
 function placeOwnerWait(it, questionById, autoMerge) {
   it.action = actionOf(it, questionById, autoMerge);
+  if (it.action?.kind === ACTION_KIND.questions && it.questions.fromAsks) {
+    Object.assign(it, { action: null, waitsOn: 'owner', next: it.action.label, actionButton: actionButtonOf(it), resolvedBy: null });
+    return;
+  }
   it.awaitsDone &&= !it.action;
   if (!it.awaitsDone) it.ownerStep = null;
   it.actionButton = actionButtonOf(it);
@@ -569,7 +579,8 @@ const actionText = (e, asked) => {
   const o = (q.options || []).find((x) => x.id === e.data.choice);
   return [`Prototype please:${q.question}`, o && `${o.id}. ${o.label}`, e.data.note].filter(Boolean).join('\n→ ');
 };
-const claudeAtOf = (msgs) => [...msgs.filter((m) => m.who === 'claude' && m.kind !== 'status' && m.kind !== 'agent').map((m) => m.ts),
+// A Claude line answers the owner's messages before it; an agent's lines and the orchestrator's answer to a builder don't.
+const claudeAtOf = (msgs) => [...msgs.filter((m) => m.who === 'claude' && !['status', 'agent', BUILDER_ASK.answer].includes(m.kind)).map((m) => m.ts),
   ...msgs.filter((m) => m.kind === 'ask').map((m) => m.reply?.at)].filter(Boolean).map(String).sort().pop() || '';
 export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, fromAsk = null, links = [], agents = {}, moved = [] }) {
   const askIds = key.startsWith('ask:') ? [key.slice(4)] : [fromAsk, ...moved].filter(Boolean);
@@ -591,7 +602,8 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
-    ...lines.map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}) } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null })),
+    ...lines.map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}) } : {}),
+      ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null })),
     ...events.filter((e) => keys.has(e.data?.key) && ITEM_EVENTS.includes(e.kind))
       .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply,
         ...(isRequest(e, 'grill') || isRequest(e, 'prototype') ? { request: true } : {}) })),
@@ -828,7 +840,11 @@ export function buildBoard(snapshot) {
     if (!t) { it.questions = null; continue; }
     const pending = t.questions.filter((id) => questions.find((q) => q.id === id)?.state !== 'resolved');
     const first = t.questions.find((id) => questions.find((q) => q.id === id)?.state === 'open') || pending[0] || t.questions[0];
-    it.questions = { topic: t.id, state: t.state, open: t.open, answered: t.answered, replied: t.replied, resolved: t.resolved, first };
+    // askedAt: when each open question was asked, which the card counts as new questions; fromAsks: every open one is a
+    // builder's ask the orchestrator deferred to the owner.
+    const open = t.questions.map((id) => questions.find((q) => q.id === id)).filter((q) => q?.state === 'open');
+    it.questions = { topic: t.id, state: t.state, open: t.open, answered: t.answered, replied: t.replied, resolved: t.resolved, first,
+      askedAt: open.map((q) => q.asked_at).filter(Boolean).sort(), fromAsks: open.length > 0 && open.every((q) => q.ask) };
   }
   // A card waits on each dep until it reaches Done, which a reopened dep still counts as, and a Done card waits on nothing (docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md).
   const byKey = new Map(items.map((i) => [i.key, i]));

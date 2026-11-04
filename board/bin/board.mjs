@@ -41,7 +41,7 @@ command fails and changes nothing.
   topic add <id> --title <t> [--summary <s>]             a question topic in data/owner.json
   question add --file <json>                             one question or an array of them:
          {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
-          source?, context?, url?, urgent?, round_of?}; topic is declared, item:<wave>/<id>, item:ask:<eventId>
+          source?, context?, url?, urgent?, round_of?, ask?}; topic is declared, item:<wave>/<id>, item:ask:<eventId>
           for a New card not sorted yet, lineup:<slug> for a wave's triage, or wave:<slug> for a wave file's triage on
           a board over ~/.claude/waves. A question on a done or merged card reopens it.
          url is http(s), or a site page such as prototype-<topic>.html?q=<id>, stored as given.
@@ -58,6 +58,8 @@ command fails and changes nothing.
          and printed as "replaced: <old id>". round_of names the question on the same topic whose
          prototype-request this answers; the question needs a prototype url, takes the next round
          number, and resolves that one, noting "Followed by prototype round N".
+         ask names a builder ask the session deferred on the item (builder defer): the question puts it to the
+         owner, and while a card's only open questions are such, it waits on them with no Action needed.
          The board server pushes the new open questions itself, under the card's tag (item-<wave>/<id>, or
          ask-<eventId>) or topic-<topic> off the cards
   question resolve <id> --note <text>                   sets resolved and resolved_at; refuses a question on a
@@ -397,6 +399,20 @@ command fails and changes nothing.
                                                          its calls and worktree. The thread shows them, collapsed
   builder calls <wave>/<id> [--agent <name>]             prints the record's calls, numbered, then "verified <time>"
                                                          or "not verified yet"
+  builder ask <wave>/<id> <question> [--agent <name>]    a running builder's one-line question for the board's session,
+                                                         which it asks at any point and carries on meanwhile: a thread
+                                                         line named by its model ("Claude Opus builder"), never unread,
+                                                         and a builder-ask {key, ask, agent, text} event. Prints its
+                                                         id, ask<n>. Needs --site and an open builder record
+  builder answer <wave>/<id> <ask> --text <t>            the session's answer to that ask, a thread line named
+                                                         Orchestrator that leaves the card quiet
+  builder defer <wave>/<id> <ask> --text <t>             the session's deferral of an ask it can't answer confidently:
+                                                         the same thread line, and a "Question: <ask> (deferred to the
+                                                         owner)" call on the asking agent's record. After its review the
+                                                         session puts it to the owner as a card question with
+                                                         "ask": "<ask>"; builder verified refuses until then
+  builder asks <wave>/<id>                               prints each ask, then its answer, its deferral or "waiting on
+                                                         the orchestrator"
   builder verified <wave>/<id> [--agent <name>]          the session's mark that it checked the record's calls; land
          [--note <t>]                                    refuses while any record on the card has a call after it
   land <wave>/<id> --text <t> [--repo <dir>]             brings the worktree its builder record keeps (else
@@ -642,6 +658,10 @@ const COMMANDS = {
   'builder pick': [['wave/id'], [], (site, [key]) => store.pickBuilder(site, key)],
   'builder call': [['wave/id', '...text'], ['dir', 'agent'], (site, [key, ...words], f) => store.recordCall(site, key, words.join(' '), f)],
   'builder calls': [['wave/id'], ['dir', 'agent'], (site, [key], f) => store.listCalls(site, key, f)],
+  'builder ask': [['wave/id', '...text'], ['agent'], (site, [key, ...words], f) => store.askOrchestrator(site, key, words.join(' '), f)],
+  'builder answer': [['wave/id', 'ask'], ['text'], (site, [key, id], f) => store.answerBuilder(site, key, id, f.text)],
+  'builder defer': [['wave/id', 'ask'], ['text'], (site, [key, id], f) => store.answerBuilder(site, key, id, f.text, { deferred: true })],
+  'builder asks': [['wave/id'], [], (site, [key]) => store.listAsks(site, key)],
   'builder verified': [['wave/id'], ['dir', 'agent', 'note'], (site, [key], f) => store.verifyCalls(site, key, f)],
   land: [['wave/id'], ['repo', 'dir', 'text', 'owner-step'], async (site, [key], f) => {
     const id = key.split('/')[1];
@@ -732,6 +752,9 @@ const SAID = {
   'builder progress': async (site, [key]) => `progress line on ${await card(site, key)}`,
   'builder done': async (site, [key], f) => `${await card(site, key)}: ${builderOf(f)} done${f['owner-step'] === undefined ? '' : `; owner step "${f['owner-step'].trim()}"`}`,
   'builder call': async (site, [key]) => `judgment call recorded on ${await card(site, key)}`,
+  'builder ask': async (site, [key], f, { id }) => `${await card(site, key)}: asked the orchestrator, ${id}`,
+  'builder answer': async (site, [key, id]) => `${await card(site, key)}: ${id} answered`,
+  'builder defer': async (site, [key, id]) => `${await card(site, key)}: ${id} deferred to the owner`,
   'builder verified': async (site, [key]) => `${await card(site, key)}: judgment calls verified`,
   land: async (site, [key], f) => (!site ? null : f['owner-step'] === undefined ? `${await card(site, key)}: landed and done`
     : `${await card(site, key)}: landed; waits on the owner step "${f['owner-step'].trim()}"`),

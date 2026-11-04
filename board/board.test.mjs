@@ -1449,6 +1449,44 @@ test('builder call appends a one-line call to the open record, calls prints them
   assert.deepEqual(['calls' in read(main), 'verified' in read(main), 'worktree' in read(main)], [false, false, false]);
 });
 
+test('builder ask posts to the thread as the builder and wakes the orchestrator, which answers or defers to the owner', () => {
+  const main = at('waves', 'w', 'agents', 'A1.json');
+  const orch = (...args) => board('--site', 'orch', ...args);
+  assert.match(orch('builder', 'ask', 'w/A1', 'Stay orange?').err, /needs an open builder record on w\/A1/);
+  assert.equal(orch('builder', 'start', 'w/A1', '--kind', 'claude', '--model', 'opus').code, 0);
+  assert.match(board('builder', 'ask', 'w/A1', 'Stay orange?').err, /needs --site/);
+  const asked = orch('builder', 'ask', 'w/A1', 'Should Implement stay', 'orange?');
+  assert.deepEqual([asked.code, asked.out], [0, 'A1: asked the orchestrator, ask1\n']);
+  assert.match(orch('builder', 'ask', 'w/A1', 'two\nlines').err, /one line/);
+  const [line] = lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).filter((m) => m.kind === 'builder-ask');
+  assert.deepEqual([line.who, line.text, line.ask], ['Claude Opus builder', 'Should Implement stay orange?', 'ask1']);
+  const event = lines(site('orch', 'data', 'events.jsonl')).at(-1);
+  assert.deepEqual([event.kind, event.data], ['builder-ask', { key: 'w/A1', ask: 'ask1', agent: 'main', text: 'Should Implement stay orange?' }]);
+  assert.deepEqual(orch('builder', 'asks', 'w/A1').out, 'ask1. Should Implement stay orange?\n  waiting on the orchestrator\n');
+
+  const answered = orch('builder', 'answer', 'w/A1', 'ask1', '--text', 'Go quiet.');
+  assert.deepEqual([answered.code, answered.out], [0, 'A1: ask1 answered\n']);
+  assert.match(orch('builder', 'answer', 'w/A1', 'ask1', '--text', 'Again').err, /ask1 on w\/A1 is already answered/);
+  assert.match(orch('builder', 'answer', 'w/A1', 'ask9', '--text', 'No').err, /no ask "ask9" on w\/A1; builder asks w\/A1 lists them/);
+  const reply = lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).at(-1);
+  assert.deepEqual([reply.who, reply.kind, reply.ask, reply.text], ['claude', 'builder-answer', 'ask1', 'Go quiet.']);
+  assert.equal(orch('builder', 'ask', 'w/A1', 'Fold Done on a new device?').code, 0);
+  const deferred = orch('builder', 'defer', 'w/A1', 'ask2', '--text', 'Not sure. Carry on with folded; I put it to the owner after review.');
+  assert.deepEqual([deferred.code, deferred.out], [0, 'A1: ask2 deferred to the owner\n']);
+  assert.deepEqual(orch('builder', 'asks', 'w/A1').out.trim().split('\n'), ['ask1. Should Implement stay orange?', '  answered: Go quiet.',
+    'ask2. Fold Done on a new device?', '  deferred: Not sure. Carry on with folded; I put it to the owner after review.']);
+  // A deferred ask is a question for the owner: the build hands back for it, and the review puts it to the owner.
+  assert.deepEqual(read(main).calls.map((c) => c.text), ['Question: Fold Done on a new device? (deferred to the owner)']);
+  assert.match(orch('builder', 'done', 'w/A1').out, /handed back: checking, Next "Answer the builder's questions"/);
+  assert.match(orch('builder', 'verified', 'w/A1').err, /^ask2 on w\/A1 was deferred to the owner; add its question with "ask": "ask2" first\n$/);
+  const q = (extra) => ({ id: 'gh-fold', topic: 'item:w/A1', question: 'Fold Done on a new device?', options: [{ id: 'yes', label: 'Folded', recommended: true }, { id: 'no', label: 'Open' }], ...extra });
+  write(path.join(home, 'q.json'), q({ ask: 'ask1' }));
+  assert.match(orch('question', 'add', '--file', path.join(home, 'q.json')).err, /question gh-fold\.ask names ask1, which the orchestrator answered; only a deferred ask goes to the owner/);
+  write(path.join(home, 'q.json'), q({ ask: 'ask2' }));
+  assert.equal(orch('question', 'add', '--file', path.join(home, 'q.json')).code, 0);
+  assert.equal(orch('builder', 'verified', 'w/A1').code, 0);
+});
+
 test('builder pick names the kind that builds now, builder start refuses the other, and --kind build takes the pick', () => {
   const noCodex = (...args) => run('board.mjs', args, undefined, { PATH: path.join(home, 'bin') });
   assert.deepEqual(noCodex('builder', 'pick', 'w/A1', '--site', 'orch'), { code: 0, err: '', out: "claude opus: Codex isn't installed on the host. Claude model is Auto and the card isn't small.\n" });

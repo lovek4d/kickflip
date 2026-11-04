@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, ITEM_STATUSES, MAX_IMPLEMENTERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, ITEM_STATUSES, MAX_IMPLEMENTERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, builderPick } from '../shared/usage-gate.mjs';
 import { reviseQueued, flushQueue, queueStatus, readSettings, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -1017,7 +1017,7 @@ export async function addQuestions(site, input) {
   const topics = new Set((owner.topics || []).map((t) => t.id));
   for (const [i, q] of questions.entries()) {
     const name = `question ${q?.id ?? i + 1}`;
-    onlyKeys(q, ['id', 'topic', 'source', 'question', 'context', 'url', 'urgent', 'options', 'round_of'], name);
+    onlyKeys(q, ['id', 'topic', 'source', 'question', 'context', 'url', 'urgent', 'options', 'round_of', 'ask'], name);
     if (taken.has(domId(q.id, `${name}.id`))) fail(`question id "${q.id}" is already used`);
     taken.add(q.id);
     text(q.topic, `${name}.topic`);
@@ -1032,6 +1032,7 @@ export async function addQuestions(site, input) {
     optional(q.urgent, (v) => bool(v, `${name}.urgent`));
     checkOptions(q.options, name);
     await checkPrototype(site, q, name);
+    if (q.ask !== undefined) await checkAskQuestion(site, q, name);
     optional(q.round_of, (id) => {
       const from = items.find((x) => x.id === id);
       if (!from) fail(`${name}.round_of names no question "${id}" in owner.json`);
@@ -2239,6 +2240,68 @@ export async function recordCall(site, key, call, { dir, agent = 'main' }) {
   return file;
 }
 
+// docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md
+// A builder asks the orchestrator mid-build and carries on: the ask is a thread line {kind: builder-ask, ask: ask<n>,
+// agent} written as "<model> builder", and a builder-ask {key, ask, agent, text} event wakes the board's session. The
+// session's answer or deferral is a line {kind: builder-answer, ask, deferred?} written as claude, which the thread names
+// Orchestrator; neither line is unread, pushed or answers the owner, so the card stays quiet. A deferral is also a
+// "Question: …" call on the asking agent's record, so the build hands back for it, and the session's review puts it to
+// the owner as a question naming the ask ("ask": "ask<n>") before `builder verified`.
+// → [{id, agent, text, at, answer: {text, at} | null, deferred}], oldest first.
+async function builderAsks(site, key) {
+  const thread = await readLines(threadFile(site, key));
+  const replies = new Map(thread.filter((m) => m.kind === BUILDER_ASK.answer).map((m) => [m.ask, m]));
+  return thread.filter((m) => m.kind === BUILDER_ASK.ask).map((m) => {
+    const reply = replies.get(m.ask);
+    return { id: m.ask, agent: m.agent || 'main', text: m.text, at: m.ts, answer: reply ? { text: reply.text, at: reply.ts } : null, deferred: Boolean(reply?.deferred) };
+  });
+}
+
+const boardTarget = (site) => listBoards().find((b) => samePath(b.dir, site)) ?? { dir: site };
+
+export async function askOrchestrator(site, key, question, { agent = 'main' }) {
+  needSite(site);
+  const words = text(question, 'builder ask');
+  if (/\n/.test(words)) fail('builder ask takes one line; ask each question on its own');
+  const record = await readJSON(await builderFile(site, key, undefined, agent), null);
+  if (!record?.started || record.done) fail(`builder ask needs an open builder record on ${key}; run builder start first`);
+  const id = `ask${(await builderAsks(site, key)).length + 1}`;
+  await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: `${modelName(record) || record.kind || 'Claude'} builder`, kind: BUILDER_ASK.ask, ask: id, agent, text: words });
+  await appendEvent(boardTarget(site), 'builder-ask', { key, ask: id, agent, text: words });
+  return { id, lines: [] };
+}
+
+// The session's reply to a builder's ask: an answer, or with deferred its deferral to the owner.
+export async function answerBuilder(site, key, id, reply, { deferred = false } = {}) {
+  needSite(site);
+  const said = text(reply, '--text');
+  const ask = (await builderAsks(site, key)).find((a) => a.id === id) || fail(`no ask "${id}" on ${key}; builder asks ${key} lists them`);
+  if (ask.answer) fail(`${id} on ${key} is already ${ask.deferred ? 'deferred' : 'answered'}`);
+  const now = new Date().toISOString();
+  await appendLine(threadFile(site, key), { ts: now, who: 'claude', kind: BUILDER_ASK.answer, ask: id, ...(deferred ? { deferred: true } : {}), text: said });
+  if (deferred) {
+    const file = await builderFile(site, key, undefined, ask.agent);
+    const record = await readJSON(file, null);
+    if (record) await writeJSON(file, { ...record, calls: [...(record.calls || []), { at: now, text: `Question: ${ask.text} (deferred to the owner)` }] });
+  }
+  return { lines: [] };
+}
+
+// → {lines}: each ask, then its answer, deferral or "waiting on the orchestrator".
+export async function listAsks(site, key) {
+  needSite(site);
+  const asks = await builderAsks(site, key);
+  if (!asks.length) return { lines: ['no asks yet'] };
+  return { lines: asks.flatMap((a) => [`${a.id}. ${a.text}`, `  ${!a.answer ? 'waiting on the orchestrator' : `${a.deferred ? 'deferred' : 'answered'}: ${a.answer.text}`}`]) };
+}
+
+// A question naming a builder's ask ("ask": "ask<n>") is that deferred ask put to the owner.
+async function checkAskQuestion(site, q, name) {
+  const key = q.topic.startsWith('item:') && !q.topic.startsWith('item:ask:') ? q.topic.slice(5) : fail(`${name}.ask goes on a card's question, topic item:<wave>/<id>`);
+  const ask = (await builderAsks(site, key)).find((a) => a.id === q.ask) || fail(`${name}.ask names no ask "${q.ask}" on ${key}; builder asks ${key} lists them`);
+  if (!ask.deferred) fail(`${name}.ask names ${ask.id}, which the orchestrator ${ask.answer ? 'answered' : 'has not deferred'}; only a deferred ask goes to the owner`);
+}
+
 // → {lines}: each call numbered, then whether the session verified them.
 export async function listCalls(site, key, { dir, agent = 'main' }) {
   const record = await readJSON(await builderFile(site, key, dir, agent), null);
@@ -2249,10 +2312,16 @@ export async function listCalls(site, key, { dir, agent = 'main' }) {
   return { lines: [...calls.map((c, i) => `${i + 1}. ${c.text}`), state] };
 }
 
+// The session's review puts each deferred ask to the owner before it marks the calls verified.
 export async function verifyCalls(site, key, { dir, agent = 'main', note }) {
   const file = await builderFile(site, key, dir, agent);
   const record = await readJSON(file, null);
   if (!unverifiedCalls(record).length) fail(`${key} has no unverified judgment calls${agent === 'main' ? '' : ` from agent ${agent}`}; builder calls ${key} lists them`);
+  if (site) {
+    const put = new Set((await readJSON(ownerFile(site), { items: [] })).items?.filter((q) => q.topic === `item:${key}` && q.ask).map((q) => q.ask));
+    const owed = (await builderAsks(site, key)).find((a) => a.deferred && a.agent === agent && !put.has(a.id));
+    if (owed) fail(`${owed.id} on ${key} was deferred to the owner; add its question with "ask": "${owed.id}" first`);
+  }
   await writeJSON(file, { ...record, verified: { at: new Date().toISOString(), ...(note === undefined ? {} : { note: text(note, '--note') }) } });
   return file;
 }

@@ -1,4 +1,5 @@
-// A card's thread: Claude's lines, the owner's messages and their replies. Needs ui.js, ui-links.js and ui-enums.js.
+// A card's thread: the orchestrator's lines (who claude, named Orchestrator), its builders' asks, the owner's messages and
+// their replies. Needs ui.js, ui-links.js and ui-enums.js.
 (function () {
   const { esc, time, etaLine, replyBody, attachments, attachButton, dropZone, editButton, withdrawButton, workingLine, linkText, linkHtml, anyLink, BUTTON } = globalThis.BoardUI;
   const VIA = { slack: ' · Slack', github: ' · GitHub' };
@@ -31,14 +32,14 @@
         <div class="row">${attachButton()}<span><button type="button" data-edit-cancel>Cancel</button> <button class="primary" type="submit">Save</button></span></div></form>`;
   // batched: an answer followed by another of the owner's answers in its state, which carries the batch's Waiting for Claude.
   const line = (m, links, edits, batched = false) => (m.kind === 'reply'
-    ? `<div class="msg claude reply-msg"><div class="who">Claude · ${esc(time(m.ts))}</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body">${linkHtml(replyBody(m.reply), links)}</div></div>`
+    ? `<div class="msg claude reply-msg"><div class="who">Orchestrator · ${esc(time(m.ts))}</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body">${linkHtml(replyBody(m.reply), links)}</div></div>`
     : m.kind === 'ask-link' ? `<div class="msg link"><a href="${esc(m.link)}">${esc(m.text)} →</a></div>`
     : m.request ? `<div class="msg request">${esc(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.kind === 'status' ? `<div class="msg builder-status${m.planner ? ' planner' : ''}"><span class="working-dot" aria-hidden="true"></span>${linkText(m.text, links)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.kind === 'calls' ? `<details class="msg calls"><summary>${esc(m.text)}'s judgment calls · ${m.calls.length} · ${m.verified ? `verified ${esc(time(m.verified.at))}` : 'not verified yet'}</summary><ol>${m.calls.map((c) => `<li>${linkText(c, links)}</li>`).join('')}</ol>${m.verified?.note ? `<div class="small">Verified: ${linkText(m.verified.note, links)}</div>` : ''}</details>`
     : m.kind === 'agent' ? `<div class="msg agent ${m.finished ? 'finished' : 'started'}${m.planner ? ' planner' : ''}"><span class="agent-dot" aria-hidden="true"></span>${esc(m.text)} <span class="muted">· ${esc(time(m.ts))}${m.eta ? ` · ${esc(etaLine(m.eta))}` : ''}</span></div>` : `<div class="msg ${m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : ''}>
         ${m.canDelete || m.canEdit ? `<div class="ask-actions">${m.canEdit ? editButton(m.eventId) : ''}${m.canDelete ? withdrawButton(m.eventId) : ''}</div>` : ''}
-        <div class="who">${m.who === 'love' ? 'You' : m.who === 'claude' ? 'Claude' : esc(m.who)}${VIA[m.via] || ''}${m.moved ? ' · Moved' : ''}${m.from ? ` · Moved from ${esc(m.from)}` : ''}${m.edited ? ' · Edited' : ''} · ${esc(time(m.ts))}</div>
+        <div class="who">${m.who === 'love' ? 'You' : m.who === 'claude' ? 'Orchestrator' : esc(m.who)}${VIA[m.via] || ''}${m.moved ? ' · Moved' : ''}${m.from ? ` · Moved from ${esc(m.from)}` : ''}${m.edited ? ' · Edited' : ''} · ${esc(time(m.ts))}</div>
         <div class="body"${edits.has(m.eventId) ? ' hidden' : ''}>${m.html ? linkHtml(m.html, links) : linkText(m.text, links)}</div>${edits.has(m.eventId) ? editForm(m.eventId, edits.get(m.eventId).text) : ''}${attachments(m.files)}
         ${m.link ? `<div class="small">${cardLink(m.link) || anyLink(m.link, m.link)}</div>` : ''}
         ${m.eventId && !batched ? msgFooter(m) : ''}
@@ -48,8 +49,9 @@
   const UNREAD_CAP = 10;
   const NOT_MESSAGE = new Set(['status', 'agent', 'calls', 'ask-link']);
   const isMessage = (m) => !NOT_MESSAGE.has(m.kind);
-  // Only Claude's and GitHub's messages are unread, as on the badge (domain.mjs othersAt, ui-cards.js unreadCount).
-  const unread = (m, seenAt) => Boolean(seenAt) && isMessage(m) && (m.who === 'claude' || m.via === 'github') && String(m.ts) > seenAt;
+  // Only Claude's and GitHub's messages are unread, as on the badge (domain.mjs othersAt, ui-cards.js unreadCount); the
+  // orchestrator's answer to a builder's ask never is.
+  const unread = (m, seenAt) => Boolean(seenAt) && isMessage(m) && m.kind !== 'builder-answer' && (m.who === 'claude' || m.via === 'github') && String(m.ts) > seenAt;
   const batchedAt = (lines, i) => {
     const next = lines.slice(i + 1).find(isMessage);
     return lines[i].kind === 'owner-answer' && next?.kind === 'owner-answer' && stateOf(next) === stateOf(lines[i]);
