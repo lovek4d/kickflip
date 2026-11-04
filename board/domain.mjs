@@ -203,8 +203,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     pr: views[least] || null, prs: views,
     reviewers: reviewers.map((r) => r.name), review: reviewOf(reviewers, pr, sentAt), inReviewSince,
     threadCount: thread.length + events.length, lastTs, othersAt,
-    // A Grill tap is handled once it is replied to, questions are posted after it, or a grill agent that started after it finishes;
-    // buildBoard adds a grilling card with no questions posted yet.
+    // A Grill tap is handled once it is replied to, questions are posted after it, or a grill agent that started after it finishes.
     grilling: grillRunning || Boolean(lastGrill && !lastGrill.reply && !askedAt.some((t) => String(t) > String(lastGrill.ts))
       && !agents.some((a) => a.kind === 'grill' && a.done && String(a.started) > String(lastGrill.ts))),
     state: it.state || null,
@@ -785,7 +784,7 @@ export function buildBoard(snapshot) {
   const itemTopics = new Map(topicsOf().map((t) => [t.id, t]));
   for (const it of items) {
     const t = itemTopics.get(`item:${it.key}`);
-    if (!t) { it.questions = null; it.grilling ||= it.state === 'grilling'; continue; }
+    if (!t) { it.questions = null; continue; }
     const pending = t.questions.filter((id) => questions.find((q) => q.id === id)?.state !== 'resolved');
     const first = t.questions.find((id) => questions.find((q) => q.id === id)?.state === 'open') || pending[0] || t.questions[0];
     it.questions = { topic: t.id, state: t.state, open: t.open, answered: t.answered, replied: t.replied, resolved: t.resolved, first };

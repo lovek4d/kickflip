@@ -452,7 +452,7 @@ test('an idle board with auto-pull on and nothing to pull sends card-plan for it
   const wave = { items: [
     { id: 'B1', title: 'Asking', status: 'planned', state: 'grilling' },
     { id: 'B2', title: 'Also unready', status: 'planned', state: 'prototyping' },
-    { id: 'B3', title: 'Unready', status: 'planned', state: 'prototyping' },
+    { id: 'B3', title: 'Left grilling', status: 'planned', state: 'grilling' },
   ] };
   fs.writeFileSync(waveFile, JSON.stringify(wave));
   const question = (id, key) => ({ id, topic: `item:${key}`, question: 'Which?', options: [{ id: 'a', label: 'A' }] });

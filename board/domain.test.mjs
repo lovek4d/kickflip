@@ -1369,9 +1369,8 @@ test("a card made from an ask reads New until its session sets ready, grilling o
     assert.deepEqual([c.unsorted, c.ready], [false, false]);
     assert.deepEqual(pullOf([c]).pullable, []);
   }
-  // A grill is under way while the card is grilling with no questions posted yet, while a grill agent runs, and while
-  // a Grill tap waits on its reply.
-  assert.deepEqual([card({ item: { state: 'grilling' } }).grilling, card({ item: { state: 'grilling' }, owner: { items: [q] } }).grilling], [true, false]);
+  // A grill is under way while a grill agent runs and while a Grill tap waits on its reply, not because the card says grilling.
+  assert.deepEqual([card({ item: { state: 'grilling' } }).grilling, card({ item: { state: 'grilling' }, owner: { items: [q] } }).grilling], [false, false]);
   const grill = { kind: 'grill', started: '2026-10-23T10:00:00Z' };
   assert.equal(card({ item: { state: 'ready' }, agents: { A1: { main: grill } } }).grilling, true);
   assert.equal(card({ item: { state: 'ready' }, agents: { A1: { main: { ...grill, done: '2026-10-23T10:30:00Z' } } } }).grilling, false);
@@ -1488,6 +1487,8 @@ test('the pull takes only ready cards in board order, never a card with no state
   ];
   for (const extra of planning) assert.deepEqual(pullOf([...unready, ...extra]).plannable, [], JSON.stringify(extra));
   assert.deepEqual(pullOf([...unready, card('w/C1', { state: 'grilling', agents: [{ kind: 'grill', started: '2026-11-03T10:00:00Z', done: '2026-11-03T10:30:00Z' }] })]).plannable, ['w/B4', 'w/B5', 'w/C1']);
+  // A card left at grilling with no agent, dispatch or Grill tap does not stop planning.
+  assert.deepEqual(pullOf([card('w/B4', { state: 'grilling' })]).plannable, ['w/B4']);
 });
 
 // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
