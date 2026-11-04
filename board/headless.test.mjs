@@ -162,3 +162,43 @@ test('a headless builder whose process exited with its record open is relaunched
     'w/D': { model: 'opus', pid: 902, relaunched: false },
   });
 });
+
+// docs/adr/2026-11-04-1010-a-dead-headless-builder-is-relaunched-once.md
+test("the server's minute check relaunches a tracked headless builder whose process died with its record open", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-revive-'));
+  const site = path.join(home, 'site');
+  const data = path.join(site, 'data');
+  fs.mkdirSync(path.join(data, 'agents'), { recursive: true });
+  fs.mkdirSync(path.join(data, 'threads'));
+  const wt = path.join(home, 'wt');
+  fs.mkdirSync(wt);
+  const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
+  fs.mkdirSync(path.dirname(manifest), { recursive: true });
+  fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: wt } } } }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', headless_builders: true }));
+  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: [{ id: 'R1', title: 'Revive me', status: 'building' }] }));
+  fs.writeFileSync(path.join(data, 'agents', 'R1.json'), JSON.stringify({ started: '2026-11-04T01:00:00.000Z', kind: 'claude', model: 'opus', worktree: { path: wt, branch: 'R1', repo: wt } }));
+  const dead = spawn(process.execPath, ['-e', '']);
+  await new Promise((resolve) => dead.once('exit', resolve));
+  fs.writeFileSync(path.join(data, 'headless-builders.json'), JSON.stringify({ 't/R1': { model: 'opus', pid: dead.pid, relaunched: false } }));
+  const seen = path.join(home, 'claude-runs.jsonl');
+  const fake = path.join(home, 'claude');
+  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2) }) + '\\n');\n`);
+  fs.chmodSync(fake, 0o755);
+  const setup = path.join(home, 'setup.mjs');
+  fs.writeFileSync(setup, `
+    const interval = globalThis.setInterval;
+    globalThis.setInterval = (fn, ms, ...args) => interval(fn, ms === 60000 ? 50 : ms, ...args);
+  `);
+  const [port] = await freePorts();
+  const child = spawn(process.execPath, ['--import', setup, path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
+  try {
+    await new Promise((resolve, reject) => { child.stdout.once('data', resolve); child.once('exit', reject); });
+    await until(() => fs.existsSync(seen), 'the dead builder is relaunched');
+    assert.match(JSON.parse(fs.readFileSync(seen, 'utf8').trim().split('\n')[0]).argv[1], /builder start t\/R1 --kind build/);
+    await until(() => JSON.parse(fs.readFileSync(path.join(data, 'headless-builders.json'), 'utf8'))['t/R1']?.relaunched === true, 'the relaunch is tracked');
+  } finally {
+    child.kill();
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});

@@ -1169,7 +1169,7 @@ async function reviveHeadless() {
     const file = path.join(data, 'headless-builders.json');
     const tracked = await readJSON(file, {});
     if (!Object.keys(tracked).length) return;
-    const open = new Set(buildBoard(await itemSnapshot()).items.filter((c) => c.lane !== 'done' && c.builder && !c.builder.planner).map((c) => c.key));
+    const open = new Set(buildBoard(await itemSnapshot(await outsideData())).items.filter((c) => c.lane !== 'done' && c.builder && !c.builder.planner).map((c) => c.key));
     const handBack = async (card) => {
       await appendThread(here, card.key, { text: 'Its headless builder exited twice with the build unfinished, so the orchestrator launches it.' });
       await appendEvent('card-build', { ...card, kind: 'claude' });
