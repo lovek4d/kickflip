@@ -1109,3 +1109,40 @@ export function startedByAnswer(built, id) {
   if (![null, 'planned', 'waiting'].includes(it.status) || it.agents.some((a) => !a.done)) return null;
   return built.owner.some((x) => x.topic === q.topic && x.state === 'open') ? null : key;
 }
+
+// docs/adr/2026-11-04-0257-an-idle-board-pushes-once-when-it-has-gone-idle.md
+// Strictly idle, for a built board and pulled the cards card-pull went out for: no agent running on an open card, so
+// nothing building, grilling or prototyping, no grill or prototype request under way, no card waiting in Orchestrator
+// review to land, no pulled card waiting to start and no event a session is working on.
+export function strictlyIdle(built, { pulled = [] } = {}) {
+  const open = built.items.filter((i) => !closedLane(i));
+  const busy = open.some((i) => i.waitsOn === 'checking' || i.grilling || i.prototyping || (i.agents || []).some((a) => !a.done));
+  return !busy && !built.working && !pullOf(built.items, { pulled }).waiting.length;
+}
+
+// How long a board stays strictly idle before the idle notification pushes.
+export const IDLE_MINUTES = 15;
+// One idle check for state, data/idle.json {last, since?, pushed?}: last is when the last idle push went out, or the
+// first check's time before any, since when this idle stretch began, pushed whether it pushed. Busy ends the stretch;
+// a stretch pushes once, IDLE_MINUTES in. → {state, push}
+export function idleStep(state, { idle, now }) {
+  const at = now.toISOString();
+  const last = state.last || at;
+  if (!idle) return { state: { last }, push: false };
+  if (!state.since) return { state: { last, since: at }, push: false };
+  if (state.pushed || now - Date.parse(state.since) < IDLE_MINUTES * 60000) return { state: { ...state, last }, push: false };
+  return { state: { last: at, since: state.since, pushed: true }, push: true };
+}
+
+// The idle push's body for built items: the work cards that landed in Done since since, dropped ones left out, and the
+// waves (lineups) whose every card is Done with the last one closing since since.
+export function idleSummary(items, since) {
+  const after = (i) => String(i.closedAt || '') > since;
+  const landed = items.filter((i) => i.kind === 'work' && i.lane === 'done' && !droppedCard(i) && after(i));
+  const lineups = new Map();
+  for (const i of items) if (i.lineup) lineups.set(i.lineup.slug, [...(lineups.get(i.lineup.slug) || []), i]);
+  const waves = [...lineups.values()].filter((cards) => cards.every((i) => i.lane === 'done') && cards.some(after)).map((cards) => cards[0].lineup.title);
+  const refs = landed.slice(0, 3).map((i) => i.ref).join(', ') + (landed.length > 3 ? ` and ${landed.length - 3} more` : '');
+  const parts = [landed.length && `${landed.length} ${landed.length === 1 ? 'card' : 'cards'} landed: ${refs}`, ...waves.map((t) => `${t} finished`)].filter(Boolean);
+  return parts.join(' · ') || 'Nothing closed since the last idle notification.';
+}

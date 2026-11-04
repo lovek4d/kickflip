@@ -480,6 +480,7 @@ for (const [key, id, on] of [
   ['auto_pull', 'autoPull', 'Saved. Claude starts ready Todo cards while an implementer slot is free.'],
   ['auto_triage', 'autoTriage', 'Saved. Once a day, when the board is idle and Todo changed, Claude triages it.'],
   ['auto_review', 'autoReview', 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.'],
+  ['idle_notification', 'idleNotification', 'Saved. One push once the board has been idle for 15 minutes.'],
 ]) test(`Board Settings turns ${key} on and off with no confirmation and restores the toggle on refusal`, async () => {
   const page = fakePage(memoryStorage().localStorage);
   const root = new page.El();
@@ -4179,6 +4180,7 @@ test('Board Settings holds every automatic job in one Auto section, short labels
   const auto = html.slice(html.indexOf('<h2>Auto</h2>'), html.indexOf('<h2>Reviewers</h2>'));
   assert.deepEqual([...auto.matchAll(/<label class="who" for="(\w+)"><span><span>([^<]+)<\/span>/g)].map((m) => [m[1], m[2]]), [
     ['autoPull', 'Auto implement Todo cards'], ['maxImplementers', 'Maximum parallel implementers'], ['headlessBuilders', 'Builders launch headless'], ['autoBuild', 'Auto-build cards'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'], ['autoTriage', 'Triage Todo when idle'],
+    ['idleNotification', 'Idle notification'],
   ]);
   assert.match(auto, /May use a lot of usage\./);
   assert.doesNotMatch(html, /<h2>(Merging|Builds|Todo)<\/h2>/);

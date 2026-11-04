@@ -947,11 +947,11 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
   const checks = async () => (await (await fetch(`${base}/_claude/events?kind=check-github`)).json()).map((e) => e.data);
   const before = (await checks()).length;
   try {
-    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false, auto_pull: false, max_implementers: 10, auto_triage: false, auto_review: false, headless_builders: false } });
+    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false, auto_pull: false, max_implementers: 10, auto_triage: false, auto_review: false, headless_builders: false, idle_notification: false } });
     const on = await save({ auto_merge: true });
     assert.equal(on.status, 200);
     const out = await on.json();
-    assert.deepEqual(out.settings, { auto_merge: true, auto_build: false, auto_pull: false, max_implementers: 10, auto_triage: false, auto_review: false, headless_builders: false });
+    assert.deepEqual(out.settings, { auto_merge: true, auto_build: false, auto_pull: false, max_implementers: 10, auto_triage: false, auto_review: false, headless_builders: false, idle_notification: false });
     assert.match(out.id, /^e/);
     const written = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8'));
     assert.deepEqual([written.title, written.rules.length, written.auto_merge], ['T', 1, true]);
@@ -1087,10 +1087,10 @@ test('the watcher prints the hub rules, then the board rules, the board settings
     assert.equal((await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === `ask:${asked}`).working, true);
     assert.deepEqual((await (await fetch(`${base}/api/working`)).json()).working.filter((w) => w.id === asked).map(({ since, ...w }) => w), [{ id: asked, kind: 'ask', card: null }]);
     assert.match(lines.at(-1), /^quiet .*AskUserQuestion/);
-    assert.deepEqual(lines.slice(2, -1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off']);
+    assert.deepEqual(lines.slice(2, -1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off', 'setting idle-notification off']);
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, auto_merge: true }));
     fs.rmSync(path.join(web, 'settings.json'));
-    assert.deepEqual((await watch('rules2')).slice(2, -1), ['setting auto-merge on', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off']);
+    assert.deepEqual((await watch('rules2')).slice(2, -1), ['setting auto-merge on', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off', 'setting idle-notification off']);
     const hello = () => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: 'hello1', ts: new Date().toISOString(), kind: 'hello', data: { title: 'T' } }) + '\n');
     assert.equal((await watch('hello', hello))[1], 'hello hello1 from the hub answered');
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'handshake.json'), 'utf8')).ack.id, 'hello1');
@@ -1321,5 +1321,76 @@ test("the board's version depends on its data alone: a minute later with nothing
     assert.equal(out.versions[0], out.versions[1]);
     assert.deepEqual(out.holdChoices, [{ value: '1h', label: '1h', ms: 3_600_000 }, { value: '3h', label: '3h', ms: 10_800_000 }, { value: '6h', label: '6h', ms: 21_600_000 },
       { value: '1d', label: '1d', ms: 86_400_000 }, { value: 'forever', label: 'Forever', ms: null }]);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// docs/adr/2026-11-04-0257-an-idle-board-pushes-once-when-it-has-gone-idle.md
+test('with Idle notification on, the board pushes "<board> has gone idle" once 15 minutes into an idle stretch, with what closed since, and again only after it was busy', () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'board-idle-')));
+  const at = path.join(dir, 'site');
+  fs.mkdirSync(path.join(at, 'data'), { recursive: true });
+  fs.writeFileSync(path.join(at, 'board.json'), JSON.stringify({ title: 'Idle board', items: 'data/wave.json', slug: 'i', idle_notification: true }));
+  fs.writeFileSync(path.join(at, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'I1', title: 'Open' }] }));
+  fs.writeFileSync(path.join(dir, 'push-stub.mjs'), "import fs from 'node:fs'; fs.appendFileSync(process.env.STUB_CALLS, JSON.stringify(process.argv.slice(3)) + '\\n'); console.log('sent');");
+  const calls = path.join(dir, 'push-calls.jsonl');
+  const server = path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs');
+  try {
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      import fs from 'node:fs';
+      import http from 'node:http';
+      import { mock } from 'node:test';
+      mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-04T10:00:00Z') });
+      mock.method(http.Server.prototype, 'listen', function () { return this; });
+      process.argv[2] = ${JSON.stringify(at)};
+      const wave = ${JSON.stringify(path.join(at, 'data', 'wave.json'))};
+      const idle = ${JSON.stringify(path.join(at, 'data', 'idle.json'))};
+      const pushes = () => (fs.existsSync(${JSON.stringify(calls)}) ? fs.readFileSync(${JSON.stringify(calls)}, 'utf8').trim().split('\\n').map((l) => JSON.parse(l)) : []);
+      const state = () => (fs.existsSync(idle) ? fs.readFileSync(idle, 'utf8') : '');
+      // The mocked Date stands still, so a wait counts real 20 ms sleeps.
+      const until = async (predicate, message, ms = 15000) => {
+        for (let n = 0; !predicate(); n++) {
+          if (n * 20 > ms) throw new Error(message);
+          await new Promise((r) => setTimeout(r, 20));
+        }
+      };
+      // Writes the wave and waits for the idle check to see it: the state file moves, or a settle time passes.
+      const write = async (items) => {
+        const before = state();
+        fs.writeFileSync(wave, JSON.stringify({ items }));
+        await until(() => state() !== before, 'the idle check', 1500).catch(() => {});
+        await new Promise((r) => setTimeout(r, 400));
+      };
+      await import(${JSON.stringify(server)});
+      await until(() => state(), 'the first idle check');
+      const seen = [];
+      const done = (id, mins) => ({ id, title: id, status: 'done', status_at: new Date(Date.parse('2026-11-04T10:00:00Z') + mins * 60000).toISOString() });
+      await write([{ id: 'I1', title: 'Open' }, done('I2', 5)]);
+      mock.timers.tick(14 * 60000);
+      await write([{ id: 'I1', title: 'Open!' }, done('I2', 5)]);
+      seen.push(pushes().length);
+      mock.timers.tick(2 * 60000);
+      await write([{ id: 'I1', title: 'Open' }, done('I2', 5)]);
+      await until(() => pushes().length === 1, 'the idle push');
+      mock.timers.tick(20 * 60000);
+      await write([{ id: 'I1', title: 'Open!' }, done('I2', 5)]);
+      seen.push(pushes().length);
+      await write([{ id: 'I1', title: 'Open', status: 'checking', status_at: new Date().toISOString() }, done('I2', 5)]);
+      await write([{ id: 'I1', title: 'Open' }, done('I2', 5)]);
+      mock.timers.tick(16 * 60000);
+      await write([{ id: 'I1', title: 'Open!' }, done('I2', 5)]);
+      await until(() => pushes().length === 2, 'the second idle push');
+      fs.writeFileSync(${JSON.stringify(path.join(at, 'board.json'))}, JSON.stringify({ title: 'Idle board', items: 'data/wave.json', slug: 'i' }));
+      await write([{ id: 'I1', title: 'Open' }, done('I2', 5)]);
+      await until(() => !state(), 'turning it off forgets the stretch');
+      console.log(JSON.stringify({ seen, pushes: pushes() }));
+      process.exit(0);
+    `], { env: { ...process.env, HOME: dir, KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, path.join(dir, 'push-stub.mjs'), 'push']), STUB_CALLS: calls }, encoding: 'utf8', timeout: 60000 });
+    assert.equal(result.status, 0, result.stderr);
+    const out = JSON.parse(result.stdout.trim().split('\n').at(-1));
+    assert.deepEqual(out.seen, [0, 1], 'nothing at 14 minutes, and no second push in one stretch');
+    const [first, second] = out.pushes;
+    assert.deepEqual([flag(first, 'kind'), flag(first, 'title'), flag(first, 'body'), flag(first, 'url'), flag(first, 'tag')],
+      ['reminder', 'Idle board has gone idle', '1 card landed: I2', '/site/', 'idle']);
+    assert.deepEqual([flag(second, 'title'), flag(second, 'body')], ['Idle board has gone idle', 'Nothing closed since the last idle notification.']);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

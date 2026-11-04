@@ -6,7 +6,7 @@
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask, ask progress|done,
 //   lineup create|add|remove|set|finish,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
-// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review, headless_builders, github_login}. auto_build asks the hub to
+// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review, headless_builders, idle_notification, github_login}. auto_build asks the hub to
 // run each card's .kickflip/build after each push, and hides the cards' Serve / Build; main always builds after a merge.
 // auto_merge (false when absent) lets the session merge
 // an approved, green, clean PR itself; off, the card shows the owner's Merge (store.mjs settingsOf). rules are the owner's standing instructions to this
@@ -148,6 +148,9 @@
 //                                time: it reads reviewing until `board.mjs review record` writes data/reviews.json
 //                                (auto-review.mjs reviewsOf). review-answer {pr, answer: post|skip} is the owner's tap
 //                                on a review held for them
+//                                With idle_notification on, a board strictly idle for 15 minutes (domain.mjs
+//                                strictlyIdle) pushes "<board> has gone idle" once per idle stretch, checked on every
+//                                board change and each minute, tracked in data/idle.json (checkIdle)
 //   POST /api/upload             the raw file as the body, its name URI-encoded in x-filename and its
 //                                type in content-type → data/uploads/<ms>-<safe name>, returning the
 //                                upload {name, url, path, type, size}: url is relative to the site
@@ -162,9 +165,9 @@
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (store.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
-//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review, headless_builders} (store.mjs readBoardSettings)
-//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean, headless_builders?: boolean} → board.json, keeping its other keys, and when the value moved a
-//                                `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
+//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review, headless_builders, idle_notification} (store.mjs readBoardSettings)
+//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean, headless_builders?: boolean, idle_notification?: boolean} → board.json, keeping its other keys, and when a value other
+//                                than idle_notification moved a `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id}; a bad body → 400 {error}
 //   GET  /api/permissions        {onHost, file, permissions: [{id, name, allows, rule, on, refused}]}: the board's session
 //                                permissions, read from its folder's .claude/settings.local.json (permissions.mjs); 404 off the manifest
@@ -199,7 +202,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { buildBoard, ITEM_EVENTS, lineupMoved, needsAnswer, ownerActions, picksNoTake, pullOf, refOf, startedByAnswer, threadOf, todoOf } from './domain.mjs';
+import { buildBoard, idleStep, idleSummary, ITEM_EVENTS, lineupMoved, needsAnswer, ownerActions, picksNoTake, pullOf, refOf, startedByAnswer, strictlyIdle, threadOf, todoOf } from './domain.mjs';
 import { localDay } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
@@ -697,6 +700,7 @@ function changed() {
     checkStalled();
     checkActions();
     checkAuto();
+    checkIdle();
   }, Math.max(0, Math.min(CHANGE_QUIET, changeFirst + CHANGE_MAX - now)));
 }
 // Lock folders, installs and build output churn and never hold board files: a path with a segment starting with "." or
@@ -931,7 +935,9 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       let saved;
       try { saved = await saveBoardSettings(here, body); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
-      const id = saved.changed.length ? await appendEvent('settings', Object.fromEntries(saved.changed.map((k) => [k, saved.settings[k]]))) : null;
+      // The board server alone acts on idle_notification (checkIdle), so it wakes no session.
+      const told = saved.changed.filter((k) => k !== 'idle_notification');
+      const id = told.length ? await appendEvent('settings', Object.fromEntries(told.map((k) => [k, saved.settings[k]]))) : null;
       // An approved PR merges on the session's GitHub tick once auto-merge is on (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md).
       if (saved.changed.includes('auto_merge') && saved.settings.auto_merge) await appendEvent('check-github', { reason: 'auto-merge' });
       return json(res, 200, { settings: saved.settings, id });
@@ -1178,6 +1184,43 @@ async function pushActions() {
   }
 }
 
+// docs/adr/2026-11-04-0257-an-idle-board-pushes-once-when-it-has-gone-idle.md
+// With idle_notification on, each check steps data/idle.json (domain.mjs idleStep) by whether the board is strictly
+// idle, and once a stretch reaches IDLE_MINUTES it pushes "<board> has gone idle" with what closed since the last idle
+// push (idleSummary). A push that fails still ends the stretch's push, so a missing device isn't retried each minute.
+// Off, the file goes, so turning it on starts a fresh stretch. A check asked for while one runs runs again after it.
+let checkingIdle = null;
+let idleAgain = false;
+function checkIdle() {
+  if (checkingIdle) { idleAgain = true; return checkingIdle; }
+  checkingIdle = (async () => {
+    do {
+      idleAgain = false;
+      try { await stepIdle(); } catch (err) { console.error('Idle check failed:', err.message); }
+    } while (idleAgain);
+  })().finally(() => { checkingIdle = null; });
+  return checkingIdle;
+}
+async function stepIdle() {
+  const file = path.join(data, 'idle.json');
+  const cfg = await config();
+  if (!settingsOf(cfg).idle_notification) return fs.rm(file, { force: true });
+  const previous = await readJSON(file, {});
+  const shot = await snapshot();
+  const built = buildBoard(shot);
+  const idle = strictlyIdle(built, { pulled: await sentOf(PULL, await readLines(events)) });
+  const { state, push } = idleStep(previous, { idle, now: new Date() });
+  if (push) {
+    try { await sendPush(here, { kind: 'reminder', title: `${cfg.title || shot.route} has gone idle`, body: idleSummary(built.items, previous.last), url: `/${shot.route}/`, tag: 'idle', now: true }); }
+    catch (e) { if (e instanceof BoardError) console.error('Idle push not sent:', e.message.split('\n').at(-2) || e.message); else throw e; }
+  }
+  if (JSON.stringify(state) !== JSON.stringify(previous)) {
+    await fs.mkdir(data, { recursive: true });
+    await fs.writeFile(file + '.tmp', JSON.stringify(state) + '\n');
+    await fs.rename(file + '.tmp', file);
+  }
+}
+
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 try { for (const line of await migrateFollowups(here)) console.log(line); } catch (e) { console.error('follow-up migration:', e.message); }
 await watchBoard();
@@ -1185,8 +1228,10 @@ setInterval(checkStalled, 60000).unref();
 setInterval(checkPickUps, 60000).unref();
 setInterval(() => { if (heldByPause && readUsageGate().state !== 'paused') checkAuto(); }, 60000).unref();
 setInterval(checkActions, 60000).unref();
+setInterval(checkIdle, 60000).unref();
 await checkStalled();
 await checkPickUps();
 await checkAuto();
 checkActions();
+checkIdle();
 server.listen(port, '127.0.0.1', () => console.log(`site on http://127.0.0.1:${port}/ (prefix ${prefix || 'none'})`));

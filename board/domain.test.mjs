@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, MAX_IMPLEMENTERS, todoOf, owesNext, startedByAnswer, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN } from './domain.mjs';
+import { buildBoard, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, MAX_IMPLEMENTERS, todoOf, owesNext, startedByAnswer, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -1692,4 +1692,68 @@ test('a card on a draft PR with no Next reads "Review draft PR #N"; a Next it wa
   assert.deepEqual([card({}).lane, card({}).next], ['progress', 'Review draft PR #7']);
   assert.equal(card({ next: 'Wait for the design pass' }).next, 'Wait for the design pass');
   assert.equal(card({}, greenDraft).next, 'Tap Ready on GitHub');
+});
+
+// docs/adr/2026-11-04-0257-an-idle-board-pushes-once-when-it-has-gone-idle.md
+test('a board is strictly idle only with nothing building, grilling, prototyping, landing, pulled or worked on', () => {
+  const at = '2026-11-04T10:00:00Z';
+  const built = (item = {}, agents = {}, events = []) => buildBoard({ now: Date.parse(at), owner: {}, events,
+    waves: [{ slug: 'w', agents, wave: { internal: true, items: [{ id: 'A1', title: 'One', ...item }, { id: 'A2', title: 'Two', status: 'done', status_at: at }] } }] });
+  assert.equal(strictlyIdle(built()), true, 'a ready card with nothing running is idle');
+  assert.equal(strictlyIdle(built({}, { A1: { main: { kind: 'claude', started: at } } })), false, 'a builder runs');
+  assert.equal(strictlyIdle(built({}, { A1: { main: { kind: 'claude', started: at, done: at } } })), true, 'a finished builder');
+  assert.equal(strictlyIdle(built({}, { A1: { main: { kind: 'grill', started: at } } })), false, 'a grill runs');
+  assert.equal(strictlyIdle(built({}, {}, [{ id: 'e1', ts: at, kind: 'prototype-request', data: { key: 'w/A1' }, reply: null }])), false, 'a prototype is under way');
+  assert.equal(strictlyIdle(built({ status: 'checking', status_at: at })), false, 'a card waits to land');
+  assert.equal(strictlyIdle(built({ state: 'ready' }), { pulled: ['w/A1'] }), false, 'a pulled card waits to start');
+  assert.equal(strictlyIdle(built({ state: 'ready' })), true, 'a ready card nobody pulled');
+  assert.equal(strictlyIdle({ ...built(), working: 1 }), false, 'a session turn runs');
+});
+
+test('the idle notification pushes once 15 minutes into an idle stretch, and again only after the board was busy', () => {
+  let now = Date.parse('2026-11-04T10:00:00Z');
+  const tick = (minutes) => { now += minutes * 60000; };
+  let state = {};
+  const step = (idle) => {
+    const r = idleStep(state, { idle, now: new Date(now) });
+    state = r.state;
+    return r.push;
+  };
+  assert.equal(step(true), false);
+  const turnedOn = state.last;
+  tick(14);
+  assert.equal(step(true), false, '14 minutes is not yet idle');
+  tick(1);
+  assert.equal(step(true), true, '15 minutes idle pushes');
+  assert.equal(state.last, new Date(now).toISOString());
+  assert.notEqual(state.last, turnedOn);
+  tick(30);
+  assert.equal(step(true), false, 'one push per idle stretch');
+  tick(1);
+  assert.equal(step(false), false);
+  assert.deepEqual(state, { last: new Date(now - 31 * 60000).toISOString() }, 'busy ends the stretch and keeps the last push');
+  tick(1);
+  assert.equal(step(true), false);
+  tick(10);
+  assert.equal(step(false), false, 'busy again inside 15 minutes');
+  tick(1);
+  assert.equal(step(true), false);
+  tick(15);
+  assert.equal(step(true), true, 'a new stretch pushes again');
+});
+
+test("the idle push sums up the cards landed and waves finished since the last idle push", () => {
+  const items = [
+    { id: 'A1', title: 'Old', status: 'done', status_at: '2026-11-04T09:00:00Z' },
+    { id: 'A2', title: 'Two', status: 'done', status_at: '2026-11-04T10:10:00Z' },
+    { id: 'A3', title: 'Three', status: 'merged', status_at: '2026-11-04T10:20:00Z' },
+    { id: 'A4', title: 'Dropped', status: 'dropped', status_at: '2026-11-04T10:20:00Z' },
+    { id: 'B1', title: 'Open' },
+  ];
+  const lineups = [{ slug: 'mon', title: 'Monitor', items: ['A1', 'A2', 'A3'] }, { slug: 'open', title: 'Still open', items: ['A4', 'B1'] }];
+  const built = buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), events: [], owner: {}, waves: [{ slug: 'w', wave: { internal: true, items, lineups } }] });
+  const ref = (id) => built.items.find((i) => i.id === id).ref;
+  assert.equal(idleSummary(built.items, '2026-11-04T10:00:00Z'), `2 cards landed: ${ref('A3')}, ${ref('A2')} · Monitor finished`);
+  assert.equal(idleSummary(built.items, '2026-11-04T10:15:00Z'), `1 card landed: ${ref('A3')} · Monitor finished`);
+  assert.equal(idleSummary(built.items, '2026-11-04T10:30:00Z'), 'Nothing closed since the last idle notification.');
 });

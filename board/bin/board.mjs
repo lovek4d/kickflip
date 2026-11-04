@@ -275,6 +275,7 @@ command fails and changes nothing.
                                                          "max_implementers": 10,
                                                          "auto_triage": false, "auto_review": false,
                                                          "headless_builders": false,
+                                                         "idle_notification": false,
                                                          "github_login": "owner"}
   settings set auto-merge on|off                         on: the session merges an approved PR once CI is green and
                                                          the merge state is CLEAN. off (the default): the card
