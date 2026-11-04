@@ -212,20 +212,12 @@ export async function holdingLandLock(card, fn) {
   }
 }
 
-// Two ADRs sharing a 4-digit prefix mean two builders took the same next number.
-function refuseDuplicateAdr(dir) {
-  const adrDir = path.join(dir, 'docs', 'adr');
-  if (!fs.existsSync(adrDir)) return;
-  const byNumber = new Map();
-  for (const file of fs.readdirSync(adrDir).sort()) {
-    const number = file.match(/^(\d{4})-/)?.[1];
-    if (number) byNumber.set(number, [...(byNumber.get(number) || []), file]);
-  }
-  const duplicate = [...byNumber].find(([, files]) => files.length > 1);
-  if (!duplicate) return;
-  const [number, files] = duplicate;
-  const next = String(Math.max(...byNumber.keys().map(Number)) + 1).padStart(4, '0');
-  fail(`land: docs/adr has two ADRs numbered ${number} (${files.join(', ')}); renumber yours to ${next} and land again`);
+// An ADR is named by the minute it was written, docs/adr/YYYY-MM-DD-HHMM-<slug>.md, so parallel builds never take the same name.
+// A branch adding one named with a number instead (0181-<slug>.md) is refused.
+function refuseNumberedAdr(repo, base, branch) {
+  const added = git(repo, 'diff', '--name-only', '--no-renames', '--diff-filter=A', base, branch, '--', 'docs/adr').out.split('\n');
+  const numbered = added.find((f) => /^docs\/adr\/\d{4}-(?!\d{2}-\d{2}-\d{4}-)/.test(f));
+  if (numbered) fail(`land: ${numbered} is named with a number; name it docs/adr/YYYY-MM-DD-HHMM-${path.basename(numbered).replace(/^\d{4}-/, '')}, the time you wrote it, and land again`);
 }
 
 export function land({ path: dir, branch, repo, base }, { say = console.log, runTests = nodeTests, restart = restartRunner, boards = () => listBoards(), clone = skillRepo() } = {}) {
@@ -247,7 +239,7 @@ export function land({ path: dir, branch, repo, base }, { say = console.log, run
   const blank = git(repo, 'log', '--format=%h %s', `${base}..${branch}`).out.split('\n').filter((l) => l && !l.includes(' '));
   if (blank.length) fail(`${branch} has a commit with an empty subject (${blank[0]}); reword it in ${dir} and land again`);
 
-  refuseDuplicateAdr(dir);
+  refuseNumberedAdr(repo, base, branch);
 
   const tests = runTests(dir);
   if (!tests.ok) fail([

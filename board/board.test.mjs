@@ -1590,19 +1590,25 @@ test('a board builder uses its shared clone and selected remote branch without c
   assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).worktree.repo, repo);
 });
 
-test('land refuses two ADRs with the same number after the rebase, naming both and the next free number, and changes nothing', () => {
+test('land refuses a new ADR named with a number instead of a timestamp, naming it and the name to use, and changes nothing; numbered ADRs already on main pass', () => {
   const repo = scratchRepo();
+  commit(repo, 'docs/adr/0007-old.md', '# Old\n');
   assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
-  commit(worktree(), 'docs/adr/0007-first.md', '# First\n');
-  commit(worktree(), 'docs/adr/0007-second.md', '# Second\n');
-  commit(worktree(), 'docs/adr/0008-third.md', '# Third\n');
+  commit(worktree(), 'docs/adr/2026-11-03-1111-fine.md', '# Fine\n');
+  commit(worktree(), 'docs/adr/0008-numbered-again.md', '# Numbered again\n');
   const main = git(repo, 'rev-parse', 'main');
   const r = land();
-  assert.deepEqual([r.code, r.out, r.err], [1, '', 'land: docs/adr has two ADRs numbered 0007 (0007-first.md, 0007-second.md); renumber yours to 0009 and land again\n']);
+  assert.deepEqual([r.code, r.out, r.err], [1, '', 'land: docs/adr/0008-numbered-again.md is named with a number; name it docs/adr/YYYY-MM-DD-HHMM-numbered-again.md, the time you wrote it, and land again\n']);
   assert.equal(git(repo, 'rev-parse', 'main'), main);
   assert.equal(git(worktree(), 'status', '--porcelain'), '');
   assert.ok(fs.existsSync(worktree()));
   assert.ok(branches(repo).includes('A1'));
+
+  git(worktree(), 'mv', 'docs/adr/0008-numbered-again.md', 'docs/adr/2026-11-03-1112-numbered-again.md');
+  git(worktree(), 'commit', '--quiet', '-m', 'name it by time');
+  const landed = land();
+  assert.equal(landed.code, 0, landed.err);
+  assert.deepEqual(fs.readdirSync(path.join(repo, 'docs', 'adr')).sort(), ['0007-old.md', '2026-11-03-1111-fine.md', '2026-11-03-1112-numbered-again.md']);
 });
 
 test('land refuses a worktree with uncommitted changes, with no commit beyond main, or whose suite fails, leaving main and the worktree as they were', () => {

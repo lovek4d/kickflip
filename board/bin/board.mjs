@@ -387,6 +387,7 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
                                                          checked out, naming it, or while the worktree has uncommitted
                                                          changes or adds no commit; rebases onto the branch when it
                                                          moved, refusing on a conflict with the rebase undone; refuses
+                                                         a new ADR named with a number instead of a timestamp; refuses
                                                          unless its full node --test suite passes, naming each failing
                                                          test and saving the TAP output under ~/.claude/kickflip/logs;
                                                          fast-forwards the branch in the repo;
