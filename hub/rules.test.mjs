@@ -306,7 +306,7 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
       const count = resumed().length;
       fs.writeFileSync(stateFile, JSON.stringify({ state: 'paused', window: 'five_hour' }));
       fs.writeFileSync(path.join(web, 'usage.json'), JSON.stringify({ claude: { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at: new Date(Date.now() - 1000).toISOString() } } }));
-      await until(() => resumed().length > count, 'Orch receives usage-resumed after the pause resets');
+      await postGate('pause-at', 'value=95');
       assert.equal(resumed().length, count + 1);
       assert.deepEqual(resumed().at(-1).data, { window: 'five_hour' });
       fs.writeFileSync(stateFile, JSON.stringify({ state: 'going', window: 'five_hour' }));

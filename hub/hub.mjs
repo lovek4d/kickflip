@@ -435,16 +435,17 @@ async function prunePrompts() {
 
 const promptContext = () => ({ running: liveSessions(), boards: listBoards(loadManifest()) });
 
-let checkingUsage = false;
+// One check runs at a time. A call while one runs waits for it, then for one more check that reads the gate afresh, so a
+// pause-line save always reaches usage-gate-state.json; calls made meanwhile share that one.
+let usageCheck = null;
+let usageRecheck = null;
 async function checkUsageGate() {
-  if (checkingUsage) return;
-  checkingUsage = true;
-  try {
-    await checkUsagePause({ gate: readUsageGate(), resume: async (window) => {
-      const out = await sendToBoards(listBoards(loadManifest()), 'usage-resumed', { window });
-      for (const failed of out.failed) log(failed);
-    } });
-  } finally { checkingUsage = false; }
+  if (usageCheck) return usageRecheck ??= usageCheck.catch(() => {}).then(() => { usageRecheck = null; return checkUsageGate(); });
+  usageCheck = (async () => checkUsagePause({ gate: readUsageGate(), resume: async (window) => {
+    const out = await sendToBoards(listBoards(loadManifest()), 'usage-resumed', { window });
+    for (const failed of out.failed) log(failed);
+  } }))().finally(() => { usageCheck = null; });
+  return usageCheck;
 }
 
 setInterval(() => {
