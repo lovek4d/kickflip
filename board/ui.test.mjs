@@ -1505,7 +1505,8 @@ test('a builder status line, and an agent starting or finishing, reads as one li
     { ts: ago(0.5), who: 'love', kind: 'quick-build', request: true, text: 'quick build: no grill, as you asked' },
   ]);
   assert.match(requests, new RegExp(`^<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['grill requested']}</span>grill requested <span class="muted">· [^<]+</span></div><div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['prototype requested'].replace(/[.*+?()[\]]/g, '\\$&')}</span>prototype requested <span class="muted">`));
-  assert.match(requests, /<div class="msg request"><span class="mark" aria-hidden="true"><\/span>quick build/);
+  assert.match(requests, new RegExp(`<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['quick build: no grill, as you asked'].replace(/[.*+?()[\]]/g, '\\$&')}</span>quick build`));
+  assert.match(ui.MARK_ICONS['quick build: no grill, as you asked'], /<path d="M13 2 4 14h7l-1 8 9-12h-7z"\/>/);
   assert.doesNotMatch(requests, /class="who"|Waiting for Claude|data-event/);
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.match(css, /\.msg\.request \{[^}]*color: var\(--muted\)/);

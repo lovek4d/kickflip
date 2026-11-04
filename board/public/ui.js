@@ -64,11 +64,12 @@
   const grillButton = (id) => `<button type="button" class="attach proto-ask" data-grill="${esc(id)}" aria-label="Ask for a grill" title="Ask for a grill">${FIRE}</button>`;
   // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
   // A thread status line's leading mark, its icon or dot centred in one fixed box so every line's text starts at the
-  // same place: the request's eye or fire, answers' check, new questions' plain question mark, a builder's dot.
+  // same place: the request's eye, fire or quick build's lightning, answers' check, new questions' plain question mark, a builder's dot.
   const mini = (body, cls = '') => `<svg class="mark-icon${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
   const MARK_ICONS = {
     'prototype requested': mini('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
     'grill requested': mini('<path d="M12 3c1 3 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-6 1-9z"/>'),
+    'quick build: no grill, as you asked': mini('<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>'),
     'answers submitted': mini('<path d="M20 6 9 17l-5-5"/>'),
     questions: mini('<path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"/>', ' big'),
   };
