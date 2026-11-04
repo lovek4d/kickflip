@@ -7,7 +7,7 @@
 // Prints and exits on:
 //   event <file> <line>       new matching lines (several, batched for 2 s), each followed by one plain line saying
 //                             what came in and on which card (plainLine); on a board it marks each ask,
-//                             item-message, wave-triage and todo-triage working in data/working.json and answers a hello for the
+//                             item-message, wave-triage and overnight-triage working in data/working.json and answers a hello for the
 //                             session (board/store.mjs ackHello), then prints:
 //   rule hub <text>           each hub rule (settings.json `rules`), then
 //   rule board <text>         each of the board's own (board.json `rules`): the owner's standing instructions,
@@ -68,7 +68,7 @@ const PLAIN = {
   ask: (e) => `new task ${e.id} received`,
   'owner-answer': (e) => `answer received to question ${e.data?.id}`,
   hello: (e) => `hello ${e.id} from the hub answered`,
-  'todo-triage': (e) => `Todo triage ${e.data?.date} asked: the board was idle`,
+  'overnight-triage': (e) => `Overnight triage ${e.data?.date} asked: ${e.data?.cards?.length} cards wait on your answers`,
   'pr-review': (e) => `review asked on PR #${e.data?.pr}: the board was idle`,
   'review-answer': (e) => `${e.data?.answer === 'skip' ? 'skip' : 'post'} answered on the review of PR #${e.data?.pr}`,
 };

@@ -33,7 +33,7 @@ command fails and changes nothing.
   reply <eventId> (--html <text> | --file <path>)        data/replies/<eventId>.html. A reply to an ask resolves its
                                                          answered questions (topic item:ask:<eventId>), and one to
                                                          wave-triage its wave's, noting "Acted on: replied". A
-                                                         reply to todo-triage ends that triage
+                                                         reply to overnight-triage ends that triage
   thread <wave>/<id> --text <t> [--link <url>]           one line in the item's thread; ask:<eventId> in place
          [--who claude|love|<name>] [--via github|slack] of <wave>/<id> writes in that ask's thread
          A Claude thread line, or a reply to an ask or item-message, rewrites the body of the thread's
@@ -324,10 +324,12 @@ command fails and changes nothing.
                                                          lander. item set --state ready then refuses a card without
                                                          --size, a notes file, or the id of each answered question in
                                                          that file. Off by default. Only on the owner's word
-  settings set auto-triage on|off                       on: while the board is idle and Todo changed since the last
-                                                         triage, at most once a day and before any pull, the board
-                                                         server declares topic todo-triage-<date> ("Todo triage
-                                                         <date>") and sends todo-triage {date, topic}; the pull
+  settings set auto-triage on|off                       on: once a night, from the middle of the hub's quiet hours
+                                                         to their end, when two or more cards wait on open
+                                                         questions, nothing builds and something changed since the
+                                                         last triage, the board server declares topic
+                                                         overnight-triage-<date> ("Overnight triage <date>") and
+                                                         sends overnight-triage {date, topic, cards}; the pull
                                                          waits until you reply to it. Off by default. Only on the
                                                          owner's word
   settings set tickets <json>                            the board's ticket source, as Board Settings' Tickets row

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, withHub, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, MAX_IMPLEMENTERS, todoOf, owesNext, startedByAnswer, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary } from './domain.mjs';
+import { buildBoard, withHub, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, MAX_IMPLEMENTERS, todoOf, triageOf, owesNext, startedByAnswer, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -1558,6 +1558,19 @@ test("todoOf reads the Todo a triage sees: its cards' keys, titles and deps, and
 });
 
 // docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md
+// docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md
+test("triageOf names the open cards waiting on unanswered questions, and what it saw changes with them or with Todo", () => {
+  const card = (key, lane, open = 0, askedAt = []) => ({ key, kind: 'work', lane, title: key, deps: [], questions: open ? { open, askedAt } : null });
+  const base = [card('w/T1', 'todo', 2, ['2026-11-04T10:00:00Z']), card('w/T2', 'todo'), card('w/P1', 'progress', 1, ['2026-11-04T11:00:00Z'])];
+  const seen = triageOf(base);
+  assert.deepEqual(seen.waiting, ['w/T1', 'w/P1']);
+  assert.deepEqual(triageOf([...base, card('w/D1', 'done', 1)]), seen, 'a Done card waits on nothing');
+  assert.deepEqual(triageOf([...base, { ...card('w/N1', 'new', 1), kind: 'note' }]).waiting, seen.waiting, 'only work cards');
+  assert.deepEqual(triageOf([card('w/T1', 'todo', 0), ...base.slice(1)]).waiting, ['w/P1'], 'answered questions wait on nothing');
+  assert.notEqual(triageOf([card('w/T1', 'todo', 3, ['2026-11-04T10:00:00Z', '2026-11-04T12:00:00Z']), ...base.slice(1)]).seen, seen.seen, 'a new question');
+  assert.notEqual(triageOf([...base, card('w/T3', 'todo')]).seen, seen.seen, 'a Todo change');
+});
+
 test('a triage sees Stale cards beside Todo, and never Done ones, which leave the board by the archive rule', () => {
   const card = (key, lane) => ({ key, lane, title: key, deps: [] });
   const todo = todoOf([card('w/T1', 'todo')]);

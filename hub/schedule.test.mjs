@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULTS, NEVER, validate, fromPolling, quietOf, editQuiet, quietAt, holdsPushes, heldUntil, hold, snoozeEnd, flushAt, wakesDue, localDay, notifications, clock, checkEvery, nextCheckAt, LOW_POINTS } from './schedule.mjs';
+import { DEFAULTS, NEVER, validate, fromPolling, quietOf, editQuiet, quietAt, quietMiddleOf, holdsPushes, heldUntil, hold, snoozeEnd, flushAt, wakesDue, localDay, notifications, clock, checkEvery, nextCheckAt, LOW_POINTS } from './schedule.mjs';
 
 const t = (h, m = 0, day = 14, s = 0) => new Date(2026, 9, day, h, m, s);
 const ON = { on: true, weekends_off: false, snoozed_until: null };
@@ -51,6 +51,23 @@ test('quietAt reads the night past midnight, from its start up to its end', () =
   assert.equal(quietAt(t(0, 30), day), false);
   assert.equal(quietAt(t(2), day), true);
   assert.equal(quietAt(t(6), day), false);
+});
+
+// docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md
+test('quietMiddleOf is the middle of the night `t` falls in, from that middle until quiet hours end', () => {
+  const s = DEFAULTS;
+  assert.equal(quietMiddleOf(t(23), s), null);
+  assert.equal(quietMiddleOf(t(2, 59, 15), s), null);
+  assert.deepEqual(quietMiddleOf(t(3, 0, 15), s), t(3, 0, 15));
+  assert.deepEqual(quietMiddleOf(t(7, 59, 15), s), t(3, 0, 15));
+  assert.equal(quietMiddleOf(t(8, 0, 15), s), null);
+  assert.equal(quietMiddleOf(t(12), s), null);
+  const late = quiet('23:30', '06:00');
+  assert.deepEqual(quietMiddleOf(t(2, 45, 15), late), t(2, 45, 15));
+  assert.equal(quietMiddleOf(t(2, 44, 15), late), null);
+  const day = quiet('01:00', '06:00');
+  assert.deepEqual(quietMiddleOf(t(4), day), t(3, 30));
+  assert.equal(quietMiddleOf(t(3), day), null);
 });
 
 test('checks run every minute while the owner is here and every 5 when away, slowing to 5 and 15 on a low GitHub budget', () => {

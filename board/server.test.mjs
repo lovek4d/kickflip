@@ -1099,9 +1099,9 @@ test('the watcher prints the hub rules, then the board rules, the board settings
     const hello = () => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: 'hello1', ts: new Date().toISOString(), kind: 'hello', data: { title: 'T' } }) + '\n');
     assert.equal((await watch('hello', hello))[1], 'hello hello1 from the hub answered');
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'handshake.json'), 'utf8')).ack.id, 'hello1');
-    // docs/adr/2026-11-03-1551-an-idle-board-triages-its-todo-once-a-day.md
-    const triage = () => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: 'tt1', ts: new Date().toISOString(), kind: 'todo-triage', data: { date: '2026-11-03', topic: 'todo-triage-2026-11-03' } }) + '\n');
-    assert.equal((await watch('triage', triage))[1], 'Todo triage 2026-11-03 asked: the board was idle');
+    // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md
+    const triage = () => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: 'tt1', ts: new Date().toISOString(), kind: 'overnight-triage', data: { date: '2026-11-03', topic: 'overnight-triage-2026-11-03', cards: ['w/A1', 'w/A2'] } }) + '\n');
+    assert.equal((await watch('triage', triage))[1], 'Overnight triage 2026-11-03 asked: 2 cards wait on your answers');
     assert.ok(Date.parse(JSON.parse(fs.readFileSync(path.join(site, 'data', 'working.json'), 'utf8')).events.tt1));
   } finally {
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));

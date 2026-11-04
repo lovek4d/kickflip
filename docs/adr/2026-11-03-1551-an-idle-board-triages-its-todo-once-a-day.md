@@ -1,8 +1,10 @@
 ---
-status: superseded in part by 2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap
+status: superseded by 2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers
 ---
 
 # An idle board triages its Todo once a day when it changed
+
+Superseded by [triage runs once overnight on cards waiting on your answers](2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md): one triage a night, from the middle of quiet hours, when two or more cards wait on open questions, which also does this Todo hygiene.
 
 Superseded in part by [auto implement fills In Progress up to Maximum parallel implementers, on every board change](2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md): the check runs on every board change and at start, not each minute, so a new host day alone sends no triage until the next change. The triage still waits for an idle board, and still holds the pull until its reply.
 

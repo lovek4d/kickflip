@@ -42,8 +42,8 @@
     <span class="muted small sub">Claude merges a PR once it is approved, green and merges cleanly.</span></span>
     <input type="checkbox" class="toggle" id="autoMerge" disabled></label>
   <p class="muted small" id="autoMergeStatus" role="status"></p>
-  <label class="who" for="autoTriage"><span><span>Triage Todo when idle</span>
-    <span class="muted small sub">Once a day, when Todo changed, Claude merges clear duplicates and asks you about the rest.</span></span>
+  <label class="who" for="autoTriage"><span><span>Triage overnight</span>
+    <span class="muted small sub">Once a night, when two or more cards wait on your answers, Claude merges their overlapping questions and duplicate cards, and tidies Todo.</span></span>
     <input type="checkbox" class="toggle" id="autoTriage" disabled></label>
   <p class="muted small" id="autoTriageStatus" role="status"></p>
   <label class="who" for="idleNotification"><span><span>Idle notification</span>
@@ -384,7 +384,7 @@
     });
 
     // These Auto toggles save with no confirmation: docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md,
-    // docs/adr/2026-11-03-1551-an-idle-board-triages-its-todo-once-a-day.md and
+    // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md and
     // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md; Idle notification too:
     // docs/adr/2026-11-04-0257-an-idle-board-pushes-once-when-it-has-gone-idle.md.
     const autoToggle = (id, key, saved) => B.on($(`#${id}`), 'change', async () => {
@@ -424,7 +424,7 @@
     autoToggle('autoReview', 'auto_review', (on) => (on ? 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.' : 'Saved. Claude leaves incoming PRs alone.'));
     autoToggle('headlessBuilders', 'headless_builders', (on) => (on ? 'Saved. The board launches each ready card’s builder itself, and the builder lands its own work.' : 'Saved. Claude briefs and launches each builder.'));
     autoToggle('idleNotification', 'idle_notification', (on) => (on ? 'Saved. One push once the board has been idle for 15 minutes.' : 'Saved. No push when the board goes idle.'));
-    autoToggle('autoTriage', 'auto_triage', (on) => (on ? 'Saved. Once a day, when the board is idle and Todo changed, Claude triages it.' : 'Saved. Todo is left as it is.'));
+    autoToggle('autoTriage', 'auto_triage', (on) => (on ? 'Saved. Once a night, when cards wait on your answers, Claude triages them.' : 'Saved. Questions and Todo are left as they are.'));
 
     // Each switch writes or removes one allow rule in the board folder's .claude/settings.local.json through POST
     // api/permissions, which only the host's own browser may send; elsewhere the switches are read-only

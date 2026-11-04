@@ -129,7 +129,7 @@ export async function readWorking(site) {
 }
 
 // The kinds bin/wait-events.mjs marks working as it hands them to the session (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md).
-export const WORKING_KINDS = ['ask', 'item-message', 'wave-triage', 'todo-triage'];
+export const WORKING_KINDS = ['ask', 'item-message', 'wave-triage', 'overnight-triage'];
 export async function markWorking(site, eventIds) {
   if (!eventIds.length) return;
   const at = new Date().toISOString();

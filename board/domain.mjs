@@ -1113,7 +1113,7 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
   return { idle: !implementers, pullable, waiting, starts, pulls, plannable };
 }
 
-// docs/adr/2026-11-03-1551-an-idle-board-triages-its-todo-once-a-day.md
+// docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md
 // For built items: the Todo a triage looks at, one line per Todo card, and per ready card in In Progress's Queued
 // section, with its key, title and deps, sorted, so a card
 // added, dropped, renamed or relinked changes it. '' when Todo is empty.
@@ -1121,6 +1121,16 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
 // (docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md).
 export function todoOf(items) {
   return items.filter((i) => (i.lane === 'todo' && (!i.queued || i.buildable)) || i.lane === 'stale').map((i) => JSON.stringify([i.key, i.title, i.deps || []])).sort().join('\n');
+}
+
+// docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md
+// For built items: what an overnight triage looks at. waiting: the keys of the work cards outside Done with open
+// questions, in board order; seen: those cards with when each open question was asked, then todoOf, so a question
+// asked or answered, or a Todo change, changes it.
+export function triageOf(items) {
+  const waiting = items.filter((i) => i.kind === 'work' && i.lane !== 'done' && i.questions?.open > 0);
+  const asked = waiting.map((i) => JSON.stringify([i.key, i.questions.open, i.questions.askedAt || []])).sort().join('\n');
+  return { waiting: waiting.map((i) => i.key), seen: `${asked}\n--\n${todoOf(items)}` };
 }
 
 // docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md

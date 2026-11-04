@@ -349,8 +349,8 @@ test('a tapped card whose blockers are done waits in Queued while In Progress is
   }
 });
 
-// docs/adr/2026-11-03-1551-an-idle-board-triages-its-todo-once-a-day.md
-test('an idle board with auto-triage on sends todo-triage under its dated topic before any pull, at most once a day and only when Todo changed', async () => {
+// docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md
+test('with auto-triage on, a board sends overnight-triage once a night from the middle of quiet hours, when two cards wait on your answers and nothing builds', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-triage-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
@@ -361,7 +361,6 @@ test('an idle board with auto-triage on sends todo-triage under its dated topic 
   const ownerFile = path.join(dataDir, 'owner.json');
   const agentFile = path.join(dataDir, 'agents', 'A0.json');
   const usageFile = path.join(dir, '.claude', 'kickflip', 'usage.json');
-  const day = 86400000;
   let now = Date.parse('2026-11-02T16:00:00Z');
   const iso = (ms) => new Date(ms).toISOString();
   let worker;
@@ -372,13 +371,16 @@ test('an idle board with auto-triage on sends todo-triage under its dated topic 
   const wave = { items: [
     { id: 'A0', title: 'Running', status: 'building' },
     { id: 'A1', title: 'One', status: 'planned', state: 'ready' },
-    { id: 'A2', title: 'Two', status: 'planned', state: 'ready' },
+    { id: 'A2', title: 'Two', status: 'planned' },
+    { id: 'A3', title: 'Three', status: 'planned' },
   ] };
   const writeWave = () => put(waveFile, JSON.stringify(wave));
   writeWave();
   const agent = (done) => put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), ...(done ? { done: iso(now) } : {}) }));
   agent(true);
-  fs.writeFileSync(ownerFile, JSON.stringify({ topics: [], items: [] }));
+  const question = (id, key) => ({ id, topic: `item:${key}`, question: 'Which?', options: [{ id: 'a', label: 'A' }] });
+  const ask = (id, key) => { const owner = JSON.parse(fs.readFileSync(ownerFile, 'utf8')); owner.items.push(question(id, key)); put(ownerFile, JSON.stringify(owner)); };
+  fs.writeFileSync(ownerFile, JSON.stringify({ topics: [], items: [question('q1', 't/A2')] }));
   fs.writeFileSync(eventsFile, '');
   const setClock = (ms) => { now = ms; put(clockFile, String(ms)); };
   setClock(now);
@@ -396,7 +398,7 @@ test('an idle board with auto-triage on sends todo-triage under its dated topic 
     http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };
   `);
   const logged = (kind) => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse).filter((e) => e.kind === kind);
-  const triages = () => logged('todo-triage');
+  const triages = () => logged('overnight-triage');
   const pulls = () => logged('card-pull').map((e) => e.data.key);
   const reply = (id) => { fs.mkdirSync(path.join(dataDir, 'replies'), { recursive: true }); put(path.join(dataDir, 'replies', `${id}.html`), '<p>Triaged.</p>'); };
   const start = async () => {
@@ -420,48 +422,72 @@ test('an idle board with auto-triage on sends todo-triage under its dated topic 
   const tick = () => new Promise((resolve) => setTimeout(resolve, 80));
   try {
     await start();
+    setClock(Date.parse('2026-11-03T03:00:00Z'));
+    ask('q2', 't/A3');
     await tick();
     assert.deepEqual(triages(), [], 'off by default');
 
-    agent(false);
+    setClock(Date.parse('2026-11-02T16:00:00Z'));
     boardJSON(true);
+    await until(() => pulls().length === 1, 'the day\'s pull');
     await tick();
-    assert.deepEqual([triages(), pulls()], [[], []], 'a running builder keeps the board from being idle');
+    assert.deepEqual(triages(), [], 'never in the day');
+
+    agent(false);
+    setClock(Date.parse('2026-11-03T02:59:00Z'));
+    await tick();
+    assert.deepEqual(triages(), [], 'never before the middle of quiet hours');
+    setClock(Date.parse('2026-11-03T03:00:00Z'));
+    await tick();
+    await tick();
+    assert.deepEqual(triages(), [], 'a running builder holds it');
 
     agent(true);
-    await until(() => triages().length === 1, 'the idle board triages its Todo');
+    await until(() => triages().length === 1, 'the idle board triages overnight');
     const [first] = triages();
-    assert.deepEqual(first.data, { date: '2026-11-02', topic: 'todo-triage-2026-11-02' });
-    assert.deepEqual(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).topics, [{ id: 'todo-triage-2026-11-02', title: 'Todo triage 2026-11-02' }]);
-    // The triage's own changes to Todo, and the idle pull, wait for its reply.
+    assert.deepEqual({ ...first.data, cards: first.data.cards.sort() }, { date: '2026-11-03', topic: 'overnight-triage-2026-11-03', cards: ['t/A2', 't/A3'] });
+    assert.deepEqual(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).topics, [{ id: 'overnight-triage-2026-11-03', title: 'Overnight triage 2026-11-03' }]);
+    // The triage's own changes wait for its reply.
     wave.items[2].title = 'Two, merged with a duplicate';
     writeWave();
-    // The server keeps its marker current until the reply, so a reply that beat it to the change would read as one.
     const markerFile = path.join(dataDir, 'triaged.json');
     await until(() => fs.existsSync(markerFile) && fs.readFileSync(markerFile, 'utf8').includes('merged with a duplicate'), 'the server saw the triage\'s own change');
-    assert.deepEqual([triages().length, pulls()], [1, []]);
-
     reply(first.id);
-    await until(() => pulls().length === 1, 'the pull follows the finished triage');
+    await tick();
     await stop();
     await start();
     await tick();
-    assert.equal(triages().length, 1, 'once that day, across a restart');
+    assert.equal(triages().length, 1, 'once a night, across a restart');
 
-    setClock(now + day);
+    setClock(Date.parse('2026-11-04T03:00:00Z'));
     await tick();
     await tick();
-    assert.equal(triages().length, 1, 'a new day with Todo unchanged since the triage sends none');
+    assert.equal(triages().length, 1, 'a night with nothing changed since the triage sends none');
 
-    put(usageFile, JSON.stringify({ claude: { at: iso(now), five_hour: { used_percentage: 95, resets_at: iso(now + 3600000) }, seven_day: { used_percentage: 40, resets_at: iso(now + day) } } }));
-    wave.items.push({ id: 'A3', title: 'Three', status: 'planned' });
+    setClock(Date.parse('2026-11-04T12:00:00Z'));
+    ask('q3', 't/A1');
+    await tick();
+    await tick();
+    setClock(Date.parse('2026-11-04T08:00:00Z'));
+    await tick();
+    await tick();
+    assert.equal(triages().length, 1, 'never once quiet hours end');
+    setClock(Date.parse('2026-11-05T03:00:00Z'));
+    await until(() => triages().length === 2, 'the minute check sends a changed board\'s triage the next night');
+    const second = triages()[1].data;
+    assert.deepEqual({ ...second, cards: second.cards.sort() }, { date: '2026-11-05', topic: 'overnight-triage-2026-11-05', cards: ['t/A1', 't/A2', 't/A3'] });
+    reply(triages()[1].id);
+
+    wave.items[1].title = 'One, renamed';
+    put(usageFile, JSON.stringify({ claude: { at: '2026-11-06T03:00:00.000Z', five_hour: { used_percentage: 95, resets_at: '2026-11-06T09:00:00.000Z' }, seven_day: { used_percentage: 40, resets_at: '2026-11-09T00:00:00.000Z' } } }));
+    setClock(Date.parse('2026-11-06T03:00:00Z'));
     writeWave();
     await tick();
     await tick();
-    assert.equal(triages().length, 1, 'nothing while paused');
+    assert.equal(triages().length, 2, 'nothing while paused');
     fs.rmSync(usageFile);
-    await until(() => triages().length === 2, 'a changed Todo on a later day triages again');
-    assert.deepEqual(triages()[1].data, { date: '2026-11-03', topic: 'todo-triage-2026-11-03' });
+    await until(() => triages().length === 3, 'the triage goes once the pause lifts');
+    assert.equal(triages()[2].data.date, '2026-11-06');
   } finally {
     await stop();
     fs.rmSync(dir, { recursive: true, force: true });

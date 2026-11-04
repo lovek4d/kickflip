@@ -103,6 +103,16 @@ export function quietAt(t, s) {
   return a < b ? p >= a && p < b : p >= a || p < b;
 }
 
+// The middle of the quiet hours `t` falls in, from that middle up to their end, else null: when a board's overnight
+// triage goes out (docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md).
+export function quietMiddleOf(t, s) {
+  if (!quietAt(t, s)) return null;
+  const start = lastAt(t, s.quiet.start);
+  const length = (minutes(s.quiet.end) - minutes(s.quiet.start) + 1440) % 1440;
+  const middle = new Date(start.getFullYear(), start.getMonth(), start.getDate(), start.getHours(), start.getMinutes() + length / 2);
+  return middle <= t ? middle : null;
+}
+
 // Whether a check at `t` holds the queue: the hold is on and `t` falls in quiet hours, past their start's grace.
 export function holdsPushes(t, s) {
   return s.quiet.hold && quietAt(t, s) && t - lastAt(t, s.quiet.start) > HOLD_GRACE_MS;

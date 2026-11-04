@@ -143,16 +143,18 @@
 //                                a gone one drops its queued push.
 //                                Within a minute of a held card's until or pick_up_at the server resumes it
 //                                (store.mjs pickUp), at most once per time even across a restart.
-//                                The Auto jobs below run on every board change and once at start, never on a timer,
-//                                except a re-run once a usage pause lifts. With auto_pull on (Auto implement Todo
+//                                The Auto jobs below run on every board change and once at start, and on the minute
+//                                check only once a usage pause lifts or while an overnight triage is due. With auto_pull on (Auto implement Todo
 //                                cards), the server appends card-pull {key} for the top pullable Todo cards, one per
 //                                implementer slot max_implementers leaves free (domain.mjs pullOf), whether or not
 //                                the board is idle, each once, tracked in data/pulled.json; with nothing to pull, an
 //                                idle board gets card-plan {key} for the top plannable card, one at a time, tracked in
 //                                data/planned.json, which asks the session for a grill or prototype on it.
-//                                With auto_triage on, an idle board whose Todo changed since the last triage (domain.mjs
-//                                todoOf) gets todo-triage {date, topic} first (Todo and Stale), at most once a host day, tracked in
-//                                data/triaged.json; no pull goes out until Claude replies to it
+//                                With auto_triage on, once a night from the middle of the hub's quiet hours to their
+//                                end, an idle board with two or more cards waiting on open questions (domain.mjs
+//                                triageOf) gets overnight-triage {date, topic, cards} first, unless nothing changed
+//                                since the last triage, tracked in data/triaged.json; no pull goes out until Claude
+//                                replies to it
 //                                With auto_review on, an idle board with nothing pulled sends pr-review {pr, head, repo,
 //                                title, author, url, touches, asked} for the next incoming PR the hub's poll listed in
 //                                data/incoming.json (../hub/incoming.mjs) and no review covers at its head, one at a
@@ -206,6 +208,7 @@ import { fromHost, fromOwner } from './on-host.mjs';
 import { archOf, readReviews, repoName, startReview } from './arch-review.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -213,8 +216,8 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { archivedOf, buildBoard, withHub, DONE_KEPT, idleStep, idleSummary, ITEM_EVENTS, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, refOf, startedByAnswer, strictlyIdle, threadOf, todoOf } from './domain.mjs';
-import { localDay } from '../hub/schedule.mjs';
+import { archivedOf, buildBoard, withHub, DONE_KEPT, idleStep, idleSummary, ITEM_EVENTS, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, refOf, startedByAnswer, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { localDay, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, existsSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
@@ -483,7 +486,7 @@ async function snapshot(outside) {
     const repo = items.github || wave.repo;
     return wave.items.flatMap((it) => cardPRs(it, repo)).map(async (p) => { prs[prKeyOf(p)] = await prState(p.repo, p.number); });
   }));
-  const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'item-message', 'wave-triage', 'todo-triage']);
+  const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'item-message', 'wave-triage', 'overnight-triage']);
   const pageEvents = await Promise.all((await shownEvents()).map((e) => (needsReply.has(e.kind) || routeRecord(working, e.id) ? withReply(e) : { ...e, reply: null })));
   await Promise.all(pageEvents.filter((e) => e.kind === 'ask').map(async (e) => {
     const lines = await readLines(threadFile(`ask:${e.id}`));
@@ -1209,29 +1212,44 @@ async function launchLanders() {
   await fs.rename(file + '.tmp', file);
 }
 
-// docs/adr/2026-11-03-1551-an-idle-board-triages-its-todo-once-a-day.md
-// data/triaged.json {todo}: the Todo (domain.mjs todoOf) the last triage saw, kept current until that triage's reply so
-// its own links and merges don't read as a change. The event log says when the last triage went out. → true while a
+// docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md
+// The night an overnight triage would go out now: the host day of the middle of the hub's quiet hours, from that
+// middle until they end, else null. settings.json is read each time, since the owner edits quiet hours.
+async function triageNight() {
+  const middle = quietMiddleOf(new Date(), quietOf(await readJSON(path.join(os.homedir(), '.claude', 'kickflip', 'settings.json'), {})));
+  return middle && localDay(middle);
+}
+
+// data/triaged.json {seen}: what the last triage saw (domain.mjs triageOf), kept current until that triage's reply so
+// its own merges and dedupes don't read as a change. The event log says when the last triage went out. → true while a
 // triage is under way or was just sent.
 async function checkTriage(settings, log, items, ready) {
   const file = path.join(data, 'triaged.json');
   const marker = await readJSON(file, {});
-  const todo = todoOf(items);
+  const { waiting, seen } = triageOf(items);
   const save = async () => {
     await fs.mkdir(data, { recursive: true });
-    await fs.writeFile(file + '.tmp', JSON.stringify({ todo }) + '\n');
+    await fs.writeFile(file + '.tmp', JSON.stringify({ seen }) + '\n');
     await fs.rename(file + '.tmp', file);
   };
-  const last = log.filter((e) => e.kind === 'todo-triage').at(-1);
-  if (last && !(await withReply(last)).reply) { if (marker.todo !== todo) await save(); return true; }
-  const date = localDay(new Date());
-  if (!settings.auto_triage || !ready || !todo || todo === marker.todo || last?.data?.date === date) return false;
-  const topic = `todo-triage-${date}`;
+  const last = log.filter((e) => e.kind === 'overnight-triage').at(-1);
+  if (last && !(await withReply(last)).reply) { if (marker.seen !== seen) await save(); return true; }
+  if (!settings.auto_triage || !ready || waiting.length < 2 || seen === marker.seen) return false;
+  const date = await triageNight();
+  if (!date || last?.data?.date === date) return false;
+  const topic = `overnight-triage-${date}`;
   const owner = await readJSON(path.join(data, 'owner.json'), { topics: [] });
-  if (!(owner.topics || []).some((t) => t.id === topic)) await addTopic(here, { id: topic, title: `Todo triage ${date}` });
-  await appendEvent('todo-triage', { date, topic });
+  if (!(owner.topics || []).some((t) => t.id === topic)) await addTopic(here, { id: topic, title: `Overnight triage ${date}` });
+  await appendEvent('overnight-triage', { date, topic, cards: waiting });
   await save();
   return true;
+}
+
+// Whether the minute check runs the Auto jobs for an overnight triage: auto_triage is on, and tonight's hasn't gone out.
+async function triageDue() {
+  if (!settingsOf(await config()).auto_triage) return false;
+  const date = await triageNight();
+  return Boolean(date) && (await readLines(events)).filter((e) => e.kind === 'overnight-triage').at(-1)?.data?.date !== date;
 }
 
 // docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md
@@ -1380,6 +1398,7 @@ setInterval(() => {
   reviveHeadless();
   checkPickUps();
   if (heldByPause && readUsageGate().state !== 'paused') checkAuto();
+  else triageDue().then((due) => { if (due) checkAuto(); }, (err) => console.error('Triage check failed:', err.message));
   checkActions();
   checkIdle();
 }, 60000).unref();
