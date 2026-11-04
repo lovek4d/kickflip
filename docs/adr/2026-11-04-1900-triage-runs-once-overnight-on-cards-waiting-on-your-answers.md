@@ -9,7 +9,7 @@ The owner, on #190 (11/04), kept auto triage but changed its target: when the ca
 - **What it sends.** Topic `overnight-triage-<date>` ("Overnight triage <date>", the host day of the night's middle) and `overnight-triage {date, topic, cards}`, `cards` being the waiting cards' keys. As before, the pull waits for the session's reply, and `data/triaged.json {seen}` stays current until then so the triage's own merges don't read as a change. `seen` is each waiting card with its open count and when each open question was asked, then the Todo (`todoOf`), so a new or answered question, or a Todo change, lets the next night triage again.
 - **Merging questions.** One survivor: the merged question goes on the newest of its cards by `created`, naming the cards it answers for in its context; the others are resolved "Replaced by <id>", and the session copies the owner's answer onto each card when it lands. The question store keeps one topic per question, so no "applies to these cards" field.
 - **Folded in.** The old Todo hygiene (duplicates, cards a newer card covers, cards ready to close, stale deps) runs inside the overnight triage and no longer on its own. Questions it posts wait for morning by quiet hours' hold.
-- **Later.** Proposing answers the orchestrator is confident of is follow-up #218.
+- **Later.** Proposing answers the orchestrator is confident of is follow-up #218 ([overnight triage suggests your earlier answers](2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md)).
 - Board settings' toggle reads "Triage overnight".
 
 Considered:

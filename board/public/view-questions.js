@@ -23,7 +23,7 @@
 
   create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
     const { $, site } = B;
-    const { esc, choiceLabel, questionCard, roundChip, takes, linkContext, badge, topicName, cardTopics, topicRow, nextQuestion, sentNotice, fetchJSON, restartNotice } = BoardUI;
+    const { esc, choiceLabel, choiceOf, questionCard, roundChip, takes, linkContext, badge, topicName, cardTopics, topicRow, nextQuestion, sentNotice, fetchJSON, restartNotice } = BoardUI;
     // prototype-switcher.js reads a draft's note and clears the draft once it sends that question's answer.
     const draftKey = (id) => 'qdraft:' + id;
     const getDraft = (id) => { try { return JSON.parse(localStorage.getItem(draftKey(id)) || '{}'); } catch { return {}; } };
@@ -45,6 +45,8 @@
     let sentLine = '';
     // The footer after a prototype request: the blue spinner, then these words.
     const PROTOTYPE_REQUESTED = 'prototype requested';
+    // The bar's line while a suggested option is still pre-checked.
+    const SUGGESTED = 'suggested options are selected';
     const statusHtml = (line) => (line.startsWith(PROTOTYPE_REQUESTED) ? '<span class="try-spin" aria-hidden="true"></span>' : '') + esc(line);
     let scrollTake = null;
     const takeResources = new Map();
@@ -71,15 +73,17 @@
     }
     const topicHead = (t) => t ? `<div class="topichead muted small"><span>${esc(t.title)}${t.summary ? ` · ${esc(t.summary)}` : ''}</span>${roundChip(t.round)}</div>` : '';
 
-    // Only open questions changed here since their last answer, or with files attached, are sent; a resolved one is read-only.
+    // Only open questions changed here since their last answer, with files attached, or with a suggested option
+    // pre-checked and never answered, are sent; a resolved one is read-only.
     const filesOf = (q) => BoardAttach.files('q:' + q.id, site.root);
     const uploading = (qs) => qs.some((q) => BoardAttach.busy('q:' + q.id, site.root));
     function pending(qs) {
       return qs.filter((q) => q.state !== 'resolved' && q.state !== 'requested').filter((q) => {
         const d = getDraft(q.id);
         if (filesOf(q).length) return true;
-        if (!('choice' in d) && !d.note) return false;
         const last = q.answers[q.answers.length - 1];
+        if (!last && q.suggested) return true;
+        if (!('choice' in d) && !d.note) return false;
         return !last || (d.choice ?? last.choice) !== last.choice || (d.note || '') !== (last.note || '');
       });
     }
@@ -141,11 +145,9 @@
     function repaintTakes(sec) {
       if (!sec.querySelector('.takes')) return;
       const q = byId(sec.dataset.q);
-      const d = getDraft(q.id);
-      const chosen = d.choice ?? q.answers[q.answers.length - 1]?.choice;
       const old = sec.querySelector('.takes');
       clearTakeResources(old);
-      old.outerHTML = takes(q, chosen, links(q), fitOf(q));
+      old.outerHTML = takes(q, choiceOf(q, getDraft(q.id)), links(q), fitOf(q));
       sec.querySelectorAll('.take-shot').forEach(fitTake);
     }
 
@@ -260,9 +262,8 @@
       const at = leaving();
       st.textContent = '';
       const d = getDraft(q.id);
-      const last = q.answers[q.answers.length - 1];
       let out;
-      try { out = await BoardUI.waitOn(button, send('prototype-request', { ...(key ? { key } : {}), question: q.id, note: (d.note || '').trim(), choice: d.choice ?? (last ? last.choice : null) })); }
+      try { out = await BoardUI.waitOn(button, send('prototype-request', { ...(key ? { key } : {}), question: q.id, note: (d.note || '').trim(), choice: choiceOf(q, d) })); }
       catch (e) { st.textContent = e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?'; return; }
       setDraft(q.id, {});
       await moveOnOnceLoaded(at, `Prototype requested${at.name ? ` for ${at.name}` : ''}.`, out, PROTOTYPE_REQUESTED);
@@ -290,6 +291,10 @@
       if (b) { b.disabled = !n || uploading(qs); b.textContent = uploading(qs) ? 'Uploading…' : 'Send'; }
       const live = qs.filter((q) => q.state !== 'resolved');
       const answered = live.filter((q) => q.state !== 'open').length;
+      // docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
+      const prechecked = live.some((q) => q.suggested && !q.answers.length && choiceOf(q, getDraft(q.id)) === q.suggested.option);
+      const st = $('#qstatus');
+      if (st && !sentLine && (prechecked || st.textContent === SUGGESTED)) st.textContent = prechecked ? SUGGESTED : '';
       $('#progress').textContent = live.length > 1 ? `${answered}/${live.length} answered` : '';
     }
 
@@ -442,8 +447,7 @@
       // docs/adr/2026-11-03-1519-send-records-every-ready-answer-in-one-request.md: one request, recorded all or none. Send waits meanwhile.
       const answers = list.map((q) => {
         const d = getDraft(q.id);
-        const last = q.answers[q.answers.length - 1];
-        const choice = d.choice ?? (last ? last.choice : null);
+        const choice = choiceOf(q, d);
         const files = filesOf(q);
         return { id: q.id, question: q.question, choice, label: choiceLabel(q, choice), note: (d.note || '').trim(), ...(files.length ? { files } : {}) };
       });

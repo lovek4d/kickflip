@@ -558,6 +558,9 @@ main > * { transition: opacity .25s ease; }
 .view-questions .opt .lbl { font-weight: 600; }
 .view-questions .opt .rec { color: var(--accent); font-weight: 500; font-size: 12px; margin-left: 4px; }
 .view-questions .opt .det { color: var(--muted); font-size: 13px; }
+.view-questions .opt .suggested { margin-left: 6px; white-space: nowrap; }
+.view-questions .opt .suggested-why { margin-top: 4px; color: var(--muted); font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
+.view-questions .opt .suggested-why a { color: var(--accent); }
 .view-questions .note { margin-top: 4px; }
 .view-questions .ans { background: var(--accent-soft); border-radius: 9px; padding: 7px 10px; margin-top: 8px; font-size: 13px; }
 .view-questions .rep { background: var(--claude); border-radius: 9px; padding: 7px 10px; margin-top: 6px; font-size: 13px; }

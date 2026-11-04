@@ -3746,6 +3746,26 @@ test("Waiting on you's eye on each question, after its attach button, asks for a
   assert.deepEqual(v.shown(), { board: 'Prototype requested for INT-1.' });
 });
 
+// docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
+test("Waiting on you's Send sends a suggested option pre-checked, saying so on its bar until the owner picks another", async () => {
+  const question = (id, extra = {}) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open', ...extra });
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1', { suggested: { option: 'B', card: '#186', answer: 'No.' } }), question('q2')], at: 'q1' });
+  await v.settle();
+  const $ = (sel) => v.root.querySelector(sel);
+  assert.deepEqual([$('#qstatus').textContent, $('#send').disabled], ['suggested options are selected', false]);
+  assert.equal($('section.q[data-q="q1"] input[value="B"]').hasAttribute('checked'), true);
+  v.answer('q1');
+  assert.deepEqual([$('#qstatus').textContent, $('#send').disabled], ['', false]);
+  const pickB = $('section.q[data-q="q1"] input[value="B"]');
+  pickB.type = 'radio';
+  v.page.fire(v.root, 'change', { target: pickB });
+  assert.equal($('#qstatus').textContent, 'suggested options are selected');
+  await v.send();
+  assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['owner-answers', { answers: [{ id: 'q1', question: 'Question q1?', choice: 'B', label: 'B. No', note: '' }] }]]);
+  assert.equal(v.shown().status, 'sent 1 answer · 1 still open');
+  v.unmount();
+});
+
 test("Waiting on you's eye on a refused request keeps the question open with its draft and says why", async () => {
   const question = (id) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
   const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1')], at: 'q1', gate: { promise: Promise.resolve(), refuse: 'q1 is no longer asked here.' } });
@@ -3847,7 +3867,7 @@ test('Waiting on you measures a fitting grid, then uses one growing full-size fr
   assert.equal(v.root.querySelector('#send').textContent, 'Send');
   assert.equal(JSON.parse(v.page.win.localStorage.getItem('qdraft:q1')).choice, undefined);
   assert.deepEqual(v.root.querySelectorAll('.take-choices input').map((o) => o.getAttribute('value')), ['A', 'B', 'C']);
-  assert.match(v.root.querySelector('.take-choices').textContent, /B. DotRecommended/);
+  assert.match(v.root.querySelector('.take-choices').textContent, /B. Dotrecommended/);
   assert.ok(observers.every((o) => !o.on));
   let bHeight = 1100;
   load('B', () => bHeight);

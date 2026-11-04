@@ -42,11 +42,13 @@ command fails and changes nothing.
   topic add <id> --title <t> [--summary <s>]             a question topic in data/owner.json
   question add --file <json>                             one question or an array of them:
          {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
-          source?, context?, url?, urgent?, round_of?, reask_of?, ask?}; topic is declared, item:<wave>/<id>, item:ask:<eventId>
+          source?, context?, url?, urgent?, round_of?, reask_of?, ask?, suggested?}; topic is declared, item:<wave>/<id>, item:ask:<eventId>
           for a New card not sorted yet, lineup:<slug> for a wave's triage, or wave:<slug> for a wave file's triage on
           a board over ~/.claude/waves. A question on a done or merged card reopens it.
          url is http(s), or a site page such as prototype-<topic>.html?q=<id>, stored as given.
          Prototype options keep take order, ids matching take keys; recommended: true tags the recommendation.
+         suggested: {option, card, answer} pre-checks the option the owner already chose on an earlier card, with a
+         "suggested" chip and the line You answered this on <card>: "<answer>"; card is that card's ref, answer their words.
          Waiting on you shows fitting takes in a grid, or a chooser above one full-width take for a single take or if any
          scrolls or fills the screen.
          diagram, with practice: rows of 1-4 boxes [[{text, tone?, to?}]], tone quiet|info|notice|

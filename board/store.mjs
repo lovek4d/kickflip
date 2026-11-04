@@ -968,6 +968,16 @@ function checkOptions(options, name) {
   if (options.filter((o) => o.recommended).length > 1) fail(`${name} recommends more than one option`);
 }
 
+// docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
+// The option the overnight triage is confident the owner already chose, from their answer on an earlier card: the
+// card's ref and the answer as they gave it.
+function checkSuggested(s, options, at) {
+  onlyKeys(s, ['option', 'card', 'answer'], at);
+  if (!options.some((o) => o.id === text(s.option, `${at}.option`))) fail(`${at}.option names no option "${s.option}"`);
+  text(s.card, `${at}.card`);
+  text(s.answer, `${at}.answer`);
+}
+
 // A prototype is a topic recorded here, served as prototype-<topic>.html from one template (board/public/prototype.html,
 // board/server.mjs), whose takes are the site's public/prototypes/<topic>/<KEY>.js (docs/adr/2026-11-01-1448-the-board-serves-every-prototype-from-one-template.md).
 const prototypesFile = (site) => path.join(site, 'data', 'prototypes.json');
@@ -1053,7 +1063,7 @@ export async function addQuestions(site, input) {
   const topics = new Set((owner.topics || []).map((t) => t.id));
   for (const [i, q] of questions.entries()) {
     const name = `question ${q?.id ?? i + 1}`;
-    onlyKeys(q, ['id', 'topic', 'source', 'question', 'context', 'url', 'urgent', 'options', 'round_of', 'reask_of', 'ask'], name);
+    onlyKeys(q, ['id', 'topic', 'source', 'question', 'context', 'url', 'urgent', 'options', 'round_of', 'reask_of', 'ask', 'suggested'], name);
     if (taken.has(domId(q.id, `${name}.id`))) fail(`question id "${q.id}" is already used`);
     taken.add(q.id);
     text(q.topic, `${name}.topic`);
@@ -1067,6 +1077,7 @@ export async function addQuestions(site, input) {
     optional(q.url, (v) => pageUrl(v, `${name}.url`));
     optional(q.urgent, (v) => bool(v, `${name}.urgent`));
     checkOptions(q.options, name);
+    optional(q.suggested, (v) => checkSuggested(v, q.options, `${name}.suggested`));
     await checkPrototype(site, q, name);
     if (q.ask !== undefined) await checkAskQuestion(site, q, name);
     optional(q.round_of, (id) => {

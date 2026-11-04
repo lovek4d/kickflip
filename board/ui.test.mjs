@@ -721,8 +721,26 @@ const question = {
 
 test('a question card marks the recommended option', () => {
   const opts = options(ui.questionCard(question));
-  assert.deepEqual(opts.map((o) => text(o)), ['A. Keep', 'B. Drop Recommended Saves a step']);
+  assert.deepEqual(opts.map((o) => text(o)), ['A. Keep', 'B. Drop recommended Saves a step']);
   assert.match(text(ui.questionCard(question)), /Keep <it>\?/);
+});
+
+// docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
+test('a question card pre-checks its suggested option with a green suggested chip and, under it, the earlier answer it came from', () => {
+  const suggested = { ...question, suggested: { option: 'A', card: '#186', answer: 'Keep, nothing floats over a question.' } };
+  const opts = options(ui.questionCard(suggested));
+  const checked = (html) => options(html).map((o) => /\bchecked>/.test(o));
+  assert.deepEqual(opts.map((o) => text(o)), ['A. Keep suggested You answered this on #186: "Keep, nothing floats over a question."', 'B. Drop recommended Saves a step']);
+  assert.match(opts[0], /<span class="lbl">A\. Keep<\/span><span class="chip suggested tone-ready">suggested<\/span>/);
+  const links = ui.linkContext([{ key: 'w/A1', wave: 'w', id: 'A1', ref: '#186' }], null);
+  assert.match(options(ui.questionCard(suggested, { links }))[0], /<div class="suggested-why">You answered this on <a [^>]*>#186<\/a>: /);
+  assert.deepEqual(checked(ui.questionCard(suggested)), [true, false]);
+  assert.deepEqual(checked(ui.questionCard(suggested, { draft: { choice: 'B' } })), [false, true]);
+  const answered = { ...suggested, state: 'answered', answers: [{ ts: ago(1), choice: 'B', note: '', reply: null }] };
+  assert.deepEqual(checked(ui.questionCard(answered)), [false, true]);
+  assert.equal(ui.choiceOf(suggested, {}), 'A');
+  assert.equal(ui.choiceOf(answered, {}), 'B');
+  assert.equal(ui.choiceOf(question, {}), null);
 });
 
 test("a question card checks this device's draft over the last answer", () => {
@@ -769,7 +787,7 @@ test('one scrolling take gives the question a chooser in stored order and one fu
   const render = (question = q, draft = {}) => ui.questionCard(question, { draft, fit: (id) => sizes[id] });
   const proto = render();
   assert.match(proto, /class="takes takes-full"/);
-  assert.deepEqual(options(proto).map((o) => text(o)), ['A. Keep', 'B. Drop Recommended Saves a step']);
+  assert.deepEqual(options(proto).map((o) => text(o)), ['A. Keep', 'B. Drop recommended Saves a step']);
   assert.deepEqual(frames(proto), ['prototype-hub-snooze.html?q=q1&take=B']);
   assert.deepEqual([...proto.matchAll(/aria-current="true"><input [^>]*value="(\w+)"/g)].map((m) => m[1]), ['B']);
   assert.deepEqual(shots(proto), [['take-shot', 'height:1102px']]);

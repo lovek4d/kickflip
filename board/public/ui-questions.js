@@ -4,8 +4,14 @@
   // A short id such as A or C2 leads the label; a word id such as "inline" would repeat it. prototype-switcher.js answerLabel matches.
   const lead = (o) => (/^[A-Z][0-9]?$/i.test(o.id) ? `${o.id}. ` : '');
   const choiceLabel = (q, id) => { const o = q.options.find((x) => x.id === id); return o ? `${q.multi ? '' : lead(o)}${o.label}` : id || ''; };
-  const option = (o, { type = 'radio', name, checked = false, numbered = true, shown = false, locked = false }) => `<label class="opt"${shown ? ' aria-current="true"' : ''}><input type="${type}" name="${esc(name)}" value="${esc(o.id)}" ${checked ? 'checked' : ''}${locked ? ' disabled' : ''}>
-        <span><span class="lbl">${numbered ? esc(lead(o)) : ''}${esc(o.label)}</span>${o.recommended ? '<span class="rec">Recommended</span>' : ''}<div class="det">${esc(o.detail || '')}</div></span></label>`;
+  // suggested: the line under a suggested option saying where the owner chose it before, as HTML.
+  const option = (o, { type = 'radio', name, checked = false, numbered = true, shown = false, locked = false, suggested = '' }) => `<label class="opt"${shown ? ' aria-current="true"' : ''}><input type="${type}" name="${esc(name)}" value="${esc(o.id)}" ${checked ? 'checked' : ''}${locked ? ' disabled' : ''}>
+        <span><span class="lbl">${numbered ? esc(lead(o)) : ''}${esc(o.label)}</span>${suggested ? badge('ready', 'suggested').replace('class="chip', 'class="chip suggested') : ''}${o.recommended ? '<span class="rec">recommended</span>' : ''}<div class="det">${esc(o.detail || '')}</div>${suggested ? `<div class="suggested-why">${suggested}</div>` : ''}</span></label>`;
+  // docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
+  // A question's pick on this device: its unsent draft, else its last answer, else the option the overnight triage
+  // suggested, pre-checked so the topic's Send sends it.
+  const choiceOf = (q, draft) => draft.choice ?? (q.answers.length ? q.answers[q.answers.length - 1].choice : q.suggested?.option ?? null);
+  const suggestedLine = (q, o, links) => q.suggested?.option === o.id ? linkText(`You answered this on ${q.suggested.card}: "${q.suggested.answer}"`, links) : '';
 
   const SPIN = '<span class="try-spin" aria-hidden="true"></span>';
   // A question's eye sends `prototype-request {key?, question, note, choice}` for that question alone, which then reads
@@ -81,9 +87,9 @@
     const name = 'c-' + q.id;
     if (fullTakes(q, fit)) {
       const shown = q.options.find((o) => o.id === chosen) || q.options.find((o) => o.recommended) || q.options[0];
-      return `<div class="takes takes-full"><div class="take-choices" role="group" aria-label="Takes">${q.options.map((o) => option(o, { name, checked: chosen === o.id, shown: o === shown, locked })).join('')}</div><article class="take" data-opt="${esc(shown.id)}">${takeBody(q, shown, links, fit, true)}</article></div>`;
+      return `<div class="takes takes-full"><div class="take-choices" role="group" aria-label="Takes">${q.options.map((o) => option(o, { name, checked: chosen === o.id, shown: o === shown, locked, suggested: suggestedLine(q, o, links) })).join('')}</div><article class="take" data-opt="${esc(shown.id)}">${takeBody(q, shown, links, fit, true)}</article></div>`;
     }
-    return `<div class="takes">${q.options.map((o) => `<article class="take" data-opt="${esc(o.id)}">${option(o, { name, checked: chosen === o.id, locked })}${takeBody(q, o, links, fit)}</article>`).join('')}</div>`;
+    return `<div class="takes">${q.options.map((o) => `<article class="take" data-opt="${esc(o.id)}">${option(o, { name, checked: chosen === o.id, locked, suggested: suggestedLine(q, o, links) })}${takeBody(q, o, links, fit)}</article>`).join('')}</div>`;
   }
   // A confirm links its one take alone, and says why it is asked.
   const confirmLines = (q) => !q.confirm_of ? ''
@@ -115,16 +121,15 @@
   // round arrives (docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md).
   function questionCard(q, { n = 0, draft = {}, links = {}, fit = () => null } = {}) {
     if (q.state === 'resolved') return resolvedCard(q, links);
-    const last = q.answers[q.answers.length - 1];
     const locked = q.state === 'requested';
-    const chosen = locked ? q.request.choice : draft.choice ?? (last ? last.choice : null);
+    const chosen = locked ? q.request.choice : choiceOf(q, draft);
     return `<section class="q ${q.urgent && q.state === 'open' ? 'urgent' : ''}" id="${esc(q.id)}" data-q="${esc(q.id)}">
       <div class="row" style="margin:0"><span class="muted small">${n ? n + '. ' : ''}${esc(q.source || '')}</span>${badge(QUESTION_STATE[q.state].tone, QUESTION_STATE[q.state].label)}</div>
       <h3>${linkText(q.question, links)}</h3>
       ${q.context ? `<div class="ctx">${linkText(q.context, links)}</div>` : ''}
       ${framed(q) ? '' : questionLink(q.url)}
       ${confirmLines(q)}
-      ${inline(q) ? takes(q, chosen, links, fit, locked) : q.options.map((o) => option(o, { name: 'c-' + q.id, checked: chosen === o.id, locked })).join('')}
+      ${inline(q) ? takes(q, chosen, links, fit, locked) : q.options.map((o) => option(o, { name: 'c-' + q.id, checked: chosen === o.id, locked, suggested: suggestedLine(q, o, links) })).join('')}
       ${locked ? (q.request.note ? `<div class="ans"><div class="muted small">You · ${esc(time(q.request.ts))}</div><div>${linkText(q.request.note, links)}</div></div>` : '') : noteComposer(q, draft.note)}
       ${answerHistory(q, links)}
     </section>`;
@@ -174,5 +179,5 @@
     },
   };
 
-  Object.assign(globalThis.BoardUI, { choiceLabel, option, answerHistory, questionCard, roundChip, takes, topicName, cardTopics, topicRow, nextQuestion, sentNotice });
+  Object.assign(globalThis.BoardUI, { choiceLabel, choiceOf, option, answerHistory, questionCard, roundChip, takes, topicName, cardTopics, topicRow, nextQuestion, sentNotice });
 })();
