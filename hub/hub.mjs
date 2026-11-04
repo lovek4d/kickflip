@@ -44,10 +44,11 @@
 //   /_hub/close-board POST {route, name} stops the session, closes builder records and keeps the site under `closed`
 //   /_hub/reopen-board POST {route} restores that entry and resumes its recorded session (close-board.mjs)
 //   /_hub/restart-board POST {route} stops the board's session, restarts its server and, once that answers, resumes
-//                     the session → {route, title, session}, or {error} (restart-board.mjs)
+//                     the session → {route, title, session}, or {error} (restart-board.mjs); 403 unless from the signed-in
+//                     owner (board/on-host.mjs fromOwner)
 //   /_hub/restart-hub POST from the hub page's Restart hub: answers {restarting, command} (the hub service's restart
 //                     command, for a restart by hand), then runs that restart (board/worktree.mjs restartRunner), which
-//                     replaces this process; 409 while one is out
+//                     replaces this process; 409 while one is out, 403 unless from the signed-in owner
 //   /_hub/upgrade    POST from the sidebar's Upgrade: runs `kickflip update` once no builder runs → {upgrade}, the sidebar's
 //                     upgrade field, or 409 when nothing newer is on npm (upgrade.mjs)
 //   /_hub/wake       POST {route} from a board page's tap while the board is asleep: the session check resumes its
@@ -185,6 +186,7 @@ import { serveFiles } from './files.mjs';
 import { upgrader, CHECK_MS } from './upgrade.mjs';
 import { fallBackFromLinear, openBoardBuilders } from '../board/store.mjs';
 import { recordRefusal } from '../board/permissions.mjs';
+import { fromOwner } from '../board/on-host.mjs';
 import { restartRunner } from '../board/worktree.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
@@ -837,6 +839,7 @@ async function hubRoute(req, res, url) {
     } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
   }
   if (p === '/_hub/restart-board' && req.method === 'POST') {
+    if (!(await fromOwner(req))) return sendJSON(403, { error: 'Only the signed-in owner can restart a board.' });
     let route;
     try {
       route = (await readJSONBody(req)).route;
@@ -854,6 +857,7 @@ async function hubRoute(req, res, url) {
   if (p === '/_hub/restart-hub' && req.method === 'POST') {
     try {
       await readJSONBody(req);
+      if (!(await fromOwner(req))) return sendJSON(403, { error: 'Only the signed-in owner can restart the hub.' });
       if (hubRestarting) return sendJSON(409, { error: 'The hub is already restarting.' });
       hubRestarting = true;
       // The restart stops this process, so it runs once the answer is flushed.

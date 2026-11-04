@@ -4323,9 +4323,9 @@ test("Board Settings' Permissions switches sit below Auto, wait for the server w
   const rules = { pushMain: 'Bash(git push origin main)', pushTags: 'Bash(git push origin v*)', draftPr: 'Bash(gh pr create --draft *)' };
   const names = { pushMain: 'Push main after a land', pushTags: 'Push release tags', draftPr: 'Open draft PRs' };
   const state = { pushMain: false, pushTags: true, draftPr: false };
-  let onHost = true, answer = null;
+  let owner = true, answer = null;
   const posts = [];
-  const view = () => ({ onHost, file: '/r/.claude/settings.local.json', permissions: Object.keys(rules).map((id) => ({ id, name: names[id], allows: `Allows ${id}.`, rule: rules[id], on: state[id],
+  const view = () => ({ owner, file: '/r/.claude/settings.local.json', permissions: Object.keys(rules).map((id) => ({ id, name: names[id], allows: `Allows ${id}.`, rule: rules[id], on: state[id],
     refused: id === 'pushTags' && state[id] ? { command: 'git push origin v0.9.0', how: 'denied', at: '2026-11-03T20:00:00.000Z' } : null })) });
   const reply = (body, ok = true) => ({ ok, status: ok ? 200 : 400, text: async () => JSON.stringify(body), json: async () => body });
   page.win.fetch = async (url, opts = {}) => {
@@ -4350,7 +4350,7 @@ test("Board Settings' Permissions switches sit below Auto, wait for the server w
   assert.deepEqual(rows.map((r) => r.querySelector('span span').textContent), Object.values(names));
   assert.match(rows[1].innerHTML, /Writes <code>Bash\(git push origin v\*\)<\/code>/);
   assert.equal(root.querySelector('#permissions .refused-note').textContent, 'Auto mode still refused this once: git push origin v0.9.0. Approve it under /permissions, Recently blocked.');
-  assert.equal(root.querySelector('#permissionsOffHost'), null);
+  assert.equal(root.querySelector('#permissionsNotOwner'), null);
 
   const change = (id) => page.fire(root.querySelector('#permissions'), 'change', { target: toggle(id) });
   toggle('pushMain').checked = true;
@@ -4373,9 +4373,9 @@ test("Board Settings' Permissions switches sit below Auto, wait for the server w
   assert.equal(root.querySelector('#perm-pushTagsStatus').textContent, 'Cannot save');
   v.unmount();
 
-  onHost = false;
+  owner = false;
   const away = await mount();
   assert.deepEqual(Object.keys(rules).map((id) => away.root.querySelector(`#perm-${id}`).disabled), [true, true, true]);
-  assert.equal(away.root.querySelector('#permissionsOffHost').textContent, 'Only the host can change these. Change on the host.');
+  assert.equal(away.root.querySelector('#permissionsNotOwner').textContent, 'Only the signed-in owner can change these.');
   away.v.unmount();
 });

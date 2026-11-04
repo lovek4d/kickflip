@@ -6,6 +6,9 @@
 // with no such header reached the hub straight on loopback. When the host's tailnet address isn't on one of its
 // interfaces, the request is the host's when tailscale serve's Tailscale-User-Login is the host's user and the
 // forwarded address is one of the host node's own (`tailscale status --json` Self).
+// fromOwner is whether the request comes from the signed-in owner: the host, a direct loopback caller, or any device
+// whose Tailscale-User-Login is the host node's user (docs/adr/2026-11-04-0502-only-the-signed-in-owner-changes-permissions-or-restarts.md).
+// The hub listens on 127.0.0.1 alone, so only a local process can send that header past tailscale serve.
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -26,12 +29,26 @@ async function tailnetNode() {
 
 // req: {headers, socket: {remoteAddress}}; host: {addresses: () => [address], node: async () => {login, addresses} | null}
 // → true on the host
+const clientOf = (req) => {
+  const forwarded = req.headers['x-forwarded-for'];
+  return bare(forwarded ? String(forwarded).split(',').at(-1) : req.socket.remoteAddress);
+};
+
 export async function fromHost(req, host = { addresses: interfaceAddresses, node: tailnetNode }) {
   const forwarded = req.headers['x-forwarded-for'];
-  const client = bare(forwarded ? String(forwarded).split(',').at(-1) : req.socket.remoteAddress);
+  const client = clientOf(req);
   if (host.addresses().includes(client)) return true;
   const login = req.headers['tailscale-user-login'];
   if (!forwarded || !login) return false;
   const node = await host.node();
   return Boolean(node) && node.login === login && node.addresses.includes(client);
+}
+
+// req, host: as fromHost → true for the signed-in owner
+export async function fromOwner(req, host = { addresses: interfaceAddresses, node: tailnetNode }) {
+  if (host.addresses().includes(clientOf(req))) return true;
+  const login = req.headers['tailscale-user-login'];
+  if (!login) return false;
+  const node = await host.node();
+  return Boolean(node) && node.login === login;
 }

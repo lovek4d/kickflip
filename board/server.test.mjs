@@ -1184,7 +1184,7 @@ test("/api/board names a card's worktree while its folder exists, and says wheth
   }
 });
 
-test("/api/permissions writes the board folder's settings.local.json from the host, and reads them anywhere else", async () => {
+test("/api/permissions writes the board folder's settings.local.json for the signed-in owner, and reads them anywhere else", async () => {
   const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
   const folder = path.join(home, 'perm-repo');
   const local = path.join(folder, '.claude', 'settings.local.json');
@@ -1197,11 +1197,11 @@ test("/api/permissions writes the board folder's settings.local.json from the ho
   const away = { 'x-forwarded-for': '100.70.1.2' };
   try {
     const first = await get();
-    assert.deepEqual([first.onHost, first.file, first.permissions.map((p) => [p.id, p.on])], [true, local, [['pushMain', false], ['pushTags', false], ['draftPr', false]]]);
-    assert.equal((await get(away)).onHost, false);
+    assert.deepEqual([first.owner, first.file, first.permissions.map((p) => [p.id, p.on])], [true, local, [['pushMain', false], ['pushTags', false], ['draftPr', false]]]);
+    assert.equal((await get(away)).owner, false);
     const refused = await set({ id: 'pushTags', on: true }, away);
     assert.equal(refused.status, 403);
-    assert.match((await refused.json()).error, /Change on the host/);
+    assert.match((await refused.json()).error, /Only the signed-in owner can change these/);
     assert.deepEqual(JSON.parse(fs.readFileSync(local, 'utf8')), { permissions: { allow: ['Bash(npm test)'] } });
     const on = await set({ id: 'pushTags', on: true });
     assert.equal(on.status, 200);

@@ -435,14 +435,14 @@
       denied: (command) => `Auto mode still refused this once: ${command}. Approve it under /permissions, Recently blocked.`,
       asked: (command) => `The session still asked before running ${command}, so it hasn’t picked the rule up yet. It applies once the session restarts.`,
     };
-    const permRow = (p, onHost) => `<label class="who" for="perm-${esc(p.id)}"><span><span>${esc(p.name)}</span>
+    const permRow = (p, owner) => `<label class="who" for="perm-${esc(p.id)}"><span><span>${esc(p.name)}</span>
       <span class="muted small sub">${esc(p.allows)} Writes <code>${esc(p.rule)}</code></span></span>
-      <span class="toggle-slot"><span class="try-spin toggle-spin" aria-hidden="true"></span><input type="checkbox" class="toggle" data-perm="${esc(p.id)}" id="perm-${esc(p.id)}"${p.on ? ' checked' : ''}${onHost ? '' : ' disabled'}></span></label>
+      <span class="toggle-slot"><span class="try-spin toggle-spin" aria-hidden="true"></span><input type="checkbox" class="toggle" data-perm="${esc(p.id)}" id="perm-${esc(p.id)}"${p.on ? ' checked' : ''}${owner ? '' : ' disabled'}></span></label>
       <p class="muted small" id="perm-${esc(p.id)}Status" role="status"></p>
       ${p.refused ? `<p class="muted small refused-note">${esc(REFUSED[p.refused.how](p.refused.command))}</p>` : ''}`;
     const drawPermissions = (d) => {
-      permissions.innerHTML = d.permissions.map((p) => permRow(p, d.onHost)).join('')
-        + (d.onHost ? '' : '<p class="muted small" id="permissionsOffHost">Only the host can change these. Change on the host.</p>');
+      permissions.innerHTML = d.permissions.map((p) => permRow(p, d.owner)).join('')
+        + (d.owner ? '' : '<p class="muted small" id="permissionsNotOwner">Only the signed-in owner can change these.</p>');
     };
     get(site.url('api/permissions'), waitIn('#permissions')).then(({ ok, body }) => {
       if (!B.alive()) return;

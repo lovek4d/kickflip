@@ -82,7 +82,7 @@ test('a refusal shows under its switch only while it is on, and a change to that
     const at = new Date('2026-11-03T20:00:00Z');
     assert.equal(await recordRefusal(folder, site, bash('git push origin v1.0.0'), at), 'pushTags');
     const view = await permissionsView(folder, site, true);
-    assert.equal(view.onHost, true);
+    assert.equal(view.owner, true);
     assert.equal(view.file, settingsFile(folder));
     assert.deepEqual(view.permissions.map((p) => [p.id, p.on, p.refused]), [
       ['pushMain', false, null],
