@@ -71,6 +71,16 @@ test("the sidebar's rows carry each site's icon, status line and count, and mark
   assert.equal(without.ctx, null);
 });
 
+test('a board not listening with its context at 95% or more reads context full; listening, or below 95%, it does not', () => {
+  const rows = [{ route: 'orch', title: 'Orchestrator', state: 'up' }];
+  const sub = (listen, percent) => sidebarSites(rows, new Map(), new Set(['orch']), new Map([['orch', listen]]), new Map([['orch', { percent, at: '2026-11-03T22:14:22.000Z' }]]))[0].sub;
+  assert.match(sub('deaf', 97.6), /^<span class="dot t-down" aria-hidden="true"><\/span><span class="word t-down">context full<\/span>$/);
+  assert.match(sub('deaf', 95), />context full</);
+  assert.match(sub('deaf', 94.9), />not listening</);
+  assert.doesNotMatch(sub('listening', 99), /context full/);
+  assert.doesNotMatch(sub('asleep', 99), /context full/);
+});
+
 test('a first visit opens the board with the most waiting, the most recently changed among equals, and never a site that is not a board', () => {
   const site = (route, count, changedAt, board = true) => ({ route, count, changedAt, board });
   assert.equal(startRoute([site('a', 1, 1), site('b', 3, 0), site('c', 3, 2), site('page', 9, 9, false)]), 'c');

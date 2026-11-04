@@ -2,6 +2,7 @@
 // each site's status word and lane chips (docs/adr/0037-the-hub-home-shows-status-not-descriptions.md), the hub's
 // health, and the board a first visit opens.
 import { siteIcon } from './icons.mjs';
+import { contextFull } from './usage.mjs';
 
 const count = (n) => (Number.isInteger(n) && n > 0 ? n : 0);
 
@@ -22,9 +23,11 @@ export function readNeeds(body) {
 }
 
 // The most urgent thing a site is doing, or null when it is calm. state is the hub's process state; listen is a board's
-// boards.mjs listenState and undefined for a site that isn't a board.
+// boards.mjs listenState, or 'full' for a deaf board whose context is full (usage.mjs contextFull), and undefined for a
+// site that isn't a board.
 export function siteStatus({ state, working, count: waiting, building, listen } = {}) {
   if (state === 'down') return { tone: 'down', word: 'down' };
+  if (listen === 'full') return { tone: 'down', word: 'context full' };
   if (listen === 'deaf') return { tone: 'down', word: 'not listening' };
   if (state === 'starting') return { tone: 'starting', word: 'starting' };
   if (state === 'stopped') return { tone: 'stopped', word: 'stopped' };
@@ -63,9 +66,10 @@ export function sidebarSites(rows, waiting, boards, listens = new Map(), context
   return rows.map((r) => {
     const needs = waiting.get(r.route) ?? null;
     const listen = boards.has(r.route) ? listens.get(r.route) ?? 'listening' : undefined;
+    const ctx = contexts.get(r.route) ?? null;
     return {
       route: r.route, title: r.title, board: boards.has(r.route), state: r.state, count: needs?.count || 0,
-      changedAt: r.changedAt || 0, created: r.created || null, icon: siteIcon(r.route, r), sub: statusLine(r.state, needs, listen), ctx: contexts.get(r.route) ?? null,
+      changedAt: r.changedAt || 0, created: r.created || null, icon: siteIcon(r.route, r), sub: statusLine(r.state, needs, contextFull(listen, ctx) ? 'full' : listen), ctx,
     };
   });
 }

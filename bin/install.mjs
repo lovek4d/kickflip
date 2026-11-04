@@ -157,7 +157,7 @@ export async function runInstall({ home = os.homedir(), cloneRoot = runningClone
     try {
       for (const { link, target, created, replaced } of installLinks({ home, cloneRoot, dryRun })) log(`would ${created || replaced ? 'link' : 'check'} ${link} -> ${target}`);
     } catch (e) { log(`would refuse: ${e.message}`); }
-    log(`would merge statusLine and the watcher Stop hook and remove stale hooks in ${path.join(home, '.claude', 'settings.json')}`);
+    log(`would merge statusLine and the watcher Stop hook, turn on autoCompactEnabled and remove stale hooks in ${path.join(home, '.claude', 'settings.json')}`);
     const missing = missingSkills(home);
     if (missing.length) log(`would add ${missing.join(', ')} from ${SKILLS_SOURCE} with ${addCommand(missing)}`);
     for (const note of await service.install(null, { wait, dryRun })) log(note);
@@ -221,6 +221,12 @@ export function installClaudeSettings({ home = os.homedir() } = {}) {
     settings.hooks = { ...hooks, Stop: [...(Array.isArray(hooks.Stop) ? hooks.Stop : []), { hooks: [{ type: 'command', command: WATCHER_STOP }] }] };
     changed = true;
     notes.push(`added the watcher Stop hook to ${file} -> ${WATCHER_STOP}`);
+  }
+  // A board session that fills its context stops answering until it compacts (docs/adr/0179-a-board-session-compacts-before-its-context-fills.md).
+  if (settings.autoCompactEnabled !== true) {
+    settings.autoCompactEnabled = true;
+    changed = true;
+    notes.push(`turned on autoCompactEnabled in ${file}`);
   }
   const missing = path.join(home, '.claude', 'hooks', 'no-paths.py');
   if (!fs.existsSync(missing) && settings.hooks && typeof settings.hooks === 'object') {

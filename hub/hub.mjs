@@ -159,7 +159,7 @@ import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
 import { readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
-import { checkSessions, startingBoards } from './sessions.mjs';
+import { checkSessions, compactFullContexts, startingBoards } from './sessions.mjs';
 import { repoService, repoLookupRoute } from './repos.mjs';
 import { boardRepo, changeBoardRepo, migrateBoardRepos, migrateHubBoard } from './board-repo.mjs';
 import { requestBoard, retryBoard, dismissBoard } from './new-board.mjs';
@@ -427,7 +427,11 @@ function runSessionCheck() {
   wakeAsks.clear();
   sessionCheck.running = checkSessions({ manifest: loadManifest(), asked }).then((r) => {
     if (r.resumed.length || r.pushed.length || r.failed.length) log(`sessions: resumed ${r.resumed.join(', ') || 'none'}; pushed ${r.pushed.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
-  }).catch((e) => log('session check failed:', e.message)).finally(() => { sessionCheck.running = null; });
+  }).catch((e) => log('session check failed:', e.message))
+    // docs/adr/0179-a-board-session-compacts-before-its-context-fills.md
+    .then(() => compactFullContexts({ manifest: loadManifest() })).then((r) => {
+      if (r.compacted.length || r.failed.length) log(`context full: sent /compact to ${r.compacted.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
+    }).catch((e) => log('context full check failed:', e.message)).finally(() => { sessionCheck.running = null; });
 }
 
 await initializeTries(loadManifest());

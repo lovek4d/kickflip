@@ -105,6 +105,12 @@ export function usageReader({ home = os.homedir(), now = Date.now, cacheMs = 60_
   };
 }
 
+// A board session at or over this context percent that isn't listening has filled its context: its turns fail until it
+// compacts (docs/adr/0179-a-board-session-compacts-before-its-context-fills.md). listen is boards.mjs listenState, reading
+// contextReading's.
+export const CONTEXT_FULL = 95;
+export const contextFull = (listen, reading) => listen === 'deaf' && reading?.percent >= CONTEXT_FULL;
+
 // The context percentage bin/statusline.mjs last saved for a session, {percent, at}, or null.
 export function contextReading(session, { home = os.homedir() } = {}) {
   if (typeof session !== 'string' || !/^[\w-]+$/.test(session)) return null;

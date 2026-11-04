@@ -18,7 +18,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { joinName, routeRecord, validRoute } from './routes.mjs';
 import { withFileLock } from './locks.mjs';
-import { RESUME_STATE, carryCursor, hubBoard, isListening, listBoards, oldestUnheard, readManifest, readJSON, saveJSON, watchedCounts, watchedLines, watcherCursor, withManifestLock, writeManifest } from './boards.mjs';
+import { RESUME_STATE, carryCursor, hubBoard, isListening, listBoards, listenState, oldestUnheard, readManifest, readJSON, saveJSON, watchedCounts, watchedLines, watcherCursor, withManifestLock, writeManifest } from './boards.mjs';
 import { readUsageGate, heldUsageEvent } from '../shared/usage-gate.mjs';
 import { liveSessions, sessionRecords, processStarts, verifiedProcess } from './live.mjs';
 import { deliver } from './push.mjs';
@@ -27,11 +27,13 @@ import { nodeBin, storedPath } from '../bin/install.mjs';
 import { reposDir } from '../shared/repos.mjs';
 import { isClone } from './repos.mjs';
 import { trustFolder } from './trust.mjs';
+import { contextFull, contextReading } from './usage.mjs';
 
 const SKILL_DIR = storedPath(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'));
 export const RESUME_AFTER = 3 * 60_000;
 export const COMEBACK_WAIT = 5 * 60_000;
 export const STARTING_WAIT = 15 * 60_000;
+const COMPACT_STATE = path.join(os.homedir(), '.claude', 'kickflip', 'compact-state.json');
 
 // Whether a Starting record didn't start: its start recorded an error, or it hasn't joined STARTING_WAIT after it was asked.
 export const startFailed = (rec, now = Date.now()) => Boolean(rec.error) || now - Date.parse(rec.asked_at || rec.since) >= STARTING_WAIT;
@@ -88,6 +90,38 @@ export function runTmux(argv) {
 // The tmux session a hub board's session runs in.
 export const tmuxName = (route) => `kickflip-${route}`;
 const hasTmux = (tmux, route) => tmux(['has-session', '-t', `=${tmuxName(route)}`]).status === 0;
+
+// The hub board's session, when its context is full (usage.mjs contextFull) and it runs in its tmux session, gets /compact
+// typed into its pane, once per fill: compact-state.json {<route>: {session, percent, at, error?}} records the attempt
+// and is cleared once the board's context is no longer full, so a session that fills again is compacted again. A
+// background session has no pane to type into; the sidebar reads context full for it
+// (docs/adr/0179-a-board-session-compacts-before-its-context-fills.md). The hub runs it after each session check.
+// → {compacted: [route], failed: [message]}
+export async function compactFullContexts({ manifest = readManifest(), now = new Date(), running = liveSessions(), wakes = readJSON(RESUME_STATE, {}), tmux = runTmux } = {}) {
+  const state = Object.assign(Object.create(null), readJSON(COMPACT_STATE, {}));
+  const compacted = [];
+  const failed = [];
+  let dirty = false;
+  const hub = hubBoard(manifest)?.route;
+  for (const board of listBoards(manifest)) {
+    const reading = contextReading(board.owner?.session);
+    if (!contextFull(listenState(board, { now: now.getTime(), running, wakes }), reading)) {
+      if (routeRecord(state, board.route)) { delete state[board.route]; dirty = true; }
+      continue;
+    }
+    if (board.route !== hub || routeRecord(state, board.route) || !hasTmux(tmux, board.route)) continue;
+    const target = `=${tmuxName(board.route)}:`;
+    const typed = tmux(['send-keys', '-t', target, '-l', '/compact']);
+    const sent = typed.status === 0 ? tmux(['send-keys', '-t', target, 'Enter']) : typed;
+    const error = sent.status === 0 ? null : (sent.stderr || sent.stdout).trim().slice(0, 300) || `tmux exited ${sent.status}`;
+    state[board.route] = { session: board.owner.session, percent: reading.percent, at: now.toISOString(), ...(error ? { error } : {}) };
+    dirty = true;
+    if (error) failed.push(`${board.route}: could not send /compact to tmux session ${tmuxName(board.route)} (${error})`);
+    else compacted.push(board.route);
+  }
+  if (dirty) saveJSON(COMPACT_STATE, state);
+  return { compacted, failed };
+}
 
 // Runs claude with argv in cwd. → {status, stdout, stderr}. A process `claude --bg` leaves behind can hold our pipes
 // open, so this settles shortly after claude exits rather than on close, and drops the pipes so the caller can exit.
