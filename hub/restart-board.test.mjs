@@ -132,17 +132,55 @@ test("Restart stops a board's session, restarts its server and resumes the sessi
   }
 });
 
-test("a server that doesn't answer still gets its session resumed, and the restart answers with where to look", async () => {
-  const repo = path.join(scratch, 'repo');
-  fs.mkdirSync(repo, { recursive: true });
-  write(path.join(scratch, '.claude', 'kickflip', 'manifest.json'), { version: 1, sites: { shop: board(scratch, 'shop', 1, { title: 'The Shop', owner: { session: id, repo } }) } });
-  let running = new Map([[id, { sessionId: id, pid: 1, kind: 'bg', jobId: id.slice(0, 8) }]]);
+function unitRun(running) {
   const steps = [];
   const run = async (argv) => { steps.push(argv[0]); return { status: 0, stdout: argv[0] === 'agents' ? '[]' : `backgrounded · ${id.slice(0, 8)} · Shop`, stderr: '' }; };
+  return { steps, opts: { live: () => running.value, run, stop: async () => { steps.push('stop'); running.value = new Map(); } } };
+}
+function setupShop(port) {
+  const repo = path.join(scratch, 'repo');
+  fs.mkdirSync(repo, { recursive: true });
+  write(path.join(scratch, '.claude', 'kickflip', 'manifest.json'), { version: 1, sites: { shop: board(scratch, 'shop', port, { title: 'The Shop', owner: { session: id, repo } }) } });
+  return { value: new Map([[id, { sessionId: id, pid: 1, kind: 'bg', jobId: id.slice(0, 8) }]]) };
+}
+
+test("a session back before its server answers keeps waiting on the server's port, and the restart succeeds once it answers", async () => {
+  const { steps, opts } = unitRun(setupShop(4321));
+  let t = 0;
+  const checked = [];
+  const starting = [];
+  const result = await restartBoard('shop', {
+    ...opts,
+    serverUp: async () => false,
+    portUp: async (port) => { checked.push([port, t]); return t >= 45_000; },
+    now: () => t,
+    sleep: async (ms) => { t += ms; },
+    onStarting: (title) => starting.push(title),
+  });
+  assert.deepEqual([result.route, result.title], ['shop', 'The Shop']);
+  assert.deepEqual(starting, ['The Shop']);
+  assert.ok(checked.every(([port]) => port === 4321) && checked.length > 1);
+  assert.deepEqual(steps, ['stop', 'agents', '--resume']);
+});
+
+test("a server whose port never answers within the limit is reported still starting, after its session is resumed", async () => {
+  const { steps, opts } = unitRun(setupShop(4321));
+  let t = 0;
   await assert.rejects(restartBoard('shop', {
-    live: () => running, run,
-    stop: async () => { steps.push('stop'); running = new Map(); },
-    serverUp: async () => { steps.push('server'); return false; },
-  }), (e) => e.status === 504 && /The Shop’s session is back, but its server hasn’t answered yet\. See kickflip logs shop\./.test(e.message));
-  assert.deepEqual(steps, ['stop', 'server', 'agents', '--resume']);
+    ...opts,
+    serverUp: async () => false,
+    portUp: async () => false,
+    now: () => t,
+    sleep: async (ms) => { t += ms; },
+    onStarting() {},
+  }), (e) => e.status === 504 && /The Shop’s session is back, but its server is still starting after 2 minutes\. See kickflip logs shop\./.test(e.message));
+  assert.ok(t >= 120_000 && t < 130_000, `waited ${t}ms`);
+  assert.deepEqual(steps, ['stop', 'agents', '--resume']);
+});
+
+test("a server that answers at once is not waited on", async () => {
+  const { opts } = unitRun(setupShop(4321));
+  const starting = [];
+  await restartBoard('shop', { ...opts, serverUp: async () => true, portUp: async () => { throw new Error('polled'); }, onStarting: (t) => starting.push(t) });
+  assert.deepEqual(starting, []);
 });

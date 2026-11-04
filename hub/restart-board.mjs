@@ -10,11 +10,16 @@ const refuse = (message, status = 400) => { throw Object.assign(new Error(messag
 export const restartable = (site) => Boolean(Array.isArray(site?.cmd) && site.cmd.length && site.port
   && site.owner?.session && site.owner.repo);
 
+const STARTING_LIMIT = 120_000;
+const POLL = 1000;
+
 // Under the board's session lock: stops its recorded session, sets its manifest entry's restart_at as `kickflip
 // restart` does, so the hub restarts its server (hub.mjs keyOf), waits for serverUp(route) (→ whether the new server
-// answered), then resumes the session. A server that never answers is reported after the session is resumed.
+// answered), then resumes the session. A server that hasn't answered by then is still starting: portUp(port) is polled
+// (every POLL ms by sleep, counted by now, onStarting(title) said once) for STARTING_LIMIT ms, and only a port that
+// stays silent past that is reported, after the session is resumed.
 // → {route, title: as the Hub page's row names the board, session}
-export async function restartBoard(route, { serverUp, live, stop, run } = {}) {
+export async function restartBoard(route, { serverUp, portUp, live, stop, run, now = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), onStarting } = {}) {
   if (!validRoute(route)) refuse('Choose a board route.');
   return withSessionLock(route, async ({ resume }) => {
     const manifest = readManifest();
@@ -35,7 +40,13 @@ export async function restartBoard(route, { serverUp, live, stop, run } = {}) {
     });
     const answered = await serverUp(route);
     const { session } = await resume({ run, live });
-    if (!answered) refuse(`${title}’s session is back, but its server hasn’t answered yet. See kickflip logs ${route}.`, 504);
+    if (!answered) {
+      onStarting?.(title);
+      const deadline = now() + STARTING_LIMIT;
+      let up = false;
+      while (!(up = await portUp(site.port)) && now() < deadline) await sleep(POLL);
+      if (!up) refuse(`${title}’s session is back, but its server is still starting after 2 minutes. See kickflip logs ${route}.`, 504);
+    }
     return { route, title, session };
   });
 }

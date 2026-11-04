@@ -811,7 +811,7 @@ async function hubRoute(req, res, url) {
       if (restarting.has(route)) return sendJSON(409, { error: 'That board is already restarting.' });
       restarting.add(route);
       await sessionCheck.running;
-      const result = await restartBoard(route, { serverUp: serverAnswers });
+      const result = await restartBoard(route, { serverUp: serverAnswers, portUp: probe, onStarting: (title) => log(`restart /${route}: ${title}’s session is back, its server is still starting`) });
       log(`restarted /${route}: server answers, session ${result.session} resumed`);
       return sendJSON(200, result);
     } catch (e) {
@@ -1171,7 +1171,7 @@ function downPage(route, site) {
   const serves = servesOf(site);
   const [tone, said] = serves === 'port' ? ['down', `down · nothing answers on port ${site.port}`]
     : serves === 'files' ? ['down', 'down · its folder is missing']
-      : p.child ? ['wait', 'started · waiting for it to answer'] : ['down', `down · restarting${exit}`];
+      : p.child ? ['wait', 'starting · waiting for it to answer'] : ['down', `down · restarting${exit}`];
   const lede = serves === 'cmd' ? 'The hub runs every site and restarts one that stops.' : serves === 'port' ? 'Its session runs this server, so it comes back when that session starts it again.' : 'The hub serves this page from a folder that is no longer there.';
   return `${head(`${site.title || route} is down`, '<meta http-equiv="refresh" content="5">')}
 <a class="back" href="/_hub/">‹ Hub</a>
