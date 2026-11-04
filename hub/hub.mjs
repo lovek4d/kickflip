@@ -44,11 +44,10 @@
 //   /_hub/close-board POST {route, name} stops the session, closes builder records and keeps the site under `closed`
 //   /_hub/reopen-board POST {route} restores that entry and resumes its recorded session (close-board.mjs)
 //   /_hub/restart-board POST {route} stops the board's session, restarts its server and, once that answers, resumes
-//                     the session → {route, title, session}, or {error} (restart-board.mjs); 403 unless from the signed-in
-//                     owner (board/on-host.mjs fromOwner)
+//                     the session → {route, title, session}, or {error} (restart-board.mjs)
 //   /_hub/restart-hub POST from the hub page's Restart hub: answers {restarting, command} (the hub service's restart
 //                     command, for a restart by hand), then runs that restart (board/worktree.mjs restartRunner), which
-//                     replaces this process; 409 while one is out, 403 unless from the signed-in owner
+//                     replaces this process; 409 while one is out
 //   /_hub/upgrade    POST from the sidebar's Upgrade: runs `kickflip update` once no builder runs → {upgrade}, the sidebar's
 //                     upgrade field, or 409 when nothing newer is on npm (upgrade.mjs)
 //   /_hub/wake       POST {route} from a board page's tap while the board is asleep: the session check resumes its
@@ -111,6 +110,9 @@
 //   /_hub/permission-denied  POST a PermissionDenied hook's input (permission-denied-hook.mjs) → {noted}: the board
 //                     permission switch whose rule allows the refused command, noted under it while on, or null. A
 //                     PermissionRequest for such a command notes it the same way
+// Every request and upgrade first passes the owner gate (board/on-host.mjs ownerGate): anyone but the host, a direct
+// loopback caller or a device signed in to Tailscale as the host's user gets front-door.mjs's refusal, the same on
+// every path (docs/adr/2026-11-04-2156-the-whole-hub-answers-only-the-owner.md).
 // Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing or proxying (403 plain text).
 // Routes that parse JSON require application/json; settings forms and raw uploads keep their own types.
 // /_hub/build and /_hub/pull also require loopback and refuse Origin and forwarded headers.
@@ -138,7 +140,8 @@
 // Every 15 seconds it drops the pending prompts whose hook has gone (prompts.mjs expired).
 // It runs caffeinate while Keep awake is on, and starts it again as it starts while time is left (awake.mjs).
 // On paused → normal it sends every board usage-resumed {window}, keeping usage-gate-state.json across restarts.
-// Each served card and main has its own Tailscale HTTPS port, through a loopback relay (try.mjs).
+// Each served card and main has its own Tailscale HTTPS port, through a loopback relay (try.mjs) that passes the same
+// owner gate; its build script gets HOST=127.0.0.1 to listen on.
 // Every 15 seconds try.mjs refreshes card heads, auto-builds cards and rebuilds main; polls fetch non-hub branches and
 // record each fetch in repo-fetch.json for the board's repo-fetch link. A poll that records a card merged fetches that
 // card's board first and refreshes its Main at once (docs/adr/2026-11-03-1619-a-merge-refreshes-its-boards-main-at-once.md).
@@ -186,7 +189,8 @@ import { serveFiles } from './files.mjs';
 import { upgrader, CHECK_MS } from './upgrade.mjs';
 import { fallBackFromLinear, openBoardBuilders } from '../board/store.mjs';
 import { recordRefusal } from '../board/permissions.mjs';
-import { fromOwner } from '../board/on-host.mjs';
+import { hubGate } from '../board/on-host.mjs';
+import { pipeUpgrade, refuse, refuseUpgrade } from './front-door.mjs';
 import { restartRunner } from '../board/worktree.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
@@ -842,7 +846,6 @@ async function hubRoute(req, res, url) {
     } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
   }
   if (p === '/_hub/restart-board' && req.method === 'POST') {
-    if (!(await fromOwner(req))) return sendJSON(403, { error: 'Only the signed-in owner can restart a board.' });
     let route;
     try {
       route = (await readJSONBody(req)).route;
@@ -860,7 +863,6 @@ async function hubRoute(req, res, url) {
   if (p === '/_hub/restart-hub' && req.method === 'POST') {
     try {
       await readJSONBody(req);
-      if (!(await fromOwner(req))) return sendJSON(403, { error: 'Only the signed-in owner can restart the hub.' });
       if (hubRestarting) return sendJSON(409, { error: 'The hub is already restarting.' });
       hubRestarting = true;
       // The restart stops this process, so it runs once the answer is flushed.
@@ -1230,7 +1232,12 @@ function downPage(route, site) {
 // A path starting with // parses as a host, and "//" alone throws and takes the hub down.
 const requestURL = (req) => new URL(req.url.replace(/^\/+/, '/'), 'http://hub');
 
+// Every request and upgrade passes the owner gate first (board/on-host.mjs ownerGate, front-door.mjs).
 const server = http.createServer((req, res) => {
+  hubGate(req).then((verdict) => verdict === 'owner' ? serve(req, res) : refuse(req, res, verdict));
+});
+
+function serve(req, res) {
   const url = requestURL(req);
   if (req.method !== 'GET' && req.method !== 'HEAD' && crossSite(req.headers)) {
     res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
@@ -1294,27 +1301,17 @@ const server = http.createServer((req, res) => {
     res.end(downPage(route, site));
   });
   req.pipe(up);
-});
+}
 
 // WebSockets and other upgrades: pipe the raw sockets through.
-server.on('upgrade', (req, socket, head) => {
+server.on('upgrade', async (req, socket, head) => {
+  const verdict = await hubGate(req);
+  if (verdict !== 'owner') { refuseUpgrade(socket, verdict); return; }
   const route = requestURL(req).pathname.split('/')[1];
   const site = routeRecord(loadManifest().sites, route);
   if (!site?.port) { socket.destroy(); return; }
   const prefix = `/${route}`;
-  const rest = req.url.slice(prefix.length) || '/';
-  const up = net.connect(site.port, '127.0.0.1', () => {
-    const lines = [`${req.method} ${rest} HTTP/${req.httpVersion}`];
-    for (let i = 0; i < req.rawHeaders.length; i += 2) if (req.rawHeaders[i].toLowerCase() !== 'x-forwarded-prefix') lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`);
-    lines.push(`X-Forwarded-Prefix: ${prefix}`);
-    up.write(lines.join('\r\n') + '\r\n\r\n');
-    if (head && head.length) up.write(head);
-    up.pipe(socket); socket.pipe(up);
-  });
-  up.on('error', () => socket.destroy());
-  socket.on('error', () => up.destroy());
-  socket.on('close', () => up.destroy());
-  up.on('close', () => socket.destroy());
+  pipeUpgrade({ req, socket, head, port: site.port, path: req.url.slice(prefix.length) || '/', replace: ['x-forwarded-prefix'], extra: [`X-Forwarded-Prefix: ${prefix}`] });
 });
 
 server.listen(PORT, '127.0.0.1', () => log(`hub on http://127.0.0.1:${PORT}/ (manifest ${MANIFEST})`));

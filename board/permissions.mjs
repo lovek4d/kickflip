@@ -91,9 +91,8 @@ export async function recordRefusal(folder, site, input, now = new Date()) {
   return permission.id;
 }
 
-// GET and POST /api/permissions's answer: each switch with its state and refusal, and owner: whether this browser is the
-// signed-in owner's, who alone may change them (on-host.mjs fromOwner).
-export async function permissionsView(folder, site, owner) {
+// GET and POST /api/permissions's answer: each switch with its state and refusal.
+export async function permissionsView(folder, site) {
   const [on, refusals] = await Promise.all([readPermissions(folder), readRefusals(site)]);
-  return { owner, file: settingsFile(folder), permissions: PERMISSIONS.map((p) => ({ ...p, on: on[p.id], refused: on[p.id] ? refusals[p.id] || null : null })) };
+  return { file: settingsFile(folder), permissions: PERMISSIONS.map((p) => ({ ...p, on: on[p.id], refused: on[p.id] ? refusals[p.id] || null : null })) };
 }

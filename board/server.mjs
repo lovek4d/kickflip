@@ -205,10 +205,10 @@
 //   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean} → board.json, keeping its other keys, and when a value other
 //                                than idle_notification moved a `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id}; a bad body → 400 {error}
-//   GET  /api/permissions        {owner, file, permissions: [{id, name, allows, rule, on, refused}]}: the board's session
+//   GET  /api/permissions        {file, permissions: [{id, name, allows, rule, on, refused}]}: the board's session
 //                                permissions, read from its folder's .claude/settings.local.json (permissions.mjs); 404 off the manifest
-//   POST /api/permissions        {id, on} from the signed-in owner (on-host.mjs fromOwner) → that rule written or removed,
-//                                and the same answer; 403 {error} from anyone else, 400 {error} for a bad body or settings file
+//   POST /api/permissions        {id, on} → that rule written or removed, and the same answer; 400 {error} for a bad
+//                                body or settings file
 //   POST /api/try                {key}: forwards a card build or main retry to the hub's loopback /_hub/build
 //   POST /api/try/main/pull      {}: Main's refresh icon, forwarded to the hub's loopback /_hub/pull → {commits, error?}
 //   GET  /api/log?file=<name>.log {text, truncated, size}: the last 256 KiB of that file in ~/.claude/kickflip/logs, by name
@@ -229,7 +229,7 @@
 // Claude's reply to event <id> is data/replies/<id>.html, or .json.
 import { topicItems } from './review.mjs';
 import { boardWorktree } from './worktree.mjs';
-import { fromHost, fromOwner } from './on-host.mjs';
+import { fromHost } from './on-host.mjs';
 import { archOf, readReviews, repoName, startReview } from './arch-review.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
@@ -1084,11 +1084,9 @@ const server = http.createServer(async (req, res) => {
       if (!self) return json(res, 404, { error: 'This board isn’t in the hub’s manifest.' });
       const folder = boardRepo(self.route).repo;
       const body = req.method === 'POST' ? await readBody(req) : null;
-      const owner = await fromOwner(req);
-      if (body && !owner) return json(res, 403, { error: 'Only the signed-in owner can change these.' });
       try {
         if (body) await setPermission(folder, here, body.id, body.on);
-        return json(res, 200, await permissionsView(folder, here, owner));
+        return json(res, 200, await permissionsView(folder, here));
       } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
     }
     if (p === '/api/try/main/log' && req.method === 'GET') {

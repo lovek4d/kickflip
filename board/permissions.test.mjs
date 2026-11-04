@@ -81,8 +81,7 @@ test('a refusal shows under its switch only while it is on, and a change to that
     assert.equal(await recordRefusal(folder, site, { tool_name: 'Edit', tool_input: { file_path: '/x' } }), null);
     const at = new Date('2026-11-03T20:00:00Z');
     assert.equal(await recordRefusal(folder, site, bash('git push origin v1.0.0'), at), 'pushTags');
-    const view = await permissionsView(folder, site, true);
-    assert.equal(view.owner, true);
+    const view = await permissionsView(folder, site);
     assert.equal(view.file, settingsFile(folder));
     assert.deepEqual(view.permissions.map((p) => [p.id, p.on, p.refused]), [
       ['pushMain', false, null],
@@ -90,8 +89,8 @@ test('a refusal shows under its switch only while it is on, and a change to that
       ['draftPr', false, null],
     ]);
     await recordRefusal(folder, site, bash('git push origin v1.0.1', 'PermissionRequest'), at);
-    assert.equal((await permissionsView(folder, site, false)).permissions[1].refused.how, 'asked');
+    assert.equal((await permissionsView(folder, site)).permissions[1].refused.how, 'asked');
     await setPermission(folder, site, 'pushTags', true);
-    assert.equal((await permissionsView(folder, site, false)).permissions[1].refused, null);
+    assert.equal((await permissionsView(folder, site)).permissions[1].refused, null);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

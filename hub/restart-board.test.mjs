@@ -94,7 +94,7 @@ test("Restart stops a board's session, restarts its server and resumes the sessi
     const before = fs.readFileSync(path.join(home, '.claude', 'kickflip', 'run', 'shop.pid'), 'utf8');
 
     const stranger = await fetch(`${base}/_hub/restart-board`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': '100.70.1.4' }, body: JSON.stringify({ route: 'shop' }) });
-    assert.deepEqual([stranger.status, await stranger.json()], [403, { error: 'Only the signed-in owner can restart a board.' }]);
+    assert.deepEqual([stranger.status, await stranger.json()], [403, {}]);
     assert.equal(fs.existsSync(path.join(home, 'calls.jsonl')), false);
     const r = await restart('shop');
     assert.equal(r.status, 200);

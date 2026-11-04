@@ -39,7 +39,7 @@ test("Restart hub answers once the hub service's restart is asked for, then runs
     assert.equal((await post({ 'content-type': 'application/json', origin: 'https://elsewhere.example', 'sec-fetch-site': 'cross-site' })).status, 403);
     // A tailnet device not signed in as the owner (here a tagged node: no Tailscale-User-Login) is refused.
     const stranger = await post({ 'content-type': 'application/json', 'x-forwarded-for': '100.70.1.4' });
-    assert.deepEqual([stranger.status, await stranger.json()], [403, { error: 'Only the signed-in owner can restart the hub.' }]);
+    assert.deepEqual([stranger.status, await stranger.json()], [403, {}]);
     assert.equal(fs.existsSync(restarts), false);
 
     const r = await post();

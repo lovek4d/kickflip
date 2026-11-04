@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
-import net from 'node:net';
 import { execFile, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
@@ -14,6 +13,8 @@ import { tailscaleBin } from '../shared/tailscale.mjs';
 import { buildScriptError } from '../board/build-script.mjs';
 import { appendThread, recordedWorktree, setItem } from '../board/store.mjs';
 import { cardPRs, hasPR, prKeyOf } from '../shared/card-prs.mjs';
+import { hubGate } from '../board/on-host.mjs';
+import { pipeUpgrade, refuse, refuseUpgrade } from './front-door.mjs';
 
 export class BuildError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
@@ -76,7 +77,7 @@ export async function installWorktree(board, key, manifest) {
   } catch { return ''; }
 }
 
-export function createTryManager({ now = Date.now, answers = probe, log = console.log, waiting = async () => null, event = appendEvent } = {}) {
+export function createTryManager({ now = Date.now, answers = probe, log = console.log, waiting = async () => null, event = appendEvent, gate = hubGate } = {}) {
   const boards = new Map();
   const runs = new Map();
   const starting = new Set();
@@ -162,16 +163,30 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     run.https = publicPort(run);
     const sockets = run.sockets = new Set();
     const visit = () => { run.visited = now(); };
-    run.relay = net.createServer((socket) => {
-      visit();
-      const up = net.connect(run.port, '127.0.0.1');
-      for (const peer of [socket, up]) {
-        sockets.add(peer);
-        peer.on('data', visit);
-        peer.on('error', () => { socket.destroy(); up.destroy(); });
-        peer.on('close', () => { sockets.delete(peer); socket.destroy(); up.destroy(); });
-      }
-      socket.pipe(up); up.pipe(socket);
+    const track = (socket) => {
+      sockets.add(socket);
+      socket.on('data', visit);
+      socket.on('close', () => sockets.delete(socket));
+    };
+    // tailscale serve proxies the port as HTTP, so the relay reads each request's login and lets only the owner through.
+    run.relay = http.createServer(async (req, res) => {
+      const verdict = await gate(req);
+      if (verdict !== 'owner') { refuse(req, res, verdict); return; }
+      const up = http.request({ host: '127.0.0.1', port: run.port, method: req.method, path: req.url, headers: req.headers }, (answer) => {
+        res.writeHead(answer.statusCode, answer.headers);
+        answer.on('data', visit);
+        answer.pipe(res);
+        answer.on('close', () => { if (!answer.complete) res.destroy(); });
+      });
+      res.on('close', () => { if (!res.writableFinished) up.destroy(); });
+      up.on('error', () => { if (res.headersSent) res.destroy(); else res.writeHead(502).end(); });
+      req.pipe(up);
+    });
+    run.relay.on('connection', (socket) => { visit(); track(socket); });
+    run.relay.on('upgrade', async (req, socket, head) => {
+      const verdict = await gate(req);
+      if (verdict !== 'owner') { refuseUpgrade(socket, verdict); return; }
+      track(pipeUpgrade({ req, socket, head, port: run.port, path: req.url }));
     });
     await new Promise((resolve, reject) => {
       run.relay.once('error', reject);
@@ -267,7 +282,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     const fd = fs.openSync(logFile, 'w', 0o600);
     fs.fchmodSync(fd, 0o600);
     const child = spawn(script, [key, worktree], { cwd: worktree, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, KICKFLIP_BOARD: board.route } });
+      env: { ...process.env, KICKFLIP_BOARD: board.route, HOST: '127.0.0.1' } });
     if (key === 'main') state.main = entry; else state.cards[key] = entry;
     persist(board);
     const id = runKey(board, key);

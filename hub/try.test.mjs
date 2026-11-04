@@ -5,7 +5,6 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import net from 'node:net';
 import { EventEmitter } from 'node:events';
 import { Duplex } from 'node:stream';
 import { execFileSync, spawn } from 'node:child_process';
@@ -47,6 +46,7 @@ process.env.PATH = `${bin}:${process.env.PATH}`;
 const { createTryManager, installWorktree, fetchTryBranches } = await import('./try.mjs');
 const { listBoards } = await import('./boards.mjs');
 const { buildScriptError } = await import('../board/build-script.mjs');
+const { ownerGate } = await import('../board/on-host.mjs');
 let site, repo, worktree, manifest, manager, clock;
 const git = (dir, ...args) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 3000 }).trim();
 const script = () => path.join(worktree, '.kickflip', 'build');
@@ -65,14 +65,13 @@ function commit(dir, name = 'change') { git(dir, 'add', '.'); git(dir, 'commit',
 
 function fakeRelays(t) {
   const relays = [];
-  t.mock.method(net, 'createServer', (accept) => {
+  t.mock.method(http, 'createServer', () => {
     const port = 49000 + relays.length;
     const relay = Object.assign(new EventEmitter(), {
       listen(_port, _host, ready) { queueMicrotask(ready); return this; },
       address: () => ({ port }),
       close(done) { relay.closed = true; queueMicrotask(done); },
     });
-    relay.on('connection', accept);
     relays.push(relay);
     return relay;
   });
@@ -108,13 +107,13 @@ afterEach(async () => {
 after(() => fs.rmSync(home, { recursive: true, force: true }));
 
 test('an app run uses only the fixed script and arguments, worktree cwd and build env, writes a private replacement log, and leaves builders and threads alone', async () => {
-  setScript(`require('node:fs').writeFileSync('called.json', JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd(), board: process.env.KICKFLIP_BOARD, base: process.env.KICKFLIP_BASE })); console.log('stdout'); console.error('stderr');`);
+  setScript(`require('node:fs').writeFileSync('called.json', JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd(), board: process.env.KICKFLIP_BOARD, host: process.env.HOST, base: process.env.KICKFLIP_BASE })); console.log('stdout'); console.error('stderr');`);
   const record = fs.readFileSync(path.join(site, 'data/agents/A1.json'), 'utf8');
   await start();
   await until(() => state().cards['w/A1']?.state === 'ready');
   assert.equal(state().kind, 'app');
   assert.equal(state().cards['w/A1'].sha, git(worktree, 'rev-parse', 'HEAD'));
-  assert.deepEqual(read(path.join(worktree, 'called.json')), { args: ['w/A1', worktree], cwd: worktree, board: 'orch' });
+  assert.deepEqual(read(path.join(worktree, 'called.json')), { args: ['w/A1', worktree], cwd: worktree, board: 'orch', host: '127.0.0.1' });
   assert.equal(fs.readFileSync(path.join(site, 'data/agents/A1.json'), 'utf8'), record);
   assert.deepEqual(thread(), []);
   const log = path.join(site, 'data/try/A1.log');
@@ -216,8 +215,6 @@ test('a second concurrent start returns 409, while a legacy install_script setti
 test('a web run waits for its port, uses the relay to reset idle, and removes its public port on idle', async (t) => {
   const relays = fakeRelays(t);
   const peer = () => new Duplex({ read() {}, write(_chunk, _encoding, done) { done(); } });
-  const upstream = peer();
-  t.mock.method(net, 'connect', () => upstream);
   let answering = false;
   manager = createTryManager({ now: () => clock, answers: async () => answering, log() {} });
   setScript("console.log('port 32123'); setInterval(() => {}, 1000);");
@@ -242,11 +239,6 @@ test('a web run waits for its port, uses the relay to reset idle, and removes it
   clock += 29 * 60_000;
   await tick();
   assert.equal(state().cards['w/A1'].state, 'ready');
-  upstream.push('response');
-  await new Promise(setImmediate);
-  clock += 29 * 60_000;
-  await tick();
-  assert.equal(state().cards['w/A1'].state, 'ready');
   const closed = new Promise((resolve) => socket.once('close', resolve));
   clock += 2 * 60_000;
   await tick();
@@ -255,7 +247,6 @@ test('a web run waits for its port, uses the relay to reset idle, and removes it
   assert.equal(state().cards['w/A1']?.sha, undefined);
   assert.ok(calls().includes('serve --https=8500 off'));
   await closed;
-  assert.ok(upstream.destroyed);
   assert.ok(relays[0].closed);
   assert.deepEqual(thread(), []);
 });
@@ -406,7 +397,9 @@ take();`);
   assert.match(thread()[0].text, /^Build failed \(exit 1\)\nBuild script must be executable/);
 });
 
-test('a web script serves root paths and upgrades through the relay and keeps its port across a new commit and Retry', async () => {
+test('a web script serves root paths and upgrades through the relay to the owner alone, and keeps its port across a new commit and Retry', async () => {
+  const gate = ownerGate({ addresses: () => ['127.0.0.1', '::1'], node: async () => ({ login: 'lovek4d@github', addresses: [] }) });
+  manager = createTryManager({ now: () => clock, log() {}, gate });
   const server = http.createServer();
   await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
@@ -432,6 +425,23 @@ test('a web script serves root paths and upgrades through the relay and keeps it
     request.end();
   });
   assert.equal(upgraded, '/socket');
+  // tailscale serve sends the owner's phone with its login, and anyone else is refused before the app.
+  const phone = { 'x-forwarded-for': '100.70.1.2', 'tailscale-user-login': 'lovek4d@github' };
+  assert.equal(await (await fetch(relayOf(8500) + '/nested', { headers: phone })).text(), 'served /nested');
+  const friend = { 'x-forwarded-for': '100.70.1.3', 'tailscale-user-login': 'friend@github' };
+  const page = await fetch(relayOf(8500) + '/nested', { headers: { ...friend, accept: 'text/html' } });
+  assert.equal(page.status, 403);
+  assert.match(await page.text(), /This kickflip belongs to someone else\./);
+  const api = await fetch(relayOf(8500) + '/api', { method: 'POST', headers: { 'x-forwarded-for': '100.70.1.4' }, body: 'x' });
+  assert.deepEqual([api.status, await api.text()], [403, '{}']);
+  const refused = await new Promise((resolve, reject) => {
+    const request = http.request(relayOf(8500) + '/socket', { headers: { connection: 'Upgrade', upgrade: 'test', ...friend } });
+    request.on('error', reject);
+    request.on('upgrade', () => reject(new Error('upgraded')));
+    request.on('response', (res) => { res.resume(); resolve(res.statusCode); });
+    request.end();
+  });
+  assert.equal(refused, 403);
   commit(worktree, 'new head');
   for (let n = 0; n < 2; n++) {
     await start();

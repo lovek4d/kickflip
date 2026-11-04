@@ -6,9 +6,9 @@
 // with no such header reached the hub straight on loopback. When the host's tailnet address isn't on one of its
 // interfaces, the request is the host's when tailscale serve's Tailscale-User-Login is the host's user and the
 // forwarded address is one of the host node's own (`tailscale status --json` Self).
-// fromOwner is whether the request comes from the signed-in owner: the host, a direct loopback caller, or any device
-// whose Tailscale-User-Login is the host node's user (docs/adr/2026-11-04-0502-only-the-signed-in-owner-changes-permissions-or-restarts.md).
-// The hub listens on 127.0.0.1 alone, so only a local process can send that header past tailscale serve.
+// ownerGate tells the signed-in owner: the host, a direct loopback caller, or any device whose Tailscale-User-Login is
+// the host node's user (docs/adr/2026-11-04-0502-only-the-signed-in-owner-changes-permissions-or-restarts.md). The hub
+// listens on 127.0.0.1 alone, so only a local process can send that header past tailscale serve.
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -47,11 +47,32 @@ export async function fromHost(req, host = { addresses: interfaceAddresses, node
   return Boolean(node) && node.login === login && node.addresses.includes(client);
 }
 
-// req, host: as fromHost → true for the signed-in owner
-export async function fromOwner(req, host = { addresses: interfaceAddresses, node: tailnetNode }) {
-  if (host.addresses().includes(clientOf(req))) return true;
-  const login = req.headers['tailscale-user-login'];
-  if (!login) return false;
-  const node = await host.node();
-  return Boolean(node) && node.login === login;
+// The front door to the whole hub and its try ports (docs/adr/2026-11-04-2156-the-whole-hub-answers-only-the-owner.md).
+// host: as fromHost; now, retryMs: when tailscale is asked again after it didn't name the host's user
+// → async (req) => 'owner' for the host, a direct loopback caller or a device whose Tailscale-User-Login is the host
+// node's user; 'other' for any other login or none (a shared-in user, a tagged node, Funnel); 'unread' for a login
+// while tailscale hasn't named the host's user yet. The user is read once and kept for the gate's lifetime.
+export function ownerGate(host = { addresses: interfaceAddresses, node: tailnetNode }, { now = Date.now, retryMs = 5000 } = {}) {
+  let owner = null;
+  let asking = null;
+  let failedAt = -Infinity;
+  const ownerLogin = () => {
+    if (owner || now() - failedAt < retryMs) return owner;
+    asking ||= host.node().then((node) => {
+      asking = null;
+      if (node?.login) owner = node.login; else failedAt = now();
+      return owner;
+    });
+    return asking;
+  };
+  return async (req) => {
+    if (host.addresses().includes(clientOf(req))) return 'owner';
+    const login = req.headers['tailscale-user-login'];
+    if (!login) return 'other';
+    const found = await ownerLogin();
+    return !found ? 'unread' : found === login ? 'owner' : 'other';
+  };
 }
+
+// The hub process's one gate, shared by its own server and its try relays.
+export const hubGate = ownerGate();

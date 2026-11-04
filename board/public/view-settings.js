@@ -459,22 +459,21 @@
     });
 
     // Each switch writes or removes one allow rule in the board folder's .claude/settings.local.json through POST
-    // api/permissions, which only the host's own browser may send; elsewhere the switches are read-only
-    // (docs/adr/2026-11-03-1921-board-settings-grant-a-boards-session-permissions.md). A tap waits on the server with the
+    // api/permissions (docs/adr/2026-11-03-1921-board-settings-grant-a-boards-session-permissions.md); the hub lets only
+    // the owner reach the board (docs/adr/2026-11-04-2156-the-whole-hub-answers-only-the-owner.md). A tap waits on the server with the
     // switch as it was and a spinner beside it, then draws the server's answer.
     const permissions = $('#permissions');
     const REFUSED = {
       denied: (command) => `Auto mode still refused this once: ${command}. Approve it under /permissions, Recently blocked.`,
       asked: (command) => `The session still asked before running ${command}, so it hasn’t picked the rule up yet. It applies once the session restarts.`,
     };
-    const permRow = (p, owner) => `<label class="who" for="perm-${esc(p.id)}"><span><span>${esc(p.name)}</span>
+    const permRow = (p) => `<label class="who" for="perm-${esc(p.id)}"><span><span>${esc(p.name)}</span>
       <span class="muted small sub">${esc(p.allows)} Writes <code>${esc(p.rule)}</code></span></span>
-      <span class="toggle-slot"><span class="try-spin toggle-spin" aria-hidden="true"></span><input type="checkbox" class="toggle" data-perm="${esc(p.id)}" id="perm-${esc(p.id)}"${p.on ? ' checked' : ''}${owner ? '' : ' disabled'}></span></label>
+      <span class="toggle-slot"><span class="try-spin toggle-spin" aria-hidden="true"></span><input type="checkbox" class="toggle" data-perm="${esc(p.id)}" id="perm-${esc(p.id)}"${p.on ? ' checked' : ''}></span></label>
       <p class="muted small" id="perm-${esc(p.id)}Status" role="status"></p>
       ${p.refused ? `<p class="muted small refused-note">${esc(REFUSED[p.refused.how](p.refused.command))}</p>` : ''}`;
     const drawPermissions = (d) => {
-      permissions.innerHTML = d.permissions.map((p) => permRow(p, d.owner)).join('')
-        + (d.owner ? '' : '<p class="muted small" id="permissionsNotOwner">Only the signed-in owner can change these.</p>');
+      permissions.innerHTML = d.permissions.map(permRow).join('');
     };
     get(site.url('api/permissions'), waitIn('#permissions')).then(({ ok, body }) => {
       if (!B.alive()) return;

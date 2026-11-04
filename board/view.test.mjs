@@ -4594,16 +4594,16 @@ test("the Auto Review lane leads the lanes; a held review's Needs you line opens
 });
 
 // docs/adr/2026-11-03-1921-board-settings-grant-a-boards-session-permissions.md
-test("Board Settings' Permissions switches sit below Auto, wait for the server with a spinner beside them, note a refusal, and are read-only off the host", async () => {
+test("Board Settings' Permissions switches sit below Auto, wait for the server with a spinner beside them, and note a refusal", async () => {
   const page = fakePage(memoryStorage().localStorage);
   const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
   assert.ok(html.indexOf('<h2>Auto</h2>') < html.indexOf('<h2>Permissions</h2>') && html.indexOf('<h2>Permissions</h2>') < html.indexOf('<h2>Reviewers</h2>'));
   const rules = { pushMain: 'Bash(git push origin main)', pushTags: 'Bash(git push origin v*)', draftPr: 'Bash(gh pr create --draft *)' };
   const names = { pushMain: 'Push main after a land', pushTags: 'Push release tags', draftPr: 'Open draft PRs' };
   const state = { pushMain: false, pushTags: true, draftPr: false };
-  let owner = true, answer = null;
+  let answer = null;
   const posts = [];
-  const view = () => ({ owner, file: '/r/.claude/settings.local.json', permissions: Object.keys(rules).map((id) => ({ id, name: names[id], allows: `Allows ${id}.`, rule: rules[id], on: state[id],
+  const view = () => ({ file: '/r/.claude/settings.local.json', permissions: Object.keys(rules).map((id) => ({ id, name: names[id], allows: `Allows ${id}.`, rule: rules[id], on: state[id],
     refused: id === 'pushTags' && state[id] ? { command: 'git push origin v0.9.0', how: 'denied', at: '2026-11-03T20:00:00.000Z' } : null })) });
   const reply = (body, ok = true) => ({ ok, status: ok ? 200 : 400, text: async () => JSON.stringify(body), json: async () => body });
   page.win.fetch = async (url, opts = {}) => {
@@ -4650,12 +4650,6 @@ test("Board Settings' Permissions switches sit below Auto, wait for the server w
   assert.deepEqual([toggle('pushTags').checked, toggle('pushTags').disabled], [true, false]);
   assert.equal(root.querySelector('#perm-pushTagsStatus').textContent, 'Cannot save');
   v.unmount();
-
-  owner = false;
-  const away = await mount();
-  assert.deepEqual(Object.keys(rules).map((id) => away.root.querySelector(`#perm-${id}`).disabled), [true, true, true]);
-  assert.equal(away.root.querySelector('#permissionsNotOwner').textContent, 'Only the signed-in owner can change these.');
-  away.v.unmount();
 });
 
 // docs/adr/2026-11-04-2345-a-builders-log-and-notes-open-in-a-sheet.md
