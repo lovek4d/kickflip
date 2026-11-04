@@ -85,6 +85,7 @@
         B.on(doc, 'click', (e) => tap(e, win));
         // Switch mode (sidebar.js) answers keys and clicks in the frame as it does the shell's own.
         if (ctx.keydown) B.on(doc, 'keydown', ctx.keydown, true);
+        if (B.newTaskKey) B.on(doc, 'keydown', B.newTaskKey);
         if (ctx.pointerdown) B.on(doc, 'pointerdown', ctx.pointerdown, true);
         ctx.loaded(url, title);
       });

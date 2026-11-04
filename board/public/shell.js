@@ -200,7 +200,11 @@ window.AppShell = (function () {
       if (boards().has(route)) { try { localStorage.setItem(LAST_KEY, route); } catch { /* no storage: `/` opens the start board */ } }
       sidebar.setHere(hub ? new URL(AppRouter.urlOf(view), location.href).pathname.slice(1) : route);
       scrollTo(0, 0);
+      // Every other page of a board has the board's + and its sheet too; the hub's own pages aren't a board's.
+      const plus = !board && boards().has(route);
+      if (plus) root.insertAdjacentHTML('beforeend', BoardNewTask.markup());
       v.mount();
+      if (plus) BoardNewTask.wire(v.B);
       if (modal) showSettings();
     }
 

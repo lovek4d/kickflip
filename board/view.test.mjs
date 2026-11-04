@@ -11,7 +11,7 @@ import { miniDom } from './mini-dom.mjs';
 import { buildBoard, slimDone, BUTTON, ACTION_KIND } from './domain.mjs';
 
 const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-phase-bars.js', 'ui-order.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
-  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-arch.js', 'app-banner.js', 'app-snapshot.js',
+  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-arch.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-frame.js', 'router.js'];
 
 function memoryStorage(entries = []) {
@@ -130,6 +130,20 @@ test("a board view mounted then unmounted leaves no listener, interval, timer or
   view.B.toast('Saved');
   view.unmount();
   assert.deepEqual([page.left(), subscribed.size], [loaded, 0]);
+});
+
+test("another view of a board gets the + and its new-task sheet, and unmounting it leaves nothing behind", () => {
+  const page = fakePage(memoryStorage().localStorage);
+  assert.match(page.win.BoardNewTask.markup(), /id="compose"[\s\S]*id="sheet"[\s\S]*id="askForm"/);
+  const root = new page.El();
+  const view = page.win.BoardView.page(root, 'https://mac.ts.net/board-a', (B) => page.win.BoardNewTask.wire(B));
+  const loaded = page.left();
+  view.mount();
+  page.fire(root.querySelector('#compose'), 'click');
+  assert.equal(root.querySelector('#sheet').open, true);
+  page.fire(root.querySelector('#sheetClose'), 'click');
+  view.unmount();
+  assert.deepEqual(page.left(), loaded);
 });
 
 test("a board's header shows the away moon right of its title while the owner reads away, and drops it once they're back", () => {

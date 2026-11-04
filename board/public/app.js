@@ -86,7 +86,26 @@ window.BoardView = (function () {
       }
       toasts.toast(text);
     };
-    const B = { root, site, route, toast, $, $$, on, every, later, sleep, watch, atUnmount, alive: () => alive, own: (off) => (alive ? own(off) : off()) };
+    const store = storeFor(route);
+  // iOS commits a pending predictive-text word after Send clears the box, which would refill it and resave the draft.
+  // So Send blurs first, and input is dropped while the send runs and for a moment after it succeeds.
+  const quiet = new Map();
+  function quieted(draftKey, ta) {
+    const until = quiet.get(draftKey) || 0;
+    if (until <= Date.now()) return false;
+    if (until !== Infinity) ta.value = '';
+    return true;
+  }
+  async function sendDraft(draftKey, ta, current, send) {
+    ta.blur();
+    quiet.set(draftKey, Infinity);
+    try { await send(); } catch (e) { quiet.delete(draftKey); store.set(draftKey, (current() || ta).value); throw e; }
+    store.set(draftKey, '');
+    const now = current();
+    if (now) now.value = '';
+    quiet.set(draftKey, Date.now() + 1000);
+  }
+    const B = { root, site, route, store, quieted, sendDraft, toast, $, $$, on, every, later, sleep, watch, atUnmount, alive: () => alive, own: (off) => (alive ? own(off) : off()) };
     return {
       B,
       start() { alive = true; },
@@ -100,7 +119,7 @@ window.BoardView = (function () {
 
   function create(root, siteRoot, opts = {}) {
     const { B, start: begin, stop } = base(root, siteRoot);
-    const store = storeFor(B.route);
+    const { store } = B;
     // board is the last /api/board; githubPending the time of a refresh's unanswered check-github request; fresh the
     // header's time, ui-header.js nextFresh's {at, sig}; edits each open edit box by its message's event id,
     // {thread, data, text}, data being what ask-edited sends besides the text.
@@ -360,20 +379,7 @@ window.BoardView = (function () {
   <div id="tryMain"></div>
   <div id="lanes"></div>
 </main>
-<button id="compose" class="fab" type="button" aria-label="New task" title="New task (press n twice)" aria-haspopup="dialog" aria-expanded="false"><svg width="35" height="35" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
-<dialog id="sheet" class="sheet" aria-labelledby="sheetTitle">
-  <form id="askForm" data-composer="ask">
-    <div class="sheet-head"><h2 id="sheetTitle">New task</h2><button type="button" class="ghost" id="sheetClose" aria-label="Close">✕</button></div>
-    ${BoardUI.dropZone('<textarea id="askText" rows="4" placeholder="Ask a question or give me a task…" autofocus></textarea>')}
-    <div class="pending-files" data-files></div>
-    <div class="tk-seg ask-seg" role="group" aria-label="Before building"><button type="button" id="askDiscuss" aria-pressed="true">Discuss</button><button type="button" id="askQuick" aria-pressed="false">Quick build</button></div>
-    <p class="muted small ask-choice-help" id="askChoiceHelp" aria-live="polite"></p>
-    <div class="row">
-      <span class="muted small" id="askStatus"></span>
-      <button type="submit" class="primary">Send</button>
-    </div>
-  </form>
-</dialog>
+${BoardNewTask.markup()}
 <dialog id="mainLogSheet" class="sheet" aria-labelledby="mainLogTitle">
   <div class="sheet-body">
     <div class="sheet-head"><h2 id="mainLogTitle"></h2><button type="button" class="ghost" id="mainLogClose" aria-label="Close">✕</button></div>

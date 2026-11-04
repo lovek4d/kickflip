@@ -542,7 +542,8 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `app-threads.js` | Loading a thread, once at a time per card; an open card's thread, its reply box, quick replies and Done |
 | `app-cards.js` | Cards, their open detail with the details list ending in Notes ↗ · Visit/Install ↗ · Review on GitHub ↗ when present, and the workflow row: Merge, Hold, the **action button**, Serve/Build and rightmost **Implement**, each confirming but Hold, which opens its sheet with the duration picker; try requests, failure-thread links and main’s failed-build log and Retry sheet; the bump icon's bump and unbump, with no confirmation; an ask's detail shows only its action button; the thread's Done confirmation and send |
 | `app-lanes.js` | Lanes, Done's and Asks' Show more, Done's finished-wave folds, Todo's **wave bands** with their Implement, Triage and ⋯ moves, and Plan waves |
-| `app-asks.js` | The + sheet and its press-n-twice shortcut, and bump, edit and delete |
+| `new-task.js` | The + button, its new-task sheet and press-n-twice shortcut, on every page of a board |
+| `app-asks.js` | Bump, edit and delete for a New card or pending message, and ⌘↵ in a thread box |
 | `app-needs.js` | The Needs you box, led by the board session's pending prompts |
 | `ui-prompts.js` | A pending prompt's Needs you line: its details, Allow once, Always allow and Deny, or a question's options, Skip and Send |
 | `prompts.js` | `PromptAnswers`, answering pending prompts from their lines on a board and the hub page: which taps send at once, Always allow's confirmation, and the picks a Send waits on |

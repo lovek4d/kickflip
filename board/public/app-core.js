@@ -95,25 +95,6 @@ BoardView.part((B) => {
     store.set('seenThreads', seen);
   }
 
-  // iOS commits a pending predictive-text word after Send clears the box, which would refill it and resave the draft.
-  // So Send blurs first, and input is dropped while the send runs and for a moment after it succeeds.
-  const quiet = new Map();
-  function quieted(draftKey, ta) {
-    const until = quiet.get(draftKey) || 0;
-    if (until <= Date.now()) return false;
-    if (until !== Infinity) ta.value = '';
-    return true;
-  }
-  async function sendDraft(draftKey, ta, current, send) {
-    ta.blur();
-    quiet.set(draftKey, Infinity);
-    try { await send(); } catch (e) { quiet.delete(draftKey); store.set(draftKey, (current() || ta).value); throw e; }
-    store.set(draftKey, '');
-    const now = current();
-    if (now) now.value = '';
-    quiet.set(draftKey, Date.now() + 1000);
-  }
-
   // The ui-links.js linkContext for text shown on item `key`'s card or thread.
   const links = (key) => BoardUI.linkContext(state.board?.items || [], key);
   const svg = (body, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
@@ -124,5 +105,5 @@ BoardView.part((B) => {
   const confirm = (message, labels) => dialogs.confirm(message, { ...labels, signal: controller.signal });
   const notice = dialogs.notice;
 
-  Object.assign(B, { steady, restorePlace, plural, seen, markSeen, quieted, sendDraft, links, svg, confirm, notice });
+  Object.assign(B, { steady, restorePlace, plural, seen, markSeen, links, svg, confirm, notice });
 });

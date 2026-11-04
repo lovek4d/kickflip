@@ -577,6 +577,8 @@ main > * { transition: opacity .25s ease; }
 .view-questions .bar { position: sticky; bottom: var(--app-bottom, 0px); padding: 10px 0 max(10px, env(safe-area-inset-bottom)); background: var(--bg);
   display: flex; justify-content: space-between; align-items: center; gap: 8px; border-top: 1px solid var(--line); }
 .view-questions .bar .send-hint { margin-left: auto; }
+/* The + rides above the sticky Send bar rather than over its Send. */
+.view-questions:has(.bar) .fab { bottom: calc(var(--app-bottom, 0px) + var(--fab-edge) + 72px); }
 .view-questions .bar #qstatus { min-width: 0; }
 .view-questions .bar #qstatus.sent { color: var(--color-success); font-weight: 600; }
 .view-questions .solo { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 4px 0; }
