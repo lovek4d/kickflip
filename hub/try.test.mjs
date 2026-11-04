@@ -531,6 +531,46 @@ test('a GitHub board fetch git refuses records git\'s own error and the sign-in 
   assert.match(lines[0], /^fetch \/orch after \d+ ms: Command failed/);
 });
 
+test("a merge's fetch reaches only the merged board and keeps the other boards' repo-fetch records", async () => {
+  const remote = path.join(site, 'remote.git');
+  git(repo, 'clone', '--quiet', '--bare', repo, remote);
+  git(repo, 'remote', 'set-url', 'origin', remote);
+  write(path.join(repo, 'file'), 'merged');
+  const sha = commit(repo, 'merged on the remote');
+  git(repo, 'push', '--quiet', 'origin', 'main:develop');
+  git(repo, 'update-ref', '-d', 'refs/remotes/origin/develop');
+  manifest.sites.orch.branch = 'develop';
+  const fetches = path.join(home, '.claude', 'kickflip', 'repo-fetch.json');
+  write(fetches, { elsewhere: { at: 'earlier', ok: true } });
+  await fetchTryBranches({ manifest, routes: ['elsewhere'], log() {} });
+  assert.throws(() => git(repo, 'rev-parse', '--verify', 'refs/remotes/origin/develop'));
+  await fetchTryBranches({ manifest, routes: ['orch'], log() {} });
+  assert.equal(git(repo, 'rev-parse', 'refs/remotes/origin/develop'), sha);
+  assert.deepEqual(Object.keys(read(fetches)).sort(), ['elsewhere', 'orch']);
+  assert.equal(read(fetches).orch.ok, true);
+  await fetchTryBranches({ manifest, log() {} });
+  assert.deepEqual(Object.keys(read(fetches)), ['orch']);
+});
+
+test("a merge's Main refresh covers only its board and runs after a tick already going, never alongside it", async () => {
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  let checks = 0;
+  manager = createTryManager({ now: () => clock, log() {}, waiting: async () => { checks += 1; if (checks === 1) await held; return null; } });
+  await manager.tick({ manifest, routes: ['elsewhere'] });
+  assert.equal(checks, 0);
+  const running = manager.tick({ manifest });
+  await until(() => checks === 1);
+  const shared = manager.tick({ manifest });
+  const refresh = manager.tick({ manifest, routes: ['orch'] });
+  const again = manager.tick({ manifest, routes: ['orch'] });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(checks, 1);
+  release();
+  await Promise.all([running, shared, refresh, again]);
+  assert.equal(checks, 2);
+});
+
 test('on a plain git remote board the poll moves a pushed card to Done once its branch is merged or gone from the remote, and leaves an unmerged one In Review', async () => {
   const remote = path.join(site, 'remote.git');
   git(repo, 'clone', '--quiet', '--bare', repo, remote);

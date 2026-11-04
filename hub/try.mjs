@@ -84,6 +84,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
   const lastHeads = new Map();
   let stopping = false;
   let ticking = null;
+  let queued = null;
   let initializing = null;
   const stamp = () => new Date(now()).toISOString();
   function stateOf(board) {
@@ -396,10 +397,24 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     if (!run) return null;
     return { key: run.key, port: run.port };
   }
-  async function tick({ manifest = readManifest() } = {}) {
+  // routes: only these boards' cards and Main, for a merge the poll saw (docs/adr/0168-a-merge-refreshes-its-boards-main-at-once.md).
+  // A tick with routes while one runs waits for it and then runs once for every route asked meanwhile; one without
+  // routes shares the running tick.
+  async function tick({ manifest = readManifest(), routes } = {}) {
     await initialize(manifest);
     reserveMains(manifest);
-    if (ticking || stopping) return ticking;
+    if (stopping) return ticking;
+    if (ticking && routes) {
+      if (!queued) {
+        const asked = { routes: new Set(), manifest };
+        asked.done = ticking.catch(() => {}).then(() => { queued = null; return tick({ manifest: asked.manifest, routes: [...asked.routes] }); });
+        queued = asked;
+      }
+      queued.manifest = manifest;
+      for (const route of routes) queued.routes.add(route);
+      return queued.done;
+    }
+    if (ticking) return ticking;
     ticking = (async () => {
       const listed = listBoards(manifest);
       const prs = readJSON(GITHUB_STATE, {}).prs || {};
@@ -413,6 +428,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       }
       for (const board of listed) {
         if (stopping) return;
+        if (routes && !routes.includes(board.route)) continue;
         const { state } = stateOf(board);
         const source = boardRepo(board.route, manifest);
         const branch = source.branch || 'main';
@@ -487,10 +503,12 @@ const originGit = async (dir, ...args) => (await execFileAsync('git', ['-C', dir
 
 // Fetches the branch of each board that isn't local (board-repo.mjs boardRepo) and writes REPO_FETCH {<route>: {at, ok, error?, hint?}} for the boards it
 // fetched, which boards.mjs linksOf reads as each board's repo-fetch link. On a board whose repo is a plain git
-// remote, it then moves each pushed card to Done once its branch is merged or gone (settlePushed).
-export async function fetchTryBranches({ manifest = readManifest(), log = console.log } = {}) {
-  const fetched = {};
+// remote, it then moves each pushed card to Done once its branch is merged or gone (settlePushed). routes: only these
+// boards, keeping the other boards' records.
+export async function fetchTryBranches({ manifest = readManifest(), log = console.log, routes } = {}) {
+  const fetched = routes ? readJSON(REPO_FETCH, {}) : {};
   for (const board of listBoards(manifest)) {
+    if (routes && !routes.includes(board.route)) continue;
     const source = boardRepo(board.route, manifest);
     if (source.local || !source.repo) continue;
     const branch = source.branch || 'main';

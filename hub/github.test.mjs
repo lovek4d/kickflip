@@ -206,7 +206,9 @@ test("the poll writes each new owner and reviewer comment or review into its car
 test('a merged PR closes its card as merged, frees the card waiting on it and still wakes the session', async () => {
   const board = fileBoard('merges', { slug: 'm' }, [{ id: 'A1', pr: 51 }, { id: 'A2', deps: ['A1'] }]);
   writePR(home, 51, prView({ state: 'MERGED' }));
-  assert.deepEqual((await board.poll()).failed, []);
+  const first = await board.poll();
+  assert.deepEqual(first.failed, []);
+  assert.deepEqual(first.merged, ['merges']);
   assert.equal(board.wave().items[0].status, 'merged');
   assert.deepEqual(board.thread('m/A1').map((l) => l.text), ['Merged PR #51.']);
   assert.deepEqual(board.thread('m/A2').map((l) => l.text), ['Unblocked: A1 is merged.']);
@@ -214,7 +216,9 @@ test('a merged PR closes its card as merged, frees the card waiting on it and st
     ['card-unblocked', { key: 'm/A2' }], ['github-change', { prs: [{ wave: 'm', id: 'A1', pr: 51, changes: ['merged'] }] }],
   ]);
   const fetches = calls(home).length;
-  assert.equal((await board.poll()).watched, 0);
+  const second = await board.poll();
+  assert.equal(second.watched, 0);
+  assert.deepEqual(second.merged, []);
   assert.equal(calls(home).length, fetches);
   assert.deepEqual(board.thread('m/A1').map((l) => l.text), ['Merged PR #51.']);
 });

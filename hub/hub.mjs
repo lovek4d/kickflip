@@ -128,7 +128,8 @@
 // On paused → normal it sends every board usage-resumed {window}, keeping usage-gate-state.json across restarts.
 // Each served card and main has its own Tailscale HTTPS port, through a loopback relay (try.mjs).
 // Every 15 seconds try.mjs refreshes card heads, auto-builds cards and rebuilds main; polls fetch non-hub branches and
-// record each fetch in repo-fetch.json for the board's repo-fetch link.
+// record each fetch in repo-fetch.json for the board's repo-fetch link. A poll that records a card merged fetches that
+// card's board first and refreshes its Main at once (docs/adr/0168-a-merge-refreshes-its-boards-main-at-once.md).
 // Try worktrees live in ~/.claude/kickflip/try/<route>-main; board data/try.json and data/try/*.log record runs.
 // State lives in ~/.claude/kickflip: manifest.json, logs/<route>.log, run/<route>.pid, github-state.json, wake-state.json,
 // deaf-state.json, link-faults.json, repo-fetch.json, hub-code.json, resume-state.json, prompts.json, linear.json,
@@ -363,7 +364,13 @@ function runPoll({ flush = true } = {}) {
     const settings = readSettings();
     let result;
     try { result = await checkGitHub({ every: windowAt(startedAt, settings).every_minutes, manifest: loadManifest() }); }
-    catch (e) { result = { at: startedAt.toISOString(), watched: 0, failed: [e.message], changes: [], events: [], checked: [], linear: { moved: [], failed: [] } }; }
+    catch (e) { result = { at: startedAt.toISOString(), watched: 0, failed: [e.message], changes: [], events: [], checked: [], merged: [], linear: { moved: [], failed: [] } }; }
+    // docs/adr/0168-a-merge-refreshes-its-boards-main-at-once.md
+    if (result.merged.length) {
+      await fetchTryBranches({ manifest: loadManifest(), log, routes: result.merged });
+      log(`merged on ${result.merged.join(', ')}: fetched and refreshing Main`);
+      tryTick({ manifest: loadManifest(), routes: result.merged }).catch((e) => log('merge refresh failed:', e.message));
+    }
     await fetchTryBranches({ manifest: loadManifest(), log });
     if (result.failed.length && Date.now() - polls.errorLoggedAt > ERROR_LOG_MS) {
       polls.errorLoggedAt = Date.now();

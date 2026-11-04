@@ -71,7 +71,9 @@ function writeChecked(dir, every) {
 }
 
 // One check. every: the current polling window's minutes, for checked.json. manifest: the hub's manifest.
-// → {at, watched, failed: [message], changes: [{repo, pr, changes}], events: [{route, id}], checked: [route], linear: {moved, failed}}
+// → {at, watched, failed: [message], changes: [{repo, pr, changes}], events: [{route, id}], checked: [route], merged: [route],
+// linear: {moved, failed}}. merged names each board where this check recorded a card merged, for the hub to refresh its Main
+// (docs/adr/0168-a-merge-refreshes-its-boards-main-at-once.md).
 // watched counts distinct PRs; github-state.json's lastCheck also names the boards the check reached, for
 // boards.mjs linksOf.
 export async function checkGitHub({ every, manifest }) {
@@ -120,7 +122,8 @@ export async function checkGitHub({ every, manifest }) {
   const events = [];
   const checked = [];
   const undelivered = new Set();
-  const merged = new Set();
+  const merged = new Map();
+  const mergedRoutes = new Set();
   for (const board of boards) {
     const cards = board.prs.map((p) => {
       const key = prKey(p);
@@ -133,7 +136,7 @@ export async function checkGitHub({ every, manifest }) {
     });
     for (const card of cards) {
       const report = reports[fetchKey(card.p, board.me)];
-      if (report) await recordOnCard(board, card, report, { state, merged, failed });
+      if (report && await recordOnCard(board, card, report, { state, merged, failed })) mergedRoutes.add(board.route);
     }
     const changed = cards.filter((c) => c.changes.length);
     let reached = cards.every((c) => c.next);
@@ -176,7 +179,7 @@ export async function checkGitHub({ every, manifest }) {
   // docs/adr/0107-the-hubs-poll-moves-the-owners-linear-tickets.md
   try { await advanceLinear(boards, fetched, fetchKey, linear); }
   catch (e) { linear.failed.push(`linear: ${e.message}`); }
-  return { at, watched: prs.size, failed, changes, events, checked, linear };
+  return { at, watched: prs.size, failed, changes, events, checked, merged: [...mergedRoutes], linear };
 }
 
 // '' for an empty plain review: its inline comments arrive as their own events.
@@ -186,7 +189,8 @@ function lineText(event) {
   return [verdict, body].filter(Boolean).join(' ');
 }
 
-// docs/adr/0134-the-hubs-poll-records-merges-and-pr-comments-on-the-card.md
+// docs/adr/0134-the-hubs-poll-records-merges-and-pr-comments-on-the-card.md. → true when this check recorded the card merged, on
+// any board showing it.
 async function recordOnCard(board, { p, key, recipient }, report, { state, merged, failed }) {
   const card = `${p.wave}/${p.id}`;
   const written = new Set(state.threaded[key]?.[recipient] || []);
@@ -207,12 +211,13 @@ async function recordOnCard(board, { p, key, recipient }, report, { state, merge
     } catch (err) { failed.push(`${board.route}: could not write ${card}'s GitHub line (${err.message})`); }
   }
   if (written.size) (state.threaded[key] ||= {})[recipient] = [...written];
-  if (report.state !== 'MERGED') return;
+  if (report.state !== 'MERGED') return false;
   const file = JSON.stringify([board.kind === 'waves' ? WAVES : board.dir, p.wave, p.id]);
-  if (merged.has(file)) return;
-  merged.add(file);
-  try { await setItem(board.dir, card, { status: 'merged', force: true }); }
-  catch (err) { failed.push(`${board.route}: could not record ${card} merged (${err.message})`); }
+  if (!merged.has(file)) {
+    try { await setItem(board.dir, card, { status: 'merged', force: true }); merged.set(file, true); }
+    catch (err) { failed.push(`${board.route}: could not record ${card} merged (${err.message})`); merged.set(file, false); }
+  }
+  return merged.get(file);
 }
 
 async function advanceLinear(boards, fetched, fetchKey, result) {
