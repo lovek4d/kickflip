@@ -396,7 +396,7 @@ window.BoardView = (function () {
 <dialog id="sheet" class="sheet" aria-labelledby="sheetTitle">
   <form id="askForm" data-composer="ask">
     <div class="sheet-head"><h2 id="sheetTitle">New task</h2><button type="button" class="ghost" id="sheetClose" aria-label="Close">✕</button></div>
-    <textarea id="askText" rows="4" placeholder="Ask a question or give me a task…" autofocus></textarea>
+    ${BoardUI.dropZone('<textarea id="askText" rows="4" placeholder="Ask a question or give me a task…" autofocus></textarea>')}
     <div class="pending-files" data-files></div>
     <div class="row">
       <span class="muted small" id="askStatus"></span>

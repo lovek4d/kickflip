@@ -460,10 +460,11 @@ export async function moveAsk(site, eventId, route) {
   if (samePath(target.dir, site)) fail(`--to ${route}: that is this board`);
   const state = await askNotNew(site, eventId, events);
   if (state?.why) fail(state.why);
-  const edited = events.filter((e) => e.kind === 'ask-edited' && e.data?.id === eventId && typeof e.data?.text === 'string')
-    .sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop();
+  const edits = events.filter((e) => e.kind === 'ask-edited' && e.data?.id === eventId && typeof e.data?.text === 'string')
+    .sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
+  const edited = edits.at(-1);
   const files = [];
-  for (const f of ask.data?.files || []) files.push(await copyUpload(site, target.dir, f));
+  for (const f of [...(ask.data?.files || []), ...edits.flatMap((e) => e.data.files || [])]) files.push(await copyUpload(site, target.dir, f));
   const from = { route: path.basename(site), title: (await boardConfig(site)).title, id: eventId };
   const body = edited ? edited.data.text : ask.data?.text || '';
   const id = await appendEvent(target, 'ask', { text: body, ...(files.length ? { files } : {}), from });

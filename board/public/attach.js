@@ -1,5 +1,7 @@
-// Files attached to a composer: any element with data-composer="<id>" holding BoardUI.attachButton()
-// and a [data-files] list. Picking files uploads them at once to the api/upload of the site named by the nearest
+// docs/adr/0175-every-text-box-attaches-through-attach-js.md
+// Files attached to a composer: any element with data-composer="<id>" holding BoardUI.attachButton(), its text box in
+// BoardUI.dropZone(), and a [data-files] list. Picking files, dropping them on the composer, or pasting them into it
+// uploads them at once to the api/upload of the site named by the nearest
 // [data-site] around the composer (a board view's root, app.js), else of the page's own site (ClaudeSite). Pending
 // files live in memory by site and composer id, so a page that rebuilds its markup calls paintAll() to show them
 // again, and a board the app shell switches away from keeps its own. site defaults to the page's own below.
@@ -65,8 +67,42 @@ window.BoardAttach = (function () {
     const input = ev.target.closest && ev.target.closest('input[data-attach]');
     const c = input && input.closest('[data-composer]');
     if (!c) return;
-    for (const f of input.files) upload(siteOf(c), c.dataset.composer, f);
+    addFiles(c, input.files);
     input.value = '';
+  });
+  // A drag of files over a composer marks it .dragging, which outlines its drop zone. dragenter and dragleave fire on
+  // each child it crosses, so the composer counts them, and a drop ends the drag.
+  const depth = new WeakMap();
+  const composerOf = (ev) => (ev.target.closest && ev.target.closest('[data-composer]')) || null;
+  const carriesFiles = (ev) => [...(ev.dataTransfer?.types || [])].includes('Files');
+  const setDepth = (c, n) => { depth.set(c, n); c.classList.toggle('dragging', n > 0); };
+  const addFiles = (c, files) => { for (const f of files) upload(siteOf(c), c.dataset.composer, f); };
+  document.addEventListener('dragenter', (ev) => {
+    const c = composerOf(ev);
+    if (c && carriesFiles(ev)) setDepth(c, (depth.get(c) || 0) + 1);
+  });
+  document.addEventListener('dragleave', (ev) => {
+    const c = composerOf(ev);
+    if (c && depth.get(c)) setDepth(c, depth.get(c) - 1);
+  });
+  // A file drag is taken anywhere on the page, so a drop that misses every composer does nothing in place of the
+  // browser opening the file over the board.
+  document.addEventListener('dragover', (ev) => { if (carriesFiles(ev)) ev.preventDefault(); });
+  document.addEventListener('drop', (ev) => {
+    if (!carriesFiles(ev)) return;
+    ev.preventDefault();
+    const c = composerOf(ev);
+    if (!c) return;
+    setDepth(c, 0);
+    addFiles(c, ev.dataTransfer.files);
+  });
+  // A paste that carries files attaches them in place of pasting; a paste of text alone pastes as usual.
+  document.addEventListener('paste', (ev) => {
+    const c = composerOf(ev);
+    const files = [...(ev.clipboardData?.files || [])];
+    if (!c || !files.length) return;
+    ev.preventDefault();
+    addFiles(c, files);
   });
   document.addEventListener('click', (ev) => {
     const b = ev.target.closest && ev.target.closest('[data-unattach]');

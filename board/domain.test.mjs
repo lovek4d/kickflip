@@ -998,6 +998,24 @@ test('an edited pending message shows its latest text marked Edited, keeps its f
   assert.deepEqual([answered.canEdit, answered.canDelete], [false, false]);
 });
 
+test("files sent with an edit join the message's files, after the ones it was sent with, on the thread and on the New card", () => {
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
+  const more = { name: 'more.pdf', url: 'uploads/2-more.pdf', type: 'application/pdf' };
+  const last = { name: 'last.png', url: 'uploads/3-last.png', type: 'image/png' };
+  const edit = (id, ts, text, files, key) => ({ id: 'x' + ts, ts, kind: 'ask-edited', data: { id, text, files, ...(key ? { key } : {}) }, reply: null });
+  const events = [
+    askAt('a1', '2026-10-23T09:00:00Z', { data: { text: 'Fix it', files: [shot] } }),
+    edit('a1', '2026-10-23T09:06:00Z', 'Fix it now', [last]),
+    edit('a1', '2026-10-23T09:05:00Z', 'Fix it well', [more]),
+    { id: 'm1', ts: '2026-10-23T10:00:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'Look' }, reply: null },
+    edit('m1', '2026-10-23T10:01:00Z', 'Look here', [last], 'w/A1'),
+  ];
+  const [ask] = threadOf('ask:a1', { events });
+  assert.deepEqual([ask.text, ask.files], ['Fix it now', [shot, more, last]]);
+  assert.deepEqual(askBoard(events).items.find((i) => i.key === 'ask:a1').ask.files, [shot, more, last]);
+  assert.deepEqual(threadOf('w/A1', { events })[0].files, [last]);
+});
+
 // docs/adr/0144-answered-asks-have-their-own-section-below-done.md
 test('Done holds every closed work card, however old, with no Older fold, and answered asks sit in Asks, the newest answer first', () => {
   const now = Date.parse('2026-11-20T12:00:00Z');

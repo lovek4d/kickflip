@@ -49,6 +49,8 @@
   }
   const CLIP = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
   const attachButton = () => `<label class="attach" title="Attach files"><input type="file" multiple data-attach aria-label="Attach files">${CLIP}</label>`;
+  // A composer's text box, which attach.js outlines with Drop to attach while files are dragged over the composer.
+  const dropZone = (textarea) => `<div class="dz">${textarea}<div class="dz-hint" aria-hidden="true">Drop to attach</div></div>`;
   const icon = (body, size = 18, attrs = '') => `<svg${attrs} width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
   // An SVG, not ↗: iOS Safari can draw ↗ as an emoji tile even with U+FE0E.
   const LINK_ARROW = icon('<path d="M7 17 17 7"/><path d="M7 7h10v10"/>', '1em', ' class="link-arrow" style="vertical-align:-0.125em"');
@@ -242,6 +244,6 @@
   globalThis.BoardUI = {
     LINK_ARROW,
     esc, record, time, ago, since, clock, etaLine, cardTime, replyBody, setHTML, fetchJSON, RESTARTING, restartNotice,
-    attachments, attachButton, pendingFiles, protoButton, protoNotice, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, BADGE_TONES, badge,
+    attachments, attachButton, dropZone, pendingFiles, protoButton, protoNotice, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, BADGE_TONES, badge,
   };
 })();

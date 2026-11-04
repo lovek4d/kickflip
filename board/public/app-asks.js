@@ -134,7 +134,12 @@ BoardView.part((B) => {
       return;
     }
     const cancel = ev.target.closest('.edit-form button[data-edit-cancel]');
-    if (cancel) { closeEditor(cancel.closest('form').dataset.editForm); return; }
+    if (cancel) {
+      const id = cancel.closest('form').dataset.editForm;
+      closeEditor(id);
+      BoardAttach.clear('edit:' + id, B.site.root);
+      return;
+    }
     const del = ev.target.closest('button[data-withdraw]');
     if (!del) return;
     ev.preventDefault();
@@ -142,6 +147,7 @@ BoardView.part((B) => {
     const id = del.dataset.withdraw;
     const { key, msg } = await pendingMessage(del, id);
     state.edits.delete(id);
+    BoardAttach.clear('edit:' + id, B.site.root);
     state.withdrawnAsks.add(id);
     B.render();
     if (msg) msg.hidden = true;
@@ -161,14 +167,17 @@ BoardView.part((B) => {
     if (!e) return;
     const text = form.querySelector('textarea').value.trim();
     if (!text) { toast('Write something, or delete the message'); return; }
-    // The new text shows at once, in the thread and on the New card; a failed save puts the old text back and reopens
-    // the edit box with what was typed (docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md).
+    if (BoardAttach.busy(form.dataset.composer, B.site.root)) return;
+    const files = BoardAttach.files(form.dataset.composer, B.site.root);
+    // The new text and files show at once, in the thread and on the New card; a failed save puts the old text back and
+    // reopens the edit box with what was typed and attached (docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md).
     const before = state.threadCache.get(e.thread);
-    if (before) state.threadCache.set(e.thread, before.map((m) => (m.eventId === id ? { ...m, text, edited: true } : m)));
+    if (before) state.threadCache.set(e.thread, before.map((m) => (m.eventId === id ? { ...m, text, edited: true, files: [...(m.files || []), ...files] } : m)));
     closeEditor(id);
     const title = text.split('\n')[0];
     try {
-      await B.send('ask-edited', { ...e.data, text }, B.drawItem(`ask:${id}`, (it) => ({ ...it, title, ask: { ...it.ask, text, edited: true } })));
+      await B.send('ask-edited', { ...e.data, text, ...(files.length ? { files } : {}) }, B.drawItem(`ask:${id}`, (it) => ({ ...it, title, ask: { ...it.ask, text, edited: true } })));
+      BoardAttach.clear(form.dataset.composer, B.site.root);
       toast('Edited');
       B.loadThread(e.thread, { force: true });
     } catch {

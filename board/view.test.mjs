@@ -2356,6 +2356,58 @@ test("an edit shows its new text at once, in the thread and on the New card, and
   b.view.unmount();
 });
 
+// #137: every text box the owner sends from attaches through attach.js: its button, a file list, and a drop zone round the box.
+const composerParts = (form) => form && {
+  composer: Boolean(form.closest('[data-composer]')),
+  button: Boolean(form.querySelector('.attach input[type="file"][data-attach]')),
+  files: Boolean(form.querySelector('[data-files]')),
+  drop: Boolean(form.querySelector('.dz > textarea') && form.querySelector('.dz > .dz-hint')),
+};
+const EVERY_PART = { composer: true, button: true, files: true, drop: true };
+
+test('every text box on a board the owner sends from, the new task, a thread reply and an edit box, takes attachments the same way', async () => {
+  const mine = { ts: '2026-10-30T10:00:00.000Z', who: 'love', kind: 'ask', text: 'Fix the header', eventId: 'a1', canEdit: true, canDelete: true, state: 'waiting' };
+  const b = boardOnDom({ open: ['ask:a1'], board: boardOf([{ ...askCard('a1', 'todo'), isNew: true, ask: { eventId: 'a1', text: 'Fix the header' } }]), threads: { 'ask:a1': [mine] } });
+  await b.settle();
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('.msg[data-event="a1"] button[data-edit]') });
+  await b.settle();
+  const edit = b.root.querySelector('.msg[data-event="a1"] .edit-form');
+  assert.equal(edit.dataset.composer, 'edit:a1');
+  assert.deepEqual([b.root.querySelector('#askForm'), b.root.querySelector('form[data-reply="ask:a1"]'), edit].map(composerParts), [EVERY_PART, EVERY_PART, EVERY_PART]);
+  b.view.unmount();
+});
+
+test("an edit box's attached files go with the edit, Save waits while they upload, and the sent edit clears them", async () => {
+  const mine = { ts: '2026-10-30T10:00:00.000Z', who: 'love', kind: 'item-message', text: 'Fix the header', eventId: 'a1', canEdit: true, canDelete: true, state: 'waiting' };
+  const b = boardOnDom({ open: ['w/T1'], board: boardOf([workCard('T1')]), threads: { 'w/T1': [mine] } });
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
+  let busy = true;
+  const cleared = [];
+  Object.assign(b.page.win.BoardAttach, { files: (id) => (id === 'edit:a1' ? [shot] : []), busy: (id) => id === 'edit:a1' && busy, clear: (id) => cleared.push(id) });
+  await b.settle();
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('.msg[data-event="a1"] button[data-edit]') });
+  await b.settle();
+  const form = () => b.root.querySelector('.msg[data-event="a1"] .edit-form');
+  form().querySelector('textarea').value = 'Fix the footer';
+  b.page.fire(b.root, 'submit', { target: form() });
+  await b.settle();
+  assert.deepEqual(b.sent, [], 'an upload still running holds the save');
+  busy = false;
+  b.page.fire(b.root, 'submit', { target: form() });
+  await b.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['ask-edited', { id: 'a1', key: 'w/T1', text: 'Fix the footer', files: [shot] }]]);
+  assert.deepEqual(cleared, ['edit:a1']);
+  b.view.unmount();
+});
+
+test("a question's note on Waiting on you takes attachments the same way as the board's text boxes", async () => {
+  const question = { id: 'q1', topic: 'item:w/T1', source: '', question: 'Question?', context: '', options: [{ id: 'A', label: 'Yes' }], answers: [], state: 'open' };
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question], at: 'q1' });
+  await v.settle();
+  assert.deepEqual(composerParts(v.root.querySelector('section.q[data-q="q1"] [data-composer="q:q1"]')), EVERY_PART);
+  v.unmount();
+});
+
 test('Hold opens a sheet of the shared duration picker in place of a confirm, whose chip sends card-hold with that choice, and Unhold confirms naming the time', async () => {
   const until = new Date(Date.now() + 2 * 86_400_000).toISOString();
   const holdChoices = [['1h', '1h'], ['3h', '3h'], ['6h', '6h'], ['1d', '1d'], ['forever', 'Forever']].map(([value, label]) => ({ value, label, until: value === 'forever' ? 'until you unhold it' : 'until 4:40pm' }));

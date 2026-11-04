@@ -12,7 +12,9 @@ const ui = context.BoardUI;
 const ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };
 const text = (html) => html.replace(/<[^>]+>/g, ' ').replace(/&(amp|lt|gt|quot|#39);/g, (e) => ENTITIES[e]).replace(/\s+/g, ' ').trim();
 const ago = (hours) => new Date(Date.now() - hours * 3600000).toISOString();
-const options = (html) => html.split(/<label class="opt"[^>]*>/).slice(1);
+// The last option and take end where the question's note composer starts.
+const beforeComposer = (chunk) => chunk.split('<div class="composer"')[0];
+const options = (html) => html.split(/<label class="opt"[^>]*>/).slice(1).map(beforeComposer);
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
 const openPR = { number: 7, url: 'https://github.com/o/repo/pull/7', state: 'OPEN', isDraft: false, checks: { state: 'pass' } };
@@ -618,7 +620,7 @@ test("a question card checks this device's draft over the last answer", () => {
   assert.doesNotMatch(text(ui.questionCard(acted)), /Waiting for Claude/);
 });
 
-const takeCards = (html) => html.split('<article class="take"').slice(1);
+const takeCards = (html) => html.split('<article class="take"').slice(1).map(beforeComposer);
 const frames = (html) => [...html.matchAll(/<iframe src="([^"]*)"/g)].map((m) => m[1].replace(/&amp;/g, '&'));
 
 const shots = (html) => [...html.matchAll(/<div class="(take-shot[^"]*)"[^>]*?(?: style="([^"]*)")?><iframe/g)].map((m) => [m[1], m[2] ?? '']);

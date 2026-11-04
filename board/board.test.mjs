@@ -2224,18 +2224,21 @@ function boardsManifest() {
 }
 const addEvents = (...events) => fs.appendFileSync(site('orch', 'data', 'events.jsonl'), events.map((e) => JSON.stringify(e) + '\n').join(''));
 
-test("ask move sends a New ask to another board with the owner's latest text, its attachments and where it came from, and leaves it Done here with a line linking there", () => {
+test("ask move sends a New ask to another board with the owner's latest text, its attachments and its edits' and where it came from, and leaves it Done here with a line linking there", () => {
   boardsManifest();
   write(site('orch', 'data', 'uploads', '1700-shot.png'), 'png bytes');
   write(site('orch', 'data', 'uploads', '.meta', '1700-shot.png.json'), { name: 'shot.png', type: 'image/png', size: 9, at: '2026-10-23T09:00:00Z' });
   const shot = { name: 'shot.png', url: 'uploads/1700-shot.png', path: site('orch', 'data', 'uploads', '1700-shot.png'), type: 'image/png', size: 9 };
+  write(site('orch', 'data', 'uploads', '1701-more.pdf'), 'pdf bytes');
+  const more = { name: 'more.pdf', url: 'uploads/1701-more.pdf', path: site('orch', 'data', 'uploads', '1701-more.pdf'), type: 'application/pdf', size: 9 };
   addEvents({ id: 'e2', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Fix the audit header', files: [shot] } },
-    { id: 'e3', ts: '2026-10-23T11:05:00Z', kind: 'ask-edited', data: { id: 'e2', text: 'Fix the audit header spacing' } });
+    { id: 'e3', ts: '2026-10-23T11:05:00Z', kind: 'ask-edited', data: { id: 'e2', text: 'Fix the audit header spacing', files: [more] } });
   const r = board('ask', 'move', 'e2', '--to', 'audit', '--site', 'orch');
   assert.equal(r.code, 0, r.err);
   const [moved, ...others] = lines(site('audit', 'data', 'events.jsonl'));
   assert.equal(others.length, 0);
-  const [file] = moved.data.files;
+  const [file, edited] = moved.data.files;
+  assert.deepEqual([edited.name, fs.readFileSync(site('audit', 'data', edited.url), 'utf8')], ['more.pdf', 'pdf bytes']);
   assert.deepEqual([moved.kind, moved.data.text, moved.data.from, file.name, file.type], ['ask', 'Fix the audit header spacing', { route: 'orch', title: 'Orch', id: 'e2' }, 'shot.png', 'image/png']);
   assert.match(file.url, /^uploads\/\d+-shot\.png$/);
   assert.equal(file.path, site('audit', 'data', file.url));

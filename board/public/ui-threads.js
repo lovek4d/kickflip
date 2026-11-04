@@ -1,6 +1,6 @@
 // A card's thread: Claude's lines, the owner's messages and their replies. Needs ui.js, ui-links.js and ui-enums.js.
 (function () {
-  const { esc, time, etaLine, replyBody, attachments, editButton, withdrawButton, workingLine, linkText, linkHtml, anyLink, BUTTON } = globalThis.BoardUI;
+  const { esc, time, etaLine, replyBody, attachments, attachButton, dropZone, editButton, withdrawButton, workingLine, linkText, linkHtml, anyLink, BUTTON } = globalThis.BoardUI;
   const VIA = { slack: ' · Slack', github: ' · GitHub' };
   // A link to a card on this board (#item=<key>) or on another board (/<route>/#item=<key>, an ask's move), or ''.
   function cardLink(link) {
@@ -24,9 +24,11 @@
     out.sort((a, b) => a.at.localeCompare(b.at) || a.i - b.i || a.part - b.part);
     return out.map(({ m, of }, n) => (of ? { ...m, quote: out[n - 1]?.m === of ? '' : of.text || '' } : m));
   };
-  // A message being edited shows its edit box in place of its text; app-asks.js handles the form.
-  const editForm = (id, text) => `<form class="edit-form" data-edit-form="${esc(id)}"><textarea rows="3">${esc(text)}</textarea>
-        <div class="row"><span></span><span><button type="button" data-edit-cancel>Cancel</button> <button class="primary" type="submit">Save</button></span></div></form>`;
+  // A message being edited shows its edit box in place of its text; app-asks.js handles the form, and attach.js the
+  // files it adds to the message, under composer id edit:<event id>.
+  const editForm = (id, text) => `<form class="edit-form" data-edit-form="${esc(id)}" data-composer="edit:${esc(id)}">${dropZone(`<textarea rows="3">${esc(text)}</textarea>`)}
+        <div class="pending-files" data-files></div>
+        <div class="row">${attachButton()}<span><button type="button" data-edit-cancel>Cancel</button> <button class="primary" type="submit">Save</button></span></div></form>`;
   // batched: an answer followed by another of the owner's answers in its state, which carries the batch's Waiting for Claude.
   const line = (m, links, edits, batched = false) => (m.kind === 'reply'
     ? `<div class="msg claude reply-msg"><div class="who">Claude · ${esc(time(m.ts))}</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body">${linkHtml(replyBody(m.reply), links)}</div></div>`

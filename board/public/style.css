@@ -184,12 +184,20 @@ code { overflow-wrap: anywhere; }
 /* The ⌘↵ / Ctrl+↵ hint left of Send: only where there is a keyboard to press it on. */
 .send-hint { display: none; color: var(--muted); font-size: 12px; white-space: nowrap; }
 @media (hover: hover) and (pointer: fine) { .send-hint { display: inline; } }
+/* A composer's text box (BoardUI.dropZone): while files are dragged over the composer, attach.js marks it .dragging and
+   the box gets a dashed accent outline with Drop to attach over it. */
+.dz { position: relative; clear: both; border-radius: 8px; }
+.dz > textarea { display: block; }
+.dz-hint { display: none; position: absolute; inset: 0; align-items: center; justify-content: center; border-radius: 8px; pointer-events: none;
+  background: color-mix(in srgb, var(--panel) 80%, transparent); color: var(--accent); font-weight: 600; font-size: 15px; }
+[data-composer].dragging .dz { outline: 2px dashed var(--accent); outline-offset: 3px; }
+[data-composer].dragging .dz-hint { display: flex; }
 .pending-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .pending-files:empty { display: none; }
 .pfile { position: relative; display: inline-flex; flex-direction: column; justify-content: center; width: 64px; height: 64px;
   border: 1px solid var(--line); border-radius: 8px; background: var(--chip); overflow: hidden; font-size: 11px; }
 .pfile img { width: 100%; height: 100%; object-fit: cover; }
-.pfile .pname { padding: 4px 6px; overflow-wrap: anywhere; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.pfile .pname { padding: 4px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pfile.uploading img, .pfile.uploading .pname { opacity: .55; }
 .pfile .pbar { position: absolute; left: 4px; right: 4px; bottom: 4px; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--panel) 70%, transparent); }
 .pfile .pbar span { display: block; height: 100%; border-radius: 2px; background: var(--color-info); transition: width .2s; }

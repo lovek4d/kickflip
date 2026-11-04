@@ -336,7 +336,7 @@ function askedLabel(iso, now = new Date()) {
 }
 function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
   const msg = msgs.find((m) => m.kind === 'ask' && m.eventId === e.id);
-  const files = e.data?.files || [];
+  const files = msg.files;
   const title = (msg.text || '').trim().split('\n')[0] || files.map((f) => f.name).join(', ') || 'Ask';
   const answered = msg.state === 'replied' || msg.state === 'answered';
   const inProgress = mark?.state === 'progress' && !(String(doneAt || '') > String(mark.at || ''));
@@ -498,7 +498,8 @@ function ownerTopics(topics, questions, closed = new Set()) {
 // oldest first. working maps the event ids marked working in data/working.json (bin/wait-events.mjs writes them).
 // Each owner message has a state: replied (Claude replied to its event), answered (a Claude line, or the reply to
 // the thread's ask, came after it), working (marked, neither yet) or waiting. An item-message still working or
-// waiting can be deleted or edited, and shows its latest ask-edited text (docs/adr/0014-a-pending-ask-can-be-deleted-or-bumped.md). An ask's thread
+// waiting can be deleted or edited, and shows its latest ask-edited text (docs/adr/0014-a-pending-ask-can-be-deleted-or-bumped.md)
+// with the files each edit sent after its own. An ask's thread
 // (key ask:<event id>), and a work item's whose fromAsk names an ask, opens with that ask. links [{key, ref, became}] are the
 // work items an ask's thread links to: each adds a link line after the ask, and a linked ask counts as answered.
 // moved lists the asks folded into this work item (data/ask-links.json): each shows at its own time, marked moved and
@@ -547,10 +548,14 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
         ...links.map((l) => ({ ts: e.ts, who: 'claude', kind: 'ask-link', text: `${l.became ? 'Became' : 'Added to'} ${l.ref}`, link: `#item=${encodeURIComponent(l.key)}`, html: null, via: null }))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
   const lastClaude = claudeAtOf(msgs);
-  const edits = new Map(events.filter((e) => e.kind === 'ask-edited').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((e) => [e.data?.id, e.data?.text]));
+  const editEvents = events.filter((e) => e.kind === 'ask-edited').sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
+  const edits = new Map(editEvents.map((e) => [e.data?.id, e.data?.text]));
+  const editFiles = (id) => editEvents.filter((e) => e.data?.id === id).flatMap((e) => e.data.files || []);
   for (const m of msgs) {
     if (!m.eventId) continue;
-    if ((m.kind === 'ask' || m.kind === 'item-message') && typeof edits.get(m.eventId) === 'string') Object.assign(m, { text: edits.get(m.eventId), edited: true });
+    if ((m.kind === 'ask' || m.kind === 'item-message') && typeof edits.get(m.eventId) === 'string') {
+      Object.assign(m, { text: edits.get(m.eventId), edited: true, files: [...m.files, ...editFiles(m.eventId)] });
+    }
     const linked = m.kind === 'ask' && (links.length > 0 || Boolean(m.moved));
     m.state = m.reply ? 'replied' : linked || acted.has(m.eventId) || lastClaude > String(m.ts) ? 'answered' : routeRecord(working, m.eventId) ? 'working' : 'waiting';
     m.canDelete = m.kind === 'item-message' && (m.state === 'working' || m.state === 'waiting');

@@ -1,7 +1,7 @@
 // A card's thread on the board view: loading and rendering it, and its reply box. Needs app-core.js.
 BoardView.part((B) => {
   const { $, store, state, toast, quieted, sendDraft, links } = B;
-  const { esc, setHTML, threadMessages, attachButton, protoButton, protoNotice, doneButton } = BoardUI;
+  const { esc, setHTML, threadMessages, attachButton, dropZone, protoButton, protoNotice, doneButton } = BoardUI;
 
   const thread = (key) => `<div class="thread" data-thread="${esc(key)}"><div class="muted small">Loading thread…</div></div>`;
 
@@ -54,13 +54,14 @@ BoardView.part((B) => {
     // The reply form is built once per card, so a refresh never drops what is being typed.
     if (!el.querySelector('.msgs')) {
       const draft = store.get('draft:' + key, '');
-      el.innerHTML = `<div class="msgs"></div><form data-reply="${esc(key)}" data-composer="item:${esc(key)}"><textarea rows="2" placeholder="Reply in this thread…">${esc(draft)}</textarea>
+      el.innerHTML = `<div class="msgs"></div><form data-reply="${esc(key)}" data-composer="item:${esc(key)}">${dropZone(`<textarea rows="2" placeholder="Reply in this thread…">${esc(draft)}</textarea>`)}
         <div class="pending-files" data-files></div>
         <div class="row">${attachButton()}${protoButton(key)}<button class="chip quick" type="button" data-quick="What's left?">What's left?</button><button class="primary" type="submit">Send</button></div></form>`;
       BoardAttach.paint('item:' + key, B.site.root);
     }
     syncDone(el, key);
     B.steady(() => setHTML(el.querySelector('.msgs'), threadMessages(msgs, links(key), edits, view)));
+    for (const id of edits.keys()) BoardAttach.paint('edit:' + id, B.site.root);
     B.flashChanged?.(el);
     // A thread's request is answered by a later thread line, so only a pending one changes the eye.
     const req = msgs.filter((m) => m.kind === 'prototype-request').pop();
