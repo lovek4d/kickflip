@@ -1441,6 +1441,20 @@ test("a card made from an ask reads New until its session sets ready, grilling o
   assert.deepEqual([
     grilling(ran('2026-10-23T10:01:00Z', '2026-10-23T10:30:00Z')), grilling(ran('2026-10-23T10:01:00Z')), grilling(ran('2026-10-23T09:00:00Z', '2026-10-23T09:30:00Z')),
   ], [false, true, true]);
+  // A card's Prototype tap is under way the same way, until questions post, a reply comes or a prototype agent that started after it finishes.
+  const tap = { id: 'p1', ts: '2026-10-23T10:00:00Z', kind: 'prototype-request', data: { key: 'w/A1' } };
+  const prototyping = (extra) => card({ item: { state: 'ready' }, events: [tap], ...extra });
+  assert.deepEqual([prototyping().prototyping, prototyping().grilling], [true, false]);
+  assert.deepEqual(pullOf([prototyping()]).pullable, []);
+  const drew = (started, done) => ({ agents: { A1: { main: { kind: 'prototype', started, done } } } });
+  assert.deepEqual([
+    prototyping({ owner: posted('2026-10-23T10:05:00Z') }).prototyping, prototyping({ owner: posted('2026-10-23T09:00:00Z') }).prototyping,
+    prototyping({ events: [{ ...tap, reply: { at: '2026-10-23T10:02:00Z' } }] }).prototyping,
+    prototyping(drew('2026-10-23T10:01:00Z', '2026-10-23T10:30:00Z')).prototyping, prototyping(drew('2026-10-23T10:01:00Z')).prototyping,
+  ], [false, true, false, false, true]);
+  assert.equal(card({ item: { state: 'ready' }, ...drew('2026-10-23T09:00:00Z') }).prototyping, true);
+  // A prototype request on one question is the questions page's eye, not the card's tap.
+  assert.equal(card({ item: { state: 'ready' }, events: [{ ...tap, data: { key: 'w/A1', question: 'q1' } }] }).prototyping, false);
 });
 
 test("an owner answer stops waiting on Claude once its question is resolved after it, a later round names it, or a build starts after it", () => {
@@ -1487,17 +1501,20 @@ test("todoOf reads the Todo a triage sees: its cards' keys, titles and deps, and
 });
 
 // docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md
-test("a running planner's line is the card's builder line, marked planner, until a build runs, whose line wins", () => {
+test("a running planner's line is the card's builder line, marked planner, until a build runs, whose line wins; before its first line a planner reads its kind's word, preheating for a grill and prototyping for a prototype", () => {
   const status = (ts, text, extra = {}) => ({ ts, who: 'claude', kind: 'status', text, ...extra });
   const proto = { kind: 'prototype', model: 'sonnet', label: 'Prototype', started: '2026-10-23T10:00:00Z' };
   const build = { kind: 'claude', model: 'opus', label: 'Builder', started: '2026-10-23T10:10:00Z' };
-  const threads = { 'w/A1': [status('2026-10-23T10:05:00Z', 'Reading: the notes', { phase: 'reading', planner: true }), status('2026-10-23T10:12:00Z', 'Building: the page', { phase: 'building' }), status('2026-10-23T10:15:00Z', 'Prototype testing: the takes', { phase: 'testing', planner: true })] };
-  const card = (agents) => board({ pr: null, now: Date.parse('2026-10-23T10:20:00Z'), agents: { A1: agents }, threads }).items.find((i) => i.key === 'w/A1');
+  const threads = { 'w/A1': [status('2026-10-23T10:05:00Z', 'Prototyping: the notes', { planner: true }), status('2026-10-23T10:12:00Z', 'Building: the page', { phase: 'building' }), status('2026-10-23T10:15:00Z', 'Prototyping: the takes', { planner: true })] };
+  const card = (agents, lines = threads) => board({ pr: null, now: Date.parse('2026-10-23T10:20:00Z'), agents: { A1: agents }, threads: lines }).items.find((i) => i.key === 'w/A1');
   const alone = card({ main: proto });
-  assert.deepEqual([alone.lane, alone.builder.planner, alone.builder.kind, alone.builder.progress], ['todo', true, 'prototype', 'Prototype testing · the takes']);
+  assert.deepEqual([alone.lane, alone.builder.planner, alone.builder.kind, alone.builder.progress, alone.builder.phase], ['todo', true, 'prototype', 'Prototyping · the takes', null]);
   const both = card({ main: proto, fix: build });
   assert.deepEqual([both.lane, both.builder.planner, both.builder.kind, both.builder.progress, both.builder.phase], ['progress', false, 'claude', 'Building · the page', 'building']);
   assert.equal(card({ main: build }).builder.planner, false);
+  assert.equal(card({ main: proto }, {}).builder.progress, 'prototyping');
+  assert.equal(card({ main: { ...proto, kind: 'grill', model: 'opus' } }, {}).builder.progress, 'preheating');
+  assert.equal(card({ main: build }, {}).builder.progress, null);
 });
 
 test('a planner\'s agent and status lines in the thread are marked planner and name its model and kind; an implementer\'s are not', () => {
@@ -1512,6 +1529,20 @@ test('a planner\'s agent and status lines in the thread are marked planner and n
     ['Claude Sonnet prototype started', true], ['Claude Opus grill started', true], ['Claude Opus implementer started', false],
     ['Reading: the notes', true], ['Building: the page', false], ['Claude Sonnet prototype finished', true],
   ]);
+});
+
+test("a card's Grill and Prototype taps are muted request entries in its thread, and an ask sent as a Quick build says so under it", () => {
+  const ev = (id, kind, data, ts) => ({ id, ts, kind, data: { key: 'w/A1', ...data }, reply: null });
+  const events = [
+    { id: 'a1', ts: '2026-10-23T09:00:00Z', kind: 'ask', data: { text: 'Add a badge', quick: true }, reply: null },
+    ev('g1', 'grill-more', {}, '2026-10-23T10:00:00Z'), ev('p1', 'prototype-request', {}, '2026-10-23T10:01:00Z'),
+  ];
+  const msgs = threadOf('w/A1', { events, fromAsk: 'a1' });
+  assert.deepEqual(msgs.map((m) => [m.kind, m.text, Boolean(m.request)]), [
+    ['ask', 'Add a badge', false], ['quick-build', 'quick build: no grill, as you asked', true],
+    ['grill-more', 'grill requested', true], ['prototype-request', 'prototype requested', true],
+  ]);
+  assert.equal(threadOf('w/A1', { events: [{ ...events[0], data: { text: 'Add a badge' } }], fromAsk: 'a1' }).length, 1);
 });
 
 test('only a running build keeps the board from being idle: a running planner leaves Pull free to start the next ready card', () => {
@@ -1564,6 +1595,7 @@ test('the pull takes only ready cards in board order, never a card with no state
   assert.deepEqual(pullOf(unready).plannable, ['w/B4', 'w/B5']);
   const planning = [
     [card('w/C1', { state: 'grilling', grilling: true })],
+    [card('w/C1', { state: 'prototyping', prototyping: true })],
     [card('w/C1', { state: 'prototyping', agents: [{ kind: 'prototype', started: '2026-11-03T10:00:00Z', done: null }] })],
   ];
   for (const extra of planning) assert.deepEqual(pullOf([...unready, ...extra]).plannable, [], JSON.stringify(extra));

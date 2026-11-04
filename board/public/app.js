@@ -355,6 +355,8 @@ window.BoardView = (function () {
     <div class="sheet-head"><h2 id="sheetTitle">New task</h2><button type="button" class="ghost" id="sheetClose" aria-label="Close">✕</button></div>
     ${BoardUI.dropZone('<textarea id="askText" rows="4" placeholder="Ask a question or give me a task…" autofocus></textarea>')}
     <div class="pending-files" data-files></div>
+    <div class="tk-seg ask-seg" role="group" aria-label="Before building"><button type="button" id="askDiscuss" aria-pressed="true">Discuss</button><button type="button" id="askQuick" aria-pressed="false">Quick build</button></div>
+    <p class="muted small ask-choice-help" id="askChoiceHelp" aria-live="polite"></p>
     <div class="row">
       <span class="muted small" id="askStatus"></span>
       <button type="submit" class="primary">Send</button>

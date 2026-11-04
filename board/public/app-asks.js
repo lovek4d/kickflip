@@ -62,6 +62,25 @@ BoardView.part((B) => {
   B.on($('#sheetClose'), 'click', closeSheet);
   B.on(sheet, 'click', (ev) => { if (ev.target === sheet) closeSheet(); });
   B.on(sheet, 'cancel', (ev) => { ev.preventDefault(); closeSheet(); });
+  // Discuss or Quick build, above Send: Discuss, the default, has the session grill or prototype the task at once; Quick
+  // build sends the ask with quick: true, and the session marks the card ready. Each send goes back to Discuss
+  // (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
+  const CHOICE_HELP = {
+    discuss: 'Discuss: Claude grills or prototypes it first, then waits for you.',
+    quick: 'Quick build: for changes you’re sure about; Claude marks it ready and builds.',
+  };
+  let quick = false;
+  function choose(isQuick) {
+    quick = isQuick;
+    $('#askDiscuss').setAttribute('aria-pressed', String(!quick));
+    $('#askQuick').setAttribute('aria-pressed', String(quick));
+    $('#askChoiceHelp').textContent = CHOICE_HELP[quick ? 'quick' : 'discuss'];
+  }
+  choose(false);
+  B.on(B.root, 'click', (ev) => {
+    const b = ev.target.closest('#askDiscuss, #askQuick');
+    if (b) choose(b.id === 'askQuick');
+  });
   B.on($('#askForm'), 'submit', async (ev) => {
     ev.preventDefault();
     $('#askText').blur();
@@ -70,8 +89,9 @@ BoardView.part((B) => {
     if ((!text && !files.length) || BoardAttach.busy('ask', B.site.root)) return;
     $('#askStatus').textContent = '';
     try {
-      await waitOn($('#askForm button[type="submit"]'), sendDraft('draft:ask', $('#askText'), () => $('#askText'), () => B.send('ask', { text, ...(files.length ? { files } : {}) })));
+      await waitOn($('#askForm button[type="submit"]'), sendDraft('draft:ask', $('#askText'), () => $('#askText'), () => B.send('ask', { text, ...(files.length ? { files } : {}), ...(quick ? { quick: true } : {}) })));
       BoardAttach.clear('ask', B.site.root);
+      choose(false);
       $('#askStatus').textContent = '';
       closeSheet();
       toast('Sent');

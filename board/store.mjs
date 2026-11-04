@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, ITEM_STATUSES, MAX_IMPLEMENTERS, builds, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
+import { BUILD_REFUSED, ITEM_STATUSES, MAX_IMPLEMENTERS, builds, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, builderPick } from '../shared/usage-gate.mjs';
 import { reviseQueued, flushQueue, queueStatus, readSettings, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -1955,25 +1955,32 @@ const isoTime = (v, name) => (typeof v === 'string' && /^\d{4}-\d\d-\d\dT/.test(
 const PHASES = ['reading', 'building', 'testing', 'checking', 'landing'];
 const DETAIL_CAP = 80;
 const PHASE_LIST = 'reading, building, testing, checking or landing';
+// A planner's line takes no phase: it reads its kind's word, and a --phase passed for one is dropped
+// (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
 function progressLine(site, phase, detail, name) {
   if (!site) fail(`${name} needs --site, since the line goes to the item's thread`);
-  if (phase === undefined) fail(`${name} needs --phase ${PHASE_LIST}`);
-  if (!PHASES.includes(phase)) fail(`--phase takes ${PHASE_LIST}, not "${phase}"`);
+  if (phase !== undefined && !PHASES.includes(phase)) fail(`--phase takes ${PHASE_LIST}, not "${phase}"`);
   const words = text(detail, name);
   if (words.length > DETAIL_CAP) fail(`${name} is ${words.length} characters; the cap is ${DETAIL_CAP}. Say it shorter.`);
   return { phase, detail: words };
 }
+const forAgent = (line, planner, name) => {
+  if (planner) return { detail: line.detail };
+  if (line.phase === undefined) fail(`${name} needs --phase ${PHASE_LIST}`);
+  return line;
+};
 
 // A status line lives only in the item's thread, as {kind: 'status'} (domain.mjs builderOf reads it). A progress line
 // keeps its phase and reads "Testing: <detail>", or "Codex testing: <detail>" for an agent other than main, named by
 // its kind; a line with no phase (builder done's note) reads "<detail>" or "Codex: <detail>". A line that repeats the
 // thread's last status line is skipped.
-// A planner's line is marked planner and a further planner is named by its kind ("Prototype building: …")
-// (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md).
+// A planner's line is marked planner and led by its kind's word, whichever agent it runs as ("Prototyping: …")
+// (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md,
+// docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
 async function statusToThread(site, key, agent = 'main', builder, { phase, detail }, ts) {
   const planner = plans(builder);
-  const who = agent === 'main' ? '' : (planner ? builder.kind : modelName(builder)) || builder.kind || agent;
-  const head = [who, phase].filter(Boolean).join(' ');
+  const who = planner || agent === 'main' ? '' : modelName(builder) || builder.kind || agent;
+  const head = planner ? PLANNER_WORD[builder.kind] : [who, phase].filter(Boolean).join(' ');
   const body = head ? `${head[0].toUpperCase()}${head.slice(1)}: ${detail}` : detail;
   const file = threadFile(site, key);
   if ((await readLines(file)).filter((m) => m.kind === 'status').pop()?.text === body) return;
@@ -2009,7 +2016,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const gate = readUsageGate();
   if (gate.state === 'paused') throw new BoardError(pauseReason(gate));
   if (phase !== undefined && progress === undefined) fail('--phase goes with --progress "<detail>"');
-  const line = optional(progress, (v) => progressLine(site, phase, v, '--progress'));
+  const asLine = optional(progress, (v) => progressLine(site, phase, v, '--progress'));
   const file = await builderFile(site, key, dir, agent);
   const now = new Date().toISOString();
   const given = optional(kind, (v) => (/^[\w.-]{1,30}$/.test(v) ? v : fail('--kind takes a short word such as claude or codex')));
@@ -2030,6 +2037,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const pick = takeUp && asked === 'build' ? { kind: providerOf(takeUp.kind), model: takeUp.model, reason: takeUp.dispatched === 'tap' ? "The owner's Build tap picked it." : "The session's dispatch picked it." } : build ? builderPick({ card: was ?? {} }) : null;
   if (pick && asked !== 'build' && asked !== pick.kind) fail(`--kind ${asked}: ${pick.kind} builds now. ${pick.reason} Pass --kind ${pick.kind}, or --kind build.`);
   const k = pick ? pick.kind : asked;
+  const line = asLine && forAgent(asLine, plans({ kind: k }), '--progress');
   if (model !== undefined && !['opus', 'sonnet'].includes(model)) fail('--model takes opus or sonnet');
   if (askedModel !== undefined && k === 'codex') fail('--model is for kind claude; codex needs none');
   const forced = k === 'claude' ? readClaudeModel() : 'auto';
@@ -2172,10 +2180,11 @@ export async function recordedWorktree(site, key, { dir } = {}) {
 
 export async function builderProgress(site, key, progress, { phase, dir, agent = 'main', eta, clearEta }) {
   if (eta !== undefined && clearEta) fail('pass --eta or --clear-eta, not both');
-  const line = progressLine(site, phase, progress, 'builder progress');
+  const given = progressLine(site, phase, progress, 'builder progress');
   const file = await builderFile(site, key, dir, agent);
   const record = await readJSON(file, null);
   if (!record?.started || record.done) fail(`builder progress needs an open builder record on ${key}; run builder start first`);
+  const line = forAgent(given, plans(record), 'builder progress');
   if (eta !== undefined) record.eta = isoTime(eta, '--eta');
   if (clearEta) delete record.eta;
   if (eta !== undefined || clearEta) await writeJSON(file, record);

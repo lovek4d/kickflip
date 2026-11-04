@@ -140,13 +140,15 @@
     if (it?.action?.kind !== ACTION_KIND.merge && !it?.merging) return '';
     return `<button class="${it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${it.merging ? BoardUI.BUSY : ''}>Merge</button>`;
   }
-  // The open card's Implement, rightmost in its action row, on a card board/domain.mjs marks buildable: it confirms, then
+  // The open card's Implement, rightmost in its action row, on every unstarted Todo work card, its questions waiting or
+  // not: it confirms, then
   // sends card-build, waiting while the board server starts the implementer (app-cards.js). Build and Serve
   // mean the package only (docs/adr/2026-11-02-1745-a-todo-card-that-nothing-blocks-has-build.md,
   // docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md, docs/adr/2026-11-03-1549-a-todo-cards-button-reads-implement.md).
+  // Implement is plain until the card is ready, then builder orange (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
   function buildButton(it) {
-    if (!it.buildable) return '';
-    return `<button class="build" data-confirm="card-build" data-key="${esc(it.key)}">Implement</button>`;
+    if (it.kind !== 'work' || it.lane !== 'todo') return '';
+    return `<button class="build${it.ready ? ' ready' : ''}" data-confirm="card-build" data-key="${esc(it.key)}">Implement</button>`;
   }
   // A builder reads "preheating" until its first status line, from the Implement tap or the session's dispatch on.
   const builderLine = (b) => [b.progress || 'preheating', b.at && ago(b.at)].filter(Boolean).join(' · ');
@@ -253,7 +255,7 @@
     const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)
       : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Orchestrator review</div>'
       : it.builder ? builderStatus(it)
-      : it.grilling ? '<div class="line3 sub agent planner"><span class="working-dot" aria-hidden="true"></span>preheating</div>'
+      : it.grilling || it.prototyping ? `<div class="line3 sub agent planner"><span class="working-dot" aria-hidden="true"></span>${it.grilling ? 'preheating' : 'prototyping'}</div>`
       : it.refusal ? `<div class="line3 sub refused">${esc(it.refusal)}</div>`
       : it.working ? `<div class="line3 sub agent">${workingLine}</div>`
       : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.held || it.queued ? ' idle' : ''}">Next: ${esc(it.next)}</div>` : '';

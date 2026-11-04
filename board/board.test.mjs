@@ -1986,7 +1986,6 @@ test("builder start and progress on --site write each new status line to the ite
 test('builder progress and start --progress refuse a missing or unknown phase and a detail over 80 characters, writing nothing', () => {
   const long = 'x'.repeat(81);
   for (const [args, err] of [
-    [['builder', 'progress', 'w/A1', 'the plan', '--site', 'orch'], /^builder progress needs --phase reading, building, testing, checking or landing$/],
     [['builder', 'progress', 'w/A1', 'the plan', '--phase', 'waiting', '--site', 'orch'], /^--phase takes reading, building, testing, checking or landing, not "waiting"$/],
     [['builder', 'progress', 'w/A1', long, '--phase', 'testing', '--site', 'orch'], /^builder progress is 81 characters; the cap is 80\. Say it shorter\.$/],
     [['builder', 'start', 'w/A1', '--site', 'orch', '--progress', 'the plan'], /^--progress needs --phase reading, building, testing, checking or landing$/],
@@ -2000,6 +1999,8 @@ test('builder progress and start --progress refuse a missing or unknown phase an
   assert.equal(fs.existsSync(site('orch', 'data', 'threads', 'w__A1.jsonl')), false);
   assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A1.json')), false);
   assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch').code, 0);
+  const bare = board('builder', 'progress', 'w/A1', 'the plan', '--site', 'orch');
+  assert.deepEqual([bare.code, bare.err.trim()], [1, 'builder progress needs --phase reading, building, testing, checking or landing']);
   assert.equal(board('builder', 'progress', 'w/A1', 'x'.repeat(80), '--phase', 'landing', '--site', 'orch').code, 0);
 });
 
@@ -3176,7 +3177,7 @@ test("a Next set while the card has an open question clears once its questions a
 });
 
 // docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md
-test('builder start saves a planner\'s model, Sonnet for a prototype and Opus for a grill by default, and its status lines are marked planner', () => {
+test('builder start saves a planner\'s model, Sonnet for a prototype and Opus for a grill by default, and its status lines are marked planner, read its kind\'s word and keep no builder phase', () => {
   const record = (agent) => read(at('waves', 'w', 'agents', agent === 'main' ? 'A1.json' : `A1@${agent}.json`));
   for (const [kind, model] of [['prototype', 'sonnet'], ['grill', 'opus']]) {
     const r = board('builder', 'start', 'w/A1', '--site', 'orch', '--agent', kind, '--kind', kind);
@@ -3191,9 +3192,13 @@ test('builder start saves a planner\'s model, Sonnet for a prototype and Opus fo
   assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'grill', '--phase', 'reading', '--progress', 'the notes').code, 0);
   assert.equal(record('main').model, 'sonnet');
   assert.equal(board('builder', 'progress', 'w/A1', '--site', 'orch', '--agent', 'prototype', '--phase', 'building', 'the takes').code, 0);
+  // A planner needs no --phase.
+  const bare = board('builder', 'progress', 'w/A1', '--site', 'orch', '--agent', 'prototype', 'take B');
+  assert.equal(bare.code, 0, bare.err);
   assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--agent', 'fix', '--kind', 'claude', '--phase', 'testing', '--progress', 'the fix').code, 0);
-  assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map(({ text, planner }) => [text, planner]), [
-    ['Reading: the notes', true], ['Prototype building: the takes', true], ['Claude Opus testing: the fix', undefined],
+  assert.equal(board('builder', 'progress', 'w/A1', '--site', 'orch', '--agent', 'fix', 'no phase').code, 1);
+  assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map(({ text, planner, phase }) => [text, planner, phase]), [
+    ['Preheating: the notes', true, undefined], ['Prototyping: the takes', true, undefined], ['Prototyping: take B', true, undefined], ['Claude Opus testing: the fix', undefined, 'testing'],
   ]);
 });
 

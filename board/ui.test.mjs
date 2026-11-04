@@ -889,9 +889,9 @@ test("a thread's Done reads Done and is never disabled on a finishable card, ora
   assert.equal(done(undefined), '');
 });
 
-test("the open card's details list ends with Notes, Install and GitHub links in order, omitting links that do not apply; Notes has no summary or button, and Build is filled orange", () => {
+test("the open card's details list ends with Notes, Install and GitHub links in order, omitting links that do not apply; Notes has no summary or button, and a ready card's Implement is filled orange", () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(css, /button\.build, button\.unhold, button\.closes \{[^}]*background: var\(--color-notice\)/);
+  assert.match(css, /button\.build\.ready, button\.unhold, button\.closes \{[^}]*background: var\(--color-notice\)/);
 
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
@@ -996,10 +996,17 @@ test("an open card waiting on the owner's Merge shows a Merge button that confir
   assert.equal(merge(undefined), '');
 });
 
-test("an open card that can be implemented shows Implement rightmost in its action row, which confirms first", () => {
-  const build = (it) => { const html = ui.buildButton(it); return html && [text(html), /disabled/.test(html), /data-confirm="card-build"/.test(html), /data-key="w\/A1"/.test(html), /class="build"/.test(html)]; };
-  assert.deepEqual(build({ key: 'w/A1', buildable: true }), ['Implement', false, true, true, true]);
-  assert.equal(build({ key: 'w/A1', buildable: false }), '');
+test("an open card that can be implemented shows Implement rightmost in its action row, which confirms first, plain until the card is ready and builder orange once it is, beside Grill and Prototype", () => {
+  const build = (it) => { const html = ui.buildButton(it); return html && [text(html), /disabled/.test(html), /data-confirm="card-build"/.test(html), /data-key="w\/A1"/.test(html), /class="([^"]*)"/.exec(html)[1]]; };
+  const todoCard = { key: 'w/A1', kind: 'work', lane: 'todo' };
+  assert.deepEqual(build({ ...todoCard, buildable: true }), ['Implement', false, true, true, 'build']);
+  assert.deepEqual(build({ ...todoCard, buildable: true, ready: true }), ['Implement', false, true, true, 'build ready']);
+  // Always on a Todo card, plain while its questions wait on the owner.
+  assert.deepEqual(build({ ...todoCard, buildable: false, action: { kind: 'questions' } }), ['Implement', false, true, true, 'build']);
+  for (const off of [{ lane: 'progress' }, { lane: 'review' }, { lane: 'done' }, { kind: 'ask' }]) assert.equal(build({ ...todoCard, ...off }), '', JSON.stringify(off));
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /button\.build\.ready[,\s][^{]*\{[^}]*--color-notice/);
+  assert.doesNotMatch(css, /button\.build[,\s{]/);
 
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
@@ -1009,12 +1016,13 @@ test("an open card that can be implemented shows Implement rightmost in its acti
   const todo = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', lane: 'todo', action: null, actionButton: 'grill', waveTitle: 'W', deps: [], manualSteps: [], holdable: true, hasNotes: true,
     try: { kind: 'web', script: true, changes: false }, buildable: true };
   const row = (it) => [...B.detail(it).match(/<div class="action-row workflow">(.*?)<\/div>/)[1].matchAll(/<button[^>]*>(.*?)<\/button>/g)].map(([, label]) => label);
-  assert.deepEqual(row(todo), ['Hold', 'Grill', 'Implement']);
+  assert.deepEqual(row(todo), ['Hold', 'Grill', 'Prototype', 'Implement']);
   const changed = { ...todo, try: { ...todo.try, changes: true } };
-  assert.deepEqual(row(changed), ['Hold', 'Grill', 'Serve', 'Implement']);
-  assert.deepEqual(row({ ...changed, buildable: false }), ['Hold', 'Grill', 'Serve']);
-  assert.deepEqual(row({ ...todo, held: true }), ['Grill', 'Implement']);
-  assert.deepEqual(row({ ...todo, held: true, buildable: false }), ['Unhold', 'Grill']);
+  assert.deepEqual(row(changed), ['Hold', 'Grill', 'Prototype', 'Serve', 'Implement']);
+  assert.deepEqual(row({ ...changed, buildable: false }), ['Hold', 'Grill', 'Prototype', 'Serve', 'Implement']);
+  assert.deepEqual(row({ ...changed, lane: 'progress' }), ['Hold', 'Grill', 'Prototype', 'Serve']);
+  assert.deepEqual(row({ ...todo, held: true }), ['Grill', 'Prototype', 'Implement']);
+  assert.deepEqual(row({ ...todo, held: true, buildable: false }), ['Unhold', 'Grill', 'Prototype', 'Implement']);
   assert.match(B.detail({ ...todo, held: true }), /data-confirm="card-build"/);
 });
 
@@ -1096,13 +1104,18 @@ test('every In Progress card shows its five phase bars: empty before a phase, fi
 });
 
 // docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md
-test("a planner's line on a card is marked planner, keeping its dot, and never has phase bars, in Todo or In Progress", () => {
-  const planner = { progress: 'Reading · the notes', phase: 'reading', at: null, planner: true };
+test("a planner's line on a card is marked planner, keeping its dot, and never has phase bars, in Todo or In Progress; a Grill or Prototype request reads preheating or prototyping in the same slot until the planner's line takes it", () => {
+  const planner = { progress: 'Prototyping · the takes', phase: null, at: null, planner: true };
   for (const lane of ['todo', 'progress']) {
     const html = ui.workLines({ ...workCard, lane, sortAt: '2020-01-01T10:00:00.000Z', builder: planner });
-    assert.match(html, /<div class="line3 sub agent planner"><span class="working-dot" aria-hidden="true"><\/span>Reading · the notes<\/div>/);
-    assert.doesNotMatch(html, /phase-bars/);
+    assert.match(html, /<div class="line3 sub agent planner"><span class="working-dot" aria-hidden="true"><\/span>Prototyping · the takes<\/div>/);
+    assert.doesNotMatch(html, /phase-bars|Building/);
   }
+  const line = (it) => /<div class="line3 sub agent planner">.*?<\/span>([^<]*)<\/div>/.exec(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.[1];
+  assert.equal(line({ grilling: true }), 'preheating');
+  assert.equal(line({ prototyping: true }), 'prototyping');
+  assert.equal(line({ prototyping: true, builder: planner }), 'Prototyping · the takes');
+  assert.equal(line({}), undefined);
 });
 
 test("a builder line shows the progress and its age, not who is building", () => {
@@ -1383,6 +1396,15 @@ test('a builder status line, and an agent starting or finishing, reads as one li
   ]);
   assert.match(planner, /<div class="msg agent started planner"><span class="agent-dot" aria-hidden="true"><\/span>Claude Sonnet prototype started/);
   assert.match(planner, /<div class="msg builder-status planner"><span class="working-dot" aria-hidden="true"><\/span>Reading: the notes/);
+  // A Grill or Prototype tap, and a Quick build ask's note, are a muted request entry, not a message from the owner.
+  const requests = ui.threadMessages([
+    { ts: ago(2), who: 'love', via: 'site', kind: 'grill-more', request: true, text: 'grill requested', eventId: 'g1', state: 'waiting', files: [] },
+    { ts: ago(1), who: 'love', via: 'site', kind: 'prototype-request', request: true, text: 'prototype requested', eventId: 'p1', state: 'waiting', files: [] },
+  ]);
+  assert.match(requests, /^<div class="msg request">grill requested <span class="muted">· [^<]+<\/span><\/div><div class="msg request">prototype requested <span class="muted">/);
+  assert.doesNotMatch(requests, /class="who"|Waiting for Claude|data-event/);
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.msg\.request \{[^}]*color: var\(--muted\)/);
 });
 
 test("a builder's judgment calls show collapsed under its lines, saying whether the session verified them, and count as no message", () => {

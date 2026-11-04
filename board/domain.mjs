@@ -152,8 +152,6 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   const lastTs = [...thread.map((m) => m.ts), ...events.map((e) => e.ts)].sort().pop() || null;
   // A builder status line is progress, not a message: it is never unread and answers no owner message.
   const othersAt = [...thread.filter((m) => countsUnread({ ...m, who: m.who || 'claude' })).map((m) => m.ts), ...events.map((e) => e.reply?.at)].filter(Boolean).sort();
-  const lastGrill = events.filter((e) => e.kind === 'grill-more').pop();
-  const grillRunning = agents.some((a) => a.kind === 'grill' && a.started && !a.done);
   // A branch pushed to a plain git remote, which has no PR (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
   const pushed = !hasPR(it) && it.pushed?.branch ? { branch: it.pushed.branch, at: it.pushed.at || null, host: remote?.host || null } : null;
   let lane = laneOf(it, pr, agents.some((a) => a.started && !a.done && builds(a)), pushed, Boolean(reopenAt));
@@ -203,9 +201,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     pr: views[least] || null, prs: views,
     reviewers: reviewers.map((r) => r.name), review: reviewOf(reviewers, pr, sentAt), inReviewSince,
     threadCount: thread.length + events.length, lastTs, othersAt,
-    // A Grill tap is handled once it is replied to, questions are posted after it, or a grill agent that started after it finishes.
-    grilling: grillRunning || Boolean(lastGrill && !lastGrill.reply && !askedAt.some((t) => String(t) > String(lastGrill.ts))
-      && !agents.some((a) => a.kind === 'grill' && a.done && String(a.started) > String(lastGrill.ts))),
+    grilling: planningOf('grill', events, agents, askedAt), prototyping: planningOf('prototype', events, agents, askedAt),
     state: it.state || null,
     updatedAt: pr?.mergedAt || pr?.updatedAt || it.merged_at || builder?.at || lastTs || null, ask: null, fold: null, action: null,
     install: lane === 'done' ? null : installOf(it.install, pr),
@@ -384,7 +380,7 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
     deps: [], held: false, risky: false, bumpable: !handled, bumpedAt: bumped, manualSteps: [], fromAsk: null, from: null, next: inProgress ? mark.next || null : null, hasNotes: false, branch: null,
     finishable: handled && !done,
     linear: [], pr: null, prs: [], reviewers: [], review: {}, inReviewSince: null, progressSince: inProgress ? mark.at || null : null, closedAt: null,
-    threadCount: msgs.length, lastTs, othersAt: handled ? othersAt : [], grilling: false, created: e.ts, updatedAt: handled ? lastTs : e.ts,
+    threadCount: msgs.length, lastTs, othersAt: handled ? othersAt : [], grilling: false, prototyping: false, created: e.ts, updatedAt: handled ? lastTs : e.ts,
     ask: { eventId: e.id, state, askedAt: e.ts, bumpedAt: bumped, edited: Boolean(msg.edited), canEdit: !handled, text: msg.text, files, answerAt, from: msg.from || null },
     fold: null, action: null,
   };
@@ -397,6 +393,20 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
 const PLANNERS = new Set(['grill', 'prototype']);
 export const plans = (agent) => PLANNERS.has(agent.kind);
 export const builds = (agent) => !plans(agent);
+// A planner's word, never a builder phase: its card reads it before the planner's first line and leads each line with
+// it (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
+export const PLANNER_WORD = { grill: 'preheating', prototype: 'prototyping' };
+// The owner's request of a planner kind on a card: a Grill tap (grill-more) or a card's Prototype tap (prototype-request
+// with no question). Under way while a planner of that kind runs, or while the newest request has no reply, no
+// question was posted after it and no planner of that kind that started after it has finished.
+const REQUEST_KIND = { grill: 'grill-more', prototype: 'prototype-request' };
+const isRequest = (e, kind) => e.kind === REQUEST_KIND[kind] && !e.data?.question;
+function planningOf(kind, events, agents, askedAt) {
+  if (agents.some((a) => a.kind === kind && a.started && !a.done)) return true;
+  const last = events.filter((e) => isRequest(e, kind)).pop();
+  return Boolean(last && !last.reply && !askedAt.some((t) => String(t) > String(last.ts))
+    && !agents.some((a) => a.kind === kind && a.done && String(a.started) > String(last.ts)));
+}
 
 // An item's agents, oldest first, from its records by agent name.
 function agentsOf(records = {}) {
@@ -435,7 +445,7 @@ function builderOf(agents, lines = [], now) {
   const line = lines.filter((m) => m.kind === 'status' && String(m.ts) >= since && (planner || !m.planner)).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop();
   const kind = running.some((a) => a.kind === BUILDER_KIND.install) ? BUILDER_KIND.install : providerOf(running.at(-1).kind);
   const silentSince = line?.ts || since;
-  const progress = line ? (line.phase ? line.text.replace(': ', ' · ') : line.text || null) : null;
+  const progress = line ? (line.phase || line.planner ? line.text.replace(': ', ' · ') : line.text || null) : planner ? PLANNER_WORD[kind] : null;
   return { progress, phase: line?.phase || null, at: silentSince, kind, planner, silentSince, stalled: now - Date.parse(silentSince) >= BUILDER_STALLED_AFTER };
 }
 
@@ -539,7 +549,10 @@ function ownerTopics(topics, questions, closed = new Set()) {
 // answered. A work item's thread also takes the owner's messages from its asks' threads; the caller adds their lines.
 // agents is the item's builder records by agent name: each adds a line when it started and one when it finished,
 // which, like status lines, answer no message.
-const ACTION_LABELS = { 'mark-ready': 'Mark ready', 'grill-more': 'Grill please', 'prototype-request': 'Prototype please' };
+// A Grill or Prototype tap is a request entry, muted, not a message from the owner; the session builds the planner's
+// prompt from the event (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
+const ACTION_LABELS = { 'mark-ready': 'Mark ready', 'grill-more': 'grill requested', 'prototype-request': 'prototype requested' };
+const QUICK_BUILD = 'quick build: no grill, as you asked';
 const actionText = (e, asked) => {
   if (e.kind !== 'prototype-request' || !asked.has(e.data.question)) return e.data.text || routeRecord(ACTION_LABELS, e.kind) || '';
   const q = asked.get(e.data.question);
@@ -570,7 +583,8 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     ]),
     ...lines.map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}) } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null })),
     ...events.filter((e) => keys.has(e.data?.key) && ITEM_EVENTS.includes(e.kind))
-      .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply })),
+      .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply,
+        ...(isRequest(e, 'grill') || isRequest(e, 'prototype') ? { request: true } : {}) })),
     ...events.filter((e) => e.kind === 'owner-answer' && asked.has(e.data?.id)).map((e) => {
       const answer = [e.data.label || e.data.choice, e.data.note].filter(Boolean).join(' · ');
       return { ts: e.ts, who: 'love', via: 'questions', kind: e.kind, text: `${asked.get(e.data.id).question}\n→ ${answer}`, files: e.data.files || [], eventId: e.id, reply: e.reply };
@@ -578,6 +592,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     ...events.filter((e) => e.kind === 'ask' && askIds.includes(e.id))
       .flatMap((e) => [{ ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, ...(moved.includes(e.id) ? { moved: true } : {}),
         ...(typeof e.data?.from?.title === 'string' ? { from: e.data.from.title } : {}) },
+        ...(e.data?.quick === true ? [{ ts: e.ts, who: 'love', kind: 'quick-build', request: true, text: QUICK_BUILD }] : []),
         ...links.map((l) => ({ ts: e.ts, who: 'claude', kind: 'ask-link', text: `${l.became ? 'Became' : 'Added to'} ${l.ref}`, link: `#item=${encodeURIComponent(l.key)}`, html: null, via: null }))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
   const lastClaude = claudeAtOf(msgs);
@@ -975,7 +990,7 @@ export function needsAnswer(b) {
 
 // A card ready to build: an unstarted work card that isn't held, with state ready, nothing blocking it, no question
 // open or waiting on Claude and no grill under way (docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md).
-const queueable = (i) => i.buildable && i.state === 'ready' && !i.held && !i.unsorted && !i.blockedBy.length && !i.questions?.open && !i.questions?.answered && !i.grilling;
+const queueable = (i) => i.buildable && i.state === 'ready' && !i.held && !i.unsorted && !i.blockedBy.length && !i.questions?.open && !i.questions?.answered && !i.grilling && !i.prototyping;
 
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
 // A board's Maximum parallel implementers when board.json sets none.
@@ -994,8 +1009,8 @@ export const MAX_IMPLEMENTERS = 10;
 // starts as a tap, and pulls the pullable cards not pulled
 // (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md, docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md). plannable lists, top first, the buildable cards
 // not set ready, and the cards prototyping again with nothing waiting on the owner
-// (docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md), that aren't held, with no planner running, no grill under way, no question waiting on the owner or on
-// Claude and no message a session is working on; empty while any card has a grill under way or a planner running.
+// (docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md), that aren't held, with no planner running, no grill or prototype under way, no question waiting on the owner or on
+// Claude and no message a session is working on; empty while any card has a grill or prototype under way or a planner running.
 export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
   const open = items.filter((i) => !closedLane(i));
   const running = (i) => (i.agents || []).filter((a) => !a.done);
@@ -1006,7 +1021,7 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
   const next = open.filter((i) => tapped(i) || (pullable.includes(i.key) && !waiting.includes(i.key))).slice(0, Math.max(0, cap - implementers - waiting.length));
   const starts = next.filter(tapped).map((i) => i.key);
   const pulls = next.filter((i) => !tapped(i)).map((i) => i.key);
-  const planning = open.some((i) => i.grilling || running(i).some(plans));
+  const planning = open.some((i) => i.grilling || i.prototyping || running(i).some(plans));
   const plannable = planning ? [] : open.filter((i) => (i.buildable || (i.unpicked && !i.action)) && i.state !== 'ready' && !i.held && !i.questions?.open && !i.questions?.answered && !i.working).map((i) => i.key);
   return { idle: !implementers, pullable, waiting, starts, pulls, plannable };
 }

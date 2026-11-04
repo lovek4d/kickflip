@@ -14,7 +14,7 @@ button:disabled { opacity: .5; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 a.button { display: inline-block; border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; background: var(--panel); color: var(--text); text-decoration: none; }
 /* resolves: the button that clears a card's Action needed (board/domain.mjs resolvedBy), in that badge's notice tone. */
-:is(a, button).resolves, button.build, button.unhold, button.closes { border-color: var(--color-notice); background: var(--color-notice); color: #1c1407; }
+:is(a, button).resolves, button.build.ready, button.unhold, button.closes { border-color: var(--color-notice); background: var(--color-notice); color: #1c1407; }
 button.ghost { border-color: transparent; background: transparent; font-size: 18px; padding: 2px 8px; }
 textarea, input { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line);
   border-radius: 8px; padding: 8px 10px; width: 100%; resize: vertical; }
@@ -350,6 +350,7 @@ button.sub.agent.stalled { display: block; width: 100%; padding: 0; border: 0; b
 .msg.link { padding: 0 10px; margin: 4px 0; font-size: 13px; }
 .msg.builder-status { padding: 0 10px; margin: 4px 0; font-size: 12px; color: var(--color-notice); overflow-wrap: anywhere; }
 .msg.builder-status .working-dot { animation: none; }
+.msg.request { padding: 0 10px; margin: 4px 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .msg.agent { padding: 0 10px; margin: 4px 0; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
 .msg.agent.started { color: var(--color-notice); } .msg.agent.finished { color: var(--color-success); }
 .msg.agent .muted { font-weight: 400; }
@@ -652,6 +653,8 @@ main > * { transition: opacity .25s ease; }
 .tk-seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; margin: 8px 0; border: 1px solid var(--line); border-radius: 9px; background: var(--chip); }
 .tk-seg button { min-width: 0; min-height: 44px; padding: 6px 4px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
 .tk-seg button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.ask-seg { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 10px 0 0; }
+.ask-choice-help { margin: 4px 2px 0; }
 .tk-seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
 .tk-grid { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 560px) { .tk-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); } }

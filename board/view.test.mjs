@@ -2184,16 +2184,16 @@ test("an open card shows its workflow buttons below a final details line of Note
   const labels = (els) => els.map((el) => el.textContent.trim());
   const shown = (key) => ['.action-row.workflow a, .action-row.workflow button', '.external-links a', '.actions .resolves, .external-links .resolves'].map((selector) => labels(row(key)?.querySelectorAll(selector) || []));
   assert.deepEqual(Object.fromEntries(cards.map((c) => [c.key, shown(c.key)])), {
-    'w/A1': [['Open questions'], [], ['Open questions']],
-    'w/A2': [['Grill'], [], []],
-    'w/A3': [['Grill'], [], []],
+    'w/A1': [['Open questions', 'Implement'], [], ['Open questions']],
+    'w/A2': [['Grill', 'Prototype', 'Implement'], [], []],
+    'w/A3': [['Grill', 'Prototype', 'Implement'], [], []],
     'w/A4': [[], [], []],
-    'w/A5': [['Unhold', 'Open questions'], [], []],
-    'w/P1': [['Open questions'], [], ['Open questions']],
-    'w/D1': [['Grill'], ['Notes', 'Install', 'Review draft on GitHub'], ['Review draft on GitHub']],
-    'w/R1': [['Grill'], ['Install', 'Review on GitHub'], []],
-    'w/S1': [['Grill'], ['Review on GitHub'], ['Review on GitHub']],
-    'w/M1': [['Merge', 'Grill'], ['Review on GitHub'], ['Merge']],
+    'w/A5': [['Unhold', 'Open questions', 'Implement'], [], []],
+    'w/P1': [['Open questions', 'Implement'], [], ['Open questions']],
+    'w/D1': [['Grill', 'Prototype'], ['Notes', 'Install', 'Review draft on GitHub'], ['Review draft on GitHub']],
+    'w/R1': [['Grill', 'Prototype'], ['Install', 'Review on GitHub'], []],
+    'w/S1': [['Grill', 'Prototype'], ['Review on GitHub'], ['Review on GitHub']],
+    'w/M1': [['Merge', 'Grill', 'Prototype'], ['Review on GitHub'], ['Merge']],
     'ask:a1': [['Mark as done'], [], ['Mark as done']],
     'ask:a2': [[], [], []],
   });
@@ -2217,6 +2217,59 @@ test("an open card shows its workflow buttons below a final details line of Note
   assert.equal(b.root.querySelector('details.item[data-key="w/A2"] summary .line3.planner'), null);
 });
 
+test("a card's Prototype sits beside Grill and confirms, then sends prototype-request; both stay disabled while a grill or prototype is under way, and a prototyping card reads prototyping in planner blue", async () => {
+  const cards = [workCard('A1', { actionButton: 'grill' }), workCard('A2', { actionButton: 'grill', prototyping: true }), workCard('A3', { actionButton: 'grill', grilling: true })];
+  const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
+  await b.settle();
+  const buttons = (key) => [...b.root.querySelectorAll(`details.item[data-key="${key}"] .action-row.workflow button`)].map((el) => [el.textContent.trim(), el.disabled]);
+  assert.deepEqual(buttons('w/A1'), [['Grill', false], ['Prototype', false], ['Implement', false]]);
+  assert.deepEqual(buttons('w/A2'), [['Grill', true], ['Prototype', true], ['Implement', false]]);
+  assert.deepEqual(buttons('w/A3'), [['Grill', true], ['Prototype', true], ['Implement', false]]);
+  assert.match(b.root.querySelector('details.item[data-key="w/A2"] summary .line3.sub.agent.planner').textContent, /^prototyping$/);
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('details.item[data-key="w/A1"] button[data-confirm="prototype"]') });
+  await b.settle();
+  assert.deepEqual(b.confirms, ['Ask Claude for prototypes of A1?']);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['prototype-request', { key: 'w/A1' }]]);
+  b.view.unmount();
+});
+
+test('Implement is on every Todo card, plain while its questions wait on the owner and builder orange once it is ready, and its tap sends card-build either way', async () => {
+  const asking = { actionButton: 'openQuestions', buildable: false, questions: { first: 'q7', open: 1, state: 'open' }, action: { kind: 'questions', url: 'questions.html#q7', label: 'Answer 1 question' } };
+  const cards = [workCard('Q1', asking), workCard('R1', { actionButton: 'grill', buildable: true, ready: true })];
+  const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
+  await b.settle();
+  const implement = (key) => b.root.querySelector(`details.item[data-key="${key}"] button[data-confirm="card-build"]`);
+  assert.deepEqual([implement('w/Q1').getAttribute('class'), implement('w/R1').getAttribute('class')], ['build', 'build ready']);
+  b.page.fire(b.root, 'click', { target: implement('w/Q1') });
+  await b.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-build', { key: 'w/Q1' }]]);
+  b.view.unmount();
+});
+
+test('the New task sheet asks Discuss or Quick build above Send, Discuss pressed; Quick build sends the ask with quick: true, and the sheet is back on Discuss after it sends', async () => {
+  const b = boardOnDom({ board: boardOf([]), threads: {} });
+  await b.settle();
+  const seg = () => [...b.root.querySelectorAll('#askForm .ask-seg button')].map((el) => [el.textContent, el.getAttribute('aria-pressed')]);
+  assert.deepEqual(seg(), [['Discuss', 'true'], ['Quick build', 'false']]);
+  const form = b.root.querySelector('#askForm');
+  assert.ok(form.innerHTML.indexOf('ask-seg') < form.innerHTML.indexOf('type="submit"'));
+  const help = () => b.root.querySelector('#askChoiceHelp').textContent;
+  assert.equal(help(), 'Discuss: Claude grills or prototypes it first, then waits for you.');
+  const send = async (text) => {
+    b.root.querySelector('#askText').value = text;
+    b.page.fire(form, 'submit', { target: form });
+    await b.settle();
+  };
+  await send('Plain task');
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('#askQuick') });
+  assert.deepEqual(seg(), [['Discuss', 'false'], ['Quick build', 'true']]);
+  assert.equal(help(), 'Quick build: for changes you’re sure about; Claude marks it ready and builds.');
+  await send('Quick task');
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['ask', { text: 'Plain task' }], ['ask', { text: 'Quick task', quick: true }]]);
+  assert.deepEqual(seg(), [['Discuss', 'true'], ['Quick build', 'false']]);
+  b.view.unmount();
+});
+
 test('a running badge replaces its install link without confirmation and becomes current after completion', async () => {
   const install = { url: 'https://m/app.apk', sha: 'abcdef1', older: true };
   const b = boardOnDom({ open: ['w/R1'], board: boardOf([workCard('R1', { lane: 'progress', install, builder: { kind: 'install' } })]), threads: {} });
@@ -2230,7 +2283,7 @@ test('a running badge replaces its install link without confirmation and becomes
 });
 
 test('a card try button confirms, posts through the site URL and reloads; disabled buttons only toast', async () => {
-  const card = workCard('R1', { ref: 'INT-41', holdable: true, try: { kind: 'web', script: true, changes: true } });
+  const card = workCard('R1', { ref: 'INT-41', lane: 'progress', holdable: true, try: { kind: 'web', script: true, changes: true } });
   const b = boardOnDom({ open: ['w/R1'], board: boardOf([card]), threads: {}, confirm: true });
   await b.settle();
   const original = b.page.win.fetch;
@@ -2459,7 +2512,7 @@ test("every bumpable card, closed or open, carries the bump icon at its top righ
     'w/T1': ['Unbump', true, false], 'w/T2': ['Unbump', true, false], 'w/T3': ['Bump to top', false, false], 'w/P1': ['Unbump', true, false], 'w/H1': null,
   });
   for (const key of ['w/T1', 'w/T3', 'w/H1']) assert.equal(card(key).querySelector('.detail .actions [data-card-bump]'), null, key);
-  assert.deepEqual(['w/T1', 'w/T3'].map((key) => card(key).querySelector('.detail .action-row.workflow').textContent.trim()), ['Grill', 'Hold']);
+  assert.deepEqual(['w/T1', 'w/T3'].map((key) => card(key).querySelector('.detail .action-row.workflow').textContent.trim()), ['GrillPrototypeImplement', 'HoldImplement']);
 
   b.page.fire(b.root, 'click', { target: icon('w/T3') });
   await b.settle();
@@ -2893,7 +2946,8 @@ test("every owner action kind the board derives makes exactly one of the open ca
   const without = await mounted(built.items.map((i) => ({ ...i, actionButton: null })));
   for (const i of built.items) {
     const [controls, orange] = shown.counts[i.key];
-    assert.deepEqual([controls - without.counts[i.key][0], orange], [i.actionButton ? 1 : 0, i.action ? 1 : 0], `${i.key}: ${i.actionButton}, ${i.action?.kind}`);
+    // Grill draws with its Prototype twin.
+    assert.deepEqual([controls - without.counts[i.key][0], orange], [i.actionButton === 'grill' ? 2 : i.actionButton ? 1 : 0, i.action ? 1 : 0], `${i.key}: ${i.actionButton}, ${i.action?.kind}`);
   }
 
   for (const [name, values] of Object.entries({ BUTTON, ACTION_KIND })) {
