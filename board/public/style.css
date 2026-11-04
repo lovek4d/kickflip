@@ -11,7 +11,7 @@ a:hover { text-decoration: underline; }
 button { font: inherit; color: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--panel);
   border-radius: 7px; padding: 6px 10px; }
 button:disabled { opacity: .5; cursor: default; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 a.button { display: inline-block; border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; background: var(--panel); color: var(--text); text-decoration: none; }
 /* resolves: the button that clears a card's Action needed (board/domain.mjs resolvedBy), in that badge's notice tone. */
 :is(a, button).resolves, button.build, button.unhold, button.closes { border-color: var(--color-notice); background: var(--color-notice); color: #1c1407; }
@@ -30,7 +30,7 @@ textarea:focus, input:focus { outline: 2px solid var(--accent-soft); border-colo
 .brand :is(h1, h2) { font-size: 16px; margin: 0; }
 .nav { display: flex; align-items: center; gap: 6px; }
 .pill { border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--text); }
-.pill.hot { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pill.hot { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
 main { max-width: 860px; margin: 0 auto; padding: 12px 16px 80px; }
 
@@ -117,7 +117,7 @@ button.chip { border: 0; }
 .thread { border-top: 1px dashed var(--line); padding-top: 8px; }
 .msg { margin: 8px 0; padding: 7px 10px; border-radius: 10px; max-width: 100%; }
 .msg.claude { background: var(--claude); }
-.msg.love { background: var(--love); }
+.msg.love { background: var(--accent-soft); }
 .msg .who { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
 .msg .body { white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg .reply { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
@@ -211,7 +211,7 @@ code { overflow-wrap: anywhere; }
 /* Compose button and sheet */
 main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .fab { position: fixed; z-index: 6; right: calc((16px + max(env(safe-area-inset-right), env(safe-area-inset-bottom))) * 2 / 3); bottom: calc(var(--app-bottom, 0px) + (16px + env(safe-area-inset-bottom)) * 2 / 3);
-  width: 75px; height: 75px; padding: 0; border-radius: 50%; border: 0; background: var(--accent); color: #fff;
+  width: 75px; height: 75px; padding: 0; border-radius: 50%; border: 0; background: var(--accent); color: var(--on-accent);
   display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
 .fab:active { transform: scale(.96); }
 .view-board .toast-stack { bottom: calc(var(--app-bottom, 0px) + 94px + env(safe-area-inset-bottom)); }
@@ -328,7 +328,7 @@ button.attach:disabled { opacity: .35; }
 .msg.agent .muted { font-weight: 400; }
 /* A planner's line, dot included, is the owner's blue, on the card and in the thread; its finish stays green
    (docs/adr/0167-planners-and-implementers-are-two-kinds-of-agent.md). */
-.sub.agent.planner, .msg.builder-status.planner, .msg.agent.started.planner { color: var(--love-ink); }
+.sub.agent.planner, .msg.builder-status.planner, .msg.agent.started.planner { color: var(--accent); }
 .planner .working-dot { background: currentColor; }
 .msg.calls { padding: 0 10px; margin: 4px 0; font-size: 12px; overflow-wrap: anywhere; }
 .msg.calls summary { cursor: pointer; color: var(--muted); }
@@ -479,7 +479,7 @@ main > * { transition: opacity .25s ease; }
 .view-questions .opt .rec { color: var(--accent); font-weight: 500; font-size: 12px; margin-left: 4px; }
 .view-questions .opt .det { color: var(--muted); font-size: 13px; }
 .view-questions .note { margin-top: 4px; }
-.view-questions .ans { background: var(--love); border-radius: 9px; padding: 7px 10px; margin-top: 8px; font-size: 13px; }
+.view-questions .ans { background: var(--accent-soft); border-radius: 9px; padding: 7px 10px; margin-top: 8px; font-size: 13px; }
 .view-questions .rep { background: var(--claude); border-radius: 9px; padding: 7px 10px; margin-top: 6px; font-size: 13px; }
 .view-questions .q details { margin-top: 8px; }
 .view-questions .q details > summary { cursor: pointer; color: var(--muted); font-size: 13px; }

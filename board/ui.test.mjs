@@ -32,6 +32,19 @@ test('the board and the hub take every colour from shared/colors.css and define 
   }
 });
 
+test('one human blue: --accent is the planner blue in both modes, and every label on an accent fill reads --on-accent', () => {
+  const [light, dark] = colorsCss.split('@media (prefers-color-scheme: dark)');
+  const value = (src, name) => new RegExp(`${name}:\\s*([^;]+);`).exec(src)?.[1].trim();
+  assert.deepEqual([value(light, '--accent'), value(light, '--accent-soft'), value(light, '--on-accent')], ['#2b6cb0', '#eef6ff', '#ffffff']);
+  assert.deepEqual([value(dark, '--accent'), value(dark, '--accent-soft'), value(dark, '--on-accent')], ['#6fa8e8', '#1b2533', '#0b0b0e']);
+  assert.deepEqual([...definedIn(colorsCss)].filter((v) => /love|blue/.test(v)), []);
+  for (const f of ['style.css', 'sidebar.css', 'hub.css']) {
+    const css = fs.readFileSync(new URL(`./public/${f}`, import.meta.url), 'utf8');
+    const filled = css.split('}').filter((r) => /background:\s*var\(--accent\)/.test(r) && /[^-]color:/.test(r));
+    for (const r of filled) assert.match(r, /[^-]color:\s*var\(--on-accent\)/, `${f}: ${r.trim()}`);
+  }
+});
+
 test("every hub.css selector is under .hub-view, so the hub's short class names never reach a board's elements", () => {
   const css = fs.readFileSync(new URL('./public/hub.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
   const selectors = [];
