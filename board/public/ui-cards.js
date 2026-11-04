@@ -1,6 +1,6 @@
 // Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js, ui-enums.js and ui-phase-bars.js.
 (function () {
-  const { esc, ago, clock, cardTime, etaLine, workingLine, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, LINK_ARROW, phaseBars: bars } = globalThis.BoardUI;
+  const { esc, ago, lasted, clock, cardTime, etaLine, workingLine, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, LINK_ARROW, phaseBars: bars } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   // The PR badge is the one place a PR's state shows: its mark and tone, marked like the reviewer and CI chips, and its
   // title (docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md). A card with several PRs shows a
@@ -155,8 +155,9 @@
     if (it.kind !== 'work' || it.lane !== 'todo' || it.queued) return '';
     return `<button class="build${it.ready ? ' ready' : ''}" data-confirm="card-build" data-key="${esc(it.key)}">Implement</button>`;
   }
-  // A builder reads "preheating" until its first status line, from the Implement tap or the session's dispatch on.
-  const builderLine = (b) => [b.progress || 'preheating', b.at && ago(b.at)].filter(Boolean).join(' · ');
+  // A builder reads "preheating" until its first status line, from the Implement tap or the session's dispatch on, and
+  // ends with how long ago that line was set.
+  const builderLine = (b) => [b.progress || 'preheating', b.at && lasted(b.at)].filter(Boolean).join(' · ');
   // Five bars at the end of an In Progress card's time row: reached phases filled, a running one marked. The phases are
   // store.mjs PHASES (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md,
   // docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md).
@@ -168,7 +169,13 @@
   // questions, a blocker or queue, a reopening) or its build is stale, and its label. An install is no build: its card keeps the phase its
   // build reached, undimmed
   // (docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md).
+  // A Todo card a grill or prototype runs on draws the planner's dashes instead, in blue, the grill's first and the
+  // prototype's second running (docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md).
   function phaseStrip(it) {
+    if (it.lane === 'todo' && it.builder?.planner) {
+      const prototype = it.builder.kind === 'prototype';
+      return { reached: prototype ? 2 : 1, running: true, dim: false, plan: true, label: prototype ? 'Prototyping' : 'Grilling' };
+    }
     if (it.lane !== 'progress' || it.builder?.planner) return null;
     const all = BUILD_PHASES.length;
     if (it.waitsOn === 'checking') return { reached: all, running: false, dim: false, label: `Orchestrator review, ${ALL_DONE}` };
@@ -194,9 +201,20 @@
     return has && next > prev ? 'fill' : null;
   }
   const phaseBars = (strip) => bars(strip, BUILD_PHASES);
+  // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
+  // Every status line on an In Progress card is the phase-bar orange, and every build or plan line on a Todo card the
+  // owner's blue (style.css).
+  const tone = (it) => (it.lane === 'progress' ? ' in-progress' : it.lane === 'todo' ? ' in-todo' : '');
+  const DOT = '<span class="working-dot" aria-hidden="true"></span>';
+  // A card idle on the orchestrator (domain.mjs orchestratorWaitOf) reads waiting for orchestrator, then orchestrator
+  // review with its dot once the session picks it up, each with how long ago.
+  function orchestratorStatus(it) {
+    const { since, picked } = it.orchestrator;
+    return `<div class="line3 sub agent${tone(it)}">${picked ? `${DOT}orchestrator review · ${esc(lasted(picked))}` : `waiting for orchestrator · ${esc(lasted(since))}`}</div>`;
+  }
   // A stale build's status line is the needs-you red, and a tap on it nudges Claude to check the implementer.
   function builderStatus(it) {
-    const classes = `line3 sub agent${it.builder.planner ? ' planner' : ''}`;
+    const classes = `line3 sub agent${it.builder.planner ? ' planner' : ''}${tone(it)}`;
     const words = `<span class="working-dot" aria-hidden="true"></span>${esc(builderLine(it.builder))}`;
     if (!it.builder.stalled || it.lane === 'done') return `<div class="${classes}">${words}</div>`;
     return `<button type="button" class="${classes} stalled" data-confirm="nudge" data-key="${esc(it.key)}" title="No recent progress. Nudge Claude to check this implementer">${words}</button>`;
@@ -264,9 +282,10 @@
     const ids = it.kind === 'ask' ? askChip(it) : it.unsorted ? `${badge('notice', 'New')} ${chip}` : chip;
     const chips = `${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
     const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)
-      : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Orchestrator review</div>'
+      : it.orchestrator && !it.builder ? orchestratorStatus(it)
+      : it.waitsOn === 'checking' ? `<div class="line3 sub agent${tone(it)}">${DOT}Orchestrator review</div>`
       : it.builder ? builderStatus(it)
-      : it.grilling || it.prototyping ? `<div class="line3 sub agent planner"><span class="working-dot" aria-hidden="true"></span>${it.grilling ? 'preheating' : 'prototyping'}</div>`
+      : it.grilling || it.prototyping ? `<div class="line3 sub agent planner${tone(it)}">${DOT}${it.grilling ? 'preheating' : 'prototyping'}</div>`
       : it.refusal ? `<div class="line3 sub refused">${esc(it.refusal)}</div>`
       : it.working ? `<div class="line3 sub agent">${workingLine}</div>`
       : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.held || it.queued ? ' idle' : ''}">Next: ${esc(it.next)}</div>` : '';

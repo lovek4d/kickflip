@@ -751,3 +751,96 @@ test("a question's prototype request still waiting 30 minutes on with no prototy
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
+test('a card that comes to wait on the orchestrator wakes the session once, and pushes the owner once 30 minutes on, across a restart', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orchestrator-waits-'));
+  const siteDir = path.join(dir, 'site');
+  const dataDir = path.join(siteDir, 'data');
+  const clockFile = path.join(dir, 'clock');
+  const setup = path.join(dir, 'setup.mjs');
+  const eventsFile = path.join(dataDir, 'events.jsonl');
+  const waitsFile = path.join(dataDir, 'orchestrator-waits.json');
+  const calls = path.join(dir, 'push-calls.jsonl');
+  let now = Date.parse('2026-10-30T10:00:00Z');
+  let worker;
+  fs.mkdirSync(path.join(dataDir, 'agents'), { recursive: true });
+  fs.mkdirSync(path.join(dataDir, 'threads'), { recursive: true });
+  fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't' }));
+  const handedAt = new Date(now - 5 * 60000).toISOString();
+  fs.writeFileSync(path.join(dataDir, 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', status: 'building', status_at: handedAt }, { id: 'A2', title: 'Two' }] }));
+  fs.writeFileSync(path.join(dataDir, 'agents', 'A1.json'), JSON.stringify({ kind: 'claude', started: new Date(now - 60 * 60000).toISOString(), calls: [{ at: handedAt, text: 'Kept the old name' }] }));
+  fs.writeFileSync(eventsFile, '');
+  fs.writeFileSync(clockFile, String(now));
+  fs.writeFileSync(path.join(dir, 'push-stub.mjs'), "import fs from 'node:fs'; fs.appendFileSync(process.env.STUB_CALLS, JSON.stringify(process.argv.slice(3)) + '\\n'); console.log('sent');");
+  fs.writeFileSync(setup, `
+    import http from 'node:http';
+    import fs from 'node:fs';
+    const RealDate = Date;
+    globalThis.Date = class extends RealDate {
+      constructor(...args) { super(...(args.length ? args : [Date.now()])); }
+      static now() { return Number(fs.readFileSync(process.env.BUILDER_TEST_CLOCK, 'utf8')); }
+    };
+    const interval = globalThis.setInterval;
+    interval(() => {}, 1000);
+    globalThis.setInterval = (fn, ms, ...args) => interval(fn, ms === 60000 ? 20 : ms, ...args);
+    http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };
+  `);
+  const wakes = () => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse).filter((e) => e.kind === 'orchestrator-waits').map((e) => e.data);
+  const pushes = () => (fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
+  const flag = (call, name) => call[call.indexOf(`--${name}`) + 1];
+  const waits = () => { try { return JSON.parse(fs.readFileSync(waitsFile, 'utf8')).waits; } catch { return null; } };
+  const start = async () => {
+    worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
+      env: { ...process.env, HOME: dir, BUILDER_TEST_CLOCK: clockFile, KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, path.join(dir, 'push-stub.mjs'), 'push']), STUB_CALLS: calls },
+    });
+    let errors = '';
+    worker.stderr.on('data', (chunk) => { errors += chunk; });
+    await new Promise((resolve, reject) => {
+      worker.stdout.once('data', resolve);
+      worker.once('error', reject);
+      worker.once('exit', (code) => reject(new Error(`Server exited ${code}: ${errors}`)));
+    });
+  };
+  const stop = async () => {
+    if (!worker || worker.exitCode !== null) return;
+    const exited = new Promise((resolve) => worker.once('exit', resolve));
+    worker.kill();
+    await exited;
+  };
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 120));
+  try {
+    await start();
+    await until(() => waits() !== null, 'the first wait check');
+    assert.deepEqual(waits(), [], 'a live builder owns the card');
+    // builder done hands it back with its calls: no event of its own, yet the list wakes the session.
+    put(path.join(dataDir, 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', status: 'checking', status_at: handedAt, next: "Verify the builder's judgment calls" }, { id: 'A2', title: 'Two' }] }));
+    await until(() => wakes().length === 1, 'the hand-back wakes the session');
+    assert.deepEqual(wakes(), [{ added: ['t/A1'] }]);
+    assert.deepEqual(waits().map((w) => [w.key, w.kind, w.since, w.picked]), [['t/A1', 'calls', handedAt, null]]);
+    assert.equal(pushes().length, 0, 'five minutes in, no push');
+    await tick();
+    assert.equal(wakes().length, 1, 'once');
+    now += 26 * 60000;
+    put(clockFile, String(now));
+    await until(() => pushes().length === 1, 'pushed 30 minutes on');
+    assert.equal(flag(pushes()[0], 'title'), 'A1 waits on the orchestrator');
+    assert.equal(flag(pushes()[0], 'body'), "One: Verify the builder's judgment calls");
+    assert.equal(flag(pushes()[0], 'tag'), 'wait-t/A1');
+    await until(() => waits()[0].pushed === true, 'the push is kept');
+    await stop();
+    await start();
+    await tick();
+    await tick();
+    assert.equal(wakes().length, 1, 'no second wake after a restart');
+    assert.equal(pushes().length, 1, 'no second push after a restart');
+    // The session's thread line picks it up: it stays on the list, picked, and wakes nothing.
+    const picked = new Date(now).toISOString();
+    put(path.join(dataDir, 'threads', 't__A1.jsonl'), JSON.stringify({ ts: picked, who: 'claude', text: 'Checking the calls.' }) + '\n');
+    await until(() => waits()[0].picked === picked, 'picked up');
+    assert.equal(wakes().length, 1);
+  } finally {
+    await stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -13,6 +13,9 @@
     if (s < 86400) return Math.round(s / 3600) + 'h ago';
     return Math.round(s / 86400) + 'd ago';
   };
+  // How long ago a card's status was first set, as its status line ends: "just now", "14m", "3h", "2d"
+  // (docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md).
+  const lasted = (iso) => ago(iso).replace(/ ago$/, '');
   const since = (iso) => {
     const s = (Date.now() - new Date(iso).getTime()) / 1000;
     return s < 60 ? 'just now' : s < 3600 ? Math.round(s / 60) + ' min ago' : s < 86400 ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' d ago';
@@ -335,7 +338,7 @@
 
   globalThis.BoardUI = {
     LINK_ARROW,
-    esc, record, time, ago, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, RESTARTING, restartNotice,
+    esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, RESTARTING, restartNotice,
     attachments, attachButton, dropZone, pendingFiles, protoButton, grillButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, BADGE_TONES, badge,
   };
 })();

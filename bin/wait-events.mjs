@@ -9,6 +9,10 @@
 //                             what came in and on which card (plainLine); on a board it marks each ask,
 //                             item-message, wave-triage and overnight-triage working in data/working.json and answers a hello for the
 //                             session (board/store.mjs ackHello), then prints:
+//   waits <kind> <ref> <key> since <iso>[, picked up <iso>]: <next>
+//                             each card idle on the orchestrator, lanes top-down, from data/orchestrator-waits.json,
+//                             which the board server keeps (board/server.mjs checkWaits): handle each one on every wake
+//                             (docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md), then
 //   rule hub <text>           each hub rule (settings.json `rules`), then
 //   rule board <text>         each of the board's own (board.json `rules`): the owner's standing instructions,
 //                             printed with every wake (docs/adr/2026-10-29-1639-rules-live-on-settings-at-hub-and-board-level.md), then
@@ -70,6 +74,7 @@ const PLAIN = {
   hello: (e) => `hello ${e.id} from the hub answered`,
   'overnight-triage': (e) => `Overnight triage ${e.data?.date} asked: ${e.data?.cards?.length} cards wait on your answers`,
   'pr-review': (e) => `review asked on PR #${e.data?.pr}: the board was idle`,
+  'orchestrator-waits': (e) => `waiting on you now: ${(e.data?.added || []).join(', ')}`,
   'review-answer': (e) => `${e.data?.answer === 'skip' ? 'skip' : 'post'} answered on the review of PR #${e.data?.pr}`,
 };
 const ON_CARD = {
@@ -103,6 +108,14 @@ async function plainLine(dir, line) {
   if (routeRecord(PLAIN, e.kind)) return PLAIN[e.kind](e);
   if (card && routeRecord(ON_CARD, e.kind)) return ON_CARD[e.kind](card, e);
   return card ? `${e.kind} on ${card}` : `${e.kind} received`;
+}
+
+// One line per card idle on the orchestrator (board/domain.mjs orchestratorWaits), none while the board server hasn't
+// written the list.
+function waitLines(dir) {
+  let waits = [];
+  try { waits = JSON.parse(fs.readFileSync(path.resolve(dir, 'data', 'orchestrator-waits.json'), 'utf8')).waits || []; } catch {}
+  return waits.map((w) => `waits ${w.kind} ${w.ref} ${w.key} since ${w.since}${w.picked ? `, picked up ${w.picked}` : ''}: ${w.next}`);
 }
 
 const s0 = site();
@@ -177,6 +190,7 @@ for (;;) {
     if (board) await markWorking(s.dir, started).catch((e) => console.log(`working marks not written (${e.message})`));
     // Printing the hello is the proof the session hears the board (docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
     if (board) for (const id of hellos) await ackHello(s.dir, id).catch((e) => console.log(`hello ${id} not answered (${e.message})`));
+    if (board) for (const line of waitLines(s.dir)) console.log(line);
     if (board) for (const line of ruleLines(readHubRules(), rulesOf(board))) console.log(`rule ${line}`);
     if (board) for (const line of settingsLines(settingsOf(board))) console.log(line);
     if (board) console.log(QUIET);

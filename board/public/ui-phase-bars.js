@@ -4,14 +4,14 @@
 // hub/hub.mjs renders the shell's first sidebar with it in a vm context. style.css draws the bars.
 (function () {
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  // strip: {reached, running, dim, label, fill}, or null for no bars. reached counts the phases reached, the last of them
-  // running when running is set; fill, a percent, fills the next bar that far.
+  // strip: {reached, running, dim, label, fill, plan}, or null for no bars. reached counts the phases reached, the last of
+  // them running when running is set; fill, a percent, fills the next bar that far; plan draws them in the planner blue.
   function phaseBars(strip, phases) {
     if (!strip) return '';
-    const { reached, running, dim, label, fill } = strip;
+    const { reached, running, dim, label, fill, plan } = strip;
     const bar = (i) => (i === reached - 1 && running ? '<i class="now"></i>' : i < reached ? '<i class="done"></i>'
       : i === reached && fill !== undefined ? `<i class="fill" style="--p:${fill}%"></i>` : '<i class=""></i>');
-    return `<span class="phase-bars${dim ? ' dim' : ''}" role="img" aria-label="${esc(label)}" title="${esc(label)}">${phases.map((_, i) => bar(i)).join('')}</span>`;
+    return `<span class="phase-bars${dim ? ' dim' : ''}${plan ? ' plan' : ''}" role="img" aria-label="${esc(label)}" title="${esc(label)}">${phases.map((_, i) => bar(i)).join('')}</span>`;
   }
   Object.assign(globalThis.BoardUI ||= {}, { phaseBars });
 })();

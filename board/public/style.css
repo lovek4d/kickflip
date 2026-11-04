@@ -365,6 +365,15 @@ button.sub.agent.stalled { color: var(--color-danger); }
    (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md). */
 .sub.agent.planner, .msg.builder-status.planner, .msg.agent.started.planner { color: var(--accent); }
 .planner .working-dot { background: currentColor; }
+/* Every status line on an In Progress card is the phase-bar orange, a planner's too, and every build or plan line on a
+   Todo card the owner's blue, dot included; a Todo card's planner dashes are that blue, the running one pulsing
+   (docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md). */
+.sub.agent.in-progress { color: var(--color-notice); }
+.sub.agent.in-todo { color: var(--accent); }
+.sub.agent.in-progress .working-dot, .sub.agent.in-todo .working-dot { background: currentColor; }
+.phase-bars.plan { --bar-fill: var(--accent); }
+@keyframes pulse-fill-plan { 50% { background-color: color-mix(in srgb, var(--accent) 35%, transparent); } }
+@media (prefers-reduced-motion: no-preference) { .phase-bars.plan:not(.dim) i.now { animation-name: pulse-fill-plan; } }
 .msg.calls { padding: 0 10px; margin: 4px 0; font-size: 12px; overflow-wrap: anywhere; }
 .msg.calls summary { cursor: pointer; color: var(--muted); }
 .msg.calls ol { margin: 4px 0; padding-left: 20px; }

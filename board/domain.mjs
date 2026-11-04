@@ -248,6 +248,25 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     state: it.state || null,
     updatedAt: pr?.mergedAt || pr?.updatedAt || it.merged_at || builder?.at || lastTs || null, ask: null, fold: null, action: null,
     install: lane === 'done' ? null : installOf(it.install, pr),
+    waitFacts: waitFactsOf(it, { agents, thread, events, refusedAt: refusal ? newest.ts : null }),
+  };
+}
+
+// docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
+// What a card's wait on the orchestrator is read from (orchestratorWaitOf), kept on the item only until buildBoard places
+// it: when its status was set and its stored Next, its oldest builder ask with no answer, its newest grill and prototype
+// requests, when the pull refused it, whether its records hold unverified calls, and the session's writes on it: a thread
+// line of Claude's other than a status, agent or refusal line, a verify and a builder start.
+function waitFactsOf(it, { agents, thread, events, refusedAt }) {
+  const answered = new Set(thread.filter((m) => m.kind === BUILDER_ASK.answer).map((m) => m.ask));
+  const ask = thread.filter((m) => m.kind === BUILDER_ASK.ask && !answered.has(m.ask)).sort((a, b) => String(a.ts).localeCompare(String(b.ts)))[0];
+  const requestAt = (kind) => events.filter((e) => isRequest(e, kind)).pop()?.ts || null;
+  const lines = thread.filter((m) => (m.who || 'claude') === 'claude' && !['status', 'agent', BUILD_REFUSED].includes(m.kind)).map((m) => m.ts);
+  return {
+    statusAt: it.status_at || null, next: it.next || null, ask: ask ? { at: ask.ts, text: ask.text } : null,
+    grillAt: requestAt('grill'), prototypeAt: requestAt('prototype'), refusedAt,
+    unverified: agents.some((a) => a.calls.some((c) => !a.verified || String(c.at) > String(a.verified.at))),
+    writes: [...lines, ...agents.flatMap((a) => [a.verified?.at, a.started])].filter(Boolean).map(String).sort(),
   };
 }
 
@@ -1007,6 +1026,13 @@ export function buildBoard(snapshot) {
     if (it.kind === 'work' && it.lane === 'progress' && !it.builder && !it.next && it.waitsOn !== 'checking' && !it.working && !it.queued) it.next = NO_NEXT;
     it.sortAt = (it.queued ? it.queuedAt || it.created : SORT_AT[it.lane](it)) || it.updatedAt || null;
   }
+  for (const it of items) {
+    if (it.kind !== 'work') continue;
+    const answeredAt = (questionsOn.get(`item:${it.key}`) || []).filter((q) => q.state === 'answered').map((q) => q.answers.at(-1).ts).sort().pop();
+    const workingSince = workingOn.filter((w) => w.key === it.key).map((w) => String(w.since)).sort()[0];
+    it.orchestrator = ['progress', 'todo'].includes(it.lane) ? orchestratorWaitOf(it, it.waitFacts, { answeredAt, workingSince }) : null;
+    delete it.waitFacts;
+  }
   // Items arrive in the order the page shows them (public/ui-order.js).
   items.sort(laneOrder);
 
@@ -1269,6 +1295,40 @@ export function strictlyIdle(built, { pulled = [] } = {}) {
   const busy = open.some((i) => i.waitsOn === 'checking' || i.grilling || i.prototyping || (i.agents || []).some((a) => !a.done));
   return !busy && !built.working && !pullOf(built.items, { pulled }).waiting.length;
 }
+
+// docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
+// What an open work card waits on the orchestrator for, or null: an open builder ask; an owner answer not acted on;
+// unless the owner owes it an answer, a hand-back with judgment calls not verified (calls) or a checked card with none left
+// (checking); a grill or prototype asked for with no planner of that kind running; a refusal by the pull; or a started
+// card with no live builder and nothing else placing it (unowned). since is when it began to wait, and picked when the
+// session first wrote on the card after that (waitFactsOf), or the watcher marked one of its events working, which the
+// card reads as Orchestrator review. → {kind, since, picked, next}, next saying what it waits for.
+function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
+  const running = (kind) => it.agents.some((a) => a.kind === kind && a.started && !a.done);
+  const lastBuild = [it.progressSince, ...it.agents.map((a) => a.done)].filter(Boolean).map(String).sort().pop() || null;
+  const wait = facts.ask ? { kind: 'ask', since: facts.ask.at, next: `Answer the builder's ask: ${facts.ask.text}` }
+    : answeredAt ? { kind: 'answer', since: answeredAt, next: "Act on the owner's answer" }
+    : ASKING.has(it.action?.kind) ? null
+    : it.waitsOn === 'checking' ? facts.unverified ? { kind: 'calls', since: facts.statusAt, next: facts.next || "Verify the builder's judgment calls" }
+      : { kind: 'checking', since: facts.statusAt, next: facts.next || 'Land the checked build' }
+    : it.grilling && facts.grillAt && !running('grill') ? { kind: 'grill', since: facts.grillAt, next: 'Start the grill asked for' }
+    : it.prototyping && facts.prototypeAt && !running('prototype') ? { kind: 'prototype', since: facts.prototypeAt, next: 'Draw the prototype asked for' }
+    : it.refusal && facts.refusedAt ? { kind: 'refused', since: facts.refusedAt, next: it.refusal }
+    : it.next === NO_NEXT && lastBuild ? { kind: 'unowned', since: lastBuild, next: 'Start a builder on it, or set its Next' }
+    : null;
+  if (!wait?.since) return null;
+  const since = String(wait.since);
+  const picked = [facts.writes.find((t) => t > since), workingSince].filter(Boolean).sort()[0] || null;
+  return { kind: wait.kind, since, picked, next: wait.next };
+}
+
+// The cards idle on the orchestrator in a built board, lanes top-down: In Progress, then Todo, each in the board's order.
+// → [{key, ref, title, kind, since, picked, next}]
+export function orchestratorWaits(built) {
+  return built.items.filter((i) => i.orchestrator).map((i) => ({ key: i.key, ref: i.ref, title: i.title, ...i.orchestrator }));
+}
+// How long a card waits on the orchestrator, not picked up, before the board pushes the owner about it once.
+export const ORCHESTRATOR_PUSH_AFTER = 30 * 60000;
 
 // How long a board stays strictly idle before the idle notification pushes.
 export const IDLE_MINUTES = 15;

@@ -23,6 +23,10 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   write(path.join(dir, 'board.json'), { title: 'Shop', rules: [{ id: 'b1', text: 'Board rule' }] });
   write(path.join(state, 'settings.json'), { rules: [{ id: 'h1', text: 'Hub rule' }] });
   write(path.join(state, 'usage.json'), usage(reset));
+  write(path.join(dir, 'data', 'orchestrator-waits.json'), { waits: [
+    { key: 'w/A1', ref: 'A1', title: 'One', kind: 'calls', since: '2026-11-04T10:00:00.000Z', picked: null, next: "Verify the builder's judgment calls" },
+    { key: 'w/A2', ref: 'A2', title: 'Two', kind: 'answer', since: '2026-11-04T10:05:00.000Z', picked: '2026-11-04T10:06:00.000Z', next: "Act on the owner's answer" },
+  ] });
   ownSession(home, 's1');
   write(cursor, { 'data/events.jsonl': 0 });
   write(events, '');
@@ -51,6 +55,8 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   // A builder's ask wakes the session while usage is paused: the builder is mid-build.
   assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"builder-ask".*\nask1 from A1's builder: Stay orange\?$/m);
   assert.doesNotMatch(out.stdout, /"kind":"github-change"|"kind":"check-github"|"kind":"card-unblocked"/);
+  // Every wake walks the cards idle on the orchestrator, lanes top-down, after the events and before the rules.
+  assert.match(out.stdout, /Stay orange\?\nwaits calls A1 w\/A1 since 2026-11-04T10:00:00.000Z: Verify the builder's judgment calls\nwaits answer A2 w\/A2 since 2026-11-04T10:05:00.000Z, picked up 2026-11-04T10:06:00.000Z: Act on the owner's answer\nrule hub /);
   assert.match(out.stdout, new RegExp(`rule hub Hub rule[^]*rule board Board rule[^]*setting auto-merge off[^]*\\nquiet [^\\n]*AskUserQuestion[^]*usage paused ${reset} five_hour 91%`));
   const saved = JSON.parse(fs.readFileSync(cursor, 'utf8'));
   assert.equal(saved['data/events.jsonl'], 5);

@@ -1134,7 +1134,7 @@ test('a thread message says thinking while Claude works on it, and only a pendin
 test('a stalled builder has no Stalled badge: its status line turns the needs-you red and nudges Claude when tapped', () => {
   const builder = { progress: 'Running tests', at: null, stalled: true };
   const html = ui.workLines({ ...workCard, lane: 'progress', builder });
-  assert.match(html, /<button type="button" class="line3 sub agent stalled" data-confirm="nudge" data-key="w\/B5" title="No recent progress\. Nudge Claude to check this implementer"><span class="working-dot" aria-hidden="true"><\/span>Running tests<\/button>/);
+  assert.match(html, /<button type="button" class="line3 sub agent in-progress stalled" data-confirm="nudge" data-key="w\/B5" title="No recent progress\. Nudge Claude to check this implementer"><span class="working-dot" aria-hidden="true"><\/span>Running tests<\/button>/);
   assert.doesNotMatch(html, /Stalled|tone-danger/);
   for (const next of [{ ...builder, stalled: false }, null]) assert.doesNotMatch(ui.workLines({ ...workCard, builder: next }), /stalled|data-confirm="nudge"/);
   assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'done', builder }), /stalled|data-confirm="nudge"/);
@@ -1169,7 +1169,7 @@ test('a building card in In Progress ends its time row with five bars, before th
   const sortAt = '2020-01-01T10:00:00.000Z';
   const building = { ...workCard, lane: 'progress', sortAt, builder };
   const html = ui.workLines(building, { unread: 2 });
-  assert.match(html, /<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"><\/span>Testing · the limiter<\/div>/);
+  assert.match(html, /<div class="line3 sub agent in-progress"><span class="working-dot" aria-hidden="true"><\/span>Testing · the limiter<\/div>/);
   assert.match(html, new RegExp(`<div class="line6 sub card-time"><time datetime="${sortAt}">[^<]*</time><span class="sep"> · </span><span class="phase-bars" role="img" aria-label="Testing, step 3 of 5" title="Testing, step 3 of 5"><i class="done"></i><i class="done"></i><i class="now"></i><i class=""></i><i class=""></i></span><span class="card-unread"><span class="sep"> · </span>2 new messages</span></div>`));
   assert.equal(html.match(/phase-bars/g).length, 1);
   assert.match(ui.workLines(building), /<\/time><span class="sep"> · <\/span><span class="phase-bars"/);
@@ -1208,25 +1208,44 @@ test('every In Progress card shows its five phase bars: empty before a phase, fi
   assert.match(ui.workLines({ ...card, queued: true }, { unread: 1 }), /<\/time><span class="sep"> · <\/span><span class="phase-bars dim"[^>]*>.*<\/span><span class="card-unread"><span class="sep"> · <\/span>1 new message<\/span><\/div>/);
 });
 
-// docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md
-test("a planner's line on a card is marked planner, keeping its dot, and never has phase bars, in Todo or In Progress; a Grill or Prototype request reads preheating or prototyping in the same slot until the planner's line takes it", () => {
-  const planner = { progress: 'Prototyping · the takes', phase: null, at: null, planner: true };
-  for (const lane of ['todo', 'progress']) {
+// docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md,
+// docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
+test("a planner's line on a card is marked planner, keeping its dot, orange in In Progress and blue in Todo, where a running grill or prototype draws blue dashes; a Grill or Prototype request reads preheating or prototyping in the same slot until the planner's line takes it", () => {
+  const planner = { progress: 'Prototyping · the takes', kind: 'prototype', phase: null, at: null, planner: true };
+  for (const [lane, tone] of [['todo', 'in-todo'], ['progress', 'in-progress']]) {
     const html = ui.workLines({ ...workCard, lane, sortAt: '2020-01-01T10:00:00.000Z', builder: planner });
-    assert.match(html, /<div class="line3 sub agent planner"><span class="working-dot" aria-hidden="true"><\/span>Prototyping · the takes<\/div>/);
-    assert.doesNotMatch(html, /phase-bars|Building/);
+    assert.match(html, new RegExp(`<div class="line3 sub agent planner ${tone}"><span class="working-dot" aria-hidden="true"></span>Prototyping · the takes</div>`));
+    assert.doesNotMatch(html, /Building/);
   }
-  const line = (it) => /<div class="line3 sub agent planner">.*?<\/span>([^<]*)<\/div>/.exec(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.[1];
+  const dashes = (builder) => /<span class="phase-bars plan" role="img" aria-label="(\w+)"[^>]*>((?:<i class="\w*"><\/i>){5})<\/span>/.exec(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', builder }));
+  assert.deepEqual(dashes(planner).slice(1), ['Prototyping', '<i class="done"></i><i class="now"></i><i class=""></i><i class=""></i><i class=""></i>']);
+  assert.deepEqual(dashes({ ...planner, kind: 'grill' }).slice(1), ['Grilling', '<i class="now"></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i>']);
+  assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'progress', sortAt: '2020-01-01T10:00:00.000Z', builder: planner }), /phase-bars/, 'no dashes in In Progress');
+  const line = (it) => /<div class="line3 sub agent planner in-todo">.*?<\/span>([^<]*)<\/div>/.exec(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.[1];
   assert.equal(line({ grilling: true }), 'preheating');
   assert.equal(line({ prototyping: true }), 'prototyping');
   assert.equal(line({ prototyping: true, builder: planner }), 'Prototyping · the takes');
   assert.equal(line({}), undefined);
 });
 
+// docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
+test("a card idle on the orchestrator reads waiting for orchestrator with how long, then orchestrator review with its dot once picked up, in its lane's colour", () => {
+  const minutes = (n) => new Date(Date.now() - n * 60000).toISOString();
+  const status = (it) => /<div class="line3 sub agent ([\w-]+)">(.*?)<\/div>/.exec(ui.workLines({ ...workCard, sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.slice(1);
+  const waiting = { kind: 'calls', since: minutes(14), picked: null, next: 'x' };
+  assert.deepEqual(status({ lane: 'progress', waitsOn: 'checking', orchestrator: waiting }), ['in-progress', 'waiting for orchestrator · 14m']);
+  assert.deepEqual(status({ lane: 'progress', waitsOn: 'checking', orchestrator: { ...waiting, picked: minutes(3) } }),
+    ['in-progress', '<span class="working-dot" aria-hidden="true"></span>orchestrator review · 3m']);
+  assert.deepEqual(status({ lane: 'todo', refusal: 'Couldn’t start', orchestrator: { ...waiting, kind: 'refused' } }), ['in-todo', 'waiting for orchestrator · 14m']);
+  // A running builder keeps its own line while its ask waits.
+  assert.deepEqual(status({ lane: 'progress', builder: { progress: 'Testing · x', phase: 'testing', at: minutes(2) }, orchestrator: { ...waiting, kind: 'ask' } }),
+    ['in-progress', '<span class="working-dot" aria-hidden="true"></span>Testing · x · 2m']);
+});
+
 test("a builder line shows the progress and its age, not who is building", () => {
   const at = new Date(Date.now() - 4 * 60000).toISOString();
-  assert.equal(ui.builderLine({ label: 'Opus builder', progress: 'Testing · the limiter', at }), 'Testing · the limiter · 4m ago');
-  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at }), 'preheating · 4m ago');
+  assert.equal(ui.builderLine({ label: 'Opus builder', progress: 'Testing · the limiter', at }), 'Testing · the limiter · 4m');
+  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at }), 'preheating · 4m');
   assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at: null }), 'preheating');
   assert.equal(ui.builderLine({ label: null, progress: 'Making changes', at: null }), 'Making changes');
 });

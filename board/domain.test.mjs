@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, withHub, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, MAX_IMPLEMENTERS, todoOf, triageOf, owesNext, startedByAnswer, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits } from './domain.mjs';
+import { buildBoard, withHub, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, MAX_IMPLEMENTERS, todoOf, triageOf, owesNext, startedByAnswer, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, ORCHESTRATOR_PUSH_AFTER } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -1939,4 +1939,69 @@ test("a prototype request waits on its prototype: the card's own while it is und
   // The round naming the question resolves it, and a question posted after the card's request answers that.
   const round = { id: 'q1', topic: 'item:w/A1', question: 'Which?', url: 'prototype-x.html?q=q1', options: [{ id: 'A', label: 'Top' }], round_of: 'q0', asked_at: '2026-10-23T11:00:00Z' };
   assert.deepEqual(prototypeWaits(board({ owner: { items: [{ ...plain, resolved: 'Followed by prototype round 1', resolved_at: '2026-10-23T11:00:00Z' }, round] }, events: [card, asked] }), [card, asked]), []);
+});
+
+// docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
+test('the board lists each card idle on the orchestrator, In Progress then Todo, with since and when it was picked up', () => {
+  const at = '2026-11-04T10:00:00Z';
+  const later = '2026-11-04T10:20:00Z';
+  const built = ({ items, agents = {}, events = [], threads = {}, owner = {}, working = {} }) => buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), owner, events, threads, working,
+    waves: [{ slug: 'w', agents, wave: { internal: true, items } }] });
+  const one = (item, rest = {}) => orchestratorWaits(built({ items: [{ id: 'A1', title: 'One', ...item }], ...rest }));
+  const shape = (list) => list.map(({ key, kind, since, picked }) => [key, kind, since, picked]);
+
+  // A hand-back with unverified calls waits from when it reached checking; the session's verify picks it up.
+  const handed = { A1: { main: { kind: 'claude', started: '2026-11-04T09:00:00Z', calls: [{ at: '2026-11-04T09:30:00Z', text: 'x' }] } } };
+  const calls = one({ status: 'checking', status_at: at, next: "Verify the builder's judgment calls" }, { agents: handed });
+  assert.deepEqual(shape(calls), [['w/A1', 'calls', at, null]]);
+  assert.equal(calls[0].next, "Verify the builder's judgment calls");
+  assert.equal(calls[0].ref, 'A1');
+  const verified = { A1: { main: { ...handed.A1.main, verified: { at: later } } } };
+  assert.deepEqual(shape(one({ status: 'checking', status_at: at }, { agents: verified })), [['w/A1', 'checking', at, later]], 'verified: under orchestrator review');
+  const said = { 'w/A1': [{ ts: later, who: 'claude', text: 'Looking at the calls.' }] };
+  assert.deepEqual(shape(one({ status: 'checking', status_at: at }, { agents: handed, threads: said })), [['w/A1', 'calls', at, later]], 'a thread line picks it up');
+  const progress = { 'w/A1': [{ ts: later, who: 'claude', kind: 'status', text: 'Testing: x' }] };
+  assert.deepEqual(shape(one({ status: 'checking', status_at: at }, { agents: handed, threads: progress })), [['w/A1', 'calls', at, null]], 'a status line is no pick-up');
+
+  // An open builder ask, until it is answered.
+  const ask = { ts: at, who: 'Claude Opus builder', kind: 'builder-ask', ask: 'ask1', agent: 'main', text: 'Which file?' };
+  const building = { A1: { main: { kind: 'claude', started: '2026-11-04T09:00:00Z' } } };
+  const asked = one({ status: 'building' }, { agents: building, threads: { 'w/A1': [ask] } });
+  assert.deepEqual(shape(asked), [['w/A1', 'ask', at, null]]);
+  assert.match(asked[0].next, /Which file\?/);
+  assert.deepEqual(one({ status: 'building' }, { agents: building, threads: { 'w/A1': [ask, { ts: later, who: 'claude', kind: 'builder-answer', ask: 'ask1', text: 'a' }] } }), []);
+
+  // An owner answer not acted on; the watcher's working mark picks it up.
+  const q = { id: 'q1', topic: 'item:w/A1', question: 'Which?', asked_at: '2026-11-04T09:00:00Z' };
+  const answer = { id: 'e1', ts: at, kind: 'owner-answer', data: { id: 'q1', note: 'this' }, reply: null };
+  assert.deepEqual(shape(one({}, { owner: { items: [q] }, events: [answer] })), [['w/A1', 'answer', at, null]]);
+  assert.deepEqual(one({}, { owner: { items: [q] }, events: [{ ...answer, reply: { at: later } }] }), [], 'replied');
+
+  // A grill or prototype asked for with no planner running.
+  const grill = { id: 'g1', ts: at, kind: 'grill-more', data: { key: 'w/A1' }, reply: null };
+  assert.deepEqual(shape(one({}, { events: [grill] })), [['w/A1', 'grill', at, null]]);
+  assert.deepEqual(one({}, { events: [grill], agents: { A1: { g: { kind: 'grill', started: later } } } }), [], 'a grill runs');
+  const proto = { id: 'p1', ts: at, kind: 'prototype-request', data: { key: 'w/A1' }, reply: null };
+  assert.deepEqual(shape(one({}, { events: [proto] })), [['w/A1', 'prototype', at, null]]);
+
+  // A ready card the pull refused.
+  const refused = { 'w/A1': [{ ts: at, who: 'claude', kind: 'build-refused', text: "Couldn't start implementing: no repo" }] };
+  const refusal = one({ state: 'ready' }, { threads: refused });
+  assert.deepEqual(shape(refusal), [['w/A1', 'refused', at, null]]);
+  assert.equal(refusal[0].next, "Couldn't start implementing: no repo");
+
+  // A started card with no live builder and nothing placing it waits from its last build's end.
+  assert.deepEqual(shape(one({ status: 'building', status_at: '2026-11-04T09:00:00Z' }, { agents: { A1: { main: { kind: 'claude', started: '2026-11-04T09:00:00Z', done: at } } } })),
+    [['w/A1', 'unowned', at, null]]);
+  assert.deepEqual(one({ status: 'building' }, { agents: building }), [], 'a live builder owns it');
+  assert.deepEqual(one({ state: 'ready' }), [], 'a ready card nobody refused');
+  assert.deepEqual(one({ status: 'done', status_at: at }), [], 'a Done card');
+
+  // In Progress first, then Todo, each in the board's order; a card's item carries its wait.
+  const both = built({ items: [{ id: 'T1', title: 'Todo', state: 'ready' }, { id: 'P1', title: 'Building', status: 'checking', status_at: at }], threads: { 'w/T1': refused['w/A1'] },
+    agents: { P1: handed.A1 } });
+  assert.deepEqual(orchestratorWaits(both).map((w) => w.key), ['w/P1', 'w/T1']);
+  assert.deepEqual(both.items.find((i) => i.key === 'w/P1').orchestrator, { kind: 'calls', since: at, picked: null, next: "Verify the builder's judgment calls" });
+  assert.equal(both.items.find((i) => i.key === 'w/P1').waitFacts, undefined, 'the facts stay off the card');
+  assert.equal(ORCHESTRATOR_PUSH_AFTER, 30 * 60000);
 });
