@@ -415,7 +415,7 @@ function worktreeOf(records = {}) {
 // An install builder takes precedence so another running agent cannot hide the install's build state. A phased line
 // ("Testing: <detail>") reads "Testing · <detail>" on the card; a line with no phase, from builder done's note or from
 // before phases, reads as written (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md). Before the
-// first line the card reads starting, whoever opened the record
+// first line the card reads preheating, whoever opened the record
 // (docs/adr/2026-11-03-1718-a-card-reads-starting-from-its-tap-with-one-dispatched-mark.md). While a build runs, its line wins over a running
 // planner's; with only planners running the line is theirs, marked planner
 // (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md).

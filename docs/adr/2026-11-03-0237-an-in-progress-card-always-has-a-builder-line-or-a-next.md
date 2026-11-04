@@ -1,6 +1,6 @@
 # An In Progress card always has a builder line or a Next
 
-A card's line under its title is one place: the builder line while a builder record is open ([a builder status line is a phase and a short detail](2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md), "Starting", or "Waiting for orchestrator" from [a Build tap starts the build in the board server](2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md)), else its Next (`board/public/ui-cards.js` `workLines`). An In Progress work card with no open builder now always has a Next.
+A card's line under its title is one place: the builder line while a builder record is open ([a builder status line is a phase and a short detail](2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md), "preheating", or "Waiting for orchestrator" from [a Build tap starts the build in the board server](2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md)), else its Next (`board/public/ui-cards.js` `workLines`). An In Progress work card with no open builder now always has a Next.
 
 Lines that already fill the place count as one: "Orchestrator review" on a checking card, Working while a session works on a message in its thread, and the Next a PR or the owner's wait gives it, such as "Waiting for PR reviewers", "Fix the failing CI", the owner's action or Tap Done (`board/domain.mjs` `REVIEW_NEXT`, `placeOwnerWait`).
 

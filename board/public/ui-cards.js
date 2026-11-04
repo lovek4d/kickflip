@@ -148,8 +148,8 @@
     if (!it.buildable) return '';
     return `<button class="build" data-confirm="card-build" data-key="${esc(it.key)}">Implement</button>`;
   }
-  // A builder reads "starting" until its first status line, from the Implement tap or the session's dispatch on.
-  const builderLine = (b) => [b.progress || 'starting', b.at && ago(b.at)].filter(Boolean).join(' · ');
+  // A builder reads "preheating" until its first status line, from the Implement tap or the session's dispatch on.
+  const builderLine = (b) => [b.progress || 'preheating', b.at && ago(b.at)].filter(Boolean).join(' · ');
   // Five bars at the end of an In Progress card's time row: reached phases filled, a running one marked. The phases are
   // store.mjs PHASES (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md,
   // docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md).
@@ -170,7 +170,7 @@
     const name = (phase) => `${phase[0].toUpperCase()}${phase.slice(1)}`;
     if (it.builder && it.builder.kind !== BUILDER_KIND.install) {
       const reached = BUILD_PHASES.indexOf(it.builder.phase) + 1;
-      return { reached, running: reached > 0, dim: asking || Boolean(it.builder.stalled), label: `${reached ? `${name(it.builder.phase)}, ${stepWords(it.builder.phase)}` : 'Starting, no step yet'}${answers}` };
+      return { reached, running: reached > 0, dim: asking || Boolean(it.builder.stalled), label: `${reached ? `${name(it.builder.phase)}, ${stepWords(it.builder.phase)}` : 'Preheating, no step yet'}${answers}` };
     }
     const dim = !it.builder || asking;
     if (it.reopened) return { reached: all, running: false, dim, label: `Reopened, ${ALL_DONE}${answers}` };

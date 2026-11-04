@@ -3,7 +3,7 @@ status: superseded in part by 2026-11-03-1718-a-card-reads-starting-from-its-tap
 ---
 # A Build tap starts the build in the board server
 
-Superseded in part by [a card reads starting from its tap, with one dispatched mark](2026-11-03-1718-a-card-reads-starting-from-its-tap-with-one-dispatched-mark.md): the tap's record is marked `dispatched: 'tap'`, not `tapped`, and the card reads "starting" from the tap, not "Waiting for orchestrator".
+Superseded in part by [a card reads starting from its tap, with one dispatched mark](2026-11-03-1718-a-card-reads-starting-from-its-tap-with-one-dispatched-mark.md): the tap's record is marked `dispatched: 'tap'`, not `tapped`, and the card reads "preheating" from the tap, not "Waiting for orchestrator".
 
 Superseded in part by [a tap waits for the server to record it](2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md): the button waits with a spinner while its event is sent, and no longer reads "Starting…".
 
@@ -16,7 +16,7 @@ The owner's Build sends `card-build {key}` as before. The board server now does 
 - **The worktree.** The same one `builder start --worktree` makes, from the board's branch of its shared clone, or the kickflip clone's main for a board with neither a GitHub repo nor a plain git remote (`board/worktree.mjs` `boardWorktree`, which the CLI now calls too).
 - **Building.** The card is marked building and gets the main builder record, of the pick's kind, keeping the worktree and marked `tapped`. It is in In Progress at once ([a card moves to In Progress only once building starts](2026-11-03-0202-a-card-moves-to-in-progress-only-once-building-starts.md)), and its builder line reads "Waiting for orchestrator" until a status line arrives. That isn't a builder status line ([a builder status line is a phase and a short detail](2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md)): nothing is written to the thread, and the card renders it where the builder line goes. Stalled still counts from the record's start, so a session that never takes it up gets nudged.
 - **The wake.** Once started, the server appends `card-build {key, ref, kind, reason, worktree}`, which wakes the owning session ([a board's session wakes when an event arrives, and live means its session runs](2026-10-30-1601-a-boards-session-wakes-when-an-event-arrives.md)). The session writes the builder's brief and launches a `kind` builder in `worktree`. It no longer runs `builder pick` or `builder start --worktree` for a tapped build.
-- **The builder takes it up.** The builder's own first step is still `builder start <key> --kind build`, which the SubagentStop hook keys on. On an open `tapped` record it keeps the tap's kind and worktree and starts the record again at now, no longer tapped. Until its first progress line the card reads "Starting", as for any other start.
+- **The builder takes it up.** The builder's own first step is still `builder start <key> --kind build`, which the SubagentStop hook keys on. On an open `tapped` record it keeps the tap's kind and worktree and starts the record again at now, no longer tapped. Until its first progress line the card reads "preheating", as for any other start.
 
 The Build button reads "Starting…" only while its event is sent, since the server answers once the build has started or been refused. The card's `starting` flag goes.
 

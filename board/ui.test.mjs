@@ -1023,7 +1023,7 @@ test('every In Progress card shows its five phase bars: empty before a phase, fi
     return m && { dim: Boolean(m[1]), label: m[2], bars: [...m[3].matchAll(/class="(\w*)"/g)].map((b) => b[1] || '-').join(' ') };
   };
   const cases = [
-    [{ builder: { progress: null, phase: null, at: null } }, { dim: false, label: 'Starting, no step yet', bars: '- - - - -' }],
+    [{ builder: { progress: null, phase: null, at: null } }, { dim: false, label: 'Preheating, no step yet', bars: '- - - - -' }],
     [{ builder: testing }, { dim: false, label: 'Testing, step 3 of 5', bars: 'done done now - -' }],
     [{ builder: { ...testing, stalled: true } }, { dim: true, label: 'Testing, step 3 of 5', bars: 'done done now - -' }],
     [{ waitsOn: 'checking' }, { dim: false, label: 'Orchestrator review, all 5 steps done', bars: 'done done done done done' }],
@@ -1055,8 +1055,8 @@ test("a planner's line on a card is marked planner, keeping its dot, and never h
 test("a builder line shows the progress and its age, not who is building", () => {
   const at = new Date(Date.now() - 4 * 60000).toISOString();
   assert.equal(ui.builderLine({ label: 'Opus builder', progress: 'Testing · the limiter', at }), 'Testing · the limiter · 4m ago');
-  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at }), 'starting · 4m ago');
-  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at: null }), 'starting');
+  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at }), 'preheating · 4m ago');
+  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at: null }), 'preheating');
   assert.equal(ui.builderLine({ label: null, progress: 'Making changes', at: null }), 'Making changes');
 });
 

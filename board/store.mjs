@@ -2062,7 +2062,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
 
 // The owner's Build tap, in the board server: it refuses what a build's builder start refuses, in the owner's words,
 // else starts the build as `builder start --kind build --worktree` does, with the record marked dispatched: 'tap', so the
-// card is In Progress reading "Starting" until its builder's first status line. A refusal is a thread line
+// card is In Progress reading "preheating" until its builder's first status line. A refusal is a thread line
 // of kind BUILD_REFUSED, which the Todo card shows while it is the card's newest line. worktree makes the worktree, as
 // builder start's does (board/worktree.mjs boardWorktree). → {key, ref, kind, reason, worktree}, or null when refused
 // (docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md).

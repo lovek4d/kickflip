@@ -315,7 +315,7 @@ test('a card with a message marked working or a prototype recorded for it stays 
   }
 });
 
-test("a Build tap starts the build in the board server, moving the card to In Progress reading starting and waking the session with its worktree and pick, and a refusal leaves it in Todo with the reason; on a blocked card it queues the build, which the server starts once the blocker is done", async () => {
+test("a Build tap starts the build in the board server, moving the card to In Progress reading preheating and waking the session with its worktree and pick, and a refusal leaves it in Todo with the reason; on a blocked card it queues the build, which the server starts once the blocker is done", async () => {
   const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
   const origin = path.join(home, 'origin');
   fs.mkdirSync(origin);

@@ -688,7 +688,7 @@ test("an unstarted Todo card that waits on nothing from the owner can Build, a b
   assert.deepEqual([one(next).buildable, one(next).state], [true, null]);
 });
 
-test("a Build the board started is In Progress reading starting until its builder's first status line, and a refused one stays in Todo with its reason while that is the card's newest line", () => {
+test("a Build the board started is In Progress reading preheating until its builder's first status line, and a refused one stays in Todo with its reason while that is the card's newest line", () => {
   const card = ({ item = {}, threads = {}, agents = {} } = {}) => buildBoard({
     fromWaves: false, events: [], threads, owner: {}, prs: {}, now: Date.parse('2026-10-29T10:05:00Z'),
     waves: [{ slug: 'w', agents, wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One', ...item }] } }],
@@ -700,7 +700,7 @@ test("a Build the board started is In Progress reading starting until its builde
   const line = { ts: '2026-10-29T10:01:00Z', who: 'claude', kind: 'status', phase: 'reading', text: 'Reading: the notes' };
   const going = card({ item: { status: 'building' }, agents: tapped, threads: { 'w/A1': [line] } });
   assert.equal(going.builder.progress, 'Reading · the notes');
-  // A tap-opened main record and an agent started under another name read the same: starting, then the first line.
+  // A tap-opened main record and an agent started under another name read the same: preheating, then the first line.
   const other = { A1: { ...tapped.A1, codex: { kind: 'codex', started: '2026-10-29T10:02:00Z' } } };
   assert.equal(card({ item: { status: 'building' }, agents: other }).builder.progress, null);
 
