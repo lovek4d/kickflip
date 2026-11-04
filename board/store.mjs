@@ -1865,9 +1865,20 @@ export const readArchive = async (site) => (await readJSON(archiveFile(site), { 
 // then by key.
 export const archiveRank = (a) => `${a.card?.sortAt || ''}|${a.key}`;
 const byClosed = (a, b) => (archiveRank(a) < archiveRank(b) ? 1 : archiveRank(a) > archiveRank(b) ? -1 : 0);
+// How many cards the archive holds, kept in data/done-archive-count.json beside it so /api/board never reads the archive.
+// An archive from before the count was kept is counted once, when first asked.
+const archiveCountFile = (site) => path.join(site, 'data', 'done-archive-count.json');
+export async function archiveCount(site) {
+  const kept = (await readJSON(archiveCountFile(site), null))?.count;
+  if (Number.isInteger(kept)) return kept;
+  const count = (await readArchive(site)).length;
+  await writeJSON(archiveCountFile(site), { count });
+  return count;
+}
 async function writeArchive(site, cards) {
   if (cards.length) await writeJSON(archiveFile(site), { cards: cards.sort(byClosed) });
   else await fs.rm(archiveFile(site), { force: true });
+  await writeJSON(archiveCountFile(site), { count: cards.length });
 }
 
 // Moves picks [{key, card}] (server.mjs from domain.mjs archivedOf) from their wave files to the archive,

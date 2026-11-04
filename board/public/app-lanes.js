@@ -15,8 +15,7 @@ BoardView.part((B) => {
   // docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md
   // A capped lane shows STEP cards, and each Show more tap adds STEP more, kept in memory per lane. A card the owner has
   // open stays shown past the cap. Show more says how many are left (docs/adr/2026-10-29-1639-lists-never-cut-silently.md).
-  // older is how many cards wait past `cards` in the archive, null when some do but how many isn't known yet; the tap
-  // that would show past `cards` fetches them first.
+  // older is how many cards wait past `cards` in the archive; the tap that would show past `cards` fetches them first.
   const STEP = 10;
   const moreTaps = new Map();
   function cappedRows(laneId, cards, older = 0) {
@@ -24,17 +23,17 @@ BoardView.part((B) => {
     const shown = Math.max(STEP * (1 + (moreTaps.get(laneId) || 0)), lastOpen + 1);
     const left = Math.max(0, cards.length - shown);
     const n = left + (older || 0);
-    const words = older === null ? (left ? `${left}+ older cards` : 'older cards') : `${n} older card${n === 1 ? '' : 's'}`;
+    const words = `${n} older card${n === 1 ? '' : 's'}`;
     const fetches = older !== 0 && shown + STEP > cards.length;
     return cards.slice(0, shown).map((it) => B.card(it)).join('')
-      + (n > 0 || older === null ? `<button type="button" class="thread-more" data-lane-more="${laneId}"${fetches ? ' data-fetch' : ''}>Show more <span class="n">· ${words}</span></button>` : '');
+      + (n > 0 ? `<button type="button" class="thread-more" data-lane-more="${laneId}"${fetches ? ' data-fetch' : ''}>Show more <span class="n">· ${words}</span></button>` : '');
   }
 
   // docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md
   // Done shows the board's Done cards, then those paged in from the archive (GET /api/done), 100 a page, newest first.
-  // The board says whether the archive holds any (doneArchived); each page says how many are older than it (left).
+  // The board says how many the archive holds (doneArchived), so Done's count is the true total before any page is fetched.
   const { archived } = state;
-  const olderThanBoard = (d) => (!d.doneArchived && !archived.cards.length ? 0 : archived.left);
+  const olderThanBoard = (d) => Math.max(0, d.doneArchived - archived.cards.filter((c) => !d.items.some((i) => i.key === c.key)).length);
   function doneRows(d, open) {
     const onBoard = new Set(d.items.map((i) => i.key));
     const cards = [...open, ...archived.cards.filter((c) => !onBoard.has(c.key))].sort((a, b) => String(b.sortAt || '').localeCompare(String(a.sortAt || '')));
@@ -43,7 +42,7 @@ BoardView.part((B) => {
   function doneCount(d, items) {
     const onBoard = new Set(d.items.map((i) => i.key));
     const older = olderThanBoard(d);
-    return `${items.length + archived.cards.filter((c) => !onBoard.has(c.key)).length + (older || 0)}${older === null ? '+' : ''}`;
+    return `${items.length + archived.cards.filter((c) => !onBoard.has(c.key)).length + older}`;
   }
   async function fetchOlder() {
     const last = archived.cards.at(-1);
@@ -51,7 +50,6 @@ BoardView.part((B) => {
     if (!r.ok) throw new Error(`done ${r.status}`);
     const page = await r.json();
     archived.cards.push(...page.cards);
-    archived.left = page.left;
   }
 
   // A fold's open state lives in storage, not in setHTML's summary-text match, because its row's count changes.

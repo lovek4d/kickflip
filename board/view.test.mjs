@@ -2200,7 +2200,7 @@ function boardOnDom({ open = [], seen = {}, board, threads, confirm = false, rea
   return { page, root, view, settle, change, sent, confirms, confirmLabels, posts, gets, downloads, server, doc: page.win.document };
 }
 const askCard = (id, lane) => ({ key: `ask:${id}`, id, kind: 'ask', lane, title: `Task ${id}`, deps: [], othersAt: [] });
-const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items, waves: [], needs: [], answers: [] });
+const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items, waves: [], needs: [], answers: [], doneArchived: 0 });
 const workCard = (id, extra) => ({ key: `w/${id}`, id, kind: 'work', lane: 'todo', title: `Work ${id}`, ref: id, internal: true, waveTitle: 'W', deps: [], manualSteps: [], othersAt: [], ...extra });
 
 // docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
@@ -4116,7 +4116,7 @@ test('past the 100 Done cards the board carries, Show more fetches the next 100 
   const day = (n) => new Date(Date.parse('2026-11-04T10:00:00Z') - n * 60000).toISOString();
   const card = (n) => workCard(`D${n}`, { lane: 'done', sortAt: day(n) });
   const archive = Array.from({ length: 130 }, (_, n) => card(100 + n));
-  const b = boardOnDom({ board: { ...boardOf(Array.from({ length: 100 }, (_, n) => card(n))), doneArchived: true }, threads: { 'w/D205': [{ ts: day(205), who: 'claude', text: 'Old news.' }] } });
+  const b = boardOnDom({ board: { ...boardOf(Array.from({ length: 100 }, (_, n) => card(n))), doneArchived: 130 }, threads: { 'w/D205': [{ ts: day(205), who: 'claude', text: 'Old news.' }] } });
   const asked = [];
   b.server.done = (params) => {
     asked.push(params.get('before'));
@@ -4130,9 +4130,9 @@ test('past the 100 Done cards the board carries, Show more fetches the next 100 
   const more = () => lane().querySelector('[data-lane-more]');
   const tap = async (n = 1) => { for (let i = 0; i < n; i++) { b.page.fire(b.root, 'click', { target: more() }); await b.settle(); } };
   const seen = () => [shown(), more()?.textContent ?? null, lane().querySelector('summary .count').textContent];
-  assert.deepEqual(seen(), [10, 'Show more · 90+ older cards', '100+']);
+  assert.deepEqual(seen(), [10, 'Show more · 220 older cards', '230']);
   await tap(9);
-  assert.deepEqual([...seen(), asked], [100, 'Show more · older cards', '100+', []]);
+  assert.deepEqual([...seen(), asked], [100, 'Show more · 130 older cards', '230', []]);
   await tap();
   assert.deepEqual([...seen(), asked], [110, 'Show more · 120 older cards', '230', [null]]);
   await tap(9);

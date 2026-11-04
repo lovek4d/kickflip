@@ -57,7 +57,7 @@
 //                                version tags everything but generatedAt and is the ETag: a request whose If-None-Match
 //                                names it answers 304 with no body (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md)
 //                                Done cards come slim (domain.mjs slimDone), the newest 100 and the ones the Done
-//                                archive keeps back; doneArchived: whether data/done-archive.json holds older ones
+//                                archive keeps back; doneArchived: how many Done cards data/done-archive.json holds
 //   GET  /api/done?before=<sortAt>|<key>
 //                                {cards, left}: the next 100 archived Done cards, slim, newest first, older than the
 //                                cursor (none: from the newest), and how many older ones are left after them
@@ -214,7 +214,7 @@ import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, existsSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { launchBuilder } from './headless.mjs';
-import { BoardError, addTopic, appendThread, archiveCards, archiveFile, archiveRank, readArchive, boardConfig, changeLineup, landable, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, landable, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -547,11 +547,11 @@ async function board() {
 
 // docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
 // The board a page reads, from /api/board or an events POST's answer: board() with this request's onHost, leaving out
-// the resolved questions (GET /api/questions answers a topic's), with its Done cards slim and whether older ones wait in
+// the resolved questions (GET /api/questions answers a topic's), with its Done cards slim and how many older ones wait in
 // the archive (docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md), and its version, a tag of
 // everything in it but generatedAt, which GET /api/board also sends as its ETag.
 async function pageBoard(req) {
-  const b = { ...(await board()), onHost: await fromHost(req), doneArchived: existsSync(archiveFile(here)) };
+  const b = { ...(await board()), onHost: await fromHost(req), doneArchived: await archiveCount(here) };
   b.owner = b.owner.filter((q) => q.state !== 'resolved');
   b.items = b.items.map((i) => (i.lane === 'done' ? slimDone(i) : i));
   const { generatedAt: _, ...content } = b;

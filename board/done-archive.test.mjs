@@ -98,7 +98,7 @@ test('the server archives Done cards past the newest 100 as it starts, sends the
     const board = await (await fetch(`${base}/api/board`)).json();
     const done = board.items.filter((i) => i.lane === 'done');
     assert.equal(done.length, DONE_KEPT + 3);
-    assert.equal(board.doneArchived, true);
+    assert.equal(board.doneArchived, count - DONE_KEPT - 3);
     assert.ok(done.every((c) => !('agents' in c) && !('created' in c)), 'Done cards come slim');
     assert.ok(board.items.find((i) => i.key === 't/O1').created !== undefined, 'open cards come whole');
     assert.ok(!read('wave.json').items.some((it) => it.id === 'D100'));
