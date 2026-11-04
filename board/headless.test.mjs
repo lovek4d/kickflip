@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until } from '../shared/test-helpers.mjs';
-import { builderBrief, landerBrief, launchHeadless, BOARD_CLI } from './headless.mjs';
+import { builderBrief, landerBrief, launchHeadless, reviveBuilders, BOARD_CLI } from './headless.mjs';
 
 const card = { route: 'shop', key: 'w/A1', ref: 'ENG-1', title: 'Make it go', notes: '/s/waves/w/a1.md', worktree: '/wt/A1', base: 'main', rules: ['Use Node 22+'] };
 
@@ -135,4 +135,29 @@ test("on a board whose builders launch headless, the server launches the builder
     child.kill();
     fs.rmSync(home, { recursive: true, force: true });
   }
+});
+
+// docs/adr/2026-11-04-1010-a-dead-headless-builder-is-relaunched-once.md
+test('a headless builder whose process exited with its record open is relaunched once, then handed back; one held by the pause launches when asked; a closed record drops', async () => {
+  const launched = [];
+  const handed = [];
+  const launch = async ({ key, model }) => { launched.push(key); return { pid: 900 + launched.length }; };
+  const handBack = async (card) => { handed.push(card); };
+  const alive = (pid) => pid === 1;
+  const open = new Set(['w/A', 'w/B', 'w/C', 'w/D']);
+  const tracked = {
+    'w/A': { model: 'opus', pid: 1, relaunched: false },
+    'w/B': { model: 'sonnet', pid: 2, relaunched: false },
+    'w/C': { model: 'opus', pid: 3, relaunched: true },
+    'w/D': { model: 'opus', pid: null, relaunched: false },
+    'w/E': { model: 'opus', pid: 4, relaunched: false },
+  };
+  const next = await reviveBuilders(tracked, open, { launch, handBack, alive });
+  assert.deepEqual(launched, ['w/B', 'w/D']);
+  assert.deepEqual(handed, [{ key: 'w/C', model: 'opus' }]);
+  assert.deepEqual(next, {
+    'w/A': tracked['w/A'],
+    'w/B': { model: 'sonnet', pid: 901, relaunched: true },
+    'w/D': { model: 'opus', pid: 902, relaunched: false },
+  });
 });

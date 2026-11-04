@@ -218,7 +218,7 @@ import { localDay } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, existsSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
-import { launchBuilder } from './headless.mjs';
+import { launchBuilder, reviveBuilders } from './headless.mjs';
 import { BoardError, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, landable, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
@@ -1102,13 +1102,60 @@ async function handOff(started) {
   if (!started || started.queued) return null;
   if (settingsOf(await config()).headless_builders && started.kind === 'claude') {
     try {
-      await launchBuilder(here, started);
+      // A pause that began after the pull holds the launch; reviveHeadless launches it once the pause lifts.
+      if (readUsageGate().state === 'paused') await trackLaunch(started.key, { model: started.model, pid: null, relaunched: false });
+      else await trackLaunch(started.key, { model: started.model, ...(await launchBuilder(here, started)), relaunched: false });
       return null;
     } catch (e) {
       await appendThread(here, started.key, { text: `Couldn't launch the builder headless (${e.message}), so the orchestrator launches it.` });
     }
   }
   return appendEvent('card-build', started);
+}
+
+// docs/adr/2026-11-04-1010-a-dead-headless-builder-is-relaunched-once.md
+// data/headless-builders.json {<key>: {model, pid, relaunched}}: the headless builders launched, for reviveHeadless.
+// trackLaunch sets a key's entry, or with null drops it (a lander takes the card over from its builder).
+async function trackLaunch(key, entry) {
+  const file = path.join(data, 'headless-builders.json');
+  const tracked = await readJSON(file, {});
+  if (entry) tracked[key] = entry; else delete tracked[key];
+  await fs.mkdir(data, { recursive: true });
+  await fs.writeFile(file + '.tmp', JSON.stringify(tracked) + '\n');
+  await fs.rename(file + '.tmp', file);
+}
+// Once a minute while usage isn't paused: a headless builder whose process exited with its record open launches again
+// once, and after that goes to the session with card-build and a thread line.
+let revivingHeadless = false;
+async function reviveHeadless() {
+  if (revivingHeadless) return;
+  revivingHeadless = true;
+  try {
+    if (!settingsOf(await config()).headless_builders || readUsageGate().state === 'paused') return;
+    const file = path.join(data, 'headless-builders.json');
+    const tracked = await readJSON(file, {});
+    if (!Object.keys(tracked).length) return;
+    const open = new Set(buildBoard(await itemSnapshot()).items.filter((c) => c.lane !== 'done' && c.builder && !c.builder.planner).map((c) => c.key));
+    const handBack = async (card) => {
+      await appendThread(here, card.key, { text: 'Its headless builder exited twice with the build unfinished, so the orchestrator launches it.' });
+      await appendEvent('card-build', { ...card, kind: 'claude' });
+    };
+    const launch = async (card) => {
+      try { return await launchBuilder(here, card); } catch (e) {
+        await appendThread(here, card.key, { text: `Couldn't relaunch the builder headless (${e.message}).` });
+        return { pid: null };
+      }
+    };
+    const next = await reviveBuilders(tracked, open, { launch, handBack });
+    if (JSON.stringify(next) !== JSON.stringify(tracked)) {
+      await fs.writeFile(file + '.tmp', JSON.stringify(next) + '\n');
+      await fs.rename(file + '.tmp', file);
+    }
+  } catch (err) {
+    console.error('Headless builder check failed:', err.message);
+  } finally {
+    revivingHeadless = false;
+  }
 }
 
 // data/landers.json {<key>: <verified at>}: the verification each launched lander was for, so each gets one lander.
@@ -1119,7 +1166,7 @@ async function launchLanders() {
   const due = (await landable(here)).filter((c) => sent[c.key] !== c.verified);
   if (!due.length) return;
   for (const c of due) {
-    try { await launchBuilder(here, c, { lander: true }); } catch (e) {
+    try { await launchBuilder(here, c, { lander: true }); await trackLaunch(c.key, null); } catch (e) {
       await appendThread(here, c.key, { text: `Couldn't launch the lander headless (${e.message}); land it with board.mjs land ${c.key}.` });
     }
     sent[c.key] = c.verified;
@@ -1296,6 +1343,7 @@ try { for (const line of await migrateFollowups(here)) console.log(line); } catc
 await checkArchive();
 await watchBoard();
 setInterval(checkStalled, 60000).unref();
+setInterval(reviveHeadless, 60000).unref();
 setInterval(checkPickUps, 60000).unref();
 setInterval(() => { if (heldByPause && readUsageGate().state !== 'paused') checkAuto(); }, 60000).unref();
 setInterval(checkActions, 60000).unref();

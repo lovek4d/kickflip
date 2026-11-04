@@ -88,6 +88,25 @@ export function launchHeadless({ bin = claudeBin(), cwd, prompt, model, log }) {
   });
 }
 
+const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+
+// docs/adr/2026-11-04-1010-a-dead-headless-builder-is-relaunched-once.md
+// tracked is {<key>: {model, pid, relaunched}}, the headless builds the server launched or meant to launch (pid null: held
+// by the usage pause, not yet launched). open is the set of keys whose builder record is still open. A tracked build whose
+// record has closed drops. One with no pid yet launches; one whose process has exited with its record still open launches
+// again once, and the second time goes to handBack instead of waiting on the stall alarm. launch({key, model}) → {pid}.
+// → the tracked map as it now stands.
+export async function reviveBuilders(tracked, open, { launch, handBack, alive = pidAlive }) {
+  const next = {};
+  for (const [key, entry] of Object.entries(tracked)) {
+    if (!open.has(key)) continue;
+    if (entry.pid !== null && alive(entry.pid)) { next[key] = entry; continue; }
+    if (entry.pid !== null && entry.relaunched) { await handBack(entry.model ? { key, model: entry.model } : { key }); continue; }
+    next[key] = { model: entry.model, ...(await launch({ key, model: entry.model })), relaunched: entry.pid !== null };
+  }
+  return next;
+}
+
 const logFile = (id, role) => path.join(os.homedir(), '.claude', 'kickflip', 'logs', `${role}-${id}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
 
 // Launches the headless builder of a build startTappedBuild started ({key, model, worktree}), or with lander the
