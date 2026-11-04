@@ -282,6 +282,9 @@ test('with auto implement on the board sends card-pull for the top pullable Todo
     put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), done: iso(now) }));
     await until(() => pulls().length === 2, 'a freed slot is filled on the change');
     assert.deepEqual(pulls(), ['t/A5', 't/A7']);
+    // The event comes first and the marker after; stopping between them loses the pull, since the mocked clock gives the
+    // event and the marker one timestamp and the log only covers events after the marker.
+    await until(() => JSON.parse(fs.readFileSync(pulledFile, 'utf8')).keys.join() === 't/A5,t/A7', 'the second pull is marked');
 
     // Changed while the server is down: Orchestrator review takes A0's slot back, so A5 stopping being pullable frees
     // none.
@@ -433,8 +436,9 @@ test('an idle board with auto-triage on sends todo-triage under its dated topic 
     // The triage's own changes to Todo, and the idle pull, wait for its reply.
     wave.items[2].title = 'Two, merged with a duplicate';
     writeWave();
-    await tick();
-    await tick();
+    // The server keeps its marker current until the reply, so a reply that beat it to the change would read as one.
+    const markerFile = path.join(dataDir, 'triaged.json');
+    await until(() => fs.existsSync(markerFile) && fs.readFileSync(markerFile, 'utf8').includes('merged with a duplicate'), 'the server saw the triage\'s own change');
     assert.deepEqual([triages().length, pulls()], [1, []]);
 
     reply(first.id);
