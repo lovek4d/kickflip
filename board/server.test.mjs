@@ -559,6 +559,12 @@ test("a Hold or Done whose wave file couldn't be written is refused with why and
   assert.equal(logged(), before);
   const [held] = await post({ kind: 'card-hold', key: 't/W1', hold: true });
   assert.equal(held, 400);
+  // A merged card waiting on its owner step closes on the owner's Done.
+  fs.writeFileSync(wave, JSON.stringify({ items: [{ id: 'W1', title: 'One', status: 'merged', owner_step: 'Tag the first release' }] }));
+  const [status, out] = await post({ kind: 'card-done', key: 't/W1' });
+  assert.equal(status, 200, out.error);
+  assert.equal(out.board.items.find((i) => i.id === 'W1').lane, 'done');
+  assert.deepEqual((({ status: s, owner_step }) => [s, owner_step])(JSON.parse(fs.readFileSync(wave, 'utf8')).items[0]), ['merged', undefined]);
 });
 
 test("deleting a New card is one events POST that records ask-withdrawn and hides the ask, and its board has the card gone", async () => {

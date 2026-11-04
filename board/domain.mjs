@@ -143,6 +143,10 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   const doneAt = String(closed || '');
   const reopenAt = ['done', 'merged'].includes(it.status) || (prStatus === PR_STATE.merged && it.status !== 'dropped')
     ? [...said.filter((m) => m.kind === 'item-message').map((m) => m.ts), ...askedAt].map(String).filter((t) => t > doneAt).sort().pop() : undefined;
+  // docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md: the owner step holds a card whose code landed (done, merged, or its PR merged) in In
+  // Review until the owner's Done.
+  const ownerStep = it.owner_step && !tappedDone && it.status !== 'dropped' ? String(it.owner_step) : null;
+  const landed = ['done', 'merged'].includes(it.status) || prStatus === PR_STATE.merged;
   if (reopenAt) it = { ...it, status: undefined, next: undefined };
   const ownerPending = Boolean(reopenAt) && said.some((m) => String(m.ts) > doneAt && (m.state === 'waiting' || m.state === 'working'));
   const key = `${slug}/${it.id}`;
@@ -157,11 +161,13 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   let lane = laneOf(it, pr, agents.some((a) => a.started && !a.done && builds(a)), pushed, Boolean(reopenAt));
   if (reopenAt && lane === 'todo') lane = 'progress';
   if (lane === 'review' && inReviewSince && now - Date.parse(inReviewSince) > STALE_AFTER) lane = 'stale';
+  const stepWaits = Boolean(ownerStep) && landed && lane === 'done';
+  if (stepWaits) lane = 'review';
   let waitsOn = waitsOnOf(lane, pr, builder, (it.status || '').toLowerCase(), pushed);
   const changing = waitsOn === 'builder' && pr?.state === 'OPEN' && !pr.isDraft;
   const redReady = lane === 'progress' && !waitsOn && pr?.state === 'OPEN' && !pr.isDraft;
   // A reopened card Claude has answered waits on the owner's Done.
-  const awaitsDone = Boolean(reopenAt) && lane === 'progress' && !waitsOn && !redReady && !ownerPending;
+  const awaitsDone = stepWaits || (Boolean(reopenAt) && lane === 'progress' && !waitsOn && !redReady && !ownerPending);
   if (awaitsDone) waitsOn = 'owner';
   const tapped = holdAsk && String(holdAsk.ts) > String(it.held_at || '');
   // Only a Todo card reads held; old data can't show one in Done.
@@ -183,17 +189,20 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     || (['building', 'fixing', 'checking'].includes(String(it.status || '').toLowerCase()) ? it.status_at || null : null);
   const reviewNext = pushed && waitsOn === 'owner' ? `merge ${pushed.branch} into ${base}`
     : waitsOn === 'merge' && !autoMerge ? OWNER_MERGE_NEXT[merging ? 'merging' : 'waiting'] : REVIEW_NEXT[waitsOn];
+  // A draft PR waits on the owner's review of it, unless the card was given a Next.
+  const draftNext = prStatus === PR_STATE.draft ? `Review draft PR #${views[least].number}` : null;
   return {
     key, kind: 'work', order, wave: slug, waveTitle: wave.title || slug, id: it.id, ref: refOf(wave, it, tickets), title: it.title, status: it.status || null,
     created: it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
     internal: wave.internal === true, repo: wave.internal === true && !wave.repo ? null : repo,
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, reachedPhase, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenAt), awaitsDone,
+    ownerStep: awaitsDone ? ownerStep : null,
     queuedAt: lane !== 'done' ? it.queued_at || null : null, queued: false,
     deps: it.deps || [], held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable ? bumpedAt || null : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
-    merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || null,
-    branch: it.branch || pr?.headRefName || pushed?.branch || null, pushed: lane === 'done' ? null : pushed,
+    merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || draftNext || null,
+    branch: it.branch || pr?.headRefName || pushed?.branch || null, pushed: lane === 'done' || stepWaits ? null : pushed,
     ticket: tickets?.source === 'linear' && !it.ticket && it.linear?.length ? null
       : ticketOf(tickets, it.ticket, it.ticket || (wave.internal ? refOf(wave, it, tickets) : it.linear?.[0]), { repo, key }),
     ticketSource: tickets?.source || null,
@@ -305,10 +314,11 @@ const RESOLVED_BY = Object.freeze({
 function placeOwnerWait(it, questionById, autoMerge) {
   it.action = actionOf(it, questionById, autoMerge);
   it.awaitsDone &&= !it.action;
+  if (!it.awaitsDone) it.ownerStep = null;
   it.actionButton = actionButtonOf(it);
   it.resolvedBy = RESOLVED_BY[it.action?.kind] || null;
   if (it.action?.kind === ACTION_KIND.merge) it.next = OWNER_MERGE_NEXT.ready;
-  if (it.awaitsDone) Object.assign(it, { lane: 'review', next: TAP_DONE, bumpable: false, bumpedAt: null });
+  if (it.awaitsDone) Object.assign(it, { lane: 'review', next: it.ownerStep || TAP_DONE, bumpable: false, bumpedAt: null });
   const ownerOnly = it.lane === 'todo' || (it.lane === 'progress' && (it.waitsOn === 'ready' || it.waitsOn === 'owner'));
   if (!it.action || !ownerOnly) return;
   const lane = it.lane === 'todo' && ASKING.has(it.action.kind) ? 'todo' : 'review';

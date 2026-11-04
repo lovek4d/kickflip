@@ -1617,3 +1617,34 @@ test("a held incoming-PR review is in the Auto Review lane, in Needs you and amo
   assert.match(built.needsSummary, /1 review held/);
   assert.deepEqual(ownerActions(built).map((a) => a.tag), ['review-437']);
 });
+
+test("a card whose code landed stays in In Review on its owner step, the step as its Next with no bump, until the owner's Done; an open PR, a dropped card and a reopening go as before", () => {
+  const step = 'Add the npm trusted publisher and tag a release';
+  const close = (ts) => ({ id: 'c' + ts, ts, kind: 'card-done', data: { key: 'w/A1' }, reply: null });
+  const merged = { ...greenDraft, isDraft: false, state: 'MERGED', mergedAt: '2026-10-23T11:00:00Z' };
+  const card = (item, { pr = merged, events = [], threads = {} } = {}) => board({ pr, events, threads, item: { status_at: '2026-10-23T11:00:00Z', owner_step: step, ...item } }).items.find((i) => i.key === 'w/A1');
+  const look = (c) => [c.lane, c.waitsOn, c.next, c.ownerStep, c.awaitsDone, c.bumpable, c.action, c.finishable];
+  const waiting = ['review', 'owner', step, step, true, false, null, true];
+  assert.deepEqual(look(card({})), waiting);
+  assert.deepEqual(look(card({ status: 'done' }, { pr: null })), waiting);
+  assert.deepEqual(look(card({ status: 'merged' }, { pr: null })), waiting);
+  // The owner's Done closes it at once; a Done older than the landing doesn't.
+  assert.deepEqual(look(card({ status: 'done' }, { events: [close('2026-10-23T11:30:00Z')] })).slice(0, 4), ['done', null, null, null]);
+  assert.deepEqual(look(card({ status: 'done', status_at: '2026-10-23T11:40:00Z' }, { events: [close('2026-10-23T11:30:00Z')] })), waiting);
+  // Before the code lands the card waits on its PR as ever.
+  const open = card({}, { pr: { ...greenDraft, isDraft: false, checks: { state: 'pass' } } });
+  assert.deepEqual([open.lane, open.next, open.ownerStep], ['review', 'Waiting for PR reviewers', null]);
+  assert.deepEqual(look(card({ status: 'dropped' })).slice(0, 4), ['done', null, null, null]);
+  // A reopened card Claude has answered waits on the same Done, reading its step.
+  const msg = { id: 'm1', ts: '2026-10-23T11:30:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'One more thing' }, reply: null };
+  const answered = card({ status: 'done' }, { events: [msg], threads: { 'w/A1': [{ ts: '2026-10-23T11:40:00Z', who: 'claude', text: 'Done that.' }] } });
+  assert.deepEqual(look(answered), waiting);
+});
+
+test('a card on a draft PR with no Next reads "Review draft PR #N"; a Next it was given wins, and a green draft still asks for Ready', () => {
+  const draft = { ...greenDraft, checks: { state: 'pending' } };
+  const card = (item, pr = draft) => board({ pr, item }).items.find((i) => i.key === 'w/A1');
+  assert.deepEqual([card({}).lane, card({}).next], ['progress', 'Review draft PR #7']);
+  assert.equal(card({ next: 'Wait for the design pass' }).next, 'Wait for the design pass');
+  assert.equal(card({}, greenDraft).next, 'Tap Ready on GitHub');
+});

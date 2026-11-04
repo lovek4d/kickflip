@@ -1863,3 +1863,13 @@ test("This device's Turn on and Test wait in place of their label while they run
   assert.match(row({ label: 'Turn on', act: 'on', busy: true }), /data-device="on" disabled aria-busy="true">Turn on</);
   assert.match(row({ label: 'Test', act: 'test', quiet: true }), /data-device="test">Test</);
 });
+
+test("a card waiting on its owner step reads the step as its orange Next, with Done as a check icon where the bump sits", () => {
+  const step = 'Add the npm trusted publisher';
+  const waiting = { ...workCard, lane: 'review', waitsOn: 'owner', next: step, ownerStep: step, awaitsDone: true, bumpable: false };
+  assert.deepEqual(lines(ui.workLines(waiting)).slice(0, 2), ['ENG-1 Five', `Next: ${step}`]);
+  assert.match(ui.workLines(waiting), /<div class="line3 sub next">Next: /);
+  assert.match(ui.workLines(waiting), /<div class="ask-actions"><button type="button" class="ghost icon owner-done" data-confirm="finish" data-key="w\/B5" aria-label="Done" title="Done: Add the npm trusted publisher"><svg/);
+  assert.doesNotMatch(ui.workLines(waiting), /data-card-bump/);
+  assert.doesNotMatch(ui.workLines({ ...waiting, ownerStep: null }), /owner-done/);
+});

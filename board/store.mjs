@@ -1181,11 +1181,12 @@ async function closeQuestions(site, key, by, force) {
   };
 }
 
-// Refuses what `item set <key> --status done --text <said>` would refuse for its questions or its text, writing nothing,
+// Refuses what `item set <key> --status done --text <said>` (with ownerStep, land's --owner-step) would refuse for its questions or its text, writing nothing,
 // so board.mjs land can check before it lands.
-export async function checkClose(site, key, said) {
+export async function checkClose(site, key, said, ownerStep) {
   await loadItem(site, key);
   text(said, '--text');
+  optional(ownerStep, (v) => text(v, '--owner-step'));
   await closeQuestions(needSite(site), key, 'land', false);
 }
 
@@ -1338,19 +1339,22 @@ function closingLine(site, key, item, status, text, repo) {
 // (done, merged, dropped) adds a `resolved: <id>` line per question it resolved (closeQuestions).
 // notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`. text is the closing line
 // (closingLine), or with fromAsk the item's first thread line.
-async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, parent, related, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who }, options) {
+// ownerStep is the owner step builder done or land records, and ownerDone the owner's Done, which alone clears it
+// (docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md).
+async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, parent, related, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, ownerStep, ownerDone }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
   if (state !== undefined && !CARD_STATES.includes(state)) fail('--state takes ready, grilling or prototyping');
   if (force && !FINISHED.includes(status)) fail(`--force goes with --status ${FINISHED.join(', ')}`);
   if (fromAsk !== undefined && FINISHED.includes(status)) fail('--from-ask opens a card; close it in another call');
   if (said !== undefined) text(said, '--text');
+  if (ownerStep !== undefined) text(ownerStep, '--owner-step');
   if (said !== undefined && fromAsk === undefined && !FINISHED.includes(status)) fail(`--text goes with --from-ask or --status ${FINISHED.join(', ')}`);
   if (fromAsk !== undefined && said === undefined) fail('--from-ask needs --text "<first line>", the item\'s first thread line after the ask');
   if (next !== undefined && clearNext) fail('pass --next or --clear-next, not both');
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   const hold = holdOf({ held, unheld, pickUpAt });
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, state, hold, notesFile, deps, parent, related, built, title, size, model, ticket].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --notes-file, --deps, --parent, --related, --install, --clear-install, --title, --size, --model or --ticket');
+  if ([status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, state, hold, notesFile, deps, parent, related, built, title, size, model, ticket, ownerStep].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --notes-file, --deps, --parent, --related, --install, --clear-install, --title, --size, --model or --ticket');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   const { source, wave, item } = await loadItem(site, key);
@@ -1359,6 +1363,9 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (ask && state === undefined && !item.state) fail('--from-ask files a card, which reads New until it has a state: pass --state ready, grilling or prototyping');
   const statusBefore = item.status;
   const wasFinished = FINISHED.includes(item.status);
+  if (ownerStep !== undefined && wasFinished) fail(`${key} is already ${item.status}, so its ticket closed; an owner step goes on the command that finishes the card: land --owner-step, or builder done before the merge`);
+  if (ownerStep !== undefined) item.owner_step = text(ownerStep, '--owner-step');
+  if (ownerDone || status === 'dropped') delete item.owner_step;
   const records = await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)));
   const owedBefore = owesNext(item, records);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
@@ -1438,7 +1445,8 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (ask) resolved.push(...(await appendThread(site, key, { text: said })).lines);
   if (lastLine && site) resolved.push(...(await appendThread(site, key, { text: lastLine, who })).lines);
   if (mcpLine) resolved.push(mcpLine);
-  const target = ticketTarget({ status, pr: pr ?? pushed });
+  // The ticket stays open while the card waits on its owner step.
+  const target = item.owner_step && FINISHED.includes(status) ? null : ticketTarget({ status, pr: pr ?? pushed });
   const moved = target && await moveTicket(await boardSource(site), item, target, { ...options, repo: boardRepoOf(site, wave) });
   if (moved) resolved.push(moved);
   // A builder that forgot builder done would keep the card In Progress after it was handed back.
@@ -1523,8 +1531,10 @@ export async function recordOwnerTap(site, kind, data) {
   // The owner's line, so it answers none of their messages that wait on Claude.
   const said = { text: 'Marked done.', who: 'love' };
   const item = wave.items.find((it) => it.id === id) || fail(`wave "${slug}" has no item "${id}"`);
-  if (['merged', 'dropped'].includes(item.status)) return null;
-  if (kind === 'card-done') return setItem(site, key, { status: 'done', force: true, ...said });
+  // A merged card waiting on its owner step closes on the owner's Done, staying merged.
+  const stepOpen = kind === 'card-done' && Boolean(item.owner_step);
+  if (!stepOpen && ['merged', 'dropped'].includes(item.status)) return null;
+  if (kind === 'card-done') return setItem(site, key, { status: item.status === 'merged' ? 'merged' : 'done', force: true, ownerDone: true, ...said });
   const until = data.hold ? (typeof data.until === 'string' ? new Date(data.until).toISOString() : null) : undefined;
   setHold(item, data.hold ? { until } : null);
   await writeJSON(source.file, wave);

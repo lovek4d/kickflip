@@ -310,6 +310,7 @@ main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .ask-actions .icon:disabled { opacity: .35; }
 .ask-actions .icon.bumped { color: var(--color-notice); opacity: 1; }
 .ask-actions .icon.bumped svg { fill: currentColor; }
+.ask-actions .icon.owner-done { color: var(--color-notice); }
 /* A work card's empty bump icon always shows on touch screens; with a hover pointer it shows while the card is hovered or holds focus */
 @media (hover: hover) {
   .item button[data-card-bump]:not(.bumped, [aria-busy="true"]) { opacity: 0; }

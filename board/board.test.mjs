@@ -489,6 +489,29 @@ test("the hub board files its cards as issues in its entry's GitHub repo, as any
   assert.equal(cli('settings', 'set', 'tickets', '{"source":"github","account":"-bad"}').code, 1);
 });
 
+test("a card with an owner step keeps its GitHub issue open when the session closes it; the owner's Done closes it", async () => {
+  const dir = path.join(home, 'fake-gh');
+  const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
+  writeAccounts(dir, { lovek4d: 'token-lovek4d' });
+  write(at('kickflip', 'manifest.json'), { sites: { audit: { dir: site('audit'), hub: true, local: true, github: 'someone/fork', cmd: [process.execPath, bin('../server.mjs')] } } });
+  write(site('audit', 'data', 'wave.json'), { ...wave(), internal: true, items: [] });
+  const cli = (...args) => run('board.mjs', ['--site', 'audit', ...args], undefined, env);
+  assert.equal(cli('settings', 'set', 'tickets', '{"source":"github","account":"lovek4d"}').code, 0);
+  assert.equal(cli('item', 'add', 'audit/B2', '--title', 'Two').code, 0);
+  const file = site('audit', 'data', 'wave.json');
+  write(file, { ...read(file), items: read(file).items.map((it) => ({ ...it, owner_step: 'Tag the first release' })) });
+  const closes = () => calls(dir).filter((a) => a[0] === 'issue' && a[1] === 'close').length;
+  const session = cli('item', 'set', 'audit/B2', '--status', 'done', '--text', 'Landed.');
+  assert.equal(session.code, 0, session.err);
+  assert.equal(closes(), 0);
+  assert.equal(read(file).items[0].owner_step, 'Tag the first release');
+  const owner = spawnSync(process.execPath, ['--input-type=module', '-e', `import { recordOwnerTap } from ${JSON.stringify(path.join(path.dirname(bin('x')), '..', 'store.mjs'))}; await recordOwnerTap(${JSON.stringify(site('audit'))}, 'card-done', { key: 'audit/B2' });`],
+    { encoding: 'utf8', env: { ...process.env, HOME: home, ...env } });
+  assert.equal(owner.status, 0, owner.stderr);
+  assert.equal(closes(), 1);
+  assert.deepEqual([read(file).items[0].status, read(file).items[0].owner_step], ['done', undefined]);
+});
+
 test("pr comment and pr reply post Claude's words through gh with the robot prefix and the claude-bridge marker, as the board's github-login", () => {
   const dir = path.join(home, 'fake-gh');
   const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
@@ -1914,6 +1937,39 @@ test('land on --site needs --text, refuses before landing what closing would ref
   assert.deepEqual(r.out.trim().split('\n').slice(-2), ['A1: landed and done', 'resolved: q1']);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status, 'done');
   assert.equal(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).at(-1).text, 'Checked on the phone.');
+});
+
+test('land --owner-step lands the code and leaves the card open on its owner step; a blank step is refused before landing', () => {
+  const repo = scratchRepo();
+  assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  commit(worktree(), 'shared/notes.md', 'b\n', 'A1: notes');
+  const landOn = (...more) => run('board.mjs', ['land', 'w/A1', '--site', 'orch', '--text', 'Checked on the phone.', ...more], undefined, {
+    KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']),
+  });
+  const main = git(repo, 'rev-parse', 'main');
+  assert.deepEqual([landOn('--owner-step', ' ').code, landOn('--owner-step', ' ').err], [1, '--owner-step must be non-empty text\n']);
+  assert.equal(git(repo, 'rev-parse', 'main'), main);
+  const r = landOn('--owner-step', 'Tag the first release');
+  assert.equal(r.code, 0, r.err);
+  assert.notEqual(git(repo, 'rev-parse', 'main'), main);
+  assert.equal(r.out.trim().split('\n').at(-1), 'A1: landed; waits on the owner step "Tag the first release"');
+  const item = read(at('waves', 'w', 'wave.json')).items[0];
+  assert.deepEqual([item.status, item.owner_step], ['done', 'Tag the first release']);
+  assert.equal(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).at(-1).text, 'Checked on the phone.');
+});
+
+test('builder done --owner-step records the step on the card, and refuses one on a card already closed, naming land', () => {
+  const items = (extra) => write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', pr: 7, ...extra }] });
+  items({});
+  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch').code, 0);
+  const done = board('builder', 'done', 'w/A1', '--site', 'orch', '--owner-step', 'Tag the first release');
+  assert.equal(done.code, 0, done.err);
+  assert.equal(done.out.trim(), 'A1: builder done; owner step "Tag the first release"');
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].owner_step, 'Tag the first release');
+  items({ status: 'done' });
+  const late = board('builder', 'done', 'w/A1', '--site', 'orch', '--owner-step', 'Tag it');
+  assert.deepEqual([late.code, late.err], [1, 'w/A1 is already done, so its ticket closed; an owner step goes on the command that finishes the card: land --owner-step, or builder done before the merge\n']);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].owner_step, undefined);
 });
 
 test("land refuses while a builder record on the card has unverified judgment calls, naming builder verified, and lands once they're verified", () => {

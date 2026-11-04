@@ -375,6 +375,10 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
                                                          --status checking with Next "Answer the builder's
                                                          questions" when a call starts "Question:", else "Verify
                                                          the builder's judgment calls"; --next is refused there
+         [--owner-step <t>]                              a step only the owner can do once the code lands: the card
+                                                         then waits in In Review with it as its Next, its ticket
+                                                         open, until the owner's Done; refused on a card already
+                                                         done, merged or dropped. land takes it too
          builder takes --dir <dir> for a wave file in <dir>; its records go in <dir>/agents
   builder pick <wave>/<id>                               who builds the card, from the hub's Codex share and the pause
                                                          line, and for claude which model, from the hub's Claude model
@@ -408,7 +412,9 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
                                                          second refuses, naming the card landing. With --site, --text <what was checked>
                                                          is required, and once it lands the card closes as item set
                                                          --status done --text does; it refuses first what that close
-                                                         would. KICKFLIP_RESTART_CMD='["<cmd>"]' replaces
+                                                         would. --owner-step <t>, as builder done takes it, keeps the
+                                                         landed card in In Review on that step until the owner's
+                                                         Done. KICKFLIP_RESTART_CMD='["<cmd>"]' replaces
                                                          the restarts, called with hub or board <route>
   merge <wave>/<id> [--after-approval "<why trivial>"]   merges the card's PRs (gh pr merge --squash) in its order and
          [--confirmed "<owner's words>"]                 records it merged, once GitHub reads every open one approved,
@@ -614,22 +620,27 @@ const COMMANDS = {
     if (!words.length && f.text === undefined) throw new UsageError('builder progress needs its text, as words or as --text');
     return store.builderProgress(site, key, f.text ?? words.join(' '), { ...f, clearEta: f['clear-eta'] });
   }],
-  'builder done': [['wave/id'], ['dir', 'agent', 'next'], async (site, [key], f) => (site && !f.dir && await store.handBackCalls(site, key, f)) || store.stopBuilder(site, key, { ...f, requireNext: true })],
+  'builder done': [['wave/id'], ['dir', 'agent', 'next', 'owner-step'], async (site, [key], { 'owner-step': ownerStep, ...f }) => {
+    if (ownerStep !== undefined && (!site || f.dir)) throw new UsageError('--owner-step goes on a board card: pass --site, not --dir');
+    if (ownerStep !== undefined) await store.setItem(site, key, { ownerStep });
+    return (site && !f.dir && await store.handBackCalls(site, key, f)) || store.stopBuilder(site, key, { ...f, requireNext: true });
+  }],
   'builder pick': [['wave/id'], [], (site, [key]) => store.pickBuilder(site, key)],
   'builder call': [['wave/id', '...text'], ['dir', 'agent'], (site, [key, ...words], f) => store.recordCall(site, key, words.join(' '), f)],
   'builder calls': [['wave/id'], ['dir', 'agent'], (site, [key], f) => store.listCalls(site, key, f)],
   'builder verified': [['wave/id'], ['dir', 'agent', 'note'], (site, [key], f) => store.verifyCalls(site, key, f)],
-  land: [['wave/id'], ['repo', 'dir', 'text'], async (site, [key], f) => {
+  land: [['wave/id'], ['repo', 'dir', 'text', 'owner-step'], async (site, [key], f) => {
     const id = key.split('/')[1];
     if (site && f.text === undefined) throw new UsageError(`land needs --text "<what was checked>", which closes ${key} as done once it lands`);
     if (!site && f.text !== undefined) throw new UsageError('--text closes the card, which needs --site');
+    if (!site && f['owner-step'] !== undefined) throw new UsageError('--owner-step keeps a board card open, which needs --site');
     return holdingLandLock(site ? await store.cardName(site, key) : key, async () => {
-      if (site) await store.checkClose(site, key, f.text);
+      if (site) await store.checkClose(site, key, f.text, f['owner-step']);
       await store.checkCallsVerified(site, key, { dir: f.dir });
       const recorded = await store.recordedWorktree(site, key, { dir: f.dir });
       const { repo, base } = builderRepo(site, { repo: f.repo ?? recorded?.repo });
       land({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base, ref: site ? await store.cardName(site, key) : undefined });
-      return site ? store.setItem(site, key, { status: 'done', text: f.text }) : { lines: [] };
+      return site ? store.setItem(site, key, { status: 'done', text: f.text, ownerStep: f['owner-step'] }) : { lines: [] };
     });
   }],
   merge: [['wave/id'], ['after-approval', 'confirmed'], (site, [key], f) => store.mergeCard(site, key, { afterApproval: f['after-approval'], confirmed: f.confirmed })],
@@ -705,10 +716,11 @@ const SAID = {
   'rules remove': (site, [id], f) => `${f.hub ? 'hub' : 'board'} rule ${id} removed`,
   'builder start': async (site, [key], f, result) => `${await card(site, key)}: ${result.alreadyOpen ? 'already open: the Implement tap opened its record; launch the agent, whose own builder start takes it up' : `${builderOf(f)} started`}`,
   'builder progress': async (site, [key]) => `progress line on ${await card(site, key)}`,
-  'builder done': async (site, [key], f) => `${await card(site, key)}: ${builderOf(f)} done`,
+  'builder done': async (site, [key], f) => `${await card(site, key)}: ${builderOf(f)} done${f['owner-step'] === undefined ? '' : `; owner step "${f['owner-step'].trim()}"`}`,
   'builder call': async (site, [key]) => `judgment call recorded on ${await card(site, key)}`,
   'builder verified': async (site, [key]) => `${await card(site, key)}: judgment calls verified`,
-  land: async (site, [key]) => (site ? `${await card(site, key)}: landed and done` : null),
+  land: async (site, [key], f) => (!site ? null : f['owner-step'] === undefined ? `${await card(site, key)}: landed and done`
+    : `${await card(site, key)}: landed; waits on the owner step "${f['owner-step'].trim()}"`),
   merge: async (site, [key]) => `${await card(site, key)}: merged`,
   'arch file': async (site, [key]) => `findings of ${await card(site, key)} filed`,
 };
