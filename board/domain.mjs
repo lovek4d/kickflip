@@ -18,6 +18,7 @@ import { remoteFromInput } from '../hub/repos.mjs';
 import { reviewsOf, reviewNeeds, reviewActions } from './auto-review.mjs';
 import { cardPRs, hasPR, leastReady, prKeyOf, prURL } from '../shared/card-prs.mjs';
 import vm from 'node:vm';
+import { checkWords, parseCheck } from '../shared/owner-check.mjs';
 
 // Page scripts with no exports, which the page loads as is, so node runs them the same way.
 const enums = vm.createContext({});
@@ -222,6 +223,8 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     internal: wave.internal === true, repo: wave.internal === true && !wave.repo ? null : repo,
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, reachedPhase, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenAt), awaitsDone,
     ownerStep: awaitsDone ? ownerStep : null,
+    // docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md
+    ownerCheck: awaitsDone && ownerStep && it.owner_check ? { words: checkWords(parseCheck(it.owner_check.check)), broken: it.owner_check.broken || null } : null,
     queuedAt: lane !== 'done' ? it.queued_at || null : null, queued: false,
     deps: it.deps || [], held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable && bumpStands ? bumpedAt : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
@@ -348,7 +351,7 @@ function placeOwnerWait(it, questionById, autoMerge) {
     return;
   }
   it.awaitsDone &&= !it.action;
-  if (!it.awaitsDone) it.ownerStep = null;
+  if (!it.awaitsDone) Object.assign(it, { ownerStep: null, ownerCheck: null });
   it.actionButton = actionButtonOf(it);
   it.resolvedBy = RESOLVED_BY[it.action?.kind] || null;
   if (it.action?.kind === ACTION_KIND.merge && !it.mergeReady) it.next = (it.pr?.reviewDecision === 'APPROVED' ? OWNER_MERGE_NEXT : UNREVIEWED_MERGE_NEXT).ready;

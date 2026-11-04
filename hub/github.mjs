@@ -7,7 +7,8 @@
 // waking its owning session to run its GitHub tick (SKILL.md). Before that, each card gets its PR's new owner and
 // reviewer comments and reviews as thread lines, and a card closes as merged once every PR on it has merged or closed,
 // at least one merged (docs/adr/2026-11-02-2335-the-hubs-poll-records-merges-and-pr-comments-on-the-card.md,
-// docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md). Each board gets data/checked.json after a
+// docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md). A landed card waiting on an owner step runs the
+// step's code check, closing when it passes (owner-checks.mjs). Each board gets data/checked.json after a
 // check that reached GitHub for every PR it shows, in the idle form when it shows none. sendWakes sends the daily wake,
 // at the end of quiet hours, to every board, changed or not.
 import fs from 'node:fs';
@@ -19,6 +20,7 @@ import { wakesDue, localDay } from './schedule.mjs';
 import { GITHUB_STATE as STATE, WAKE_STATE, WAVES, listBoards, appendEvent, prKey, readJSON, saveJSON, reviewerLogins } from './boards.mjs';
 import { appendThread, setItem, mergedLine, mergeCard } from '../board/store.mjs';
 import { allLanded, leastReady } from '../shared/card-prs.mjs';
+import { runOwnerChecks } from './owner-checks.mjs';
 
 export const CHANGE_KINDS = ['ci', 'review', 'comments', 'merged', 'mergeable', 'draft'];
 
@@ -188,6 +190,7 @@ export async function checkGitHub({ every, manifest }) {
   }
   for (const key of Object.keys(state.acknowledged)) if (!prs.has(key)) delete state.acknowledged[key];
   for (const key of Object.keys(state.threaded)) if (!prs.has(key)) delete state.threaded[key];
+  await runOwnerChecks(boards, state, failed);
   state.lastCheck = { at, watched: prs.size, failed: failed.length, changed: changes.length, boards: checked };
   saveJSON(STATE, state);
   const linear = { moved: [], failed: [] };

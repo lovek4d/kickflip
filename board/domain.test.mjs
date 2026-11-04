@@ -1770,6 +1770,18 @@ test("a card whose code landed stays in In Review on its owner step, the step as
   assert.deepEqual(look(answered), waiting);
 });
 
+// docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md
+test("a card waiting on its owner step reads what its code check waits for, or that the check can't run", () => {
+  const step = 'Publish kickflip to npm';
+  const card = (item) => board({ pr: null, item: { status: 'done', status_at: '2026-10-23T11:00:00Z', owner_step: step, ...item } }).items.find((i) => i.key === 'w/A1');
+  assert.deepEqual(card({ owner_check: { check: 'npm kickflip 0.3.*', since: '2026-10-23T11:00:00Z' } }).ownerCheck, { words: 'kickflip@0.3.* on npm', broken: null });
+  assert.deepEqual(card({ owner_check: { check: 'npm kickflip 0.3.*', since: '2026-10-23T11:00:00Z', broken: 'npm view failed: E404' } }).ownerCheck,
+    { words: 'kickflip@0.3.* on npm', broken: 'npm view failed: E404' });
+  assert.equal(card({}).ownerCheck, null);
+  // Before the code lands, the card waits on its build and reads no check.
+  assert.equal(card({ status: 'building', owner_check: { check: 'npm kickflip 0.3.*', since: '2026-10-23T11:00:00Z' } }).ownerCheck, null);
+});
+
 // docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md
 test('a draft PR waits in In Review with Action needed "Review draft PR #N" from the moment it opens, whatever its CI, which still shows', () => {
   const card = (checks, item = {}) => board({ pr: { ...greenDraft, checks: { state: checks } }, item }).items.find((i) => i.key === 'w/A1');

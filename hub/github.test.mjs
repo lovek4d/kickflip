@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import http from 'node:http';
 import { fakeGh, prView, writePR, writeReady, writeUser, writeIssueComments, writeReviewComments, writeReviews, writeMerge, calls, queried } from '../shared/fake-gh.mjs';
 import { fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
 
@@ -483,4 +484,49 @@ test('without a saved key the poll makes no Linear request and keeps GitHub chan
   assert.deepEqual(result.events.map((e) => e.route), ['no-key']);
   assert.deepEqual(result.checked, ['no-key']);
   assert.equal(linear.calls.length, 0);
+});
+
+// docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md
+test("the poll runs a landed card's owner-step check, closing it once it passes and leaving a card whose code hasn't landed alone", async (t) => {
+  let live = false;
+  let hits = 0;
+  const server = http.createServer((req, res) => { hits += 1; res.writeHead(live ? 200 : 404); res.end(live ? 'v0.3.1 published' : 'not yet'); });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  t.after(() => server.close());
+  const page = `http://127.0.0.1:${server.address().port}/release`;
+  const step = { owner_step: 'Tag the release', owner_check: { check: `url ${page} v0.3`, since: '2026-11-04T10:00:00Z' } };
+  const board = fileBoard('checks', { slug: 'c' }, [
+    { id: 'C1', status: 'done', ...step }, { id: 'C2', status: 'merged', ...step }, { id: 'C3', status: 'building', ...step }]);
+  const first = await board.poll();
+  assert.deepEqual(first.failed, []);
+  assert.equal(hits, 2);
+  assert.deepEqual(board.wave().items.map((i) => [i.status, i.owner_step]), [['done', 'Tag the release'], ['merged', 'Tag the release'], ['building', 'Tag the release']]);
+  live = true;
+  await board.poll();
+  const [c1, c2, c3] = board.wave().items;
+  assert.deepEqual([c1.status, c1.owner_step, c1.owner_check], ['done', undefined, undefined]);
+  assert.deepEqual([c2.status, c2.owner_step, c2.owner_check], ['merged', undefined, undefined]);
+  assert.equal(c3.owner_step, 'Tag the release');
+  assert.deepEqual(board.thread('c/C1').map((l) => [l.who, l.text]), [['claude', `Check passed: ${page} shows "v0.3". Closed.`]]);
+  const after = hits;
+  await board.poll();
+  assert.equal(hits, after);
+});
+
+test("an owner-step check that can't run three times in a row is marked broken, wakes the session once and stops running", async () => {
+  const board = fileBoard('broken-checks', { slug: 'b' }, [{ id: 'B1', status: 'done', owner_step: 'Deploy it', owner_check: { check: 'url http://127.0.0.1:1/never', since: '2026-11-04T10:00:00Z' } }]);
+  for (let i = 0; i < 2; i += 1) {
+    await board.poll();
+    assert.equal(board.wave().items[0].owner_check.broken, undefined);
+  }
+  assert.deepEqual(board.events(), []);
+  const third = await board.poll();
+  assert.deepEqual(third.failed, []);
+  const item = board.wave().items[0];
+  assert.equal(item.owner_step, 'Deploy it');
+  assert.match(item.owner_check.broken, /fetch failed/);
+  assert.deepEqual(board.events().map((e) => [e.kind, e.data.key, e.data.check]), [['owner-check-broken', 'b/B1', 'url http://127.0.0.1:1/never']]);
+  assert.match(board.thread('b/B1').at(-1).text, /^The check for "Deploy it" can't run \(fetch failed\), so it stopped; Claude is asked to fix it\. Done still closes the card\.$/);
+  await board.poll();
+  assert.equal(board.events().length, 1);
 });

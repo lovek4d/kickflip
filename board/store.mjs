@@ -26,6 +26,7 @@ import { readiness } from '../hub/readiness.mjs';
 import { slackDay } from '../hub/slack.mjs';
 import { storedPath } from '../bin/install.mjs';
 import { readPermissions } from './permissions.mjs';
+import { parseCheck, checkText } from '../shared/owner-check.mjs';
 import { RuleError, rulesOf, addRule, editRule, removeRule, applyRules, readHubRules, writeHubRules } from '../hub/rules.mjs';
 
 export class BoardError extends Error {}
@@ -1241,12 +1242,13 @@ async function closeQuestions(site, key, by, force) {
   };
 }
 
-// Refuses what `item set <key> --status done --text <said>` (with ownerStep, land's --owner-step) would refuse for its questions or its text, writing nothing,
-// so board.mjs land can check before it lands.
-export async function checkClose(site, key, said, ownerStep) {
+// Refuses what `item set <key> --status done --text <said>` (with ownerStep and check, land's --owner-step and --check)
+// would refuse for its questions or its text, writing nothing, so board.mjs land can check before it lands.
+export async function checkClose(site, key, said, ownerStep, check) {
   await loadItem(site, key);
   text(said, '--text');
   optional(ownerStep, (v) => text(v, '--owner-step'));
+  optional(check, (v) => checkSpec(v));
   await closeQuestions(needSite(site), key, 'land', false);
 }
 
@@ -1412,21 +1414,24 @@ function closingLine(site, key, item, status, text, repo) {
 // notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`. text is the closing line
 // (closingLine), or with fromAsk the item's first thread line.
 // ownerStep is the owner step builder done or land records, and ownerDone the owner's Done, which alone clears it
-// (docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md).
-async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, parent, related, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, ownerStep, ownerDone }, options) {
+// (docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md). check is the
+// step's code check (--check "<name> <args>", "" to remove it), kept as owner_check {check, since, broken?} while the
+// step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
+async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, parent, related, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, ownerStep, ownerDone, check }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
   if (state !== undefined && !CARD_STATES.includes(state)) fail('--state takes ready, grilling or prototyping');
   if (force && !FINISHED.includes(status)) fail(`--force goes with --status ${FINISHED.join(', ')}`);
   if (fromAsk !== undefined && FINISHED.includes(status)) fail('--from-ask opens a card; close it in another call');
   if (said !== undefined) text(said, '--text');
   if (ownerStep !== undefined) text(ownerStep, '--owner-step');
+  const spec = check === undefined || check === '' ? check : checkSpec(check);
   if (said !== undefined && fromAsk === undefined && !FINISHED.includes(status)) fail(`--text goes with --from-ask or --status ${FINISHED.join(', ')}`);
   if (fromAsk !== undefined && said === undefined) fail('--from-ask needs --text "<first line>", the item\'s first thread line after the ask');
   if (next !== undefined && clearNext) fail('pass --next or --clear-next, not both');
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   const hold = holdOf({ held, unheld, pickUpAt });
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, hold, notesFile, deps, parent, related, built, title, size, model, ticket, ownerStep].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --notes-file, --deps, --parent, --related, --install, --clear-install, --title, --size, --model or --ticket');
+  if ([status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, hold, notesFile, deps, parent, related, built, title, size, model, ticket, ownerStep, check].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --notes-file, --deps, --parent, --related, --install, --clear-install, --title, --size, --model, --ticket or --check');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   const { source, wave, item } = await loadItem(site, key);
@@ -1438,6 +1443,10 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (ownerStep !== undefined && wasFinished) fail(`${key} is already ${item.status}, so its ticket closed; an owner step goes on the command that finishes the card: land --owner-step, or builder done before the merge`);
   if (ownerStep !== undefined) item.owner_step = text(ownerStep, '--owner-step');
   if (ownerDone || status === 'dropped') delete item.owner_step;
+  if (spec !== undefined && !item.owner_step) fail(`--check goes with an owner step, which ${key} doesn't have: pass --owner-step "<the step>" with it on builder done or land`);
+  // Setting the same check again clears its broken mark and keeps when it was attached.
+  if (spec) item.owner_check = { check: spec, since: item.owner_check?.check === spec ? item.owner_check.since : new Date().toISOString() };
+  if (spec === '' || !item.owner_step) delete item.owner_check;
   const records = await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)));
   const owedBefore = owesNext(item, records);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
@@ -1619,6 +1628,33 @@ export async function recordOwnerTap(site, kind, data) {
   await writeJSON(source.file, wave);
   const at = until && new Date(until).toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   return appendThread(site, key, { text: data.hold ? (at ? `Held until ${at}.` : 'Held.') : 'Resumed.', who: 'love' });
+}
+
+// --check's text → its stored form, or refuses it (shared/owner-check.mjs parseCheck).
+function checkSpec(value) {
+  try { return checkText(parseCheck(value)); } catch (e) { return fail(e.message); }
+}
+
+// docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md: the hub's poll found the owner step's check
+// passing, so the card closes as the owner's Done closes it, its line naming what the check found. check is the check
+// the poll ran; a card whose step or check changed since is left alone. → the item set result, or null.
+export async function passOwnerCheck(site, key, check, found) {
+  const { item } = await loadItem(site, key);
+  if (!item.owner_step || item.owner_check?.check !== check) return null;
+  return setItem(site, key, { status: item.status === 'merged' ? 'merged' : 'done', force: true, ownerDone: true, text: `Check passed: ${found}. Closed.` });
+}
+
+// The hub's poll couldn't run the owner step's check several times in a row: the card reads it broken, the poll stops
+// running it, a thread line says so and owner-check-broken {key, check, error} wakes the session to fix it with item set
+// --check. The owner's Done still closes the card. → true when it marked the check, false when the card moved on.
+export async function breakOwnerCheck(site, key, check, error) {
+  const { source, wave, item } = await loadItem(site, key);
+  if (!item.owner_step || item.owner_check?.check !== check) return false;
+  item.owner_check.broken = error;
+  await writeJSON(source.file, wave);
+  await appendThread(site, key, { text: `The check for "${item.owner_step}" can't run (${error}), so it stopped; Claude is asked to fix it. Done still closes the card.` });
+  await appendEvent({ dir: site }, 'owner-check-broken', { key, check, error });
+  return true;
 }
 
 // A comma list of deps, each an item that exists; "" is none.

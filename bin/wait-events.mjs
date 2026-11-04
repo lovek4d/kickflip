@@ -89,6 +89,7 @@ const ON_CARD = {
   'prototype-request': (c) => `prototype asked on ${c}`,
   'reask-request': (c) => `question asked again on ${c}`,
   'builder-ask': (c, e) => `${e.data?.ask} from ${c}'s builder: ${e.data?.text}`,
+  'owner-check-broken': (c, e) => `${c}'s owner-step check can't run: ${e.data?.error}`,
 };
 
 // One plain line per event line, from its kind and card (data.key, or data.id for an ask-* event), or null for a

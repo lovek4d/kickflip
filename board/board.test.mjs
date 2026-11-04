@@ -2028,7 +2028,7 @@ test('land on --site needs --text, refuses before landing what closing would ref
   assert.equal(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).at(-1).text, 'Checked on the phone.');
 });
 
-test('land --owner-step lands the code and leaves the card open on its owner step; a blank step is refused before landing', () => {
+test('land --owner-step lands the code and leaves the card open on its owner step and its check; a blank step or a bad check is refused before landing', () => {
   const repo = scratchRepo();
   assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
   commit(worktree(), 'shared/notes.md', 'b\n', 'A1: notes');
@@ -2038,12 +2038,15 @@ test('land --owner-step lands the code and leaves the card open on its owner ste
   const main = git(repo, 'rev-parse', 'main');
   assert.deepEqual([landOn('--owner-step', ' ').code, landOn('--owner-step', ' ').err], [1, '--owner-step must be non-empty text\n']);
   assert.equal(git(repo, 'rev-parse', 'main'), main);
-  const r = landOn('--owner-step', 'Tag the first release');
+  const badCheck = landOn('--owner-step', 'Tag the first release', '--check', 'tag nowhere v*');
+  assert.deepEqual([badCheck.code, badCheck.err], [1, `--check tag <owner/repo> <pattern>: "nowhere" isn't a GitHub repo such as owner/name\n`]);
+  assert.equal(git(repo, 'rev-parse', 'main'), main);
+  const r = landOn('--owner-step', 'Tag the first release', '--check', 'tag o/r v*');
   assert.equal(r.code, 0, r.err);
   assert.notEqual(git(repo, 'rev-parse', 'main'), main);
   assert.equal(r.out.trim().split('\n').at(-1), 'A1: landed; waits on the owner step "Tag the first release"');
   const item = read(at('waves', 'w', 'wave.json')).items[0];
-  assert.deepEqual([item.status, item.owner_step], ['done', 'Tag the first release']);
+  assert.deepEqual([item.status, item.owner_step, item.owner_check.check], ['done', 'Tag the first release', 'tag o/r v*']);
   assert.equal(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).at(-1).text, 'Checked on the phone.');
 });
 
@@ -2059,6 +2062,44 @@ test('builder done --owner-step records the step on the card, and refuses one on
   const late = board('builder', 'done', 'w/A1', '--site', 'orch', '--owner-step', 'Tag it');
   assert.deepEqual([late.code, late.err], [1, 'w/A1 is already done, so its ticket closed; an owner step goes on the command that finishes the card: land --owner-step, or builder done before the merge\n']);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].owner_step, undefined);
+});
+
+// docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md
+test('builder done --check attaches a named check to the owner step, refusing one without the step or with bad arguments', () => {
+  const items = (extra) => write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', pr: 7, ...extra }] });
+  const item = () => read(at('waves', 'w', 'wave.json')).items[0];
+  items({});
+  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch').code, 0);
+  const alone = board('builder', 'done', 'w/A1', '--site', 'orch', '--check', 'npm kickflip 0.3.*');
+  assert.equal(alone.code, 2);
+  assert.match(alone.err, /--check goes with --owner-step/);
+  const shell = board('builder', 'done', 'w/A1', '--site', 'orch', '--owner-step', 'Tag a release', '--check', 'sh -c "rm -rf ~"');
+  assert.equal(shell.code, 1);
+  assert.match(shell.err, /^--check has no check "sh"; it takes tag <owner\/repo> <pattern>/);
+  assert.equal(item().owner_step, undefined);
+  const done = board('builder', 'done', 'w/A1', '--site', 'orch', '--owner-step', 'Tag a release', '--check', 'npm  kickflip 0.3.*');
+  assert.equal(done.code, 0, done.err);
+  assert.deepEqual([item().owner_step, item().owner_check.check], ['Tag a release', 'npm kickflip 0.3.*']);
+  assert.ok(Date.parse(item().owner_check.since) <= Date.now());
+});
+
+test('item set --check changes or removes the check on a card waiting on its owner step, clearing a broken mark, and refuses a card with no step', () => {
+  const items = (extra) => write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'done', ...extra }] });
+  const item = () => read(at('waves', 'w', 'wave.json')).items[0];
+  items({});
+  const none = board('item', 'set', 'w/A1', '--site', 'orch', '--check', 'npm kickflip 0.3.*');
+  assert.deepEqual([none.code, none.err], [1, `--check goes with an owner step, which w/A1 doesn't have: pass --owner-step "<the step>" with it on builder done or land\n`]);
+  const since = '2026-11-04T10:00:00.000Z';
+  items({ owner_step: 'Publish it', owner_check: { check: 'npm kickflip 0.3.*', since, broken: 'npm view failed: E404' } });
+  const again = board('item', 'set', 'w/A1', '--site', 'orch', '--check', 'npm kickflip 0.3.*');
+  assert.equal(again.code, 0, again.err);
+  assert.equal(again.out.trim(), 'A1: check npm kickflip 0.3.*');
+  assert.deepEqual(item().owner_check, { check: 'npm kickflip 0.3.*', since });
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--check', 'tag o/r v0.3.*').code, 0);
+  assert.equal(item().owner_check.check, 'tag o/r v0.3.*');
+  assert.notEqual(item().owner_check.since, since);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--check', '').code, 0);
+  assert.deepEqual([item().owner_step, item().owner_check], ['Publish it', undefined]);
 });
 
 test("land refuses while a builder record on the card has unverified judgment calls, naming builder verified, and lands once they're verified", () => {

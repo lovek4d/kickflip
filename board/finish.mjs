@@ -21,9 +21,9 @@ import { boardRepo } from '../hub/board-repo.mjs';
 const fail = (msg) => { throw new store.BoardError(msg); };
 const said = (text) => (typeof text === 'string' && text.trim() ? text.trim() : fail('--text must be non-empty text'));
 
-// text is the card's closing line ("<what was checked>"), ownerStep land's and builder done's --owner-step, repo
-// --repo. → {said: what became of the card, lines}
-export async function finishCard(site, key, { text, ownerStep, repo: given }) {
+// text is the card's closing line ("<what was checked>"), ownerStep land's and builder done's --owner-step, check its
+// --check, repo --repo. → {said: what became of the card, lines}
+export async function finishCard(site, key, { text, ownerStep, check, repo: given }) {
   const id = key.split('/')[1];
   const recorded = await store.recordedWorktree(site, key);
   const { repo, base, remote } = builderRepo(site, { repo: given ?? recorded?.repo });
@@ -33,7 +33,7 @@ export async function finishCard(site, key, { text, ownerStep, repo: given }) {
   const github = remote ? boardRepo(boardAt(site).route).github : null;
   if (remote && (!github || settings.prs)) return sendForReview(site, key, { ...tree, ref, text: said(text) });
   return holdingLandLock(ref, async () => {
-    await store.checkClose(site, key, text, ownerStep);
+    await store.checkClose(site, key, text, ownerStep, check);
     await store.checkCallsVerified(site, key);
     if (remote) {
       syncBase(tree.repo, base);
@@ -43,11 +43,11 @@ export async function finishCard(site, key, { text, ownerStep, repo: given }) {
     const go = settings.auto_merge || Boolean((await store.heldMerge(site, key))?.tapped);
     land({ ...tree, ref }, { hold: !go });
     if (!go) {
-      const set = await store.setItem(site, key, { mergeReady: tree.branch, ownerStep });
+      const set = await store.setItem(site, key, { mergeReady: tree.branch, ownerStep, check });
       await store.appendThread(site, key, { text });
       return { said: 'verified; waits for your Merge', lines: set.lines };
     }
-    const closed = await store.setItem(site, key, { status: 'done', text, ownerStep });
+    const closed = await store.setItem(site, key, { status: 'done', text, ownerStep, check });
     return {
       said: ownerStep === undefined ? 'landed and done' : `landed; waits on the owner step "${ownerStep.trim()}"`,
       lines: [...closed.lines, ...await pushBase(site, key, repo, base)],

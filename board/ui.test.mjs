@@ -2006,3 +2006,13 @@ test("a card waiting on its owner step reads the step as its orange Next, with D
   assert.doesNotMatch(ui.workLines(waiting), /data-card-bump/);
   assert.doesNotMatch(ui.workLines({ ...waiting, ownerStep: null }), /owner-done/);
 });
+
+test("a card waiting on its owner step reads its code check under the Next, or that the check can't run", () => {
+  const step = 'Publish kickflip to npm';
+  const waiting = { ...workCard, lane: 'review', waitsOn: 'owner', next: step, ownerStep: step, awaitsDone: true, bumpable: false };
+  assert.deepEqual(lines(ui.workLines({ ...waiting, ownerCheck: { words: 'kickflip@0.3.* on npm', broken: null } })).slice(0, 3), ['ENG-1 Five', `Next: ${step}`, 'Checks: kickflip@0.3.* on npm']);
+  assert.deepEqual(lines(ui.workLines({ ...waiting, ownerCheck: { words: 'kickflip@0.3.* on npm', broken: 'npm view failed: <E404>' } })).slice(0, 3),
+    ['ENG-1 Five', `Next: ${step}`, "Check can't run: npm view failed: <E404>"]);
+  assert.match(ui.workLines({ ...waiting, ownerCheck: { words: 'x', broken: '<b>' } }), /<div class="line3 sub refused">Check can&#39;t run: &lt;b&gt;<\/div>/);
+  assert.doesNotMatch(ui.workLines(waiting), /Checks:|Check can/);
+});

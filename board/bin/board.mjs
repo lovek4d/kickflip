@@ -126,6 +126,9 @@ command fails and changes nothing.
                                                          --held holds it with no time; --pick-up-at "" resumes it
          [--ticket <id>]                                links a ticket in the board’s source
          [--title <t>]                                   renames the card
+         [--check "<name> <args>"]                       adds or changes the code check on the card's owner step,
+                                                         as builder done --check takes it, clearing a broken mark;
+                                                         --check "" removes it. Refused on a card with no owner step
          [--size small|large] [--model opus|sonnet]      what builder pick reads while the hub's Claude model is
                                                          Auto: a small card gets Claude Sonnet, any other Opus, and
                                                          --model wins over --size; "" clears either
@@ -422,6 +425,16 @@ command fails and changes nothing.
                                                          then waits in In Review with it as its Next, its ticket
                                                          open, until the owner's Done; refused on a card already
                                                          done, merged or dropped. land takes it too
+         [--check "<name> <args>"]                       with --owner-step: a read-only check on the step's final
+                                                         evidence, which the hub's poll runs on each check once the
+                                                         code lands, closing the card when it passes: tag
+                                                         <owner/repo> <pattern>, npm <package> <version-or-range>,
+                                                         run <owner/repo> <workflow> (a successful run since it was
+                                                         attached), gh <owner/repo> <api-path> <field>=<value>, or
+                                                         url <address> [<status> | <text>]. An unknown check or bad
+                                                         arguments are refused. Three runs in a row that can't run
+                                                         mark it broken and append owner-check-broken {key, check,
+                                                         error}; fix it with item set --check. land takes it too
          builder takes --dir <dir> for a wave file in <dir>; its records go in <dir>/agents
   builder pick <wave>/<id>                               who builds the card, from the hub's Codex share and the pause
                                                          line, and for claude which model, from the hub's Claude model
@@ -480,7 +493,7 @@ command fails and changes nothing.
                                                          branch push (and draft PR) instead of the fast-forward.
                                                          --owner-step <t>, as builder done takes it, keeps the
                                                          landed card in In Review on that step until the owner's
-                                                         Done. KICKFLIP_RESTART_CMD='["<cmd>"]' replaces
+                                                         Done, or until its --check passes. KICKFLIP_RESTART_CMD='["<cmd>"]' replaces
                                                          the restarts, called with hub or board <route>
   merge <wave>/<id> [--after-approval "<why trivial>"]   merges the card's PRs (gh pr merge --squash) in its order and
          [--confirmed "<owner's words>"]                 records it merged, once GitHub reads every open one approved,
@@ -621,10 +634,10 @@ const COMMANDS = {
   'prototype add': [['topic'], ['title', '...take', 'card'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take })],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'parent', 'related', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'text'], async (site, [key], f, options) => {
+  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'parent', 'related', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'text', 'check'], async (site, [key], f, options) => {
     if (f.status === 'done' && site) await store.checkNotReopened(site, key);
     return store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps, parent: f.parent, related: f.related,
-      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, text: f.text }, options);
+      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, text: f.text, check: f.check }, options);
   }],
   'item add': [['wave[/id]'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'parent', 'size', 'model'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket, pickUpAt: f['pick-up-at'], parent: f.parent, size: f.size, model: f.model }, options)],
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
@@ -700,9 +713,10 @@ const COMMANDS = {
     if (!words.length && f.text === undefined) throw new UsageError('builder progress needs its text, as words or as --text');
     return store.builderProgress(site, key, f.text ?? words.join(' '), { ...f, clearEta: f['clear-eta'] });
   }],
-  'builder done': [['wave/id'], ['dir', 'agent', 'next', 'owner-step', 'text'], async (site, [key], { 'owner-step': ownerStep, text, ...f }) => {
+  'builder done': [['wave/id'], ['dir', 'agent', 'next', 'owner-step', 'check', 'text'], async (site, [key], { 'owner-step': ownerStep, check, text, ...f }) => {
     if (ownerStep !== undefined && (!site || f.dir)) throw new UsageError('--owner-step goes on a board card: pass --site, not --dir');
-    if (ownerStep !== undefined) await store.setItem(site, key, { ownerStep });
+    if (check !== undefined && ownerStep === undefined) throw new UsageError('--check goes with --owner-step: it is the code check that closes the card once the step is done');
+    if (ownerStep !== undefined) await store.setItem(site, key, { ownerStep, check });
     const onBoard = site && !f.dir;
     const handed = onBoard && await store.handBackCalls(site, key, f);
     if (handed) return handed;
@@ -730,19 +744,20 @@ const COMMANDS = {
       throw Object.assign(new store.BoardError(`judgment calls verified, but ${await store.cardName(site, key)} didn't finish: ${e.message}`), { exitCode: e.exitCode });
     }
   }],
-  land: [['wave/id'], ['repo', 'dir', 'text', 'owner-step'], async (site, [key], f) => {
+  land: [['wave/id'], ['repo', 'dir', 'text', 'owner-step', 'check'], async (site, [key], f) => {
     const id = key.split('/')[1];
     if (site && f.text === undefined) throw new UsageError(`land needs --text "<what was checked>", which closes ${key} as done once it lands`);
     if (!site && f.text !== undefined) throw new UsageError('--text closes the card, which needs --site');
     if (!site && f['owner-step'] !== undefined) throw new UsageError('--owner-step keeps a board card open, which needs --site');
-    if (site && f.dir === undefined) return finishCard(site, key, { text: f.text, ownerStep: f['owner-step'], repo: f.repo });
+    if (f.check !== undefined && f['owner-step'] === undefined) throw new UsageError('--check goes with --owner-step: it is the code check that closes the card once the step is done');
+    if (site && f.dir === undefined) return finishCard(site, key, { text: f.text, ownerStep: f['owner-step'], check: f.check, repo: f.repo });
     return holdingLandLock(site ? await store.cardName(site, key) : key, async () => {
-      if (site) await store.checkClose(site, key, f.text, f['owner-step']);
+      if (site) await store.checkClose(site, key, f.text, f['owner-step'], f.check);
       await store.checkCallsVerified(site, key, { dir: f.dir });
       const recorded = await store.recordedWorktree(site, key, { dir: f.dir });
       const { repo, base } = builderRepo(site, { repo: f.repo ?? recorded?.repo });
       land({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base, ref: site ? await store.cardName(site, key) : undefined });
-      return site ? store.setItem(site, key, { status: 'done', text: f.text, ownerStep: f['owner-step'] }) : { lines: [] };
+      return site ? store.setItem(site, key, { status: 'done', text: f.text, ownerStep: f['owner-step'], check: f.check }) : { lines: [] };
     });
   }],
   merge: [['wave/id'], ['after-approval', 'confirmed'], async (site, [key], f) => (site && await store.heldMerge(site, key) ? landHeld(site, key)
@@ -773,6 +788,7 @@ function itemChanges(f) {
     f.parent !== undefined && (f.parent ? `parent ${f.parent}` : 'parent cleared'), f.related !== undefined && (f.related ? `related to ${f.related.split(',').join(', ')}` : 'related cleared'),
     f.install !== undefined && 'install published', f['clear-install'] && 'install cleared',
     f.title !== undefined && 'renamed', f.ticket !== undefined && `ticket ${f.ticket}`,
+    f.check !== undefined && (f.check.trim() ? `check ${f.check.trim().split(/\s+/).join(' ')}` : 'check removed'),
   ].filter(Boolean).join(', ');
 }
 
