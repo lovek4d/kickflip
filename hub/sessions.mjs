@@ -49,11 +49,14 @@ export function startingBoards(manifest, now = Date.now()) {
 // hook sends the session's prompts to the phone, and its timeout stays a minute past the hook's own wait
 // (docs/adr/2026-10-30-1516-background-sessions-prompts-come-to-the-phone.md). Every session the hub starts or resumes gets them,
 // the hub board's foreground one in tmux included. The PermissionDenied hook tells the hub when auto mode refused a
-// command, which notes it under the board setting that allows it (board/permissions.mjs). The hub service's PATH may
-// have no node, hence a full path.
+// command, which notes it under the board setting that allows it (board/permissions.mjs). The deny rule refuses the
+// Workflow tool at once, since its opt-in prompt waits at a terminal nobody watches
+// (docs/adr/2026-11-04-0036-a-board-session-never-stalls-on-a-workflow-prompt.md). The hub service's PATH may have no
+// node, hence a full path.
 export const PROMPT_HOOK_TIMEOUT_S = WAIT_MS / 1000 + 60;
 export const BG_SETTINGS = JSON.stringify({
   worktree: { bgIsolation: 'none' },
+  permissions: { deny: ['Workflow'] },
   hooks: {
     PermissionRequest: [{ matcher: '*', hooks: [{ type: 'command', command: `"${nodeBin()}" "${path.join(SKILL_DIR, 'hub', 'permission-hook.mjs')}"`, timeout: PROMPT_HOOK_TIMEOUT_S }] }],
     PermissionDenied: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `"${nodeBin()}" "${path.join(SKILL_DIR, 'hub', 'permission-denied-hook.mjs')}"`, timeout: 15 }] }],
