@@ -27,8 +27,9 @@ function git(cwd, ...args) {
 }
 const short = (repo, ref) => git(repo, 'rev-parse', '--short', ref).out;
 
-// → {path, branch, repo}: a builder branch from base, checked out outside the shared clone.
-export function makeWorktree(id, { repo = skillRepo(), base = 'main', remote = false } = {}) {
+// → {path, branch, repo, remade}: a builder branch from base, checked out outside the shared clone. A worktree an earlier
+// build left at the path is remade when it holds no work (removeLeftover), and remade is the line saying so, else null.
+export function makeWorktree(id, { repo = skillRepo(), base = 'main', remote = false, busy = [] } = {}) {
   const root = path.resolve(repo);
   if (!git(root, 'rev-parse', '--git-dir').ok) fail(`--repo ${root} is not a git repo`);
   if (!git(root, 'check-ref-format', '--branch', id).ok) fail(`--worktree: "${id}" can't be a branch name`);
@@ -38,12 +39,38 @@ export function makeWorktree(id, { repo = skillRepo(), base = 'main', remote = f
   if (remote) git(root, 'fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${base}:${ref}`);
   if (!git(root, 'rev-parse', '--verify', '--quiet', ref).ok) fail(`--worktree: ${root} has no ${base} branch`);
   const dir = path.join(worktreesDir(), id);
-  if (fs.existsSync(dir)) fail(`--worktree: ${dir} already exists; land or remove it first`);
+  const remade = fs.existsSync(dir) ? removeLeftover(root, dir, id, { ref, base, busy }) : null;
   if (git(root, 'rev-parse', '--verify', '--quiet', `refs/heads/${id}`).ok) fail(`--worktree: branch ${id} already exists in ${root}`);
   fs.mkdirSync(path.dirname(dir), { recursive: true });
   const r = git(root, 'worktree', 'add', '--quiet', '-b', id, dir, ref);
   if (!r.ok) fail(`--worktree: git worktree add failed: ${r.err}`);
-  return { path: storedPath(dir), branch: id, repo: storedPath(root) };
+  return { path: storedPath(dir), branch: id, repo: storedPath(root), remade };
+}
+
+// The worktree at dir, on branch id of root, that an earlier build left: removed with its branch when it holds no commits
+// beyond ref and no changes and no path in busy (the other open builder records' worktrees) names it; anything else at
+// dir refuses, naming the work it holds (docs/adr/0173-a-build-remakes-a-leftover-worktree-that-holds-no-work.md).
+function removeLeftover(root, dir, id, { ref, base, busy }) {
+  const refuse = (why) => fail(`--worktree: ${dir} ${why}; land or remove it first`);
+  if (busy.includes(storedPath(dir))) refuse('already exists and another open builder record uses it');
+  const real = fs.realpathSync(dir);
+  const ours = git(root, 'worktree', 'list', '--porcelain').out.split('\n\n').some((entry) => {
+    const lines = entry.split('\n');
+    const at = lines.find((l) => l.startsWith('worktree '))?.slice('worktree '.length);
+    try { return lines.includes(`branch refs/heads/${id}`) && fs.realpathSync(at) === real; } catch { return false; }
+  });
+  if (!ours) refuse('already exists');
+  const commits = Number(git(root, 'rev-list', '--count', `${ref}..refs/heads/${id}`).out);
+  const changed = git(dir, 'status', '--porcelain').out.split('\n').filter(Boolean).length;
+  const count = (n, what) => `${n} ${what}${n === 1 ? '' : 's'}`;
+  const work = [...(commits ? [`${count(commits, 'commit')} beyond ${base}`] : []), ...(changed ? [count(changed, 'changed file')] : [])];
+  if (work.length) refuse(`holds ${work.join(' and ')}`);
+  // --force takes the ignored files (node_modules and the like) with it; status has shown nothing else is there.
+  const removed = git(root, 'worktree', 'remove', '--force', dir);
+  if (!removed.ok) fail(`--worktree: could not remove the leftover ${dir}: ${removed.err}`);
+  const deleted = git(root, 'branch', '--quiet', '-D', id);
+  if (!deleted.ok) fail(`--worktree: could not delete the leftover branch ${id}: ${deleted.err}`);
+  return `Remade the leftover worktree ${storedPath(dir)} from ${base}: it held no commits or changes.`;
 }
 
 // Where the board at site's builders branch from and land (hub/board-repo.mjs boardRepo): a board on GitHub or a plain
@@ -59,7 +86,7 @@ export function builderRepo(site, { repo, manifest = readManifest() } = {}) {
 }
 
 // The worktree of card id on the board at site, from builderRepo. → as makeWorktree
-export const boardWorktree = (site, id, { repo } = {}) => makeWorktree(id, builderRepo(site, { repo }));
+export const boardWorktree = (site, id, { repo, busy } = {}) => makeWorktree(id, { ...builderRepo(site, { repo }), busy });
 
 function testFiles(dir) {
   const found = [];

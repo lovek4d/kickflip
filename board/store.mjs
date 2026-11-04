@@ -1873,8 +1873,10 @@ async function statusToThread(site, key, agent = 'main', builder, { phase, detai
 // The model a planner runs without --model (owner, #111's grill).
 const PLANNER_MODEL = { prototype: 'sonnet', grill: 'opus' };
 
-// worktree, when given, makes the builder's worktree once every flag has passed (board/worktree.mjs makeWorktree) and
-// returns {path, branch, repo}, which the record keeps for `board.mjs land`. A build (--kind build, claude or codex) on an
+// worktree, when given, makes the builder's worktree once every flag has passed (board/worktree.mjs makeWorktree), told
+// the worktrees the card's other open builder records keep ({busy: [path]}), and returns {path, branch, repo}, which the
+// record keeps for `board.mjs land`, and remade, the line saying it remade a leftover worktree, which goes in the output
+// and the card's thread. A build (--kind build, claude or codex) on an
 // open card marks it building first, refusing what item set --status building refuses
 // (docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
 // tapped marks a record the owner's Build tap started (startTappedBuild); dispatch marks one the session opens right
@@ -1921,18 +1923,26 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const marking = build && !dir && ![...FINISHED, 'building', 'fixing'].includes(was.status);
   const marked = marking ? await setItem(site, key, { status: 'building' }) : { lines: [] };
   let wt;
-  try { wt = worktree ? await worktree() : (takeUp ?? resumed)?.worktree ?? null; } catch (e) {
+  let remade = null;
+  try {
+    if (worktree) {
+      const others = await builderFiles(path.dirname(path.dirname(file)), parseKey(key).id);
+      const busy = (await Promise.all(others.filter((f) => f !== file).map((f) => readJSON(f, null)))).filter((r) => r?.worktree?.path && !r.done).map((r) => r.worktree.path);
+      ({ remade, ...wt } = await worktree({ busy }));
+    } else wt = (takeUp ?? resumed)?.worktree ?? null;
+  } catch (e) {
     // A worktree that can't be made leaves the card unstarted, as it was.
     if (marking) await restoreStatus(site, key, was);
     throw e;
   }
   await writeJSON(file, wt ? { ...record, worktree: wt } : record);
+  if (remade && site) await appendThread(site, key, { text: remade });
   if (line) await statusToThread(site, key, agent, record, line, now);
   const resolved = await resolveAnswered(site, key, 'Acted on: builder started');
   if (site && builds({ kind: k })) await clearWaitedNext(site, `item:${key}`, { build: true });
   return {
     file, kind: k ?? null, model: claude ?? null, reason: pick?.reason ?? null, worktree: wt?.path ?? null,
-    lines: [...(asked === 'build' ? [`kind: ${k}. ${pick.reason}`] : []), ...(modelName(record) ? [`model: ${modelName(record)}`] : []), ...(site ? [`ref: ${await cardName(site, key)}`] : []), ...(wt ? [`worktree: ${wt.path}`] : []), ...marked.lines, ...resolved],
+    lines: [...(asked === 'build' ? [`kind: ${k}. ${pick.reason}`] : []), ...(modelName(record) ? [`model: ${modelName(record)}`] : []), ...(site ? [`ref: ${await cardName(site, key)}`] : []), ...(wt ? [`worktree: ${wt.path}`] : []), ...(remade ? [remade] : []), ...marked.lines, ...resolved],
   };
 }
 

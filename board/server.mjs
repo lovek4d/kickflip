@@ -736,7 +736,7 @@ const server = http.createServer(async (req, res) => {
       // docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md
       if (kind === 'card-build') {
         const key = String(body.key || '');
-        const started = await startTappedBuild(here, key, () => boardWorktree(here, key.split('/')[1]));
+        const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts));
         return json(res, 200, { id: started && !started.queued ? await appendEvent(kind, started) : null, board: await board() });
       }
       if (kind === 'owner-answer') return json(res, 200, { id: (await recordAnswers([body]))[0], board: await board() });
@@ -873,7 +873,7 @@ function checkQueued() {
       try {
         if (readUsageGate().state === 'paused') continue;
         for (const key of await dueQueuedBuilds(here)) {
-          const started = await startQueuedBuild(here, key, () => boardWorktree(here, key.split('/')[1]));
+          const started = await startQueuedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts));
           if (started && !started.queued) await appendEvent('card-build', started);
         }
       } catch (err) { console.error('Queued build check failed:', err.message); }

@@ -1447,13 +1447,41 @@ test('builder start --worktree makes a worktree on a new branch from main, keeps
   assert.equal(git(worktree(), 'rev-parse', '--abbrev-ref', 'HEAD'), 'A1');
   assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(repo, 'rev-parse', 'main'));
   const taken = board('builder', 'start', 'w/A1', '--agent', 'two', '--worktree', '--repo', repo);
-  assert.deepEqual([taken.code, taken.err], [1, `--worktree: ${worktree()} already exists; land or remove it first\n`]);
+  assert.deepEqual([taken.code, taken.err], [1, `--worktree: ${worktree()} already exists and another open builder record uses it; land or remove it first\n`]);
   assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A1@two.json')), false);
   git(repo, 'worktree', 'remove', worktree());
   const branch = board('builder', 'start', 'w/A1', '--agent', 'two', '--worktree', '--repo', repo);
   assert.deepEqual([branch.code, branch.err], [1, `--worktree: branch A1 already exists in ${repo}\n`]);
   assert.equal(fs.existsSync(worktree()), false);
   assert.equal(board('builder', 'start', 'w/A1', '--repo', repo).code, 2);
+});
+
+test('builder start --worktree remakes a leftover worktree that holds no work from current main, saying so, and refuses one holding commits or changes, naming them', () => {
+  const repo = scratchRepo();
+  const leftover = () => git(repo, 'worktree', 'add', '--quiet', '-b', 'A1', worktree(), 'main');
+  leftover();
+  write(path.join(worktree(), 'node_modules', 'x.js'), 'ignored\n');
+  write(path.join(repo, '.git', 'info', 'exclude'), 'node_modules\n');
+  commit(worktree(), 'ahead.txt', 'unlanded');
+  const refused = board('builder', 'start', 'w/A1', '--worktree', '--repo', repo);
+  assert.deepEqual([refused.code, refused.err], [1, `--worktree: ${worktree()} holds 1 commit beyond main; land or remove it first\n`]);
+  write(path.join(worktree(), 'a.txt'), 'new\n');
+  write(path.join(worktree(), 'shared', 'notes.md'), 'b\n');
+  const both = board('builder', 'start', 'w/A1', '--worktree', '--repo', repo);
+  assert.deepEqual([both.code, both.err], [1, `--worktree: ${worktree()} holds 1 commit beyond main and 2 changed files; land or remove it first\n`]);
+  git(worktree(), 'reset', '--quiet', '--hard', 'main');
+  const changed = board('builder', 'start', 'w/A1', '--worktree', '--repo', repo);
+  assert.deepEqual([changed.code, changed.err], [1, `--worktree: ${worktree()} holds 1 changed file; land or remove it first\n`]);
+  assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A1.json')), false);
+
+  fs.rmSync(path.join(worktree(), 'a.txt'));
+  commit(repo, 'landed.txt', 'main moved');
+  const r = board('builder', 'start', 'w/A1', '--worktree', '--repo', repo);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.out, `A1: builder started\nworktree: ${worktree()}\nRemade the leftover worktree ${worktree()} from main: it held no commits or changes.\n`);
+  assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(repo, 'rev-parse', 'main'));
+  assert.equal(fs.existsSync(path.join(worktree(), 'node_modules')), false);
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo });
 });
 
 test("builder start stores the installed link for the kickflip fallback repo, and the hub board builds from its own folder's local main like any local board", async () => {

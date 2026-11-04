@@ -303,7 +303,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
   fs.writeFileSync(manifest, JSON.stringify({ sites: { site: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [
     { id: 'B1', title: 'Tapped' }, { id: 'B2', title: 'Held', held: true, pick_up_at: '2099-01-01T00:00:00.000Z' }, { id: 'B3', title: 'Blocked', deps: ['B4'] }, { id: 'B4', title: 'Dep' },
-    { id: 'B5', title: 'Held and blocked', deps: ['B4'], held: true },
+    { id: 'B5', title: 'Held and blocked', deps: ['B4'], held: true }, { id: 'B6', title: 'Leftover worktree' }, { id: 'B7', title: 'Leftover work' },
   ] }));
   const wave = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -367,6 +367,25 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
       assert.equal(wave().items.find((i) => i.id === id).queued_at, undefined);
     }
     assert.equal(log().slice(before).some((e) => e.kind === 'card-unblocked'), false);
+
+    // A leftover worktree holding no work is remade from the board's fetched main; one holding work still refuses.
+    git(clone, 'fetch', '--quiet', 'origin');
+    const leftover6 = path.join(home, '.claude', 'kickflip', 'worktrees', 'B6');
+    const leftover7 = path.join(home, '.claude', 'kickflip', 'worktrees', 'B7');
+    git(clone, 'worktree', 'add', '--quiet', '-b', 'B6', leftover6, 'origin/main');
+    git(clone, 'worktree', 'add', '--quiet', '-b', 'B7', leftover7, 'origin/main');
+    fs.writeFileSync(path.join(leftover7, 'a.txt'), 'changed\n');
+    fs.writeFileSync(path.join(origin, 'b.txt'), 'b\n');
+    git(origin, 'add', '-A');
+    git(origin, 'commit', '--quiet', '-m', 'main moved');
+    assert.equal((await post({ kind: 'card-build', key: 't/B6' })).status, 200);
+    const remade = await card('B6');
+    assert.deepEqual([remade.lane, remade.status, remade.refusal], ['progress', 'building', null]);
+    assert.equal(git(leftover6, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'HEAD'));
+    assert.deepEqual(thread('B6').map((m) => [m.who, m.text]), [['claude', `Remade the leftover worktree ${leftover6} from main: it held no commits or changes.`]]);
+    assert.equal((await post({ kind: 'card-build', key: 't/B7' })).status, 200);
+    const kept = await card('B7');
+    assert.deepEqual([kept.lane, kept.status, kept.refusal], ['todo', null, `Couldn't start implementing: --worktree: ${leftover7} holds 1 changed file; land or remove it first`]);
   } finally {
     fs.rmSync(manifest);
     fs.rmSync(path.join(site, 'data', 'agents'), { recursive: true, force: true });

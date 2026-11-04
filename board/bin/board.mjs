@@ -539,7 +539,7 @@ const COMMANDS = {
   'settings set': [['name', 'value'], [], (site, [name, value]) => store.setBoardSetting(site, name, value)],
   'builder start': [['wave/id'], ['label', 'phase', 'progress', 'dir', 'agent', 'kind', 'model', 'eta', 'worktree', 'repo', 'dispatch'], (site, [key], { worktree, repo, ...f }) => {
     if (repo !== undefined && !worktree) throw new UsageError('--repo goes with --worktree');
-    return store.startBuilder(site, key, { ...f, worktree: worktree && (() => boardWorktree(site, key.split('/')[1], { repo })) });
+    return store.startBuilder(site, key, { ...f, worktree: worktree && ((opts) => boardWorktree(site, key.split('/')[1], { repo, ...opts })) });
   }],
   'builder progress': [['wave/id', '...text?'], ['phase', 'text', 'dir', 'agent', 'eta', 'clear-eta'], (site, [key, ...words], f) => {
     if (words.length && f.text !== undefined) throw new UsageError('builder progress takes its text once: as words or as --text');
