@@ -533,7 +533,7 @@ async function board() {
 // the resolved questions (GET /api/questions answers a topic's), and its version, a tag of everything in it but
 // generatedAt, which GET /api/board also sends as its ETag.
 async function pageBoard(req) {
-  const b = { ...(await board()), onHost: fromHost(req) };
+  const b = { ...(await board()), onHost: await fromHost(req) };
   b.owner = b.owner.filter((q) => q.state !== 'resolved');
   const { generatedAt: _, ...content } = b;
   return { ...b, version: crypto.createHash('sha1').update(JSON.stringify(content)).digest('base64url').slice(0, 20) };
@@ -874,10 +874,10 @@ const server = http.createServer(async (req, res) => {
       if (!self) return json(res, 404, { error: 'This board isn’t in the hub’s manifest.' });
       const folder = boardRepo(self.route).repo;
       const body = req.method === 'POST' ? await readBody(req) : null;
-      if (body && !fromHost(req)) return json(res, 403, { error: 'Only the host can change these. Change on the host.' });
+      if (body && !(await fromHost(req))) return json(res, 403, { error: 'Only the host can change these. Change on the host.' });
       try {
         if (body) await setPermission(folder, here, body.id, body.on);
-        return json(res, 200, await permissionsView(folder, here, fromHost(req)));
+        return json(res, 200, await permissionsView(folder, here, await fromHost(req)));
       } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
     }
     if (p === '/api/try/main/log' && req.method === 'GET') {
