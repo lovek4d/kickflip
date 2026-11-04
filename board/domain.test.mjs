@@ -1234,7 +1234,7 @@ test("each open lineup is a wave band with its cards in order, its next unstarte
   const idle = build([]);
   const keys = (...ids) => ids.map((id) => `hub/${id}`);
   assert.deepEqual(idle.waveBands[0], { kind: 'lineup', slug: 'mon', title: 'Monitor', goal: 'The monitor runs in kickflip.', merged: 1, total: 4,
-    keys: keys('INT-1', 'INT-2', 'INT-3', 'INT-4'), next: { key: 'hub/INT-3', ref: 'INT-3', ready: false, word: 'waits on INT-2' }, triage: { running: false, questions: 0 } });
+    keys: keys('INT-1', 'INT-2', 'INT-3', 'INT-4'), phases: keys('INT-1', 'INT-2', 'INT-3', 'INT-4').map((k) => [k]), next: { key: 'hub/INT-3', ref: 'INT-3', ready: false, word: 'waits on INT-2' }, triage: { running: false, questions: 0 } });
   assert.deepEqual(idle.waveBands.map((b) => [b.slug, b.next]), [
     ['mon', { key: 'hub/INT-3', ref: 'INT-3', ready: false, word: 'waits on INT-2' }],
     ['go', { key: 'hub/INT-8', ref: 'INT-8', ready: true, word: 'ready' }],
@@ -1251,7 +1251,7 @@ test("each open lineup is a wave band with its cards in order, its next unstarte
 
   const idleRow = { running: false, questions: 0 };
   const files = build([], {}, true).waveBands.filter((b) => b.kind === 'wave');
-  assert.deepEqual(files.map((b) => [b.slug, b.goal, b.next, b.triage, `${b.merged}/${b.total}`]), [['hub', null, null, idleRow, '2/10'], ['other', null, null, idleRow, '0/1']]);
+  assert.deepEqual(files.map((b) => [b.slug, b.goal, b.next, b.phases, b.triage, `${b.merged}/${b.total}`]), [['hub', null, null, null, idleRow, '2/10'], ['other', null, null, null, idleRow, '0/1']]);
   assert.deepEqual(files[1].keys, ['other/X1']);
   const waveTriage = (id, ts, reply = null) => ({ id, ts, kind: 'wave-triage', data: { wave: 'other' }, reply });
   const triaged = (events, owner) => Object.fromEntries(build(events, owner, true).waveBands.map((r) => [`${r.kind}:${r.slug}`, r.triage]));
@@ -1269,7 +1269,7 @@ test("a wave's card moves up or down among its unstarted cards, past any started
   ];
   const built = buildBoard({ now: Date.parse('2026-11-02T12:00:00Z'), events: [], owner: {},
     waves: [{ slug: 'w', wave: { internal: true, items, lineups: [{ slug: 'mon', title: 'Monitor', goal: 'G', items: ['A1', 'A2', 'A3', 'A4', 'A5'] }] } }] });
-  const order = (key, by) => lineupMoved(built, 'mon', key, by)?.map((k) => k.slice(2)).join(' ');
+  const order = (key, by) => lineupMoved(built, 'mon', key, by)?.flat().map((k) => k.slice(2)).join(' ');
   assert.equal(order('w/A2', 1), 'A1 A4 A3 A2 A5');
   assert.equal(order('w/A4', -1), 'A1 A4 A3 A2 A5');
   assert.equal(order('w/A4', 1), 'A1 A2 A3 A5 A4');
@@ -1278,6 +1278,28 @@ test("a wave's card moves up or down among its unstarted cards, past any started
   assert.equal(order('w/A3', -1), undefined);
   assert.equal(order('w/A1', 1), undefined);
   assert.equal(lineupMoved(built, 'nope', 'w/A2', 1), null);
+});
+
+// docs/adr/2026-11-04-0238-a-wave-builds-in-phases.md
+test("a phased wave's band gives its phases, Implement goes to its first ready card, so a phase with several ready cards offers the next once one starts, and a move swaps two unstarted cards' places, each taking the other's phase", () => {
+  const items = [
+    { id: 'P1', title: 'One', status: 'done' }, { id: 'P2', title: 'Two', state: 'ready', deps: ['P1'] }, { id: 'P3', title: 'Three', state: 'ready', deps: ['P1'] },
+    { id: 'P4', title: 'Four', state: 'ready', deps: ['P2', 'P3'] },
+  ];
+  const lineups = [{ slug: 'ph', title: 'Phased', goal: 'G', phases: [['P1'], ['P2', 'P3'], ['P4']] }];
+  const build = (over = {}) => buildBoard({ now: Date.parse('2026-11-04T12:00:00Z'), events: [], owner: {},
+    waves: [{ slug: 'w', wave: { internal: true, items: items.map((it) => ({ ...it, ...over[it.id] })), lineups } }] });
+  const idle = build();
+  const [band] = idle.waveBands;
+  assert.deepEqual([band.keys, band.phases], [['w/P1', 'w/P2', 'w/P3', 'w/P4'], [['w/P1'], ['w/P2', 'w/P3'], ['w/P4']]]);
+  assert.deepEqual(band.next, { key: 'w/P2', ref: 'P2', ready: true, word: 'ready' });
+  assert.deepEqual(build({ P2: { status: 'building' } }).waveBands[0].next, { key: 'w/P3', ref: 'P3', ready: true, word: 'ready' });
+  assert.deepEqual(build({ P2: { status: 'building' }, P3: { status: 'building' } }).waveBands[0].next, { key: 'w/P4', ref: 'P4', ready: false, word: 'waits on P2, P3' });
+
+  const moved = (key, by) => lineupMoved(idle, 'ph', key, by)?.map((p) => p.map((k) => k.slice(2)).join(',')).join(' → ');
+  assert.equal(moved('w/P3', 1), 'P1 → P2,P4 → P3');
+  assert.equal(moved('w/P3', -1), 'P1 → P3,P2 → P4');
+  assert.equal(moved('w/P2', -1), undefined);
 });
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md

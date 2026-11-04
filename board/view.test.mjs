@@ -3864,7 +3864,7 @@ test('legacy hub links open one modal, guard dirty rules on every dismissal, res
 test("In Progress lists its Queued cards in one Queued section below its other cards, in the server's order, each with its bump icon; a wave band names a queued card queued", async () => {
   const queued = (id, extra) => workCard(id, { lane: 'progress', queued: true, bumpable: true, ...extra });
   const cards = [workCard('P1', { lane: 'progress', bumpable: true }), queued('Q2', { bumpedAt: '2026-11-04T10:00:00.000Z' }), queued('Q1'), workCard('T1')];
-  const band = { kind: 'wave', slug: 'w', title: 'W', goal: null, keys: ['w/Q1', 'w/T1'], next: null, merged: 0, total: 2, triage: { running: false, questions: 0 } };
+  const band = { kind: 'wave', slug: 'w', title: 'W', goal: null, keys: ['w/Q1', 'w/T1'], phases: null, next: null, merged: 0, total: 2, triage: { running: false, questions: 0 } };
   const b = boardOnDom({ board: { ...boardOf(cards), waveBands: [band] }, threads: {} });
   await b.settle();
   const list = b.root.querySelector('details.lane[data-lane="progress"] > .list');
@@ -3881,16 +3881,33 @@ test("In Progress lists its Queued cards in one Queued section below its other c
   assert.equal(none.root.querySelector('.lane-queue'), null);
 });
 
+// docs/adr/2026-11-04-0238-a-wave-builds-in-phases.md
+test("a phased wave's band numbers each card by its phase, so one phase's cards share a step, and its Implement starts the phase's first ready card", async () => {
+  const keys = ['w/P1', 'w/P2', 'w/P3', 'w/P4'];
+  const band = (next) => ({ kind: 'lineup', slug: 'ph', title: 'Phased', goal: 'G', keys, phases: [['w/P1'], ['w/P2', 'w/P3'], ['w/P4']], next, merged: 1, total: 4, triage: { running: false, questions: 0 } });
+  const cards = (p2 = {}) => [workCard('P1', { lane: 'done' }), workCard('P2', { ready: true, buildable: true, ...p2 }), workCard('P3', { ready: true, buildable: true }), workCard('P4', { blockedBy: [{ key: 'w/P2', ref: 'P2' }, { key: 'w/P3', ref: 'P3' }] })];
+  const b = boardOnDom({ board: { ...boardOf(cards()), waveBands: [band({ key: 'w/P2', ref: 'P2', ready: true, word: 'ready' })] }, threads: {}, confirm: true });
+  await b.settle();
+  const head = () => b.root.querySelector('.wb[data-band="ph"] > .wb-head');
+  const steps = () => b.root.querySelectorAll('.wb[data-band="ph"] details.item').map((el) => [el.dataset.key, el.querySelector('.wn').textContent]);
+  assert.deepEqual(steps(), [['w/P2', '2'], ['w/P3', '2'], ['w/P4', '3']]);
+  assert.equal(head().querySelector('button[data-confirm="card-build"]').dataset.key, 'w/P2');
+  await b.change({ board: { ...boardOf(cards({ lane: 'progress' })), waveBands: [band({ key: 'w/P3', ref: 'P3', ready: true, word: 'ready' })] } });
+  assert.deepEqual(steps(), [['w/P3', '2'], ['w/P4', '3']]);
+  assert.equal(head().querySelector('button[data-confirm="card-build"]').dataset.key, 'w/P3');
+  assert.equal(head().querySelector('.wb-label').textContent, 'Phased 2 · 1 of 4 merged · P2 in progress');
+});
+
 // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
 test("each wave is a band in Todo above its loose cards: only the first with a ready next card starts open, its goal on its name, Implement or what the next card waits on, Notes and Triage in its head, its Todo cards in order with step numbers and its done ones one line", async () => {
   const idle = { running: false, questions: 0 };
-  const band = (slug, title, keys, next, extra = {}) => ({ kind: 'lineup', slug, title, goal: `${title} goal.`, keys: keys.map((id) => `w/${id}`), next, merged: 1, total: keys.length, triage: idle, ...extra });
+  const band = (slug, title, keys, next, extra = {}) => ({ kind: 'lineup', slug, title, goal: `${title} goal.`, keys: keys.map((id) => `w/${id}`), phases: keys.map((id) => [`w/${id}`]), next, merged: 1, total: keys.length, triage: idle, ...extra });
   const cards = [workCard('A3'), workCard('A2', { blockedBy: [{ key: 'w/A9', ref: 'A9' }] }), workCard('A5'), workCard('A6', { ready: true, buildable: true }), workCard('A7'), workCard('A4'),
     workCard('A8', { lane: 'progress' }), workCard('A1', { lane: 'done' })];
   const bands = (mon = idle, pilot = idle) => [
     band('mon', 'Monitor', ['A1', 'A2', 'A8', 'A5'], { key: 'w/A2', ref: 'A2', ready: false, word: 'waits on A9' }, { triage: mon }),
     band('go', 'Go', ['A6', 'A7'], { key: 'w/A6', ref: 'A6', ready: true, word: 'ready' }, { merged: 0 }),
-    { kind: 'wave', slug: 'pilot', title: 'Pilot', goal: null, keys: ['w/A4'], next: null, merged: 0, total: 1, triage: pilot },
+    { kind: 'wave', slug: 'pilot', title: 'Pilot', goal: null, keys: ['w/A4'], phases: null, next: null, merged: 0, total: 1, triage: pilot },
   ];
   let moving = null;
   const send = (kind, data, server) => (kind === 'lineup-move' ? new Promise((resolve) => { moving = () => resolve({ id: null, board: structuredClone(server.board) }); }) : { id: 'e1', board: structuredClone(server.board) });
@@ -3955,7 +3972,7 @@ test("each wave is a band in Todo above its loose cards: only the first with a r
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).at(-1), ['lineup-move', { lineup: 'go', key: 'w/A6', by: 1 }]);
   assert.deepEqual(items(), [['↑ Move up', true], ['↓ Move down', true]]);
   assert.deepEqual(b.root.querySelectorAll('.wb-menu button').map((x) => x.getAttribute('aria-busy')), [null, 'true'], 'the tapped move waits with its label kept behind the spinner');
-  b.server.board = { ...b.server.board, waveBands: bands().map((x) => (x.slug === 'go' ? { ...x, keys: ['w/A7', 'w/A6'] } : x)) };
+  b.server.board = { ...b.server.board, waveBands: bands().map((x) => (x.slug === 'go' ? { ...x, keys: ['w/A7', 'w/A6'], phases: [['w/A7'], ['w/A6']] } : x)) };
   moving();
   await b.settle();
   assert.equal(b.root.querySelector('.wb-menu'), null);

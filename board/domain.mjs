@@ -626,7 +626,8 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
 // The wave bands in Todo: each open lineup, the owner's wave (docs/adr/2026-11-02-1202-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md),
 // then on a board over ~/.claude/waves each unfinished wave file. A lineup is open until finished_at or until all its
 // cards are Done. A band's keys are its cards, a lineup's in build order and a wave file's in lane order; next is a
-// lineup's first card still in Todo, ready when Implement can start it now, else word says why not. A band's kind is
+// lineup's first ready Todo card, else its first Todo card with a word for why not, and a lineup's phases are its keys by
+// phase (lineupPhases), for its step numbers; a wave file's are null. A band's kind is
 // lineup or wave (a wave file). Triage runs from the newest wave-triage {<kind>: <slug>} event until that event's
 // reply, and its questions use topic <kind>:<slug>. Each lineup card gets `lineup` {slug, title}, an open lineup's over a
 // finished one's, which arch-review.mjs archOf counts a review's wave by.
@@ -643,16 +644,19 @@ function waveBandsOf(snapshot, waves, lineups, items, questions, events) {
     .sort((a, b) => Number(a.open) - Number(b.open));
   for (const { l, cards } of open) for (const i of cards) i.lineup = { slug: l.slug, title: l.title };
   const bands = open.filter((x) => x.open)
-    .map(({ l, cards }) => ({ kind: 'lineup', slug: l.slug, title: l.title, goal: l.goal, keys: cards.map((i) => i.key), next: nextOf(cards),
+    .map(({ l, cards }) => ({ kind: 'lineup', slug: l.slug, title: l.title, goal: l.goal, keys: cards.map((i) => i.key),
+      phases: l.phases.map((p) => p.filter((k) => byKey.has(k))).filter((p) => p.length), next: nextOf(cards),
       merged: merged(cards), total: cards.length, triage: triageOf('lineup', l.slug) }));
   if (!snapshot.fromWaves) return bands;
   return [...bands, ...waves.filter((w) => !w.finished).map((w) => ({ w, cards: items.filter((i) => i.wave === w.slug && i.kind !== 'ask') }))
-    .filter(({ cards }) => cards.length).map(({ w, cards }) => ({ kind: 'wave', slug: w.slug, title: w.title, goal: null, keys: cards.map((i) => i.key), next: null,
+    .filter(({ cards }) => cards.length).map(({ w, cards }) => ({ kind: 'wave', slug: w.slug, title: w.title, goal: null, keys: cards.map((i) => i.key), phases: null, next: null,
       merged: merged(cards), total: cards.length, triage: triageOf('wave', w.slug) }))];
 }
-// A lineup's next card: its first still in Todo, and the word for whether Implement can start it.
+// A lineup's next card: its first Todo card Implement can start now, so one phase's ready cards are offered in turn, else
+// its first Todo card, with the word for why Implement can't start it.
 function nextOf(cards) {
-  const it = cards.find((i) => i.lane === 'todo');
+  const todo = cards.filter((i) => i.lane === 'todo');
+  const it = todo.find((i) => i.ready && i.buildable) || todo[0];
   if (!it) return null;
   const ready = it.ready && it.buildable;
   const word = ready ? 'ready' : it.held ? 'held' : it.blockedBy.length ? `waits on ${it.blockedBy.map((d) => d.ref).join(', ')}`
@@ -661,9 +665,10 @@ function nextOf(cards) {
 }
 
 // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
-// Lineup slug's order once its card key moves by one place (-1 up, 1 down) among the lineup's cards still in Todo,
-// which keep the places they hold; started and done cards stay where they are. → the keys in their new order, or null
-// when the lineup isn't open or the card is not in Todo or already at that end.
+// Lineup slug's phases once its card key moves by one place (-1 up, 1 down) among the lineup's cards still in Todo,
+// which keep the places they hold: the card swaps places with its neighbour, each taking the other's phase, and every
+// phase keeps its size; started and done cards stay where they are. → the keys by phase, or null when the lineup isn't
+// open or the card is not in Todo or already at that end.
 export function lineupMoved(built, slug, key, by) {
   const band = built.waveBands.find((b) => b.kind === 'lineup' && b.slug === slug);
   if (!band) return null;
@@ -674,8 +679,15 @@ export function lineupMoved(built, slug, key, by) {
   if (from < 0 || to < 0 || to >= movable.length) return null;
   [movable[from], movable[to]] = [movable[to], movable[from]];
   let at = 0;
-  return band.keys.map((k) => (lanes.get(k) === 'todo' ? movable[at++] : k));
+  const order = band.keys.map((k) => (lanes.get(k) === 'todo' ? movable[at++] : k));
+  at = 0;
+  return band.phases.map((p) => order.slice(at, (at += p.length)));
 }
+
+// docs/adr/2026-11-04-0238-a-wave-builds-in-phases.md
+// A lineup's cards by phase, [[id, …], …] in build order: each card is blocked by every card of the phase before, and
+// one phase's cards build side by side. A lineup made before phases has items [id, …] instead, one card per phase.
+export const lineupPhases = (lineup) => lineup.phases || lineup.items.map((id) => [id]);
 
 // snapshot: {waves: [{slug, wave, agents: {<id>: {<agent>: record}}}], fromWaves,
 //   prs: {"<repo>#<n>": pr}, threads: {<key>: [line]}, events: [event with reply, hidden ones left out],
@@ -801,7 +813,10 @@ export function buildBoard(snapshot) {
   }
   for (const i of items) i.lineup = null;
   const declared = new Set((owner.topics || []).map((t) => t.id));
-  const lineups = snapshot.waves.flatMap(({ slug, wave }) => (wave.lineups || []).map((l) => ({ ...l, keys: l.items.map((id) => `${slug}/${id}`) })));
+  const lineups = snapshot.waves.flatMap(({ slug, wave }) => (wave.lineups || []).map((l) => {
+    const phases = lineupPhases(l).map((p) => p.map((id) => `${slug}/${id}`));
+    return { ...l, phases, keys: phases.flat() };
+  }));
   const topicsOf = () => ownerTopics([...(owner.topics || []), ...items.filter((it) => !declared.has(`item:${it.key}`))
     .map((it) => ({ id: `item:${it.key}`, title: `${it.ref}: ${it.title}`, ...(it.kind === 'ask' ? { askedAt: it.ask.askedAt } : {}), summary: 'Questions about this work item.' })),
   ...lineups.filter((l) => !declared.has(`lineup:${l.slug}`)).map((l) => ({ id: `lineup:${l.slug}`, title: l.title, summary: 'Wave triage.' })),

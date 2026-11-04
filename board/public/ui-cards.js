@@ -252,7 +252,7 @@
   const cardActions = (it, top) => (it.isNew ? askActions(it, top) : it.ownerStep ? `<div class="ask-actions">${ownerDoneButton(it)}</div>`
     : it.bumpable ? `<div class="ask-actions">${cardBumpButton(it.key, Boolean(it.bumpedAt))}</div>` : '');
   const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' && workingLine].filter(Boolean).join(' · ');
-  // In a wave band (app-lanes.js), step is the card's place in its wave, shown inside its id chip, and actions replace
+  // In a wave band (app-lanes.js), step is the number of the card's phase in its wave, shown inside its id chip, and actions replace
   // its bump with the band's ⋯ menu.
   function workLines(it, { unread = 0, top = false, step = 0, actions = null } = {}) {
     const ticket = it.ticket ? ticketChip(it) : it.ticketSource === 'linear' ? linearChips(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);

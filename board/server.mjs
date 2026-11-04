@@ -21,7 +21,7 @@
 // agents/<id>.json (or agents/<id>@<agent>.json for each further agent) beside the wave file. An item's parent is the key of the card it was spun out of, which makes it a follow-up, and
 // its related the keys of cards it is Related to; a wave's older followups list moves into its items as the server
 // starts (store.mjs migrateFollowups). A wave's lineups [{slug, title, goal,
-// items, finished_at?}] are the owner's waves over its cards (store.mjs createLineup). domain.mjs
+// phases: [[id]] (or a chain's items: [id]), finished_at?}] are the owner's waves over its cards (store.mjs createLineup). domain.mjs
 // decides lanes and card state from what this server reads.
 //   GET  /, /settings.html, /questions.html, /notes.html
 //                                the app shell, public/app.html, whose views these pages are (../hub/shell.mjs shellHtml;
@@ -822,9 +822,9 @@ const server = http.createServer(async (req, res) => {
       // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
       if (kind === 'lineup-move') {
         const slug = String(body.lineup || '');
-        const order = lineupMoved(buildBoard(await snapshot({ github: false })), slug, String(body.key || ''), body.by === -1 ? -1 : body.by === 1 ? 1 : 0);
-        if (!order) return json(res, 400, { error: `That card can't move that way in the wave "${slug}".` });
-        try { await changeLineup(here, slug, { order: order.join(',') }); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
+        const phases = lineupMoved(buildBoard(await snapshot({ github: false })), slug, String(body.key || ''), body.by === -1 ? -1 : body.by === 1 ? 1 : 0);
+        if (!phases) return json(res, 400, { error: `That card can't move that way in the wave "${slug}".` });
+        try { await changeLineup(here, slug, { phases: phases.map((p) => p.join(',')) }); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
         return json(res, 200, { id: null, board: await pageBoard(req) });
       }
       if (kind === 'owner-answer') return json(res, 200, { id: (await recordAnswers([body]))[0], board: await pageBoard(req) });

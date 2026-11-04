@@ -1144,7 +1144,7 @@ test("a lineup-move tap reorders the wave's unstarted cards, chains them again a
     assert.equal(id, null);
     assert.deepEqual(board.waveBands[0].keys, ['t/M1', 't/M3', 't/M2']);
     const wave = JSON.parse(fs.readFileSync(waveFile, 'utf8'));
-    assert.deepEqual([wave.lineups[0].items, wave.items.map((it) => it.deps || [])], [['M1', 'M3', 'M2'], [[], ['M3'], ['M1']]]);
+    assert.deepEqual([wave.lineups[0].phases, wave.items.map((it) => it.deps || [])], [[['M1'], ['M3'], ['M2']], [[], ['M3'], ['M1']]]);
     const refused = await move('t/M1', -1);
     assert.equal(refused.status, 400);
     assert.match((await refused.json()).error, /can't move/);

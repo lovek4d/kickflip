@@ -54,7 +54,7 @@ test('Run makes a wave whose first card is the audit, wakes the session, and whi
   assert.equal(first.body.key, 'app/INT-1');
   const wave = readJSON(path.join(b.site, 'data', 'wave.json'));
   assert.deepEqual(wave.items.at(-1).title, 'Architecture review of app-repo');
-  assert.deepEqual(wave.lineups.map((l) => [l.slug, l.title, l.items]), [[`arch-${stamp}`, title, ['INT-1']]]);
+  assert.deepEqual(wave.lineups.map((l) => [l.slug, l.title, l.phases]), [[`arch-${stamp}`, title, [['INT-1']]]]);
   assert.match(fs.readFileSync(path.join(b.site, 'data', 'threads', 'app__INT-1.jsonl'), 'utf8'), /Started an architecture review of app-repo\. Its report becomes this card's Notes/);
   const [event] = b.events();
   assert.equal(event.id, first.body.id);
@@ -75,7 +75,7 @@ test('Run makes a wave whose first card is the audit, wakes the session, and whi
   const done = readJSON(path.join(b.site, 'data', 'wave.json'));
   done.items.find((it) => it.id === 'INT-1').status = 'done';
   done.items.push({ id: 'INT-9', title: 'Split the store', status: 'done' }, { id: 'INT-10', title: 'Merge the readers', status: 'dropped' });
-  done.lineups[0].items.push('INT-9', 'INT-10');
+  done.lineups[0].phases.push(['INT-9'], ['INT-10']);
   fs.writeFileSync(path.join(b.site, 'data', 'wave.json'), JSON.stringify(done));
   ({ last } = await b.arch());
   assert.deepEqual([last.open, last.running, last.findings, last.built], [false, false, 2, 1]);
@@ -108,11 +108,11 @@ test('arch file files each answered finding as a card in the review, resolves sk
   assert.deepEqual(file(), ['findings of INT-1 filed', 'filed: INT-2 from f1', 'skipped: f2', 'waiting: f3']);
   const filed = wave().items.find((it) => it.id === 'INT-2');
   assert.deepEqual([filed.title, filed.notes, filed.deps], ['Split the store', "Move the readers out.\n\n- Readers own their files.\n\nOwner's note: Keep the API.\n\nFrom the finding: Split the store?", ['INT-1']]);
-  assert.deepEqual(wave().lineups[0].items, ['INT-1', 'INT-2']);
+  assert.deepEqual(wave().lineups[0].phases, [['INT-1'], ['INT-2']]);
   assert.deepEqual(resolved(), { f1: 'Filed as INT-2.', f2: 'Skipped.', f3: undefined });
   answer('f3', 'A');
   assert.deepEqual(file().slice(0, 2), ['findings of INT-1 filed', 'filed: INT-3 from f3']);
-  assert.deepEqual(wave().lineups[0].items, ['INT-1', 'INT-2', 'INT-3']);
+  assert.deepEqual(wave().lineups[0].phases, [['INT-1'], ['INT-2'], ['INT-3']]);
   const audit = wave().items.find((it) => it.id === 'INT-1');
   assert.equal(audit.status, 'done');
   assert.equal(JSON.parse(fs.readFileSync(path.join(b.site, 'data', 'threads', 'app__INT-1.jsonl'), 'utf8').trim().split('\n').at(-1)).text, 'Every finding is settled: filed INT-2, INT-3.');

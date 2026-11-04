@@ -3129,38 +3129,56 @@ test('review digest waits without changing the record while Slack is not ready',
   assert.deepEqual(read(file), record);
 });
 
-test('lineup create chains its cards in build order and writes the wave note; add, remove, set and finish keep the order and set --order rewrites it; a wave topic takes triage questions, as a wave file\'s does on a board over ~/.claude/waves', () => {
+// docs/adr/2026-11-04-0238-a-wave-builds-in-phases.md
+test('lineup create links each phase\'s cards to every card of the phase before and writes the wave note; add, remove, set and finish keep the phases and set --phase rewrites them; a wave topic takes triage questions, as a wave file\'s does on a board over ~/.claude/waves', () => {
   const file = site('audit', 'data', 'wave.json');
-  write(file, { title: 'W', items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two', deps: ['A9'] }, { id: 'A3', title: 'Three' }, { id: 'A4', title: 'Four' }, { id: 'A9', title: 'Elsewhere' }] });
+  write(file, { title: 'W', items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two', deps: ['A9'] }, { id: 'A3', title: 'Three' }, { id: 'A4', title: 'Four' }, { id: 'A5', title: 'Five' }, { id: 'A9', title: 'Elsewhere' }] });
   const b = (...args) => board('--site', 'audit', 'lineup', ...args);
   const deps = () => Object.fromEntries(read(file).items.map((it) => [it.id, it.deps || []]));
-  const made = b('create', 'mon', '--title', 'Monitor', '--goal', 'The monitor runs in kickflip.', '--cards', 'audit/A1,audit/A2,audit/A3', '--note', 'Why: one PR each.');
+  const made = b('create', 'mon', '--title', 'Monitor', '--goal', 'The monitor runs in kickflip.', '--phase', 'audit/A1,audit/A2', '--phase', 'audit/A3', '--note', 'Why: one PR each.');
   assert.equal(made.code, 0, made.err);
-  assert.match(made.out, /order: A1 → A2 → A3/);
-  assert.deepEqual(deps(), { A1: [], A2: ['A9', 'A1'], A3: ['A2'], A4: [], A9: [] });
-  assert.deepEqual(read(file).lineups.map(({ created, ...l }) => l), [{ slug: 'mon', title: 'Monitor', goal: 'The monitor runs in kickflip.', items: ['A1', 'A2', 'A3'] }]);
+  assert.match(made.out, /order: A1, A2 → A3/);
+  assert.deepEqual(deps(), { A1: [], A2: ['A9'], A3: ['A1', 'A2'], A4: [], A5: [], A9: [] });
+  assert.deepEqual(read(file).lineups.map(({ created, ...l }) => l), [{ slug: 'mon', title: 'Monitor', goal: 'The monitor runs in kickflip.', phases: [['A1', 'A2'], ['A3']] }]);
   assert.equal(fs.readFileSync(site('audit', 'data', 'lineup-mon.md'), 'utf8'), 'Why: one PR each.\n');
 
-  assert.match(b('create', 'mon', '--title', 'Again', '--goal', 'G', '--cards', 'audit/A4', '--note', 'N').err, /already has a wave "mon"/);
-  assert.match(b('create', 'audit', '--title', 'File', '--goal', 'G', '--cards', 'audit/A4', '--note', 'N').err, /is a wave file/);
-  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--cards', 'audit/A3,audit/A4', '--note', 'N').err, /already in the wave "mon"/);
-  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--cards', 'audit/A4').err, /needs the wave note/);
+  assert.match(b('create', 'mon', '--title', 'Again', '--goal', 'G', '--phase', 'audit/A4', '--note', 'N').err, /already has a wave "mon"/);
+  assert.match(b('create', 'audit', '--title', 'File', '--goal', 'G', '--phase', 'audit/A4', '--note', 'N').err, /is a wave file/);
+  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--phase', 'audit/A3,audit/A4', '--note', 'N').err, /already in the wave "mon"/);
+  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--phase', 'audit/A4').err, /needs the wave note/);
+  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--note', 'N').err, /--phase takes/);
+  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--phase', 'audit/A4', '--phase', 'audit/A4', '--note', 'N').err, /names a card twice/);
 
-  assert.equal(b('add', 'mon', 'audit/A4', '--after', 'audit/A1').code, 0);
-  assert.deepEqual(deps(), { A1: [], A2: ['A9', 'A4'], A3: ['A2'], A4: ['A1'], A9: [] });
-  assert.equal(b('remove', 'mon', 'audit/A2').code, 0);
-  assert.deepEqual(deps(), { A1: [], A2: ['A9'], A3: ['A4'], A4: ['A1'], A9: [] });
+  assert.equal(b('add', 'mon', 'audit/A4', '--after', 'audit/A2').code, 0);
+  assert.deepEqual(read(file).lineups[0].phases, [['A1', 'A2'], ['A4'], ['A3']]);
+  assert.deepEqual(deps(), { A1: [], A2: ['A9'], A3: ['A4'], A4: ['A1', 'A2'], A5: [], A9: [] });
+  assert.equal(b('remove', 'mon', 'audit/A4').code, 0);
+  assert.deepEqual(read(file).lineups[0].phases, [['A1', 'A2'], ['A3']]);
+  assert.deepEqual(deps(), { A1: [], A2: ['A9'], A3: ['A1', 'A2'], A4: [], A5: [], A9: [] });
+  assert.equal(b('remove', 'mon', 'audit/A1').code, 0);
+  assert.deepEqual(deps(), { A1: [], A2: ['A9'], A3: ['A2'], A4: [], A5: [], A9: [] });
+  assert.equal(b('add', 'mon', 'audit/A4').code, 0);
   assert.equal(b('set', 'mon', '--title', 'Monitor in kickflip', '--note', 'Why: smaller.').code, 0);
-  assert.deepEqual(read(file).lineups[0].items, ['A1', 'A4', 'A3']);
+  assert.deepEqual(read(file).lineups[0].phases, [['A2'], ['A3'], ['A4']]);
   assert.equal(read(file).lineups[0].title, 'Monitor in kickflip');
   assert.equal(fs.readFileSync(site('audit', 'data', 'lineup-mon.md'), 'utf8'), 'Why: smaller.\n');
-  const ordered = b('set', 'mon', '--order', 'audit/A3,audit/A1,audit/A4');
-  assert.equal(ordered.code, 0, ordered.err);
-  assert.match(ordered.out, /order: A3 → A1 → A4/);
-  assert.deepEqual(read(file).lineups[0].items, ['A3', 'A1', 'A4']);
-  assert.deepEqual(deps(), { A1: ['A3'], A2: ['A9'], A3: [], A4: ['A1'], A9: [] });
-  assert.match(b('set', 'mon', '--order', 'audit/A3,audit/A1').err, /--order lists each of the wave's cards once/);
-  assert.match(b('set', 'mon', '--order', 'audit/A3,audit/A1,audit/A2').err, /--order lists each of the wave's cards once/);
+  const phased = b('set', 'mon', '--phase', 'audit/A3', '--phase', 'audit/A2,audit/A4');
+  assert.equal(phased.code, 0, phased.err);
+  assert.match(phased.out, /order: A3 → A2, A4/);
+  assert.deepEqual(read(file).lineups[0].phases, [['A3'], ['A2', 'A4']]);
+  assert.deepEqual(deps(), { A1: [], A2: ['A9', 'A3'], A3: [], A4: ['A3'], A5: [], A9: [] });
+  assert.match(b('set', 'mon', '--phase', 'audit/A3,audit/A2').err, /--phase lists each of the wave's cards once/);
+  assert.match(b('set', 'mon', '--phase', 'audit/A3', '--phase', 'audit/A2,audit/A4,audit/A2').err, /--phase lists each of the wave's cards once/);
+  assert.match(b('set', 'mon', '--phase', 'audit/A3', '--phase', ',').err, /--phase takes/);
+
+  // A wave made before phases keeps its chain; its first change writes it as one card per phase.
+  const legacy = read(file);
+  legacy.lineups.push({ slug: 'old', title: 'Old', goal: 'G', items: ['A5', 'A1'], created: '2026-11-01T00:00:00Z' });
+  write(file, legacy);
+  assert.equal(b('set', 'old', '--goal', 'Still a chain.').code, 0);
+  assert.deepEqual(read(file).lineups[1].phases, [['A5'], ['A1']]);
+  assert.equal(read(file).lineups[1].items, undefined);
+  assert.deepEqual(deps().A1, ['A5']);
 
   const q = path.join(home, 'q.json');
   write(q, question('t1', { topic: 'lineup:mon' }));

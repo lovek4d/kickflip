@@ -136,7 +136,7 @@ BoardView.part((B) => {
       + `<span class="wb-end"><span class="wb-links">${notes}${triageLink(band)}</span>${go}</span>${pop}</div>`;
     if (!open) return `<section class="wb" data-band="${esc(band.slug)}">${head}</section>`;
     const doneRow = done.length ? `<div class="wb-done">${done.length} done · ${done.map((i) => `<a class="card-link" href="#item=${encodeURIComponent(i.key)}">${esc(i.ref)}</a>`).join(', ')}</div>` : '';
-    const step = (it) => (band.kind === 'lineup' ? band.keys.indexOf(it.key) + 1 : 0);
+    const step = (it) => (band.kind === 'lineup' ? band.phases.findIndex((p) => p.includes(it.key)) + 1 : 0);
     const actions = (it, at) => (band.kind !== 'lineup' ? null : cardMenu(band.slug, it.key, at, todo.length));
     return `<section class="wb" data-band="${esc(band.slug)}" data-open>${head}<div class="wb-body">${doneRow}${todo.map((it, at) => B.card(it, { step: step(it), actions: actions(it, at) })).join('')}</div></section>`;
   }

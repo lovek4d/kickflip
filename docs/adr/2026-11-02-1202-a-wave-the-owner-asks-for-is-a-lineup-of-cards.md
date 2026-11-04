@@ -1,4 +1,10 @@
+---
+status: superseded in part by 2026-11-04-0238-a-wave-builds-in-phases
+---
+
 # A wave the owner asks for is a lineup of cards
+
+Superseded in part by [a wave builds in phases, and cards in one phase build side by side](2026-11-04-0238-a-wave-builds-in-phases.md): a lineup is a list of phases, and each card is blocked by every card of the phase before, not by the one before it. `lineup create` and `lineup set` take `--phase` per phase.
 
 The owner settled the wave planner on hub/INT-236. A wave starts only when the owner asks for one with the +, or when Claude spots a grouping in Todo and proposes it as a board question. Planning sets their blocked-by links in build order and writes a short note: goal, order and why. Each card stays one PR and starts on its own as it unblocks, with no approval step. A Waves section above In Review, drawn as a lane, holds one row per wave: its name, "N of M merged", its Goal and Order lines, and "Notes ↗ · Triage". Tapping a row shows only that wave's cards, and replaces the wave bars over the lanes.
 

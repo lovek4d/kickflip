@@ -9,4 +9,4 @@ The owner, on #156, settled on take C of `prototypes/wave-groups-3`: "Waves show
 - **A move waits for the server.** ⋯ Move up / Move down send `lineup-move {lineup, key, by}`. The server reorders the lineup's Todo cards among the places they hold (`domain.mjs` `lineupMoved`), so a started or done card never moves and nothing started becomes blocked, writes it through `store.mjs` `changeLineup`'s `order`, which chains the cards again, and answers with the board. It appends no event: the order is the board's to keep, and nothing in it needs the session. Sessions reorder with `lineup set <slug> --order`.
 - **The goal is not a line.** It is the band name's `title`, and a long-press on touch opens it as a popover; the click that ends the press doesn't fold the band.
 
-#161 (phases) will change how a wave's cards wait on each other; until then each card is blocked by the one before it.
+A lineup's cards wait on each other by phase, its step numbers are its phases' and its Implement goes to its first ready card ([a wave builds in phases, and cards in one phase build side by side](2026-11-04-0238-a-wave-builds-in-phases.md)).

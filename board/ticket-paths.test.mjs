@@ -248,7 +248,6 @@ const KNOWN = {
   'board/store.mjs askNotNew': 'a list of the cards an ask became, read only',
   'board/store.mjs reviewDigest': "a reviewer's list of PRs",
   'board/store.mjs addQuestions': "owner.json's questions",
-  'board/store.mjs changeLineup': "a lineup's card keys",
   'board/domain.mjs buildBoard': 'the board view, read only',
   'bin/doctor.mjs doctorReport': "doctor's report rows",
   'hub/push.mjs deliver': 'the push queue',

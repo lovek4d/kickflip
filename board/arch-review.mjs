@@ -88,7 +88,7 @@ export async function startReview(site, board, { now = new Date(), home = os.hom
 
   if (lineupSlug) {
     await createLineup(site, lineupSlug, {
-      title, goal: `Act on the architecture review of ${name}`, cards: key,
+      title, goal: `Act on the architecture review of ${name}`, phases: [key],
       note: `${await cardName(site, key)} is the audit of ${name}: its Notes are the report, and it asks one question per finding. Each finding you don't skip becomes a card after it, built from the option you pick.`,
     });
   }

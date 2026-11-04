@@ -200,21 +200,26 @@ command fails and changes nothing.
                                                          Then sends the queued pushes, each on its own, unless
                                                          pushes are held (overnight, snoozed, the weekend or off)
   lineup create <slug> --title <t> --goal <t>            a wave, in the owner's words: a named set of cards in
-         --cards <wave>/<id>,… (--note <t> | --file <f>)  build order, all from one wave file. Each card is then
-                                                         blocked by the one before it (its other deps stay), and
-                                                         the note goes to lineup-<slug>.md beside the wave file.
-                                                         Todo shows it as a band of its cards in order, its goal
-                                                         on its name, and Notes opens the goal, the order and
-                                                         the note. Refuses a card already in
-                                                         another open wave. Prints the order by card label
-  lineup add <slug> <wave>/<id> [--after <wave>/<id>]    puts a card in the wave, last unless --after, and chains
-                                                         the order again
+         --phase <wave>/<id>,… [--phase …]               phases, all from one wave file, one --phase per phase
+         (--note <t> | --file <f>)                       in build order. Each card is then blocked by every card
+                                                         of the phase before (its other deps stay), so one
+                                                         phase's cards build side by side, and the note goes to
+                                                         lineup-<slug>.md beside the wave file.
+                                                         Todo shows it as a band of its cards in order, numbered
+                                                         by phase, its goal on its name, and Notes opens the
+                                                         goal, the order and the note. Refuses a card already in
+                                                         another open wave. Prints the order by card label, one
+                                                         phase's cards by commas and the phases by arrows
+  lineup add <slug> <wave>/<id> [--after <wave>/<id>]    puts a card in the wave as a phase of its own, last
+                                                         unless --after's phase, and links the phases again
   lineup remove <slug> <wave>/<id>                       takes a card out: it loses its links to the wave's cards,
-                                                         and the card after it is blocked by the one before
+                                                         its phase goes if it held only that card, and the phases
+                                                         are linked again
   lineup set <slug> [--title <t>] [--goal <t>]           renames the wave, sets its goal, rewrites its note or
-         [--note <t> | --file <f>]                       puts its cards in a new build order (--order, every
-         [--order <wave>/<id>,…]                         card once) and chains them again. A card's ⋯ in its
-                                                         band moves it up or down the same way
+         [--note <t> | --file <f>]                       puts its cards in new phases (--phase per phase, every
+         [--phase <wave>/<id>,… …]                       card once) and links them again. A card's ⋯ in its
+                                                         band swaps it with the Todo card before or after it,
+                                                         each taking the other's phase
   lineup finish <slug>                                   the wave's band leaves Todo; its cards keep their
                                                          links. A wave whose cards are all Done leaves it too
          A band's Triage sends wave-triage {lineup}, or {wave} for a wave file's band; it reads
@@ -452,7 +457,7 @@ command fails and changes nothing.
 
 class UsageError extends Error {}
 const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree', 'dry-run', 'dispatch']);
-const REPEATED = new Set(['take', 'pr']);
+// → {flags: {<name>: [value, …] | true}, rest}; main keeps a list only for a flag its command repeats.
 function parse(argv) {
   const flags = Object.create(null);
   const rest = [];
@@ -460,17 +465,26 @@ function parse(argv) {
     const a = argv[i];
     if (!a.startsWith('--')) { rest.push(a); continue; }
     const name = a.slice(2);
-    if (REPEATED.has(name)) {
-      if (i + 1 >= argv.length) throw new UsageError(`--${name} needs a value`);
-      (flags[name] ||= []).push(argv[++i]);
-      continue;
-    }
-    if (Object.hasOwn(flags, name)) throw new UsageError(`--${name} is given twice`);
-    if (BOOLEAN.has(name)) flags[name] = true;
-    else if (i + 1 < argv.length) flags[name] = argv[++i];
+    if (BOOLEAN.has(name)) {
+      if (Object.hasOwn(flags, name)) throw new UsageError(`--${name} is given twice`);
+      flags[name] = true;
+    } else if (i + 1 < argv.length) (flags[name] ||= []).push(argv[++i]);
     else throw new UsageError(`--${name} needs a value`);
   }
   return { flags, rest };
+}
+
+// A command's flags, each a value, or a list for a flag its allowed list names as ...<name>, which may repeat.
+function flagsOf(name, allowed, flags) {
+  const repeated = new Set(allowed.filter((a) => a.startsWith('...')).map((a) => a.slice(3)));
+  const known = new Set(allowed.map((a) => a.replace(/^\.\.\./, '')));
+  const unknown = Object.keys(flags).filter((k) => !known.has(k));
+  if (unknown.length) throw new UsageError(`${name} does not take ${unknown.map((k) => '--' + k).join(', ')}`);
+  return Object.fromEntries(Object.entries(flags).map(([k, v]) => {
+    if (v === true || repeated.has(k)) return [k, v];
+    if (v.length > 1) throw new UsageError(`--${k} is given twice`);
+    return [k, v[0]];
+  }));
 }
 
 /*
@@ -516,7 +530,7 @@ function noteOf(f) {
   return f.file === undefined ? f.note : readInput(f.file);
 }
 
-// name: [positional args, allowed flags, run(site, args, flags) → message]
+// name: [positional args, allowed flags (...<flag> may repeat, and run gets its values as a list), run(site, args, flags) → message]
 const COMMANDS = {
   pr: [['wave/id'], [], async (site, [key]) => ({ lines: (await store.prReport(site, key)).map((r) => JSON.stringify(r)) })],
   'pr comment': [['pr'], ['body'], (site, [pr], f) => {
@@ -538,10 +552,10 @@ const COMMANDS = {
     return { ...(await store.addQuestions(site, input)), asked: [input].flat() };
   }],
   'question resolve': [['id'], ['note'], (site, [id], f) => store.resolveQuestion(site, id, f.note)],
-  'prototype add': [['topic'], ['title', 'take', 'card'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take })],
+  'prototype add': [['topic'], ['title', '...take', 'card'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take })],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', 'pr', 'pushed', 'gh-since', 'from-ask', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'parent', 'related', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'text'], async (site, [key], f, options) => {
+  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'parent', 'related', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'text'], async (site, [key], f, options) => {
     if (f.status === 'done' && site) await store.checkNotReopened(site, key);
     return store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps, parent: f.parent, related: f.related,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, text: f.text }, options);
@@ -553,10 +567,10 @@ const COMMANDS = {
   'ask unfold': [['eventId'], [], (site, [id]) => store.unfoldAsk(site, id)],
   'ask move': [['eventId'], ['to'], (site, [id], f) => store.moveAsk(site, id, f.to)],
   'tickets backfill': [[], ['dry-run'], (site, _, f, options) => store.backfillTickets(site, { dryRun: f['dry-run'] }, options)],
-  'lineup create': [['slug'], ['title', 'goal', 'cards', 'note', 'file'], (site, [slug], f) => store.createLineup(site, slug, { title: f.title, goal: f.goal, cards: f.cards, note: noteOf(f) })],
+  'lineup create': [['slug'], ['title', 'goal', '...phase', 'note', 'file'], (site, [slug], f) => store.createLineup(site, slug, { title: f.title, goal: f.goal, phases: f.phase, note: noteOf(f) })],
   'lineup add': [['slug', 'wave/id'], ['after'], (site, [slug, key], f) => store.changeLineup(site, slug, { add: key, after: f.after })],
   'lineup remove': [['slug', 'wave/id'], [], (site, [slug, key]) => store.changeLineup(site, slug, { remove: key })],
-  'lineup set': [['slug'], ['title', 'goal', 'note', 'file', 'order'], (site, [slug], f) => store.changeLineup(site, slug, { title: f.title, goal: f.goal, note: noteOf(f), order: f.order })],
+  'lineup set': [['slug'], ['title', 'goal', 'note', 'file', '...phase'], (site, [slug], f) => store.changeLineup(site, slug, { title: f.title, goal: f.goal, note: noteOf(f), phases: f.phase })],
   'lineup finish': [['slug'], [], (site, [slug]) => store.finishLineup(site, slug)],
   slack: [[], [], () => ({ lines: [JSON.stringify(readSlack())] })],
   'slack set': [[], ['self-dm', 'user', 'domain', 'timezone'], async (site, _, f) => {
@@ -736,9 +750,10 @@ export async function main(argv, options = {}) {
     const variadic = params.at(-1)?.startsWith('...');
     const least = params.at(-1)?.endsWith('?') ? params.length - 1 : params.length;
     if (variadic ? args.length < least : args.length !== params.length) throw new UsageError(`${name} takes ${params.map((p) => `<${p.replace(/^\.\.\.|\?$/g, '')}>`).join(' ') || 'no arguments'}`);
-    const { site: route, ...opts } = flags;
-    const unknown = Object.keys(opts).filter((k) => !allowed.includes(k));
-    if (unknown.length) throw new UsageError(`${name} does not take ${unknown.map((k) => '--' + k).join(', ')}`);
+    const { site: routes, ...given } = flags;
+    if (routes?.length > 1) throw new UsageError('--site is given twice');
+    const route = routes?.[0];
+    const opts = flagsOf(name, allowed, given);
     checkInputs(allowed, opts);
     const site = route === undefined ? null : await store.siteDir(route);
     const result = await run(site, args, opts, options);
