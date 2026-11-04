@@ -41,7 +41,7 @@
       ? `${esc(fix.text)} <button type="button" class="link" data-settings-open="${esc(fix.settings)}">${esc(fix.label)}</button>.` : esc(fix.text);
     const rows = integrations.map((it) => row({ icon: tile(it.id, it.ready ? 'var(--color-quiet)' : 'var(--color-notice)'), title: esc(it.name), wrap: true,
       sub: it.ready ? `<span class="st ok">ready</span> · ${esc(it.detail)}`
-        : `<span class="st wait">not ready</span> · ${esc(it.missing)}<span class="links"><span class="rd-fix">${fixHtml(it.fix)}</span><span class="rd-waits">${esc(it.waits)}</span></span>` })).join('');
+        : `<span class="st wait">not ready</span> · ${esc(it.missing)}<span class="links"><span class="rd-fix">${fixHtml(it.fix)}</span>${it.waits ? `<span class="rd-waits">${esc(it.waits)}</span>` : ''}</span>` })).join('');
     return `<h2 class="label" id="integrations">Integrations</h2><div class="group">${rows}</div>
 <p class="note">A feature that needs an integration stays off until it’s ready, and says why.</p>
 `;

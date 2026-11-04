@@ -9,10 +9,11 @@ import { linearStatus } from './linear.mjs';
 import { readSettings, subscriptions } from './push.mjs';
 import { tailscaleState, tailscaleInstallHint } from '../bin/install.mjs';
 
+// The third entry is the sentence a missing integration shows, or null for a row that shows none.
 const INTEGRATIONS = [
   ['github', 'GitHub', 'GitHub polling and PR reports wait on this.'],
   ['codex', 'Codex', 'Codex implementing and reviewing wait on this; Codex share stays Off.'],
-  ['linear', 'Linear', 'Linear moves and picking Linear for a board’s tickets wait on this.'],
+  ['linear', 'Linear', null],
   ['slack', 'Slack', 'Reviewer DMs and digests wait on this.'],
   ['tailscale', 'Tailscale', 'Try builds wait on this.'],
   ['notifications', 'Notifications', 'Pushes wait on this.'],
@@ -93,7 +94,7 @@ export function readinessReader({ home = os.homedir(), env = process.env, now = 
   const rows = async ({ fresh = false } = {}) => readinessRows(Object.fromEntries(await Promise.all(INTEGRATIONS.map(async ([id]) => [id, await check(id, fresh)]))), { now: now() });
   async function waiting(id) {
     const [row] = readinessRows({ [id]: await check(id, false) }, { now: now() });
-    return row.ready ? null : row.waits.replace('this', `${row.name}: ${row.missing.replace(/\.$/, '')}`);
+    return row.ready || !row.waits ? null : row.waits.replace('this', `${row.name}: ${row.missing.replace(/\.$/, '')}`);
   }
   return { rows, waiting };
 }

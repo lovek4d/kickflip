@@ -520,7 +520,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   const integrations = [
     { id: 'github', name: 'GitHub', ready: false, missing: "gh isn't logged in <img>", fix: { command: 'gh auth login <img>' }, waits: 'GitHub polling and PR reports wait on this.' },
     { id: 'codex', name: 'Codex', ready: true, detail: 'Installed and logged in <img>' },
-    { id: 'linear', name: 'Linear', ready: false, missing: 'No Linear key set', fix: { settings: 'linear', label: 'Hub settings › Linear', text: 'Add one in' }, waits: 'Linear moves wait on this.' },
+    { id: 'linear', name: 'Linear', ready: false, missing: 'No Linear key set', fix: { settings: 'linear', label: 'Hub settings › Linear', text: 'Add one in' }, waits: null },
   ];
   const data = hubView({ now, st: status(now, DEFAULTS), poll: poll(now), integrations,
     sidebar: { sites: [{ route: 'alpha', board: true }, { route: 'beta', board: true }], hub: { tone: 'wait', word: 'degraded', detail: '2 of 2 sites up · 1 link failing' }, notifications: {}, total: 0,
@@ -541,6 +541,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   assert.equal(github.querySelector('code').textContent, 'gh auth login <img>');
   assert.equal(github.querySelector('.rd-waits').textContent, integrations[0].waits);
   assert.match(github.querySelector('.icon').getAttribute('style'), /var\(--color-notice\)/);
+  assert.equal(linear.querySelector('.rd-waits'), null);
   assert.equal(codex.querySelector('.st.ok').textContent, 'ready');
   assert.match(codex.textContent, /Installed and logged in <img>/);
   assert.match(codex.querySelector('.icon').getAttribute('style'), /var\(--color-quiet\)/);

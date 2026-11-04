@@ -22,14 +22,15 @@ test('readiness shares fixed row order, ready details, fixes, waits and waiting 
   const reader = readinessReader({ now: () => now, probes: probesOf(off()) });
   const missing = await reader.rows();
   assert.ok(missing.every((r) => !r.ready && r.missing && r.fix));
-  assert.deepEqual(missing.map((r) => r.waits), ['GitHub polling and PR reports wait on this.', 'Codex implementing and reviewing wait on this; Codex share stays Off.', 'Linear moves and picking Linear for a board’s tickets wait on this.', 'Reviewer DMs and digests wait on this.', 'Try builds wait on this.', 'Pushes wait on this.']);
+  assert.deepEqual(missing.map((r) => r.waits), ['GitHub polling and PR reports wait on this.', 'Codex implementing and reviewing wait on this; Codex share stays Off.', null, 'Reviewer DMs and digests wait on this.', 'Try builds wait on this.', 'Pushes wait on this.']);
   assert.equal(missing[0].fix.command, 'gh auth login');
   assert.equal(missing[1].fix.command, 'install codex');
   assert.deepEqual(missing[2].fix, { settings: 'linear', label: 'Hub settings › Linear', text: 'Add one in' });
   assert.equal(missing[5].fix.settings, 'notifications');
   assert.equal(await reader.waiting('slack'), 'Reviewer DMs and digests wait on Slack: No board session has reported yet.');
   assert.equal(await reader.waiting('tailscale'), "Try builds wait on Tailscale: Tailscale isn't installed on the host.");
-  for (const row of missing) assert.match(await reader.waiting(row.id), new RegExp(`wait on ${row.name}:`));
+  for (const row of missing.filter((r) => r.waits)) assert.match(await reader.waiting(row.id), new RegExp(`wait on ${row.name}:`));
+  assert.equal(await reader.waiting('linear'), null);
 });
 
 test('Slack reports yes, no and no report, with the reporting site and age', async () => {
