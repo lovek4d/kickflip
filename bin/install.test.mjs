@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { runInstall, installLinks, installClaudeSettings, uninstallStatusLine, storedPath, WATCHER_STOP } from './install.mjs';
+import { runInstall, installLinks, installClaudeSettings, uninstallStatusLine, storedPath, tailnetUrl, WATCHER_STOP } from './install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { doctorReport, doctorLines, runDoctor } from './doctor.mjs';
@@ -882,4 +882,19 @@ test('Linux doctor requires the current non-root user as Tailscale operator', as
   assert.equal(pick(await doctorReport({ ...options, platform: 'linux', uid: 0 }), 'Tailscale operator'), undefined);
   assert.equal(calls.includes('tailscale debug prefs'), false);
   assert.equal(pick(await doctorReport(options), 'Tailscale operator'), undefined);
+});
+
+test('tailnetUrl gives the hub or a site at this host’s tailnet name, and says why when Tailscale or HTTPS is off', () => {
+  const calls = [];
+  const runner = (status) => (command, argv) => {
+    calls.push([command, ...argv].join(' '));
+    return status === null ? { status: 1, stdout: '', error: 'spawnSync tailscale ENOENT' } : { status: 0, stdout: JSON.stringify(status) };
+  };
+  const on = { BackendState: 'Running', CertDomains: ['mac.tailnet-name.ts.net'], Self: { DNSName: 'mac.tailnet-name.ts.net.' } };
+  assert.equal(tailnetUrl(undefined, { run: runner(on) }), 'https://mac.tailnet-name.ts.net/');
+  assert.equal(tailnetUrl('kickflip', { run: runner(on) }), 'https://mac.tailnet-name.ts.net/kickflip/');
+  assert.deepEqual([...new Set(calls)], ['tailscale status --json']);
+  assert.throws(() => tailnetUrl(undefined, { run: runner(null) }), /^Error: Tailscale isn't running on this host/);
+  assert.throws(() => tailnetUrl(undefined, { run: runner({ ...on, BackendState: 'Stopped' }) }), /^Error: Tailscale isn't running on this host/);
+  assert.throws(() => tailnetUrl(undefined, { run: runner({ ...on, CertDomains: null }) }), /^Error: HTTPS isn't on for this tailnet/);
 });

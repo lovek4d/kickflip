@@ -2,30 +2,36 @@
 
 Kickflip puts your Claude Code sessions' work on your phone. One hub on your host, a Mac or a Linux machine, serves pages over your Tailscale network: a sidebar of every site, and boards that show each session's work as cards, with the questions waiting on you and a push notification when something needs you. Sessions write to their boards, and you follow and steer them from your phone.
 
-## Set up
+## Install
 
-You need these first:
-
-- Node 22+
-- Git
-- [Claude Code](https://claude.com/claude-code)
-- [gh](https://cli.github.com), signed in
-- [Tailscale](https://tailscale.com), with HTTPS certificates turned on for your tailnet, on the host and on your phone
-
-Optional: tmux, only for `kickflip join --hub` and `kickflip hub` below, and Codex.
-
-Install and set up the host:
+On a Mac, with [Homebrew](https://brew.sh):
 
 ```sh
+brew install node git gh
+brew install --cask tailscale-app claude-code
+
 npm i -g @lovek4d/kickflip
 kickflip init
 ```
 
+Kickflip needs Node 22 or newer. On Linux, install the same tools with your package manager.
+
+Sign in to Tailscale and turn on HTTPS certificates for your tailnet. Run `gh auth login`. Do both on the host, and put Tailscale on your phone too.
+
+Optional: tmux, only for `kickflip join --hub` and `kickflip hub` below, and Codex.
+
 `kickflip init` links kickflip into Claude Code, starts the hub as a login service and serves it over Tailscale. Run `kickflip doctor` any time to see what is set up and what is not.
 
-## Open the hub on your phone
+## Open on your phone
 
-On your phone, open your host's Tailscale address in the browser (`https://<host>.<tailnet>.ts.net/`). Add it to your home screen to get push notifications.
+Run `kickflip url`. Open the address it prints.
+
+```
+$ kickflip url
+https://mac.tailnet-name.ts.net/
+```
+
+Add it to your home screen to get push notifications.
 
 ## Add a board
 
@@ -39,6 +45,7 @@ To have the hub board's session running in a terminal you can attach to, run `ki
 ## Commands
 
 - `kickflip init`: first-time setup
+- `kickflip url`: print the address to open on your phone
 - `kickflip doctor`: check what is set up, `--fix` repairs it
 - `kickflip join`: add this folder as a board
 - `kickflip hub`: attach to the hub board's tmux session

@@ -104,7 +104,20 @@ export function tailscaleRoot(config) {
   return { root: handlers.find(([route]) => route === '/')?.[1]?.Proxy || null, paths: [...new Set(handlers.map(([route]) => route))] };
 }
 
-export const tailscaleInstallHint = (platform = process.platform) => platform === 'darwin'
+// The HTTPS address the phone opens: tailscale / is the hub, so the hub is at https://<host>/ and a site at
+// https://<host>/<route>/, as kickflip.mjs siteUrl builds it. Throws the one-line reason when Tailscale isn't running
+// or the tailnet has no HTTPS certificate for this host.
+export function tailnetUrl(route, { run = runCommand } = {}) {
+  const r = run('tailscale', ['status', '--json']);
+  let status = null;
+  try { status = r.status === 0 ? JSON.parse(r.stdout) : null; } catch {}
+  if (status?.BackendState !== 'Running') throw new Error("Tailscale isn't running on this host; start it, or run tailscale up");
+  const host = status.Self?.DNSName?.replace(/\.$/, '') || '';
+  if (!host || !status.CertDomains?.includes(host)) throw new Error("HTTPS isn't on for this tailnet; turn on HTTPS Certificates on the DNS page of the Tailscale admin console");
+  return `https://${host}/${route ? route + '/' : ''}`;
+}
+
+export const tailscaleInstallHint =(platform = process.platform) => platform === 'darwin'
   ? 'brew install --cask tailscale' : 'curl -fsSL https://tailscale.com/install.sh | sh';
 
 export async function tailscaleState({ run = runCommand, platform = process.platform, uid = process.getuid(), username = os.userInfo().username, port = Number(process.env.KICKFLIP_HUB_PORT || 4500) } = {}) {

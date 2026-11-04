@@ -94,6 +94,10 @@
 //               site; --no-hub clears it. Exit 2 for --hub on a site that isn't a board
 //   kickflip leave <route> [--session <id>] [--force]
 //               removes the entry and keeps its files; --session (or --force) only for a route a session owns
+//   kickflip url [route]
+//               prints the hub's HTTPS address on the tailnet, the one to open on the phone, or with a route that
+//               site's (./install.mjs tailnetUrl). Exit 1 when Tailscale isn't running or HTTPS isn't on for the tailnet,
+//               2 for a route with no site
 //   kickflip restart <route>
 //   kickflip logs <route> [--lines <n>]
 //   kickflip init [--dry-run] | uninstall
@@ -157,7 +161,7 @@ import { liveSessions } from '../hub/live.mjs';
 import { isBoardSite, writeManifest } from '../hub/boards.mjs';
 import { joinName, routeFromName, routeRecord, validRoute } from '../hub/routes.mjs';
 import { githubFromOrigin } from '../hub/repos.mjs';
-import { uninstallStatusLine, storedPath, nodeBin, watcherCommand } from './install.mjs';
+import { uninstallStatusLine, storedPath, nodeBin, watcherCommand, tailnetUrl } from './install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { runDoctor } from './doctor.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
@@ -789,6 +793,12 @@ const commands = {
       await writeManifest(m);
     });
     out(`restarting /${route}; the hub picks it up within 2 seconds`);
+  },
+
+  async url() {
+    const route = args._[0];
+    if (route && !routeRecord(readManifest().sites, route)) fail('no site at /' + route, 2);
+    try { out(tailnetUrl(route)); } catch (e) { fail(e.message); }
   },
 
   async logs() {
