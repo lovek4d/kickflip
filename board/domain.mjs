@@ -899,9 +899,8 @@ export function needsAnswer(b) {
 // For built items in board order: idle while no card has a running build and none waits in Orchestrator review, a
 // running planner counting as no work (docs/adr/0167-planners-and-implementers-are-two-kinds-of-agent.md);
 // pullable lists the buildable cards nothing blocks, with no questions, no grill under way and no message a
-// session is working on, leaving out a card still New, grilling or prototyping
-// (docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md): ready cards first, then cards with no state, each in
-// board order (docs/adr/0170-the-idle-pull-takes-ready-cards-first.md). plannable lists, top first, the buildable cards
+// session is working on, taking only cards with state ready, in board order
+// (docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/0170-the-idle-pull-takes-ready-cards-first.md). plannable lists, top first, the buildable cards
 // not set ready, and the cards prototyping again with nothing waiting on the owner
 // (docs/adr/0172-a-prototype-answer-with-no-pick-prototypes-again.md), that aren't held, with no planner running, no grill under way, no question waiting on the owner or on
 // Claude and no message a session is working on; empty while any card has a grill under way or a planner running.
@@ -909,8 +908,7 @@ export function pullOf(items) {
   const open = items.filter((i) => !closedLane(i));
   const running = (i) => (i.agents || []).filter((a) => !a.done);
   const idle = !open.some((i) => i.waitsOn === 'checking' || running(i).some(builds));
-  const candidates = open.filter((i) => i.buildable && [null, 'ready'].includes(i.state ?? null) && !i.unsorted && !i.blockedBy.length && !i.questions && !i.grilling && !i.working);
-  const pullable = [...candidates.filter((i) => i.state === 'ready'), ...candidates.filter((i) => i.state !== 'ready')].map((i) => i.key);
+  const pullable = open.filter((i) => i.buildable && i.state === 'ready' && !i.unsorted && !i.blockedBy.length && !i.questions && !i.grilling && !i.working).map((i) => i.key);
   const planning = open.some((i) => i.grilling || running(i).some(plans));
   const plannable = planning ? [] : open.filter((i) => (i.buildable || (i.unpicked && !i.action)) && i.state !== 'ready' && !i.held && !i.questions?.open && !i.questions?.answered && !i.working).map((i) => i.key);
   return { idle, pullable, plannable };

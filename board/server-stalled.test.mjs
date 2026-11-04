@@ -211,12 +211,12 @@ test('an idle board with auto-pull on sends card-pull for its top pullable Todo 
   boardJSON(false);
   const wave = { items: [
     { id: 'A0', title: 'Running', status: 'building' },
-    { id: 'A1', title: 'Held', status: 'planned', held: true },
-    { id: 'A2', title: 'Blocked', status: 'waiting', deps: ['A0'] },
-    { id: 'A3', title: 'Asking', status: 'planned' },
-    { id: 'A4', title: 'Next', status: 'planned' },
-    { id: 'A5', title: 'Bumped', status: 'planned' },
-    { id: 'A6', title: 'Last', status: 'planned' },
+    { id: 'A1', title: 'Held', status: 'planned', state: 'ready', held: true },
+    { id: 'A2', title: 'Blocked', status: 'waiting', state: 'ready', deps: ['A0'] },
+    { id: 'A3', title: 'Asking', status: 'planned', state: 'ready' },
+    { id: 'A4', title: 'Next', status: 'planned', state: 'ready' },
+    { id: 'A5', title: 'Bumped', status: 'planned', state: 'ready' },
+    { id: 'A6', title: 'Last', status: 'planned', state: 'ready' },
   ], followups: [{ id: 'F1', title: 'Follow-up', from: 'A0', filed: iso(now) }] };
   fs.writeFileSync(waveFile, JSON.stringify(wave));
   fs.writeFileSync(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000) }));
@@ -334,8 +334,8 @@ test('an idle board with auto-triage on sends todo-triage under its dated topic 
   boardJSON(false);
   const wave = { items: [
     { id: 'A0', title: 'Running', status: 'building' },
-    { id: 'A1', title: 'One', status: 'planned' },
-    { id: 'A2', title: 'Two', status: 'planned' },
+    { id: 'A1', title: 'One', status: 'planned', state: 'ready' },
+    { id: 'A2', title: 'Two', status: 'planned', state: 'ready' },
   ] };
   const writeWave = () => put(waveFile, JSON.stringify(wave));
   writeWave();

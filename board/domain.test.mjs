@@ -952,7 +952,7 @@ test('a card lists each unfinished dep it is blocked by, a Done one none; one on
   assert.deepEqual([card('INT-22').working, card('INT-23').buildable], [true, true]);
   // The idle pull skips a Todo card a session is working on (docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md).
   assert.equal(pullOf(b.items).pullable.includes('site/INT-22'), false);
-  assert.equal(pullOf(b.items).pullable.includes('site/INT-23'), true);
+  assert.equal(pullOf(b.items).pullable.includes('site/INT-23'), false, 'no state: planned, not pulled');
 });
 
 test("a checking card sits in In Progress waiting on Claude's check, with no builder line or next step, and still blocks its dependents", () => {
@@ -1332,10 +1332,10 @@ test('only a running build keeps the board from being idle: a running planner le
 });
 
 // docs/adr/0170-the-idle-pull-takes-ready-cards-first.md
-test('the pull takes ready cards first in board order, then cards with no state; with none pullable it plans the top unready card while nothing is being planned', () => {
+test('the pull takes only ready cards in board order, never a card with no state; with none pullable it plans the top unready card while nothing is being planned', () => {
   const card = (key, more = {}) => ({ key, lane: 'todo', kind: 'work', buildable: true, state: null, blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
   const items = [card('w/A1'), card('w/A2', { state: 'ready' }), card('w/A3'), card('w/A4', { state: 'ready' })];
-  assert.deepEqual(pullOf(items).pullable, ['w/A2', 'w/A4', 'w/A1', 'w/A3']);
+  assert.deepEqual(pullOf(items).pullable, ['w/A2', 'w/A4']);
   assert.deepEqual(pullOf(items).plannable, ['w/A1', 'w/A3']);
 
   const asked = { topic: 'item:w/B2', open: 1, answered: 0 };
