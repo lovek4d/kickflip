@@ -895,13 +895,13 @@ export function buildBoard(snapshot) {
   };
   const workingOn = events.filter((e) => routeRecord(working, e.id) && unanswered(e))
     .map((e) => ({ id: e.id, kind: e.kind, key: cardOf(e), data: e.data, since: routeRecord(working, e.id) }));
-  // docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md: In Progress's Queued section holds the cards the owner
+  // docs/adr/2026-11-04-0150-queued-sits-at-the-top-of-todo.md: Todo's Queued section holds the cards the owner
   // tapped Implement on that wait to start, and while Auto implement is on every card ready to build (queueable). A queued
   // card sorts by when it was asked for: its tap, else when it was made.
   const autoPull = snapshot.autoPull === true;
   for (const it of items) {
     it.working = workingOn.some((w) => w.key === it.key);
-    if (it.kind === 'work' && ((it.lane === 'progress' && it.queuedAt) || (autoPull && it.lane === 'todo' && queueable(it)))) Object.assign(it, { lane: 'progress', queued: true });
+    if (it.kind === 'work' && ((it.lane === 'progress' && it.queuedAt) || (autoPull && it.lane === 'todo' && queueable(it)))) Object.assign(it, { lane: 'todo', queued: true });
     if (it.kind === 'work' && it.lane === 'progress' && !it.builder && !it.next && it.waitsOn !== 'checking' && !it.working && !it.queued) it.next = NO_NEXT;
     it.sortAt = (it.queued ? it.queuedAt || it.created : SORT_AT[it.lane](it)) || it.updatedAt || null;
   }
@@ -1080,7 +1080,7 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
 // A triage also reads the Stale cards; Done cards leave the board by archivedOf, never by a triage
 // (docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md).
 export function todoOf(items) {
-  return items.filter((i) => i.lane === 'todo' || i.lane === 'stale' || (i.queued && i.buildable)).map((i) => JSON.stringify([i.key, i.title, i.deps || []])).sort().join('\n');
+  return items.filter((i) => (i.lane === 'todo' && (!i.queued || i.buildable)) || i.lane === 'stale').map((i) => JSON.stringify([i.key, i.title, i.deps || []])).sort().join('\n');
 }
 
 // docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md

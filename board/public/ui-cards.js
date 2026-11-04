@@ -147,7 +147,7 @@
   // docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md, docs/adr/2026-11-03-1549-a-todo-cards-button-reads-implement.md).
   // Implement is plain until the card is ready, then builder orange (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
   function buildButton(it) {
-    if (it.kind !== 'work' || it.lane !== 'todo') return '';
+    if (it.kind !== 'work' || it.lane !== 'todo' || it.queued) return '';
     return `<button class="build${it.ready ? ' ready' : ''}" data-confirm="card-build" data-key="${esc(it.key)}">Implement</button>`;
   }
   // A builder reads "preheating" until its first status line, from the Implement tap or the session's dispatch on.

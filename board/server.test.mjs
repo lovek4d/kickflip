@@ -371,13 +371,13 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.equal(queuedAnswer.id, null);
     assert.equal(queuedAnswer.board.items.find((i) => i.id === 'B3').queued, true);
     const queued = await card('B3');
-    assert.deepEqual([queued.lane, queued.queued, queued.status, queued.builder, queued.next, queued.buildable, queued.blockedBy.map((d) => d.ref)], ['progress', true, null, null, null, false, ['B4']]);
+    assert.deepEqual([queued.lane, queued.queued, queued.status, queued.builder, queued.next, queued.buildable, queued.blockedBy.map((d) => d.ref)], ['todo', true, null, null, null, false, ['B4']]);
     assert.deepEqual(thread('B3').map((m) => [m.who, m.text]), [['claude', 'Implement queued: it starts once B4 is done.']]);
     assert.equal(fs.existsSync(path.join(site, 'data', 'agents', 'B3.json')), false);
     assert.equal(fs.existsSync(path.join(home, '.claude', 'kickflip', 'worktrees', 'B3')), false);
     assert.equal((await post({ kind: 'card-build', key: 't/B5' })).status, 200);
     const unheldQueued = await card('B5');
-    assert.deepEqual([unheldQueued.held, unheldQueued.lane, unheldQueued.queued], [false, 'progress', true]);
+    assert.deepEqual([unheldQueued.held, unheldQueued.lane, unheldQueued.queued], [false, 'todo', true]);
     assert.deepEqual(thread('B5').map((m) => m.text), ['Resumed.', 'Implement queued: it starts once B4 is done.']);
     assert.deepEqual(log().slice(before).map((e) => e.kind), ['card-build', 'card-build']);
 

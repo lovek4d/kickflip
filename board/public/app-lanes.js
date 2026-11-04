@@ -1,4 +1,4 @@
-// The board view's lanes and the Auto Review lane leading them: each lane's header and cards, In Progress's Queued section, Done's and Asks' Show more,
+// The board view's lanes and the Auto Review lane leading them: each lane's header and cards, Todo's Queued section, Done's and Asks' Show more,
 // Done's finished-wave folds, and Todo's wave bands with their Implement, triage and card order.
 // Needs app-core.js and app-cards.js.
 BoardView.part((B) => {
@@ -97,23 +97,13 @@ BoardView.part((B) => {
       if (lane.hideEmpty && !items.length) return '';
       const expanded = laneState[lane.id] ?? lane.open;
       const open = items.filter((i) => !i.fold);
-      const rows = lane.id === 'todo' ? todoRows(d, shown, open) : lane.id === 'progress' ? progressRows(open)
-        : (lane.id === 'done' ? doneRows(d, open) : lane.capped ? cappedRows(lane.id, open) : open.map((it) => B.card(it)).join('')) + waveFolds(d, items);
+      const rows = lane.id === 'todo' ? todoRows(d, shown, open) : (lane.id === 'done' ? doneRows(d, open) : lane.capped ? cappedRows(lane.id, open) : open.map((it) => B.card(it)).join('')) + waveFolds(d, items);
       return `<details class="lane" data-lane="${lane.id}" ${expanded ? 'open' : ''}>
         <summary><span class="lane-name">${lane.name}</span><span class="count">${lane.id === 'done' ? doneCount(d, items) : items.length}</span>${lane.id === 'review' ? B.githubHeader(d) : ''}</summary>
         <div class="list">${rows || '<div class="empty">Nothing here.</div>'}
         ${lane.id === 'todo' ? BoardUI.planButton(items) : ''}</div>
       </details>`;
     }).join('');
-  }
-
-  // docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md
-  // In Progress's cards, then its Queued section, which holds the cards waiting for an implementer slot, the next to
-  // build on top, as they arrive (domain.mjs laneOrder).
-  function progressRows(cards) {
-    const queued = cards.filter((i) => i.queued);
-    return cards.filter((i) => !i.queued).map((it) => B.card(it)).join('')
-      + (queued.length ? `<div class="wb-loose lane-queue"><div class="wb-head wb-loosehead"><span class="lane-name">Queued</span><span class="count">${queued.length}</span></div>${queued.map((it) => B.card(it)).join('')}</div>` : '');
   }
 
   // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
@@ -135,9 +125,18 @@ BoardView.part((B) => {
   const LANE_WORDS = { progress: 'in progress', review: 'in review', stale: 'stale' };
   const DOTS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
 
-  function todoRows(d, shown, todo) {
+  // docs/adr/2026-11-04-0150-queued-sits-at-the-top-of-todo.md
+  // Todo's Queued section, which holds the cards waiting for an implementer slot, the next to build on top, as they
+  // arrive (domain.mjs laneOrder), then its wave bands and loose cards.
+  function todoRows(d, shown, all) {
+    const queued = all.filter((i) => i.queued);
+    const head = queued.length ? `<div class="wb-loose lane-queue"><div class="wb-head wb-loosehead"><span class="lane-name">Queued</span><span class="count">${queued.length}</span></div>${queued.map((it) => B.card(it)).join('')}</div>` : '';
+    return head + bandRows(d, shown, all.filter((i) => !i.queued));
+  }
+
+  function bandRows(d, shown, todo) {
     const bands = d.waveBands || [];
-    const byKey = new Map(shown.map((i) => [i.key, i]));
+    const byKey = new Map(shown.filter((i) => !i.queued).map((i) => [i.key, i]));
     const banded = new Set(bands.flatMap((b) => b.keys));
     const loose = todo.filter((i) => !banded.has(i.key));
     const first = bands.find((b) => (b.next ? b.next.ready : b.keys.some((k) => byKey.get(k)?.ready)))?.slug;

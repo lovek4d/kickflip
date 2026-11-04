@@ -313,7 +313,7 @@ test('with auto implement on the board sends card-pull for the top pullable Todo
   }
 });
 
-// docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md
+// docs/adr/2026-11-04-0150-queued-sits-at-the-top-of-todo.md
 test('a tapped card whose blockers are done waits in Queued while In Progress is at Maximum parallel implementers, and the server starts it once a slot frees', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'queue-cap-'));
   const siteDir = path.join(dir, 'site');

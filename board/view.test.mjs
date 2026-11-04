@@ -3930,21 +3930,21 @@ test('legacy hub links open one modal, guard dirty rules on every dismissal, res
   assert.deepEqual(page.left(), baseline);
 });
 
-// docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md
-test("In Progress lists its Queued cards in one Queued section below its other cards, in the server's order, each with its bump icon; a wave band names a queued card queued", async () => {
-  const queued = (id, extra) => workCard(id, { lane: 'progress', queued: true, bumpable: true, ...extra });
+// docs/adr/2026-11-04-0150-queued-sits-at-the-top-of-todo.md
+test("Todo lists its Queued cards in one Queued section above its other cards, in the server's order, each with its bump icon, counted in Todo", async () => {
+  const queued = (id, extra) => workCard(id, { queued: true, bumpable: true, ...extra });
   const cards = [workCard('P1', { lane: 'progress', bumpable: true }), queued('Q2', { bumpedAt: '2026-11-04T10:00:00.000Z' }), queued('Q1'), workCard('T1')];
-  const band = { kind: 'wave', slug: 'w', title: 'W', goal: null, keys: ['w/Q1', 'w/T1'], phases: null, next: null, merged: 0, total: 2, triage: { running: false, questions: 0 } };
-  const b = boardOnDom({ board: { ...boardOf(cards), waveBands: [band] }, threads: {} });
+  const b = boardOnDom({ board: boardOf(cards), threads: {} });
   await b.settle();
-  const list = b.root.querySelector('details.lane[data-lane="progress"] > .list');
-  assert.deepEqual(list.children.map((el) => el.dataset.key || el.getAttribute('class')), ['w/P1', 'wb-loose lane-queue']);
+  const list = b.root.querySelector('details.lane[data-lane="todo"] > .list');
+  assert.deepEqual(list.children.map((el) => el.dataset.key || el.getAttribute('class')).slice(0, 2), ['wb-loose lane-queue', 'w/T1']);
   const section = list.querySelector('.lane-queue');
   assert.deepEqual([section.querySelector('.lane-name').textContent, section.querySelector('.count').textContent], ['Queued', '2']);
   assert.deepEqual(section.querySelectorAll('details.item').map((el) => el.dataset.key), ['w/Q2', 'w/Q1']);
   assert.deepEqual(['w/Q2', 'w/Q1'].map((key) => section.querySelector(`details.item[data-key="${key}"] button[data-card-bump]`).getAttribute('aria-label')), ['Unbump', 'Bump to top']);
-  assert.equal(b.root.querySelector('details.lane[data-lane="progress"] > summary .count').textContent, '3');
-  assert.match(b.root.querySelector('.wb[data-band="w"] .wb-label').textContent, /Q1 queued/);
+  assert.equal(section.querySelector('button.build'), null);
+  assert.equal(b.root.querySelector('details.lane[data-lane="todo"] > summary .count').textContent, '3');
+  assert.equal(b.root.querySelector('details.lane[data-lane="progress"] > summary .count').textContent, '1');
 
   const none = boardOnDom({ board: boardOf([workCard('P1', { lane: 'progress' })]), threads: {} });
   await none.settle();
