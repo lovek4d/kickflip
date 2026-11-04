@@ -80,7 +80,8 @@
 //                                line per answer, appended in one write with each answer's side effects → {ids, board};
 //                                an answer naming no question in owner.json, or none at all, → 400 {error} and nothing
 //                                recorded (docs/adr/0163-send-records-every-ready-answer-in-one-request.md).
-//                                prototype-request {key?, question?, note?, choice?} asks for prototypes of a card, or of one question
+//                                prototype-request {key?, question?, note?, choice?} asks for prototypes of a card, or of one question,
+//                                which it resolves, noting "Prototype requested" (store.mjs resolveRequestedQuestion)
 //                                builder-nudge {key} asks the session to check a builder. The server also appends
 //                                builder-stalled {key, silentSince} once per silent spell, tracked in data/builder-stalled.json
 //                                item set appends card-unblocked {key} when a waiting card's last dep finishes,
@@ -168,7 +169,7 @@ import { buildBoard, ITEM_EVENTS, needsAnswer, ownerActions, picksNoTake, pullOf
 import { localDay } from '../hub/schedule.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, existsSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
-import { BoardError, addTopic, boardConfig, dueQueuedBuilds, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, addTopic, boardConfig, dueQueuedBuilds, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -753,6 +754,7 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, { ids: await recordAnswers(body.answers), board: await board() });
       }
       const id = await appendEvent(kind, body);
+      if (kind === 'prototype-request' && body.question) await resolveRequestedQuestion(here, String(body.question));
       // The event shows the tap at once (domain.mjs); a failed write leaves it to the session's follow-up.
       if (kind === 'card-hold' || kind === 'card-done') {
         try { await recordOwnerTap(here, kind, body); } catch (e) { console.error(`Recording ${kind} failed:`, e.message); }

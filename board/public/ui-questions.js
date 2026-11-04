@@ -4,16 +4,14 @@
   // A short id such as A or C2 leads the label; a word id such as "inline" would repeat it. prototype-switcher.js answerLabel matches.
   const lead = (o) => (/^[A-Z][0-9]?$/i.test(o.id) ? `${o.id}. ` : '');
   const choiceLabel = (q, id) => { const o = q.options.find((x) => x.id === id); return o ? `${q.multi ? '' : lead(o)}${o.label}` : id || ''; };
-  const option = (o, { type = 'radio', name, checked = false, numbered = true, shown = false, disabled = false }) => `<label class="opt"${shown ? ' aria-current="true"' : ''}><input type="${type}" name="${esc(name)}" value="${esc(o.id)}" ${checked ? 'checked' : ''}${disabled ? ' disabled' : ''}>
+  const option = (o, { type = 'radio', name, checked = false, numbered = true, shown = false }) => `<label class="opt"${shown ? ' aria-current="true"' : ''}><input type="${type}" name="${esc(name)}" value="${esc(o.id)}" ${checked ? 'checked' : ''}>
         <span><span class="lbl">${numbered ? esc(lead(o)) : ''}${esc(o.label)}</span>${o.recommended ? '<span class="rec">Recommended</span>' : ''}<div class="det">${esc(o.detail || '')}</div></span></label>`;
 
   const SPIN = '<span class="try-spin" aria-hidden="true"></span>';
-  // A question's eye sends `prototype-request {key?, question, note, choice}` for that question alone (view-questions.js);
-  // once sent, the eye is off with a "prototype requested" badge right after it until the round arrives.
-  const questionEye = (q) => q.state === 'resolved' ? ''
-    : protoButton('q:' + q.id, null, { label: 'Ask for a prototype instead', disabled: q.state === 'requested' })
-      + (q.state === 'requested' ? badge('normal', `${SPIN}prototype requested`) : '');
-  const noteComposer = (q, note) => `<div class="composer" data-composer="${esc('q:' + q.id)}">${dropZone(`<textarea class="note" rows="2" placeholder="Note (optional)"${q.state === 'requested' ? ' disabled' : ''}>${esc(note || '')}</textarea>`)}
+  // A question's eye sends `prototype-request {key?, question, note, choice}` for that question alone, which resolves it
+  // (view-questions.js); a resolved question has none.
+  const questionEye = (q) => q.state === 'resolved' ? '' : protoButton('q:' + q.id, null, { label: 'Ask for a prototype instead' });
+  const noteComposer = (q, note) => `<div class="composer" data-composer="${esc('q:' + q.id)}">${dropZone(`<textarea class="note" rows="2" placeholder="Note (optional)">${esc(note || '')}</textarea>`)}
       <div class="note-tools">${attachButton()}${questionEye(q)}<div class="pending-files" data-files></div></div></div>`;
 
   const QUESTION_STATE = {
@@ -81,33 +79,29 @@
   }
   function takes(q, chosen, links, fit) {
     const name = 'c-' + q.id;
-    const disabled = q.state === 'requested';
     if (fullTakes(q, fit)) {
       const shown = q.options.find((o) => o.id === chosen) || q.options.find((o) => o.recommended) || q.options[0];
-      return `<div class="takes takes-full"><div class="take-choices" role="group" aria-label="Takes">${q.options.map((o) => option(o, { name, checked: chosen === o.id, shown: o === shown, disabled })).join('')}</div><article class="take" data-opt="${esc(shown.id)}">${takeBody(q, shown, links, fit, true)}</article></div>`;
+      return `<div class="takes takes-full"><div class="take-choices" role="group" aria-label="Takes">${q.options.map((o) => option(o, { name, checked: chosen === o.id, shown: o === shown })).join('')}</div><article class="take" data-opt="${esc(shown.id)}">${takeBody(q, shown, links, fit, true)}</article></div>`;
     }
-    return `<div class="takes">${q.options.map((o) => `<article class="take" data-opt="${esc(o.id)}">${option(o, { name, checked: chosen === o.id, disabled })}${takeBody(q, o, links, fit)}</article>`).join('')}</div>`;
+    return `<div class="takes">${q.options.map((o) => `<article class="take" data-opt="${esc(o.id)}">${option(o, { name, checked: chosen === o.id })}${takeBody(q, o, links, fit)}</article>`).join('')}</div>`;
   }
   // A confirm links its one take alone, and says why it is asked.
   const confirmLines = (q) => !q.confirm_of || q.state === 'resolved' ? ''
     : `<a class="pill proto pr-open" href="${esc(withParam(q.url, 'take', q.options[0].id))}">Open the prototype →</a>${q.state === 'open' ? `<div class="pr-rule">${RULE_ICON}A pick with a note gets a one-take confirm once Claude has updated the take.</div>` : ''}`;
   // An owner question from /api/board; draft is this device's unsent {choice, note}; links its ui-links.js linkContext;
   // fit(option id) supplies the measured grid and full-width heights.
-  // A requested question shows the note and pick its prototype was asked with, locked.
   function questionCard(q, { n = 0, draft = {}, links = {}, fit = () => null } = {}) {
     const last = q.answers[q.answers.length - 1];
-    const busy = q.state === 'requested';
-    const shown = busy ? q.request : draft;
-    const chosen = shown.choice ?? (last ? last.choice : null);
-    return `<section class="q ${q.urgent && q.state === 'open' ? 'urgent' : ''}${busy ? ' pr-busy' : ''}" id="${esc(q.id)}" data-q="${esc(q.id)}">
-      <div class="row" style="margin:0"><span class="muted small">${n ? n + '. ' : ''}${esc(q.source || '')}</span>${busy ? '' : badge(QUESTION_STATE[q.state].tone, esc(QUESTION_STATE[q.state].label))}</div>
+    const chosen = draft.choice ?? (last ? last.choice : null);
+    return `<section class="q ${q.urgent && q.state === 'open' ? 'urgent' : ''}" id="${esc(q.id)}" data-q="${esc(q.id)}">
+      <div class="row" style="margin:0"><span class="muted small">${n ? n + '. ' : ''}${esc(q.source || '')}</span>${badge(QUESTION_STATE[q.state].tone, esc(QUESTION_STATE[q.state].label))}</div>
       <h3>${linkText(q.question, links)}</h3>
       ${q.context ? `<div class="ctx">${linkText(q.context, links)}</div>` : ''}
       ${framed(q) ? '' : questionLink(q.url)}
       ${confirmLines(q)}
       ${q.state === 'resolved' && q.resolved ? `<div class="small muted" style="margin-bottom:8px">Resolved: ${esc(q.resolved)}${/[.!?]$/.test(q.resolved) ? '' : '.'} A new answer reopens it.</div>` : ''}
-      ${inline(q) ? takes(q, chosen, links, fit) : q.options.map((o) => option(o, { name: 'c-' + q.id, checked: chosen === o.id, disabled: busy })).join('')}
-      ${noteComposer(q, shown.note)}
+      ${inline(q) ? takes(q, chosen, links, fit) : q.options.map((o) => option(o, { name: 'c-' + q.id, checked: chosen === o.id })).join('')}
+      ${noteComposer(q, draft.note)}
       ${answerHistory(q, links)}
     </section>`;
   }

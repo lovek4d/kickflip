@@ -58,9 +58,9 @@
   const TRASH = icon('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>');
   const ELLIPSIS = icon('<circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/>');
   // Asks Claude for throwaway prototypes of one item (docs/adr/0015-prototypes-come-on-request.md).
-  function protoButton(id, state = null, { label = 'Ask for prototypes', disabled = false } = {}) {
-    if (state?.pending) return `<button type="button" class="attach proto-ask" data-proto="${esc(id)}" data-proto-pending="${esc(state.pending)}" aria-label="Prototypes are being made" title="Prototypes are being made"${disabled ? ' disabled' : ''}>${ELLIPSIS}</button>`;
-    return `<button type="button" class="attach proto-ask" data-proto="${esc(id)}" aria-label="${esc(label)}" title="${esc(label)}"${disabled ? ' disabled' : ''}>${EYE}</button>`;
+  function protoButton(id, state = null, { label = 'Ask for prototypes' } = {}) {
+    if (state?.pending) return `<button type="button" class="attach proto-ask" data-proto="${esc(id)}" data-proto-pending="${esc(state.pending)}" aria-label="Prototypes are being made" title="Prototypes are being made">${ELLIPSIS}</button>`;
+    return `<button type="button" class="attach proto-ask" data-proto="${esc(id)}" aria-label="${esc(label)}" title="${esc(label)}">${EYE}</button>`;
   }
   // latestBump is the data.id of the newest ask-bump event.
   const protoNotice = (eventId, latestBump) => (latestBump === eventId

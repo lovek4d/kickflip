@@ -128,6 +128,35 @@ test("an owner answer that picks no take on a card's prototype says so in its ev
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
+// docs/adr/0177-a-question-asked-for-a-prototype-is-resolved.md
+test("a prototype request on a question resolves it with its note and pick kept on the event, the topic's round reads making and the card prototypes; one on a card resolves nothing", async () => {
+  const ownerFile = path.join(site, 'data', 'owner.json');
+  const eventsFile = path.join(site, 'data', 'events.jsonl');
+  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'R1', title: 'Search' }] }));
+  const plain = { id: 'where', topic: 'item:t/R1', question: 'Where does search sit?', options: [{ id: 'A', label: 'Above' }, { id: 'B', label: 'Icon' }] };
+  fs.writeFileSync(ownerFile, JSON.stringify({ items: [plain] }));
+  const send = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const last = () => JSON.parse(fs.readFileSync(eventsFile, 'utf8').trim().split('\n').at(-1));
+  const items = () => JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items;
+  try {
+    const untouched = fs.readFileSync(ownerFile, 'utf8');
+    assert.equal((await send({ kind: 'prototype-request', key: 't/R1' })).status, 200);
+    assert.equal(fs.readFileSync(ownerFile, 'utf8'), untouched);
+
+    const r = await send({ kind: 'prototype-request', key: 't/R1', question: 'where', note: 'Show it on a phone', choice: 'B' });
+    assert.equal(r.status, 200);
+    assert.deepEqual([last().kind, last().data], ['prototype-request', { key: 't/R1', question: 'where', note: 'Show it on a phone', choice: 'B' }]);
+    const q = items()[0];
+    assert.equal(q.resolved, 'Prototype requested');
+    assert.ok(q.resolved_at >= last().ts);
+    const b = (await r.json()).board;
+    assert.equal(b.owner[0].state, 'resolved');
+    assert.deepEqual(b.ownerTopics.find((t) => t.id === 'item:t/R1').round, { n: 1, state: 'making' });
+    const card = b.items.find((i) => i.key === 't/R1');
+    assert.deepEqual([card.state, card.next, card.buildable], ['prototyping', 'Prototype again', false]);
+  } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
+});
+
 test("one owner-answers request records every answer as one-by-one answers would, in one write, returning the board once, or on any it can't record records none and says why", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
   const eventsFile = path.join(site, 'data', 'events.jsonl');

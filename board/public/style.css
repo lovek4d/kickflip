@@ -511,16 +511,7 @@ main > * { transition: opacity .25s ease; }
 .view-questions .solo { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 4px 0; }
 /* docs/adr/0111-a-prototype-round-ends-with-a-one-take-confirm.md */
 .view-questions .topichead { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
-.view-questions .topichead .try-spin, .view-questions .q .chip .try-spin { width: 9px; height: 9px; margin-right: 5px; vertical-align: -1px; }
-/* A requested question: an accent tint and an accent border drawn inside the card, so the card keeps its size. */
-.view-questions .q.pr-busy { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--panel)); box-shadow: inset 0 0 0 1px var(--accent); }
-.view-questions .q.pr-busy .opt { opacity: .55; cursor: default; }
-.view-questions .q.pr-busy .opt:has(input:checked) { opacity: 1; }
-/* The source line is as tall as the state badge beside it, which a requested card leaves out. */
-.view-questions .q > .row:first-child > .muted { padding: 1px 0; }
-.view-questions .q.pr-busy textarea { opacity: .7; }
-.view-questions .q.pr-busy .proto-ask { color: var(--accent); }
-.view-questions .note-tools .chip { align-self: center; margin-top: 2px; }
+.view-questions .topichead .try-spin { width: 9px; height: 9px; margin-right: 5px; vertical-align: -1px; }
 .view-questions .q .pr-open { display: inline-block; margin: 0 0 8px; }
 .view-questions .pr-rule { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: 12.5px; color: var(--muted); }
 .view-questions .pr-rule svg { flex: none; }

@@ -258,13 +258,15 @@ const buildableOf = (it) => it.kind === 'work' && it.lane === 'todo' && !it.acti
 // Whether an answer choosing choice on question q (an owner.json item) is a card's prototype answer that picks none of
 // its takes, the owner having cleared the pick to leave only a note.
 export const picksNoTake = (q, choice) => /^item:/.test(q.topic || '') && PROTOTYPE_URL.test(q.url || '') && !(q.options || []).some((o) => o.id === choice);
-// The newest answer to card key's prototype questions (ownerQuestion views) when it picks none of their takes: the card
-// isn't ready to build. → {id, note}, or null.
+// The newest of card key's answers to its prototype questions and prototype requests on any of its questions
+// (ownerQuestion views), when it is a request or an answer that picks none of the takes: the card isn't ready to
+// build (docs/adr/0177-a-question-asked-for-a-prototype-is-resolved.md). → {id, note}, or null.
 export function noTakePicked(questions, key) {
-  const answers = questions.filter((q) => q.topic === `item:${key}` && PROTOTYPE_URL.test(q.url || ''))
-    .flatMap((q) => q.answers.map((a) => ({ q, a }))).sort((x, y) => String(x.a.ts).localeCompare(String(y.a.ts)));
-  const last = answers.at(-1);
-  return last && picksNoTake(last.q, last.a.choice) ? { id: last.q.id, note: last.a.note.replace(/\s+/g, ' ').trim() } : null;
+  const mine = questions.filter((q) => q.topic === `item:${key}`);
+  const inputs = [...mine.filter((q) => PROTOTYPE_URL.test(q.url || '')).flatMap((q) => q.answers.map((a) => ({ q, a, again: picksNoTake(q, a.choice) }))),
+    ...mine.filter((q) => q.request).map((q) => ({ q, a: q.request, again: true }))].sort((x, y) => String(x.a.ts).localeCompare(String(y.a.ts)));
+  const last = inputs.at(-1);
+  return last?.again ? { id: last.q.id, note: last.a.note.replace(/\s+/g, ' ').trim() } : null;
 }
 // docs/adr/0172-a-prototype-answer-with-no-pick-prototypes-again.md
 // A Todo card's Next while noTakePicked holds it: the card is prototyping, and the next round is its way out.
@@ -434,18 +436,19 @@ function agentName(a) {
 // docs/adr/0157-an-answer-stops-waiting-once-its-acted-on.md
 // Whether an owner answer at ts is acted on by its question's resolution: resolved, at or after ts when it records when.
 const resolvedSince = (q, ts) => Boolean(q.resolved) && (!q.resolved_at || String(q.resolved_at) >= String(ts));
-// A question's state: open (no answer yet), answered (waiting for Claude), replied (Claude answered), requested (the
-// owner asked for a prototype of it after its last answer, until the round arrives and resolves it), resolved
+// A question's state: open (no answer yet), answered (waiting for Claude), replied (Claude answered), resolved
 // (owner.json sets `resolved` and `resolved_at`). An answer newer than `resolved_at` reopens it; without `resolved_at`
-// it stays resolved. Each answer is acted on once the question's resolution covers it. answerEvents are owner-answer events and requestEvents prototype-request events, oldest first;
-// store.mjs reads their states to close a card's questions.
+// it stays resolved. Each answer is acted on once the question's resolution covers it. request is the owner's newest
+// prototype-request for it after its last answer, which the board server resolves it with
+// (docs/adr/0177-a-question-asked-for-a-prototype-is-resolved.md). answerEvents are owner-answer events and
+// requestEvents prototype-request events, oldest first; store.mjs reads their states to close a card's questions.
 export function ownerQuestion(q, answerEvents, requestEvents = []) {
   const answers = answerEvents.filter((e) => e.data?.id === q.id);
   const last = answers[answers.length - 1] || null;
   const reopened = Boolean(q.resolved && q.resolved_at && last && String(last.ts) > q.resolved_at);
   const resolved = q.resolved && !reopened;
-  const req = resolved ? null : requestEvents.filter((e) => e.data?.question === q.id && String(e.ts) > String(last?.ts || '')).at(-1);
-  const state = resolved ? 'resolved' : req ? 'requested' : !last ? 'open' : last.reply ? 'replied' : 'answered';
+  const req = requestEvents.filter((e) => e.data?.question === q.id && String(e.ts) > String(last?.ts || '')).at(-1);
+  const state = resolved ? 'resolved' : !last ? 'open' : last.reply ? 'replied' : 'answered';
   return { ...q, state, request: req ? { id: req.id, ts: req.ts, note: req.data.note || '', choice: req.data.choice || null } : null,
     answers: answers.map((e) => ({ ts: e.ts, choice: e.data.choice || null, note: e.data.note || '', files: e.data.files || [], reply: e.reply, acted: resolvedSince(q, e.ts) })) };
 }
@@ -464,10 +467,10 @@ export function roundSettledBy(qs, n) {
     .filter(([q, a]) => settles(q, a)).map(([, a]) => a)
     .sort((x, y) => String(x.ts).localeCompare(String(y.ts))).at(-1);
 }
-// A topic's latest round: making while a question in it is requested, closed once an answer settles it, back while
-// one of its questions is unresolved, else none.
+// A topic's latest round: making while a question in it has a request and no later round has arrived, closed once an
+// answer settles it, back while one of its questions is unresolved, else none.
 function roundState(qs) {
-  const req = qs.find((q) => q.state === 'requested');
+  const req = qs.find((q) => q.request && !qs.some((x) => roundOf(x) > roundOf(q)));
   if (req) return { n: roundOf(req) + 1, state: 'making' };
   const n = Math.max(0, ...qs.map(roundOf));
   if (!n) return null;
@@ -489,7 +492,7 @@ function ownerTopics(topics, questions, closed = new Set()) {
     const count = (s) => qs.filter((q) => q.state === s).length;
     const settled = qs.every((q) => q.state === 'resolved') || (closed.has(t.id) && !count('open'));
     const state = qs.length && settled ? 'resolved' : 'open';
-    return { ...t, state, questions: qs.map((q) => q.id), open: count('open'), answered: count('answered'), replied: count('replied'), requested: count('requested'),
+    return { ...t, state, questions: qs.map((q) => q.id), open: count('open'), answered: count('answered'), replied: count('replied'),
       resolved: count('resolved'), round: roundState(qs) };
   }).filter((t) => t.questions.length);
 }
@@ -692,7 +695,7 @@ export function buildBoard(snapshot) {
   const questions = (owner.items || []).map((q) => ownerQuestion(q, answerEvents, requestEvents));
   const pendingOn = (topic) => {
     const qs = questions.filter((q) => q.topic === topic);
-    return { open: qs.filter((q) => q.state === 'open').length, answered: qs.filter((q) => q.state === 'answered' || q.state === 'requested').length };
+    return { open: qs.filter((q) => q.state === 'open').length, answered: qs.filter((q) => q.state === 'answered').length };
   };
   for (const e of asks.values()) {
     const key = `ask:${e.id}`;

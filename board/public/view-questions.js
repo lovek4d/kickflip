@@ -7,6 +7,8 @@
 // whose options are prototype takes frames each take with ?take= (docs/adr/0048-a-questions-takes-show-inline.md).
 // Each question's eye sends `prototype-request {key?, question, note, choice}` for that question instead of an answer,
 // with its note box as the note and its pick so far as the choice (docs/adr/0126-each-question-has-its-own-prototype-eye.md).
+// The board server resolves the question with it, and once it is recorded the page moves on as a Send does
+// (docs/adr/0177-a-question-asked-for-a-prototype-is-resolved.md).
 // fits: each framed take's measured size, kept across repaints and visits so a take redraws at its size at once.
 (globalThis.AppViews ||= {}).questions = ((fits) => ({
   className: 'view-questions',
@@ -61,7 +63,6 @@
     const uploading = (qs) => qs.some((q) => BoardAttach.busy('q:' + q.id, site.root));
     function pending(qs) {
       return qs.filter((q) => {
-        if (q.state === 'requested') return false;
         const d = getDraft(q.id);
         if (filesOf(q).length) return true;
         if (!('choice' in d) && !d.note) return false;
@@ -202,7 +203,7 @@
     function waitingTopics() {
       const list = topicRow(topics, topicId).waiting;
       return list.length ? `<details class="done"><summary>Waiting on Claude · ${list.length}</summary>${list.map((t) =>
-        `<div class="trow"><button class="ghost" data-topic="${esc(t.id)}">${esc(t.title)}</button><span class="muted small">${t.requested ? 'prototype requested' : t.answered ? 'answered' : 'Claude replied'}</span></div>`).join('')}</details>` : '';
+        `<div class="trow"><button class="ghost" data-topic="${esc(t.id)}">${esc(t.title)}</button><span class="muted small">${t.answered ? 'answered' : 'Claude replied'}</span></div>`).join('')}</details>` : '';
     }
 
     function resolvedTopics() {
@@ -211,18 +212,29 @@
         `<div><button class="ghost" data-topic="${esc(t.id)}">${esc(t.title)}</button></div>`).join('')}</details>` : '';
     }
 
+    // The topic a tap on this page acts for, the pills before it and its name, which moveOn reads once it is recorded.
+    function leaving() {
+      const from = soloId ? topicOf(soloId)?.id : topicId;
+      return { from, pills: topicRow(topics, from).pills, name: topicName(topics.find((t) => t.id === from) || { title: '' }) };
+    }
+    // After a recorded tap: a load that started before it went out would read its question as still open.
+    async function moveOnOnceLoaded({ from, pills }, what) {
+      await loading;
+      if (await load(false)) moveOn(from, pills, what);
+      else if (B.alive()) { sentLine = what; $('#qstatus').textContent = what; $('#qstatus').classList.add('sent'); }
+    }
+
     async function askPrototype(q) {
       const st = $('#qstatus');
       const key = q.topic?.startsWith('item:') ? q.topic.slice(5) : null;
+      const at = leaving();
       st.textContent = 'Sending…';
       const d = getDraft(q.id);
       const last = q.answers[q.answers.length - 1];
       try { await site.send('prototype-request', { ...(key ? { key } : {}), question: q.id, note: (d.note || '').trim(), choice: d.choice ?? (last ? last.choice : null) }); }
-      catch { st.textContent = 'Could not send. Is the host awake?'; return; }
+      catch (e) { st.textContent = e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?'; return; }
       setDraft(q.id, {});
-      sentLine = 'Prototype please.';
-      await loading;
-      if (await load(false)) { shown = sigNow(); render(); }
+      await moveOnOnceLoaded(at, `Prototype requested${at.name ? ` for ${at.name}` : ''}.`);
     }
 
     function updateBar() {
@@ -308,7 +320,7 @@
     B.on(root, 'click', (ev) => {
       if (ev.target.id === 'showAll') { soloId = null; sentLine = ''; shown = ''; render(); return; }
       const eye = ev.target.closest && ev.target.closest('[data-proto]');
-      if (eye) { if (!eye.disabled) askPrototype(byId(eye.closest('section.q').dataset.q)); return; }
+      if (eye) { askPrototype(byId(eye.closest('section.q').dataset.q)); return; }
       const b = ev.target.closest && ev.target.closest('[data-topic]');
       if (b) { soloId = null; topicId = b.dataset.topic; sentLine = ''; shown = ''; render(); scrollTo(0, 0); }
     });
@@ -360,9 +372,7 @@
       if (uploading(visible())) return;
       if (!list.length) { st.textContent = 'Pick an option or write a note first.'; return; }
       st.textContent = 'Sending…';
-      const from = soloId ? topicOf(soloId)?.id : topicId;
-      const pills = topicRow(topics, from).pills;
-      const name = topicName(topics.find((t) => t.id === from) || { title: '' });
+      const at = leaving();
       // docs/adr/0163-send-records-every-ready-answer-in-one-request.md: one request, recorded all or none.
       const answers = list.map((q) => {
         const d = getDraft(q.id);
@@ -377,11 +387,7 @@
         setDraft(q.id, {});
         BoardAttach.clear('q:' + q.id, site.root);
       }
-      const what = `Sent ${list.length} answer${list.length === 1 ? '' : 's'}${name ? ` to ${name}` : ''}.`;
-      // A load that started before these answers went out would read them as still open.
-      await loading;
-      if (await load(false)) moveOn(from, pills, what);
-      else if (B.alive()) { sentLine = what; $('#qstatus').textContent = what; $('#qstatus').classList.add('sent'); }
+      await moveOnOnceLoaded(at, `Sent ${list.length} answer${list.length === 1 ? '' : 's'}${at.name ? ` to ${at.name}` : ''}.`);
     });
     // Each composer painted raises a bubbling attach-change (attach.js).
     B.on(root, 'attach-change', updateBar);

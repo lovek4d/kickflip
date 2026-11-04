@@ -257,7 +257,8 @@ test("an answer after a question was resolved reopens it, but a Done card's topi
   assert.deepEqual([closed.owner[0].state, closed.ownerTopics.find((t) => t.id === 'item:w/A1').state, closed.items.find((i) => i.key === 'w/A1').questions.state], ['answered', 'resolved', 'resolved']);
 });
 
-test("a prototype request holds its question as requested until the round arrives, and the topic's round reads making, back, then closed with the take of a pick, with a note or none, or of a confirm already on the board", () => {
+// docs/adr/0177-a-question-asked-for-a-prototype-is-resolved.md
+test("a prototype request is its question's input until the round arrives: the board server resolves the question, the topic's round reads making, back, then closed with the take of a pick, with a note or none, or of a confirm already on the board", () => {
   const plain = { id: 'plain', topic: 'item:w/A1', question: 'Where does search sit?', options: [{ id: 'A', label: 'Above' }, { id: 'B', label: 'Behind an icon' }] };
   const takes = { id: 'takes', topic: 'item:w/A1', question: 'Which take?', url: 'prototype-search.html?q=takes', options: [{ id: 'A', label: 'Above' }, { id: 'B', label: 'Icon' }], round: 1, round_of: 'plain' };
   const confirm = { id: 'takes-confirm', topic: 'item:w/A1', question: 'Is this it?', url: 'prototype-search.html?q=takes-confirm', options: [{ id: 'B', label: 'Icon' }], round: 1, confirm_of: 'takes' };
@@ -267,26 +268,26 @@ test("a prototype request holds its question as requested until the round arrive
   const view = (items, events) => {
     const b = board({ owner: { items }, events });
     const t = b.ownerTopics.find((x) => x.id === 'item:w/A1');
-    return { states: b.owner.map((q) => [q.id, q.state]), round: t.round, open: t.open, requested: t.requested, needs: b.needs.filter((l) => l.questions).length };
+    return { states: b.owner.map((q) => [q.id, q.state]), round: t.round, open: t.open, needs: b.needs.filter((l) => l.questions).length };
   };
 
-  assert.deepEqual(view([plain], []), { states: [['plain', 'open']], round: null, open: 1, requested: 0, needs: 1 });
-  const asked = board({ owner: { items: [plain] }, events: [request('plain', '2026-10-23T10:00:00Z')] });
-  assert.deepEqual(asked.owner[0].request, { id: 'r-plain', ts: '2026-10-23T10:00:00Z', note: 'show it on a phone', choice: null });
-  assert.equal(board({ owner: { items: [plain] }, events: [request('plain', '2026-10-23T10:00:00Z', 'B')] }).owner[0].request.choice, 'B');
-  assert.deepEqual(view([plain], [request('plain', '2026-10-23T10:00:00Z')]),
-    { states: [['plain', 'requested']], round: { n: 1, state: 'making' }, open: 0, requested: 1, needs: 0 });
-  assert.deepEqual(view([plain], [answer('plain', 'A', '2026-10-23T09:00:00Z'), request('plain', '2026-10-23T10:00:00Z')]).states, [['plain', 'requested']]);
-  assert.deepEqual(view([plain], [request('plain', '2026-10-23T09:00:00Z'), answer('plain', 'A', '2026-10-23T10:00:00Z')]).states, [['plain', 'answered']]);
+  assert.deepEqual(view([plain], []), { states: [['plain', 'open']], round: null, open: 1, needs: 1 });
+  const asked = resolved(plain, 'Prototype requested', '2026-10-23T10:00:01Z');
+  assert.deepEqual(board({ owner: { items: [asked] }, events: [request('plain', '2026-10-23T10:00:00Z')] }).owner[0].request, { id: 'r-plain', ts: '2026-10-23T10:00:00Z', note: 'show it on a phone', choice: null });
+  assert.equal(board({ owner: { items: [asked] }, events: [request('plain', '2026-10-23T10:00:00Z', 'B')] }).owner[0].request.choice, 'B');
+  assert.deepEqual(view([asked], [request('plain', '2026-10-23T10:00:00Z')]), { states: [['plain', 'resolved']], round: { n: 1, state: 'making' }, open: 0, needs: 0 });
+  assert.deepEqual(view([asked], [answer('plain', 'A', '2026-10-23T09:00:00Z'), request('plain', '2026-10-23T10:00:00Z')]), { states: [['plain', 'resolved']], round: { n: 1, state: 'making' }, open: 0, needs: 0 });
+  const reopened = view([asked], [request('plain', '2026-10-23T10:00:00Z'), answer('plain', 'A', '2026-10-23T11:00:00Z')]);
+  assert.deepEqual([reopened.states, reopened.round], [[['plain', 'answered']], null]);
 
   const back = [resolved(plain, 'Followed by prototype round 1', '2026-10-23T11:00:00Z'), takes];
   assert.deepEqual(view(back, [request('plain', '2026-10-23T10:00:00Z')]),
-    { states: [['plain', 'resolved'], ['takes', 'open']], round: { n: 1, state: 'back' }, open: 1, requested: 0, needs: 1 });
+    { states: [['plain', 'resolved'], ['takes', 'open']], round: { n: 1, state: 'back' }, open: 1, needs: 1 });
   assert.deepEqual(view(back, [answer('takes', 'A', '2026-10-23T12:00:00Z')]).round, { n: 1, state: 'closed', take: 'A' });
   assert.deepEqual(view(back, [answer('takes', null, '2026-10-23T12:00:00Z', 'Neither')]).round, { n: 1, state: 'back' });
   const confirming = [back[0], resolved(takes, 'Followed by Is this it?', '2026-10-23T12:00:01Z'), confirm];
   const picked = [answer('takes', 'B', '2026-10-23T12:00:00Z', 'Bigger icon')];
-  assert.deepEqual(view(back, picked), { states: [['plain', 'resolved'], ['takes', 'answered']], round: { n: 1, state: 'closed', take: 'B' }, open: 0, requested: 0, needs: 0 });
+  assert.deepEqual(view(back, picked), { states: [['plain', 'resolved'], ['takes', 'answered']], round: { n: 1, state: 'closed', take: 'B' }, open: 0, needs: 0 });
   assert.deepEqual(view(confirming, []).round, { n: 1, state: 'back' });
   assert.deepEqual(view(confirming, [...picked, answer('takes-confirm', 'B', '2026-10-23T13:00:00Z')]).round, { n: 1, state: 'closed', take: 'B' });
   assert.deepEqual(view(confirming, [...picked, request('takes-confirm', '2026-10-23T13:00:00Z')]).round, { n: 2, state: 'making' });
@@ -664,7 +665,14 @@ test("an unstarted Todo card that waits on nothing from the owner can Build, a b
   const picked = card({ owner: { items: [takes] }, events: [answer(2, null, 'Neither'), answer(3, 'B', 'but with the moon on the left')] });
   assert.deepEqual([one(picked).buildable, one(picked).next, one(picked).state], [true, null, null]);
   assert.equal(startedByAnswer(picked, 'p1'), 'w/A1');
-
+  // A prototype request on any of the card's questions is its newest input the same way, until the next round's pick
+  // (docs/adr/0177-a-question-asked-for-a-prototype-is-resolved.md).
+  const plain = { id: 'q0', topic: 'item:w/A1', question: 'Where?', options: [{ id: 'A', label: 'Top' }], resolved: 'Prototype requested', resolved_at: '2026-10-23T10:04:01Z' };
+  const request = { id: 'r4', ts: '2026-10-23T10:04:00Z', kind: 'prototype-request', data: { key: 'w/A1', question: 'q0', note: 'on a phone', choice: 'A' }, reply: null };
+  const asked = card({ owner: { items: [plain, takes] }, events: [answer(3, 'B', ''), request] });
+  assert.deepEqual([one(asked).buildable, one(asked).next, one(asked).state], [false, PROTOTYPE_AGAIN, 'prototyping']);
+  const next = card({ owner: { items: [plain, takes] }, events: [request, answer(5, 'B', '')] });
+  assert.deepEqual([one(next).buildable, one(next).state], [true, null]);
 });
 
 test("a Build the board started is In Progress reading starting until its builder's first status line, and a refused one stays in Todo with its reason while that is the card's newest line", () => {

@@ -1079,6 +1079,15 @@ export async function resolveNoteAnswers(site, answers) {
   await writeJSON(ownerFile(site), owner);
 }
 
+// docs/adr/0177-a-question-asked-for-a-prototype-is-resolved.md
+// A prototype request for question id resolves it, noting "Prototype requested": the request is that round's input.
+export async function resolveRequestedQuestion(site, id) {
+  const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
+  if (!owner.items?.some((q) => q.id === id)) return;
+  setResolved(owner, [id], 'Prototype requested');
+  await writeJSON(ownerFile(site), owner);
+}
+
 // docs/adr/0150-a-prototype-pick-is-the-builds-go.md
 // Refuses while no answer settles q's round.
 function roundSettled(owner, q, answers) {
