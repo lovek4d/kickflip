@@ -150,7 +150,8 @@
     const at = BUILD_PHASES.indexOf(phase);
     if (at < 0) return '';
     const name = `${phase[0].toUpperCase()}${phase.slice(1)}`;
-    return `<span class="phase-bars" role="img" aria-label="${name}, step ${at + 1} of ${BUILD_PHASES.length}">${BUILD_PHASES.map((_, i) => `<i class="${i < at ? 'done' : i === at ? 'now' : ''}"></i>`).join('')}</span>`;
+    const label = `${name}, step ${at + 1} of ${BUILD_PHASES.length}`;
+    return `<span class="phase-bars" role="img" aria-label="${label}" title="${label}">${BUILD_PHASES.map((_, i) => `<i class="${i < at ? 'done' : i === at ? 'now' : ''}"></i>`).join('')}</span>`;
   }
   const stalledChip = (it) => it.lane !== 'done' && it.builder?.stalled ? badge('danger', 'Stalled', {
     button: true, title: 'No recent progress. Nudge Claude to check this implementer',
