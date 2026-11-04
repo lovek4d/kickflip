@@ -17,7 +17,7 @@
 //                     sites: [{route, title, board, state, count, changedAt, created, icon, sub, ctx}], hub: {tone, word, detail},
 //                     notifications: {state, text}, away, upgrade}, away true while the owner reads away (presence.mjs ownerTracker), upgrade null or a newer kickflip on npm (upgrade.mjs state), ctx the board's owner session's {percent, at} or null; each site's row from its GET /_claude/needs
 //                     (home.mjs; docs/adr/2026-10-29-1639-sites-report-what-waits-through-claude-needs.md)
-//                     starting lists pending boards and their clone/start phase (sessions.mjs)
+//                     starting lists pending boards, each with its start step and a running clone's percent (sessions.mjs)
 //                     usage: {claude, codex}, each null when hidden, else {at, five_hour, seven_day}; windows are
 //                     null without a reading, else {used_percentage, resets_at, state: live|reset|stale} (usage.mjs).
 //                     Reset windows read 0%; stale means older than that window. Codex scans cache for 60 seconds.
@@ -172,7 +172,7 @@ import { readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
 import { checkSessions, compactFullContexts, startingBoards } from './sessions.mjs';
 import { repoService, repoLookupRoute } from './repos.mjs';
 import { boardRepo, changeBoardRepo, migrateBoardRepos, migrateHubBoard } from './board-repo.mjs';
-import { requestBoard, retryBoard, dismissBoard } from './new-board.mjs';
+import { requestBoard, retryBoard, dismissBoard, clonePercent } from './new-board.mjs';
 import { boardClosure, closeBoard, closedBoards, reopenBoard } from './close-board.mjs';
 import { restartBoard, restartable } from './restart-board.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
@@ -672,7 +672,7 @@ async function sidebarState({ fresh = false } = {}) {
     code: code.running ?? null,
     total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links, hubLink(code)),
     home: fs.realpathSync(os.homedir()),
-    starting: startingBoards(manifest, now.getTime()),
+    starting: startingBoards(manifest, now.getTime(), clonePercent),
     usage: readUsage({ codexShare: readCodexShare(readCodex()) }),
     pause: readUsageGate(),
     upgrade: upgrade.state(),
@@ -699,7 +699,7 @@ function sendText(req, res, code, headers, body) {
 async function shellPage(here) {
   const { data } = await sidebarState();
   const context = vm.createContext({});
-  for (const file of ['ui-page-header.js', 'ui-sidebar.js']) vm.runInContext(fs.readFileSync(path.join(BOARD_PUBLIC, file), 'utf8'), context);
+  for (const file of ['ui-phase-bars.js', 'ui-page-header.js', 'ui-sidebar.js']) vm.runInContext(fs.readFileSync(path.join(BOARD_PUBLIC, file), 'utf8'), context);
   return shellHtml({ sidebar: context.BoardUI.sidebar(data, { here }), sidebarData: JSON.stringify(data).replace(/</g, '\\u003c'), touchIcon: iconUrl(180) });
 }
 

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const context = vm.createContext({ location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443' } });
-for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-sidebar.js', 'ui-hub.js']) {
+for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-phase-bars.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-sidebar.js', 'ui-hub.js']) {
   vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
 }
 const ui = context.BoardUI;
@@ -375,13 +375,14 @@ test("the Kickflip sidebar lists Hub, notifications, Pages, then Boards with New
 
 test("pending boards have muted non-link rows, a failed start keeps its name with failed to start and opens its sheet, and New board stays last in Boards", () => {
   const data = { sites: [{ route: 'page', title: 'Page', board: false, icon: '' }], starting: [
-    { route: 'new', title: 'Backend <audit>', failed: false }, { route: 'cloning', title: 'Cloning board', phase: 'cloning', failed: false },
+    { route: 'new', title: 'Backend <audit>', step: 'starting', stepAt: new Date().toISOString(), failed: false },
+    { route: 'cloning', title: 'Cloning board', step: 'cloning', stepAt: new Date().toISOString(), failed: false },
     { route: 'old', title: 'Old board', failed: true },
     { route: 'broken', title: 'Broken', failed: true, error: 'claude --bg failed (1): <Not signed in>' },
   ] };
   const html = ui.sidebar(data, { switching: true });
-  assert.match(html, /<div class="sb-row sb-starting" data-starting="new">.*starting….*Backend &lt;audit&gt; · Waiting for the board to answer/);
-  assert.match(html, /data-starting="cloning">.*?cloning….*?Cloning board · Cloning from GitHub<\/span>/);
+  assert.match(html, /<div class="sb-row sb-starting" data-starting="new">.*?<span class="sb-title">Backend &lt;audit&gt;<\/span>.*?starting orchestrator · 0s/);
+  assert.match(html, /data-starting="cloning">.*?Cloning board.*?cloning \(0%\) · 0s<\/span>/);
   for (const [route, title] of [['old', 'Old board'], ['broken', 'Broken']]) {
     const row = new RegExp(`<button type="button" class="sb-row sb-starting sb-failed" data-starting="${route}" data-failed-start="${route}" aria-haspopup="dialog">.*?</button>`).exec(html)?.[0];
     assert.match(row, new RegExp(`<span class="sb-title">${title}</span><span class="sb-sub">failed to start</span></span></button>$`));
@@ -394,12 +395,28 @@ test("pending boards have muted non-link rows, a failed start keeps its name wit
   assert.deepEqual(plain(ui.switchKeys(data)).map((r) => r.href), ['/page/', '/_hub/']);
 });
 
-test('pending board folders use home labels with a directory boundary and tolerate cached data without home', () => {
+// docs/adr/2026-11-04-1914-a-new-board-shows-its-start-steps-and-clone-progress.md
+test("a starting board's row shows the three start steps on the board's phase bars: cloning fills to git's percent, the later steps run the pulse, each with its seconds", () => {
+  const now = Date.parse('2026-11-04T19:00:00.000Z');
+  const at = (seconds) => new Date(now - seconds * 1000).toISOString();
+  const row = (s) => {
+    const html = ui.sidebar({ sites: [], starting: [{ route: 'audit', title: 'Backend audit', failed: false, ...s }] }, { now });
+    return /<div class="sb-row sb-starting" data-starting="audit">.*?<\/div>/.exec(html)[0];
+  };
+  const plus = /<span class="icon sb-plus" aria-hidden="true"><svg [^>]*>.*?<\/svg><\/span>/.source;
+  const bars = (label, inner) => `<span class="sb-steps"><span class="phase-bars" role="img" aria-label="${label}" title="${label}">${inner}</span></span>`;
+  const shape = (label, inner, caption) => new RegExp(`^<div class="sb-row sb-starting" data-starting="audit">${plus}<span class="sb-text"><span class="sb-title">Backend audit</span>${bars(label, inner).replace(/[()]/g, '\\$&')}<span class="sb-sub sb-step">${caption.replace(/[()]/g, '\\$&')}</span></span></div>$`);
+  assert.match(row({ step: 'cloning', stepAt: at(7.9), percent: 42 }), shape('cloning, step 1 of 3', '<i class="fill" style="--p:42%"></i><i class=""></i><i class=""></i>', 'cloning (42%) · 7s'));
+  assert.match(row({ step: 'cloning', stepAt: at(0) }), shape('cloning, step 1 of 3', '<i class="fill" style="--p:0%"></i><i class=""></i><i class=""></i>', 'cloning (0%) · 0s'));
+  assert.match(row({ step: 'starting', stepAt: at(12) }), shape('starting orchestrator, step 2 of 3', '<i class="done"></i><i class="now"></i><i class=""></i>', 'starting orchestrator · 12s'));
+  assert.match(row({ step: 'landing', stepAt: at(125) }), shape('landing it, step 3 of 3', '<i class="done"></i><i class="done"></i><i class="now"></i>', 'landing it · 125s'));
+  assert.match(row({ step: 'starting', stepAt: new Date(now + 4000).toISOString() }), /starting orchestrator · 0s/, "a host clock ahead of this device's counts from 0s");
+  assert.equal(ui.startCaption({ step: 'landing', stepAt: at(3) }, now), 'landing it · 3s');
+});
+
+test("a failed start's sheet labels its folder from home with a directory boundary, and without home shows the whole path", () => {
   const home = '/Users/you';
   for (const [repo, label] of [[`${home}/x`, '~/x'], [home, '~'], ['/opt/x', '/opt/x'], [`${home}2/x`, `${home}2/x`]]) {
-    const data = { home, sites: [], starting: [{ route: 'new', title: 'New', repo, failed: false }] };
-    assert.ok(ui.sidebar(data).includes(`New · ${label}`));
-    assert.ok(ui.sidebar({ ...data, home: undefined }).includes(`New · ${repo}`));
     const failed = { route: 'new', title: 'New', repo, failed: true };
     assert.ok(ui.failedStart(failed, { home }).includes(`<dt>Repo</dt><dd>${label}</dd>`));
     assert.ok(ui.failedStart(failed).includes(`<dt>Repo</dt><dd>${repo}</dd>`));
@@ -909,7 +926,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   assert.match(css, /button\.build\.ready, button\.unhold, button\.closes \{[^}]*background: var\(--color-notice\)/);
 
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
-  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-phase-bars.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const clicks = [], later = [];
   const B = { $: () => ({}), alive: () => false, on: (el, type, fn) => { if (type === 'click') clicks.push(fn); }, later: (ms, fn) => later.push([ms, fn]), store: {}, state: { board: { items: [] }, mainPull: { sending: false, open: false } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
@@ -949,7 +966,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
 
 test("a card with a worktree opens it in VS Code from its Links line after Notes, only on the host", () => {
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
-  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-phase-bars.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const B = { $: () => ({}), on() {}, later() {}, store: {}, state: { board: { items: [], onHost: true } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
@@ -966,7 +983,7 @@ test("a card with a worktree opens it in VS Code from its Links line after Notes
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 test("the open card's details list shows Parent, Children, Related to, Blocked by and Waits on it as rows of tappable labels, leaving out empty rows; the workflow row has no follow-up Build", () => {
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
-  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-phase-bars.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
@@ -1034,7 +1051,7 @@ test("an open card that can be implemented shows Implement rightmost in its acti
   assert.doesNotMatch(css, /button\.build[,\s{]/);
 
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
-  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-phase-bars.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
@@ -1082,6 +1099,15 @@ test("a refused Implement's reason takes the card's status line, in place of its
   const html = ui.workLines({ ...workCard, lane: 'todo', builder: null, next: 'Grill the notes', refusal: reason });
   assert.match(html, /<div class="line3 sub refused">Couldn&#39;t start implementing: it&#39;s held\. Unhold it, then tap Implement\.<\/div>/);
   assert.doesNotMatch(html, /Next: /);
+});
+
+test("the phase bars draw any list of phases: the board's five build phases and a start's three steps share one renderer", () => {
+  assert.equal(ui.phaseBars(null, ['a', 'b']), '');
+  assert.equal(ui.phaseBars({ reached: 2, running: true, dim: true, label: 'B <2>' }, ['a', 'b', 'c']),
+    '<span class="phase-bars dim" role="img" aria-label="B &lt;2&gt;" title="B &lt;2&gt;"><i class="done"></i><i class="now"></i><i class=""></i></span>');
+  assert.equal(ui.phaseBars({ reached: 1, running: false, fill: 30, label: 'x' }, ['a', 'b', 'c']),
+    '<span class="phase-bars" role="img" aria-label="x" title="x"><i class="done"></i><i class="fill" style="--p:30%"></i><i class=""></i></span>');
+  assert.match(ui.workLines({ ...workCard, lane: 'progress', builder: { progress: 'x', phase: 'building', at: null } }), /<span class="phase-bars" role="img" aria-label="Building, step 2 of 5" title="Building, step 2 of 5"><i class="done"><\/i><i class="now"><\/i>(<i class=""><\/i>){3}<\/span>/);
 });
 
 test('a building card in In Progress ends its time row with five bars, before the new-messages count, done phases filled and the current one marked', () => {

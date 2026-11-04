@@ -16,7 +16,7 @@ fs.writeFileSync(claudeConfig, '{}');
 const shownConfig = '~/claude-config/.claude.json';
 const config = () => JSON.parse(fs.readFileSync(claudeConfig, 'utf8'));
 const trusted = (dir) => config().projects?.[dir]?.hasTrustDialogAccepted === true;
-const { requestBoard, retryBoard, dismissBoard } = await import('./new-board.mjs');
+const { requestBoard, retryBoard, dismissBoard, clonePercent } = await import('./new-board.mjs');
 const { repoService, repoPath, validateBranch, runRepo, githubGitArgv } = await import('./repos.mjs');
 const { boardRepo, changeBoardRepo, migrateBoardRepos, githubFromOrigin } = await import('./board-repo.mjs');
 const { startingBoards, STARTING_WAIT, BG_SETTINGS } = await import('./sessions.mjs');
@@ -45,7 +45,8 @@ const repoRun = async (command, argv, options) => {
   cloneCalls.push([command, argv]);
   assert.equal(options.env.GIT_TERMINAL_PROMPT, '0');
   const [url, dest] = argv.slice(-2);
-  assert.deepEqual(argv, githubGitArgv(['clone', url, dest]));
+  assert.deepEqual(argv, githubGitArgv(['clone', '--progress', url, dest]));
+  for (const chunk of options.progressLines || []) options.onStderr(chunk);
   fs.mkdirSync(dest, { recursive: true });
   const init = await runRepo('git', ['-C', dest, 'init', '--quiet', '-b', 'main']);
   assert.equal(init.status, 0, init.stderr);
@@ -94,10 +95,11 @@ test('new repo requests clone before starting a session and store the board bran
   const rec = readManifest().starting['bob-s-audit'];
   assert.equal(started.session, rec.session);
   assert.ok(fs.existsSync(path.join(sessionsDir, `${rec.session}.json`)));
-  assert.deepEqual(rec, { title: "Bob's audit", purpose: 'Review $HOME changes', repo, github: 'owner/new-project', branch: 'release/next', tickets: { source: 'internal', prefix: 'INT' }, phase: 'starting', asked_at: pending.asked_at, session: rec.session, label: "Bob's audit", since: rec.since });
+  assert.deepEqual(rec, { title: "Bob's audit", purpose: 'Review $HOME changes', repo, github: 'owner/new-project', branch: 'release/next', tickets: { source: 'internal', prefix: 'INT' }, phase: 'starting', phase_at: rec.phase_at, asked_at: pending.asked_at, session: rec.session, label: "Bob's audit", since: rec.since });
+  assert.ok(rec.phase_at >= pending.asked_at && rec.since >= rec.phase_at);
   assert.ok(fs.existsSync(path.join(repo, '.git')));
   const at = Date.parse(rec.asked_at);
-  assert.deepEqual(startingBoards(readManifest(), at), [{ route: 'bob-s-audit', title: "Bob's audit", repo, phase: 'starting', branch: 'release/next', tickets: { source: 'internal', prefix: 'INT' }, askedAt: rec.asked_at, failed: false }]);
+  assert.deepEqual(startingBoards(readManifest(), at), [{ route: 'bob-s-audit', title: "Bob's audit", repo, step: 'landing', stepAt: rec.since, branch: 'release/next', tickets: { source: 'internal', prefix: 'INT' }, askedAt: rec.asked_at, failed: false }]);
   assert.equal(startingBoards(readManifest(), at + STARTING_WAIT)[0].failed, true);
   noEvents();
   await assert.rejects(dismissBoard(request.route), { status: 400 });
@@ -142,6 +144,38 @@ test('failed clones leave no clone or temporary directory and never start claude
   assert.equal(readManifest().starting, undefined);
 });
 
+// docs/adr/2026-11-04-1914-a-new-board-shows-its-start-steps-and-clone-progress.md
+test("a fresh clone's progress stays in hub memory as one percent, reaching the sidebar at most once a second, and each start step records when it began", async () => {
+  saveJSON(manifestFile, { sites });
+  const { run } = claude();
+  let release;
+  const waiting = new Promise((resolve) => { release = resolve; });
+  const lines = ['Cloning into \'x\'...\n', 'remote: Counting objects:  50% (1/2)\r', 'Receiving objects:  10% (1/10)\r', 'Receiving objects:  5', '0% (5/10), 1.00 MiB | 2 MiB/s\r'];
+  const service = repoService({ base, run: async (command, argv, options) => {
+    if (argv.includes('clone')) { const r = repoRun(command, argv, { ...options, progressLines: lines }); await waiting; return r; }
+    return repoRun(command, argv, options);
+  } });
+  const changes = [];
+  const request = await requestBoard(input('Progress board', 'owner/progress'), { run, live, repos: service, changed: () => changes.push(clonePercent('progress-board')) });
+  for (let i = 0; i < 200 && clonePercent('progress-board') === undefined; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+  const asked = readManifest().starting['progress-board'].asked_at;
+  assert.equal(clonePercent('progress-board'), 45);
+  assert.deepEqual(changes, [9], 'the first percent goes out at once; the rest wait out the second');
+  const [row] = startingBoards(readManifest(), Date.now(), clonePercent);
+  assert.deepEqual([row.step, row.stepAt, row.percent], ['cloning', asked, 45]);
+  assert.equal(startingBoards(readManifest(), Date.now())[0].percent, undefined);
+  release();
+  await request.started;
+  assert.equal(clonePercent('progress-board'), undefined);
+  assert.deepEqual(changes, [9, undefined]);
+  const rec = readManifest().starting['progress-board'];
+  assert.deepEqual(startingBoards(readManifest(), Date.now(), clonePercent).map((s) => [s.step, s.stepAt, s.percent]), [['landing', rec.since, undefined]]);
+  const m = readManifest();
+  delete m.starting['progress-board'].session;
+  saveJSON(manifestFile, m);
+  assert.deepEqual(startingBoards(readManifest()).map((s) => [s.step, s.stepAt]), [['starting', rec.phase_at]]);
+});
+
 test("a claude that fails marks the Starting row Didn't start at once with its first error line, which Dismiss removes", async () => {
   const answers = [
     [{ status: 1, stdout: '', stderr: 'spawn claude ENOENT' }, /^claude --bg failed \(1\): spawn claude ENOENT$/],
@@ -159,7 +193,8 @@ test("a claude that fails marks the Starting row Didn't start at once with its f
     assert.ok(error.length <= 200, error);
     const rec = readManifest().starting[route];
     assert.deepEqual([rec.error, rec.session], [error, undefined]);
-    assert.deepEqual(startingBoards(readManifest(), Date.parse(rec.asked_at)), [{ route, title: `Broken ${i}`, repo: path.join(base, 'owner/project'), phase: 'starting', branch: 'main', tickets: { source: 'internal', prefix: 'INT' }, askedAt: rec.asked_at, failed: true, error }]);
+    assert.equal(Boolean(rec.phase_at), i === 0, 'only the first start clones; an existing clone starts on starting orchestrator, so its phase never changes');
+    assert.deepEqual(startingBoards(readManifest(), Date.parse(rec.asked_at)), [{ route, title: `Broken ${i}`, repo: path.join(base, 'owner/project'), step: 'starting', stepAt: rec.phase_at || rec.asked_at, branch: 'main', tickets: { source: 'internal', prefix: 'INT' }, askedAt: rec.asked_at, failed: true, error }]);
     noEvents();
     assert.deepEqual(await dismissBoard(route), { route });
     assert.equal(readManifest().starting, undefined);

@@ -67,12 +67,13 @@ export async function repoLookupRoute(url, { repos, manifest, sendJSON }) {
   catch (e) { return sendJSON(e.status || 502, { error: e.message }); }
 }
 
-export function runRepo(command, argv, options = {}) {
+// onStderr takes each stderr chunk as it arrives, such as git's progress.
+export function runRepo(command, argv, { onStderr, ...options } = {}) {
   return new Promise((resolve) => {
     const child = spawn(command, argv, { ...options, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
     child.stdout.on('data', (d) => { stdout += d; });
-    child.stderr.on('data', (d) => { stderr += d; });
+    child.stderr.on('data', (d) => { stderr += d; onStderr?.(String(d)); });
     child.on('error', (e) => resolve({ status: 1, stdout, stderr: e.message }));
     child.on('close', (status) => resolve({ status, stdout, stderr }));
   });
@@ -118,6 +119,23 @@ export function isClone(dir, base = reposDir()) {
   return hasGit(real);
 }
 
+// git clone --progress's stderr as one percent to onPercent, receiving objects the first 90 and resolving deltas the last
+// 10 (docs/adr/2026-11-04-1914-a-new-board-shows-its-start-steps-and-clone-progress.md). git redraws a progress line
+// after \r, and a chunk can end mid-line. → a function taking each chunk
+export function cloneMeter(onPercent) {
+  let tail = '', receiving = 0, resolving = 0;
+  return (chunk) => {
+    const lines = (tail + chunk).split(/[\r\n]/);
+    tail = lines.pop();
+    for (const line of lines) {
+      const m = /^(Receiving objects|Resolving deltas):\s+(\d+)%/.exec(line.trim());
+      if (!m) continue;
+      if (m[1] === 'Receiving objects') receiving = Number(m[2]); else resolving = Number(m[2]);
+      onPercent(Math.floor(receiving * 0.9 + resolving * 0.1));
+    }
+  };
+}
+
 const PROGRESS = /^(?:Cloning into |remote: (?:Enumerating|Counting|Compressing|Total) |Receiving objects:|Resolving deltas:|Updating files:)/;
 // A failed command's error line (docs/adr/2026-11-02-1207-a-clone-uses-ghs-token-over-https.md): git prints progress before its
 // fatal: line and may follow it with a blank line and advice. Error lines reach the page, and git can echo a remote
@@ -149,11 +167,11 @@ const publicGit = (run, argv) => run('git', ['-c', 'credential.helper=', ...argv
 // Git over https with gh's token as its only credential, whatever gh's git_protocol says, and no prompt, so a public
 // repo needs no sign-in and one the token can't reach fails at once.
 export const githubGitArgv = (argv) => ['-c', 'credential.helper=', '-c', 'credential.https://github.com.helper=!gh auth git-credential', ...argv];
-const githubGit = (run, argv) => run('git', githubGitArgv(argv), { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
+const githubGit = (run, argv, options = {}) => run('git', githubGitArgv(argv), { ...options, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
 // A remote board's git uses git's own credential (SSH agent, keychain helper) with every prompt off, ssh's too, so a
 // remote it can't reach fails at once instead of waiting on a password or host-key question.
 export const remoteGitEnv = (env = process.env) => ({ ...env, GIT_TERMINAL_PROMPT: '0', GIT_SSH_COMMAND: env.GIT_SSH_COMMAND || 'ssh -o BatchMode=yes' });
-const remoteGit = (run, argv) => run('git', argv, { env: remoteGitEnv() });
+const remoteGit = (run, argv, options = {}) => run('git', argv, { ...options, env: remoteGitEnv() });
 const gitFor = (repo) => (isRemote(repo) ? remoteGit : githubGit);
 const cloneURL = (repo) => (isRemote(repo) ? repo : `https://github.com/${repo}.git`);
 
@@ -281,8 +299,8 @@ export function repoService({ run = runRepo, base = reposDir(), now = Date.now }
         return remote;
       }
     },
-    // repo is a GitHub owner/name or a remote link.
-    async ensure(repo, branch = 'main') {
+    // repo is a GitHub owner/name or a remote link. progress, if given, takes a fresh clone's percent (cloneMeter).
+    async ensure(repo, branch = 'main', { progress } = {}) {
       const dest = repoPath(repo, base);
       validateBranch(branch);
       fs.mkdirSync(path.dirname(dest), { recursive: true });
@@ -295,7 +313,7 @@ export function repoService({ run = runRepo, base = reposDir(), now = Date.now }
         }
         const temp = fs.mkdtempSync(path.join(path.resolve(base), '.clone-'));
         try {
-          const clone = await gitFor(repo)(run, ['clone', cloneURL(repo), path.join(temp, 'repo')]);
+          const clone = await gitFor(repo)(run, ['clone', '--progress', cloneURL(repo), path.join(temp, 'repo')], progress ? { onStderr: cloneMeter(progress) } : {});
           if (clone.status !== 0) refuse(isRemote(repo) ? reachError(clone, repo) : failure(clone, 'git clone failed'), 502);
           await verifyClone(run, path.join(temp, 'repo'), repo);
           await fetchBranch(run, path.join(temp, 'repo'), repo, branch);

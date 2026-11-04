@@ -338,6 +338,8 @@ button.attach:disabled { opacity: .35; }
 .phase-bars { --bar-fill: var(--color-notice); }
 .phase-bars.dim { --bar-fill: color-mix(in srgb, var(--muted) 55%, transparent); }
 .phase-bars i.done, .phase-bars i.now { background: var(--bar-fill); }
+/* A bar part way, to --p: a starting board's clone (ui-sidebar.js). */
+.phase-bars i.fill { background: linear-gradient(to right, var(--bar-fill) var(--p), var(--line) var(--p)); }
 @keyframes pulse-fill { 50% { background-color: color-mix(in srgb, var(--color-notice) 35%, transparent); } }
 @media (prefers-reduced-motion: no-preference) { .phase-bars:not(.dim) i.now { animation: pulse-fill 1.4s ease-in-out infinite; } }
 /* A stale build's status line, dot included, is the needs-you red, and a tap on it nudges Claude (ui-cards.js builderStatus). */

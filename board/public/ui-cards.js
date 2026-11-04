@@ -1,6 +1,6 @@
-// Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js and ui-enums.js.
+// Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js, ui-enums.js and ui-phase-bars.js.
 (function () {
-  const { esc, ago, clock, cardTime, etaLine, workingLine, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, LINK_ARROW } = globalThis.BoardUI;
+  const { esc, ago, clock, cardTime, etaLine, workingLine, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, LINK_ARROW, phaseBars: bars } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   // The PR badge is the one place a PR's state shows: its mark and tone, marked like the reviewer and CI chips, and its
   // title (docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md). A card with several PRs shows a
@@ -191,12 +191,7 @@
     if (had !== has) return has ? 'enter' : 'leave';
     return has && next > prev ? 'fill' : null;
   }
-  function phaseBars(strip) {
-    if (!strip) return '';
-    const { reached, running, dim, label } = strip;
-    const look = (i) => (i === reached - 1 && running ? 'now' : i < reached ? 'done' : '');
-    return `<span class="phase-bars${dim ? ' dim' : ''}" role="img" aria-label="${esc(label)}" title="${esc(label)}">${BUILD_PHASES.map((_, i) => `<i class="${look(i)}"></i>`).join('')}</span>`;
-  }
+  const phaseBars = (strip) => bars(strip, BUILD_PHASES);
   // A stale build's status line is the needs-you red, and a tap on it nudges Claude to check the implementer.
   function builderStatus(it) {
     const classes = `line3 sub agent${it.builder.planner ? ' planner' : ''}`;

@@ -38,9 +38,20 @@ const COMPACT_STATE = path.join(os.homedir(), '.claude', 'kickflip', 'compact-st
 // Whether a Starting record didn't start: its start recorded an error, or it hasn't joined STARTING_WAIT after it was asked.
 export const startFailed = (rec, now = Date.now()) => Boolean(rec.error) || now - Date.parse(rec.asked_at || rec.since) >= STARTING_WAIT;
 
-export function startingBoards(manifest, now = Date.now()) {
+// A Starting record's step (docs/adr/2026-11-04-1914-a-new-board-shows-its-start-steps-and-clone-progress.md): cloning;
+// starting, the orchestrator's session, from the clone's end; or landing, once a session is recorded, until it joins.
+// → {step, stepAt}, stepAt when the step began
+function startStep(rec) {
+  if (rec.session) return { step: 'landing', stepAt: rec.since };
+  if (rec.phase === 'cloning') return { step: 'cloning', stepAt: rec.asked_at };
+  return { step: 'starting', stepAt: rec.phase_at || rec.asked_at || rec.since };
+}
+
+// The sidebar's Starting rows. clonePercent(route) is a running clone's percent (new-board.mjs), which a cloning row carries.
+export function startingBoards(manifest, now = Date.now(), clonePercent = () => undefined) {
   return Object.entries(manifest.starting || {}).filter(([route]) => !routeRecord(manifest.sites, route)).map(([route, rec]) => ({
-    route, title: rec.title || rec.label || route, repo: rec.repo, ...(rec.phase ? { phase: rec.phase } : {}),
+    route, title: rec.title || rec.label || route, repo: rec.repo, ...startStep(rec),
+    ...(rec.phase === 'cloning' && clonePercent(route) !== undefined ? { percent: clonePercent(route) } : {}),
     ...(rec.branch ? { branch: rec.branch, tickets: rec.tickets } : {}),
     askedAt: rec.asked_at || rec.since, failed: startFailed(rec, now), ...(rec.error ? { error: rec.error } : {}),
   }));

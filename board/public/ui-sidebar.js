@@ -1,10 +1,11 @@
 // The sidebar of every site (docs/adr/2026-10-29-1639-a-sidebar-of-every-board-replaces-the-hub-home.md), drawn from the hub's
-// /_hub/sidebar.json. It needs only ui-page-header.js, loaded before it, for its head, which is the page header itself:
-// the app shell runs it through sidebar.js, and hub/hub.mjs renders the shell's first sidebar with both in a vm context.
+// /_hub/sidebar.json. It needs only ui-page-header.js, loaded before it, for its head, which is the page header itself, and
+// ui-phase-bars.js for a starting board's steps: the app shell runs it through sidebar.js, and hub/hub.mjs renders the
+// shell's first sidebar with all three in a vm context.
 // Its links are root-absolute, since every site and hub page sits beside this one on the hub. sidebar.css styles it.
 (function () {
   // ui.js replaces the BoardUI global when it loads after this, so the header renderer is held here.
-  const { header } = globalThis.BoardUI || {};
+  const { header, phaseBars } = globalThis.BoardUI || {};
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const svg = (paths, size = 17) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
   const ICONS = {
@@ -151,6 +152,23 @@
       + `<div class="sheet-actions fs-actions"><button type="button" data-failed-dismiss>Dismiss</button>${s.branch ? '<button type="button" class="primary" data-failed-retry>Retry</button>' : ''}</div></div>`;
   }
 
+  // A starting board's three steps (docs/adr/2026-11-04-1914-a-new-board-shows-its-start-steps-and-clone-progress.md):
+  // s.step is cloning, starting (the orchestrator's session) or landing (the session joining the hub), since s.stepAt.
+  // Cloning fills its bar to git's percent; the later steps run the bars' pulse, never a fill.
+  const START_STEPS = { cloning: 'cloning', starting: 'starting orchestrator', landing: 'landing it' };
+  const STEP_KEYS = Object.keys(START_STEPS);
+  // The lower row: the step, cloning with its percent, and its seconds. A host clock ahead of this device's counts from 0s.
+  function startCaption(s, now = Date.now()) {
+    const seconds = Math.max(0, Math.floor((now - Date.parse(s.stepAt)) / 1000));
+    return `${s.step === 'cloning' ? `cloning (${s.percent || 0}%)` : START_STEPS[s.step]} · ${seconds}s`;
+  }
+  function startSteps(s) {
+    const at = STEP_KEYS.indexOf(s.step);
+    const label = `${START_STEPS[s.step]}, step ${at + 1} of ${STEP_KEYS.length}`;
+    const strip = s.step === 'cloning' ? { reached: 0, running: false, fill: s.percent || 0, label } : { reached: at + 1, running: true, label };
+    return `<span class="sb-steps">${phaseBars(strip, STEP_KEYS)}</span>`;
+  }
+
   // The New version row. update: the app's reload, null | 'ready' | 'reloading', which comes first. upgrade:
   // /_hub/sidebar.json's npm update, null | {state: available | waiting | updating | failed, version, builders, error}
   // (hub/upgrade.mjs; docs/adr/2026-11-03-1521-the-hub-offers-a-newer-kickflip-from-npm.md). A reload, and an asked
@@ -170,7 +188,8 @@
   // subscription as sidebar.js finds it, 'on' | 'off' | 'blocked' | 'install' (iOS outside the Home Screen app), or
   // null while unknown or unsupported. switching: switch mode shows, each row with its key and the hint on the Boards label.
   // update: null | 'ready' | 'reloading'.
-  function sidebar(data, { here = '', device = null, switching = false, update = null } = {}) {
+  // now: the time a starting board's seconds count to.
+  function sidebar(data, { here = '', device = null, switching = false, update = null, now = Date.now() } = {}) {
     const sites = data?.sites || [];
     const keys = switching ? new Map(switchKeys(data).map((k) => [k.href, k])) : null;
     const paused = data?.pause?.state === 'paused';
@@ -185,7 +204,7 @@
       ? `<button type="button" class="sb-row sb-starting sb-failed" data-starting="${esc(s.route)}" data-failed-start="${esc(s.route)}" aria-haspopup="dialog">${plus}`
         + `<span class="sb-text"><span class="sb-title">${esc(s.title)}</span><span class="sb-sub">failed to start</span></span></button>`
       : `<div class="sb-row sb-starting" data-starting="${esc(s.route)}">${plus}`
-        + `<span class="sb-text"><span class="sb-title">${s.phase === 'cloning' ? 'cloning…' : 'starting…'}</span><span class="sb-sub">${esc(s.title)}${s.repo ? ` · ${esc(repoLabel(s.repo, data.home))}` : ''}${s.phase === 'cloning' ? ' · Cloning from GitHub' : ' · Waiting for the board to answer'}</span></span></div>`)).join('');
+        + `<span class="sb-text"><span class="sb-title">${esc(s.title)}</span>${startSteps(s)}<span class="sb-sub sb-step">${esc(startCaption(s, now))}</span></span></div>`)).join('');
     const newBoard = `<button type="button" class="sb-row sb-new" data-new-board aria-haspopup="dialog">${plus}<span class="sb-text"><span class="sb-title">New board</span></span></button>`;
     const turnOn = device === 'off' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Turn on notifications', sub: 'Off on this device', cls: 'sb-turnon' })
       : device === 'install' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })
@@ -216,5 +235,5 @@
       + `<div class="sb-group">${boards.map(siteRow).join('')}${pending}${newBoard}</div></section></div>`;
   }
 
-  Object.assign(globalThis.BoardUI ||= {}, { sidebar, failedStart, updateRow, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, usageTone, usageBar, usageWords });
+  Object.assign(globalThis.BoardUI ||= {}, { sidebar, failedStart, startCaption, updateRow, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, usageTone, usageBar, usageWords });
 })();

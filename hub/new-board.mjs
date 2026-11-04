@@ -49,14 +49,15 @@ function errorLine(message) {
   return line.length > 200 ? `${line.slice(0, 199)}…` : line;
 }
 
-// Records the start's outcome on the route's Starting row: its session as `kickflip start` records one, or `error`. A
-// route that has joined or been dismissed meanwhile is left alone.
+// Records the start's outcome on the route's Starting row: a new phase, with when it began in phase_at, its session as
+// `kickflip start` records one, or `error`. A route that has joined or been dismissed meanwhile is left alone.
 async function recordStart(route, outcome) {
   await withManifestLock(async () => {
     const m = readManifest();
     const pending = routeRecord(m.starting, route);
     if (!pending || routeRecord(m.sites, route)) return;
-    m.starting[route] = outcome.phase ? { ...pending, phase: outcome.phase } : outcome.error ? { ...pending, error: outcome.error }
+    if (outcome.phase && outcome.phase === pending.phase) return;
+    m.starting[route] = outcome.phase ? { ...pending, phase: outcome.phase, phase_at: new Date().toISOString() } : outcome.error ? { ...pending, error: outcome.error }
       : { ...pending, session: outcome.session, label: outcome.name, since: new Date().toISOString(), repo: outcome.repo, ...(outcome.model ? { model: outcome.model } : {}) };
     await writeManifest(m);
   });
@@ -68,12 +69,26 @@ const startingRecord = ({ title, purpose, repo, github, remote, branch, tickets 
   phase: repos.cloned(github || remote) ? 'starting' : 'cloning', asked_at: new Date().toISOString(),
 });
 
-// Prepares the clone and starts the route's session, recording the outcome on its Starting row. → a promise that settles
-// once the outcome is recorded, as {session} or {error}, and never rejects.
+// A fresh clone's percent by route, in hub memory only while it runs: the sidebar shows it, and the manifest keeps only
+// the coarse phase (docs/adr/2026-11-04-1914-a-new-board-shows-its-start-steps-and-clone-progress.md).
+const clonePercents = new Map();
+export const clonePercent = (route) => clonePercents.get(route);
+const PROGRESS_EVERY_MS = 1000;
+
+// Prepares the clone and starts the route's session, recording the outcome on its Starting row. The clone's percent
+// calls changed at most once a second. → a promise that settles once the outcome is recorded, as {session} or {error},
+// and never rejects.
 async function start(route, { purpose, repo, github, remote, branch }, { run, live, repos, changed }) {
   let outcome;
+  let sent = -Infinity;
+  const progress = (percent) => {
+    clonePercents.set(route, percent);
+    if (Date.now() - sent < PROGRESS_EVERY_MS) return;
+    sent = Date.now();
+    changed();
+  };
   try {
-    await repos.ensure(github || remote, branch);
+    try { await repos.ensure(github || remote, branch, { progress }); } finally { clonePercents.delete(route); }
     await recordStart(route, { phase: 'starting' });
     changed();
     const r = await startSession(route, { repo, prompt: joinFlags({ purpose }), run, live, clones: repos.base });

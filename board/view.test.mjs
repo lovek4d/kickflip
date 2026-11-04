@@ -10,7 +10,7 @@ import { freePorts, until } from '../shared/test-helpers.mjs';
 import { miniDom } from './mini-dom.mjs';
 import { buildBoard, slimDone, BUTTON, ACTION_KIND } from './domain.mjs';
 
-const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-order.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
+const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-phase-bars.js', 'ui-order.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
   'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-arch.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-frame.js', 'router.js'];
 
@@ -950,7 +950,7 @@ test("the page header's logo toggles the sidebar at every width: from 900px it c
   const { storage, localStorage } = memoryStorage();
   const handlers = [];
   const classes = (set = new Set()) => ({ set, add: (c) => set.add(c), remove: (c) => set.delete(c), contains: (c) => set.has(c), toggle: (c, on = !set.has(c)) => { if (on) set.add(c); else set.delete(c); return on; } });
-  const el = () => ({ classList: classes(), attrs: {}, kids: [], innerHTML: '', scrollTop: 0, addEventListener() {},
+  const el = () => ({ classList: classes(), attrs: {}, kids: [], innerHTML: '', scrollTop: 0, addEventListener() {}, querySelectorAll: () => [],
     setAttribute(k, v) { this.attrs[k] = v; }, querySelector(sel) { return this.kids.find((k) => k.className === sel.slice(1)) || null; },
     append(k) { this.kids.push(k); }, closest: () => null });
   const aside = el();
@@ -969,7 +969,7 @@ test("the page header's logo toggles the sidebar at every width: from 900px it c
       addEventListener: (type, fn) => handlers.push({ type, fn }) } };
   win.window = win;
   vm.createContext(win);
-  for (const file of ['ui-page-header.js', 'ui-sidebar.js', 'sidebar.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), win);
+  for (const file of ['ui-phase-bars.js', 'ui-page-header.js', 'ui-sidebar.js', 'sidebar.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), win);
   const data = { sites: [{ route: 'a', title: 'A', board: true, count: 1 }, { route: 'b', title: 'B', board: true, count: 2 }, { route: 'learn', title: 'Learn', board: false, count: 0 }] };
   const sidebar = win.Sidebar.mount({ here: 'a', data, poll: false });
   assert.equal(list.scrollTop, 1200);
@@ -1448,11 +1448,11 @@ test('New board chooses a searchable repo before board details, defaults its bra
       if (options.method === 'DELETE') { data = { ...data, starting: [] }; return repoResponse({}); }
       if (url.endsWith('/retry')) {
         if (retryRefusal) return { ok: false, text: async () => retryRefusal };
-        data = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', repo: repoList[0].clone, phase: 'cloning', askedAt: new Date().toISOString(), failed: false }] };
+        data = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', repo: repoList[0].clone, step: 'cloning', stepAt: new Date().toISOString(), askedAt: new Date().toISOString(), failed: false }] };
         return repoResponse({ route: 'backend-audit' });
       }
       if (refusal) return { ok: false, text: async () => refusal };
-      return new Promise((resolve) => { finish = () => { data = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', repo: repoList[0].clone, phase: 'cloning', failed: false }] }; resolve(repoResponse({ route: 'backend-audit' })); }; });
+      return new Promise((resolve) => { finish = () => { data = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', repo: repoList[0].clone, step: 'cloning', stepAt: new Date().toISOString(), failed: false }] }; resolve(repoResponse({ route: 'backend-audit' })); }; });
     };
     const sidebar = win.Sidebar.mount({ data });
     const aside = doc.getElementById('sidebar');
@@ -1533,7 +1533,7 @@ test('New board chooses a searchable repo before board details, defaults its bra
     await tick();
     assert.deepEqual(posted.at(-1), ['/_hub/new-board', 'POST', { name: 'Backend audit', github: 'owner/project', branch: 'release/next', purpose: 'Review changes', tickets: wide ? { source: 'internal', prefix: 'INT' } : { source: 'github' } }, 'application/json']);
     assert.equal(doc.getElementById('newBoardSheet'), null);
-    assert.match(aside.querySelector('[data-starting="backend-audit"]').textContent, /cloning….*Backend audit/);
+    assert.match(aside.querySelector('[data-starting="backend-audit"]').textContent, /Backend audit.*cloning \(0%\) · 0s/);
     assert.equal(aside.querySelector('a[href="/backend-audit/"]'), null);
     assert.equal(aside.classList.contains('open'), !wide);
     const failed = { route: 'backend-audit', title: 'Backend audit', repo: repoList[0].clone, branch: 'release/next', tickets: { source: 'internal', prefix: 'INT' }, askedAt: new Date().toISOString(), failed: true, error: 'claude --bg failed (1): Not logged in' };
@@ -1562,7 +1562,7 @@ test('New board chooses a searchable repo before board details, defaults its bra
     await tick();
     assert.equal(doc.getElementById('failedStartSheet'), null);
     assert.equal(failedRow(), null);
-    assert.match(aside.querySelector('[data-starting="backend-audit"]').textContent, /(starting|cloning)….*Backend audit/);
+    assert.match(aside.querySelector('[data-starting="backend-audit"]').textContent, /Backend audit.*(starting orchestrator|cloning \(0%\)) · 0s/);
     data = { ...data, starting: [failed] };
     win.Sidebar.mount({ data });
     failedSheet = openFailed();
@@ -2014,6 +2014,47 @@ test('Board Settings shows repo and branch, changes them as JSON and closes the 
   assert.match(root.querySelector('#boardRepoStatus').textContent, /session has been told/);
   view.unmount();
   assert.equal(closed, 1);
+});
+
+// docs/adr/2026-11-04-1914-a-new-board-shows-its-start-steps-and-clone-progress.md
+test("a starting board's seconds tick in place each second without a repaint, its running bar pulses in step with the clock across repaints, and at join its row turns into the board's row, which fades in", () => {
+  const page = repoPage();
+  const { win, doc } = page;
+  const aside = doc.getElementById('sidebar');
+  const asked = Date.parse('2026-11-04T19:00:00.000Z');
+  let clock = asked + 3000;
+  win.Date = class extends Date { static now() { return clock; } };
+  const ticks = [];
+  const setInterval = win.setInterval;
+  win.setInterval = (fn, ms) => { const id = setInterval(fn, ms); ticks.push({ id, fn, ms }); return id; };
+  const starting = [{ route: 'audit', title: 'Backend audit', step: 'starting', stepAt: new Date(asked).toISOString(), failed: false }];
+  const sidebar = win.Sidebar.mount({ data: { sites: [], starting } });
+  const caption = () => aside.querySelector('[data-starting="audit"] .sb-step');
+  const shown = caption();
+  assert.equal(shown.textContent, 'starting orchestrator · 3s');
+  assert.equal(aside.querySelector('[data-starting="audit"] .phase-bars i.now').style.animationDelay, `-${(asked + 3000) % 1400}ms`);
+  const tick = ticks.find((t) => t.ms === 1000);
+  clock = asked + 5000;
+  tick.fn();
+  assert.equal(caption(), shown, 'the tick sets the text in place');
+  assert.equal(shown.textContent, 'starting orchestrator · 5s');
+  clock = asked + 6100;
+  sidebar.setData({ sites: [], starting });
+  assert.equal(aside.querySelector('[data-starting="audit"] .phase-bars i.now').style.animationDelay, `-${(asked + 6100) % 1400}ms`);
+  assert.equal(page.left().intervals, 1);
+  clock = asked + 9000;
+  sidebar.setData({ sites: [{ route: 'audit', title: 'Backend audit', board: true, icon: '<span class="icon"></span>' }], starting: [] });
+  assert.equal(aside.querySelector('[data-starting="audit"]'), null);
+  const joined = aside.querySelector('a.sb-row[href="/audit/"]');
+  assert.equal(joined.classList.contains('sb-joined'), true);
+  assert.equal(page.left().intervals, 0, 'no starting row, no tick');
+  clock = asked + 10000;
+  sidebar.setData({ sites: [{ route: 'audit', title: 'Backend audit', board: true, icon: '<span class="icon"></span>' }], starting: [] });
+  const again = aside.querySelector('a.sb-row[href="/audit/"]');
+  assert.deepEqual([again.classList.contains('sb-joined'), again.style.animationDelay], [true, '-1000ms'], 'a repaint mid-fade carries it on');
+  clock = asked + 9000 + 2500;
+  sidebar.setData({ sites: [{ route: 'audit', title: 'Backend audit', board: true, icon: '<span class="icon"></span>' }], starting: [] });
+  assert.equal(aside.querySelector('a.sb-row[href="/audit/"]').classList.contains('sb-joined'), false);
 });
 
 test("s s shows each sidebar row's key and the Boards label's hint, and the next key opens that row through the shell; Escape, a click, a held modifier or 3 s with no key end it with nothing opened; s s does nothing in a text field or with a dialog open; on a drawer it opens the drawer and closes it again; and its keys never count toward the board's n n; a repaint mid-countdown carries the bar on from where it was", () => {

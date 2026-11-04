@@ -1,5 +1,5 @@
 // The sidebar's behaviour on a page with <aside id="sidebar" class="sidebar"> and <div id="sidebarScrim"
-// class="sidebar-scrim">, after ui-page-header.js and ui-sidebar.js (docs/adr/2026-10-29-1639-a-sidebar-of-every-board-replaces-the-hub-home.md).
+// class="sidebar-scrim">, after ui-phase-bars.js, ui-page-header.js and ui-sidebar.js (docs/adr/2026-10-29-1639-a-sidebar-of-every-board-replaces-the-hub-home.md).
 // Sidebar.mount({here, data}) paints `data` or the last copy this device stored; the app shell hands it each new copy
 // through setData from its one stream (shell.js). The page header's logo (a.hub) toggles the sidebar at every
 // width, with what waits on the other sites in its accessible label. Below 900px the sidebar is a drawer: the logo or a swipe in from the
@@ -16,6 +16,9 @@
 // → {setHere(route), setData(data), setUpdate(state), checkDevice(), close(), toggle(), keydown(e), pointerdown()}, toggle doing what the
 // logo does, checkDevice reading this device's push subscription again, and keydown and pointerdown taking a framed
 // page's events (view-frame.js), as the document's own
+// A starting board's row (docs/adr/2026-11-04-1914-a-new-board-shows-its-start-steps-and-clone-progress.md): its seconds
+// tick in place each second, and a repaint sets its running bar's pulse from the clock, so a new copy never restarts
+// it. When the board joins, its row fades in, and a repaint during the fade carries it on from where it was.
 (function () {
   const DATA_KEY = 'hub:sidebar';
   // app.html reads it before the first paint, so a collapsed rail never shows for a moment.
@@ -24,6 +27,9 @@
   // A phone has no keys to press, so it never shows the shortcuts sheet.
   const DESKTOP = '(hover: hover) and (pointer: fine)';
   const TWICE_MS = 1000;
+  // style.css pulse-fill's period, and sidebar.css sb-join's length.
+  const PULSE_MS = 1400;
+  const JOIN_MS = 2500;
   // paint() sets the bar's duration from this and its delay from switching.started.
   const IDLE_MS = 3000;
   const FIELD = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
@@ -46,7 +52,7 @@
     const aside = document.getElementById('sidebar');
     const scrim = document.getElementById('sidebarScrim');
     // ui.js replaces the BoardUI global when it loads after this, so the renderers are held here.
-    const { sidebar, failedStart, updateRow, othersWaiting, switchKeys, shortcuts } = globalThis.BoardUI || {};
+    const { sidebar, failedStart, startCaption, updateRow, othersWaiting, switchKeys, shortcuts } = globalThis.BoardUI || {};
     const none = { setHere() {}, setData() {}, setUpdate() {}, checkDevice() {}, close() {}, toggle() {}, keydown() {}, pointerdown() {} };
     if (!aside || !sidebar) return none;
     if (!data) { try { data = JSON.parse(read(DATA_KEY) || 'null'); } catch { data = null; } }
@@ -69,6 +75,30 @@
     // switching: {opened, started, timer} while switch mode shows, opened when it opened the drawer, started on performance.now().
     let switching = null;
     let painted = false;
+    // joined: when each board that was starting joined, by route, through its fade. ticker: the seconds' interval while
+    // a start runs.
+    const joined = new Map();
+    let ticker = null;
+    const startsRunning = () => (data?.starting || []).filter((s) => !s.failed);
+    function tickSteps() {
+      for (const s of startsRunning()) {
+        const caption = aside.querySelector(`[data-starting="${s.route}"] .sb-step`);
+        if (caption) caption.textContent = startCaption(s);
+      }
+    }
+    function paintStarts() {
+      const now = Date.now();
+      for (const bar of aside.querySelectorAll('.sb-starting .phase-bars i.now')) bar.style.animationDelay = `-${now % PULSE_MS}ms`;
+      for (const [route, at] of joined) {
+        const row = now - at < JOIN_MS && aside.querySelector(`a.sb-row[href="/${encodeURIComponent(route)}/"]`);
+        if (!row) { joined.delete(route); continue; }
+        row.classList.add('sb-joined');
+        row.style.animationDelay = `-${now - at}ms`;
+      }
+      const running = startsRunning().length > 0;
+      if (running && !ticker) ticker = setInterval(tickSteps, 1000);
+      if (!running && ticker) { clearInterval(ticker); ticker = null; }
+    }
     // A repaint keeps the drawer's scroll, so a new copy doesn't move the list under a finger.
     function paint() {
       html.classList.toggle('sb-update', Boolean(update || data?.upgrade));
@@ -90,11 +120,14 @@
       updateHTML = row;
       const list = aside.querySelector('.sb-scroll');
       if (list) list.scrollTop = top ?? list.scrollHeight;
+      paintStarts();
       painted = true;
       logoCount();
     }
     function setData(next) {
       if (!next) return;
+      const starting = new Set(startsRunning().map((s) => s.route));
+      for (const s of next.sites || []) if (starting.has(s.route)) joined.set(s.route, Date.now());
       data = next;
       write(DATA_KEY, JSON.stringify(data));
       paint();
@@ -145,7 +178,7 @@
           const response = await fetch('/_hub/new-board', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
           if (!response.ok) throw new Error(await response.text());
           const { route } = await response.json();
-          setData({ ...data, starting: [...(data?.starting || []).filter((s) => s.route !== route), { route, title: input.name, repo: selected.clone, phase: selected.cloned ? 'starting' : 'cloning', askedAt: new Date().toISOString(), failed: false }] });
+          setData({ ...data, starting: [...(data?.starting || []).filter((s) => s.route !== route), { route, title: input.name, repo: selected.clone, step: selected.cloned ? 'starting' : 'cloning', stepAt: new Date().toISOString(), askedAt: new Date().toISOString(), failed: false }] });
           if (rail.matches) collapse(false); else open();
           aside.querySelector(`[data-starting="${route}"]`)?.scrollIntoView({ block: 'nearest' });
           refresh().catch(() => {});
@@ -222,7 +255,7 @@
         } else if (retry) {
           act(retry, { path: '/retry', options: { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' } }, () => {
             const { error, ...rest } = s;
-            const again = { ...rest, phase: 'starting', askedAt: new Date().toISOString(), failed: false };
+            const again = { ...rest, step: 'starting', stepAt: new Date().toISOString(), askedAt: new Date().toISOString(), failed: false };
             setData({ ...data, starting: data.starting.map((x) => (x.route === route ? again : x)) });
           });
         }

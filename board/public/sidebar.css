@@ -50,6 +50,21 @@ html.sb-update body.has-sidebar > .top .hub::after, html.sb-update body.has-side
 .sidebar .sb-new { width: 100%; text-align: left; border: 0; background: transparent; font: inherit; }
 .sidebar .sb-starting { color: var(--muted); }
 .sidebar .sb-starting:hover, .sidebar .sb-starting:active { background: transparent; }
+/* A starting board's steps on the board's phase bars, spread evenly across the row, its step and seconds below
+   (docs/adr/2026-11-04-1914-a-new-board-shows-its-start-steps-and-clone-progress.md). */
+.sidebar .sb-steps { display: flex; margin: 6px 0 4px; }
+.sidebar .sb-steps .phase-bars { flex: 1 1 auto; min-width: 0; display: flex; gap: 3px; }
+.sidebar .sb-steps .phase-bars i { flex: 1 1 0; width: auto; min-width: 0; }
+.sidebar .sb-step { font-variant-numeric: tabular-nums; }
+/* At join the board's row fades in, ringed for a moment (sidebar.js). */
+.sidebar .sb-joined { animation: sb-join 2.5s ease-out both; }
+@keyframes sb-join {
+  0% { opacity: 0; transform: translateY(4px); box-shadow: 0 0 0 1px var(--accent) inset; }
+  20% { opacity: 1; transform: none; box-shadow: 0 0 0 1px var(--accent) inset; }
+  80% { box-shadow: 0 0 0 1px var(--accent) inset; }
+  100% { box-shadow: none; }
+}
+@media (prefers-reduced-motion: reduce) { .sidebar .sb-joined { animation: none; } }
 .sidebar .sb-failed { width: 100%; text-align: left; border: 0; background: transparent; font: inherit; color: var(--text); }
 .sidebar .sb-failed .sb-title { color: var(--color-danger); }
 .sidebar .sb-failed:active { background: var(--chip); }

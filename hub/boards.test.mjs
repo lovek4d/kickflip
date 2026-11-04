@@ -680,7 +680,7 @@ test("New board validates through HTTP, reports a failed clone and preserves rep
       pending = (await sidebar()).starting.find((s) => s.route === 'backend-audit');
       return pending?.failed;
     }, 'backend-audit clone failure appears in the sidebar');
-    assert.deepEqual(pending, { route: 'backend-audit', title: request.name, repo, phase: 'cloning', branch: 'main', tickets: { source: 'internal', prefix: 'INT' }, askedAt: read(manifestFile).starting['backend-audit'].asked_at, failed: true, error: 'git clone failed' });
+    assert.deepEqual(pending, { route: 'backend-audit', title: request.name, repo, step: 'cloning', stepAt: pending.askedAt, branch: 'main', tickets: { source: 'internal', prefix: 'INT' }, askedAt: read(manifestFile).starting['backend-audit'].asked_at, failed: true, error: 'git clone failed' });
     assert.equal(events('orch', 'ask').length, before);
     assert.equal((await sidebar()).sites.some((s) => s.route === pending.route), false);
     assert.equal((await post(request)).status, 400);
@@ -700,7 +700,8 @@ test("New board validates through HTTP, reports a failed clone and preserves rep
       again = (await sidebar()).starting.find((s) => s.route === 'backend-audit');
       return again?.failed && again.askedAt !== pending.askedAt;
     }, 'backend-audit retry fails again with a new asked time');
-    assert.deepEqual(again, { ...pending, askedAt: read(manifestFile).starting['backend-audit'].asked_at });
+    const retriedAt = read(manifestFile).starting['backend-audit'].asked_at;
+    assert.deepEqual(again, { ...pending, askedAt: retriedAt, stepAt: retriedAt });
     assert.equal(read(manifestFile).starting['backend-audit'].purpose, request.purpose);
     const dismiss = (route) => fetch(`${base}/_hub/new-board/${route}`, { method: 'DELETE' });
     const join = await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['join', '--name', request.name, '--session', 's-backend', '--template', 'board', '--repo', repo, '--port', String(auditPort)]);

@@ -10,7 +10,7 @@ process.env.HOME = home;
 process.env.KICKFLIP_CLAUDE = '/usr/bin/false';
 process.env.CLAUDE_CONFIG_DIR = home;
 fs.writeFileSync(path.join(home, '.claude.json'), '{}');
-const { repoService, runRepo, githubFromInput, githubFromOrigin, repoLookupRoute, remoteFromInput, isClone, gitReachFault } = await import('./repos.mjs');
+const { repoService, runRepo, githubFromInput, githubFromOrigin, repoLookupRoute, remoteFromInput, isClone, gitReachFault, cloneMeter } = await import('./repos.mjs');
 const { requestBoard } = await import('./new-board.mjs');
 const { changeBoardRepo } = await import('./board-repo.mjs');
 const { saveJSON, readManifest } = await import('./boards.mjs');
@@ -186,7 +186,7 @@ test('a repo on another git host is looked up, listed, cloned under .repos/<host
   saveJSON(manifestFile, manifest);
   const changed = await changeBoardRepo('board', { remote: link, branch: 'dev' }, { repos, event: async () => 'event' });
   assert.deepEqual(changed, { github: '', remote: link, branch: 'dev', repo: clone, id: 'event' });
-  assert.deepEqual(calls[0], ['clone', link, calls[0].at(-1)]);
+  assert.deepEqual(calls[0], ['clone', '--progress', link, calls[0].at(-1)]);
   assert.ok(calls.some((argv) => argv.includes('+refs/heads/dev:refs/remotes/origin/dev')));
   const site = readManifest().sites.board;
   assert.deepEqual([site.github, site.remote, site.branch, site.owner.repo], [undefined, link, 'dev', clone]);
@@ -307,3 +307,24 @@ for (const url of [origin, 'git@github.com:Owner/Project.git', 'ssh://git@github
     assert.equal(git(dest, 'rev-parse', 'HEAD'), head);
   });
 }
+
+// docs/adr/2026-11-04-1914-a-new-board-shows-its-start-steps-and-clone-progress.md
+test("git clone --progress's stderr reads as one percent, receiving objects the first 90 and resolving deltas the last 10, across lines git splits over chunks", () => {
+  const seen = [];
+  const meter = cloneMeter((percent) => seen.push(percent));
+  for (const chunk of ["Cloning into 'repo'...\n", 'remote: Enumerating objects: 259, done.\nremote: Counting objects:  42% (109/259)\r',
+    'Receiving objects:   0% (1/71535)\r', 'Receiving objects:  50% (35768/71535), 20.01 MiB | 9.8 MiB/s\rReceiving obj', 'ects: 100% (71535/71535), 50.90 MiB | 10.2 MiB/s, done.\n',
+    'Resolving deltas:  37% (1/3)\r', 'Resolving deltas: 100% (3/3), done.\n', 'Updating files: 100% (12/12), done.\n']) meter(chunk);
+  assert.deepEqual(seen, [0, 45, 90, 93, 100]);
+  const quiet = [];
+  cloneMeter((percent) => quiet.push(percent))("Cloning into 'repo'...\ndone.\n");
+  assert.deepEqual(quiet, []);
+});
+
+test('runRepo hands each stderr chunk to onStderr as it arrives, and still answers with the whole stderr', async () => {
+  const chunks = [];
+  const r = await runRepo(process.execPath, ['-e', "process.stderr.write('one\\r'); setTimeout(() => process.stderr.write('two\\n'), 20)"], { onStderr: (chunk) => chunks.push(chunk) });
+  assert.equal(r.status, 0);
+  assert.equal(chunks.join(''), 'one\rtwo\n');
+  assert.equal(r.stderr, 'one\rtwo\n');
+});
