@@ -52,6 +52,16 @@ test("every hub.css selector is under .hub-view, so the hub's short class names 
   assert.deepEqual(selectors.filter((x) => !/^\.hub-view(?![\w-])/.test(x)), []);
 });
 
+test('a closed ask in the Asks lane shows the done icon a done work card shows', () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  const rule = (lane) => new RegExp(`(?:^|\\n)([^{}\\n]*\\.status\\.${lane}\\b[^{}]*)\\{([^}]*)\\}`).exec(css);
+  const done = rule('done');
+  assert.ok(done);
+  const asks = css.split('\n').find((l) => /\.status\.asks\b/.test(l));
+  assert.ok(asks, 'no .status.asks rule');
+  assert.match(asks, new RegExp(`\\{\\s*${done[2].trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\}`));
+});
+
 test('a badge takes one of the five tones, each coloured by a shared colour constant, as a span or a link, and refuses any other tone', () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   const shared = definedIn(colorsCss);
