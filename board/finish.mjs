@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import * as store from './store.mjs';
-import { builderRepo, git, holdingLandLock, land, passTests, syncBase, worktreesDir } from './worktree.mjs';
+import { builderRepo, git, joiningLand, landInTurn, passTests, syncBase, worktreesDir } from './worktree.mjs';
 import { readPermissions } from './permissions.mjs';
 import { launchBuilder } from './headless.mjs';
 import { boardAt } from '../hub/boards.mjs';
@@ -32,27 +32,36 @@ export async function finishCard(site, key, { text, ownerStep, check, repo: give
   const settings = await store.readBoardSettings(site);
   const github = remote ? boardRepo(boardAt(site).route).github : null;
   if (remote && (!github || settings.prs)) return sendForReview(site, key, { ...tree, ref, text: said(text) });
-  return holdingLandLock(ref, async () => {
-    await store.checkClose(site, key, text, ownerStep, check);
-    await store.checkCallsVerified(site, key);
-    if (remote) {
-      syncBase(tree.repo, base);
-      // The branch was made from origin's base, which it tracks, and land deletes it before main reaches origin.
-      git(tree.repo, 'branch', '--unset-upstream', tree.branch);
-    }
-    const go = settings.auto_merge || Boolean((await store.heldMerge(site, key))?.tapped);
-    land({ ...tree, ref }, { hold: !go });
-    if (!go) {
-      const set = await store.setItem(site, key, { mergeReady: tree.branch, ownerStep, check });
-      await store.appendThread(site, key, { text });
-      return { said: 'verified; waits for your Merge', lines: set.lines };
-    }
-    const closed = await store.setItem(site, key, { status: 'done', text, ownerStep, check });
-    return {
-      said: ownerStep === undefined ? 'landed and done' : `landed; waits on the owner step "${ownerStep.trim()}"`,
-      lines: [...closed.lines, ...await pushBase(site, key, repo, base)],
-    };
-  }, { onWait });
+  // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: a finish asked for a card already landing joins
+  // that land, then finishes what it left, if anything.
+  const ran = await joiningLand(ref, () => landCard(site, key, { tree, ref, base, remote, repo, settings, text, ownerStep, check, onWait }));
+  if (!ran.joined) return ran;
+  if (await store.isFinished(site, key)) return { said: 'landed and done', lines: [] };
+  return finishCard(site, key, { text, ownerStep, check, repo: given, onWait });
+}
+
+async function landCard(site, key, { tree, ref, base, remote, repo, settings, text, ownerStep, check, onWait }) {
+  await store.checkClose(site, key, text, ownerStep, check);
+  await store.checkCallsVerified(site, key);
+  // The branch was made from origin's base, which it tracks, and land deletes it before main reaches origin.
+  if (remote) {
+    syncBase(tree.repo, base);
+    git(tree.repo, 'branch', '--unset-upstream', tree.branch);
+  }
+  const go = settings.auto_merge || Boolean((await store.heldMerge(site, key))?.tapped);
+  // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: only the fast-forward waits for the land lock,
+  // and base is brought up to origin's again under it.
+  await landInTurn({ ...tree, ref }, { hold: !go, onWait, sync: () => remote && syncBase(tree.repo, base) });
+  if (!go) {
+    const set = await store.setItem(site, key, { mergeReady: tree.branch, ownerStep, check });
+    await store.appendThread(site, key, { text });
+    return { said: 'verified; waits for your Merge', lines: set.lines };
+  }
+  const closed = await store.setItem(site, key, { status: 'done', text, ownerStep, check });
+  return {
+    said: ownerStep === undefined ? 'landed and done' : `landed; waits on the owner step "${ownerStep.trim()}"`,
+    lines: [...closed.lines, ...await pushBase(site, key, repo, base)],
+  };
 }
 
 // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md

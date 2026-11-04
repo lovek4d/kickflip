@@ -1817,11 +1817,12 @@ test('land refuses a worktree with uncommitted changes, with no commit beyond ma
   assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
   const main = git(repo, 'rev-parse', 'main');
   const lock = at('kickflip', 'land.lock');
+  // A refusal while preparing never reaches the land lock (docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md).
   write(lock, { card: 'B2', pid: process.pid, at: '2026-11-02T10:00:00.000Z' });
-  write(lock, { card: 'B2', pid: 2 ** 22 + 1, at: '2026-11-02T10:00:00.000Z' });
   const none = land();
   assert.deepEqual([none.code, none.err], [1, 'A1 has no commits beyond main; nothing to land\n']);
-  assert.equal(fs.existsSync(lock), false);
+  assert.equal(read(lock).card, 'B2');
+  fs.rmSync(lock);
   write(path.join(worktree(), 'board', 'server.mjs'), '2\n');
   const dirty = land();
   assert.deepEqual([dirty.code, dirty.err], [1, `${worktree()} has uncommitted changes; commit them there first\n`]);
@@ -2343,6 +2344,34 @@ test("with Auto-merge off, builder done on a local board verifies the build and 
   assert.deepEqual([itemOf().status, itemOf().merge_ready], ['done', undefined]);
   assert.equal(threadOf().at(-1).text, 'Landed on main on your Merge.');
   assert.equal(fs.existsSync(worktree()), false);
+});
+
+// docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md
+test('a Merge tap on a held build whose tested commit is still on top of main lands it without running the suite again; a main that moved is tested again', () => {
+  const repo = scratchRepo();
+  heldBoard();
+  assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  const held = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.');
+  assert.ok(held.out.includes('tests passed: 1'), held.out);
+  tapMerge();
+  const merged = onOrch('merge', 'w/A1');
+  assert.equal(merged.code, 0, merged.err);
+  assert.ok(merged.out.includes('A1 was tested on main as it is now; not testing it again'), merged.out);
+  assert.equal(merged.out.includes('tests passed'), false, merged.out);
+  assert.equal(git(repo, 'show', 'main:work.txt'), 'built');
+  assert.equal(git(repo, 'for-each-ref', 'refs/kickflip'), '');
+
+  assert.equal(onOrch('builder', 'start', 'w/ENG-1', '--worktree', '--repo', repo).code, 0);
+  const second = at('kickflip', 'worktrees', 'ENG-1');
+  commit(second, 'more.txt', 'more\n', 'ENG-1: work');
+  assert.equal(onOrch('builder', 'done', 'w/ENG-1', '--text', 'Checked it.').code, 0);
+  commit(repo, 'later.txt', 'main moved\n');
+  tapMerge('ENG-1');
+  const retested = onOrch('merge', 'w/ENG-1');
+  assert.equal(retested.code, 0, retested.err);
+  assert.ok(retested.out.includes('rebased ENG-1 onto main'), retested.out);
+  assert.ok(retested.out.includes('tests passed: 1'), retested.out);
 });
 
 test('a tapped Merge whose rebase conflicts launches a headless lander, and the lander finishes it onto main with no second tap', async () => {

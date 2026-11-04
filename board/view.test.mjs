@@ -3011,6 +3011,59 @@ test("Done, Unhold, Implement, Merge and a Hold sheet chip each wait on their bu
   b.view.unmount();
 });
 
+// docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md
+test("a Merge tap spins until a board shows the card left In Review or the merge refused, with no idle Merge in between, even when a reload races the POST", async () => {
+  const merge = { kind: 'merge', url: '#item=w%2FM1', label: 'Merge' };
+  const at = (s) => `2026-10-30T10:00:0${s}.000Z`;
+  const boardAt = (s, cards) => ({ ...boardOf(cards), generatedAt: at(s), version: `v${s}` });
+  const idle = (id) => workCard(id, { lane: 'review', action: { ...merge, url: `#item=w%2F${id}` } });
+  const merging = (id) => workCard(id, { lane: 'review', merging: true, action: null, next: 'Merging' });
+  let answer;
+  const send = () => new Promise((resolve) => { answer = resolve; });
+  const b = boardOnDom({ open: ['w/M1', 'w/M2'], board: boardAt(0, [idle('M1'), idle('M2')]), threads: {}, send, confirm: true });
+  await b.settle();
+  const button = (id) => b.root.querySelector(`details.item[data-key="w/${id}"] [data-confirm="merge"]`);
+  const busy = (id) => [button(id).disabled, button(id).getAttribute('aria-busy')];
+  const BUSY = [true, 'true'];
+  // Board reloads wait at the gate until the test opens it.
+  const fetch = b.page.win.fetch;
+  let open = null;
+  let gate = null;
+  b.page.win.fetch = (url, opts) => (gate && String(url).includes('api/board') ? gate.then(() => fetch(url, opts)) : fetch(url, opts));
+
+  b.page.fire(b.root, 'click', { target: button('M1') });
+  await b.settle();
+  assert.deepEqual(busy('M1'), BUSY);
+  // A reload lands mid-POST, so the POST's patch no longer fits the board on screen; its own reload is slow.
+  await b.change({ board: boardAt(1, [idle('M1'), idle('M2')]) });
+  assert.deepEqual(busy('M1'), BUSY, 'a board from before the tap keeps the spinner');
+  gate = new Promise((r) => { open = r; });
+  b.server.board = boardAt(2, [merging('M1'), idle('M2')]);
+  answer({ id: 'e1', board: { since: 'v0', version: 'v2', generatedAt: at(2), set: {}, unset: [], lists: {} } });
+  await b.settle();
+  assert.deepEqual(busy('M1'), BUSY, 'the POST answered but its board has not landed');
+  gate = null;
+  open();
+  await b.settle();
+  assert.deepEqual(busy('M1'), BUSY);
+  await b.change({ board: boardAt(3, [merging('M1'), idle('M2')]) });
+  assert.deepEqual(busy('M1'), BUSY, 'a status line keeps it merging');
+  await b.change({ board: boardAt(4, [workCard('M1', { lane: 'done', status: 'done' }), idle('M2')]) });
+  assert.equal(button('M1'), null);
+  assert.equal(b.root.querySelector('details.item[data-key="w/M1"]').closest('.lane').dataset.lane, 'done');
+
+  // A refusal: the board after the tap shows the card still In Review and no longer merging.
+  b.page.fire(b.root, 'click', { target: button('M2') });
+  await b.settle();
+  b.server.board = boardAt(5, [workCard('M1', { lane: 'done', status: 'done' }), merging('M2')]);
+  answer({ id: 'e2', board: structuredClone(b.server.board) });
+  await b.settle();
+  assert.deepEqual(busy('M2'), BUSY);
+  await b.change({ board: boardAt(6, [workCard('M1', { lane: 'done', status: 'done' }), idle('M2')]) });
+  assert.deepEqual(busy('M2'), [false, null]);
+  b.view.unmount();
+});
+
 // docs/adr/2026-11-03-1915-every-pending-control-waits-in-one-style.md
 test("a thread's Send and the New task sheet's Send each wait, disabled with their label kept, until the server answers, and the sheet has no Sending… line", async () => {
   const sends = heldSends();

@@ -264,7 +264,7 @@ BoardView.part((B) => {
     resume: (it, ref) => `Unhold ${ref}?${it.heldUntil ? ` It's held until ${heldUntilWords(it.heldUntil)}.` : ''} It can start again once nothing blocks it.`,
     nudge: () => 'Nudge Claude to check this implementer?',
     // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md
-    merge: (it, ref) => (it.mergeReady ? `Merge ${ref}? The board rebases ${it.mergeReady.branch} onto ${it.mergeReady.base} as it is now, reruns the tests and lands it.`
+    merge: (it, ref) => (it.mergeReady ? `Merge ${ref}? The board rebases ${it.mergeReady.branch} onto ${it.mergeReady.base} as it is now, reruns the tests if  moved, and lands it.`
       : openPRs(it).length > 1
       ? `Merge ${ref}? Claude squash-merges ${openPRs(it).map(prName).join(', ')} in turn if they are still approved, green and clean.`
       : `Merge ${ref}? Claude squash-merges ${openPRs(it).map(prName).join('')} if it is still approved, green and clean.`),
@@ -461,8 +461,17 @@ BoardView.part((B) => {
         state.openItems.delete(key);
         store.set('openItems', [...state.openItems]);
       } : null;
-      try { await waitOn(b, B.sentHere(key, () => B.send(...sent, close))); }
-      catch (e) { B.failed(e); }
+      // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: Merge spins until a board shows the card left
+      // In Review, or no longer merging there, which is its refusal.
+      const pend = act === 'merge' ? `${key}:merge` : null;
+      if (pend) BoardUI.pending.start(pend, (board) => { const c = board.items.find((i) => i.key === key); return !c || c.lane !== 'review' || !c.merging; });
+      try {
+        const out = await waitOn(b, B.sentHere(key, () => B.send(...sent, close)));
+        if (pend) { BoardUI.pending.answered(pend, out.board.generatedAt); B.render(); }
+      } catch (e) {
+        if (pend) { BoardUI.pending.drop(pend); B.render(); }
+        B.failed(e);
+      }
       if (act === 'finish') B.syncDone(key);
       return;
     }

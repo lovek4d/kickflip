@@ -186,24 +186,44 @@ export function restartRunner(what, route) {
 // Brings a checked worktree's branch into the live repo's base branch (builderRepo's base), saying each step: refuses
 // unless the repo has base checked out, naming it, or while the worktree has uncommitted changes or the branch adds
 // nothing; rebases it onto base when base moved, refusing on a conflict with the rebase undone; runs the worktree's
-// full suite; fast-forwards base; when repo is the running kickflip clone,
+// full suite unless that commit passed it already (prepareLand); fast-forwards base (landPrepared); when repo is the running kickflip clone,
 // restarts the hub when its code changed, else the board servers when board/ changed (a hub restart restarts every
 // site), test files aside; removes the worktree and branch.
 // Never pushes. A restart that fails is reported after the rest is done.
 // One land at a time on the host, since a land can restart the hub and every board server: ~/.claude/kickflip/land.lock
-// {card, pid, at} names the card landing. A land that finds it held waits its turn, in the order the lands asked
-// (a file per ask in ~/.claude/kickflip/land.queue, named <ms>-<count>-<pid>), calling onWait(card) with the card it
-// waits for. A lock or ask whose process is gone is taken over.
-const landLock = () => path.join(os.homedir(), '.claude', 'kickflip', 'land.lock');
-const landQueue = () => path.join(os.homedir(), '.claude', 'kickflip', 'land.queue');
+// {card, pid, at} names the card landing. A land that finds it held waits its turn, first in first out across every
+// process (a file per ask in ~/.claude/kickflip/land.queue, named <asked ms>-<count>-<pid>), calling onWait(card) with
+// the card it waits for. asked is when the land was asked for, so a land that lets go of the lock to test again keeps
+// its place. A waiter wakes when the lock or the queue changes; a lock or ask whose process is gone is taken over, found
+// by a slow recheck since a process that dies changes neither.
+const kickflipDir = () => path.join(os.homedir(), '.claude', 'kickflip');
+const landLock = () => path.join(kickflipDir(), 'land.lock');
+const landQueue = () => path.join(kickflipDir(), 'land.queue');
+const landing = () => path.join(kickflipDir(), 'landing');
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
-const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-let asked = 0;
-export async function holdingLandLock(card, fn, { onWait } = {}) {
+const RECHECK_MS = 5000;
+// → {next(): a promise that resolves on the next change in dirs, or after RECHECK_MS, close()}
+function watching(dirs) {
+  let changed = false;
+  let wake = null;
+  const poke = () => { changed = true; wake?.(); };
+  const watchers = dirs.map((d) => fs.watch(d, poke));
+  return {
+    next: () => new Promise((resolve) => {
+      if (changed) { changed = false; resolve(); return; }
+      const timer = setTimeout(() => { wake = null; resolve(); }, RECHECK_MS);
+      wake = () => { clearTimeout(timer); wake = null; changed = false; resolve(); };
+    }),
+    close: () => { for (const w of watchers) w.close(); },
+  };
+}
+let asks = 0;
+export async function holdingLandLock(card, fn, { onWait, asked = Date.now() } = {}) {
   const file = landLock();
   const queue = landQueue();
   fs.mkdirSync(queue, { recursive: true });
-  const ticket = `${String(Date.now()).padStart(15, '0')}-${String(asked++).padStart(6, '0')}-${process.pid}`;
+  const ticket = `${String(asked).padStart(15, '0')}-${String(asks++).padStart(6, '0')}-${process.pid}`;
+  const changes = watching([kickflipDir(), queue]);
   fs.writeFileSync(path.join(queue, ticket), '');
   let waitingFor = null;
   try {
@@ -220,12 +240,41 @@ export async function holdingLandLock(card, fn, { onWait } = {}) {
       }
       const name = held?.card ?? (ahead.length ? 'the land ahead' : null);
       if (name && name !== waitingFor) { waitingFor = name; await onWait?.(name); }
-      await pause(200);
+      await changes.next();
     }
-  } finally { fs.rmSync(path.join(queue, ticket), { force: true }); }
+  } finally {
+    changes.close();
+    fs.rmSync(path.join(queue, ticket), { force: true });
+  }
   try { return await fn(); } finally {
     try { if (JSON.parse(fs.readFileSync(file, 'utf8')).pid === process.pid) fs.rmSync(file, { force: true }); } catch {}
   }
+}
+
+// One land per card: ~/.claude/kickflip/landing/<card> {pid} while fn runs. A land asked for a card already landing
+// joins that land instead: it waits for it to end and → {joined: true}, so the caller reads what became of the card.
+// A marker whose process is gone is taken over.
+export async function joiningLand(card, fn) {
+  const dir = landing();
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, encodeURIComponent(card));
+  const changes = watching([dir]);
+  let joined = false;
+  try {
+    for (;;) {
+      if (joined && !fs.existsSync(file)) return { joined: true };
+      try { fs.writeFileSync(file, JSON.stringify({ pid: process.pid }), { flag: 'wx' }); break; }
+      catch (e) {
+        if (e.code !== 'EEXIST') throw e;
+        let held = null;
+        try { held = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
+        if (!(Number.isInteger(held?.pid) && alive(held.pid))) { fs.rmSync(file, { force: true }); continue; }
+        joined = true;
+        await changes.next();
+      }
+    }
+  } finally { changes.close(); }
+  try { return await fn(); } finally { fs.rmSync(file, { force: true }); }
 }
 
 // An ADR is named by the minute it was written, docs/adr/YYYY-MM-DD-HHMM-<slug>.md, so parallel builds never take the same name.
@@ -268,12 +317,13 @@ export function passTests(dir, { say = console.log, runTests = nodeTests, outcom
   say(`tests passed: ${tests.pass}`);
 }
 
-// hold stops once the tests pass, before the fast-forward: the verified branch waits in its worktree for the owner's
-// Merge (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md).
-export function land({ path: dir, branch, repo, base, ref }, { say = console.log, runTests = nodeTests, restart = restartRunner, boards = () => listBoards(), clone = skillRepo(), hold = false } = {}) {
+// docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md
+// The part of a land that runs outside the land lock: the checks, the rebase onto base when base moved, and the suite.
+// → the commit it tested. refs/kickflip/tested/<branch> keeps that commit, so a branch whose head is still it, with base
+// not moved past it, is not tested again.
+export function prepareLand({ path: dir, branch, repo, base, ref }, { say = console.log, runTests = nodeTests } = {}) {
   if (!fs.existsSync(dir)) fail(`no worktree at ${dir}`);
-  const head = git(repo, 'symbolic-ref', '--quiet', '--short', 'HEAD').out;
-  if (head !== base) fail(`${repo} is on ${head || 'a detached HEAD'}, not ${base}; switch it to ${base} (git -C ${repo} switch ${base}) and land again`);
+  onBase(repo, base);
   if (git(dir, 'status', '--porcelain').out) fail(`${dir} has uncommitted changes; commit them there first`);
   if (Number(git(repo, 'rev-list', '--count', `${base}..${branch}`).out) === 0) fail(`${branch} has no commits beyond ${base}; nothing to land`);
 
@@ -292,11 +342,51 @@ export function land({ path: dir, branch, repo, base, ref }, { say = console.log
   refuseNumberedAdr(repo, base, branch);
   refuseBadMessages(repo, base, branch, ref);
 
+  const head = git(repo, 'rev-parse', branch).out;
+  if (git(repo, 'rev-parse', '--verify', '--quiet', testedRef(branch)).out === head) {
+    say(`${branch} was tested on ${base} as it is now; not testing it again`);
+    return head;
+  }
   passTests(dir, { say, runTests, outcome: 'nothing landed' });
-  if (hold) return;
+  git(repo, 'update-ref', testedRef(branch), head);
+  return head;
+}
+const testedRef = (branch) => `refs/kickflip/tested/${branch}`;
+function onBase(repo, base) {
+  const head = git(repo, 'symbolic-ref', '--quiet', '--short', 'HEAD').out;
+  if (head !== base) fail(`${repo} is on ${head || 'a detached HEAD'}, not ${base}; switch it to ${base} (git -C ${repo} switch ${base}) and land again`);
+}
 
+// A whole land: prepareLand, then, under the land lock, the fast-forward (landPrepared). When base moved while the
+// branch was prepared, the lock is let go and the branch is prepared again. hold stops once the tests pass, before the
+// fast-forward: the verified branch waits in its worktree for the owner's Merge
+// (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md). sync runs under the lock before the fast-forward.
+export async function landInTurn(tree, { hold = false, onWait, sync = () => {}, ...opts } = {}) {
+  const { say = console.log } = opts;
+  const asked = Date.now();
+  for (;;) {
+    const tested = prepareLand(tree, opts);
+    if (hold) return;
+    const landed = await holdingLandLock(tree.ref ?? tree.branch, () => { sync(); return landPrepared(tree, tested, opts); }, { onWait, asked });
+    if (landed) return;
+    say(`${tree.base} moved while ${tree.branch} was tested; testing it on ${tree.base} again`);
+  }
+}
+
+// The land as one synchronous step, for a caller that holds the land lock already.
+export function land(tree, { hold = false, ...opts } = {}) {
+  const tested = prepareLand(tree, opts);
+  if (hold) return;
+  if (!landPrepared(tree, tested, opts)) fail(`${tree.base} moved while ${tree.branch} was tested; land again`);
+}
+
+// Under the land lock: fast-forwards base to tested, the commit prepareLand tested, then restarts what runs the changed
+// code and removes the worktree and branch. → false, changing nothing, when base moved past tested or the branch moved.
+export function landPrepared({ path: dir, branch, repo, base }, tested, { say = console.log, restart = restartRunner, boards = () => listBoards(), clone = skillRepo() } = {}) {
+  onBase(repo, base);
+  if (git(repo, 'rev-parse', branch).out !== tested || !git(repo, 'merge-base', '--is-ancestor', base, tested).ok) return false;
   const changed = git(repo, 'diff', '--name-only', base, branch).out.split('\n').filter(Boolean);
-  const merged = git(repo, 'merge', '--quiet', '--ff-only', branch);
+  const merged = git(repo, 'merge', '--quiet', '--ff-only', tested);
   if (!merged.ok) fail(`could not fast-forward ${base} in ${repo}: ${merged.err}`);
   say(`${base} fast-forwarded to ${short(repo, base)} in ${repo}`);
 
@@ -318,5 +408,7 @@ export function land({ path: dir, branch, repo, base, ref }, { say = console.log
   if (removed.ok) say(`worktree removed: ${dir}`); else failed.push(`could not remove ${dir} (${removed.err})`);
   const deleted = git(repo, 'branch', '--quiet', '-d', branch);
   if (deleted.ok) say(`branch deleted: ${branch}`); else failed.push(`could not delete branch ${branch} (${deleted.err})`);
+  git(repo, 'update-ref', '-d', testedRef(branch));
   if (failed.length) fail(`landed, but ${failed.join('; ')}`);
+  return true;
 }

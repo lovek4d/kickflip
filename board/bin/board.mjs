@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as store from '../store.mjs';
-import { boardWorktree, builderRepo, holdingLandLock, land, worktreesDir } from '../worktree.mjs';
+import { boardWorktree, builderRepo, joiningLand, landInTurn, worktreesDir } from '../worktree.mjs';
 import { fileFindings } from '../arch-review.mjs';
 import { finishCard, landHeld } from '../finish.mjs';
 import { ITEM_STATUSES } from '../domain.mjs';
@@ -754,14 +754,16 @@ const COMMANDS = {
     if (!site && f['owner-step'] !== undefined) throw new UsageError('--owner-step keeps a board card open, which needs --site');
     if (f.check !== undefined && f['owner-step'] === undefined) throw new UsageError('--check goes with --owner-step: it is the code check that closes the card once the step is done');
     if (site && f.dir === undefined) return finishCard(site, key, { text: f.text, ownerStep: f['owner-step'], check: f.check, repo: f.repo });
-    return holdingLandLock(site ? await store.cardName(site, key) : key, async () => {
+    const ref = site ? await store.cardName(site, key) : undefined;
+    const ran = await joiningLand(ref ?? key, async () => {
       if (site) await store.checkClose(site, key, f.text, f['owner-step'], f.check);
       await store.checkCallsVerified(site, key, { dir: f.dir });
       const recorded = await store.recordedWorktree(site, key, { dir: f.dir });
       const { repo, base } = builderRepo(site, { repo: f.repo ?? recorded?.repo });
-      land({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base, ref: site ? await store.cardName(site, key) : undefined });
+      await landInTurn({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base, ref });
       return site ? store.setItem(site, key, { status: 'done', text: f.text, ownerStep: f['owner-step'], check: f.check }) : { lines: [] };
     });
+    return ran.joined ? { lines: [`joined the land already running for ${ref ?? key}`] } : ran;
   }],
   lander: [['wave/id'], [], async (site, [key]) => {
     if (!site) throw new UsageError('lander needs --site <route>');

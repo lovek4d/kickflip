@@ -705,6 +705,11 @@ test("a verified branch held for the owner's Merge waits In Review on it with Me
   assert.deepEqual([queued.merging, queued.action, queued.next], [true, null, 'Merging · waiting for #210 to land']);
   const refused = card({ item: { merge_ready: tapped }, threads: { 'w/A1': [{ ts: '2026-11-04T11:01:00Z', who: 'claude', text: 'Not merged: main moved. Tap Merge again.' }] } });
   assert.deepEqual([refused.merging, refused.action?.kind], [false, 'merge']);
+  const handedOff = card({ item: { merge_ready: tapped }, threads: { 'w/A1': [
+    { ts: '2026-11-04T11:01:00Z', who: 'claude', text: 'Not merged yet: rebasing A1 onto main conflicts in a.txt. A lander fixes it and lands it.' },
+    { ts: '2026-11-04T11:01:01Z', who: 'claude', text: 'Lander launched headless on Claude Opus in /w/A1.' },
+  ] } });
+  assert.deepEqual([handedOff.merging, handedOff.action], [true, null]);
   const landing = card({ item: { merge_ready: tapped }, agents: runningBuilders('A1') });
   assert.deepEqual([landing.lane, landing.waitsOn, landing.action], ['progress', 'builder', null]);
   const done = card({ item: { status: 'done' } });

@@ -177,6 +177,7 @@ window.BoardView = (function () {
     // Renders open threads from state.threadCache; loadBoard and opening a card load them.
     function render(load = null) {
       const d = state.board;
+      BoardUI.pending.settle(d);
       const title = $(':scope > .top h1');
       if (d.title && title && title.textContent !== d.title) title.textContent = d.title;
       if (d.title && document.title !== d.title) document.title = d.title;

@@ -1287,6 +1287,7 @@ async function checkAsk(site, eventId, name = '--from-ask') {
 
 // docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md
 const FINISHED = ['done', 'merged', 'dropped'];
+export const isFinished = async (site, key) => FINISHED.includes((await loadItem(site, key)).item.status);
 // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
 const CARD_STATES = ['ready', 'grilling', 'prototyping'];
 function clearBuildingStatus(item) {

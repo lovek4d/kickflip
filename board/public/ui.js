@@ -289,6 +289,23 @@
     return promise;
   }
 
+  // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md
+  // A tap whose change shows only in a later board: its button draws BUSY while pending.has(id), id being
+  // "<card key>:<action>", whatever repaints it, until settle(board) finds a board made after the tap's answer for which
+  // until(board) holds. start(id, until) on the tap; answered(id, generatedAt) with the generatedAt of the POST's board;
+  // drop(id) when the POST is refused. Boards made before the POST answered never end it, so a reload that races the POST
+  // keeps the spinner.
+  const pendings = new Map();
+  const pending = {
+    start(id, until) { pendings.set(id, { until, after: null }); },
+    answered(id, after) { const p = pendings.get(id); if (p) p.after = after; },
+    drop(id) { pendings.delete(id); },
+    has: (id) => pendings.has(id),
+    settle(board) {
+      for (const [id, p] of pendings) if (p.after !== null && board.generatedAt >= p.after && p.until(board)) pendings.delete(id);
+    },
+  };
+
   // While a board restarts, the hub answers its own 502 page, and a request can fail outright. fetchJSON waits that out:
   // on a network error, a 5xx or a body that isn't JSON it calls onWait(waitedMs) and retries with a growing backoff,
   // then throws once about limit ms have passed. Any other answer resolves {ok, status, body}, a 404's {error} included.
@@ -318,7 +335,7 @@
 
   globalThis.BoardUI = {
     LINK_ARROW,
-    esc, record, time, ago, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, fetchJSON, RESTARTING, restartNotice,
+    esc, record, time, ago, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, RESTARTING, restartNotice,
     attachments, attachButton, dropZone, pendingFiles, protoButton, grillButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, BADGE_TONES, badge,
   };
 })();

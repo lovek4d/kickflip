@@ -143,6 +143,7 @@ const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && !QUIET
 // said is the owner's messages and answers in the card's thread (threadOf), and askedAt the asked_at of its questions.
 // prs is the card's PRs, [{repo, number, gh}], gh being GitHub's state or null before it is read; the least-ready one
 // decides the lane, what it waits on and its Next (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
+const LANDER_HANDOFF = /^(?:Not merged yet: |Lander launched headless )/;
 function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets }) {
   const views = prs.map((p) => ({ repo: p.repo, number: p.number, url: prURL(p), ...(p.gh || {}), status: prStateOf(p.gh, it) }));
   const least = leastReady(prs.map((p) => p.gh));
@@ -198,7 +199,8 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   const firstBuild = agents.filter(builds).map((a) => String(a.started || '')).filter(Boolean).sort()[0] || '';
   const bumpStands = bumpedAt && !(firstBuild && String(bumpedAt) < firstBuild);
   // The owner's Merge waits on the session until it merges or writes in the thread, such as why it can't merge yet.
-  const lastClaudeAt = thread.filter((m) => (m.who || 'claude') === 'claude' && m.kind !== 'status').map((m) => String(m.ts)).sort().pop() || '';
+  // A held Merge handed to a lander (finish.mjs landHeld) is still merging: the card leaves In Review once the lander starts.
+  const lastClaudeAt = thread.filter((m) => (m.who || 'claude') === 'claude' && m.kind !== 'status' && !LANDER_HANDOFF.test(m.text || '')).map((m) => String(m.ts)).sort().pop() || '';
   // A held card's tap is recorded on it (store.mjs tapMerge), and the board server's land writes its outcome there.
   const tappedAt = [mergeAt, mergeReady && it.merge_ready.tapped].filter(Boolean).map(String).sort().pop();
   const merging = waitsOn === 'merge' && Boolean(tappedAt) && tappedAt > lastClaudeAt;

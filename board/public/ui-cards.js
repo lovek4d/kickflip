@@ -138,11 +138,12 @@
   }
   // The open card's Merge, while the board's auto-merge is off: it confirms, then sends card-merge, waiting while the
   // server records it (app-cards.js), and waits (ui.js BUSY) while the session merges it, or the board server lands a
-  // card with no PR (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md,
+  // card with no PR, and from the tap until a board shows the card left In Review or its merge refused (ui.js pending) (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md,
   // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md).
   function mergeButton(it) {
     if (it?.action?.kind !== ACTION_KIND.merge && !it?.merging) return '';
-    return `<button class="${it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${it.merging ? BoardUI.BUSY : ''}>Merge</button>`;
+    const busy = it.merging || BoardUI.pending.has(`${it.key}:merge`);
+    return `<button class="${it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${busy ? BoardUI.BUSY : ''}>Merge</button>`;
   }
   // The open card's Implement, rightmost in its action row, on every unstarted Todo work card, its questions waiting or
   // not: it confirms, then
