@@ -1,4 +1,10 @@
+---
+status: superseded in part by 2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap
+---
+
 # Each board reviews incoming PRs that touch its work, in an Auto Review lane
+
+Superseded in part by [auto implement fills In Progress up to Maximum parallel implementers, on every board change](2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md): the review is sent from the check that runs on every board change and at start, not each minute; it still waits for an idle board and for any pulled card to start. The Auto section's first switch reads "Auto implement Todo cards", with Maximum parallel implementers after it.
 
 The owner asked on #117 for each board's orchestrator to "pick up any incoming PRs automatically that relate to that orchestrators work", so teammates' local Claudes form a review mesh "escalating to human only if needed", behind a board setting, with the auto settings collapsed into one section. A grill and two prototype rounds settled it.
 

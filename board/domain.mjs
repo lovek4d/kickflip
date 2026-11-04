@@ -967,23 +967,34 @@ export function needsAnswer(b) {
   };
 }
 
+// docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
+// A board's Maximum parallel implementers when board.json sets none.
+export const MAX_IMPLEMENTERS = 10;
+
 // docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md
-// For built items in board order: idle while no card has a running build and none waits in Orchestrator review, a
-// running planner counting as no work (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md);
+// For built items in board order, cap the board's Maximum parallel implementers and pulled the cards card-pull went
+// out for: implementers counts the open cards with a running build or waiting in Orchestrator review, a running
+// planner and a card waiting on the owner counting as no work
+// (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md); idle while there are none.
 // pullable lists the buildable cards nothing blocks, with no questions, no grill under way and no message a
 // session is working on, taking only cards with state ready, in board order
-// (docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md). plannable lists, top first, the buildable cards
+// (docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md).
+// waiting lists the pulled cards not yet started that still hold a slot: pullable, or still in Todo with a session
+// working on them. pulls lists the top pullable cards not pulled, one per slot the implementers and waiting leave free
+// (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md). plannable lists, top first, the buildable cards
 // not set ready, and the cards prototyping again with nothing waiting on the owner
 // (docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md), that aren't held, with no planner running, no grill under way, no question waiting on the owner or on
 // Claude and no message a session is working on; empty while any card has a grill under way or a planner running.
-export function pullOf(items) {
+export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
   const open = items.filter((i) => !closedLane(i));
   const running = (i) => (i.agents || []).filter((a) => !a.done);
-  const idle = !open.some((i) => i.waitsOn === 'checking' || running(i).some(builds));
+  const implementers = open.filter((i) => i.waitsOn === 'checking' || running(i).some(builds)).length;
   const pullable = open.filter((i) => i.buildable && i.state === 'ready' && !i.unsorted && !i.blockedBy.length && !i.questions && !i.grilling && !i.working).map((i) => i.key);
+  const waiting = open.filter((i) => pulled.includes(i.key) && (pullable.includes(i.key) || (i.buildable && i.working))).map((i) => i.key);
+  const pulls = pullable.filter((k) => !waiting.includes(k)).slice(0, Math.max(0, cap - implementers - waiting.length));
   const planning = open.some((i) => i.grilling || running(i).some(plans));
   const plannable = planning ? [] : open.filter((i) => (i.buildable || (i.unpicked && !i.action)) && i.state !== 'ready' && !i.held && !i.questions?.open && !i.questions?.answered && !i.working).map((i) => i.key);
-  return { idle, pullable, plannable };
+  return { idle: !implementers, pullable, waiting, pulls, plannable };
 }
 
 // docs/adr/2026-11-03-1551-an-idle-board-triages-its-todo-once-a-day.md

@@ -265,6 +265,7 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
   settings                                               the board's settings as JSON; flags default off, optional
                                                          settings appear when set: {"auto_merge": false,
                                                          "auto_build": false, "auto_pull": false,
+                                                         "max_implementers": 10,
                                                          "auto_triage": false, "auto_review": false,
                                                          "github_login": "owner"}
   settings set auto-merge on|off                         on: the session merges an approved PR once CI is green and
@@ -286,11 +287,16 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
                                                          the hub asks gh api user. Pass "" to clear it
   settings set auto-build on|off                         on: each push builds its card. Off by default.
                                                          Main builds after every merge either way
-  settings set auto-pull on|off                          on: while no builder runs and nothing waits in Orchestrator
-                                                         review, the board server sends card-pull {key} for the top
-                                                         Todo card nothing blocks, holds or asks about, ready cards
-                                                         first; with none, card-plan {key} for the top unready
-                                                         card to grill or prototype. Off by default.
+  settings set auto-pull on|off                          Auto implement Todo cards. on: on every board change the
+                                                         board server sends card-pull {key} for the top ready Todo
+                                                         cards nothing blocks, holds or asks about, one per free
+                                                         implementer slot (see max-implementers), each once; with
+                                                         none ready and nothing building, card-plan {key} for the
+                                                         top unready card to grill or prototype. Off by default.
+                                                         Only on the owner's word
+  settings set max-implementers <1..99>                  Maximum parallel implementers, 10 by default: the cards
+                                                         building or waiting in Orchestrator review the pull fills
+                                                         up to. Planners and cards waiting on the owner don't count.
                                                          Only on the owner's word
   settings set auto-review on|off                        on: while the board is idle and nothing is pulled, the board
                                                          server sends pr-review {pr, head, repo, title, author, url,

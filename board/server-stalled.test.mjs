@@ -189,7 +189,8 @@ test('a held card resumes itself within a minute of its pick-up time, once per t
   }
 });
 
-test('an idle board with auto-pull on sends card-pull for its top pullable Todo card, one at a time across a restart, and never while paused', async () => {
+// docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
+test('with auto implement on the board sends card-pull for the top pullable Todo cards at start and on each change, filling free slots up to Maximum parallel implementers, once each across a restart, and never while paused', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-pull-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
@@ -207,8 +208,7 @@ test('an idle board with auto-pull on sends card-pull for its top pullable Todo 
   fs.mkdirSync(path.dirname(agentFile), { recursive: true });
   fs.mkdirSync(path.join(dataDir, 'threads'));
   fs.mkdirSync(path.dirname(usageFile), { recursive: true });
-  const boardJSON = (on) => put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't', auto_pull: on }));
-  boardJSON(false);
+  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't', auto_pull: true, max_implementers: 2 }));
   const wave = { items: [
     { id: 'A0', title: 'Running', status: 'building' },
     { id: 'A1', title: 'Held', status: 'planned', state: 'ready', held: true },
@@ -217,6 +217,7 @@ test('an idle board with auto-pull on sends card-pull for its top pullable Todo 
     { id: 'A4', title: 'Next', status: 'planned', state: 'ready' },
     { id: 'A5', title: 'Bumped', status: 'planned', state: 'ready' },
     { id: 'A6', title: 'Last', status: 'planned', state: 'ready' },
+    { id: 'A7', title: 'Spare', status: 'planned', state: 'ready' },
   ], followups: [{ id: 'F1', title: 'Follow-up', from: 'A0', filed: iso(now) }] };
   fs.writeFileSync(waveFile, JSON.stringify(wave));
   fs.writeFileSync(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000) }));
@@ -265,46 +266,43 @@ test('an idle board with auto-pull on sends card-pull for its top pullable Todo 
   };
   const tick = () => new Promise((resolve) => setTimeout(resolve, 80));
   try {
+    // At start the running build takes one of the two slots; the top pullable card takes the other.
     await start();
-    await tick();
-    boardJSON(true);
-    await tick();
-    assert.deepEqual(pulls(), []);
-
-    put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), done: iso(now) }));
-    await until(() => pulls().length === 1 && thread('A5').length === 1, 'the idle board pulls in a card');
+    await until(() => pulls().length === 1 && thread('A5').length === 1, 'the board pulls in a card at start');
     assert.deepEqual(pulls(), ['t/A5']);
-    assert.deepEqual(thread('A5'), ['Pulled in: the board was idle.']);
-    await until(() => fs.existsSync(pulledFile) && JSON.parse(fs.readFileSync(pulledFile, 'utf8')).key === 't/A5', 'the pull is marked');
+    assert.deepEqual(thread('A5'), ['Pulled in: an implementer slot was free.']);
+    await until(() => fs.existsSync(pulledFile) && JSON.parse(fs.readFileSync(pulledFile, 'utf8')).keys.join() === 't/A5', 'the pull is marked');
     await stop();
-    await start();
-    await tick();
     fs.rmSync(pulledFile);
-    await stop();
     await start();
     await tick();
-    assert.deepEqual(pulls(), ['t/A5']);
+    assert.deepEqual(pulls(), ['t/A5'], 'the event log covers a lost marker');
 
-    // Changed while the server is down: a check reads wave.json before owner.json, so one landing between the two
-    // writes would see A0 not yet checking and A5 already asked, and pull A6.
+    // The build finishing frees its slot at once, with A5 still waiting to start.
+    put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), done: iso(now) }));
+    await until(() => pulls().length === 2, 'a freed slot is filled on the change');
+    assert.deepEqual(pulls(), ['t/A5', 't/A7']);
+
+    // Changed while the server is down: Orchestrator review takes A0's slot back, so A5 stopping being pullable frees
+    // none.
     await stop();
     setStatus('A0', 'checking');
     ask('q5', 't/A5');
     await start();
     await tick();
-    assert.deepEqual(pulls(), ['t/A5']);
+    assert.deepEqual(pulls(), ['t/A5', 't/A7']);
     setStatus('A0', 'done');
-    await until(() => pulls().length === 2, 'the next card is pulled once the board is idle again');
-    assert.deepEqual(pulls(), ['t/A5', 't/A6']);
+    await until(() => pulls().length === 3, 'the review ending frees a slot');
+    assert.deepEqual(pulls(), ['t/A5', 't/A7', 't/A6']);
 
     put(usageFile, JSON.stringify({ claude: { at: iso(now), five_hour: { used_percentage: 95, resets_at: iso(now + 3600000) }, seven_day: { used_percentage: 40, resets_at: iso(now + 86400000) } } }));
-    ask('q6', 't/A6');
+    ask('q7', 't/A7');
     await tick();
     await tick();
-    assert.deepEqual(pulls(), ['t/A5', 't/A6']);
+    assert.deepEqual(pulls(), ['t/A5', 't/A7', 't/A6']);
     fs.rmSync(usageFile);
-    await until(() => pulls().length === 3, 'the pull waits for the pause to end');
-    assert.deepEqual(pulls(), ['t/A5', 't/A6', 't/A4']);
+    await until(() => pulls().length === 4, 'the pull waits for the pause to end');
+    assert.deepEqual(pulls(), ['t/A5', 't/A7', 't/A6', 't/A4']);
     assert.deepEqual(['A1', 'A2', 'A3', 'F1'].map(thread), [[], [], [], []]);
   } finally {
     await stop();
@@ -330,7 +328,7 @@ test('an idle board with auto-triage on sends todo-triage under its dated topic 
   let worker;
   fs.mkdirSync(path.dirname(agentFile), { recursive: true });
   fs.mkdirSync(path.dirname(usageFile), { recursive: true });
-  const boardJSON = (on) => put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't', auto_pull: on, auto_triage: on }));
+  const boardJSON = (on) => put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't', auto_pull: on, auto_triage: on, max_implementers: 1 }));
   boardJSON(false);
   const wave = { items: [
     { id: 'A0', title: 'Running', status: 'building' },

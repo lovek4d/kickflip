@@ -6,7 +6,7 @@
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask, ask progress|done,
 //   lineup create|add|remove|set|finish,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
-// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_pull, auto_triage, auto_review, github_login}. auto_build asks the hub to
+// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review, github_login}. auto_build asks the hub to
 // run each card's .kickflip/build after each push, and hides the cards' Serve / Build; main always builds after a merge.
 // auto_merge (false when absent) lets the session merge
 // an approved, green, clean PR itself; off, the card shows the owner's Merge (store.mjs settingsOf). rules are the owner's standing instructions to this
@@ -112,9 +112,12 @@
 //                                a gone one drops its queued push.
 //                                Within a minute of a held card's until or pick_up_at the server resumes it
 //                                (store.mjs pickUp), at most once per time even across a restart.
-//                                With auto_pull on, the server appends card-pull {key} for the top pullable Todo card
-//                                while the board is idle (domain.mjs pullOf), one pull at a time, tracked in data/pulled.json;
-//                                with nothing to pull, card-plan {key} for the top plannable card the same way, tracked in
+//                                The Auto jobs below run on every board change and once at start, never on a timer,
+//                                except a re-run once a usage pause lifts. With auto_pull on (Auto implement Todo
+//                                cards), the server appends card-pull {key} for the top pullable Todo cards, one per
+//                                implementer slot max_implementers leaves free (domain.mjs pullOf), whether or not
+//                                the board is idle, each once, tracked in data/pulled.json; with nothing to pull, an
+//                                idle board gets card-plan {key} for the top plannable card, one at a time, tracked in
 //                                data/planned.json, which asks the session for a grill or prototype on it.
 //                                With auto_triage on, an idle board whose Todo changed since the last triage (domain.mjs
 //                                todoOf) gets todo-triage {date, topic} first, at most once a host day, tracked in
@@ -139,8 +142,8 @@
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (store.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
-//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull, auto_triage, auto_review} (store.mjs readBoardSettings)
-//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, auto_triage?: boolean, auto_review?: boolean} → board.json, keeping its other keys, and when the value moved a
+//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review} (store.mjs readBoardSettings)
+//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean} → board.json, keeping its other keys, and when the value moved a
 //                                `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id}; a bad body → 400 {error}
 //   GET  /api/permissions        {onHost, file, permissions: [{id, name, allows, rule, on, refused}]}: the board's session
@@ -659,6 +662,7 @@ function changed() {
     checkStalled();
     checkActions();
     checkQueued();
+    checkAuto();
   }, Math.max(0, Math.min(CHANGE_QUIET, changeFirst + CHANGE_MAX - now)));
 }
 // Lock folders, installs and build output churn and never hold board files: a path with a segment starting with "." or
@@ -959,30 +963,41 @@ function checkQueued() {
   return checkingQueued;
 }
 
-// The idle jobs, triage, then the pull, then a review: a triage sent or under way holds the pull until its reply, and a
-// card pulled and not yet started holds the review.
-let checkingIdle = false;
-async function checkIdle() {
-  if (checkingIdle) return;
-  checkingIdle = true;
-  try {
-    const settings = settingsOf(await config());
-    const log = await readLines(events);
-    const hidden = await readHidden(here);
-    const { items, reviews } = buildBoard({ ...(await itemSnapshot()), events: log.filter((e) => !hidden.has(e.id)), owner: await readJSON(path.join(data, 'owner.json'), { items: [] }) });
-    const { idle, pullable, plannable } = pullOf(items);
-    const ready = idle && readUsageGate().state !== 'paused';
-    if (await checkTriage(settings, log, items, ready)) return;
-    if (await checkPull(PULL, settings, log, pullable, ready)) return;
-    if (await checkPull(PLAN, settings, log, pullable.length ? [] : plannable, ready)) return;
-    // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md: one review at a time, after any pull.
-    const { due, repo } = reviews;
-    if (ready && due) await appendEvent('pr-review', { pr: due.number, head: due.head, repo, title: due.title, author: due.author, url: due.url, touches: due.touches, asked: Boolean(due.asked) });
-  } catch (err) {
-    console.error('Idle check failed:', err.message);
-  } finally {
-    checkingIdle = false;
-  }
+// docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
+// The Auto jobs, run on every board change and once at start: triage, then the pull, then a plan, then a review.
+// The pull fills every free implementer slot whatever else runs; triage, the plan and the review wait for an idle
+// board. A triage sent or under way holds the pull until its reply, and a card pulled and not yet started holds the
+// plan and the review. None goes out while usage is paused; the minute check runs the jobs again once a pause lifts,
+// since the pause lives outside the board's data. A check asked for while one runs runs again after it.
+let checkingAuto = null;
+let autoAgain = false;
+let heldByPause = false;
+function checkAuto() {
+  if (checkingAuto) { autoAgain = true; return checkingAuto; }
+  checkingAuto = (async () => {
+    do {
+      autoAgain = false;
+      try { await runAuto(); } catch (err) { console.error('Auto check failed:', err.message); }
+    } while (autoAgain);
+  })().finally(() => { checkingAuto = null; });
+  return checkingAuto;
+}
+async function runAuto() {
+  const settings = settingsOf(await config());
+  const log = await readLines(events);
+  const hidden = await readHidden(here);
+  const { items, reviews } = buildBoard({ ...(await itemSnapshot()), events: log.filter((e) => !hidden.has(e.id)), owner: await readJSON(path.join(data, 'owner.json'), { items: [] }) });
+  const { idle, pullable, waiting, pulls, plannable } = pullOf(items, { cap: settings.max_implementers, pulled: await sentOf(PULL, log) });
+  heldByPause = readUsageGate().state === 'paused';
+  const ready = idle && !heldByPause;
+  if (await checkTriage(settings, log, items, ready)) return;
+  if (await sendPulls(PULL, settings.auto_pull, waiting, heldByPause ? [] : pulls)) return;
+  const unready = pullable.length ? [] : plannable;
+  const planned = (await sentOf(PLAN, log)).filter((k) => unready.includes(k));
+  if (await sendPulls(PLAN, settings.auto_pull, planned, ready && !planned.length ? unready.slice(0, 1) : [])) return;
+  // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md: one review at a time, after any pull.
+  const { due, repo } = reviews;
+  if (ready && due) await appendEvent('pr-review', { pr: due.number, head: due.head, repo, title: due.title, author: due.author, url: due.url, touches: due.touches, asked: Boolean(due.asked) });
 }
 
 // docs/adr/2026-11-03-1551-an-idle-board-triages-its-todo-once-a-day.md
@@ -1011,33 +1026,38 @@ async function checkTriage(settings, log, items, ready) {
 }
 
 // docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md
-// The pull sends card-pull {key} for the top pullable card, tracked in data/pulled.json. With nothing to pull it sends
-// card-plan {key} for the top plannable card instead, tracked in data/planned.json
+// The pull sends card-pull {key} for each card domain.mjs pullOf says fills a free slot, tracked in data/pulled.json
+// (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md). With nothing to pull an idle board sends
+// card-plan {key} for the top plannable card instead, one at a time, tracked in data/planned.json
 // (docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md).
-const PULL = { kind: 'card-pull', file: 'pulled.json', line: 'Pulled in: the board was idle.' };
+const PULL = { kind: 'card-pull', file: 'pulled.json', line: 'Pulled in: an implementer slot was free.' };
 const PLAN = { kind: 'card-plan', file: 'planned.json', line: 'Asked for a grill or prototype: nothing in Todo was ready to build.' };
-// The marker {key, at}: key is the card sent while it stays in keys, at when the marker last changed. → true while
-// the card sent stays in keys.
-async function checkPull({ kind, file: name, line }, settings, log, keys, ready) {
+// The marker {keys, at}: keys are the cards sent that still wait to start, at when the marker last changed. A marker
+// from before the cap holds one key instead. The event log covers a restart between appending an event and saving the
+// marker. → the keys sent.
+const markedOf = (marker) => marker.keys || (marker.key ? [marker.key] : []);
+async function sentOf({ kind, file }, log) {
+  const marker = await readJSON(path.join(data, file), {});
+  const at = String(marker.at || '');
+  const since = log.filter((e) => e.kind === kind && String(e.ts) > at).map((e) => e.data?.key).filter(Boolean);
+  return [...new Set([...markedOf(marker), ...since])];
+}
+// With on, sends kind {key} with its thread line for each of go and marks keep and go as sent; off, clears the marker.
+// The marker is written only when its keys move, since each write is itself a board change. → true while any is marked.
+async function sendPulls({ kind, file: name, line }, on, keep, go) {
   const file = path.join(data, name);
-  const marker = await readJSON(file, {});
-  const save = async (key) => {
+  const keys = on ? [...keep, ...go] : [];
+  for (const key of on ? go : []) {
+    await appendEvent(kind, { key });
+    await fs.mkdir(path.dirname(threadFile(key)), { recursive: true });
+    await fs.appendFile(threadFile(key), JSON.stringify({ ts: new Date().toISOString(), who: 'claude', text: line }) + '\n');
+  }
+  if (JSON.stringify(markedOf(await readJSON(file, {}))) !== JSON.stringify(keys)) {
     await fs.mkdir(data, { recursive: true });
-    await fs.writeFile(file + '.tmp', JSON.stringify({ key, at: new Date().toISOString() }) + '\n');
+    await fs.writeFile(file + '.tmp', JSON.stringify({ keys, at: new Date().toISOString() }) + '\n');
     await fs.rename(file + '.tmp', file);
-  };
-  if (!settings.auto_pull) { if (marker.key) await save(null); return false; }
-  // The event log covers a restart between appending the event and saving the marker.
-  const last = log.filter((e) => e.kind === kind).at(-1);
-  const current = last && String(last.ts) > String(marker.at || '') ? last.data?.key : marker.key;
-  if (current && keys.includes(current)) return true;
-  if (!ready || !keys.length) { if (current) await save(null); return false; }
-  const key = keys[0];
-  await appendEvent(kind, { key });
-  await fs.mkdir(path.dirname(threadFile(key)), { recursive: true });
-  await fs.appendFile(threadFile(key), JSON.stringify({ ts: new Date().toISOString(), who: 'claude', text: line }) + '\n');
-  await save(key);
-  return true;
+  }
+  return keys.length > 0;
 }
 
 // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
@@ -1086,12 +1106,12 @@ try { for (const line of await migrateFollowups(here)) console.log(line); } catc
 await watchBoard();
 setInterval(checkStalled, 60000).unref();
 setInterval(checkPickUps, 60000).unref();
-setInterval(checkIdle, 60000).unref();
+setInterval(() => { if (heldByPause && readUsageGate().state !== 'paused') checkAuto(); }, 60000).unref();
 setInterval(checkActions, 60000).unref();
 setInterval(checkQueued, 60000).unref();
 await checkStalled();
 await checkPickUps();
-await checkIdle();
+await checkAuto();
 checkActions();
 checkQueued();
 server.listen(port, '127.0.0.1', () => console.log(`site on http://127.0.0.1:${port}/ (prefix ${prefix || 'none'})`));

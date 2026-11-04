@@ -409,7 +409,7 @@ test('Board Settings saves auto-build immediately, uses kind-specific words and 
 
 // docs/adr/2026-11-03-1551-an-idle-board-triages-its-todo-once-a-day.md, docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
 for (const [key, id, on] of [
-  ['auto_pull', 'autoPull', 'Saved. When idle, Claude starts the top Todo card.'],
+  ['auto_pull', 'autoPull', 'Saved. Claude starts ready Todo cards while an implementer slot is free.'],
   ['auto_triage', 'autoTriage', 'Saved. Once a day, when the board is idle and Todo changed, Claude triages it.'],
   ['auto_review', 'autoReview', 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.'],
 ]) test(`Board Settings turns ${key} on and off with no confirmation and restores the toggle on refusal`, async () => {
@@ -452,6 +452,52 @@ for (const [key, id, on] of [
   await tick();
   assert.equal(toggle.checked, false);
   assert.equal(status.textContent, 'Cannot save');
+  view.unmount();
+});
+
+// docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
+test('Board Settings shows Maximum parallel implementers beside Auto implement, saves a whole number from 1 to 99 on change and restores the saved one on refusal', async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const root = new page.El();
+  let saved = 10, refuse = false;
+  const posts = [];
+  page.win.fetch = async (url, opts = {}) => {
+    let body = {};
+    if (url.endsWith('/api/settings')) {
+      if (opts.method === 'POST') {
+        posts.push(JSON.parse(opts.body));
+        if (refuse) return { ok: false, json: async () => ({ error: 'Cannot save' }) };
+        saved = JSON.parse(opts.body).max_implementers;
+      }
+      body = { settings: { max_implementers: saved } };
+    }
+    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
+  };
+  const view = page.win.AppViews.settings.create(root, '/orch', {});
+  view.mount();
+  await tick();
+  const input = root.querySelector('#maxImplementers');
+  const status = root.querySelector('#maxImplementersStatus');
+  assert.deepEqual([input.disabled, input.value], [false, '10']);
+  input.value = '4';
+  page.fire(input, 'change');
+  await tick();
+  assert.deepEqual([posts.at(-1), input.value, status.textContent], [{ max_implementers: 4 }, '4', 'Saved. Up to 4 cards build or wait in Orchestrator review at once.']);
+  input.value = '1';
+  page.fire(input, 'change');
+  await tick();
+  assert.equal(status.textContent, 'Saved. Up to 1 card builds or waits in Orchestrator review at once.');
+  for (const bad of ['0', '100', '2.5', '']) {
+    input.value = bad;
+    page.fire(input, 'change');
+    await tick();
+    assert.deepEqual([posts.length, input.value, status.textContent], [2, '1', 'Pick a whole number from 1 to 99.'], bad);
+  }
+  refuse = true;
+  input.value = '7';
+  page.fire(input, 'change');
+  await tick();
+  assert.deepEqual([input.value, status.textContent], ['1', 'Cannot save']);
   view.unmount();
 });
 
@@ -3872,7 +3918,7 @@ test('Board Settings holds every automatic job in one Auto section, short labels
   const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
   const auto = html.slice(html.indexOf('<h2>Auto</h2>'), html.indexOf('<h2>Reviewers</h2>'));
   assert.deepEqual([...auto.matchAll(/<label class="who" for="(\w+)"><span><span>([^<]+)<\/span>/g)].map((m) => [m[1], m[2]]), [
-    ['autoPull', 'Pull in Todo cards'], ['autoBuild', 'Auto-build cards'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'], ['autoTriage', 'Triage Todo when idle'],
+    ['autoPull', 'Auto implement Todo cards'], ['maxImplementers', 'Maximum parallel implementers'], ['autoBuild', 'Auto-build cards'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'], ['autoTriage', 'Triage Todo when idle'],
   ]);
   assert.match(auto, /May use a lot of usage\./);
   assert.doesNotMatch(html, /<h2>(Merging|Builds|Todo)<\/h2>/);

@@ -16,10 +16,14 @@
   <form id="ticketsForm" class="tk-section"><div id="boardTickets">Loading…</div></form>
   <p class="muted small" id="ticketsStatus" role="status"></p>
   <h2>Auto</h2>
-  <label class="who" for="autoPull"><span><span>Pull in Todo cards</span>
-    <span class="muted small sub">When no builder is running, Claude starts the top Todo card nothing blocks or holds.</span></span>
+  <label class="who" for="autoPull"><span><span>Auto implement Todo cards</span>
+    <span class="muted small sub">Claude starts a Todo card as soon as it’s ready and nothing blocks or holds it, while an implementer slot is free.</span></span>
     <input type="checkbox" class="toggle" id="autoPull" disabled></label>
   <p class="muted small" id="autoPullStatus" role="status"></p>
+  <label class="who" for="maxImplementers"><span><span>Maximum parallel implementers</span>
+    <span class="muted small sub">Cards building or waiting in Orchestrator review count. Grills and cards waiting on you don’t.</span></span>
+    <input type="number" class="count" id="maxImplementers" min="1" max="99" step="1" inputmode="numeric" disabled></label>
+  <p class="muted small" id="maxImplementersStatus" role="status"></p>
   <label class="who" for="autoBuild"><span><span>Auto-build cards</span>
     <span class="muted small sub" id="autoBuildSub">${BoardUI.esc(BoardUI.tryWords('web').autoSub)}</span></span>
     <input type="checkbox" class="toggle" id="autoBuild" disabled></label>
@@ -294,6 +298,7 @@
     // session awake (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md).
     const autoMerge = $('#autoMerge');
     const autoMergeStatus = $('#autoMergeStatus');
+    let savedMax = '';
     get(site.url('api/settings'), waitIn('#autoMergeStatus')).then(({ body: d }) => {
       if (!B.alive()) return;
       savedTickets = d.settings?.tickets || null;
@@ -315,6 +320,8 @@
       $('#autoBuild').disabled = false;
       $('#autoPull').checked = d.settings?.auto_pull === true;
       $('#autoPull').disabled = false;
+      $('#maxImplementers').value = savedMax = String(d.settings?.max_implementers);
+      $('#maxImplementers').disabled = false;
       $('#autoTriage').checked = d.settings?.auto_triage === true;
       $('#autoTriage').disabled = false;
       $('#autoReview').checked = d.settings?.auto_review === true;
@@ -376,7 +383,26 @@
         $(`#${id}Status`).textContent = e.message || 'Could not save. Is the host awake?';
       }
     });
-    autoToggle('autoPull', 'auto_pull', (on) => (on ? 'Saved. When idle, Claude starts the top Todo card.' : 'Saved. Todo cards wait for you.'));
+    autoToggle('autoPull', 'auto_pull', (on) => (on ? 'Saved. Claude starts ready Todo cards while an implementer slot is free.' : 'Saved. Todo cards wait for you.'));
+
+    // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md: Maximum parallel implementers saves on
+    // change, waiting on the server like a toggle; a number outside 1 to 99 or a refusal puts the saved one back.
+    B.on($('#maxImplementers'), 'change', async () => {
+      const input = $('#maxImplementers');
+      const status = $('#maxImplementersStatus');
+      const want = /^\d+$/.test(input.value) ? Number(input.value) : 0;
+      if (want < 1 || want > 99) { input.value = savedMax; status.textContent = 'Pick a whole number from 1 to 99.'; return; }
+      try {
+        const settings = await saveToggle(input, { max_implementers: want });
+        if (!B.alive()) return;
+        input.value = savedMax = String(settings.max_implementers);
+        status.textContent = `Saved. Up to ${settings.max_implementers === 1 ? '1 card builds or waits' : `${settings.max_implementers} cards build or wait`} in Orchestrator review at once.`;
+      } catch (e) {
+        if (!B.alive()) return;
+        input.value = savedMax;
+        status.textContent = e.message || 'Could not save. Is the host awake?';
+      }
+    });
     autoToggle('autoReview', 'auto_review', (on) => (on ? 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.' : 'Saved. Claude leaves incoming PRs alone.'));
     autoToggle('autoTriage', 'auto_triage', (on) => (on ? 'Saved. Once a day, when the board is idle and Todo changed, Claude triages it.' : 'Saved. Todo is left as it is.'));
 

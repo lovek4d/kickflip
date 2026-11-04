@@ -1,4 +1,10 @@
+---
+status: superseded in part by 2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap
+---
+
 # An idle board pulls in its top Todo card
+
+Superseded in part by [auto implement fills In Progress up to Maximum parallel implementers, on every board change](2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md): the toggle reads "Auto implement Todo cards"; the pull no longer waits for idle but fills every slot Maximum parallel implementers leaves free, one card per slot, on every board change and at start rather than each minute; `data/pulled.json` keeps every pulled card still waiting to start.
 
 The owner asked on hub/INT-163 about "automatically pulling in todo items when idle", then on hub/INT-166 that it "should probably be an opt in per board setting", and settled take A of prototype `auto-pull`.
 

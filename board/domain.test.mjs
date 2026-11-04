@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, todoOf, owesNext, startedByAnswer, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN } from './domain.mjs';
+import { buildBoard, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, MAX_IMPLEMENTERS, todoOf, owesNext, startedByAnswer, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -1461,6 +1461,30 @@ test('only a running build keeps the board from being idle: a running planner le
   const card = (agents) => ({ key: 'w/A1', lane: 'todo', buildable: true, state: 'ready', blockedBy: [], agents });
   for (const kind of ['prototype', 'grill']) assert.equal(pullOf([card([{ kind, started: '2026-10-23T10:00:00Z', done: null }])]).idle, true, kind);
   assert.equal(pullOf([card([{ kind: 'claude', started: '2026-10-23T10:00:00Z', done: null }])]).idle, false);
+});
+
+// docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
+test('the pull fills every free implementer slot with the top ready cards; builds and Orchestrator review take a slot, planners and owner waits do not, and a card pulled but not started keeps its slot', () => {
+  const run = (kind) => [{ kind, started: '2026-11-04T10:00:00Z', done: null }];
+  const card = (key, more = {}) => ({ key, lane: 'todo', kind: 'work', buildable: true, state: 'ready', blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
+  const progress = (key, more) => card(key, { lane: 'progress', buildable: false, state: null, ...more });
+  const todo = ['w/T1', 'w/T2', 'w/T3', 'w/T4'].map((k) => card(k));
+  const busy = [progress('w/P1', { agents: run('claude') }), progress('w/P2', { waitsOn: 'checking' }), progress('w/P3', { waitsOn: 'owner' }), progress('w/P4', { agents: run('grill') })];
+  assert.equal(MAX_IMPLEMENTERS, 10);
+  assert.deepEqual(pullOf([...busy, ...todo]).pulls, ['w/T1', 'w/T2', 'w/T3', 'w/T4'], 'the default cap leaves room for every ready card');
+  assert.deepEqual(pullOf([...busy, ...todo], { cap: 3 }).pulls, ['w/T1'], 'a build and a review take two of three slots');
+  assert.deepEqual(pullOf([...busy, ...todo], { cap: 2 }).pulls, []);
+  assert.deepEqual(pullOf([...busy, ...todo], { cap: 1 }).pulls, [], 'a cap already passed pulls nothing');
+  assert.equal(pullOf([...busy, ...todo]).idle, false, 'the pull no longer waits for idle, but idle still means nothing building');
+
+  const sent = pullOf([...busy, ...todo], { cap: 4, pulled: ['w/T1'] });
+  assert.deepEqual([sent.waiting, sent.pulls], [['w/T1'], ['w/T2']], 'a pulled card not yet started keeps its slot and is not pulled again');
+  const working = pullOf([busy[0], card('w/T1', { working: true }), ...todo.slice(1)], { cap: 3, pulled: ['w/T1'] });
+  assert.deepEqual([working.waiting, working.pulls], [['w/T1'], ['w/T2']], 'while the session works on the pull the card keeps its slot');
+  const started = pullOf([progress('w/T1', { agents: run('claude') }), ...todo.slice(1)], { cap: 2, pulled: ['w/T1'] });
+  assert.deepEqual([started.waiting, started.pulls], [[], ['w/T2']], 'once it builds it counts as an implementer instead');
+  const asked = pullOf([card('w/T1', { questions: { topic: 'item:w/T1', open: 1 } }), ...todo.slice(1)], { cap: 1, pulled: ['w/T1'] });
+  assert.deepEqual([asked.waiting, asked.pulls], [[], ['w/T2']], 'a pulled card that stops being pullable frees its slot');
 });
 
 // docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md

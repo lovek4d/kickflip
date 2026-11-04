@@ -1,4 +1,10 @@
+---
+status: superseded in part by 2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap
+---
+
 # An idle board triages its Todo once a day when it changed
+
+Superseded in part by [auto implement fills In Progress up to Maximum parallel implementers, on every board change](2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md): the check runs on every board change and at start, not each minute, so a new host day alone sends no triage until the next change. The triage still waits for an idle board, and still holds the pull until its reply.
 
 The owner asked on #74 for a second idle job beside the pull ([an idle board pulls in its top Todo card](2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md)): "triaging the to-do periodically while there's nothing else going on", for duplicates and cards that are ready to close, as the 11/03 dedupe did by hand. The #74 grill settled every pick on its recommended option.
 
