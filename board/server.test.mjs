@@ -105,7 +105,7 @@ test("an owner answer opens no confirm: a pick settles its round, with a note or
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
-// docs/adr/0172-a-prototype-answer-with-no-pick-prototypes-again.md
+// docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md
 test("an owner answer that picks no take on a card's prototype says so in its event, and the card prototypes again", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
   const eventsFile = path.join(site, 'data', 'events.jsonl');
@@ -128,7 +128,7 @@ test("an owner answer that picks no take on a card's prototype says so in its ev
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
-// docs/adr/0177-a-question-asked-for-a-prototype-is-resolved.md
+// docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md
 test("a prototype request on a question resolves it with its note and pick kept on the event, the topic's round reads making and the card prototypes; one on a card resolves nothing", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
   const eventsFile = path.join(site, 'data', 'events.jsonl');
@@ -361,7 +361,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items[1].pick_up_at, undefined);
     assert.deepEqual(thread('B2').map((m) => [m.who, m.text]), [['love', 'Resumed.']]);
     assert.deepEqual(log().slice(before).map((e) => e.kind), ['card-build', 'card-build']);
-    // docs/adr/0145-build-on-a-blocked-card-queues-it.md
+    // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md
     const queuedAnswer = await (await post({ kind: 'card-build', key: 't/B3' })).json();
     assert.equal(queuedAnswer.id, null);
     assert.equal(queuedAnswer.board.items.find((i) => i.id === 'B3').queued, true);
@@ -492,7 +492,7 @@ test("an ask's Done and a work card's Hold, Resume and Done apply at once from t
   assert.match(lines[2], /^Held until .+\.$/);
 });
 
-// docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md
+// docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md
 test("the events POST answers with the board as the tap left it, so a bump, unbump, Hold and Done each draw from the one round trip", async () => {
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'C1', title: 'One' }, { id: 'C2', title: 'Two' }] }));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
@@ -964,7 +964,7 @@ test('the watcher prints the hub rules, then the board rules, the board settings
     const hello = () => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: 'hello1', ts: new Date().toISOString(), kind: 'hello', data: { title: 'T' } }) + '\n');
     assert.equal((await watch('hello', hello))[1], 'hello hello1 from the hub answered');
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'handshake.json'), 'utf8')).ack.id, 'hello1');
-    // docs/adr/0165-an-idle-board-triages-its-todo-once-a-day.md
+    // docs/adr/2026-11-03-1551-an-idle-board-triages-its-todo-once-a-day.md
     const triage = () => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: 'tt1', ts: new Date().toISOString(), kind: 'todo-triage', data: { date: '2026-11-03', topic: 'todo-triage-2026-11-03' } }) + '\n');
     assert.equal((await watch('triage', triage))[1], 'Todo triage 2026-11-03 asked: the board was idle');
     assert.ok(Date.parse(JSON.parse(fs.readFileSync(path.join(site, 'data', 'working.json'), 'utf8')).events.tt1));
@@ -999,7 +999,7 @@ test("a wave's triage runs from its wave-triage event until Claude replies, and 
   assert.equal((await fetch(`${base}/api/notes?wave=nope`)).status, 404);
 });
 
-// docs/adr/0180-waves-are-bands-in-todo.md
+// docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
 test("a lineup-move tap reorders the wave's unstarted cards, chains them again and answers with the board, appending no event; a move past the end is refused", async () => {
   const waveFile = path.join(site, 'data', 'wave.json');
   const saved = fs.readFileSync(waveFile, 'utf8');

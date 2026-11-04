@@ -1,6 +1,6 @@
 // New tasks on the board view: the + sheet that sends one as an ask event, and bump, edit and delete for a New card or a
-// pending thread message (docs/adr/0014-a-pending-ask-can-be-deleted-or-bumped.md,
-// docs/adr/0047-the-plus-makes-a-new-card.md). Needs app-core.js and app-threads.js.
+// pending thread message (docs/adr/2026-10-29-1639-a-pending-ask-can-be-deleted-or-bumped.md,
+// docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md). Needs app-core.js and app-threads.js.
 BoardView.part((B) => {
   const { $, store, state, toast, quieted, sendDraft, hide } = B;
   const { attachButton } = BoardUI;
@@ -79,7 +79,7 @@ BoardView.part((B) => {
   });
 
   // A bump moves the New card to the top at once, its icon filling as it goes
-  // (docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md).
+  // (docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md).
   async function bumpAsk(id) {
     const icon = `button[data-bump="${CSS.escape(id)}"]`;
     const at = new Date().toISOString();
@@ -170,7 +170,7 @@ BoardView.part((B) => {
     if (BoardAttach.busy(form.dataset.composer, B.site.root)) return;
     const files = BoardAttach.files(form.dataset.composer, B.site.root);
     // The new text and files show at once, in the thread and on the New card; a failed save puts the old text back and
-    // reopens the edit box with what was typed and attached (docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md).
+    // reopens the edit box with what was typed and attached (docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md).
     const before = state.threadCache.get(e.thread);
     if (before) state.threadCache.set(e.thread, before.map((m) => (m.eventId === id ? { ...m, text, edited: true, files: [...(m.files || []), ...files] } : m)));
     closeEditor(id);

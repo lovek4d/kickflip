@@ -1,4 +1,4 @@
-// Whether a board request comes from a browser on the hub's own machine (docs/adr/0164-a-building-card-opens-its-worktree-in-vs-code-on-the-host.md).
+// Whether a board request comes from a browser on the hub's own machine (docs/adr/2026-11-03-1544-a-building-card-opens-its-worktree-in-vs-code-on-the-host.md).
 // tailscale serve proxies every tailnet request from 127.0.0.1 and puts the client's tailnet address last in
 // X-Forwarded-For, so a browser on the host names one of the host's own addresses; a request with no such header
 // reached the hub straight on loopback.

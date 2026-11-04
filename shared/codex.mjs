@@ -35,7 +35,7 @@ export function codexStatusReader({ home, env, now = Date.now, cacheMs = 60_000 
   };
 }
 
-// The Codex setting in effect (docs/adr/0092-codex-share-follows-whether-codex-is-usable.md): Off while Codex isn't
+// The Codex setting in effect (docs/adr/2026-11-01-1521-codex-share-follows-whether-codex-is-usable.md): Off while Codex isn't
 // usable, whatever is stored; else the stored choice, or Auto when none was made.
 export const effectiveCodexShare = (stored, status) =>
   !status.usable ? 'off' : CODEX_SHARE_VALUES.includes(stored) ? stored : 'auto';

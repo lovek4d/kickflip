@@ -137,7 +137,7 @@ test('the reader exposes Codex past the line only while effective share is on', 
   assert.deepEqual(pick(), { kind: 'claude', model: 'opus', reason: "Codex isn't logged in on the host. Claude model is Auto and the card isn't small." });
 });
 
-// docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md
+// docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md
 test("the hub's Claude model decides a Claude build's model: Auto gives a small card Sonnet and a card's own model wins, Opus and Sonnet force it, and Codex builds take none", (t) => {
   const f = fixture(t);
   const oldPath = process.env.PATH;

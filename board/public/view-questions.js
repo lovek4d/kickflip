@@ -4,11 +4,11 @@
 // opens the topic whose pill was to its left before the Send, else to its right, and with no topic left that has an
 // open question goes back to the board, where the Sent line shows as a toast (BoardUI.sentNotice). An open question
 // with `urgent: true` in owner.json shows alone first, and its Send follows the same rule for its topic. A question
-// whose options are prototype takes frames each take with ?take= (docs/adr/0048-a-questions-takes-show-inline.md).
+// whose options are prototype takes frames each take with ?take= (docs/adr/2026-10-29-1639-a-questions-takes-show-inline.md).
 // Each question's eye sends `prototype-request {key?, question, note, choice}` for that question instead of an answer,
-// with its note box as the note and its pick so far as the choice (docs/adr/0126-each-question-has-its-own-prototype-eye.md).
+// with its note box as the note and its pick so far as the choice (docs/adr/2026-11-02-1822-each-question-has-its-own-prototype-eye.md).
 // The board server resolves the question with it, and once it is recorded the page moves on as a Send does
-// (docs/adr/0177-a-question-asked-for-a-prototype-is-resolved.md).
+// (docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md).
 // fits: each framed take's measured size, kept across repaints and visits so a take redraws at its size at once.
 (globalThis.AppViews ||= {}).questions = ((fits) => ({
   className: 'view-questions',
@@ -52,7 +52,7 @@
     const links = (q) => linkContext(items, q.topic?.startsWith('item:') ? q.topic.slice(5) : null, { base: './' });
     const urgentOpen = () => all.find((q) => q.urgent && q.state === 'open');
 
-    // docs/adr/0038-waiting-on-you-leads-with-what-needs-the-owner.md
+    // docs/adr/2026-10-29-1639-waiting-on-you-leads-with-what-needs-the-owner.md
     function topicBar() {
       const list = topicRow(topics, topicId).pills;
       if (list.length < 2) return '';
@@ -108,7 +108,7 @@
     // A width sets its page's height, so a size measured at another width is measured again.
     const fitKey = (qid, oid) => `${site.root}\n${qid}\n${oid}`;
     const fitOf = (q) => (oid) => { const f = fits.get(fitKey(q.id, oid)); return f && f.w === window.innerWidth ? f : null; };
-    // A phone's header is a bar at the bottom (docs/adr/0070-phone-headers-sit-at-the-bottom.md), so only a header
+    // A phone's header is a bar at the bottom (docs/adr/2026-10-31-1532-phone-headers-sit-at-the-bottom.md), so only a header
     // at the top covers the frame's top.
     const frameTop = (shot) => {
       const head = $('header.top')?.getBoundingClientRect();
@@ -132,7 +132,7 @@
     // A framed take is sized to its page once it loads, since the frame can't scroll. A page that fills its frame at
     // any height is a full-screen take and gets screenH. A full-screen take, or a grid take past 80% of the screen's
     // height, turns its question into one full-width take under a choice row
-    // (docs/adr/0048-a-questions-takes-show-inline.md).
+    // (docs/adr/2026-10-29-1639-a-questions-takes-show-inline.md).
     function fitTake(shot) {
       const frame = shot.querySelector('iframe');
       const sec = shot.closest('section.q');
@@ -376,7 +376,7 @@
       if (!list.length) { st.textContent = 'Pick an option or write a note first.'; return; }
       st.textContent = 'Sending…';
       const at = leaving();
-      // docs/adr/0163-send-records-every-ready-answer-in-one-request.md: one request, recorded all or none.
+      // docs/adr/2026-11-03-1519-send-records-every-ready-answer-in-one-request.md: one request, recorded all or none.
       const answers = list.map((q) => {
         const d = getDraft(q.id);
         const last = q.answers[q.answers.length - 1];

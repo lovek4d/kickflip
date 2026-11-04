@@ -51,7 +51,7 @@ export function ticketBadge(source, id, { repo, key } = {}) {
 
 // A GitHub source's issue calls run as its account, with GH_TOKEN from gh's own store, read each time because the
 // token can be rotated underneath. Without an account they run as gh's active account
-// (docs/adr/0115-the-hub-board-files-its-cards-as-github-issues.md). → a runner for gh
+// (docs/adr/2026-11-02-1611-the-hub-board-files-its-cards-as-github-issues.md). → a runner for gh
 async function issueRunner(source, run) {
   if (!source.account) return run;
   const token = await run('gh', ['auth', 'token', '-u', source.account]);
@@ -65,7 +65,7 @@ const linearCall = async (fn) => { try { return await fn(); } catch (e) { refuse
 // → {ticket, created}: created when kickflip made the ticket rather than linking one (store.mjs keeps it as
 // ticket_created, which lets moveTicket move it). A Linear board without Hub's key links an id on its pattern alone,
 // and to create one answers {ticket: null, mcp: true}: the board's session makes it through its Linear MCP
-// (docs/adr/0088-kickflip-reaches-linear-with-a-key-on-the-mac.md).
+// (docs/adr/2026-11-01-1436-kickflip-reaches-linear-with-a-key-on-the-mac.md).
 export async function resolveTicket(source, { ticket, title, body = '', repo, next }, { run = runRepo, linearFetch } = {}) {
   if (source.source === 'internal') {
     if (ticket !== undefined && !ticketIn(source, ticket)) refuse(`Ticket must match ${source.prefix}-<number>.`);
@@ -123,7 +123,7 @@ export function ticketTarget({ status, pr }) {
 const TARGET_WORDS = { started: 'In Progress', review: 'In Review', done: 'Done' };
 
 // Moves a card's ticket toward target, one way, and only a ticket the owner is assigned or kickflip created
-// (docs/adr/0088-kickflip-reaches-linear-with-a-key-on-the-mac.md). Internal tickets are the card itself; GitHub issues
+// (docs/adr/2026-11-01-1436-kickflip-reaches-linear-with-a-key-on-the-mac.md). Internal tickets are the card itself; GitHub issues
 // only close, on done. → a line to print, or null when nothing was asked of the source. Never throws.
 export async function moveTicket(source, item, target, { repo, run = runRepo, linearFetch } = {}) {
   const id = item.ticket;

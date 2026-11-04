@@ -79,9 +79,9 @@
   }
 
   // The reply form's Done sends ask-done or card-done; the board applies it before the session follows up.
-  // docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md
+  // docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md
   // Orange while it clears an ask's Action needed, primary while a reopened card waits only on it
-  // (docs/adr/0136-a-card-waiting-only-to-be-closed-has-no-action-needed.md).
+  // (docs/adr/2026-11-03-0137-a-card-waiting-only-to-be-closed-has-no-action-needed.md).
   function doneButton(it) {
     if (!it?.finishable) return '';
     const tone = it.resolvedBy === BUTTON.markDone ? 'resolves' : it.awaitsDone ? 'closes' : '';

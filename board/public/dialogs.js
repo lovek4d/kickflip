@@ -1,13 +1,13 @@
 // Every confirmation and notice is the browser's own window.confirm or window.alert; no page imitates a native dialog.
-// Load before any page script that asks (docs/adr/0146-confirmations-are-the-browsers-own.md).
+// Load before any page script that asks (docs/adr/2026-11-03-0259-confirmations-are-the-browsers-own.md).
 (function () {
   // linear: Hub's /_hub/api/linear answer, else loadLinear() fetches it once Linear is the source. Linear is picked only
   // while Hub's key works; tapping it without one opens Hub's key modal over the page (linear-key.js,
-  // docs/adr/0117-a-board-picks-linear-only-while-hubs-key-works.md). A New board's "New project…" reads as
+  // docs/adr/2026-11-02-1712-a-board-picks-linear-only-while-hubs-key-works.md). A New board's "New project…" reads as
   // new_project, which the hub creates on Start; Board Settings creates it with createProject. change(value, valid,
   // {loaded, typing}) follows each change: loaded when only Linear's lists arrived, typing while a text field is being typed in.
   // GitHub issues needs repo(), the board's GitHub owner/name: without one, as on a board whose repo is another git
-  // remote, it can't be picked and says why (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
+  // remote, it can't be picked and says why (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
   function ticketsControl(root, { value = { source: 'internal', prefix: 'INT' }, repo = () => '', title = () => '', linear = null, loadLinear, isNew = false, change = () => {}, createProject } = {}) {
     const { esc } = BoardUI;
     const draft = { prefix: 'INT', ...value };
@@ -193,12 +193,12 @@
       return d;
     };
     const fail = (e) => { if (!closed) { error.textContent = e.message; error.hidden = false; } };
-    // A repo already on the host joins from its folder instead (docs/adr/0143-kickflip-join-adds-the-current-repository-as-a-board.md).
+    // A repo already on the host joins from its folder instead (docs/adr/2026-11-03-0248-kickflip-join-adds-the-current-repository-as-a-board.md).
     const joinHint = current ? '' : '<p class="nb-help" data-join-hint>A repo already on the host running Kickflip? Run <code>kickflip join</code> in its folder.</p>';
     function sync() { start.disabled = sending || !(draft.github || draft.remote) || !draft.branch || (!current && (!draft.name.trim() || !tickets?.valid())); }
     // A repo row's id is its GitHub owner/name, or the git link of a repo on another host, which the row names by
     // host/path and labels with its host where a GitHub row says Private or Public
-    // (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
+    // (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
     const idOf = (r) => r.github || r.remote;
     const nameOf = (r) => r.github || r.name;
     const access = (r) => (r.remote ? r.host : r.private ? 'Private' : 'Public');

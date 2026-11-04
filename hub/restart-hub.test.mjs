@@ -1,4 +1,4 @@
-// docs/adr/0171-the-hub-restarts-itself-from-its-stale-code-notice.md
+// docs/adr/2026-11-03-1638-the-hub-restarts-itself-from-its-stale-code-notice.md
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

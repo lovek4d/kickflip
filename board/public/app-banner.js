@@ -1,5 +1,5 @@
 // The answer banner at the top of the board view: asks Claude answered without making work, whose answer this
-// browser hasn't seen (domain.mjs answers; docs/adr/0016-every-ask-is-a-card.md). Needs app-core.js.
+// browser hasn't seen (domain.mjs answers; docs/adr/2026-10-29-1639-every-ask-is-a-card.md). Needs app-core.js.
 BoardView.part((B) => {
   const { $, store, state, seen, markSeen, plural, svg } = B;
   const { esc } = BoardUI;

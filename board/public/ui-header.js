@@ -2,10 +2,10 @@
 (function () {
   const { since, esc } = globalThis.BoardUI;
   // The header's short time beside refresh: `at` is when the page last got fresh data (nextFresh), and watcher is
-  // /api/board's checks.watcher (docs/adr/0021-the-board-shows-github-checks-and-watcher-health.md): a grey asleep while
+  // /api/board's checks.watcher (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md): a grey asleep while
   // the hub can wake the session, waking… once a wake is under way (waking: the page asked for one and the board hasn't
   // said so yet), and a red not listening when nothing will wake it
-  // (docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md). link is 'online',
+  // (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md). link is 'online',
   // 'offline' (the last board load failed) or 'reconnecting' (a refresh tap is retrying it).
   const statusLine = (at, { link = 'online', watcher, pause, waking = false } = {}) => (pause?.state === 'paused' ? `<span class="late">paused until ${esc(BoardUI.usageClock(pause.resets_at))}</span>`
     : link === 'offline' ? `<span class="link-state offline" title="Offline: can't reach the host">${at ? shortSince(at) : 'offline'}</span>`
@@ -19,16 +19,16 @@
   // fresh is {at, sig}: the header's time and what the page showed then. via is 'refresh' (a ↻ tap), 'signal' (the
   // stream's change signal) or 'poll' (any other load). A manual refresh always moves the time, a change signal only when it brought
   // something the time hasn't counted, a poll never, and any load moves it while none has landed (sig null)
-  // (docs/adr/0031-the-board-reloads-on-a-change-signal.md).
+  // (docs/adr/2026-10-29-1639-the-board-reloads-on-a-change-signal.md).
   const nextFresh = (fresh, { via, at, sig }) => (!fresh?.sig || via === 'refresh' || (via === 'signal' && sig !== fresh.sig) ? { at, sig } : fresh);
   const shortSince = (iso) => {
     const s = (Date.now() - Date.parse(iso)) / 1000;
     return s < 60 ? 'now' : s < 3600 ? Math.round(s / 60) + ' min' : s < 86400 ? Math.round(s / 3600) + ' h' : Math.round(s / 86400) + ' d';
   };
-  // GitHub's logo guidelines forbid altering the mark, so it stays filled rather than a line icon (docs/adr/0013-icons-are-sf-symbol-style-line-icons.md).
+  // GitHub's logo guidelines forbid altering the mark, so it stays filled rather than a line icon (docs/adr/2026-10-29-1639-icons-are-sf-symbol-style-line-icons.md).
   const GITHUB_MARK = '<svg class="gh-mark" width="13" height="13" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="GitHub"><title>GitHub</title><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>';
   // The GitHub mark opens the Hub links sheet, with a red dot while any link is broken past its grace period
-  // (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md). links is /api/board's (hub/boards.mjs linksOf), null
+  // (docs/adr/2026-10-29-1639-hub-links-turn-red-only-after-a-grace-period.md). links is /api/board's (hub/boards.mjs linksOf), null
   // when the hub doesn't list this board. A link without state, from a board server still running older code, reads from ok.
   const linkState = (l) => l.state || (l.ok ? 'ok' : 'broken');
   const brokenLinks = (links) => (links || []).filter((l) => linkState(l) === 'broken');
@@ -38,7 +38,7 @@
     return `<button class="ghost gh-links" type="button" data-hub-links aria-haspopup="dialog" aria-label="${label}" title="${label}">${mark}${broken ? '<span class="links-dot" aria-hidden="true"></span>' : ''}</button>`;
   };
   // A board on a plain git remote has no GitHub checks, so the In Review header names its repo, host/path, instead
-  // (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
+  // (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
   const REMOTE_MARK = '<svg class="gh-mark" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7"/><path d="M18 10.5c0 4-6 3-11 6"/></svg>';
   const remoteLine = (remote, { links = null } = {}) => `<span class="github remote" title="This board’s repo">${linksMark(links, REMOTE_MARK)} <span class="remote-name">${esc(remote.name)}</span></span>`;
   // The In Review header's right end; pending is whether a check-github request is waiting.
@@ -53,7 +53,7 @@
 
   const LINK_NAMES = { github: 'GitHub polling', 'repo-fetch': 'Repo fetch', events: 'Events', wakes: 'Daily wakes', slack: 'Reviewer links' };
   // The Hub links sheet's list, one row per link with a green dot, a muted one while settling, or a red one
-  // (docs/adr/0040-one-board-registry-for-every-hub-feature.md).
+  // (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md).
   const LINK_DOTS = { ok: ['pass', 'Working'], settling: ['', 'Settling'], broken: ['fail', 'Not working'] };
   const linkRow = (l) => {
     const st = linkState(l);
@@ -83,7 +83,7 @@
 
   // Which header controls take taps, and whether refresh spins. The header paints them disabled with refresh spinning;
   // both turn on together once the first board load has answered or failed.
-  // Offline, refresh stays on so a tap can retry the load (docs/adr/0021-the-board-shows-github-checks-and-watcher-health.md).
+  // Offline, refresh stays on so a tap can retry the load (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md).
   const headerControls = ({ link = 'online', wired = false, boardSettled = false, reloading = false } = {}) => {
     const ready = wired && boardSettled && !reloading;
     return { refresh: ready, settings: ready && link === 'online', spin: !boardSettled || reloading };

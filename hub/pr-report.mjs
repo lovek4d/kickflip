@@ -1,4 +1,4 @@
-// GitHub's raw PR data and the session's report (docs/adr/0103-the-hub-reads-github-itself.md).
+// GitHub's raw PR data and the session's report (docs/adr/2026-11-01-2314-the-hub-reads-github-itself.md).
 import { execFile } from 'node:child_process';
 
 export const PR_VIEW_FIELDS = 'state,isDraft,reviewDecision,mergeable,mergeStateStatus,headRefOid,statusCheckRollup';
@@ -65,7 +65,7 @@ export function reportOf({ view, issueComments, reviewComments, reviews }, { pr,
   };
 }
 
-// docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md: a repo's open PRs for hub/incoming.mjs, newest
+// docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md: a repo's open PRs for hub/incoming.mjs, newest
 // 100, with the files each changes and the users asked to review it.
 export async function openPRs(repo) {
   let list;

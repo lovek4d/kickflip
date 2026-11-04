@@ -1,6 +1,6 @@
 // Hub's Linear key slot. Hub settings › Linear mounts it, and the Tickets control (dialogs.js) opens it over Board
 // settings or New board when Linear is tapped without a working key
-// (docs/adr/0117-a-board-picks-linear-only-while-hubs-key-works.md). A key saves on paste, change or Enter through
+// (docs/adr/2026-11-02-1712-a-board-picks-linear-only-while-hubs-key-works.md). A key saves on paste, change or Enter through
 // POST /_hub/settings/linear, which checks it with Linear; linear is hub/views.mjs settingsView's `linear`.
 (function () {
   const FAILED = 'Could not save. Is the host awake?';

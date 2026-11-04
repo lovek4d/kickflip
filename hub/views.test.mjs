@@ -567,7 +567,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   assert.equal(root.querySelector('.remembered'), null);
 });
 
-// docs/adr/0171-the-hub-restarts-itself-from-its-stale-code-notice.md
+// docs/adr/2026-11-03-1638-the-hub-restarts-itself-from-its-stale-code-notice.md
 test("the hub's runs-older-code notice jumps to Restart hub, which confirms, waits for the hub's answer, says restarting… and reloads once the hub answers with its new code", async () => {
   const document = {};
   const { Element } = miniDom(class {}, document);
@@ -728,7 +728,7 @@ test("the hub page's Usage card opens Codex's block with Codex share, bars under
   assert.equal(root.querySelector('[role="alert"]').textContent, 'codex-share takes auto, always, or off');
 });
 
-// docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md
+// docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md
 test("the hub page's Usage card opens Claude's block with Opus, Auto and Sonnet, whose helper says what Auto does, and saves each choice or shows a refusal", async () => {
   const document = {};
   const { Element } = miniDom(class {}, document);

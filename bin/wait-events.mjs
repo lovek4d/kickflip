@@ -11,21 +11,21 @@
 //                             session (board/store.mjs ackHello), then prints:
 //   rule hub <text>           each hub rule (settings.json `rules`), then
 //   rule board <text>         each of the board's own (board.json `rules`): the owner's standing instructions,
-//                             printed with every wake (docs/adr/0039-rules-live-on-settings-at-hub-and-board-level.md), then
+//                             printed with every wake (docs/adr/2026-10-29-1639-rules-live-on-settings-at-hub-and-board-level.md), then
 //   setting <name> <value>    each board setting from board.json: auto-merge, auto-build, auto-pull, auto-triage and auto-review on|off,
 //                             github-login <login> and tickets <json> when set
-//                             (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md), then
+//                             (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md), then
 //   quiet <text>              the fixed instruction to keep the terminal quiet (QUIET), then
 //   usage paused <iso> <window> <used>%  while Claude is paused, after rules/settings; hub work events wait for reset
 //   link <name> <detail>      each hub link that doesn't reach the board (../hub/boards.mjs linksOf), the list its
-//                             Hub links sheet shows (docs/adr/0040-one-board-registry-for-every-hub-feature.md), at
+//                             Hub links sheet shows (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md), at
 //                             once, while the sheet still reads it settling
-//                             (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md); and `link hub
+//                             (docs/adr/2026-10-29-1639-hub-links-turn-red-only-after-a-grace-period.md); and `link hub
 //                             <detail>` while the hub runs older code than its files (../hub/boards.mjs hubLink)
 //   handed-over <owner json>  another session took the route over: stop, don't relaunch
 //   site-removed              the route left the manifest: stop, don't relaunch
 // On start it writes <site dir>/data/watcher.json {pid, since}, and adds exited_at when it exits; a board reads it
-// to say whether a watcher runs (docs/adr/0021-the-board-shows-github-checks-and-watcher-health.md).
+// to say whether a watcher runs (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md).
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -157,9 +157,9 @@ for (;;) {
     let board = null;
     try { board = JSON.parse(fs.readFileSync(path.resolve(s.dir, 'board.json'), 'utf8')); } catch (e) { if (e.code !== 'ENOENT') board = {}; }
     // The session takes each one it is handed, so its page reads "Working on it" from now
-    // (docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md).
+    // (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md).
     if (board) await markWorking(s.dir, started).catch((e) => console.log(`working marks not written (${e.message})`));
-    // Printing the hello is the proof the session hears the board (docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
+    // Printing the hello is the proof the session hears the board (docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
     if (board) for (const id of hellos) await ackHello(s.dir, id).catch((e) => console.log(`hello ${id} not answered (${e.message})`));
     if (board) for (const line of ruleLines(readHubRules(), rulesOf(board))) console.log(`rule ${line}`);
     if (board) for (const line of settingsLines(settingsOf(board))) console.log(line);

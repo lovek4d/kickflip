@@ -1,5 +1,5 @@
-// The site list every board's sidebar shows, and what `/` opens (docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md):
-// each site's status word and lane chips (docs/adr/0037-the-hub-home-shows-status-not-descriptions.md), the hub's
+// The site list every board's sidebar shows, and what `/` opens (docs/adr/2026-10-29-1639-a-sidebar-of-every-board-replaces-the-hub-home.md):
+// each site's status word and lane chips (docs/adr/2026-10-29-1639-the-hub-home-shows-status-not-descriptions.md), the hub's
 // health, and the board a first visit opens.
 import { siteIcon } from './icons.mjs';
 import { contextFull } from './usage.mjs';
@@ -7,7 +7,7 @@ import { contextFull } from './usage.mjs';
 const count = (n) => (Number.isInteger(n) && n > 0 ? n : 0);
 
 // One site's GET /_claude/needs body as the hub keeps it, or null when it isn't the contract
-// (docs/adr/0010-sites-report-what-waits-through-claude-needs.md). lanes and building are optional.
+// (docs/adr/2026-10-29-1639-sites-report-what-waits-through-claude-needs.md). lanes and building are optional.
 export function readNeeds(body) {
   const { items, working, summary, lanes, building } = body || {};
   if (!Array.isArray(items)) return null;
@@ -83,10 +83,10 @@ export function startRoute(sites) {
 export const STALE_CODE = 'runs older code than its files; restart it';
 
 // The hub's health from the sites' process states, each board's linksOf states (a Map by route) and the hub's own
-// boards.mjs hubLink (docs/adr/0149-the-hub-reads-healthy-degraded-or-a-site-down.md): red only while a site is down,
+// boards.mjs hubLink (docs/adr/2026-11-03-0501-the-hub-reads-healthy-degraded-or-a-site-down.md): red only while a site is down,
 // amber degraded while a board link reads broken or the hub runs older code than its files, else healthy. A link
-// still settling doesn't count (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md). The stale code says
-// why in the detail, here and nowhere else (docs/adr/0064-every-builder-works-in-a-worktree.md).
+// still settling doesn't count (docs/adr/2026-10-29-1639-hub-links-turn-red-only-after-a-grace-period.md). The stale code says
+// why in the detail, here and nowhere else (docs/adr/2026-10-30-1654-every-builder-works-in-a-worktree.md).
 export function hubHealth(sites, linksByRoute = new Map(), hub = null) {
   const down = sites.filter((s) => s.state === 'down').length;
   const failing = sites.reduce((n, s) => n + (linksByRoute.get(s.route) || []).filter((l) => l.state === 'broken').length, 0);

@@ -1,4 +1,4 @@
-// A small Markdown renderer for Notes (view-notes.js; docs/adr/0024-a-full-plan-opens-as-a-page-on-the-site.md). Needs ui.js and ui-links.js.
+// A small Markdown renderer for Notes (view-notes.js; docs/adr/2026-10-29-1639-a-full-plan-opens-as-a-page-on-the-site.md). Needs ui.js and ui-links.js.
 (function () {
   const { esc, linkHtml } = globalThis.BoardUI;
   // Raw HTML is escaped first, so a link's href can only break out through its scheme.

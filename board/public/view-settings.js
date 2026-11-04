@@ -273,7 +273,7 @@
     }, { kind: 'reviewers' });
 
     // The toggle saves at once through POST api/settings, which writes board.json itself, so it takes effect with no
-    // session awake (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md).
+    // session awake (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md).
     const autoMerge = $('#autoMerge');
     const autoMergeStatus = $('#autoMergeStatus');
     get(site.url('api/settings'), waitIn('#autoMergeStatus')).then(({ body: d }) => {
@@ -341,9 +341,9 @@
       } finally { if (B.alive()) toggle.disabled = false; }
     });
 
-    // These Auto toggles save with no confirmation: docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md,
-    // docs/adr/0165-an-idle-board-triages-its-todo-once-a-day.md and
-    // docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md.
+    // These Auto toggles save with no confirmation: docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md,
+    // docs/adr/2026-11-03-1551-an-idle-board-triages-its-todo-once-a-day.md and
+    // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md.
     const autoToggle = (id, key, saved) => B.on($(`#${id}`), 'change', async () => {
       const toggle = $(`#${id}`);
       const want = toggle.checked;

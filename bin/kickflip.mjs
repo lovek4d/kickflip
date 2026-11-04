@@ -6,7 +6,7 @@
 //               --fix runs init's steps, then reports again. --json prints {items:[{group,item,state,detail,fix}]}.
 //               Exit 1 when anything is fixable or yours
 //   kickflip join [--name <board name>] [--hub]
-//               run in a git repo's folder: adds it as a board (docs/adr/0143-kickflip-join-adds-the-current-repository-as-a-board.md).
+//               run in a git repo's folder: adds it as a board (docs/adr/2026-11-03-0248-kickflip-join-adds-the-current-repository-as-a-board.md).
 //               Asks for the board name, default the folder's name; with no terminal to ask in, --name is needed. The name
 //               takes letters, digits and spaces, and gives the route, lowercased with dashes for spaces. Records the
 //               folder's origin as `github` and its default branch (origin's, else the checked-out one); the board's
@@ -19,7 +19,7 @@
 //   other than letters and digits, become dashes). A name that is the route itself keeps the site's title.
 //   kickflip join --name <name> (--port <n> | --dir <folder> [--cmd '<json array>' [--port <n>]])
 //               [--description <d>] [--icon <key>] [--color <css hex>]
-//               a plain page: no session, owner, watcher or needs (docs/adr/0087-a-page-joins-without-a-session.md).
+//               a plain page: no session, owner, watcher or needs (docs/adr/2026-11-01-1446-a-page-joins-without-a-session.md).
 //               --port forwards /<route>/ to a server the session already runs, which reads Down while it doesn't
 //               answer; --dir alone has the hub serve the folder's files; --cmd has the hub run that command in --dir
 //               (default the cwd) on --port or a free one. Prints {route, url, serves, port|dir, answering?, hub}.
@@ -80,7 +80,7 @@
 //               session resumed in its recorded folder and model, or in --repo when no folder is recorded; with no
 //               owner, a fresh session in --repo (default cwd) that joins the board with --hub. Points it to
 //               docs/hub-session.md. While the tmux session runs, nothing else starts
-//               (docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
+//               (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
 //               Exit 2 when no board has the hub flag (`set --hub`), 3 while its session is live outside tmux;
 //               otherwise keeps tmux's exit code
 //   kickflip sessions [--json]
@@ -361,7 +361,7 @@ function nameProblem(name) {
 // The board starts on its own cards, data/wave.json, as a New board start does.
 const BOARD_FLAGS = '--template board --items data/wave.json';
 
-// Bare `kickflip join` (docs/adr/0143-kickflip-join-adds-the-current-repository-as-a-board.md): adds the git repo the
+// Bare `kickflip join` (docs/adr/2026-11-03-0248-kickflip-join-adds-the-current-repository-as-a-board.md): adds the git repo the
 // cwd is in as a local board, its session starting in the background, or with --hub in tmux, attached to this terminal.
 async function joinFolder() {
   const top = git(process.cwd(), 'rev-parse', '--show-toplevel');
@@ -485,7 +485,7 @@ Manifest fields left out, which the new machine sets itself: ${b.dropped.length 
 `;
 }
 
-// A plain page (docs/adr/0087-a-page-joins-without-a-session.md): the entry has no owner, watch or filter, so no session
+// A plain page (docs/adr/2026-11-01-1446-a-page-joins-without-a-session.md): the entry has no owner, watch or filter, so no session
 // is woken, nothing is watched and the hub never asks it for needs.
 async function joinPage() {
   checkLook();

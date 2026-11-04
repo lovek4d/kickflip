@@ -57,7 +57,7 @@
   const EYE = icon('<path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/>');
   const TRASH = icon('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>');
   const ELLIPSIS = icon('<circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/>');
-  // Asks Claude for throwaway prototypes of one item (docs/adr/0015-prototypes-come-on-request.md).
+  // Asks Claude for throwaway prototypes of one item (docs/adr/2026-10-29-1639-prototypes-come-on-request.md).
   function protoButton(id, state = null, { label = 'Ask for prototypes' } = {}) {
     if (state?.pending) return `<button type="button" class="attach proto-ask" data-proto="${esc(id)}" data-proto-pending="${esc(state.pending)}" aria-label="Prototypes are being made" title="Prototypes are being made">${ELLIPSIS}</button>`;
     return `<button type="button" class="attach proto-ask" data-proto="${esc(id)}" aria-label="${esc(label)}" title="${esc(label)}">${EYE}</button>`;
@@ -73,8 +73,8 @@
   const editButton = (id) => `<button class="ghost icon" data-edit="${esc(id)}" aria-label="Edit" title="Edit">${PENCIL}</button>`;
   // A waiting ask's bump, which app-asks.js sends as ask-bump {id}, filled orange once bumped and disabled on the latest
   // bump. A work card's is the same icon: app-cards.js sends card-bump {key} with no confirm, and on a bumped card, where
-  // it is filled orange, card-unbump {key} (docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md,
-  // docs/adr/0145-build-on-a-blocked-card-queues-it.md).
+  // it is filled orange, card-unbump {key} (docs/adr/2026-10-29-1639-a-card-that-hasnt-started-can-be-bumped.md,
+  // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
   const bumpButton = (it, top) => `<button class="ghost icon${it.bumpedAt ? ' bumped' : ''}" data-bump="${esc(it.id)}" aria-label="Bump to top" title="Bump to top"${top ? ' disabled' : ''}>${BUMP}</button>`;
   const cardBumpButton = (key, bumped) => (bumped
     ? `<button class="ghost icon bumped" data-card-bump="${esc(key)}" data-bumped aria-pressed="true" aria-label="Unbump" title="Bumped. Tap to unbump">${BUMP}</button>`

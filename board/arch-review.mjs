@@ -1,5 +1,5 @@
 // A board's architecture review of its repo, which the header's bulb starts
-// (docs/adr/0125-the-bulb-runs-an-architecture-review-of-the-boards-repo.md). The board server makes the review's wave
+// (docs/adr/2026-11-02-1813-the-bulb-runs-an-architecture-review-of-the-boards-repo.md). The board server makes the review's wave
 // and its first card, the audit, then appends `arch-review` for the session, which follows the mattpocock skills.
 // data/arch-reviews.json {reviews: [{key, wave, lineup, title, repo, at}]}: wave is the lineup's slug, or on a board
 // over ~/.claude/waves the wave file's, which lineup false marks.
@@ -105,7 +105,7 @@ export async function startReview(site, board, { now = new Date(), home = os.hom
   return { key, data };
 }
 
-// docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
+// docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
 // `board.mjs arch file <key>`: each answered finding of the audit card becomes a card in the review's wave, titled
 // with the picked option's label, its detail, practice and the owner's note as notes, chained after the wave's last
 // card (a lineup's, else the wave file's newest), and its question resolved; a Skip pick resolves its question alone.

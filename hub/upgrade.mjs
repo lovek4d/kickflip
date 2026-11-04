@@ -1,5 +1,5 @@
 // The hub's check for a newer kickflip on npm, and the update the sidebar's Upgrade asks for
-// (docs/adr/0161-the-hub-offers-a-newer-kickflip-from-npm.md). check() asks the registry for
+// (docs/adr/2026-11-03-1521-the-hub-offers-a-newer-kickflip-from-npm.md). check() asks the registry for
 // @lovek4d/kickflip@latest; state() compares it with the version in root's package.json, read on each call so a finished
 // install offers nothing. A clone (root has .git) never asks and never offers. request() asks for the update: it runs
 // once builders() lists no running builder, and tick() tries again while it waits. run() → {ok, error} runs

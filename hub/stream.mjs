@@ -1,6 +1,6 @@
 // The hub's one event stream, GET /_hub/stream, which the app shell holds in place of a stream per board
-// (docs/adr/0055-one-app-for-the-whole-hub.md). While any page listens, the hub holds each board server's own
-// api/stream (docs/adr/0031-the-board-reloads-on-a-change-signal.md) and passes each change on as
+// (docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md). While any page listens, the hub holds each board server's own
+// api/stream (docs/adr/2026-10-29-1639-the-board-reloads-on-a-change-signal.md) and passes each change on as
 // `event: change` with data {route}. A board whose stream comes back, such as after a restart, gets one change too,
 // since it may have changed while its stream was down. `event: sidebar` carries what /_hub/sidebar.json would answer
 // whenever that differs from the last one sent: after a board's change, and on a timer for what no stream reports,

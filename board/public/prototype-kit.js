@@ -1,5 +1,5 @@
 // What a prototype's take files get, on the page board/server.mjs serves from prototype.html for each topic recorded
-// with board.mjs prototype add (docs/adr/0089-the-board-serves-every-prototype-from-one-template.md). A take file,
+// with board.mjs prototype add (docs/adr/2026-11-01-1448-the-board-serves-every-prototype-from-one-template.md). A take file,
 // public/prototypes/<topic>/<KEY>.js, is a module:
 //   export function render(stage, kit) { stage.innerHTML = kit.hub(); return () => {…} }   // the cleanup is optional
 // render runs on every switch to that take with a fresh, empty stage; it may be async. The stage contains its layout

@@ -1,5 +1,5 @@
 // The last board this device showed, which the board page paints dimmed until the fresh board lands, and what the
-// page may do meanwhile (docs/adr/0028-the-board-opens-on-the-last-visit.md). Needs ui.js.
+// page may do meanwhile (docs/adr/2026-10-29-1639-the-board-opens-on-the-last-visit.md). Needs ui.js.
 (function () {
   // Characters, one board's most; app-snapshot.js keeps every board's within three of these.
   const SNAPSHOT_MAX = 900000;
@@ -54,7 +54,7 @@
   const changedLines = (before, after) => Object.keys(after).filter((id) => globalThis.BoardUI.record(before, id) !== after[id]);
 
   // What counts as a card's update: a new thread line, a status or Next line change, or a PR or CI change
-  // (docs/adr/0135-an-updated-card-takes-a-brief-tint.md). Two board items read the same exactly when it is unchanged.
+  // (docs/adr/2026-11-02-2354-an-updated-card-takes-a-brief-tint.md). Two board items read the same exactly when it is unchanged.
   const updateSign = (it) => JSON.stringify([it.threadCount ?? 0, it.status ?? null, it.builder?.progress ?? null, it.working ?? null, it.waitsOn ?? null,
     it.next ?? null, it.ask?.state ?? null, it.pr ? [it.pr.state, it.pr.isDraft, it.pr.reviewDecision, it.pr.checks?.state ?? null] : null]);
 

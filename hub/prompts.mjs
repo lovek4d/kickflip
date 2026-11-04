@@ -1,6 +1,6 @@
 // Pending prompts: a permission prompt or an AskUserQuestion from a background board session, which its
 // PermissionRequest hook (permission-hook.mjs) hands to the hub and the owner answers in that board's Needs you
-// (docs/adr/0060-background-sessions-prompts-come-to-the-phone.md). The hub and ownership commands write
+// (docs/adr/2026-10-30-1516-background-sessions-prompts-come-to-the-phone.md). The hub and ownership commands write
 // ~/.claude/kickflip/prompts.json {prompts: {<id>: record}, remembered: {<session>: {route, ownerSince, runtime, rules}}};
 // a board server reads its own route's pending prompts from it.
 // A record: {id, session, route (null when no board's owner is that session), title (the board's, else the cwd),

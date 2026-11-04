@@ -1,0 +1,28 @@
+---
+status: superseded in part by 2026-11-01-2347-kickflip-owns-the-reviewer-record and 2026-10-29-1639-pushes-only-when-something-waits-on-the-owner
+---
+
+# One board registry for every hub feature
+
+Superseded in part by [kickflip owns the reviewer record](2026-11-01-2347-kickflip-owns-the-reviewer-record.md): reviewer links now use kickflip’s shared item-record reader with legacy topic fallback; monitor.json supplies no board watched state.
+
+Superseded in part by [a push goes out only when something waits on the owner, on the hub's schedule](2026-10-29-1639-pushes-only-when-something-waits-on-the-owner.md): the handshake sends no test push, and the Connecting checklist shows only the hello and GitHub steps; the pushes link still says whether a device is subscribed. The registry and the links below still hold.
+
+`hub/boards.mjs` is the only hub code that reads a board's `board.json` and the wave files its items come from. Its `listBoards` returns each board site in the manifest as `{route, dir, port, title, kind, waves, prs, reviewers}`, `kind` being `waves` (every `~/.claude/waves/*/wave.json`) or `file` (a wave.json-format file in the site). Every hub feature that serves boards takes them from it: the GitHub check and its `github-change` routing (`github.mjs`), the daily wakes, the hub rules fan-out, the handshake and the not-listening push. `hub/boards.test.mjs` runs each of them over one board of each kind.
+
+PR #722 on `shipyard-orchestrator`, a board over its own file, was never polled. The GitHub check knew only the waves `monitor.json` watched; file boards had been patched in beside them, and each feature still picked its boards itself (`waveBoards`, `fileBoards`, `wakeBoards`, `allBoards`), so any one of them could miss a kind of board.
+
+- **Every open PR on a card is polled.** A board's `prs` are its items with a PR that isn't merged or dropped; a card showing a PR is the opt-in. `monitor.json` still drives monitor's own loop but no longer decides what the hub checks. Each PR is fetched once per check, by `repo#pr`, however many boards show it, and its change goes to every board showing it, each event naming that board's own `<wave>/<id>`. A file board's wave key is board.json `slug`, else the file's basename, as the board keys its cards. A board showing no open PR gets the idle `checked.json`.
+- **Hub links show on the GitHub mark.** `linksOf(board)` returns `[{link, ok, detail}]` for github (every open PR on a card was in the last check, and the check reached the board), events (the board is listening, its session and a watcher running, or asleep, its session stopped and the hub able to wake it, [a board's session wakes when an event arrives, and live means its session runs](2026-10-30-1601-a-boards-session-wakes-when-an-event-arrives.md)), wakes (daily wakes are set and the last reached the board), push (a device is subscribed) and slack (every open, non-draft PR has a Slack link for each of the board's and its wave's reviewers). The board serves the list in `/api/board` and `/api/links`. The In Review header's GitHub mark gets a red dot while any link is broken, and a tap opens the Hub links sheet. The watcher prints each broken link after the rules, so the session checks the same list at every wake.
+- **A new board tests every link.** `web-ts join --template board` runs `web-ts handshake <route>` unless this session already answered the board's hello. It appends a `hello` event, which the session answers with `board.mjs hello-ack <eventId>`, and sends the test push "<title> board connected". It sets the owner's watcher cursor first, so the session's first watcher prints the hello rather than starting past it. The board shows a Connecting checklist at the top until the hello is acked and the GitHub link passes, then marks it done in `data/handshake.json` for good. Cards can start meanwhile.
+- **A board that stops listening pushes once.** After each GitHub check, a board whose oldest event past the owner's watcher cursor has waited 15 minutes while it is deaf (not listening, and not asleep: [a board's session wakes when an event arrives, and live means its session runs](2026-10-30-1601-a-boards-session-wakes-when-an-event-arrives.md)) gets one push, "<title> isn't listening", tagged `deaf-<route>` and opening the board. `~/.claude/web-ts/deaf-state.json` keeps it to one per outage; listening again ends the outage.
+
+The owner settled this in a grill on 2026-10-24 on a `shipyard-orchestrator` card, preferring fixes that remove a whole class of bug since the template is meant for the team: hb-model `registry`, hb-health `board-header`, hb-join `handshake`, hb-poll `every-card` and hb-down `push-15`.
+
+Considered:
+- One kind of board (hb-model `one-mode`): migrate every board to one items shape. It changes every board's data and leaves each feature still choosing its boards.
+- Keeping the per-feature helpers and adding tests (hb-model `test-only`). The next feature would bring its own helper and its own gap.
+- The links on the hub home page, or a doctor command only (hb-health `hub-home`, `doctor`).
+- A check in the terminal on join, or none (hb-join `doctor`, `none`).
+- Keeping `monitor.json` for the waves (hb-poll `monitor`): a card's PR would still need a second opt-in.
+- Showing a stalled board only on the board, or another session taking it over (hb-down `board-only`, `adopt`).

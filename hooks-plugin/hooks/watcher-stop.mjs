@@ -3,8 +3,8 @@
 // board has no live watcher, naming the command that relaunches it, or while a message there reads Working on it with
 // no answer, naming each (its board server's /api/working). Claude Code sets stop_hook_active while a Stop hook keeps
 // the turn going, so it blocks at most once a turn and a session whose Bash is broken can't loop. Any error lets the
-// turn end (docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md,
-// docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
+// turn end (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md,
+// docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
 import fs from 'node:fs';
 
 process.stdout.on('error', () => {});

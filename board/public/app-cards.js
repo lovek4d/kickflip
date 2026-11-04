@@ -100,7 +100,7 @@ BoardView.part((B) => {
   });
 
   // Hold's sheet: the shared duration picker in place of a confirm, since a chip is already a deliberate tap
-  // (docs/adr/0118-a-card-can-be-held-until-a-time.md). A chip or Custom sends card-hold {key, hold: true, for}.
+  // (docs/adr/2026-11-02-1727-a-card-can-be-held-until-a-time.md). A chip or Custom sends card-hold {key, hold: true, for}.
   const holdSheet = $('#holdSheet');
   let holdPicking = null;
   const localInput = (d) => {
@@ -180,15 +180,15 @@ BoardView.part((B) => {
       }
     }
     if (it.branch) rows.push(['Branch', `<code>${esc(it.branch)}</code>`]);
-    // building is an implementer at work, since Build means the package (docs/adr/0166-a-todo-cards-button-reads-implement.md).
+    // building is an implementer at work, since Build means the package (docs/adr/2026-11-03-1549-a-todo-cards-button-reads-implement.md).
     if (it.status) rows.push(['Status', esc(it.status === 'building' ? 'implementing' : it.status)]);
-    // docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md: each link row is a row of labels that open their cards.
+    // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md: each link row is a row of labels that open their cards.
     for (const [label, list] of [['Parent', it.parent ? [it.parent] : []], ['Children', it.children], ['Related to', it.related], ['Blocked by', it.blockedBy], ['Waits on it', it.waitsOnIt]]) {
       if (list?.length) rows.push([label, list.map(cardLink).join(' ')]);
     }
     if (it.manualSteps.length) rows.push(['Manual steps', linkText(it.manualSteps.join('; '), ctx)]);
     if (it.next) rows.push(['Next', linkText(it.next, ctx)]);
-    // docs/adr/0062-notes-is-a-link-in-the-details-list.md
+    // docs/adr/2026-10-30-1626-notes-is-a-link-in-the-details-list.md
     const external = [
       it.hasNotes ? `<a href="notes.html?item=${encodeURIComponent(it.key)}">Notes ${LINK_ARROW}</a>` : '',
       // A vscode: link opens a folder on the machine whose browser follows it, so only the host's browser gets one.
@@ -208,7 +208,7 @@ BoardView.part((B) => {
 
   const cardLink = (l) => `<a class="card-link" href="#item=${encodeURIComponent(l.key)}">${esc(l.ref)}</a>`;
   // A card whose branch is pushed to a plain git remote has no PR to link, so its line copies the branch name
-  // (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
+  // (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
   const pushedLink = (it) => `<a href="#" data-copy-branch="${esc(it.pushed.branch)}" title="Copy the branch name">${esc(pushedWords(it))}</a>`;
   const pushedWords = (it) => [`Pushed ${it.ref}${it.pushed.host ? ` to ${it.pushed.host}` : ''}`, it.pushed.at && ago(it.pushed.at)].filter(Boolean).join(' · ');
   B.on(B.root, 'click', (ev) => {
@@ -251,7 +251,7 @@ BoardView.part((B) => {
     return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${mergeButton(it, sendingMerge.has(it.key))}${hold}${actionButton(it)}${tryButton(it)}${buildButton(it, sendingBuild.has(it.key))}`)}</div>`;
   }
 
-  // board/domain.mjs actionButtonOf picks the button and resolvedBy its colour (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md).
+  // board/domain.mjs actionButtonOf picks the button and resolvedBy its colour (docs/adr/2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo.md).
   const ACTION_BUTTONS = {
     [BUTTON.openQuestions]: (it) => `<a${classes(it, BUTTON.openQuestions, 'button')} href="questions.html#${esc(it.questions.first)}">Open questions</a>`,
     [BUTTON.markDone]: (it) => `<button${classes(it, BUTTON.markDone)} data-confirm="finish" data-key="${esc(it.key)}">Mark as done</button>`,
@@ -259,7 +259,7 @@ BoardView.part((B) => {
   };
   const actionButton = (it) => ACTION_BUTTONS[it.actionButton]?.(it) || '';
 
-  // The latest bump among New cards takes no second bump (docs/adr/0014-a-pending-ask-can-be-deleted-or-bumped.md).
+  // The latest bump among New cards takes no second bump (docs/adr/2026-10-29-1639-a-pending-ask-can-be-deleted-or-bumped.md).
   const latestBump = (it) => Boolean(it.isNew && it.bumpedAt) && !state.board.items.some((i) => i.isNew && (i.bumpedAt || '') > it.bumpedAt);
   // band {step, actions} draws the card in a wave band (app-lanes.js).
   function card(it, band = {}) {
@@ -272,7 +272,7 @@ BoardView.part((B) => {
         </details>`;
   }
 
-  // The phase bars move as a card's phase changes across redraws (docs/adr/0183-the-phase-bars-animate-as-a-build-starts-advances-and-ends.md).
+  // The phase bars move as a card's phase changes across redraws (docs/adr/2026-11-03-1850-the-phase-bars-animate-as-a-build-starts-advances-and-ends.md).
   // phases is each card's last drawn phase by key; the first draw only records it, so a loaded board stays still.
   const phases = new Map();
   let drawn = false;
@@ -376,8 +376,8 @@ BoardView.part((B) => {
   });
 
   // A work card's bump icon bumps it, or unbumps a bumped one, with no confirm
-  // (docs/adr/0145-build-on-a-blocked-card-queues-it.md), and the card moves at once
-  // (docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md).
+  // (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md), and the card moves at once
+  // (docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md).
   B.on(B.root, 'click', async (ev) => {
     const b = ev.target.closest('button[data-card-bump]');
     if (!b) return;
@@ -404,7 +404,7 @@ BoardView.part((B) => {
       catch { toast('Could not resume. Is the host awake?'); }
       return;
     }
-    // docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md
+    // docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md
     if (act === 'merge') {
       sendingMerge.add(key);
       redrawActions(key);
@@ -424,7 +424,7 @@ BoardView.part((B) => {
       B.render();
       return;
     }
-    // docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md
+    // docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md
     // The card closes first, or app-core.js steady would anchor it and scroll the page after it into Done.
     if (act === 'finish') {
       const card = $(`details.item[data-key="${CSS.escape(key)}"]`);

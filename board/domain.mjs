@@ -30,11 +30,11 @@ export const BUILDER_STALLED_AFTER = 30 * 60000;
 // The thread line's kind for a Build tap the board server refused (store.mjs startTappedBuild).
 export const BUILD_REFUSED = 'build-refused';
 const DAY = 86400000;
-// Done holds closed work cards, Asks the answered asks (docs/adr/0144-answered-asks-have-their-own-section-below-done.md).
+// Done holds closed work cards, Asks the answered asks (docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md).
 const closedLane = (i) => i.lane === 'done' || i.lane === 'asks';
 // A finished wave's Done cards fold under a row of their own, which board/public/app-lanes.js reads back by this id.
 export const waveFold = (slug) => `wave:${slug}`;
-// A PR in review longer than this parks in the Stale lane (docs/adr/0044-a-pr-in-review-shows-its-age-and-goes-stale-after-seven-days.md).
+// A PR in review longer than this parks in the Stale lane (docs/adr/2026-10-29-1639-a-pr-in-review-shows-its-age-and-goes-stale-after-seven-days.md).
 const STALE_AFTER = 7 * DAY;
 
 // board/public/ui-links.js links Linear ids in text from these urls, so a board with no workspace links none.
@@ -43,17 +43,17 @@ const linearRef = (id, tickets) => ({ id, url: tickets?.workspace ? `https://lin
 // without an internal ticket source. Other ids read as stored, so a changed prefix never relabels them.
 const internalRef = (id, prefix) => String(id).replace(/^S(\d+)$/, `${prefix || 'INT'}-$1`);
 // A card reads as its ticket when the ticket is from the board's source (#n, TEAM-n or PREFIX-n), else by its id;
-// its key keeps the stored id (docs/adr/0132-a-card-is-named-by-its-boards-ticket-source.md).
+// its key keeps the stored id (docs/adr/2026-11-02-2100-a-card-is-named-by-its-boards-ticket-source.md).
 export const refOf = (wave, item, tickets) => (ticketIn(tickets, item.ticket) ? item.ticket
   : wave.internal === true ? internalRef(item.id, tickets?.prefix) : item.id);
 // A board without a source reads stored tickets as Internal · INT. A stored ticket from another source keeps its own
-// id, unlinked (docs/adr/0081-a-board-has-one-ticket-source.md).
+// id, unlinked (docs/adr/2026-11-01-1348-a-board-has-one-ticket-source.md).
 const ticketOf = (tickets, stored, id, at) => ticketBadge(tickets || (stored ? { source: 'internal', prefix: 'INT' } : null), id, at)
   || (stored ? { id: String(stored), url: null, source: null } : null);
 
 // The lane before owner waits are placed: In Progress while Claude acts next, In Review while the reviewers do, or
-// while a pushed branch waits on the owner's merge (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
-// buildBoard places a card that only the owner can move on (docs/adr/0045-the-lane-follows-who-acts-next.md).
+// while a pushed branch waits on the owner's merge (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
+// buildBoard places a card that only the owner can move on (docs/adr/2026-10-29-1639-the-lane-follows-who-acts-next.md).
 // A reopened card has left Done whatever its PR's state.
 function laneOf(item, pr, running, pushed, reopened) {
   const s = (item.status || '').toLowerCase();
@@ -78,7 +78,7 @@ const droppedCard = (i) => {
 };
 
 // A wave is finished once it has work items and every work item is in Done
-// (docs/adr/0012-lists-never-cut-silently.md). merged counts the wave's Done cards that weren't dropped.
+// (docs/adr/2026-10-29-1639-lists-never-cut-silently.md). merged counts the wave's Done cards that weren't dropped.
 function finishedOf(cards) {
   if (!cards.some((i) => i.kind === 'work') || cards.some((i) => i.lane !== 'done')) return null;
   const done = cards.filter((i) => i.lane === 'done');
@@ -113,7 +113,7 @@ function waitsOnOf(lane, pr, builder, status, pushed) {
 // waiting on the owner reads its action. While its PR is changing, the builder line takes the place of a next step.
 const PROTOTYPE_URL = /(^|\/)prototype-[\w-]+\.html/;
 const REVIEW_NEXT = { reviewers: 'Waiting for PR reviewers', merge: 'Approved, merges once CI and the merge state allow' };
-// docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md
+// docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md
 const OWNER_MERGE_NEXT = { waiting: 'Approved, Merge shows once CI and the merge state allow', ready: 'Approved and green: tap Merge', merging: 'Merging' };
 const FIX_CI = 'Fix the failing CI';
 const TAP_DONE = 'Tap Done once it is settled';
@@ -125,14 +125,14 @@ const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && !['sta
 // said is the owner's messages and answers in the card's thread (threadOf), and askedAt the asked_at of its questions.
 function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, tickets }) {
   const prStatus = prStateOf(pr, it);
-  // docs/adr/0106-the-board-applies-the-owners-hold-resume-and-done-at-once.md
+  // docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md
   const tappedDone = Boolean(closedAt) && String(closedAt) > String(it.status_at || '');
   if (tappedDone && it.status !== 'merged') it = { ...it, status: 'done' };
   // When the card last closed: the owner's Done, its done or merged status, or its PR's merge.
   const closed = [tappedDone && closedAt, it.status_at, it.merged_at, pr?.mergedAt].filter(Boolean).map(String).sort().pop() || null;
   // A done or merged card reopens; a dropped one, or one whose PR closed unmerged, doesn't
-  // (docs/adr/0128-a-message-or-question-on-a-done-card-reopens-it.md,
-  // docs/adr/0181-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md).
+  // (docs/adr/2026-11-02-1952-a-message-or-question-on-a-done-card-reopens-it.md,
+  // docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md).
   const doneAt = String(closed || '');
   const reopenAt = ['done', 'merged'].includes(it.status) || (prStatus === PR_STATE.merged && it.status !== 'dropped')
     ? [...said.filter((m) => m.kind === 'item-message').map((m) => m.ts), ...askedAt].map(String).filter((t) => t > doneAt).sort().pop() : undefined;
@@ -146,7 +146,7 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
   // A builder status line is progress, not a message: it is never unread and answers no owner message.
   const othersAt = [...thread.filter((m) => countsUnread({ ...m, who: m.who || 'claude' })).map((m) => m.ts), ...events.map((e) => e.reply?.at)].filter(Boolean).sort();
   const lastGrill = events.filter((e) => e.kind === 'grill-more').pop();
-  // A branch pushed to a plain git remote, which has no PR (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
+  // A branch pushed to a plain git remote, which has no PR (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
   const pushed = !it.pr && it.pushed?.branch ? { branch: it.pushed.branch, at: it.pushed.at || null, host: remote?.host || null } : null;
   let lane = laneOf(it, pr, agents.some((a) => a.started && !a.done && builds(a)), pushed, Boolean(reopenAt));
   if (reopenAt && lane === 'todo') lane = 'progress';
@@ -160,18 +160,18 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
   const tapped = holdAsk && String(holdAsk.ts) > String(it.held_at || '');
   // Only a Todo card reads held; old data can't show one in Done.
   const held = lane === 'todo' && (tapped ? Boolean(holdAsk.data.hold) : it.status === 'held' || Boolean(it.held));
-  // docs/adr/0118-a-card-can-be-held-until-a-time.md
+  // docs/adr/2026-11-02-1727-a-card-can-be-held-until-a-time.md
   const heldUntil = held ? (tapped ? holdAsk.data.until : it.pick_up_at) || null : null;
-  // docs/adr/0019-a-card-that-hasnt-started-can-be-bumped.md
+  // docs/adr/2026-10-29-1639-a-card-that-hasnt-started-can-be-bumped.md
   const bumpable = lane === 'todo' || (!held && lane === 'progress' && waitsOn !== 'ready' && waitsOn !== 'checking');
   // The owner's Merge waits on the session until it merges or writes in the thread, such as why it can't merge yet.
   const lastClaudeAt = thread.filter((m) => (m.who || 'claude') === 'claude' && m.kind !== 'status').map((m) => String(m.ts)).sort().pop() || '';
   const merging = waitsOn === 'merge' && Boolean(mergeAt) && String(mergeAt) > lastClaudeAt;
   // A Build tap the board refused: its reason stays on a Todo card while it is the card's newest line
-  // (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md).
+  // (docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md).
   const newest = thread.filter((m) => m.kind !== 'status').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
   const refusal = lane === 'todo' && newest?.kind === BUILD_REFUSED ? newest.text : null;
-  // docs/adr/0140-each-lane-has-one-fixed-order.md
+  // docs/adr/2026-11-03-0223-each-lane-has-one-fixed-order.md
   // When the card last came into In Progress: its reopening, else its latest build agent's start, else its status change.
   const progressSince = reopenAt || agents.filter(builds).map((a) => a.started).filter(Boolean).map(String).sort().pop() || it.queued_at
     || (['building', 'fixing', 'checking'].includes(String(it.status || '').toLowerCase()) ? it.status_at || null : null);
@@ -203,7 +203,7 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
   };
 }
 
-// docs/adr/0051-a-device-app-card-carries-an-install-link.md
+// docs/adr/2026-10-29-1729-a-device-app-card-carries-an-install-link.md
 // older: the PR's head has moved past the commit the build came from; unknown heads never read older.
 function installOf(install, pr) {
   if (!install?.url) return null;
@@ -242,7 +242,7 @@ function actionOf(it, questionById, autoMerge) {
   if (it.waitsOn === 'ready') return { kind: ACTION_KIND.ready, url: it.pr.url, label: 'Tap Ready on GitHub' };
   if (it.kind === 'ask' && it.waitsOn === 'owner') return { kind: ACTION_KIND.done, url: thread, label: it.next || TAP_DONE };
   if (it.waitsOn === 'merge' && it.manualSteps.length) return { kind: ACTION_KIND.steps, url: thread, label: 'Run the manual steps, then merge' };
-  // docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md
+  // docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md
   if (it.waitsOn === 'merge' && !autoMerge && !it.merging && mergeable(it.pr)) return { kind: ACTION_KIND.merge, url: thread, label: 'Merge' };
   return null;
 }
@@ -260,19 +260,19 @@ function actionButtonOf(it) {
   return it.kind === 'ask' ? null : BUTTON.grill;
 }
 
-// docs/adr/0122-a-todo-card-that-nothing-blocks-has-build.md
+// docs/adr/2026-11-02-1745-a-todo-card-that-nothing-blocks-has-build.md
 // The open card's Build: on a work card still unstarted in Todo, held or not, that waits on nothing from the owner and
 // has a take picked on its prototypes (noTakePicked). On a card an unfinished dep blocks, the tap queues the build
-// (docs/adr/0145-build-on-a-blocked-card-queues-it.md).
+// (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
 const buildableOf = (it) => it.kind === 'work' && it.lane === 'todo' && !it.action && !it.unpicked;
 
-// docs/adr/0150-a-prototype-pick-is-the-builds-go.md
+// docs/adr/2026-11-03-0504-a-prototype-pick-is-the-builds-go.md
 // Whether an answer choosing choice on question q (an owner.json item) is a card's prototype answer that picks none of
 // its takes, the owner having cleared the pick to leave only a note.
 export const picksNoTake = (q, choice) => /^item:/.test(q.topic || '') && PROTOTYPE_URL.test(q.url || '') && !(q.options || []).some((o) => o.id === choice);
 // The newest of card key's answers to its prototype questions and prototype requests on any of its questions
 // (ownerQuestion views), when it is a request or an answer that picks none of the takes: the card isn't ready to
-// build (docs/adr/0177-a-question-asked-for-a-prototype-is-resolved.md). → {id, note}, or null.
+// build (docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md). → {id, note}, or null.
 export function noTakePicked(questions, key) {
   const mine = questions.filter((q) => q.topic === `item:${key}`);
   const inputs = [...mine.filter((q) => PROTOTYPE_URL.test(q.url || '')).flatMap((q) => q.answers.map((a) => ({ q, a, again: picksNoTake(q, a.choice) }))),
@@ -280,7 +280,7 @@ export function noTakePicked(questions, key) {
   const last = inputs.at(-1);
   return last?.again ? { id: last.q.id, note: last.a.note.replace(/\s+/g, ' ').trim() } : null;
 }
-// docs/adr/0172-a-prototype-answer-with-no-pick-prototypes-again.md
+// docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md
 // A Todo card's Next while noTakePicked holds it: the card is prototyping, and the next round is its way out.
 export const PROTOTYPE_AGAIN = 'Prototype again';
 
@@ -291,12 +291,12 @@ const RESOLVED_BY = Object.freeze({
   [ACTION_KIND.steps]: BUTTON.github, [ACTION_KIND.merge]: BUTTON.merge, [ACTION_KIND.done]: BUTTON.markDone,
 });
 
-// docs/adr/0045-the-lane-follows-who-acts-next.md
+// docs/adr/2026-10-29-1639-the-lane-follows-who-acts-next.md
 // A card only the owner can move on goes to In Review, apart from a Todo card waiting on its questions, which stays in
-// Todo (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md). One Claude still works on, or one already
+// Todo (docs/adr/2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo.md). One Claude still works on, or one already
 // waiting on the reviewers, keeps its lane; either way it carries its action. A reopened card that waits only on the
 // owner's Done goes to In Review with no action
-// (docs/adr/0136-a-card-waiting-only-to-be-closed-has-no-action-needed.md).
+// (docs/adr/2026-11-03-0137-a-card-waiting-only-to-be-closed-has-no-action-needed.md).
 function placeOwnerWait(it, questionById, autoMerge) {
   it.action = actionOf(it, questionById, autoMerge);
   it.awaitsDone &&= !it.action;
@@ -311,14 +311,14 @@ function placeOwnerWait(it, questionById, autoMerge) {
   if (lane === 'review') Object.assign(it, { bumpable: false, bumpedAt: null });
 }
 
-// docs/adr/0049-a-started-card-never-returns-to-todo.md
-// docs/adr/0138-a-card-moves-to-in-progress-only-once-building-starts.md
+// docs/adr/2026-10-29-1639-a-started-card-never-returns-to-todo.md
+// docs/adr/2026-11-03-0202-a-card-moves-to-in-progress-only-once-building-starts.md
 // A work card has started once building has: a build agent's record, running or finished, or a building or fixing
 // status. A PR, a pushed branch and checking place it on their own (laneOf). A build the owner queued on a blocked card
-// counts too (docs/adr/0145-build-on-a-blocked-card-queues-it.md).
+// counts too (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
 const started = (it) => it.queued || it.agents.some(builds) || ['building', 'fixing'].includes(String(it.status || '').toLowerCase());
 
-// docs/adr/0142-an-in-progress-card-always-has-a-builder-line-or-a-next.md
+// docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md
 // An In Progress card shows its builder line while a builder record is open, else its Next. buildBoard gives one with
 // neither this as its Next; owesNext is store.mjs's check before a write that would leave one so.
 export const NO_NEXT = 'none set yet';
@@ -333,16 +333,16 @@ export function owesNext(item, records) {
 }
 
 // An ask is a New card at the top of Todo until Claude replies to it or writes in its thread; then it is an answered ask
-// in the Asks section, below Done, with its thread (docs/adr/0047-the-plus-makes-a-new-card.md,
-// docs/adr/0144-answered-asks-have-their-own-section-below-done.md). An ask that became work or was folded into a card has no card
+// in the Asks section, below Done, with its thread (docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md,
+// docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md). An ask that became work or was folded into a card has no card
 // of its own: buildBoard leaves it out. msgs is its thread; bumpedAt is its latest ask-bump.
 // mark is Claude's latest data/ask-progress.json entry {state, at, next} and doneAt the owner's latest ask-done: the newer
-// one decides whether the ask sits in In Progress with a Done button (docs/adr/0035-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md).
+// one decides whether the ask sits in In Progress with a Done button (docs/adr/2026-10-29-1639-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md).
 // A mark with moved is an ask sent to another board on the owner's answer, so it never shows as an answer.
 // pending counts its questions (topic item:ask:<event id>) that are open or answered and waiting on Claude: an answered
 // ask with either stays in Todo until a mark or the owner's Done closes it, since only Claude's progress mark puts an
-// ask in In Progress (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md,
-// docs/adr/0144-answered-asks-have-their-own-section-below-done.md).
+// ask in In Progress (docs/adr/2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo.md,
+// docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md).
 // An ask with no ticket is named by when it was asked: the time today, else the short date and time.
 function askedLabel(iso, now = new Date()) {
   const d = new Date(iso);
@@ -383,8 +383,8 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
 
 // Two kinds of agent: planners, the grill and prototype agents, which write no output code, and implementers, every
 // other kind. A planner works toward a build, so it never starts a card or puts it in In Progress, and its lines are
-// the owner's blue (docs/adr/0138-a-card-moves-to-in-progress-only-once-building-starts.md,
-// docs/adr/0167-planners-and-implementers-are-two-kinds-of-agent.md).
+// the owner's blue (docs/adr/2026-11-03-0202-a-card-moves-to-in-progress-only-once-building-starts.md,
+// docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md).
 const PLANNERS = new Set(['grill', 'prototype']);
 export const plans = (agent) => PLANNERS.has(agent.kind);
 export const builds = (agent) => !plans(agent);
@@ -404,11 +404,11 @@ function worktreeOf(records = {}) {
 
 // An install builder takes precedence so another running agent cannot hide the install's build state. A phased line
 // ("Testing: <detail>") reads "Testing · <detail>" on the card; a line with no phase, from builder done's note or from
-// before phases, reads as written (docs/adr/0137-a-builder-status-line-is-a-phase-and-a-short-detail.md). Before the
+// before phases, reads as written (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md). Before the
 // first line the card reads starting, whoever opened the record
-// (docs/adr/0174-a-card-reads-starting-from-its-tap-with-one-dispatched-mark.md). While a build runs, its line wins over a running
+// (docs/adr/2026-11-03-1718-a-card-reads-starting-from-its-tap-with-one-dispatched-mark.md). While a build runs, its line wins over a running
 // planner's; with only planners running the line is theirs, marked planner
-// (docs/adr/0167-planners-and-implementers-are-two-kinds-of-agent.md).
+// (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md).
 function builderOf(agents, lines = [], now) {
   const open = agents.filter((a) => a.started && !a.done);
   const planner = open.every(plans);
@@ -430,7 +430,7 @@ export const providerOf = (kind) => (kind === 'opus' || kind === 'sonnet' ? 'cla
 
 // "Claude Opus implementer", "Claude Sonnet implementer", "Codex benchmarks": the model once, never "Claude Opus · Opus
 // implementer" (owner, question int42-agents-look; owner ask on #89). A label's builder reads implementer, since Build
-// means the package (docs/adr/0166-a-todo-cards-button-reads-implement.md). A planner with a model is named by its
+// means the package (docs/adr/2026-11-03-1549-a-todo-cards-button-reads-implement.md). A planner with a model is named by its
 // kind: "Claude Sonnet prototype", "Claude Opus grill". A kind that is no model keeps its own word ("Prototype sketch").
 function agentName(a) {
   const model = modelName(a);
@@ -445,14 +445,14 @@ function agentName(a) {
   return label.toLowerCase().includes(kind.toLowerCase()) ? label : `${k} ${lower(label)}`;
 }
 
-// docs/adr/0157-an-answer-stops-waiting-once-its-acted-on.md
+// docs/adr/2026-11-03-1313-an-answer-stops-waiting-once-its-acted-on.md
 // Whether an owner answer at ts is acted on by its question's resolution: resolved, at or after ts when it records when.
 const resolvedSince = (q, ts) => Boolean(q.resolved) && (!q.resolved_at || String(q.resolved_at) >= String(ts));
 // A question's state: open (no answer yet), answered (waiting for Claude), replied (Claude answered), resolved
 // (owner.json sets `resolved` and `resolved_at`). An answer newer than `resolved_at` reopens it; without `resolved_at`
 // it stays resolved. Each answer is acted on once the question's resolution covers it. request is the owner's newest
 // prototype-request for it after its last answer, which the board server resolves it with
-// (docs/adr/0177-a-question-asked-for-a-prototype-is-resolved.md). answerEvents are owner-answer events and
+// (docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md). answerEvents are owner-answer events and
 // requestEvents prototype-request events, oldest first; store.mjs reads their states to close a card's questions.
 export function ownerQuestion(q, answerEvents, requestEvents = []) {
   const answers = answerEvents.filter((e) => e.data?.id === q.id);
@@ -465,11 +465,11 @@ export function ownerQuestion(q, answerEvents, requestEvents = []) {
     answers: answers.map((e) => ({ ts: e.ts, choice: e.data.choice || null, note: e.data.note || '', files: e.data.files || [], reply: e.reply, acted: resolvedSince(q, e.ts) })) };
 }
 
-// docs/adr/0111-a-prototype-round-ends-with-a-one-take-confirm.md
+// docs/adr/2026-11-02-1332-a-prototype-round-ends-with-a-one-take-confirm.md
 // The prototype round a question belongs to: owner.json's `round`, set by `question add` with `round_of` and on a
 // confirm an earlier board opened, else 1 for a question on a prototype page and 0 for any other.
 export const roundOf = (q) => q.round ?? (PROTOTYPE_URL.test(q.url || '') ? 1 : 0);
-// docs/adr/0150-a-prototype-pick-is-the-builds-go.md
+// docs/adr/2026-11-03-0504-a-prototype-pick-is-the-builds-go.md
 // The answer that settles round n among a topic's questions (ownerQuestion views): the newest of any answer to a
 // confirm an earlier board opened and a question's last answer when it picks one of its takes, its note being the
 // build's guidance; undefined while none has.
@@ -514,7 +514,7 @@ function ownerTopics(topics, questions, closed = new Set()) {
 // oldest first. working maps the event ids marked working in data/working.json (bin/wait-events.mjs writes them).
 // Each owner message has a state: replied (Claude replied to its event), answered (a Claude line, or the reply to
 // the thread's ask, came after it), working (marked, neither yet) or waiting. An item-message still working or
-// waiting can be deleted or edited, and shows its latest ask-edited text (docs/adr/0014-a-pending-ask-can-be-deleted-or-bumped.md)
+// waiting can be deleted or edited, and shows its latest ask-edited text (docs/adr/2026-10-29-1639-a-pending-ask-can-be-deleted-or-bumped.md)
 // with the files each edit sent after its own. An ask's thread
 // (key ask:<event id>), and a work item's whose fromAsk names an ask, opens with that ask. links [{key, ref, became}] are the
 // work items an ask's thread links to: each adds a link line after the ask, and a linked ask counts as answered.
@@ -548,7 +548,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       ...(a.started ? [{ ts: a.started, who: 'claude', kind: 'agent', text: `${agentName(a)} started`, finished: false, eta: a.done ? null : a.eta, ...(plans(a) ? { planner: true } : {}) }] : []),
       ...(a.done ? [{ ts: a.done, who: 'claude', kind: 'agent', text: `${agentName(a)} finished`, finished: true, eta: null, ...(plans(a) ? { planner: true } : {}) }] : []),
       // Its judgment calls, one entry under its lines: at its finish, or at its newest call while it runs
-      // (docs/adr/0155-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
+      // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
     ...lines.map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}) } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null })),
@@ -580,8 +580,8 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
   return msgs;
 }
 
-// docs/adr/0180-waves-are-bands-in-todo.md
-// The wave bands in Todo: each open lineup, the owner's wave (docs/adr/0109-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md),
+// docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
+// The wave bands in Todo: each open lineup, the owner's wave (docs/adr/2026-11-02-1202-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md),
 // then on a board over ~/.claude/waves each unfinished wave file. A lineup is open until finished_at or until all its
 // cards are Done. A band's keys are its cards, a lineup's in build order and a wave file's in lane order; next is a
 // lineup's first card still in Todo, ready when Implement can start it now, else word says why not. A band's kind is
@@ -618,7 +618,7 @@ function nextOf(cards) {
   return { key: it.key, ref: it.ref, ready, word };
 }
 
-// docs/adr/0180-waves-are-bands-in-todo.md
+// docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
 // Lineup slug's order once its card key moves by one place (-1 up, 1 down) among the lineup's cards still in Todo,
 // which keep the places they hold; started and done cards stay where they are. → the keys in their new order, or null
 // when the lineup isn't open or the card is not in Todo or already at that end.
@@ -654,7 +654,7 @@ export function buildBoard(snapshot) {
   const asks = new Map(events.filter((e) => e.kind === 'ask' && !withdrawn.has(e.id)).map((e) => [e.id, e]));
   const latest = (kind, field) => new Map(events.filter((e) => e.kind === kind).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((e) => [e.data?.[field], e.ts]));
   const bumps = latest('ask-bump', 'id');
-  // A card's bump counts until a later card-unbump (docs/adr/0145-build-on-a-blocked-card-queues-it.md).
+  // A card's bump counts until a later card-unbump (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
   const cardUnbumps = latest('card-unbump', 'key');
   const cardBumps = new Map([...latest('card-bump', 'key')].filter(([key, ts]) => !(String(cardUnbumps.get(key) || '') > String(ts))));
   const cardDones = latest('card-done', 'key');
@@ -664,7 +664,7 @@ export function buildBoard(snapshot) {
   const cardHolds = new Map(events.filter((e) => e.kind === 'card-hold').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((e) => [e.data?.key, e]));
   const madeFrom = new Map();
   const askLinks = snapshot.askLinks || {};
-  // The asks folded into each work item (docs/adr/0047-the-plus-makes-a-new-card.md).
+  // The asks folded into each work item (docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md).
   const foldedInto = new Map();
   for (const [id, key] of Object.entries(askLinks)) if (asks.has(id)) foldedInto.set(key, [...(foldedInto.get(key) || []), id]);
 
@@ -771,7 +771,7 @@ export function buildBoard(snapshot) {
     const first = t.questions.find((id) => questions.find((q) => q.id === id)?.state === 'open') || pending[0] || t.questions[0];
     it.questions = { topic: t.id, state: t.state, open: t.open, answered: t.answered, replied: t.replied, resolved: t.resolved, first };
   }
-  // A card waits on each dep until it reaches Done, which a reopened dep still counts as, and a Done card waits on nothing (docs/adr/0020-cards-wait-on-explicit-blocked-by-links.md).
+  // A card waits on each dep until it reaches Done, which a reopened dep still counts as, and a Done card waits on nothing (docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md).
   const byKey = new Map(items.map((i) => [i.key, i]));
   const questionById = new Map(questions.map((q) => [q.id, q]));
   for (const it of items) {
@@ -783,7 +783,7 @@ export function buildBoard(snapshot) {
     if (it.unpicked) it.state = 'prototyping';
     if (it.unpicked && !it.action) it.next = PROTOTYPE_AGAIN;
     it.buildable = buildableOf(it);
-    // docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md: an unstarted card from an ask reads New until its
+    // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md: an unstarted card from an ask reads New until its
     // session sets its state, and ready once Ready with nothing blocking it or waiting on the owner.
     const unstarted = it.kind === 'work' && it.lane === 'todo';
     it.unsorted = unstarted && Boolean(it.fromAsk) && !it.state;
@@ -828,13 +828,13 @@ export function buildBoard(snapshot) {
     it.working = workingOn.some((w) => w.key === it.key);
     if (it.kind === 'work' && it.lane === 'progress' && !it.builder && !it.next && it.waitsOn !== 'checking' && !it.working && !it.queued) it.next = NO_NEXT;
   }
-  // The page shows those this browser hasn't seen in the answer banner (docs/adr/0016-every-ask-is-a-card.md).
+  // The page shows those this browser hasn't seen in the answer banner (docs/adr/2026-10-29-1639-every-ask-is-a-card.md).
   const answers = items.filter((i) => i.ask?.answerAt).sort((a, b) => b.ask.answerAt.localeCompare(a.ask.answerAt))
     .map((i) => ({ key: i.key, id: i.id, text: i.title, at: i.ask.answerAt }));
   return { kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, waves, waveBands, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, reviews, needs, needsSummary: needsSummary(needs), working: workingOn.length, workingOn, checks: checksOf(snapshot, now) };
 }
 
-// docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md
+// docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 // A card's links name other cards by {key, ref}. A wave entry stores its Parent and Related to as keys, a bare id
 // naming a card of its own wave, as deps do.
 const linkOf = (card) => ({ key: card.key, ref: card.ref });
@@ -863,7 +863,7 @@ function linkCards(items, byKey, stored) {
   }
 }
 
-// docs/adr/0140-each-lane-has-one-fixed-order.md
+// docs/adr/2026-11-03-0223-each-lane-has-one-fixed-order.md
 // The time each lane sorts by, newest first: Todo when the card was made, In Progress and In Review (Stale too) when it
 // came into the lane, Done when it closed, and Asks when Claude answered. A card with none falls back to its latest activity.
 const SORT_AT = {
@@ -875,7 +875,7 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 // checked is data/checked.json {at, every (minutes), idle?}, listen whether the board hears its events
 // (hub/boards.mjs listenState), watcher data/watcher.json {since} or null, replyAt the newest reply file's time
-// (docs/adr/0021-the-board-shows-github-checks-and-watcher-health.md). claudeAt is the newest write of Claude's the
+// (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md). claudeAt is the newest write of Claude's the
 // board can see: a reply, a Claude thread line, a working mark, a builder record or a watcher start. checked.json
 // doesn't count, since the hub writes it on every poll (hub/github.mjs).
 function checksOf({ checked, listen, watcher, replyAt, threads = {}, working = {}, waves = [] }, now) {
@@ -896,7 +896,7 @@ function checksOf({ checked, listen, watcher, replyAt, threads = {}, working = {
 // Needs you: one line per topic not tied to an item with open questions, then one per item with open
 // questions or a draft waiting on Ready. Answered questions wait on Claude, so they don't count, and a
 // held item waits on nobody, so it has no line.
-// {kind, text, url} is the GET /_claude/needs contract (docs/adr/0010-sites-report-what-waits-through-claude-needs.md);
+// {kind, text, url} is the GET /_claude/needs contract (docs/adr/2026-10-29-1639-sites-report-what-waits-through-claude-needs.md);
 // url is relative to the site root.
 function needsOf(items, topics, questions) {
   const onItems = new Set(items.map((it) => it.questions?.topic).filter(Boolean));
@@ -909,7 +909,7 @@ function needsOf(items, topics, questions) {
   const fromItems = items.filter((it) => !it.held).map((it) => {
     const asking = it.questions && it.questions.state !== 'resolved' && it.questions.open > 0 ? { open: it.questions.open, url: `questions.html#${it.questions.first}` } : null;
     const ready = it.waitsOn === 'ready' ? it.pr.url : null;
-    // docs/adr/0045-the-lane-follows-who-acts-next.md: every card with Action needed gets a line.
+    // docs/adr/2026-10-29-1639-the-lane-follows-who-acts-next.md: every card with Action needed gets a line.
     const other = !asking && !ready && it.action ? { label: it.action.label, url: it.action.url } : null;
     if (!asking && !ready && !other) return null;
     const title = `${it.ref}: ${it.title}`;
@@ -920,7 +920,7 @@ function needsOf(items, topics, questions) {
 }
 
 // The board session's pending prompts lead Needs you, since each holds the session until the owner answers it there
-// (../hub/prompts.mjs shown; docs/adr/0060-background-sessions-prompts-come-to-the-phone.md).
+// (../hub/prompts.mjs shown; docs/adr/2026-10-30-1516-background-sessions-prompts-come-to-the-phone.md).
 function promptLines(prompts = []) {
   return prompts.map((p) => {
     const text = p.questions?.length ? `Question: ${p.questions.map((q) => q.question).join(' · ')}` : `${p.tool}: ${p.detail || p.action}`;
@@ -938,7 +938,7 @@ function needsSummary(needs) {
     reviews && `${plural(reviews, 'review')} held`].filter(Boolean).join(' · ');
 }
 
-// The GET /_claude/needs body for a built board (docs/adr/0010-sites-report-what-waits-through-claude-needs.md).
+// The GET /_claude/needs body for a built board (docs/adr/2026-10-29-1639-sites-report-what-waits-through-claude-needs.md).
 // A Stale card is a PR still in review, so it counts as review.
 export function needsAnswer(b) {
   const count = (...lanes) => b.items.filter((i) => lanes.includes(i.lane)).length;
@@ -949,14 +949,14 @@ export function needsAnswer(b) {
   };
 }
 
-// docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md
+// docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md
 // For built items in board order: idle while no card has a running build and none waits in Orchestrator review, a
-// running planner counting as no work (docs/adr/0167-planners-and-implementers-are-two-kinds-of-agent.md);
+// running planner counting as no work (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md);
 // pullable lists the buildable cards nothing blocks, with no questions, no grill under way and no message a
 // session is working on, taking only cards with state ready, in board order
-// (docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/0170-the-idle-pull-takes-ready-cards-first.md). plannable lists, top first, the buildable cards
+// (docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md). plannable lists, top first, the buildable cards
 // not set ready, and the cards prototyping again with nothing waiting on the owner
-// (docs/adr/0172-a-prototype-answer-with-no-pick-prototypes-again.md), that aren't held, with no planner running, no grill under way, no question waiting on the owner or on
+// (docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md), that aren't held, with no planner running, no grill under way, no question waiting on the owner or on
 // Claude and no message a session is working on; empty while any card has a grill under way or a planner running.
 export function pullOf(items) {
   const open = items.filter((i) => !closedLane(i));
@@ -968,7 +968,7 @@ export function pullOf(items) {
   return { idle, pullable, plannable };
 }
 
-// docs/adr/0165-an-idle-board-triages-its-todo-once-a-day.md
+// docs/adr/2026-11-03-1551-an-idle-board-triages-its-todo-once-a-day.md
 // For built items: the Todo a triage looks at, one line per Todo card with its key, title and deps, sorted, so a card
 // added, dropped, renamed or relinked changes it. '' when Todo is empty.
 export function todoOf(items) {
@@ -978,7 +978,7 @@ export function todoOf(items) {
 // The push tag tied to a card's thread: ask-<event id> for ask:<event id>, item-<wave>/<id> for a work item.
 export const pushTag = (key) => (key.startsWith('ask:') ? `ask-${key.slice(4)}` : `item-${key}`);
 
-// docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
+// docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
 // What waits on the owner in a built board, one entry per push tag: each card with Action needed (pushTag), each
 // Needs you line for a topic off the cards, tagged topic-<id>, and each held review, tagged review-<PR number>. questions are the open questions behind it, oldest
 // first. now: questions, picks, manual steps and a Done push at once; Ready and Merge queue for the tick's end.
@@ -998,7 +998,7 @@ export function ownerActions(built) {
   return [...cards, ...topics, ...reviewActions(built.reviews)];
 }
 
-// docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
+// docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
 // The card an owner answer to question id left ready to start: an unstarted work card, not held, that nothing blocks,
 // with no open question, a take picked on its prototypes and nothing else waiting on the owner. → its key, or null.
 export function startedByAnswer(built, id) {

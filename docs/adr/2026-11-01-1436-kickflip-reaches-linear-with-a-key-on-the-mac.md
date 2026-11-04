@@ -1,0 +1,17 @@
+---
+status: superseded in part by 2026-11-02-1712-a-board-picks-linear-only-while-hubs-key-works
+---
+
+# kickflip reaches Linear with a key on the Mac
+
+The Tickets control's typed fields without a key are superseded by [a board picks Linear only while Hub's key works](2026-11-02-1712-a-board-picks-linear-only-while-hubs-key-works.md).
+
+The owner settled `linear-access`, `status-sync` and `ticket-when` (A each) on hub/INT-184: kickflip talks to Linear itself with the owner's personal API key, so a board on Linear lists, creates and moves its tickets the way a GitHub board does through `gh`, and each card moves its ticket one way. The key is optional and takes precedence: without one, the board's session does that Linear work through its own Linear MCP, because the hub process and `board.mjs` can't reach an MCP. This builds out [a board has one ticket source](2026-11-01-1348-a-board-has-one-ticket-source.md)'s Linear source.
+
+- Hub settings has a Linear row. The key is pasted there and saved in `~/.claude/kickflip/linear.json`, mode 600, only once Linear accepts it. No page ever gets it back: the Hub settings row learns only whether a key is set and the workspace's name. Remove deletes the file. `hub/linear.mjs` is the one Linear client, over GraphQL, with the endpoint and fetch replaceable for tests.
+- With a key, the Tickets control lists real teams and projects. A board stores the project's id, and the workspace's URL key for badge links. New board's "New project…" is named after the board and created on Start; Board Settings creates one with Create.
+- `item add`, `item set --from-ask` and `followup add` on a Linear board create the issue in the board's team and project from the card's title and notes. `--ticket TEAM-n` links one only after Linear confirms it exists in that team. Without a key, each records the card and prints one `ticket: create the Linear issue …` line naming the title, team and project and the `board.mjs` command that links the id, and `--ticket TEAM-n` links on its pattern alone.
+- Without a key, the Tickets control takes a typed workspace, team and project, and notes that a key adds the lists; a new project keeps its name and the board's session creates it through its MCP.
+- A card moves its ticket when its status is written (`board.mjs item set`), on every board: building or fixing → the team's In Progress, a PR → In Review, done or merged → Done. Linear states are picked by type, then name (`hub/linear.mjs` `stateFor`); a team without a review state skips In Review, and a completed or canceled issue never reopens. A GitHub issue only closes, on done or merged. Internal tickets are the cards themselves.
+- Only a ticket assigned to the owner (the key's viewer, or `gh`'s user) or created by kickflip (the card's `ticket_created`) moves. Nothing flows back: a ticket changed in Linear or GitHub never moves its card. A ticket that can't move prints one line and the card's change stands. Without a key, the line asks the session to move it through its Linear MCP, if it's assigned to the owner. This replaces monitor's Linear step, which moved tickets from PR state on monitored boards only.
+- `board.mjs tickets backfill` gives each open card and follow-up without a ticket the first id in its title (or legacy `linear` list) that belongs to the source, else a new ticket, or without a key a create line for the session; `--dry-run` writes and calls nothing. An Internal ticket another card holds is refused when linked, and in a backfill it counts as a mention, so that card gets a new one.

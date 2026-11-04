@@ -1,4 +1,4 @@
-// The sidebar of every site (docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md), drawn from the hub's
+// The sidebar of every site (docs/adr/2026-10-29-1639-a-sidebar-of-every-board-replaces-the-hub-home.md), drawn from the hub's
 // /_hub/sidebar.json. It needs only ui-page-header.js, loaded before it, for its head, which is the page header itself:
 // the app shell runs it through sidebar.js, and hub/hub.mjs renders the shell's first sidebar with both in a vm context.
 // Its links are root-absolute, since every site and hub page sits beside this one on the hub. sidebar.css styles it.
@@ -54,7 +54,7 @@
   ];
   const siteHref = (s) => `/${encodeURIComponent(s.route)}/`;
 
-  // Switch mode's keys (sidebar.js; docs/adr/0056-switch-mode-letters-come-from-names-in-join-order.md): each linked row the
+  // Switch mode's keys (sidebar.js; docs/adr/2026-10-30-1102-switch-mode-letters-come-from-names-in-join-order.md): each linked row the
   // sidebar draws, boards first for numbering, as {href, title, board, num, letter, at}. The first nine boards take num '1'–'9'.
   // Every row takes as letter the first a–z letter of its title not yet taken, at index `at` of the title's characters,
   // claiming in this order: boards by `created`, then pages by `created`, a site with none after those with one, then
@@ -153,7 +153,7 @@
 
   // The New version row. update: the app's reload, null | 'ready' | 'reloading', which comes first. upgrade:
   // /_hub/sidebar.json's npm update, null | {state: available | waiting | updating | failed, version, builders, error}
-  // (hub/upgrade.mjs; docs/adr/0161-the-hub-offers-a-newer-kickflip-from-npm.md).
+  // (hub/upgrade.mjs; docs/adr/2026-11-03-1521-the-hub-offers-a-newer-kickflip-from-npm.md).
   function updateRow(update, upgrade) {
     const button = (attr, disabled, title, sub, go) => `<button type="button" class="sb-row sb-update-row" ${attr}${disabled ? ' disabled' : ''}>${tile('up', 'var(--accent)')}`
       + `<span class="sb-text"><span class="sb-title">${title}</span>${sub ? `<span class="sb-sub">${esc(sub)}</span>` : ''}</span>${go ? `<span class="sb-go">${go}</span>` : ''}</button>`;

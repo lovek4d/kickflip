@@ -1,4 +1,4 @@
-// Restart on a board's row of the Hub page (docs/adr/0121-a-board-restarts-from-its-row-on-the-hub-page.md).
+// Restart on a board's row of the Hub page (docs/adr/2026-11-02-1736-a-board-restarts-from-its-row-on-the-hub-page.md).
 import { listBoards, readManifest, withManifestLock, writeManifest } from './boards.mjs';
 import { routeRecord, validRoute } from './routes.mjs';
 import { sessionOf, stopSession, withSessionLock } from './sessions.mjs';

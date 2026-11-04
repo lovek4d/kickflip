@@ -1,6 +1,6 @@
 // The last visit's board on the board view: reading and saving it, holding the controls that send until the fresh
-// board lands, flashing the lines the fresh board changed (docs/adr/0028-the-board-opens-on-the-last-visit.md), and
-// the sign on a card that changed lanes or was updated (docs/adr/0135-an-updated-card-takes-a-brief-tint.md).
+// board lands, flashing the lines the fresh board changed (docs/adr/2026-10-29-1639-the-board-opens-on-the-last-visit.md), and
+// the sign on a card that changed lanes or was updated (docs/adr/2026-11-02-2354-an-updated-card-takes-a-brief-tint.md).
 // Needs app-core.js and ui-snapshot.js; app.js paints it.
 BoardView.part((B) => {
   const { $$, state } = B;

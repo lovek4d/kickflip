@@ -106,7 +106,7 @@
     const show = (next, isOn = false) => { if (!B.alive()) return; state = next; on = isOn; paint(); };
     // The endpoint this device last gave the hub, kept in this browser, so that once the subscription goes (the
     // browser dropped or replaced it, or notifications were blocked) the page tells the hub to forget it
-    // (docs/adr/0149-the-hub-reads-healthy-degraded-or-a-site-down.md).
+    // (docs/adr/2026-11-03-0501-the-hub-reads-healthy-degraded-or-a-site-down.md).
     const KEPT = 'kickflip.push.endpoint';
     const kept = () => { try { return localStorage.getItem(KEPT); } catch { return null; } };
     const keep = (endpoint) => { try { if (endpoint) localStorage.setItem(KEPT, endpoint); else localStorage.removeItem(KEPT); } catch { /* storage blocked here */ } };

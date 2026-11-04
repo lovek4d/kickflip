@@ -1,11 +1,11 @@
-// The hub's GitHub check, run once per polling slot (docs/adr/0025-the-hub-polls-github-and-sends-pushes-on-one-interval.md).
+// The hub's GitHub check, run once per polling slot (docs/adr/2026-10-29-1639-the-hub-polls-github-and-sends-pushes-on-one-interval.md).
 // Its PRs are every open PR on any board's card, from the board registry, boards.mjs listBoards
-// (docs/adr/0040-one-board-registry-for-every-hub-feature.md). Each PR and login is fetched once,
+// (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md). Each PR and login is fetched once,
 // however many boards show it, and its summary is compared with the last one accepted, kept by repo#pr in
 // ~/.claude/kickflip/github-state.json. Each board's `github-change` event lists its eligible changed cards,
 // waking its owning session to run its GitHub tick (SKILL.md). Before that, each card gets its PR's new owner and
 // reviewer comments and reviews as thread lines, and a merged PR closes its card as merged
-// (docs/adr/0134-the-hubs-poll-records-merges-and-pr-comments-on-the-card.md). Each board gets data/checked.json after a
+// (docs/adr/2026-11-02-2335-the-hubs-poll-records-merges-and-pr-comments-on-the-card.md). Each board gets data/checked.json after a
 // check that reached GitHub for every PR it shows, in the idle form when it shows none. sendWakes sends the polling
 // interval's daily wakes to every board, changed or not.
 import fs from 'node:fs';
@@ -73,7 +73,7 @@ function writeChecked(dir, every) {
 // One check. every: the current polling window's minutes, for checked.json. manifest: the hub's manifest.
 // → {at, watched, failed: [message], changes: [{repo, pr, changes}], events: [{route, id}], checked: [route], merged: [route],
 // linear: {moved, failed}}. merged names each board where this check recorded a card merged, for the hub to refresh its Main
-// (docs/adr/0168-a-merge-refreshes-its-boards-main-at-once.md).
+// (docs/adr/2026-11-03-1619-a-merge-refreshes-its-boards-main-at-once.md).
 // watched counts distinct PRs; github-state.json's lastCheck also names the boards the check reached, for
 // boards.mjs linksOf.
 export async function checkGitHub({ every, manifest }) {
@@ -176,7 +176,7 @@ export async function checkGitHub({ every, manifest }) {
   state.lastCheck = { at, watched: prs.size, failed: failed.length, changed: changes.length, boards: checked };
   saveJSON(STATE, state);
   const linear = { moved: [], failed: [] };
-  // docs/adr/0107-the-hubs-poll-moves-the-owners-linear-tickets.md
+  // docs/adr/2026-11-02-0023-the-hubs-poll-moves-the-owners-linear-tickets.md
   try { await advanceLinear(boards, fetched, fetchKey, linear); }
   catch (e) { linear.failed.push(`linear: ${e.message}`); }
   return { at, watched: prs.size, failed, changes, events, checked, merged: [...mergedRoutes], linear };
@@ -189,7 +189,7 @@ function lineText(event) {
   return [verdict, body].filter(Boolean).join(' ');
 }
 
-// docs/adr/0134-the-hubs-poll-records-merges-and-pr-comments-on-the-card.md. → true when this check recorded the card merged, on
+// docs/adr/2026-11-02-2335-the-hubs-poll-records-merges-and-pr-comments-on-the-card.md. → true when this check recorded the card merged, on
 // any board showing it.
 async function recordOnCard(board, { p, key, recipient }, report, { state, merged, failed }) {
   const card = `${p.wave}/${p.id}`;

@@ -1,4 +1,4 @@
-// Whether the owner is at the host (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md): the screen
+// Whether the owner is at the host (docs/adr/2026-10-30-1704-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md): the screen
 // is unlocked and a key or the pointer was used in the last 3 minutes, whatever app is in front. Both readings come
 // from macOS ioreg, which needs no permission, so the hub's service and a session's CLI read the same. A host without
 // ioreg, such as Linux, fails the reading, so the owner always reads away there.

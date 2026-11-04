@@ -1,5 +1,5 @@
 // Any other page on the hub as a view of the app shell (shell.js): another site, a prototype, or a board page that isn't
-// a view of its own, in a same-origin frame beside the board header (docs/adr/0055-one-app-for-the-whole-hub.md). The
+// a view of its own, in a same-origin frame beside the board header (docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md). The
 // header's title follows the page's, and Open alone ↗ loads the page by itself (?alone=1, hub/shell.mjs pageOf). A
 // page that draws the board header itself, such as a prototype or another site's page, hides this one; its logo then
 // toggles the sidebar as this one's would, and hides while the rail shows. The page's own navigations stay in the frame

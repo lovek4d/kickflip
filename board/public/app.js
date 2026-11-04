@@ -180,7 +180,7 @@ window.BoardView = (function () {
 
     // #review=<PR number> opens that review in the Auto Review lane (app-lanes.js openReview), as a held review's push does.
     // #item=<wave>/<id> opens that card; push notifications link here, with &reply to land in the thread's reply box
-    // (docs/adr/0036-a-push-lands-where-the-owner-answers.md). An ask now in a work item's thread opens that item.
+    // (docs/adr/2026-10-29-1639-a-push-lands-where-the-owner-answers.md). An ask now in a work item's thread opens that item.
     let focusKey = null;
     let replyKey = null;
     let hashRead = false;
@@ -230,7 +230,7 @@ window.BoardView = (function () {
     }
 
     // The last visit's board paints dimmed while the first load runs; it doesn't count as landed, so refresh keeps
-    // spinning, and the header's time is the snapshot's until a load lands (docs/adr/0028-the-board-opens-on-the-last-visit.md).
+    // spinning, and the header's time is the snapshot's until a load lands (docs/adr/2026-10-29-1639-the-board-opens-on-the-last-visit.md).
     // → true when it painted live (B.live), so the controls turn on at once.
     function paintSnapshot() {
       const snap = B.readSnapshot();
@@ -306,7 +306,7 @@ window.BoardView = (function () {
       render();
     }
 
-    // An owner tap (docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md): the events POST answers with
+    // An owner tap (docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md): the events POST answers with
     // the board as the tap left it, which lands as a load of its own, so the tap needs no reload. draw(board) → board is
     // what the tap changes when its result follows from the tap alone: the page draws it before the POST and keeps it
     // over every board that lands until the POST settles; a failed POST takes it back off and throws.
@@ -354,7 +354,7 @@ window.BoardView = (function () {
     }
 
     // The server signals each change to what the board reads, through the shell, and the board reloads at once; the
-    // 30 s poll stays as the fallback and the offline check (docs/adr/0031-the-board-reloads-on-a-change-signal.md).
+    // 30 s poll stays as the fallback and the offline check (docs/adr/2026-10-29-1639-the-board-reloads-on-a-change-signal.md).
     let reloading = null;
     let reloadAgain = false;
     let signalMissed = false;

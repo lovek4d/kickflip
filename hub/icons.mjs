@@ -1,4 +1,4 @@
-// Site icons for the hub's rows: flat line icons (docs/adr/0017-site-icons-are-line-icons-from-a-built-in-set.md).
+// Site icons for the hub's rows: flat line icons (docs/adr/2026-10-29-1639-site-icons-are-line-icons-from-a-built-in-set.md).
 const COLOR_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
 export const ICONS = {

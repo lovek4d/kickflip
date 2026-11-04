@@ -312,7 +312,7 @@ test('an idle board with auto-pull on sends card-pull for its top pullable Todo 
   }
 });
 
-// docs/adr/0165-an-idle-board-triages-its-todo-once-a-day.md
+// docs/adr/2026-11-03-1551-an-idle-board-triages-its-todo-once-a-day.md
 test('an idle board with auto-triage on sends todo-triage under its dated topic before any pull, at most once a day and only when Todo changed', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-triage-'));
   const siteDir = path.join(dir, 'site');
@@ -430,7 +430,7 @@ test('an idle board with auto-triage on sends todo-triage under its dated topic 
   }
 });
 
-// docs/adr/0170-the-idle-pull-takes-ready-cards-first.md
+// docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md
 test('an idle board with auto-pull on and nothing to pull sends card-plan for its top unready Todo card, one at a time, never while one is planned or paused', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-plan-'));
   const siteDir = path.join(dir, 'site');
@@ -531,7 +531,7 @@ test('an idle board with auto-pull on and nothing to pull sends card-plan for it
   }
 });
 
-// docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+// docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
 test('an idle board with auto review on sends pr-review for one incoming PR at a time, asked first, never while a builder runs or usage is paused', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-review-'));
   const siteDir = path.join(dir, 'site');

@@ -3,7 +3,7 @@
 //   /                 the app shell (board/public/app.html), which opens this device's last board, else the board with
 //                     the most waiting; a browser's page load of any site's page, such as /<route>/,
 //                     /<route>/settings.html or /learn/, gets the shell too (shell.mjs pageOf)
-//                     (docs/adr/0055-one-app-for-the-whole-hub.md)
+//                     (docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md)
 //   /_hub/app/<file>  the shell's scripts and CSS, read from ../board/public then ../starter/public on each request;
 //                     ?v=<version> caches for a year
 //   /_hub/stream      the shell's one event stream: `change {route}` for each board's change signal and `sidebar` with
@@ -15,7 +15,7 @@
 //   /_hub/sidebar.json what the sidebar shows (board/public/ui-sidebar.js): {code, total, start,
 //                     sites: [{route, title, board, state, count, changedAt, created, icon, sub, ctx}], hub: {tone, word, detail},
 //                     notifications: {state, text}, upgrade}, upgrade null or a newer kickflip on npm (upgrade.mjs state), ctx the board's owner session's {percent, at} or null; each site's row from its GET /_claude/needs
-//                     (home.mjs; docs/adr/0010-sites-report-what-waits-through-claude-needs.md)
+//                     (home.mjs; docs/adr/2026-10-29-1639-sites-report-what-waits-through-claude-needs.md)
 //                     starting lists pending boards and their clone/start phase (sessions.mjs)
 //                     usage: {claude, codex}, each null when hidden, else {at, five_hour, seven_day}; windows are
 //                     null without a reading, else {used_percentage, resets_at, state: live|reset|stale} (usage.mjs).
@@ -95,7 +95,7 @@
 //                     asynchronously; data/try.json and data/try/<id>.log carry its state (try.mjs)
 //   /_hub/prompts     POST a PermissionRequest hook's input (permission-hook.mjs) → {id, deadline}: a pending prompt in
 //                     prompts.json, on the board whose owner is that session, else the hub page, with a push
-//                     (docs/adr/0060-background-sessions-prompts-come-to-the-phone.md), or {state: 'answered', answer}
+//                     (docs/adr/2026-10-30-1516-background-sessions-prompts-come-to-the-phone.md), or {state: 'answered', answer}
 //                     with allow when the session has a remembered exact match, with no pending prompt or push
 //   /_hub/prompts/<id>/wait?ms=N  GET, the hook's poll, held up to N ms (at most prompts.mjs POLL_MS) →
 //                     {state: 'pending'} or {state: 'answered', answer}, which removes the prompt; 404 once it's gone
@@ -108,31 +108,31 @@
 // It also runs every site: it starts each manifest entry's `cmd`, restarts it
 // when it exits, restarts it when its entry changes, and stops every one before it exits itself. A site with a port and
 // no `cmd` runs its own server: the hub only probes it, and it reads Down while nothing answers
-// (docs/adr/0087-a-page-joins-without-a-session.md). On each slot of the
+// (docs/adr/2026-11-01-1446-a-page-joins-without-a-session.md). On each slot of the
 // polling interval (schedule.mjs), and once a minute after it starts, it checks
 // GitHub (github.mjs) and each auto-review board's incoming PRs (incoming.mjs), pushes once for each board that is deaf (boards.mjs
 // checkListening, listenState), then sends the queued pushes unless schedule.mjs heldUntil holds them;
 // one poll never overlaps another. At each of the polling settings' wake times it wakes each
 // board's session once a day (github.mjs sendWakes)
-// (docs/adr/0025-the-hub-polls-github-and-sends-pushes-on-one-interval.md). Every feature that serves
+// (docs/adr/2026-10-29-1639-the-hub-polls-github-and-sends-pushes-on-one-interval.md). Every feature that serves
 // boards takes them from boards.mjs listBoards, the one board registry
-// (docs/adr/0040-one-board-registry-for-every-hub-feature.md). The host's service manager keeps the
+// (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md). The host's service manager keeps the
 // hub itself running (../shared/service.mjs, `kickflip init`).
 // After each poll it records when each board's hub links first failed (boards.mjs recordLinkFaults). As it starts it
 // records the hash of its own code (boards.mjs recordHubCode), so the hub link (boards.mjs hubLink) can tell when the
-// files changed under it (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md), and makes a hub board that
+// files changed under it (docs/adr/2026-10-29-1639-hub-links-turn-red-only-after-a-grace-period.md), and makes a hub board that
 // built on the kickflip clone a local board of its folder, once (board-repo.mjs migrateHubBoard).
 // Every 15 seconds it counts each board's watched lines, and resumes the recorded session of a board that got an event
 // while that session wasn't running, and pushes once when that doesn't bring it back (sessions.mjs checkSessions;
-// docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md). A tap on an asleep board's page wakes it at once
-// through /_hub/wake (docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
+// docs/adr/2026-10-30-1601-a-boards-session-wakes-when-an-event-arrives.md). A tap on an asleep board's page wakes it at once
+// through /_hub/wake (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
 // Every 15 seconds it drops the pending prompts whose hook has gone (prompts.mjs expired).
 // It runs caffeinate while Keep awake is on, and starts it again as it starts while time is left (awake.mjs).
 // On paused → normal it sends every board usage-resumed {window}, keeping usage-gate-state.json across restarts.
 // Each served card and main has its own Tailscale HTTPS port, through a loopback relay (try.mjs).
 // Every 15 seconds try.mjs refreshes card heads, auto-builds cards and rebuilds main; polls fetch non-hub branches and
 // record each fetch in repo-fetch.json for the board's repo-fetch link. A poll that records a card merged fetches that
-// card's board first and refreshes its Main at once (docs/adr/0168-a-merge-refreshes-its-boards-main-at-once.md).
+// card's board first and refreshes its Main at once (docs/adr/2026-11-03-1619-a-merge-refreshes-its-boards-main-at-once.md).
 // Try worktrees live in ~/.claude/kickflip/try/<route>-main; board data/try.json and data/try/*.log record runs.
 // State lives in ~/.claude/kickflip: manifest.json, logs/<route>.log, run/<route>.pid, github-state.json, wake-state.json,
 // deaf-state.json, link-faults.json, repo-fetch.json, hub-code.json, resume-state.json, prompts.json, linear.json,
@@ -373,14 +373,14 @@ function runPoll({ flush = true } = {}) {
     let result;
     try { result = await checkGitHub({ every: windowAt(startedAt, settings).every_minutes, manifest: loadManifest() }); }
     catch (e) { result = { at: startedAt.toISOString(), watched: 0, failed: [e.message], changes: [], events: [], checked: [], merged: [], linear: { moved: [], failed: [] } }; }
-    // docs/adr/0168-a-merge-refreshes-its-boards-main-at-once.md
+    // docs/adr/2026-11-03-1619-a-merge-refreshes-its-boards-main-at-once.md
     if (result.merged.length) {
       await fetchTryBranches({ manifest: loadManifest(), log, routes: result.merged });
       log(`merged on ${result.merged.join(', ')}: fetched and refreshing Main`);
       tryTick({ manifest: loadManifest(), routes: result.merged }).catch((e) => log('merge refresh failed:', e.message));
     }
     await fetchTryBranches({ manifest: loadManifest(), log });
-    // docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+    // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
     try { result.failed.push(...(await checkIncoming({ manifest: loadManifest() })).failed); }
     catch (e) { result.failed.push(`incoming PRs: ${e.message}`); }
     if (result.failed.length && Date.now() - polls.errorLoggedAt > ERROR_LOG_MS) {
@@ -428,7 +428,7 @@ function runSessionCheck() {
   sessionCheck.running = checkSessions({ manifest: loadManifest(), asked }).then((r) => {
     if (r.resumed.length || r.pushed.length || r.failed.length) log(`sessions: resumed ${r.resumed.join(', ') || 'none'}; pushed ${r.pushed.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
   }).catch((e) => log('session check failed:', e.message))
-    // docs/adr/0179-a-board-session-compacts-before-its-context-fills.md
+    // docs/adr/2026-11-03-1823-a-board-session-compacts-before-its-context-fills.md
     .then(() => compactFullContexts({ manifest: loadManifest() })).then((r) => {
       if (r.compacted.length || r.failed.length) log(`context full: sent /compact to ${r.compacted.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
     }).catch((e) => log('context full check failed:', e.message)).finally(() => { sessionCheck.running = null; });
@@ -645,7 +645,7 @@ async function shellPage(here) {
 }
 
 // A newer kickflip on npm, checked as the hub starts and hourly; Upgrade runs `kickflip update` once no board's builder
-// runs, logging to logs/kickflip-update.log (docs/adr/0161-the-hub-offers-a-newer-kickflip-from-npm.md).
+// runs, logging to logs/kickflip-update.log (docs/adr/2026-11-03-1521-the-hub-offers-a-newer-kickflip-from-npm.md).
 const upgrade = upgrader({
   root: cloneRoot(),
   builders: async () => (await Promise.all(listBoards(loadManifest()).map((b) => openBoardBuilders(b.dir)))).flat(),

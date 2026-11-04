@@ -222,7 +222,7 @@ export function installClaudeSettings({ home = os.homedir() } = {}) {
     changed = true;
     notes.push(`added the watcher Stop hook to ${file} -> ${WATCHER_STOP}`);
   }
-  // A board session that fills its context stops answering until it compacts (docs/adr/0179-a-board-session-compacts-before-its-context-fills.md).
+  // A board session that fills its context stops answering until it compacts (docs/adr/2026-11-03-1823-a-board-session-compacts-before-its-context-fills.md).
   if (settings.autoCompactEnabled !== true) {
     settings.autoCompactEnabled = true;
     changed = true;

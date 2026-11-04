@@ -402,7 +402,7 @@ test('Board Settings saves auto-build immediately, uses kind-specific words and 
   }
 });
 
-// docs/adr/0165-an-idle-board-triages-its-todo-once-a-day.md, docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+// docs/adr/2026-11-03-1551-an-idle-board-triages-its-todo-once-a-day.md, docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
 for (const [key, id, on] of [
   ['auto_pull', 'autoPull', 'Saved. When idle, Claude starts the top Todo card.'],
   ['auto_triage', 'autoTriage', 'Saved. Once a day, when the board is idle and Todo changed, Claude triages it.'],
@@ -2247,7 +2247,7 @@ test("every bumpable card, closed or open, carries the bump icon at its top righ
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-bump', { key: 'w/T3' }], ['card-unbump', { key: 'w/T2' }]]);
 });
 
-// docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md
+// docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md
 // A send that waits for the test: answer() settles the oldest, with the server's board, or fails it.
 function heldSends() {
   const waiting = [];
@@ -2833,7 +2833,7 @@ test("Waiting on you's Send follows the shared next question, leaving an urgent 
   assert.deepEqual(urgent.shown(), { pills: [['item:w/T1', 'true'], ['item:w/T2', 'false']], questions: ['q1'], status: 'Sent 1 answer to INT-3.', hash: '#q1' });
 });
 
-// docs/adr/0177-a-question-asked-for-a-prototype-is-resolved.md
+// docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md
 test("Waiting on you's eye on each question, after its attach button, asks for a prototype of that question with its note and pick, waits for the server, then resolves it and moves on as Send does: to the topic's next open question, or back to the board", async () => {
   const question = (id) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
   let release;
@@ -3324,7 +3324,7 @@ test('legacy hub links open one modal, guard dirty rules on every dismissal, res
   assert.deepEqual(page.left(), baseline);
 });
 
-// docs/adr/0180-waves-are-bands-in-todo.md
+// docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
 test("each wave is a band in Todo above its loose cards: only the first with a ready next card starts open, its goal on its name, Implement or what the next card waits on, Notes and Triage in its head, its Todo cards in order with step numbers and its done ones one line", async () => {
   const idle = { running: false, questions: 0 };
   const band = (slug, title, keys, next, extra = {}) => ({ kind: 'lineup', slug, title, goal: `${title} goal.`, keys: keys.map((id) => `w/${id}`), next, merged: 1, total: keys.length, triage: idle, ...extra });
@@ -3435,7 +3435,7 @@ test("each wave is a band in Todo above its loose cards: only the first with a r
   assert.equal(head('mon').getAttribute('aria-expanded'), 'true');
 });
 
-// docs/adr/0140-each-lane-has-one-fixed-order.md
+// docs/adr/2026-11-03-0223-each-lane-has-one-fixed-order.md
 test("each lane shows its cards in the order they arrive, with no sort icon in its header, and each card's time line is the time its lane sorts by", async () => {
   const cards = [
     workCard('R1', { lane: 'review', sortAt: '2026-10-29T08:00:00.000Z', created: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-30T08:00:00.000Z' }),
@@ -3459,7 +3459,7 @@ test("each lane shows its cards in the order they arrive, with no sort icon in i
   assert.equal(b.root.querySelector('.lane-sort, .lane-sort-menu, [data-lane-sort]'), null);
 });
 
-// docs/adr/0153-plan-waves-plans-from-any-todo-cards.md
+// docs/adr/2026-11-03-0509-plan-waves-plans-from-any-todo-cards.md
 test('Plan waves ends Todo as a Show more row and, once confirmed, sends plan-waves with the free Todo cards', async () => {
   const cards = [workCard('T1'), workCard('T2'), workCard('T3', { held: true })];
   const b = boardOnDom({ open: [], board: boardOf(cards), threads: {}, confirm: true });
@@ -3472,7 +3472,7 @@ test('Plan waves ends Todo as a Show more row and, once confirmed, sends plan-wa
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['plan-waves', { keys: ['w/T1', 'w/T2'] }]]);
 });
 
-// docs/adr/0144-answered-asks-have-their-own-section-below-done.md
+// docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md
 test('answered asks have their own Asks section below Done, and Done and Asks each show 10 cards, then a Show more that adds 10 and says how many are left', async () => {
   const day = (n) => `2026-10-${String(30 - n).padStart(2, '0')}T08:00:00.000Z`;
   const done = Array.from({ length: 23 }, (_, n) => workCard(`D${n}`, { lane: 'done', sortAt: day(n) }));
@@ -3511,7 +3511,7 @@ test('a held Todo card that can be implemented shows Implement in place of Unhol
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['card-build', { key: 'w/H1' }]);
 });
 
-// docs/adr/0145-build-on-a-blocked-card-queues-it.md
+// docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md
 test('a blocked Todo card shows Implement, whose confirm says it is implemented once its blockers are done, and sends card-build', async () => {
   const blockedBy = [{ key: 'w/A9', ref: '#53' }];
   const cards = [workCard('B1', { ref: 'INT-44', buildable: true, blockedBy }), workCard('B2', { ref: 'INT-45', held: true, holdable: true, buildable: true, blockedBy })];
@@ -3562,7 +3562,7 @@ test('Upgrade on the sidebar posts to the hub and shows only what the hub answer
   sidebar.close();
 });
 
-// docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+// docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
 test('Board Settings holds every automatic job in one Auto section, short labels in order, Auto review off until loaded on', () => {
   const page = fakePage(memoryStorage().localStorage);
   const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
@@ -3574,7 +3574,7 @@ test('Board Settings holds every automatic job in one Auto section, short labels
   assert.doesNotMatch(html, /<h2>(Merging|Builds|Todo)<\/h2>/);
 });
 
-// docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+// docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
 test("the Auto Review lane leads the lanes; a held review's Needs you line opens it, and Post it waits for the server with both buttons off", async () => {
   const held = { number: 437, title: 'One endpoint', author: 'Quinn', url: 'https://github.com/o/r/pull/437', asked: false, touches: [{ key: 'w/A1', ref: '#41' }],
     state: 'needs', at: '2026-10-30T09:58:00.000Z', text: 'Clashes with #41.', reviewUrl: null };

@@ -1,8 +1,8 @@
 // The board view's header and GitHub status: the time since the last change signal or refresh, refresh, the In Review
-// header's GitHub line (docs/adr/0021-the-board-shows-github-checks-and-watcher-health.md);
-// the GitHub mark's Hub links sheet and a new board's setup checklist (docs/adr/0040-one-board-registry-for-every-hub-feature.md);
+// header's GitHub line (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md);
+// the GitHub mark's Hub links sheet and a new board's setup checklist (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md);
 // and the wake: any tap on an asleep board's page, refresh included, asks the hub to resume its session
-// (docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md). Needs app-core.js.
+// (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md). Needs app-core.js.
 BoardView.part((B) => {
   const { $, state, toast } = B;
   const { statusLine, freshSig, nextFresh, githubLine, remoteLine, linksList, setupCard, checkLanded, githubRefresh, headerControls } = BoardUI;

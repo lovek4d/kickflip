@@ -2,10 +2,10 @@
 // subscribe and unsubscribe side (hub.mjs); every push goes through deliver(), which refuses a push that isn't one of PUSH_KINDS and
 // queues one unless it is urgent or immediate. While the owner is at the host (presence.mjs), an action push reaches
 // the desktop subscriptions only, unless urgent or no desktop has subscribed
-// (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md).
+// (docs/adr/2026-10-30-1704-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md).
 // The queue goes out through flushQueue() after each GitHub check on the polling interval (schedule.mjs) and at the end
 // of each GitHub tick (`board.mjs checked`), a board's one push as it is and its several as one summary
-// (docs/adr/0120-queued-pushes-go-as-one-summary-per-board.md).
+// (docs/adr/2026-11-02-1733-queued-pushes-go-as-one-summary-per-board.md).
 // State lives in ~/.claude/kickflip/push: vapid.json (the signing key),
 // subs.json (one entry per phone or browser that enabled notifications, with
 // the hub origin it subscribed from and its user agent) and queue.json (pushes waiting to go). The polling interval's
@@ -181,7 +181,7 @@ export function setCodexShare(value, status = codexStatus()) {
   return value;
 }
 
-// Which Claude model builds a card that Claude builds (docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md):
+// Which Claude model builds a card that Claude builds (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md):
 // opus or sonnet forces it, auto leaves it to the card (shared/usage-gate.mjs builderPick). A missing or unknown stored
 // value is auto.
 export const CLAUDE_MODEL_VALUES = ['opus', 'auto', 'sonnet'];
@@ -276,9 +276,9 @@ export function queueStatus(now = new Date()) {
   return { settings, window: windowAt(now, settings), held: h !== null, hold: h, count: items.length, nextFlushAt: items.length ? flushAt(now, settings) : null };
 }
 
-// What a push may be about (docs/adr/0006-pushes-only-when-something-waits-on-the-owner.md): action, a card's Action
+// What a push may be about (docs/adr/2026-10-29-1639-pushes-only-when-something-waits-on-the-owner.md): action, a card's Action
 // needed appearing or changing; prompt, a background session's pending prompt; fault, something only the owner can fix;
-// reminder, a push the owner asked a session for in words (docs/adr/0182-more-of-the-skill-moves-into-code.md).
+// reminder, a push the owner asked a session for in words (docs/adr/2026-11-03-1842-more-of-the-skill-moves-into-code.md).
 export const PUSH_KINDS = ['action', 'prompt', 'fault', 'reminder'];
 export class PushKindError extends Error {}
 export const pushKindError = (kind) => (PUSH_KINDS.includes(kind) ? null

@@ -59,7 +59,7 @@ export const heldUsageEvent = (line) => {
 };
 
 // Who builds a card, codex or claude: Codex while it is usable, the Codex share in effect is auto or always, and Codex is
-// under the pause line, else Claude (docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md), with the
+// under the pause line, else Claude (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md), with the
 // model claudePick gives. card is the card's wave entry, whose size and model Auto reads.
 // → {kind, model?, reason}
 export function builderPick({ home = os.homedir(), now = Date.now(), card = {} } = {}) {
@@ -75,7 +75,7 @@ export function builderPick({ home = os.homedir(), now = Date.now(), card = {} }
 
 // The hub's Claude model (hub/push.mjs readClaudeModel) forces Opus or Sonnet; Auto takes the card's own model, else
 // Sonnet for a card sized small and Opus for the rest
-// (docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md). → {model, reason}
+// (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md). → {model, reason}
 const NAMES = { opus: 'Opus', sonnet: 'Sonnet' };
 function claudePick(setting, card) {
   if (setting !== 'auto') return { model: setting, reason: `Claude model is ${NAMES[setting]}.` };

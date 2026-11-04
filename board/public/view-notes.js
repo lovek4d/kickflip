@@ -1,5 +1,5 @@
 // An item's notes, /<route>/notes.html?item=<wave>/<id>, a view of the app shell (shell.js)
-// (docs/adr/0053-notes-replace-the-full-plan-and-cards-start-on-their-own.md). Back goes to the item's card.
+// (docs/adr/2026-10-29-1816-notes-replace-the-full-plan-and-cards-start-on-their-own.md). Back goes to the item's card.
 // ?wave=<slug> shows a wave's goal, order and note instead, and back goes to the board.
 (globalThis.AppViews ||= {}).notes = {
   className: 'view-notes',

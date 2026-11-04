@@ -1,0 +1,25 @@
+# A prototype pick is the build's go, and more of the skill moves into code
+
+This supersedes in part [a prototype answer with a note gets a confirm round](2026-11-01-1514-a-prototype-answer-with-a-note-gets-a-confirm-round.md), [a prototype round ends with a one-take confirm](2026-11-02-1332-a-prototype-round-ends-with-a-one-take-confirm.md), [a pick with no note settles a prototype round](2026-11-02-1607-a-pick-with-no-note-settles-a-prototype-round.md) and [a confirm waits for Claude's update](2026-11-02-1700-a-confirm-waits-for-claudes-update.md), on a pick with a note waiting on a confirm round, and the third skill-into-code audit (#36) settles the rest below.
+
+**A pick is the go.** A pick of a prototype take settles its round whether or not it has a note; the note is guidance for the build, and the owner's Build, or the card starting once nothing stops it, is the go (`board/domain.mjs` `roundSettledBy`). `builder start --kind build`, `item set --status building` and the Build tap no longer refuse a noted pick, and `--confirmed` on them, `question confirm` and `question resolve --no-change` are gone. Confirms already on a board still render, and an answer to one still settles its round.
+
+**No take picked is not ready.** The owner can clear the pick and send only a note. While the newest answer to a card's prototype questions picks no take (`noTakePicked`), the card has no Build, its line reads "No take picked, so it isn't ready to build", the board server's answer check doesn't start it, and a build's start refuses, naming that answer. The session acts on the note; one that asks for another prototype gets the next round, as a `prototype-request` does. [A prototype answer with no pick prototypes again, so a card is never stuck](2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md) makes the next round the card's way out.
+
+**Land restarts only the running clone.** `board.mjs land` restarts the hub or the board servers only when the repo it landed in is the running kickflip clone, and test files changing restart nothing (`board/worktree.mjs` `land`). Any other board's land only merges into its repo's main, and a builder landing with stub tools first on PATH no longer fails the restart for a test-only change.
+
+**Init adds the watcher Stop hook.** `kickflip init` (`doctor --fix`) adds `node "$HOME/.claude/skills/kickflip/hooks-plugin/hooks/watcher-stop.mjs"` to `~/.claude/settings.json`'s `Stop` hooks when no Stop hook runs `hooks-plugin/hooks/watcher-stop.mjs`, written as statusLine is, keeping other keys, atomically; doctor reports it missing as fixable (`bin/install.mjs` `installClaudeSettings`, `bin/doctor.mjs`). This replaces [the CLI and board server do the board's housekeeping](2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md)'s "the owner adds it": on a new host it was missing and the no-live-watcher and Working-on-it guards were off with no warning.
+
+**The Codex hook states off too.** `hooks-plugin/hooks/codex-share-auto.mjs` prints a line for off as it does for auto and always, so a change replaces what an earlier turn was told; on #41 the session kept "auto" after the owner switched Codex off, because off printed nothing.
+
+**Auto-merge turning on asks for one GitHub check.** The board server appends `check-github {reason: "auto-merge"}` after the `settings` event when auto-merge turns on, so the session's tick, which merges approved PRs, runs without a skill rule. The hub's own poll wasn't enough: it wakes a board only on a PR change (`hub/github.mjs` `changesBetween`), so an approved PR that hadn't changed would wait.
+
+**The skill drops what code enforces.** SKILL.md loses lines that describe refusals and lane moves the board already makes (the Todo rule from [any work on a card starts it](2026-11-02-2000-any-work-on-a-card-starts-it.md), the answered ask going to Done, `builder start`'s refusals, the server's own `card-unblocked`), says `card-unbump` and `queued build starts:` need no action, and fixes three stale bits: the status-line ADR link, `install` for `init`, and Resume for Unhold.
+
+The owner, in the #36 grill: "if you made a selection, then the note becomes a implementation guideline unless the note explicitly asks for a change in the form of a prototype, like re-prototype", "you can clear your selection of the prototypes and that indicates that no selection has been made and it's not ready to build yet", and "I don't want these to be in the skill at all if they are naturally enforced by the code".
+
+Considered:
+- settling the gate with `--no-change` and a tap that counts as `--confirmed`: two mechanisms where the owner asked whether either was needed;
+- reading a note for "go" or "re-prototype" in code: a note is free text, so the session reads it;
+- the hub's poll for the auto-merge check: it reports changes only;
+- starting every `card-unblocked` card in the board server, not only queued builds: the answer path that appends it sits in the events POST another card is changing, so it stays the session's for now.

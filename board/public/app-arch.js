@@ -1,5 +1,5 @@
 // The header's bulb and its review sheet: the board's last architecture review and Run, which confirms and asks the
-// board server to start one (docs/adr/0125-the-bulb-runs-an-architecture-review-of-the-boards-repo.md). The bulb glows
+// board server to start one (docs/adr/2026-11-02-1813-the-bulb-runs-an-architecture-review-of-the-boards-repo.md). The bulb glows
 // while a review runs. Needs app-core.js.
 BoardView.part((B) => {
   const { $, state } = B;

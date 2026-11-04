@@ -110,7 +110,7 @@ export async function writeReply(site, eventId, html) {
   await replace(file, text(html, 'the reply'));
   const key = event.kind === 'ask' ? `ask:${eventId}` : event.kind === 'item-message' && typeof event.data?.key === 'string' ? event.data.key : null;
   const lines = key ? await freshenPush(site, key, htmlText(html)) : [];
-  // docs/adr/0095-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
+  // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   const triaged = event.kind === 'wave-triage' ? ['lineup', 'wave'].filter((k) => typeof event.data?.[k] === 'string').map((k) => `${k}:${event.data[k]}`) : [];
   const topic = event.kind === 'ask' ? `item:ask:${eventId}` : triaged[0];
   if (topic) lines.push(...await resolveAnsweredOn(site, topic, 'Acted on: replied'));
@@ -124,7 +124,7 @@ export async function readWorking(site) {
   return (await readJSON(workingFile(site), {})).events || {};
 }
 
-// The kinds bin/wait-events.mjs marks working as it hands them to the session (docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md).
+// The kinds bin/wait-events.mjs marks working as it hands them to the session (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md).
 export const WORKING_KINDS = ['ask', 'item-message', 'wave-triage', 'todo-triage'];
 export async function markWorking(site, eventIds) {
   if (!eventIds.length) return;
@@ -133,7 +133,7 @@ export async function markWorking(site, eventIds) {
   await writeJSON(workingFile(site), { events: { ...events, ...Object.fromEntries(eventIds.map((id) => [id, routeRecord(events, id) || at])) } });
 }
 
-// Replies ride along on the next push (docs/adr/0011-replies-ride-along-on-the-next-push.md).
+// Replies ride along on the next push (docs/adr/2026-10-29-1639-replies-ride-along-on-the-next-push.md).
 const pushStateFile = (site) => path.join(site, 'data', 'push-state.json');
 
 // Reply files modified after the site's last recorded push and no later than `until`; 0 before its first push.
@@ -203,10 +203,10 @@ function htmlText(html) {
     });
 }
 
-// Where a push lands (docs/adr/0036-a-push-lands-where-the-owner-answers.md). A card or ask link (#item=) gains
+// Where a push lands (docs/adr/2026-10-29-1639-a-push-lands-where-the-owner-answers.md). A card or ask link (#item=) gains
 // &reply, so the board opens that thread with its reply box focused. A page other than the board gains from=push, so
 // the back arrow of a page outside the page tree goes to the card or the board
-// (docs/adr/0058-back-follows-the-page-tree.md), and a prototype page tied to a question (?q=) sends the owner to the
+// (docs/adr/2026-10-30-1125-back-follows-the-page-tree.md), and a prototype page tied to a question (?q=) sends the owner to the
 // card's thread instead once that question has a pick.
 export function pushUrl(url) {
   if (!url || !url.startsWith('/')) return url;
@@ -219,7 +219,7 @@ const threadUrl = (site, key) => `/${path.basename(site)}/#item=${encodeURICompo
 
 // Claude's latest message in a thread becomes the body of that thread's queued push, keeping its "· and N replies",
 // and the push now opens that thread at its reply box, whatever page it first linked. It never sends a push: a line
-// after the push went shows as the thread's unread mark (docs/adr/0030-pushes-go-by-kind-and-each-arrives-on-its-own.md).
+// after the push went shows as the thread's unread mark (docs/adr/2026-10-29-1639-pushes-go-by-kind-and-each-arrives-on-its-own.md).
 // → lines for the CLI to print.
 async function freshenPush(site, key, message) {
   const line = pushLine(message);
@@ -316,7 +316,7 @@ export async function appendThread(site, key, { text: body, link, who = 'claude'
 
 // An ask folded into an existing work item: data/ask-links.json ({links: {<ask event id>: <wave>/<id>}}) names the item,
 // whose thread then holds the ask, marked moved, and one summary line; the ask has no card of its own
-// (docs/adr/0047-the-plus-makes-a-new-card.md).
+// (docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md).
 const askLinksFile = (site) => path.join(site, 'data', 'ask-links.json');
 export async function readAskLinks(site) {
   return (await readJSON(askLinksFile(site), {})).links || {};
@@ -382,7 +382,7 @@ export async function unfoldAsk(site, eventId) {
 
 // Claude's latest mark on each ask, data/ask-progress.json {asks: {<ask event id>: {state, at, next?, moved?}}}: progress
 // keeps an answered ask in In Progress until the owner's ask-done or a done mark is newer
-// (docs/adr/0035-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md). moved {route, title, id} is a done
+// (docs/adr/2026-10-29-1639-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md). moved {route, title, id} is a done
 // mark that names the ask moveAsk sent to another board.
 const askProgressFile = (site) => path.join(site, 'data', 'ask-progress.json');
 export async function readAskProgress(site) {
@@ -479,7 +479,7 @@ export async function moveAsk(site, eventId, route) {
   return { file: path.join(target.dir, 'data', 'events.jsonl'), lines: [`moved to ${link}`, ...(state?.items || []).map((k) => `dropped: ${k}`)] };
 }
 
-// When the session last checked GitHub, and how often it checks (docs/adr/0021-the-board-shows-github-checks-and-watcher-health.md).
+// When the session last checked GitHub, and how often it checks (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md).
 const checkedFile = (site) => path.join(site, 'data', 'checked.json');
 // idle: no timer checks until the next wave, so the last check is never late; left out, it is idle while no card has an
 // open PR, as the hub's poll writes it (hub/github.mjs writeChecked). every defaults to the minutes of the polling
@@ -495,7 +495,7 @@ export async function writeChecked(site, every, { idle } = {}) {
   return { file: checkedFile(site), every: minutes, lines: await flushAfterTick() };
 }
 
-// docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+// docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
 // data/reviews.json {<number>: {number, title, author, url, touches, asked, head, state: posted|needs, text, review_url?,
 // at}}: the session's review of an incoming PR, at the head the hub's poll last listed for it in data/incoming.json, or
 // at the head its last review saw once the PR has left that list (board/auto-review.mjs reviewsOf).
@@ -524,7 +524,7 @@ async function hasOpenPR(site) {
   return false;
 }
 
-// A tick's pushes go out as it ends rather than at the next slot (docs/adr/0030-pushes-go-by-kind-and-each-arrives-on-its-own.md).
+// A tick's pushes go out as it ends rather than at the next slot (docs/adr/2026-10-29-1639-pushes-go-by-kind-and-each-arrives-on-its-own.md).
 async function flushAfterTick() {
   const st = queueStatus(new Date());
   if (st.hold) return st.count ? [`queued pushes held: ${holdLine(st.hold)}`] : [];
@@ -532,7 +532,7 @@ async function flushAfterTick() {
   return r ? [`sent ${r.sent} of ${r.count} queued push${r.count === 1 ? '' : 'es'}${r.ok ? '' : '; the rest stay queued'}`] : [];
 }
 
-// The join handshake (docs/adr/0040-one-board-registry-for-every-hub-feature.md): data/handshake.json
+// The join handshake (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md): data/handshake.json
 // {hello: {id, at, session}, ack: {id, at} | null, done_at?}, written by hub/boards.mjs handshake.
 // The board shows its setup checklist until the session acks the newest hello and the hub's GitHub check reaches it.
 const handshakeFile = (site) => path.join(site, 'data', 'handshake.json');
@@ -620,7 +620,7 @@ export const reviewReact = (site, key, name, emoji) => ticketWrite(site, async (
 
 const digestFile = (site) => path.join(needSite(site), 'data', 'review-digests.json');
 
-// docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
+// docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
 // `review due`: each Slack send the Reviewers steps owe, from local state with no GitHub call, each with the board.mjs
 // command that records it once sent. dms: a ready-for-review link to each reviewer of a card whose PR the hub last read
 // open and out of draft, with no link recorded for them. reactions: git_merged on each recorded link of a merged card
@@ -727,7 +727,7 @@ export function removeReviewers(site, names) {
 }
 
 // Rules: the hub's in settings.json and this board's in board.json `rules` (../hub/rules.mjs;
-// docs/adr/0039-rules-live-on-settings-at-hub-and-board-level.md). The settings page and the CLI both write board.json,
+// docs/adr/2026-10-29-1639-rules-live-on-settings-at-hub-and-board-level.md). The settings page and the CLI both write board.json,
 // so board rule and setting writes run one at a time.
 const hubSettingsFile = () => path.join(os.homedir(), '.claude', 'kickflip', 'settings.json');
 const ruleCall = (fn) => { try { return fn(); } catch (e) { if (e instanceof RuleError) fail(e.message); throw e; } };
@@ -753,9 +753,9 @@ const writeBoardRules = (site, change) => writeBoardJSON(site, (cfg) => {
 
 const validGithubLogin = (value) => typeof value === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(value);
 const storedTickets = (value) => { try { return value ? ticketSource(value) : null; } catch { return null; } };
-// A board's settings in board.json (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md): auto_merge,
+// A board's settings in board.json (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md): auto_merge,
 // auto_build, auto_pull, auto_triage and auto_review, off when absent, tickets, its one ticket source, and github_login, absent when unset or
-// invalid (docs/adr/0081-a-board-has-one-ticket-source.md).
+// invalid (docs/adr/2026-11-01-1348-a-board-has-one-ticket-source.md).
 export const settingsOf = (cfg) => {
   const tickets = storedTickets(cfg?.tickets);
   return { auto_merge: cfg?.auto_merge === true, auto_build: cfg?.auto_build === true, auto_pull: cfg?.auto_pull === true, auto_triage: cfg?.auto_triage === true, auto_review: cfg?.auto_review === true, ...(tickets ? { tickets } : {}), ...(validGithubLogin(cfg?.github_login) ? { github_login: cfg.github_login } : {}) };
@@ -857,7 +857,7 @@ export async function addTopic(site, { id, title, summary }) {
   return ownerFile(site);
 }
 
-// docs/adr/0048-a-questions-takes-show-inline.md: rows of at most 4 boxes {text, tone?, to?}, `to` naming boxes of the
+// docs/adr/2026-10-29-1639-a-questions-takes-show-inline.md: rows of at most 4 boxes {text, tone?, to?}, `to` naming boxes of the
 // next row, and a diagram always comes with its practice lines.
 const DIAGRAM_TONES = ['quiet', 'info', 'notice', 'danger', 'success'];
 function checkDiagram(o, at) {
@@ -897,7 +897,7 @@ function checkOptions(options, name) {
 }
 
 // A prototype is a topic recorded here, served as prototype-<topic>.html from one template (board/public/prototype.html,
-// board/server.mjs), whose takes are the site's public/prototypes/<topic>/<KEY>.js (docs/adr/0089-the-board-serves-every-prototype-from-one-template.md).
+// board/server.mjs), whose takes are the site's public/prototypes/<topic>/<KEY>.js (docs/adr/2026-11-01-1448-the-board-serves-every-prototype-from-one-template.md).
 const prototypesFile = (site) => path.join(site, 'data', 'prototypes.json');
 export const takeFile = (site, topic, key) => path.join(site, 'public', 'prototypes', topic, `${key}.js`);
 export async function readPrototypes(site) {
@@ -1003,12 +1003,12 @@ export async function addQuestions(site, input) {
       if (!pageTopic(q.url)) fail(`${name}.round_of needs a url on a recorded prototype, prototype-<topic>.html?q=${q.id}`);
     });
   }
-  // docs/adr/0095-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
+  // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   const answers = await ownerAnswers(site);
   const at = new Date().toISOString();
   const replaced = [];
   const resolved = [];
-  // docs/adr/0111-a-prototype-round-ends-with-a-one-take-confirm.md
+  // docs/adr/2026-11-02-1332-a-prototype-round-ends-with-a-one-take-confirm.md
   for (const q of questions.filter((x) => x.round_of)) {
     q.round = roundOf(items.find((x) => x.id === q.round_of)) + 1;
     setResolved(owner, [q.round_of], `Followed by prototype round ${q.round}`, at);
@@ -1063,7 +1063,7 @@ export async function resolveQuestion(site, id, note) {
   return file;
 }
 
-// docs/adr/0114-a-pick-with-no-note-settles-a-prototype-round.md
+// docs/adr/2026-11-02-1607-a-pick-with-no-note-settles-a-prototype-round.md
 // Each owner answer with a note and no take resolves its question, noting "Answered with a note", in one write.
 export async function resolveNoteAnswers(site, answers) {
   const ids = answers.filter(({ choice, note }) => !choice && String(note || '').trim()).map((a) => a.id);
@@ -1073,7 +1073,7 @@ export async function resolveNoteAnswers(site, answers) {
   await writeJSON(ownerFile(site), owner);
 }
 
-// docs/adr/0177-a-question-asked-for-a-prototype-is-resolved.md
+// docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md
 // A prototype request for question id resolves it, noting "Prototype requested": the request is that round's input.
 export async function resolveRequestedQuestion(site, id) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
@@ -1082,7 +1082,7 @@ export async function resolveRequestedQuestion(site, id) {
   await writeJSON(ownerFile(site), owner);
 }
 
-// docs/adr/0150-a-prototype-pick-is-the-builds-go.md
+// docs/adr/2026-11-03-0504-a-prototype-pick-is-the-builds-go.md
 // Refuses while no answer settles q's round.
 function roundSettled(owner, q, answers) {
   const n = roundOf(q);
@@ -1116,7 +1116,7 @@ async function resolveAnsweredOn(site, topic, note) {
   return ids.map((id) => `resolved: ${id}`);
 }
 
-// docs/adr/0157-an-answer-stops-waiting-once-its-acted-on.md
+// docs/adr/2026-11-03-1313-an-answer-stops-waiting-once-its-acted-on.md
 // A Next set while its card had an open question waits on the card's questions (the wave entry's next_on_questions).
 const hasOpenQuestion = async (site, key) => Boolean(site) && (await cardQuestions(site, key)).asked.some((q) => q.state === 'open');
 function setNext(item, next, waitsOnQuestions) {
@@ -1139,7 +1139,7 @@ async function clearWaitedNext(site, topic) {
 }
 
 // A build's start clears the card's Next, whatever it waits on: the card reads its builder line
-// (docs/adr/0174-a-card-reads-starting-from-its-tap-with-one-dispatched-mark.md).
+// (docs/adr/2026-11-03-1718-a-card-reads-starting-from-its-tap-with-one-dispatched-mark.md).
 async function clearNext(site, key) {
   const { source, wave, item } = await loadItem(site, key);
   if (item.next === undefined && item.next_on_questions === undefined) return;
@@ -1170,7 +1170,7 @@ export async function checkClose(site, key, said) {
   await closeQuestions(needSite(site), key, 'land', false);
 }
 
-// docs/adr/0150-a-prototype-pick-is-the-builds-go.md
+// docs/adr/2026-11-03-0504-a-prototype-pick-is-the-builds-go.md
 // The card's noTakePicked, from owner.json and the owner's answers. → {id, note}, or null.
 async function unpickedPrototype(site, key) {
   const owner = await readJSON(ownerFile(site), { items: [] });
@@ -1179,7 +1179,7 @@ async function unpickedPrototype(site, key) {
 }
 const clip = (s) => (s.length > 120 ? `${s.slice(0, 119)}…` : s);
 
-// docs/adr/0124-only-the-owner-or-auto-build-starts-a-card-run.md
+// docs/adr/2026-11-02-1806-only-the-owner-or-auto-build-starts-a-card-run.md
 // The owner's words on this board that can ask for a card run: an ask, an edit to one, a card message, an answer's note.
 const OWNER_WORDS = { ask: 'text', 'ask-edited': 'text', 'item-message': 'text', 'owner-answer': 'note' };
 // → words, once they quote what the owner wrote on this board; else it refuses, naming flag.
@@ -1203,9 +1203,9 @@ async function checkAsk(site, eventId, name = '--from-ask') {
   return known ? eventId : fail(`no ask "${eventId}" in this site's data/events.jsonl`);
 }
 
-// docs/adr/0020-cards-wait-on-explicit-blocked-by-links.md
+// docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md
 const FINISHED = ['done', 'merged', 'dropped'];
-// docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md
+// docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
 const CARD_STATES = ['ready', 'grilling', 'prototyping'];
 function clearBuildingStatus(item) {
   if (!['building', 'fixing'].includes(item?.status)) return false;
@@ -1246,7 +1246,7 @@ async function checkNextDeps(site, key, item, next) {
   }
 }
 
-// docs/adr/0024-a-full-plan-opens-as-a-page-on-the-site.md
+// docs/adr/2026-10-29-1639-a-full-plan-opens-as-a-page-on-the-site.md
 async function planPath(dir, rel) {
   const bad = (why) => fail(`a notes file is a .md file inside ${dir}, named relative to it: "${rel}" ${why}`);
   if (typeof rel !== 'string' || !rel.trim()) bad('is empty');
@@ -1266,7 +1266,7 @@ export async function readNotes(site, key) {
   fail(`${key} has no notes`);
 }
 
-// docs/adr/0051-a-device-app-card-carries-an-install-link.md
+// docs/adr/2026-10-29-1729-a-device-app-card-carries-an-install-link.md
 // iOS installs over the air only from an itms-services:// manifest link, and Android from an https .apk.
 function installOf({ install, installSha, installLabel, clearInstall }) {
   if (install === undefined) {
@@ -1292,7 +1292,7 @@ export async function setMainInstall(site, { install, installSha }) {
   return { file, lines: ['main install set'] };
 }
 
-// docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md
+// docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md
 // The thread line closing a card writes as its last: --text, which done and dropped need on a site, or for merged
 // "Merged PR #n.". → the line, or null.
 function closingLine(site, key, item, status, text) {
@@ -1323,7 +1323,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (ask) await refuseMoved(site, ask);
   const { source, wave, item } = await loadItem(site, key);
   if (ask && item.from_ask && item.from_ask !== ask) fail(`${key} came from ask "${item.from_ask}", so ask "${ask}" can't be its from-ask; to fold it in: item relate-ask ${ask} ${key} --summary "<line>"`);
-  // docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md
+  // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
   if (ask && state === undefined && !item.state) fail('--from-ask files a card, which reads New until it has a state: pass --state ready, grilling or prototyping');
   const statusBefore = item.status;
   const wasFinished = FINISHED.includes(item.status);
@@ -1352,7 +1352,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     const blockers = await unfinishedDeps(site, parseKey(key).wave, item);
     if (blockers.length) fail(`${key} is blocked by ${blockers.join(', ')}; start it once ${blockers.length === 1 ? 'that is' : 'those are'} done or merged`);
   }
-  // docs/adr/0145-build-on-a-blocked-card-queues-it.md: a build that starts, or a card that closes, ends its queued build.
+  // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md: a build that starts, or a card that closes, ends its queued build.
   if (status === 'building' || FINISHED.includes(status)) delete item.queued_at;
   const unpicked = status === 'building' && site ? await unpickedPrototype(site, key) : null;
   if (unpicked) fail(`${key} has no take picked: the owner's answer to ${unpicked.id} picks none${unpicked.note ? ` ("${clip(unpicked.note)}")` : ''}, so it prototypes again: draw the next round from that note, or grill when the note asks a question, and build once a take is picked`);
@@ -1372,7 +1372,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     item.pr = /^[1-9]\d*$/.test(String(pr)) ? Number(pr) : fail('--pr takes a PR number');
     clearBuildingStatus(item);
   }
-  // docs/adr/0127-a-board-can-work-on-any-git-remote.md
+  // docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md
   if (pushed !== undefined) {
     if (!listBoards().find((b) => samePath(b.dir, needSite(site)))?.remote) fail('--pushed is for a board whose repo is a plain git remote; on GitHub, open a PR and pass --pr');
     if (item.pr) fail(`${key} has PR #${item.pr}; its PR says when it merges`);
@@ -1386,7 +1386,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     item.gh_since = ghSince;
   }
   if (ask) item.from_ask = ask;
-  // docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md: ready leaves the owner nothing to decide.
+  // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md: ready leaves the owner nothing to decide.
   if (state === 'ready' && site) {
     const open = (await cardQuestions(site, key)).asked.filter((q) => q.state === 'open').map((q) => q.id);
     if (open.length) fail(`${key} has ${open.length === 1 ? 'an open question' : 'open questions'} ${open.join(', ')}; it is ready once the owner has answered ${open.length === 1 ? 'it' : 'them'}`);
@@ -1394,13 +1394,13 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (state !== undefined) item.state = state;
   if (built) item.install = built;
   if (built === null) delete item.install;
-  // docs/adr/0142-an-in-progress-card-always-has-a-builder-line-or-a-next.md: building and fixing go with a builder start.
+  // docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md: building and fixing go with a builder start.
   if (!owedBefore && !['building', 'fixing'].includes(status) && owesNext(item, records)) fail(`that leaves ${key} In Progress with nothing building and no Next; pass --next "<what happens next>"`);
   const mcpLine = ticket !== undefined || (ask && !item.ticket && !item.linear?.length) ? await assignTicket(site, key, wave, item, ticket, options, source.dir, setTicketCommand(site, key)) : null;
   await writeJSON(source.file, wave);
   if (unrelate) await unrelate();
   const resolved = await resolve();
-  // docs/adr/0095-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
+  // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   if (notesFile !== undefined) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
   if (status === 'building') resolved.push(...await resolveAnswered(site, key, 'Acted on: build started'));
   if (ask) resolved.push(...(await appendThread(site, key, { text: said })).lines);
@@ -1428,7 +1428,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
 
 // --size and --model, which builder pick reads while the hub's Claude model is Auto: a small card gets Sonnet, and a
 // card's own model wins over its size; "" clears either
-// (docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md).
+// (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md).
 function setBuildChoice(item, { size, model }) {
   for (const [field, value, choices] of [['size', size, ['small', 'large']], ['model', model, ['opus', 'sonnet']]]) {
     if (value === undefined) continue;
@@ -1437,7 +1437,7 @@ function setBuildChoice(item, { size, model }) {
   }
 }
 
-// docs/adr/0023-a-card-can-be-held-and-every-card-button-confirms.md, docs/adr/0118-a-card-can-be-held-until-a-time.md
+// docs/adr/2026-10-29-1639-a-card-can-be-held-and-every-card-button-confirms.md, docs/adr/2026-11-02-1727-a-card-can-be-held-until-a-time.md
 // The hold --held, --unheld and --pick-up-at ask for: {until} holds the card, until null meaning until the owner resumes
 // it, null resumes it, and undefined leaves it. --pick-up-at "" clears the time, which resumes the card.
 function holdOf({ held, unheld, pickUpAt }) {
@@ -1482,7 +1482,7 @@ export async function pickUp(site, key, until, { announce = true } = {}) {
 
 // The owner's Hold, Resume or Done tap (card-hold {key, hold, until?} or card-done {key}), recorded in the wave file
 // as the board server takes it, with a thread line; a Done unblocks waiting cards as item set --status done does
-// (docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md). A merged or dropped card, and a Hold on a
+// (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md). A merged or dropped card, and a Hold on a
 // are left as they are. → the item set result, or null when nothing was written.
 export async function recordOwnerTap(site, kind, data) {
   const key = String(data?.key || '');
@@ -1507,7 +1507,7 @@ async function depList(site, slug, deps) {
   return list;
 }
 
-// docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md
+// docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 // --parent for card key of wave slug (key null for a new card): the key of a card that exists, neither key itself nor
 // one of its descendants; "" is none.
 async function parentKey(site, slug, key, parent) {
@@ -1577,7 +1577,7 @@ export async function postPR(site, pr, { replyTo, body }) {
 
 const boardSource = async (site) => storedTickets((await boardConfig(site)).tickets);
 
-// docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
+// docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
 // `board.mjs merge`: merges the card's PR with gh --squash once GitHub reads it approved, green and CLEAN (domain.mjs
 // mergeBlockers, the test the Merge button uses), then records the card merged. It refuses commits after the newest
 // approval unless afterApproval says why they're trivial, and a card with manual steps unless confirmed quotes the
@@ -1657,7 +1657,7 @@ export const addItem = (site, key, details, options) => ticketWrite(site, () => 
 
 // → {file, key}. A new card starts unstarted: planned, or waiting when it names deps. key is <wave>/<id>, or <wave>
 // alone, which names the card from the ticket made or linked for it. parent is the card it was spun out of
-// (docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md).
+// (docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md).
 async function createItem(site, key, { title, notes, deps, notesFile, ticket, pickUpAt, parent, size, model }, options) {
   const { wave: slug, id } = key.includes('/') ? parseKey(key) : { wave: key };
   if (id !== undefined) domId(id, 'the item id');
@@ -1739,7 +1739,7 @@ async function backfill(site, dryRun, options) {
   return { lines: [...lines, `backfill${dryRun ? ' (dry run)' : ''}: ${total}`] };
 }
 
-// docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md
+// docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 // Moves each wave file's follow-ups, a list kept beside its items until then, into its items, once: each keeps its id,
 // title, ticket and notes, its date as when it was made, and its Filed from as its Parent; a done one is done, closed
 // at its thread's last line. A wave whose follow-up has a card's id is left as it is, and named in the refusal.
@@ -1765,7 +1765,7 @@ export const migrateFollowups = (site) => ticketWrite(site, async () => {
 });
 
 // A lineup is what the owner calls a wave: a named set of one wave file's cards in build order, kept in that file's
-// `lineups` (docs/adr/0109-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md). Its note is lineup-<slug>.md beside
+// `lineups` (docs/adr/2026-11-02-1202-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md). Its note is lineup-<slug>.md beside
 // the file, and each card is blocked by the one before it.
 export const lineupNoteFile = (slug) => `lineup-${slug}.md`;
 const lineupSlug = (v) => (typeof v === 'string' && /^[a-z0-9-]+$/.test(v) ? v : fail(`a wave's slug uses only a-z, 0-9 and "-", not "${v}"`));
@@ -1896,7 +1896,7 @@ async function builderFile(site, key, dir, agent = 'main') {
 const isoTime = (v, name) => (typeof v === 'string' && /^\d{4}-\d\d-\d\dT/.test(v) && !Number.isNaN(Date.parse(v)) ? new Date(v).toISOString() : fail(`${name} takes an ISO time such as 2026-10-23T16:30:00-07:00`));
 
 // A progress line is a phase and a detail of at most DETAIL_CAP characters; a longer one is refused, never cut
-// (docs/adr/0137-a-builder-status-line-is-a-phase-and-a-short-detail.md).
+// (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md).
 const PHASES = ['reading', 'building', 'testing', 'checking', 'landing'];
 const DETAIL_CAP = 80;
 const PHASE_LIST = 'reading, building, testing, checking or landing';
@@ -1914,7 +1914,7 @@ function progressLine(site, phase, detail, name) {
 // its kind; a line with no phase (builder done's note) reads "<detail>" or "Codex: <detail>". A line that repeats the
 // thread's last status line is skipped.
 // A planner's line is marked planner and a further planner is named by its kind ("Prototype building: …")
-// (docs/adr/0167-planners-and-implementers-are-two-kinds-of-agent.md).
+// (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md).
 async function statusToThread(site, key, agent = 'main', builder, { phase, detail }, ts) {
   const planner = plans(builder);
   const who = agent === 'main' ? '' : (planner ? builder.kind : modelName(builder)) || builder.kind || agent;
@@ -1933,21 +1933,21 @@ const PLANNER_MODEL = { prototype: 'sonnet', grill: 'opus' };
 // record keeps for `board.mjs land`, and remade, the line saying it remade a leftover worktree, which goes in the output
 // and the card's thread. A build (--kind build, claude or codex) on an
 // open card marks it building first, refusing what item set --status building refuses
-// (docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
+// (docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
 // dispatch marks the record open before its agent runs, as dispatched: 'tap' for the owner's Build tap
 // (startTappedBuild) or 'session' for the session's --dispatch right before it launches an agent of any kind. A
 // builder's own start on that open record takes it up: --kind build keeps the record's kind, its Claude model and
 // worktree stay, and the record starts again at now, no longer dispatched. A session's dispatch on a record the tap
 // opened leaves it as it is, and a start under another agent name refuses until main's tap-opened record is taken up
-// (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md,
-// docs/adr/0152-the-session-opens-the-builder-record-when-it-dispatches-an-agent.md,
-// docs/adr/0174-a-card-reads-starting-from-its-tap-with-one-dispatched-mark.md).
+// (docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md,
+// docs/adr/2026-11-03-0513-the-session-opens-the-builder-record-when-it-dispatches-an-agent.md,
+// docs/adr/2026-11-03-1718-a-card-reads-starting-from-its-tap-with-one-dispatched-mark.md).
 // A build's start clears the card's Next.
 // worktree makes the card's worktree (board/worktree.mjs boardWorktree), as --worktree and the tap ask. ownWorktree makes
 // it only for a main build whose record keeps none, so every build on a board works in a worktree
-// (docs/adr/0064-every-builder-works-in-a-worktree.md, docs/adr/0182-more-of-the-skill-moves-into-code.md).
+// (docs/adr/2026-10-30-1654-every-builder-works-in-a-worktree.md, docs/adr/2026-11-03-1842-more-of-the-skill-moves-into-code.md).
 // A Claude build takes the hub's Claude model when it is Opus or Sonnet, refusing a --model it rules out, and otherwise
-// the pick's, which reads the card's size and model (docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md).
+// the pick's, which reads the card's size and model (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md).
 // → {file, lines, kind, model, reason, worktree}: model is the Claude model or null, reason the pick's, worktree the path or null;
 // {file, alreadyOpen: true, lines: []} for a session's dispatch on a record the tap opened.
 export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, model, eta, worktree, ownWorktree, dispatch }) {
@@ -1961,7 +1961,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   // A legacy --kind opus or sonnet is kind claude with that model.
   const asked = providerOf(given);
   const askedModel = model ?? (given === 'opus' || given === 'sonnet' ? given : undefined);
-  // docs/adr/0131-the-cli-and-board-server-do-the-boards-housekeeping.md: --kind build takes the pick's kind.
+  // docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md: --kind build takes the pick's kind.
   const build = ['build', ...PICKED].includes(asked);
   const before = await readJSON(file, null);
   const tapOpen = (record) => record?.dispatched === 'tap' && !record.done;
@@ -1970,7 +1970,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const takeUp = before?.dispatched && !before.done ? before : null;
   const was = build && !dir ? (await loadItem(site, key)).item : undefined;
   // A record with unverified judgment calls is a build not yet checked: a start on it resumes that build, a
-  // dispatched one included (docs/adr/0155-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
+  // dispatched one included (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
   const resumed = before && unverifiedCalls(before).length ? before : null;
   const pick = takeUp && asked === 'build' ? { kind: providerOf(takeUp.kind), model: takeUp.model, reason: takeUp.dispatched === 'tap' ? "The owner's Build tap picked it." : "The session's dispatch picked it." } : build ? builderPick({ card: was ?? {} }) : null;
   if (pick && asked !== 'build' && asked !== pick.kind) fail(`--kind ${asked}: ${pick.kind} builds now. ${pick.reason} Pass --kind ${pick.kind}, or --kind build.`);
@@ -2021,10 +2021,10 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
 // card is In Progress reading "Starting" until its builder's first status line. A refusal is a thread line
 // of kind BUILD_REFUSED, which the Todo card shows while it is the card's newest line. worktree makes the worktree, as
 // builder start's does (board/worktree.mjs boardWorktree). → {key, ref, kind, reason, worktree}, or null when refused
-// (docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md).
+// (docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md).
 // A card an unfinished dep blocks is queued instead: no record and no worktree, its wave entry's queued_at the tap's
 // time, and a thread line; the board server starts it once nothing blocks it (startQueuedBuild). → {key, ref, queued:
-// [blocker names]} (docs/adr/0145-build-on-a-blocked-card-queues-it.md).
+// [blocker names]} (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
 export async function startTappedBuild(site, key, worktree) {
   try {
     const { held, blockers } = await tapRefusals(site, key);
@@ -2045,8 +2045,8 @@ export async function startTappedBuild(site, key, worktree) {
 }
 
 // The refusals of a build's start that the owner can act on, worded for the card; startBuilder still makes every check.
-// A held card that hasn't started is no refusal: the tap unholds it (docs/adr/0141-a-held-todo-card-shows-build-in-place-of-unhold.md),
-// and nor is a blocked one: the tap queues it (docs/adr/0145-build-on-a-blocked-card-queues-it.md).
+// A held card that hasn't started is no refusal: the tap unholds it (docs/adr/2026-11-03-0234-a-held-todo-card-shows-build-in-place-of-unhold.md),
+// and nor is a blocked one: the tap queues it (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
 // → {held: its hold or null, blockers: the names of its unfinished deps}.
 async function tapRefusals(site, key) {
   const gate = readUsageGate();
@@ -2144,7 +2144,7 @@ export async function builderProgress(site, key, progress, { phase, dir, agent =
 // A judgment call is one line a builder records as it decides, kept on its record as {at, text}; the session's
 // `builder verified` stamps the record verified {at, note}, which covers every call made before it. land refuses while
 // any record on the card has a call after its stamp
-// (docs/adr/0155-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
+// (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
 const unverifiedCalls = (record) => (record?.calls || []).filter((c) => !record.verified || c.at > record.verified.at);
 
 export async function recordCall(site, key, call, { dir, agent = 'main' }) {
@@ -2190,7 +2190,7 @@ export async function checkCallsVerified(site, key, { dir } = {}) {
 }
 
 // `builder done`'s hand-back for a record with unverified calls: the card goes to checking with the Next the calls ask
-// for, a question first (docs/adr/0155-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
+// for, a question first (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
 // → {lines}, or null when the record has none.
 export async function handBackCalls(site, key, { dir, agent = 'main', next }) {
   const record = await readJSON(await builderFile(site, key, dir, agent), null);
@@ -2202,7 +2202,7 @@ export async function handBackCalls(site, key, { dir, agent = 'main', next }) {
   return { lines: [`handed back: checking, Next "${asks}"`, ...set.lines] };
 }
 
-// docs/adr/0128-a-message-or-question-on-a-done-card-reopens-it.md: a done card the owner messaged since it closed reads
+// docs/adr/2026-11-02-1952-a-message-or-question-on-a-done-card-reopens-it.md: a done card the owner messaged since it closed reads
 // reopened, and only the owner's Done closes it again.
 export async function checkNotReopened(site, key) {
   const { item } = await loadItem(site, key);
@@ -2235,7 +2235,7 @@ async function closeBuilders(waveDir, id, cardFinished) {
 // startedBetween [from, to] (ms) leaves a record alone unless it started in that window, so a caller closing an
 // agent's own record never closes one a later agent restarted on the same item. next sets the item's Next. requireNext,
 // for `builder done`, refuses closing the last open record of a card that would then sit In Progress with no Next
-// (docs/adr/0142-an-in-progress-card-always-has-a-builder-line-or-a-next.md); the SubagentStop hook and a board's
+// (docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md); the SubagentStop hook and a board's
 // close stop records whatever the card is left with.
 export async function stopBuilder(site, key, { dir, agent, startedBetween, note, next, requireNext = false }) {
   const file = await builderFile(site, key, dir, agent);

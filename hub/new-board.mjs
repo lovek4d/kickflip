@@ -30,7 +30,7 @@ function details(input) {
 }
 
 // A board's repo from a request: {github} on GitHub, or {remote} on any other git host
-// (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
+// (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
 export function repoInput(input) {
   if ((input.github === undefined) === (input.remote === undefined)) refuse('Send the repo as github or as remote.');
   return input.github !== undefined ? { github: validateGithub(input.github) } : { remote: validateRemote(input.remote).remote };
@@ -84,7 +84,7 @@ async function start(route, { purpose, repo, github, remote, branch }, { run, li
 }
 
 // Reserves the route on a Starting row, then starts the board's session in the background
-// (docs/adr/0069-the-hub-starts-a-new-boards-session.md). run and live go to sessions.mjs startSession. Tickets with
+// (docs/adr/2026-10-31-0137-the-hub-starts-a-new-boards-session.md). run and live go to sessions.mjs startSession. Tickets with
 // new_project create that Linear project first, through linear (linear.mjs savedClient by default); without a key the
 // project keeps its name, and the board's session creates it through its Linear MCP.
 // → {route, started}: started settles once the outcome is on the Starting row, as {session} or {error}, and never rejects.
@@ -116,7 +116,7 @@ function failedStart(manifest, route, action) {
 }
 
 // Starts a failed New board start again from its Starting record, with the same route, repo, branch, tickets and
-// purpose (docs/adr/0130-a-failed-start-retries-from-its-sheet.md). A start that timed out first has its recorded
+// purpose (docs/adr/2026-11-02-2006-a-failed-start-retries-from-its-sheet.md). A start that timed out first has its recorded
 // session stopped (sessions.mjs stopSession, with live and stop), so the route never has two. The record loses its
 // error and session, and takes a new phase and asked_at. → {route, started} as requestBoard's.
 export async function retryBoard(route, { run, live, stop, repos = repoService(), changed = () => {} } = {}) {

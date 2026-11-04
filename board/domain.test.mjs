@@ -257,7 +257,7 @@ test("an answer after a question was resolved reopens it, but a Done card's topi
   assert.deepEqual([closed.owner[0].state, closed.ownerTopics.find((t) => t.id === 'item:w/A1').state, closed.items.find((i) => i.key === 'w/A1').questions.state], ['answered', 'resolved', 'resolved']);
 });
 
-// docs/adr/0177-a-question-asked-for-a-prototype-is-resolved.md
+// docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md
 test("a prototype request is its question's input until the round arrives: the board server resolves the question, the topic's round reads making, back, then closed with the take of a pick, with a note or none, or of a confirm already on the board", () => {
   const plain = { id: 'plain', topic: 'item:w/A1', question: 'Where does search sit?', options: [{ id: 'A', label: 'Above' }, { id: 'B', label: 'Behind an icon' }] };
   const takes = { id: 'takes', topic: 'item:w/A1', question: 'Which take?', url: 'prototype-search.html?q=takes', options: [{ id: 'A', label: 'Above' }, { id: 'B', label: 'Icon' }], round: 1, round_of: 'plain' };
@@ -638,7 +638,7 @@ test("an unstarted Todo card that waits on nothing from the owner can Build, a b
   const one = (b) => b.items.find((i) => i.id === 'A1');
   const fresh = card();
   assert.deepEqual([one(fresh).lane, one(fresh).buildable, one(fresh).action, one(fresh).refusal], ['todo', true, null, null]);
-  // A follow-up builds like any card (docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md).
+  // A follow-up builds like any card (docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md).
   assert.equal(fresh.items.find((i) => i.id === 'ENG-1').buildable, true);
   assert.deepEqual(needsAnswer(fresh).items, []);
   const blocked = card({ item: { deps: ['A2'] }, dep: 'building' });
@@ -652,7 +652,7 @@ test("an unstarted Todo card that waits on nothing from the owner can Build, a b
   assert.equal(one(card({ item: { status: 'done' } })).buildable, false);
 
   // A prototype answer with no take picked leaves the card unready to build and prototyping again, which the idle board
-  // can plan; a pick, note or not, makes it ready (docs/adr/0172-a-prototype-answer-with-no-pick-prototypes-again.md).
+  // can plan; a pick, note or not, makes it ready (docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md).
   const takes = { id: 'p1', topic: 'item:w/A1', question: 'Which take?', url: 'prototype-x.html?q=p1', options: [{ id: 'A', label: 'One' }, { id: 'B', label: 'Two' }] };
   const answer = (n, choice, note) => ({ id: `a${n}`, ts: `2026-10-23T10:0${n}:00Z`, kind: 'owner-answer', data: { id: 'p1', choice, note }, reply: null });
   const unpicked = card({ owner: { items: [takes] }, events: [answer(1, 'A', ''), answer(2, null, 'Neither: try a darker moon')] });
@@ -666,7 +666,7 @@ test("an unstarted Todo card that waits on nothing from the owner can Build, a b
   assert.deepEqual([one(picked).buildable, one(picked).next, one(picked).state], [true, null, null]);
   assert.equal(startedByAnswer(picked, 'p1'), 'w/A1');
   // A prototype request on any of the card's questions is its newest input the same way, until the next round's pick
-  // (docs/adr/0177-a-question-asked-for-a-prototype-is-resolved.md).
+  // (docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md).
   const plain = { id: 'q0', topic: 'item:w/A1', question: 'Where?', options: [{ id: 'A', label: 'Top' }], resolved: 'Prototype requested', resolved_at: '2026-10-23T10:04:01Z' };
   const request = { id: 'r4', ts: '2026-10-23T10:04:00Z', kind: 'prototype-request', data: { key: 'w/A1', question: 'q0', note: 'on a phone', choice: 'A' }, reply: null };
   const asked = card({ owner: { items: [plain, takes] }, events: [answer(3, 'B', ''), request] });
@@ -822,7 +822,7 @@ test('a card-hold applies at once unless held_at is newer, including a legacy he
   assert.deepEqual(ends, { T1: [true, '2026-11-04T17:00:00.000Z'], T2: [true, '2026-11-05T17:00:00.000Z'], T3: [true, null], T4: [false, null] });
 });
 
-// docs/adr/0140-each-lane-has-one-fixed-order.md
+// docs/adr/2026-11-03-0223-each-lane-has-one-fixed-order.md
 test("each lane has one fixed order, each card carrying the time it sorts by: Todo its New cards, then bumped cards, then newest made; In Progress and In Review newest arrival first; Done most recently closed first; Asks newest answer first", () => {
   const now = Date.parse('2026-11-10T12:00:00Z');
   const at = (d) => `2026-11-${String(d).padStart(2, '0')}T10:00:00Z`;
@@ -982,7 +982,7 @@ test('a card lists each unfinished dep it is blocked by, a Done one none; one on
   assert.deepEqual([card('INT-21').blockedBy, card('INT-21').lane], [[], 'done']);
   assert.deepEqual(['INT-22', 'INT-23', 'INT-24', 'INT-25', 'INT-26'].map((id) => card(id).lane), ['todo', 'todo', 'todo', 'todo', 'todo']);
   assert.deepEqual([card('INT-22').working, card('INT-23').buildable], [true, true]);
-  // The idle pull skips a Todo card a session is working on (docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md).
+  // The idle pull skips a Todo card a session is working on (docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md).
   assert.equal(pullOf(b.items).pullable.includes('site/INT-22'), false);
   assert.equal(pullOf(b.items).pullable.includes('site/INT-23'), false, 'no state: planned, not pulled');
 });
@@ -1046,7 +1046,7 @@ test("files sent with an edit join the message's files, after the ones it was se
   assert.deepEqual(threadOf('w/A1', { events })[0].files, [last]);
 });
 
-// docs/adr/0144-answered-asks-have-their-own-section-below-done.md
+// docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md
 test('Done holds every closed work card, however old, with no Older fold, and answered asks sit in Asks, the newest answer first', () => {
   const now = Date.parse('2026-11-20T12:00:00Z');
   const at = (d) => new Date(now - d * 86400000).toISOString();
@@ -1167,7 +1167,7 @@ test('review records use one precedence order and date the card from the item re
   assert.equal(Object.hasOwn(board().waves[0], 'watched'), false);
 });
 
-// docs/adr/0180-waves-are-bands-in-todo.md
+// docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
 test("each open lineup is a wave band with its cards in order, its next unstarted card ready or why not, progress and triage, its cards carry its slug; a wave file is a band only on a board over the waves, with triage from wave-triage {wave} and topic wave:<slug>", () => {
   const items = [
     { id: 'INT-1', title: 'One', status: 'done' }, { id: 'INT-2', title: 'Two', status: 'building' }, { id: 'INT-3', title: 'Three', deps: ['INT-2'], state: 'ready' },
@@ -1216,7 +1216,7 @@ test("each open lineup is a wave band with its cards in order, its next unstarte
   assert.deepEqual(fileAsked.needs.map((n) => [n.text, n.topic, n.band]), [['Monitor · 1 question', 'lineup:mon', 'mon'], ['other · 1 question', 'wave:other', 'other']]);
 });
 
-// docs/adr/0180-waves-are-bands-in-todo.md
+// docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
 test("a wave's card moves up or down among its unstarted cards, past any started or done card between them, and not past either end", () => {
   const items = [
     { id: 'A1', title: 'One', status: 'done' }, { id: 'A2', title: 'Two' }, { id: 'A3', title: 'Three', status: 'building' },
@@ -1235,7 +1235,7 @@ test("a wave's card moves up or down among its unstarted cards, past any started
   assert.equal(lineupMoved(built, 'nope', 'w/A2', 1), null);
 });
 
-// docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md
+// docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 test('a card links to its Parent, lists its Children and its Related to cards on both sides, and a blocker lists what Waits on it; a card whose Parent left the board still links to its stored id', () => {
   const wave = { items: [
     { id: 'GH-53', title: 'Parent', ticket: '#53', related: ['w/GH-75'] },
@@ -1260,7 +1260,7 @@ test('a card links to its Parent, lists its Children and its Related to cards on
   assert.equal(b.items.every((i) => i.kind === 'work'), true);
 });
 
-// docs/adr/0142-an-in-progress-card-always-has-a-builder-line-or-a-next.md
+// docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md
 test('an In Progress card with nothing building and no next step reads a gap as its Next, never nothing; a builder line, a check or its own Next fills the place', () => {
   const finished = { main: { label: 'Opus builder', kind: 'opus', started: '2026-10-23T10:00:00Z', done: '2026-10-23T10:30:00Z' } };
   const running = { main: { label: 'Opus builder', kind: 'opus', started: '2026-10-23T10:00:00Z' } };
@@ -1274,7 +1274,7 @@ test('an In Progress card with nothing building and no next step reads a gap as 
   assert.deepEqual([card({}).lane, card({}).next], ['todo', null]);
 });
 
-// docs/adr/0145-build-on-a-blocked-card-queues-it.md
+// docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md
 test('a queued build puts its card In Progress, blocked, from when it was queued, with no Build, no gap Next and no pull; held it waits in Todo', () => {
   const queuedAt = '2026-11-03T10:26:00.000Z';
   const items = [
@@ -1300,7 +1300,7 @@ test('a card-unbump after a card-bump unbumps the card, and a later bump bumps i
   assert.equal(bumpedAt([bump('card-bump', 1), bump('card-unbump', 2), bump('card-bump', 3)]), '2026-11-03T10:03:00.000Z');
 });
 
-// docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md
+// docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
 test("a card made from an ask reads New until its session sets ready, grilling or prototyping, and only a Ready card the owner owes nothing reads ready and is pullable", () => {
   const q = { id: 'q1', topic: 'item:w/A1', question: 'Which way?', options: [{ id: 'A', label: 'One' }] };
   const card = ({ item = {}, owner = {}, agents = {}, dep, events = [] } = {}) => buildBoard({
@@ -1362,7 +1362,7 @@ test("a card's worktree is the path its newest builder record keeps, done or run
   assert.equal(card({}).worktree, null);
 });
 
-// docs/adr/0165-an-idle-board-triages-its-todo-once-a-day.md
+// docs/adr/2026-11-03-1551-an-idle-board-triages-its-todo-once-a-day.md
 test("todoOf reads the Todo a triage sees: its cards' keys, titles and deps, and nothing outside Todo", () => {
   const todo = (items) => todoOf(buildBoard({ fromWaves: false, events: [], owner: {}, prs: {}, waves: [{ slug: 'w', wave: { repo: 'o/r', items } }] }).items);
   const base = [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two', deps: ['A1'] }, { id: 'A3', title: 'Running', status: 'building' }];
@@ -1376,7 +1376,7 @@ test("todoOf reads the Todo a triage sees: its cards' keys, titles and deps, and
   assert.equal(todo([{ id: 'A3', title: 'Running', status: 'building' }]), '');
 });
 
-// docs/adr/0167-planners-and-implementers-are-two-kinds-of-agent.md
+// docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md
 test("a running planner's line is the card's builder line, marked planner, until a build runs, whose line wins", () => {
   const status = (ts, text, extra = {}) => ({ ts, who: 'claude', kind: 'status', text, ...extra });
   const proto = { kind: 'prototype', model: 'sonnet', label: 'Prototype', started: '2026-10-23T10:00:00Z' };
@@ -1410,7 +1410,7 @@ test('only a running build keeps the board from being idle: a running planner le
   assert.equal(pullOf([card([{ kind: 'claude', started: '2026-10-23T10:00:00Z', done: null }])]).idle, false);
 });
 
-// docs/adr/0170-the-idle-pull-takes-ready-cards-first.md
+// docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md
 test('the pull takes only ready cards in board order, never a card with no state; with none pullable it plans the top unready card while nothing is being planned', () => {
   const card = (key, more = {}) => ({ key, lane: 'todo', kind: 'work', buildable: true, state: null, blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
   const items = [card('w/A1'), card('w/A2', { state: 'ready' }), card('w/A3'), card('w/A4', { state: 'ready' })];
@@ -1436,7 +1436,7 @@ test('the pull takes only ready cards in board order, never a card with no state
   assert.deepEqual(pullOf([...unready, card('w/C1', { state: 'grilling', agents: [{ kind: 'grill', started: '2026-11-03T10:00:00Z', done: '2026-11-03T10:30:00Z' }] })]).plannable, ['w/B4', 'w/B5', 'w/C1']);
 });
 
-// docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+// docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
 test("a held incoming-PR review is in the Auto Review lane, in Needs you and among the owner's pushes", () => {
   const built = buildBoard({
     autoReview: true, waves: [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One' }] } }],

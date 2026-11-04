@@ -9,7 +9,7 @@
   const BULB = icon(18, '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>');
   const id = (v) => (v ? ` id="${esc(v)}"` : '');
 
-  // Where the back arrow goes (docs/adr/0048-a-questions-takes-show-inline.md): 'back', one step back in history, when
+  // Where the back arrow goes (docs/adr/2026-10-29-1639-a-questions-takes-show-inline.md): 'back', one step back in history, when
   // the page before was on this hub; else 'href', its backHref. A page a push opened always takes its backHref. idx is
   // the entry's index in history.state, set by an in-app router: when present, it alone says whether a step back exists.
   function backStep({ pushed = false, referrer = '', href, depth = 1, idx }) {
@@ -41,7 +41,7 @@
 
   // lead is 'logo' (the kickflip, which toggles the sidebar, sidebar.js; logoHref, the hub's page, without it)
   // or 'back' (the arrow, which follows backStep, with backHref the work item or the board, beside a phone-only logo). The controls (time and refresh, gear) paint disabled with refresh spinning until the
-  // page's script turns them on (docs/adr/0021-the-board-shows-github-checks-and-watcher-health.md). With controls
+  // page's script turns them on (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md). With controls
   // false, trail (HTML) takes their place. bulb puts the architecture review's bulb between them (app-arch.js). leadAttrs adds to or replaces the lead link's attributes, and level is the
   // title's heading level, for a header that isn't the page's own, such as the sidebar's (ui-sidebar.js).
   function header({ lead = 'logo', title = '', titleId, backHref = './', backLabel = 'Back to the board', backId, logoSrc = 'kickflip.png',

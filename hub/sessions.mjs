@@ -6,8 +6,8 @@
 // worktree.bgIsolation "none" so it stays in the repo folder, since its builders make their own worktrees, and with
 // the hook that brings its prompts to the owner's phone. The hub board (`hub: true`) is the one exception: its session
 // runs in the foreground inside a tmux session the hub starts, with the same flags and hook, and `kickflip hub`
-// attaches to it (docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
-// checkSessions is the hub's wake (docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md): when an event lands
+// attaches to it (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
+// checkSessions is the hub's wake (docs/adr/2026-10-30-1601-a-boards-session-wakes-when-an-event-arrives.md): when an event lands
 // for a board whose owner session isn't running, or the owner taps its page (`asked`), the session is resumed at once; a board not listening for
 // RESUME_AFTER with an event its session hasn't heard is resumed as a fallback. Either happens once per outage, and if
 // the board still isn't listening COMEBACK_WAIT later, the owner gets one push.
@@ -47,7 +47,7 @@ export function startingBoards(manifest, now = Date.now()) {
 }
 // "none" is the value that turns isolation off; Claude Code drops any other value and isolates. The PermissionRequest
 // hook sends the session's prompts to the phone, and its timeout stays a minute past the hook's own wait
-// (docs/adr/0060-background-sessions-prompts-come-to-the-phone.md). Every session the hub starts or resumes gets them,
+// (docs/adr/2026-10-30-1516-background-sessions-prompts-come-to-the-phone.md). Every session the hub starts or resumes gets them,
 // the hub board's foreground one in tmux included. The hub service's PATH may have no node, hence a full path.
 export const PROMPT_HOOK_TIMEOUT_S = WAIT_MS / 1000 + 60;
 export const BG_SETTINGS = JSON.stringify({
@@ -95,7 +95,7 @@ const hasTmux = (tmux, route) => tmux(['has-session', '-t', `=${tmuxName(route)}
 // typed into its pane, once per fill: compact-state.json {<route>: {session, percent, at, error?}} records the attempt
 // and is cleared once the board's context is no longer full, so a session that fills again is compacted again. A
 // background session has no pane to type into; the sidebar reads context full for it
-// (docs/adr/0179-a-board-session-compacts-before-its-context-fills.md). The hub runs it after each session check.
+// (docs/adr/2026-11-03-1823-a-board-session-compacts-before-its-context-fills.md). The hub runs it after each session check.
 // → {compacted: [route], failed: [message]}
 export async function compactFullContexts({ manifest = readManifest(), now = new Date(), running = liveSessions(), wakes = readJSON(RESUME_STATE, {}), tmux = runTmux } = {}) {
   const state = Object.assign(Object.create(null), readJSON(COMPACT_STATE, {}));

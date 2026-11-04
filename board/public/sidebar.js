@@ -1,11 +1,11 @@
 // The sidebar's behaviour on a page with <aside id="sidebar" class="sidebar"> and <div id="sidebarScrim"
-// class="sidebar-scrim">, after ui-page-header.js and ui-sidebar.js (docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md).
+// class="sidebar-scrim">, after ui-page-header.js and ui-sidebar.js (docs/adr/2026-10-29-1639-a-sidebar-of-every-board-replaces-the-hub-home.md).
 // Sidebar.mount({here, data}) paints `data` or the last copy this device stored; the app shell hands it each new copy
 // through setData from its one stream (shell.js). The page header's logo (a.hub) toggles the sidebar at every
 // width, with what waits on the other sites in its accessible label. Below 900px the sidebar is a drawer: the logo or a swipe in from the
 // left edge opens it, and the scrim, Escape, ✕, the drawer's own logo or a swipe back closes it. From 900px it is a
 // rail, which its own logo collapses and the page's logo brings back; this device remembers that, and <html> carries
-// sb-collapsed meanwhile (docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md).
+// sb-collapsed meanwhile (docs/adr/2026-10-29-1639-a-sidebar-of-every-board-replaces-the-hub-home.md).
 // Switch mode: s pressed twice within a second, outside a text field, a contenteditable or an open dialog, shows each
 // row's key (ui-sidebar.js switchKeys), opening the drawer or showing a collapsed rail until it ends; the next key opens
 // that row through open(href). Escape, a click, a held modifier, typing in a field or 3 seconds with no key end it
@@ -165,7 +165,7 @@
       const failed = e.target.closest?.('[data-failed-start]');
       if (failed) openFailed(failed.dataset.failedStart);
     });
-    // Upgrade asks the hub to run kickflip update (docs/adr/0161-the-hub-offers-a-newer-kickflip-from-npm.md). The row
+    // Upgrade asks the hub to run kickflip update (docs/adr/2026-11-03-1521-the-hub-offers-a-newer-kickflip-from-npm.md). The row
     // keeps its words until the hub answers with what it did, and a refusal shows as a failed update.
     let upgrading = false;
     async function upgrade(button) {
@@ -182,7 +182,7 @@
       } finally { upgrading = false; }
       setData({ ...data, upgrade: next });
     }
-    // A failed start's sheet (docs/adr/0130-a-failed-start-retries-from-its-sheet.md). Dismiss deletes its Starting
+    // A failed start's sheet (docs/adr/2026-11-02-2006-a-failed-start-retries-from-its-sheet.md). Dismiss deletes its Starting
     // record; Retry starts it again, and its row reads Starting… until the hub's next copy says otherwise.
     function openFailed(route) {
       const s = (data?.starting || []).find((x) => x.route === route && x.failed);

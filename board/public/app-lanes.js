@@ -12,9 +12,9 @@ BoardView.part((B) => {
     { id: 'done', name: 'Done', open: false, capped: true },
     { id: 'asks', name: 'Asks', open: false, capped: true },
   ];
-  // docs/adr/0144-answered-asks-have-their-own-section-below-done.md
+  // docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md
   // A capped lane shows STEP cards, and each Show more tap adds STEP more, kept in memory per lane. A card the owner has
-  // open stays shown past the cap. Show more says how many are left (docs/adr/0012-lists-never-cut-silently.md).
+  // open stays shown past the cap. Show more says how many are left (docs/adr/2026-10-29-1639-lists-never-cut-silently.md).
   const STEP = 10;
   const moreTaps = new Map();
   function cappedRows(laneId, cards) {
@@ -47,7 +47,7 @@ BoardView.part((B) => {
     }).join('');
   }
 
-  // docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md: the Auto Review lane leads the lanes. The PRs
+  // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md: the Auto Review lane leads the lanes. The PRs
   // the owner has open are kept in memory, as cards are; answering is the held review whose Post it or Skip is out.
   const openReviews = new Set();
   let answering = null;
@@ -81,7 +81,7 @@ BoardView.part((B) => {
     }).join('');
   }
 
-  // docs/adr/0180-waves-are-bands-in-todo.md
+  // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
   // Todo's wave bands (domain.mjs waveBandsOf), then its cards in no wave under Not in a wave. A band's open state lives
   // in storage once the owner taps its head; until then only the first band whose next card is ready (a wave file's:
   // any Todo card) starts open. A band's name shows its goal as a tooltip, or a popover on a long-press. menu is the

@@ -69,7 +69,7 @@ export async function migrateBoardRepos({ run = runRepo } = {}) {
 // The hub board once built on the running kickflip clone, with its GitHub repo read from the clone's origin. Run by the
 // hub as it starts, once (the manifest's `migrated` list records it): a hub board with no `local` mark becomes a local
 // board of its session's folder, else of the running clone, recording that folder's GitHub origin and branch, as
-// `kickflip join` records them (docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md). → the route
+// `kickflip join` records them (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md). → the route
 // changed, or null
 export async function migrateHubBoard({ run = runRepo, clone = cloneRoot() } = {}) {
   return withManifestLock(async () => {

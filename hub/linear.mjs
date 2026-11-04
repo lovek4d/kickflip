@@ -1,6 +1,6 @@
-// Linear through the owner's personal API key (docs/adr/0088-kickflip-reaches-linear-with-a-key-on-the-mac.md).
+// Linear through the owner's personal API key (docs/adr/2026-11-01-1436-kickflip-reaches-linear-with-a-key-on-the-mac.md).
 // The key lives in ~/.claude/kickflip/linear.json, mode 600: {key, workspace, url_key, viewer, saved_at}, plus
-// refused_at once Linear refused it (docs/adr/0117-a-board-picks-linear-only-while-hubs-key-works.md). Only
+// refused_at once Linear refused it (docs/adr/2026-11-02-1712-a-board-picks-linear-only-while-hubs-key-works.md). Only
 // linearStatus's {set, refused, workspace, url_key} ever leaves this module for a page.
 // Every request goes to KICKFLIP_LINEAR_URL when it is set, else Linear's GraphQL API, through the fetch passed in.
 import fs from 'node:fs';

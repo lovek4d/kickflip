@@ -1,4 +1,4 @@
-// Integrations share their checks and words with the features that wait (docs/adr/0108-integrations-show-readiness-and-features-wait.md).
+// Integrations share their checks and words with the features that wait (docs/adr/2026-11-02-1118-integrations-show-readiness-and-features-wait.md).
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

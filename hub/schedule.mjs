@@ -1,5 +1,5 @@
 // The polling interval: when the hub checks GitHub and then sends the queued pushes
-// (docs/adr/0025-the-hub-polls-github-and-sends-pushes-on-one-interval.md). Pure functions of
+// (docs/adr/2026-10-29-1639-the-hub-polls-github-and-sends-pushes-on-one-interval.md). Pure functions of
 // the host's clock and the `polling` settings (shape in DEFAULTS); push.mjs and hub.mjs apply them.
 // Each window runs from its `from` until the next window's, wrapping past midnight. Its slots fall
 // every `every_minutes` counted from its `from`, and the next window's `from` is always a slot.
@@ -7,7 +7,7 @@
 // start, and sends them at that start; checks still run on the last window's interval. heldUntil is the gate.
 // wakes are the times of day the hub wakes each board's session once, whether GitHub changed or not.
 // notifications is stored beside `polling` in settings.json, not inside it, and gates pushes only
-// (docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md).
+// (docs/adr/2026-10-29-1639-notifications-can-be-off-snoozed-or-off-on-weekends.md).
 import { FOREVER, durationEnd, inRange } from './duration.mjs';
 
 export const DEFAULTS = Object.freeze({
@@ -279,7 +279,7 @@ const routeOf = (url) => /^\/([^/?#]+)(?:[/?#]|$)/.exec(url || '')?.[1] ?? null;
 // now, from `sites`, the /_hub/needs.json `sites` ({<route>: {count, summary} | null}), and nothing when nothing
 // waits. A board missing from `sites`, or null there, gets "N updates" with the first titles. Each comes out as
 // {title, body, url, tag, kind, members: the queued ids it stands for}, in queue order of each board's first push kept
-// (docs/adr/0120-queued-pushes-go-as-one-summary-per-board.md).
+// (docs/adr/2026-11-02-1733-queued-pushes-go-as-one-summary-per-board.md).
 export function notifications(items, sites = {}) {
   const newest = new Map();
   items.forEach((i, k) => { if (i.tag) newest.set(i.tag, k); });

@@ -951,7 +951,7 @@ test('item set edits the item in a waves board and in a file board', () => {
   assert.equal(read(site('audit', 'data', 'wave.json')).items[0].status, undefined);
 });
 
-// docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md
+// docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
 test('item set --state sets ready, grilling or prototyping, with --from-ask too, and refuses any other state and ready while a question is open', () => {
   const state = () => read(at('waves', 'w', 'wave.json')).items[0].state;
   const r = board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e1', '--text', 'On it.', '--state', 'grilling');
@@ -1107,7 +1107,7 @@ test('item set --install records a device build with when it was built, takes on
   assert.equal('install' in read(at('waves', 'w', 'wave.json')).items[0], false);
 });
 
-// docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md
+// docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 test('a follow-up is item add --parent; item set sets or clears a Parent and replaces Related to on both sides; the followup commands are gone', () => {
   const item = (id) => read(site('audit', 'data', 'wave.json')).items.find((i) => i.id === id);
   const added = board('item', 'add', 'audit/ENG-7', '--site', 'audit', '--title', 'Tidy', '--parent', 'A1');
@@ -1139,7 +1139,7 @@ test('a follow-up is item add --parent; item set sets or clears a Parent and rep
   assert.equal(board('item', 'set', 'audit/ENG-7', '--site', 'audit', '--parent', 'audit/ENG-1').out, 'ENG-7: parent audit/ENG-1\n');
 });
 
-// docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md
+// docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 test("a wave file's follow-ups move into its items once: ids, titles, tickets and notes kept, done ones done, Filed from as the Parent", async (t) => {
   const { migrateFollowups } = await import('./store.mjs');
   const oldHome = process.env.HOME;
@@ -1274,7 +1274,7 @@ test('builder keeps one record per agent on an item, with its kind and an ETA it
   }
 });
 
-// docs/adr/0142-an-in-progress-card-always-has-a-builder-line-or-a-next.md
+// docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md
 test('a write that would leave a built card In Progress with nothing building and no Next is refused, naming --next, and writes nothing', () => {
   write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two' }] });
   const items = () => read(at('waves', 'w', 'wave.json')).items;
@@ -1340,7 +1340,7 @@ test('builder start --model records the Claude model and prints it', () => {
   assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--agent', 'x', '--kind', 'codex', '--model', 'opus').code, 1);
 });
 
-// docs/adr/0155-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md
+// docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md
 test('builder call appends a one-line call to the open record, calls prints them, verified marks them checked, and a restart keeps the unverified ones', () => {
   const main = at('waves', 'w', 'agents', 'A1.json');
   const noRecord = board('builder', 'call', 'w/A1', 'Kept the old name');
@@ -1401,7 +1401,7 @@ test('builder pick names the kind that builds now, builder start refuses the oth
   assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A2.json')), false);
 });
 
-// docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md
+// docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md
 test("a card's --size and --model feed builder pick's Claude model, and builder start refuses a --model the hub's Claude model rules out", () => {
   const noCodex = (...args) => run('board.mjs', args, undefined, { PATH: path.join(home, 'bin') });
   const card = () => read(at('waves', 'w', 'wave.json')).items[0];
@@ -2197,7 +2197,7 @@ test('item set takes checking as a hand-back that unblocks nothing, and done fro
   assert.deepEqual(unblocked(board('item', 'set', 'd/A1', '--status', 'done', '--site', 'orch', '--text', 'Done.')), ['unblocked: d/A2']);
 });
 
-// docs/adr/0145-build-on-a-blocked-card-queues-it.md
+// docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md
 test("a dep finishing names a queued build as the board's to start and wakes no session for it; starting or closing a card ends its queued build", () => {
   const queuedAt = '2026-11-03T10:26:00.000Z';
   write(at('waves', 'd', 'wave.json'), { items: [
@@ -2692,7 +2692,7 @@ test('settings set auto-build, auto-pull, auto-triage and auto-review default of
   }
 });
 
-// docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+// docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
 test("review record writes the session's review of a listed incoming PR, keeping the PR's details after it leaves the list", () => {
   const pr = { number: 437, title: 'One endpoint', author: 'quinn', url: 'https://github.com/o/r/pull/437', head: 'abc', touches: ['w/A1'], asked: true };
   write(site('orch', 'data', 'incoming.json'), { at: 'x', repo: 'o/r', prs: [pr] });
@@ -3072,7 +3072,7 @@ test("a Next set while the card has an open question clears once its questions a
   assert.deepEqual([item('A1').next, item('A1').next_on_questions], [undefined, undefined]);
 });
 
-// docs/adr/0167-planners-and-implementers-are-two-kinds-of-agent.md
+// docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md
 test('builder start saves a planner\'s model, Sonnet for a prototype and Opus for a grill by default, and its status lines are marked planner', () => {
   const record = (agent) => read(at('waves', 'w', 'agents', agent === 'main' ? 'A1.json' : `A1@${agent}.json`));
   for (const [kind, model] of [['prototype', 'sonnet'], ['grill', 'opus']]) {

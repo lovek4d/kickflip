@@ -1,4 +1,4 @@
-// The floating ‹ take › pill every prototype page switches its takes with (docs/adr/0015-prototypes-come-on-request.md).
+// The floating ‹ take › pill every prototype page switches its takes with (docs/adr/2026-10-29-1639-prototypes-come-on-request.md).
 // Load it with a relative src after claude.js, on a page whose header leads with the back arrow, then call
 //   const sw = PrototypeSwitcher.mount({ takes: { A: 'A. Name', … }, initial: 'A', render(take) {…}, above: el? })
 // render runs at mount and on each switch; sw.take is the current key. ←/→ switch unless a field has focus, and the
@@ -8,7 +8,7 @@
 // PrototypeSwitcher.current is the mounted switcher, whose go(key) shows another take in place; Waiting on you uses it
 // to switch its full-width frame without a reload (view-questions.js inPlace).
 // With ?take=<key> the page shows that take alone, with no header or pill, as questions.html frames it
-// (docs/adr/0048-a-questions-takes-show-inline.md); a page hides its own extras under html.ps-embed. There main's
+// (docs/adr/2026-10-29-1639-a-questions-takes-show-inline.md); a page hides its own extras under html.ps-embed. There main's
 // bottom padding, kept clear for the pill, shrinks to 12px whatever the page sets, since questions.html sizes the frame
 // to the page's height.
 (function () {

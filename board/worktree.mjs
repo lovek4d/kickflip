@@ -1,4 +1,4 @@
-// A builder's git worktree for a site or skill card (docs/adr/0064-every-builder-works-in-a-worktree.md):
+// A builder's git worktree for a site or skill card (docs/adr/2026-10-30-1654-every-builder-works-in-a-worktree.md):
 // A build's `board.mjs builder start` (with or without --worktree) and the board server's Build tap make it, and `board.mjs land` brings its branch into the live repo's main.
 // Worktrees resolve under $HOME and the repo defaults to the running clone, so a scratch HOME and --repo stand in for
 // the real ones.
@@ -49,7 +49,7 @@ export function makeWorktree(id, { repo = skillRepo(), base = 'main', remote = f
 
 // The worktree at dir, on branch id of root, that an earlier build left: removed with its branch when it holds no commits
 // beyond ref and no changes and no path in busy (the other open builder records' worktrees) names it; anything else at
-// dir refuses, naming the work it holds (docs/adr/0173-a-build-remakes-a-leftover-worktree-that-holds-no-work.md).
+// dir refuses, naming the work it holds (docs/adr/2026-11-03-1653-a-build-remakes-a-leftover-worktree-that-holds-no-work.md).
 function removeLeftover(root, dir, id, { ref, base, busy }) {
   const refuse = (why) => fail(`--worktree: ${dir} ${why}; land or remove it first`);
   if (busy.includes(storedPath(dir))) refuse('already exists and another open builder record uses it');

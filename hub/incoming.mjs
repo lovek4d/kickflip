@@ -1,4 +1,4 @@
-// docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+// docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
 // The hub's look at each board's incoming PRs, run with its GitHub check. For each board with auto_review on and a
 // repo on GitHub, it lists the repo's open PRs and writes data/incoming.json {at, repo, prs} with those from others
 // that touch a file one of the board's cards changed, or that ask the owner for review. The board server wakes its

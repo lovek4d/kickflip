@@ -1,4 +1,4 @@
-// The one duration picker Snooze, Keep awake and a card's Hold share (docs/adr/0112-snooze-and-keep-awake-share-one-duration-picker.md):
+// The one duration picker Snooze, Keep awake and a card's Hold share (docs/adr/2026-11-02-1402-snooze-and-keep-awake-share-one-duration-picker.md):
 // its chips, and when a choice ends. An end is stored as an ISO time, or FOREVER for on until turned off.
 export const FOREVER = 'forever';
 

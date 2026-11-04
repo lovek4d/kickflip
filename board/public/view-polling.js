@@ -1,4 +1,4 @@
-// HubPolling, the editor inside Hub’s Polling modal (ADR 0075): the day’s windows, overnight hold
+// HubPolling, the editor inside Hub’s Polling modal ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)): the day’s windows, overnight hold
 // and daily wakes, in hub/views.mjs pollingView's words from GET /_hub/api/polling. ?w= names the window shown,
 // which a tap on the day bar changes in place. Each change posts to /_hub/settings/polling and saves at once.
 (function () {

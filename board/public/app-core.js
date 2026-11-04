@@ -36,7 +36,7 @@ BoardView.part((B) => {
   }
 
   // Runs paint through keepFocus and keeps the anchor where it was on screen, scrolling the page by however far it
-  // moved, in the same task so nothing visibly jumps (docs/adr/0063-an-open-card-moves-at-once-and-the-page-follows-it.md).
+  // moved, in the same task so nothing visibly jumps (docs/adr/2026-10-30-1637-an-open-card-moves-at-once-and-the-page-follows-it.md).
   // The anchor is the field being typed in, else the title row of the open card on screen, else there is none. A field
   // in a dialog doesn't move with the page, so the card anchors then.
   function anchorOf() {
@@ -114,7 +114,7 @@ BoardView.part((B) => {
     quiet.set(draftKey, Date.now() + 1000);
   }
 
-  // A deleted ask is hidden on the server, so it leaves every device (docs/adr/0008-dismissals-hide-on-the-server.md).
+  // A deleted ask is hidden on the server, so it leaves every device (docs/adr/2026-10-29-1639-dismissals-hide-on-the-server.md).
   const hide = (id, hidden) => fetch(B.site.url('api/hide'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, hidden }) });
   // The ui-links.js linkContext for text shown on item `key`'s card or thread.
   const links = (key) => BoardUI.linkContext(state.board?.items || [], key);

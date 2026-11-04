@@ -719,7 +719,7 @@ test("a question's link opens in place on this hub, and outside the board anywhe
   assert.match(linear, /target="_blank" rel="noopener">INT-1 <svg class="link-arrow"[^>]*>[^]*<\/svg><\/a>/);
 });
 
-// docs/adr/0177-a-question-asked-for-a-prototype-is-resolved.md
+// docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md
 test('an open question has its eye on and nothing locked, a resolved one has no eye; a confirm links its one take alone and says why it is asked', () => {
   assert.match(ui.questionCard(question), /<button type="button" class="attach proto-ask" data-proto="q:q1" aria-label="Ask for a prototype instead" title="Ask for a prototype instead">/);
   assert.doesNotMatch(ui.questionCard(question), /disabled|pr-busy|try-spin/);
@@ -891,7 +891,7 @@ test("a card with a worktree opens it in VS Code from its Links line after Notes
   assert.doesNotMatch(B.detail(open), /vscode:|Open in VS Code/);
 });
 
-// docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md
+// docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 test("the open card's details list shows Parent, Children, Related to, Blocked by and Waits on it as rows of tappable labels, leaving out empty rows; the workflow row has no follow-up Build", () => {
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
@@ -906,7 +906,7 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
   assert.deepEqual([...B.detail(card).matchAll(/<a class="card-link" href="([^"]*)">([^<]*)<\/a>/g)].map(([, href, ref]) => [href, ref]),
     [['#item=w%2FGH-53', '#53'], ['#item=w%2FGH-94', '#94'], ['#item=w%2FGH-95', '#95'], ['#item=w%2FGH-75', '#75'], ['#item=w%2FGH-80', '#80'], ['#item=w%2FGH-99', '#99']]);
   assert.deepEqual(rows({ ...card, parent: null, children: [], related: [], blockedBy: [], waitsOnIt: [] }), [['Wave', 'W'], ['Status', 'planned']]);
-  // An In Progress card whose agent works on it reads implementing; Build only means the package (docs/adr/0166-a-todo-cards-button-reads-implement.md).
+  // An In Progress card whose agent works on it reads implementing; Build only means the package (docs/adr/2026-11-03-1549-a-todo-cards-button-reads-implement.md).
   assert.deepEqual(rows({ ...card, status: 'building', parent: null, children: [], related: [], blockedBy: [], waitsOnIt: [] }), [['Wave', 'W'], ['Status', 'implementing']]);
   assert.doesNotMatch(B.detail(card), /data-confirm="build"|Filed from|Waits on</);
   assert.deepEqual(lines(app.BoardUI.workLines({ ...card, linear: [], ticket: null })).slice(0, 2), ['Five', 'blocked by #80']);
@@ -1005,7 +1005,7 @@ test('a building card in In Progress ends its time row with five bars, before th
   assert.doesNotMatch(ui.workLines({ ...building, builder: null, next: 'Fix it' }), /phase-bars/);
 });
 
-// docs/adr/0167-planners-and-implementers-are-two-kinds-of-agent.md
+// docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md
 test("a planner's line on a card is marked planner, keeping its dot, and never has phase bars, in Todo or In Progress", () => {
   const planner = { progress: 'Reading · the notes', phase: 'reading', at: null, planner: true };
   for (const lane of ['todo', 'progress']) {
@@ -1085,7 +1085,7 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [] })), ['INT-3 Five']);
   assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [], next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
     ['INT-3 Five', 'Next: Answer 1 question', 'Action needed']);
-  // docs/adr/0145-build-on-a-blocked-card-queues-it.md: no bumped badge; the bump icon fills orange and unbumps.
+  // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md: no bumped badge; the bump icon fills orange and unbumps.
   const sortAt = ago(2);
   const waiting = { ...workCard, lane: 'todo', deps: ['S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }], bumpable: true, bumpedAt: ago(1), held: true, sortAt,
     action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } };
@@ -1129,7 +1129,7 @@ test("a card's last line is the time its lane sorts by, then its hold with no he
   assert.doesNotMatch(ui.workLines(until(at(2, 9, 0))), /class="chip[^"]*">held/);
 });
 
-// docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md
+// docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
 test("a ready card's time line reads ready in green after its hold and before its unread messages, and a card from an ask still unsorted reads New", () => {
   const sortAt = ago(24 * 2);
   const card = { ...workCard, lane: 'todo', pr: null, reviewers: [], next: null, sortAt };
@@ -1662,7 +1662,7 @@ test('the New version row offers the npm update, waits for builders and gives Re
   assert.match(html, /<div class="sb-update" role="status"><button[^>]*data-app-upgrade>/);
 });
 
-// docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+// docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
 test('the Auto Review lane shows each PR with its author, cards and state, opens to the review and its links, and folds older posted ones', () => {
   const c = (number, state, over = {}) => ({ number, title: `PR ${number}`, author: 'Quinn', url: `https://github.com/o/r/pull/${number}`, asked: false,
     touches: [{ key: 'w/A2', ref: '#47' }], state, at: ago(0.1), text: null, reviewUrl: null, ...over });

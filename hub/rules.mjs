@@ -1,5 +1,5 @@
 // Rules: the owner's standing instructions to the sessions that own boards
-// (docs/adr/0039-rules-live-on-settings-at-hub-and-board-level.md). A rule is {id, text, by, at}; by is "owner", or
+// (docs/adr/2026-10-29-1639-rules-live-on-settings-at-hub-and-board-level.md). A rule is {id, text, by, at}; by is "owner", or
 // "claude" when Claude codified it on the owner's word. Hub rules are `rules` in ~/.claude/kickflip/settings.json and
 // apply to every board; a board's own are `rules` in its board.json. bin/wait-events.mjs prints both after each event.
 import fs from 'node:fs';

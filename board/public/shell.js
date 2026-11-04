@@ -1,4 +1,4 @@
-// The app shell (app.html; docs/adr/0055-one-app-for-the-whole-hub.md): the sidebar, mounted once, beside one view at a
+// The app shell (app.html; docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md): the sidebar, mounted once, beside one view at a
 // time. A board's view is BoardView (app.js); Waiting on you and Notes are AppViews.questions and .notes,
 // the Hub page AppViews.hub with its settings modals, and every other page AppViews.frame. Board Settings mounts over the board
 // as a modal. Each page is {className, title(view, {siteTitle}), markup(view, {siteTitle}), create(root,
@@ -7,7 +7,7 @@
 // [data-dirty], an unsaved edit, asks first. The shell holds the hub's one stream, /_hub/stream
 // (hub/stream.mjs): `change {route}` signals the open board, and `sidebar` repaints the sidebar. A board the shell
 // leaves is unmounted; one left fresh whose stream sent no change since paints live when it comes back, and any other
-// paints dimmed from its last visit (docs/adr/0028-the-board-opens-on-the-last-visit.md).
+// paints dimmed from its last visit (docs/adr/2026-10-29-1639-the-board-opens-on-the-last-visit.md).
 // A push tap reaches it from hub/sw.js as {open: url}, and a page framed inside it hands it a view's URL through
 // AppShell.open(url, {replace, frames}) → true when the shell shows it in place; frames false refuses a frame view.
 // AppShell.reload() reloads the app past the shell the service worker keeps.
@@ -255,7 +255,7 @@ window.AppShell = (function () {
     }
 
     // `/` opens this device's last board, else the board the hub picks (sidebar data's start), else the hub's page
-    // (docs/adr/0050-a-sidebar-of-every-board-replaces-the-hub-home.md).
+    // (docs/adr/2026-10-29-1639-a-sidebar-of-every-board-replaces-the-hub-home.md).
     let first = AppRouter.viewOf(location.href, { boards: boards() });
     if (first?.kind === 'start') {
       let last = null;

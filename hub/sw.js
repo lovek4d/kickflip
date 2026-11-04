@@ -2,7 +2,7 @@
 // from push.mjs as {title, body, url, tag, badge}; url is a path on the hub, and badge, when
 // present, is the Home Screen app badge count.
 // It keeps the app shell and its files, network first, so the app opens from the last copy while the host is asleep
-// (docs/adr/0055-one-app-for-the-whole-hub.md). Nothing else is cached: API calls, streams, uploads and frames always
+// (docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md). Nothing else is cached: API calls, streams, uploads and frames always
 // go to the network.
 // A {forget: 'shell'} message drops the saved shell before the owner's reload and replies on its port.
 const CACHE = 'hub-app';

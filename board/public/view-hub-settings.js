@@ -1,4 +1,4 @@
-// HubSettings: summary rows below Hub’s health and status open centred settings modals (ADR 0075), using
+// HubSettings: summary rows below Hub’s health and status open centred settings modals ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)), using
 // settingsView's words from GET /_hub/api/settings. Each toggle and snooze posts to /_hub/settings/notifications, and
 // Keep awake to /_hub/settings/keep-awake, and saves at once, as Linear's key does through linear-key.js; Done waits for
 // a key's save to land. The rules editor saves through POST /_hub/settings/rules
@@ -33,11 +33,11 @@
 
   const snoozeRow = (d) => durationPicker({ id: 'snooze', title: 'Snooze', icon: HubUI.tile('snooze', '#a855f7'), action: ACTION, name: 'snooze',
     choices: d.snooze?.choices, on: d.snoozed, button: 'End' });
-  // Grey while off and orange while on, as the machine working (docs/adr/0096-colour-says-whos-waiting.md).
+  // Grey while off and orange while on, as the machine working (docs/adr/2026-11-01-1817-colour-says-whos-waiting.md).
   const awakeRow = (a) => durationPicker({ id: 'awake', title: 'Keep awake', icon: HubUI.tile('coffee', a.on ? 'var(--color-notice)' : 'var(--color-quiet)'),
     action: '/_hub/settings/keep-awake', name: 'keep_awake', choices: a.choices, on: a.on, button: 'Turn off' });
 
-  // The on/off, snooze and weekend rows (docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md).
+  // The on/off, snooze and weekend rows (docs/adr/2026-10-29-1639-notifications-can-be-off-snoozed-or-off-on-weekends.md).
   function notificationRows(d) {
     const { tile } = HubUI;
     const toggle = ({ icon, set, title, checked, attrs = '' }) => `<form class="row field" method="post" action="${ACTION}"><input type="hidden" name="set" value="${set}">${icon}<label class="body"><span class="text"><span class="title">${title}</span></span><input type="checkbox" name="value" value="on" class="toggle"${attrs}${checked ? ' checked' : ''}></label></form>`;

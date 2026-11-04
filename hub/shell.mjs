@@ -1,4 +1,4 @@
-// The app shell, board/public/app.html (docs/adr/0055-one-app-for-the-whole-hub.md): which requests the hub answers
+// The app shell, board/public/app.html (docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md): which requests the hub answers
 // with it, and its HTML, which the hub and each board server both serve. A load of `/` or a hub page, and a browser's
 // top-level load of any site's page, gets the shell from the hub, with the sidebar drawn in; the shell shows a board's
 // page or a hub page as its view, and any other page in a frame. Every other request goes on to its site: the frame's

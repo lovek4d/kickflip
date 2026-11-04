@@ -3,7 +3,7 @@
   const { esc, ago, clock, cardTime, etaLine, workingLine, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, LINK_ARROW } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   // The PR badge is the one place a PR's state shows: its mark and tone, marked like the reviewer and CI chips, and its
-  // title (docs/adr/0181-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md).
+  // title (docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md).
   const PR_LOOK = {
     [PR_STATE.open]: { tone: 'ready', mark: ' ✓', label: 'Ready for review' },
     [PR_STATE.draft]: { tone: 'notice', mark: ' ●', label: 'Draft' },
@@ -44,9 +44,9 @@
     }).join('');
   }
   const pendingQuestions = (it) => (it.questions && it.questions.state !== 'resolved' ? it.questions.open + it.questions.answered + it.questions.replied : 0);
-  // docs/adr/0045-the-lane-follows-who-acts-next.md
+  // docs/adr/2026-10-29-1639-the-lane-follows-who-acts-next.md
   // Action needed, last of the time line's orange words, linking to what the owner acts on
-  // (docs/adr/0145-build-on-a-blocked-card-queues-it.md).
+  // (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
   function actionWords(it) {
     if (!it.action) return '';
     const external = it.action.kind === ACTION_KIND.ready ? Object.entries(EXTERNAL).map(([k, v]) => ` ${k}="${esc(v)}"`).join('') : '';
@@ -102,7 +102,7 @@
     return `<${tag} class="install tone-${s.tone}"${attrs}>${s.html}</${tag}>`;
   }
   // A card's Serve / Build, only while the board's Auto-build is off and its branch has changes
-  // (docs/adr/0124-only-the-owner-or-auto-build-starts-a-card-run.md).
+  // (docs/adr/2026-11-02-1806-only-the-owner-or-auto-build-starts-a-card-run.md).
   function tryButton(it) {
     const t = tryOf(it);
     if (it.kind !== 'work' || !t?.script || t.autoBuild || !t.changes) return '';
@@ -121,7 +121,7 @@
     return `<div class="tb-main" role="region" aria-label="Main’s version">${BRANCH}<div class="tb-main-text">${esc(main.slug)} · <strong>${esc(main.branch)}</strong>@<code>${esc(main.sha)}</code> · ${esc(ago(main.at))}</div><div class="meta">${chip}</div></div>`;
   }
   // The open card's Merge, while the board's auto-merge is off: it confirms, then sends card-merge, and reads "Merging…"
-  // while it is sent or waits on the session (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md).
+  // while it is sent or waits on the session (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md).
   function mergeButton(it, sending = false) {
     if (it?.action?.kind !== ACTION_KIND.merge && !it?.merging) return '';
     const merging = sending || it.merging;
@@ -129,8 +129,8 @@
   }
   // The open card's Implement, rightmost in its action row, on a card board/domain.mjs marks buildable: it confirms, then
   // sends card-build, and reads "Starting…" while it is sent and the board server starts the implementer. Build and Serve
-  // mean the package only (docs/adr/0122-a-todo-card-that-nothing-blocks-has-build.md,
-  // docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md, docs/adr/0166-a-todo-cards-button-reads-implement.md).
+  // mean the package only (docs/adr/2026-11-02-1745-a-todo-card-that-nothing-blocks-has-build.md,
+  // docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md, docs/adr/2026-11-03-1549-a-todo-cards-button-reads-implement.md).
   function buildButton(it, sending = false) {
     if (!it.buildable) return '';
     return `<button class="build" data-confirm="card-build" data-key="${esc(it.key)}"${sending ? ' disabled' : ''}>${sending ? 'Starting…' : 'Implement'}</button>`;
@@ -138,13 +138,13 @@
   // A builder reads "starting" until its first status line, from the Implement tap or the session's dispatch on.
   const builderLine = (b) => [b.progress || 'starting', b.at && ago(b.at)].filter(Boolean).join(' · ');
   // Five bars at the end of the time row while a build runs on an In Progress card: done phases filled, the current one
-  // marked. The phases are store.mjs PHASES (docs/adr/0137-a-builder-status-line-is-a-phase-and-a-short-detail.md,
-  // docs/adr/0160-a-building-cards-phase-bars-end-its-time-row.md).
+  // marked. The phases are store.mjs PHASES (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md,
+  // docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md).
   const BUILD_PHASES = ['reading', 'building', 'testing', 'checking', 'landing'];
   // The phase a card's bars show, or null when it shows none: an In Progress card with a builder past "starting", not a
   // planner and not in orchestrator review.
   const buildPhase = (it) => (it.lane === 'progress' && it.builder && !it.builder.planner && it.waitsOn !== 'checking' && BUILD_PHASES.includes(it.builder.phase) ? it.builder.phase : null);
-  // What the bars do when a card's phase goes from prev to next across redraws (docs/adr/0183-the-phase-bars-animate-as-a-build-starts-advances-and-ends.md).
+  // What the bars do when a card's phase goes from prev to next across redraws (docs/adr/2026-11-03-1850-the-phase-bars-animate-as-a-build-starts-advances-and-ends.md).
   const phaseMotion = (prev, next) => (!prev === !next ? (prev && next && prev !== next ? 'fill' : null) : next ? 'enter' : 'leave');
   function phaseBars(phase) {
     const at = BUILD_PHASES.indexOf(phase);
@@ -158,7 +158,7 @@
   }) : '';
   const unreadCount = (othersAt, seenAt) => (seenAt ? (othersAt || []).filter((t) => String(t) > seenAt).length : 0);
   // When a hold ends, as a card reads it: the time today, the weekday within six days, else the date
-  // (docs/adr/0118-a-card-can-be-held-until-a-time.md).
+  // (docs/adr/2026-11-02-1727-a-card-can-be-held-until-a-time.md).
   function heldUntilWords(iso, now = new Date()) {
     const d = new Date(iso);
     const midnight = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
@@ -176,7 +176,7 @@
   }
   // A card's last line: the time its lane sorts by (domain.mjs sortAt), then its hold, what blocks it, then Action needed
   // or ready, then a building card's phase bars, then its unread count, which app-cards.js takes away when the card opens
-  // (docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/0160-a-building-cards-phase-bars-end-its-time-row.md).
+  // (docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md).
   const SEP = '<span class="sep"> · </span>';
   function timeLine(it, unread, bars) {
     const iso = it.sortAt;
@@ -195,7 +195,7 @@
       + `<div class="dur-custom"><span class="btn quiet" aria-hidden="true">Custom</span><input type="datetime-local" data-hold-at="${esc(key)}" required aria-label="Custom hold until a date and time"></div></div></div>`;
   }
   // A New card's bump, edit and delete, and its line from its ask state (domain.mjs askItem;
-  // docs/adr/0047-the-plus-makes-a-new-card.md). top is whether it is the latest bump.
+  // docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md). top is whether it is the latest bump.
   const askActions = (it, top) => `<div class="ask-actions">${bumpButton(it, top)}${it.ask.canEdit ? editButton(it.id) : ''}${withdrawButton(it.id)}</div>`;
   const cardActions = (it, top) => (it.isNew ? askActions(it, top) : it.bumpable ? `<div class="ask-actions">${cardBumpButton(it.key, Boolean(it.bumpedAt))}</div>` : '');
   const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' && `<span class="working">${workingLine}</span>`].filter(Boolean).join(' · ');
@@ -226,7 +226,7 @@
     return keys.length > 1 ? `<button type="button" class="thread-more" data-plan="${esc(keys.join(' '))}">Plan waves</button>` : '';
   }
 
-  // docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+  // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
   // The Auto Review lane, its needs you in the sidebar's needs-you red: one card per incoming PR (board/auto-review.mjs reviewsOf), needs you, then reviewing, then
   // posted. A tap opens the review text and the PR's links, and a review held for the owner offers Post it and Skip,
   // disabled while answering names its PR. Older posted reviews are one line each under Posted earlier.

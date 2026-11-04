@@ -1,6 +1,6 @@
 // The hub page, /_hub/, a view of the app shell (shell.js): a banner while pushes are held or snoozed, the Usage card with Claude model and Codex share, Needs you for the pending
 // prompts of sessions that own no board, Health, Integrations (readiness.mjs words), each site's health and board links,
-// polling status, then hub settings summary rows (ADR 0075). A board's row can carry Restart (hub/restart-board.mjs), and
+// polling status, then hub settings summary rows ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)). A board's row can carry Restart (hub/restart-board.mjs), and
 // the Hub row Restart hub while the hub runs older code than its files. Health comes from GET /_hub/api/hub.
 // Its data refreshes every 30 seconds while it shows (hub-kit.js live).
 (function () {

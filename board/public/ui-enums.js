@@ -1,7 +1,7 @@
 // A card's button names, which board/domain.mjs sets as its actionButton and resolvedBy, the kinds of its owner
 // action, the builder kinds the page reads, and the state of a card's PR, which domain.mjs sets as pr.status and its PR
-// badge shows (docs/adr/0181-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md). Each value is its name,
-// since cards carry it in the board's JSON. Needs nothing else: board/domain.mjs runs this file in a vm context (docs/adr/0059-an-unstarted-card-waits-on-its-questions-in-todo.md).
+// badge shows (docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md). Each value is its name,
+// since cards carry it in the board's JSON. Needs nothing else: board/domain.mjs runs this file in a vm context (docs/adr/2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo.md).
 (function () {
   const BUTTON = Object.freeze({ grill: 'grill', openQuestions: 'openQuestions', markDone: 'markDone', github: 'github', merge: 'merge' });
   const ACTION_KIND = Object.freeze({ pick: 'pick', questions: 'questions', ready: 'ready', steps: 'steps', merge: 'merge', done: 'done' });

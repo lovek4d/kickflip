@@ -397,7 +397,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     if (!run) return null;
     return { key: run.key, port: run.port };
   }
-  // routes: only these boards' cards and Main, for a merge the poll saw (docs/adr/0168-a-merge-refreshes-its-boards-main-at-once.md).
+  // routes: only these boards' cards and Main, for a merge the poll saw (docs/adr/2026-11-03-1619-a-merge-refreshes-its-boards-main-at-once.md).
   // A tick with routes while one runs waits for it and then runs once for every route asked meanwhile; one without
   // routes shares the running tick.
   async function tick({ manifest = readManifest(), routes } = {}) {
@@ -488,7 +488,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
   }
   async function stop() {
     stopping = true;
-    // A build still going keeps `running`, so the next hub starts it again (docs/adr/0119-a-build-the-hub-stops-starts-again-after-it-restarts.md).
+    // A build still going keeps `running`, so the next hub starts it again (docs/adr/2026-11-02-1731-a-build-the-hub-stops-starts-again-after-it-restarts.md).
     const stopped = Promise.all([...runs.values()].map((run) => run.ready ? stopRun(run) : halt(run)));
     await Promise.all([stopped, ticking]);
   }
@@ -532,7 +532,7 @@ export async function fetchTryBranches({ manifest = readManifest(), log = consol
   saveJSON(REPO_FETCH, fetched);
 }
 
-// docs/adr/0127-a-board-can-work-on-any-git-remote.md: a pushed card (board.mjs item set --pushed) is Done once its
+// docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md: a pushed card (board.mjs item set --pushed) is Done once its
 // branch's tip is in the board's branch, as merged, or once the branch is gone from the remote, as merged when its last
 // known tip is in the board's branch and done otherwise, since a squash merge leaves no trace of the branch.
 async function settlePushed(board, repo, branch, log) {

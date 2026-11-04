@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SessionStart and UserPromptSubmit: every session runs as the hub setting (docs/adr/0105-the-hubs-codex-share-is-the-only-codex-setting.md),
+// SessionStart and UserPromptSubmit: every session runs as the hub setting (docs/adr/2026-11-01-2355-the-hubs-codex-share-is-the-only-codex-setting.md),
 // stated each prompt, off included, so a change replaces what an earlier turn was told.
 import fs from 'node:fs';
 import os from 'node:os';

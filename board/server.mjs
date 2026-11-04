@@ -25,7 +25,7 @@
 // decides lanes and card state from what this server reads.
 //   GET  /, /settings.html, /questions.html, /notes.html
 //                                the app shell, public/app.html, whose views these pages are (../hub/shell.mjs shellHtml;
-//                                docs/adr/0055-one-app-for-the-whole-hub.md). /index.html redirects to /
+//                                docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md). /index.html redirects to /
 //   GET  /prototype-<topic>.html a topic recorded in data/prototypes.json is public/prototype.html with its record
 //                                filled in (prototypePage); /prototype.html itself is 404
 //   GET  /...                    the site's public/, then this template's public/, then the
@@ -70,7 +70,7 @@
 //   GET  /plan.html?…            redirects to notes.html with the same query, since pushes and threads link it
 //   POST /_claude/events         {kind, ...data} → one line in data/events.jsonl; wakes Claude. → {id, board}: the
 //                                event's id and /api/board's answer as the tap left it, so the page draws the tap from
-//                                the one round trip (docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md)
+//                                the one round trip (docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md)
 //                                ask, item-message and owner-answer may carry files: [upload]
 //                                An owner-answer with a note and no take resolves its question (store.mjs
 //                                resolveNoteAnswers). One to a card's prototype question that picks no take is
@@ -79,7 +79,7 @@
 //                                owner-answers {answers: [owner-answer data]} is Waiting on you's Send: one owner-answer
 //                                line per answer, appended in one write with each answer's side effects → {ids, board};
 //                                an answer naming no question in owner.json, or none at all, → 400 {error} and nothing
-//                                recorded (docs/adr/0163-send-records-every-ready-answer-in-one-request.md).
+//                                recorded (docs/adr/2026-11-03-1519-send-records-every-ready-answer-in-one-request.md).
 //                                prototype-request {key?, question?, note?, choice?} asks for prototypes of a card, or of one question,
 //                                which it resolves, noting "Prototype requested" (store.mjs resolveRequestedQuestion)
 //                                builder-nudge {key} asks the session to check a builder. The server also appends
@@ -96,7 +96,7 @@
 //                                the builder; a refusal appends no event and leaves its reason in the card's thread.
 //                                On a card an unfinished dep blocks, the tap queues the build instead (queued_at, no
 //                                event), and once nothing blocks it the server starts it the same way, after any board
-//                                change and every minute (store.mjs startQueuedBuild; docs/adr/0145-build-on-a-blocked-card-queues-it.md).
+//                                change and every minute (store.mjs startQueuedBuild; docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
 //                                lineup-move {lineup, key, by: -1 | 1} is a wave band card's ⋯ Move up or Move down: the
 //                                server reorders the lineup's Todo cards (domain.mjs lineupMoved, store.mjs changeLineup)
 //                                and answers {id: null, board}, appending no event; a move it can't make → 400 {error}.
@@ -213,7 +213,7 @@ const types = {
   '.plist': 'text/xml; charset=utf-8', '.ipa': 'application/octet-stream', '.apk': 'application/vnd.android.package-archive',
 };
 
-// Text goes gzipped to a browser that accepts it (docs/adr/0028-the-board-opens-on-the-last-visit.md).
+// Text goes gzipped to a browser that accepts it (docs/adr/2026-10-29-1639-the-board-opens-on-the-last-visit.md).
 const gzip = promisify(zlib.gzip);
 const COMPRESSIBLE = /^(text\/|application\/json|image\/svg\+xml)/;
 async function send(res, code, headers, body) {
@@ -232,7 +232,7 @@ async function send(res, code, headers, body) {
 const json = (res, code, body) => send(res, code, { 'content-type': types['.json'], 'cache-control': 'no-store' }, JSON.stringify(body));
 
 // A page names each local script and stylesheet by its version, so a pinned file caches for good and an edit
-// reaches the browser through the page, which revalidates on every visit (docs/adr/0028-the-board-opens-on-the-last-visit.md).
+// reaches the browser through the page, which revalidates on every visit (docs/adr/2026-10-29-1639-the-board-opens-on-the-last-visit.md).
 const versionOf = (st) => `${Math.floor(st.mtimeMs).toString(36)}-${st.size.toString(36)}`;
 const ASSET = /\b(src|href)="([\w.][\w./-]*\.(?:js|css))"/g;
 async function versionAssets(html, p) {
@@ -249,7 +249,7 @@ const sameTag = (header, etag) => String(header || '').split(',').map((t) => t.t
 const readJSON = async (f, fallback) => { try { return JSON.parse(await fs.readFile(f, 'utf8')); } catch { return fallback; } };
 const readLines = async (f) => { try { return (await fs.readFile(f, 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
 const threadFile = (key) => siteThreadFile(here, key);
-// Hidden events leave every list a page reads (docs/adr/0008-dismissals-hide-on-the-server.md).
+// Hidden events leave every list a page reads (docs/adr/2026-10-29-1639-dismissals-hide-on-the-server.md).
 const shownEvents = async () => {
   const hidden = await readHidden(here);
   return (await readLines(events)).filter((e) => !hidden.has(e.id));
@@ -275,20 +275,20 @@ async function appendEvents(list) {
 
 // Owner answers [{id, ...}] → their event ids, appended in one write. An answer to a card's prototype question that
 // picks no take carries prototype_again: true, which asks the session for the next round
-// (docs/adr/0172-a-prototype-answer-with-no-pick-prototypes-again.md). A note with no take resolves its question, and an
+// (docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md). A note with no take resolves its question, and an
 // answer that leaves an unstarted card with nothing stopping it appends card-unblocked for that card once.
 async function recordAnswers(answers) {
   const asked = new Map(((await readJSON(path.join(data, 'owner.json'), { items: [] })).items || []).map((q) => [q.id, q]));
   const again = (a) => asked.has(String(a.id)) && picksNoTake(asked.get(String(a.id)), a.choice);
   const ids = await appendEvents(answers.map((a) => ['owner-answer', again(a) ? { ...a, prototype_again: true } : a]));
   await resolveNoteAnswers(here, answers);
-  // docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
+  // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
   const built = buildBoard(await snapshot({ github: false }));
   const started = [...new Set(answers.map((a) => startedByAnswer(built, String(a.id))).filter(Boolean))];
   if (started.length) await appendEvents(started.map((key) => ['card-unblocked', { key }]));
   return ids;
 }
-// docs/adr/0163-send-records-every-ready-answer-in-one-request.md
+// docs/adr/2026-11-03-1519-send-records-every-ready-answer-in-one-request.md
 // Why a batch of owner answers can't be recorded, or null when every one names a question in owner.json.
 async function answersRefused(answers) {
   if (!Array.isArray(answers) || !answers.length) return 'Send at least one answer.';
@@ -499,7 +499,7 @@ async function board() {
     holdChoices: durationChoices(new Date(), 'until you unhold it'), arch: self ? archOf(await readReviews(here), built.items, built.owner, { repo: repoName(boardRepo(self.route)), waits: reviewWaits() }) : null };
 }
 
-// docs/adr/0125-the-bulb-runs-an-architecture-review-of-the-boards-repo.md: one review at a time, so a second Run while
+// docs/adr/2026-11-02-1813-the-bulb-runs-an-architecture-review-of-the-boards-repo.md: one review at a time, so a second Run while
 // one is open answers with that one's card. Runs one at a time, so two taps make one review.
 let reviewing = Promise.resolve();
 function runReview() {
@@ -620,7 +620,7 @@ async function sendUpload(req, res, file) {
   createReadStream(u.path).pipe(res);
 }
 
-// Each page holds one stream and reloads on its signal (docs/adr/0031-the-board-reloads-on-a-change-signal.md). It is
+// Each page holds one stream and reloads on its signal (docs/adr/2026-10-29-1639-the-board-reloads-on-a-change-signal.md). It is
 // written straight to the socket, never through send(): a gzipped event stream waits in the compressor.
 const streams = new Set();
 function stream(req, res) {
@@ -652,7 +652,7 @@ function changed() {
   }, Math.max(0, Math.min(CHANGE_QUIET, changeFirst + CHANGE_MAX - now)));
 }
 // Each folder in the tree has its own watch, which sees every write to a file in it, including a file a rename
-// replaced; a folder that appears is watched and one that goes is dropped (docs/adr/0159-the-board-watches-each-folder.md).
+// replaced; a folder that appears is watched and one that goes is dropped (docs/adr/2026-11-03-1517-the-board-watches-each-folder.md).
 // A root that doesn't exist yet, or whose watch fails, is retried; the first watch after a retry signals, since a
 // write may have landed meanwhile.
 const isFolder = (dir) => { try { return statSync(dir).isDirectory(); } catch { return false; } };
@@ -744,13 +744,13 @@ const server = http.createServer(async (req, res) => {
         delete body.for;
         if (end !== FOREVER) body.until = end.toISOString();
       }
-      // docs/adr/0139-a-build-tap-starts-the-build-in-the-board-server.md
+      // docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md
       if (kind === 'card-build') {
         const key = String(body.key || '');
         const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts));
         return json(res, 200, { id: started && !started.queued ? await appendEvent(kind, started) : null, board: await board() });
       }
-      // docs/adr/0180-waves-are-bands-in-todo.md
+      // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
       if (kind === 'lineup-move') {
         const slug = String(body.lineup || '');
         const order = lineupMoved(buildBoard(await snapshot({ github: false })), slug, String(body.key || ''), body.by === -1 ? -1 : body.by === 1 ? 1 : 0);
@@ -770,7 +770,7 @@ const server = http.createServer(async (req, res) => {
       if (kind === 'card-hold' || kind === 'card-done') {
         try { await recordOwnerTap(here, kind, body); } catch (e) { console.error(`Recording ${kind} failed:`, e.message); }
       }
-      // docs/adr/0151-every-owner-tap-the-server-can-apply-draws-at-once.md
+      // docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md
       return json(res, 200, { id, board: await board() });
     }
     if (p === '/api/rules' && req.method === 'GET') return json(res, 200, { board: await readBoardRules(here), hub: readHubRules() });
@@ -815,7 +815,7 @@ const server = http.createServer(async (req, res) => {
       let saved;
       try { saved = await saveBoardSettings(here, body); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
       const id = saved.changed.length ? await appendEvent('settings', Object.fromEntries(saved.changed.map((k) => [k, saved.settings[k]]))) : null;
-      // An approved PR merges on the session's GitHub tick once auto-merge is on (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md).
+      // An approved PR merges on the session's GitHub tick once auto-merge is on (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md).
       if (saved.changed.includes('auto_merge') && saved.settings.auto_merge) await appendEvent('check-github', { reason: 'auto-merge' });
       return json(res, 200, { settings: saved.settings, id });
     }
@@ -859,7 +859,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-// docs/adr/0118-a-card-can-be-held-until-a-time.md
+// docs/adr/2026-11-02-1727-a-card-can-be-held-until-a-time.md
 let checkingPickUps = false;
 async function checkPickUps() {
   if (checkingPickUps) return;
@@ -880,7 +880,7 @@ async function checkPickUps() {
   }
 }
 
-// docs/adr/0145-build-on-a-blocked-card-queues-it.md
+// docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md
 // Starts each queued build nothing holds or blocks any more, as the owner's Build tap would, waking the session with
 // card-build. The pause line keeps them queued. A check asked for while one runs runs again after it.
 let checkingQueued = null;
@@ -918,7 +918,7 @@ async function checkIdle() {
     if (await checkTriage(settings, log, items, ready)) return;
     if (await checkPull(PULL, settings, log, pullable, ready)) return;
     if (await checkPull(PLAN, settings, log, pullable.length ? [] : plannable, ready)) return;
-    // docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md: one review at a time, after any pull.
+    // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md: one review at a time, after any pull.
     const { due, repo } = reviews;
     if (ready && due) await appendEvent('pr-review', { pr: due.number, head: due.head, repo, title: due.title, author: due.author, url: due.url, touches: due.touches, asked: Boolean(due.asked) });
   } catch (err) {
@@ -928,7 +928,7 @@ async function checkIdle() {
   }
 }
 
-// docs/adr/0165-an-idle-board-triages-its-todo-once-a-day.md
+// docs/adr/2026-11-03-1551-an-idle-board-triages-its-todo-once-a-day.md
 // data/triaged.json {todo}: the Todo (domain.mjs todoOf) the last triage saw, kept current until that triage's reply so
 // its own links and merges don't read as a change. The event log says when the last triage went out. → true while a
 // triage is under way or was just sent.
@@ -953,10 +953,10 @@ async function checkTriage(settings, log, items, ready) {
   return true;
 }
 
-// docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md
+// docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md
 // The pull sends card-pull {key} for the top pullable card, tracked in data/pulled.json. With nothing to pull it sends
 // card-plan {key} for the top plannable card instead, tracked in data/planned.json
-// (docs/adr/0170-the-idle-pull-takes-ready-cards-first.md).
+// (docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md).
 const PULL = { kind: 'card-pull', file: 'pulled.json', line: 'Pulled in: the board was idle.' };
 const PLAN = { kind: 'card-plan', file: 'planned.json', line: 'Asked for a grill or prototype: nothing in Todo was ready to build.' };
 // The marker {key, at}: key is the card sent while it stays in keys, at when the marker last changed. → true while
@@ -983,7 +983,7 @@ async function checkPull({ kind, file: name, line }, settings, log, keys, ready)
   return true;
 }
 
-// docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
+// docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
 // data/action-pushes.json {<tag>: {kind, ids}}: what waited on the owner at the last check (domain.mjs ownerActions).
 // A tag that is new, changes kind or gains an open question pushes; one that is gone drops its queued push. The first
 // check records what already waits without pushing it. A check asked for while one runs runs again after it.
@@ -1024,7 +1024,7 @@ async function pushActions() {
   }
 }
 
-// docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md
+// docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 try { for (const line of await migrateFollowups(here)) console.log(line); } catch (e) { console.error('follow-up migration:', e.message); }
 await watchBoard();
 setInterval(checkStalled, 60000).unref();

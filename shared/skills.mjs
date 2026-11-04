@@ -1,5 +1,5 @@
 // The mattpocock/skills an architecture review follows, a prerequisite kickflip installs with the skills CLI and
-// never pins (docs/adr/0125-the-bulb-runs-an-architecture-review-of-the-boards-repo.md).
+// never pins (docs/adr/2026-11-02-1813-the-bulb-runs-an-architecture-review-of-the-boards-repo.md).
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

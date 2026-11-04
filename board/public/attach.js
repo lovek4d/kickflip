@@ -1,4 +1,4 @@
-// docs/adr/0175-every-text-box-attaches-through-attach-js.md
+// docs/adr/2026-11-03-1722-every-text-box-attaches-through-attach-js.md
 // Files attached to a composer: any element with data-composer="<id>" holding BoardUI.attachButton(), its text box in
 // BoardUI.dropZone(), and a [data-files] list. Picking files, dropping them on the composer, or pasting them into it
 // uploads them at once to the api/upload of the site named by the nearest

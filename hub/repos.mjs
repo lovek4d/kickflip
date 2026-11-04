@@ -25,7 +25,7 @@ export function githubFromOrigin(origin) {
   return githubFromInput(match[1]);
 }
 
-// A board repo on another git host (docs/adr/0127-a-board-can-work-on-any-git-remote.md): https://host/path,
+// A board repo on another git host (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md): https://host/path,
 // ssh://[user@]host[:port]/path or user@host:path. A link with a password or token, a query, a local path, file:// or
 // a github.com host is refused, as is a host without a dot, whose clone folder could pass for a GitHub owner's.
 // → {remote, host, path}: remote is the link as given, host lowercased, path without .git; or null
@@ -119,7 +119,7 @@ export function isClone(dir, base = reposDir()) {
 }
 
 const PROGRESS = /^(?:Cloning into |remote: (?:Enumerating|Counting|Compressing|Total) |Receiving objects:|Resolving deltas:|Updating files:)/;
-// A failed command's error line (docs/adr/0110-a-clone-uses-ghs-token-over-https.md): git prints progress before its
+// A failed command's error line (docs/adr/2026-11-02-1207-a-clone-uses-ghs-token-over-https.md): git prints progress before its
 // fatal: line and may follow it with a blank line and advice. Error lines reach the page, and git can echo a remote
 // URL with its credentials.
 function errorLine(text, fallback) {

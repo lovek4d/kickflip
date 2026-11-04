@@ -1,7 +1,7 @@
-/* The one colour set for the hub and every board (docs/adr/0033-one-colour-constants-file-shared-by-the-hub-and-every-board.md).
+/* The one colour set for the hub and every board (docs/adr/2026-10-29-1639-one-colour-constants-file-shared-by-the-hub-and-every-board.md).
    board/server.mjs serves it as colors.css and hub/hub.mjs as /_hub/colors.css, linked before each page's own CSS.
    --accent is the one human blue: new messages, links, buttons, focus rings, the owner's bubble (--accent-soft) and
-   planner lines; --on-accent is the label on an accent fill (docs/adr/0169-one-human-blue.md). */
+   planner lines; --on-accent is the label on an accent fill (docs/adr/2026-11-03-1627-one-human-blue.md). */
 :root {
   --bg: #fbfbfc; --panel: #ffffff; --line: #e6e6ea; --text: #1b1b1f; --muted: #6b6b76;
   --accent: #2b6cb0; --accent-soft: #eef6ff; --on-accent: #ffffff; --ok: #1f9d55; --warn: #c27c0e; --bad: #d1435b; --purple: #8250df;

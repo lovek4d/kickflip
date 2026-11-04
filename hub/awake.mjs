@@ -1,4 +1,4 @@
-// Keep awake (docs/adr/0112-snooze-and-keep-awake-share-one-duration-picker.md): while settings.json's keep_awake_until
+// Keep awake (docs/adr/2026-11-02-1402-snooze-and-keep-awake-share-one-duration-picker.md): while settings.json's keep_awake_until
 // is FOREVER or a time still ahead, the hub runs `caffeinate -ims`, stops it at that time or when turned off, and starts
 // it again after a restart while time is left. Only macOS has caffeinate.
 import { spawn } from 'node:child_process';

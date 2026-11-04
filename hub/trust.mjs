@@ -1,4 +1,4 @@
-// Claude Code's workspace trust for a clone the hub made (docs/adr/0113-the-hub-trusts-the-clones-it-makes.md).
+// Claude Code's workspace trust for a clone the hub made (docs/adr/2026-11-02-1549-the-hub-trusts-the-clones-it-makes.md).
 // `claude --bg` refuses a folder whose `projects[<repo root>].hasTrustDialogAccepted` isn't true in `.claude.json`
 // under CLAUDE_CONFIG_DIR, else the home folder (Claude Code docs, permissions, "Project allow rules and workspace
 // trust"). Claude Code rewrites that file from memory, so a write can be lost to one it makes at the same moment.

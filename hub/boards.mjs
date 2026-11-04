@@ -1,4 +1,4 @@
-// The one registry of board sites (docs/adr/0040-one-board-registry-for-every-hub-feature.md). Only this module reads a
+// The one registry of board sites (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md). Only this module reads a
 // board's board.json and the wave files its items come from. Every hub feature that serves boards asks listBoards: the
 // GitHub check and its github-change routing (github.mjs), the daily wakes, the rules fan-out, the handshake and the
 // not-listening push. So a board over the waves and a board over its own file get every link the same way, and a
@@ -98,7 +98,7 @@ const isWave = (w) => Array.isArray(w?.items);
 export const isBoardSite = (s) => Array.isArray(s?.cmd) && s.cmd.some((a) => /board[/\\]server\.mjs$/.test(a)) && typeof s.dir === 'string';
 // Whether a board's builders branch from its repo's local copy of its branch and land there, with no fetch: a board
 // `kickflip join` made (`local: true`), the hub board among them, and a board with neither a GitHub repo nor a plain git remote
-// (docs/adr/0143-kickflip-join-adds-the-current-repository-as-a-board.md).
+// (docs/adr/2026-11-03-0248-kickflip-join-adds-the-current-repository-as-a-board.md).
 export const buildsLocally = (s) => s.local === true || !(s.github || s.remote);
 
 // The waves a board shows, keyed as board/store.mjs itemSources keys them: a file board's slug is board.json `slug`,
@@ -142,7 +142,7 @@ export function listBoards(manifest = readManifest()) {
 }
 
 // The board whose manifest entry has `hub: true`, which bin/kickflip.mjs `set --hub` and `join --hub` keep on at most one
-// site: its session runs in the foreground in tmux (docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
+// site: its session runs in the foreground in tmux (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
 // → a board, or undefined when no board has it
 export function hubBoard(manifest = readManifest()) {
   const found = Object.entries(manifest?.sites || {}).find(([, s]) => s?.hub === true && isBoardSite(s));
@@ -198,7 +198,7 @@ export function watcherRunning(dir, now = Date.now(), { grace = RELAUNCH_GRACE }
 }
 
 // Whether the board hears its events: its owner session runs and a watcher runs for it. A watcher outlives its
-// session, so one alone isn't listening (docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md). running is
+// session, so one alone isn't listening (docs/adr/2026-10-30-1601-a-boards-session-wakes-when-an-event-arrives.md). running is
 // live.mjs liveSessions' Map, passed when checking several boards.
 export function isListening(board, { now = Date.now(), running } = {}) {
   const session = board.owner?.session;
@@ -324,10 +324,10 @@ export async function handshake(route, manifest = readManifest()) {
 
 // ---------- links ----------
 // Notifications are no board link: whether a device gets pushes is the hub's, in Integrations (readiness.mjs;
-// docs/adr/0149-the-hub-reads-healthy-degraded-or-a-site-down.md).
+// docs/adr/2026-11-03-0501-the-hub-reads-healthy-degraded-or-a-site-down.md).
 export const LINKS = ['github', 'repo-fetch', 'events', 'wakes', 'slack'];
 
-// A board on another git remote has no PRs, so nothing to poll (docs/adr/0127-a-board-can-work-on-any-git-remote.md).
+// A board on another git remote has no PRs, so nothing to poll (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
 function githubLink(board, state) {
   if (board.remote) return null;
   const last = state?.lastCheck;
@@ -409,7 +409,7 @@ export function recordHubCode() {
 const RESTART_HUB = hubService().restartCommand;
 export const runningHubCode = () => readJSON(HUB_CODE, null)?.hash ?? null;
 export const hubCodeState = () => ({ running: runningHubCode(), onDisk: hubCode().hash });
-// The hub's own link, so linksOf leaves it out (docs/adr/0064-every-builder-works-in-a-worktree.md).
+// The hub's own link, so linksOf leaves it out (docs/adr/2026-10-30-1654-every-builder-works-in-a-worktree.md).
 // → {link: 'hub', ok, detail}
 export const hubLink = ({ running, onDisk } = hubCodeState()) => (running && running === onDisk
   ? { link: 'hub', ok: true, detail: `The hub runs the code in its files (${onDisk}).` }
@@ -417,7 +417,7 @@ export const hubLink = ({ running, onDisk } = hubCodeState()) => (running && run
 
 // ---------- grace ----------
 // How long a link stays broken before the board shows it red; until then it reads settling, while the watcher prints
-// it at once so the session can fix it (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md). every is the
+// it at once so the session can fix it (docs/adr/2026-10-29-1639-hub-links-turn-red-only-after-a-grace-period.md). every is the
 // polling interval's minutes.
 const MIN = 60_000;
 export const GRACE = {

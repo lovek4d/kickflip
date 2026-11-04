@@ -1,4 +1,4 @@
-// The app shell's router (docs/adr/0055-one-app-for-the-whole-hub.md): every URL on the hub names a view, and a view
+// The app shell's router (docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md): every URL on the hub names a view, and a view
 // names its URL, so a push link, a reload and a shared link all land on the same view. viewOf and urlOf are pure;
 // ui.test.mjs runs them in node:vm. listen() catches clicks on links to a view the shell mounts, and back and forward.
 // A view is {kind, …}:
@@ -9,7 +9,7 @@
 //   notes {route, item | wave}  /<route>/notes.html?item=<key> or ?wave=<lineup slug>, and plan.html, which the board
 //                               redirects there
 //   hub {hash, w}              /_hub/ with a settings modal named by hash; legacy /_hub/settings and
-//                               /_hub/settings/polling?w=<HH:MM> open the same modals (ADR 0075)
+//                               /_hub/settings/polling?w=<HH:MM> open the same modals ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md))
 //   frame {route, url}          any other page under a route, a folder or an .html file: other sites, prototypes and
 //                               every other board page, shown in a frame
 // Any other URL, such as an image or another origin, is no view (null) and loads as itself.
@@ -77,7 +77,7 @@ globalThis.AppRouter = (function () {
     return { href: u.href, pushed };
   }
 
-  // The page tree (docs/adr/0058-back-follows-the-page-tree.md): a board, its Waiting on you, and a prototype page tied
+  // The page tree (docs/adr/2026-10-30-1125-back-follows-the-page-tree.md): a board, its Waiting on you, and a prototype page tied
   // to one of its questions by ?q=, framed. levelOf → 0, 1 or 2 down the tree, or null for a view outside it.
   function questionOf(view, boards) {
     if (view?.kind !== 'frame' || !boards.has(view.route)) return null;

@@ -1,4 +1,4 @@
-// docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+// docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
 // The board's Auto Review lane, from what the hub's poll found and what the session recorded. incoming is
 // data/incoming.json {at, repo, prs: [{number, title, author, url, head, touches: [card key], asked}]}, the open PRs
 // from others that touch this board's cards or ask the owner for review (hub/incoming.mjs). records is

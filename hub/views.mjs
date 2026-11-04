@@ -1,4 +1,4 @@
-// The hub's own views' data (docs/adr/0055-one-app-for-the-whole-hub.md): what GET /_hub/api/hub, /_hub/api/settings
+// The hub's own views' data (docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md): what GET /_hub/api/hub, /_hub/api/settings
 // and /_hub/api/polling answer, with every word the hub page and its settings modals show. hub.mjs reads the state
 // these take; integration readiness rows and their words come from readiness.mjs; board/public/view-hub.js, view-hub-settings.js and view-polling.js only lay the words out.
 // st is a push.mjs queueStatus(now) result throughout, and poll the hub's poll state {running, nextAt, last}, last
@@ -35,7 +35,7 @@ function pollingNow(st, poll, now) {
 
 // One site's row on the hub page: a word for the site, then each of its board links that isn't passing. links is the
 // board's boards.mjs linksOf, or undefined for a site that isn't a board. A broken link reads amber degraded, since the
-// site still answers; red is for a site that is down (docs/adr/0149-the-hub-reads-healthy-degraded-or-a-site-down.md).
+// site still answers; red is for a site that is down (docs/adr/2026-11-03-0501-the-hub-reads-healthy-degraded-or-a-site-down.md).
 export function siteHealth(r, links) {
   const down = { port: 'down · not answering', files: 'down · folder missing' }[r.serves] || 'down · restarting';
   if (r.state !== 'up') return { tone: r.state === 'down' ? 'down' : 'wait', word: r.state === 'down' ? down : r.state, lines: [] };
@@ -55,9 +55,9 @@ const CODEX_CHOICES = [
   { value: 'off', label: 'Off', description: (builder) => `${builder} implements and reviews.` },
 ];
 
-// The Usage card's Codex block (docs/adr/0092-codex-share-follows-whether-codex-is-usable.md). share is the setting in
+// The Usage card's Codex block (docs/adr/2026-11-01-1521-codex-share-follows-whether-codex-is-usable.md). share is the setting in
 // effect and status a shared/codex.mjs codexStatus; while Codex isn't usable, tag, description and fix say why and
-// what to run, and the choices are disabled. claudeModel names who takes over (docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md).
+// what to run, and the choices are disabled. claudeModel names who takes over (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md).
 const codexView = (share, status, claudeModel) => ({
   usable: status.usable,
   tag: status.usable ? null : status.reason,
@@ -67,7 +67,7 @@ const codexView = (share, status, claudeModel) => ({
   fix: status.fix,
 });
 
-// The Usage card's Claude model control (docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md): model
+// The Usage card's Claude model control (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md): model
 // is push.mjs readClaudeModel, and the description always says what Auto does. builder is the word for who builds
 // when Claude does, which the Codex share and pause line descriptions use: the forced model, or Claude under Auto.
 const BUILDER_WORDS = { opus: 'Opus', sonnet: 'Sonnet', auto: 'Claude' };
@@ -128,13 +128,13 @@ const untilWords = (end, now, forever) => (end === FOREVER ? forever : `until ${
 export const durationChoices = (now, forever) => DURATIONS.map(([value, label]) => ({ value, label, until: untilWords(durationEnd(now, value), now, forever) }));
 const snoozedUntil = (n, now) => (n.on ? endOf(n.snoozed_until, now) : null);
 
-// The hub page's hub settings: the on/off, snooze and weekend controls (docs/adr/0032-notifications-can-be-off-snoozed-or-off-on-weekends.md),
+// The hub page's hub settings: the on/off, snooze and weekend controls (docs/adr/2026-10-29-1639-notifications-can-be-off-snoozed-or-off-on-weekends.md),
 // the polling summary, hub rules and the Linear key, of which only whether it is set, whether Linear refused it and
-// its workspace are shown (linear.mjs linearStatus; docs/adr/0088-kickflip-reaches-linear-with-a-key-on-the-mac.md),
+// its workspace are shown (linear.mjs linearStatus; docs/adr/2026-11-01-1436-kickflip-reaches-linear-with-a-key-on-the-mac.md),
 // and Keep awake. Snooze and
-// Keep awake share one duration picker (docs/adr/0112-snooze-and-keep-awake-share-one-duration-picker.md), whose
+// Keep awake share one duration picker (docs/adr/2026-11-02-1402-snooze-and-keep-awake-share-one-duration-picker.md), whose
 // choices are null while that setting is on, and Snooze's while notifications are off. route is push.mjs pushRoute():
-// where an action push goes now (docs/adr/0065-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md). awake is
+// where an action push goes now (docs/adr/2026-10-30-1704-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md). awake is
 // {until: awake.mjs awakeUntil, unsupported: awake.mjs awakeUnsupported}.
 export function settingsView({ now, st, rules = [], route = { atMac: false, desktops: 0 }, linear = { set: false }, awake = { until: null, unsupported: null } }) {
   const s = st.settings;

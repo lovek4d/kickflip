@@ -423,7 +423,7 @@ test('Settings clone changes update repo, branch and session folder and notify t
     hub: { ...board, hub: true, owner: { session: 's2', repo: '/session' } } } });
   const events = [];
   const event = async (board, kind, data) => { events.push([board.route, kind, data]); return 'e1'; };
-  // The hub board works on its session's folder like any local board (docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
+  // The hub board works on its session's folder like any local board (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
   assert.deepEqual(boardRepo('hub'), { github: '', branch: '', repo: '/session', local: true });
   assert.equal(listBoards().find((b) => b.route === 'hub').github, undefined);
   const out = await changeBoardRepo('settings', { github: 'owner/settings', branch: 'develop' }, { repos, event });
