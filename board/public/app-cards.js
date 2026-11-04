@@ -258,7 +258,7 @@ BoardView.part((B) => {
   const ACTION_BUTTONS = {
     [BUTTON.openQuestions]: (it) => `<a${classes(it, BUTTON.openQuestions, 'button')} href="questions.html#${esc(it.questions.first)}">Open questions</a>`,
     [BUTTON.markDone]: (it) => `<button${classes(it, BUTTON.markDone)} data-confirm="finish" data-key="${esc(it.key)}">Mark as done</button>`,
-    [BUTTON.grill]: (it) => (it.grilling ? '<button disabled>Writing questions…</button>' : `<button data-confirm="grill" data-key="${esc(it.key)}">Grill</button>`),
+    [BUTTON.grill]: (it) => `<button data-confirm="grill" data-key="${esc(it.key)}"${it.grilling ? ' disabled' : ''}>Grill</button>`,
   };
   const actionButton = (it) => ACTION_BUTTONS[it.actionButton]?.(it) || '';
 
@@ -401,7 +401,7 @@ BoardView.part((B) => {
     if (!it || !(await B.confirm(CONFIRM[act](it, it.ref)))) return;
     // Unhold, Merge (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md), Implement and Done wait while the
     // server records them (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
-    const sent = { resume: ['card-hold', { key, hold: false }], merge: ['card-merge', { key }], 'card-build': ['card-build', { key }],
+    const sent = { grill: ['grill-more', { key }], resume: ['card-hold', { key, hold: false }], merge: ['card-merge', { key }], 'card-build': ['card-build', { key }],
       finish: it.kind === 'ask' ? ['ask-done', { id: it.id }] : ['card-done', { key }] }[act];
     if (sent) {
       // Done closes its card once the server answers, before the answer's board lands, or app-core.js steady would
@@ -412,7 +412,7 @@ BoardView.part((B) => {
         state.openItems.delete(key);
         store.set('openItems', [...state.openItems]);
       } : null;
-      try { await waitOn(b, B.sentHere(key, () => B.send(...sent, close))); }
+      try { await waitOn(b, B.sentHere(key, () => B.send(...sent, close))); if (act === 'grill') B.loadThread(key, { force: true }); }
       catch (e) { B.failed(e); }
       if (act === 'finish') B.syncDone(key);
       return;
@@ -421,8 +421,7 @@ BoardView.part((B) => {
     row?.querySelectorAll('button').forEach((x) => { x.disabled = true; });
     b.disabled = true;
     try {
-      if (act === 'nudge') { await B.sentHere(key, () => B.send('builder-nudge', { key })); b.textContent = 'Sent'; toast('Nudge sent'); }
-      else { await B.sentHere(key, () => B.send('grill-more', { key })); B.loadThread(key, { force: true }); }
+      await B.sentHere(key, () => B.send('builder-nudge', { key })); b.textContent = 'Sent'; toast('Nudge sent');
     } catch { redrawActions(key); toast('Could not send. Is the host awake?'); }
   });
 

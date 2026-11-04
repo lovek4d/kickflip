@@ -1361,6 +1361,15 @@ test("a card made from an ask reads New until its session sets ready, grilling o
   assert.equal(card({ item: { state: 'ready' }, agents: { A1: { main: grill } } }).grilling, true);
   assert.equal(card({ item: { state: 'ready' }, agents: { A1: { main: { ...grill, done: '2026-10-23T10:30:00Z' } } } }).grilling, false);
   assert.equal(card({ item: { state: 'ready' }, events: [{ id: 'g1', ts: '2026-10-23T10:00:00Z', kind: 'grill-more', data: { key: 'w/A1' } }] }).grilling, true);
+  // A grill-more event is handled by a reply, by questions posted on the card after it, or by a grill agent that started after it and finished.
+  const event = { id: 'g1', ts: '2026-10-23T10:00:00Z', kind: 'grill-more', data: { key: 'w/A1' } };
+  const grilling = (extra) => card({ item: { state: 'ready' }, events: [event], ...extra }).grilling;
+  const posted = (asked_at) => ({ items: [{ id: 'q1', topic: 'item:w/A1', question: 'Which?', asked_at }] });
+  assert.deepEqual([grilling({ owner: posted('2026-10-23T10:05:00Z') }), grilling({ owner: posted('2026-10-23T09:00:00Z') })], [false, true]);
+  const ran = (started, done) => ({ agents: { A1: { main: { kind: 'grill', started, done } } } });
+  assert.deepEqual([
+    grilling(ran('2026-10-23T10:01:00Z', '2026-10-23T10:30:00Z')), grilling(ran('2026-10-23T10:01:00Z')), grilling(ran('2026-10-23T09:00:00Z', '2026-10-23T09:30:00Z')),
+  ], [false, true, true]);
 });
 
 test("an owner answer stops waiting on Claude once its question is resolved after it, a later round names it, or a build starts after it", () => {

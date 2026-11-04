@@ -153,6 +153,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, age
   // A builder status line is progress, not a message: it is never unread and answers no owner message.
   const othersAt = [...thread.filter((m) => countsUnread({ ...m, who: m.who || 'claude' })).map((m) => m.ts), ...events.map((e) => e.reply?.at)].filter(Boolean).sort();
   const lastGrill = events.filter((e) => e.kind === 'grill-more').pop();
+  const grillRunning = agents.some((a) => a.kind === 'grill' && a.started && !a.done);
   // A branch pushed to a plain git remote, which has no PR (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
   const pushed = !hasPR(it) && it.pushed?.branch ? { branch: it.pushed.branch, at: it.pushed.at || null, host: remote?.host || null } : null;
   let lane = laneOf(it, pr, agents.some((a) => a.started && !a.done && builds(a)), pushed, Boolean(reopenAt));
@@ -202,8 +203,10 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, age
     pr: views[least] || null, prs: views,
     reviewers: reviewers.map((r) => r.name), review: reviewOf(reviewers, pr, sentAt), inReviewSince,
     threadCount: thread.length + events.length, lastTs, othersAt,
+    // A Grill tap is handled once it is replied to, questions are posted after it, or a grill agent that started after it finishes;
     // buildBoard adds a grilling card with no questions posted yet.
-    grilling: Boolean(lastGrill && !lastGrill.reply) || agents.some((a) => a.kind === 'grill' && a.started && !a.done),
+    grilling: grillRunning || Boolean(lastGrill && !lastGrill.reply && !askedAt.some((t) => String(t) > String(lastGrill.ts))
+      && !agents.some((a) => a.kind === 'grill' && a.done && String(a.started) > String(lastGrill.ts))),
     state: it.state || null,
     updatedAt: pr?.mergedAt || pr?.updatedAt || it.merged_at || builder?.at || lastTs || null, ask: null, fold: null, action: null,
     install: lane === 'done' ? null : installOf(it.install, pr),
