@@ -253,12 +253,18 @@ test('every page header has a logo, a back arrow where needed, the title and dis
   assert.doesNotMatch(logo, /<script>/);
 });
 
-test("a board's sidebar row shows its session's context window, dimmed with its age once stale", () => {
+test("a board's sidebar row shows its context at the top right beside its name, red from 90% and dimmed once stale", () => {
   const site = (route, ctx) => ({ route, title: route, board: true, count: 0, icon: '', sub: '<b>Working</b>', ctx });
   const ago = (ms) => new Date(Date.now() - ms).toISOString();
   const html = ui.sidebar({ sites: [site('a', { percent: 62, at: ago(60_000) }), site('b', { percent: 91, at: ago(3 * 3600_000) }), site('c', null), site('d')] });
-  const spans = [...html.matchAll(/<span class="sb-ctx[^"]*">[^<]*<\/span>/g)].map((m) => m[0]);
-  assert.deepEqual(spans, ['<span class="sb-ctx">62% ctx</span>', '<span class="sb-ctx stale">91% ctx · 3 h ago</span>']);
+  const heads = [...html.matchAll(/<span class="sb-head">(.*?<\/span>)<\/span>(?=<span class="sb-sub">|<\/span><\/a>)/g)].map((m) => m[1]);
+  assert.deepEqual(heads, [
+    '<span class="sb-title">a</span><span class="sb-ctx" title="62% of its context window">62% ctx</span>',
+    '<span class="sb-title">b</span><span class="sb-ctx full stale" title="91% of its context window, read 3 h ago">91% ctx</span>',
+  ]);
+  assert.equal(html.match(/sb-ctx/g).length, 2);
+  assert.doesNotMatch(html, /<span class="sb-status"><b>Working<\/b><span class="sb-ctx/);
+  assert.match(html, /<span class="sb-title">c<\/span><span class="sb-sub">/);
 });
 
 test("the Kickflip sidebar lists Hub, notifications, Pages, then Boards with New board last", () => {

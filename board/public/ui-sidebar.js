@@ -81,13 +81,13 @@
   // key: the row's switchKeys entry while switch mode shows, else undefined. The tile carries a board's number, or any
   // other row's letter, and the title marks its letter; sidebar.css shows them in place of the glyph under .ks-on.
   // mark: HTML after the title, such as Hub's moon.
-  function row({ href, icon, title, sub = '', extra = '', mark = '', on = false, cls = '', key }) {
+  function row({ href, icon, title, sub = '', extra = '', mark = '', ctx = '', on = false, cls = '', key }) {
     const shown = key && (key.board ? key.num : key.letter);
     const tileHtml = shown ? icon.replace(/<\/span>$/, `<span class="ks-key">${esc(shown)}</span></span>`) : icon;
     const chars = [...title];
     const titleHtml = key?.letter ? `${esc(chars.slice(0, key.at).join(''))}<span class="ks-u">${esc(chars[key.at])}</span>${esc(chars.slice(key.at + 1).join(''))}` : esc(title);
     return `<a class="sb-row${on ? ' on' : ''}${cls ? ` ${cls}` : ''}" href="${esc(href)}"${on ? ' aria-current="page"' : ''}>${tileHtml}`
-      + `<span class="sb-text"><span class="sb-title">${titleHtml}${mark}</span>${sub ? `<span class="sb-sub">${sub}</span>` : ''}${extra}</span></a>`;
+      + `<span class="sb-text">${ctx ? `<span class="sb-head"><span class="sb-title">${titleHtml}${mark}</span>${ctx}</span>` : `<span class="sb-title">${titleHtml}${mark}</span>`}${sub ? `<span class="sb-sub">${sub}</span>` : ''}${extra}</span></a>`;
   }
 
   // What waits on the owner on every site but `here`: the count on the logo that opens the drawer.
@@ -121,14 +121,18 @@
   }
 
   const ticketsLabel = (t) => (t.source === 'internal' ? `Internal · ${t.prefix}` : t.source === 'github' ? `GitHub issues${t.account ? ` · ${t.account}` : ''}` : `Linear · ${t.team}`);
-  // A board's context window: its owner session's latest percent, dimmed with its age once older than ten minutes.
+  // A board's context window: its owner session's latest percent at the row's top right, red from 90%, dimmed once the
+  // reading is older than ten minutes, with that age in its tooltip.
   const CTX_STALE_MIN = 10;
+  const CTX_FULL_PERCENT = 90;
   function contextWords(ctx) {
     if (!ctx) return '';
+    const percent = Math.round(ctx.percent);
     const minutes = Math.floor((Date.now() - Date.parse(ctx.at)) / 60_000);
-    if (!(minutes >= CTX_STALE_MIN)) return `<span class="sb-ctx">${Math.round(ctx.percent)}% ctx</span>`;
+    const full = percent >= CTX_FULL_PERCENT ? ' full' : '';
+    if (!(minutes >= CTX_STALE_MIN)) return `<span class="sb-ctx${full}" title="${percent}% of its context window">${percent}% ctx</span>`;
     const age = minutes < 60 ? `${minutes} min` : minutes < 1440 ? `${Math.floor(minutes / 60)} h` : `${Math.floor(minutes / 1440)} d`;
-    return `<span class="sb-ctx stale">${Math.round(ctx.percent)}% ctx · ${age} ago</span>`;
+    return `<span class="sb-ctx${full} stale" title="${percent}% of its context window, read ${age} ago">${percent}% ctx</span>`;
   }
   function askedWhen(iso, now) {
     const minutes = Math.floor((now - Date.parse(iso)) / 60_000);
@@ -171,7 +175,7 @@
     const paused = data?.pause?.state === 'paused';
     const siteRow = (s) => {
       const sub = paused && s.board ? word('wait', 'paused') + (s.sub || '').replace(/<span class="dot [^"]*"[^>]*><\/span><span class="word [^"]*">[^<]*<\/span>/, '') : s.sub;
-      return row({ href: siteHref(s), icon: s.icon, title: s.title, sub: sub || s.ctx ? `<span class="sb-status">${sub}${contextWords(s.ctx)}</span>` : '', on: s.route === here, key: keys?.get(siteHref(s)) });
+      return row({ href: siteHref(s), icon: s.icon, title: s.title, sub: sub ? `<span class="sb-status">${sub}</span>` : '', ctx: contextWords(s.ctx), on: s.route === here, key: keys?.get(siteHref(s)) });
     };
     const boards = sites.filter((s) => s.board);
     const pages = sites.filter((s) => !s.board);
