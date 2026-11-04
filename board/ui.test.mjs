@@ -1140,6 +1140,14 @@ test('a stalled builder has no Stalled badge: its status line turns the needs-yo
   assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'done', builder }), /stalled|data-confirm="nudge"/);
 });
 
+test('a button drawn as a status line resets to the div it replaces in one rule, so turning red changes only its colour', () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  const reset = css.match(/^button\.sub \{([^}]*)\}/m)?.[1] ?? '';
+  for (const prop of ['margin-inline: 0', 'margin-bottom: 0', 'padding: 0', 'min-height: 0', 'line-height: inherit', 'font-family: inherit', 'appearance: none', 'text-align: left']) assert.ok(reset.includes(prop), prop);
+  assert.doesNotMatch(reset, /(^|[\s;])font:/);
+  assert.match(css, /^button\.sub\.agent\.stalled \{ color: var\(--color-danger\); \}$/m);
+});
+
 test("a refused Implement's reason takes the card's status line, in place of its next step", () => {
   const reason = "Couldn't start implementing: it's held. Unhold it, then tap Implement.";
   const html = ui.workLines({ ...workCard, lane: 'todo', builder: null, next: 'Grill the notes', refusal: reason });

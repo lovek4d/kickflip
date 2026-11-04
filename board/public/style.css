@@ -343,7 +343,11 @@ button.attach:disabled { opacity: .35; }
 @keyframes pulse-fill { 50% { background-color: color-mix(in srgb, var(--color-notice) 35%, transparent); } }
 @media (prefers-reduced-motion: no-preference) { .phase-bars:not(.dim) i.now { animation: pulse-fill 1.4s ease-in-out infinite; } }
 /* A stale build's status line, dot included, is the needs-you red, and a tap on it nudges Claude (ui-cards.js builderStatus). */
-button.sub.agent.stalled { display: block; width: 100%; padding: 0; border: 0; border-radius: 0; background: none; text-align: left; color: var(--color-danger); }
+/* A status line that is a button is drawn as the div it replaces: this one reset, then only a colour per state. The font
+   shorthand stays out so .sub's 12px wins. */
+button.sub { display: block; width: 100%; margin-inline: 0; margin-bottom: 0; padding: 0; min-height: 0; border: 0; border-radius: 0; background: none;
+  font-family: inherit; font-weight: inherit; letter-spacing: inherit; line-height: inherit; text-align: left; appearance: none; -webkit-appearance: none; }
+button.sub.agent.stalled { color: var(--color-danger); }
 .stalled .working-dot { background: currentColor; }
 .brand { display: grid; grid-template-columns: auto auto minmax(0, 1fr); column-gap: 10px; row-gap: 2px; }
 .brand .hub { grid-row: 1 / span 2; align-self: center; }
