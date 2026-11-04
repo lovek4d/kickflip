@@ -972,12 +972,19 @@ test("an open card that can be implemented shows Implement rightmost in its acti
   assert.match(B.detail({ ...todo, held: true }), /data-confirm="card-build"/);
 });
 
-test('a thread message says Working on it while Claude works on it, and only a pending message can be deleted', () => {
+test('the working line reads thinking, in one shared class on the card and in the thread', () => {
+  assert.equal(ui.workingLine, '<span class="thinking"><span class="working-dot" aria-hidden="true"></span>thinking</span>');
+  const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: '10:00', title: 'Fix it', internal: false, linear: [], pr: null, prs: [], deps: [], blockedBy: [], working: true };
+  assert.match(ui.workLines(ask), /<div class="line3 sub agent"><span class="thinking">/);
+  assert.match(ui.threadMessages([{ ts: ago(3), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it', eventId: 'e1', reply: null, state: 'working', canDelete: true }]), /<div class="reply muted small"><span class="thinking">/);
+});
+
+test('a thread message says thinking while Claude works on it, and only a pending message can be deleted', () => {
   const html = ui.threadMessages([
     { ts: ago(3), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it', eventId: 'e1', reply: null, state: 'working', canDelete: true },
     { ts: ago(2), who: 'love', via: 'site', kind: 'item-message', text: 'Old', eventId: 'e2', reply: null, state: 'answered', canDelete: false },
   ]);
-  assert.match(text(html), /Fix it Working on it .* Old$/);
+  assert.match(text(html), /Fix it thinking .* Old$/);
   assert.deepEqual([...html.matchAll(/data-withdraw="(\w+)"/g)].map((m) => m[1]), ['e1']);
 });
 
@@ -1066,7 +1073,7 @@ test("a New card reads New and its first line, then whether it was moved or edit
     bumpedAt: ask.bumpedAt || null, ask: { askedAt: sent, bumpedAt: null, canEdit: true, text: 'Fix <it>\nand more', files: [], ...ask }, ...extra }, { top: Boolean(ask.bumpedAt) });
   const at = ui.cardTime(sent);
   assert.deepEqual(lines(card({ state: 'waiting' })), ['New Fix <it>', at]);
-  assert.deepEqual(lines(card({ state: 'working', bumpedAt: ago(0.5), edited: true })), ['New Fix <it>', 'Edited · Working on it', at]);
+  assert.deepEqual(lines(card({ state: 'working', bumpedAt: ago(0.5), edited: true })), ['New Fix <it>', 'Edited · thinking', at]);
   assert.deepEqual([...card({ state: 'waiting' }).matchAll(/data-(bump|edit|withdraw)="a1"/g)].map((m) => m[1]), ['bump', 'edit', 'withdraw']);
   assert.match(card({ state: 'waiting', bumpedAt: ago(0.5) }), /class="ghost icon bumped" data-bump="a1"[^>]* disabled/);
   assert.doesNotMatch(card({ state: 'waiting' }), /bumped/);
@@ -1131,8 +1138,8 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.doesNotMatch(ui.workLines(waiting), /disabled|data-confirm="bump"/);
   assert.match(ui.workLines({ ...waiting, bumpedAt: null }), /<button class="ghost icon" data-card-bump="w\/B5" aria-pressed="false" aria-label="Bump to top"/);
   const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: '10:00', title: 'Fix it', internal: false, linear: [], pr: null, prs: [], deps: [], blockedBy: [], working: true };
-  assert.deepEqual(lines(ui.workLines(ask)), ['Fix it', 'Working on it']);
-  assert.deepEqual(lines(ui.workLines(ask, { unread: 2 })), ['Fix it', 'Working on it', '2 new messages']);
+  assert.deepEqual(lines(ui.workLines(ask)), ['Fix it', 'thinking']);
+  assert.deepEqual(lines(ui.workLines(ask, { unread: 2 })), ['Fix it', 'thinking', '2 new messages']);
   assert.deepEqual(lines(ui.workLines({ ...internal, waitsOn: 'checking', working: true, next: 'Verify it' })), ['INT-3 Five', 'Orchestrator review']);
   const followup = { ...workCard, key: 'w/ENG-7', id: 'ENG-7', ref: 'ENG-7', linear: [{ id: 'ENG-7', url: 'u' }], pr: null, prs: [], reviewers: [], next: null, lane: 'todo', deps: [], blockedBy: [] };
   assert.deepEqual(lines(ui.workLines(followup)), ['ENG-7 Five']);

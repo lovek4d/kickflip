@@ -79,7 +79,7 @@
   const cardBumpButton = (key, bumped) => (bumped
     ? `<button class="ghost icon bumped" data-card-bump="${esc(key)}" data-bumped aria-pressed="true" aria-label="Unbump" title="Bumped. Tap to unbump">${BUMP}</button>`
     : `<button class="ghost icon" data-card-bump="${esc(key)}" aria-pressed="false" aria-label="Bump to top" title="Bump to top">${BUMP}</button>`);
-  const workingLine = '<span class="working-dot" aria-hidden="true"></span>Working on it';
+  const workingLine = '<span class="thinking"><span class="working-dot" aria-hidden="true"></span>thinking</span>';
   // html is markup the caller has escaped; href, title and attrs values are escaped here.
   const BADGE_TONES = Object.freeze(['quiet', 'normal', 'notice', 'danger', 'ready', 'merged']);
   function badge(tone, html, { href, title, button = false, attrs = {} } = {}) {

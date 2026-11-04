@@ -344,7 +344,9 @@ button.sub.agent.stalled { display: block; width: 100%; padding: 0; border: 0; b
 .stalled .working-dot { background: currentColor; }
 .brand { display: grid; grid-template-columns: auto auto minmax(0, 1fr); column-gap: 10px; row-gap: 2px; }
 .brand .hub { grid-row: 1 / span 2; align-self: center; }
-.sub .working { color: var(--color-notice); }
+/* The session's working line, "thinking", is the owner's blue with one font, size, weight and pulse on the card and in the thread. */
+.thinking { color: var(--accent); font-size: 12px; font-weight: 600; }
+.thinking .working-dot { background: currentColor; }
 .msg.link { padding: 0 10px; margin: 4px 0; font-size: 13px; }
 .msg.builder-status { padding: 0 10px; margin: 4px 0; font-size: 12px; color: var(--color-notice); overflow-wrap: anywhere; }
 .msg.builder-status .working-dot { animation: none; }
