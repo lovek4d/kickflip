@@ -442,6 +442,7 @@ button.sub.agent.stalled { display: block; width: 100%; padding: 0; border: 0; b
 .top { padding-top: max(4px, env(safe-area-inset-top)); padding-bottom: 4px; }
 .top .brand { gap: 4px; min-height: 44px; }
 .top .hub, .top .back { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 44px; height: 44px; margin-left: -10px; border-radius: 10px; }
+.top .hub + .back { margin-left: 0; }
 .top .back:active { background: var(--accent-soft); }
 .top .brand :is(h1, h2) { font-size: 17px; font-weight: 600; line-height: 22px; }
 /* The last visit paints dimmed until the fresh board lands; the controls ui-snapshot.js liveControls blocks rest meanwhile.
@@ -615,7 +616,6 @@ main > * { transition: opacity .25s ease; }
 .view-frame > .frame-page { flex: 1 1 auto; display: block; width: 100%; min-height: 0; border: 0; background: var(--bg); }
 .view-frame .alone { white-space: nowrap; font-size: 13px; }
 
-.top .phone-logo { display: none; }
 @media (max-width: 899px) {
   :root:has(body > .top, body.has-sidebar > :not(.sidebar) > .top):not(.ps-embed) {
     --app-bottom: calc(49px + max(4px, env(safe-area-inset-bottom)));
@@ -624,7 +624,6 @@ main > * { transition: opacity .25s ease; }
     position: fixed; top: auto; bottom: 0; left: 0; right: 0; z-index: 7;
     border-bottom: 0; border-top: 1px solid var(--line); padding-top: 4px; padding-bottom: max(4px, env(safe-area-inset-bottom));
   }
-  .top .phone-logo { display: inline-flex; margin-left: 0; }
   .top .nav #refresh, .top .nav a.icon, .top .nav .arch-bulb { min-width: 44px; min-height: 44px; }
   body > main, body.has-sidebar > :not(.sidebar) > main { padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: calc(96px + var(--app-bottom, 0px) + env(safe-area-inset-bottom)); }
   .view-frame:not(.own-header) { padding-bottom: var(--app-bottom, 0px); }

@@ -705,7 +705,7 @@ test("the board, its Settings, Waiting on you and Notes serve the app shell, wit
   fs.writeFileSync(path.join(pub, 'prototype-hdr.html'), '<title>{{title}}</title><!--header {"lead":"back","title":"Take","backHref":"./#item=t%2FP1"}-->');
   try {
     const page = await (await fetch(`${base}/prototype-hdr.html`)).text();
-    assert.match(page, /^<title>T<\/title><header class="top"><div class="brand"><a class="back" href="\.\/#item=t%2FP1" aria-label="Back to the board">/);
+    assert.match(page, /^<title>T<\/title><header class="top"><div class="brand"><a class="hub" href="[^"]*" aria-label="Boards"><img[^>]*><\/a><a class="back" href="\.\/#item=t%2FP1" aria-label="Back to the board">/);
     assert.doesNotMatch(page, /<!--header/);
   } finally { fs.rmSync(path.join(pub, 'prototype-hdr.html')); }
 });
@@ -723,7 +723,7 @@ test('a recorded prototype is the one template with its record filled in, and no
   try {
     const page = await (await fetch(`${base}/prototype-moon.html?take=A&q=q1`)).text();
     assert.match(page, /<title>Moon &lt;\/script&gt;&lt;b&gt; · prototype<\/title>/);
-    assert.match(page, /<header class="top"><div class="brand"><a class="back" href="\.\/#item=t%2FP1" aria-label="Back to the board">[\s\S]*<h1>Moon &lt;\/script&gt;&lt;b&gt; · prototype<\/h1>/);
+    assert.match(page, /<header class="top"><div class="brand"><a class="hub" href="[^"]*" aria-label="Boards"><img[^>]*><\/a><a class="back" href="\.\/#item=t%2FP1" aria-label="Back to the board">[\s\S]*<h1>Moon &lt;\/script&gt;&lt;b&gt; · prototype<\/h1>/);
     const json = /<script id="prototypeData" type="application\/json">(.*?)<\/script>/.exec(page)[1];
     assert.doesNotMatch(json, /</);
     const data = JSON.parse(json);

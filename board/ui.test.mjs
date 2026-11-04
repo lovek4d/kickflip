@@ -310,8 +310,9 @@ test('every page header has a logo, a back arrow where needed, the title and dis
   assert.equal(text(logo), 'iOS <Orchestrator> …');
 
   const back = ui.header({ lead: 'back', backHref: '/', backLabel: 'Back to Claude', title: 'Settings', logoSrc: '/_hub/kickflip.png', settingsHref: '/_hub/settings', time: 'now' });
-  assert.match(back, /^<header class="top"><div class="brand"><a class="back" href="\/" aria-label="Back to Claude"><svg width="24" height="24"[^>]*>.*?<\/svg><\/a><a class="hub phone-logo" href="\/_hub\/" aria-label="Boards"><img src="\/_hub\/kickflip\.png" alt=""><\/a><h1>Settings<\/h1><\/div>/);
-  assert.equal((back.match(/class="hub phone-logo"/g) || []).length, 1);
+  assert.match(back, /^<header class="top"><div class="brand"><a class="hub" href="\/_hub\/" aria-label="Boards"><img src="\/_hub\/kickflip\.png" alt=""><\/a><a class="back" href="\/" aria-label="Back to Claude"><svg width="24" height="24"[^>]*>.*?<\/svg><\/a><h1>Settings<\/h1><\/div>/);
+  assert.equal((back.match(/class="hub"/g) || []).length, 1);
+  assert.ok(back.indexOf('class="hub"') < back.indexOf('class="back"'), 'the icon comes before the back button');
   assert.match(back, /href="\/_hub\/settings" id="settingsLink"/);
   assert.match(back, /id="status">now</);
 

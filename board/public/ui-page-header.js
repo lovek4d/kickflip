@@ -40,7 +40,7 @@
   }
 
   // lead is 'logo' (the kickflip, which toggles the sidebar, sidebar.js; logoHref, the hub's page, without it)
-  // or 'back' (the arrow, which follows backStep, with backHref the work item or the board, beside a phone-only logo). The controls (time and refresh, gear) paint disabled with refresh spinning until the
+  // or 'back' (the arrow, which follows backStep, with backHref the work item or the board, after the logo). The controls (time and refresh, gear) paint disabled with refresh spinning until the
   // page's script turns them on (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md). With controls
   // false, trail (HTML) takes their place. bulb puts the architecture review's bulb between them (app-arch.js). leadAttrs adds to or replaces the lead link's attributes, and level is the
   // title's heading level, for a header that isn't the page's own, such as the sidebar's (ui-sidebar.js).
@@ -49,7 +49,7 @@
     const attrs = (base) => Object.entries({ ...base, ...leadAttrs }).map(([k, v]) => ` ${k}="${esc(v)}"`).join('');
     const logo = (cls = 'hub') => `<a class="${cls}" href="${esc(logoHref)}"${attrs({ 'aria-label': 'Boards' })}><img src="${esc(logoSrc)}" alt=""></a>`;
     const first = lead === 'back'
-      ? `<a class="back" href="${esc(backHref)}"${id(backId)}${attrs({ 'aria-label': backLabel })}>${ARROW}</a>${logo('hub phone-logo')}`
+      ? `${logo('hub')}<a class="back" href="${esc(backHref)}"${id(backId)}${attrs({ 'aria-label': backLabel })}>${ARROW}</a>`
       : logo();
     const nav = controls ? `<nav class="nav">`
       + `<span class="refresh"><button class="ghost spinning" id="refresh" type="button" disabled aria-label="Refresh" title="Refresh">${REFRESH}</button><span class="muted" id="status">${esc(time)}</span></span>`
