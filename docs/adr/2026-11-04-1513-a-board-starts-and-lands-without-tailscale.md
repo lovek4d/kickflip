@@ -1,0 +1,9 @@
+# A board starts and lands without Tailscale
+
+Kickflip runs Tailscale's CLI for the hub's `/` mapping, try ports, the tailnet address and the owner check. Every call now runs the binary `shared/tailscale.mjs` `tailscaleBin` finds, looked up on each call since installing Tailscale changes it: the first `tailscale` on PATH, else on macOS the GUI app's own binary, `Tailscale.app/Contents/MacOS/Tailscale` in `/Applications` or `~/Applications`. The App Store build keeps its CLI there and never puts it on PATH; the standalone build does only after Settings › CLI integration, which needs an admin password, so kickflip neither runs that nor symlinks the bundle (the bundle binary has to run from its own path). Doctor's Tailscale line names the binary it found.
+
+With no binary at all, nothing runs it: doctor marks Tailscale yours with the download page and the cask, `kickflip init` and `doctor --fix` still install and start the hub and skip only the mapping with that reason, `tailnet-url` says Tailscale isn't installed, and join's address falls back to loopback. The owner chose this over refusing the start: the board starts and lands on this host, and the Hub page's Tailscale row shows what's missing.
+
+A board the hub started on a Mac with only the GUI app sat for 15 minutes and failed with "Its session didn't answer within 15 minutes", the sheet's words for a session that never joined. The skill's step 2 said "Done when doctor exits 0" and to tell the person anything marked yours. Doctor runs before join, and with no CLI it never exits 0, so the background session nobody watches stopped there and never joined. Step 2 now ends once nothing is fixable: yours, optional and note lines are the person's and never hold up the join.
+
+Not yet checked: `serve` and `whois` on the App Store build, which is sandboxed; Tailscale's docs list no difference from the standalone build.

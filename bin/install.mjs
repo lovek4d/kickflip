@@ -4,6 +4,7 @@ import path from 'node:path';
 import { SKILLS_SOURCE, addArgv, addCommand, missingSkills } from '../shared/skills.mjs';
 import { cloneRoot as runningClone } from '../shared/repos.mjs';
 import { hubService, runCommand } from '../shared/service.mjs';
+import { tailscaleBin, tailscaleInstallHint } from '../shared/tailscale.mjs';
 
 // Homebrew's node link survives `brew upgrade`, which removes the versioned folder process.execPath names.
 export const nodeBin = () => (fs.existsSync('/opt/homebrew/bin/node') ? '/opt/homebrew/bin/node' : process.execPath);
@@ -105,10 +106,11 @@ export function tailscaleRoot(config) {
 }
 
 // The HTTPS address the phone opens: tailscale / is the hub, so the hub is at https://<host>/ and a site at
-// https://<host>/<route>/, as kickflip.mjs siteUrl builds it. Throws the one-line reason when Tailscale isn't running
-// or the tailnet has no HTTPS certificate for this host.
-export function tailnetUrl(route, { run = runCommand } = {}) {
-  const r = run('tailscale', ['status', '--json']);
+// https://<host>/<route>/, as kickflip.mjs siteUrl builds it. Throws the one-line reason when Tailscale isn't installed
+// or running, or the tailnet has no HTTPS certificate for this host. tailscale: the CLI (../shared/tailscale.mjs).
+export function tailnetUrl(route, { run = runCommand, platform = process.platform, tailscale = tailscaleBin({ platform }) } = {}) {
+  if (!tailscale) throw new Error(`Tailscale isn't installed on this host; ${tailscaleInstallHint(platform)}`);
+  const r = run(tailscale, ['status', '--json']);
   let status = null;
   try { status = r.status === 0 ? JSON.parse(r.stdout) : null; } catch {}
   if (status?.BackendState !== 'Running') throw new Error("Tailscale isn't running on this host; start it, or run tailscale up");
@@ -117,16 +119,14 @@ export function tailnetUrl(route, { run = runCommand } = {}) {
   return `https://${host}/${route ? route + '/' : ''}`;
 }
 
-export const tailscaleInstallHint =(platform = process.platform) => platform === 'darwin'
-  ? 'brew install --cask tailscale' : 'curl -fsSL https://tailscale.com/install.sh | sh';
-
-export async function tailscaleState({ run = runCommand, platform = process.platform, uid = process.getuid(), username = os.userInfo().username, port = Number(process.env.KICKFLIP_HUB_PORT || 4500) } = {}) {
+// tailscale: the CLI to run (../shared/tailscale.mjs), null when there is none.
+export async function tailscaleState({ run = runCommand, platform = process.platform, uid = process.getuid(), username = os.userInfo().username, port = Number(process.env.KICKFLIP_HUB_PORT || 4500), tailscale = tailscaleBin({ platform }) } = {}) {
   const execute = async (args) => {
-    try { return await run('tailscale', args); } catch (e) { return { status: 1, error: e.message }; }
+    try { return await run(tailscale, args); } catch (e) { return { status: 1, error: e.message }; }
   };
   const json = (r) => { try { return r.status === 0 ? JSON.parse(r.stdout) : null; } catch { return null; } };
-  const version = await execute(['version']);
-  const installed = version.status === 0;
+  const version = tailscale ? await execute(['version']) : null;
+  const installed = version?.status === 0;
   const status = installed ? json(await execute(['status', '--json'])) : null;
   const signedIn = status?.BackendState === 'Running';
   const dns = status?.Self?.DNSName?.replace(/\.$/, '') || '';
@@ -141,7 +141,7 @@ export async function tailscaleState({ run = runCommand, platform = process.plat
   } catch {}
   const entry = (item, ok, detail, fix, state = 'yours') => ({ item, state: ok ? 'ok' : state, detail, fix: ok ? null : fix });
   const prereqs = [
-    entry('Tailscale', installed, installed ? (version.stdout || 'installed').trim().split('\n')[0] : 'not on this session’s PATH', tailscaleInstallHint(platform)),
+    entry('Tailscale', installed, installed ? `${(version.stdout || 'installed').trim().split('\n')[0]} (${tailscale})` : `not on this session’s PATH${platform === 'darwin' ? ' or in Applications' : ''}`, tailscaleInstallHint(platform)),
     entry('Tailscale signed in', signedIn, signedIn ? `signed in${dns ? ' as ' + dns : ''}` : installed ? 'not connected' : 'needs Tailscale', 'tailscale up'),
   ];
   if (operatorChecked) prereqs.push(entry('Tailscale operator', operator === username, operator === username ? username : `${operator || 'none'} (expected ${username})`, 'sudo tailscale set --operator=$USER'));
@@ -150,7 +150,7 @@ export async function tailscaleState({ run = runCommand, platform = process.plat
   return { installed, signedIn, dns, operatorChecked, operator, username, pointsAtHub, prereqs, root, serveConfig };
 }
 
-export async function runInstall({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, platform = process.platform, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), fetch = globalThis.fetch, dryRun = false, log = console.log } = {}) {
+export async function runInstall({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, platform = process.platform, tailscale = tailscaleBin({ env, platform }), wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), fetch = globalThis.fetch, dryRun = false, log = console.log } = {}) {
   const state = path.join(home, '.claude', 'kickflip');
   const service = hubService({ platform, home, uid, env, run });
   if (dryRun) {
@@ -183,15 +183,17 @@ export async function runInstall({ home = os.homedir(), cloneRoot = runningClone
     up = Boolean(await hubStatus({ port, fetch }));
   }
   if (!up) throw new Error('hub did not start; see ' + hubLog);
-  const mapped = run('tailscale', ['serve', '--bg', String(port)], { env });
+  // With no Tailscale the hub still serves this host, so a board starts and lands; doctor and the hub's Tailscale row say what's missing.
+  if (!tailscale) return log(`skipped mapping tailscale / to the hub: Tailscale isn't installed on this host; ${tailscaleInstallHint(platform)}`);
+  const mapped = run(tailscale, ['serve', '--bg', String(port)], { env });
   if (mapped.status !== 0) throw new Error(mapped.error || 'tailscale serve failed');
-  const served = run('tailscale', ['serve', 'status', '--json'], { env });
+  const served = run(tailscale, ['serve', 'status', '--json'], { env });
   let config;
   try { config = JSON.parse(served.stdout); } catch { return; }
   let sites = {};
   try { sites = JSON.parse(fs.readFileSync(path.join(state, 'manifest.json'), 'utf8')).sites || {}; } catch (e) { if (e.code !== 'ENOENT') throw e; }
   for (const route of tailscaleRoot(config).paths) {
-    if (route !== '/' && Object.hasOwn(sites, route.replace(/^\//, '').replace(/\/$/, ''))) run('tailscale', ['serve', '--https=443', '--set-path=' + route, 'off'], { env });
+    if (route !== '/' && Object.hasOwn(sites, route.replace(/^\//, '').replace(/\/$/, ''))) run(tailscale, ['serve', '--https=443', '--set-path=' + route, 'off'], { env });
   }
 }
 

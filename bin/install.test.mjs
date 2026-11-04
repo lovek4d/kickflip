@@ -460,7 +460,7 @@ function healthyDoctor() {
   const env = { PATH: path.join(home, 'doctor-bin'), HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false' };
   fs.mkdirSync(env.PATH);
   fs.writeFileSync(path.join(env.PATH, 'codex'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
-  const options = { home, cloneRoot: root, port, uid: 501, env, platform: 'darwin',
+  const options = { home, cloneRoot: root, port, uid: 501, env, platform: 'darwin', tailscale: 'tailscale',
     run: (command, argv, passed) => {
       assert.deepEqual(passed.env, command === 'git' && argv.includes('ls-remote') ? { ...env, GIT_TERMINAL_PROMPT: '0' } : env);
       const key = [command, ...argv].join(' ');
@@ -599,7 +599,7 @@ for (const [name, command, fix] of [
   ['node on Claude’s PATH', 'node --version', 'restart Claude Code'],
   ['gh', 'gh --version', 'brew install gh'],
   ['gh signed in', 'gh auth status', 'gh auth login'],
-  ['Tailscale', 'tailscale version', 'brew install --cask tailscale'],
+  ['Tailscale', 'tailscale version', 'https://tailscale.com/download'],
   ['Tailscale signed in', 'tailscale status --json', 'tailscale up'],
 ]) {
   test(`doctor marks ${name} yours and gives the person's command`, async () => {
@@ -805,7 +805,7 @@ test('the shared install steps run links, settings, launchd and Tailscale once w
   const waits = [];
   const logs = [];
   const port = 19460;
-  await runInstall({ home, cloneRoot: root, port, uid: 501, platform: 'darwin', wait: async (ms) => waits.push(ms), log: (line) => logs.push(line),
+  await runInstall({ home, cloneRoot: root, port, uid: 501, platform: 'darwin', tailscale: 'tailscale', wait: async (ms) => waits.push(ms), log: (line) => logs.push(line),
     fetch: async (url) => {
       assert.equal(url, `http://127.0.0.1:${port}/_hub/status.json`);
       return { ok: true, json: async () => ({ sites: [] }) };
@@ -836,7 +836,7 @@ test('the shared install steps run links, settings, launchd and Tailscale once w
 test('on Linux the shared install steps start a systemd user unit in place of a login item', async () => {
   reviewSkills();
   const calls = [];
-  await runInstall({ home, cloneRoot: root, port: 19460, uid: 1000, platform: 'linux', wait: async () => {}, log: () => {},
+  await runInstall({ home, cloneRoot: root, port: 19460, uid: 1000, platform: 'linux', tailscale: 'tailscale', wait: async () => {}, log: () => {},
     fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
     run: (command, argv) => {
       calls.push([command, ...argv].join(' '));
@@ -960,10 +960,61 @@ test('tailnetUrl gives the hub or a site at this host’s tailnet name, and says
     return status === null ? { status: 1, stdout: '', error: 'spawnSync tailscale ENOENT' } : { status: 0, stdout: JSON.stringify(status) };
   };
   const on = { BackendState: 'Running', CertDomains: ['mac.tailnet-name.ts.net'], Self: { DNSName: 'mac.tailnet-name.ts.net.' } };
-  assert.equal(tailnetUrl(undefined, { run: runner(on) }), 'https://mac.tailnet-name.ts.net/');
-  assert.equal(tailnetUrl('kickflip', { run: runner(on) }), 'https://mac.tailnet-name.ts.net/kickflip/');
+  const url = (route, status) => tailnetUrl(route, { run: runner(status), tailscale: 'tailscale' });
+  assert.equal(url(undefined, on), 'https://mac.tailnet-name.ts.net/');
+  assert.equal(url('kickflip', on), 'https://mac.tailnet-name.ts.net/kickflip/');
   assert.deepEqual([...new Set(calls)], ['tailscale status --json']);
-  assert.throws(() => tailnetUrl(undefined, { run: runner(null) }), /^Error: Tailscale isn't running on this host/);
-  assert.throws(() => tailnetUrl(undefined, { run: runner({ ...on, BackendState: 'Stopped' }) }), /^Error: Tailscale isn't running on this host/);
-  assert.throws(() => tailnetUrl(undefined, { run: runner({ ...on, CertDomains: null }) }), /^Error: HTTPS isn't on for this tailnet/);
+  assert.throws(() => url(undefined, null), /^Error: Tailscale isn't running on this host/);
+  assert.throws(() => url(undefined, { ...on, BackendState: 'Stopped' }), /^Error: Tailscale isn't running on this host/);
+  assert.throws(() => url(undefined, { ...on, CertDomains: null }), /^Error: HTTPS isn't on for this tailnet/);
+  calls.length = 0;
+  assert.throws(() => tailnetUrl(undefined, { run: runner(on), tailscale: null, platform: 'darwin' }),
+    /^Error: Tailscale isn't installed on this host; install Tailscale from https:\/\/tailscale\.com\/download, or brew install --cask tailscale-app$/);
+  assert.deepEqual(calls, []);
+  assert.equal(tailnetUrl('kickflip', { run: runner(on), tailscale: APP_CLI }), 'https://mac.tailnet-name.ts.net/kickflip/');
+  assert.deepEqual(calls, [`${APP_CLI} status --json`]);
+});
+
+const APP_CLI = '/Applications/Tailscale.app/Contents/MacOS/Tailscale';
+
+test('doctor names the tailscale binary it found, the GUI app’s included, and runs every check through it', async () => {
+  const { options, responses, calls } = healthyDoctor();
+  for (const [key, value] of [...responses]) if (key.startsWith('tailscale ')) responses.set(key.replace('tailscale', APP_CLI), value);
+  const items = await doctorReport({ ...options, tailscale: APP_CLI });
+  assert.deepEqual(pick(items, 'Tailscale'), { group: 'prereqs', item: 'Tailscale', state: 'ok', detail: `1.90.0 (${APP_CLI})`, fix: null });
+  assert.equal(pick(items, 'tailscale /').state, 'ok');
+  assert.ok(calls.some((call) => call.startsWith(`${APP_CLI} serve status`)));
+  assert.ok(!calls.some((call) => call.startsWith('tailscale ')));
+});
+
+test('with no tailscale anywhere, doctor says so once, runs nothing and names the download page on macOS', async () => {
+  const { options, calls } = healthyDoctor();
+  const items = await doctorReport({ ...options, tailscale: null });
+  assert.deepEqual(pick(items, 'Tailscale'), { group: 'prereqs', item: 'Tailscale', state: 'yours', detail: 'not on this session’s PATH or in Applications', fix: 'install Tailscale from https://tailscale.com/download, or brew install --cask tailscale-app' });
+  assert.equal(pick(items, 'Tailscale signed in').detail, 'needs Tailscale');
+  assert.equal(pick(items, 'tailscale /').state, 'yours');
+  assert.equal(pick(items, 'tailscale /').fix, 'install Tailscale from https://tailscale.com/download, or brew install --cask tailscale-app');
+  assert.ok(!calls.some((call) => /tailscale /i.test(call)));
+});
+
+test('with no tailscale, install still starts the hub and skips only the mapping, with the reason and the fix', async () => {
+  const calls = [];
+  const logs = [];
+  const port = 19460;
+  await runInstall({ home, cloneRoot: root, port, uid: 501, platform: 'darwin', tailscale: null, wait: async () => {}, log: (line) => logs.push(line),
+    fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
+    run: (command, argv) => { calls.push([command, ...argv].join(' ')); return { status: 0, stdout: '' }; },
+  });
+  assert.ok(calls.includes(`launchctl bootstrap gui/501 ${path.join(home, 'Library', 'LaunchAgents', 'local.claude.kickflip-hub.plist')}`));
+  assert.ok(!calls.some((call) => /tailscale/i.test(call)));
+  assert.equal(logs.at(-1), "skipped mapping tailscale / to the hub: Tailscale isn't installed on this host; install Tailscale from https://tailscale.com/download, or brew install --cask tailscale-app");
+});
+
+test('install maps the hub through the GUI app’s tailscale when that is the one found', async () => {
+  const calls = [];
+  await runInstall({ home, cloneRoot: root, port: 19460, uid: 501, platform: 'darwin', tailscale: APP_CLI, wait: async () => {}, log: () => {},
+    fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
+    run: (command, argv) => { calls.push([command, ...argv].join(' ')); return { status: 0, stdout: '{}' }; },
+  });
+  assert.deepEqual(calls.filter((call) => /tailscale/i.test(call)), [`${APP_CLI} serve --bg 19460`, `${APP_CLI} serve status --json`]);
 });

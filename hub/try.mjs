@@ -10,6 +10,7 @@ import { listBoards, readManifest, readJSON, saveJSON, appendEvent, GITHUB_STATE
 import { boardRepo, githubFromOrigin } from './board-repo.mjs';
 import { gitReachFault, remoteFromInput, remoteGitEnv } from './repos.mjs';
 import { readiness } from './readiness.mjs';
+import { tailscaleBin } from '../shared/tailscale.mjs';
 import { buildScriptError } from '../board/build-script.mjs';
 import { appendThread, recordedWorktree, setItem } from '../board/store.mjs';
 import { cardPRs, hasPR, prKeyOf } from '../shared/card-prs.mjs';
@@ -148,7 +149,11 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     } else cardPorts.set(id, port);
     return port;
   }
-  const tailscale = (args) => execFileAsync('tailscale', args, { encoding: 'utf8', timeout: 10_000 });
+  const tailscale = async (args) => {
+    const bin = tailscaleBin();
+    if (!bin) throw new Error("Tailscale isn't installed on this host");
+    return execFileAsync(bin, args, { encoding: 'utf8', timeout: 10_000 });
+  };
   async function removePort(port) {
     try { await tailscale(['serve', `--https=${port}`, 'off']); }
     catch (e) { log(`try port ${port}: could not close port: ${(e.stderr || e.message).trim()}`); }

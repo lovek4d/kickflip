@@ -48,7 +48,7 @@ test('Slack reports yes, no and no report, with the reporting site and age', asy
 
 test('Tailscale uses the first failing check and doctor fixes; Notifications ignore holds', () => {
   const row = (value, platform) => readinessRows({ tailscale: value }, { platform })[0];
-  assert.equal(row({ ...tailscale, installed: false }, 'darwin').fix.command, 'brew install --cask tailscale');
+  assert.equal(row({ ...tailscale, installed: false }, 'darwin').fix.command, 'brew install --cask tailscale-app');
   assert.equal(row({ ...tailscale, installed: false }, 'linux').fix.command, 'curl -fsSL https://tailscale.com/install.sh | sh');
   assert.equal(row({ ...tailscale, signedIn: false, pointsAtHub: false }).fix.command, 'tailscale up');
   assert.equal(row({ ...tailscale, pointsAtHub: false, operator: 'other' }).fix.command, 'kickflip doctor --fix');
@@ -126,7 +126,7 @@ test('readiness uses the extracted Tailscale checks with an asynchronous runner'
     }[args.join(' ')];
     return { status: 0, stdout: typeof output === 'string' ? output : JSON.stringify(output) };
   };
-  const options = { run, platform: 'linux', uid: 1000, username: 'love', port: 4501 };
+  const options = { run, platform: 'linux', uid: 1000, username: 'love', port: 4501, tailscale: 'tailscale' };
   const state = await tailscaleState(options);
   const row = readinessRows({ tailscale: state })[0];
   assert.equal(row.ready, true);

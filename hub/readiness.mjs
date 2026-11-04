@@ -7,7 +7,8 @@ import { githubLogin } from './pr-report.mjs';
 import { codexStatusReader } from '../shared/codex.mjs';
 import { linearStatus } from './linear.mjs';
 import { readSettings, subscriptions } from './push.mjs';
-import { tailscaleState, tailscaleInstallHint } from '../bin/install.mjs';
+import { tailscaleState } from '../bin/install.mjs';
+import { tailscaleBin, tailscaleInstallCommand } from '../shared/tailscale.mjs';
 
 // The third entry is the sentence a missing integration shows, or null for a row that shows none.
 const INTEGRATIONS = [
@@ -54,7 +55,7 @@ export function readinessRows(checks, { now = Date.now(), platform = process.pla
       }
       case 'tailscale': {
         let missing, command;
-        if (!value.installed) { missing = "Tailscale isn't installed on the host"; command = tailscaleInstallHint(platform); }
+        if (!value.installed) { missing = "Tailscale isn't installed on the host"; command = tailscaleInstallCommand(platform); }
         else if (!value.signedIn) { missing = "Tailscale isn't signed in"; command = 'tailscale up'; }
         else if (!value.pointsAtHub) { missing = 'Tailscale / is not serving the hub'; command = 'kickflip doctor --fix'; }
         else if (value.operatorChecked && value.operator !== value.username) { missing = `Tailscale operator is ${value.operator || 'none'} (expected ${value.username})`; command = 'sudo tailscale set --operator=$USER'; }
@@ -78,7 +79,7 @@ export function readinessReader({ home = os.homedir(), env = process.env, now = 
     codex,
     linear: () => linearStatus(home),
     slack: () => readSlackReport(home),
-    tailscale: () => tailscaleState({ run: asyncRun(env), port: Number(env.KICKFLIP_HUB_PORT || 4500) }),
+    tailscale: () => tailscaleState({ run: asyncRun(env), port: Number(env.KICKFLIP_HUB_PORT || 4500), tailscale: tailscaleBin({ env }) }),
     notifications: () => ({ on: readSettings(home).notifications.on, devices: subscriptions(home).length }),
     ...probes,
   };

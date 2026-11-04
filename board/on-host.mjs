@@ -12,16 +12,19 @@
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { tailscaleBin } from '../shared/tailscale.mjs';
 
 const run = promisify(execFile);
 const bare = (address) => String(address || '').trim().replace(/^::ffff:/, '');
 
 const interfaceAddresses = () => Object.values(os.networkInterfaces()).flat().map((a) => a.address);
 
-// → {login, addresses} of the host's own tailnet node, or null when tailscale doesn't answer
+// → {login, addresses} of the host's own tailnet node, or null when tailscale isn't installed or doesn't answer
 async function tailnetNode() {
+  const tailscale = tailscaleBin();
+  if (!tailscale) return null;
   try {
-    const { stdout } = await run('tailscale', ['status', '--json'], { timeout: 5000 });
+    const { stdout } = await run(tailscale, ['status', '--json'], { timeout: 5000 });
     const { Self, User } = JSON.parse(stdout);
     return { login: User?.[Self.UserID]?.LoginName, addresses: Self.TailscaleIPs || [] };
   } catch { return null; }

@@ -99,7 +99,7 @@
 //               removes the entry and keeps its files; --session (or --force) only for a route a session owns
 //   kickflip url [route]
 //               prints the hub's HTTPS address on the tailnet, the one to open on the phone, or with a route that
-//               site's (./install.mjs tailnetUrl). Exit 1 when Tailscale isn't running or HTTPS isn't on for the tailnet,
+//               site's (./install.mjs tailnetUrl). Exit 1 when Tailscale isn't installed or running, or HTTPS isn't on for the tailnet,
 //               2 for a route with no site
 //   kickflip restart <route>
 //   kickflip logs <route> [--lines <n>]
@@ -167,6 +167,7 @@ import { joinName, routeFromName, routeRecord, validRoute } from '../hub/routes.
 import { defaultBranch, githubFromOrigin } from '../hub/repos.mjs';
 import { uninstallStatusLine, storedPath, nodeBin, watcherCommand, tailnetUrl } from './install.mjs';
 import { hubService } from '../shared/service.mjs';
+import { tailscaleBin } from '../shared/tailscale.mjs';
 import { runDoctor } from './doctor.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 
@@ -276,9 +277,12 @@ async function freePort(m) {
   fail('no free port found from ' + FIRST_SITE_PORT);
 }
 
+// The host's tailnet name, or '' when Tailscale isn't installed or running, so a site's address falls back to loopback.
 function tailnetHost() {
+  const tailscale = tailscaleBin();
+  if (!tailscale) return '';
   try {
-    const s = JSON.parse(execFileSync('tailscale', ['status', '--json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
+    const s = JSON.parse(execFileSync(tailscale, ['status', '--json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
     return (s.Self?.DNSName || '').replace(/\.$/, '');
   } catch { return ''; }
 }
@@ -845,8 +849,9 @@ const commands = {
     if (uninstallStatusLine()) out(`removed ${path.join(os.homedir(), '.claude', 'statusline.sh')}`);
     const service = hubService();
     service.remove();
-    try { execFileSync('tailscale', ['serve', '--https=443', '--set-path=/', 'off'], { stdio: 'ignore' }); } catch {}
-    out(`hub stopped and removed from ${service.manager ?? 'the host'}; tailscale / unmapped. The manifest and sites are kept in ${HOME}`);
+    const tailscale = tailscaleBin();
+    if (tailscale) try { execFileSync(tailscale, ['serve', '--https=443', '--set-path=/', 'off'], { stdio: 'ignore' }); } catch {}
+    out(`hub stopped and removed from ${service.manager ?? 'the host'}${tailscale ? '; tailscale / unmapped' : ''}. The manifest and sites are kept in ${HOME}`);
   },
 
   async push() {

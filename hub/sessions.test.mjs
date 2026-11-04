@@ -121,7 +121,11 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
     installClaudeSettings({ home: scratch });
     write(hubService({ home: scratch }).file, 'service');
   }
+  const tailscale = path.join(scratch, 'doctor-bin', 'tailscale');
   if (healthy) {
+    // doctor finds tailscale on PATH (../shared/tailscale.mjs); the patched spawnSync below answers for it.
+    write(tailscale, '#!/bin/sh\nexit 1\n');
+    fs.chmodSync(tailscale, 0o755);
     write(path.join(scratch, '.codex', 'auth.json'), '{}');
     write(path.join(scratch, 'doctor-bin', 'codex'), '#!/bin/sh\nexit 1\n');
     fs.chmodSync(path.join(scratch, 'doctor-bin', 'codex'), 0o755);
@@ -132,7 +136,8 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
     import cp from 'node:child_process';
     import os from 'node:os';
     import { syncBuiltinESMExports } from 'node:module';
-    cp.spawnSync = (command, argv, options) => {
+    cp.spawnSync = (bin, argv, options) => {
+      const command = bin === ${JSON.stringify(tailscale)} ? 'tailscale' : bin;
       fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify([command, ...argv]) + '\\n');
       if (!['git', 'node', 'gh', 'tailscale', 'tmux', ...(process.platform === 'darwin' ? ['launchctl'] : ['systemctl', 'loginctl'])].includes(command)) throw new Error('unexpected command: ' + command);
       if (!${healthy}) return { status: 1, stdout: '', stderr: 'unavailable' };
