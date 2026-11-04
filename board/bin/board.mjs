@@ -276,12 +276,15 @@ command fails and changes nothing.
                                                          "max_implementers": 10,
                                                          "auto_triage": false, "auto_review": false,
                                                          "headless_builders": false,
-                                                         "idle_notification": false,
+                                                         "idle_notification": false, "skip_draft": false,
                                                          "github_login": "owner"}
   settings set auto-merge on|off                         on: the session merges an approved PR once CI is green and
                                                          the merge state is CLEAN. off (the default): the card
                                                          shows the owner a Merge button, and the session merges on its
                                                          card-merge event. Board Settings' toggle writes it too
+  settings set skip-draft on|off                         on: the hub's poll marks a card's draft PR ready for
+                                                         review once its CI passes. off (the default): the draft
+                                                         waits in In Review on the owner's review and Ready
   build <wave>/<id> --site <route>                       asks the hub to run this card's .kickflip/build; prints
          --asked "<owner's words>"                       started and exits. install is an alias. Only the owner's
                                                          Serve / Build and Auto-build start a card run, so --asked

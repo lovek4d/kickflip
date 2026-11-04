@@ -13,7 +13,7 @@ Now finishing is one step, in `board/finish.mjs` (`finishCard`):
 What finishing does depends on the board:
 
 - A local board (the hub board included) lands as before: rebase, tests, fast-forward, restarts, worktree removed, card and ticket closed. When the board's "Push main after a land" switch is on (`permissions.mjs` `pushMain`), the CLI then pushes the branch to origin itself (gh195-done-finishes: "a mechanical push to GitHub if we have a push switch on"). The card has landed by then, so a failed push is reported on the card's thread and leaves the land standing.
-- A GitHub board pushes the card's branch, opens a draft PR (`gh pr create --draft`) and records it as `item set --pr` does. The card waits in In Review with Action needed: "Review draft PR #n" (gh195-pr-boards). Before, `land` there would have fast-forwarded the shared clone's local branch.
+- A GitHub board pushes the card's branch, opens a draft PR (`gh pr create --draft`) and records it as `item set --pr` does. Before, `land` there would have fast-forwarded the shared clone's local branch. At first only a green draft waited on the owner, in In Review; a draft with pending or red CI sat in In Progress. Since [a board can skip the draft](2026-11-04-1913-a-board-can-skip-the-draft.md), every draft waits in In Review with Action needed "Review draft PR #n" (gh195-pr-boards), unless the board skips the draft.
 - A plain git remote pushes the branch and records it as `item set --pushed` does.
 
 A finish that fails refuses with the reason before it changes the card (gh195-fails). The builder's record stays open, so the builder fixes what the refusal names and runs done again.

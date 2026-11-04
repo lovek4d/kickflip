@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fakeGh, prView, writePR, writeUser, writeIssueComments, writeReviewComments, writeReviews, calls, queried } from '../shared/fake-gh.mjs';
+import { fakeGh, prView, writePR, writeReady, writeUser, writeIssueComments, writeReviewComments, writeReviews, calls, queried } from '../shared/fake-gh.mjs';
 import { fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'github-'));
@@ -221,6 +221,41 @@ test('a merged PR closes its card as merged, frees the card waiting on it and st
   assert.deepEqual(second.merged, []);
   assert.equal(calls(home).length, fetches);
   assert.deepEqual(board.thread('m/A1').map((l) => l.text), ['Merged PR #51.']);
+});
+
+// docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md
+test("on a board that skips the draft, the poll marks a card's draft ready once its CI passes, and leaves every other PR alone", async () => {
+  const skips = fileBoard('skips', { slug: 'k', skip_draft: true }, [
+    { id: 'A1', pr: 80 }, { id: 'A2', pr: 81 }, { id: 'A3', pr: 82 }, { id: 'A4', pr: 83 }, { id: 'A5', pr: 84 }, { id: 'A6', pr: 85 }]);
+  const keeps = fileBoard('keeps', { slug: 'p' }, [{ id: 'B1', pr: 86 }]);
+  const success = { __typename: 'CheckRun', name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' };
+  writePR(home, 80, prView({ isDraft: true, pending: 1 }));
+  writePR(home, 81, prView({ isDraft: true, statusCheckRollup: [success, { __typename: 'StatusContext', context: 'lint', state: 'SUCCESS' }] }));
+  writePR(home, 82, prView({ isDraft: true, failing: ['test'] }));
+  writePR(home, 83, prView({ statusCheckRollup: [success] }));
+  writePR(home, 84, prView({ isDraft: true, statusCheckRollup: [{ __typename: 'StatusContext', context: 'lint', state: 'PENDING' }] }));
+  writePR(home, 85, prView({ isDraft: true, statusCheckRollup: [{ ...success, conclusion: 'CANCELLED' }] }));
+  writePR(home, 86, prView({ isDraft: true, statusCheckRollup: [success] }));
+  const readied = () => calls(home).filter((a) => a[0] === 'pr' && a[1] === 'ready');
+  const before = readied().length;
+  const first = await skips.poll();
+  assert.deepEqual(first.failed, []);
+  assert.deepEqual(readied().slice(before), [['pr', 'ready', '81', '--repo', 'o/r']]);
+  assert.deepEqual(skips.thread('k/A2').map((l) => [l.who, l.text]), [['claude', 'CI passed, so PR #81 is marked ready for review.']]);
+  for (const id of ['A1', 'A3', 'A4', 'A5', 'A6']) assert.deepEqual(skips.thread(`k/${id}`), [], id);
+  await keeps.poll();
+  assert.deepEqual(readied().slice(before).length, 1, 'a board that keeps the draft marks none');
+
+  // Once the draft goes green it is marked; a refusal is reported and leaves the card's thread alone.
+  writePR(home, 81, prView({ statusCheckRollup: [success] }));
+  writePR(home, 80, prView({ isDraft: true, statusCheckRollup: [success] }));
+  writePR(home, 82, prView({ isDraft: true }));
+  writeReady(home, 82, { error: 'GraphQL: Resource not accessible by integration' });
+  const second = await skips.poll();
+  assert.deepEqual(readied().slice(before).map((a) => a[2]), ['81', '80', '82']);
+  assert.deepEqual(second.failed, ['skips: could not mark o/r#82 ready for review (GraphQL: Resource not accessible by integration)']);
+  assert.deepEqual(skips.thread('k/A1').map((l) => l.text), ['CI passed, so PR #80 is marked ready for review.']);
+  assert.deepEqual(skips.thread('k/A3'), []);
 });
 
 test("the poll reads every PR on a card in its own repo, and closes the card only once all have merged or closed, one merged", async () => {

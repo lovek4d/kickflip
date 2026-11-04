@@ -6,9 +6,10 @@ import { buildBoard, withHub, threadOf, ownerQuestion, needsAnswer, ownerActions
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
 
-function board({ agents = {}, pr = greenDraft, owner = {}, events = [], topicItems = {}, now, held = false, threads = {}, item = {}, fromWaves = true } = {}) {
+function board({ agents = {}, pr = greenDraft, owner = {}, events = [], topicItems = {}, now, held = false, threads = {}, item = {}, fromWaves = true, skipDraft } = {}) {
   return buildBoard({
     now,
+    skipDraft,
     topicItems,
     threads,
     fromWaves,
@@ -66,7 +67,7 @@ test('manifest github selects PR state and card links ahead of wave repo with a 
 
 test('a green draft waits on Ready in In Review until a builder works on it', () => {
   const ready = board().items.find((i) => i.key === 'w/A1');
-  assert.deepEqual([ready.lane, ready.waitsOn, ready.next, ready.action], ['review', 'ready', 'Tap Ready on GitHub', { kind: 'ready', url: 'https://github.com/o/r/pull/7', label: 'Tap Ready on GitHub' }]);
+  assert.deepEqual([ready.lane, ready.waitsOn, ready.next, ready.action], ['review', 'ready', 'Review draft PR #7', { kind: 'ready', url: 'https://github.com/o/r/pull/7', label: 'Review draft PR #7' }]);
   assert.deepEqual([ready.actionButton, ready.resolvedBy], ['grill', 'github']);
   const asked = board({ owner: { items: [{ id: 'q1', topic: 'item:w/A1', question: 'Ship it?' }] } }).items.find((i) => i.key === 'w/A1');
   assert.deepEqual([asked.lane, asked.waitsOn, asked.action.kind, asked.actionButton, asked.resolvedBy], ['review', 'ready', 'questions', 'openQuestions', 'openQuestions']);
@@ -234,10 +235,10 @@ test("a phased status line reads its phase first on the card, and a free-text li
   assert.equal(progress({ phase: 'testing', text: 'Testing: x' }, { text: 'Cause: steady() anchored the card' }), 'Cause: steady() anchored the card');
 });
 
-test('lanes follow the PR, with CI that is running on a draft or red on any PR in In Progress, and an open follow-up sits in Todo', () => {
+test('lanes follow the PR, with a red ready PR in In Progress, and an open follow-up sits in Todo', () => {
   const lanes = (pr) => Object.fromEntries(board({ pr }).items.map((i) => [i.key, i.lane]));
-  assert.deepEqual(lanes({ ...greenDraft, checks: { state: 'pending' } }), { 'w/A1': 'progress', 'w/ENG-1': 'todo' });
-  assert.equal(lanes({ ...greenDraft, checks: { state: 'fail' } })['w/A1'], 'progress');
+  assert.deepEqual(lanes({ ...greenDraft, checks: { state: 'pending' } }), { 'w/A1': 'review', 'w/ENG-1': 'todo' });
+  assert.equal(lanes({ ...greenDraft, checks: { state: 'fail' } })['w/A1'], 'review');
   assert.equal(lanes({ ...greenDraft, isDraft: false })['w/A1'], 'review');
   assert.equal(lanes({ ...greenDraft, isDraft: false, checks: { state: 'pending' } })['w/A1'], 'review');
   const red = board({ pr: { ...greenDraft, isDraft: false, checks: { state: 'fail' } } }).items.find((i) => i.key === 'w/A1');
@@ -1720,12 +1721,31 @@ test("a card whose code landed stays in In Review on its owner step, the step as
   assert.deepEqual(look(answered), waiting);
 });
 
-test('a card on a draft PR with no Next reads "Review draft PR #N"; a Next it was given wins, and a green draft still asks for Ready', () => {
-  const draft = { ...greenDraft, checks: { state: 'pending' } };
-  const card = (item, pr = draft) => board({ pr, item }).items.find((i) => i.key === 'w/A1');
-  assert.deepEqual([card({}).lane, card({}).next], ['progress', 'Review draft PR #7']);
-  assert.equal(card({ next: 'Wait for the design pass' }).next, 'Wait for the design pass');
-  assert.equal(card({}, greenDraft).next, 'Tap Ready on GitHub');
+// docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md
+test('a draft PR waits in In Review with Action needed "Review draft PR #N" from the moment it opens, whatever its CI, which still shows', () => {
+  const card = (checks, item = {}) => board({ pr: { ...greenDraft, checks: { state: checks } }, item }).items.find((i) => i.key === 'w/A1');
+  for (const checks of ['pending', 'fail', 'pass', 'none']) {
+    const c = card(checks);
+    assert.deepEqual([c.lane, c.waitsOn, c.next, c.action, c.resolvedBy, c.pr.checks.state],
+      ['review', 'ready', 'Review draft PR #7', { kind: 'ready', url: 'https://github.com/o/r/pull/7', label: 'Review draft PR #7' }, 'github', checks], checks);
+  }
+  assert.equal(card('pending', { next: 'Wait for the design pass' }).next, 'Review draft PR #7');
+  // A builder fixing the draft takes it back to In Progress.
+  const fixing = board({ pr: { ...greenDraft, checks: { state: 'fail' } }, agents: { A1: { main: { started: '2026-10-23T10:00:00Z' } } } }).items.find((i) => i.key === 'w/A1');
+  assert.deepEqual([fixing.lane, fixing.waitsOn, fixing.action], ['progress', 'builder', null]);
+});
+
+test('with Skip the draft on, a draft waits on its CI in In Review with no Action needed, goes red to In Progress, and a ready PR reads as before', () => {
+  const card = (pr) => board({ pr, skipDraft: true }).items.find((i) => i.key === 'w/A1');
+  for (const checks of ['pending', 'pass', 'none']) {
+    const c = card({ ...greenDraft, checks: { state: checks } });
+    assert.deepEqual([c.lane, c.waitsOn, c.next, c.action, c.resolvedBy], ['review', 'ci', 'Marked ready for review once CI passes', null, null], checks);
+  }
+  const red = card({ ...greenDraft, checks: { state: 'fail' } });
+  assert.deepEqual([red.lane, red.waitsOn, red.next, red.action], ['progress', null, 'Fix the failing CI', null]);
+  const ready = card({ ...greenDraft, isDraft: false });
+  assert.deepEqual([ready.lane, ready.waitsOn, ready.next, ready.action], ['review', 'reviewers', 'Waiting for PR reviewers', null]);
+  assert.deepEqual(board({ skipDraft: true }).needs, []);
 });
 
 // docs/adr/2026-11-04-0257-an-idle-board-pushes-once-when-it-has-gone-idle.md

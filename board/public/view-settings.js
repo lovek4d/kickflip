@@ -42,6 +42,11 @@
     <span class="muted small sub">Claude merges a PR once it is approved, green and merges cleanly.</span></span>
     <input type="checkbox" class="toggle" id="autoMerge" disabled></label>
   <p class="muted small" id="autoMergeStatus" role="status"></p>
+  <div id="skipDraftRow" hidden><label class="who" for="skipDraft"><span><span>Skip the draft</span>
+    <span class="muted small sub">A builder’s PR opens as a draft and is marked ready for review once CI passes, so it goes to reviewers without waiting for you.</span></span>
+    <input type="checkbox" class="toggle" id="skipDraft" disabled></label>
+  <p class="muted small">With Auto-merge on too, a builder’s PR can merge once reviewers approve it, without you seeing it.</p>
+  <p class="muted small" id="skipDraftStatus" role="status"></p></div>
   <label class="who" for="autoTriage"><span><span>Triage overnight</span>
     <span class="muted small sub">Once a night, when two or more cards wait on your answers, Claude merges their overlapping questions and duplicate cards, and tidies Todo.</span></span>
     <input type="checkbox" class="toggle" id="autoTriage" disabled></label>
@@ -179,7 +184,11 @@
     const repoURL = `/_hub/board-repo/${encodeURIComponent(B.route)}`;
     let repo = {}, closeRepo = () => {};
     let tickets, savedTickets, savingTickets = null, ticketsTouched = false;
-    const showRepo = () => { $('#boardRepoValue').textContent = repo.github || repo.remote ? `${repo.github || repo.remote} · ${repo.branch || 'Branch not recorded'}` : 'No GitHub repo'; };
+    // Skip the draft is only for a board with pull requests, on GitHub (docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md).
+    const showRepo = () => {
+      $('#boardRepoValue').textContent = repo.github || repo.remote ? `${repo.github || repo.remote} · ${repo.branch || 'Branch not recorded'}` : 'No GitHub repo';
+      $('#skipDraftRow').hidden = !repo.github;
+    };
     get(repoURL).then(({ body }) => {
       if (!B.alive()) return;
       repo = body;
@@ -343,6 +352,8 @@
       $('#headlessBuilders').disabled = false;
       $('#idleNotification').checked = d.settings?.idle_notification === true;
       $('#idleNotification').disabled = false;
+      $('#skipDraft').checked = d.settings?.skip_draft === true;
+      $('#skipDraft').disabled = false;
     }).catch(() => { autoMergeStatus.textContent = ticketsStatus.textContent = 'Offline. Is the host awake?'; });
     // An Auto toggle keeps its face, disabled with a spinner beside it (ui.js waitOn), while POST api/settings saves it.
     // → the saved settings
@@ -425,6 +436,7 @@
     autoToggle('headlessBuilders', 'headless_builders', (on) => (on ? 'Saved. The board launches each ready card’s builder itself, and the builder lands its own work.' : 'Saved. Claude briefs and launches each builder.'));
     autoToggle('idleNotification', 'idle_notification', (on) => (on ? 'Saved. One push once the board has been idle for 15 minutes.' : 'Saved. No push when the board goes idle.'));
     autoToggle('autoTriage', 'auto_triage', (on) => (on ? 'Saved. Once a night, when cards wait on your answers, Claude triages them.' : 'Saved. Questions and Todo are left as they are.'));
+    autoToggle('skipDraft', 'skip_draft', (on) => (on ? 'Saved. A builder’s draft PR is marked ready for review once CI passes.' : 'Saved. A builder’s draft PR waits for your review.'));
 
     // Each switch writes or removes one allow rule in the board folder's .claude/settings.local.json through POST
     // api/permissions, which only the host's own browser may send; elsewhere the switches are read-only

@@ -949,11 +949,11 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
   const checks = async () => (await (await fetch(`${base}/_claude/events?kind=check-github`)).json()).map((e) => e.data);
   const before = (await checks()).length;
   try {
-    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false, auto_pull: false, max_implementers: 10, auto_triage: false, auto_review: false, headless_builders: false, idle_notification: false } });
+    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false, auto_pull: false, max_implementers: 10, auto_triage: false, auto_review: false, headless_builders: false, idle_notification: false, skip_draft: false } });
     const on = await save({ auto_merge: true });
     assert.equal(on.status, 200);
     const out = await on.json();
-    assert.deepEqual(out.settings, { auto_merge: true, auto_build: false, auto_pull: false, max_implementers: 10, auto_triage: false, auto_review: false, headless_builders: false, idle_notification: false });
+    assert.deepEqual(out.settings, { auto_merge: true, auto_build: false, auto_pull: false, max_implementers: 10, auto_triage: false, auto_review: false, headless_builders: false, idle_notification: false, skip_draft: false });
     assert.match(out.id, /^e/);
     const written = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8'));
     assert.deepEqual([written.title, written.rules.length, written.auto_merge], ['T', 1, true]);
@@ -969,6 +969,10 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
     assert.equal((await checks()).length, before + 1);
     assert.equal((await save({ auto_merge: true })).status, 200);
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8')).auto_merge, true);
+    // docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md
+    assert.deepEqual(await (await save({ skip_draft: true })).json().then((b) => [b.settings.skip_draft, Boolean(b.id)]), [true, true]);
+    assert.deepEqual((await settingsEvents())[0], { skip_draft: true });
+    assert.equal((await save({ skip_draft: 'yes' })).status, 400);
     fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', ticket: 'INT-3' }, { id: 'B2', title: 'Two', ticket: 'OPS-4' }] }));
     const internal = await (await save({ tickets: { source: 'internal', prefix: 'OPS' } })).json();
     assert.deepEqual(internal.settings.tickets, { source: 'internal', prefix: 'OPS' });
@@ -1092,10 +1096,10 @@ test('the watcher prints the hub rules, then the board rules, the board settings
     await until(async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === `ask:${asked}`).working, 'the board shows the ask working');
     assert.deepEqual((await (await fetch(`${base}/api/working`)).json()).working.filter((w) => w.id === asked).map(({ since, ...w }) => w), [{ id: asked, kind: 'ask', card: null }]);
     assert.match(lines.at(-1), /^quiet .*AskUserQuestion/);
-    assert.deepEqual(lines.slice(2, -1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off', 'setting idle-notification off']);
+    assert.deepEqual(lines.slice(2, -1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off', 'setting idle-notification off', 'setting skip-draft off']);
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, auto_merge: true }));
     fs.rmSync(path.join(web, 'settings.json'));
-    assert.deepEqual((await watch('rules2')).slice(2, -1), ['setting auto-merge on', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off', 'setting idle-notification off']);
+    assert.deepEqual((await watch('rules2')).slice(2, -1), ['setting auto-merge on', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off', 'setting idle-notification off', 'setting skip-draft off']);
     const hello = () => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: 'hello1', ts: new Date().toISOString(), kind: 'hello', data: { title: 'T' } }) + '\n');
     assert.equal((await watch('hello', hello))[1], 'hello hello1 from the hub answered');
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'handshake.json'), 'utf8')).ack.id, 'hello1');

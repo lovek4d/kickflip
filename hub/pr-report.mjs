@@ -33,6 +33,20 @@ export async function postToPR({ repo, pr, replyTo, words, login }) {
   catch (e) { throw new Error(`${repo}#${pr}: ${e.message}`); }
 }
 
+// Marks a draft PR ready for review as gh's active account, the one the finish opened it with (board/finish.mjs).
+// Throws with gh's reason when GitHub refuses.
+export function markReady({ repo, pr }) {
+  return new Promise((resolve, reject) => {
+    execFile('gh', ['pr', 'ready', String(pr), '--repo', repo], { env: { ...process.env, PATH: [process.env.PATH, GH_PATH].filter(Boolean).join(':') }, timeout: 90_000 },
+      (err, _stdout, stderr) => (err ? reject(new Error(firstLine(stderr || err.message))) : resolve()));
+  });
+}
+
+// Whether a PR's checks all passed, from GraphQL's status check rollup: every check run completed as a success,
+// neutral or skip, and every status context a success. A PR with no checks has nothing to fail.
+export const checksPassed = (rollup) => rollup.every((c) => (c.__typename === 'StatusContext'
+  ? c.state === 'SUCCESS' : c.status === 'COMPLETED' && ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(c.conclusion)));
+
 export async function fetchPR({ repo, pr, since }) {
   let view;
   try { view = await gh(['pr', 'view', String(pr), '--repo', repo, '--json', PR_VIEW_FIELDS]); }

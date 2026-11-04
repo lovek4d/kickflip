@@ -524,6 +524,40 @@ for (const [key, id, on] of [
   view.unmount();
 });
 
+// docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md
+test('Board Settings shows Skip the draft only on a GitHub board, says under it what Auto-merge adds, and saves it with no confirmation', async () => {
+  for (const github of ['owner/project', null]) {
+    const page = fakePage(memoryStorage().localStorage);
+    const root = new page.El();
+    let saved = false;
+    const posts = [], confirms = [];
+    page.win.BoardDialogs.confirm = async (text) => { confirms.push(text); return true; };
+    page.win.fetch = async (url, opts = {}) => {
+      let body = {};
+      if (url.includes('board-repo')) body = github ? { github, branch: 'main' } : { remote: 'https://git.example/r', branch: 'main' };
+      if (url.endsWith('/api/settings')) {
+        if (opts.method === 'POST') { posts.push(JSON.parse(opts.body)); saved = JSON.parse(opts.body).skip_draft; }
+        body = { settings: { skip_draft: saved } };
+      }
+      return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
+    };
+    const view = page.win.AppViews.settings.create(root, '/orch', {});
+    view.mount();
+    await tick();
+    assert.equal(root.querySelector('#skipDraftRow').hidden, !github, String(github));
+    const markup = page.win.AppViews.settings.markup({}, {});
+    assert.match(markup.slice(markup.indexOf('id="skipDraftRow"')), /^[^]*Skip the draft[^]*With Auto-merge on too, a builder’s PR can merge once reviewers approve it, without you seeing it\.[^]*id="skipDraftStatus"/);
+    const toggle = root.querySelector('#skipDraft');
+    assert.deepEqual([toggle.disabled, toggle.checked], [false, false]);
+    toggle.checked = true;
+    page.fire(toggle, 'change');
+    await tick();
+    assert.deepEqual([confirms, posts.at(-1), toggle.checked], [[], { skip_draft: true }, true]);
+    assert.equal(root.querySelector('#skipDraftStatus').textContent, 'Saved. A builder’s draft PR is marked ready for review once CI passes.');
+    view.unmount();
+  }
+});
+
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
 test('Board Settings shows Maximum parallel implementers beside Auto implement, saves a whole number from 1 to 99 on change and restores the saved one on refusal', async () => {
   const page = fakePage(memoryStorage().localStorage);
@@ -4319,8 +4353,8 @@ test('Board Settings holds every automatic job in one Auto section, short labels
   const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
   const auto = html.slice(html.indexOf('<h2>Auto</h2>'), html.indexOf('<h2>Reviewers</h2>'));
   assert.deepEqual([...auto.matchAll(/<label class="who" for="(\w+)"><span><span>([^<]+)<\/span>/g)].map((m) => [m[1], m[2]]), [
-    ['autoPull', 'Auto implement Todo cards'], ['maxImplementers', 'Maximum parallel implementers'], ['headlessBuilders', 'Builders launch headless'], ['autoBuild', 'Auto-build cards'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'], ['autoTriage', 'Triage overnight'],
-    ['idleNotification', 'Idle notification'],
+    ['autoPull', 'Auto implement Todo cards'], ['maxImplementers', 'Maximum parallel implementers'], ['headlessBuilders', 'Builders launch headless'], ['autoBuild', 'Auto-build cards'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'], ['skipDraft', 'Skip the draft'],
+    ['autoTriage', 'Triage overnight'], ['idleNotification', 'Idle notification'],
   ]);
   assert.match(auto, /May use a lot of usage\./);
   assert.doesNotMatch(html, /<h2>(Merging|Builds|Todo)<\/h2>/);

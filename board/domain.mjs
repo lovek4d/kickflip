@@ -57,13 +57,15 @@ const ticketOf = (tickets, stored, id, at) => ticketBadge(tickets || (stored ? {
 // The lane before owner waits are placed: In Progress while Claude acts next, In Review while the reviewers do, or
 // while a pushed branch waits on the owner's merge (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
 // buildBoard places a card that only the owner can move on (docs/adr/2026-10-29-1639-the-lane-follows-who-acts-next.md).
-// A reopened card has left Done whatever its PR's state.
-function laneOf(item, pr, running, pushed, reopened) {
+// A reopened card has left Done whatever its PR's state. An open PR is In Review, a draft too whatever its CI, apart
+// from red CI on a PR the board marks ready itself, which goes back to Claude: one out of draft, or a draft while the
+// board skips the draft (docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md).
+function laneOf(item, pr, running, pushed, reopened, skipDraft) {
   const s = (item.status || '').toLowerCase();
   if (s === 'merged' || s === 'done' || s === 'dropped' || (!reopened && (pr?.state === 'MERGED' || pr?.state === 'CLOSED'))) return 'done';
   if (running || s === 'checking') return 'progress';
   if (pushed) return 'review';
-  if (pr && pr.state === 'OPEN' && !pr.isDraft) return pr.checks?.state === 'fail' ? 'progress' : 'review';
+  if (pr?.state === 'OPEN') return pr.checks?.state === 'fail' && (!pr.isDraft || skipDraft) ? 'progress' : 'review';
   return pr ? 'progress' : 'todo';
 }
 
@@ -99,15 +101,15 @@ function reviewOf(reviewers, pr, sentAt) {
   }));
 }
 
-// What the card waits on: the owning session's check of finished work, the owner's Ready on GitHub, the builder, the
-// owner's merge of a pushed branch, the reviewers, the merge once GitHub counts it approved, or nothing. buildBoard sets
-// `owner` for the owner's other waits.
-function waitsOnOf(lane, pr, builder, status, pushed) {
+// What the card waits on: the owning session's check of finished work, the builder, the owner's merge of a pushed
+// branch, the owner's review of a draft and Ready on GitHub, the CI before the board marks a draft ready itself, the
+// reviewers, the merge once GitHub counts it approved, or nothing. buildBoard sets `owner` for the owner's other waits.
+function waitsOnOf(lane, pr, builder, status, pushed, skipDraft) {
   if (builder?.kind === BUILDER_KIND.install) return 'builder';
   if (status === 'checking') return 'checking';
   if (builder) return 'builder';
   if (pushed && lane === 'review') return 'owner';
-  if (lane === 'progress' && pr?.state === 'OPEN' && pr.isDraft && pr.checks?.state === 'pass') return 'ready';
+  if (lane === 'review' && pr?.state === 'OPEN' && pr.isDraft) return skipDraft ? 'ci' : 'ready';
   if (lane === 'review' || lane === 'stale') return pr?.reviewDecision === 'APPROVED' ? 'merge' : 'reviewers';
   return null;
 }
@@ -116,7 +118,7 @@ function waitsOnOf(lane, pr, builder, status, pushed) {
 // A card whose PR is ready for review reads its next step from GitHub, never from the wave file's `next`, and a card
 // waiting on the owner reads its action. While its PR is changing, the builder line takes the place of a next step.
 const PROTOTYPE_URL = /(^|\/)prototype-[\w-]+\.html/;
-const REVIEW_NEXT = { reviewers: 'Waiting for PR reviewers', merge: 'Approved, merges once CI and the merge state allow' };
+const REVIEW_NEXT = { reviewers: 'Waiting for PR reviewers', merge: 'Approved, merges once CI and the merge state allow', ci: 'Marked ready for review once CI passes' };
 // docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md
 const OWNER_MERGE_NEXT = { waiting: 'Approved, Merge shows once CI and the merge state allow', ready: 'Approved and green: tap Merge', merging: 'Merging' };
 const FIX_CI = 'Fix the failing CI';
@@ -131,7 +133,7 @@ const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && !QUIET
 // said is the owner's messages and answers in the card's thread (threadOf), and askedAt the asked_at of its questions.
 // prs is the card's PRs, [{repo, number, gh}], gh being GitHub's state or null before it is read; the least-ready one
 // decides the lane, what it waits on and its Next (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
-function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, tickets }) {
+function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets }) {
   const views = prs.map((p) => ({ repo: p.repo, number: p.number, url: prURL(p), ...(p.gh || {}), status: prStateOf(p.gh, it) }));
   const least = leastReady(prs.map((p) => p.gh));
   const pr = prs[least]?.gh || null;
@@ -162,14 +164,14 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   const othersAt = [...thread.filter((m) => countsUnread({ ...m, who: m.who || 'claude' })).map((m) => m.ts), ...events.map((e) => e.reply?.at)].filter(Boolean).sort();
   // A branch pushed to a plain git remote, which has no PR (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
   const pushed = !hasPR(it) && it.pushed?.branch ? { branch: it.pushed.branch, at: it.pushed.at || null, host: remote?.host || null } : null;
-  let lane = laneOf(it, pr, agents.some((a) => a.started && !a.done && builds(a)), pushed, Boolean(reopenAt));
+  let lane = laneOf(it, pr, agents.some((a) => a.started && !a.done && builds(a)), pushed, Boolean(reopenAt), skipDraft);
   if (reopenAt && lane === 'todo') lane = 'progress';
   if (lane === 'review' && inReviewSince && now - Date.parse(inReviewSince) > STALE_AFTER) lane = 'stale';
   const stepWaits = Boolean(ownerStep) && landed && lane === 'done';
   if (stepWaits) lane = 'review';
-  let waitsOn = waitsOnOf(lane, pr, builder, (it.status || '').toLowerCase(), pushed);
+  let waitsOn = waitsOnOf(lane, pr, builder, (it.status || '').toLowerCase(), pushed, skipDraft);
   const changing = waitsOn === 'builder' && pr?.state === 'OPEN' && !pr.isDraft;
-  const redReady = lane === 'progress' && !waitsOn && pr?.state === 'OPEN' && !pr.isDraft;
+  const redReady = lane === 'progress' && !waitsOn && pr?.state === 'OPEN' && (!pr.isDraft || skipDraft);
   // A reopened card Claude has answered waits on the owner's Done.
   const awaitsDone = stepWaits || (Boolean(reopenAt) && lane === 'progress' && !waitsOn && !redReady && !ownerPending);
   if (awaitsDone) waitsOn = 'owner';
@@ -249,7 +251,7 @@ export function mergeBlockers(pr) {
 const mergeable = (pr) => !mergeBlockers(pr).length;
 
 // What the owner acts on next, or null: {kind, url, label}, url relative to the site root. kind is pick (a prototype
-// question), questions, ready (a green draft's Ready on GitHub), done (an ask's Done in its thread), steps (manual
+// question), questions, ready (a draft's review, then Ready on GitHub), done (an ask's Done in its thread), steps (manual
 // steps on an approved PR, which the session never merges on its own) or merge (the open card's Merge, while the board's
 // auto-merge is off). A held card waits on nobody, and a reopened card waiting only on its Done has no action.
 function actionOf(it, questionById, autoMerge) {
@@ -260,7 +262,7 @@ function actionOf(it, questionById, autoMerge) {
     if (PROTOTYPE_URL.test(q?.url || '')) return { kind: ACTION_KIND.pick, url: `questions.html#${q.id}`, label: 'Prototypes ready: pick a take' };
     return { kind: ACTION_KIND.questions, url: `questions.html#${it.questions.first}`, label: `Answer ${plural(it.questions.open, 'question')}` };
   }
-  if (it.waitsOn === 'ready') return { kind: ACTION_KIND.ready, url: it.pr.url, label: 'Tap Ready on GitHub' };
+  if (it.waitsOn === 'ready') return { kind: ACTION_KIND.ready, url: it.pr.url, label: `Review draft PR #${it.pr.number}` };
   if (it.kind === 'ask' && it.waitsOn === 'owner') return { kind: ACTION_KIND.done, url: thread, label: it.next || TAP_DONE };
   if (it.waitsOn === 'merge' && it.manualSteps.length) return { kind: ACTION_KIND.steps, url: thread, label: 'Run the manual steps, then merge' };
   // docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md
@@ -332,7 +334,7 @@ function placeOwnerWait(it, questionById, autoMerge) {
   it.resolvedBy = RESOLVED_BY[it.action?.kind] || null;
   if (it.action?.kind === ACTION_KIND.merge) it.next = OWNER_MERGE_NEXT.ready;
   if (it.awaitsDone) Object.assign(it, { lane: 'review', next: it.ownerStep || TAP_DONE, bumpable: false, bumpedAt: null });
-  const ownerOnly = it.lane === 'todo' || (it.lane === 'progress' && (it.waitsOn === 'ready' || it.waitsOn === 'owner'));
+  const ownerOnly = it.lane === 'todo' || it.waitsOn === 'ready' || (it.lane === 'progress' && it.waitsOn === 'owner');
   if (!it.action || !ownerOnly) return;
   const lane = it.lane === 'todo' && ASKING.has(it.action.kind) ? 'todo' : 'review';
   Object.assign(it, { lane, waitsOn: it.waitsOn === 'ready' ? 'ready' : 'owner', next: it.action.label });
@@ -741,6 +743,8 @@ export const lineupPhases = (lineup) => lineup.phases || lineup.items.map((id) =
 //   working: {<event id>: ts}, checked: data/checked.json, listen, watcher: data/watcher.json, askLinks: {<ask event id>: <wave>/<id>},
 //   askProgress: {<ask event id>: {state: progress|done, at, next, moved}}, owner: owner.json,
 //   autoMerge: board.json's auto_merge (true leaves merging to the GitHub tick, so no card gets the owner's Merge),
+//   skipDraft: board.json's skip_draft (true leaves a draft to the hub's poll, which marks it ready once CI passes, so
+//   no draft gets the owner's review),
 //   autoPull: board.json's auto_pull (true puts every card ready to build in In Progress's Queued section),
 //   autoBuild: board.json's auto_build (true leaves card runs to the hub, so no card gets the owner's Serve / Build),
 //   threads also holds each ask's lines under ask:<event id>; github: the board's owner/name, or remote: its git link
@@ -804,7 +808,7 @@ export function buildBoard(snapshot) {
         said: msgs.filter((m) => m.who === 'love' && (m.kind === 'item-message' || m.kind === 'owner-answer')),
         askedAt: (index.questions.get(`item:${key}`) || []).filter((q) => q.asked_at).map((q) => q.asked_at),
         topicItems, boardReviewers: snapshot.reviewers || [], now, bumpedAt: cardBumps.get(key), holdAsk: cardHolds.get(key), closedAt: cardDones.get(key),
-        mergeAt: cardMerges.get(key), autoMerge, tickets,
+        mergeAt: cardMerges.get(key), autoMerge, skipDraft: snapshot.skipDraft === true, tickets,
       }));
       const card = items[items.length - 1];
       storedLinks.set(key, { parent: it.parent ? linkKey(slug, it.parent) : null, related: (it.related || []).map((r) => linkKey(slug, r)) });

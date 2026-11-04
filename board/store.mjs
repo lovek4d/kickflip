@@ -764,7 +764,8 @@ const storedTickets = (value) => { try { return value ? ticketSource(value) : nu
 // auto_build, auto_pull (Auto implement Todo cards), auto_triage, auto_review and idle_notification, off when absent, max_implementers, a
 // whole number from 1 to 99 and MAX_IMPLEMENTERS when absent
 // (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md), headless_builders, off when absent
-// (docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md), tickets, its one
+// (docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md), skip_draft, off when
+// absent (docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md), tickets, its one
 // ticket source, and github_login, absent when unset or invalid (docs/adr/2026-11-01-1348-a-board-has-one-ticket-source.md).
 const validMaxImplementers = (value) => Number.isInteger(value) && value >= 1 && value <= 99;
 export const settingsOf = (cfg) => {
@@ -772,15 +773,15 @@ export const settingsOf = (cfg) => {
   return { auto_merge: cfg?.auto_merge === true, auto_build: cfg?.auto_build === true, auto_pull: cfg?.auto_pull === true,
     max_implementers: validMaxImplementers(cfg?.max_implementers) ? cfg.max_implementers : MAX_IMPLEMENTERS, auto_triage: cfg?.auto_triage === true, auto_review: cfg?.auto_review === true,
     headless_builders: cfg?.headless_builders === true,
-    idle_notification: cfg?.idle_notification === true,
+    idle_notification: cfg?.idle_notification === true, skip_draft: cfg?.skip_draft === true,
     ...(tickets ? { tickets } : {}), ...(validGithubLogin(cfg?.github_login) ? { github_login: cfg.github_login } : {}) };
 };
 export async function readBoardSettings(site) {
   return settingsOf(await readJSON(path.join(needSite(site), 'board.json'), {}));
 }
-// changes {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean, headless_builders?: boolean, idle_notification?: boolean, tickets?: source, github_login?: login | null} → {file, settings, changed}; changed lists the keys whose value moved.
+// changes {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean, headless_builders?: boolean, idle_notification?: boolean, skip_draft?: boolean, tickets?: source, github_login?: login | null} → {file, settings, changed}; changed lists the keys whose value moved.
 export function saveBoardSettings(site, changes) {
-  onlyKeys(changes, ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'auto_triage', 'auto_review', 'headless_builders', 'idle_notification', 'tickets', 'github_login'], 'the settings');
+  onlyKeys(changes, ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'auto_triage', 'auto_review', 'headless_builders', 'idle_notification', 'skip_draft', 'tickets', 'github_login'], 'the settings');
   if (!Object.keys(changes).length) fail('the settings name nothing to change');
   changes = { ...changes };
   for (const [k, v] of Object.entries(changes)) {
@@ -822,7 +823,7 @@ export async function fallBackFromLinear() {
 // The CLI's `settings set <name> <value>`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
   const key = String(name).replace(/-/g, '_');
-  const names = ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'auto_triage', 'auto_review', 'headless_builders', 'idle_notification', 'github_login', 'tickets'];
+  const names = ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'auto_triage', 'auto_review', 'headless_builders', 'idle_notification', 'skip_draft', 'github_login', 'tickets'];
   if (!names.includes(key)) fail(`no board setting "${name}"; settings are ${names.map((k) => k.replace(/_/g, '-')).join(', ')}`);
   if (key === 'tickets') {
     let tickets;

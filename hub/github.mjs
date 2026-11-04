@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { savedClient } from './linear.mjs';
-import { fetchPRs, reportOf } from './pr-report.mjs';
+import { checksPassed, fetchPRs, markReady, reportOf } from './pr-report.mjs';
 import { wakesDue, localDay } from './schedule.mjs';
 import { GITHUB_STATE as STATE, WAKE_STATE, WAVES, listBoards, appendEvent, prKey, readJSON, saveJSON, reviewerLogins } from './boards.mjs';
 import { appendThread, setItem, mergedLine } from '../board/store.mjs';
@@ -134,6 +134,7 @@ export async function checkGitHub({ every, manifest }) {
   const undelivered = new Set();
   const merged = new Map();
   const mergedRoutes = new Set();
+  const readied = new Set();
   for (const board of boards) {
     const cards = board.prs.map((p) => {
       const key = prKey(p);
@@ -148,6 +149,7 @@ export async function checkGitHub({ every, manifest }) {
       const report = reports[fetchKey(card.p, board.me)];
       const siblings = cards.filter((c) => c.p.wave === card.p.wave && c.p.id === card.p.id);
       if (report && await recordOnCard(board, card, report, siblings, { state, merged, failed })) mergedRoutes.add(board.route);
+      if (board.skipDraft) await readyGreenDraft(board, card, raw.get(card.key)?.view, readied, failed);
     }
     const changed = cards.filter((c) => c.changes.length);
     let reached = cards.every((c) => c.next);
@@ -232,6 +234,18 @@ async function recordOnCard(board, { p, key, recipient }, report, siblings, { st
     catch (err) { failed.push(`${board.route}: could not record ${card} merged (${err.message})`); merged.set(file, false); }
   }
   return merged.get(file);
+}
+
+// docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md: on a board that skips the draft, a card's draft PR is marked
+// ready for review once its CI passes, once a check however many cards show it, with a line on the card. The next
+// check reads it out of draft, which wakes the session with a draft change.
+async function readyGreenDraft(board, { p, key }, view, readied, failed) {
+  if (readied.has(key) || view?.state !== 'OPEN' || !view.isDraft || !checksPassed(view.statusCheckRollup)) return;
+  readied.add(key);
+  try { await markReady({ repo: p.repo, pr: p.pr }); }
+  catch (err) { failed.push(`${board.route}: could not mark ${key} ready for review (${err.message})`); return; }
+  try { await appendThread(board.dir, `${p.wave}/${p.id}`, { text: `CI passed, so PR #${p.pr} is marked ready for review.` }); }
+  catch (err) { failed.push(`${board.route}: could not write ${p.wave}/${p.id}'s ready line (${err.message})`); }
 }
 
 async function advanceLinear(boards, fetched, fetchKey, result) {

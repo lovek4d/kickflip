@@ -14,6 +14,8 @@ export const writeReviewComments = (dir, n, value) => write(dir, 'review-comment
 export const writeReviews = (dir, n, value) => write(dir, 'reviews', n, value);
 // {error}: gh pr merge <n> fails, printing error.
 export const writeMerge = (dir, n, value) => write(dir, 'merge', n, value);
+// {error}: gh pr ready <n> fails, printing error.
+export const writeReady = (dir, n, value) => write(dir, 'ready', n, value);
 export const writeUser = (dir, value) => write(dir, '', 'user', value);
 // {login: token}: the accounts gh auth token -u answers for.
 export const writeAccounts = (dir, value) => write(dir, '', 'accounts', value);
@@ -73,6 +75,13 @@ if (args.length === 6 && args[0] === 'pr' && args[1] === 'merge' && /^\\d+$/.tes
   let refused = null;
   try { refused = JSON.parse(fs.readFileSync(fixture('merge', args[4], args[2]), 'utf8')).error; } catch {}
   if (refused) { console.error(refused); process.exit(1); }
+  process.exit(0);
+}
+if (args.length === 5 && args[0] === 'pr' && args[1] === 'ready' && /^\\d+$/.test(args[2]) && args[3] === '--repo') {
+  let refused = null;
+  try { refused = JSON.parse(fs.readFileSync(fixture('ready', args[4], args[2]), 'utf8')).error; } catch {}
+  if (refused) { console.error(refused); process.exit(1); }
+  console.log('✓ Pull request ' + args[4] + '#' + args[2] + ' is marked as "ready for review"');
   process.exit(0);
 }
 // A comment or review-comment reply posted with gh api <endpoint> -f body=…: answers the endpoint as its html_url.

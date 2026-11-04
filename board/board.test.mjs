@@ -2836,14 +2836,19 @@ test("reviewers set, add and remove keep the board's own reviewers in its board.
 test("settings prints the board's settings as JSON, off when absent, and settings set auto-merge on|off writes board.json keeping its other keys", () => {
   const cfg = () => read(site('orch', 'board.json'));
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] });
-  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_pull":false,"max_implementers":10,"auto_triage":false,"auto_review":false,"headless_builders":false,"idle_notification":false}\n', err: '' });
+  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_pull":false,"max_implementers":10,"auto_triage":false,"auto_review":false,"headless_builders":false,"idle_notification":false,"skip_draft":false}\n', err: '' });
   const on = board('settings', 'set', 'auto-merge', 'on', '--site', 'orch');
   assert.equal(on.code, 0);
   assert.match(on.out, /^auto-merge on$/m);
   assert.deepEqual(cfg(), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }], auto_merge: true });
-  assert.equal(board('settings', '--site', 'orch').out, '{"auto_merge":true,"auto_build":false,"auto_pull":false,"max_implementers":10,"auto_triage":false,"auto_review":false,"headless_builders":false,"idle_notification":false}\n');
+  assert.equal(board('settings', '--site', 'orch').out, '{"auto_merge":true,"auto_build":false,"auto_pull":false,"max_implementers":10,"auto_triage":false,"auto_review":false,"headless_builders":false,"idle_notification":false,"skip_draft":false}\n');
   assert.equal(board('settings', 'set', 'auto-merge', 'off', '--site', 'orch').code, 0);
   assert.equal(cfg().auto_merge, false);
+  // docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md
+  assert.deepEqual(board('settings', 'set', 'skip-draft', 'on', '--site', 'orch'), { code: 0, out: 'skip-draft on\n', err: '' });
+  assert.equal(cfg().skip_draft, true);
+  assert.equal(board('settings', 'set', 'skip-draft', 'off', '--site', 'orch').code, 0);
+  assert.equal(cfg().skip_draft, false);
   assert.deepEqual(board('settings', 'set', 'idle-notification', 'on', '--site', 'orch'), { code: 0, out: 'idle-notification on\n', err: '' });
   assert.equal(cfg().idle_notification, true);
   assert.equal(board('settings', 'set', 'idle-notification', 'off', '--site', 'orch').code, 0);
@@ -3091,7 +3096,7 @@ test('main set publishes an install with the same URL and sha checks as card ins
 
 test('github-login settings lines and API validation support set and clear', async () => {
   const { settingsOf, settingsLines, saveBoardSettings } = await import('./store.mjs');
-  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off', 'setting idle-notification off', 'setting github-login owner']);
+  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off', 'setting idle-notification off', 'setting skip-draft off', 'setting github-login owner']);
   assert.ok(!('github_login' in settingsOf({ github_login: 'bad login' })));
   await saveBoardSettings(site('orch'), { github_login: 'owner' });
   await saveBoardSettings(site('orch'), { github_login: null });
