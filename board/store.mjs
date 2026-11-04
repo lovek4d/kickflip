@@ -324,13 +324,13 @@ export async function readUpload(site, file) {
 
 const VIA = ['github', 'slack'];
 // key is <wave>/<id>, or ask:<event id> for an ask's thread.
-export async function appendThread(site, key, { text: body, link, log, who = 'claude', via }) {
+export async function appendThread(site, key, { text: body, link, log, who = 'claude', via, kind }) {
   needSite(site);
   if (String(key).startsWith('ask:')) await checkAsk(site, key.slice(4), 'the ask');
   else await loadItem(site, key);
   if (!/^[^\n]{1,40}$/.test(who.trim())) fail('--who takes claude, love or a reviewer\'s name');
   if (via !== undefined && !VIA.includes(via)) fail(`--via takes ${VIA.join(' or ')}`);
-  const line = { ts: new Date().toISOString(), who: who.trim(), text: text(body, '--text'), link: optional(link, (v) => pageUrl(v, '--link')), log, via };
+  const line = { ts: new Date().toISOString(), who: who.trim(), text: text(body, '--text'), link: optional(link, (v) => pageUrl(v, '--link')), log, via, kind };
   const file = threadFile(site, key);
   await appendLine(file, line);
   return { file, lines: line.who === 'claude' && !via ? await freshenPush(site, key, line.text) : [] };

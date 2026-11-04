@@ -23,7 +23,7 @@ const said = (text) => (typeof text === 'string' && text.trim() ? text.trim() : 
 
 // text is the card's closing line ("<what was checked>"), ownerStep land's and builder done's --owner-step, check its
 // --check, repo --repo. → {said: what became of the card, lines}
-export async function finishCard(site, key, { text, ownerStep, check, repo: given }) {
+export async function finishCard(site, key, { text, ownerStep, check, repo: given, onWait }) {
   const id = key.split('/')[1];
   const recorded = await store.recordedWorktree(site, key);
   const { repo, base, remote } = builderRepo(site, { repo: given ?? recorded?.repo });
@@ -52,20 +52,21 @@ export async function finishCard(site, key, { text, ownerStep, check, repo: give
       said: ownerStep === undefined ? 'landed and done' : `landed; waits on the owner step "${ownerStep.trim()}"`,
       lines: [...closed.lines, ...await pushBase(site, key, repo, base)],
     };
-  });
+  }, { onWait });
 }
 
 // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md
 // `board.mjs merge` on a card waiting for the owner's Merge, which the board server runs on the tap (store.mjs
 // tapMerge records it first): the land, onto the base as it is now. A conflict or failing tests after the rebase go
 // to a headless lander, which fixes them and finishes with the tap as its go; any other refusal is one thread line,
-// and the card's Merge shows again.
+// and the card's Merge shows again. While another card is landing the tap waits its turn, saying so on the thread.
 export async function landHeld(site, key, { launch = launchBuilder } = {}) {
   const held = await store.heldMerge(site, key);
   if (!held?.tapped) fail(`${key} isn't waiting on a Merge tap`);
   try {
     const { base } = builderRepo(site, { repo: (await store.recordedWorktree(site, key))?.repo });
-    return await finishCard(site, key, { text: `Landed on ${base} on your Merge.` });
+    const onWait = (card) => store.appendThread(site, key, { text: `Waiting for ${card} to land`, kind: 'status' });
+    return await finishCard(site, key, { text: `Landed on ${base} on your Merge.`, onWait });
   } catch (e) {
     if (!(e instanceof store.BoardError)) throw e;
     const why = e.message.split('\n')[0];

@@ -202,6 +202,9 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   // A held card's tap is recorded on it (store.mjs tapMerge), and the board server's land writes its outcome there.
   const tappedAt = [mergeAt, mergeReady && it.merge_ready.tapped].filter(Boolean).map(String).sort().pop();
   const merging = waitsOn === 'merge' && Boolean(tappedAt) && tappedAt > lastClaudeAt;
+  // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: a tap queued behind another land says so in a status line.
+  const lastStatus = thread.filter((m) => m.kind === 'status' && String(m.ts) > String(tappedAt)).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
+  const mergingNext = lastStatus?.text.startsWith('Waiting for ') ? `${OWNER_MERGE_NEXT.merging} · ${lastStatus.text[0].toLowerCase()}${lastStatus.text.slice(1)}` : OWNER_MERGE_NEXT.merging;
   // A Build tap the board refused: its reason stays on a Todo card while it is the card's newest line
   // (docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md).
   const newest = thread.filter((m) => m.kind !== 'status').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
@@ -212,8 +215,8 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     || (['building', 'fixing', 'checking'].includes(String(it.status || '').toLowerCase()) ? it.status_at || null : null);
   const approved = pr?.reviewDecision === 'APPROVED';
   const reviewNext = pushed && waitsOn === 'owner' ? `merge ${pushed.branch} into ${base}`
-    : mergeReady && waitsOn === 'merge' ? (merging ? OWNER_MERGE_NEXT.merging : heldNext(base))
-    : waitsOn === 'merge' && !autoMerge ? (merging ? OWNER_MERGE_NEXT.merging : (approved ? OWNER_MERGE_NEXT : UNREVIEWED_MERGE_NEXT).waiting)
+    : mergeReady && waitsOn === 'merge' ? (merging ? mergingNext : heldNext(base))
+    : waitsOn === 'merge' && !autoMerge ? (merging ? mergingNext : (approved ? OWNER_MERGE_NEXT : UNREVIEWED_MERGE_NEXT).waiting)
     : waitsOn === 'merge' && !approved ? UNREVIEWED_MERGE_NEXT.auto : REVIEW_NEXT[waitsOn];
   // A draft PR waits on the owner's review of it, unless the card was given a Next.
   const draftNext = prStatus === PR_STATE.draft ? `Review draft PR #${views[least].number}` : null;

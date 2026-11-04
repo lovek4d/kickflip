@@ -191,22 +191,38 @@ export function restartRunner(what, route) {
 // site), test files aside; removes the worktree and branch.
 // Never pushes. A restart that fails is reported after the rest is done.
 // One land at a time on the host, since a land can restart the hub and every board server: ~/.claude/kickflip/land.lock
-// {card, pid, at} names the card landing. A lock whose process is gone is taken over.
+// {card, pid, at} names the card landing. A land that finds it held waits its turn, in the order the lands asked
+// (a file per ask in ~/.claude/kickflip/land.queue, named <ms>-<count>-<pid>), calling onWait(card) with the card it
+// waits for. A lock or ask whose process is gone is taken over.
 const landLock = () => path.join(os.homedir(), '.claude', 'kickflip', 'land.lock');
+const landQueue = () => path.join(os.homedir(), '.claude', 'kickflip', 'land.queue');
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
-export async function holdingLandLock(card, fn) {
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+let asked = 0;
+export async function holdingLandLock(card, fn, { onWait } = {}) {
   const file = landLock();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  for (;;) {
-    try { fs.writeFileSync(file, JSON.stringify({ card, pid: process.pid, at: new Date().toISOString() }), { flag: 'wx' }); break; }
-    catch (e) {
-      if (e.code !== 'EEXIST') throw e;
+  const queue = landQueue();
+  fs.mkdirSync(queue, { recursive: true });
+  const ticket = `${String(Date.now()).padStart(15, '0')}-${String(asked++).padStart(6, '0')}-${process.pid}`;
+  fs.writeFileSync(path.join(queue, ticket), '');
+  let waitingFor = null;
+  try {
+    for (;;) {
+      const ahead = fs.readdirSync(queue).sort().filter((t) => t < ticket && alive(Number(t.split('-')[2])));
       let held = null;
-      try { held = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
-      if (Number.isInteger(held?.pid) && alive(held.pid)) fail(`${held.card} is landing (since ${held.at}); land again once it finishes`);
-      fs.rmSync(file, { force: true });
+      if (!ahead.length) {
+        try { fs.writeFileSync(file, JSON.stringify({ card, pid: process.pid, at: new Date().toISOString() }), { flag: 'wx' }); break; }
+        catch (e) {
+          if (e.code !== 'EEXIST') throw e;
+          try { held = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
+          if (!(Number.isInteger(held?.pid) && alive(held.pid))) { fs.rmSync(file, { force: true }); continue; }
+        }
+      }
+      const name = held?.card ?? (ahead.length ? 'the land ahead' : null);
+      if (name && name !== waitingFor) { waitingFor = name; await onWait?.(name); }
+      await pause(200);
     }
-  }
+  } finally { fs.rmSync(path.join(queue, ticket), { force: true }); }
   try { return await fn(); } finally {
     try { if (JSON.parse(fs.readFileSync(file, 'utf8')).pid === process.pid) fs.rmSync(file, { force: true }); } catch {}
   }

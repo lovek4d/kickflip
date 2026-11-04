@@ -1818,7 +1818,6 @@ test('land refuses a worktree with uncommitted changes, with no commit beyond ma
   const main = git(repo, 'rev-parse', 'main');
   const lock = at('kickflip', 'land.lock');
   write(lock, { card: 'B2', pid: process.pid, at: '2026-11-02T10:00:00.000Z' });
-  assert.deepEqual(land(), { code: 1, out: '', err: 'B2 is landing (since 2026-11-02T10:00:00.000Z); land again once it finishes\n' });
   write(lock, { card: 'B2', pid: 2 ** 22 + 1, at: '2026-11-02T10:00:00.000Z' });
   const none = land();
   assert.deepEqual([none.code, none.err], [1, 'A1 has no commits beyond main; nothing to land\n']);

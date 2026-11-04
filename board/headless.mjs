@@ -27,7 +27,7 @@ const finishSteps = ({ route, key, worktree, base }) => [
   `- With no unverified calls, done finishes the card itself: it rebases onto ${base}, reruns the full test suite, fast-forwards ${base} and closes the card (on a board with pull requests it pushes the branch and opens a draft PR instead; with Auto-merge off it stops before the fast-forward, and the card waits for the owner's Merge).`,
   `- On a conflict it undoes its rebase and names the files: run \`${rebase(base)}\` in ${worktree}, resolve each conflict keeping both sides' intent, continue with \`git -c core.commentChar=';' rebase --continue\`, rerun the tests, and run done again.`,
   '- On failing tests, fix them, commit, and run done again.',
-  '- While another card is landing it refuses, naming that card: wait a minute and run done again.',
+  '- While another card is landing, done waits its turn and then lands; leave it running.',
   `- Finishing never goes to the orchestrator. If done refuses for a reason you can't fix, record it with \`${cli(route)} builder call ${key} "<why>"\` and run done again: with the call it hands the card back.`,
 ];
 const finishCommand = ({ route, key }) => `\`${cli(route)} builder done ${key} --text "<what you checked>"\``;
