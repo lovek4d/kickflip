@@ -118,7 +118,8 @@ function failedStart(manifest, route, action) {
 // Starts a failed New board start again from its Starting record, with the same route, repo, branch, tickets and
 // purpose (docs/adr/2026-11-02-2006-a-failed-start-retries-from-its-sheet.md). A start that timed out first has its recorded
 // session stopped (sessions.mjs stopSession, with live and stop), so the route never has two. The record loses its
-// error and session, and takes a new phase and asked_at. → {route, started} as requestBoard's.
+// error and session, and takes a new phase and asked_at, and its repo path again from the repo and the current clone
+// home, so the session starts in the folder the clone goes to. → {route, started} as requestBoard's.
 export async function retryBoard(route, { run, live, stop, repos = repoService(), changed = () => {} } = {}) {
   const before = failedStart(readManifest(), route, 'retried');
   if (!before.branch) refuse('Only a board asked for with New board can be retried; make it again with New board.');
@@ -126,7 +127,7 @@ export async function retryBoard(route, { run, live, stop, repos = repoService()
   const board = await withManifestLock(async () => {
     const manifest = readManifest();
     const pending = failedStart(manifest, route, 'retried');
-    manifest.starting[route] = startingRecord({ ...pending, purpose: pending.purpose || '' }, repos);
+    manifest.starting[route] = startingRecord({ ...pending, repo: repos.path(pending.github || pending.remote), purpose: pending.purpose || '' }, repos);
     await writeManifest(manifest);
     return manifest.starting[route];
   });

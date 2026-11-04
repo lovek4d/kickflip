@@ -7,19 +7,10 @@ import { spawnSync } from 'node:child_process';
 import { cloneRoot, reposDir } from './repos.mjs';
 import { skillRepo } from '../board/worktree.mjs';
 
-test('reposDir belongs to a clone or the home state folder for an installed package', () => {
-  assert.equal(reposDir(), path.join(cloneRoot(), '.repos'));
+test('reposDir is the home state folder whether kickflip runs from a clone or an installed package', () => {
+  assert.equal(reposDir(), path.join(os.homedir(), '.claude', 'kickflip', 'repos'));
+  assert.equal(reposDir('/elsewhere'), path.join('/elsewhere', '.claude', 'kickflip', 'repos'));
   assert.equal(skillRepo(), cloneRoot());
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-repos-'));
-  try {
-    assert.equal(reposDir(root), path.join(os.homedir(), '.claude', 'kickflip', 'repos'));
-    assert.deepEqual(fs.readdirSync(root), []);
-    fs.mkdirSync(path.join(root, '.git'));
-    assert.equal(reposDir(root), path.join(root, '.repos'));
-    assert.deepEqual(fs.readdirSync(root), ['.git']);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
 });
 
 test('the clone paths and default builder repo work directly and through installed links in a temp HOME', () => {
@@ -58,7 +49,7 @@ test('the clone paths and default builder repo work directly and through install
     ].join('\n'));
     for (const entry of [root, linked]) {
       const found = JSON.parse(run(process.execPath, [path.join(entry, 'paths-probe.mjs')]));
-      assert.deepEqual([found.root, found.repos, found.repo], [root, path.join(root, '.repos'), root]);
+      assert.deepEqual([found.root, found.repos, found.repo], [root, path.join(home, '.claude', 'kickflip', 'repos'), root]);
       assert.ok(found.settings.includes(path.join(linked, 'hub', 'permission-hook.mjs')));
       assert.ok(found.hub.at(-1).includes(path.join(linked, 'docs', 'hub-session.md')));
       assert.match(run(process.execPath, [path.join(entry, 'bin', 'kickflip.mjs')]), /kickflip init/);

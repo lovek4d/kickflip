@@ -1378,7 +1378,7 @@ test('New board chooses a searchable repo before board details, defaults its bra
     assert.equal(sheet.querySelector('[name="name"]'), null);
     assert.match(sheet.textContent, /Newest push first/);
     assert.match(sheet.querySelector('[data-repo="owner/project"]').textContent, /Private.*Pushed.*Not cloned/);
-    assert.match(sheet.querySelector('[data-repo="org/tools"]').textContent, /Public.*In .repos · shared with Tools board/);
+    assert.match(sheet.querySelector('[data-repo="org/tools"]').textContent, /Public.*✓ Cloned · shared with Tools board/);
     const search = sheet.querySelector('[name="search"]');
     search.value = 'org/';
     page.fire(sheet.querySelector('form'), 'input', { target: search });
@@ -1636,7 +1636,7 @@ test('a pasted git link on another host picks its host-labelled row, lists branc
   page.fire(form, 'input', { target: input });
   await tick();
   const row = sheet.querySelector(`[data-repo="${link}"]`);
-  assert.match(row.textContent, /^gitlab\.com\/acme\/firmwareNot in your listgitlab\.com · Last push unknown.*Not cloned in \.repos$/);
+  assert.match(row.textContent, /^gitlab\.com\/acme\/firmwareNot in your listgitlab\.com · Last push unknown.*Not cloned yet$/);
   page.fire(form, 'click', { target: row });
   await tick();
   assert.match(sheet.querySelector('.nb-selected').textContent, /gitlab\.com\/acme\/firmwaregitlab\.com.*\/clone\/\.repos\/gitlab\.com\/acme\/firmware/);

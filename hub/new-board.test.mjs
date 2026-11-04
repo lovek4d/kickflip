@@ -217,6 +217,23 @@ test('Retry starts a failed start again from its record, stopping a timed-out st
   noEvents();
 });
 
+test('Retry clones into the current clone home and starts the session there, trusted, when the first attempt used another', async () => {
+  saveJSON(manifestFile, { sites });
+  const broken = claude({ status: 1, stdout: '', stderr: 'Not signed in · run claude /login' });
+  const first = await requestBoard(input('Moved home', 'owner/moved'), { run: broken.run, live, repos });
+  assert.match((await first.started).error, /Not signed in/);
+  assert.equal(readManifest().starting['moved-home'].repo, path.join(base, 'owner/moved'));
+  const moved = repoService({ base: path.join(home, 'moved-home', 'repos'), run: repoRun });
+  const repo = path.join(moved.base, 'owner/moved');
+  const working = claude();
+  const again = await retryBoard('moved-home', { run: working.run, live, stop: async () => {}, repos: moved });
+  assert.equal(readManifest().starting['moved-home'].repo, repo);
+  assert.ok((await again.started).session);
+  assert.deepEqual(working.calls.map((call) => call.cwd), [repo]);
+  assert.ok(trusted(repo));
+  assert.equal(readManifest().starting['moved-home'].repo, repo);
+});
+
 test("a clone Claude Code can't be told to trust reads Didn't start with the reason, and its config is never made or replaced", async (t) => {
   const repo = path.join(base, 'owner/project');
   const rename = fs.renameSync;
@@ -324,8 +341,8 @@ test('clone paths refuse symlink escapes through .repos, owner, repo and ancesto
     if (where === 'repo') { fs.mkdirSync(path.join(root, 'owner'), { recursive: true }); target = path.join(root, 'owner/project'); }
     fs.symlinkSync(outside, target);
     const service = repoService({ base: where === 'ancestor' ? path.join(root, '.repos') : root, run: repoRun });
-    assert.throws(() => service.path('owner/project'), /stay inside .repos/);
-    await assert.rejects(service.ensure('owner/project'), /stay inside .repos/);
+    assert.throws(() => service.path('owner/project'), /stay inside the clone folder; symlinks are refused/);
+    await assert.rejects(service.ensure('owner/project'), /stay inside the clone folder; symlinks are refused/);
   }
   assert.throws(() => repoPath('owner/../../escape', base), { status: 400 });
 });

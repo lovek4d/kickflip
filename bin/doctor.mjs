@@ -4,7 +4,7 @@ import path from 'node:path';
 import { isTryPort } from '../hub/try.mjs';
 import { githubGitArgv, gitReachFault } from '../hub/repos.mjs';
 import { buildsLocally, isBoardSite } from '../hub/boards.mjs';
-import { cloneRoot as runningClone } from '../shared/repos.mjs';
+import { cloneRoot as runningClone, reposDir } from '../shared/repos.mjs';
 import { codexStatus } from '../shared/codex.mjs';
 import { REVIEW_SKILLS, SKILLS_SOURCE, addCommand, skillsState, updateCommand } from '../shared/skills.mjs';
 import { hubService, runCommand } from '../shared/service.mjs';
@@ -21,6 +21,35 @@ const INSTALL = {
 // Checked when gh lists no repo of the owner's own.
 const PUBLIC_REPO = 'cli/cli';
 const REPO_TIMEOUT = 15_000;
+
+const realPath = (file) => { try { return fs.realpathSync(file); } catch { return null; } };
+const usedBy = (routes) => routes.length ? `${routes.map((route) => `/${route}`).join(', ')} ${routes.length > 1 ? 'use' : 'uses'} it` : '';
+
+// Board clones in the places they lived before the clone home (../shared/repos.mjs reposDir): the running root's .repos
+// folder, and any other .repos folder that holds a repo the manifest records for an open, closed or starting board.
+// A folder with a .git entry is a clone. → [{clone, routes}] by path, routes naming the boards whose repo is in it.
+export function oldBoardClones({ home = os.homedir(), cloneRoot = runningClone() } = {}) {
+  let manifest = {};
+  try { manifest = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'kickflip', 'manifest.json'), 'utf8')); } catch {}
+  const recorded = [
+    ...Object.entries(manifest.sites || {}).map(([route, site]) => [route, site?.owner?.repo]),
+    ...Object.entries(manifest.closed || {}).map(([route, entry]) => [route, entry?.site?.owner?.repo]),
+    ...Object.entries(manifest.starting || {}).map(([route, pending]) => [route, pending?.repo]),
+  ].map(([route, repo]) => [route, repo && realPath(repo)]).filter(([, repo]) => repo);
+  const marker = `${path.sep}.repos${path.sep}`;
+  const bases = new Set([realPath(path.join(cloneRoot, '.repos')), ...recorded.map(([, repo]) => repo.includes(marker) ? repo.slice(0, repo.indexOf(marker) + marker.length - 1) : null)].filter(Boolean));
+  const clones = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const sub = path.join(dir, entry.name);
+      if (fs.existsSync(path.join(sub, '.git'))) clones.push(sub);
+      else walk(sub);
+    }
+  };
+  for (const base of bases) walk(base);
+  return clones.sort().map((clone) => ({ clone, routes: [...new Set(recorded.filter(([, repo]) => repo === clone || repo.startsWith(clone + path.sep)).map(([route]) => route))] }));
+}
 
 // → [{group: prereqs|setup|hub, item, state, detail, fix}]. state is ok; fixable, which `doctor --fix` sets up; yours,
 // which only the person can fix with the fix command; optional, yours but not needed for the hub; or note, which the
@@ -157,6 +186,9 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
         reach.status === 0 ? `git reaches ${site.github || 'origin'} from ${repo}` : `git can’t reach ${site.github || 'origin'} from ${repo}: ${error}`, hint);
     }
   }
+  for (const { clone, routes } of oldBoardClones({ home, cloneRoot })) {
+    add('old board clone', 'optional', [`${clone} is in an old place`, `board clones now live in ${reposDir(home)}`, usedBy(routes)].filter(Boolean).join('; '), FIX);
+  }
   return items;
 }
 
@@ -165,12 +197,25 @@ export function doctorLines(items) {
   return items.flatMap((entry) => [`${MARKS[entry.state].padEnd(width)} ${entry.item}: ${entry.detail}`, ...(entry.fix ? [`${' '.repeat(width + 1)}→ ${entry.fix}`] : [])]);
 }
 
-export async function runDoctor({ fix = false, dryRun = false, json = false, write = console.log, error = console.error, install = runInstall, ...options } = {}) {
+// --fix runs install's steps, then asks through ask(question) → answer about each old board clone, removing the ones
+// answered yes; with no ask (no terminal to ask in) it removes none.
+export async function runDoctor({ fix = false, dryRun = false, json = false, write = console.log, error = console.error, install = runInstall, ask, ...options } = {}) {
   let failed = false;
   if (fix) {
-    try { await install({ ...options, dryRun, log: json ? error : write }); }
+    const log = json ? error : write;
+    try { await install({ ...options, dryRun, log }); }
     catch (e) { failed = true; error('kickflip: ' + e.message); }
-    if (dryRun) return { items: [], exitCode: failed ? 1 : 0 };
+    const old = oldBoardClones(options);
+    if (dryRun) {
+      for (const { clone } of old) log(`would ask to remove the old board clone ${clone}`);
+      return { items: [], exitCode: failed ? 1 : 0 };
+    }
+    for (const { clone, routes } of ask ? old : []) {
+      const answer = await ask(`Remove the old board clone ${clone}? ${routes.length ? `${usedBy(routes)}. ` : ''}(y/N) `);
+      if (!/^y(es)?$/i.test(answer.trim())) continue;
+      fs.rmSync(clone, { recursive: true, force: true });
+      log(`removed ${clone}`);
+    }
   }
   const items = await doctorReport(options);
   write(json ? JSON.stringify({ items }, null, 2) : doctorLines(items).join('\n'));

@@ -15,7 +15,8 @@ import { freePorts, until, ownSession } from '../shared/test-helpers.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SKILL = path.join(HUB_DIR, '..');
-const home = fs.mkdtempSync(path.join(os.tmpdir(), 'boards-'));
+// Real, as a home is: the clone home sits under it, and repoPath refuses a clone home whose ancestors go through a symlink.
+const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'boards-')));
 process.env.HOME = home;
 const { listBoards, linksOf, hubLink, oldestUnheard, hubCode, boardCode, HUB_CODE, listenState, checkListening, RESUME_STATE, withManifestLock, saveJSON } = await import('./boards.mjs');
 

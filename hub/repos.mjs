@@ -46,7 +46,7 @@ const REMOTE_SHAPES = 'Paste a git link: https://host/path, ssh://host/path or u
 export const validateRemote = (remote) => remoteFromInput(remote) || refuse(REMOTE_SHAPES);
 // A board repo string is a GitHub owner/name, which never has a colon, or a remote link, which always does.
 export const isRemote = (repo) => typeof repo === 'string' && repo.includes(':');
-// The clone folder's parts under .repos: <owner>/<repo>, or <host>/<path…> for a remote, lowercased.
+// The clone folder's parts under the clone home (../shared/repos.mjs reposDir): <owner>/<repo>, or <host>/<path…> for a remote, lowercased.
 export const repoParts = (repo) => (isRemote(repo) ? (({ host, path: p }) => [host, ...p.toLowerCase().split('/')])(validateRemote(repo)) : validateGithub(repo).toLowerCase().split('/'));
 // owner/name, or host/path for a remote: how the picker and errors name a repo.
 export const repoName = (repo) => (isRemote(repo) ? (({ host, path: p }) => `${host}/${p}`)(validateRemote(repo)) : validateGithub(repo));
@@ -94,15 +94,15 @@ export function repoPath(repo, base = reposDir()) {
   const parts = repoParts(repo);
   const root = path.resolve(base);
   const dest = path.resolve(root, ...parts);
-  if (!dest.startsWith(`${root}${path.sep}`)) refuse('Clone path must stay inside .repos.');
+  if (!dest.startsWith(`${root}${path.sep}`)) refuse('Clone path must stay inside the clone folder.');
   let part = root;
   for (const name of ['', ...parts]) {
     if (name) part = path.join(part, name);
-    if (fs.lstatSync(part, { throwIfNoEntry: false })?.isSymbolicLink()) refuse('Clone path must stay inside .repos; symlinks are refused.');
+    if (fs.lstatSync(part, { throwIfNoEntry: false })?.isSymbolicLink()) refuse('Clone path must stay inside the clone folder; symlinks are refused.');
   }
   let ancestor = root;
   while (!fs.existsSync(ancestor)) ancestor = path.dirname(ancestor);
-  if (fs.realpathSync(ancestor) !== ancestor) refuse('Clone path must stay inside .repos; symlinks are refused.');
+  if (fs.realpathSync(ancestor) !== ancestor) refuse('Clone path must stay inside the clone folder; symlinks are refused.');
   return dest;
 }
 

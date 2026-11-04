@@ -501,6 +501,63 @@ test('doctor reports every healthy item and the old hub, Tailscale and site deta
   assert.deepEqual(await runDoctor({ ...options, write: () => {} }), { items, exitCode: 0 });
 });
 
+// Board clones in the old places: the running clone's .repos, and another clone's .repos a closed board recorded; one
+// in the clone home and a folder that isn't a clone are not old clones.
+function oldClones() {
+  const doctor = healthyDoctor();
+  const clone = (...parts) => { const dir = path.join(...parts); fs.mkdirSync(path.join(dir, '.git'), { recursive: true }); return dir; };
+  const used = clone(root, '.repos', 'owner', 'project');
+  const remote = clone(root, '.repos', 'gitlab.com', 'group', 'sub', 'tool');
+  const other = clone(home, 'old kickflip', '.repos', 'acme', 'app');
+  clone(home, '.claude', 'kickflip', 'repos', 'owner', 'project');
+  fs.mkdirSync(path.join(root, '.repos', 'owner', 'not-a-clone', 'src'), { recursive: true });
+  const file = path.join(home, '.claude', 'kickflip', 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+  manifest.sites.page.owner.repo = path.join(skills, 'kickflip', '.repos', 'owner', 'project');
+  manifest.closed = { gone: { site: { dir: path.join(home, 'sites', 'gone'), owner: { repo: other } } } };
+  fs.writeFileSync(file, JSON.stringify(manifest));
+  return { ...doctor, used, remote, other };
+}
+
+test('doctor lists each board clone in an old place, naming a board that still uses it, without failing', async () => {
+  const { options, used, remote, other } = oldClones();
+  const { items, exitCode } = await runDoctor({ ...options, write: () => {} });
+  const clones = path.join(home, '.claude', 'kickflip', 'repos');
+  assert.deepEqual(items.filter((entry) => entry.item === 'old board clone'), [
+    { group: 'hub', item: 'old board clone', state: 'optional', detail: `${used} is in an old place; board clones now live in ${clones}; /page uses it`, fix: 'kickflip doctor --fix' },
+    { group: 'hub', item: 'old board clone', state: 'optional', detail: `${remote} is in an old place; board clones now live in ${clones}`, fix: 'kickflip doctor --fix' },
+    { group: 'hub', item: 'old board clone', state: 'optional', detail: `${other} is in an old place; board clones now live in ${clones}; /gone uses it`, fix: 'kickflip doctor --fix' },
+  ].sort((a, b) => a.detail.localeCompare(b.detail)));
+  assert.equal(exitCode, 0);
+});
+
+test('doctor --fix asks about each old board clone and removes only the ones answered yes; with no one to ask it removes none', async () => {
+  const { options, used, remote, other } = oldClones();
+  const questions = [];
+  const answers = new Map([[used, 'y'], [remote, ''], [other, 'YES']]);
+  const ask = async (question) => { questions.push(question); return answers.get([...answers.keys()].find((clone) => question.includes(`${clone}?`))); };
+  const output = [];
+  const result = await runDoctor({ ...options, fix: true, install: async () => {}, ask, write: (line) => output.push(line) });
+  assert.deepEqual(questions, [
+    `Remove the old board clone ${used}? /page uses it. (y/N) `,
+    `Remove the old board clone ${remote}? (y/N) `,
+    `Remove the old board clone ${other}? /gone uses it. (y/N) `,
+  ].sort());
+  assert.deepEqual([used, remote, other].map((dir) => fs.existsSync(dir)), [false, true, false]);
+  assert.ok(output.includes(`removed ${used}`) && output.includes(`removed ${other}`));
+  assert.deepEqual(result.items.filter((entry) => entry.item === 'old board clone').map((entry) => entry.detail.split(' is in ')[0]), [remote]);
+  assert.ok(fs.existsSync(path.join(home, '.claude', 'kickflip', 'repos', 'owner', 'project', '.git')));
+  assert.ok(fs.existsSync(path.join(root, '.repos', 'owner', 'not-a-clone', 'src')));
+
+  const quiet = await runDoctor({ ...options, fix: true, install: async () => {}, write: () => {} });
+  assert.ok(fs.existsSync(remote));
+  assert.equal(quiet.items.filter((entry) => entry.item === 'old board clone').length, 1);
+  const dry = [];
+  await runDoctor({ ...options, fix: true, dryRun: true, install: async () => {}, ask: () => assert.fail('asked in a dry run'), write: (line) => dry.push(line) });
+  assert.deepEqual(dry, [`would ask to remove the old board clone ${remote}`]);
+  assert.ok(fs.existsSync(remote));
+});
+
 test('doctor names a missing or out-of-date review skill as optional with the skills CLI command that fixes it', async () => {
   const { options, responses } = healthyDoctor();
   responses.set(SKILLS_TREE, { status: 0, stdout: responses.get(SKILLS_TREE).stdout.replace('sha-grilling', 'sha-newer') });

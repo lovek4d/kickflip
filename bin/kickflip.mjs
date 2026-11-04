@@ -3,7 +3,9 @@
 //   kickflip doctor [--fix [--dry-run]] [--json]
 //               one line per prereq, installed piece, the hub, Tailscale / and each site (./doctor.mjs): ok,
 //               fixable (by --fix), yours (with the command to run), optional or note. Changes nothing.
-//               --fix runs init's steps, then reports again. --json prints {items:[{group,item,state,detail,fix}]}.
+//               --fix runs init's steps, asks in a terminal whether to remove each board clone left in an old place
+//               (outside ~/.claude/kickflip/repos), then reports again. --json prints {items:[{group,item,state,detail,fix}]}
+//               and asks nothing.
 //               Exit 1 when anything is fixable or yours
 //   kickflip join [--name <board name>] [--hub]
 //               run in a git repo's folder: adds it as a board (docs/adr/2026-11-03-0248-kickflip-join-adds-the-current-repository-as-a-board.md).
@@ -347,10 +349,10 @@ async function openHub(repo) {
 
 const git = (cwd, ...argv) => { const r = spawnSync('git', ['-C', cwd, ...argv], { encoding: 'utf8' }); return r.status === 0 ? r.stdout.trim() : null; };
 const canAsk = () => Boolean(process.stdin.isTTY && process.stdout.isTTY);
-async function ask(question) {
+async function ask(question, stopped = 'stopped at the prompt; nothing changed') {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  // Ctrl-D or Ctrl-C at the prompt stops join before it has changed anything.
-  try { return (await rl.question(question)).trim(); } catch (e) { if (e.code === 'ABORT_ERR') fail('stopped at the prompt; nothing changed'); throw e; } finally { rl.close(); }
+  // Ctrl-D or Ctrl-C at the prompt stops the command with stopped, by default join's: it has changed nothing yet.
+  try { return (await rl.question(question)).trim(); } catch (e) { if (e.code === 'ABORT_ERR') fail(stopped); throw e; } finally { rl.close(); }
 }
 const taken = (m, route) => Boolean(routeRecord(m.sites, route) || routeRecord(m.starting, route) || routeRecord(m.closed, route));
 // What's wrong with a typed board name, or null.
@@ -540,7 +542,8 @@ async function joinPage() {
 const commands = {
   async doctor() {
     if (args['dry-run'] && !args.fix) fail('--dry-run needs --fix', 2);
-    const { exitCode } = await runDoctor({ fix: Boolean(args.fix), dryRun: Boolean(args['dry-run']), json: Boolean(args.json) });
+    const asking = canAsk() && !args.json ? (question) => ask(question, 'stopped at the prompt; the clones not yet answered are kept') : undefined;
+    const { exitCode } = await runDoctor({ fix: Boolean(args.fix), dryRun: Boolean(args['dry-run']), json: Boolean(args.json), ask: asking });
     process.exitCode = exitCode;
   },
 
