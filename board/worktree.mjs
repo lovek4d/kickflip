@@ -231,6 +231,16 @@ function refuseBadMessages(repo, base, branch, ref) {
   }
 }
 
+// A shared clone's base brought up to origin's before a land into it, on a board on GitHub whose PRs are off: fetched,
+// then fast-forwarded while the clone has base checked out (land refuses any other branch, naming it).
+export function syncBase(repo, base) {
+  const fetched = git(repo, 'fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${base}:refs/remotes/origin/${base}`);
+  if (!fetched.ok) fail(`could not fetch ${base} from origin into ${repo}: ${fetched.err}`);
+  if (git(repo, 'symbolic-ref', '--quiet', '--short', 'HEAD').out !== base) return;
+  const moved = git(repo, 'merge', '--quiet', '--ff-only', `refs/remotes/origin/${base}`);
+  if (!moved.ok) fail(`${base} in ${repo} doesn't fast-forward to origin's (${moved.err}); bring it level with origin/${base} and land again`);
+}
+
 // Runs the worktree's full suite, refusing on a failure with each failing test and outcome, what the refusal left undone.
 export function passTests(dir, { say = console.log, runTests = nodeTests, outcome }) {
   const tests = runTests(dir);
@@ -242,7 +252,9 @@ export function passTests(dir, { say = console.log, runTests = nodeTests, outcom
   say(`tests passed: ${tests.pass}`);
 }
 
-export function land({ path: dir, branch, repo, base, ref }, { say = console.log, runTests = nodeTests, restart = restartRunner, boards = () => listBoards(), clone = skillRepo() } = {}) {
+// hold stops once the tests pass, before the fast-forward: the verified branch waits in its worktree for the owner's
+// Merge (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md).
+export function land({ path: dir, branch, repo, base, ref }, { say = console.log, runTests = nodeTests, restart = restartRunner, boards = () => listBoards(), clone = skillRepo(), hold = false } = {}) {
   if (!fs.existsSync(dir)) fail(`no worktree at ${dir}`);
   const head = git(repo, 'symbolic-ref', '--quiet', '--short', 'HEAD').out;
   if (head !== base) fail(`${repo} is on ${head || 'a detached HEAD'}, not ${base}; switch it to ${base} (git -C ${repo} switch ${base}) and land again`);
@@ -265,6 +277,7 @@ export function land({ path: dir, branch, repo, base, ref }, { say = console.log
   refuseBadMessages(repo, base, branch, ref);
 
   passTests(dir, { say, runTests, outcome: 'nothing landed' });
+  if (hold) return;
 
   const changed = git(repo, 'diff', '--name-only', base, branch).out.split('\n').filter(Boolean);
   const merged = git(repo, 'merge', '--quiet', '--ff-only', branch);

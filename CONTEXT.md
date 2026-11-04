@@ -319,6 +319,12 @@ The session's steps for PR comments, CI, review, conflicts and merging, defined 
 A board setting, `auto_merge` in its `board.json`, off unless set: on, the hub's GitHub tick merges a PR once it is approved, CI is green and its merge state is CLEAN; off, the card shows the owner Action needed and a Merge button, which reads "Merging…" until the board server merges the PR or says in the thread why it didn't. The board's Settings modal toggles it, and the watcher prints it with every wake as `setting auto-merge on|off`. A setting, not a **rule**, since the board itself acts on it ([Auto-merge is a board setting, off by default, and the owner merges from the card](docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md)).
 _Avoid_: merge rule, merge policy
 
+A card with no PR lands the same way: with Auto-merge off its builder's `done` stops after the tests, and the card waits in In Review with a Merge button; the tap makes the board server rebase it onto main as it is now, rerun the tests and land it, sending a conflict or a failing test to a headless lander ([a land waits for your Merge](docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md)).
+
+**PRs**:
+A board setting, `prs` in its `board.json`, on unless set, shown on a GitHub board that builds in its own clone only. On, every card opens a PR, and with no reviewers on the board that PR merges once it is green and clean, with no approval. Off, no PR opens and each card lands on main, which is pushed; Skip the draft and Reviewers are hidden, and turning it off needs Push main granted ([a land waits for your Merge](docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md)).
+_Avoid_: PR mode, no-PR mode
+
 **Skip the draft**:
 A board setting, `skip_draft` in its `board.json`, off unless set, shown on a GitHub board only. On, the hub's GitHub check marks a card's draft PR ready for review once its CI passes, and the card waits in In Review with no Action needed until then; off, the draft waits in In Review with Action needed "Review draft PR #n". With **Auto-merge** on too, a builder's PR can merge once reviewers approve it, without the owner seeing it ([a board can skip the draft](docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md)).
 _Avoid_: auto-ready, skip review

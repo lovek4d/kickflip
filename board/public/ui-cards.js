@@ -137,8 +137,9 @@
     return `<div class="tb-main" role="region" aria-label="Main’s version">${BRANCH}<div class="tb-main-text">${esc(main.slug)} · <strong>${esc(main.branch)}</strong>@<code>${esc(main.sha)}</code> · ${esc(ago(main.at))}${mainPull(main.pull, pulling)}</div><div class="meta">${chip}</div></div>`;
   }
   // The open card's Merge, while the board's auto-merge is off: it confirms, then sends card-merge, waiting while the
-  // server records it (app-cards.js), and waits (ui.js BUSY) while the session merges it
-  // (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md).
+  // server records it (app-cards.js), and waits (ui.js BUSY) while the session merges it, or the board server lands a
+  // card with no PR (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md,
+  // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md).
   function mergeButton(it) {
     if (it?.action?.kind !== ACTION_KIND.merge && !it?.merging) return '';
     return `<button class="${it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${it.merging ? BoardUI.BUSY : ''}>Merge</button>`;

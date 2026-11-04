@@ -1,16 +1,20 @@
 // docs/adr/2026-11-04-1611-finishing-a-build-is-one-step.md
 // Finishing a board card's build, the one step behind `builder done` with no unverified calls, `builder verified` on a
-// handed-back build, and `land`. On a board whose builders branch from a local repo (the hub board included) it lands
-// the worktree (worktree.mjs land), closes the card and its ticket, and pushes the branch to origin when the board's
-// "Push main after a land" switch is on (permissions.mjs pushMain). On a board on GitHub it pushes the card's branch,
-// opens a draft PR and moves the card to it; on a plain git remote it pushes the branch for the owner's merge. Each
-// refuses with the reason before it changes the card, so the builder stays on, fixes it and finishes again.
+// handed-back build, and `land`. On a board on GitHub whose PRs setting is on (store.mjs opensPRs) it pushes the card's
+// branch, opens a draft PR and moves the card to it; on a plain git remote it pushes the branch for the owner's merge.
+// Anywhere else, a local board (the hub board included) or a board on GitHub with PRs off, it verifies the worktree
+// as a land does and, with Auto-merge off, stops there: the card waits in In Review for the owner's Merge
+// (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md). With Auto-merge on, or once the owner tapped Merge, it
+// lands the worktree (worktree.mjs land), closes the card and its ticket, and pushes the branch to origin when the
+// board's "Push main after a land" switch is on (permissions.mjs pushMain). Each refuses with the reason before it
+// changes the card, so the builder stays on, fixes it and finishes again.
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import * as store from './store.mjs';
-import { builderRepo, git, holdingLandLock, land, passTests, worktreesDir } from './worktree.mjs';
+import { builderRepo, git, holdingLandLock, land, passTests, syncBase, worktreesDir } from './worktree.mjs';
 import { readPermissions } from './permissions.mjs';
+import { launchBuilder } from './headless.mjs';
 import { boardAt } from '../hub/boards.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
 
@@ -23,19 +27,56 @@ export async function finishCard(site, key, { text, ownerStep, repo: given }) {
   const id = key.split('/')[1];
   const recorded = await store.recordedWorktree(site, key);
   const { repo, base, remote } = builderRepo(site, { repo: given ?? recorded?.repo });
-  const tree = { path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id };
+  const tree = { path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base };
   const ref = await store.cardName(site, key);
-  if (remote) return sendForReview(site, key, { ...tree, base, ref, text: said(text) });
+  const settings = await store.readBoardSettings(site);
+  const github = remote ? boardRepo(boardAt(site).route).github : null;
+  if (remote && (!github || settings.prs)) return sendForReview(site, key, { ...tree, ref, text: said(text) });
   return holdingLandLock(ref, async () => {
     await store.checkClose(site, key, text, ownerStep);
     await store.checkCallsVerified(site, key);
-    land({ ...tree, repo: path.resolve(repo), base, ref });
+    if (remote) {
+      syncBase(tree.repo, base);
+      // The branch was made from origin's base, which it tracks, and land deletes it before main reaches origin.
+      git(tree.repo, 'branch', '--unset-upstream', tree.branch);
+    }
+    const go = settings.auto_merge || Boolean((await store.heldMerge(site, key))?.tapped);
+    land({ ...tree, ref }, { hold: !go });
+    if (!go) {
+      const set = await store.setItem(site, key, { mergeReady: tree.branch, ownerStep });
+      await store.appendThread(site, key, { text });
+      return { said: 'verified; waits for your Merge', lines: set.lines };
+    }
     const closed = await store.setItem(site, key, { status: 'done', text, ownerStep });
     return {
       said: ownerStep === undefined ? 'landed and done' : `landed; waits on the owner step "${ownerStep.trim()}"`,
       lines: [...closed.lines, ...await pushBase(site, key, repo, base)],
     };
   });
+}
+
+// docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md
+// `board.mjs merge` on a card waiting for the owner's Merge, which the board server runs on the tap (store.mjs
+// tapMerge records it first): the land, onto the base as it is now. A conflict or failing tests after the rebase go
+// to a headless lander, which fixes them and finishes with the tap as its go; any other refusal is one thread line,
+// and the card's Merge shows again.
+export async function landHeld(site, key, { launch = launchBuilder } = {}) {
+  const held = await store.heldMerge(site, key);
+  if (!held?.tapped) fail(`${key} isn't waiting on a Merge tap`);
+  try {
+    const { base } = builderRepo(site, { repo: (await store.recordedWorktree(site, key))?.repo });
+    return await finishCard(site, key, { text: `Landed on ${base} on your Merge.` });
+  } catch (e) {
+    if (!(e instanceof store.BoardError)) throw e;
+    const why = e.message.split('\n')[0];
+    if (/^rebasing .+ conflicts in |^tests failed in /.test(why)) {
+      await store.appendThread(site, key, { text: `Not merged yet: ${why}. A lander fixes it and lands it.` });
+      try { await launch(site, { key, model: await store.builderModel(site, key) }, { lander: true }); } catch (err) {
+        await store.appendThread(site, key, { text: `Couldn't launch the lander headless (${err.message}); land it with board.mjs land ${key}.` });
+      }
+    } else await store.appendThread(site, key, { text: `Not merged: ${why}. Tap Merge again.` });
+    throw e;
+  }
 }
 
 // The card has already landed, so a push that fails is said, on the card's thread too, and leaves the land standing.

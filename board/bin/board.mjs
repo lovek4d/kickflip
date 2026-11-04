@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 import * as store from '../store.mjs';
 import { boardWorktree, builderRepo, holdingLandLock, land, worktreesDir } from '../worktree.mjs';
 import { fileFindings } from '../arch-review.mjs';
-import { finishCard } from '../finish.mjs';
+import { finishCard, landHeld } from '../finish.mjs';
 import { ITEM_STATUSES } from '../domain.mjs';
 import { boardAt, readManifest } from '../../hub/boards.mjs';
 import { boardRepo } from '../../hub/board-repo.mjs';
@@ -279,7 +279,7 @@ command fails and changes nothing.
                                                          "auto_triage": false, "auto_review": false,
                                                          "headless_builders": false,
                                                          "idle_notification": false, "skip_draft": false,
-                                                         "github_login": "owner"}
+                                                         "prs": true, "github_login": "owner"}
   settings set auto-merge on|off                         on: the hub's tick merges an approved PR once CI is green and
                                                          the merge state is CLEAN. off (the default): the card
                                                          shows the owner a Merge button, and the board server merges
@@ -287,6 +287,11 @@ command fails and changes nothing.
   settings set skip-draft on|off                         on: the hub's poll marks a card's draft PR ready for
                                                          review once its CI passes. off (the default): the draft
                                                          waits in In Review on the owner's review and Ready
+  settings set prs on|off                                on (the default): a board on GitHub opens a PR for each
+                                                         card. off: no PR; the card lands on main and main is
+                                                         pushed, which needs Push main after a land granted.
+                                                         A local board never opens PRs. Without auto-merge, a
+                                                         card with no PR waits in In Review for the owner's Merge
   build <wave>/<id> --site <route>                       asks the hub to run this card's .kickflip/build; prints
          --asked "<owner's words>"                       started and exits. install is an alias. Only the owner's
                                                          Serve / Build and Auto-build start a card run, so --asked
@@ -485,7 +490,12 @@ command fails and changes nothing.
                                                          commits after the newest approval unless --after-approval
                                                          says why they're trivial (its closing line says so), and a
                                                          card with manual steps unless --confirmed quotes the owner.
-                                                         A refusal also goes in the thread while the owner's Merge waits
+                                                         A refusal also goes in the thread while the owner's Merge waits.
+                                                         On a card with no PR waiting for the owner's Merge, which
+                                                         the board server runs on the tap: rebases onto the base as
+                                                         it is now, reruns the tests, fast-forwards, closes the card
+                                                         and pushes when Push main is on; a conflict or failing
+                                                         tests launch a headless lander that lands it
   arch file <wave>/<id>                                  turns the architecture review audit card's answered findings
                                                          into cards in the review's wave: titled with the picked
                                                          option's label, its detail, practice and the owner's note as
@@ -735,7 +745,8 @@ const COMMANDS = {
       return site ? store.setItem(site, key, { status: 'done', text: f.text, ownerStep: f['owner-step'] }) : { lines: [] };
     });
   }],
-  merge: [['wave/id'], ['after-approval', 'confirmed'], (site, [key], f) => store.mergeCard(site, key, { afterApproval: f['after-approval'], confirmed: f.confirmed })],
+  merge: [['wave/id'], ['after-approval', 'confirmed'], async (site, [key], f) => (site && await store.heldMerge(site, key) ? landHeld(site, key)
+    : store.mergeCard(site, key, { afterApproval: f['after-approval'], confirmed: f.confirmed }))],
   'arch file': [['wave/id'], [], (site, [key]) => (site ? fileFindings(site, key) : Promise.reject(new store.BoardError('arch file needs --site <route>')))],
   checked: [[], ['every', 'idle'], (site, _, f) => store.writeChecked(site, f.every, { idle: f.idle })],
   push: [[], ['kind', 'title', 'body', 'url', 'tag', 'urgent', 'now'], (site, _, f) => {
@@ -817,7 +828,7 @@ const SAID = {
   land: async (site, [key], f, result) => (!site ? null : result?.said ? `${await card(site, key)}: ${result.said}`
     : f['owner-step'] === undefined ? `${await card(site, key)}: landed and done`
     : `${await card(site, key)}: landed; waits on the owner step "${f['owner-step'].trim()}"`),
-  merge: async (site, [key]) => `${await card(site, key)}: merged`,
+  merge: async (site, [key], f, result) => `${await card(site, key)}: ${result?.said ?? 'merged'}`,
   'arch file': async (site, [key]) => `findings of ${await card(site, key)} filed`,
 };
 

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startFakeDevice } from '../hub/fake-device.mjs';
-import { freePorts, fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
+import { freePorts, fakeLinear, linearWorld, until } from '../shared/test-helpers.mjs';
 import http from 'node:http';
 import { land as landWorktree } from './worktree.mjs';
 import { fakeGh, prView, writePR, writeIssueComments, writeReviews, writeMerge, writeUser, writeAccounts, calls, tokens } from '../shared/fake-gh.mjs';
@@ -1625,8 +1625,12 @@ function scratchRepo() {
     orch: { dir: site('orch'), port: 1, cmd: ['node', '/x/board/server.mjs'] },
     audit: { dir: site('audit'), port: 2, cmd: ['node', '/x/board/server.mjs'] },
   } });
+  // A finish lands at once with Auto-merge on; heldBoard turns it off.
+  write(site('orch', 'board.json'), { ...read(site('orch', 'board.json')), auto_merge: true });
   return repo;
 }
+// docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md: Auto-merge off holds a verified build for the owner's Merge.
+const heldBoard = () => write(site('orch', 'board.json'), { ...read(site('orch', 'board.json')), auto_merge: false });
 const worktree = () => at('kickflip', 'worktrees', 'A1');
 const restarts = () => (fs.existsSync(path.join(home, 'restarts')) ? fs.readFileSync(path.join(home, 'restarts'), 'utf8').trim().split('\n') : []);
 const land = () => run('board.mjs', ['land', 'w/A1'], undefined, {
@@ -2259,6 +2263,122 @@ test('on a plain git remote, builder done pushes the branch and the card waits o
   assert.deepEqual([itemOf().pushed.branch, typeof record().done], ['A1', 'string']);
 });
 
+// docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md
+const tapMerge = (id = 'A1') => {
+  const wave = read(at('waves', 'w', 'wave.json'));
+  wave.items.find((i) => i.id === id).merge_ready.tapped = new Date().toISOString();
+  write(at('waves', 'w', 'wave.json'), wave);
+};
+
+test("with Auto-merge off, builder done on a local board verifies the build and holds it for the owner's Merge; merge after the tap rebases onto main as it is, lands it, closes the card and pushes main", () => {
+  const repo = scratchRepo();
+  heldBoard();
+  const origin = path.join(home, 'origin.git');
+  git(home, 'init', '--quiet', '--bare', origin);
+  git(repo, 'remote', 'add', 'origin', origin);
+  git(repo, 'push', '--quiet', 'origin', 'main');
+  write(path.join(repo, '.claude', 'settings.local.json'), { permissions: { allow: ['Bash(git push origin main)'] } });
+  write(path.join(repo, '.git', 'info', 'exclude'), '.claude\n');
+  assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  const main = git(repo, 'rev-parse', 'main');
+  const held = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.');
+  assert.equal(held.code, 0, held.err);
+  assert.ok(held.out.includes('\nA1: verified; waits for your Merge\n'), held.out);
+  assert.deepEqual([git(repo, 'rev-parse', 'main'), itemOf().status, itemOf().merge_ready.branch, typeof record().done], [main, undefined, 'A1', 'string']);
+  assert.equal(threadOf().at(-1).text, 'Checked it.');
+  assert.equal(fs.existsSync(worktree()), true);
+
+  const untapped = onOrch('merge', 'w/A1');
+  assert.deepEqual([untapped.code, untapped.err], [1, "w/A1 isn't waiting on a Merge tap\n"]);
+  commit(repo, 'later.txt', 'main moved\n');
+  tapMerge();
+  const merged = onOrch('merge', 'w/A1');
+  assert.equal(merged.code, 0, merged.err);
+  assert.ok(merged.out.includes('\nA1: landed and done\n'), merged.out);
+  assert.ok(merged.out.includes('\npushed main to origin\n'), merged.out);
+  assert.equal(git(repo, 'show', 'main:work.txt'), 'built');
+  assert.equal(git(repo, 'show', 'main:later.txt'), 'main moved');
+  assert.equal(git(origin, 'rev-parse', 'main'), git(repo, 'rev-parse', 'main'));
+  assert.deepEqual([itemOf().status, itemOf().merge_ready], ['done', undefined]);
+  assert.equal(threadOf().at(-1).text, 'Landed on main on your Merge.');
+  assert.equal(fs.existsSync(worktree()), false);
+});
+
+test('a tapped Merge whose rebase conflicts launches a headless lander, and the lander finishes it onto main with no second tap', async () => {
+  const repo = scratchRepo();
+  heldBoard();
+  const seen = path.join(home, 'claude-runs.jsonl');
+  const fake = path.join(home, 'claude');
+  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify(process.argv.slice(2)) + '\\n');\n`);
+  fs.chmodSync(fake, 0o755);
+  const env = { ...finishEnv, KICKFLIP_CLAUDE: fake };
+  const b = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, env);
+  const manifest = read(at('kickflip', 'manifest.json'));
+  manifest.sites.orch.owner = { repo };
+  write(at('kickflip', 'manifest.json'), manifest);
+  assert.equal(b('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
+  commit(worktree(), 'shared/notes.md', 'branch\n', 'A1: work');
+  assert.equal(b('builder', 'done', 'w/A1', '--text', 'Checked it.').code, 0);
+  commit(repo, 'shared/notes.md', 'main\n');
+  const main = git(repo, 'rev-parse', 'main');
+  tapMerge();
+  const failed = b('merge', 'w/A1');
+  assert.equal(failed.code, 1);
+  assert.match(failed.err, /^rebasing A1 onto main conflicts in shared\/notes\.md/);
+  assert.equal(git(repo, 'rev-parse', 'main'), main);
+  assert.deepEqual(threadOf().slice(-2).map((m) => m.text), [
+    `Not merged yet: rebasing A1 onto main conflicts in shared/notes.md; resolve it in ${worktree()} and land again. A lander fixes it and lands it.`,
+    `Lander launched headless on Claude Opus in ${worktree()}.`,
+  ]);
+  await until(() => fs.existsSync(seen), 'the lander runs');
+  assert.match(fs.readFileSync(seen, 'utf8'), /You are the headless lander for card A1/);
+
+  // The lander resolves the conflict and finishes; the tap was the go.
+  assert.equal(b('builder', 'start', 'w/A1', '--kind', 'build', '--label', 'Lander').code, 0);
+  git(worktree(), 'reset', '--quiet', '--hard', 'main');
+  commit(worktree(), 'work.txt', 'built on main\n', 'A1: work, kept main');
+  const landed = b('builder', 'done', 'w/A1', '--text', 'Resolved it.');
+  assert.equal(landed.code, 0, landed.err);
+  assert.ok(landed.out.includes('\nA1: landed and done\n'), landed.out);
+  assert.equal(itemOf().status, 'done');
+});
+
+test("a tapped Merge refused for a reason no lander fixes says why in the thread and leaves the card waiting for its Merge", () => {
+  const repo = scratchRepo();
+  heldBoard();
+  assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  assert.equal(onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.').code, 0);
+  git(repo, 'switch', '--quiet', '-c', 'elsewhere');
+  tapMerge();
+  const failed = onOrch('merge', 'w/A1');
+  assert.equal(failed.code, 1);
+  assert.equal(threadOf().at(-1).text, `Not merged: ${repo} is on elsewhere, not main; switch it to main (git -C ${repo} switch main) and land again. Tap Merge again.`);
+  assert.deepEqual([itemOf().status, itemOf().merge_ready.branch], [undefined, 'A1']);
+});
+
+test('PRs off on a GitHub board needs Push main granted; then a finish lands in the shared clone on main as origin has it, and pushes main', () => {
+  const origin = remoteBoard(() => ({ github: 'owner/project' }));
+  git(origin, 'config', 'receive.denyCurrentBranch', 'updateInstead');
+  const clone = path.join(home, 'clone');
+  const refused = onOrch('settings', 'set', 'prs', 'off');
+  assert.deepEqual([refused.code, refused.err], [1, 'PRs off lands each card on main and pushes it, so turn on Push main after a land first\n']);
+  write(path.join(clone, '.claude', 'settings.local.json'), { permissions: { allow: ['Bash(git push origin main)'] } });
+  write(path.join(clone, '.git', 'info', 'exclude'), '.claude\n');
+  assert.deepEqual(onOrch('settings', 'set', 'prs', 'off'), { code: 0, out: 'prs off\n', err: '' });
+  assert.equal(onOrch('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
+  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  commit(origin, 'later.txt', 'origin moved\n');
+  const r = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.');
+  assert.equal(r.code, 0, r.err);
+  assert.ok(r.out.includes('\nA1: landed and done\n'), r.out);
+  assert.ok(r.out.includes('\npushed main to origin\n'), r.out);
+  assert.equal(git(origin, 'show', 'main:work.txt'), 'built');
+  assert.equal(git(origin, 'show', 'main:later.txt'), 'origin moved');
+  assert.deepEqual([itemOf().status, itemOf().prs], ['done', undefined]);
+});
+
 test("builder start and progress on --site write each new status line to the item's thread as its phase and detail, named by a further agent's kind", () => {
   assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--phase', 'reading', '--progress', 'the plan').code, 0);
   assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--agent', 'bench', '--kind', 'claude', '--phase', 'testing', '--progress', 'the benchmark').code, 0);
@@ -2877,12 +2997,12 @@ test("reviewers set, add and remove keep the board's own reviewers in its board.
 test("settings prints the board's settings as JSON, off when absent, and settings set auto-merge on|off writes board.json keeping its other keys", () => {
   const cfg = () => read(site('orch', 'board.json'));
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] });
-  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_pull":false,"max_implementers":10,"auto_triage":false,"auto_review":false,"headless_builders":false,"idle_notification":false,"skip_draft":false}\n', err: '' });
+  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_pull":false,"max_implementers":10,"auto_triage":false,"auto_review":false,"headless_builders":false,"idle_notification":false,"skip_draft":false,"prs":true}\n', err: '' });
   const on = board('settings', 'set', 'auto-merge', 'on', '--site', 'orch');
   assert.equal(on.code, 0);
   assert.match(on.out, /^auto-merge on$/m);
   assert.deepEqual(cfg(), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }], auto_merge: true });
-  assert.equal(board('settings', '--site', 'orch').out, '{"auto_merge":true,"auto_build":false,"auto_pull":false,"max_implementers":10,"auto_triage":false,"auto_review":false,"headless_builders":false,"idle_notification":false,"skip_draft":false}\n');
+  assert.equal(board('settings', '--site', 'orch').out, '{"auto_merge":true,"auto_build":false,"auto_pull":false,"max_implementers":10,"auto_triage":false,"auto_review":false,"headless_builders":false,"idle_notification":false,"skip_draft":false,"prs":true}\n');
   assert.equal(board('settings', 'set', 'auto-merge', 'off', '--site', 'orch').code, 0);
   assert.equal(cfg().auto_merge, false);
   // docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md
@@ -3137,7 +3257,7 @@ test('main set publishes an install with the same URL and sha checks as card ins
 
 test('github-login settings lines and API validation support set and clear', async () => {
   const { settingsOf, settingsLines, saveBoardSettings } = await import('./store.mjs');
-  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off', 'setting idle-notification off', 'setting skip-draft off', 'setting github-login owner']);
+  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on', 'setting github-login owner']);
   assert.ok(!('github_login' in settingsOf({ github_login: 'bad login' })));
   await saveBoardSettings(site('orch'), { github_login: 'owner' });
   await saveBoardSettings(site('orch'), { github_login: null });

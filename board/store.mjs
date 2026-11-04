@@ -25,6 +25,7 @@ import { reviewLinks, topicItems, reviewersOf } from './review.mjs';
 import { readiness } from '../hub/readiness.mjs';
 import { slackDay } from '../hub/slack.mjs';
 import { storedPath } from '../bin/install.mjs';
+import { readPermissions } from './permissions.mjs';
 import { RuleError, rulesOf, addRule, editRule, removeRule, applyRules, readHubRules, writeHubRules } from '../hub/rules.mjs';
 
 export class BoardError extends Error {}
@@ -785,7 +786,8 @@ const storedTickets = (value) => { try { return value ? ticketSource(value) : nu
 // whole number from 1 to 99 and MAX_IMPLEMENTERS when absent
 // (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md), headless_builders, off when absent
 // (docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md), skip_draft, off when
-// absent (docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md), tickets, its one
+// absent (docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md), prs, on unless false (opensPRs;
+// docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md), tickets, its one
 // ticket source, and github_login, absent when unset or invalid (docs/adr/2026-11-01-1348-a-board-has-one-ticket-source.md).
 const validMaxImplementers = (value) => Number.isInteger(value) && value >= 1 && value <= 99;
 export const settingsOf = (cfg) => {
@@ -793,15 +795,22 @@ export const settingsOf = (cfg) => {
   return { auto_merge: cfg?.auto_merge === true, auto_build: cfg?.auto_build === true, auto_pull: cfg?.auto_pull === true,
     max_implementers: validMaxImplementers(cfg?.max_implementers) ? cfg.max_implementers : MAX_IMPLEMENTERS, auto_triage: cfg?.auto_triage === true, auto_review: cfg?.auto_review === true,
     headless_builders: cfg?.headless_builders === true,
-    idle_notification: cfg?.idle_notification === true, skip_draft: cfg?.skip_draft === true,
+    idle_notification: cfg?.idle_notification === true, skip_draft: cfg?.skip_draft === true, prs: cfg?.prs !== false,
     ...(tickets ? { tickets } : {}), ...(validGithubLogin(cfg?.github_login) ? { github_login: cfg.github_login } : {}) };
 };
 export async function readBoardSettings(site) {
   return settingsOf(await readJSON(path.join(needSite(site), 'board.json'), {}));
 }
-// changes {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean, headless_builders?: boolean, idle_notification?: boolean, skip_draft?: boolean, tickets?: source, github_login?: login | null} → {file, settings, changed}; changed lists the keys whose value moved.
-export function saveBoardSettings(site, changes) {
-  onlyKeys(changes, ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'auto_triage', 'auto_review', 'headless_builders', 'idle_notification', 'skip_draft', 'tickets', 'github_login'], 'the settings');
+// Whether cards on a board open PRs: a board on GitHub that builds from its shared clone, not its folder
+// (hub/boards.mjs buildsLocally), with its PRs setting on. board is a listBoards entry or hub/board-repo.mjs boardRepo's
+// answer, settings settingsOf's.
+export const opensPRs = (board, settings) => Boolean(board?.github) && !board.local && settings.prs;
+
+// changes {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean, headless_builders?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, tickets?: source, github_login?: login | null} → {file, settings, changed}; changed lists the keys whose value moved.
+// PRs off on a board on GitHub that builds from its shared clone needs its Push main switch on, since each land there
+// then pushes main (permissions.mjs pushMain).
+export async function saveBoardSettings(site, changes) {
+  onlyKeys(changes, ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'auto_triage', 'auto_review', 'headless_builders', 'idle_notification', 'skip_draft', 'prs', 'tickets', 'github_login'], 'the settings');
   if (!Object.keys(changes).length) fail('the settings name nothing to change');
   changes = { ...changes };
   for (const [k, v] of Object.entries(changes)) {
@@ -818,6 +827,10 @@ export function saveBoardSettings(site, changes) {
     } else if (k === 'max_implementers') {
       if (!validMaxImplementers(v)) fail('max_implementers must be a whole number from 1 to 99');
     } else bool(v, k);
+  }
+  if (changes.prs === false) {
+    const board = site ? listBoards().find((b) => samePath(b.dir, site)) : null;
+    if (board?.github && !board.local && !(await readPermissions(board.owner?.repo)).pushMain) fail('PRs off lands each card on main and pushes it, so turn on Push main after a land first');
   }
   return writeBoardJSON(site, (cfg) => {
     const before = settingsOf(cfg);
@@ -843,7 +856,7 @@ export async function fallBackFromLinear() {
 // The CLI's `settings set <name> <value>`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
   const key = String(name).replace(/-/g, '_');
-  const names = ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'auto_triage', 'auto_review', 'headless_builders', 'idle_notification', 'skip_draft', 'github_login', 'tickets'];
+  const names = ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'auto_triage', 'auto_review', 'headless_builders', 'idle_notification', 'skip_draft', 'prs', 'github_login', 'tickets'];
   if (!names.includes(key)) fail(`no board setting "${name}"; settings are ${names.map((k) => k.replace(/_/g, '-')).join(', ')}`);
   if (key === 'tickets') {
     let tickets;
@@ -1400,7 +1413,7 @@ function closingLine(site, key, item, status, text, repo) {
 // (closingLine), or with fromAsk the item's first thread line.
 // ownerStep is the owner step builder done or land records, and ownerDone the owner's Done, which alone clears it
 // (docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md).
-async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, parent, related, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, ownerStep, ownerDone }, options) {
+async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, parent, related, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, ownerStep, ownerDone }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
   if (state !== undefined && !CARD_STATES.includes(state)) fail('--state takes ready, grilling or prototyping');
   if (force && !FINISHED.includes(status)) fail(`--force goes with --status ${FINISHED.join(', ')}`);
@@ -1413,7 +1426,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   const hold = holdOf({ held, unheld, pickUpAt });
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([status, clearStatus, next, clearNext, pr, pushed, ghSince, fromAsk, state, hold, notesFile, deps, parent, related, built, title, size, model, ticket, ownerStep].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --notes-file, --deps, --parent, --related, --install, --clear-install, --title, --size, --model or --ticket');
+  if ([status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, hold, notesFile, deps, parent, related, built, title, size, model, ticket, ownerStep].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --notes-file, --deps, --parent, --related, --install, --clear-install, --title, --size, --model or --ticket');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   const { source, wave, item } = await loadItem(site, key);
@@ -1445,7 +1458,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
       : `${key} is held; start it only once the owner resumes it, with item set ${key} --unheld`);
   }
   if (status !== undefined) item.status = ITEM_STATUSES.includes(status) ? status : fail(`--status takes ${ITEM_STATUSES.join(', ')}`);
-  if (LEAVES_TODO.includes(status) || pr !== undefined || pushed !== undefined) clearHold(item);
+  if (LEAVES_TODO.includes(status) || pr !== undefined || pushed !== undefined || mergeReady !== undefined) clearHold(item);
   if (status === 'building') {
     const blockers = await unfinishedDeps(site, parseKey(key).wave, item);
     if (blockers.length) fail(`${key} is blocked by ${blockers.join(', ')}; start it once ${blockers.length === 1 ? 'that is' : 'those are'} done or merged`);
@@ -1479,6 +1492,13 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     item.branch = pushed;
     clearBuildingStatus(item);
   }
+  // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md: a verified branch that waits for the owner's Merge.
+  if (mergeReady !== undefined) {
+    item.merge_ready = { branch: mergeReady, at: new Date().toISOString() };
+    item.branch = mergeReady;
+    clearBuildingStatus(item);
+  }
+  if (FINISHED.includes(status)) delete item.merge_ready;
   if (ghSince !== undefined) {
     if (typeof ghSince !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(ghSince) || Number.isNaN(Date.parse(ghSince))) fail('--gh-since takes an ISO-8601 UTC time such as 2026-10-23T11:00:00Z');
     item.gh_since = ghSince;
@@ -1505,11 +1525,11 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (ask) resolved.push(...(await appendThread(site, key, { text: said })).lines);
   if (lastLine && site) resolved.push(...(await appendThread(site, key, { text: lastLine, who })).lines);
   // The ticket stays open while the card waits on its owner step.
-  const target = item.owner_step && FINISHED.includes(status) ? null : ticketTarget({ status, pr: pr ?? pushed });
+  const target = item.owner_step && FINISHED.includes(status) ? null : ticketTarget({ status, pr: pr ?? pushed ?? mergeReady });
   const moved = target && await moveTicket(await boardSource(site), item, target, { ...options, repo: boardRepoOf(site, wave) });
   if (moved) resolved.push(moved);
   // A builder that forgot builder done would keep the card In Progress after it was handed back.
-  if (pr !== undefined || pushed !== undefined || HANDED_BACK.includes(status)) await closeBuilders(source.dir, item.id, FINISHED.includes(status));
+  if (pr !== undefined || pushed !== undefined || mergeReady !== undefined || HANDED_BACK.includes(status)) await closeBuilders(source.dir, item.id, FINISHED.includes(status));
   // An ask is in one card's thread: becoming this item moves it out of a card it was folded into.
   const links = ask ? await readAskLinks(site) : {};
   if (routeRecord(links, ask) !== undefined) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
@@ -1707,12 +1727,14 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
     return setItem(site, key, { status: 'merged', text: `PR${merged.length > 1 ? 's' : ''} ${prNames(merged, repo)} ${merged.length > 1 ? 'were' : 'was'} already merged.` });
   }
   const open = prs.map((p, i) => ({ ...p, ...fetched[i] })).filter(({ view }) => view.state === 'OPEN');
+  // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md: a card no reviewer is on merges with no approval.
+  const needsApproval = reviewersOf(wave, (await boardConfig(site)).reviewers || []).length > 0;
   const reasons = [];
   let after = false;
   for (const p of open) {
     const { view, reviews } = p;
     const { failing, pending } = reportOf(p, { pr: p.number, since: now, me: null });
-    const own = mergeBlockers({ ...view, checks: { state: failing.length ? 'fail' : pending ? 'pending' : 'pass', failing, pending } });
+    const own = mergeBlockers({ ...view, checks: { state: failing.length ? 'fail' : pending ? 'pending' : 'pass', failing, pending } }, { needsApproval });
     const approved = reviews.filter((r) => r.state === 'APPROVED').sort((a, b) => String(a.submitted_at).localeCompare(String(b.submitted_at))).at(-1)?.commit_id;
     const later = Boolean(approved && view.headRefOid && approved !== view.headRefOid);
     after ||= later;
@@ -1739,6 +1761,27 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
   }
   const said = [mergedLine(done, repo), afterApproval !== undefined && `After the approval: ${text(afterApproval, '--after-approval')}`, steps && `The owner's word on the manual steps: "${steps}"`];
   return setItem(site, key, { status: 'merged', text: said.filter(Boolean).join(' ') });
+}
+
+// docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md
+// The card's verified branch waiting for the owner's Merge ({branch, at, tapped?}), or null.
+export async function heldMerge(site, key) {
+  return (await loadItem(site, key)).item.merge_ready || null;
+}
+// The owner's Merge on a held card. tapped, the tap's time, is the go that the land it starts, and a lander after it,
+// finish on. → the held merge
+export async function tapMerge(site, key) {
+  const { source, wave, item } = await loadItem(site, key);
+  if (!item.merge_ready || FINISHED.includes(item.status)) fail(`${key} isn't waiting for its Merge`);
+  item.merge_ready.tapped = new Date().toISOString();
+  await writeJSON(source.file, wave);
+  return item.merge_ready;
+}
+// The Claude model of the card's newest builder record that kept a worktree, for its lander.
+export async function builderModel(site, key) {
+  const { source, item } = await loadItem(site, key);
+  const records = (await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)))).filter((r) => r?.worktree?.path);
+  return records.sort((a, b) => String(b.started).localeCompare(String(a.started)))[0]?.model;
 }
 
 // Sets item.ticket from the board's source, and ticket_created when kickflip made it. self is the card's <wave>/<id>:

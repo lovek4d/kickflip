@@ -128,7 +128,7 @@ function boardOf(route, s) {
   const waves = wavesOf(s.dir, cfg, kind);
   const github = s.github;
   return {
-    route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, waves, prs: prsOf(waves, github), github, ...(s.remote && !github ? { remote: s.remote } : {}), branch: s.branch, auto_build: cfg.auto_build === true, auto_review: cfg.auto_review === true, skipDraft: cfg.skip_draft === true, autoMerge: cfg.auto_merge === true,
+    route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, waves, prs: prsOf(waves, github), github, ...(s.remote && !github ? { remote: s.remote } : {}), branch: s.branch, ...(buildsLocally(s) ? { local: true } : {}), auto_build: cfg.auto_build === true, auto_review: cfg.auto_review === true, skipDraft: cfg.skip_draft === true, autoMerge: cfg.auto_merge === true,
     githubLogin: typeof cfg.github_login === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(cfg.github_login) ? cfg.github_login : null,
     tickets: cfg.tickets, reviewers: names(cfg.reviewers), reviewerLogins: reviewerLogins(cfg.reviewers), owner: s.owner || null, watch: Array.isArray(s.watch) && s.watch.length ? s.watch : ['data/events.jsonl'], filter: s.filter || null,
   };

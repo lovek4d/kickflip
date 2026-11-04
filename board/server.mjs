@@ -6,7 +6,7 @@
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask, ask progress|done,
 //   lineup create|add|remove|set|finish,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
-// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review, headless_builders, idle_notification, skip_draft, github_login}. auto_build asks the hub to
+// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review, headless_builders, idle_notification, skip_draft, prs, github_login}. auto_build asks the hub to
 // run each card's .kickflip/build after each push, and hides the cards' Serve / Build; main always builds after a merge.
 // auto_merge (false when absent) lets the session merge
 // an approved, green, clean PR itself; off, the card shows the owner's Merge (store.mjs settingsOf). rules are the owner's standing instructions to this
@@ -121,6 +121,14 @@
 //                                card-hold {key, hold: true, for} is a Hold sheet chip or its Custom time
 //                                (../hub/duration.mjs durationEnd), stored as {key, hold: true, until} or, for
 //                                Forever, {key, hold: true}; a choice that ends in the past or past 30 days → 400 {error}.
+//                                card-merge {key} on a card whose verified branch waits for the owner's Merge (no PR)
+//                                records the tap on the card (store.mjs tapMerge) and runs `board.mjs merge <key>`
+//                                detached, so a land that restarts this server finishes, its output in
+//                                ~/.claude/kickflip/logs/merge-<id>-<time>.log, with no event and no session
+//                                (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md). KICKFLIP_MERGE_CMD='["<cmd>", …]'
+//                                replaces node and board.mjs, called with --site <route> merge <key>. On a card with a
+//                                PR the server merges it (store.mjs mergeCard) and appends no event; a refusal → 400
+//                                {error} and a thread line.
 //                                card-build {key} is the owner's Build: the server starts the build itself (store.mjs
 //                                startTappedBuild, board/worktree.mjs boardWorktree) and, once started, appends
 //                                card-build {key, ref, kind, model, reason, worktree}, model only for claude, which wakes the session to brief and launch
@@ -187,8 +195,8 @@
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (store.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
-//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review, headless_builders, idle_notification, skip_draft} (store.mjs readBoardSettings)
-//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean, headless_builders?: boolean, idle_notification?: boolean, skip_draft?: boolean} → board.json, keeping its other keys, and when a value other
+//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review, headless_builders, idle_notification, skip_draft, prs} (store.mjs readBoardSettings)
+//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean, headless_builders?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean} → board.json, keeping its other keys, and when a value other
 //                                than idle_notification moved a `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id}; a bad body → 400 {error}
 //   GET  /api/permissions        {owner, file, permissions: [{id, name, allows, rule, on, refused}]}: the board's session
@@ -221,7 +229,7 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import zlib from 'node:zlib';
@@ -231,9 +239,9 @@ import { archivedOf, buildBoard, withHub, DONE_KEPT, PROTOTYPE_WAIT, prototypeWa
 import { localDay, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
-import { createReadStream, existsSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
-import { launchBuilder, reviveBuilders } from './headless.mjs';
-import { BoardError, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, landable, migrateFollowups, stripDeadFields, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
+import { BOARD_CLI, launchBuilder, reviveBuilders } from './headless.mjs';
+import { BoardError, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, landable, migrateFollowups, stripDeadFields, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -471,7 +479,7 @@ async function readAgents(dir) {
 // manifest (its GitHub repo, git remote and branch) and the Slack bridge's topic items.
 async function outsideData() {
   const self = boardAt(here);
-  return { cfg: await config(), github: self?.github, remote: self?.remote, branch: self?.branch, topicItems: topicItems() };
+  return { cfg: await config(), github: self?.github, local: self?.local, remote: self?.remote, branch: self?.branch, topicItems: topicItems() };
 }
 
 // The wave files the board reads, each with its builder records.
@@ -495,7 +503,9 @@ async function withArchived(entries) {
   return waves;
 }
 
-async function itemSnapshot({ cfg, github, remote, branch }, waves) {
+// A board that opens no PRs has no reviewers on its cards; its list stays in board.json
+// (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md).
+async function itemSnapshot({ cfg, github, local, remote, branch }, waves) {
   const fromWaves = cfg.items === 'waves';
   waves ??= await liveWaves();
 
@@ -503,7 +513,7 @@ async function itemSnapshot({ cfg, github, remote, branch }, waves) {
   await Promise.all(waves.flatMap(({ slug, wave }) => wave.items.map(async (it) => {
     threadLines[`${slug}/${it.id}`] = await readLines(threadFile(`${slug}/${it.id}`));
   })));
-  return { github, remote, branch, reviewers: cfg.reviewers || [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, skipDraft: settingsOf(cfg).skip_draft, autoPull: settingsOf(cfg).auto_pull, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, waves, threads: threadLines,
+  return { github, remote, branch, reviewers: opensPRs({ github, local }, settingsOf(cfg)) ? cfg.reviewers || [] : [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, skipDraft: settingsOf(cfg).skip_draft, autoPull: settingsOf(cfg).auto_pull, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, waves, threads: threadLines,
     working: await readWorking(here), autoReview: settingsOf(cfg).auto_review, incoming: await readJSON(path.join(data, 'incoming.json'), null),
     reviewRecords: await readJSON(path.join(data, 'reviews.json'), {}) };
 }
@@ -1000,6 +1010,13 @@ const server = http.createServer(async (req, res) => {
         if (refused) return json(res, 400, { error: refused });
         return json(res, 200, { ids: await recordAnswers(body.answers), board: await answerBoard(req, since) });
       }
+      // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md: a held card's Merge lands from here, with no session.
+      if (kind === 'card-merge' && await heldMerge(here, String(body.key || '')).catch(() => null)) {
+        const key = String(body.key);
+        try { await tapMerge(here, key); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
+        runHeldMerge(key);
+        return json(res, 200, { id: null, board: await answerBoard(req, since) });
+      }
       // docs/adr/2026-11-04-2045-the-merge-tap-and-auto-merge-run-in-code.md
       // The Merge tap merges the card here and records no event, so no session wakes; a refusal answers 400 and is a
       // thread line (store.mjs mergeCard).
@@ -1292,6 +1309,19 @@ async function reviveHeadless() {
   } finally {
     revivingHeadless = false;
   }
+}
+
+// The land a held card's Merge tap starts: `board.mjs merge <key>`, detached so a land that restarts this server
+// finishes, writing its outcome to the card's thread itself (finish.mjs landHeld).
+function runHeldMerge(key) {
+  const logs = path.join(os.homedir(), '.claude', 'kickflip', 'logs');
+  mkdirSync(logs, { recursive: true });
+  const out = openSync(path.join(logs, `merge-${key.split('/')[1]}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`), 'a');
+  const cmd = process.env.KICKFLIP_MERGE_CMD ? JSON.parse(process.env.KICKFLIP_MERGE_CMD) : [process.execPath, BOARD_CLI];
+  const child = spawn(cmd[0], [...cmd.slice(1), '--site', route, 'merge', key], { detached: true, stdio: ['ignore', out, out] });
+  closeSync(out);
+  child.on('error', (e) => appendThread(here, key, { text: `Not merged: the land couldn't start (${e.message}). Tap Merge again.` }).catch(() => {}));
+  child.unref();
 }
 
 // data/landers.json {<key>: <verified at>}: the verification each launched lander was for, so each gets one lander.

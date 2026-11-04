@@ -22,9 +22,35 @@ before(async () => {
   base = `http://127.0.0.1:${port}`;
   fs.writeFileSync(path.join(home, 'push-stub.mjs'), "import fs from 'node:fs'; fs.appendFileSync(process.env.STUB_CALLS, JSON.stringify(process.argv.slice(3)) + '\\n'); console.log('sent');");
   const pushEnv = { KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, path.join(home, 'push-stub.mjs'), 'push']), STUB_CALLS: path.join(home, 'push-calls.jsonl') };
-  child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), PREFIX: '', ...pushEnv } });
+  // A held card's Merge runs this instead of board.mjs merge, recording its arguments.
+  fs.writeFileSync(path.join(home, 'merge-stub.mjs'), `import fs from 'node:fs'; fs.appendFileSync(${JSON.stringify(path.join(home, 'merges.jsonl'))}, JSON.stringify(process.argv.slice(2)) + '\\n');`);
+  const mergeEnv = { KICKFLIP_MERGE_CMD: JSON.stringify([process.execPath, path.join(home, 'merge-stub.mjs')]) };
+  child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), PREFIX: '', ...pushEnv, ...mergeEnv } });
   await new Promise((resolve, reject) => { child.stdout.once('data', resolve); child.once('exit', reject); });
   await until(() => fs.existsSync(path.join(site, 'data', 'action-pushes.json')), 'the first Action needed check');
+});
+
+// docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md
+test("a held card's Merge records the tap on the card and runs board.mjs merge detached, with no event to wake the session, and reads merging", async () => {
+  const waveFile = path.join(site, 'data', 'wave.json');
+  const before = fs.existsSync(waveFile) ? fs.readFileSync(waveFile, 'utf8') : null;
+  const wave = before ? JSON.parse(before) : { items: [] };
+  wave.items.push({ id: 'M1', title: 'Held', branch: 'M1', merge_ready: { branch: 'M1', at: '2026-11-04T10:00:00Z' } });
+  try {
+    await boardSees(base, () => fs.writeFileSync(waveFile, JSON.stringify(wave)));
+    const card = async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/M1');
+    assert.deepEqual(await card().then((c) => [c.lane, c.waitsOn, c.action?.label]), ['review', 'merge', 'Merge']);
+    const events = () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8') : '');
+    const r = await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'card-merge', key: 't/M1' }) });
+    const answer = await r.json();
+    assert.equal(r.status, 200, JSON.stringify(answer));
+    assert.equal(answer.id, null);
+    assert.equal(answer.board.items.find((i) => i.key === 't/M1').merging, true);
+    assert.equal(typeof JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === 'M1').merge_ready.tapped, 'string');
+    assert.equal(events().includes('"card-merge"'), false);
+    await until(() => fs.existsSync(path.join(home, 'merges.jsonl')), 'the merge runs');
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, 'merges.jsonl'), 'utf8').trim()), ['--site', 'site', 'merge', 't/M1']);
+  } finally { if (before) fs.writeFileSync(waveFile, before); else fs.rmSync(waveFile); }
 });
 after(() => { child?.kill(); fs.rmSync(home, { recursive: true, force: true }); });
 
@@ -972,11 +998,11 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
   const checks = async () => (await (await fetch(`${base}/_claude/events?kind=check-github`)).json()).map((e) => e.data);
   const before = (await checks()).length;
   try {
-    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false, auto_pull: false, max_implementers: 10, auto_triage: false, auto_review: false, headless_builders: false, idle_notification: false, skip_draft: false } });
+    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false, auto_pull: false, max_implementers: 10, auto_triage: false, auto_review: false, headless_builders: false, idle_notification: false, skip_draft: false, prs: true } });
     const on = await save({ auto_merge: true });
     assert.equal(on.status, 200);
     const out = await on.json();
-    assert.deepEqual(out.settings, { auto_merge: true, auto_build: false, auto_pull: false, max_implementers: 10, auto_triage: false, auto_review: false, headless_builders: false, idle_notification: false, skip_draft: false });
+    assert.deepEqual(out.settings, { auto_merge: true, auto_build: false, auto_pull: false, max_implementers: 10, auto_triage: false, auto_review: false, headless_builders: false, idle_notification: false, skip_draft: false, prs: true });
     assert.match(out.id, /^e/);
     const written = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8'));
     assert.deepEqual([written.title, written.rules.length, written.auto_merge], ['T', 1, true]);
@@ -1119,10 +1145,10 @@ test('the watcher prints the hub rules, then the board rules, the board settings
     await until(async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === `ask:${asked}`).working, 'the board shows the ask working');
     assert.deepEqual((await (await fetch(`${base}/api/working`)).json()).working.filter((w) => w.id === asked).map(({ since, ...w }) => w), [{ id: asked, kind: 'ask', card: null }]);
     assert.match(lines.at(-1), /^quiet .*AskUserQuestion/);
-    assert.deepEqual(lines.slice(2, -1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off', 'setting idle-notification off', 'setting skip-draft off']);
+    assert.deepEqual(lines.slice(2, -1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on']);
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, auto_merge: true }));
     fs.rmSync(path.join(web, 'settings.json'));
-    assert.deepEqual((await watch('rules2')).slice(2, -1), ['setting auto-merge on', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off', 'setting idle-notification off', 'setting skip-draft off']);
+    assert.deepEqual((await watch('rules2')).slice(2, -1), ['setting auto-merge on', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on']);
     const hello = () => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: 'hello1', ts: new Date().toISOString(), kind: 'hello', data: { title: 'T' } }) + '\n');
     assert.equal((await watch('hello', hello))[1], 'hello hello1 from the hub answered');
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'handshake.json'), 'utf8')).ack.id, 'hello1');

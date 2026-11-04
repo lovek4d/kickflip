@@ -572,6 +572,61 @@ test('Board Settings shows Skip the draft only on a GitHub board, says under it 
   }
 });
 
+// docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md
+test('Board Settings shows PRs only on a GitHub board that builds from its shared clone; off, it hides Skip the draft and Reviewers and Auto-merge says it lands verified cards; a refusal puts it back', async () => {
+  for (const [repoBody, shown] of [[{ github: 'owner/project', branch: 'main' }, true], [{ github: 'owner/project', branch: 'main', local: true }, false], [{}, false]]) {
+    const page = fakePage(memoryStorage().localStorage);
+    const root = new page.El();
+    const view = page.win.AppViews.settings.create(root, '/orch', {});
+    page.win.fetch = async (url) => {
+      const body = url.includes('board-repo') ? repoBody : url.endsWith('/api/settings') ? { settings: { prs: true } } : {};
+      return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
+    };
+    view.mount();
+    await tick();
+    assert.equal(root.querySelector('#prsRow').hidden, !shown, JSON.stringify(repoBody));
+    assert.equal(root.querySelector('#reviewersSection').hidden, !shown, JSON.stringify(repoBody));
+    assert.equal(root.querySelector('#autoMergeSub').textContent, shown ? 'Claude merges a PR once it is approved, green and merges cleanly.' : 'Lands each verified card on main without waiting for your Merge.');
+    view.unmount();
+  }
+  const page = fakePage(memoryStorage().localStorage);
+  const root = new page.El();
+  let refuse = false, saved = true;
+  const posts = [];
+  page.win.fetch = async (url, opts = {}) => {
+    let body = {}, status = 200;
+    if (url.includes('board-repo')) body = { github: 'owner/project', branch: 'main' };
+    if (url.endsWith('/api/settings')) {
+      if (opts.method === 'POST') {
+        posts.push(JSON.parse(opts.body));
+        if (refuse) { status = 400; body = { error: 'PRs off lands each card on main and pushes it, so turn on Push main after a land first' }; }
+        else saved = JSON.parse(opts.body).prs;
+      }
+      if (status === 200) body = { settings: { prs: saved } };
+    }
+    return { ok: status === 200, status, text: async () => JSON.stringify(body), json: async () => body };
+  };
+  const view = page.win.AppViews.settings.create(root, '/orch', {});
+  view.mount();
+  await tick();
+  const toggle = root.querySelector('#prs');
+  assert.deepEqual([toggle.disabled, toggle.checked, root.querySelector('#skipDraftRow').hidden], [false, true, false]);
+  refuse = true;
+  toggle.checked = false;
+  page.fire(toggle, 'change');
+  await tick();
+  assert.deepEqual([toggle.checked, root.querySelector('#prsStatus').textContent], [true, 'PRs off lands each card on main and pushes it, so turn on Push main after a land first']);
+  assert.equal(root.querySelector('#skipDraftRow').hidden, false);
+  refuse = false;
+  toggle.checked = false;
+  page.fire(toggle, 'change');
+  await tick();
+  assert.deepEqual([posts.at(-1), toggle.checked, root.querySelector('#prsStatus').textContent], [{ prs: false }, false, 'Saved. Each card lands on main with no PR, and main is pushed.']);
+  assert.deepEqual([root.querySelector('#skipDraftRow').hidden, root.querySelector('#reviewersSection').hidden, root.querySelector('#prsRow').hidden], [true, true, false]);
+  assert.equal(root.querySelector('#autoMergeSub').textContent, 'Lands each verified card on main without waiting for your Merge.');
+  view.unmount();
+});
+
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
 test('Board Settings shows Maximum parallel implementers beside Auto implement, saves a whole number from 1 to 99 on change and restores the saved one on refusal', async () => {
   const page = fakePage(memoryStorage().localStorage);
@@ -4428,7 +4483,7 @@ test('Board Settings holds every automatic job in one Auto section, short labels
   const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
   const auto = html.slice(html.indexOf('<h2>Auto</h2>'), html.indexOf('<h2>Reviewers</h2>'));
   assert.deepEqual([...auto.matchAll(/<label class="who" for="(\w+)"><span><span>([^<]+)<\/span>/g)].map((m) => [m[1], m[2]]), [
-    ['autoPull', 'Auto implement Todo cards'], ['maxImplementers', 'Maximum parallel implementers'], ['headlessBuilders', 'Builders launch headless'], ['autoBuild', 'Auto-build cards'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'], ['skipDraft', 'Skip the draft'],
+    ['autoPull', 'Auto implement Todo cards'], ['maxImplementers', 'Maximum parallel implementers'], ['headlessBuilders', 'Builders launch headless'], ['autoBuild', 'Auto-build cards'], ['autoReview', 'Auto review'], ['prs', 'PRs'], ['autoMerge', 'Auto-merge'], ['skipDraft', 'Skip the draft'],
     ['autoTriage', 'Triage overnight'], ['idleNotification', 'Idle notification'],
   ]);
   assert.match(auto, /May use a lot of usage\./);

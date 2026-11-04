@@ -263,7 +263,9 @@ BoardView.part((B) => {
   const CONFIRM = {
     resume: (it, ref) => `Unhold ${ref}?${it.heldUntil ? ` It's held until ${heldUntilWords(it.heldUntil)}.` : ''} It can start again once nothing blocks it.`,
     nudge: () => 'Nudge Claude to check this implementer?',
-    merge: (it, ref) => (openPRs(it).length > 1
+    // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md
+    merge: (it, ref) => (it.mergeReady ? `Merge ${ref}? The board rebases ${it.mergeReady.branch} onto ${it.mergeReady.base} as it is now, reruns the tests and lands it.`
+      : openPRs(it).length > 1
       ? `Merge ${ref}? Claude squash-merges ${openPRs(it).map(prName).join(', ')} in turn if they are still approved, green and clean.`
       : `Merge ${ref}? Claude squash-merges ${openPRs(it).map(prName).join('')} if it is still approved, green and clean.`),
     'card-build': (it, ref) => (it.blockedBy?.length

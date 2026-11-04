@@ -276,7 +276,7 @@ test('a review waits with its age, and parks in Stale after a week', () => {
   assert.deepEqual([steps.lane, steps.waitsOn, steps.action, steps.resolvedBy], ['review', 'merge', { kind: 'steps', url: '#item=f%2FB1', label: 'Run the manual steps, then merge' }, 'github']);
   const fixing = buildBoard({
     now: at(2), fromWaves: false, prs: { 'o/r#7': ready },
-    waves: [{ slug: 'f', wave: { repo: 'o/r', items: [{ id: 'B1', title: 'Two', pr: 7, status: 'fixing', next: 'Reply to Codex', review_sent: { Ann: '1792800000.000100' } }] } }],
+    waves: [{ slug: 'f', wave: { repo: 'o/r', reviewers: [{ name: 'Ann', github: 'ann' }], items: [{ id: 'B1', title: 'Two', pr: 7, status: 'fixing', next: 'Reply to Codex', review_sent: { Ann: '1792800000.000100' } }] } }],
   }).items[0];
   assert.deepEqual([fixing.lane, fixing.waitsOn, fixing.builder, fixing.next], ['review', 'reviewers', null, 'Waiting for PR reviewers']);
   const changing = board({ pr: ready, item: { status: 'fixing' }, agents: runningBuilders('A1') }).items.find((i) => i.key === 'w/A1');
@@ -666,6 +666,47 @@ test("with auto-merge off an approved, green, clean PR waits on the owner's Merg
   const on = card({ autoMerge: true }).items[0];
   assert.deepEqual([on.lane, on.waitsOn, on.merging, on.action, on.next], ['review', 'merge', false, null, 'Approved, merges once CI and the merge state allow']);
   assert.equal(card({ autoMerge: true, item: { manual_steps: ['Run the backfill'] } }).items[0].action.kind, 'steps');
+});
+
+// docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md
+test("a ready PR on a card no reviewer is on waits on the merge with no approval: Merge once green and clean, or Auto-merge's; a reviewer on the board waits for their approval", () => {
+  const ready = { state: 'OPEN', isDraft: false, reviewDecision: null, mergeStateStatus: 'CLEAN', checks: { state: 'pass' }, reviews: {} };
+  const card = ({ pr = ready, autoMerge, reviewers } = {}) => buildBoard({
+    fromWaves: false, autoMerge, reviewers, prs: { 'o/r#7': pr },
+    waves: [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7 }] } }],
+  }).items[0];
+  const off = card();
+  assert.deepEqual([off.lane, off.waitsOn, off.next, off.action], ['review', 'merge', 'Ready and green: tap Merge', { kind: 'merge', url: '#item=w%2FA1', label: 'Merge' }]);
+  const pending = card({ pr: { ...ready, checks: { state: 'pending' } } });
+  assert.deepEqual([pending.waitsOn, pending.next, pending.action], ['merge', 'Ready, Merge shows once CI and the merge state allow', null]);
+  assert.equal(card({ pr: { ...ready, reviewDecision: 'CHANGES_REQUESTED' } }).action, null);
+  const auto = card({ autoMerge: true });
+  assert.deepEqual([auto.waitsOn, auto.next, auto.action], ['merge', 'Ready, merges once CI and the merge state allow', null]);
+  const reviewed = card({ reviewers: [{ name: 'Ann', github: 'ann' }] });
+  assert.deepEqual([reviewed.waitsOn, reviewed.next, reviewed.action], ['reviewers', 'Waiting for PR reviewers', null]);
+});
+
+test("a verified branch held for the owner's Merge waits In Review on it with Merge, Auto-merge on or not, reads merging from the tap until Claude writes, and is Done once it lands", () => {
+  const heldAt = '2026-11-04T10:00:00Z';
+  const card = ({ item = {}, autoMerge, threads = {}, agents = {} } = {}) => buildBoard({
+    fromWaves: true, autoMerge, threads, branch: 'trunk',
+    waves: [{ slug: 'w', agents, wave: { items: [{ id: 'A1', title: 'One', branch: 'A1', merge_ready: { branch: 'A1', at: heldAt }, ...item }] } }],
+  }).items[0];
+  for (const autoMerge of [false, true]) {
+    const it = card({ autoMerge });
+    assert.deepEqual([it.lane, it.waitsOn, it.next, it.action, it.resolvedBy, it.pr], ['review', 'merge', 'Verified: tap Merge to land it on trunk', { kind: 'merge', url: '#item=w%2FA1', label: 'Merge' }, 'merge', null]);
+    assert.deepEqual(it.mergeReady, { branch: 'A1', at: heldAt, base: 'trunk' });
+  }
+  assert.equal(card({ item: { manual_steps: ['Run the backfill'] } }).action.kind, 'merge');
+  const tapped = { branch: 'A1', at: heldAt, tapped: '2026-11-04T11:00:00Z' };
+  const merging = card({ item: { merge_ready: tapped } });
+  assert.deepEqual([merging.merging, merging.action, merging.next], [true, null, 'Merging']);
+  const refused = card({ item: { merge_ready: tapped }, threads: { 'w/A1': [{ ts: '2026-11-04T11:01:00Z', who: 'claude', text: 'Not merged: main moved. Tap Merge again.' }] } });
+  assert.deepEqual([refused.merging, refused.action?.kind], [false, 'merge']);
+  const landing = card({ item: { merge_ready: tapped }, agents: runningBuilders('A1') });
+  assert.deepEqual([landing.lane, landing.waitsOn, landing.action], ['progress', 'builder', null]);
+  const done = card({ item: { status: 'done' } });
+  assert.deepEqual([done.lane, done.mergeReady, done.action], ['done', null, null]);
 });
 
 test("an unstarted Todo card that waits on nothing from the owner can Build, a blocked one too, which the idle pull skips", () => {

@@ -104,15 +104,21 @@ function reviewOf(reviewers, pr, sentAt) {
 // What the card waits on: the owning session's check of finished work, the builder, the owner's merge of a pushed
 // branch, the owner's review of a draft and Ready on GitHub, the CI before the board marks a draft ready itself, the
 // reviewers, the merge once GitHub counts it approved, or nothing. buildBoard sets `owner` for the owner's other waits.
-function waitsOnOf(lane, pr, builder, status, pushed, skipDraft) {
+// A verified branch held for the owner's Merge waits on the merge, and so does a ready PR on a card no reviewer is on
+// (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md).
+function waitsOnOf(lane, pr, builder, status, pushed, skipDraft, { held, needsApproval }) {
   if (builder?.kind === BUILDER_KIND.install) return 'builder';
   if (status === 'checking') return 'checking';
   if (builder) return 'builder';
+  if (held && lane === 'review') return 'merge';
   if (pushed && lane === 'review') return 'owner';
   if (lane === 'review' && pr?.state === 'OPEN' && pr.isDraft) return skipDraft ? 'ci' : 'ready';
-  if (lane === 'review' || lane === 'stale') return pr?.reviewDecision === 'APPROVED' ? 'merge' : 'reviewers';
+  if (lane === 'review' || lane === 'stale') return reviewed(pr, needsApproval) ? 'merge' : 'reviewers';
   return null;
 }
+
+// Whether a PR's review lets it merge: approved, or on a card no reviewer is on, GitHub asking for no review or changes.
+const reviewed = (pr, needsApproval) => pr?.reviewDecision === 'APPROVED' || (!needsApproval && !['REVIEW_REQUIRED', 'CHANGES_REQUESTED'].includes(pr?.reviewDecision));
 
 // A done card has no next step, whatever its wave file's `next` still says.
 // A card whose PR is ready for review reads its next step from GitHub, never from the wave file's `next`, and a card
@@ -121,6 +127,9 @@ const PROTOTYPE_URL = /(^|\/)prototype-[\w-]+\.html/;
 const REVIEW_NEXT = { reviewers: 'Waiting for PR reviewers', merge: 'Approved, merges once CI and the merge state allow', ci: 'Marked ready for review once CI passes' };
 // docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md
 const OWNER_MERGE_NEXT = { waiting: 'Approved, Merge shows once CI and the merge state allow', ready: 'Approved and green: tap Merge', merging: 'Merging' };
+// docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md: a ready PR on a card no reviewer is on, and a held branch.
+const UNREVIEWED_MERGE_NEXT = { auto: 'Ready, merges once CI and the merge state allow', waiting: 'Ready, Merge shows once CI and the merge state allow', ready: 'Ready and green: tap Merge' };
+const heldNext = (base) => `Verified: tap Merge to land it on ${base}`;
 const FIX_CI = 'Fix the failing CI';
 const TAP_DONE = 'Tap Done once it is settled';
 
@@ -164,12 +173,14 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   const othersAt = [...thread.filter((m) => countsUnread({ ...m, who: m.who || 'claude' })).map((m) => m.ts), ...events.map((e) => e.reply?.at)].filter(Boolean).sort();
   // A branch pushed to a plain git remote, which has no PR (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
   const pushed = !hasPR(it) && it.pushed?.branch ? { branch: it.pushed.branch, at: it.pushed.at || null, host: remote?.host || null } : null;
-  let lane = laneOf(it, pr, agents.some((a) => a.started && !a.done && builds(a)), pushed, Boolean(reopenAt), skipDraft);
+  // A verified branch waiting for the owner's Merge (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md).
+  const mergeReady = !hasPR(it) && it.merge_ready?.branch ? { branch: it.merge_ready.branch, at: it.merge_ready.at || null, base } : null;
+  let lane = laneOf(it, pr, agents.some((a) => a.started && !a.done && builds(a)), pushed || mergeReady, Boolean(reopenAt), skipDraft);
   if (reopenAt && lane === 'todo') lane = 'progress';
   if (lane === 'review' && inReviewSince && now - Date.parse(inReviewSince) > STALE_AFTER) lane = 'stale';
   const stepWaits = Boolean(ownerStep) && landed && lane === 'done';
   if (stepWaits) lane = 'review';
-  let waitsOn = waitsOnOf(lane, pr, builder, (it.status || '').toLowerCase(), pushed, skipDraft);
+  let waitsOn = waitsOnOf(lane, pr, builder, (it.status || '').toLowerCase(), pushed, skipDraft, { held: mergeReady, needsApproval: reviewers.length > 0 });
   const changing = waitsOn === 'builder' && pr?.state === 'OPEN' && !pr.isDraft;
   const redReady = lane === 'progress' && !waitsOn && pr?.state === 'OPEN' && (!pr.isDraft || skipDraft);
   // A reopened card Claude has answered waits on the owner's Done.
@@ -187,7 +198,9 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   const bumpStands = bumpedAt && !(firstBuild && String(bumpedAt) < firstBuild);
   // The owner's Merge waits on the session until it merges or writes in the thread, such as why it can't merge yet.
   const lastClaudeAt = thread.filter((m) => (m.who || 'claude') === 'claude' && m.kind !== 'status').map((m) => String(m.ts)).sort().pop() || '';
-  const merging = waitsOn === 'merge' && Boolean(mergeAt) && String(mergeAt) > lastClaudeAt;
+  // A held card's tap is recorded on it (store.mjs tapMerge), and the board server's land writes its outcome there.
+  const tappedAt = [mergeAt, mergeReady && it.merge_ready.tapped].filter(Boolean).map(String).sort().pop();
+  const merging = waitsOn === 'merge' && Boolean(tappedAt) && tappedAt > lastClaudeAt;
   // A Build tap the board refused: its reason stays on a Todo card while it is the card's newest line
   // (docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md).
   const newest = thread.filter((m) => m.kind !== 'status').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
@@ -196,8 +209,11 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   // When the card last came into In Progress: its reopening, else its latest build agent's start, else its status change.
   const progressSince = reopenAt || agents.filter(builds).map((a) => a.started).filter(Boolean).map(String).sort().pop() || it.queued_at
     || (['building', 'fixing', 'checking'].includes(String(it.status || '').toLowerCase()) ? it.status_at || null : null);
+  const approved = pr?.reviewDecision === 'APPROVED';
   const reviewNext = pushed && waitsOn === 'owner' ? `merge ${pushed.branch} into ${base}`
-    : waitsOn === 'merge' && !autoMerge ? OWNER_MERGE_NEXT[merging ? 'merging' : 'waiting'] : REVIEW_NEXT[waitsOn];
+    : mergeReady && waitsOn === 'merge' ? (merging ? OWNER_MERGE_NEXT.merging : heldNext(base))
+    : waitsOn === 'merge' && !autoMerge ? (merging ? OWNER_MERGE_NEXT.merging : (approved ? OWNER_MERGE_NEXT : UNREVIEWED_MERGE_NEXT).waiting)
+    : waitsOn === 'merge' && !approved ? UNREVIEWED_MERGE_NEXT.auto : REVIEW_NEXT[waitsOn];
   // A draft PR waits on the owner's review of it, unless the card was given a Next.
   const draftNext = prStatus === PR_STATE.draft ? `Review draft PR #${views[least].number}` : null;
   return {
@@ -212,6 +228,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     finishable: lane !== 'done',
     merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || draftNext || null,
     branch: it.branch || pr?.headRefName || pushed?.branch || null, pushed: lane === 'done' || stepWaits ? null : pushed,
+    mergeReady: lane === 'review' ? mergeReady : null,
     ticket: tickets?.source === 'linear' && !it.ticket && it.linear?.length ? null
       : ticketOf(tickets, it.ticket, it.ticket || (wave.internal ? refOf(wave, it, tickets) : it.linear?.[0]), { repo, key }),
     ticketSource: tickets?.source || null,
@@ -236,24 +253,27 @@ function installOf(install, pr) {
 }
 
 // Why GitHub wouldn't merge the PR now, one short reason each; none means approved, CI green (or none) and the merge
-// state CLEAN. checks: {state, pending?, failing?: [name]}. board.mjs merge refuses on the same reasons.
-export function mergeBlockers(pr) {
+// state CLEAN. checks: {state, pending?, failing?: [name]}. needsApproval false, on a card no reviewer is on, waits on a
+// review only while GitHub asks for one or for changes (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md).
+// board.mjs merge refuses on the same reasons.
+export function mergeBlockers(pr, { needsApproval = true } = {}) {
   if (pr?.state !== 'OPEN') return [`PR is ${String(pr?.state || 'unknown').toLowerCase()}`];
   const { state, pending, failing } = pr.checks || {};
   return [
     pr.isDraft && 'it is a draft',
-    pr.reviewDecision !== 'APPROVED' && `review: ${String(pr.reviewDecision || 'none').toLowerCase().replace(/_/g, ' ')}`,
+    !reviewed(pr, needsApproval) && `review: ${String(pr.reviewDecision || 'none').toLowerCase().replace(/_/g, ' ')}`,
     state === 'fail' && `failing: ${failing?.length ? failing.join(', ') : 'a check'}`,
     state === 'pending' && `pending: ${pending ? plural(pending, 'check') : 'checks'}`,
     pr.mergeStateStatus !== 'CLEAN' && `merge state: ${String(pr.mergeStateStatus || 'unknown').toLowerCase()}`,
   ].filter(Boolean);
 }
-const mergeable = (pr) => !mergeBlockers(pr).length;
+const mergeable = (pr, needsApproval) => !mergeBlockers(pr, { needsApproval }).length;
 
 // What the owner acts on next, or null: {kind, url, label}, url relative to the site root. kind is pick (a prototype
 // question), questions, ready (a draft's review, then Ready on GitHub), done (an ask's Done in its thread), steps (manual
 // steps on an approved PR, which the session never merges on its own) or merge (the open card's Merge, while the board's
-// auto-merge is off). A held card waits on nobody, and a reopened card waiting only on its Done has no action.
+// auto-merge is off, and always on a verified branch held for it). A held card waits on nobody, and a reopened card
+// waiting only on its Done has no action.
 function actionOf(it, questionById, autoMerge) {
   if (it.held || closedLane(it)) return null;
   const thread = `#item=${encodeURIComponent(it.key)}`;
@@ -264,9 +284,9 @@ function actionOf(it, questionById, autoMerge) {
   }
   if (it.waitsOn === 'ready') return { kind: ACTION_KIND.ready, url: it.pr.url, label: `Review draft PR #${it.pr.number}` };
   if (it.kind === 'ask' && it.waitsOn === 'owner') return { kind: ACTION_KIND.done, url: thread, label: it.next || TAP_DONE };
-  if (it.waitsOn === 'merge' && it.manualSteps.length) return { kind: ACTION_KIND.steps, url: thread, label: 'Run the manual steps, then merge' };
+  if (it.waitsOn === 'merge' && it.manualSteps.length && !it.mergeReady) return { kind: ACTION_KIND.steps, url: thread, label: 'Run the manual steps, then merge' };
   // docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md
-  if (it.waitsOn === 'merge' && !autoMerge && !it.merging && it.prs.every((p) => ['MERGED', 'CLOSED'].includes(p.state) || mergeable(p))) return { kind: ACTION_KIND.merge, url: thread, label: 'Merge' };
+  if (it.waitsOn === 'merge' && (!autoMerge || it.mergeReady) && !it.merging && it.prs.every((p) => ['MERGED', 'CLOSED'].includes(p.state) || mergeable(p, it.reviewers.length > 0))) return { kind: ACTION_KIND.merge, url: thread, label: 'Merge' };
   return null;
 }
 
@@ -331,7 +351,7 @@ function placeOwnerWait(it, questionById, autoMerge) {
   if (!it.awaitsDone) it.ownerStep = null;
   it.actionButton = actionButtonOf(it);
   it.resolvedBy = RESOLVED_BY[it.action?.kind] || null;
-  if (it.action?.kind === ACTION_KIND.merge) it.next = OWNER_MERGE_NEXT.ready;
+  if (it.action?.kind === ACTION_KIND.merge && !it.mergeReady) it.next = (it.pr?.reviewDecision === 'APPROVED' ? OWNER_MERGE_NEXT : UNREVIEWED_MERGE_NEXT).ready;
   if (it.awaitsDone) Object.assign(it, { lane: 'review', next: it.ownerStep || TAP_DONE, bumpable: false, bumpedAt: null });
   const ownerOnly = it.lane === 'todo' || it.waitsOn === 'ready' || (it.lane === 'progress' && it.waitsOn === 'owner');
   if (!it.action || !ownerOnly) return;

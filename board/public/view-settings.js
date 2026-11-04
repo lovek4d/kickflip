@@ -38,8 +38,12 @@
     <span class="muted small sub">Claude reviews teammates’ PRs that touch this board’s work. May use a lot of usage.</span></span>
     <input type="checkbox" class="toggle" id="autoReview" disabled></label>
   <p class="muted small" id="autoReviewStatus" role="status"></p>
+  <div id="prsRow" hidden><label class="who" for="prs"><span><span>PRs</span>
+    <span class="muted small sub">Each card opens a PR. Off, no PR opens: each card lands on main and main is pushed.</span></span>
+    <input type="checkbox" class="toggle" id="prs" disabled></label>
+  <p class="muted small" id="prsStatus" role="status"></p></div>
   <label class="who" for="autoMerge"><span><span>Auto-merge</span>
-    <span class="muted small sub">Claude merges a PR once it is approved, green and merges cleanly.</span></span>
+    <span class="muted small sub" id="autoMergeSub">Claude merges a PR once it is approved, green and merges cleanly.</span></span>
     <input type="checkbox" class="toggle" id="autoMerge" disabled></label>
   <p class="muted small" id="autoMergeStatus" role="status"></p>
   <div id="skipDraftRow" hidden><label class="who" for="skipDraft"><span><span>Skip the draft</span>
@@ -58,6 +62,7 @@
   <p class="muted small">The hub runs <code>.kickflip/build</code> from each card’s branch and from main. Claude wrote it when it set up this board; if builds break, file a card.</p>
   <h2>Permissions</h2>
   <div id="permissions"><p class="muted small">Loading…</p></div>
+  <div id="reviewersSection" hidden>
   <h2>Reviewers</h2>
   <p class="muted small">Everyone here gets each PR link on this board once it's ready, and the weekday digest. Someone you add also gets the links of PRs already in review.</p>
   <div id="list"><p class="muted small">Loading…</p></div>
@@ -67,6 +72,7 @@
   </form>
   <div class="row" style="margin-top:12px"><span class="muted small" id="saveStatus"></span><button class="primary" id="save" disabled>Save</button></div>
   <div class="replies" id="replies"></div>
+  </div>
   <h2>Rules</h2>
   <p class="muted small">Standing instructions for this board's Claude session. It sees them each time it wakes, and says what changes when you save.</p>
   <div id="rules"><p class="muted small">Loading…</p></div>
@@ -184,10 +190,19 @@
     const repoURL = `/_hub/board-repo/${encodeURIComponent(B.route)}`;
     let repo = {}, closeRepo = () => {};
     let tickets, savedTickets, savingTickets = null, ticketsTouched = false;
-    // Skip the draft is only for a board with pull requests, on GitHub (docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md).
+    // PRs shows on a board on GitHub that builds from its shared clone; a local board never opens PRs. Skip the draft and
+    // Reviewers show only while cards open PRs, and Auto-merge says what it merges
+    // (docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md, docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md).
+    let prsSetting = true;
+    const opensPRs = () => Boolean(repo.github) && !repo.local && prsSetting;
+    const syncPRs = () => {
+      $('#prsRow').hidden = !repo.github || Boolean(repo.local);
+      $('#skipDraftRow').hidden = $('#reviewersSection').hidden = !opensPRs();
+      $('#autoMergeSub').textContent = opensPRs() ? 'Claude merges a PR once it is approved, green and merges cleanly.' : 'Lands each verified card on main without waiting for your Merge.';
+    };
     const showRepo = () => {
       $('#boardRepoValue').textContent = repo.github || repo.remote ? `${repo.github || repo.remote} · ${repo.branch || 'Branch not recorded'}` : 'No GitHub repo';
-      $('#skipDraftRow').hidden = !repo.github;
+      syncPRs();
     };
     get(repoURL).then(({ body }) => {
       if (!B.alive()) return;
@@ -354,6 +369,9 @@
       $('#idleNotification').disabled = false;
       $('#skipDraft').checked = d.settings?.skip_draft === true;
       $('#skipDraft').disabled = false;
+      $('#prs').checked = prsSetting = d.settings?.prs !== false;
+      $('#prs').disabled = false;
+      syncPRs();
     }).catch(() => { autoMergeStatus.textContent = ticketsStatus.textContent = 'Offline. Is the host awake?'; });
     // An Auto toggle keeps its face, disabled with a spinner beside it (ui.js waitOn), while POST api/settings saves it.
     // → the saved settings
@@ -365,14 +383,17 @@
     })());
     B.on(autoMerge, 'change', async () => {
       const want = autoMerge.checked;
-      if (want && !(await BoardDialogs.confirm('Turn on auto-merge? Claude merges each approved PR on this board once CI is green and it merges cleanly, without asking you.'))) {
+      const ask = opensPRs() ? 'Turn on auto-merge? Claude merges each approved PR on this board once CI is green and it merges cleanly, without asking you.'
+        : 'Turn on auto-merge? Each verified card lands on main without asking you.';
+      if (want && !(await BoardDialogs.confirm(ask))) {
         autoMerge.checked = false;
         return;
       }
       if (!B.alive()) return;
       try {
         autoMerge.checked = (await saveToggle(autoMerge, { auto_merge: want })).auto_merge === true;
-        autoMergeStatus.textContent = autoMerge.checked ? 'Saved. Claude merges approved, green PRs itself.' : 'Saved. Approved, green PRs wait for your Merge.';
+        autoMergeStatus.textContent = opensPRs() ? (autoMerge.checked ? 'Saved. Claude merges approved, green PRs itself.' : 'Saved. Approved, green PRs wait for your Merge.')
+          : autoMerge.checked ? 'Saved. Each verified card lands on main by itself.' : 'Saved. Each verified card waits for your Merge.';
       } catch (e) {
         autoMerge.checked = !want;
         autoMergeStatus.textContent = e.message || 'Could not save. Is the host awake?';
@@ -437,6 +458,12 @@
     autoToggle('idleNotification', 'idle_notification', (on) => (on ? 'Saved. One push once the board has been idle for 15 minutes.' : 'Saved. No push when the board goes idle.'));
     autoToggle('autoTriage', 'auto_triage', (on) => (on ? 'Saved. Once a night, when cards wait on your answers, Claude triages them.' : 'Saved. Questions and Todo are left as they are.'));
     autoToggle('skipDraft', 'skip_draft', (on) => (on ? 'Saved. A builder’s draft PR is marked ready for review once CI passes.' : 'Saved. A builder’s draft PR waits for your review.'));
+    // PRs off needs Push main after a land, which the server checks; its refusal shows in the status line.
+    autoToggle('prs', 'prs', (on) => {
+      prsSetting = on;
+      syncPRs();
+      return on ? 'Saved. Each card opens a PR.' : 'Saved. Each card lands on main with no PR, and main is pushed.';
+    });
 
     // Each switch writes or removes one allow rule in the board folder's .claude/settings.local.json through POST
     // api/permissions, which only the host's own browser may send; elsewhere the switches are read-only
