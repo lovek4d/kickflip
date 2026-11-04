@@ -195,8 +195,8 @@ command fails and changes nothing.
                                                          Refuses a route that isn't another board, and an ask
                                                          that isn't New
   checked [--every <minutes> | --idle]                   data/checked.json: GitHub was just checked, next in
-                                                         <minutes> (default the polling window's, as kickflip
-                                                         polling prints); run it at the end of each GitHub tick.
+                                                         <minutes> (default 5, the away cadence); run it at the
+                                                         end of each GitHub tick.
                                                          --idle: the board shows no open PR, so never late; with
                                                          neither flag it is idle while no card has an open PR.
                                                          Then sends the queued pushes, each on its own, unless

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readPresence, presenceReader } from './presence.mjs';
+import { readPresence, presenceReader, ownerTracker, IDLE_LIMIT_MS } from './presence.mjs';
 
 const SECOND_NS = 1e9;
 const ioreg = ({ locked, idle }) => async (args) => {
@@ -30,4 +30,25 @@ test('a presence reader reads ioreg once for a few seconds, then again', async (
   now = 5000;
   await read();
   assert.equal(calls, 4);
+});
+
+test('the owner is present while at the Mac or within 3 minutes of a page beat, and coming back is noted once', async () => {
+  let now = 1_000_000;
+  let atMac = false;
+  const owner = ownerTracker({ read: async () => ({ atMac }), clock: () => now });
+  assert.deepEqual(owner.state(), { present: false, backAt: null });
+  assert.deepEqual(await owner.check(), { present: false, changed: false, back: false });
+  assert.deepEqual(owner.beat(), { present: true, changed: true, back: true });
+  assert.deepEqual(owner.state(), { present: true, backAt: now });
+  now += 60_000;
+  assert.deepEqual(owner.beat(), { present: true, changed: false, back: false });
+  now += IDLE_LIMIT_MS - 1;
+  assert.deepEqual(await owner.check(), { present: true, changed: false, back: false });
+  now += 1;
+  assert.deepEqual(await owner.check(), { present: false, changed: true, back: false });
+  atMac = true;
+  now += 5_000;
+  assert.deepEqual(await owner.check(), { present: true, changed: true, back: true });
+  assert.equal(owner.state().backAt, now);
+  assert.deepEqual(owner.beat(), { present: true, changed: false, back: false });
 });

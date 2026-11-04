@@ -839,7 +839,7 @@ test('export bundles a board with its portable entry fields and the three hub se
   write(path.join(dir, 'public', 'prototype-x.html'), '<p>x</p>');
   const entry = { watch: ['data/events.jsonl'], created: '2026-10-29T00:00:00.000Z', title: 'Moving', description: 'Moves', icon: 'server', color: '#f97316', hub: true, github: 'o/r', branch: 'main' };
   write(web('manifest.json'), { sites: { moving: { dir, port: 4999, cmd: boardCmd(dir), ...entry, owner: { session: 's-moving', label: "Love's board", model: 'opus', since: '2026-10-29T00:00:00.000Z', repo }, updated: '2026-11-01T00:00:00.000Z', restart_at: 1 } } });
-  const carried = { notifications: { on: true, weekends_off: true, snoozed_until: null }, polling: { windows: [{ from: '08:00', every_minutes: 15 }], hold_overnight: true }, codexShare: 'off' };
+  const carried = { notifications: { on: true, weekends_off: true, snoozed_until: null }, quiet: { start: '23:00', end: '07:00', hold: true }, codexShare: 'off' };
   write(web('settings.json'), { ...carried, rules: [{ id: 'r1', text: 'Old rule' }], pauseAt: 80, keepGoing: { until: 'x' } });
   for (const f of ['linear.json', 'slack.json', 'integrations.json']) write(web(f), { key: 'secret' });
   const file = path.join(home, 'moving.tgz');
@@ -851,7 +851,7 @@ test('export bundles a board with its portable entry fields and the three hub se
   write(agent, { label: 'Builder', started: '2026-11-01T00:00:00Z', done: '2026-11-01T01:00:00Z' });
   assert.deepEqual(json(await cli(['export', 'moving', '--out', file])), {
     route: 'moving', file, entry: ['title', 'description', 'icon', 'color', 'created', 'watch', 'hub', 'github', 'branch'],
-    dropped: ['dir', 'port', 'cmd', 'owner', 'updated', 'restart_at'], settings: ['notifications', 'polling', 'codexShare'],
+    dropped: ['dir', 'port', 'cmd', 'owner', 'updated', 'restart_at'], settings: ['notifications', 'quiet', 'codexShare'],
   });
   const listed = execFileSync('tar', ['-tzf', file], { encoding: 'utf8' }).trim().split('\n').filter((l) => !l.endsWith('/')).sort();
   assert.deepEqual(listed, ['README.md', 'export.json', 'site/board.json', 'site/data/agents/M1.json', 'site/data/threads/moving__M1.jsonl', 'site/data/wave.json', 'site/public/prototype-x.html'].map((f) => `kickflip-board/${f}`));
@@ -865,7 +865,7 @@ test('export bundles a board with its portable entry fields and the three hub se
   const imported = json(await cli(['import', file], { env: { HOME: other } }));
   const moved = otherWeb('sites', 'moving');
   const site = read(otherWeb('manifest.json')).sites.moving;
-  assert.deepEqual(imported, { route: 'moving', dir: moved, port: site.port, settings: ['notifications', 'polling', 'codexShare'], hub: false, join: "kickflip join --name Moving --session <this session's id> --watch --template board --label 'Love'\\''s board' --model opus --force" });
+  assert.deepEqual(imported, { route: 'moving', dir: moved, port: site.port, settings: ['notifications', 'quiet', 'codexShare'], hub: false, join: "kickflip join --name Moving --session <this session's id> --watch --template board --label 'Love'\\''s board' --model opus --force" });
   const { hub, ...portable } = entry;
   assert.deepEqual(site, { ...portable, dir: moved, port: site.port, cmd: [nodeBin(), path.join(SKILL, 'board', 'server.mjs'), moved], updated: site.updated });
   assert.notEqual(site.port, 4600);

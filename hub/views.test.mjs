@@ -3,17 +3,16 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { miniDom } from '../board/mini-dom.mjs';
-import { DEFAULTS, windowAt, hold, flushAt, snoozeEnd } from './schedule.mjs';
+import { DEFAULTS, hold, flushAt, snoozeEnd } from './schedule.mjs';
 import { durationEnd } from './duration.mjs';
-import { hubView, settingsView, pollingView, pollLine, siteHealth, flushView } from './views.mjs';
+import { hubView, settingsView, pollLine, siteHealth, flushView } from './views.mjs';
 import { codexStatus } from '../shared/codex.mjs';
 
 const t = (h, m = 0, day = 14, s = 0) => new Date(2026, 9, day, h, m, s);
 const ON = { on: true, weekends_off: false, snoozed_until: null };
-const win = (...pairs) => ({ windows: pairs.map(([from, every_minutes]) => ({ from, every_minutes })), hold_overnight: true, wakes: ['08:00', '09:00'], notifications: ON });
 const notify = (s, n) => ({ ...s, notifications: { ...ON, ...n } });
-const status = (now, s, count = 0) => ({ settings: s, window: windowAt(now, s), hold: hold(now, s), count, nextFlushAt: count ? flushAt(now, s) : null });
-const poll = (now, last = null) => ({ running: false, nextAt: new Date(now.getTime() + 30 * 60_000), last });
+const status = (now, s, count = 0) => ({ settings: s, hold: hold(now, s), count, nextFlushAt: count ? flushAt(now, s) : null });
+const poll = (now, last = null, over = {}) => ({ running: false, nextAt: new Date(now.getTime() + 30 * 60_000), last, present: true, every: 1, low: false, ...over });
 const plain = (v) => JSON.parse(JSON.stringify(v));
 // The hub views wait on ui.js waitOn and draw its BUSY; board/view.test.mjs tests how a waiting control looks.
 const BOARD_UI = { header: () => '', BUSY: ' disabled aria-busy="true"', waitOn: (control, promise) => promise };
@@ -32,31 +31,29 @@ test('pollLine says when the next check runs and what the last one found', () =>
   assert.equal(last({ watched: 3, failed: ['x'] }), 'Next check 7:30pm · last 6:45pm, could not reach GitHub for every PR');
 });
 
-test('Polling shows every window of the day, the one ?w= names or the one now falls in, and the hold and wakes', () => {
+test('Quiet hours shows its start and end, the hold, the cadence hint and what each snooze, the weekend and the wake read', () => {
   const now = t(19);
-  const v = pollingView({ now, st: status(now, DEFAULTS), poll: poll(now) });
-  assert.equal(v.select, '18:00');
-  assert.equal(pollingView({ now, st: status(now, DEFAULTS), poll: poll(now), select: '08:00' }).select, '08:00');
-  assert.equal(pollingView({ now, st: status(now, DEFAULTS), poll: poll(now), select: '07:00' }).select, '18:00');
-  assert.deepEqual(plain(v.now), { title: 'Checks every 30 min until 10:00pm', lines: ['Next check 7:30pm', 'No pushes queued.'], count: 0 });
-  assert.deepEqual(plain(v.windows[1]), {
-    from: '18:00', range: '6:00pm – 10:00pm', ends: '10:00pm', checks: '8 checks in this window', split: true, remove: true,
-    every: [5, 10, 15, 30, 60, 120].map((m) => ({ minutes: m, label: m >= 60 ? `${m / 60} h` : `${m} min`, on: m === 30 })),
-  });
-  assert.deepEqual(v.windows.map((w) => [w.range, w.checks]), [['8:00am – 6:00pm', '40 checks in this window'], ['6:00pm – 10:00pm', '8 checks in this window'], ['10:00pm – 8:00am', '10 checks in this window']]);
-  assert.deepEqual(v.day.segments.map((g) => [g.w, g.left, g.width, g.held, g.label]), [
-    ['08:00', '33.333%', '41.667%', false, '15m'], ['18:00', '75.000%', '16.667%', false, '30m'], ['22:00', '91.667%', '8.333%', true, '1h'], ['22:00', '0.000%', '33.333%', true, '1h']]);
-  assert.equal(v.day.segments[2].aria, '10:00pm – 8:00am, every 1 h, pushes held');
-  assert.deepEqual(v.day.segments.map((g) => g.shade), ['76%', '61%', '45%', '45%']);
-  assert.deepEqual(plain(v.day.pins), [{ left: '33.333%', title: 'Wake 8:00am' }, { left: '37.500%', title: 'Wake 9:00am' }]);
-  assert.deepEqual([v.day.now, v.day.held, v.day.wakes], ['79.167%', true, true]);
-  assert.deepEqual(plain(v.hold), { on: true, sub: 'Pushes queued after 10:00pm wait until 8:00am. GitHub checks still run.' });
-  assert.deepEqual(plain(v.wakes), [{ value: '08:00', label: '8:00am' }, { value: '09:00', label: '9:00am' }]);
+  const v = settingsView({ now, st: status(now, DEFAULTS) }).quiet;
+  assert.deepEqual([v.start, v.end, v.summary, v.hint], ['22:00', '08:00', '10:00pm – 8:00am · pushes held', "checks every minute while you're here, every 5 when away"]);
+  assert.deepEqual(plain(v.hold), { on: true, sub: 'Pushes queued after 10:00pm wait until 8:00am. Urgent ones still go.' });
+  assert.deepEqual(plain(v.reads), [
+    { title: 'Snooze tonight', sub: 'Until 10:00pm, then quiet hours hold pushes until 8:00am tomorrow.' },
+    { title: 'Snooze morning', sub: 'Until 8:00am tomorrow.' },
+    { title: 'Snooze monday', sub: 'Until 8:00am Mon Oct 19.' },
+    { title: 'Off on weekends', sub: 'Off.' },
+    { title: 'Daily wake', sub: 'Every board wakes once at 8:00am, when quiet hours end.' },
+  ]);
+  const open = settingsView({ now, st: status(now, notify({ ...DEFAULTS, quiet: { start: '23:00', end: '07:30', hold: false } }, { weekends_off: true })) }).quiet;
+  assert.deepEqual([open.summary, open.hold.sub, open.reads[0].sub, open.reads[3].sub],
+    ['11:00pm – 7:30am', 'Off. Pushes go out all night.', 'Until 11:00pm.', 'Pushes wait from Friday 11:00pm until Monday 7:30am.']);
+});
 
-  const one = pollingView({ now, st: status(now, { ...win(['09:00', 20]), wakes: [] }, 2), poll: poll(now) });
-  assert.deepEqual([one.windows[0].range, one.windows[0].ends, one.windows[0].remove, one.windows[0].every.map((c) => c.minutes)], ['All day', '—', false, [5, 10, 15, 20, 30, 60, 120]]);
-  assert.deepEqual([one.hold.sub, one.day.held, one.day.wakes, one.wakes], ['With one window there is no overnight to hold.', false, false, []]);
-  assert.equal(one.now.lines[1], '2 pushes queued; next send 7:20pm.');
+test('the polling status says the cadence: every minute while here, every 5 while away, slower while GitHub’s points are low', () => {
+  const now = t(19);
+  const title = (over) => hubView({ now, st: status(now, DEFAULTS), poll: poll(now, null, over), sidebar: { sites: [], hub: {}, notifications: {} }, rows: [] }).polling.title;
+  assert.equal(title({}), 'Checks every minute while you’re here');
+  assert.equal(title({ present: false, every: 5 }), 'Checks every 5 min while you’re away');
+  assert.equal(title({ present: false, every: 15, low: true }), 'Checks every 15 min while you’re away, slower while GitHub’s points are low');
 });
 
 test('Hub Settings says whether pushes go, when a snooze ends and what each snooze choice would end at', () => {
@@ -66,8 +63,8 @@ test('Hub Settings says whether pushes go, when a snooze ends and what each snoo
   assert.deepEqual(plain(v.on), { on: true, sub: 'On. Turn off to drop every push, urgent ones too.',
     confirm: 'Turn off notifications? Every push is dropped until you turn them back on, urgent ones too. Needs you and the badge still update.' });
   assert.deepEqual(plain(v.weekends), { on: false, sub: 'Pushes wait from Friday 10:00pm until Monday 8:00am. Urgent ones still go.' });
-  assert.equal(v.polling, '3 windows, 58 checks a day · held overnight · wakes 8:00am, 9:00am');
-  assert.equal(v.device, 'checks every 15 min until 6:00pm');
+  assert.equal(v.quiet.summary, '10:00pm – 8:00am · pushes held');
+  assert.equal(v.device, 'pushes go out after each check');
   assert.deepEqual(v.snooze.choices.map((c) => [c.value, c.label, c.until]), [['1h', '1h', 'until 11:00am'], ['3h', '3h', 'until 1:00pm'], ['6h', '6h', 'until 4:00pm'],
     ['1d', '1d', 'until 10:00am tomorrow'], ['forever', 'Forever', 'until you end it']]);
   assert.deepEqual(plain(v.awake), { unsupported: null, on: null, summary: 'Off', choices: [['1h', 'until 11:00am'], ['3h', 'until 1:00pm'], ['6h', 'until 4:00pm'],
@@ -86,18 +83,18 @@ test('Hub Settings says whether pushes go, when a snooze ends and what each snoo
   const snoozed = settingsView({ now, st: status(now, notify(DEFAULTS, { snoozed_until: t(12).toISOString() }), 2) });
   assert.deepEqual(plain(snoozed.snoozed), { title: 'Snoozed until 12:00pm', summary: 'Snoozed until 12:00pm' });
   assert.equal(snoozed.snooze, null);
-  assert.equal(snoozed.device, 'checks every 15 min until 6:00pm; snoozed until 12:00pm');
+  assert.equal(snoozed.device, 'snoozed until 12:00pm');
   assert.match(snoozed.on.confirm, / The 2 queued pushes are dropped now\. /);
 
   const forever = settingsView({ now, st: status(now, notify(DEFAULTS, { snoozed_until: 'forever' }), 2) });
   assert.deepEqual(plain(forever.snoozed), { title: 'Snoozed until you end it', summary: 'Snoozed · forever' });
   assert.equal(forever.snooze, null);
-  assert.equal(forever.device, 'checks every 15 min until 6:00pm; snoozed until you end it');
+  assert.equal(forever.device, 'snoozed until you end it');
 
   const off = settingsView({ now, st: status(now, notify(DEFAULTS, { on: false, snoozed_until: t(12).toISOString() })) });
   assert.deepEqual([off.snoozed, off.snooze, off.presence], [null, null, null]);
   assert.deepEqual([off.on.on, off.on.sub], [false, 'Off. Every push is dropped, urgent ones too. Needs you and the badge still update.']);
-  assert.equal(off.device, 'checks every 15 min until 6:00pm; notifications are off');
+  assert.equal(off.device, 'notifications are off');
 });
 
 test("the hub page's Codex share says what each choice means while Codex is usable, why not and what to run while it isn't, and Hub Settings no longer carries it", () => {
@@ -214,7 +211,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
   assert.equal(await B.openSettings({ hash: '#notifications' }), false);
   rulesBox.removeAttribute('data-dirty');
   await B.openSettings({ hash: '#notifications' });
-  assert.deepEqual(root.querySelectorAll('.hub-setting .title').map((h) => h.textContent), ['Notifications', 'Polling', 'Keep awake', 'Linear', 'Rules for every board', 'Closed boards']);
+  assert.deepEqual(root.querySelectorAll('.hub-setting .title').map((h) => h.textContent), ['Notifications', 'Quiet hours', 'Keep awake', 'Linear', 'Rules for every board', 'Closed boards']);
   assert.deepEqual(root.querySelectorAll('form input[name="set"]').map((input) => input.value), ['on', 'weekends']);
   assert.deepEqual(root.querySelectorAll('.dur-choices button').map((b) => b.textContent), ['1h', '3h', '6h', '1d', 'Forever']);
   assert.equal(root.querySelector('.dur-custom .btn').textContent, 'Custom');
@@ -305,6 +302,15 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
   assert.equal(posts.length, beforeChip + 1);
   assert.equal(posts.at(-1).opts.body.toString(), 'snooze=3h');
   await endSnooze();
+  assert.equal(root.querySelector('[data-summary="quiet"]').textContent, '10:00pm – 8:00am · pushes held');
+  await B.openSettings({ hash: '#quiet' });
+  assert.equal(root.querySelector('#hubSettingsTitle').textContent, 'Quiet hours');
+  assert.deepEqual(root.querySelectorAll('input[type="time"]').map((el) => [el.getAttribute('name'), el.value, el.hasAttribute('data-autosave'), el.closest('form').getAttribute('action')]),
+    [['start', '22:00', true, '/_hub/settings/quiet'], ['end', '08:00', true, '/_hub/settings/quiet']]);
+  assert.equal(root.querySelector('input[name="set"][value="hold"]').closest('form').querySelector('input.toggle').hasAttribute('checked'), true);
+  assert.equal(root.querySelector('.quiet-hint').textContent, "checks every minute while you're here, every 5 when away");
+  assert.deepEqual(root.querySelectorAll('.setting-content .label').map((h) => h.textContent), ['Snoozes and wakes read']);
+  assert.match(root.querySelector('.setting-content').textContent, /Every board wakes once at 8:00am, when quiet hours end\./);
   assert.equal(root.querySelector('[data-summary="keep-awake"]').textContent, 'Off');
   await B.openSettings({ hash: '#keep-awake' });
   assert.equal(root.querySelector('#hubSettingsTitle').textContent, 'Keep awake');
@@ -426,9 +432,8 @@ test("the hub page lists Boards and Pages apart with each site's health and link
   assert.deepEqual(plain(v.hub), { tone: 'down', word: '1 site down', detail: '3 of 5 sites up · 1 link failing · runs the code in its files (abc)', restart: false });
   const staleHub = { tone: 'wait', word: 'degraded', detail: '3 of 5 sites up · runs older code than its files; restart it' };
   assert.deepEqual(plain(hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar: { ...sidebar, hub: staleHub }, rows, code: { running: 'old', onDisk: 'abc' } }).hub), { ...staleHub, restart: true });
-  assert.deepEqual(plain(v.polling), { title: 'Checks every 30 min until 10:00pm', lines: ['Next check 7:30pm', '1 push queued; next send 7:30pm.'], count: 1,
-    summary: '3 windows, 58 checks a day · held overnight · wakes 8:00am, 9:00am' });
-  assert.deepEqual(plain(v.notifications), { on: true, text: 'On', device: 'checks every 30 min until 10:00pm' });
+  assert.deepEqual(plain(v.polling), { title: 'Checks every minute while you’re here', lines: ['Next check 7:30pm', '1 push queued; next send 7:05pm.'], count: 1 });
+  assert.deepEqual(plain(v.notifications), { on: true, text: 'On', device: 'pushes go out after each check' });
   assert.equal(v.hold, null);
   const held = (at, s) => plain(hubView({ now: at, st: status(at, s), poll: poll(at), sidebar, rows }).hold);
   assert.deepEqual(held(t(10), notify(DEFAULTS, { snoozed_until: t(15).toISOString() })), { text: 'Notifications snoozed until 3:00pm', end: true });

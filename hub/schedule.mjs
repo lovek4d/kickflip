@@ -1,41 +1,49 @@
-// The polling interval: when the hub checks GitHub and then sends the queued pushes
-// (docs/adr/2026-10-29-1639-the-hub-polls-github-and-sends-pushes-on-one-interval.md). Pure functions of
-// the host's clock and the `polling` settings (shape in DEFAULTS); push.mjs and hub.mjs apply them.
-// Each window runs from its `from` until the next window's, wrapping past midnight. Its slots fall
-// every `every_minutes` counted from its `from`, and the next window's `from` is always a slot.
-// hold_overnight holds non-urgent pushes through the last window, the one before the first window's
-// start, and sends them at that start; checks still run on the last window's interval. heldUntil is the gate.
-// wakes are the times of day the hub wakes each board's session once, whether GitHub changed or not.
-// notifications is stored beside `polling` in settings.json, not inside it, and gates pushes only
+// When the hub checks git and GitHub, and when pushes wait
+// (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md). The check's cadence
+// is fixed in code and follows the owner's presence (presence.mjs): checkEvery and nextCheckAt. Quiet hours, `quiet`
+// in settings.json, run from `start` to `end`, wrapping past midnight: with `hold` on, non-urgent pushes queued in
+// them wait for their end, the snoozes tonight, morning and monday end at their edges, and their end is the daily wake,
+// when the hub wakes each board's session once, whether GitHub changed or not. heldUntil is the gate every push passes.
+// notifications is stored beside `quiet` in settings.json, not inside it, and gates pushes only
 // (docs/adr/2026-10-29-1639-notifications-can-be-off-snoozed-or-off-on-weekends.md).
 import { FOREVER, durationEnd, inRange } from './duration.mjs';
 
 export const DEFAULTS = Object.freeze({
-  windows: Object.freeze([
-    Object.freeze({ from: '08:00', every_minutes: 15 }),
-    Object.freeze({ from: '18:00', every_minutes: 30 }),
-    Object.freeze({ from: '22:00', every_minutes: 60 }),
-  ]),
-  hold_overnight: true,
-  wakes: Object.freeze(['08:00', '09:00']),
+  quiet: Object.freeze({ start: '22:00', end: '08:00', hold: true }),
   notifications: Object.freeze({ on: true, weekends_off: false, snoozed_until: null }),
 });
 
 // What heldUntil returns while notifications are off: no time comes when held pushes go, so they are dropped.
 export const NEVER = 'never';
 
-const MAX_WINDOWS = 8;
-const MAX_WAKES = 8;
+// Minutes between checks: while the owner is present, while away, and both while GitHub's points left read below LOW_POINTS.
+export const CHECK_MINUTES = Object.freeze({ present: 1, away: 5, lowPresent: 5, lowAway: 15 });
+export const LOW_POINTS = 1000;
+// The longest a check can take to follow the last one, for link grace periods.
+export const SLOWEST_CHECK_MINUTES = CHECK_MINUTES.lowAway;
+
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
-// A poll this soon after the last window starts still sends the queue, so pushes queued before it go out.
-const HOLD_GRACE_MS = 2 * 60_000;
+// A push queued this soon after quiet hours start still goes, so pushes queued before them go out at the next check.
+const HOLD_GRACE_MS = CHECK_MINUTES.away * 60_000;
 
 const minutes = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
-const minuteOfDay = (d) => d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60 + d.getMilliseconds() / 60_000;
 const atOn = (d, hhmm, dayOffset = 0) => { const [h, m] = hhmm.split(':').map(Number); return new Date(d.getFullYear(), d.getMonth(), d.getDate() + dayOffset, h, m); };
 const nextAt = (t, hhmm) => { const d = atOn(t, hhmm); return d > t ? d : atOn(t, hhmm, 1); };
 const lastAt = (t, hhmm) => { const d = atOn(t, hhmm); return d <= t ? d : atOn(t, hhmm, -1); };
-const copy = (s) => ({ windows: s.windows.map((w) => ({ from: w.from, every_minutes: w.every_minutes })), hold_overnight: s.hold_overnight, wakes: [...s.wakes], notifications: { ...s.notifications } });
+const copy = (s) => ({ quiet: { ...s.quiet }, notifications: { ...s.notifications } });
+
+// The minutes between checks: `remaining` is GitHub's points left at the last check, null when it made no query.
+export function checkEvery({ present, remaining = null }) {
+  const low = remaining !== null && remaining < LOW_POINTS;
+  return present ? (low ? CHECK_MINUTES.lowPresent : CHECK_MINUTES.present) : (low ? CHECK_MINUTES.lowAway : CHECK_MINUTES.away);
+}
+
+// When the check after the one started at `last` runs: checkEvery later, or at `backAt`, when the owner came back
+// since, so coming back checks at once and the cadence restarts from there.
+export function nextCheckAt({ last, present, remaining = null, backAt = null }) {
+  if (backAt && backAt > last) return new Date(backAt);
+  return new Date(last.getTime() + checkEvery({ present, remaining }) * 60_000);
+}
 
 // Returns { notifications } with snoozed_until as an ISO time, FOREVER or null, or { error }. Missing fields get the defaults.
 function validateNotifications(input) {
@@ -48,150 +56,65 @@ function validateNotifications(input) {
   return { notifications: { on, weekends_off: weekends, snoozed_until: until === null || until === FOREVER ? until : new Date(until).toISOString() } };
 }
 
-// Returns { settings } with windows sorted by start, every_minutes as numbers and wakes sorted, or { error }.
-// A missing wakes or notifications gets the default ones.
+// Returns { settings: {quiet, notifications} } or { error }. A missing hold or notifications gets the default.
 export function validate(input) {
-  const windows = input?.windows;
-  const hold = input?.hold_overnight ?? DEFAULTS.hold_overnight;
-  const wakes = input?.wakes ?? DEFAULTS.wakes;
+  const { start, end, hold = DEFAULTS.quiet.hold } = input?.quiet || {};
   const { notifications, error } = validateNotifications(input?.notifications);
   if (error) return { error };
-  if (typeof hold !== 'boolean') return { error: 'Hold pushes overnight must be on or off.' };
-  if (!Array.isArray(wakes)) return { error: 'Wake times must be a list of HH:MM times.' };
-  if (wakes.length > MAX_WAKES) return { error: `Use at most ${MAX_WAKES} wake times.` };
-  for (const [i, w] of wakes.entries()) {
-    if (typeof w !== 'string' || !TIME_RE.test(w)) return { error: `Wake ${i + 1} must be HH:MM (24-hour).` };
-    if (wakes.indexOf(w) !== i) return { error: `Two wakes are at ${w}; keep one.` };
-  }
-  if (!Array.isArray(windows) || !windows.length) return { error: 'Add at least one window.' };
-  if (windows.length > MAX_WINDOWS) return { error: `Use at most ${MAX_WINDOWS} windows.` };
-  const out = [];
-  for (const [i, w] of windows.entries()) {
-    if (typeof w?.from !== 'string' || !TIME_RE.test(w.from)) return { error: `Window ${i + 1}'s start must be HH:MM (24-hour).` };
-    const every = Number(w.every_minutes);
-    if (w.every_minutes === '' || w.every_minutes == null || !Number.isInteger(every) || every < 5 || every > 120) return { error: `Window ${i + 1}'s interval must be a whole number of minutes from 5 to 120.` };
-    if (out.some((o) => o.from === w.from)) return { error: `Two windows start at ${w.from}; give each its own start.` };
-    out.push({ from: w.from, every_minutes: every });
-  }
-  return { settings: { windows: out.sort((a, b) => minutes(a.from) - minutes(b.from)), hold_overnight: hold, wakes: [...wakes].sort((a, b) => minutes(a) - minutes(b)), notifications } };
+  if (typeof start !== 'string' || !TIME_RE.test(start)) return { error: 'Quiet hours\' start must be HH:MM (24-hour).' };
+  if (typeof end !== 'string' || !TIME_RE.test(end)) return { error: 'Quiet hours\' end must be HH:MM (24-hour).' };
+  if (start === end) return { error: 'Quiet hours must start and end at different times.' };
+  if (typeof hold !== 'boolean') return { error: 'Hold pushes must be on or off.' };
+  return { settings: { quiet: { start, end, hold }, notifications } };
 }
 
-// The windows that best match the old `push` block {immediate: {start, end}, bundle: {until, every_minutes}}:
-// the send-at-once hours poll at the default daytime interval, the bundle hours keep their interval, and
-// the hold hours poll hourly and still hold pushes. null when the block isn't that shape.
-export function fromPush(push) {
-  const start = push?.immediate?.start, end = push?.immediate?.end, until = push?.bundle?.until;
-  if (![start, end, until].every((v) => typeof v === 'string' && TIME_RE.test(v))) return null;
-  const bundleEvery = Number(push.bundle.every_minutes);
-  const windows = [{ from: start, every_minutes: DEFAULTS.windows[0].every_minutes }];
-  if (end !== start && until !== end) windows.push({ from: end, every_minutes: Number.isInteger(bundleEvery) ? bundleEvery : DEFAULTS.windows[1].every_minutes });
-  const holdFrom = until === end ? end : until;
-  if (holdFrom !== start && !windows.some((w) => w.from === holdFrom)) windows.push({ from: holdFrom, every_minutes: DEFAULTS.windows[2].every_minutes });
-  return validate({ windows, hold_overnight: until !== start }).settings || null;
+// The quiet hours that best match the old `polling` windows {windows: [{from}], hold_overnight}: from the last window's
+// start to the first's, keeping the hold. null with fewer than two windows, which had no overnight.
+export function fromPolling(polling) {
+  const froms = (Array.isArray(polling?.windows) ? polling.windows : []).map((w) => w?.from).filter((f) => typeof f === 'string' && TIME_RE.test(f))
+    .sort((a, b) => minutes(a) - minutes(b));
+  if (froms.length < 2) return null;
+  return { start: froms.at(-1), end: froms[0], hold: polling.hold_overnight !== false };
 }
 
-// The polling settings in a parsed settings.json: its `polling`, else its old `push` block migrated, else DEFAULTS,
+// The quiet hours settings in a parsed settings.json: its `quiet`, else its old `polling` migrated, else DEFAULTS,
 // with its `notifications`, or the default ones when those are missing or invalid.
-export function pollingOf(file) {
+export function quietOf(file) {
   const notifications = validateNotifications(file?.notifications).notifications || copy(DEFAULTS).notifications;
-  const withThem = (s) => s && { ...s, notifications };
-  return validate({ ...file?.polling, notifications }).settings || withThem(fromPush(file?.push)) || withThem(copy(DEFAULTS));
+  return validate({ quiet: file?.quiet, notifications }).settings
+    || validate({ quiet: fromPolling(file?.polling), notifications }).settings
+    || { ...copy(DEFAULTS), notifications };
 }
 
-// The window `now` falls in: { from, every_minutes, startedAt: Date, endsAt: Date }.
-export function windowAt(now, s) {
-  const ws = s.windows;
-  const p = minuteOfDay(now);
-  let i = ws.length - 1;
-  for (let k = 0; k < ws.length; k++) if (minutes(ws[k].from) <= p) i = k;
-  const w = ws[i];
-  const next = ws[(i + 1) % ws.length];
-  return { from: w.from, every_minutes: w.every_minutes, startedAt: lastAt(now, w.from), endsAt: nextAt(now, next.from) };
+// One change from the Quiet hours modal to settings `s`: {start} or {end} as HH:MM, or {hold: 'on' | anything else}.
+// → the input for validate.
+export function editQuiet(s, change) {
+  const q = { ...s.quiet };
+  if ('start' in change) q.start = change.start;
+  if ('end' in change) q.end = change.end;
+  if ('hold' in change) q.hold = change.hold === 'on';
+  return { quiet: q, notifications: s.notifications };
 }
 
-// How many minutes window `i` runs: from its start to the next window's, 1440 with one window.
-export function windowSpan(s, i) {
-  const ws = s.windows;
-  if (ws.length === 1) return 1440;
-  const d = minutes(ws[(i + 1) % ws.length].from) - minutes(ws[i].from);
-  return d > 0 ? d : d + 1440;
+// Whether `t` falls in quiet hours, from their start up to their end.
+export function quietAt(t, s) {
+  const p = t.getHours() * 60 + t.getMinutes();
+  const [a, b] = [minutes(s.quiet.start), minutes(s.quiet.end)];
+  return a < b ? p >= a && p < b : p >= a || p < b;
 }
 
-// How many slots window `i` has each day, its start included.
-export const checksIn = (s, i) => Math.ceil(windowSpan(s, i) / s.windows[i].every_minutes);
-export const checksADay = (s) => s.windows.reduce((n, _, i) => n + checksIn(s, i), 0);
-
-// Whether hold_overnight holds pushes through the last window: it needs a last window apart from the first.
-export const holdsOvernight = (s) => s.hold_overnight && s.windows.length > 1;
-
-// The day as stretches of minutes from midnight, [{window, start, end, held}] with `window` an index into s.windows:
-// one stretch per window, or two for the window that runs past midnight. `held` marks the window holdsOvernight holds.
-export function daySegments(s) {
-  const last = s.windows.length - 1;
-  return s.windows.flatMap((w, i) => {
-    const start = minutes(w.from), end = start + windowSpan(s, i), held = holdsOvernight(s) && i === last;
-    if (s.windows.length === 1) return [{ window: i, start: 0, end: 1440, held }];
-    return end <= 1440 ? [{ window: i, start, end, held }] : [{ window: i, start, end: 1440, held }, { window: i, start: 0, end: end - 1440, held }];
-  });
-}
-
-// Where splitting window `i` in two starts the new window: halfway through it, rounded to 15 minutes on the clock,
-// as HH:MM. null when that point isn't inside the window or the windows are at their maximum.
-export function splitPoint(s, i) {
-  if (s.windows.length >= MAX_WINDOWS) return null;
-  const start = minutes(s.windows[i].from), span = windowSpan(s, i);
-  const at = Math.round((start + span / 2) / 15) * 15;
-  if (at <= start || at >= start + span) return null;
-  const m = at % 1440;
-  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-}
-
-// One change from the Polling modal to settings `s`: { input } to save, with `select` the window start to show next,
-// or { error }. op is `from` (value HH:MM), `every` (value minutes), `split` or `remove` on the window starting at
-// `w`; `hold` (value 'on' or not); or `wake-add` / `wake-remove` (value HH:MM). validate checks the input.
-export function editPolling(s, { op, w, value }) {
-  const windows = s.windows.map((x) => ({ from: x.from, every_minutes: x.every_minutes }));
-  const input = { windows, hold_overnight: s.hold_overnight, wakes: [...s.wakes] };
-  const i = windows.findIndex((x) => x.from === w);
-  if (['from', 'every', 'split', 'remove'].includes(op) && i < 0) return { error: 'That window has changed. Pick it again on the bar.' };
-  const select = i < 0 ? s.windows[0].from : w;
-  switch (op) {
-    case 'from': windows[i].from = value; return { input, select: value };
-    case 'every': windows[i].every_minutes = value; return { input, select };
-    case 'split': {
-      const at = splitPoint(s, i);
-      if (!at) return { error: windows.length >= MAX_WINDOWS ? `Use at most ${MAX_WINDOWS} windows.` : 'This window is too short to split.' };
-      windows.push({ from: at, every_minutes: windows[i].every_minutes });
-      return { input, select: at };
-    }
-    case 'remove': {
-      if (windows.length < 2) return { error: 'Keep at least one window.' };
-      const before = windows[(i - 1 + windows.length) % windows.length].from;
-      windows.splice(i, 1);
-      return { input, select: before };
-    }
-    case 'hold': input.hold_overnight = value === 'on'; return { input, select };
-    case 'wake-add': input.wakes.push(value); return { input, select };
-    case 'wake-remove': input.wakes = input.wakes.filter((x) => x !== value); return { input, select };
-    default: return { error: 'That change is not one the Polling modal makes.' };
-  }
-}
-
-// Whether a poll at `t` holds the queue: holdsOvernight applies and `t` falls in the last window, past its start.
+// Whether a check at `t` holds the queue: the hold is on and `t` falls in quiet hours, past their start's grace.
 export function holdsPushes(t, s) {
-  if (!holdsOvernight(s)) return false;
-  const w = windowAt(t, s);
-  return w.from === s.windows.at(-1).from && t - w.startedAt > HOLD_GRACE_MS;
+  return s.quiet.hold && quietAt(t, s) && t - lastAt(t, s.quiet.start) > HOLD_GRACE_MS;
 }
 
-// The weekend with notifications.weekends_off: from Friday at the last window's start until Monday at the first
-// window's start, the same edges as the overnight hold, with the same grace after it starts. Its end, or null.
+// The weekend with notifications.weekends_off: from Friday at quiet hours' start until Monday at their end, with the
+// same grace as the overnight hold. Its end, or null.
 function weekendEnd(t, s) {
   if (!s.notifications?.weekends_off) return null;
-  const [first, last] = [s.windows[0].from, s.windows.at(-1).from];
-  let start = atOn(t, last, -((t.getDay() - 5 + 7) % 7));
-  if (start > t) start = atOn(start, last, -7);
-  const end = atOn(start, first, 3);
+  let start = atOn(t, s.quiet.start, -((t.getDay() - 5 + 7) % 7));
+  if (start > t) start = atOn(start, s.quiet.start, -7);
+  const end = atOn(start, s.quiet.end, 3);
   return t - start > HOLD_GRACE_MS && t < end ? end : null;
 }
 
@@ -202,7 +125,7 @@ export function hold(t, s) {
   if (s.notifications?.on === false) return { until: NEVER, why: 'off' };
   if (s.notifications?.snoozed_until === FOREVER) return { until: FOREVER, why: 'snoozed' };
   const snooze = s.notifications?.snoozed_until ? new Date(s.notifications.snoozed_until) : null;
-  const at = (u) => (snooze > u ? ['snoozed', snooze] : null) || (weekendEnd(u, s) && ['weekend', weekendEnd(u, s)]) || (holdsPushes(u, s) && ['overnight', windowAt(u, s).endsAt]);
+  const at = (u) => (snooze > u ? ['snoozed', snooze] : null) || (weekendEnd(u, s) && ['weekend', weekendEnd(u, s)]) || (holdsPushes(u, s) && ['overnight', nextAt(u, s.quiet.end)]);
   const firstHold = at(t);
   if (!firstHold) return null;
   let until = firstHold[1];
@@ -216,29 +139,20 @@ export function heldUntil(t, s) {
   return hold(t, s)?.until ?? null;
 }
 
-// When a push queued at `t` goes out: the next slot, or the first slot once a hold on that slot ends; NEVER while off,
-// FOREVER while snoozed until ended.
+// When a push queued at `t` goes out: by the next check while away, the slower of the usual cadences, or once its hold
+// ends; NEVER while off, FOREVER while snoozed until ended.
 export function flushAt(t, s) {
-  let slot = nextSlot(t, s);
-  for (let n = 0; n < 8; n++) {
-    const until = heldUntil(slot, s);
-    if (until === NEVER || until === FOREVER) return until;
-    if (!until) return slot;
-    slot = nextSlot(new Date(until.getTime() - 1), s);
-  }
-  return slot;
+  return heldUntil(t, s) ?? new Date(t.getTime() + CHECK_MINUTES.away * 60_000);
 }
 
-// When a snooze chosen at `now` ends: a duration.mjs durationEnd choice; `tonight`, the next start of the evening
-// window (the second-to-last, or the second of two); `morning`, the next start of the first window; or `monday`, the
-// next Monday at the first window's start. null for any other choice, or `tonight` with one window.
+// When a snooze chosen at `now` ends: a duration.mjs durationEnd choice; `tonight`, the next start of quiet hours;
+// `morning`, their next end; or `monday`, the next Monday at their end. null for any other choice.
 export function snoozeEnd(now, choice, s) {
   const c = String(choice);
-  const [first, n] = [s.windows[0].from, s.windows.length];
   let end;
-  if (c === 'morning') end = nextAt(now, first);
-  else if (c === 'tonight') end = n > 1 ? nextAt(now, s.windows[Math.max(1, n - 2)].from) : null;
-  else if (c === 'monday') { end = atOn(now, first, (8 - now.getDay()) % 7); if (end <= now) end = atOn(end, first, 7); }
+  if (c === 'morning') end = nextAt(now, s.quiet.end);
+  else if (c === 'tonight') end = nextAt(now, s.quiet.start);
+  else if (c === 'monday') { end = atOn(now, s.quiet.end, (8 - now.getDay()) % 7); if (end <= now) end = atOn(end, s.quiet.end, 7); }
   else return durationEnd(now, c);
   return inRange(now, end) ? end : null;
 }
@@ -251,24 +165,16 @@ export function holdLine(h, now = new Date()) {
   return h.why === 'snoozed' ? `snoozed until ${until}` : h.why === 'weekend' ? `held for the weekend until ${until}` : `held overnight until ${until}`;
 }
 
-// The first polling slot strictly after `t`.
-export function nextSlot(t, s) {
-  const w = windowAt(t, s);
-  const every = w.every_minutes * 60_000;
-  const slot = new Date(w.startedAt.getTime() + (Math.floor((t - w.startedAt) / every) + 1) * every);
-  return slot < w.endsAt ? slot : w.endsAt;
-}
-
 // The host's calendar day of `d`, "2026-10-23".
 export function localDay(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-// The wake times at or before `now` today whose last send, sent[hhmm] as a localDay, isn't today. A wake missed
-// on an earlier day is never due again.
+// The daily wake, quiet hours' end, when it is at or before `now` today and its last send, sent[hhmm] as a localDay,
+// isn't today. A wake missed on an earlier day is never due again.
 export function wakesDue(now, s, sent = {}) {
-  const today = localDay(now);
-  return s.wakes.filter((w) => atOn(now, w) <= now && sent?.[w] !== today);
+  const w = s.quiet.end;
+  return atOn(now, w) <= now && sent?.[w] !== localDay(now) ? [w] : [];
 }
 
 // The board a push's url opens, `/<route>/…`, or null for a url outside any site.

@@ -112,7 +112,20 @@ window.AppShell = (function () {
       });
     }
 
-    // A view that changed what the sidebar's foot rows say, such as notifications or polling, asks for a fresh copy
+    // A tap, key or scroll on any page tells the hub the owner is here (hub/presence.mjs ownerTracker), at most once a
+    // minute while present. While away the first one goes at once and the moon goes from this page at the same moment
+    // (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md).
+    let beatAt = 0;
+    const beat = () => {
+      const away = Boolean(data?.away);
+      if (!away && Date.now() - beatAt < 60_000) return;
+      beatAt = Date.now();
+      if (away) { data = { ...data, away: false }; current?.v?.B?.renderStatus?.(); }
+      fetch('/_hub/presence', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).catch(() => { beatAt = 0; });
+    };
+    for (const type of ['pointerdown', 'keydown', 'scroll']) addEventListener(type, beat, { capture: true, passive: true });
+
+    // A view that changed what the sidebar's foot rows say, such as notifications, asks for a fresh copy
     // rather than waiting for the stream's next one.
     async function refreshSidebar() {
       sidebar.checkDevice();
@@ -176,7 +189,7 @@ window.AppShell = (function () {
       if (board) {
         const live = streamUp ? left.get(route) || null : null;
         left.delete(route);
-        v = BoardView.create(root, siteRoot, { signal: signalFor(route), live, pause: () => data?.pause });
+        v = BoardView.create(root, siteRoot, { signal: signalFor(route), live, pause: () => data?.pause, away: () => data?.away });
       } else {
         v = page.create(root, siteRoot, { view, siteTitle, boards, open: openHere, toggleSidebar: sidebar.toggle, keydown: sidebar.keydown, pointerdown: sidebar.pointerdown,
           reload: () => go(AppRouter.viewOf(location.href, { boards: boards() }), location.href, 'reload'), closeSidebar: sidebar.close, up: () => router.up(),

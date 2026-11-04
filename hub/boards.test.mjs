@@ -9,8 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { reposDir } from '../shared/repos.mjs';
 import { startFakeDevice } from './fake-device.mjs';
 import { withFileLock } from './locks.mjs';
-import { PR_VIEW_FIELDS } from './pr-report.mjs';
-import { fakeGh, prView, writePR, writeUser, calls } from '../shared/fake-gh.mjs';
+import { fakeGh, prView, writePR, writeUser, queried } from '../shared/fake-gh.mjs';
 import { freePorts, until, ownSession } from '../shared/test-helpers.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -73,7 +72,7 @@ test('the registry lists every board site, over the waves or its own file, with 
 test('linksOf names each hub link that reaches a board and each that does not', () => {
   const orch = listBoards().find((b) => b.route === 'orch');
   const github = { lastCheck: { at: 'T', boards: ['orch'] }, prs: { 'o/r#11': { at: 'T', state: 'OPEN', isDraft: false } } };
-  const ok = { github, settings: { wakes: ['08:00'] }, wakes: {}, listen: 'listening', topics: { 'w1/A1': { review_link_ts: { Ann: '1.1', Bea: '1.2' } } }, faults: {} };
+  const ok = { github, settings: { quiet: { start: '22:00', end: '08:00', hold: true } }, wakes: {}, listen: 'listening', topics: { 'w1/A1': { review_link_ts: { Ann: '1.1', Bea: '1.2' } } }, faults: {} };
   const state = (ctx) => Object.fromEntries(linksOf(orch, ctx).map((l) => [l.link, l.ok]));
   assert.deepEqual(linksOf(orch, ok).map((l) => l.link), ['github', 'events', 'wakes', 'slack']);
   assert.deepEqual(state(ok), { github: true, events: true, wakes: true, slack: true });
@@ -83,7 +82,6 @@ test('linksOf names each hub link that reaches a board and each that does not', 
   assert.deepEqual(broken({ github: { ...github, lastCheck: { at: 'T', boards: [] } } }), ['github']);
   assert.deepEqual(broken({ listen: 'deaf' }), ['events']);
   assert.deepEqual(broken({ listen: 'asleep' }), []);
-  assert.deepEqual(broken({ settings: { wakes: [] } }), ['wakes']);
   assert.deepEqual(broken({ wakes: { last: { due: ['08:00'], failed: ['orch'] } } }), ['wakes']);
   assert.deepEqual(linksOf(orch, { ...ok, fetches: { orch: { at: 'T', ok: true } } }).map((l) => l.link), ['github', 'repo-fetch', 'events', 'wakes', 'slack']);
   assert.deepEqual(broken({ fetches: { orch: { at: 'T', ok: false, error: 'fatal: unable to access origin', hint: 'run git fetch' } } }), ['repo-fetch']);
@@ -101,7 +99,7 @@ test('linksOf names each hub link that reaches a board and each that does not', 
 
 test('a broken link reads settling until it has stayed broken past its grace period, then broken', () => {
   const orch = listBoards().find((b) => b.route === 'orch');
-  const settings = { windows: [{ from: '08:00', every_minutes: 15 }, { from: '22:00', every_minutes: 60 }], wakes: ['08:00'] };
+  const settings = { quiet: { start: '22:00', end: '08:00', hold: true } };
   const now = new Date(2026, 9, 29, 12, 0).getTime();
   const ago = (min) => new Date(now - min * 60_000).toISOString();
   const fetches = { orch: { at: ago(1), ok: false, error: 'remote: Repository not found.', hint: 'run gh auth setup-git' } };
@@ -111,9 +109,6 @@ test('a broken link reads settling until it has stayed broken past its grace per
   assert.deepEqual(states({ github: ago(24), 'repo-fetch': ago(24), events: ago(1.9) }), { github: 'settling', 'repo-fetch': 'settling', events: 'settling' });
   assert.deepEqual(states({ github: ago(26), 'repo-fetch': ago(26), events: ago(2.1) }), { github: 'broken', 'repo-fetch': 'broken', events: 'broken' });
   assert.equal(linksOf(orch, { ...faulty, faults: { github: ago(26) } })[0].since, ago(26));
-  const eight = new Date(2026, 9, 29, 8, 5).getTime();
-  assert.equal(states({ github: new Date(eight - 35 * 60_000).toISOString() }, eight).github, 'settling');
-  assert.equal(states({ github: new Date(eight - 71 * 60_000).toISOString() }, eight).github, 'broken');
 });
 
 test('the hub code hash covers hub.mjs and what it imports through the skill, and nothing else', () => {
@@ -177,7 +172,7 @@ before(async () => {
   writeUser(home, { login: 'owner' });
   device = await startFakeDevice();
   write(claude('kickflip', 'push', 'subs.json'), [device.subscription]);
-  write(claude('kickflip', 'settings.json'), { polling: { windows: [{ from: '00:00', every_minutes: 120 }], hold_overnight: false, wakes: ['00:00'] }, notifications: { on: true, weekends_off: false } });
+  write(claude('kickflip', 'settings.json'), { quiet: { start: '23:59', end: '00:00', hold: false }, notifications: { on: true, weekends_off: false } });
   writePR(home, 11, prView());
   writePR(home, 722, prView());
   write(path.join(home, 'bin', 'git'), `#!/bin/sh
@@ -334,11 +329,11 @@ test('one check polls each open PR on either board once, writes both checked.jso
   const r = await poll();
   assert.deepEqual([r.watched, r.failed, r.changes], [2, [], []]);
   assert.deepEqual([...r.checked].sort(), ['orch', 'shop']);
-  assert.deepEqual(calls(home).filter((a) => a[0] === 'pr' && a[6] === PR_VIEW_FIELDS).map((a) => a[2]).sort(), ['11', '722']);
+  assert.deepEqual(queried(home).map((prs) => prs.sort()), [['o/r#11', 'o/r#722']]);
   const state = read(claude('kickflip', 'github-state.json'));
   assert.deepEqual([state.prs['o/r#11'].at, state.prs['o/r#722'].at], [r.at, r.at]);
   assert.deepEqual([...state.lastCheck.boards].sort(), ['orch', 'shop']);
-  for (const route of ['orch', 'shop']) assert.equal(read(site(route, 'data', 'checked.json')).every, 120);
+  for (const route of ['orch', 'shop']) assert.equal(read(site(route, 'data', 'checked.json')).every, 5);
   assert.deepEqual(r.deaf.pushed, ['shop']);
   assert.deepEqual(pushes(), [{ title: "Shop isn't listening", url: '/shop/', tag: 'deaf-shop' }]);
 });
@@ -849,27 +844,34 @@ test('object property names work as page routes and as new boards through HTTP a
     assert.deepEqual(downSince(), routes);
     const rows = (await get('/_hub/api/hub')).groups.flatMap((g) => g.sites);
     for (const route of routes) assert.deepEqual(rows.find((s) => s.route === route).remembered, []);
-    assert.equal((await get('/_hub/api/polling')).now.lines.length, 2);
+    assert.equal((await get('/_hub/api/hub')).polling.lines.length, 2);
   } finally { await writeManifestFile(original); fs.rmSync(path.join(reposDir(), 'int180-http-test'), { recursive: true, force: true }); }
 });
 
-test('a no-JS Polling edit redirects to Hub with Polling open and the edited window selected', async () => {
+const getJSON = async (url) => (await fetch(base + url)).json();
+
+test('a no-JS Quiet hours edit saves and redirects to Hub with Quiet hours open; a bad time is refused', async () => {
   const file = claude('kickflip', 'settings.json');
   const original = fs.readFileSync(file);
+  const post = (body) => fetch(`${base}/_hub/settings/quiet`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body, redirect: 'manual' });
   try {
-    const r = await fetch(`${base}/_hub/settings/polling`, {
-      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: 'op=every&w=00%3A00&value=60', redirect: 'manual',
-    });
+    const r = await post('start=23%3A30');
     assert.equal(r.status, 303);
-    assert.equal(r.headers.get('location'), '/_hub/?w=00%3A00#polling');
-    const landing = await fetch(base + r.headers.get('location'));
-    assert.equal(landing.status, 200);
-    assert.equal(landing.headers.get('x-app-shell'), '1');
-    const data = await (await fetch(`${base}/_hub/api/polling?w=00%3A00`)).json();
-    assert.equal(data.select, '00:00');
-    assert.equal(data.windows.find((w) => w.from === '00:00').every.find((c) => c.on).minutes, 60);
+    assert.equal(r.headers.get('location'), '/_hub/#quiet');
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).quiet, { start: '23:30', end: '00:00', hold: false });
+    const quiet = (await getJSON('/_hub/api/settings')).quiet;
+    assert.equal(quiet.hint, "checks every minute while you're here, every 5 when away");
+    assert.equal((await post('end=25%3A00')).status, 400);
+    assert.equal((await post('set=hold&value=on')).status, 303);
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).quiet.hold, true);
   } finally { fs.writeFileSync(file, original); }
+});
+
+test("a page's presence beat makes the owner present, which the sidebar and the hub page read", async () => {
+  const r = await fetch(`${base}/_hub/presence`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  assert.equal(r.status, 204);
+  assert.equal((await getJSON('/_hub/sidebar.json')).away, false);
+  assert.match((await getJSON('/_hub/api/hub')).polling.title, /^Checks every minute while you’re here/);
 });
 
 test("a board page's wake asks the hub for one session check now, from the app's own pages only, and answers with the board's listen state", async () => {

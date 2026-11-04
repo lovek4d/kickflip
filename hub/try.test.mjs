@@ -748,7 +748,7 @@ test('the hub build route enforces loopback and fixed inputs', async () => {
   const web = path.join(home, '.claude/kickflip');
   write(path.join(web, 'manifest.json'), manifest);
   write(path.join(home, 'tailscale.status'), { Web: { 'mac.ts.net:443': { Handlers: { '/': { Proxy: `http://127.0.0.1:${port}` } } } } });
-  write(path.join(web, 'settings.json'), { polling: { windows: [{ from: '00:00', every_minutes: 120 }], hold_overnight: false, wakes: [] } });
+  write(path.join(web, 'settings.json'), { quiet: { start: '23:59', end: '00:00', hold: false } });
   const hub = spawn(process.execPath, [path.join(root, 'hub/hub.mjs')], { env: { ...process.env, KICKFLIP_HUB_PORT: String(port) } });
   let errors = '';
   hub.stderr.on('data', (chunk) => { errors += chunk; });

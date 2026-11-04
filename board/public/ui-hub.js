@@ -1,4 +1,4 @@
-// The rows and tiles of the hub page and settings modals (view-hub.js, view-hub-settings.js, view-polling.js), which hub.css styles
+// The rows and tiles of the hub page and settings modals (view-hub.js, view-hub-settings.js), which hub.css styles
 // under .hub-view. Pure: each lays out words hub/views.mjs wrote, and title and sub are HTML.
 (function () {
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

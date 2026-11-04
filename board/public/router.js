@@ -8,8 +8,9 @@
 //   questions {route, id}       /<route>/questions.html#<id>
 //   notes {route, item | wave}  /<route>/notes.html?item=<key> or ?wave=<lineup slug>, and plan.html, which the board
 //                               redirects there
-//   hub {hash, w}              /_hub/ with a settings modal named by hash; legacy /_hub/settings and
-//                               /_hub/settings/polling?w=<HH:MM> open the same modals ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md))
+//   hub {hash}                  /_hub/ with a settings modal named by hash; legacy /_hub/settings opens the same modals
+//                               ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)),
+//                               and the old Polling page, /_hub/settings/polling, opens Quiet hours
 //   frame {route, url}          any other page under a route, a folder or an .html file: other sites, prototypes and
 //                               every other board page, shown in a frame
 // Any other URL, such as an image or another origin, is no view (null) and loads as itself.
@@ -29,8 +30,8 @@ globalThis.AppRouter = (function () {
     const p = u.pathname;
     if (p === '/') return { kind: 'start' };
     if (['/_hub/', '/_hub/settings', '/_hub/settings/polling'].includes(p)) {
-      const hash = p === '/_hub/settings/polling' ? '#polling' : u.hash || (p === '/_hub/settings' ? '#notifications' : '');
-      return { kind: 'hub', ...(hash ? { hash } : {}), ...(hash === '#polling' && u.searchParams.get('w') ? { w: u.searchParams.get('w') } : {}) };
+      const hash = p === '/_hub/settings/polling' ? '#quiet' : u.hash || (p === '/_hub/settings' ? '#notifications' : '');
+      return { kind: 'hub', ...(hash ? { hash } : {}) };
     }
     const m = /^\/([^/]+)\/(.*)$/.exec(p);
     let route = null;
@@ -60,7 +61,7 @@ globalThis.AppRouter = (function () {
       case 'settings': return `${r}settings.html`;
       case 'questions': return `${r}questions.html${view.id ? `#${encodeURIComponent(view.id)}` : ''}`;
       case 'notes': return `${r}notes.html${view.wave ? `?wave=${encodeURIComponent(view.wave)}` : view.item ? `?item=${encodeURIComponent(view.item)}` : ''}`;
-      case 'hub': return `/_hub/${view.w ? `?w=${encodeURIComponent(view.w)}` : ''}${view.hash || ''}`;
+      case 'hub': return `/_hub/${view.hash || ''}`;
       default: return view.url;
     }
   }

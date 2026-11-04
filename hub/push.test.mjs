@@ -224,3 +224,15 @@ test('removing a subscription forgets that device alone, and one the hub never h
   assert.deepEqual(r, [1, 1]);
   assert.deepEqual(read(pushFile('subs.json')).map((s) => s.endpoint), [device.subscription.endpoint]);
 });
+
+test('old polling windows migrate to quiet hours once, keeping the other settings, and a save writes quiet alone', async () => {
+  write(settingsFile(), { polling: { windows: [{ from: '07:00', every_minutes: 15 }, { from: '23:00', every_minutes: 60 }], hold_overnight: false, wakes: ['07:00'] }, notifications: { on: true, weekends_off: true }, codexShare: 'auto' });
+  assert.deepEqual(await inChild('return push.migrateSettings();'), { start: '23:00', end: '07:00', hold: false });
+  assert.deepEqual(read(settingsFile()), { notifications: { on: true, weekends_off: true }, codexShare: 'auto', quiet: { start: '23:00', end: '07:00', hold: false } });
+  assert.equal(await inChild('return push.migrateSettings();'), null);
+  const saved = await inChild("return push.saveSettings({ quiet: { start: '22:30', end: '07:00', hold: true } });");
+  assert.deepEqual(saved.quiet, { start: '22:30', end: '07:00', hold: true });
+  assert.deepEqual(read(settingsFile()).quiet, saved.quiet);
+  assert.equal(read(settingsFile()).codexShare, 'auto');
+  await assert.rejects(inChild("return push.saveSettings({ quiet: { start: '22:30', end: '22:30' } });"), /different times/);
+});

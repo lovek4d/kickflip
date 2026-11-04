@@ -28,7 +28,7 @@ test('the board and the hub take every colour from shared/colors.css and define 
   const boardCss = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   const hubCss = fs.readFileSync(new URL('./public/hub.css', import.meta.url), 'utf8');
   const sidebarCss = fs.readFileSync(new URL('./public/sidebar.css', import.meta.url), 'utf8');
-  for (const [name, css, local] of [['style.css', boardCss, definedIn(boardCss)], ['hub.css', hubCss, definedIn(hubCss + ['ui-hub.js', 'view-polling.js'].map((f) => fs.readFileSync(new URL(`./public/${f}`, import.meta.url), 'utf8')).join(''))], ['sidebar.css', sidebarCss, definedIn(sidebarCss + fs.readFileSync(new URL('./public/ui-sidebar.js', import.meta.url), 'utf8'))]]) {
+  for (const [name, css, local] of [['style.css', boardCss, definedIn(boardCss)], ['hub.css', hubCss, definedIn(hubCss + ['ui-hub.js', 'view-hub-settings.js'].map((f) => fs.readFileSync(new URL(`./public/${f}`, import.meta.url), 'utf8')).join(''))], ['sidebar.css', sidebarCss, definedIn(sidebarCss + fs.readFileSync(new URL('./public/ui-sidebar.js', import.meta.url), 'utf8'))]]) {
     assert.deepEqual([...usedIn(css)].filter((v) => !shared.has(v) && !local.has(v)), [], name);
     assert.deepEqual([...definedIn(css)].filter((v) => shared.has(v)), [], name);
   }
@@ -513,8 +513,7 @@ test("the app's router reads every hub URL as a view and writes each view back a
     ['/_hub/', { kind: 'hub' }],
     ['/_hub/settings', { kind: 'hub', hash: '#notifications' }],
     ['/_hub/settings#rules', { kind: 'hub', hash: '#rules' }],
-    ['/_hub/settings/polling', { kind: 'hub', hash: '#polling' }],
-    ['/_hub/settings/polling?w=09%3A00', { kind: 'hub', hash: '#polling', w: '09:00' }],
+    ['/_hub/#quiet', { kind: 'hub', hash: '#quiet' }],
     ['/orch/prototype-sidebar.html?q=q1&from=push', { kind: 'frame', route: 'orch', url: '/orch/prototype-sidebar.html?q=q1&from=push' }],
     ['/orch/shots-gallery.html', { kind: 'frame', route: 'orch', url: '/orch/shots-gallery.html' }],
     ['/learn/', { kind: 'frame', route: 'learn', url: '/learn/' }],
@@ -522,8 +521,10 @@ test("the app's router reads every hub URL as a view and writes each view back a
   ];
   for (const [url, view] of table) {
     assert.deepEqual(read(url), view, url);
-    assert.equal(urlOf(view), url === '/_hub/settings' ? '/_hub/#notifications' : url.startsWith('/_hub/settings/polling') ? '/_hub/' + (view.w ? `?w=${encodeURIComponent(view.w)}` : '') + '#polling' : url.replace('/_hub/settings#', '/_hub/#'), url);
+    assert.equal(urlOf(view), url === '/_hub/settings' ? '/_hub/#notifications' : url.replace('/_hub/settings#', '/_hub/#'), url);
   }
+  // The old Polling page, which pushes and bookmarks may still link, opens Quiet hours.
+  assert.deepEqual(read('/_hub/settings/polling?w=09%3A00'), { kind: 'hub', hash: '#quiet' });
   assert.deepEqual(read('/orch/plan.html?item=w%2FA1'), { kind: 'notes', route: 'orch', item: 'w/A1' });
   assert.deepEqual(read('/orch/questions.html?from=push#q-1'), { kind: 'questions', route: 'orch', id: 'q-1' });
   assert.deepEqual(read('/orch/notes.html?item=w%2FA1&from=push'), { kind: 'notes', route: 'orch', item: 'w/A1' });
@@ -534,7 +535,7 @@ test("the app's router reads every hub URL as a view and writes each view back a
   for (const url of ['/orch/uploads/1-shot.png', '/orch/api/board', '/learn', '/_hub/kickflip.png', '/sw.js']) assert.equal(read(url), null, url);
   assert.deepEqual(table.filter(([, view]) => mounted(view)).map(([url]) => url),
     ['/orch/', '/orch/#item=w%2FA1&reply', '/orch/settings.html', '/orch/questions.html#q-1', '/orch/notes.html?item=w%2FA1', '/orch/notes.html?wave=mon',
-      '/_hub/', '/_hub/settings', '/_hub/settings#rules', '/_hub/settings/polling', '/_hub/settings/polling?w=09%3A00',
+      '/_hub/', '/_hub/settings', '/_hub/settings#rules', '/_hub/#quiet',
       '/orch/prototype-sidebar.html?q=q1&from=push', '/orch/shots-gallery.html', '/learn/', '/learn/lessons/lesson-2.html#top']);
 });
 

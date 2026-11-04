@@ -6,6 +6,7 @@
   const ARROW = icon(24, '<path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/>');
   const REFRESH = icon(18, '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>');
   const GEAR = icon(18, '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>');
+  const MOON = icon(16, '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>');
   const BULB = icon(18, '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>');
   const id = (v) => (v ? ` id="${esc(v)}"` : '');
 
@@ -43,9 +44,10 @@
   // or 'back' (the arrow, which follows backStep, with backHref the work item or the board, after the logo). The controls (time and refresh, gear) paint disabled with refresh spinning until the
   // page's script turns them on (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md). With controls
   // false, trail (HTML) takes their place. bulb puts the architecture review's bulb between them (app-arch.js). leadAttrs adds to or replaces the lead link's attributes, and level is the
-  // title's heading level, for a header that isn't the page's own, such as the sidebar's (ui-sidebar.js).
+  // title's heading level, for a header that isn't the page's own, such as the sidebar's (ui-sidebar.js). moon puts the
+  // away moon right of the title, hidden until app-header.js renderStatus shows it (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md).
   function header({ lead = 'logo', title = '', titleId, backHref = './', backLabel = 'Back to the board', backId, logoSrc = 'kickflip.png',
-    controls = true, trail = '', time = '…', bulb = false, settingsHref = 'settings.html', logoHref = '/_hub/', leadAttrs = {}, level = 1 } = {}) {
+    controls = true, trail = '', time = '…', bulb = false, moon = false, settingsHref = 'settings.html', logoHref = '/_hub/', leadAttrs = {}, level = 1 } = {}) {
     const attrs = (base) => Object.entries({ ...base, ...leadAttrs }).map(([k, v]) => ` ${k}="${esc(v)}"`).join('');
     const logo = (cls = 'hub') => `<a class="${cls}" href="${esc(logoHref)}"${attrs({ 'aria-label': 'Boards' })}><img src="${esc(logoSrc)}" alt=""></a>`;
     const first = lead === 'back'
@@ -58,7 +60,8 @@
       + `</nav>` : trail;
     const script = lead === 'back' ? `<script>(${wireBack})(${backStep});</script>` : '';
     const h = `h${[1, 2, 3, 4, 5, 6].includes(level) ? level : 1}`;
-    return `<header class="top"><div class="brand">${first}<${h}${id(titleId)}>${esc(title)}</${h}></div>${nav}</header>${script}`;
+    const away = moon ? `<span class="away-moon" role="img" aria-label="Away" aria-hidden="true">${MOON}</span>` : '';
+    return `<header class="top"><div class="brand">${first}<${h}${id(titleId)}>${esc(title)}</${h}>${away}</div>${nav}</header>${script}`;
   }
 
   Object.assign(globalThis.BoardUI ||= {}, { header, backStep });

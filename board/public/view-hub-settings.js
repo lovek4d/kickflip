@@ -1,6 +1,6 @@
 // HubSettings: summary rows below Hub’s health and status open centred settings modals ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)), using
-// settingsView's words from GET /_hub/api/settings. Each toggle and snooze posts to /_hub/settings/notifications, and
-// Keep awake to /_hub/settings/keep-awake, and saves at once, as Linear's key does through linear-key.js; Done waits for
+// settingsView's words from GET /_hub/api/settings. Each toggle and snooze posts to /_hub/settings/notifications, Quiet
+// hours' times and hold to /_hub/settings/quiet, and Keep awake to /_hub/settings/keep-awake, and saves at once, as Linear's key does through linear-key.js; Done waits for
 // a key's save to land. The rules editor saves through POST /_hub/settings/rules
 // and marks [data-dirty] while an edit is unsaved, so the shell asks before leaving then. The data refreshes every 30 seconds while nothing is being edited.
 (function () {
@@ -47,9 +47,20 @@
     return `${onRow}\n${snoozeRow(d)}\n${weekendRow}`;
   }
 
-  const sections = [['notifications', 'Notifications'], ['polling', 'Polling'], ['keep-awake', 'Keep awake'], ['linear', 'Linear'], ['rules', 'Rules for every board'], ['closed', 'Closed boards']];
+  // Quiet hours (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md): start and
+  // end, each saved once its picker closes, the overnight hold, the muted cadence hint and what the snoozes and wake read.
+  function quietRows(q) {
+    const { row, tile } = HubUI;
+    const time = (name, title, value) => `<form class="row field" method="post" action="/_hub/settings/quiet"><label class="body"><span class="text title">${title}</span><input type="time" name="${name}" value="${esc(value)}" required data-autosave></label></form>`;
+    const holdRow = `<form class="row field" method="post" action="/_hub/settings/quiet"><input type="hidden" name="set" value="hold">${tile('moon', 'var(--accent)')}<label class="body"><span class="text"><span class="title">Hold pushes</span><span class="sub wrap">${esc(q.hold.sub)}</span></span><input type="checkbox" name="value" value="on" class="toggle" data-submit${q.hold.on ? ' checked' : ''}></label></form>`;
+    const reads = q.reads.map((r) => row({ title: esc(r.title), sub: `<span class="sub wrap">${esc(r.sub)}</span>` })).join('');
+    return `<div class="group">${time('start', 'Starts', q.start)}${time('end', 'Ends', q.end)}${holdRow}</div><p class="quiet-hint">${esc(q.hint)}</p>`
+      + `<h2 class="label">Snoozes and wakes read</h2><div class="group">${reads}</div>`;
+  }
+
+  const sections = [['notifications', 'Notifications'], ['quiet', 'Quiet hours'], ['keep-awake', 'Keep awake'], ['linear', 'Linear'], ['rules', 'Rules for every board'], ['closed', 'Closed boards']];
   const sectionOf = (hash) => {
-    const id = { push: 'notifications', 'closed-boards': 'closed' }[hash?.slice(1)] || hash?.slice(1);
+    const id = { push: 'notifications', 'closed-boards': 'closed', polling: 'quiet' }[hash?.slice(1)] || hash?.slice(1);
     return sections.some(([section]) => section === id) ? id : null;
   };
   const markup = () => `${sections.map(([id, title]) => `<button type="button" class="hub-setting" id="${id}" data-settings-open="${id}" aria-haspopup="dialog"><span class="text"><span class="title">${title}</span><span class="sub" data-summary="${id}">Loading…</span></span><span class="chev" aria-hidden="true">›</span></button>`).join('')}
@@ -65,7 +76,6 @@
       let settingsURL = '/_hub/';
       let returnFocus = null;
       let unfitModal = null;
-      let polling = null;
       let flash = null;
       let rules = null;
       let rulesJSON = '';
@@ -78,6 +88,8 @@
         const scrollTop = B.$('.settings-body').scrollTop;
         if (active === 'notifications') {
           content.innerHTML = `<div class="group">${deviceRow(device.state(last.device), { compact: true })}${notificationRows(last)}${last.presence ? row({ icon: tile('laptop', 'var(--color-quiet)'), title: esc(last.presence.title) }) : ''}</div>`;
+        } else if (active === 'quiet') {
+          content.innerHTML = quietRows(last.quiet);
         } else if (active === 'keep-awake') {
           content.innerHTML = last.awake.unsupported ? `<p class="note">${esc(last.awake.unsupported)}.</p>`
             : `<div class="group">${awakeRow(last.awake)}</div><p class="note">Runs <code>caffeinate -ims</code> on the host so it doesn’t sleep while boards work. The screen can still turn off.</p>`;
@@ -97,7 +109,7 @@
         B.$('#keep-awake').disabled = Boolean(last.awake.unsupported);
         const summaries = {
           notifications: [last.on.on ? 'Pushes on' : 'Pushes off', last.snoozed?.summary, last.weekends.on ? 'Off on weekends' : '', deviceSummary()].filter(Boolean).join(' · '),
-          polling: last.polling,
+          quiet: last.quiet.summary,
           'keep-awake': last.awake.summary,
           linear: last.linear?.summary || 'No key',
           rules: last.rules.length ? `${last.rules.length} rule${last.rules.length === 1 ? '' : 's'}` : 'None yet',
@@ -138,7 +150,6 @@
       }
 
       function closeModal(restore = true) {
-        polling?.unmount(); polling = null;
         unfitModal?.(); unfitModal = null;
         modal.close();
         linearKey?.destroy(); linearKey = null;
@@ -168,13 +179,9 @@
             modal.showModal();
             B.$('.settings-body').scrollTop = 0;
             B.$('#hubSettingsTitle').focus({ preventScroll: true });
-            if (id === 'polling') {
-              polling = HubPolling.create(content, siteRoot, { ...ctx, view, changed: () => B.refreshSettings?.() });
-              polling.mount();
-            }
           }
-        } else if (id === 'polling') polling?.B.selectWindow?.(view.w || null);
-        settingsURL = AppRouter.urlOf({ kind: 'hub', ...(id ? { hash: `#${id}` } : {}), ...(id === 'polling' && view.w ? { w: view.w } : {}) });
+        }
+        settingsURL = AppRouter.urlOf({ kind: 'hub', ...(id ? { hash: `#${id}` } : {}) });
         history.replaceState(history.state, '', settingsURL);
         return true;
       };
@@ -254,7 +261,7 @@
         else on.checked = true;
       });
       const forms = HubKit.forms(B, {
-        accepts: (action) => action !== '/_hub/push/flush' && action !== '/_hub/settings/polling',
+        accepts: (action) => action !== '/_hub/push/flush',
         answer(out) {
           last = out;
           flash = null;

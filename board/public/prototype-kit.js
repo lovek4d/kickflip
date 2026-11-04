@@ -44,8 +44,8 @@
       usage: fake.usage(),
       hub: { tone: 'ok', word: 'healthy', detail: '3 of 3 sites up' },
       sites: fake.sites(),
-      polling: { title: 'Checks every 15 min until 6:00pm', lines: ['Next check 12:00pm · last 11:45am, 8 PRs, no change', 'No pushes queued.'], count: 0 },
-      settings: [['notifications', 'Notifications', 'Pushes on · Off on weekends · This device on'], ['polling', 'Polling', '3 windows, 52 checks a day · held overnight'],
+      polling: { title: 'Checks every minute while you’re here', lines: ['Next check 12:00pm · last 11:45am, 8 PRs, no change', 'No pushes queued.'], count: 0 },
+      settings: [['notifications', 'Notifications', 'Pushes on · Off on weekends · This device on'], ['quiet', 'Quiet hours', '10:00pm – 8:00am · pushes held'],
         ['codex', 'Codex share', 'Auto'], ['rules', 'Rules for every board', '1 rule'], ['closed', 'Closed boards', 'No closed boards']],
     }),
     items: () => [

@@ -120,7 +120,7 @@ window.BoardView = (function () {
     const keep = (fn) => { if (B.alive()) keepers.push(fn); };
     const place = places.get(B.route) || null;
     places.delete(B.route);
-    Object.assign(B, { store, state, signal, live: opts.live || null, pause: opts.pause, place, keep });
+    Object.assign(B, { store, state, signal, live: opts.live || null, pause: opts.pause, away: opts.away, place, keep });
 
     function mount() {
       if (B.alive()) return;
@@ -344,7 +344,7 @@ window.BoardView = (function () {
   }
 
   function markup({ title = '' } = {}) {
-    return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', bulb: true })}
+    return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', bulb: true, moon: true })}
 <main>
   <section id="setup" class="setup" aria-live="polite" hidden></section>
   <section id="answers" class="answer-banner" hidden></section>

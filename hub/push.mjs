@@ -3,20 +3,20 @@
 // queues one unless it is urgent or immediate. While the owner is at the host (presence.mjs), an action push reaches
 // the desktop subscriptions only, unless urgent or no desktop has subscribed
 // (docs/adr/2026-10-30-1704-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md).
-// The queue goes out through flushQueue() after each GitHub check on the polling interval (schedule.mjs) and at the end
+// The queue goes out through flushQueue() after each of the hub's checks (schedule.mjs) and at the end
 // of each GitHub tick (`board.mjs checked`), a board's one push as it is and its several as one summary
 // (docs/adr/2026-11-02-1733-queued-pushes-go-as-one-summary-per-board.md).
 // State lives in ~/.claude/kickflip/push: vapid.json (the signing key),
 // subs.json (one entry per phone or browser that enabled notifications, with
-// the hub origin it subscribed from and its user agent) and queue.json (pushes waiting to go). The polling interval's
-// settings are `polling` in ~/.claude/kickflip/settings.json, with `notifications` beside it.
+// the hub origin it subscribed from and its user agent) and queue.json (pushes waiting to go). Quiet hours are
+// `quiet` in ~/.claude/kickflip/settings.json, with `notifications` beside it.
 // A subscription the push service reports gone (404 or 410) is dropped.
 // Payload encryption is RFC 8291 (aes128gcm); the Authorization header is RFC 8292 (VAPID).
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { validate, pollingOf, flushAt, hold, windowAt, notifications, snoozeEnd } from './schedule.mjs';
+import { validate, quietOf, flushAt, hold, notifications, snoozeEnd } from './schedule.mjs';
 import { storedEnd } from './duration.mjs';
 import { presence } from './presence.mjs';
 import { CODEX_SHARE_VALUES, codexStatus, effectiveCodexShare } from '../shared/codex.mjs';
@@ -153,7 +153,7 @@ async function sendTo(subs, message, needs) {
 
 const delivered = (results) => results.some((r) => r.status >= 200 && r.status < 300);
 
-// ---------- polling interval ----------
+// ---------- settings ----------
 // The whole of ~/.claude/kickflip/settings.json, or {} when it is missing or unreadable.
 export function readSettingsFile(home = os.homedir()) {
   try {
@@ -197,19 +197,20 @@ export function setClaudeModel(value, home = os.homedir()) {
   return value;
 }
 
-// The saved polling settings: an old `push` block is migrated, and a missing or invalid file gives the defaults.
+// The saved quiet hours and notifications: old `polling` windows are migrated, and a missing or invalid file gives the defaults.
 export function readSettings(home) {
-  return pollingOf(readSettingsFile(home));
+  return quietOf(readSettingsFile(home));
 }
 
-// Rewrites an old `push` block as `polling`. Returns the migrated settings, or null when there was nothing to migrate.
-export function migrateSettings() {
-  const file = readSettingsFile();
-  if (!file.push) return null;
-  const { push, ...rest } = file;
-  const { notifications, ...polling } = pollingOf(file);
-  writeSettingsFile({ ...rest, polling });
-  return polling;
+// Rewrites old `polling` windows, and the `push` block before them, as `quiet`. Returns the quiet hours, or null when
+// there was nothing to migrate.
+export function migrateSettings(home) {
+  const file = readSettingsFile(home);
+  if (!file.polling && !file.push) return null;
+  const { push, polling, ...rest } = file;
+  const { quiet } = quietOf(file);
+  writeSettingsFile({ ...rest, quiet }, home);
+  return quiet;
 }
 
 // Throws {status: 400} with the validation message; returns the saved settings. An input without notifications
@@ -217,9 +218,8 @@ export function migrateSettings() {
 export function saveSettings(input) {
   const { settings, error } = validate({ notifications: readSettings().notifications, ...input });
   if (error) throw Object.assign(new Error(error), { status: 400 });
-  const { push, ...rest } = readSettingsFile();
-  const { notifications: n, ...polling } = settings;
-  writeSettingsFile({ ...rest, polling, notifications: n });
+  const { push, polling, ...rest } = readSettingsFile();
+  writeSettingsFile({ ...rest, quiet: settings.quiet, notifications: settings.notifications });
   return settings;
 }
 
@@ -266,14 +266,14 @@ async function withQueueLock(fn) {
   try { return fn(); } finally { try { fs.rmdirSync(QUEUE_LOCK); } catch {} }
 }
 
-// { settings, window (schedule.mjs windowAt), held, hold, count, nextFlushAt } for the settings page and the CLI.
+// { settings, held, hold, count, nextFlushAt } for the settings page and the CLI.
 // held: a poll now would keep the queue; hold says why and until when (schedule.mjs hold). nextFlushAt is null when
 // nothing is queued.
 export function queueStatus(now = new Date()) {
   const settings = readSettings();
   const { items } = readQueue();
   const h = hold(now, settings);
-  return { settings, window: windowAt(now, settings), held: h !== null, hold: h, count: items.length, nextFlushAt: items.length ? flushAt(now, settings) : null };
+  return { settings, held: h !== null, hold: h, count: items.length, nextFlushAt: items.length ? flushAt(now, settings) : null };
 }
 
 // What a push may be about (docs/adr/2026-10-29-1639-pushes-only-when-something-waits-on-the-owner.md): action, a card's Action

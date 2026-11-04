@@ -1,4 +1,4 @@
-/* The hub page and settings modals (view-hub.js, view-hub-settings.js, view-polling.js), whose root carries .hub-view, and the hub's
+/* The hub page and settings modals (view-hub.js, view-hub-settings.js), whose root carries .hub-view, and the hub's
    down page (hub/hub.mjs), whose <html> does, and the board's Hold sheet picker (ui-cards.js holdPicker), which shares the
    duration picker's rules; served as /_hub/app/hub.css and /_hub/hub.css. Every rule is under
    .hub-view, since style.css uses the same short class names. The app shell links it after style.css, so a rule here
@@ -47,22 +47,7 @@
 .hub-view .chips form { display:contents; }
 .hub-view .chips form.field { display:inline-flex; gap:6px; }
 .hub-view .chips .field input { min-height:0; padding:.2rem .5rem; width:7.5rem; }
-.hub-view .split { display:flex; gap:8px; justify-content:flex-end; }
-.hub-view .day { position:relative; padding:18px 0 20px; }
-.hub-view .day .bar { position:relative; height:40px; border-radius:8px; overflow:hidden; background:var(--chip); }
-.hub-view .day .seg { position:absolute; top:0; bottom:0; display:grid; place-items:center; overflow:hidden; border-right:2px solid var(--panel);
-  background:color-mix(in srgb, var(--muted) var(--k), var(--chip)); }
-.hub-view .day .seg.held { background-image:repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--text) 22%, transparent) 5px 8px); }
-.hub-view .day .seg.sel { box-shadow:inset 0 0 0 3px var(--text); z-index:2; }
-.hub-view .day .seg span { font-size:11px; font-weight:600; line-height:1.5; color:var(--text); background:color-mix(in srgb, var(--panel) 85%, transparent); border-radius:4px; padding:0 4px; }
-.hub-view .day .pin { position:absolute; top:2px; transform:translateX(-50%); color:var(--color-notice); font-size:11px; line-height:1; }
-.hub-view .day .now { position:absolute; top:14px; height:48px; width:2px; margin-left:-1px; background:var(--text); z-index:3; pointer-events:none; }
-.hub-view .day .ticks { position:absolute; left:0; right:0; bottom:0; height:16px; font-size:10px; color:var(--muted); }
-.hub-view .day .ticks span { position:absolute; transform:translateX(-50%); }
-.hub-view .day .ticks span:first-child { transform:none; } .hub-view .day .ticks span:last-child { transform:translateX(-100%); }
-.hub-view .legend { display:flex; gap:4px 12px; flex-wrap:wrap; font-size:11px; color:var(--muted); }
-.hub-view .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; vertical-align:-1px; margin-right:4px; }
-.hub-view #day, .hub-view #window, .hub-view #quiet, .hub-view #wakes { scroll-margin-top:64px; }
+.hub-view .quiet-hint { margin:6px 14px 0; color:var(--muted); font-size:12px; }
 .hub-view .field input { flex:none; font:inherit; font-size:16px; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:.3rem .6rem; min-height:2.2rem; width:8.75rem; min-width:0; text-align:right; }
 .hub-view .field input[type=number] { width:5rem; }
 .hub-view .field input.toggle { width:1.4rem; height:1.4rem; min-height:0; padding:0; accent-color:var(--accent); }

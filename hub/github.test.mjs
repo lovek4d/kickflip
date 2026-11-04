@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fakeGh, prView, writePR, writeUser, writeIssueComments, writeReviewComments, writeReviews, calls } from '../shared/fake-gh.mjs';
+import { fakeGh, prView, writePR, writeUser, writeIssueComments, writeReviewComments, writeReviews, calls, queried } from '../shared/fake-gh.mjs';
 import { fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'github-'));
@@ -104,7 +104,7 @@ test('the poll remembers head changes without waking either kind of board until 
   assert.deepEqual(moved.changes, []);
   assert.deepEqual(events(waveDir), []);
   assert.deepEqual(events(fileDir), []);
-  assert.deepEqual(calls(home).filter((a) => a[0] === 'pr').map((a) => a[2]), ['7', '8', '7', '8']);
+  assert.deepEqual(queried(home), [['o/r#7', 'o/r#8'], ['o/r#7', 'o/r#8']]);
   const state = JSON.parse(fs.readFileSync(claude('kickflip', 'github-state.json'), 'utf8'));
   assert.equal(state.prs['o/r#8'].head, 'new');
   assert.deepEqual((await poll()).events, []);
@@ -232,7 +232,7 @@ test("the poll reads every PR on a card in its own repo, and closes the card onl
   assert.deepEqual(first.failed, []);
   assert.equal(first.watched, 3);
   assert.deepEqual(first.merged, []);
-  assert.deepEqual(['o/r', 'o/site', 'o/api'].map((repo) => calls(home).some((a) => a[1] === 'view' && a[4] === repo)), [true, true, true]);
+  assert.deepEqual(queried(home).at(-1), ['o/r#61', 'o/site#61', 'o/api#62']);
   assert.equal(board.wave().items[0].status, undefined);
   assert.deepEqual(board.events().map((e) => e.data), [{ prs: [{ wave: 's', id: 'A1', pr: 61, changes: ['merged'] }] }]);
   writePR(home, 'o/site#61', prView({ state: 'MERGED' }));

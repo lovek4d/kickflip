@@ -1,19 +1,20 @@
-// The hub's GitHub check, run once per polling slot (docs/adr/2026-10-29-1639-the-hub-polls-github-and-sends-pushes-on-one-interval.md).
+// The hub's GitHub check, run on each of the hub's checks (schedule.mjs checkEvery;
+// docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md).
 // Its PRs are every open PR on any board's card, from the board registry, boards.mjs listBoards
-// (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md). Each PR and login is fetched once,
-// however many boards show it, and its summary is compared with the last one accepted, kept by repo#pr in
+// (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md). One GraphQL query reads every PR and the
+// account's login, however many boards show a PR (pr-report.mjs fetchPRs), and each summary is compared with the last one accepted, kept by repo#pr in
 // ~/.claude/kickflip/github-state.json. Each board's `github-change` event lists its eligible changed cards,
 // waking its owning session to run its GitHub tick (SKILL.md). Before that, each card gets its PR's new owner and
 // reviewer comments and reviews as thread lines, and a card closes as merged once every PR on it has merged or closed,
 // at least one merged (docs/adr/2026-11-02-2335-the-hubs-poll-records-merges-and-pr-comments-on-the-card.md,
 // docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md). Each board gets data/checked.json after a
-// check that reached GitHub for every PR it shows, in the idle form when it shows none. sendWakes sends the polling
-// interval's daily wakes to every board, changed or not.
+// check that reached GitHub for every PR it shows, in the idle form when it shows none. sendWakes sends the daily wake,
+// at the end of quiet hours, to every board, changed or not.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { savedClient } from './linear.mjs';
-import { fetchPR, reportOf, githubLogin } from './pr-report.mjs';
+import { fetchPRs, reportOf } from './pr-report.mjs';
 import { wakesDue, localDay } from './schedule.mjs';
 import { GITHUB_STATE as STATE, WAKE_STATE, WAVES, listBoards, appendEvent, prKey, readJSON, saveJSON, reviewerLogins } from './boards.mjs';
 import { appendThread, setItem, mergedLine } from '../board/store.mjs';
@@ -72,9 +73,9 @@ function writeChecked(dir, every) {
   fs.renameSync(tmp, file);
 }
 
-// One check. every: the current polling window's minutes, for checked.json. manifest: the hub's manifest.
+// One check. every: the most minutes until the next check, for checked.json. manifest: the hub's manifest.
 // → {at, watched, failed: [message], changes: [{repo, pr, changes}], events: [{route, id}], checked: [route], merged: [route],
-// linear: {moved, failed}}. merged names each board where this check recorded a card merged, for the hub to refresh its Main
+// linear: {moved, failed}, rate: GitHub's {remaining, resetAt} after the query, null when no PR made one}. merged names each board where this check recorded a card merged, for the hub to refresh its Main
 // (docs/adr/2026-11-03-1619-a-merge-refreshes-its-boards-main-at-once.md).
 // watched counts distinct PRs; github-state.json's lastCheck also names the boards the check reached, for
 // boards.mjs linksOf.
@@ -86,10 +87,13 @@ export async function checkGitHub({ every, manifest }) {
   state.threaded ||= {};
   const boards = listBoards(manifest);
   const failed = [];
-  let fallback = null;
-  if (boards.some((b) => !b.githubLogin && b.prs.length)) {
-    try { fallback = await githubLogin(); } catch (e) { failed.push(e.message); }
+  const distinct = [...new Map(boards.flatMap((b) => b.prs).map((p) => [prKey(p), { repo: p.repo, pr: p.pr }])).values()];
+  let query = null;
+  if (distinct.length) {
+    try { query = await fetchPRs(distinct); } catch (e) { failed.push(e.message); }
   }
+  const raw = new Map(distinct.map((p, i) => [prKey(p), query ? query.results[i] : null]));
+  const fallback = query?.login ?? null;
   const fetchKey = (p, me) => JSON.stringify([prKey(p), me]);
   const prs = new Map();
   const requests = new Map();
@@ -112,14 +116,18 @@ export async function checkGitHub({ every, manifest }) {
   const reports = {};
   const summaries = new Map();
   const found = Object.fromEntries([...prs.keys()].map((key) => [key, []]));
+  const reported = new Set();
   for (const [request, p] of requests) {
-    try {
-      reports[request] = reportOf(await fetchPR(p), p);
-      const next = summarize(reports[request]);
-      fetched[request] = next;
-      if (!summaries.has(prKey(p))) summaries.set(prKey(p), next);
+    const got = raw.get(prKey(p));
+    if (!got?.view) {
+      fetched[request] = null;
+      if (got?.error && !reported.has(got.error)) { reported.add(got.error); failed.push(got.error); }
+      continue;
     }
-    catch (e) { fetched[request] = null; failed.push(e.message); }
+    reports[request] = reportOf(got, p);
+    const next = summarize(reports[request]);
+    fetched[request] = next;
+    if (!summaries.has(prKey(p))) summaries.set(prKey(p), next);
   }
   const events = [];
   const checked = [];
@@ -182,7 +190,7 @@ export async function checkGitHub({ every, manifest }) {
   // docs/adr/2026-11-02-0023-the-hubs-poll-moves-the-owners-linear-tickets.md
   try { await advanceLinear(boards, fetched, fetchKey, linear); }
   catch (e) { linear.failed.push(`linear: ${e.message}`); }
-  return { at, watched: prs.size, failed, changes, events, checked, merged: [...mergedRoutes], linear };
+  return { at, watched: prs.size, failed, changes, events, checked, merged: [...mergedRoutes], linear, rate: query?.rate ?? null };
 }
 
 // '' for an empty plain review: its inline comments arrive as their own events.
@@ -272,10 +280,10 @@ async function advanceLinear(boards, fetched, fetchKey, result) {
   }
 }
 
-// The wakes due at `now` (schedule.mjs wakesDue): every board gets one `check-github {reason: "morning"}`
+// The wake due at `now` (schedule.mjs wakesDue): every board gets one `check-github {reason: "morning"}`
 // event, so its owning session runs a GitHub tick. Each wake's last send
 // day is kept in ~/.claude/kickflip/wake-state.json, so a restart never sends one twice in a day, with `last` {at, due,
-// routes, failed} for boards.mjs linksOf. A wake no board took stays due. settings: the polling settings.
+// routes, failed} for boards.mjs linksOf. A wake no board took stays due. settings: push.mjs readSettings.
 // → {due: [hhmm], events: [{route, id}], failed: [message]}
 export async function sendWakes({ now = new Date(), settings, manifest }) {
   const state = readJSON(WAKE_STATE, {});

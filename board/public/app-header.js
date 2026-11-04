@@ -16,7 +16,14 @@ BoardView.part((B) => {
     $('#setup').innerHTML = setupCard(d.setup);
     if ($('#linksSheet').open) $('#linksList').innerHTML = linksList(d.links);
   }
-  const renderStatus = () => { $('#status').innerHTML = statusLine(state.fresh?.at, { link: state.link, watcher: state.board?.checks?.watcher, pause: B.pause?.(), waking: state.waking }); };
+  // The status line, and the moon right of the title while the owner reads away (hub/presence.mjs ownerTracker).
+  const renderStatus = () => {
+    $('#status').innerHTML = statusLine(state.fresh?.at, { link: state.link, watcher: state.board?.checks?.watcher, pause: B.pause?.(), waking: state.waking });
+    const moon = $('.away-moon');
+    const away = Boolean(B.away?.());
+    moon.classList.toggle('on', away);
+    moon.setAttribute('aria-hidden', String(!away));
+  };
   // A board load and its open threads landed; via is ui-header.js nextFresh's.
   function landed(via) {
     state.fresh = nextFresh(state.fresh, { via, at: new Date().toISOString(), sig: freshSig(state.board, state.threadCache, state.openItems) });

@@ -86,7 +86,7 @@ test('writing the hub rules keeps every other key of settings.json, and a settin
   try {
     const file = path.join(home, '.claude', 'kickflip', 'settings.json');
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    const other = { polling: { windows: [{ from: '08:00', every_minutes: 15 }], hold_overnight: true }, notifications: { on: true }, other_key: 'kept' };
+    const other = { quiet: { start: '22:00', end: '08:00', hold: true }, notifications: { on: true }, other_key: 'kept' };
     fs.writeFileSync(file, JSON.stringify(other));
     assert.equal(inHome(home, `rules.writeHubRules(${JSON.stringify(saved)});`).status, 0);
     assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { ...other, rules: saved });
@@ -127,7 +127,7 @@ test('codex-share prints the setting in effect, refuses a change while Codex is 
     const first = cli('always');
     assert.deepEqual([first.status, first.stdout, first.stderr], [0, 'always\n', '']);
     assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { codexShare: 'always' });
-    const other = { polling: { windows: [{ from: '00:00', every_minutes: 120 }] }, notifications: { on: false }, rules: saved, other_key: { keep: true } };
+    const other = { quiet: { start: '23:59', end: '00:00', hold: false }, notifications: { on: false }, rules: saved, other_key: { keep: true } };
     fs.writeFileSync(file, JSON.stringify(other));
     assert.deepEqual([cli().status, cli().stdout], [0, 'auto\n']);
     for (const value of ['off', 'auto', 'always']) {
@@ -157,7 +157,7 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
   const web = path.join(home, '.claude', 'kickflip');
   fs.mkdirSync(path.join(siteDir, 'data'), { recursive: true });
   fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ title: 'Orch', items: 'waves' }));
-  fs.writeFileSync(path.join(web, 'settings.json'), JSON.stringify({ polling: { windows: [{ from: '00:00', every_minutes: 120 }], hold_overnight: false, wakes: [] }, notifications: { on: true, weekends_off: false, snoozed_until: null }, other_key: 'kept' }));
+  fs.writeFileSync(path.join(web, 'settings.json'), JSON.stringify({ quiet: { start: '23:59', end: '00:00', hold: false }, notifications: { on: true, weekends_off: false, snoozed_until: null }, other_key: 'kept' }));
   fs.writeFileSync(path.join(web, 'manifest.json'), JSON.stringify({ version: 1, sites: {
     orch: { dir: siteDir, port: sitePort, cmd: [process.execPath, path.join(HUB_DIR, '..', 'board', 'server.mjs'), siteDir] },
   } }));
@@ -185,7 +185,7 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
     assert.deepEqual([out.changed, out.events.map((e) => e.route), out.failed], [true, ['orch'], []]);
     const settings = JSON.parse(fs.readFileSync(path.join(web, 'settings.json'), 'utf8'));
     assert.equal(settings.other_key, 'kept');
-    assert.equal(settings.polling.windows[0].every_minutes, 120);
+    assert.deepEqual(settings.quiet, { start: '23:59', end: '00:00', hold: false });
     assert.deepEqual(settings.rules.map((x) => [x.text, x.by]), [['Screenshots </script> in every PR', 'owner']]);
     const events = fs.readFileSync(path.join(siteDir, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.kind === 'rules');
     assert.deepEqual(events.map((e) => e.data), [{ scope: 'hub', added: ['Screenshots </script> in every PR'], edited: [], removed: [] }]);

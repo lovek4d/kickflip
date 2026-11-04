@@ -12,7 +12,7 @@ import { buildBoard, BUTTON, ACTION_KIND } from './domain.mjs';
 
 const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-order.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
   'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-arch.js', 'app-banner.js', 'app-snapshot.js',
-  'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-polling.js', 'view-frame.js', 'router.js'];
+  'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-frame.js', 'router.js'];
 
 function memoryStorage(entries = []) {
   const storage = new Map(entries);
@@ -130,6 +130,29 @@ test("a board view mounted then unmounted leaves no listener, interval, timer or
   view.B.toast('Saved');
   view.unmount();
   assert.deepEqual([page.left(), subscribed.size], [loaded, 0]);
+});
+
+test("a board's header shows the away moon right of its title while the owner reads away, and drops it once they're back", () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const root = new page.El();
+  let away = true;
+  assert.match(page.win.BoardView.markup({ title: 'Shop' }), /<h1>Shop<\/h1><span class="away-moon" role="img" aria-label="Away" aria-hidden="true"><svg/);
+  const view = page.win.BoardView.create(root, 'https://mac.ts.net/board-a', { away: () => away });
+  view.mount();
+  const moon = root.querySelector('.away-moon');
+  view.B.renderStatus();
+  assert.deepEqual([moon.classList.contains('on'), moon.attrs['aria-hidden']], [true, 'false']);
+  away = false;
+  view.B.renderStatus();
+  assert.deepEqual([moon.classList.contains('on'), moon.attrs['aria-hidden']], [false, 'true']);
+  view.unmount();
+});
+
+test('the away moon fades in and out with the toasts: 150ms in and 200ms out, 80 and 100 with reduced motion', () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.away-moon \{[^}]*transition: opacity 200ms ease/);
+  assert.match(css, /\.away-moon\.on \{[^}]*transition: opacity 150ms ease/);
+  assert.match(css, /prefers-reduced-motion: reduce\) \{\n  \.away-moon \{ transition: opacity 100ms ease[^}]*\}\n  \.away-moon\.on \{ transition: opacity 80ms ease/);
 });
 
 function toastOnDom({ reduced = false } = {}) {
@@ -638,7 +661,7 @@ test('Hub Settings lists closed boards, keeps a refused reopen available, then r
   page.win.document.getElementById = () => true;
   const root = page.win.document.body.appendChild(new Element('div'));
   root.innerHTML = page.win.HubSettings.markup();
-  const d = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], awake: { summary: 'Off' },
+  const d = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [] }, awake: { summary: 'Off' },
     closed: [{ route: 'shop', title: 'The <Shop>' }] };
   const posts = [];
   let refuse = true;
@@ -677,7 +700,7 @@ test("Restart on a board's row of the Hub page confirms, waits disabled with its
   const site = (route, title, restart) => ({ route, title, icon: '', href: `/${route}/`, tone: 'ok', word: 'up · listening · every link passes', lines: [], remembered: [], restart });
   const hub = { hub: { tone: 'ok', word: 'healthy', detail: '2 of 2 sites up' }, integrations: [], polling: { title: 'Checks every 30 min', lines: [], count: 0 }, sites: '2 sites', host: 'mac',
     groups: [{ label: 'Boards', sites: [site('shop', 'The <Shop>', true), site('hub-orchestrator', 'Hub', false)] }] };
-  const settings = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], awake: { summary: 'Off' }, closed: [] };
+  const settings = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [] }, awake: { summary: 'Off' }, closed: [] };
   const confirms = [];
   page.win.BoardDialogs.confirm = async (text, labels) => { confirms.push([text, labels?.ok]); return true; };
   const posts = [];
@@ -729,7 +752,7 @@ test("a Hub page form waits on its tapped control: Codex share's tapped segment 
   const hub = { hub: { tone: 'ok', word: 'healthy', detail: '' }, integrations: [], polling: { title: 'Checks every 30 min', lines: [], count: 0 }, sites: '0 sites', host: 'mac', groups: [],
     usage: {}, codex: { usable: true, share: 'auto', description: '', choices: choices('auto') }, claude: { builder: 'Opus', description: '', choices: choices('auto') },
     pause: { state: 'normal', pause_at: 90, window: 'five_hour', used: 10, resets_at: new Date().toISOString() } };
-  const settings = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], awake: { summary: 'Off', choices: [] }, closed: [], snooze: { choices: [] } };
+  const settings = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [] }, awake: { summary: 'Off', choices: [] }, closed: [], snooze: { choices: [] } };
   const posts = [];
   let answer;
   page.win.fetch = (url, opts = {}) => {
@@ -776,12 +799,12 @@ test("a Hub page form waits on its tapped control: Codex share's tapped segment 
   view.unmount();
 });
 
-test("the hub page, Hub Settings and Polling, mounted then unmounted, load their data from the hub's API, refresh it on an interval and leave no listener or interval behind", async () => {
+test("the hub page and Hub Settings, Quiet hours among them, mounted then unmounted, load their data from the hub's API, refresh it on an interval and leave no listener or interval behind", async () => {
   const page = fakePage(memoryStorage().localStorage);
   const urls = [];
   page.win.fetch = (url) => { urls.push(url); return Promise.reject(new Error('offline')); };
   const loaded = page.left();
-  for (const [kind, view] of [['hub', { hash: '#rules' }], ['hub', { hash: '#polling', w: '09:00' }]]) {
+  for (const [kind, view] of [['hub', { hash: '#rules' }], ['hub', { hash: '#quiet' }]]) {
     const views = page.win.AppViews;
     assert.match(views[kind].markup({ kind, ...view }), /<main class="has-top">/, kind);
     const v = views[kind].create(new page.El(), 'https://mac.ts.net/_hub', { view: { kind, ...view }, reload() {}, sidebarChanged() {} });
@@ -797,7 +820,7 @@ test("the hub page, Hub Settings and Polling, mounted then unmounted, load their
     await new Promise((r) => setImmediate(r));
     assert.deepEqual(page.left(), loaded, kind);
   }
-  assert.deepEqual([...new Set(urls)], ['/_hub/api/settings', '/_hub/api/hub', '/_hub/api/polling?w=09%3A00']);
+  assert.deepEqual([...new Set(urls)], ['/_hub/api/settings', '/_hub/api/hub']);
 });
 
 test("a framed page hands each load's URL and title to the shell, hides the shell's header when it draws its own, whose logo toggles the sidebar, sends taps on links to other views and its back arrow to the shell, keeps its own navigations, and leaves nothing behind", () => {
@@ -1030,6 +1053,24 @@ async function shellPage(path, { fetch, sidebarData = { sites: [{ route: 'shop',
     entries: () => entries, position: () => at, boardUnmounts: () => boardUnmounts };
 }
 
+test('a tap, key or scroll tells the hub the owner is here: at once while away, which drops the moon on this page, then at most once a minute', async () => {
+  const beats = [];
+  let statusPaints = 0;
+  const sites = [{ route: 'shop', title: 'The Shop', board: true, icon: '' }];
+  const { page, win } = await shellPage('/shop/', {
+    sidebarData: { sites, away: true },
+    fetch: (url, opts) => { if (url === '/_hub/presence') { beats.push(opts.method); return Promise.resolve({ ok: true }); } return new Promise(() => {}); },
+  });
+  win.BoardView.create = () => ({ B: { state: {}, renderStatus: () => statusPaints++ }, mount() {}, unmount() {} });
+  win.AppShell.open('/other/'); win.AppShell.open('/shop/');
+  const painted = statusPaints;
+  page.fire(win, 'pointerdown');
+  assert.deepEqual(beats, ['POST']);
+  assert.equal(statusPaints, painted + 1);
+  for (const type of ['keydown', 'scroll', 'pointerdown']) page.fire(win, type);
+  assert.deepEqual(beats, ['POST']);
+});
+
 test('the shell uses the inline or fetched boot code, adopts the first live code for cached or unversioned data, and keeps its update row across sidebar events', async () => {
   for (const boot of ['inline', 'fetched', 'cached', 'unversioned']) {
     const storage = memoryStorage([['hub:sidebar', JSON.stringify({ code: 'stored', sites: [] })]]);
@@ -1246,7 +1287,7 @@ test('an open shell shows new hub code before the next Hub paint and reloads onl
   assert.equal(reloads, 1);
 });
 
-test('the Hub row stays selected on old Settings URLs, hub sections, Polling and browser back', async () => {
+test('the Hub row stays selected on old Settings URLs, hub sections, the old Polling page and browser back', async () => {
   for (const path of ['/_hub/', '/_hub/settings', '/_hub/settings#rules', '/_hub/settings/polling?w=09%3A00']) {
     const { win, doc, selected, tap } = await shellPage(path);
     assert.deepEqual(selected(), ['/_hub/'], path);
@@ -3748,18 +3789,12 @@ test("switching to another board through the sidebar and back returns to the pag
   assert.deepEqual(shown(), ['/shop/', 0, null]);
 });
 
-test('a stored Polling link opens Hub with its window selected, and modal links and dismissal preserve history', async () => {
+test('a stored link to the old Polling page opens Hub with Quiet hours, and modal links and dismissal preserve history', async () => {
   const requests = [];
-  const settings = { on: { on: true }, weekends: { on: false }, rules: [], closed: [], awake: { summary: 'Off' } };
-  const polling = {
-    select: '08:00', now: { title: 'Checks every 15 min', lines: [], count: 0 },
-    windows: ['08:00', '18:00'].map((from) => ({ from, range: from, every: [], ends: '10:00pm', checks: '4 checks', split: true, remove: true })),
-    day: { segments: [], pins: [], now: '50%' }, hold: { on: true }, wakes: [],
-  };
+  const settings = { on: { on: true }, weekends: { on: false }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [] }, closed: [], awake: { summary: 'Off' } };
   const { win, doc, page, entries, tap } = await shellPage('/_hub/settings/polling?w=18%3A00&from=push', {
     fetch: async (url) => {
       requests.push(url);
-      if (url.startsWith('/_hub/api/polling')) return { ok: true, json: async () => structuredClone(polling) };
       if (url === '/_hub/api/settings') return { ok: true, json: async () => structuredClone(settings) };
       return new Promise(() => {});
     },
@@ -3769,17 +3804,17 @@ test('a stored Polling link opens Hub with its window selected, and modal links 
   const modal = doc.querySelector('#hubSettingsModal');
   assert.equal(modal.open, true);
   assert.equal(doc.querySelector('.top h1').textContent, 'Hub');
-  assert.equal(doc.querySelector('#hubSettingsTitle').textContent, 'Polling');
-  assert.equal(doc.querySelector('input[type=time]').value, '18:00');
-  assert.ok(requests.includes('/_hub/api/polling?w=18%3A00'));
+  assert.equal(doc.querySelector('#hubSettingsTitle').textContent, 'Quiet hours');
+  assert.equal(doc.querySelector('input[type=time]').value, '22:00');
+  assert.ok(requests.includes('/_hub/api/settings'));
   assert.equal(win.location.pathname, '/_hub/');
-  assert.equal(win.location.hash, '#polling');
+  assert.equal(win.location.hash, '#quiet');
   assert.equal(win.history.state.pushed, true);
   const count = entries().length;
   const dismiss = modal.querySelector('.settings-footer button');
   page.fire(doc.querySelector('.hub-settings'), 'click', { target: dismiss });
   assert.equal(modal.open, false);
-  assert.equal(doc.activeElement, doc.querySelector('#polling'));
+  assert.equal(doc.activeElement, doc.querySelector('#quiet'));
   assert.equal(win.location.href, 'https://mac.ts.net/_hub/');
   assert.equal(entries().length, count);
   for (const href of ['/_hub/settings', '/_hub/settings#notifications', '/_hub/#rules', '/_hub/settings/polling?w=08%3A00']) {
@@ -3789,7 +3824,7 @@ test('a stored Polling link opens Hub with its window selected, and modal links 
     assert.equal(modal.open, true);
     assert.equal(entries().length, count);
   }
-  assert.equal(doc.querySelector('input[type=time]').value, '08:00');
+  assert.equal(doc.querySelector('#hubSettingsTitle').textContent, 'Quiet hours');
   win.AppShell.open('/_hub/settings#rules'); await settle();
   const editor = doc.querySelector('#hubRules');
   editor.setAttribute('data-dirty', '');
@@ -3807,7 +3842,7 @@ test('a stored Polling link opens Hub with its window selected, and modal links 
   assert.equal(doc.querySelector('#hubSettingsModal'), null);
   win.history.back(); await settle();
   assert.equal(doc.querySelector('#hubSettingsModal').open, true);
-  assert.equal(doc.querySelector('#hubSettingsTitle').textContent, 'Polling');
+  assert.equal(doc.querySelector('#hubSettingsTitle').textContent, 'Quiet hours');
 });
 
 test('legacy hub links open one modal, guard dirty rules on every dismissal, restore focus and clean up', async () => {
@@ -3816,7 +3851,7 @@ test('legacy hub links open one modal, guard dirty rules on every dismissal, res
   page.win.document.getElementById = () => true;
   const root = page.win.document.body.appendChild(new Element('div'));
   root.innerHTML = page.win.HubSettings.markup();
-  const data = { on: { on: true }, weekends: { on: false }, rules: [], closed: [], awake: { summary: 'Off' } };
+  const data = { on: { on: true }, weekends: { on: false }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [] }, closed: [], awake: { summary: 'Off' } };
   page.win.fetch = async () => ({ ok: true, json: async () => structuredClone(data) });
   page.win.RulesEditor.mount = () => ({ set() {} });
   const baseline = page.left();

@@ -14,7 +14,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { routeRecord } from './routes.mjs';
 import { deliver, readSettings } from './push.mjs';
-import { DEFAULTS, windowAt } from './schedule.mjs';
+import { SLOWEST_CHECK_MINUTES } from './schedule.mjs';
 import { liveSessions, ps } from './live.mjs';
 import { withFileLock } from './locks.mjs';
 import { dropSessionPrompts, readPrompts, savePrompts, withPromptsLock } from './prompts.mjs';
@@ -375,10 +375,8 @@ const EVENTS = {
 const eventsLink = (listen) => ({ link: 'events', listen, ...EVENTS[listen] });
 
 function wakesLink(board, settings, wakeState) {
-  const wakes = settings?.wakes || [];
-  if (!wakes.length) return { link: 'wakes', ok: false, detail: 'No daily wakes are set (Hub, Polling).' };
   if ((wakeState?.last?.failed || []).includes(board.route)) return { link: 'wakes', ok: false, detail: `The last wake (${wakeState.last.due.join(', ')}) couldn't reach this board.` };
-  return { link: 'wakes', ok: true, detail: `Daily at ${wakes.join(', ')}.` };
+  return { link: 'wakes', ok: true, detail: `Daily at ${settings.quiet.end}, when quiet hours end.` };
 }
 
 function slackLink(board, state, topics) {
@@ -443,7 +441,7 @@ export const hubLink = ({ running, onDisk } = hubCodeState()) => (running && run
 // ---------- grace ----------
 // How long a link stays broken before the board shows it red; until then it reads settling, while the watcher prints
 // it at once so the session can fix it (docs/adr/2026-10-29-1639-hub-links-turn-red-only-after-a-grace-period.md). every is the
-// polling interval's minutes.
+// slowest check cadence's minutes (schedule.mjs SLOWEST_CHECK_MINUTES), so a link never turns red between two checks.
 const MIN = 60_000;
 export const GRACE = {
   github: (every) => (every + 10) * MIN,
@@ -453,17 +451,10 @@ export const GRACE = {
   slack: (every) => (every + 10) * MIN,
 };
 
-// The longer of the polling window when the fault began and the window now, so a fault from a slow window doesn't
-// turn red when a faster one starts before its next check.
-function everyFor(since, now, settings) {
-  const s = settings?.windows?.length ? settings : DEFAULTS;
-  return Math.max(windowAt(new Date(since), s).every_minutes, windowAt(new Date(now), s).every_minutes);
-}
-
 // Adds state ('ok' | 'settling' | 'broken') and, for a fault, since: when it was first seen, from faults
 // ({<link>: ISO time}), or ~/.claude/kickflip/link-faults.json {<route>: {<link>: ISO time}} when faults is undefined,
 // which this then updates.
-function settle(route, links, { settings, now, faults }) {
+function settle(route, links, { now, faults }) {
   const stored = faults === undefined;
   const known = stored ? routeRecord(readJSON(LINK_FAULTS, {}), route) || {} : faults;
   const open = {};
@@ -471,7 +462,7 @@ function settle(route, links, { settings, now, faults }) {
     if (l.ok) return { ...l, state: 'ok' };
     const since = routeRecord(known, l.link) || new Date(now).toISOString();
     open[l.link] = since;
-    const grace = GRACE[l.link](everyFor(Date.parse(since), now, settings));
+    const grace = GRACE[l.link](SLOWEST_CHECK_MINUTES);
     return { ...l, state: now - Date.parse(since) >= grace ? 'broken' : 'settling', since };
   });
   if (stored && JSON.stringify(open) !== JSON.stringify(known)) {
@@ -488,9 +479,9 @@ function settle(route, links, { settings, now, faults }) {
 //               another git remote has none
 //   repo-fetch  the hub's last git fetch of the board's repo worked; only a board the hub fetches has it
 //   events      the board is listening, waking or asleep (listenState, as the link's listen), so its events reach the session
-//   wakes       the polling interval has daily wakes, and the last one reached the board
+//   wakes       the last daily wake, at the end of quiet hours, reached the board
 //   slack       every open, non-draft PR has a Slack link for each of the board's and its wave's reviewers
-// ctx overrides what is read from disk: github (github-state.json), fetches (repo-fetch.json), settings (polling),
+// ctx overrides what is read from disk: github (github-state.json), fetches (repo-fetch.json), settings (quiet hours),
 // wakes (wake-state.json), listen (listenState), topics (slack-bridge topic items),
 // faults (as settle takes them; given, nothing is written) and now (ms).
 export function linksOf(board, ctx = {}) {
@@ -503,7 +494,7 @@ export function linksOf(board, ctx = {}) {
     wakesLink(board, settings, ctx.wakes ?? readJSON(WAKE_STATE, {})),
     slackLink(board, state, ctx.topics ?? topicItems()),
   ].filter(Boolean);
-  return settle(board.route, links, { settings, now: ctx.now ?? Date.now(), faults: ctx.faults });
+  return settle(board.route, links, { now: ctx.now ?? Date.now(), faults: ctx.faults });
 }
 
 // Brings link-faults.json up to date for every board, so a fault no page or watcher looked at still dates from the

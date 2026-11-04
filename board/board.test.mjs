@@ -40,7 +40,7 @@ function runAsync(script, args, env = {}) {
 async function withDevice(fn) {
   const device = await startFakeDevice();
   write(at('kickflip', 'push', 'subs.json'), [device.subscription]);
-  write(at('kickflip', 'settings.json'), { polling: { windows: [{ from: '00:00', every_minutes: 15 }], hold_overnight: true, wakes: [] } });
+  write(at('kickflip', 'settings.json'), { quiet: { start: '23:59', end: '00:00', hold: false } });
   const b = (...args) => runAsync('board.mjs', args, { KICKFLIP_HUB_PORT: String(device.port) });
   try { await fn(b, device.received); } finally { await device.close(); }
 }
@@ -2611,12 +2611,11 @@ test('checked records when GitHub was last checked and the interval, idle while 
   const c = read(site('orch', 'data', 'checked.json'));
   assert.equal(c.every, 60);
   assert.ok(Date.now() - Date.parse(c.at) < 60000);
-  write(at('kickflip', 'settings.json'), { polling: { windows: [{ from: '00:00', every_minutes: 45 }], hold_overnight: true, wakes: [] } });
   assert.deepEqual(board('checked', '--site', 'orch'), { code: 0, err: '', out: 'GitHub checked; no open PR\n' });
   assert.deepEqual({ ...read(site('orch', 'data', 'checked.json')), at: null }, { at: null, every: null, idle: true });
   write(at('waves', 'w', 'wave.json'), { ...wave(), repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 5 }, { id: 'A2', title: 'Two', pr: 6, status: 'merged' }] });
-  assert.deepEqual(board('checked', '--site', 'orch'), { code: 0, err: '', out: 'GitHub checked; next in 45 min\n' });
-  assert.equal(read(site('orch', 'data', 'checked.json')).every, 45);
+  assert.deepEqual(board('checked', '--site', 'orch'), { code: 0, err: '', out: 'GitHub checked; next in 5 min\n' });
+  assert.equal(read(site('orch', 'data', 'checked.json')).every, 5);
   const bad = board('checked', '--site', 'orch', '--every', '0');
   assert.equal(bad.code, 1);
   assert.match(bad.err, /--every/);
@@ -2701,7 +2700,7 @@ test("settings prints the board's settings as JSON, off when absent, and setting
 });
 
 test("rules add, edit and remove keep a board's rules in its board.json and the hub's in settings.json, and list prints both", () => {
-  const settings = { polling: { windows: [{ from: '08:00', every_minutes: 15 }], hold_overnight: true }, other_key: 'kept' };
+  const settings = { quiet: { start: '22:00', end: '08:00', hold: true }, other_key: 'kept' };
   write(at('kickflip', 'settings.json'), settings);
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', reviewers: [{ name: 'Ann', slack_user: 'U1', dm: 'D1', github: 'ann' }] });
   assert.deepEqual([board('rules', 'list', '--site', 'orch').out], ['']);
@@ -2982,7 +2981,7 @@ function reviewState() {
     const prs = { 'o/r#7': { state: 'OPEN', isDraft: false } };
     const card = buildBoard({ waves: [{slug: 'w', wave}], prs, topicItems: topicItems() }).items[0];
     const board = { reviewers: ['Ann', 'Bob'], waves: [{slug: 'w', wave}], prs: [{wave: 'w', id: 'A1', pr: 7, repo: 'o/r'}] };
-    console.log(JSON.stringify({ card, slack: linksOf(board, { github: {prs}, listen: 'listening', settings: {}, wakes: {}, faults: {} }).find((l) => l.link === 'slack') }));
+    console.log(JSON.stringify({ card, slack: linksOf(board, { github: {prs}, listen: 'listening', settings: { quiet: { start: '22:00', end: '08:00', hold: true } }, wakes: {}, faults: {} }).find((l) => l.link === 'slack') }));
   `);
 }
 

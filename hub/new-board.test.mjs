@@ -504,7 +504,7 @@ test('a New board on another git host reserves remote and no github, refuses Git
   assert.deepEqual(boardRepo('firmware'), { github: '', remote: link, branch: 'main', repo: clone });
   const firm = listBoards().find((b) => b.route === 'firmware');
   assert.equal(firm.remote, link);
-  const links = linksOf(firm, { github: {}, fetches: {}, settings: {}, wakes: {}, devices: 0, listen: 'deaf', topics: {}, faults: {}, now: Date.now() });
+  const links = linksOf(firm, { github: {}, fetches: {}, settings: { quiet: { start: '22:00', end: '08:00', hold: true } }, wakes: {}, devices: 0, listen: 'deaf', topics: {}, faults: {}, now: Date.now() });
   assert.deepEqual(links.map((l) => l.link), ['events', 'wakes', 'slack']);
 });
 

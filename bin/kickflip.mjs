@@ -123,17 +123,17 @@
 //               can fix; reminder, a push the owner asked for in words. A push without one is refused (exit 2):
 //               news stays on the board.
 //               The push queues, replacing a queued one with the same
-//               --tag, and goes out after the hub's next GitHub check on the polling interval
-//               (/_hub/settings/polling) or when a GitHub tick ends (board.mjs checked); a board's
+//               --tag, and goes out after the hub's next GitHub check, every minute while the owner is here
+//               and every 5 while away, or when a GitHub tick ends (board.mjs checked); a board's
 //               several queued pushes go as one summary. --now sends at once unless pushes are held
-//               (overnight, snoozed or the weekend), and queues if no device takes it; it is for questions,
+//               (quiet hours, snoozed or the weekend), and queues if no device takes it; it is for questions,
 //               steps only the owner can run and prototypes. --urgent sends at once through
 //               those holds, for a production fault. While notifications are off every push is dropped, urgent ones too.
 //               Prints "sent", "queued" with the next send time, or "dropped". Exit 3 when no device has turned them on.
-//   kickflip polling
-//               prints {every, until, next, held, held_until, held_why, notifications}: the current polling
-//               window's minutes, when it ends, the next check, whether pushes are held now, until when
-//               ("never" while off, "forever" while snoozed until ended) and why (off, snoozed, weekend or overnight), and the notifications settings
+//   kickflip quiet
+//               prints {quiet, held, held_until, held_why, notifications}: quiet hours {start, end, hold}, whether
+//               pushes are held now, until when ("never" while off, "forever" while snoozed until ended) and why
+//               (off, snoozed, weekend or overnight), and the notifications settings
 //   kickflip notifications [on | off | snooze <length> | unsnooze | weekends on|off]
 //               sets the Hub page's Notifications controls and prints them; off drops the queued pushes.
 //               A snooze length is a hub/schedule.mjs snoozeEnd choice. Without a change it only prints them
@@ -445,8 +445,8 @@ async function restartFolderBoard(route, site, branch) {
 
 // A manifest entry's fields that hold on another host; the rest name this host's paths, port, session or restarts.
 const EXPORT_KEYS = ['title', 'description', 'icon', 'color', 'created', 'watch', 'filter', 'hub', 'github', 'remote', 'branch', 'local'];
-// The hub settings the owner chose to carry (Notifications, Polling, Codex share); never a key or an integration.
-const EXPORT_SETTINGS = ['notifications', 'polling', 'codexShare'];
+// The hub settings the owner chose to carry (Notifications, Quiet hours, Codex share); never a key or an integration.
+const EXPORT_SETTINGS = ['notifications', 'quiet', 'codexShare'];
 const BUNDLE = 'kickflip-board';
 // A watcher's cursor and pid record belong to this host's session (./wait-events.mjs).
 const SESSION_FILE = /^(\.watch-cursor-.*\.json|watcher\.json)$/;
@@ -459,7 +459,7 @@ function tar(argv) {
 }
 function exportReadme(b, file) {
   const title = b.entry.title || b.route;
-  const settings = Object.keys(b.settings).map((k) => ({ notifications: 'Notifications', polling: 'Polling', codexShare: 'Codex share' })[k]);
+  const settings = Object.keys(b.settings).map((k) => ({ notifications: 'Notifications', quiet: 'Quiet hours', codexShare: 'Codex share' })[k]);
   return `# Moving ${title} (/${b.route}) to another machine
 
 Exported from ${b.from} at ${b.exported_at}. This bundle holds the board's folder and manifest entry${settings.length ? `, and the hub's ${settings.length > 1 ? `${settings.slice(0, -1).join(', ')} and ${settings.at(-1)}` : settings[0]} settings, which import writes over the new machine's` : ''}.
@@ -871,14 +871,12 @@ const commands = {
     out(args.urgent ? 'sent (urgent)' : 'sent');
   },
 
-  async polling() {
+  async quiet() {
     const { readSettings } = await import(path.join(SKILL, 'hub', 'push.mjs'));
-    const { windowAt, nextSlot, hold } = await import(path.join(SKILL, 'hub', 'schedule.mjs'));
-    const now = new Date();
+    const { hold } = await import(path.join(SKILL, 'hub', 'schedule.mjs'));
     const s = readSettings();
-    const w = windowAt(now, s);
-    const h = hold(now, s);
-    out({ every: w.every_minutes, until: w.endsAt.toISOString(), next: nextSlot(now, s).toISOString(), held: h !== null, held_until: h ? (h.until instanceof Date ? h.until.toISOString() : h.until) : null, held_why: h?.why ?? null, notifications: s.notifications });
+    const h = hold(new Date(), s);
+    out({ quiet: s.quiet, held: h !== null, held_until: h ? (h.until instanceof Date ? h.until.toISOString() : h.until) : null, held_why: h?.why ?? null, notifications: s.notifications });
   },
 
   async notifications() {

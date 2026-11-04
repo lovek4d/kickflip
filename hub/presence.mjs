@@ -35,3 +35,27 @@ export function presenceReader({ run = ioreg, ttl = 5000, clock = Date.now } = {
 }
 
 export const presence = presenceReader();
+
+// The owner's presence for the hub's checks (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md):
+// present while at the Mac (read, a readPresence) or within IDLE_LIMIT_MS of a beat, a tap, key or scroll on a board or Hub
+// page on any device. It starts away until a check or beat says otherwise. check() reads the Mac and beat() records a
+// beat; each → {present, changed, back}, back when the owner just came back from away. state() → {present, backAt},
+// backAt being when the owner last came back.
+export function ownerTracker({ read = presence, clock = Date.now } = {}) {
+  let beatAt = -Infinity;
+  let present = false;
+  let backAt = null;
+  const update = (atMac) => {
+    const now = clock();
+    const next = atMac || now - beatAt < IDLE_LIMIT_MS;
+    const out = { present: next, changed: next !== present, back: next && !present };
+    if (out.back) backAt = now;
+    present = next;
+    return out;
+  };
+  return {
+    async check() { return update((await read()).atMac); },
+    beat() { beatAt = clock(); return update(true); },
+    state: () => ({ present, backAt }),
+  };
+}

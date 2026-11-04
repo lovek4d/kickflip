@@ -38,6 +38,8 @@ Add it to your home screen to get push notifications.
 - **From the app:** tap New board and pick a GitHub repo.
 - **From a folder:** in a git repo's folder, run `kickflip join`. It asks for a board name and starts the board's Claude Code session in the background.
 
+The hub checks every board's PRs on GitHub in one query, and handles about 50 open PRs at once.
+
 ## Run the hub board in tmux (optional)
 
 To have the hub board's session running in a terminal you can attach to, run `kickflip join --hub` in its folder. Later, `kickflip hub` attaches to it, or starts it first. This needs tmux.

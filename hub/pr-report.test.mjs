@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fetchPR, reportOf, githubLogin, PR_VIEW_FIELDS } from './pr-report.mjs';
-import { fakeGh, prView, writePR, writeUser, writeIssueComments, writeReviewComments, writeReviews, calls } from '../shared/fake-gh.mjs';
+import { fetchPR, fetchPRs, reportOf, githubLogin, PR_VIEW_FIELDS } from './pr-report.mjs';
+import { fakeGh, prView, writePR, writeUser, writeIssueComments, writeReviewComments, writeReviews, writeRate, calls, queried } from '../shared/fake-gh.mjs';
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-report-'));
 const priorHome = process.env.HOME;
@@ -108,7 +108,7 @@ test('view failure and unreadable JSON name repo and PR; list failures are isola
   assert.deepEqual(reportOf(fetched, { ...input, me: 'owner' }).events.map((e) => e.id), [8]);
 });
 
-test('a configured board login labels posts and never asks gh api user', async () => {
+test('a configured board login labels posts, and the check never asks gh api user', async () => {
   const manifest = manifestOf([{ route: 'configured', login: 'owner', prs: [{ pr: 7, gh_since: since }] }]);
   writeIssueComments(dir, 7, [comment(1, 'owner', '2026-10-23T11:00:00Z', '<!-- claude-bridge -->')]);
   const poll = await checkGitHub({ every: 15, manifest });
@@ -120,49 +120,95 @@ test('a configured board login labels posts and never asks gh api user', async (
   assert.deepEqual((await checkGitHub({ every: 15, manifest })).changes[0].changes, ['comments']);
 });
 
-test('unconfigured boards resolve the login once per check and an empty manifest runs no gh', async () => {
+test('unconfigured boards take the login from the one query, and an empty manifest runs no gh', async () => {
   const manifest = manifestOf([{ route: 'first', prs: [{ pr: 7 }, { pr: 8 }] }, { route: 'second', login: 'invalid login', prs: [{ pr: 7 }] }]);
   writePR(dir, 8, prView());
   writeUser(dir, { login: 'owner' });
   assert.equal(listBoards(manifest)[1].githubLogin, null);
-  const poll = await checkGitHub({ every: 15, manifest });
+  const poll = await checkGitHub({ every: 5, manifest });
   assert.deepEqual(poll.failed, []);
-  assert.equal(calls(dir).filter((a) => a[1] === 'user').length, 1);
-  assert.equal(calls(dir).filter((a) => a[0] === 'pr').length, 2);
-  await checkGitHub({ every: 15, manifest });
-  assert.equal(calls(dir).filter((a) => a[1] === 'user').length, 2);
+  assert.deepEqual(poll.checked, ['first', 'second']);
+  assert.deepEqual(poll.rate, { remaining: 4990, resetAt: '2026-10-23T12:00:00Z' });
+  assert.deepEqual(queried(dir), [['o/r#7', 'o/r#8']]);
+  assert.equal(calls(dir).length, 1);
+  await checkGitHub({ every: 5, manifest });
+  assert.equal(queried(dir).length, 2);
   fs.unlinkSync(path.join(dir, 'calls.jsonl'));
-  await checkGitHub({ every: 15, manifest: {} });
+  assert.equal((await checkGitHub({ every: 5, manifest: {} })).rate, null);
   assert.deepEqual(calls(dir), []);
-  await checkGitHub({ every: 15, manifest: manifestOf([{ route: 'idle', prs: [] }]) });
+  await checkGitHub({ every: 5, manifest: manifestOf([{ route: 'idle', prs: [] }]) });
   assert.deepEqual(calls(dir), []);
 });
 
-test('a failed login is reported once, leaves its boards unreached, and configured boards still poll', async () => {
+test('a failed query is reported once and reaches no board; a PR GitHub can\'t resolve leaves only its boards unreached', async () => {
   const manifest = manifestOf([{ route: 'first', prs: [{ pr: 7 }] }, { route: 'second', prs: [{ pr: 8 }] }, { route: 'configured', login: 'owner', prs: [{ pr: 7 }] }]);
-  const poll = await checkGitHub({ every: 15, manifest });
+  writeUser(dir, { login: 'owner' });
+  writeRate(dir, { fail: true });
+  const poll = await checkGitHub({ every: 5, manifest });
   assert.equal(poll.failed.length, 1);
   assert.ok(!poll.failed[0].includes('\n'));
-  assert.deepEqual(poll.checked, ['configured']);
+  assert.deepEqual(poll.checked, []);
   assert.equal(poll.watched, 2);
+  assert.equal(poll.rate, null);
   assert.ok(!fs.existsSync(path.join(dir, 'first/data/checked.json')));
-  assert.equal(calls(dir).filter((a) => a[1] === 'user').length, 1);
-  assert.equal(calls(dir).filter((a) => a[0] === 'pr').length, 1);
-  writeUser(dir, { login: 'owner' });
+  writeRate(dir, { remaining: 900, resetAt: '2026-10-23T12:00:00Z' });
+  const partial = await checkGitHub({ every: 5, manifest });
+  assert.deepEqual(partial.failed, ['o/r#8: Could not resolve to a PullRequest with the number of 8.']);
+  assert.deepEqual(partial.checked, ['first', 'configured']);
+  assert.equal(partial.rate.remaining, 900);
   assert.equal(await githubLogin(), 'owner');
 });
 
-test('same-login cards share the earliest fetch while different logins label independently without repeat wakes', async () => {
+test('cards on several boards share one read of their PR while different logins label independently without repeat wakes', async () => {
   const manifest = manifestOf([
     { route: 'owner', login: 'owner', prs: [{ pr: 7, gh_since: '2026-10-23T10:30:00Z' }] },
     { route: 'shared', login: 'owner', prs: [{ pr: 7, gh_since: since }] },
     { route: 'other', login: 'other', prs: [{ pr: 7, gh_since: since }] },
   ]);
   writeIssueComments(dir, 7, [comment(1, 'owner', '2026-10-23T11:00:00Z', '<!-- claude-bridge -->')]);
-  const poll = await checkGitHub({ every: 15, manifest });
+  const poll = await checkGitHub({ every: 5, manifest });
   assert.deepEqual(poll.events.map((e) => e.route), ['other']);
   assert.equal(poll.watched, 1);
-  assert.equal(calls(dir).filter((a) => a[0] === 'pr').length, 2);
-  assert.equal(calls(dir).filter((a) => a[3] === `repos/o/r/issues/7/comments?since=${encodeURIComponent(since)}`).length, 2);
-  assert.deepEqual((await checkGitHub({ every: 15, manifest })).events, []);
+  assert.deepEqual(queried(dir), [['o/r#7']]);
+  assert.deepEqual((await checkGitHub({ every: 5, manifest })).events, []);
+});
+
+test('fetchPRs reads every PR in one GraphQL query, in the shapes reportOf reads, with the login and points left', async () => {
+  writeUser(dir, { login: 'owner' });
+  writeRate(dir, { remaining: 4321, resetAt: '2026-10-23T12:00:00Z' });
+  writePR(dir, 'o/site#3', prView({ isDraft: true, failing: ['lint'] }));
+  writeIssueComments(dir, 7, [
+    comment(1, 'owner', '2026-10-23T11:00:00Z'),
+    comment(2, 'owner', '2026-10-23T11:01:00Z', '🤖 Done\n\n<!-- claude-bridge -->'),
+    comment(3, 'chatgpt-codex-connector[bot]', '2026-10-23T11:02:00Z'),
+    comment(4, 'renovate[bot]', '2026-10-23T11:03:00Z'),
+    comment(5, 'linear', '2026-10-23T11:04:00Z'),
+    comment(6, 'ann', '2026-10-23T09:00:00Z'),
+  ]);
+  writeReviewComments(dir, 7, [{ ...comment(8, 'bea', '2026-10-23T11:00:30Z'), path: 'app.mjs', line: 12, in_reply_to_id: 88 }]);
+  writeReviews(dir, 7, [{ id: 9, user: { login: 'ann' }, submitted_at: '2026-10-23T11:00:15Z', body: '', state: 'APPROVED' }]);
+  const { login, rate, results } = await fetchPRs([{ repo: 'o/r', pr: 7 }, { repo: 'o/site', pr: 3 }]);
+  assert.equal(login, 'owner');
+  assert.deepEqual(rate, { remaining: 4321, resetAt: '2026-10-23T12:00:00Z' });
+  assert.deepEqual(queried(dir), [['o/r#7', 'o/site#3']]);
+  assert.equal(calls(dir).length, 1);
+  const report = reportOf(results[0], { ...input, me: login });
+  assert.deepEqual(report.events, [
+    { kind: 'issue_comment', id: 1, login: 'owner', at: '2026-10-23T11:00:00Z', body: 'Comment 1', url: comment(1).html_url, who: 'user' },
+    { kind: 'review', id: 9, login: 'ann', at: '2026-10-23T11:00:15Z', body: '', state: 'APPROVED', url: null, who: 'reviewer' },
+    { kind: 'review_comment', id: 8, login: 'bea', at: '2026-10-23T11:00:30Z', body: 'Comment 8', path: 'app.mjs', line: 12, in_reply_to: 88, url: comment(8).html_url, who: 'reviewer' },
+    { kind: 'issue_comment', id: 3, login: 'chatgpt-codex-connector[bot]', at: '2026-10-23T11:02:00Z', body: 'Comment 3', url: comment(3).html_url, who: 'codex' },
+  ]);
+  assert.deepEqual(reportOf(results[0], { ...input, me: login }), reportOf(await fetchPR(input), { ...input, me: login }));
+  const site = reportOf(results[1], { repo: 'o/site', pr: 3, since, me: login });
+  assert.deepEqual([site.isDraft, site.failing, site.head], [true, ['lint'], 'abc1234567']);
+});
+
+test('a PR GitHub can\'t resolve fails alone, and a query that fails fails as a whole', async () => {
+  writeUser(dir, { login: 'owner' });
+  const { results } = await fetchPRs([{ repo: 'o/r', pr: 7 }, { repo: 'o/r', pr: 9 }]);
+  assert.equal(results[0].view.state, 'OPEN');
+  assert.match(results[1].error, /^o\/r#9: Could not resolve to a PullRequest/);
+  writeRate(dir, { fail: true });
+  await assert.rejects(fetchPRs([{ repo: 'o/r', pr: 7 }]), /^Error: GitHub query: no fixture for:/);
 });

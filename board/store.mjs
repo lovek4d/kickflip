@@ -10,8 +10,8 @@ import { fileURLToPath } from 'node:url';
 import { BUILD_REFUSED, BUILDER_ASK, ITEM_STATUSES, MAX_IMPLEMENTERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, builderPick } from '../shared/usage-gate.mjs';
-import { reviseQueued, flushQueue, queueStatus, readSettings, pushKindError, readClaudeModel } from '../hub/push.mjs';
-import { holdLine, windowAt } from '../hub/schedule.mjs';
+import { reviseQueued, flushQueue, queueStatus, pushKindError, readClaudeModel } from '../hub/push.mjs';
+import { holdLine, CHECK_MINUTES } from '../hub/schedule.mjs';
 import { AT_RE } from '../hub/duration.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleTickets, cardIdOf } from './tickets.mjs';
@@ -484,14 +484,14 @@ export async function moveAsk(site, eventId, route) {
 // When the session last checked GitHub, and how often it checks (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md).
 const checkedFile = (site) => path.join(site, 'data', 'checked.json');
 // idle: no timer checks until the next wave, so the last check is never late; left out, it is idle while no card has an
-// open PR, as the hub's poll writes it (hub/github.mjs writeChecked). every defaults to the minutes of the polling
-// window now (Hub settings' Polling).
+// open PR, as the hub's poll writes it (hub/github.mjs writeChecked). every defaults to the hub's minutes between checks
+// while the owner is away, the longer of its usual cadences (hub/schedule.mjs CHECK_MINUTES).
 export async function writeChecked(site, every, { idle } = {}) {
   needSite(site);
   if (idle && every !== undefined) fail('pass --every or --idle, not both');
   if (idle === undefined && every === undefined) idle = !(await hasOpenPR(site));
   const now = new Date();
-  const minutes = idle ? null : every === undefined ? windowAt(now, readSettings()).every_minutes
+  const minutes = idle ? null : every === undefined ? CHECK_MINUTES.away
     : /^[1-9]\d{0,3}$/.test(String(every)) ? Number(every) : fail('--every takes the minutes between checks, such as 30');
   await writeJSON(checkedFile(site), idle ? { at: now.toISOString(), every: null, idle: true } : { at: now.toISOString(), every: minutes });
   return { file: checkedFile(site), every: minutes, lines: await flushAfterTick() };

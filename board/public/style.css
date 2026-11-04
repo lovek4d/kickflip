@@ -398,6 +398,15 @@ button.sub.agent.stalled { display: block; width: 100%; padding: 0; border: 0; b
 .brand { flex: 1 1 auto; display: flex; align-items: center; gap: 10px; min-width: 0; }
 .brand :is(h1, h2) { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .top .nav { flex: none; }
+/* The away moon right of the board title (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md)
+   fades in and out with the toasts' timings (toasts.js). */
+.away-moon { flex: none; display: inline-flex; color: var(--muted); opacity: 0; visibility: hidden; transition: opacity 200ms ease, visibility 0s linear 200ms; }
+.away-moon.on { opacity: 1; visibility: visible; transition: opacity 150ms ease, visibility 0s; }
+.away-moon svg { display: block; }
+@media (prefers-reduced-motion: reduce) {
+  .away-moon { transition: opacity 100ms ease, visibility 0s linear 100ms; }
+  .away-moon.on { transition: opacity 80ms ease, visibility 0s; }
+}
 .lane-github { display: inline-flex; align-items: center; gap: 2px; }
 .lane-github .github { display: inline-flex; align-items: center; gap: 4px; }
 .lane-github .gh-mark { flex: none; }

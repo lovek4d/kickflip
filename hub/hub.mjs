@@ -9,12 +9,13 @@
 //   /_hub/stream      the shell's one event stream: `change {route}` for each board's change signal and `sidebar` with
 //                     /_hub/sidebar.json's data when it changes (stream.mjs)
 //   /_hub/, /_hub/settings, /_hub/settings/polling
-//                     the hub page (both paths) and Polling, views of the shell; any GET of them gets the shell
-//   /_hub/api/hub, /_hub/api/settings, /_hub/api/polling?w=HH:MM
+//                     the hub page (each path; the last, the old Polling page, opens Quiet hours), a view of the shell;
+//                     any GET of them gets the shell
+//   /_hub/api/hub, /_hub/api/settings
 //                     those views' data and words (views.mjs), including integration readiness rows on /_hub/api/hub
 //   /_hub/sidebar.json what the sidebar shows (board/public/ui-sidebar.js): {code, total, start,
 //                     sites: [{route, title, board, state, count, changedAt, created, icon, sub, ctx}], hub: {tone, word, detail},
-//                     notifications: {state, text}, upgrade}, upgrade null or a newer kickflip on npm (upgrade.mjs state), ctx the board's owner session's {percent, at} or null; each site's row from its GET /_claude/needs
+//                     notifications: {state, text}, away, upgrade}, away true while the owner reads away (presence.mjs ownerTracker), upgrade null or a newer kickflip on npm (upgrade.mjs state), ctx the board's owner session's {percent, at} or null; each site's row from its GET /_claude/needs
 //                     (home.mjs; docs/adr/2026-10-29-1639-sites-report-what-waits-through-claude-needs.md)
 //                     starting lists pending boards and their clone/start phase (sessions.mjs)
 //                     usage: {claude, codex}, each null when hidden, else {at, five_hour, seven_day}; windows are
@@ -82,8 +83,10 @@
 //   /_hub/settings/linear POST key=<Linear personal API key>, checked with Linear and saved, as refused if Linear
 //                     refuses it, or remove=1 → /_hub/api/settings's JSON, whose `linear` names only the workspace,
 //                     or 400 {error}, 502 {error} when Linear can't be reached (linear.mjs)
-//   /_hub/settings/polling POST one schedule.mjs editPolling change {op, w, value} → /_hub/api/polling's JSON for the
-//                     window to show, or 400 {error}
+//   /_hub/settings/quiet POST start=HH:MM, end=HH:MM, or set=hold with value=on (absent for off), one schedule.mjs editQuiet change → /_hub/api/settings's
+//                     JSON, or 400 {error}
+//   /_hub/presence    POST {} from a shell page's tap, key or scroll, at most once a minute: the owner is present
+//                     (presence.mjs ownerTracker); coming back from away runs a check at once → 204
 //   /_hub/push/flush  POST sends the queued pushes now → {sent, count, ok, message}
 //   /_hub/settings/rules POST {rules: [{id?, text}], base: [id]} saves the hub rules in settings.json (rules.mjs
 //                     applyRules) and, when anything changed, sends every board a `rules {scope: "hub", added, edited,
@@ -113,13 +116,13 @@
 // It also runs every site: it starts each manifest entry's `cmd`, restarts it
 // when it exits, restarts it when its entry changes, and stops every one before it exits itself. A site with a port and
 // no `cmd` runs its own server: the hub only probes it, and it reads Down while nothing answers
-// (docs/adr/2026-11-01-1446-a-page-joins-without-a-session.md). On each slot of the
-// polling interval (schedule.mjs), and once a minute after it starts, it checks
-// GitHub (github.mjs) and each auto-review board's incoming PRs (incoming.mjs), pushes once for each board that is deaf (boards.mjs
+// (docs/adr/2026-11-01-1446-a-page-joins-without-a-session.md). Every minute while the owner is present and every 5
+// while away (schedule.mjs checkEvery, presence.mjs ownerTracker), and once a minute after it starts, it checks
+// GitHub (github.mjs), fetches and pulls each board's repo, checks each auto-review board's incoming PRs (incoming.mjs), pushes once for each board that is deaf (boards.mjs
 // checkListening, listenState), then sends the queued pushes unless schedule.mjs heldUntil holds them;
-// one poll never overlaps another. At each of the polling settings' wake times it wakes each
+// one poll never overlaps another, and coming back from away runs one at once. At the end of quiet hours it wakes each
 // board's session once a day (github.mjs sendWakes)
-// (docs/adr/2026-10-29-1639-the-hub-polls-github-and-sends-pushes-on-one-interval.md). Every feature that serves
+// (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md). Every feature that serves
 // boards takes them from boards.mjs listBoards, the one board registry
 // (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md). The host's service manager keeps the
 // hub itself running (../shared/service.mjs, `kickflip init`).
@@ -153,9 +156,10 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import { routeRecord } from './routes.mjs';
 import { publicKey, addSubscription, removeSubscription, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, deliver, pushRoute } from './push.mjs';
+import { ownerTracker } from './presence.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
-import { nextSlot, windowAt, hold, heldUntil, holdLine, editPolling } from './schedule.mjs';
-import { capital, hubView, settingsView, pollingView, flushView, SNOOZE_REFUSED, AWAKE_REFUSED } from './views.mjs';
+import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt, LOW_POINTS } from './schedule.mjs';
+import { capital, hubView, settingsView, flushView, SNOOZE_REFUSED, AWAKE_REFUSED } from './views.mjs';
 import { caffeinate, setKeepAwake, awakeUntil, awakeUnsupported } from './awake.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
 import { checkIncoming } from './incoming.mjs';
@@ -375,17 +379,24 @@ const reconciling = setInterval(() => reconcile().catch((e) => log('reconcile fa
 reconcile().catch((e) => log('reconcile failed:', e.message));
 
 // ---------- polling ----------
-try { if (migrateSettings()) log('settings: migrated the push schedule to the polling interval'); } catch (e) { log('settings migration failed:', e.message); }
+try { if (migrateSettings()) log('settings: migrated the polling windows to quiet hours'); } catch (e) { log('settings migration failed:', e.message); }
 // A board on Linear falls back to internal tickets while Hub has no Linear key (store.mjs fallBackFromLinear).
 const linearFallback = async () => { try { for (const line of await fallBackFromLinear()) log(`linear: ${line}`); } catch (e) { log('linear fallback failed:', e.message); } };
 await linearFallback();
 
 const FIRST_POLL_MS = 60_000;
 const ERROR_LOG_MS = 60 * 60_000;
-// running: the poll in progress; startedAt: when the last one began; last: its result.
-const polls = { running: null, startedAt: 0, firstAt: Date.now() + FIRST_POLL_MS, last: null, errorLoggedAt: 0, linearErrorLoggedAt: 0 };
+// running: the poll in progress; startedAt: when the last one began; last: its result; remaining: GitHub's points left
+// after its query, null when it made none.
+const polls = { running: null, startedAt: 0, firstAt: Date.now() + FIRST_POLL_MS, last: null, remaining: null, errorLoggedAt: 0, linearErrorLoggedAt: 0 };
+const owner = ownerTracker();
 
-const nextPollAt = () => new Date(polls.startedAt ? nextSlot(new Date(polls.startedAt), readSettings()).getTime() : polls.firstAt);
+const nextPollAt = () => (polls.startedAt ? nextCheckAt({ last: new Date(polls.startedAt), ...owner.state(), remaining: polls.remaining }) : new Date(polls.firstAt));
+// A change in the owner's presence repaints every page's moon; coming back runs a check at once.
+function presenceChanged({ changed, back }) {
+  if (changed) stream.refresh();
+  if (back && polls.startedAt && !polls.running) runPoll().catch((e) => log('poll failed:', e.message));
+}
 
 function runPoll({ flush = true } = {}) {
   if (polls.running) return polls.running;
@@ -394,8 +405,10 @@ function runPoll({ flush = true } = {}) {
   polls.running = (async () => {
     const settings = readSettings();
     let result;
-    try { result = await checkGitHub({ every: windowAt(startedAt, settings).every_minutes, manifest: loadManifest() }); }
-    catch (e) { result = { at: startedAt.toISOString(), watched: 0, failed: [e.message], changes: [], events: [], checked: [], merged: [], linear: { moved: [], failed: [] } }; }
+    // checked.json's minutes are the away cadence's, the longest the next check can take, so a quiet page never reads late.
+    try { result = await checkGitHub({ every: checkEvery({ present: false, remaining: polls.remaining }), manifest: loadManifest() }); }
+    catch (e) { result = { at: startedAt.toISOString(), watched: 0, failed: [e.message], changes: [], events: [], checked: [], merged: [], linear: { moved: [], failed: [] }, rate: null }; }
+    polls.remaining = result.rate?.remaining ?? null;
     // docs/adr/2026-11-03-1619-a-merge-refreshes-its-boards-main-at-once.md
     if (result.merged.length) {
       await fetchTryBranches({ manifest: loadManifest(), log, routes: result.merged });
@@ -515,7 +528,9 @@ setInterval(() => {
   tryTick({ manifest: loadManifest() }).catch((e) => log('try tick failed:', e.message));
   upgrade.tick().catch((e) => log('kickflip update tick failed:', e.message));
   checkUsageGate().catch((e) => log('usage gate failed:', e.message));
-  if (!polls.running && Date.now() >= nextPollAt().getTime()) runPoll().catch((e) => log('poll failed:', e.message));
+  owner.check().then(presenceChanged, (e) => log('presence check failed:', e.message)).finally(() => {
+    if (!polls.running && Date.now() >= nextPollAt().getTime()) runPoll().catch((e) => log('poll failed:', e.message));
+  });
   runWakes();
   awake.apply();
   prunePrompts().catch((e) => log('prompt expiry failed:', e.message)).finally(runSessionCheck);
@@ -660,6 +675,7 @@ async function sidebarState({ fresh = false } = {}) {
     pause: readUsageGate(),
     upgrade: upgrade.state(),
     notifications: !held ? { state: 'on', text: 'On' } : held.why === 'off' ? { state: 'off', text: 'Off' } : { state: 'held', text: capital(holdLine(held, now)) },
+    away: !owner.state().present,
   };
   return { data, links, rows, code };
 }
@@ -751,11 +767,11 @@ const head = (title, extra = '') => `<!doctype html><html lang="en" class="hub-v
 <meta name="apple-mobile-web-app-title" content="Claude">${extra}<link rel="stylesheet" href="/_hub/colors.css?v=${colorsVersion()}"><link rel="stylesheet" href="/_hub/hub.css"></head><body><main>`;
 
 // ---------- hub views ----------
-// The hub page and its settings modals live in the app shell (board/public/view-hub.js, view-hub-settings.js, view-polling.js), which
+// The hub page and its settings modals live in the app shell (board/public/view-hub.js, view-hub-settings.js), which
 // take their words from views.mjs through /_hub/api/*. A form POST that asks for JSON gets the view's data back; any
 // other gets a 303 back to the page.
 const wantsJSON = (req) => /\bapplication\/json\b/.test(req.headers.accept || '');
-const pollState = () => ({ running: Boolean(polls.running), nextAt: nextPollAt(), last: polls.last });
+const pollState = () => ({ running: Boolean(polls.running), nextAt: nextPollAt(), last: polls.last, present: owner.state().present, every: checkEvery({ present: owner.state().present, remaining: polls.remaining }), low: polls.remaining !== null && polls.remaining < LOW_POINTS });
 
 async function hubData(req) {
   await prunePrompts();
@@ -776,7 +792,6 @@ const settingsData = async () => {
   const awake = { until: awakeUntil(now), unsupported: awakeUnsupported() };
   return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), route: await pushRoute(), linear: linearStatus(), awake }), closed: closedBoards() };
 };
-const pollingData = (select) => { const now = new Date(); return pollingView({ now, st: queueStatus(now), poll: pollState(), select }); };
 
 const redirect = (res, location) => { res.writeHead(303, { location, 'cache-control': 'no-store' }); res.end(); };
 
@@ -855,6 +870,12 @@ async function hubRoute(req, res, url) {
       await readJSONBody(req);
       return sendJSON(200, { upgrade: await upgrade.request() });
     } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
+  }
+  if (p === '/_hub/presence' && req.method === 'POST') {
+    await readJSONBody(req);
+    presenceChanged(owner.beat());
+    res.writeHead(204, { 'cache-control': 'no-store' });
+    return res.end();
   }
   if (p === '/_hub/wake' && req.method === 'POST') {
     try {
@@ -953,7 +974,6 @@ async function hubRoute(req, res, url) {
   }
   if (p === '/_hub/api/hub') return sendJSON(200, await hubData(req));
   if (p === '/_hub/api/settings') return sendJSON(200, await settingsData());
-  if (p === '/_hub/api/polling') return sendJSON(200, pollingData(url.searchParams.get('w')));
   if (p === '/_hub/push/key') return sendJSON(200, { key: publicKey() });
   if (p === '/_hub/push/subscribe' && req.method === 'POST') {
     const host = req.headers['x-forwarded-host'] || req.headers.host;
@@ -1047,19 +1067,17 @@ async function hubRoute(req, res, url) {
     try { return sendJSON(200, await linear.createProject(input.team, name)); }
     catch (e) { if (!(e instanceof LinearError)) throw e; return sendJSON(e.status, { error: e.message }); }
   }
-  // One schedule.mjs editPolling change {op, w, value}.
-  if (p === '/_hub/settings/polling' && req.method === 'POST') {
+  // One schedule.mjs editQuiet change: start, end or hold.
+  if (p === '/_hub/settings/quiet' && req.method === 'POST') {
     const f = new URLSearchParams(await readBody(req));
-    const op = f.get('op') || '';
-    const edit = editPolling(readSettings(), { op, w: f.get('w') || '', value: (f.get('value') || '').trim() });
-    try {
-      if (edit.error) throw Object.assign(new Error(edit.error), { status: 400 });
-      saveSettings(edit.input);
-    } catch (e) {
+    const change = Object.fromEntries(['start', 'end'].filter((k) => f.has(k)).map((k) => [k, f.get(k).trim()]));
+    if (f.get('set') === 'hold') change.hold = f.get('value') || 'off';
+    try { saveSettings(editQuiet(readSettings(), change)); } catch (e) {
       if (e.status !== 400) throw e;
       return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
     }
-    return json ? sendJSON(200, pollingData(edit.select)) : redirect(res, `/_hub/?w=${encodeURIComponent(edit.select)}#polling`);
+    stream.refresh();
+    return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#quiet');
   }
   if (p === '/_hub/settings/rules' && req.method === 'POST') {
     let body, saved;
@@ -1079,7 +1097,7 @@ async function hubRoute(req, res, url) {
   if (p === '/_hub/push/flush' && req.method === 'POST') {
     const r = await flushQueue();
     if (r) log(`push queue: ${r.ok ? 'sent' : 'could not send'} ${r.count} queued (from the settings page)`);
-    return json ? sendJSON(200, flushView(r)) : redirect(res, `/_hub/settings/polling?flushed=${r ? (r.ok ? r.count : 'failed') : 0}`);
+    return json ? sendJSON(200, flushView(r)) : redirect(res, '/_hub/');
   }
   if (p === '/_hub/poll' && req.method === 'POST') {
     const body = await readJSONBody(req);

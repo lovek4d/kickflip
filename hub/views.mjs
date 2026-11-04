@@ -1,23 +1,26 @@
-// The hub's own views' data (docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md): what GET /_hub/api/hub, /_hub/api/settings
-// and /_hub/api/polling answer, with every word the hub page and its settings modals show. hub.mjs reads the state
-// these take; integration readiness rows and their words come from readiness.mjs; board/public/view-hub.js, view-hub-settings.js and view-polling.js only lay the words out.
-// st is a push.mjs queueStatus(now) result throughout, and poll the hub's poll state {running, nextAt, last}, last
-// being the last github.mjs checkGitHub result.
-import { clock, windowAt, holdLine, checksIn, checksADay, holdsOvernight, daySegments, splitPoint, sendWords } from './schedule.mjs';
+// The hub's own views' data (docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md): what GET /_hub/api/hub and
+// /_hub/api/settings answer, with every word the hub page and its settings modals show. hub.mjs reads the state
+// these take; integration readiness rows and their words come from readiness.mjs; board/public/view-hub.js and view-hub-settings.js only lay the words out.
+// st is a push.mjs queueStatus(now) result throughout, and poll the hub's poll state {running, nextAt, last, present,
+// every, low}: last the last github.mjs checkGitHub result, present whether the owner reads present, every the minutes
+// between checks now and low whether GitHub's points left slow them (schedule.mjs checkEvery).
+import { clock, holdLine, sendWords, snoozeEnd } from './schedule.mjs';
 import { CHOICES as DURATIONS, FOREVER, durationEnd, endOf } from './duration.mjs';
 import { siteIcon } from './icons.mjs';
 import { codexStatus } from '../shared/codex.mjs';
 
 export const capital = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 export const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-export const every = (n) => (n >= 60 && n % 60 === 0 ? `${n / 60} h` : `${n} min`);
 const timeOfDay = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); const d = new Date(); d.setHours(h, m, 0, 0); return clock(d, d); };
-const minuteOf = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
-const pct = (m) => `${((m / 1440) * 100).toFixed(3)}%`;
 
-export const nowLine = (st, now) => `checks every ${st.window.every_minutes} min until ${clock(st.window.endsAt, now)}${st.hold ? `; ${holdLine(st.hold, now)}` : ''}`;
-export const pollingSummary = (s) => [`${plural(s.windows.length, 'window')}, ${checksADay(s)} checks a day`, holdsOvernight(s) && 'held overnight',
-  s.wakes.length ? `wakes ${s.wakes.map(timeOfDay).join(', ')}` : 'no wakes'].filter(Boolean).join(' · ');
+// The cadence (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md) as words.
+export const cadenceLine = (poll) => `checks every ${poll.every === 1 ? 'minute' : `${poll.every} min`} while you’re ${poll.present ? 'here' : 'away'}${poll.low ? ', slower while GitHub’s points are low' : ''}`;
+export const nowLine = (st, poll, now) => `${cadenceLine(poll)}${st.hold ? `; ${holdLine(st.hold, now)}` : ''}`;
+// When pushes go now, for the device row.
+const deviceLine = (st, now) => (st.hold ? holdLine(st.hold, now) : 'pushes go out after each check');
+export const quietSummary = (s) => `${timeOfDay(s.quiet.start)} – ${timeOfDay(s.quiet.end)}${s.quiet.hold ? ' · pushes held' : ''}`;
+// The muted hint under Quiet hours, in the owner's words.
+export const QUIET_HINT = "checks every minute while you're here, every 5 when away";
 const queuedLine = (st, now) => (st.count ? `${st.count} push${st.count === 1 ? '' : 'es'} queued; next send ${sendWords(st.nextFlushAt, now)}.` : 'No pushes queued.');
 
 export function pollLine({ running = false, nextAt, last = null }, now) {
@@ -28,9 +31,9 @@ export function pollLine({ running = false, nextAt, last = null }, now) {
   return `${next} · last ${clock(new Date(last.at), now)}, ${what}`;
 }
 
-// The Now row the hub page and Polling modal share: what polling does now, the last and next check, the queue and Send now.
+// The hub page's Polling status row: how often checks run now, the last and next check, the queue and Send now.
 function pollingNow(st, poll, now) {
-  return { title: capital(nowLine(st, now)), lines: [pollLine(poll, now), queuedLine(st, now)], count: st.count };
+  return { title: capital(nowLine(st, poll, now)), lines: [pollLine(poll, now), queuedLine(st, now)], count: st.count };
 }
 
 // One site's row on the hub page: a word for the site, then each of its board links that isn't passing. links is the
@@ -108,8 +111,8 @@ export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code 
     codex: codexView(codexShare, codex, claudeModel),
     claude: claudeView(claudeModel),
     empty: rows.length === 0,
-    polling: { ...pollingNow(st, poll, now), summary: pollingSummary(st.settings) },
-    notifications: { on: st.settings.notifications.on, text: sidebar.notifications.text, device: nowLine(st, now) },
+    polling: pollingNow(st, poll, now),
+    notifications: { on: st.settings.notifications.on, text: sidebar.notifications.text, device: deviceLine(st, now) },
     hold: st.hold && st.hold.why !== 'off' ? { text: `Notifications ${holdLine(st.hold, now)}`, end: st.hold.why === 'snoozed' } : null,
     rules: rules.length ? plural(rules.length, 'rule') : 'None yet',
     sites: plural(rows.length, 'site'),
@@ -129,7 +132,7 @@ export const durationChoices = (now, forever) => DURATIONS.map(([value, label]) 
 const snoozedUntil = (n, now) => (n.on ? endOf(n.snoozed_until, now) : null);
 
 // The hub page's hub settings: the on/off, snooze and weekend controls (docs/adr/2026-10-29-1639-notifications-can-be-off-snoozed-or-off-on-weekends.md),
-// the polling summary, hub rules and the Linear key, of which only whether it is set, whether Linear refused it and
+// quiet hours, hub rules and the Linear key, of which only whether it is set, whether Linear refused it and
 // its workspace are shown (linear.mjs linearStatus; docs/adr/2026-11-01-1436-kickflip-reaches-linear-with-a-key-on-the-mac.md),
 // and Keep awake. Snooze and
 // Keep awake share one duration picker (docs/adr/2026-11-02-1402-snooze-and-keep-awake-share-one-duration-picker.md), whose
@@ -139,13 +142,12 @@ const snoozedUntil = (n, now) => (n.on ? endOf(n.snoozed_until, now) : null);
 export function settingsView({ now, st, rules = [], route = { atMac: false, desktops: 0 }, linear = { set: false }, awake = { until: null, unsupported: null } }) {
   const s = st.settings;
   const n = s.notifications;
-  const [first, last] = [s.windows[0], s.windows.at(-1)];
   const until = snoozedUntil(n, now);
   const queued = st.count ? ` The ${st.count} queued push${st.count === 1 ? ' is' : 'es are'} dropped now.` : '';
   const snoozedTitle = until && `Snoozed ${untilWords(until, now, SNOOZE_FOREVER)}`;
   return {
     snoozed: until ? { title: snoozedTitle, summary: until === FOREVER ? 'Snoozed · forever' : snoozedTitle } : null,
-    device: nowLine(st, now),
+    device: deviceLine(st, now),
     on: {
       on: n.on,
       sub: n.on ? 'On. Turn off to drop every push, urgent ones too.' : 'Off. Every push is dropped, urgent ones too. Needs you and the badge still update.',
@@ -161,8 +163,8 @@ export function settingsView({ now, st, rules = [], route = { atMac: false, desk
       choices: awake.unsupported || awake.until ? null : durationChoices(now, AWAKE_FOREVER),
       summary: awake.unsupported || (!awake.until ? 'Off' : awake.until === FOREVER ? 'On · forever' : `On until ${clock(awake.until, now)}`),
     },
-    weekends: { on: n.weekends_off, sub: `Pushes wait from Friday ${timeOfDay(last.from)} until Monday ${timeOfDay(first.from)}. Urgent ones still go.` },
-    polling: pollingSummary(s),
+    weekends: { on: n.weekends_off, sub: `Pushes wait from Friday ${timeOfDay(s.quiet.start)} until Monday ${timeOfDay(s.quiet.end)}. Urgent ones still go.` },
+    quiet: quietView(s, now),
     rules,
     linear: linearWords(linear),
   };
@@ -180,43 +182,23 @@ function linearWords(linear) {
   return { set: true, title: workspace, sub: 'Key ••••••••', summary: `Key set · ${workspace}` };
 }
 
-const EVERY_CHOICES = [5, 10, 15, 30, 60, 120];
-// Darker checks more often: 5 minutes is the full accent, 120 is 30% of it.
-const shade = (n) => Math.round(100 - (Math.log(n / 5) / Math.log(24)) * 70);
-const windowRange = (s, i) => (s.windows.length === 1 ? 'All day' : `${timeOfDay(s.windows[i].from)} – ${timeOfDay(s.windows[(i + 1) % s.windows.length].from)}`);
-
-// Polling: every window with what its section shows, so picking another stretch of the day needs no request. select,
-// from ?w=, names the window to show; the window `now` falls in when it names none.
-export function pollingView({ now, st, poll, select = null }) {
-  const s = st.settings;
-  const found = s.windows.findIndex((w) => w.from === select);
-  const sel = found >= 0 ? found : s.windows.findIndex((w) => w.from === windowAt(now, s).from);
-  const one = s.windows.length === 1;
-  const [first, last] = [s.windows[0], s.windows.at(-1)];
+// The Quiet hours modal (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md):
+// its start and end, the overnight hold, the cadence hint, and what the snoozes, the weekend and the daily wake read with them.
+function quietView(s, now) {
+  const q = s.quiet;
+  const [start, end] = [timeOfDay(q.start), timeOfDay(q.end)];
+  const tonight = snoozeEnd(now, 'tonight', s);
+  const reads = [
+    ['Snooze tonight', `Until ${clock(tonight, now)}${q.hold ? `, then quiet hours hold pushes until ${clock(snoozeEnd(tonight, 'morning', s), now)}` : ''}.`],
+    ['Snooze morning', `Until ${clock(snoozeEnd(now, 'morning', s), now)}.`],
+    ['Snooze monday', `Until ${clock(snoozeEnd(now, 'monday', s), now)}.`],
+    ['Off on weekends', s.notifications.weekends_off ? `Pushes wait from Friday ${start} until Monday ${end}.` : 'Off.'],
+    ['Daily wake', `Every board wakes once at ${end}, when quiet hours end.`],
+  ];
   return {
-    select: s.windows[sel].from,
-    now: pollingNow(st, poll, now),
-    day: {
-      segments: daySegments(s).map((g) => {
-        const w = s.windows[g.window];
-        return {
-          w: w.from, left: pct(g.start), width: pct(g.end - g.start), shade: `${shade(w.every_minutes)}%`, held: g.held,
-          label: g.end - g.start >= 110 ? every(w.every_minutes).replace(' min', 'm').replace(' h', 'h') : '',
-          aria: `${windowRange(s, g.window)}, every ${every(w.every_minutes)}${g.held ? ', pushes held' : ''}`,
-        };
-      }),
-      pins: s.wakes.map((w) => ({ left: pct(minuteOf(w)), title: `Wake ${timeOfDay(w)}` })),
-      now: pct(now.getHours() * 60 + now.getMinutes()),
-      held: holdsOvernight(s),
-      wakes: s.wakes.length > 0,
-    },
-    windows: s.windows.map((w, i) => ({
-      from: w.from, range: windowRange(s, i), ends: one ? '—' : timeOfDay(s.windows[(i + 1) % s.windows.length].from),
-      every: [...new Set([...EVERY_CHOICES, w.every_minutes])].sort((a, b) => a - b).map((m) => ({ minutes: m, label: every(m), on: m === w.every_minutes })),
-      checks: `${plural(checksIn(s, i), 'check')} in this window`, split: Boolean(splitPoint(s, i)), remove: !one,
-    })),
-    hold: { on: s.hold_overnight, sub: one ? 'With one window there is no overnight to hold.' : `Pushes queued after ${timeOfDay(last.from)} wait until ${timeOfDay(first.from)}. GitHub checks still run.` },
-    wakes: s.wakes.map((t) => ({ value: t, label: timeOfDay(t) })),
+    start: q.start, end: q.end, summary: quietSummary(s), hint: QUIET_HINT,
+    hold: { on: q.hold, sub: q.hold ? `Pushes queued after ${start} wait until ${end}. Urgent ones still go.` : 'Off. Pushes go out all night.' },
+    reads: reads.map(([title, sub]) => ({ title, sub })),
   };
 }
 

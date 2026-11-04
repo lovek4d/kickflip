@@ -46,6 +46,55 @@ export async function fetchPR({ repo, pr, since }) {
   return { view, issueComments, reviewComments, reviews };
 }
 
+// The hub's check reads every PR in one GraphQL query, about half a point a PR, with no REST call
+// (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md). GraphQL has no `since`,
+// so each PR brings its last 50 comments, reviews and review threads of 20 comments, and reportOf filters them by time.
+const AUTHOR = 'author { __typename login }';
+const PR_QUERY_FIELDS = 'state isDraft reviewDecision mergeable mergeStateStatus headRefOid'
+  + ' commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 50) { nodes { __typename ... on CheckRun { name status conclusion } ... on StatusContext { context state } } } } } } }'
+  + ` comments(last: 50) { nodes { databaseId ${AUTHOR} createdAt body url } }`
+  + ` reviews(last: 50) { nodes { databaseId ${AUTHOR} submittedAt body state url } }`
+  + ` reviewThreads(last: 50) { nodes { comments(first: 20) { nodes { databaseId ${AUTHOR} createdAt body url path line replyTo { databaseId } } } } }`;
+
+// gh api graphql answers a query that partly failed with its data and errors on stdout and a non-zero exit.
+function graphql(query, env = process.env) {
+  return new Promise((resolve, reject) => {
+    execFile('gh', ['api', 'graphql', '-f', `query=${query}`], { env: { ...env, PATH: [env.PATH, GH_PATH].filter(Boolean).join(':') }, timeout: 90_000, maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) => {
+      let body = null;
+      try { body = JSON.parse(stdout); } catch {}
+      if (body?.data) return resolve(body);
+      reject(new Error(`GitHub query: ${firstLine(err ? stderr || err.message : 'unreadable output')}`));
+    });
+  });
+}
+
+// REST's login for a GraphQL author: a bot's ends in [bot], as reportOf reads it.
+const user = (a) => (a?.login ? { login: a.__typename === 'Bot' ? `${a.login}[bot]` : a.login } : null);
+
+// prs: [{repo, pr}], each once. → {login: the account's, rate: {remaining, resetAt}, results}, results lined up with
+// prs, each fetchPR's shape {view, issueComments, reviewComments, reviews}, or {error} for a PR GitHub didn't answer.
+// Throws when the query fails as a whole.
+export async function fetchPRs(prs) {
+  const aliases = prs.map(({ repo, pr }, i) => {
+    const [owner, name] = repo.split('/');
+    return `pr${i}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { pullRequest(number: ${Number(pr)}) { ${PR_QUERY_FIELDS} } }`;
+  });
+  const { data, errors = [] } = await graphql(`query { viewer { login } rateLimit { remaining resetAt } ${aliases.join(' ')} }`);
+  const results = prs.map(({ repo, pr }, i) => {
+    const p = data[`pr${i}`]?.pullRequest;
+    if (!p) return { error: `${repo}#${pr}: ${errors.find((e) => e.path?.[0] === `pr${i}`)?.message || 'GitHub did not answer for it'}` };
+    const comment = (c) => ({ id: c.databaseId ?? null, user: user(c.author), created_at: c.createdAt ?? null, body: c.body ?? null, html_url: c.url ?? null });
+    return {
+      view: { state: p.state, isDraft: p.isDraft, reviewDecision: p.reviewDecision, mergeable: p.mergeable, mergeStateStatus: p.mergeStateStatus, headRefOid: p.headRefOid,
+        statusCheckRollup: p.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [] },
+      issueComments: (p.comments?.nodes ?? []).map(comment),
+      reviewComments: (p.reviewThreads?.nodes ?? []).flatMap((t) => t.comments?.nodes ?? []).map((c) => ({ ...comment(c), path: c.path ?? null, line: c.line ?? null, in_reply_to_id: c.replyTo?.databaseId ?? null })),
+      reviews: (p.reviews?.nodes ?? []).map((r) => ({ id: r.databaseId ?? null, user: user(r.author), submitted_at: r.submittedAt ?? null, body: r.body ?? null, state: r.state ?? null, html_url: r.url ?? null })),
+    };
+  });
+  return { login: data.viewer?.login ?? null, rate: data.rateLimit ?? null, results };
+}
+
 export function reportOf({ view, issueComments, reviewComments, reviews }, { pr, since, me }) {
   const comment = (c, kind) => ({ kind, id: c.id ?? null, login: c.user?.login ?? null, at: c.created_at ?? null, body: c.body ?? null });
   const events = [
