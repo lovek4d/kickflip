@@ -164,16 +164,16 @@
     return `<span class="card-hold" title="${esc(title)}">${esc(d ? `held until ${heldUntilWords(it.heldUntil)}` : 'held')}</span>`;
   }
   // A card's last line: the time its lane sorts by (domain.mjs sortAt), then its hold, what blocks it, then Action needed
-  // or ready, then its unread count, which app-cards.js takes away when the card opens, then a building card's phase bars
+  // or ready, then a building card's phase bars, then its unread count, which app-cards.js takes away when the card opens
   // (docs/adr/0154-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/0160-a-building-cards-phase-bars-end-its-time-row.md).
   const SEP = '<span class="sep"> · </span>';
   function timeLine(it, unread, bars) {
     const iso = it.sortAt;
     const parts = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, holdWords(it), blockedWords(it), actionWords(it), it.ready && '<span class="card-ready">ready</span>'].filter(Boolean);
-    const count = unread ? `<span class="card-unread">${parts.length ? SEP : ''}${unread} new message${unread === 1 ? '' : 's'}</span>` : '';
-    const tail = bars ? `${parts.length || count ? SEP : ''}${bars}` : '';
+    const count = unread ? `<span class="card-unread">${parts.length || bars ? SEP : ''}${unread} new message${unread === 1 ? '' : 's'}</span>` : '';
+    const tail = bars ? `${parts.length ? SEP : ''}${bars}` : '';
     if (!parts.length && !count && !tail) return '';
-    return `<div class="line6 sub card-time">${parts.join(SEP)}${count}${tail}</div>`;
+    return `<div class="line6 sub card-time">${parts.join(SEP)}${tail}${count}</div>`;
   }
   // The Hold sheet's picker (app-cards.js): /api/board's holdChoices, the chips hub/duration.mjs shares with Snooze and
   // Keep awake, then Custom. Its .hub-view root takes hub.css's duration picker rules, which view-hub-settings.js

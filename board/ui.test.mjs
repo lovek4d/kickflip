@@ -964,13 +964,13 @@ test("a refused Implement's reason takes the card's status line, in place of its
   assert.doesNotMatch(html, /Next: /);
 });
 
-test('a building card in In Progress ends its time row with five bars, after the new-messages count, done phases filled and the current one marked', () => {
+test('a building card in In Progress ends its time row with five bars, before the new-messages count, done phases filled and the current one marked', () => {
   const builder = { progress: 'Testing · the limiter', phase: 'testing', at: null };
   const sortAt = '2020-01-01T10:00:00.000Z';
   const building = { ...workCard, lane: 'progress', sortAt, builder };
   const html = ui.workLines(building, { unread: 2 });
   assert.match(html, /<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"><\/span>Testing · the limiter<\/div>/);
-  assert.match(html, new RegExp(`<div class="line6 sub card-time"><time datetime="${sortAt}">[^<]*</time><span class="card-unread"><span class="sep"> · </span>2 new messages</span><span class="sep"> · </span><span class="phase-bars" role="img" aria-label="Testing, step 3 of 5"><i class="done"></i><i class="done"></i><i class="now"></i><i class=""></i><i class=""></i></span></div>`));
+  assert.match(html, new RegExp(`<div class="line6 sub card-time"><time datetime="${sortAt}">[^<]*</time><span class="sep"> · </span><span class="phase-bars" role="img" aria-label="Testing, step 3 of 5"><i class="done"></i><i class="done"></i><i class="now"></i><i class=""></i><i class=""></i></span><span class="card-unread"><span class="sep"> · </span>2 new messages</span></div>`));
   assert.equal(html.match(/phase-bars/g).length, 1);
   assert.match(ui.workLines(building), /<\/time><span class="sep"> · <\/span><span class="phase-bars"/);
   const first = ui.workLines({ ...building, builder: { ...builder, phase: 'reading' } });
