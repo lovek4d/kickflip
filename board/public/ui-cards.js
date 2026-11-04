@@ -62,11 +62,11 @@
     return deps.map((d, i) => `<a class="card-blocked" href="#item=${encodeURIComponent(d.key)}">${i ? '' : 'blocked by '}${esc(d.ref)}</a>`).join('<span class="sep">, </span>');
   }
   const tryWords = (kind) => kind === 'app' ? {
-    go: 'Build', going: 'building…', done: 'Install', failed: 'build failed',
-    current: 'Nothing new to build: Install already has this card’s latest push.',
-    busy: 'Building now. The badge turns back into Install when the new build is ready.',
-    autoSub: 'The hub builds each card after each push, and main after each merge.',
-    saved: (on) => on ? 'Saved. Each push builds its card.' : 'Saved. Cards wait for your Build.',
+    go: 'Serve', going: 'serving…', done: 'Install', failed: 'serve failed',
+    current: 'Nothing new to serve: Install already has this card’s latest push.',
+    busy: 'Serving now. The badge turns back into Install when the new build is ready.',
+    autoSub: 'The hub serves each card after each push, and main after each merge.',
+    saved: (on) => on ? 'Saved. Each push serves its card.' : 'Saved. Cards wait for your Serve.',
   } : {
     go: 'Serve', going: 'serving…', done: 'Visit', failed: 'serve failed',
     current: 'Nothing new to serve: Visit already shows this card’s latest push.',

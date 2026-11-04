@@ -1404,8 +1404,8 @@ test('an app install badge opens in place and uses the agreed current and stale 
 test('try badges share ready, stale, running, failed and absent states for both kinds, including legacy builders', () => {
   for (const kind of ['web', 'app']) for (const render of [ui.installChip, ui.installButton]) {
     const done = kind === 'web' ? 'Visit' : 'Install';
-    const going = kind === 'web' ? 'serving…' : 'building…';
-    const failed = kind === 'web' ? 'serve failed' : 'build failed';
+    const going = 'serving…';
+    const failed = 'serve failed';
     const card = { ...workCard, try: { kind, state: 'ready', url: kind === 'web' ? null : 'https://m/app.apk', port: kind === 'web' ? 8501 : null, sha: 'abcdef1' } };
     assert.equal(text(render(card)), done);
     assert.match(render(card), /tone-ready/);
@@ -1430,16 +1430,16 @@ test('try badges share ready, stale, running, failed and absent states for both 
 test('try buttons show only while Auto-build is off on a branch with changes, explain running and current runs, and offer Retry after failure only on scripted work cards', () => {
   for (const kind of ['web', 'app']) {
     const card = { ...workCard, kind: 'work', try: { kind, script: true, changes: true, autoBuild: false } };
-    assert.equal(text(ui.tryButton(card)), kind === 'web' ? 'Serve' : 'Build');
+    assert.equal(text(ui.tryButton(card)), 'Serve');
     assert.equal(ui.tryButton({ ...card, try: { ...card.try, changes: false } }), '');
     for (const state of [undefined, 'failed', 'ready']) assert.equal(ui.tryButton({ ...card, try: { ...card.try, state, stale: true, autoBuild: true } }), '');
-    for (const [change, reason] of [[{ state: 'running' }, kind === 'web' ? 'Serving now.' : 'Building now.'], [{ state: 'ready' }, 'Nothing new to']]) {
+    for (const [change, reason] of [[{ state: 'running' }, 'Serving now.'], [{ state: 'ready' }, 'Nothing new to']]) {
       const html = ui.tryButton({ ...card, try: { ...card.try, ...change } });
       assert.match(html, /aria-disabled="true"/);
       assert.ok(html.includes(reason));
     }
     assert.equal(text(ui.tryButton({ ...card, try: { ...card.try, state: 'failed' } })), 'Retry');
-    assert.equal(text(ui.tryButton({ ...card, try: { ...card.try, state: 'ready', stale: true } })), kind === 'web' ? 'Serve' : 'Build');
+    assert.equal(text(ui.tryButton({ ...card, try: { ...card.try, state: 'ready', stale: true } })), 'Serve');
     assert.equal(ui.tryButton({ ...card, kind: 'ask' }), '');
     assert.equal(ui.tryButton({ ...card, try: { ...card.try, script: false } }), '');
   }

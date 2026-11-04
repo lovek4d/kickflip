@@ -26,7 +26,7 @@
     <span class="muted small sub">Cards building or waiting in Orchestrator review count. Grills and cards waiting on you don’t.</span></span>
     <input type="number" class="count" id="maxImplementers" min="1" max="99" step="1" inputmode="numeric" disabled></label>
   <p class="muted small" id="maxImplementersStatus" role="status"></p>
-  <label class="who" for="autoBuild"><span><span>Auto-build cards</span>
+  <label class="who" for="autoBuild"><span><span>Auto serve</span>
     <span class="muted small sub" id="autoBuildSub">${BoardUI.esc(BoardUI.tryWords('web').autoSub)}</span></span>
     <input type="checkbox" class="toggle" id="autoBuild" disabled></label>
   <p class="muted small" id="autoBuildStatus" role="status"></p>

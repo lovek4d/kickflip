@@ -426,14 +426,14 @@ test('Board Settings saves auto-build immediately, uses kind-specific words and 
     await tick();
     const toggle = root.querySelector('#autoBuild');
     assert.equal(toggle.disabled, false);
-    assert.match(root.querySelector('#autoBuildSub').textContent, kind === 'web' ? /hub serves/ : /hub builds/);
+    assert.match(root.querySelector('#autoBuildSub').textContent, /hub serves/);
     toggle.checked = true;
     page.fire(toggle, 'change');
     assert.deepEqual([toggle.disabled, toggle.getAttribute('aria-busy')], [true, 'true'], 'the toggle keeps its face, disabled, with a spinner beside it while it saves');
     await tick();
     assert.deepEqual([toggle.disabled, toggle.getAttribute('aria-busy')], [false, null]);
     assert.deepEqual(posts.at(-1), ['https://mac.ts.net/orch/api/settings', { auto_build: true }]);
-    assert.equal(root.querySelector('#autoBuildStatus').textContent, kind === 'web' ? 'Saved. Each push serves its card.' : 'Saved. Each push builds its card.');
+    assert.equal(root.querySelector('#autoBuildStatus').textContent, 'Saved. Each push serves its card.');
     refuse = true;
     toggle.checked = false;
     page.fire(toggle, 'change');
@@ -2557,7 +2557,7 @@ test('a running badge replaces its install link without confirmation and becomes
   const install = { url: 'https://m/app.apk', sha: 'abcdef1', older: true };
   const b = boardOnDom({ open: ['w/R1'], board: boardOf([workCard('R1', { lane: 'progress', install, builder: { kind: 'install' } })]), threads: {} });
   await b.settle();
-  assert.equal(b.root.querySelector('.external-links .install').textContent, 'building…');
+  assert.equal(b.root.querySelector('.external-links .install').textContent, 'serving…');
   assert.equal(b.root.querySelector('.external-links .install').getAttribute('href'), null);
   assert.equal(b.root.querySelector('[data-install-confirm]'), null);
   assert.deepEqual(b.confirms, []);
@@ -2692,7 +2692,7 @@ test('main paints above the lanes, card failures scroll to their thread and main
   lines = [];
   b.page.fire(b.root, 'click', { target: b.root.querySelector('[data-main-log]') });
   await b.settle();
-  assert.equal(b.root.querySelector('#mainLogTitle').textContent, 'Main’s build failed');
+  assert.equal(b.root.querySelector('#mainLogTitle').textContent, 'Main’s serve failed');
   assert.equal(b.root.querySelector('#mainLogLines').textContent, 'No log was written.');
   const cancel = b.page.fire(sheet, 'cancel');
   assert.equal(cancel.defaultPrevented, true);
@@ -4556,7 +4556,7 @@ test('Board Settings holds every automatic job in one Auto section, short labels
   const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
   const auto = html.slice(html.indexOf('<h2>Auto</h2>'), html.indexOf('<h2>Reviewers</h2>'));
   assert.deepEqual([...auto.matchAll(/<label class="who" for="(\w+)"><span><span>([^<]+)<\/span>/g)].map((m) => [m[1], m[2]]), [
-    ['autoPull', 'Auto implement Todo cards'], ['maxImplementers', 'Maximum parallel implementers'], ['autoBuild', 'Auto-build cards'], ['autoReview', 'Auto review'], ['prs', 'PRs'], ['autoMerge', 'Auto-merge'], ['skipDraft', 'Skip the draft'],
+    ['autoPull', 'Auto implement Todo cards'], ['maxImplementers', 'Maximum parallel implementers'], ['autoBuild', 'Auto serve'], ['autoReview', 'Auto review'], ['prs', 'PRs'], ['autoMerge', 'Auto-merge'], ['skipDraft', 'Skip the draft'],
     ['autoTriage', 'Triage overnight'], ['idleNotification', 'Idle notification'],
   ]);
   assert.match(auto, /May use a lot of usage\./);
