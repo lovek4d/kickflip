@@ -421,9 +421,9 @@ test("the hub page lists Boards and Pages apart with each site's health and link
   ]);
   assert.deepEqual(plain(v.groups[0].sites[1].lines), [{ link: 'events', detail: 'no watcher since 6:00pm' }, { link: 'wakes', detail: 'settling: missed 9:00am' }]);
   assert.match(v.groups[0].sites[0].icon, /^<span class="icon/);
-  assert.deepEqual(plain(v.hub), { tone: 'down', word: '1 site down', detail: '3 of 5 sites up · 1 link failing · runs the code in its files (abc)' });
+  assert.deepEqual(plain(v.hub), { tone: 'down', word: '1 site down', detail: '3 of 5 sites up · 1 link failing · runs the code in its files (abc)', restart: false });
   const staleHub = { tone: 'wait', word: 'Degraded', detail: '3 of 5 sites up · runs older code than its files; restart it' };
-  assert.deepEqual(plain(hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar: { ...sidebar, hub: staleHub }, rows, code: { running: 'old', onDisk: 'abc' } }).hub), staleHub);
+  assert.deepEqual(plain(hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar: { ...sidebar, hub: staleHub }, rows, code: { running: 'old', onDisk: 'abc' } }).hub), { ...staleHub, restart: true });
   assert.deepEqual(plain(v.polling), { title: 'Checks every 30 min until 10:00pm', lines: ['Next check 7:30pm', '1 push queued; next send 7:30pm.'], count: 1,
     summary: '3 windows, 58 checks a day · held overnight · wakes 8:00am, 9:00am' });
   assert.deepEqual(plain(v.notifications), { on: true, text: 'On', device: 'checks every 30 min until 10:00pm' });
@@ -518,7 +518,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   const data = hubView({ now, st: status(now, DEFAULTS), poll: poll(now), integrations,
     sidebar: { sites: [{ route: 'alpha', board: true }, { route: 'beta', board: true }], hub: { tone: 'wait', word: 'Degraded', detail: '2 of 2 sites up · 1 link failing' }, notifications: {}, total: 0,
       usage: { claude: { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null }, codex: null } },
-    rows: [{ route: 'alpha', title: 'Alpha', state: 'up' }, { route: 'beta', title: 'Beta', state: 'up' }], remembered: new Map([['alpha', sessions]]),
+    rows: [{ route: 'alpha', title: 'Alpha', state: 'up' }, { route: 'beta', title: 'Beta', state: 'up' }], remembered: new Map([['alpha', sessions]]), code: { running: 'abc', onDisk: 'abc' },
   });
   assert.deepEqual(data.groups[0].sites.map((s) => s.remembered), [sessions, []]);
   live.paint({ ...data, remembered: [{ session: 's-alone', rules: ['WebSearch'] }] });
@@ -565,6 +565,90 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   assert.match(lists[1].textContent, /s-alone.*WebSearch/);
   live.paint({ ...data, groups: data.groups.map((g) => ({ ...g, sites: g.sites.map((s) => ({ ...s, remembered: [] })) })) });
   assert.equal(root.querySelector('.remembered'), null);
+});
+
+// docs/adr/0171-the-hub-restarts-itself-from-its-stale-code-notice.md
+test("the hub's runs-older-code notice jumps to Restart hub, which confirms, waits for the hub's answer, says restarting… and reloads once the hub answers with its new code", async () => {
+  const document = {};
+  const { Element } = miniDom(class {}, document);
+  const root = new Element('div');
+  let live, confirmed = true, reloads = 0;
+  const listeners = [], asked = [], requests = [];
+  // Each request waits for the test to answer it.
+  const answers = [];
+  const answer = (status, body, code) => answers.shift()({ ok: status < 400, status, json: async () => body, headers: { get: (k) => (k === 'x-hub-code' ? code : null) } });
+  const context = vm.createContext({
+    navigator: {},
+    setTimeout: (fn) => Promise.resolve().then(fn),
+    BoardView: { page: (root, site, run) => run({ $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardDialogs: { confirm: async (text) => { asked.push(text); return confirmed; } },
+    AppShell: { reload: () => { reloads++; } },
+    fetch: (url, init = {}) => { requests.push([url, init.method || 'GET', init.body]); return new Promise((resolve) => answers.push(resolve)); },
+    HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
+    BoardUI: { header: () => '' },
+    PromptAnswers: { wire: () => ({ shows: () => true }) },
+    HubKit: { forms: () => ({}), live: (B, opts) => { live = opts; } },
+  });
+  for (const file of ['ui-sidebar.js', 'ui-hub.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
+  root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
+  document.body = root;
+  context.AppViews.hub.create(root, '/_hub', {});
+  const now = t(19);
+  const view = (code) => hubView({ now, st: status(now, DEFAULTS), poll: poll(now), rows: [], code,
+    sidebar: { sites: [], hub: { tone: 'wait', word: 'Degraded', detail: '0 of 0 sites up · runs older code than its files; restart it' }, notifications: {}, total: 0 } });
+  const click = (target) => listeners.find((l) => l.target === root.querySelector('.hub-status') && l.type === 'click').fn({ target });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+  live.paint(view({ running: 'abc', onDisk: 'abc' }));
+  assert.equal(root.querySelector('[data-restart-hub]'), null);
+  assert.ok(root.querySelector('[data-jump="integrations"]'));
+
+  live.paint(view({ running: 'old', onDisk: 'abc' }));
+  const notice = root.querySelector('[data-jump="restart-hub"]');
+  assert.equal(notice.textContent, 'Degraded');
+  const button = root.querySelector('#restart-hub');
+  assert.equal(button.textContent, 'Restart hub');
+  let scrolled = 0;
+  button.scrollIntoView = () => { scrolled++; };
+  click(notice);
+  assert.equal(scrolled, 1);
+  assert.equal(document.activeElement, button);
+  assert.deepEqual(requests, []);
+
+  confirmed = false;
+  click(button);
+  await settle();
+  assert.equal(asked.length, 1);
+  assert.match(asked[0], /Restart the hub\?$/);
+  assert.deepEqual(requests, []);
+
+  confirmed = true;
+  click(root.querySelector('#restart-hub'));
+  await settle();
+  assert.deepEqual(requests, [['/_hub/restart-hub', 'POST', '{}']]);
+  assert.equal(root.querySelector('#restart-hub').textContent, 'restarting…');
+  assert.ok(root.querySelector('#restart-hub').hasAttribute('disabled'));
+
+  // A refusal says why, and the button comes back.
+  answer(409, { error: 'The hub is already restarting.' }, 'old');
+  await settle();
+  assert.equal(root.querySelector('[role="alert"]').textContent, 'The hub is already restarting.');
+  assert.equal(root.querySelector('#restart-hub').textContent, 'Restart hub');
+
+  click(root.querySelector('#restart-hub'));
+  await settle();
+  answer(200, { restarting: true, command: 'launchctl kickstart -k gui/$(id -u)/local.claude.kickflip-hub' }, 'old');
+  await settle();
+  assert.equal(root.querySelector('#restart-hub').textContent, 'restarting…');
+  assert.deepEqual(requests.at(-1), ['/_hub/api/hub', 'GET', undefined]);
+  answers.shift()(Promise.reject(new Error('down')));
+  await settle();
+  answer(200, view({ running: 'old', onDisk: 'abc' }), 'old');
+  await settle();
+  assert.equal(reloads, 0);
+  answer(200, view({ running: 'abc', onDisk: 'abc' }), 'abc');
+  await settle();
+  assert.equal(reloads, 1);
 });
 
 test("the hub page's Usage card opens Codex's block with Codex share, bars under it unless Off, greys it out while Codex isn't usable, and saves each choice or shows a refusal", async () => {

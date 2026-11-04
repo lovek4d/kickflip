@@ -1,6 +1,7 @@
 // The hub page, /_hub/, a view of the app shell (shell.js): a banner while pushes are held or snoozed, the Usage card with Claude model and Codex share, Needs you for the pending
 // prompts of sessions that own no board, Health, Integrations (readiness.mjs words), each site's health and board links,
-// polling status, then hub settings summary rows (ADR 0075). A board's row can carry Restart (hub/restart-board.mjs). Health comes from GET /_hub/api/hub.
+// polling status, then hub settings summary rows (ADR 0075). A board's row can carry Restart (hub/restart-board.mjs), and
+// the Hub row Restart hub while the hub runs older code than its files. Health comes from GET /_hub/api/hub.
 // Its data refreshes every 30 seconds while it shows (hub-kit.js live).
 (function () {
   // The last data, which a return to the view paints at once.
@@ -52,11 +53,17 @@
     return shown.length ? `<section class="waiting"><h2>Needs you · ${shown.length}</h2><ul>${shown.map((p) => BoardUI.promptItem(p, prompts.state(p))).join('')}</ul></section>` : '';
   }
 
-  function html(d, { flash, prompts, restarting }) {
+  // Restart hub, while the hub runs older code than its files (hub/views.mjs hubView's hub.restart).
+  const restartHubButton = (busy) => `<button type="button" class="btn quiet restart-btn" id="restart-hub" data-restart-hub${busy ? ' disabled aria-busy="true"' : ''}>${busy ? '<span class="try-spin" aria-hidden="true"></span>restarting…' : 'Restart hub'}</button>`;
+
+  function html(d, { flash, prompts, restarting, restartingHub }) {
     const { row, tile, nowRow } = HubUI;
     const usage = HubUI.usageCard(d.usage, d.codex, d.pause, d.claude);
+    // The status word jumps to what's behind it: Restart hub while the hub runs older code, else Integrations.
+    const jump = d.hub.restart ? 'restart-hub' : 'integrations';
     return `${HubUI.flash(flash)}${HubUI.pauseBanner(d.pause)}${HubUI.holdBanner(d.hold)}${usage}${promptsHtml(d.prompts || [], prompts)}<h2 class="label"${usage ? '' : ' style="margin-top:4px"'}>Health</h2>
-<div class="group">${row({ icon: tile('power', { ok: '#22c55e', wait: '#f59e0b' }[d.hub.tone] || '#ef4444'), title: 'Hub', sub: `<button type="button" class="st ${esc(d.hub.tone)}" data-jump="integrations">${esc(d.hub.word)}</button> ·${esc(d.hub.detail)}${d.awake ? `<span class="links"><span><span class="awake-on">Keeping awake</span> ${esc(d.awake)}</span></span>` : ''}`, wrap: true })}
+<div class="group">${row({ icon: tile('power', { ok: '#22c55e', wait: '#f59e0b' }[d.hub.tone] || '#ef4444'), title: 'Hub', sub: `<button type="button" class="st ${esc(d.hub.tone)}" data-jump="${jump}">${esc(d.hub.word)}</button> ·${esc(d.hub.detail)}${d.awake ? `<span class="links"><span><span class="awake-on">Keeping awake</span> ${esc(d.awake)}</span></span>` : ''}`, wrap: true,
+    trail: d.hub.restart ? restartHubButton(restartingHub) : '' })}
 ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/kickflip &lt;route&gt;</code>.' }) : ''}</div>
 ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, the fetch of its repo, events (its session and a watcher run, or the hub can wake it), daily wakes and reviewer links. One that just broke reads settling first.</p>
 <h2 class="label">Polling status</h2>
@@ -102,19 +109,58 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembe
         restarting.delete(route);
         if (B.alive()) { paint(); load(); }
       }
+      // Restart hub asks the host to restart the hub service (POST /_hub/restart-hub), then waits for the hub to answer
+      // with other code than it ran (its x-hub-code) and reloads the app; past HUB_WAIT tries it says how to restart by hand.
+      let restartingHub = false;
+      const HUB_WAIT = 120;
+      async function restartHub() {
+        if (restartingHub || !(await BoardDialogs.confirm('This restarts the hub on the host so it runs the code in its files. Its pages stop answering until it’s back, then this page reloads. Restart the hub?'))) return;
+        restartingHub = true;
+        flash = null;
+        paint();
+        let out = null, before = null;
+        try {
+          const r = await fetch('/_hub/restart-hub', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, body: '{}' });
+          out = await r.json().catch(() => null);
+          if (!r.ok || !out) throw new Error();
+          before = r.headers.get('x-hub-code');
+        } catch {
+          restartingHub = false;
+          flash = { text: out?.error || 'Could not restart the hub. Is the host awake?', error: true };
+          if (B.alive()) paint();
+          return;
+        }
+        for (let i = 0; i < HUB_WAIT && B.alive(); i++) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          try {
+            const r = await fetch('/_hub/api/hub', { cache: 'no-store', headers: { accept: 'application/json' } });
+            const code = r.headers.get('x-hub-code');
+            if (r.ok && code && code !== before) return AppShell.reload();
+          } catch { /* the hub is down while it restarts */ }
+        }
+        restartingHub = false;
+        flash = { text: `The hub hasn’t come back. On the host, run ${out.command}`, error: true };
+        if (B.alive()) paint();
+      }
       B.on(main, 'click', (e) => {
         const opener = e.target.closest?.('[data-settings-open]');
         if (opener) B.openSettings({ hash: `#${opener.dataset.settingsOpen}` }, opener);
-        // The Hub's status word jumps to what's behind it: Integrations, then each board's links below them.
+        // The Hub's status word jumps to what's behind it: Restart hub while the hub runs older code than its files,
+        // else Integrations, then each board's links below them.
         const jump = e.target.closest?.('[data-jump]');
-        if (jump) B.$(`#${jump.dataset.jump}`).scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (jump) {
+          const to = B.$(`#${jump.dataset.jump}`);
+          to.scrollIntoView({ behavior: 'smooth', block: to.matches('button') ? 'center' : 'start' });
+          if (to.matches('button')) to.focus({ preventScroll: true });
+        }
+        if (e.target.closest?.('[data-restart-hub]')) restartHub();
         const restarter = e.target.closest?.('[data-restart]');
         if (restarter) restart(restarter.dataset.restart, restarter.dataset.title);
       });
       const foot = B.$('.hub-foot');
       const paint = () => {
         if (!last) return;
-        main.innerHTML = html(last, { flash, prompts, restarting });
+        main.innerHTML = html(last, { flash, prompts, restarting, restartingHub });
         foot.innerHTML = footer(last);
       };
       const prompts = PromptAnswers.wire(B, {

@@ -10,6 +10,7 @@
 // paints dimmed from its last visit (docs/adr/0028-the-board-opens-on-the-last-visit.md).
 // A push tap reaches it from hub/sw.js as {open: url}, and a page framed inside it hands it a view's URL through
 // AppShell.open(url, {replace, frames}) → true when the shell shows it in place; frames false refuses a frame view.
+// AppShell.reload() reloads the app past the shell the service worker keeps.
 window.AppShell = (function () {
   const LAST_KEY = 'hub:lastBoard';
   const DATA_KEY = 'hub:sidebar';
@@ -294,5 +295,5 @@ window.AppShell = (function () {
     });
   }
 
-  return { start, open, codeSeen };
+  return { start, open, codeSeen, reload };
 })();
