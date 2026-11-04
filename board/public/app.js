@@ -403,6 +403,11 @@ ${BoardNewTask.markup()}
     <div id="archBody" class="arch-body"></div>
   </div>
 </dialog>
+<dialog id="readerSheet" class="sheet reader-sheet" aria-labelledby="readerTitle">
+  <div class="reader-head"><h2 id="readerTitle"></h2><span class="reader-ref"></span><span class="reader-tools"></span><button type="button" class="ghost" data-reader="close" aria-label="Close">✕</button></div>
+  <div class="reader-body" tabindex="0"></div>
+  <button type="button" class="reader-new" data-reader="end" hidden></button>
+</dialog>
 <dialog id="linksSheet" class="sheet" aria-labelledby="linksTitle">
   <div class="sheet-body">
     <div class="sheet-head"><h2 id="linksTitle">Hub links</h2><button type="button" class="ghost" id="linksClose" aria-label="Close">✕</button></div>

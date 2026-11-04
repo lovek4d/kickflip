@@ -554,6 +554,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `ui-prompts.js` | A pending prompt's Needs you line: its details, Allow once, Always allow and Deny, or a question's options, Skip and Send |
 | `prompts.js` | `PromptAnswers`, answering pending prompts from their lines on a board and the hub page: which taps send at once, Always allow's confirmation, and the picks a Send waits on |
 | `app-arch.js` | The header's bulb and its **architecture review** sheet: the last review, Run with its confirm, what a review waits on, and the bulb's glow while one runs |
+| `app-reader.js` | The **reader sheet**: a builder's log (readable or raw, following it as it grows) and a card's or lineup's Notes, opened over the board from their links, closing on ✕, Escape, the dim area or Back |
 | `app-banner.js` | The answer banner, its tap and its ✕ |
 | `app-header.js` | The board's header controls and time, refresh, the offline state, the In Review header's GitHub line, the Hub links sheet and the setup checklist |
 | `app-snapshot.js` | Reading and saving the last visit, also as the view unmounts, keeping every board's within three at the cap, holding the controls that send while it shows, the flash when the fresh board lands, and each card's sign: the flash on a card that changed lanes or took a New task's place, and the tint on a card otherwise updated, unless the owner changed it from this page |

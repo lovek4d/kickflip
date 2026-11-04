@@ -11,7 +11,7 @@ import { miniDom } from './mini-dom.mjs';
 import { buildBoard, slimDone, BUTTON, ACTION_KIND } from './domain.mjs';
 
 const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-phase-bars.js', 'ui-order.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
-  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-arch.js', 'app-banner.js', 'app-snapshot.js',
+  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-arch.js', 'app-reader.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-frame.js', 'router.js'];
 
 function memoryStorage(entries = []) {
@@ -4636,4 +4636,141 @@ test("Board Settings' Permissions switches sit below Auto, wait for the server w
   assert.deepEqual(Object.keys(rules).map((id) => away.root.querySelector(`#perm-${id}`).disabled), [true, true, true]);
   assert.equal(away.root.querySelector('#permissionsNotOwner').textContent, 'Only the signed-in owner can change these.');
   away.v.unmount();
+});
+
+// docs/adr/2026-11-04-2345-a-builders-log-and-notes-open-in-a-sheet.md
+function readerOnDom(logText) {
+  const launch = { ts: '2026-10-30T09:00:00.000Z', who: 'claude', eventId: 'e-1', text: 'Builder launched headless on Claude Sonnet in /wt/A1.', log: 'builder-A1-1.log' };
+  const b = boardOnDom({ open: ['w/A1'], board: boardOf([workCard('A1', { lane: 'progress', hasNotes: true })]), threads: { 'w/A1': [launch] } });
+  const log = { text: logText };
+  const moves = [];
+  b.page.win.history = { state: { idx: 3 }, pushState(state, _, url) { moves.push(['push', state, url]); this.state = state; }, back() { moves.push(['back']); } };
+  const boardFetch = b.page.win.fetch;
+  b.page.win.fetch = async (url, opts) => {
+    const u = new URL(url, 'https://mac.ts.net/');
+    if (u.pathname.endsWith('/api/log')) { b.gets.push(`${u.pathname}?${u.searchParams}`); return { ok: true, status: 200, json: async () => ({ text: log.text, truncated: false, size: log.text.length }) }; }
+    if (u.pathname.endsWith('/api/notes')) { b.gets.push(`${u.pathname}?${u.searchParams}`); return { ok: true, status: 200, json: async () => ({ key: 'w/A1', ref: 'A1', title: 'Work A1', markdown: '# The plan\n\nBuild it, then see [the prototype](prototype-reader.html).' }) }; }
+    return boardFetch(url, opts);
+  };
+  const tap = (el) => b.page.fire(b.root, 'click', { target: el, button: 0 });
+  const sheet = () => b.root.querySelector('#readerSheet');
+  return { ...b, log, moves, tap, sheet, inSheet: (sel) => sheet().querySelector(sel) };
+}
+const streamLine = (e) => `${JSON.stringify(e)}\n`;
+const said = (text) => streamLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } });
+const called = (name, input) => streamLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name, input }] } });
+const answered = (content) => streamLine({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content }] } });
+
+test("a builder's log opens in a sheet over the board: readable lines of its stream, following new ones while read at the end, a raw toggle, and Escape, a tap outside or Back closes it", async () => {
+  const r = readerOnDom(streamLine({ type: 'system', subtype: 'init', model: 'claude-sonnet-5-5', cwd: '/wt/A1' }) + said('Reading the notes first.')
+    + called('Bash', { command: 'node --test board/view.test.mjs', description: 'Run the tests' }) + answered([{ type: 'text', text: 'ℹ pass 6' }]));
+  await r.settle();
+  const link = r.root.querySelector('a[href="log.html?file=builder-A1-1.log"]');
+  assert.equal(link.textContent, 'Open the log →');
+  assert.equal(r.tap(link).defaultPrevented, true, 'the link opens the sheet in place of the log page');
+  await r.settle();
+  assert.equal(r.sheet().open, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(r.moves)), [['push', { idx: 4, reader: true }, 'https://mac.ts.net/']], 'Back has an entry to close it with');
+  assert.ok(r.gets.includes('/board-a/api/log?file=builder-A1-1.log'));
+  assert.equal(r.inSheet('#readerTitle').textContent, 'builder log');
+  assert.equal(r.inSheet('.reader-ref').textContent, 'builder-A1-1.log');
+  const rows = () => r.sheet().querySelectorAll('.reader-row').map((row) => [row.getAttribute('class').replace('reader-row ', ''), row.textContent]);
+  assert.deepEqual(rows(), [['sys', 'startclaude-sonnet-5-5 in /wt/A1'], ['text', 'Reading the notes first.'], ['tool', 'bashnode --test board/view.test.mjs'], ['out', 'ℹ pass 6']]);
+  assert.equal(r.inSheet('.reader-status').textContent, 'following');
+
+  // Read at the end, a new line scrolls into view; scrolled up, the sheet stays put and counts what came.
+  const body = r.inSheet('.reader-body');
+  Object.assign(body, { scrollHeight: 1000, clientHeight: 500, scrollTop: 500 });
+  r.log.text += said('Committing.');
+  r.page.runTimers(3000);
+  await r.settle();
+  assert.equal(rows().at(-1)[1], 'Committing.');
+  assert.equal(body.scrollTop, body.scrollHeight);
+  body.scrollTop = 0;
+  r.page.fire(body, 'scroll', { target: body });
+  assert.equal(r.inSheet('.reader-status').textContent, 'paused');
+  r.log.text += called('Read', { file_path: '/wt/A1/board/public/app.js' });
+  r.page.runTimers(3000);
+  await r.settle();
+  assert.deepEqual([body.scrollTop, r.inSheet('.reader-new').hidden, r.inSheet('.reader-new').textContent], [0, false, '1 new line ↓']);
+  r.page.fire(r.sheet(), 'click', { target: r.inSheet('.reader-new') });
+  assert.deepEqual([body.scrollTop, r.inSheet('.reader-new').hidden, r.inSheet('.reader-status').textContent], [1000, true, 'following']);
+
+  r.page.fire(r.sheet(), 'click', { target: r.inSheet('[data-reader="raw"]') });
+  assert.equal(r.inSheet('[data-reader="raw"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(r.inSheet('.reader-raw').textContent, r.log.text);
+
+  // The run's result ends the following.
+  r.log.text += streamLine({ type: 'result', subtype: 'success', is_error: false, result: 'Built #254 and committed it.' });
+  r.page.runTimers(3000);
+  await r.settle();
+  r.page.fire(r.sheet(), 'click', { target: r.inSheet('[data-reader="raw"]') });
+  assert.deepEqual(rows().at(-1), ['text end', 'doneBuilt #254 and committed it.']);
+  assert.equal(r.inSheet('.reader-status').textContent, 'finished');
+  const gets = r.gets.length;
+  r.page.runTimers(3000);
+  await r.settle();
+  assert.equal(r.gets.length, gets, 'a finished log is read no more');
+
+  r.page.fire(r.sheet(), 'cancel', { target: r.sheet() });
+  assert.equal(r.sheet().open, false);
+  assert.deepEqual(r.moves.at(-1), ['back'], 'Escape takes back the entry it pushed');
+
+  r.tap(link);
+  await r.settle();
+  r.page.fire(r.sheet(), 'click', { target: r.sheet() });
+  assert.deepEqual([r.sheet().open, r.moves.at(-1)], [false, ['back']], 'a tap on the dim area closes it');
+
+  r.tap(link);
+  await r.settle();
+  const backs = r.moves.filter(([m]) => m === 'back').length;
+  r.page.fire(vm.runInContext('window', r.page.win), 'popstate', { state: { idx: 3 } });
+  assert.equal(r.sheet().open, false, 'Back closes it');
+  assert.equal(r.moves.filter(([m]) => m === 'back').length, backs, 'and Back already took the entry');
+  r.view.unmount();
+});
+
+test("an older log of a run's final text reads as text, with no raw toggle", async () => {
+  const r = readerOnDom('I built #214 and committed it.\nThe full suite passed.\n');
+  await r.settle();
+  r.tap(r.root.querySelector('a[href^="log.html"]'));
+  await r.settle();
+  assert.equal(r.inSheet('.reader-text').textContent, 'I built #214 and committed it.\nThe full suite passed.\n');
+  assert.equal(r.inSheet('[data-reader="raw"]'), null);
+  r.view.unmount();
+});
+
+test("a card's Notes open, rendered, in the same sheet, and a link in them closes it first", async () => {
+  const r = readerOnDom('');
+  await r.settle();
+  const notes = r.root.querySelector('a[href="notes.html?item=w%2FA1"]');
+  assert.equal(r.tap(notes).defaultPrevented, true);
+  await r.settle();
+  assert.equal(r.sheet().open, true);
+  assert.ok(r.gets.includes('/board-a/api/notes?item=w%2FA1'));
+  assert.deepEqual([r.inSheet('#readerTitle').textContent, r.inSheet('.reader-ref').textContent], ['notes', 'A1 notes']);
+  assert.equal(r.inSheet('.reader-md h1').textContent, 'The plan');
+  assert.equal(r.inSheet('.reader-status'), null);
+  assert.equal(r.inSheet('[data-reader="raw"]'), null);
+  const tapped = r.page.fire(r.sheet(), 'click', { target: r.inSheet('.reader-md p') });
+  assert.equal(r.sheet().open, true, 'a tap in the sheet keeps it open');
+  assert.equal(tapped.defaultPrevented, false);
+
+  const shown = [];
+  r.page.win.AppShell = { open: (href) => { shown.push(href); return true; } };
+  const link = r.inSheet('.reader-md a');
+  assert.equal(link.getAttribute('href'), 'prototype-reader.html');
+  assert.equal(r.page.fire(r.sheet(), 'click', { target: link, button: 0 }).defaultPrevented, true);
+  assert.deepEqual([r.sheet().open, r.moves.at(-1)[0], shown], [false, 'back', []], 'the sheet closes and takes its entry back first');
+  r.page.fire(vm.runInContext('window', r.page.win), 'popstate', { state: { idx: 3 } });
+  assert.deepEqual(shown, ['https://mac.ts.net/prototype-reader.html'], 'then the link opens through the shell');
+  r.view.unmount();
+});
+
+test("the reader sheet wraps long lines in monospace and never scrolls sideways", () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.reader-body \{[^}]*overflow-x: hidden/);
+  assert.match(css, /\.reader-row \{[^}]*overflow-wrap: anywhere/);
+  assert.match(css, /\.reader-raw, \.reader-text \{[^}]*white-space: pre-wrap;[^}]*overflow-wrap: anywhere;[^}]*ui-monospace/);
+  assert.match(css, /\.reader-sheet \{[^}]*height: 85dvh/);
 });

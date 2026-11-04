@@ -210,7 +210,7 @@
 //   POST /api/try                {key}: forwards a card build or main retry to the hub's loopback /_hub/build
 //   POST /api/try/main/pull      {}: Main's refresh icon, forwarded to the hub's loopback /_hub/pull → {commits, error?}
 //   GET  /api/log?file=<name>.log {text, truncated, size}: the last 256 KiB of that file in ~/.claude/kickflip/logs, by name
-//                                only; log.html shows it and re-reads while it grows
+//                                only; the board's reader sheet (app-reader.js) and log.html show it and re-read it while it grows
 //   GET  /api/try/main/log      {lines}: last 40 lines of main's log, from at most its last 64 KiB
 // data/try.json is the hub's run state; data/main.json holds main's published install link.
 //   GET  /_claude/events         events not hidden, newest first, each with Claude's reply if written

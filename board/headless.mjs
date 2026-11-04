@@ -78,15 +78,16 @@ export function landerBrief({ route, key, ref, title, worktree, base, answers = 
   ].join('\n');
 }
 
-// Runs claude -p <prompt> in cwd in auto mode on model, detached, its output in log, without the launching session's
-// own CLAUDE_* environment. → {pid, log} once it has started; rejects when it can't start.
+// Runs claude -p <prompt> in cwd in auto mode on model, detached, without the launching session's own CLAUDE_*
+// environment. Its output goes to log as it runs, one stream-json event per line, which the board's log sheet reads
+// as it grows (app-reader.js). → {pid, log} once it has started; rejects when it can't start.
 export function launchHeadless({ bin = claudeBin(), cwd, prompt, model, log }) {
   fs.mkdirSync(path.dirname(log), { recursive: true });
   const out = fs.openSync(log, 'a');
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !inherited(k)));
   if (path.isAbsolute(bin)) env.PATH = `${path.dirname(bin)}:${env.PATH || ''}`;
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, ['-p', prompt, '--permission-mode', 'auto', '--model', model], { cwd, env, detached: true, stdio: ['ignore', out, out] });
+    const child = spawn(bin, ['-p', prompt, '--permission-mode', 'auto', '--model', model, '--output-format', 'stream-json', '--verbose'], { cwd, env, detached: true, stdio: ['ignore', out, out] });
     child.once('spawn', () => { fs.closeSync(out); child.unref(); resolve({ pid: child.pid, log }); });
     child.once('error', (e) => { fs.closeSync(out); reject(e); });
   });

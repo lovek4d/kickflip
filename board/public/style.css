@@ -781,6 +781,39 @@ button[aria-busy="true"]:is([data-card-bump], [data-bump]) svg { fill: currentCo
 .main-log-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
 .main-log-actions button { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 6px 18px; }
 #mainLogReason { color: var(--color-notice); overflow-wrap: anywhere; }
+/* The reader sheet (app-reader.js): a builder's log or notes, 85% of the height from the bottom. Its body scrolls
+   down only: every line wraps (#252). */
+.reader-sheet { height: 85dvh; max-height: 85dvh; padding: 0; overflow: hidden; }
+.reader-sheet[open] { display: flex; flex-direction: column; }
+.reader-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; border-bottom: 1px solid var(--line); }
+.reader-head h2 { flex: none; margin: 0; font-size: 15px; }
+.reader-ref { flex: 1; min-width: 0; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reader-tools { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.reader-tools:empty { display: none; }
+.reader-tools button { height: 32px; padding: 0 12px; border-radius: 999px; font-size: 13px; }
+.reader-tools button[aria-pressed="true"] { color: var(--accent); background: var(--chip); }
+.reader-status { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+.reader-status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.reader-status.on { color: var(--accent); }
+.reader-status.on::before { background: var(--accent); animation: reader-pulse 1.4s ease-in-out infinite; }
+@keyframes reader-pulse { 50% { opacity: .35; } }
+.reader-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 6px 0 max(12px, env(safe-area-inset-bottom)); }
+.reader-body > .muted { padding: 8px 14px; margin: 0; }
+.reader-row { padding: 5px 14px; font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.reader-row.text { padding-top: 9px; }
+.reader-row.end { margin: 6px 14px 0; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--chip); }
+.reader-row.sys, .reader-row.out { color: var(--muted); font-size: 12.5px; }
+.reader-row.out { padding-left: 28px; font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.reader-row.tool { font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.reader-tag { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 6px; background: var(--chip); color: var(--accent); font-size: 11px; }
+.reader-raw, .reader-text { margin: 0; padding: 2px 14px 8px; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.reader-md { padding: 4px 16px 12px; overflow-wrap: anywhere; line-height: 1.5; }
+.reader-md h1 { font-size: 17px; margin: 10px 0 6px; }
+.reader-md h2, .reader-md h3 { font-size: 15px; }
+.reader-md pre, .reader-md code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.reader-md table { display: block; max-width: 100%; overflow-x: hidden; }
+.reader-new { position: absolute; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%); border: 0; border-radius: 999px; padding: 7px 14px; background: var(--accent); color: var(--on-accent); font-size: 13px; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+.reader-new[hidden] { display: none; }
 
 /* The Auto Review lane (ui-cards.js reviewLane): its cards read like the board's, and Posted earlier's lines like a fold's. */
 .rv-card, .rv-line { border-top: 1px solid var(--line); }

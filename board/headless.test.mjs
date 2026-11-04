@@ -32,7 +32,7 @@ test("a lander's brief takes up the card's verified build, acts on the owner's a
   }
 });
 
-test('launchHeadless runs claude -p in the worktree in auto mode on the model, detached, logging to a file, and rejects when claude does not start', async () => {
+test('launchHeadless runs claude -p in the worktree in auto mode on the model, detached, streaming its events as JSON lines to a log file, and rejects when claude does not start', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-'));
   try {
     const out = path.join(dir, 'seen.json');
@@ -48,7 +48,7 @@ test('launchHeadless runs claude -p in the worktree in auto mode on the model, d
     }
     assert.ok(Number.isInteger(launched.pid));
     await until(() => fs.existsSync(out) && fs.readFileSync(log, 'utf8').includes('ran'), 'the fake claude runs');
-    assert.deepEqual(JSON.parse(fs.readFileSync(out, 'utf8')), { argv: ['-p', 'Build it.', '--permission-mode', 'auto', '--model', 'sonnet'], cwd: fs.realpathSync(dir), nested: null });
+    assert.deepEqual(JSON.parse(fs.readFileSync(out, 'utf8')), { argv: ['-p', 'Build it.', '--permission-mode', 'auto', '--model', 'sonnet', '--output-format', 'stream-json', '--verbose'], cwd: fs.realpathSync(dir), nested: null });
     await assert.rejects(launchHeadless({ bin: path.join(dir, 'missing'), cwd: dir, prompt: 'x', model: 'opus', log }), /ENOENT/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
