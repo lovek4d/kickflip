@@ -18,6 +18,7 @@ import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleT
 import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { fetchPR, reportOf, githubLogin, postToPR, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
+import { allLanded, cardPRs, hasPR, leastReady, parsePRRef, prKeyOf, prNames, prURL, storedPRs } from '../shared/card-prs.mjs';
 import { reviewLinks, topicItems, reviewersOf } from './review.mjs';
 import { readiness } from '../hub/readiness.mjs';
 import { slackDay } from '../hub/slack.mjs';
@@ -417,7 +418,7 @@ async function askNotNew(site, eventId, events) {
     const wave = await readJSON(s.file, null);
     for (const it of Array.isArray(wave?.items) ? wave.items : []) if (it.from_ask === eventId) items.push({ key: `${s.slug}/${it.id}`, it });
   }
-  const started = items.find(({ it }) => it.pr || !UNSTARTED.includes(it.status));
+  const started = items.find(({ it }) => hasPR(it) || !UNSTARTED.includes(it.status));
   if (started) return { why: `${named} became ${started.key}, which has started` };
   if (items.length) return { items: items.map((i) => i.key) };
   const replied = await Promise.all(['html', 'json'].map((ext) => fs.stat(path.join(site, 'data', 'replies', `${eventId}.${ext}`)).then(() => true, () => false)));
@@ -519,7 +520,7 @@ export async function recordReview(site, number, { state, text, url } = {}) {
 async function hasOpenPR(site) {
   for (const source of await itemSources(site)) {
     const wave = await readJSON(source.file, null);
-    if ((wave?.items || []).some((it) => Number.isInteger(it.pr) && !FINISHED.includes(it.status)) && boardRepoOf(site, wave)) return true;
+    if ((wave?.items || []).some((it) => !FINISHED.includes(it.status) && cardPRs(it, boardRepoOf(site, wave)).length)) return true;
   }
   return false;
 }
@@ -642,19 +643,19 @@ export async function reviewDue(site, options) {
     const people = reviewersOf(wave, cfg.reviewers);
     const repo = boardRepoOf(site, wave);
     for (const item of wave.items || []) {
-      if (!Number.isInteger(item.pr) || !repo || ['done', 'dropped'].includes(item.status)) continue;
+      const { prs, pr } = cachedPRs(cache, item, repo);
+      if (!pr || ['done', 'dropped'].includes(item.status)) continue;
       const key = `${source.slug}/${item.id}`;
-      const pr = routeRecord(cache.prs, `${repo}#${item.pr}`);
       const links = reviewLinks(wave, item, key, topics);
-      if (item.status === 'merged' || item.merged_at || pr?.state === 'MERGED') {
+      if (item.status === 'merged' || item.merged_at || allLanded(prs.map((p) => p.gh))) {
         for (const r of people) {
           const link = routeRecord(links, r.name);
           const stored = routeRecord(item.review_link_ts, r.name);
           if (!link?.ts || (Array.isArray(stored?.reactions) && stored.reactions.includes('git_merged'))) continue;
           reactions.push({ key, reviewer: r.name, channel: link.channel || r.dm, ts: link.ts, emoji: 'git_merged', record: `${cmd} review react ${key} ${arg(r.name)} git_merged` });
         }
-      } else if (pr?.state === 'OPEN' && !pr.isDraft) {
-        const url = `https://github.com/${repo}/pull/${item.pr}`;
+      } else if (pr.gh?.state === 'OPEN' && !pr.gh.isDraft) {
+        const url = prs.filter((p) => p.gh?.state === 'OPEN').map((p) => p.url).join('\n');
         for (const r of people.filter((p) => !routeRecord(links, p.name))) {
           dms.push({ key, reviewer: r.name, channel: r.dm, text: url, record: `${cmd} review sent ${key} ${arg(r.name)} --ts <ts> --channel ${r.dm}` });
         }
@@ -663,6 +664,11 @@ export async function reviewDue(site, options) {
   }
   const digest = await reviewDigest(site, options);
   return { dms, reactions, digest: digest.due ? { ...digest, record: `${cmd} review digest sent <reviewer> --ts <ts> --channel <dm> --items <key,key>` } : null };
+}
+// A card's PRs with the hub's cached GitHub state as gh, and pr, the least-ready one that decides it.
+function cachedPRs(cache, item, repo) {
+  const prs = cardPRs(item, repo).map((p) => ({ ...p, url: prURL(p), gh: routeRecord(cache.prs, prKeyOf(p)) || null }));
+  return { prs, pr: prs[leastReady(prs.map((p) => p.gh))] || null };
 }
 export async function reviewDigest(site, { now = new Date() } = {}) {
   needSite(site);
@@ -676,16 +682,18 @@ export async function reviewDigest(site, { now = new Date() } = {}) {
     for (const r of people) if (!reviewers.has(r.name)) reviewers.set(r.name, { name: r.name, slack_user: r.slack_user, dm: r.dm, items: [] });
     const repo = boardRepoOf(site, wave);
     for (const item of wave.items || []) {
-      if (!Number.isInteger(item.pr) || !repo || ['merged', 'done', 'dropped'].includes(item.status)) continue;
+      if (['merged', 'done', 'dropped'].includes(item.status)) continue;
       const key = `${source.slug}/${item.id}`;
-      // The hub's cached PR state stands in for gh, so this matches domain.mjs laneOf's review lane without a network call.
-      const pr = routeRecord(cache.prs, `${repo}#${item.pr}`);
+      // The hub's cached PR state stands in for gh, so this matches domain.mjs laneOf's review lane without a network
+      // call, the card's least-ready PR deciding as it does there.
+      const { pr: least } = cachedPRs(cache, item, repo);
+      const pr = least?.gh;
       if (pr?.state !== 'OPEN' || pr.isDraft || pr.failing?.length || pr.reviewDecision === 'APPROVED') continue;
       const links = reviewLinks(wave, item, key, topics);
       for (const r of people) {
         const link = routeRecord(links, r.name);
         const age = link?.ts ? (now.getTime() - Number(link.ts) * 1000) / 86400000 : null;
-        reviewers.get(r.name).items.push({ key, title: item.title, pr: item.pr, url: `https://github.com/${repo}/pull/${item.pr}`,
+        reviewers.get(r.name).items.push({ key, title: item.title, pr: least.number, url: least.url,
           sent_ts: link?.ts || null, ...(age > 2 ? { days_old: Math.floor(age) } : {}) });
       }
     }
@@ -1213,7 +1221,17 @@ function clearBuildingStatus(item) {
   item.status_at = new Date().toISOString();
   return true;
 }
-const depKey = (slug, dep) => (String(dep).includes('/') ? String(dep) : `${slug}/${dep}`);
+// docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md: each --pr adds a PR, owner/repo#n or a bare number in the
+// board's repo (repo), to the card's list; one it already holds stays as it is. An older pr: <n> moves into the list.
+function addPRs(item, refs, repo) {
+  const added = [].concat(refs).map((ref) => parsePRRef(ref) || fail(`--pr takes a PR number or owner/repo#<n>, not "${ref}"`));
+  const same = (a, b) => a.number === b.number && (a.repo || repo || null) === (b.repo || repo || null);
+  const list = storedPRs(item);
+  for (const p of added) if (!list.some((q) => same(q, p))) list.push(p);
+  delete item.pr;
+  item.prs = list;
+}
+const depKey =(slug, dep) => (String(dep).includes('/') ? String(dep) : `${slug}/${dep}`);
 async function unfinishedDeps(site, slug, item) {
   const keys = (item.deps || []).map((d) => depKey(slug, d));
   const deps = await Promise.all(keys.map((k) => loadItem(site, k).then(({ item: d }) => d, () => null)));
@@ -1292,11 +1310,14 @@ export async function setMainInstall(site, { install, installSha }) {
   return { file, lines: ['main install set'] };
 }
 
+// "Merged PR #6." or "Merged PRs #6, owner/site#1.", naming the PRs as prNames does; "Merged." with none.
+export const mergedLine = (prs, repo) => (prs.length ? `Merged PR${prs.length > 1 ? 's' : ''} ${prNames(prs, repo)}.` : 'Merged.');
+
 // docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md
 // The thread line closing a card writes as its last: --text, which done and dropped need on a site, or for merged
-// "Merged PR #n.". → the line, or null.
-function closingLine(site, key, item, status, text) {
-  if (status === 'merged') return text ?? (item.status === 'merged' ? null : item.pr ? `Merged PR #${item.pr}.` : 'Merged.');
+// mergedLine's. → the line, or null.
+function closingLine(site, key, item, status, text, repo) {
+  if (status === 'merged') return text ?? (item.status === 'merged' ? null : mergedLine(storedPRs(item), repo));
   if (text === undefined && site) fail(`--status ${status} needs --text "<what was done or left>", which becomes ${key}'s last thread line`);
   return text ?? null;
 }
@@ -1357,7 +1378,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   const unpicked = status === 'building' && site ? await unpickedPrototype(site, key) : null;
   if (unpicked) fail(`${key} has no take picked: the owner's answer to ${unpicked.id} picks none${unpicked.note ? ` ("${clip(unpicked.note)}")` : ''}, so it prototypes again: draw the next round from that note, or grill when the note asks a question, and build once a take is picked`);
   const resolve = FINISHED.includes(status) ? await closeQuestions(site, key, `--status ${status}`, force) : async () => [];
-  const lastLine = FINISHED.includes(status) ? closingLine(site, key, { ...item, status: statusBefore }, status, said) : null;
+  const lastLine = FINISHED.includes(status) ? closingLine(site, key, { ...item, status: statusBefore }, status, said, boardRepoOf(site, wave)) : null;
   if (clearStatus) delete item.status;
   // A newer status_at overrides the owner's card-done in domain.mjs.
   if (status !== undefined || clearStatus) item.status_at = new Date().toISOString();
@@ -1369,13 +1390,13 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   // A build starting acts on whatever a Next set during the card's questions waited on.
   if (status === 'building' && next === undefined && item.next_on_questions) { delete item.next; delete item.next_on_questions; }
   if (pr !== undefined) {
-    item.pr = /^[1-9]\d*$/.test(String(pr)) ? Number(pr) : fail('--pr takes a PR number');
+    addPRs(item, pr, boardRepoOf(site, wave));
     clearBuildingStatus(item);
   }
   // docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md
   if (pushed !== undefined) {
     if (!listBoards().find((b) => samePath(b.dir, needSite(site)))?.remote) fail('--pushed is for a board whose repo is a plain git remote; on GitHub, open a PR and pass --pr');
-    if (item.pr) fail(`${key} has PR #${item.pr}; its PR says when it merges`);
+    if (hasPR(item)) fail(`${key} has a PR; its PR says when it merges`);
     try { validateBranch(pushed); } catch { fail('--pushed takes the name of the branch you pushed'); }
     item.pushed = { branch: pushed, at: new Date().toISOString() };
     item.branch = pushed;
@@ -1548,56 +1569,75 @@ async function setRelated(site, key, item, related) {
 
 export const boardRepoOf = (site, wave) => (site && listBoards().find((b) => samePath(b.dir, site))?.github) || wave.repo;
 
+// → one report per PR on the card, in its order, each naming its repo.
 export async function prReport(site, key) {
   const { wave, item } = await loadItem(site, key);
-  if (!Number.isInteger(item.pr) || item.pr <= 0) fail(`${key} has no PR`);
-  const repo = boardRepoOf(site, wave);
-  if (!repo) fail(`${key} has no repo`);
+  if (!hasPR(item)) fail(`${key} has no PR`);
+  const prs = cardPRs(item, boardRepoOf(site, wave));
+  if (!prs.length) fail(`${key} has no repo`);
   const since = item.gh_since || '1970-01-01T00:00:00Z';
   try {
     const me = settingsOf(await boardConfig(site)).github_login || await githubLogin();
-    return reportOf(await fetchPR({ repo, pr: item.pr, since }), { pr: item.pr, since, me });
+    return await Promise.all(prs.map(async ({ repo, number }) => ({ repo, ...reportOf(await fetchPR({ repo, pr: number, since }), { pr: number, since, me }) })));
   } catch (e) { fail(e.message); }
 }
 
-// `pr comment` and `pr reply`: Claude's words on one of the board repo's PRs, posted as the board's github-login with
-// the prefix and marker added (hub/pr-report.mjs postToPR), so the next `pr` leaves them out. → {lines}
+// `pr comment` and `pr reply`: Claude's words on a PR, a number in the board's repo or owner/repo#n in another, posted
+// as the board's github-login with the prefix and marker added (hub/pr-report.mjs postToPR), so the next `pr` leaves
+// them out. → {lines}
 export async function postPR(site, pr, { replyTo, body }) {
   const command = replyTo === undefined ? 'pr comment' : 'pr reply';
-  if (!/^[1-9]\d*$/.test(pr)) fail(`${command} takes a PR number`);
+  const ref = parsePRRef(pr) || fail(`${command} takes a PR number or owner/repo#<n>`);
   if (replyTo !== undefined && !/^[1-9]\d*$/.test(replyTo)) fail('pr reply takes the id of the review comment it answers');
   const words = text(body, '--body').trim();
   if (words.startsWith(CLAUDE_PREFIX.trim()) || words.includes(CLAUDE_MARK)) fail(`${command} adds the ${CLAUDE_PREFIX.trim()} prefix and the claude-bridge marker itself; pass only your words`);
-  const repo = boardRepoOf(needSite(site), {}) || fail(`${command} needs a board on GitHub; this board has no repo there`);
+  const repo = ref.repo || boardRepoOf(needSite(site), {}) || fail(`${command} needs a board on GitHub; this board has no repo there`);
   try {
-    const url = await postToPR({ repo, pr: Number(pr), replyTo, words, login: settingsOf(await boardConfig(site)).github_login });
-    return { lines: [`posted on PR #${pr}: ${url}`] };
+    const url = await postToPR({ repo, pr: ref.number, replyTo, words, login: settingsOf(await boardConfig(site)).github_login });
+    return { lines: [`posted on PR ${ref.repo ? pr : `#${pr}`}: ${url}`] };
   } catch (e) { fail(e.message); }
 }
 
 const boardSource = async (site) => storedTickets((await boardConfig(site)).tickets);
 
 // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
-// `board.mjs merge`: merges the card's PR with gh --squash once GitHub reads it approved, green and CLEAN (domain.mjs
-// mergeBlockers, the test the Merge button uses), then records the card merged. It refuses commits after the newest
-// approval unless afterApproval says why they're trivial, and a card with manual steps unless confirmed quotes the
-// owner. A refusal names every reason, and also goes in the card's thread while the owner's Merge waits on it.
+// `board.mjs merge`: merges the card's PRs with gh --squash, in the card's order, once GitHub reads every open one
+// approved, green and CLEAN (domain.mjs mergeBlockers, the test the Merge button uses), then records the card merged
+// (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md). A PR already merged or closed is left as it is. It refuses
+// commits after the newest approval unless afterApproval says why they're trivial, and a card with manual steps unless
+// confirmed quotes the owner. A refusal names every reason, each after its PR's name on a card with several, and also
+// goes in the card's thread while the owner's Merge waits on it.
 export async function mergeCard(site, key, { afterApproval, confirmed } = {}) {
   needSite(site);
   const { wave, item } = await loadItem(site, key);
-  if (!Number.isInteger(item.pr)) fail(`${key} has no PR`);
+  if (!hasPR(item)) fail(`${key} has no PR`);
   if (FINISHED.includes(item.status)) fail(`${key} is ${item.status}`);
-  const repo = boardRepoOf(site, wave) || fail(`${key} has no repo`);
+  const repo = boardRepoOf(site, wave);
+  const prs = cardPRs(item, repo);
+  if (!prs.length) fail(`${key} has no repo`);
+  const now = new Date().toISOString();
   let fetched;
-  try { fetched = await fetchPR({ repo, pr: item.pr, since: new Date().toISOString() }); } catch (e) { fail(e.message); }
-  const { view, reviews } = fetched;
-  if (view.state === 'MERGED') return setItem(site, key, { status: 'merged', text: `PR #${item.pr} was already merged.` });
-  const { failing, pending } = reportOf(fetched, { pr: item.pr, since: new Date().toISOString(), me: null });
-  const reasons = mergeBlockers({ ...view, checks: { state: failing.length ? 'fail' : pending ? 'pending' : 'pass', failing, pending } });
-  const approved = reviews.filter((r) => r.state === 'APPROVED').sort((a, b) => String(a.submitted_at).localeCompare(String(b.submitted_at))).at(-1)?.commit_id;
-  const after = Boolean(approved && view.headRefOid && approved !== view.headRefOid);
+  try { fetched = await Promise.all(prs.map((p) => fetchPR({ repo: p.repo, pr: p.number, since: now }))); } catch (e) { fail(e.message); }
+  const states = fetched.map(({ view }) => view);
+  if (allLanded(states)) {
+    const merged = prs.filter((_, i) => states[i].state === 'MERGED');
+    return setItem(site, key, { status: 'merged', text: `PR${merged.length > 1 ? 's' : ''} ${prNames(merged, repo)} ${merged.length > 1 ? 'were' : 'was'} already merged.` });
+  }
+  const open = prs.map((p, i) => ({ ...p, ...fetched[i] })).filter(({ view }) => view.state === 'OPEN');
+  const reasons = [];
+  let after = false;
+  for (const p of open) {
+    const { view, reviews } = p;
+    const { failing, pending } = reportOf(p, { pr: p.number, since: now, me: null });
+    const own = mergeBlockers({ ...view, checks: { state: failing.length ? 'fail' : pending ? 'pending' : 'pass', failing, pending } });
+    const approved = reviews.filter((r) => r.state === 'APPROVED').sort((a, b) => String(a.submitted_at).localeCompare(String(b.submitted_at))).at(-1)?.commit_id;
+    const later = Boolean(approved && view.headRefOid && approved !== view.headRefOid);
+    after ||= later;
+    if (later && afterApproval === undefined) own.push('commits after the approval: pass --after-approval "<why they are trivial>" when they are, else ask the approver to look again');
+    reasons.push(...(prs.length > 1 ? own.map((r) => `${prNames([p], repo)} ${r}`) : own));
+  }
+  if (!open.length) reasons.push(prs.length > 1 ? 'every PR is closed' : 'PR is closed');
   if (afterApproval !== undefined && !after) fail('--after-approval: no commit came after the approval; drop it');
-  if (after && afterApproval === undefined) reasons.push('commits after the approval: pass --after-approval "<why they are trivial>" when they are, else ask the approver to look again');
   const steps = item.manual_steps?.length ? (confirmed === undefined ? null : await ownerQuote(site, confirmed, '--confirmed')) : undefined;
   if (confirmed !== undefined && steps === undefined) fail(`--confirmed: ${key} has no manual steps; drop it`);
   if (steps === null) reasons.push('manual steps: merge only on the owner\'s word, with --confirmed "<their words>"');
@@ -1606,11 +1646,15 @@ export async function mergeCard(site, key, { afterApproval, confirmed } = {}) {
     if (await ownerMergeWaits(site, key)) await appendThread(site, key, { text: why });
     fail(why);
   }
-  const merged = await new Promise((resolve) => {
-    execFile('gh', ['pr', 'merge', String(item.pr), '--repo', repo, '--squash'], { encoding: 'utf8', timeout: 120_000 }, (error, stdout, stderr) => resolve(error ? String(stderr || error.message).trim().split('\n')[0] : null));
-  });
-  if (merged) fail(`gh pr merge #${item.pr} failed: ${merged}`);
-  const said = [`Merged PR #${item.pr}.`, afterApproval !== undefined && `After the approval: ${text(afterApproval, '--after-approval')}`, steps && `The owner's word on the manual steps: "${steps}"`];
+  const done = [];
+  for (const p of open) {
+    const error = await new Promise((resolve) => {
+      execFile('gh', ['pr', 'merge', String(p.number), '--repo', p.repo, '--squash'], { encoding: 'utf8', timeout: 120_000 }, (e, stdout, stderr) => resolve(e ? String(stderr || e.message).trim().split('\n')[0] : null));
+    });
+    if (error) fail(`gh pr merge ${prNames([p], repo)} failed: ${error}${done.length ? ` (merged ${prNames(done, repo)} before it)` : ''}`);
+    done.push(p);
+  }
+  const said = [mergedLine(done, repo), afterApproval !== undefined && `After the approval: ${text(afterApproval, '--after-approval')}`, steps && `The owner's word on the manual steps: "${steps}"`];
   return setItem(site, key, { status: 'merged', text: said.filter(Boolean).join(' ') });
 }
 

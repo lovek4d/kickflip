@@ -105,25 +105,36 @@ test('a merged PR shows no review chips', () => {
 });
 
 test('PR chips show the repo with an orange dot for a draft or a green check once ready, then CI and unanswered Codex findings', () => {
-  const draft = ui.prChips({ pr: { ...openPR, isDraft: true, status: 'draft', codexOpen: 2 } });
+  const draft = ui.prChips({ prs: [{ ...openPR, isDraft: true, status: 'draft', codexOpen: 2 }] });
   assert.equal(text(draft), 'repo#7 ● CI ✓ codex 2');
   assert.match(draft, /^<a class="chip tone-notice" [^>]*title="Draft" [^>]*aria-label="repo#7: Draft">/);
-  const ready = ui.prChips({ pr: openPR });
+  const ready = ui.prChips({ prs: [openPR] });
   assert.equal(text(ready), 'repo#7 ✓ CI ✓');
   assert.match(ready, /^<a class="chip tone-ready" [^>]*title="Ready for review" [^>]*aria-label="repo#7: Ready for review">/);
-  const ci = (state) => /<span class="chip (tone-\w+)" title="CI/.exec(ui.prChips({ pr: { ...openPR, checks: { state } } }))[1];
+  const ci = (state) => /<span class="chip (tone-\w+)" title="CI/.exec(ui.prChips({ prs: [{ ...openPR, checks: { state } }] }))[1];
   assert.deepEqual(['pass', 'fail', 'pending', 'unknown'].map(ci), ['tone-ready', 'tone-danger', 'tone-notice', 'tone-quiet']);
+});
+
+test("a card with several PRs shows a badge for each, in its order, with that PR's state, CI and link", () => {
+  const site = { ...openPR, number: 1, url: 'https://github.com/o/site/pull/1', isDraft: true, status: 'draft', checks: { state: 'fail' } };
+  const merged = { ...openPR, state: 'MERGED', status: 'merged' };
+  const chips = ui.prChips({ prs: [merged, site] });
+  assert.equal(text(chips), 'repo#7 ✓ site#1 ● CI ✗');
+  assert.deepEqual([...chips.matchAll(/<a class="chip (tone-\w+)" href="([^"]+)"/g)].map((m) => [m[1], m[2]]), [
+    ['tone-merged', 'https://github.com/o/repo/pull/7'], ['tone-notice', 'https://github.com/o/site/pull/1'],
+  ]);
+  assert.equal(ui.prChips({ prs: [] }), '');
 });
 
 test("the PR badge alone shows the PR's state, linking to the PR: a purple check once merged, a red cross once closed, a plain name before GitHub is read", () => {
   assert.deepEqual(plain(ui.PR_STATE), { open: 'open', draft: 'draft', merged: 'merged', closed: 'closed' });
-  const merged = ui.prChips({ pr: { ...openPR, state: 'MERGED', status: 'merged', codexOpen: 2 } });
+  const merged = ui.prChips({ prs: [{ ...openPR, state: 'MERGED', status: 'merged', codexOpen: 2 }] });
   assert.equal(text(merged), 'repo#7 ✓');
   assert.match(merged, /^<a class="chip tone-merged" href="https:\/\/github\.com\/o\/repo\/pull\/7" title="Merged" [^>]*aria-label="repo#7: Merged">[^<]*<\/a>$/);
-  const closed = ui.prChips({ pr: { ...openPR, state: 'CLOSED', status: 'closed' } });
+  const closed = ui.prChips({ prs: [{ ...openPR, state: 'CLOSED', status: 'closed' }] });
   assert.equal(text(closed), 'repo#7 ✗');
   assert.match(closed, /^<a class="chip tone-danger" [^>]*title="Closed" [^>]*aria-label="repo#7: Closed">[^<]*<\/a>$/);
-  assert.match(ui.prChips({ pr: { ...openPR, state: undefined, checks: undefined, status: null } }), /^<a class="chip tone-quiet" href="[^"]+" target="_blank" rel="noopener">repo#7<\/a>$/);
+  assert.match(ui.prChips({ prs: [{ ...openPR, state: undefined, checks: undefined, status: null }] }), /^<a class="chip tone-quiet" href="[^"]+" target="_blank" rel="noopener">repo#7<\/a>$/);
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   const [light, dark] = colorsCss.split('@media (prefers-color-scheme: dark)');
   assert.match(css, /\.chip\.tone-merged \{ color: var\(--color-merged\); \}/);
@@ -842,7 +853,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   const B = { $: () => ({}), alive: () => false, on: (el, type, fn) => { if (type === 'click') clicks.push(fn); }, later: (ms, fn) => later.push([ms, fn]), store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
-  const open = { ...workCard, pr: null, reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
+  const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
   const pushed = { ...open, ref: 'INT-12', next: 'merge INT-12 into main', branch: 'INT-12', pushed: { branch: 'INT-12', at: new Date(Date.now() - 25 * 60_000).toISOString(), host: 'gitlab.com' } };
   assert.deepEqual(rows(pushed), [['Wave', 'W'], ['Branch', 'INT-12'], ['Next', 'merge INT-12 into main'], ['Links', 'Notes · Pushed INT-12 to gitlab.com · 25m ago']]);
@@ -865,7 +876,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   for (const hasNotes of [false, true]) {
     for (const build of [null, install]) {
       for (const state of ['OPEN', 'MERGED', 'CLOSED']) {
-        const it = { ...open, hasNotes, install: build, pr: { ...pr, state } };
+        const it = { ...open, hasNotes, install: build, pr: { ...pr, state }, prs: [{ ...pr, state }] };
         const expected = [hasNotes && 'Notes', build && 'Install', state === 'OPEN' && 'Review on GitHub'].filter(Boolean);
         assert.deepEqual(rows(it).filter(([label]) => label === 'Links'), expected.length ? [['Links', expected.join(' · ')]] : []);
         assert.match(B.detail(it), expected.length ? /<dd class="external-links">[^]*<\/dd><\/dl>/ : /<dd>Waiting for PR reviewers<\/dd><\/dl>/);
@@ -882,7 +893,7 @@ test("a card with a worktree opens it in VS Code from its Links line after Notes
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
-  const open = { ...workCard, pr: null, reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, worktree: '/Users/me/.claude/kickflip/worktrees/A 1' };
+  const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, worktree: '/Users/me/.claude/kickflip/worktrees/A 1' };
   assert.deepEqual(rows(open).at(-1), ['Links', 'Notes · Open in VS Code']);
   assert.match(B.detail(open), /<a href="vscode:\/\/file\/Users\/me\/\.claude\/kickflip\/worktrees\/A%201" title="Open the worktree in VS Code">Open in VS Code /);
   assert.deepEqual(rows({ ...open, hasNotes: false }).at(-1), ['Links', 'Open in VS Code']);
@@ -899,7 +910,7 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const link = (ref) => ({ key: `w/GH-${ref.slice(1)}`, ref });
-  const card = { ...workCard, pr: null, reviewers: [], key: 'w/GH-93', ref: '#93', lane: 'todo', action: null, waveTitle: 'W', status: 'planned', next: null, deps: ['GH-80'], manualSteps: [], holdable: true,
+  const card = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/GH-93', ref: '#93', lane: 'todo', action: null, waveTitle: 'W', status: 'planned', next: null, deps: ['GH-80'], manualSteps: [], holdable: true,
     parent: link('#53'), children: [link('#94'), link('#95')], related: [link('#75')], blockedBy: [link('#80')], waitsOnIt: [link('#99')] };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
   assert.deepEqual(rows(card), [['Wave', 'W'], ['Status', 'planned'], ['Parent', '#53'], ['Children', '#94 #95'], ['Related to', '#75'], ['Blocked by', '#80'], ['Waits on it', '#99']]);
@@ -949,7 +960,7 @@ test("an open card that can be implemented shows Implement rightmost in its acti
   const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
-  const todo = { ...workCard, pr: null, reviewers: [], key: 'w/A1', lane: 'todo', action: null, actionButton: 'grill', waveTitle: 'W', deps: [], manualSteps: [], holdable: true, hasNotes: true,
+  const todo = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', lane: 'todo', action: null, actionButton: 'grill', waveTitle: 'W', deps: [], manualSteps: [], holdable: true, hasNotes: true,
     try: { kind: 'web', script: true, changes: false }, buildable: true };
   const row = (it) => [...B.detail(it).match(/<div class="action-row workflow">(.*?)<\/div>/)[1].matchAll(/<button[^>]*>(.*?)<\/button>/g)].map(([, label]) => label);
   assert.deepEqual(row(todo), ['Hold', 'Grill', 'Implement']);
@@ -1023,7 +1034,7 @@ test("a builder line shows the progress and its age, not who is building", () =>
 
 test("a New card reads New and its first line, then whether it was moved or edited and whether Claude has started, with bump, edit and delete and no Action needed, and ends with when it was sent", () => {
   const sent = ago(1);
-  const card = (ask, extra = {}) => ui.workLines({ kind: 'ask', id: 'a1', key: 'ask:a1', ref: 'New', isNew: true, title: 'Fix <it>', linear: [], pr: null, deps: [], blockedBy: [], created: sent, updatedAt: sent, sortAt: sent,
+  const card = (ask, extra = {}) => ui.workLines({ kind: 'ask', id: 'a1', key: 'ask:a1', ref: 'New', isNew: true, title: 'Fix <it>', linear: [], pr: null, prs: [], deps: [], blockedBy: [], created: sent, updatedAt: sent, sortAt: sent,
     bumpedAt: ask.bumpedAt || null, ask: { askedAt: sent, bumpedAt: null, canEdit: true, text: 'Fix <it>\nand more', files: [], ...ask }, ...extra }, { top: Boolean(ask.bumpedAt) });
   const at = ui.cardTime(sent);
   assert.deepEqual(lines(card({ state: 'waiting' })), ['New Fix <it>', at]);
@@ -1045,7 +1056,7 @@ test('a pending prototype request offers a bump unless it is already the latest 
 
 const lines = (html) => html.split('<div class="line').slice(1).map((l) => text('<div class="line' + l));
 const workCard = { kind: 'work', key: 'w/B5', id: 'B5', ref: 'B5', title: 'Five', internal: false, held: false, risky: false, threadCount: 4,
-  linear: [{ id: 'ENG-1', url: 'https://linear.app/x/ENG-1' }], pr: { ...openPR, isDraft: true, status: 'draft' }, reviewers: ['Jamie'], review: { Jamie: { state: 'unsent' } },
+  linear: [{ id: 'ENG-1', url: 'https://linear.app/x/ENG-1' }], pr: { ...openPR, isDraft: true, status: 'draft' }, prs: [{ ...openPR, isDraft: true, status: 'draft' }], reviewers: ['Jamie'], review: { Jamie: { state: 'unsent' } },
   questions: null, builder: null, working: false, next: 'Waiting for PR reviewers' };
 
 test('ticket badges use the board source, link internally or externally, and leave asks without a ticket', () => {
@@ -1066,11 +1077,11 @@ test('ticket badges use the board source, link internally or externally, and lea
 
 test('a work card reads its title, then its next step or builder, its chips, and last its time line with what blocks it, Action needed and its unread messages', () => {
   assert.deepEqual(lines(ui.workLines(workCard, { unread: 2 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ✗', '2 new messages']);
-  assert.deepEqual(lines(ui.workLines({ ...workCard, next: null, pr: null, reviewers: [] }, { unread: 1 })), ['ENG-1 Five', '1 new message']);
+  assert.deepEqual(lines(ui.workLines({ ...workCard, next: null, pr: null, prs: [], reviewers: [] }, { unread: 1 })), ['ENG-1 Five', '1 new message']);
   assert.doesNotMatch(text(ui.workLines(workCard)), /B5|msg|unread|new/);
   const busy = { ...workCard, held: true, risky: true, builder: { progress: 'Running tests', at: null } };
   assert.deepEqual(lines(ui.workLines(busy)), ['ENG-1 Five', 'Running tests', 'repo#7 ● CI ✓ Jamie ✗ risky', 'held']);
-  const internal = { ...workCard, key: 'site/S3', id: 'S3', ref: 'INT-3', internal: true, pr: null, linear: [{ id: 'ENG-9', url: 'u' }], next: null };
+  const internal = { ...workCard, key: 'site/S3', id: 'S3', ref: 'INT-3', internal: true, pr: null, prs: [], linear: [{ id: 'ENG-9', url: 'u' }], next: null };
   assert.deepEqual(lines(ui.workLines(internal)), ['INT-3 Five']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, questions: { open: 1, first: 'q1' }, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
     ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ✗', 'Action needed']);
@@ -1091,11 +1102,11 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.match(ui.workLines(waiting), /<button class="ghost icon bumped" data-card-bump="w\/B5" data-bumped aria-pressed="true" aria-label="Unbump"/);
   assert.doesNotMatch(ui.workLines(waiting), /disabled|data-confirm="bump"/);
   assert.match(ui.workLines({ ...waiting, bumpedAt: null }), /<button class="ghost icon" data-card-bump="w\/B5" aria-pressed="false" aria-label="Bump to top"/);
-  const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: '10:00', title: 'Fix it', internal: false, linear: [], pr: null, deps: [], blockedBy: [], working: true };
+  const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: '10:00', title: 'Fix it', internal: false, linear: [], pr: null, prs: [], deps: [], blockedBy: [], working: true };
   assert.deepEqual(lines(ui.workLines(ask)), ['Fix it', 'Working on it']);
   assert.deepEqual(lines(ui.workLines(ask, { unread: 2 })), ['Fix it', 'Working on it', '2 new messages']);
   assert.deepEqual(lines(ui.workLines({ ...internal, waitsOn: 'checking', working: true, next: 'Verify it' })), ['INT-3 Five', 'Orchestrator review']);
-  const followup = { ...workCard, key: 'w/ENG-7', id: 'ENG-7', ref: 'ENG-7', linear: [{ id: 'ENG-7', url: 'u' }], pr: null, reviewers: [], next: null, lane: 'todo', deps: [], blockedBy: [] };
+  const followup = { ...workCard, key: 'w/ENG-7', id: 'ENG-7', ref: 'ENG-7', linear: [{ id: 'ENG-7', url: 'u' }], pr: null, prs: [], reviewers: [], next: null, lane: 'todo', deps: [], blockedBy: [] };
   assert.deepEqual(lines(ui.workLines(followup)), ['ENG-7 Five']);
   assert.doesNotMatch(ui.workLines(followup), /follow-up/);
 });
@@ -1104,7 +1115,7 @@ test("a card's last line is the time its lane sorts by, then its hold with no he
   const created = ago(24 * 5);
   const updatedAt = ago(30);
   const sortAt = ago(24 * 2);
-  const card = { ...workCard, lane: 'todo', pr: null, reviewers: [], next: null, created, updatedAt, sortAt };
+  const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, created, updatedAt, sortAt };
   const last = (html) => lines(html).at(-1);
   assert.deepEqual(lines(ui.workLines(card)), ['ENG-1 Five', ui.cardTime(sortAt)]);
   assert.match(ui.workLines(card), new RegExp(`<div class="line6 sub card-time"><time datetime="${sortAt}">`));
@@ -1130,7 +1141,7 @@ test("a card's last line is the time its lane sorts by, then its hold with no he
 // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
 test("a ready card's time line reads ready in green after its hold and before its unread messages, and a card from an ask still unsorted reads New", () => {
   const sortAt = ago(24 * 2);
-  const card = { ...workCard, lane: 'todo', pr: null, reviewers: [], next: null, sortAt };
+  const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt };
   const html = ui.workLines({ ...card, held: true, ready: true }, { unread: 2 });
   assert.equal(lines(html).at(-1), `${ui.cardTime(sortAt)} · held · ready · 2 new messages`);
   assert.match(html, /<span class="card-ready">ready<\/span><span class="card-unread">/);

@@ -56,7 +56,7 @@
   // What counts as a card's update: a new thread line, a status or Next line change, or a PR or CI change
   // (docs/adr/2026-11-02-2354-an-updated-card-takes-a-brief-tint.md). Two board items read the same exactly when it is unchanged.
   const updateSign = (it) => JSON.stringify([it.threadCount ?? 0, it.status ?? null, it.builder?.progress ?? null, it.working ?? null, it.waitsOn ?? null,
-    it.next ?? null, it.ask?.state ?? null, it.pr ? [it.pr.state, it.pr.isDraft, it.pr.reviewDecision, it.pr.checks?.state ?? null] : null]);
+    it.next ?? null, it.ask?.state ?? null, ...(it.prs || []).map((pr) => [pr.state, pr.isDraft, pr.reviewDecision, pr.checks?.state ?? null])]);
 
   Object.assign(globalThis.BoardUI, { packSnapshot, unpackSnapshot, preloadKeys, liveControls, changedLines, updateSign, SNAPSHOT_MAX });
 })();

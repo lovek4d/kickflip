@@ -764,6 +764,36 @@ test("a card's PR carries one state: open, draft, merged once GitHub or the card
   ], ['open', 'draft', 'merged', 'closed', null, 'merged', 'merged']);
 });
 
+test("a card's PRs across repos each carry their own state and link, and the least-ready one decides its lane, Next and Merge", () => {
+  const open = { state: 'OPEN', isDraft: false, checks: { state: 'pass' }, reviews: {}, reviewDecision: 'REVIEW_REQUIRED', mergeStateStatus: 'BLOCKED' };
+  const approved = { ...open, reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN' };
+  const card = (prs, item = {}) => buildBoard({
+    fromWaves: false, events: [], owner: {}, prs,
+    waves: [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One', prs: [{ number: 6 }, { repo: 'o/site', number: 1 }], ...item }] } }],
+  }).items[0];
+  const both = card({ 'o/r#6': approved, 'o/site#1': greenDraft });
+  assert.deepEqual(both.prs.map((p) => [p.repo, p.number, p.url, p.status]), [
+    ['o/r', 6, 'https://github.com/o/r/pull/6', 'open'], ['o/site', 1, 'https://github.com/o/site/pull/1', 'draft'],
+  ]);
+  assert.deepEqual([both.lane, both.waitsOn, both.pr.number, both.action?.url], ['review', 'ready', 1, 'https://github.com/o/site/pull/1']);
+  const reviewing = card({ 'o/r#6': approved, 'o/site#1': open });
+  assert.deepEqual([reviewing.lane, reviewing.waitsOn, reviewing.action], ['review', 'reviewers', null]);
+  const pending = card({ 'o/r#6': approved, 'o/site#1': { ...approved, checks: { state: 'pending', pending: 1 } } });
+  assert.deepEqual([pending.lane, pending.waitsOn, pending.action], ['review', 'merge', null]);
+  const ready = card({ 'o/r#6': approved, 'o/site#1': approved });
+  assert.deepEqual([ready.lane, ready.waitsOn, ready.action?.kind], ['review', 'merge', 'merge']);
+  const half = card({ 'o/r#6': { state: 'MERGED' }, 'o/site#1': approved });
+  assert.deepEqual([half.lane, half.prs.map((p) => p.status), half.action?.kind], ['review', ['merged', 'open'], 'merge']);
+  const unread = card({ 'o/r#6': { state: 'MERGED' } });
+  assert.deepEqual([unread.lane, unread.prs.map((p) => p.status)], ['todo', ['merged', null]]);
+  const landed = card({ 'o/r#6': { state: 'CLOSED' }, 'o/site#1': { state: 'MERGED', mergedAt: '2026-11-03T10:00:00Z' } });
+  assert.deepEqual([landed.lane, landed.status, landed.pr.status, landed.prs.map((p) => p.status), landed.closedAt], ['done', null, 'merged', ['closed', 'merged'], '2026-11-03T10:00:00Z']);
+  const closed = card({ 'o/r#6': { state: 'CLOSED' }, 'o/site#1': { state: 'CLOSED' } });
+  assert.deepEqual([closed.lane, closed.pr.status], ['done', 'closed']);
+  const older = buildBoard({ fromWaves: false, events: [], owner: {}, prs: { 'o/r#7': greenDraft }, waves: [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7 }] } }] }).items[0];
+  assert.deepEqual([older.prs.length, older.pr.number, older.pr.repo, older.waitsOn], [1, 7, 'o/r', 'ready']);
+});
+
 test('a withdrawn ask leaves the board', () => {
   const b = askBoard([askAt('a1', '2026-10-23T09:00:00Z'), { id: 'w1', ts: '2026-10-23T09:10:00Z', kind: 'ask-withdrawn', data: { id: 'a1' }, reply: null }]);
   assert.deepEqual(b.items.map((i) => i.key), ['w/A1']);

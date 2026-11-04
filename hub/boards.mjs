@@ -24,6 +24,7 @@ import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { githubFromOrigin } from './repos.mjs';
 import { reviewLinks, topicItems } from '../board/review.mjs';
+import { cardPRs } from '../shared/card-prs.mjs';
 
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLAUDE = path.join(os.homedir(), '.claude');
@@ -113,15 +114,12 @@ function wavesOf(dir, cfg, kind) {
   return slugs.map((slug) => ({ slug, wave: readJSON(path.join(WAVES, slug, 'wave.json'), null) })).filter((w) => isWave(w.wave));
 }
 
-// [{slug, wave}] → each card's open PR: [{wave, id, pr, repo, since}], since being the item's gh_since. A card
-// whose board has no github and whose wave has no repo has no PR to poll.
+// [{slug, wave}] → every PR on each unfinished card, in the card's order: [{wave, id, pr, repo, since}], since being the
+// item's gh_since. A PR in another repo is polled like one in the board's; one stored without a repo, on a board with
+// no github and a wave with no repo, has none to poll (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
 export function prsOf(waves, github) {
-  return waves.flatMap(({ slug, wave }) => {
-    const repo = github || wave.repo;
-    if (!repo) return [];
-    return wave.items.filter((it) => Number.isInteger(it?.pr) && !FINISHED.includes(it.status))
-      .map((it) => ({ wave: slug, id: it.id, pr: it.pr, repo, since: it.gh_since || NO_SINCE }));
-  });
+  return waves.flatMap(({ slug, wave }) => wave.items.filter((it) => !FINISHED.includes(it?.status))
+    .flatMap((it) => cardPRs(it, github || wave.repo).map((p) => ({ wave: slug, id: it.id, pr: p.number, repo: p.repo, since: it.gh_since || NO_SINCE }))));
 }
 
 function boardOf(route, s) {

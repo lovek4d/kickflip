@@ -77,18 +77,23 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
   prototype list                                         one line per recorded prototype
   prototype rm <topic>                                   drops the record, keeping its take files; refuses while an
                                                          open question links it
-  pr <wave>/<id>                                         one JSON line: the card's PR state, checks and new events,
-                                                         using the board's repo, github-login and the card's gh_since
-  pr comment <pr> --body <text>                          posts Claude's words on the board repo's PR <pr> through gh,
+  pr <wave>/<id>                                         one JSON line per PR on the card, in its order: the PR's
+                                                         repo, state, checks and new events, using the board's
+                                                         github-login and the card's gh_since
+  pr comment <pr> --body <text>                          posts Claude's words on PR <pr> through gh, a number in the
+                                                         board's repo or owner/repo#<n> for a card's PR in another,
   pr reply <pr> <comment id> --body <text>               or replies in that review comment's thread, as the board's
                                                          github-login (else gh's account), adding "🤖 " before and a
                                                          blank line and <!-- claude-bridge --> after, the marker pr
                                                          reads as Claude's own. Refuses words that already carry
                                                          either. Prints the post's url
   item set <wave>/<id> [--status <s> | --clear-status]   edits the item in its wave file
-         [--next <t> | --clear-next] [--pr <n>]          status: ${ITEM_STATUSES.join(', ')}
+         [--next <t> | --clear-next]                     status: ${ITEM_STATUSES.join(', ')}
                                                          an empty --next "" clears it, as --clear-next does
                                                          naming another unfinished card requires it in --deps
+         [--pr <n> | --pr <owner/repo#n>]...             adds a PR to the card, a bare number in the board's repo;
+                                                         repeatable, and never replaces one. Each PR gets its own
+                                                         badge and polling; the least-ready decides the card's lane
          [--pushed <branch>]                             on a board whose repo is a plain git remote (no GitHub):
                                                          the card's branch is pushed there, so it waits In Review
                                                          on the owner's merge. Push it first (git push origin
@@ -399,10 +404,11 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
                                                          --status done --text does; it refuses first what that close
                                                          would. KICKFLIP_RESTART_CMD='["<cmd>"]' replaces
                                                          the restarts, called with hub or board <route>
-  merge <wave>/<id> [--after-approval "<why trivial>"]   merges the card's PR (gh pr merge --squash) and records it merged,
-         [--confirmed "<owner's words>"]                 once GitHub reads it approved, its checks green with none
-                                                         pending and its merge state CLEAN, the test the Merge button
-                                                         uses. Refuses, naming each reason ("pending: 2 checks"),
+  merge <wave>/<id> [--after-approval "<why trivial>"]   merges the card's PRs (gh pr merge --squash) in its order and
+         [--confirmed "<owner's words>"]                 records it merged, once GitHub reads every open one approved,
+                                                         its checks green with none pending and its merge state CLEAN,
+                                                         the test the Merge button uses; a merged or closed PR is left
+                                                         as it is. Refuses, naming each reason ("pending: 2 checks"),
                                                          commits after the newest approval unless --after-approval
                                                          says why they're trivial (its closing line says so), and a
                                                          card with manual steps unless --confirmed quotes the owner.
@@ -434,7 +440,7 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
 
 class UsageError extends Error {}
 const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree', 'dry-run', 'dispatch']);
-const REPEATED = new Set(['take']);
+const REPEATED = new Set(['take', 'pr']);
 function parse(argv) {
   const flags = Object.create(null);
   const rest = [];
@@ -500,7 +506,7 @@ function noteOf(f) {
 
 // name: [positional args, allowed flags, run(site, args, flags) → message]
 const COMMANDS = {
-  pr: [['wave/id'], [], async (site, [key]) => ({ lines: [JSON.stringify(await store.prReport(site, key))] })],
+  pr: [['wave/id'], [], async (site, [key]) => ({ lines: (await store.prReport(site, key)).map((r) => JSON.stringify(r)) })],
   'pr comment': [['pr'], ['body'], (site, [pr], f) => {
     if (f.body === undefined) throw new UsageError('pr comment needs --body "<what Claude says>"');
     return store.postPR(site, pr, { body: f.body });

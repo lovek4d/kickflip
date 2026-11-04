@@ -173,6 +173,7 @@ import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { buildBoard, ITEM_EVENTS, lineupMoved, needsAnswer, ownerActions, picksNoTake, pullOf, refOf, startedByAnswer, threadOf, todoOf } from './domain.mjs';
 import { localDay } from '../hub/schedule.mjs';
+import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, existsSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { BoardError, addTopic, boardConfig, changeLineup, dueQueuedBuilds, migrateFollowups, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
@@ -428,7 +429,7 @@ async function snapshot({ github = true } = {}) {
   const prs = Object.create(null);
   if (github) await Promise.all(waves.flatMap(({ wave }) => {
     const repo = items.github || wave.repo;
-    return repo ? wave.items.filter((it) => it.pr).map(async (it) => { prs[`${repo}#${it.pr}`] = await prState(repo, it.pr); }) : [];
+    return wave.items.flatMap((it) => cardPRs(it, repo)).map(async (p) => { prs[prKeyOf(p)] = await prState(p.repo, p.number); });
   }));
   const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'item-message', 'wave-triage', 'todo-triage']);
   const pageEvents = await Promise.all((await shownEvents()).map((e) => (needsReply.has(e.kind) || routeRecord(working, e.id) ? withReply(e) : { ...e, reply: null })));

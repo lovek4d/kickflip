@@ -8,16 +8,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { INCOMING_FILES, listBoards, readJSON, saveJSON } from './boards.mjs';
 import { openPRs, prFiles, githubLogin } from './pr-report.mjs';
+import { cardPRs } from '../shared/card-prs.mjs';
 
 const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
 
-// open: the repo's open PRs [{number, title, author, url, head, draft, files, requested}]; cards: the board's cards with
-// a PR [{key, pr, files}]; me: the owner's GitHub login. → [{number, title, author, url, head, touches: [card key], asked}]
+// open: the repo's open PRs [{number, title, author, url, head, draft, files, requested}]; cards: each PR in the repo on
+// the board's cards [{key, pr, files}], a card with several having an entry for each; me: the owner's GitHub login. → [{number, title, author, url, head, touches: [card key], asked}]
 export function incomingFor({ open, cards, me }) {
   const ours = new Set(cards.map((c) => c.pr));
   return open.filter((p) => !p.draft && !same(p.author, me) && !ours.has(p.number)).map((p) => {
     const files = new Set(p.files);
-    const touches = cards.filter((c) => c.files.some((f) => files.has(f))).map((c) => c.key);
+    const touches = [...new Set(cards.filter((c) => c.files.some((f) => files.has(f))).map((c) => c.key))];
     const asked = p.requested.some((login) => same(login, me));
     return touches.length || asked ? { number: p.number, title: p.title, author: p.author, url: p.url, head: p.head, touches, asked } : null;
   }).filter(Boolean);
@@ -45,15 +46,17 @@ export async function checkIncoming({ manifest, gh = { openPRs, prFiles }, login
       const byNumber = new Map(open.map((p) => [p.number, p]));
       const cards = [];
       for (const { slug, wave } of board.waves) {
-        for (const it of wave.items.filter((i) => Number.isInteger(i?.pr) && i.status !== 'dropped')) {
-          const key = `${board.github}#${it.pr}`;
-          let files = byNumber.get(it.pr)?.files || cache[key];
-          if (!files) {
-            const read = await gh.prFiles(board.github, it.pr);
-            files = read.files;
-            if (read.state === 'MERGED') cache[key] = files;
+        for (const it of wave.items.filter((i) => i?.status !== 'dropped')) {
+          for (const { number } of cardPRs(it, board.github).filter((p) => p.repo === board.github)) {
+            const key = `${board.github}#${number}`;
+            let files = byNumber.get(number)?.files || cache[key];
+            if (!files) {
+              const read = await gh.prFiles(board.github, number);
+              files = read.files;
+              if (read.state === 'MERGED') cache[key] = files;
+            }
+            cards.push({ key: `${slug}/${it.id}`, pr: number, files });
           }
-          cards.push({ key: `${slug}/${it.id}`, pr: it.pr, files });
         }
       }
       writeIncoming(board.dir, { at: new Date().toISOString(), repo: board.github, prs: incomingFor({ open, cards, me }) });

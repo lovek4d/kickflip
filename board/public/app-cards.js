@@ -3,7 +3,7 @@
 // app-core.js and app-threads.js.
 BoardView.part((B) => {
   const { $, store, state, markSeen, seen, toast, links } = B;
-  const { esc, ago, REVIEW, reviewAge, unreadCount, workLines, BUILD_PHASES, buildPhase, phaseMotion, heldUntilWords, holdPicker, linkText, mergeButton, buildButton, installButton, tryButton, tryWords, waitOn, BUTTON, LINK_ARROW } = BoardUI;
+  const { esc, ago, REVIEW, reviewAge, unreadCount, workLines, BUILD_PHASES, buildPhase, phaseMotion, heldUntilWords, holdPicker, linkText, mergeButton, buildButton, installButton, tryButton, tryWords, waitOn, prName, BUTTON, LINK_ARROW } = BoardUI;
 
   const mainSheet = $('#mainLogSheet');
   const mainRetry = $('#mainLogRetry');
@@ -225,16 +225,19 @@ BoardView.part((B) => {
     });
   });
 
+  const openPRs = (it) => (it.prs || []).filter((p) => p.state === 'OPEN');
   const CONFIRM = {
     resume: (it, ref) => `Unhold ${ref}?${it.heldUntil ? ` It's held until ${heldUntilWords(it.heldUntil)}.` : ''} It can start again once nothing blocks it.`,
     nudge: () => 'Nudge Claude to check this implementer?',
     grill: (it, ref) => `Ask Claude for questions about ${ref}?`,
-    merge: (it, ref) => `Merge ${ref}? Claude squash-merges #${it.pr?.number} if it is still approved, green and clean.`,
+    merge: (it, ref) => (openPRs(it).length > 1
+      ? `Merge ${ref}? Claude squash-merges ${openPRs(it).map(prName).join(', ')} in turn if they are still approved, green and clean.`
+      : `Merge ${ref}? Claude squash-merges ${openPRs(it).map(prName).join('')} if it is still approved, green and clean.`),
     'card-build': (it, ref) => (it.blockedBy?.length
       ? `${it.held ? 'Unhold and implement' : 'Implement'} ${ref} once ${it.blockedBy.map((d) => d.ref).join(', ')} ${it.blockedBy.length === 1 ? 'is' : 'are'} done? It waits in In Progress until then.`
       : `${it.held ? `Unhold and implement ${ref}?` : `Implement ${ref}?`} Claude starts its implementer now with the notes as they stand.`),
     finish: (it, ref) => (it.kind === 'ask' ? `Mark this task done? "${it.title}" moves to Done.`
-      : `Close ${ref}? It moves to Done and Claude stops work on it.${it.pr?.state === 'OPEN' ? ' Its PR stays open on GitHub.' : it.pushed ? ` Its branch stays on ${it.pushed.host || 'the remote'}.` : ''}`),
+      : `Close ${ref}? It moves to Done and Claude stops work on it.${openPRs(it).length ? ` Its PR${openPRs(it).length > 1 ? 's stay' : ' stays'} open on GitHub.` : it.pushed ? ` Its branch stays on ${it.pushed.host || 'the remote'}.` : ''}`),
   };
 
   const classes = (it, button, base = '') => {

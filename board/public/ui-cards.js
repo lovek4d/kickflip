@@ -3,22 +3,23 @@
   const { esc, ago, clock, cardTime, etaLine, workingLine, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, LINK_ARROW } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   // The PR badge is the one place a PR's state shows: its mark and tone, marked like the reviewer and CI chips, and its
-  // title (docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md).
+  // title (docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md). A card with several PRs shows a
+  // badge for each, in its order (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
   const PR_LOOK = {
     [PR_STATE.open]: { tone: 'ready', mark: ' ✓', label: 'Ready for review' },
     [PR_STATE.draft]: { tone: 'notice', mark: ' ●', label: 'Draft' },
     [PR_STATE.merged]: { tone: 'merged', mark: ' ✓', label: 'Merged' },
     [PR_STATE.closed]: { tone: 'danger', mark: ' ✗', label: 'Closed' },
   };
-  function prChips(it) {
-    const pr = it.pr;
-    if (!pr) return '';
+  const prChips = (it) => (it.prs || []).map(prChip).join('');
+  // A PR's short name, its repo's name and number: kickflip#6.
+  const prName = (pr) => `${(pr.url.match(/github\.com\/[^/]+\/([^/]+)\//) || [])[1] || ''}#${pr.number}`;
+  function prChip(pr) {
     const look = PR_LOOK[pr.status] || { tone: 'quiet', mark: '', label: '' };
     const CI = { pass: { tone: 'ready', mark: '✓' }, fail: { tone: 'danger', mark: '✗' }, pending: { tone: 'notice', mark: '●' } }[pr.checks?.state] || { tone: 'quiet', mark: '?' };
     const ci = pr.checks && pr.state === 'OPEN' ? badge(CI.tone, `CI ${CI.mark}`, { title: `CI ${pr.checks.state}` }) : '';
-    const repo = (pr.url.match(/github\.com\/[^/]+\/([^/]+)\//) || [])[1] || '';
     const codex = pr.state === 'OPEN' && pr.codexOpen ? badge('notice', `codex ${esc(pr.codexOpen)}`, { title: `${pr.codexOpen} Codex finding${pr.codexOpen === 1 ? '' : 's'} not answered yet` }) : '';
-    const name = `${repo}#${pr.number}`;
+    const name = prName(pr);
     const label = look.label ? { title: look.label, attrs: { ...EXTERNAL, 'aria-label': `${name}: ${look.label}` } } : { attrs: EXTERNAL };
     return `${badge(look.tone, `${esc(name)}${look.mark}`, { href: pr.url, ...label })}${ci}${codex}`;
   }
@@ -267,5 +268,5 @@
       <div class="list">${list}${fold}</div></details>`;
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, buildButton, builderLine, BUILD_PHASES, buildPhase, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, askChip, askActions, askLine, planButton, WAVE_ICON, reviewLane });
+  Object.assign(globalThis.BoardUI, { prChips, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, buildButton, builderLine, BUILD_PHASES, buildPhase, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, askChip, askActions, askLine, planButton, WAVE_ICON, reviewLane });
 })();

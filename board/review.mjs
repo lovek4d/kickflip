@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { routeRecord } from '../hub/routes.mjs';
+import { storedPRs } from '../shared/card-prs.mjs';
 
 export function topicItems() {
   const dir = path.join(os.homedir(), '.claude', 'slack-bridge', 'topics');
@@ -21,7 +22,7 @@ export function topicItems() {
 export function reviewLinks(wave, item, key, topics = {}) {
   const links = Object.create(null);
   const sources = [item?.review_link_ts, item?.review_sent,
-    routeRecord(wave?.review_link_ts, item?.pr), routeRecord(wave?.review_link_ts, key),
+    routeRecord(wave?.review_link_ts, storedPRs(item)[0]?.number), routeRecord(wave?.review_link_ts, key),
     routeRecord(topics, key)?.review_link_ts];
   for (const source of sources) {
     for (const [name, value] of Array.isArray(source) ? source.map((name) => [name, null]) : Object.entries(source || {})) {

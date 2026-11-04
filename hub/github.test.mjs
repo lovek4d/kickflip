@@ -223,6 +223,27 @@ test('a merged PR closes its card as merged, frees the card waiting on it and st
   assert.deepEqual(board.thread('m/A1').map((l) => l.text), ['Merged PR #51.']);
 });
 
+test("the poll reads every PR on a card in its own repo, and closes the card only once all have merged or closed, one merged", async () => {
+  const board = fileBoard('several', { slug: 's' }, [{ id: 'A1', prs: [{ number: 61 }, { repo: 'o/site', number: 61 }, { repo: 'o/api', number: 62 }] }]);
+  writePR(home, 'o/r#61', prView({ state: 'MERGED' }));
+  writePR(home, 'o/site#61', prView());
+  writePR(home, 'o/api#62', prView({ isDraft: true }));
+  const first = await board.poll();
+  assert.deepEqual(first.failed, []);
+  assert.equal(first.watched, 3);
+  assert.deepEqual(first.merged, []);
+  assert.deepEqual(['o/r', 'o/site', 'o/api'].map((repo) => calls(home).some((a) => a[1] === 'view' && a[4] === repo)), [true, true, true]);
+  assert.equal(board.wave().items[0].status, undefined);
+  assert.deepEqual(board.events().map((e) => e.data), [{ prs: [{ wave: 's', id: 'A1', pr: 61, changes: ['merged'] }] }]);
+  writePR(home, 'o/site#61', prView({ state: 'MERGED' }));
+  writePR(home, 'o/api#62', prView({ state: 'CLOSED' }));
+  const second = await board.poll();
+  assert.deepEqual(second.merged, ['several']);
+  assert.equal(board.wave().items[0].status, 'merged');
+  assert.deepEqual(board.thread('s/A1').map((l) => l.text), ['Merged PRs #61, o/site#61.']);
+  assert.equal((await board.poll()).watched, 0);
+});
+
 async function linearPoll(t, { key = true } = {}) {
   const world = linearWorld();
   const linear = fakeLinear(world);

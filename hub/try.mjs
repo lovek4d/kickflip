@@ -12,6 +12,7 @@ import { gitReachFault, remoteFromInput, remoteGitEnv } from './repos.mjs';
 import { readiness } from './readiness.mjs';
 import { buildScriptError } from '../board/build-script.mjs';
 import { appendThread, recordedWorktree, setItem } from '../board/store.mjs';
+import { cardPRs, hasPR, prKeyOf } from '../shared/card-prs.mjs';
 
 export class BuildError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
@@ -435,7 +436,8 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
         const ref = source.local ? `refs/heads/${branch}` : `refs/remotes/origin/${branch}`;
         for (const { slug, wave } of board.waves) for (const item of wave.items) {
           const key = `${slug}/${item.id}`;
-          if (['done', 'merged', 'dropped'].includes(String(item.status).toLowerCase()) || ['MERGED', 'CLOSED'].includes(prs[`${board.github || wave.repo}#${item.pr}`]?.state)) continue;
+          const states = cardPRs(item, board.github || wave.repo).map((p) => prs[prKeyOf(p)]);
+          if (['done', 'merged', 'dropped'].includes(String(item.status).toLowerCase()) || (states.length && states.every((pr) => ['MERGED', 'CLOSED'].includes(pr?.state)))) continue;
           try {
             const id = runKey(board, key);
             const worktree = await installWorktree(board, key, manifest);
@@ -537,7 +539,7 @@ export async function fetchTryBranches({ manifest = readManifest(), log = consol
 // known tip is in the board's branch and done otherwise, since a squash merge leaves no trace of the branch.
 async function settlePushed(board, repo, branch, log) {
   const open = board.waves.flatMap(({ slug, wave }) => wave.items
-    .filter((it) => it.pushed?.branch && !it.pr && !['done', 'merged', 'dropped'].includes(String(it.status).toLowerCase()))
+    .filter((it) => it.pushed?.branch && !hasPR(it) && !['done', 'merged', 'dropped'].includes(String(it.status).toLowerCase()))
     .map((it) => ({ key: `${slug}/${it.id}`, branch: it.pushed.branch })));
   if (!open.length) return;
   const heads = new Map((await originGit(repo, 'ls-remote', '--heads', 'origin')).split('\n')

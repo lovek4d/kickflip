@@ -4,8 +4,9 @@
 // however many boards show it, and its summary is compared with the last one accepted, kept by repo#pr in
 // ~/.claude/kickflip/github-state.json. Each board's `github-change` event lists its eligible changed cards,
 // waking its owning session to run its GitHub tick (SKILL.md). Before that, each card gets its PR's new owner and
-// reviewer comments and reviews as thread lines, and a merged PR closes its card as merged
-// (docs/adr/2026-11-02-2335-the-hubs-poll-records-merges-and-pr-comments-on-the-card.md). Each board gets data/checked.json after a
+// reviewer comments and reviews as thread lines, and a card closes as merged once every PR on it has merged or closed,
+// at least one merged (docs/adr/2026-11-02-2335-the-hubs-poll-records-merges-and-pr-comments-on-the-card.md,
+// docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md). Each board gets data/checked.json after a
 // check that reached GitHub for every PR it shows, in the idle form when it shows none. sendWakes sends the polling
 // interval's daily wakes to every board, changed or not.
 import fs from 'node:fs';
@@ -15,7 +16,8 @@ import { savedClient } from './linear.mjs';
 import { fetchPR, reportOf, githubLogin } from './pr-report.mjs';
 import { wakesDue, localDay } from './schedule.mjs';
 import { GITHUB_STATE as STATE, WAKE_STATE, WAVES, listBoards, appendEvent, prKey, readJSON, saveJSON, reviewerLogins } from './boards.mjs';
-import { appendThread, setItem } from '../board/store.mjs';
+import { appendThread, setItem, mergedLine } from '../board/store.mjs';
+import { allLanded, leastReady } from '../shared/card-prs.mjs';
 
 export const CHANGE_KINDS = ['ci', 'review', 'comments', 'merged', 'mergeable', 'draft'];
 
@@ -136,7 +138,8 @@ export async function checkGitHub({ every, manifest }) {
     });
     for (const card of cards) {
       const report = reports[fetchKey(card.p, board.me)];
-      if (report && await recordOnCard(board, card, report, { state, merged, failed })) mergedRoutes.add(board.route);
+      const siblings = cards.filter((c) => c.p.wave === card.p.wave && c.p.id === card.p.id);
+      if (report && await recordOnCard(board, card, report, siblings, { state, merged, failed })) mergedRoutes.add(board.route);
     }
     const changed = cards.filter((c) => c.changes.length);
     let reached = cards.every((c) => c.next);
@@ -189,9 +192,10 @@ function lineText(event) {
   return [verdict, body].filter(Boolean).join(' ');
 }
 
-// docs/adr/2026-11-02-2335-the-hubs-poll-records-merges-and-pr-comments-on-the-card.md. → true when this check recorded the card merged, on
-// any board showing it.
-async function recordOnCard(board, { p, key, recipient }, report, { state, merged, failed }) {
+// docs/adr/2026-11-02-2335-the-hubs-poll-records-merges-and-pr-comments-on-the-card.md. siblings is every PR on the card, this one
+// included, with its summary as next; the card closes as merged once they have all landed (shared/card-prs.mjs
+// allLanded), its line naming the merged ones. → true when this check recorded the card merged, on any board showing it.
+async function recordOnCard(board, { p, key, recipient }, report, siblings, { state, merged, failed }) {
   const card = `${p.wave}/${p.id}`;
   const written = new Set(state.threaded[key]?.[recipient] || []);
   const wave = board.waves.find((w) => w.slug === p.wave)?.wave;
@@ -211,10 +215,12 @@ async function recordOnCard(board, { p, key, recipient }, report, { state, merge
     } catch (err) { failed.push(`${board.route}: could not write ${card}'s GitHub line (${err.message})`); }
   }
   if (written.size) (state.threaded[key] ||= {})[recipient] = [...written];
-  if (report.state !== 'MERGED') return false;
+  if (report.state !== 'MERGED' || !allLanded(siblings.map((c) => c.next))) return false;
   const file = JSON.stringify([board.kind === 'waves' ? WAVES : board.dir, p.wave, p.id]);
   if (!merged.has(file)) {
-    try { await setItem(board.dir, card, { status: 'merged', force: true }); merged.set(file, true); }
+    const repo = board.github || board.waves.find((w) => w.slug === p.wave)?.wave.repo;
+    const text = mergedLine(siblings.filter((c) => c.next.state === 'MERGED').map((c) => ({ repo: c.p.repo, number: c.p.pr })), repo);
+    try { await setItem(board.dir, card, { status: 'merged', force: true, text }); merged.set(file, true); }
     catch (err) { failed.push(`${board.route}: could not record ${card} merged (${err.message})`); merged.set(file, false); }
   }
   return merged.get(file);
@@ -225,19 +231,20 @@ async function advanceLinear(boards, fetched, fetchKey, result) {
   if (!client) return;
   const tickets = new Map();
   for (const board of boards) {
-    const prs = new Map(board.prs.map((p) => [JSON.stringify([p.wave, p.id]), p]));
+    const prs = Map.groupBy(board.prs, (p) => JSON.stringify([p.wave, p.id]));
     const source = board.kind === 'waves' ? WAVES : board.dir;
     for (const { slug, wave } of board.waves) {
       for (const item of wave.items) {
         if (item.status === 'dropped') continue;
         const ids = new Set(item.linear || []);
         if (board.tickets?.source === 'linear' && item.ticket) ids.add(item.ticket);
-        const p = prs.get(JSON.stringify([slug, item.id]));
-        const summary = p && fetched[fetchKey(p, board.me)];
-        const merged = ['merged', 'done'].includes(item.status) || summary?.state === 'MERGED';
+        // The card's least-ready PR stands for it, as on the board (shared/card-prs.mjs leastReady).
+        const summaries = (prs.get(JSON.stringify([slug, item.id])) || []).map((p) => fetched[fetchKey(p, board.me)] || null);
+        const summary = summaries[leastReady(summaries)];
+        const merged = ['merged', 'done'].includes(item.status) || allLanded(summaries);
         const carrying = {
           merged, ready: summary?.state === 'OPEN' && !summary.isDraft,
-          hasPR: Boolean(item.pr) && (merged || summary?.state === 'OPEN'), failed: Boolean(p && !summary),
+          hasPR: summaries.length > 0 && (merged || summaries.some((s) => s?.state === 'OPEN')), failed: summaries.some((s) => !s),
         };
         const key = JSON.stringify([source, slug, item.id]);
         for (const id of ids) {
@@ -245,7 +252,7 @@ async function advanceLinear(boards, fetched, fetchKey, result) {
           const ticket = tickets.get(id);
           const previous = ticket.items.get(key);
           ticket.items.set(key, { ...carrying, failed: carrying.failed || previous?.failed });
-          ticket.scoped ||= Boolean(summary);
+          ticket.scoped ||= summaries.some(Boolean);
           ticket.created ||= item.ticket === id && Boolean(item.ticket_created);
         }
       }

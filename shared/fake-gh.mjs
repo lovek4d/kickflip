@@ -2,8 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PR_VIEW_FIELDS } from '../hub/pr-report.mjs';
 
+// n is a PR number, answered in any repo, or owner/repo#n, answered only in that repo and ahead of the bare number.
 const write = (dir, folder, n, value) => {
-  const file = path.join(dir, folder, `${n}.json`);
+  const file = path.join(dir, folder, `${String(n).replace(/[/#]/g, '__')}.json`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(value));
 };
@@ -42,6 +43,11 @@ const args = process.argv.slice(2);
 fs.appendFileSync(path.join(dir, 'calls.jsonl'), JSON.stringify(args) + '\\n');
 fs.appendFileSync(path.join(dir, 'tokens.jsonl'), JSON.stringify({ args, token: process.env.GH_TOKEN || null }) + '\\n');
 const fail = () => { console.error('no fixture for: ' + args.join(' ')); process.exit(1); };
+// The repo's own fixture for PR n, else the one for n in any repo.
+const fixture = (folder, repo, n) => {
+  const own = path.join(dir, folder, repo.replace('/', '__') + '__' + n + '.json');
+  return fs.existsSync(own) ? own : path.join(dir, folder, n + '.json');
+};
 if (args.length === 4 && args[0] === 'auth' && args[1] === 'token' && args[2] === '-u') {
   let accounts = {};
   try { accounts = JSON.parse(fs.readFileSync(path.join(dir, 'accounts.json'), 'utf8')); } catch {}
@@ -60,7 +66,7 @@ if (args[0] === 'issue' && args.includes('--repo')) {
 }
 if (args.length === 6 && args[0] === 'pr' && args[1] === 'merge' && /^\\d+$/.test(args[2]) && args[3] === '--repo' && args[5] === '--squash') {
   let refused = null;
-  try { refused = JSON.parse(fs.readFileSync(path.join(dir, 'merge', args[2] + '.json'), 'utf8')).error; } catch {}
+  try { refused = JSON.parse(fs.readFileSync(fixture('merge', args[4], args[2]), 'utf8')).error; } catch {}
   if (refused) { console.error(refused); process.exit(1); }
   process.exit(0);
 }
@@ -71,12 +77,12 @@ if (args.length === 4 && args[0] === 'api' && args[2] === '-f' && args[3].starts
 }
 let file;
 let list = false;
-if (args.length === 7 && args[0] === 'pr' && args[1] === 'view' && /^\\d+$/.test(args[2]) && args[3] === '--repo' && args[5] === '--json' && args[6] === ${JSON.stringify(PR_VIEW_FIELDS)}) file = path.join(dir, 'pr', args[2] + '.json');
+if (args.length === 7 && args[0] === 'pr' && args[1] === 'view' && /^\\d+$/.test(args[2]) && args[3] === '--repo' && args[5] === '--json' && args[6] === ${JSON.stringify(PR_VIEW_FIELDS)}) file = fixture('pr', args[4], args[2]);
 else if (args.length === 2 && args[0] === 'api' && args[1] === 'user') file = path.join(dir, 'user.json');
 else if (args.length === 4 && args[0] === 'api' && args[1] === '--paginate' && args[2] === '--slurp') {
-  const match = /^repos\\/[^/]+\\/[^/]+\\/(issues|pulls)\\/(\\d+)\\/(comments\\?since=.+|reviews)$/.exec(args[3]);
-  if (!match || (match[1] === 'issues' && match[3] === 'reviews')) process.exit(1);
-  file = path.join(dir, match[3] === 'reviews' ? 'reviews' : match[1] === 'issues' ? 'issue-comments' : 'review-comments', match[2] + '.json');
+  const match = /^repos\\/([^/]+\\/[^/]+)\\/(issues|pulls)\\/(\\d+)\\/(comments\\?since=.+|reviews)$/.exec(args[3]);
+  if (!match || (match[2] === 'issues' && match[4] === 'reviews')) process.exit(1);
+  file = fixture(match[4] === 'reviews' ? 'reviews' : match[2] === 'issues' ? 'issue-comments' : 'review-comments', match[1], match[3]);
   list = true;
 } else process.exit(1);
 let value;

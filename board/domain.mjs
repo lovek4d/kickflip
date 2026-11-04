@@ -16,6 +16,7 @@ import { ticketBadge, ticketIn } from './tickets.mjs';
 import { reviewLinks, reviewTime, reviewersOf } from './review.mjs';
 import { remoteFromInput } from '../hub/repos.mjs';
 import { reviewsOf, reviewNeeds, reviewActions } from './auto-review.mjs';
+import { cardPRs, hasPR, leastReady, prKeyOf, prURL } from '../shared/card-prs.mjs';
 import vm from 'node:vm';
 
 // Page scripts with no exports, which the page loads as is, so node runs them the same way.
@@ -64,7 +65,8 @@ function laneOf(item, pr, running, pushed, reopened) {
   return pr ? 'progress' : 'todo';
 }
 
-// The state of a card's PR (ui-enums.js PR_STATE): merged once GitHub or the card says so, or null before GitHub is read.
+// The state of one of a card's PRs (ui-enums.js PR_STATE): merged once GitHub or the card says so, or null before GitHub
+// is read.
 function prStateOf(pr, it) {
   if (pr?.state === 'MERGED' || it.status === 'merged' || it.merged_at) return PR_STATE.merged;
   if (pr?.state === 'CLOSED') return PR_STATE.closed;
@@ -123,13 +125,18 @@ const TAP_DONE = 'Tap Done once it is settled';
 const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && !['status', 'agent', 'ask-link'].includes(m.kind);
 
 // said is the owner's messages and answers in the card's thread (threadOf), and askedAt the asked_at of its questions.
-function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, tickets }) {
-  const prStatus = prStateOf(pr, it);
+// prs is the card's PRs, [{repo, number, gh}], gh being GitHub's state or null before it is read; the least-ready one
+// decides the lane, what it waits on and its Next (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
+function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, tickets }) {
+  const views = prs.map((p) => ({ repo: p.repo, number: p.number, url: prURL(p), ...(p.gh || {}), status: prStateOf(p.gh, it) }));
+  const least = leastReady(prs.map((p) => p.gh));
+  const pr = prs[least]?.gh || null;
+  const prStatus = views[least]?.status ?? null;
   // docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md
   const tappedDone = Boolean(closedAt) && String(closedAt) > String(it.status_at || '');
   if (tappedDone && it.status !== 'merged') it = { ...it, status: 'done' };
   // When the card last closed: the owner's Done, its done or merged status, or its PR's merge.
-  const closed = [tappedDone && closedAt, it.status_at, it.merged_at, pr?.mergedAt].filter(Boolean).map(String).sort().pop() || null;
+  const closed = [tappedDone && closedAt, it.status_at, it.merged_at, ...prs.map((p) => p.gh?.mergedAt)].filter(Boolean).map(String).sort().pop() || null;
   // A done or merged card reopens; a dropped one, or one whose PR closed unmerged, doesn't
   // (docs/adr/2026-11-02-1952-a-message-or-question-on-a-done-card-reopens-it.md,
   // docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md).
@@ -147,7 +154,7 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
   const othersAt = [...thread.filter((m) => countsUnread({ ...m, who: m.who || 'claude' })).map((m) => m.ts), ...events.map((e) => e.reply?.at)].filter(Boolean).sort();
   const lastGrill = events.filter((e) => e.kind === 'grill-more').pop();
   // A branch pushed to a plain git remote, which has no PR (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
-  const pushed = !it.pr && it.pushed?.branch ? { branch: it.pushed.branch, at: it.pushed.at || null, host: remote?.host || null } : null;
+  const pushed = !hasPR(it) && it.pushed?.branch ? { branch: it.pushed.branch, at: it.pushed.at || null, host: remote?.host || null } : null;
   let lane = laneOf(it, pr, agents.some((a) => a.started && !a.done && builds(a)), pushed, Boolean(reopenAt));
   if (reopenAt && lane === 'todo') lane = 'progress';
   if (lane === 'review' && inReviewSince && now - Date.parse(inReviewSince) > STALE_AFTER) lane = 'stale';
@@ -192,7 +199,7 @@ function workItem({ slug, wave, it, order, pr, repo, remote, base, builder, agen
       : ticketOf(tickets, it.ticket, it.ticket || (wave.internal ? refOf(wave, it, tickets) : it.linear?.[0]), { repo, key }),
     ticketSource: tickets?.source || null,
     linear: (it.linear || []).map((id) => tickets?.source === 'linear' ? ticketBadge(tickets, id, { key, repo }) || linearRef(id, tickets) : linearRef(id, tickets)),
-    pr: it.pr && repo ? { number: it.pr, url: `https://github.com/${repo}/pull/${it.pr}`, ...(pr || {}), status: prStatus } : null,
+    pr: views[least] || null, prs: views,
     reviewers: reviewers.map((r) => r.name), review: reviewOf(reviewers, pr, sentAt), inReviewSince,
     threadCount: thread.length + events.length, lastTs, othersAt,
     // buildBoard adds a grilling card with no questions posted yet.
@@ -243,7 +250,7 @@ function actionOf(it, questionById, autoMerge) {
   if (it.kind === 'ask' && it.waitsOn === 'owner') return { kind: ACTION_KIND.done, url: thread, label: it.next || TAP_DONE };
   if (it.waitsOn === 'merge' && it.manualSteps.length) return { kind: ACTION_KIND.steps, url: thread, label: 'Run the manual steps, then merge' };
   // docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md
-  if (it.waitsOn === 'merge' && !autoMerge && !it.merging && mergeable(it.pr)) return { kind: ACTION_KIND.merge, url: thread, label: 'Merge' };
+  if (it.waitsOn === 'merge' && !autoMerge && !it.merging && it.prs.every((p) => ['MERGED', 'CLOSED'].includes(p.state) || mergeable(p))) return { kind: ACTION_KIND.merge, url: thread, label: 'Merge' };
   return null;
 }
 
@@ -327,7 +334,7 @@ export const NO_NEXT = 'none set yet';
 // and buildBoard's gap the rest), checking, a hold, a queued build, whose blockers fill the place, or a finished status.
 export function owesNext(item, records) {
   const status = String(item.status || '').toLowerCase();
-  if (item.next || item.pr || item.pushed || item.held || item.queued_at || ['held', 'checking', 'done', 'merged', 'dropped'].includes(status)) return false;
+  if (item.next || hasPR(item) || item.pushed || item.held || item.queued_at || ['held', 'checking', 'done', 'merged', 'dropped'].includes(status)) return false;
   const agents = records.filter((r) => r?.started);
   return !agents.some((r) => !r.done) && started({ status, agents });
 }
@@ -374,7 +381,7 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
     internal: false, repo: null, lane: inProgress ? 'progress' : done ? 'asks' : 'todo', waitsOn: inProgress && !ownerPending ? 'owner' : null, builder: null, agents: [], eta: null, working: msgs.some((m) => m.state === 'working'),
     deps: [], held: false, risky: false, bumpable: !handled, bumpedAt: bumped, manualSteps: [], fromAsk: null, from: null, next: inProgress ? mark.next || null : null, hasNotes: false, branch: null,
     finishable: handled && !done,
-    linear: [], pr: null, reviewers: [], review: {}, inReviewSince: null, progressSince: inProgress ? mark.at || null : null, closedAt: null,
+    linear: [], pr: null, prs: [], reviewers: [], review: {}, inReviewSince: null, progressSince: inProgress ? mark.at || null : null, closedAt: null,
     threadCount: msgs.length, lastTs, othersAt: handled ? othersAt : [], grilling: false, created: e.ts, updatedAt: handled ? lastTs : e.ts,
     ask: { eventId: e.id, state, askedAt: e.ts, bumpedAt: bumped, edited: Boolean(msg.edited), canEdit: !handled, text: msg.text, files, answerAt, from: msg.from || null },
     fold: null, action: null,
@@ -690,10 +697,9 @@ export function buildBoard(snapshot) {
       const msgs = threadOf(key, { lines, events, owner, working, fromAsk: it.from_ask || null, moved: folded });
       for (const m of msgs) if (m.eventId) threadStates.set(m.eventId, m.state);
       claudeAt.set(key, claudeAtOf(msgs));
-      const pr = it.pr && repo ? routeRecord(prs, `${repo}#${it.pr}`) || null : null;
       items.push(workItem({
         slug, wave, it, order, repo, remote, base: snapshot.branch || 'main',
-        pr,
+        prs: cardPRs(it, repo).map((p) => ({ ...p, gh: routeRecord(prs, prKeyOf(p)) || null })),
         ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
         worktree: worktreeOf(routeRecord(records, it.id)),
         thread: lines,

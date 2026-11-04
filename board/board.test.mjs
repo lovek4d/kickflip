@@ -502,19 +502,22 @@ test("pr comment and pr reply post Claude's words through gh with the robot pref
   assert.equal(comment.out, 'posted on PR #7: https://github.com/o/r/issues/7/comments\n');
   assert.equal(cli('settings', 'set', 'github-login', 'owner').code, 0);
   assert.equal(cli('pr', 'reply', '7', '901', '--body', 'Not changed: the owner kept it.').code, 0);
+  const elsewhere = cli('pr', 'comment', 'o/site#1', '--body', 'Linked from #7.');
+  assert.equal(elsewhere.out, 'posted on PR o/site#1: https://github.com/o/site/issues/1/comments\n');
   assert.deepEqual(posts(), [
     ['repos/o/r/issues/7/comments', 'body=🤖 Fixed in abc1234.\n\n<!-- claude-bridge -->', null],
     ['repos/o/r/pulls/7/comments/901/replies', 'body=🤖 Not changed: the owner kept it.\n\n<!-- claude-bridge -->', 'token-owner'],
+    ['repos/o/site/issues/1/comments', 'body=🤖 Linked from #7.\n\n<!-- claude-bridge -->', 'token-owner'],
   ]);
 
   for (const [args, err] of [
     [['pr', 'comment', '7', '--body', '🤖 Fixed.'], 'pr comment adds the 🤖 prefix and the claude-bridge marker itself; pass only your words'],
     [['pr', 'comment', '7', '--body', 'Fixed.\n\n<!-- claude-bridge -->'], 'pr comment adds the 🤖 prefix and the claude-bridge marker itself; pass only your words'],
-    [['pr', 'comment', 'x7', '--body', 'Fixed.'], 'pr comment takes a PR number'],
+    [['pr', 'comment', 'x7', '--body', 'Fixed.'], 'pr comment takes a PR number or owner/repo#<n>'],
     [['pr', 'reply', '7', 'abc', '--body', 'Fixed.'], 'pr reply takes the id of the review comment it answers'],
     [['pr', 'comment', '7'], 'pr comment needs --body "<what Claude says>"'],
   ]) assert.deepEqual([cli(...args).code, cli(...args).err.split(' (node board')[0].trim()], [args.length === 3 ? 2 : 1, err]);
-  assert.equal(posts().length, 2);
+  assert.equal(posts().length, 3);
 });
 
 test("merge squashes a card's PR once GitHub would merge it, with no commit after the approval unexplained and manual steps on the owner's word, and says why it won't on the card the owner asked to merge", () => {
@@ -559,6 +562,47 @@ test("merge squashes a card's PR once GitHub would merge it, with no commit afte
   assert.equal(merge('w/A2').code, 0);
   assert.equal(lines(site('orch', 'data', 'threads', 'w__A2.jsonl')).at(-1).text, 'PR #8 was already merged.');
   assert.equal(merges().length, 2);
+});
+
+test("merge takes every PR on a card across repos in its order, refusing while any open one isn't ready and leaving a merged or closed one be", () => {
+  const dir = path.join(home, 'fake-gh');
+  const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
+  const merge = (...args) => run('board.mjs', ['--site', 'orch', 'merge', ...args], undefined, env);
+  const merges = () => calls(dir).filter((a) => a[1] === 'merge').map((a) => `${a[4]}#${a[2]}`);
+  const thread = (id) => lines(site('orch', 'data', 'threads', `w__${id}.jsonl`)).map((m) => m.text);
+  const ready = prView({ reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN' });
+  write(at('waves', 'w', 'wave.json'), { ...wave(), repo: 'o/r', items: [
+    { id: 'A1', title: 'Two repos', prs: [{ number: 6 }, { repo: 'o/site', number: 1 }] },
+    { id: 'A2', title: 'One left', prs: [{ repo: 'o/site', number: 2 }, { number: 9 }, { number: 10 }] },
+    { id: 'A3', title: 'All in', prs: [{ number: 11 }, { repo: 'o/site', number: 3 }] },
+  ] });
+  writePR(dir, 'o/r#6', ready);
+  writePR(dir, 'o/site#1', prView({ isDraft: true, failing: ['build'] }));
+  const refused = merge('w/A1');
+  assert.equal(refused.code, 1);
+  assert.equal(refused.err, 'Not merged: o/site#1 it is a draft; o/site#1 review: review required; o/site#1 failing: build; o/site#1 merge state: blocked.\n');
+  assert.deepEqual(merges(), []);
+  writePR(dir, 'o/site#1', ready);
+  const done = merge('w/A1');
+  assert.equal(done.code, 0, done.err);
+  assert.deepEqual(merges(), ['o/r#6', 'o/site#1']);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status, 'merged');
+  assert.equal(thread('A1').at(-1), 'Merged PRs #6, o/site#1.');
+  writePR(dir, 'o/site#2', prView({ state: 'MERGED' }));
+  writePR(dir, 'o/r#9', prView({ state: 'CLOSED' }));
+  writePR(dir, 'o/r#10', ready);
+  assert.equal(merge('w/A2').code, 0);
+  assert.deepEqual(merges().slice(2), ['o/r#10']);
+  assert.equal(thread('A2').at(-1), 'Merged PR #10.');
+  writePR(dir, 'o/r#11', ready);
+  writePR(dir, 'o/site#3', ready);
+  writeMerge(dir, 'o/site#3', { error: 'Base branch was modified.' });
+  assert.deepEqual(merge('w/A3'), { code: 1, out: '', err: 'gh pr merge o/site#3 failed: Base branch was modified. (merged #11 before it)\n' });
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[2].status, undefined);
+  writePR(dir, 'o/r#11', prView({ state: 'MERGED' }));
+  writePR(dir, 'o/site#3', prView({ state: 'CLOSED' }));
+  assert.equal(merge('w/A3').code, 0);
+  assert.equal(thread('A3').at(-1), 'PR #11 was already merged.');
 });
 
 test("thread appends a line to an item's thread", () => {
@@ -921,10 +965,28 @@ test('on a board whose repo is a plain git remote, item set --pushed records the
   assert.equal(board('--site', 'orch', 'settings', 'set', 'tickets', '{"source":"github"}').code, 0);
 });
 
+test("item set --pr adds each PR, repeatable, in the board's repo or owner/repo#n, and never replaces one", () => {
+  const file = at('waves', 'w', 'wave.json');
+  write(file, { ...wave(), repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 6, status: 'building' }] });
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--pr', 'lovek4d/lovek4d.github.io#1').code, 0);
+  assert.deepEqual(read(file).items[0].prs, [{ number: 6 }, { repo: 'lovek4d/lovek4d.github.io', number: 1 }]);
+  assert.equal('pr' in read(file).items[0], false);
+  assert.equal(read(file).items[0].status, undefined);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--pr', '6', '--pr', 'o/r#6', '--pr', 'o/api#9', '--pr', 'lovek4d/lovek4d.github.io#1').code, 0);
+  assert.deepEqual(read(file).items[0].prs, [{ number: 6 }, { repo: 'lovek4d/lovek4d.github.io', number: 1 }, { repo: 'o/api', number: 9 }]);
+  const before = fs.readFileSync(file, 'utf8');
+  for (const bad of ['abc', 'o/r#x', 'https://github.com/o/r/pull/3']) {
+    const r = board('item', 'set', 'w/A1', '--site', 'orch', '--pr', '7', '--pr', bad);
+    assert.equal(r.code, 1, bad);
+    assert.match(r.err, /--pr takes a PR number or owner\/repo#<n>/);
+  }
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+});
+
 test('item set edits the item in a waves board and in a file board', () => {
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'building', '--next', 'Run tests', '--pr', '42').code, 0);
   const { status_at: _w, ...edited } = read(at('waves', 'w', 'wave.json')).items[0];
-  assert.deepEqual(edited, { id: 'A1', title: 'One', next: 'Run tests', pr: 42 });
+  assert.deepEqual(edited, { id: 'A1', title: 'One', next: 'Run tests', prs: [{ number: 42 }] });
   for (const [key, route, file] of [['w/A1', 'orch', at('waves', 'w', 'wave.json')], ['audit/A1', 'audit', site('audit', 'data', 'wave.json')]]) {
     for (const status of ['building', 'fixing', 'checking', 'planned', 'held', 'done']) {
       assert.equal(board('item', 'set', key, '--site', route, '--status', status, ...(status === 'done' ? ['--text', 'Done.'] : [])).code, 0);
@@ -942,7 +1004,7 @@ test('item set edits the item in a waves board and in a file board', () => {
   assert.deepEqual([read(at('waves', 'w', 'wave.json')).items[0].status, 'next' in read(at('waves', 'w', 'wave.json')).items[0]], ['checking', false]);
   assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--clear-next', '--status', 'held').code, 0);
   const { status_at: _a, ...audit } = read(site('audit', 'data', 'wave.json')).items[0];
-  assert.deepEqual(audit, { id: 'A1', title: 'One', status: 'held', pr: 7 });
+  assert.deepEqual(audit, { id: 'A1', title: 'One', status: 'held', prs: [{ number: 7 }] });
   assert.equal(board('item', 'set', 'w/A1', '--site', 'audit', '--status', 'held').code, 1);
   assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--status', 'shipped').code, 1);
   assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--pr', 'abc').code, 1);
@@ -2804,6 +2866,11 @@ test('item set records a UTC gh-since and pr prints the board report through gh'
   const fallback = pr();
   assert.equal(fallback.code, 0, fallback.err);
   assert.equal(calls(dir).filter((a) => a[0] === 'pr').at(-1)[4], 'wave/repo');
+  writePR(dir, 'o/site#1', prView({ isDraft: true }));
+  assert.equal(board('item', 'set', 'w/A1', '--pr', 'o/site#1').code, 0);
+  const both = pr();
+  assert.equal(both.code, 0, both.err);
+  assert.deepEqual(both.out.trim().split('\n').map((l) => JSON.parse(l)).map((r) => [r.repo, r.pr, r.isDraft]), [['wave/repo', 7, false], ['o/site', 1, true]]);
 });
 
 function reviewProbe(source) {
