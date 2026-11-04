@@ -3305,7 +3305,7 @@ test('legacy hub links open one modal, guard dirty rules on every dismissal, res
   assert.deepEqual(page.left(), baseline);
 });
 
-test("the Waves section sits above the lanes: tapping a wave's row shows only its cards, its cards carry a grey chip in their wave row, with blocked by on the time line, and Triage confirms, sends wave-triage and reads Triaging… then its open questions, at a lineup's foot or at the end of a wave file's name line", async () => {
+test("the Waves section sits above the lanes: tapping a wave's row shows only its cards, its cards carry no wave chip, with blocked by on the time line, and Triage confirms, sends wave-triage and reads Triaging… then its open questions, at a lineup's foot or at the end of a wave file's name line", async () => {
   const row = (triage) => ({ kind: 'lineup', slug: 'mon', title: 'Monitor', goal: 'Runs in kickflip.', order: [{ key: 'w/A1', ref: 'A1' }, { key: 'w/A2', ref: 'A2' }], merged: 1, total: 2, triage });
   const mon = { slug: 'mon', title: 'Monitor' };
   const cards = [workCard('A1', { lane: 'done', lineup: mon }), workCard('A2', { lineup: mon, blockedBy: [{ key: 'w/A9', ref: 'A9' }] }), workCard('A3', { lineup: { slug: 'col', title: 'Colour' } }), workCard('A4')];
@@ -3324,9 +3324,9 @@ test("the Waves section sits above the lanes: tapping a wave's row shows only it
   assert.match(mine.querySelector('.wv-id').textContent, /Monitor1 of 2 merged/);
   assert.equal(mine.querySelector('.wv-links a').getAttribute('href'), 'notes.html?wave=mon');
   const metaRow = (key) => b.root.querySelector(`#lanes details.item[data-key="${key}"] .line5`);
-  assert.deepEqual(metaRow('w/A2').querySelectorAll('.chip').map((c) => [c.textContent, c.classList.contains('tone-quiet')]), [['Monitor', true]]);
+  assert.equal(metaRow('w/A2'), null);
   assert.equal(b.root.querySelector('#lanes details.item[data-key="w/A2"] .card-time .card-blocked').getAttribute('href'), '#item=w%2FA9');
-  assert.equal(metaRow('w/A3').querySelector('.chip').textContent, 'Colour');
+  assert.equal(metaRow('w/A3'), null);
   assert.equal(metaRow('w/A4'), null);
 
   const lanes = () => b.root.querySelectorAll('#lanes details.item').map((el) => el.dataset.key).sort();

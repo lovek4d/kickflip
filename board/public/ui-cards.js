@@ -192,7 +192,6 @@
     const ticket = it.ticket ? ticketChip(it) : it.ticketSource === 'linear' ? linearChips(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
     // A card from an ask reads New until its session sets ready, grilling or prototyping (domain.mjs unsorted).
     const ids = it.kind === 'ask' ? askChip(it) : it.unsorted ? `${badge('notice', 'New')} ${ticket}` : ticket;
-    const wave = it.lineup ? badge('quiet', `${WAVE_ICON}${esc(it.lineup.title)}`, { title: `In the wave ${it.lineup.title}` }) : '';
     const chips = `${stalledChip(it)}${it.followUp ? badge('quiet', 'follow-up') : ''}${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
     const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)
       : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Orchestrator review</div>'
@@ -204,7 +203,6 @@
     return `${cardActions(it, top)}<div class="line1 title">${ids ? `${ids} ` : ''}${esc(it.title)}</div>
       ${status}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
-      ${wave ? `<div class="line5 meta">${wave}</div>` : ''}
       ${timeLine(it, unread, it.lane === 'progress' && it.builder && !it.builder.planner && it.waitsOn !== 'checking' ? phaseBars(it.builder.phase) : '')}`;
   }
   const WAVE_ICON = '<svg class="wave-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/><path d="M2 16c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/></svg>';
