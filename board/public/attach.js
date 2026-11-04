@@ -1,6 +1,6 @@
 // docs/adr/2026-11-03-1722-every-text-box-attaches-through-attach-js.md
-// Files attached to a composer: any element with data-composer="<id>" holding BoardUI.attachButton(), its text box in
-// BoardUI.dropZone(), and a [data-files] list. Picking files, dropping them on the composer, or pasting them into it
+// Files attached to a composer: any element with data-composer="<id>" holding its text box in BoardUI.dropZone(), which
+// puts BoardUI.attachButton() inside the box, and a [data-files] list. Picking files, dropping them on the composer, or pasting them into it
 // uploads them at once to the api/upload of the site named by the nearest
 // [data-site] around the composer (a board view's root, app.js), else of the page's own site (ClaudeSite). Pending
 // files live in memory by site and composer id, so a page that rebuilds its markup calls paintAll() to show them

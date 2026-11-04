@@ -202,10 +202,12 @@ code { overflow-wrap: anywhere; }
 /* The ⌘↵ / Ctrl+↵ hint left of Send: only where there is a keyboard to press it on. */
 .send-hint { display: none; color: var(--muted); font-size: 12px; white-space: nowrap; }
 @media (hover: hover) and (pointer: fine) { .send-hint { display: inline; } }
-/* A composer's text box (BoardUI.dropZone): while files are dragged over the composer, attach.js marks it .dragging and
-   the box gets a dashed accent outline with Drop to attach over it. */
+/* A composer's text box (BoardUI.dropZone), its attach button inside at the bottom right with the text kept clear of it:
+   while files are dragged over the composer, attach.js marks it .dragging and the box gets a dashed accent outline
+   with Drop to attach over it. */
 .dz { position: relative; clear: both; border-radius: 8px; }
-.dz > textarea { display: block; }
+.dz > textarea { display: block; padding-bottom: 40px; }
+.dz > .attach { position: absolute; right: 6px; bottom: 6px; width: 32px; height: 32px; z-index: 1; }
 .dz-hint { display: none; position: absolute; inset: 0; align-items: center; justify-content: center; border-radius: 8px; pointer-events: none;
   background: color-mix(in srgb, var(--panel) 80%, transparent); color: var(--accent); font-weight: 600; font-size: 15px; }
 [data-composer].dragging .dz { outline: 2px dashed var(--accent); outline-offset: 3px; }
@@ -232,7 +234,6 @@ code { overflow-wrap: anywhere; }
 .msg .body:empty { display: none; }
 .note-tools { display: flex; align-items: flex-start; gap: 6px; }
 .note-tools .pending-files { flex: 1; margin-top: 4px; }
-.note-tools .attach { margin-top: 2px; }
 
 /* Compose button and sheet */
 main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
@@ -324,6 +325,18 @@ main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 @media (prefers-reduced-motion: no-preference) { .working-dot { animation: pulse 1.4s ease-in-out infinite; } }
 form[data-reply] .row .quick { margin-left: auto; margin-right: 6px; }
 form[data-reply] .row [data-confirm="finish"] { margin-right: 6px; }
+/* A composer's send buttons (ui.js sendButton), each with its key as a small gray hint where there is a keyboard and
+   room. A pair takes a row of two halves; a Todo card's reply box wraps its pair under the row. */
+.send-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.send-actions button, [data-sends] button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.send-actions button { min-height: 44px; }
+form[data-reply] .row { flex-wrap: wrap; }
+form[data-reply] .row > .send-actions { flex: 0 0 100%; margin-top: 4px; }
+.key-hint { display: none; font-size: 11px; font-weight: 400; color: var(--muted); white-space: nowrap; }
+button.primary .key-hint { color: color-mix(in srgb, var(--on-accent) 62%, transparent); }
+@media (hover: hover) and (pointer: fine) and (min-width: 600px) { .key-hint { display: inline; } }
+#askStatus { margin: 6px 2px 0; }
+#askStatus:empty { display: none; }
 .q .proto { display: inline-block; margin: 0 0 8px; }
 .msg .ask-actions { margin: -4px -6px 0 8px; }
 button.attach { border: 0; background: transparent; padding: 0; }
@@ -728,8 +741,6 @@ main > * { transition: opacity .25s ease; }
 .tk-seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; margin: 8px 0; border: 1px solid var(--line); border-radius: 9px; background: var(--chip); }
 .tk-seg button { min-width: 0; min-height: 44px; padding: 6px 4px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
 .tk-seg button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.ask-seg { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 10px 0 0; }
-.ask-choice-help { margin: 4px 2px 0; }
 .tk-seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
 .tk-grid { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 560px) { .tk-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); } }

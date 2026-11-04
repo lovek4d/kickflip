@@ -2537,7 +2537,7 @@ test("the thread's eye and fire are toggles, one at a time, that Send carries: n
   const fire = () => form().querySelector('button[data-grill]');
   const pressed = () => [eye().getAttribute('aria-pressed'), fire().getAttribute('aria-pressed')];
   const hint = () => form().querySelector('[data-hint]').textContent;
-  const send = async (text) => { form().querySelector('textarea').value = text; b.page.fire(b.root, 'submit', { target: form() }); await b.settle(); };
+  const send = async (text) => { form().querySelector('textarea').value = text; b.page.fire(b.root, 'submit', { target: form(), submitter: form().querySelector('button[type="submit"]') }); await b.settle(); };
   assert.equal(b.root.querySelector('details.item[data-key="w/A1"] .action-row.workflow button[data-confirm="grill"], details.item[data-key="w/A1"] button[data-confirm="prototype"]'), null);
   assert.match(form().querySelector('textarea').getAttribute('placeholder'), /\/prototype or \/grill/);
   assert.deepEqual([pressed(), hint()], [['false', 'false'], 'Tap the eye or the fire to request a prototype or a grill']);
@@ -2575,27 +2575,57 @@ test('Implement is on every Todo card, plain while its questions wait on the own
   b.view.unmount();
 });
 
-test('the New task sheet asks Discuss or Quick build above Send, Discuss pressed; Quick build sends the ask with quick: true, and the sheet is back on Discuss after it sends', async () => {
+// docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md
+test('the New task sheet has two buttons and no Send: Discuss (⌘↵) sends the ask and Quick build (⌥↵) sends it with quick: true; Ctrl+↵ stands in for ⌘', async () => {
   const b = boardOnDom({ board: boardOf([]), threads: {} });
   await b.settle();
-  const seg = () => [...b.root.querySelectorAll('#askForm .ask-seg button')].map((el) => [el.textContent, el.getAttribute('aria-pressed')]);
-  assert.deepEqual(seg(), [['Discuss', 'true'], ['Quick build', 'false']]);
   const form = b.root.querySelector('#askForm');
-  assert.ok(form.innerHTML.indexOf('ask-seg') < form.innerHTML.indexOf('type="submit"'));
-  const help = () => b.root.querySelector('#askChoiceHelp').textContent;
-  assert.equal(help(), 'Discuss: Claude grills or prototypes it first, then waits for you.');
-  const send = async (text) => {
+  const buttons = () => [...form.querySelectorAll('button[type="submit"]')].map((el) => [el.dataset.intent, el.textContent]);
+  assert.deepEqual(buttons(), [['discuss', 'Discuss⌘↵'], ['quick', 'Quick build⌥↵']]);
+  assert.equal(form.querySelector('.ask-seg'), null);
+  const send = async (text, submitter) => {
     b.root.querySelector('#askText').value = text;
-    b.page.fire(form, 'submit', { target: form });
+    b.page.fire(form, 'submit', { target: form, submitter: form.querySelector(`button[data-intent="${submitter}"]`) });
     await b.settle();
   };
-  await send('Plain task');
-  b.page.fire(b.root, 'click', { target: b.root.querySelector('#askQuick') });
-  assert.deepEqual(seg(), [['Discuss', 'false'], ['Quick build', 'true']]);
-  assert.equal(help(), 'Quick build: for changes you’re sure about; Claude marks it ready and builds.');
-  await send('Quick task');
+  await send('Plain task', 'discuss');
+  await send('Quick task', 'quick');
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['ask', { text: 'Plain task' }], ['ask', { text: 'Quick task', quick: true }]]);
-  assert.deepEqual(seg(), [['Discuss', 'true'], ['Quick build', 'false']]);
+  const pressed = [];
+  form.requestSubmit = (s) => pressed.push(s?.dataset.intent ?? null);
+  const box = b.root.querySelector('#askText');
+  const key = (ev) => b.page.fire(box, 'keydown', { key: 'Enter', target: box, ...ev }).defaultPrevented;
+  assert.deepEqual([key({ metaKey: true }), key({ ctrlKey: true }), key({ altKey: true }), key({}), key({ shiftKey: true })], [true, true, true, false, false]);
+  assert.deepEqual(pressed, ['discuss', 'discuss', 'quick']);
+  b.view.unmount();
+});
+
+// docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md
+test("a Todo card's thread box has Reply (⌘↵) and Reply and build (⌥↵), which sends the message with intent: 'build'; a card past Todo keeps one Send on ⌘↵, and the box follows the card's lane", async () => {
+  const b = boardOnDom({ open: ['w/T1', 'w/P1'], board: boardOf([workCard('T1'), workCard('P1', { lane: 'progress' })]), threads: { 'w/T1': [], 'w/P1': [] } });
+  await b.settle();
+  const form = (key) => b.root.querySelector(`form[data-reply="${key}"]`);
+  const buttons = (key) => [...form(key).querySelectorAll('button[type="submit"]')].map((el) => [el.dataset.intent ?? null, el.textContent]);
+  assert.deepEqual(buttons('w/T1'), [['reply', 'Reply⌘↵'], ['build', 'Reply and build⌥↵']]);
+  assert.deepEqual(buttons('w/P1'), [['reply', 'Send⌘↵']]);
+  const send = async (key, text, intent) => {
+    form(key).querySelector('textarea').value = text;
+    b.page.fire(b.root, 'submit', { target: form(key), submitter: form(key).querySelector(`button[data-intent="${intent}"]`) });
+    await b.settle();
+  };
+  await send('w/T1', 'Use the blue', 'build');
+  await send('w/T1', 'Just a reply', 'reply');
+  await send('w/P1', 'Later', 'reply');
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [
+    ['item-message', { key: 'w/T1', text: 'Use the blue', intent: 'build' }], ['item-message', { key: 'w/T1', text: 'Just a reply' }], ['item-message', { key: 'w/P1', text: 'Later' }],
+  ]);
+  const pressed = [];
+  for (const key of ['w/T1', 'w/P1']) form(key).requestSubmit = (s) => pressed.push([key, s?.dataset.intent ?? null]);
+  const key = (k, ev) => { const box = form(k).querySelector('textarea'); return b.page.fire(b.root, 'keydown', { key: 'Enter', target: box, ...ev }).defaultPrevented; };
+  assert.deepEqual([key('w/T1', { metaKey: true }), key('w/T1', { altKey: true }), key('w/P1', { ctrlKey: true }), key('w/P1', { altKey: true })], [true, true, true, false]);
+  assert.deepEqual(pressed, [['w/T1', 'reply'], ['w/T1', 'build'], ['w/P1', 'reply']]);
+  await b.change({ board: boardOf([workCard('T1', { lane: 'progress' }), workCard('P1', { lane: 'progress' })]) });
+  assert.deepEqual(buttons('w/T1'), [['reply', 'Send⌘↵']]);
   b.view.unmount();
 });
 
@@ -3118,17 +3148,17 @@ test("a thread's Send and the New task sheet's Send each wait, disabled with the
   const form = () => b.root.querySelector('form[data-reply="w/T1"]');
   const send = () => form().querySelector('button[type="submit"]');
   form().querySelector('textarea').value = 'Ship it';
-  b.page.fire(b.root, 'submit', { target: form() });
+  b.page.fire(b.root, 'submit', { target: form(), submitter: send() });
   await b.settle();
-  assert.deepEqual([...waitState(send()), send().textContent], [...WAITING, 'Send']);
+  assert.deepEqual([...waitState(send()), send().textContent], [...WAITING, 'Reply⌘↵']);
   sends.answer();
   await b.settle();
   assert.deepEqual(waitState(send()), IDLE);
 
   b.root.querySelector('#askText').value = 'A new task';
-  b.page.fire(b.root.querySelector('#askForm'), 'submit', { target: b.root.querySelector('#askForm') });
-  await b.settle();
   const askSend = b.root.querySelector('#askForm button[type="submit"]');
+  b.page.fire(b.root.querySelector('#askForm'), 'submit', { target: b.root.querySelector('#askForm'), submitter: askSend });
+  await b.settle();
   assert.deepEqual([...waitState(askSend), b.root.querySelector('#askStatus').textContent], [...WAITING, '']);
   sends.answer();
   await b.settle();
@@ -3184,10 +3214,10 @@ test("an edit's Save waits for the server with the edit box open and the old tex
   b.view.unmount();
 });
 
-// #137: every text box the owner sends from attaches through attach.js: its button, a file list, and a drop zone round the box.
+// #137: every text box the owner sends from attaches through attach.js: its button inside the box (#256), a file list, and a drop zone round the box.
 const composerParts = (form) => form && {
   composer: Boolean(form.closest('[data-composer]')),
-  button: Boolean(form.querySelector('.attach input[type="file"][data-attach]')),
+  button: Boolean(form.querySelector('.dz > .attach input[type="file"][data-attach]')),
   files: Boolean(form.querySelector('[data-files]')),
   drop: Boolean(form.querySelector('.dz > textarea') && form.querySelector('.dz > .dz-hint')),
 };
@@ -3534,7 +3564,7 @@ test("Mark as done closes the card and leaves the page where it is as the card m
   board.items[1] = { ...board.items[1], threadCount: 1 };
   const form = card().querySelector('form[data-reply="ask:a1"]');
   form.querySelector('textarea').value = 'On it';
-  b.page.fire(b.root, 'submit', { target: form });
+  b.page.fire(b.root, 'submit', { target: form, submitter: form.querySelector('button[type="submit"]') });
   await b.settle();
   await b.change({ board });
   assert.deepEqual([b.sent.map(([kind]) => kind), flashing(), tinting()], [['item-message'], [], []]);
@@ -3750,7 +3780,7 @@ test("Waiting on you groups a topic's resolved questions under a collapsed 'reso
 });
 
 // docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md
-test("Waiting on you's eye on each question, after its attach button, asks for a prototype of that question with its note and pick, waits for the server, then resolves it and moves on as Send does: to the topic's next open question, or back to the board", async () => {
+test("Waiting on you's eye on each question, beside its box with the attach button inside, asks for a prototype of that question with its note and pick, waits for the server, then resolves it and moves on as Send does: to the topic's next open question, or back to the board", async () => {
   const question = (id) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
   let release;
   const gate = { promise: new Promise((r) => { release = r; }) };
@@ -3758,7 +3788,8 @@ test("Waiting on you's eye on each question, after its attach button, asks for a
   await v.settle();
   const $ = (sel) => v.root.querySelector(sel);
   const eye = (id) => $(`section.q[data-q="${id}"] .note-tools [data-proto]`);
-  assert.deepEqual($('section.q[data-q="q1"] .note-tools').children.map((c) => c.getAttribute('title') || c.getAttribute('class')), ['Attach files', 'Ask for a prototype instead', 'pending-files']);
+  assert.deepEqual($('section.q[data-q="q1"] .note-tools').children.map((c) => c.getAttribute('title') || c.getAttribute('class')), ['Ask for a prototype instead', 'pending-files']);
+  assert.ok($('section.q[data-q="q1"] .dz > .attach input[data-attach]'));
   assert.equal($('#qform .bar [data-proto]'), null);
   assert.equal(eye('q1').disabled, false);
   assert.equal($('.topichead .chip'), null);

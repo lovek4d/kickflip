@@ -9,32 +9,26 @@ globalThis.BoardNewTask = (function () {
     <div class="sheet-head"><h2 id="sheetTitle">New task</h2><button type="button" class="ghost" id="sheetClose" aria-label="Close">✕</button></div>
     ${BoardUI.dropZone('<textarea id="askText" rows="4" placeholder="Ask a question or give me a task…" autofocus></textarea>')}
     <div class="pending-files" data-files></div>
-    <div class="tk-seg ask-seg" role="group" aria-label="Before building"><button type="button" id="askDiscuss" aria-pressed="true">Discuss</button><button type="button" id="askQuick" aria-pressed="false">Quick build</button></div>
-    <p class="muted small ask-choice-help" id="askChoiceHelp" aria-live="polite"></p>
-    <div class="row">
-      <span class="muted small" id="askStatus"></span>
-      <button type="submit" class="primary">Send</button>
-    </div>
+    <div class="send-actions">${BoardUI.sendButton('Discuss', 0, ' data-intent="discuss"')}${BoardUI.sendButton('Quick build', 1, ' data-intent="quick"')}</div>
+    <p class="muted small" id="askStatus" aria-live="polite"></p>
   </form>
 </dialog>`;
 
   function wire(B) {
     const { $, store, toast, quieted, sendDraft } = B;
-    const { attachButton, waitOn } = BoardUI;
+    const { waitOn, keyedSend } = BoardUI;
     const send = (kind, data) => (B.send ? B.send(kind, data) : B.site.send(kind, data));
     // The ask box is a bottom sheet: a <dialog> opened from the + button. Closing keeps the draft.
     const sheet = $('#sheet');
     const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
-    if (!$('#askForm .row .attach')) $('#askForm .row').insertAdjacentHTML('afterbegin', attachButton());
     // Files picked before the app shell switched away from this board are still attached, so they show again.
     BoardAttach.paint('ask', B.site.root);
-    const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-    if (!$('#askForm .send-hint')) $('#askForm button[type=submit]').insertAdjacentHTML('beforebegin', `<span class="send-hint" aria-hidden="true">${isMac ? '⌘↵' : 'Ctrl+↵'}</span>`);
-    // ⌘↵ (Ctrl+↵ off a Mac) sends the ask from its box.
+    // ⌘↵ sends the ask as Discuss and ⌥↵ as Quick build (ui.js keyedSend).
     B.on($('#askText'), 'keydown', (ev) => {
-      if (ev.key !== 'Enter' || !(ev.metaKey || ev.ctrlKey) || ev.isComposing) return;
+      const button = keyedSend(ev, $('#askForm'));
+      if (!button) return;
       ev.preventDefault();
-      $('#askForm').requestSubmit();
+      $('#askForm').requestSubmit(button);
     });
     $('#askText').value = store.get('draft:ask', '');
     B.on($('#askText'), 'input', (e) => { if (!quieted('draft:ask', e.target)) store.set('draft:ask', e.target.value); });
@@ -80,36 +74,20 @@ globalThis.BoardNewTask = (function () {
     B.on($('#sheetClose'), 'click', closeSheet);
     B.on(sheet, 'click', (ev) => { if (ev.target === sheet) closeSheet(); });
     B.on(sheet, 'cancel', (ev) => { ev.preventDefault(); closeSheet(); });
-    // Discuss or Quick build, above Send: Discuss, the default, has the session grill or prototype the task at once; Quick
-    // build sends the ask with quick: true, and the session marks the card ready. Each send goes back to Discuss
-    // (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
-    const CHOICE_HELP = {
-      discuss: 'Discuss: Claude grills or prototypes it first, then waits for you.',
-      quick: 'Quick build: for changes you’re sure about; Claude marks it ready and builds.',
-    };
-    let quick = false;
-    function choose(isQuick) {
-      quick = isQuick;
-      $('#askDiscuss').setAttribute('aria-pressed', String(!quick));
-      $('#askQuick').setAttribute('aria-pressed', String(quick));
-      $('#askChoiceHelp').textContent = CHOICE_HELP[quick ? 'quick' : 'discuss'];
-    }
-    choose(false);
-    B.on(B.root, 'click', (ev) => {
-      const b = ev.target.closest('#askDiscuss, #askQuick');
-      if (b) choose(b.id === 'askQuick');
-    });
+    // Discuss has the session grill or prototype the task at once; Quick build sends the ask with quick: true, and the
+    // session marks the card ready (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
     B.on($('#askForm'), 'submit', async (ev) => {
       ev.preventDefault();
       $('#askText').blur();
       const text = $('#askText').value.trim();
       const files = BoardAttach.files('ask', B.site.root);
+      const button = ev.submitter;
+      const quick = button.dataset.intent === 'quick';
       if ((!text && !files.length) || BoardAttach.busy('ask', B.site.root)) return;
       $('#askStatus').textContent = '';
       try {
-        await waitOn($('#askForm button[type="submit"]'), sendDraft('draft:ask', $('#askText'), () => $('#askText'), () => send('ask', { text, ...(files.length ? { files } : {}), ...(quick ? { quick: true } : {}) })));
+        await waitOn(button, sendDraft('draft:ask', $('#askText'), () => $('#askText'), () => send('ask', { text, ...(files.length ? { files } : {}), ...(quick ? { quick: true } : {}) })));
         BoardAttach.clear('ask', B.site.root);
-        choose(false);
         $('#askStatus').textContent = '';
         closeSheet();
         toast('Sent');

@@ -1718,6 +1718,13 @@ test("a card's bare Grill and Prototype taps are muted request entries in its th
   assert.equal(threadOf('w/A1', { events: [{ ...events[0], data: { text: 'Add a badge' } }], fromAsk: 'a1' }).length, 1);
 });
 
+// docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md
+test("a thread message sent with Reply and build carries intent: 'build', and reads build requested in its footer", () => {
+  const ev = (id, data) => ({ id, ts: `2026-10-23T10:0${id.slice(1)}:00Z`, kind: 'item-message', data: { key: 'w/A1', ...data }, reply: null });
+  const msgs = threadOf('w/A1', { events: [ev('m1', { text: 'Use the blue', intent: 'build' }), ev('m2', { text: 'Just a reply' })] });
+  assert.deepEqual(msgs.map((m) => [m.text, m.status || null, m.state]), [['Use the blue', 'build requested', 'waiting'], ['Just a reply', null, 'waiting']]);
+});
+
 test('only a running build keeps the board from being idle: a running planner leaves Pull free to start the next ready card', () => {
   const card = (agents) => ({ key: 'w/A1', lane: 'todo', buildable: true, state: 'ready', blockedBy: [], agents });
   for (const kind of ['prototype', 'grill']) assert.equal(pullOf([card([{ kind, started: '2026-10-23T10:00:00Z', done: null }])]).idle, true, kind);

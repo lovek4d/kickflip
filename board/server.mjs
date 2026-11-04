@@ -91,6 +91,8 @@
 //                                the one round trip (docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md);
 //                                with since: <version>, which isn't recorded, that board is a patch from it as ?since= gives
 //                                ask, item-message and owner-answer may carry files: [upload]
+//                                item-message may carry intent: 'build', a Todo card's Reply and build, which the
+//                                session treats as Mark ready and Implement
 //                                An owner-answer with a note and no take resolves its question (store.mjs
 //                                resolveNoteAnswers). One to a card's prototype question that picks no take is
 //                                recorded with prototype_again: true: the card reads prototyping with Next "Prototype

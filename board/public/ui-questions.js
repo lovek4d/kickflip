@@ -1,6 +1,6 @@
 // Owner questions, for Waiting on you (view-questions.js). Needs ui.js and ui-links.js.
 (function () {
-  const { esc, time, ago, replyBody, attachments, attachButton, dropZone, protoButton, linkText, linkHtml, badge, opensHere, LINK_ARROW } = globalThis.BoardUI;
+  const { esc, time, ago, replyBody, attachments, dropZone, protoButton, linkText, linkHtml, badge, opensHere, LINK_ARROW } = globalThis.BoardUI;
   // A short id such as A or C2 leads the label; a word id such as "inline" would repeat it. prototype-switcher.js answerLabel matches.
   const lead = (o) => (/^[A-Z][0-9]?$/i.test(o.id) ? `${o.id}. ` : '');
   const choiceLabel = (q, id) => { const o = q.options.find((x) => x.id === id); return o ? `${q.multi ? '' : lead(o)}${o.label}` : id || ''; };
@@ -18,7 +18,7 @@
   // requested until its prototype round arrives (view-questions.js).
   const questionEye = (q) => protoButton('q:' + q.id, { label: 'Ask for a prototype instead' });
   const noteComposer = (q, note) => `<div class="composer" data-composer="${esc('q:' + q.id)}">${dropZone(`<textarea class="note" rows="2" placeholder="Note (optional)">${esc(note || '')}</textarea>`)}
-      <div class="note-tools">${attachButton()}${questionEye(q)}<div class="pending-files" data-files></div></div></div>`;
+      <div class="note-tools">${questionEye(q)}<div class="pending-files" data-files></div></div></div>`;
 
   const QUESTION_STATE = {
     open: { label: 'open', tone: 'normal' },

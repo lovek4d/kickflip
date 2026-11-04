@@ -1,7 +1,7 @@
 // A card's thread on the board view: loading and rendering it, and its reply box. Needs app-core.js.
 BoardView.part((B) => {
   const { $, store, state, toast, quieted, sendDraft, links } = B;
-  const { esc, setHTML, threadMessages, attachButton, dropZone, protoButton, grillButton, doneButton, waitOn, newQuestionsLine } = BoardUI;
+  const { esc, setHTML, threadMessages, dropZone, sendButton, protoButton, grillButton, doneButton, waitOn, newQuestionsLine } = BoardUI;
 
   const REQUEST_EVENT = { prototype: 'prototype-request', grill: 'grill-more' };
   // A /prototype or /grill word in a message, the last one winning, and the message without it.
@@ -10,15 +10,25 @@ BoardView.part((B) => {
 
   const thread = (key) => `<div class="thread" data-thread="${esc(key)}"><div class="muted small">Loading thread…</div></div>`;
 
-  // The board, not the thread, decides the Done button, so it follows each board load even when the thread is unchanged.
+  // docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md
+  // A Todo card's reply box sends with Reply or Reply and build, which carries intent: 'build' for the session to mark
+  // the card ready and build it; any other card's sends with Send. The pair wraps onto its own line under the row.
+  const sends = (todo) => (todo
+    ? `<span class="send-actions" data-sends="todo">${sendButton('Reply', 0, ' data-intent="reply"')}${sendButton('Reply and build', 1, ' data-intent="build"')}</span>`
+    : `<span data-sends="one">${sendButton('Send', 0, ' data-intent="reply"')}</span>`);
+  // The board, not the thread, decides the Done button and the send buttons, so they follow each board load even when
+  // the thread is unchanged.
   function syncDone(el, key) {
-    const send = el.querySelector('form button[type=submit]');
-    if (!send) return;
-    const html = doneButton(state.board?.items.find((i) => i.key === key));
+    const at = el.querySelector('form [data-sends]');
+    if (!at) return;
+    const item = state.board?.items.find((i) => i.key === key);
+    const todo = item?.lane === 'todo';
+    if (at.dataset.sends !== (todo ? 'todo' : 'one')) { at.insertAdjacentHTML('afterend', sends(todo)); at.remove(); }
+    const html = doneButton(item);
     const current = el.querySelector('form [data-confirm="finish"]');
     if (current?.outerHTML === html) return;
     current?.remove();
-    if (html) send.insertAdjacentHTML('beforebegin', html);
+    if (html) el.querySelector('form [data-sends]').insertAdjacentHTML('beforebegin', html);
   }
 
   // Each open card's ui-threads.js threadMessages view. Opening a card marks it seen (app-core.js markSeen) before its
@@ -64,7 +74,7 @@ BoardView.part((B) => {
       el.innerHTML = `<div class="msgs"></div><form data-reply="${esc(key)}" data-composer="item:${esc(key)}">${dropZone(`<textarea rows="2" placeholder="${esc(PLACEHOLDER)}">${esc(draft)}</textarea>`)}
         <div class="flag-hint" data-hint aria-live="polite">${esc(HINT)}</div>
         <div class="pending-files" data-files></div>
-        <div class="row"><span class="tools">${attachButton()}${protoButton(key)}${grillButton(key)}</span><button class="chip quick" type="button" data-quick="What's left?">What's left?</button><button class="primary" type="submit">Send</button></div></form>`;
+        <div class="row"><span class="tools">${protoButton(key)}${grillButton(key)}</span><button class="chip quick" type="button" data-quick="What's left?">What's left?</button>${sends(false)}</div></form>`;
       BoardAttach.paint('item:' + key, B.site.root);
       syncFlag(el.querySelector('form'));
     }
@@ -153,9 +163,10 @@ BoardView.part((B) => {
     const files = BoardAttach.files(id, B.site.root);
     if ((!flag && !text && !files.length) || BoardAttach.busy(id, B.site.root)) return;
     const key = f.dataset.reply;
-    const data = { key, ...(text || !flag ? { text } : {}), ...(files.length ? { files } : {}) };
+    const build = !flag && ev.submitter.dataset.intent === 'build';
+    const data = { key, ...(text || !flag ? { text } : {}), ...(files.length ? { files } : {}), ...(build ? { intent: 'build' } : {}) };
     try {
-      await waitOn(f.querySelector('button[type=submit]'), sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),
+      await waitOn(ev.submitter, sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),
         () => B.sentHere(key, () => B.send(REQUEST_EVENT[flag] || 'item-message', data))));
       BoardAttach.clear(id, B.site.root);
       delete f.dataset.flag;
@@ -163,10 +174,9 @@ BoardView.part((B) => {
       loadThread(f.dataset.reply, { force: true });
     } catch { B.notice('Could not send. Is the host awake?'); }
   });
-  // Send waits while a composer's files upload, the ask's included (attach.js attach-change).
+  // A composer's send buttons wait while its files upload, the ask's included (attach.js attach-change).
   B.on(B.root, 'attach-change', (ev) => {
-    const b = ev.target.querySelector('button[type=submit]');
-    if (b) b.disabled = BoardAttach.busy(ev.detail.id, B.site.root);
+    for (const b of ev.target.querySelectorAll('button[type=submit]')) b.disabled = BoardAttach.busy(ev.detail.id, B.site.root);
     if (ev.target.matches?.('form[data-reply]')) syncFlag(ev.target);
   });
 

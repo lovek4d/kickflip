@@ -659,14 +659,18 @@ function ownerTopics(topics, questions, closed = new Set()) {
 const ACTION_LABELS = { 'mark-ready': 'Mark ready', 'grill-more': 'grill requested', 'prototype-request': 'prototype requested', 'reask-request': 're-ask requested' };
 const ANSWERS_SUBMITTED = 'answers submitted';
 const QUICK_BUILD = 'quick build: no grill, as you asked';
+// A Todo card's Reply and build (docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md).
+const BUILD_REQUESTED = 'build requested';
 const actionText = (e, asked) => {
   if (e.kind !== 'prototype-request' || !asked.has(e.data.question)) return e.data.text || (e.data.files?.length ? '' : routeRecord(ACTION_LABELS, e.kind)) || '';
   const q = asked.get(e.data.question);
   const o = (q.options || []).find((x) => x.id === e.data.choice);
   return [q.question, o && `${o.id}. ${o.label}`, e.data.note].filter(Boolean).join('\n→ ');
 };
-// A Grill or Prototype request: bare (the request line) or carrying the owner's text, files or question (a message with its status).
+// A Grill or Prototype request: bare (the request line) or carrying the owner's text, files or question (a message with
+// its status); a Reply and build message has its status.
 const requestOf = (e, asked) => {
+  if (e.kind === 'item-message') return e.data.intent === 'build' ? { status: BUILD_REQUESTED } : {};
   if (e.kind !== 'grill-more' && e.kind !== 'prototype-request') return e.kind === 'reask-request' ? { request: true } : {};
   return (e.data.question ? asked.has(e.data.question) : String(e.data.text || '').trim() || e.data.files?.length) ? { status: ACTION_LABELS[e.kind] } : { request: true };
 };

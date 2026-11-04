@@ -1,7 +1,7 @@
 // A card's thread: the orchestrator's lines (who claude, named Orchestrator), its builders' asks, the owner's messages and
 // their replies. Needs ui.js, ui-links.js and ui-enums.js.
 (function () {
-  const { esc, time, etaLine, replyBody, attachments, attachButton, dropZone, editButton, withdrawButton, workingLine, linkText, linkHtml, anyLink, mark, statusMark, BUTTON } = globalThis.BoardUI;
+  const { esc, time, etaLine, replyBody, attachments, dropZone, sendButton, editButton, withdrawButton, workingLine, linkText, linkHtml, anyLink, mark, statusMark, BUTTON } = globalThis.BoardUI;
   const VIA = { slack: ' · Slack', github: ' · GitHub' };
   // A link to a card on this board (#item=<key>) or on another board (/<route>/#item=<key>, an ask's move), or ''.
   function cardLink(link) {
@@ -32,7 +32,7 @@
   // files it adds to the message, under composer id edit:<event id>.
   const editForm = (id, text) => `<form class="edit-form" data-edit-form="${esc(id)}" data-composer="edit:${esc(id)}">${dropZone(`<textarea rows="3">${esc(text)}</textarea>`)}
         <div class="pending-files" data-files></div>
-        <div class="row">${attachButton()}<span><button type="button" data-edit-cancel>Cancel</button> <button class="primary" type="submit">Save</button></span></div></form>`;
+        <div class="send-actions"><button type="button" data-edit-cancel>Cancel</button>${sendButton('Save', 0)}</div></form>`;
   // batched: an answer followed by another of the owner's answers in its state, which carries the batch's footer.
   const line = (m, links, edits, batched = false) => (m.kind === 'reply'
     ? `<div class="msg claude reply-msg"><div class="who">Orchestrator · ${esc(time(m.ts))}</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body">${linkHtml(replyBody(m.reply), links)}</div></div>`

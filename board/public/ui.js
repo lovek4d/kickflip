@@ -52,8 +52,21 @@
   }
   const CLIP = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
   const attachButton = () => `<label class="attach" title="Attach files"><input type="file" multiple data-attach aria-label="Attach files">${CLIP}</label>`;
-  // A composer's text box, which attach.js outlines with Drop to attach while files are dragged over the composer.
-  const dropZone = (textarea) => `<div class="dz">${textarea}<div class="dz-hint" aria-hidden="true">Drop to attach</div></div>`;
+  // A composer's text box with its attach button inside at the bottom right, which attach.js outlines with Drop to
+  // attach while files are dragged over the composer.
+  const dropZone = (textarea) => `<div class="dz">${textarea}${attachButton()}<div class="dz-hint" aria-hidden="true">Drop to attach</div></div>`;
+  // docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md
+  // A composer's send buttons: its first presses on ⌘↵ and its second, where it has one, on ⌥↵ (Ctrl+↵ and Alt+↵ off a
+  // Mac), each with its key as a small gray hint that style.css shows only where there is a keyboard and room.
+  const MAC = /Mac|iPhone|iPad/.test(globalThis.navigator?.platform || globalThis.navigator?.userAgent || '');
+  const SEND_KEYS = MAC ? ['⌘↵', '⌥↵'] : ['Ctrl+↵', 'Alt+↵'];
+  const sendButton = (label, nth, attrs = '') => `<button type="submit"${nth === 0 ? ' class="primary"' : ''}${attrs}>${esc(label)}<span class="key-hint" aria-hidden="true">${SEND_KEYS[nth]}</span></button>`;
+  // The send button an Enter keydown in form's box presses, or null.
+  const keyedSend = (ev, form) => {
+    if (ev.key !== 'Enter' || ev.isComposing) return null;
+    const nth = (ev.metaKey || ev.ctrlKey) && !ev.altKey ? 0 : ev.altKey && !ev.metaKey && !ev.ctrlKey ? 1 : -1;
+    return nth < 0 ? null : form.querySelectorAll('button[type="submit"]')[nth] || null;
+  };
   const icon = (body, size = 18, attrs = '') => `<svg${attrs} width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
   // An SVG, not ↗: iOS Safari can draw ↗ as an emoji tile even with U+FE0E.
   const LINK_ARROW = icon('<path d="M7 17 17 7"/><path d="M7 7h10v10"/>', '1em', ' class="link-arrow" style="vertical-align:-0.125em"');
@@ -340,6 +353,6 @@
   globalThis.BoardUI = {
     LINK_ARROW,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, RESTARTING, restartNotice,
-    attachments, attachButton, dropZone, pendingFiles, protoButton, grillButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, BADGE_TONES, badge,
+    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, protoButton, grillButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, BADGE_TONES, badge,
   };
 })();

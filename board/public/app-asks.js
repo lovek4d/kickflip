@@ -3,15 +3,15 @@
 // docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md). Needs app-core.js and app-threads.js.
 BoardView.part((B) => {
   const { $, state, toast } = B;
-  const { waitOn } = BoardUI;
+  const { waitOn, keyedSend } = BoardUI;
 
-  // ⌘↵ (Ctrl+↵ off a Mac) sends a thread reply or an edit from its box; the ask's own is new-task.js's.
+  // ⌘↵ and ⌥↵ press a thread reply's or an edit's send buttons from its box (ui.js keyedSend); the ask's own are new-task.js's.
   B.on(B.root, 'keydown', (ev) => {
-    if (ev.key !== 'Enter' || !(ev.metaKey || ev.ctrlKey) || ev.isComposing) return;
-    const form = ev.target instanceof HTMLTextAreaElement ? ev.target.closest('form[data-reply], form.edit-form') : null;
-    if (!form) return;
+    const form = ev.target.tagName === 'TEXTAREA' ? ev.target.closest('form[data-reply], form.edit-form') : null;
+    const button = form && keyedSend(ev, form);
+    if (!button) return;
     ev.preventDefault();
-    form.requestSubmit();
+    form.requestSubmit(button);
   });
   BoardNewTask.wire(B);
 
