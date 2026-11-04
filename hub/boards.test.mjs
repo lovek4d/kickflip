@@ -747,6 +747,41 @@ test("a board session's permission prompt pushes, waits in that board's Needs yo
   assert.equal((await needs('orch')).items.some((x) => x.kind === 'Prompt'), false);
 });
 
+test("a command auto mode still refused, or the session still asked about, while its board's permission switch is on is noted under that switch", async () => {
+  const manifestFile = claude('kickflip', 'manifest.json');
+  const original = read(manifestFile);
+  const folder = path.join(home, 'perm-shop');
+  const refusals = site('shop', 'data', 'permission-refusals.json');
+  write(path.join(folder, '.claude', 'settings.local.json'), { permissions: { allow: ['Bash(git push origin v*)', 'Bash(git push origin main)'] } });
+  const changed = read(manifestFile);
+  changed.sites.shop.owner = { ...changed.sites.shop.owner, repo: folder };
+  const denied = (command, session = 's-shop') => new Promise((resolve) => {
+    const child = spawn(process.execPath, [path.join(HUB_DIR, 'permission-denied-hook.mjs')], { env: { ...process.env, KICKFLIP_HUB_PORT: String(port) } });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.on('close', (status) => resolve({ status, out }));
+    child.stdin.end(JSON.stringify({ session_id: session, cwd: folder, hook_event_name: 'PermissionDenied', tool_name: 'Bash', tool_input: { command }, reason: 'auto mode' }));
+  });
+  try {
+    await writeManifestFile(changed);
+    assert.deepEqual(await denied('git push origin v0.9.0', 's-nobody'), { status: 0, out: '' });
+    assert.deepEqual(await denied('npm publish'), { status: 0, out: '' });
+    assert.equal(fs.existsSync(refusals), false);
+    assert.deepEqual(await denied('git push origin v0.9.0'), { status: 0, out: '' });
+    assert.deepEqual(Object.entries(read(refusals)).map(([id, r]) => [id, r.command, r.how]), [['pushTags', 'git push origin v0.9.0', 'denied']]);
+    const asked = await fetch(`${base}/_hub/prompts`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ session_id: 's-shop', cwd: folder, hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'git push origin main', description: 'Push' } }) });
+    assert.equal(asked.status, 200);
+    assert.deepEqual([read(refusals).pushMain.command, read(refusals).pushMain.how], ['git push origin main', 'asked']);
+    assert.equal((await fetch(`${base}/_hub/prompts/${(await asked.json()).id}`, { method: 'DELETE' })).status, 200);
+    assert.equal((await fetch(`${base}/_hub/permission-denied`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"hook_event_name":"PreToolUse"}' })).status, 400);
+  } finally {
+    await writeManifestFile(original);
+    fs.rmSync(refusals, { force: true });
+    fs.rmSync(folder, { recursive: true, force: true });
+  }
+});
+
 test('object property names work as page routes and as new boards through HTTP and the CLI', async () => {
   const manifestFile = claude('kickflip', 'manifest.json');
   const original = read(manifestFile);

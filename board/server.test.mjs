@@ -1087,3 +1087,37 @@ test("/api/board names a card's worktree while its folder exists, and says wheth
     for (const id of ['V1', 'V2']) fs.rmSync(path.join(agents, `${id}.json`), { force: true });
   }
 });
+
+test("/api/permissions writes the board folder's settings.local.json from the host, and reads them anywhere else", async () => {
+  const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
+  const folder = path.join(home, 'perm-repo');
+  const local = path.join(folder, '.claude', 'settings.local.json');
+  fs.mkdirSync(path.join(folder, '.claude'), { recursive: true });
+  fs.writeFileSync(local, JSON.stringify({ permissions: { allow: ['Bash(npm test)'] } }));
+  fs.mkdirSync(path.dirname(manifest), { recursive: true });
+  fs.writeFileSync(manifest, JSON.stringify({ sites: { site: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], local: true, owner: { repo: folder } } } }));
+  const get = async (headers = {}) => (await fetch(`${base}/api/permissions`, { headers })).json();
+  const set = (body, headers = {}) => fetch(`${base}/api/permissions`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
+  const away = { 'x-forwarded-for': '100.70.1.2' };
+  try {
+    const first = await get();
+    assert.deepEqual([first.onHost, first.file, first.permissions.map((p) => [p.id, p.on])], [true, local, [['pushMain', false], ['pushTags', false], ['draftPr', false]]]);
+    assert.equal((await get(away)).onHost, false);
+    const refused = await set({ id: 'pushTags', on: true }, away);
+    assert.equal(refused.status, 403);
+    assert.match((await refused.json()).error, /Change on the host/);
+    assert.deepEqual(JSON.parse(fs.readFileSync(local, 'utf8')), { permissions: { allow: ['Bash(npm test)'] } });
+    const on = await set({ id: 'pushTags', on: true });
+    assert.equal(on.status, 200);
+    assert.deepEqual((await on.json()).permissions.map((p) => [p.id, p.on]), [['pushMain', false], ['pushTags', true], ['draftPr', false]]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(local, 'utf8')), { permissions: { allow: ['Bash(npm test)', 'Bash(git push origin v*)'] } });
+    assert.equal((await set({ id: 'nope', on: true })).status, 400);
+    assert.equal((await set({ id: 'pushTags', on: false })).status, 200);
+    assert.deepEqual(JSON.parse(fs.readFileSync(local, 'utf8')), { permissions: { allow: ['Bash(npm test)'] } });
+    fs.rmSync(manifest);
+    assert.equal((await fetch(`${base}/api/permissions`)).status, 404);
+  } finally {
+    fs.rmSync(manifest, { force: true });
+    fs.rmSync(folder, { recursive: true, force: true });
+  }
+});

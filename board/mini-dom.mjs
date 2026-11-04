@@ -219,7 +219,7 @@ export function miniDom(Target, document) {
       else this.parentNode.insertBefore(f, this.nextSibling);
     }
   }
-  for (const p of ['hidden', 'open', 'disabled']) {
+  for (const p of ['hidden', 'open', 'disabled', 'checked']) {
     Object.defineProperty(Element.prototype, p, { get() { return this.hasAttribute(p); }, set(v) { if (v) this.setAttribute(p, ''); else this.removeAttribute(p); } });
   }
   document.body = new Element('body');

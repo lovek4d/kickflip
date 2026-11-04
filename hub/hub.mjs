@@ -104,6 +104,9 @@
 //   /_hub/prompts/<id>/answer  POST the owner's {choice: allow | always | deny, answers?} from Needs you → {ok};
 //                     404 when gone, 409 when already answered, 400 {error} for a choice that doesn't fit
 //   /_hub/prompts/<id> DELETE, the hook giving up at its deadline
+//   /_hub/permission-denied  POST a PermissionDenied hook's input (permission-denied-hook.mjs) → {noted}: the board
+//                     permission switch whose rule allows the refused command, noted under it while on, or null. A
+//                     PermissionRequest for such a command notes it the same way
 // Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing or proxying (403 plain text).
 // Routes that parse JSON require application/json; settings forms and raw uploads keep their own types.
 // /_hub/build and /_hub/pull also require loopback and refuse Origin and forwarded headers.
@@ -177,6 +180,7 @@ import { BuildError, startBuild, stopTries, tryTick, initializeTries, fetchTryBr
 import { serveFiles } from './files.mjs';
 import { upgrader, CHECK_MS } from './upgrade.mjs';
 import { openBoardBuilders } from '../board/store.mjs';
+import { recordRefusal } from '../board/permissions.mjs';
 import { restartRunner } from '../board/worktree.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
@@ -463,6 +467,19 @@ async function prunePrompts() {
 }
 
 const promptContext = () => ({ running: liveSessions(), boards: listBoards(loadManifest()) });
+
+// A session's PermissionDenied or PermissionRequest hook input for a command that one of its board's permission
+// switches allows while on becomes a note under that switch (board/permissions.mjs recordRefusal). A failure to write
+// the note is logged; the prompt goes on. → the switch noted, or null
+async function noteRefusal(input) {
+  const board = listBoards(loadManifest()).find((b) => b.owner?.session && b.owner.session === input.session_id);
+  if (!board) return null;
+  try {
+    const noted = await recordRefusal(boardRepo(board.route).repo, board.dir, input);
+    if (noted) log(`permissions: /${board.route} was still ${input.hook_event_name === 'PermissionDenied' ? 'refused' : 'asked about'} ${input.tool_input.command}`);
+    return noted;
+  } catch (e) { log(`permissions: could not note /${board.route}'s refusal: ${e.message}`); return null; }
+}
 
 // One check runs at a time. A call while one runs waits for it, then for one more check that reads the gate afresh, so a
 // pause-line save always reaches usage-gate-state.json; calls made meanwhile share that one.
@@ -1067,9 +1084,16 @@ async function hubRoute(req, res, url) {
     });
     if (answer) return sendJSON(200, { state: 'answered', answer });
     promptChanged(rec.route);
+    await noteRefusal(input);
     log(`prompt ${rec.id}: ${rec.route ? `/${rec.route}` : rec.cwd} ${rec.tool}${rec.action ? ` (${rec.action})` : ''}`);
     deliver(pushOf(rec), { kind: 'prompt', immediate: true }).catch((e) => log(`prompt ${rec.id}: push failed: ${e.message}`));
     return sendJSON(200, { id: rec.id, deadline: rec.deadline });
+  }
+  if (p === '/_hub/permission-denied' && req.method === 'POST') {
+    let input;
+    try { input = await readJSONBody(req, 8 * 1024 * 1024); } catch (e) { if (e.status) throw e; return sendJSON(400, { error: 'Send the hook input as JSON.' }); }
+    if (input?.hook_event_name !== 'PermissionDenied') return sendJSON(400, { error: 'Send a PermissionDenied hook input.' });
+    return sendJSON(200, { noted: await noteRefusal(input) });
   }
   const prompt = /^\/_hub\/prompts\/([\w-]+)(\/wait|\/answer)?$/.exec(p);
   if (prompt) return promptRoute(req, res, { id: prompt[1], op: prompt[2]?.slice(1) || null, url, sendJSON });

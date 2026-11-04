@@ -37,6 +37,8 @@
     <input type="checkbox" class="toggle" id="autoTriage" disabled></label>
   <p class="muted small" id="autoTriageStatus" role="status"></p>
   <p class="muted small">The hub runs <code>.kickflip/build</code> from each card’s branch and from main. Claude wrote it when it set up this board; if builds break, file a card.</p>
+  <h2>Permissions</h2>
+  <div id="permissions"><p class="muted small">Loading…</p></div>
   <h2>Reviewers</h2>
   <p class="muted small">Everyone here gets each PR link on this board once it's ready, and the weekday digest. Someone you add also gets the links of PRs already in review.</p>
   <div id="list"><p class="muted small">Loading…</p></div>
@@ -364,6 +366,47 @@
     autoToggle('autoPull', 'auto_pull', (on) => (on ? 'Saved. When idle, Claude starts the top Todo card.' : 'Saved. Todo cards wait for you.'));
     autoToggle('autoReview', 'auto_review', (on) => (on ? 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.' : 'Saved. Claude leaves incoming PRs alone.'));
     autoToggle('autoTriage', 'auto_triage', (on) => (on ? 'Saved. Once a day, when the board is idle and Todo changed, Claude triages it.' : 'Saved. Todo is left as it is.'));
+
+    // Each switch writes or removes one allow rule in the board folder's .claude/settings.local.json through POST
+    // api/permissions, which only the host's own browser may send; elsewhere the switches are read-only
+    // (docs/adr/2026-11-03-1921-board-settings-grant-a-boards-session-permissions.md). A tap waits on the server with the
+    // switch as it was and a spinner beside it, then draws the server's answer.
+    const permissions = $('#permissions');
+    const REFUSED = {
+      denied: (command) => `Auto mode still refused this once: ${command}. Approve it under /permissions, Recently blocked.`,
+      asked: (command) => `The session still asked before running ${command}, so it hasn’t picked the rule up yet. It applies once the session restarts.`,
+    };
+    const permRow = (p, onHost) => `<label class="who" for="perm-${esc(p.id)}"><span><span>${esc(p.name)}</span>
+      <span class="muted small sub">${esc(p.allows)} Writes <code>${esc(p.rule)}</code></span></span>
+      <span class="toggle-slot"><span class="try-spin toggle-spin" aria-hidden="true"></span><input type="checkbox" class="toggle" data-perm="${esc(p.id)}" id="perm-${esc(p.id)}"${p.on ? ' checked' : ''}${onHost ? '' : ' disabled'}></span></label>
+      <p class="muted small" id="perm-${esc(p.id)}Status" role="status"></p>
+      ${p.refused ? `<p class="muted small refused-note">${esc(REFUSED[p.refused.how](p.refused.command))}</p>` : ''}`;
+    const drawPermissions = (d) => {
+      permissions.innerHTML = d.permissions.map((p) => permRow(p, d.onHost)).join('')
+        + (d.onHost ? '' : '<p class="muted small" id="permissionsOffHost">Only the host can change these. Change on the host.</p>');
+    };
+    get(site.url('api/permissions'), waitIn('#permissions')).then(({ ok, body }) => {
+      if (!B.alive()) return;
+      if (!ok) { permissions.innerHTML = `<p class="muted small">${esc(body.error || 'Could not load permissions.')}</p>`; return; }
+      drawPermissions(body);
+    }).catch(() => { if (B.alive()) permissions.innerHTML = '<p class="muted">Offline. Is the host awake?</p>'; });
+    B.on(permissions, 'change', async (e) => {
+      const toggle = e.target.closest?.('input[data-perm]');
+      if (!toggle) return;
+      const id = toggle.dataset.perm;
+      const on = toggle.checked;
+      toggle.checked = !on;
+      try {
+        const r = await BoardUI.waitOn(toggle, fetch(site.url('api/permissions'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, on }) }));
+        const out = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(out.error);
+        if (!B.alive()) return;
+        drawPermissions(out);
+        $(`#perm-${id}Status`).textContent = on ? 'Saved. The session runs it without asking.' : 'Saved. The session asks first again.';
+      } catch (error) {
+        if (B.alive()) $(`#perm-${id}Status`).textContent = error.message || 'Could not save. Is the host awake?';
+      }
+    });
 
     // Saving writes board.json through POST api/rules, whose `rules {scope: "board"}` event wakes Claude to acknowledge
     // the change; replies show below, newest first.

@@ -474,6 +474,14 @@ main > * { transition: opacity .25s ease; }
 .view-settings label.who { gap: 12px; cursor: pointer; }
 .view-settings label.who .sub { display: block; margin-top: 2px; }
 .view-settings input.toggle { flex: none; width: 1.4rem; height: 1.4rem; margin: 0; accent-color: var(--accent); }
+/* A settings switch waiting on the server (ui.js waitOn) keeps its face, disabled, with a spinner beside it
+   (docs/adr/2026-11-03-1921-board-settings-grant-a-boards-session-permissions.md) */
+.view-settings .toggle-slot { flex: none; display: inline-flex; align-items: center; gap: 8px; }
+.view-settings .toggle-spin { display: none; color: var(--muted); }
+.view-settings .toggle-slot:has(input.tap-waiting) .toggle-spin { display: inline-block; }
+.view-settings input.toggle.tap-waiting { opacity: 1; cursor: default; }
+.view-settings #permissions code { font-size: 11.5px; overflow-wrap: anywhere; }
+.view-settings #permissions .refused-note { color: var(--color-danger); }
 .view-settings .close-board-row { width: 100%; text-align: left; color: var(--color-danger); }
 .view-settings .repo-row { width: 100%; gap: 12px; text-align: left; }
 .view-settings .repo-row > :first-child { min-width: 0; overflow-wrap: anywhere; }

@@ -143,6 +143,10 @@
 //   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, auto_triage?: boolean, auto_review?: boolean} → board.json, keeping its other keys, and when the value moved a
 //                                `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id}; a bad body → 400 {error}
+//   GET  /api/permissions        {onHost, file, permissions: [{id, name, allows, rule, on, refused}]}: the board's session
+//                                permissions, read from its folder's .claude/settings.local.json (permissions.mjs); 404 off the manifest
+//   POST /api/permissions        {id, on} from the host's own browser (on-host.mjs fromHost) → that rule written or removed,
+//                                and the same answer; 403 {error} from anywhere else, 400 {error} for a bad body or settings file
 //   POST /api/try                {key}: forwards a card build or main retry to the hub's loopback /_hub/build
 //   POST /api/try/main/pull      {}: Main's refresh icon, forwarded to the hub's loopback /_hub/pull → {commits, error?}
 //   GET  /api/try/main/log       {lines}: last 40 lines of main's log, from at most its last 64 KiB
@@ -189,6 +193,7 @@ import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { readUsageGate } from '../shared/usage-gate.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
+import { permissionsView, setPermission } from './permissions.mjs';
 
 const template = path.dirname(fileURLToPath(import.meta.url));
 // The hub's Home Screen icon, versioned by mtime the way hub/hub.mjs iconUrl() does, so iOS refetches a replaced icon.
@@ -793,6 +798,17 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { rules: saved.rules, id });
     }
     if (p === '/api/settings' && req.method === 'GET') return json(res, 200, { settings: await readBoardSettings(here) });
+    if (p === '/api/permissions') {
+      const self = boardAt(here);
+      if (!self) return json(res, 404, { error: 'This board isn’t in the hub’s manifest.' });
+      const folder = boardRepo(self.route).repo;
+      const body = req.method === 'POST' ? await readBody(req) : null;
+      if (body && !fromHost(req)) return json(res, 403, { error: 'Only the host can change these. Change on the host.' });
+      try {
+        if (body) await setPermission(folder, here, body.id, body.on);
+        return json(res, 200, await permissionsView(folder, here, fromHost(req)));
+      } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
+    }
     if (p === '/api/try/main/log' && req.method === 'GET') {
       let file;
       try {

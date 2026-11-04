@@ -3761,3 +3761,68 @@ test("the Auto Review lane leads the lanes; a held review's Needs you line opens
   await b.settle();
   assert.equal(post().disabled, false);
 });
+
+// docs/adr/2026-11-03-1921-board-settings-grant-a-boards-session-permissions.md
+test("Board Settings' Permissions switches sit below Auto, wait for the server with a spinner beside them, note a refusal, and are read-only off the host", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
+  assert.ok(html.indexOf('<h2>Auto</h2>') < html.indexOf('<h2>Permissions</h2>') && html.indexOf('<h2>Permissions</h2>') < html.indexOf('<h2>Reviewers</h2>'));
+  const rules = { pushMain: 'Bash(git push origin main)', pushTags: 'Bash(git push origin v*)', draftPr: 'Bash(gh pr create --draft *)' };
+  const names = { pushMain: 'Push main after a land', pushTags: 'Push release tags', draftPr: 'Open draft PRs' };
+  const state = { pushMain: false, pushTags: true, draftPr: false };
+  let onHost = true, answer = null;
+  const posts = [];
+  const view = () => ({ onHost, file: '/r/.claude/settings.local.json', permissions: Object.keys(rules).map((id) => ({ id, name: names[id], allows: `Allows ${id}.`, rule: rules[id], on: state[id],
+    refused: id === 'pushTags' && state[id] ? { command: 'git push origin v0.9.0', how: 'denied', at: '2026-11-03T20:00:00.000Z' } : null })) });
+  const reply = (body, ok = true) => ({ ok, status: ok ? 200 : 400, text: async () => JSON.stringify(body), json: async () => body });
+  page.win.fetch = async (url, opts = {}) => {
+    if (!url.endsWith('/api/permissions')) return reply({});
+    if (opts.method !== 'POST') return reply(view());
+    posts.push(JSON.parse(opts.body));
+    return new Promise((resolve) => { answer = (ok = true) => { if (ok) state[posts.at(-1).id] = posts.at(-1).on; resolve(ok ? reply(view()) : reply({ error: 'Cannot save' }, false)); }; });
+  };
+  const { Element } = miniDom(page.Target, page.win.document);
+  const mount = async () => {
+    const root = page.win.document.body.appendChild(new Element('div'));
+    root.innerHTML = html;
+    const v = page.win.AppViews.settings.create(root, '/orch', {});
+    v.mount();
+    await tick(); await tick();
+    return { root, v };
+  };
+  const { root, v } = await mount();
+  const toggle = (id) => root.querySelector(`#perm-${id}`);
+  assert.deepEqual(Object.keys(rules).map((id) => [toggle(id).checked, toggle(id).disabled]), [[false, false], [true, false], [false, false]]);
+  const rows = [...root.querySelectorAll('#permissions label.who')];
+  assert.deepEqual(rows.map((r) => r.querySelector('span span').textContent), Object.values(names));
+  assert.match(rows[1].innerHTML, /Writes <code>Bash\(git push origin v\*\)<\/code>/);
+  assert.equal(root.querySelector('#permissions .refused-note').textContent, 'Auto mode still refused this once: git push origin v0.9.0. Approve it under /permissions, Recently blocked.');
+  assert.equal(root.querySelector('#permissionsOffHost'), null);
+
+  const change = (id) => page.fire(root.querySelector('#permissions'), 'change', { target: toggle(id) });
+  toggle('pushMain').checked = true;
+  change('pushMain');
+  await tick();
+  assert.deepEqual(posts, [{ id: 'pushMain', on: true }]);
+  assert.deepEqual([toggle('pushMain').checked, toggle('pushMain').disabled, toggle('pushMain').classList.contains('tap-waiting')], [false, true, true], 'nothing changes before the server answers');
+  assert.ok(toggle('pushMain').parentNode.querySelector('.toggle-spin'), 'the spinner sits beside the switch');
+  answer();
+  await tick(); await tick();
+  assert.deepEqual([toggle('pushMain').checked, toggle('pushMain').disabled, toggle('pushMain').classList.contains('tap-waiting')], [true, false, false]);
+  assert.match(root.querySelector('#perm-pushMainStatus').textContent, /^Saved\./);
+
+  toggle('pushTags').checked = false;
+  change('pushTags');
+  await tick();
+  answer(false);
+  await tick(); await tick();
+  assert.deepEqual([toggle('pushTags').checked, toggle('pushTags').disabled], [true, false]);
+  assert.equal(root.querySelector('#perm-pushTagsStatus').textContent, 'Cannot save');
+  v.unmount();
+
+  onHost = false;
+  const away = await mount();
+  assert.deepEqual(Object.keys(rules).map((id) => away.root.querySelector(`#perm-${id}`).disabled), [true, true, true]);
+  assert.equal(away.root.querySelector('#permissionsOffHost').textContent, 'Only the host can change these. Change on the host.');
+  away.v.unmount();
+});
