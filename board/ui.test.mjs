@@ -981,13 +981,14 @@ test('a thread message says Working on it while Claude works on it, and only a p
   assert.deepEqual([...html.matchAll(/data-withdraw="(\w+)"/g)].map((m) => m[1]), ['e1']);
 });
 
-test('a stalled builder adds a fault-tone button in the chip row and keeps its builder line', () => {
+// docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md
+test('a stalled builder has no Stalled badge: its status line turns the needs-you red and nudges Claude when tapped', () => {
   const builder = { progress: 'Running tests', at: null, stalled: true };
-  const html = ui.workLines({ ...workCard, builder });
-  assert.match(html, /<div class="line2 meta"><button class="chip tone-danger"[^>]*type="button"[^>]*data-confirm="nudge"[^>]*data-key="w\/B5"[^>]*>Stalled<\/button>/);
-  assert.match(html, /<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"><\/span>Running tests<\/div>/);
-  assert.match(html, /title="No recent progress\. Nudge Claude to check this implementer"/);
-  for (const next of [{ ...builder, stalled: false }, null]) assert.doesNotMatch(ui.workLines({ ...workCard, builder: next }), /Stalled|data-confirm="nudge"/);
+  const html = ui.workLines({ ...workCard, lane: 'progress', builder });
+  assert.match(html, /<button type="button" class="line3 sub agent stalled" data-confirm="nudge" data-key="w\/B5" title="No recent progress\. Nudge Claude to check this implementer"><span class="working-dot" aria-hidden="true"><\/span>Running tests<\/button>/);
+  assert.doesNotMatch(html, /Stalled|tone-danger/);
+  for (const next of [{ ...builder, stalled: false }, null]) assert.doesNotMatch(ui.workLines({ ...workCard, builder: next }), /stalled|data-confirm="nudge"/);
+  assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'done', builder }), /stalled|data-confirm="nudge"/);
 });
 
 test("a refused Implement's reason takes the card's status line, in place of its next step", () => {
@@ -1009,9 +1010,36 @@ test('a building card in In Progress ends its time row with five bars, before th
   const first = ui.workLines({ ...building, builder: { ...builder, phase: 'reading' } });
   assert.match(first, /<i class="now"><\/i><i class=""><\/i><i class=""><\/i><i class=""><\/i><i class=""><\/i>/);
   assert.match(ui.workLines({ ...building, builder: { ...builder, phase: 'landing' } }), /aria-label="Landing, step 5 of 5"/);
-  for (const none of [{ ...builder, phase: null }, { progress: null, phase: null, at: null }]) assert.doesNotMatch(ui.workLines({ ...building, builder: none }), /phase-bars/);
-  assert.doesNotMatch(ui.workLines({ ...building, waitsOn: 'checking' }), /phase-bars/);
-  assert.doesNotMatch(ui.workLines({ ...building, builder: null, next: 'Fix it' }), /phase-bars/);
+});
+
+// docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md
+test('every In Progress card shows its five phase bars: empty before a phase, filled to the phase reached, all filled in review or reopened, dimmed while it waits on something other than a builder', () => {
+  const sortAt = '2020-01-01T10:00:00.000Z';
+  const card = { ...workCard, lane: 'progress', sortAt, builder: null, next: null };
+  const testing = { progress: 'Testing · the limiter', phase: 'testing', at: null };
+  const questions = { kind: 'questions', url: 'questions.html#q1', label: 'Answer 2 questions' };
+  const strip = (it) => {
+    const m = ui.workLines(it).match(/<span class="phase-bars( dim)?" role="img" aria-label="([^"]*)" title="\2">((?:<i class="\w*"><\/i>){5})<\/span>/);
+    return m && { dim: Boolean(m[1]), label: m[2], bars: [...m[3].matchAll(/class="(\w*)"/g)].map((b) => b[1] || '-').join(' ') };
+  };
+  const cases = [
+    [{ builder: { progress: null, phase: null, at: null } }, { dim: false, label: 'Starting, no step yet', bars: '- - - - -' }],
+    [{ builder: testing }, { dim: false, label: 'Testing, step 3 of 5', bars: 'done done now - -' }],
+    [{ builder: { ...testing, stalled: true } }, { dim: true, label: 'Testing, step 3 of 5', bars: 'done done now - -' }],
+    [{ waitsOn: 'checking' }, { dim: false, label: 'Orchestrator review, all 5 steps done', bars: 'done done done done done' }],
+    [{ builder: { ...testing, phase: 'building' }, action: questions }, { dim: true, label: 'Building, step 2 of 5, waiting on your answers', bars: 'done now - - -' }],
+    [{ reachedPhase: 'building', action: questions }, { dim: true, label: 'Stopped at building, step 2 of 5, waiting on your answers', bars: 'done done - - -' }],
+    [{ queued: true, blockedBy: [{ key: 'w/A1', ref: 'A1' }] }, { dim: true, label: 'Queued, no step yet', bars: '- - - - -' }],
+    [{ reopened: true, reachedPhase: 'testing' }, { dim: true, label: 'Reopened, all 5 steps done', bars: 'done done done done done' }],
+    [{ reachedPhase: 'landing', next: 'Fix the failing CI' }, { dim: true, label: 'Stopped at landing, step 5 of 5', bars: 'done done done done done' }],
+    [{}, { dim: true, label: 'No step yet', bars: '- - - - -' }],
+    [{ builder: { kind: 'install', progress: null, phase: null, at: null }, reachedPhase: 'landing' }, { dim: false, label: 'Stopped at landing, step 5 of 5', bars: 'done done done done done' }],
+  ];
+  for (const [extra, want] of cases) assert.deepEqual(strip({ ...card, ...extra }), want, JSON.stringify(extra));
+  for (const off of [{ lane: 'todo', builder: testing }, { lane: 'done', reopened: false }, { lane: 'review' }, { builder: { ...testing, planner: true } }]) {
+    assert.doesNotMatch(ui.workLines({ ...card, ...off }), /phase-bars/, JSON.stringify(off));
+  }
+  assert.match(ui.workLines({ ...card, queued: true }, { unread: 1 }), /<\/time><span class="sep"> · <\/span><span class="phase-bars dim"[^>]*>.*<\/span><span class="card-unread"><span class="sep"> · <\/span>1 new message<\/span><\/div>/);
 });
 
 // docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md
@@ -1715,18 +1743,21 @@ test('the Auto Review lane shows each PR with its author, cards and state, opens
   assert.equal(ui.reviewLane({ ...reviews, shown: false }), '');
 });
 
-test('a card\'s phase bars enter when a build starts, fill on an advance, leave when it ends, and are still otherwise', () => {
-  const building = (phase) => ({ lane: 'progress', builder: { phase } });
-  assert.equal(ui.buildPhase(building('testing')), 'testing');
-  assert.equal(ui.buildPhase({ ...building('testing'), waitsOn: 'checking' }), null);
-  assert.equal(ui.buildPhase({ lane: 'todo', builder: { phase: 'testing' } }), null);
-  assert.equal(ui.buildPhase({ lane: 'progress', builder: { planner: true, phase: 'testing' } }), null);
-  assert.equal(ui.buildPhase({ lane: 'progress', builder: { phase: null } }), null);
-  assert.equal(ui.buildPhase({ lane: 'progress' }), null);
-  assert.equal(ui.phaseMotion(null, 'reading'), 'enter');
-  assert.equal(ui.phaseMotion('reading', 'building'), 'fill');
-  assert.equal(ui.phaseMotion('landing', null), 'leave');
-  assert.equal(ui.phaseMotion('building', 'building'), null);
+// docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md
+test("a card's phase bars enter as it lands in In Progress, empty or not, fill as it reaches more phases, leave as it goes, and are still otherwise", () => {
+  const reached = (it) => ui.phaseStrip(it)?.reached ?? null;
+  assert.equal(reached({ lane: 'progress', builder: { phase: 'testing' } }), 3);
+  assert.equal(reached({ lane: 'progress', builder: { phase: null } }), 0);
+  assert.equal(reached({ lane: 'progress', waitsOn: 'checking' }), 5);
+  assert.equal(reached({ lane: 'todo', builder: { phase: 'testing' } }), null);
+  assert.equal(reached({ lane: 'progress', builder: { planner: true, phase: 'testing' } }), null);
+  assert.equal(ui.phaseMotion(undefined, 0), 'enter');
+  assert.equal(ui.phaseMotion(null, 5), 'enter');
+  assert.equal(ui.phaseMotion(0, 1), 'fill');
+  assert.equal(ui.phaseMotion(1, 3), 'fill');
+  assert.equal(ui.phaseMotion(5, 5), null);
+  assert.equal(ui.phaseMotion(3, 1), null);
+  assert.equal(ui.phaseMotion(0, null), 'leave');
   assert.equal(ui.phaseMotion(null, null), null);
 });
 

@@ -2744,7 +2744,8 @@ test('Hold opens a sheet of the shared duration picker in place of a confirm, wh
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['card-hold', { key: 'w/H1', hold: false }]);
 });
 
-test('the Stalled chip on closed and open cards confirms before sending a builder nudge and shows a sent notice', async () => {
+// docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md
+test("a stalled card's red status line, closed or open, confirms before sending a builder nudge and shows a sent notice", async () => {
   for (const open of [[], ['w/S1']]) {
     const item = workCard('S1', { lane: 'progress', builder: { stalled: true, progress: 'Running tests', at: null } });
     const b = boardOnDom({ open, board: boardOf([item]), threads: {}, realDialogs: true });
@@ -2752,7 +2753,8 @@ test('the Stalled chip on closed and open cards confirms before sending a builde
     let accept = false;
     b.page.win.confirm = (message) => { confirms.push(message); return accept; };
     await b.settle();
-    const chip = () => b.root.querySelector('summary .line2 button[data-confirm="nudge"]');
+    assert.equal(b.root.querySelector('summary .line2'), null);
+    const chip = () => b.root.querySelector('summary button.line3.stalled[data-confirm="nudge"]');
     b.page.fire(b.root, 'click', { target: chip() });
     await b.settle();
     assert.deepEqual(confirms, ['Nudge Claude to check this implementer?']);

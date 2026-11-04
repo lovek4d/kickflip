@@ -332,9 +332,16 @@ button.attach:disabled { opacity: .35; }
    pixel off its siblings (docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md). */
 .card-time .phase-bars { display: inline-flex; gap: 2px; vertical-align: middle; position: relative; top: -1px; }
 .phase-bars i { width: 9px; height: 4px; border-radius: 2px; background: var(--line); }
-.phase-bars i.done, .phase-bars i.now { background: var(--color-notice); }
+/* A strip dims, and its running bar stops blinking, while the card waits on something other than a builder
+   (docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md). app-cards.js sweeps bars in --bar-fill. */
+.phase-bars { --bar-fill: var(--color-notice); }
+.phase-bars.dim { --bar-fill: color-mix(in srgb, var(--muted) 55%, transparent); }
+.phase-bars i.done, .phase-bars i.now { background: var(--bar-fill); }
 @keyframes pulse-fill { 50% { background-color: color-mix(in srgb, var(--color-notice) 35%, transparent); } }
-@media (prefers-reduced-motion: no-preference) { .phase-bars i.now { animation: pulse-fill 1.4s ease-in-out infinite; } }
+@media (prefers-reduced-motion: no-preference) { .phase-bars:not(.dim) i.now { animation: pulse-fill 1.4s ease-in-out infinite; } }
+/* A stale build's status line, dot included, is the needs-you red, and a tap on it nudges Claude (ui-cards.js builderStatus). */
+button.sub.agent.stalled { display: block; width: 100%; padding: 0; border: 0; border-radius: 0; background: none; text-align: left; color: var(--color-danger); }
+.stalled .working-dot { background: currentColor; }
 .brand { display: grid; grid-template-columns: auto auto minmax(0, 1fr); column-gap: 10px; row-gap: 2px; }
 .brand .hub { grid-row: 1 / span 2; align-self: center; }
 .sub .working { color: var(--color-notice); }

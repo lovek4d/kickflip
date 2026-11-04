@@ -1,0 +1,16 @@
+# Every In Progress card shows its phase bars
+
+This supersedes [a building card's phase bars end its time row](2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md) on which cards show the bars, and [the phase bars animate as a build starts, advances and ends](2026-11-03-1850-the-phase-bars-animate-as-a-build-starts-advances-and-ends.md) on what the motion compares. Where the bars sit, and their look while a build runs, stay as those have them.
+
+The owner on #174: "I kind of want this to be a standard practice for every in-progress card", and picked take B of prototype `progress-bars-always`, with "I don't think I want the stalled badge however the build status should just change to be red if it is stale."
+
+- **Every In Progress card has the five bars**, in its time row before the new-messages count (`board/public/ui-cards.js` `phaseStrip`, `phaseBars`). Starting (the Implement tap until the builder's first phased line) and queued show them empty; a running build fills to its phase and marks it; orchestrator review shows all five filled (#165, whose commit shipped only its ADR line, so the code is built here); a reopened card all five filled; a card whose build has ended keeps the phase that build reached (`board/domain.mjs` `reachedPhaseOf`: the newest phased line since the latest build agent started, never a planner's). An install is no build: its card keeps the phase its build reached.
+- **The bars dim while the card waits on something other than a builder**: its questions for the owner, a blocker or the queue, a reopening, or no builder at all; and while its build is stale, since a bright, blinking bar says work is moving. Dimmed bars are muted and none blinks (`style.css` `.phase-bars.dim`). Orchestrator review and a running build do not dim.
+- **Still none off In Progress, and none on a card only a planner works on** ([planners and implementers are two kinds of agent](2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md)).
+- **Motion follows how many phases a card has reached.** `app-cards.js` keeps each card's reached count by key; `BoardUI.phaseMotion` names the change. A card landing in In Progress grows its strip in one bar at a time, empty or not, then sweeps each reached bar full in turn; reaching more phases sweeps each newly reached bar in turn; leaving In Progress takes the strip away as before. Going from the last build phase into review, or any change that reaches no further, does not move. A sweep draws in the strip's own fill, `--bar-fill`, so a dimmed strip sweeps muted.
+- **No Stalled badge.** A stale build's status line is the needs-you red, dot included, and is the button the badge was: a tap confirms, then nudges Claude to check the implementer (`ui-cards.js` `builderStatus`). The bars keep the phase the build reached, dimmed and not blinking, as take B draws them. After the nudge the line keeps its words, disabled, and the toast says it was sent.
+
+Considered:
+- take A, bars that never dim: a queued or questioned card's strip read the same as a running one;
+- take C, dimming plus a red outline on the bar where a build stopped: a second red mark beside the red status line;
+- a stalled build's bars staying bright: a bright, blinking bar says work is moving, and a stale build isn't.

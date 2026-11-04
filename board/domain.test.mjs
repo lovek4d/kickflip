@@ -134,6 +134,19 @@ test('a builder carries the phase of its newest status line, none before a phase
   assert.equal(builder([status('2026-10-23T10:05:00Z', 'Reading: spec', 'reading'), status('2026-10-23T10:10:00Z', 'Done')]).phase, null);
 });
 
+// docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md
+test("a card keeps the phase its latest build reached after the build ends, from that build's own phased lines, not a planner's or an earlier build's", () => {
+  const status = (ts, text, extra = {}) => ({ ts, who: 'claude', kind: 'status', text, ...extra });
+  const card = (agents, lines) => board({ now: Date.parse('2026-10-23T11:00:00Z'), agents: { A1: agents }, threads: { 'w/A1': lines } }).items.find((i) => i.key === 'w/A1');
+  const done = { kind: 'claude', started: '2026-10-23T10:00:00Z', done: '2026-10-23T10:30:00Z' };
+  const lines = [status('2026-10-23T09:00:00Z', 'Landing: old build', { phase: 'landing' }), status('2026-10-23T10:05:00Z', 'Reading: spec', { phase: 'reading' }),
+    status('2026-10-23T10:10:00Z', 'Building: the page', { phase: 'building' }), status('2026-10-23T10:12:00Z', 'Asked two questions'), status('2026-10-23T10:15:00Z', 'Testing: takes', { phase: 'testing', planner: true })];
+  assert.equal(card({ main: done }, lines).reachedPhase, 'building');
+  assert.equal(card({ main: done }, lines.slice(0, 1)).reachedPhase, null);
+  assert.equal(card({ main: { ...done, done: undefined } }, lines).reachedPhase, 'building');
+  assert.equal(card({}, lines).reachedPhase, null);
+});
+
 test('an install builder exposes its kind and keeps drafts and ready PRs In Progress until the install lands', () => {
   const install = { url: 'https://m/app.apk', sha: 'old' };
   const record = { kind: 'install', started: '2026-10-30T10:00:00Z' };

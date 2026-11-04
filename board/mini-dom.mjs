@@ -201,6 +201,8 @@ export function miniDom(Target, document) {
     focus() { if (this.isConnected) document.activeElement = this; }
     blur() { if (document.activeElement === this) document.activeElement = null; }
     scrollIntoView() {}
+    cloneNode() { return fragment(this.outerHTML).firstChild; }
+    animate() { return { finished: Promise.resolve(), cancel() {} }; }
     getBoundingClientRect() { return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }; }
     showModal() { this.open = true; }
     close() { this.open = false; }

@@ -127,7 +127,7 @@ const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && !['sta
 // said is the owner's messages and answers in the card's thread (threadOf), and askedAt the asked_at of its questions.
 // prs is the card's PRs, [{repo, number, gh}], gh being GitHub's state or null before it is read; the least-ready one
 // decides the lane, what it waits on and its Next (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
-function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, tickets }) {
+function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, tickets }) {
   const views = prs.map((p) => ({ repo: p.repo, number: p.number, url: prURL(p), ...(p.gh || {}), status: prStateOf(p.gh, it) }));
   const least = leastReady(prs.map((p) => p.gh));
   const pr = prs[least]?.gh || null;
@@ -189,7 +189,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, age
     key, kind: 'work', order, wave: slug, waveTitle: wave.title || slug, id: it.id, ref: refOf(wave, it, tickets), title: it.title, status: it.status || null,
     created: it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
     internal: wave.internal === true, repo: wave.internal === true && !wave.repo ? null : repo,
-    lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenAt), awaitsDone,
+    lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, reachedPhase, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenAt), awaitsDone,
     queued: lane !== 'done' && Boolean(it.queued_at),
     deps: it.deps || [], held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable ? bumpedAt || null : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
@@ -419,6 +419,14 @@ function worktreeOf(records = {}) {
 // (docs/adr/2026-11-03-1718-a-card-reads-starting-from-its-tap-with-one-dispatched-mark.md). While a build runs, its line wins over a running
 // planner's; with only planners running the line is theirs, marked planner
 // (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md).
+// The phase the card's latest build reached: its newest phased line since that build started, kept after the build ends,
+// never a planner's (docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md).
+function reachedPhaseOf(agents, lines = []) {
+  const since = agents.filter(builds).map((a) => String(a.started || '')).filter(Boolean).sort().pop();
+  if (since === undefined) return null;
+  return lines.filter((m) => m.kind === 'status' && m.phase && !m.planner && String(m.ts) >= since).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop()?.phase || null;
+}
+
 function builderOf(agents, lines = [], now) {
   const open = agents.filter((a) => a.started && !a.done);
   const planner = open.every(plans);
@@ -703,7 +711,7 @@ export function buildBoard(snapshot) {
       items.push(workItem({
         slug, wave, it, order, repo, remote, base: snapshot.branch || 'main',
         prs: cardPRs(it, repo).map((p) => ({ ...p, gh: routeRecord(prs, prKeyOf(p)) || null })),
-        ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
+        ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now), reachedPhase: reachedPhaseOf(agents, routeRecord(threads, key)), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
         worktree: worktreeOf(routeRecord(records, it.id)),
         thread: lines,
         events: [...itemEvents.filter((e) => e.data.key === key || askKeys.has(e.data.key)), ...askIds.map((id) => asks.get(id))],

@@ -150,26 +150,55 @@
   }
   // A builder reads "starting" until its first status line, from the Implement tap or the session's dispatch on.
   const builderLine = (b) => [b.progress || 'starting', b.at && ago(b.at)].filter(Boolean).join(' · ');
-  // Five bars at the end of the time row while a build runs on an In Progress card: done phases filled, the current one
-  // marked. The phases are store.mjs PHASES (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md,
+  // Five bars at the end of an In Progress card's time row: reached phases filled, a running one marked. The phases are
+  // store.mjs PHASES (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md,
   // docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md).
   const BUILD_PHASES = ['reading', 'building', 'testing', 'checking', 'landing'];
-  // The phase a card's bars show, or null when it shows none: an In Progress card with a builder past "starting", not a
-  // planner and not in orchestrator review.
-  const buildPhase = (it) => (it.lane === 'progress' && it.builder && !it.builder.planner && it.waitsOn !== 'checking' && BUILD_PHASES.includes(it.builder.phase) ? it.builder.phase : null);
-  // What the bars do when a card's phase goes from prev to next across redraws (docs/adr/2026-11-03-1850-the-phase-bars-animate-as-a-build-starts-advances-and-ends.md).
-  const phaseMotion = (prev, next) => (!prev === !next ? (prev && next && prev !== next ? 'fill' : null) : next ? 'enter' : 'leave');
-  function phaseBars(phase) {
-    const at = BUILD_PHASES.indexOf(phase);
-    if (at < 0) return '';
-    const name = `${phase[0].toUpperCase()}${phase.slice(1)}`;
-    const label = `${name}, step ${at + 1} of ${BUILD_PHASES.length}`;
-    return `<span class="phase-bars" role="img" aria-label="${label}" title="${label}">${BUILD_PHASES.map((_, i) => `<i class="${i < at ? 'done' : i === at ? 'now' : ''}"></i>`).join('')}</span>`;
+  const stepWords = (phase) => `step ${BUILD_PHASES.indexOf(phase) + 1} of ${BUILD_PHASES.length}`;
+  const ALL_DONE = `all ${BUILD_PHASES.length} steps done`;
+  // What a card's bars show, or null off In Progress and on a card only a planner works on: how many phases it reached,
+  // whether the last of them is running, whether it dims because the card waits on something other than a builder (its
+  // questions, a blocker or queue, a reopening) or its build is stale, and its label. An install is no build: its card keeps the phase its
+  // build reached, undimmed
+  // (docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md).
+  function phaseStrip(it) {
+    if (it.lane !== 'progress' || it.builder?.planner) return null;
+    const all = BUILD_PHASES.length;
+    if (it.waitsOn === 'checking') return { reached: all, running: false, dim: false, label: `Orchestrator review, ${ALL_DONE}` };
+    const asking = it.action?.kind === ACTION_KIND.questions || it.action?.kind === ACTION_KIND.pick;
+    const answers = asking ? ', waiting on your answers' : '';
+    const name = (phase) => `${phase[0].toUpperCase()}${phase.slice(1)}`;
+    if (it.builder && it.builder.kind !== BUILDER_KIND.install) {
+      const reached = BUILD_PHASES.indexOf(it.builder.phase) + 1;
+      return { reached, running: reached > 0, dim: asking || Boolean(it.builder.stalled), label: `${reached ? `${name(it.builder.phase)}, ${stepWords(it.builder.phase)}` : 'Starting, no step yet'}${answers}` };
+    }
+    const dim = !it.builder || asking;
+    if (it.reopened) return { reached: all, running: false, dim, label: `Reopened, ${ALL_DONE}${answers}` };
+    const reached = BUILD_PHASES.indexOf(it.reachedPhase) + 1;
+    const label = reached ? `Stopped at ${it.reachedPhase}, ${stepWords(it.reachedPhase)}` : it.queued ? 'Queued, no step yet' : 'No step yet';
+    return { reached, running: false, dim, label: `${label}${answers}` };
   }
-  const stalledChip = (it) => it.lane !== 'done' && it.builder?.stalled ? badge('danger', 'Stalled', {
-    button: true, title: 'No recent progress. Nudge Claude to check this implementer',
-    attrs: { type: 'button', 'data-confirm': 'nudge', 'data-key': it.key },
-  }) : '';
+  // What the bars do when a card's reached count goes from prev to next across redraws, null or undefined meaning no
+  // strip (docs/adr/2026-11-03-1850-the-phase-bars-animate-as-a-build-starts-advances-and-ends.md).
+  function phaseMotion(prev, next) {
+    const had = typeof prev === 'number';
+    const has = typeof next === 'number';
+    if (had !== has) return has ? 'enter' : 'leave';
+    return has && next > prev ? 'fill' : null;
+  }
+  function phaseBars(strip) {
+    if (!strip) return '';
+    const { reached, running, dim, label } = strip;
+    const look = (i) => (i === reached - 1 && running ? 'now' : i < reached ? 'done' : '');
+    return `<span class="phase-bars${dim ? ' dim' : ''}" role="img" aria-label="${esc(label)}" title="${esc(label)}">${BUILD_PHASES.map((_, i) => `<i class="${look(i)}"></i>`).join('')}</span>`;
+  }
+  // A stale build's status line is the needs-you red, and a tap on it nudges Claude to check the implementer.
+  function builderStatus(it) {
+    const classes = `line3 sub agent${it.builder.planner ? ' planner' : ''}`;
+    const words = `<span class="working-dot" aria-hidden="true"></span>${esc(builderLine(it.builder))}`;
+    if (!it.builder.stalled || it.lane === 'done') return `<div class="${classes}">${words}</div>`;
+    return `<button type="button" class="${classes} stalled" data-confirm="nudge" data-key="${esc(it.key)}" title="No recent progress. Nudge Claude to check this implementer">${words}</button>`;
+  }
   const unreadCount = (othersAt, seenAt) => (seenAt ? (othersAt || []).filter((t) => String(t) > seenAt).length : 0);
   // When a hold ends, as a card reads it: the time today, the weekday within six days, else the date
   // (docs/adr/2026-11-02-1727-a-card-can-be-held-until-a-time.md).
@@ -189,7 +218,7 @@
     return `<span class="card-hold" title="${esc(title)}">${esc(d ? `held until ${heldUntilWords(it.heldUntil)}` : 'held')}</span>`;
   }
   // A card's last line: the time its lane sorts by (domain.mjs sortAt), then its hold, what blocks it, then Action needed
-  // or ready, then a building card's phase bars, then its unread count, which app-cards.js takes away when the card opens
+  // or ready, then an In Progress card's phase bars, then its unread count, which app-cards.js takes away when the card opens
   // (docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md).
   const SEP = '<span class="sep"> · </span>';
   function timeLine(it, unread, bars) {
@@ -220,10 +249,10 @@
     // A card from an ask reads New until its session sets ready, grilling or prototyping (domain.mjs unsorted).
     const chip = step ? ticket.replace(/^<[^>]*>/, (open) => `${open}<span class="wn">${step}</span>`) : ticket;
     const ids = it.kind === 'ask' ? askChip(it) : it.unsorted ? `${badge('notice', 'New')} ${chip}` : chip;
-    const chips = `${stalledChip(it)}${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
+    const chips = `${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
     const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)
       : it.waitsOn === 'checking' ? '<div class="line3 sub agent"><span class="working-dot" aria-hidden="true"></span>Orchestrator review</div>'
-      : it.builder ? `<div class="line3 sub agent${it.builder.planner ? ' planner' : ''}"><span class="working-dot" aria-hidden="true"></span>${esc(builderLine(it.builder))}</div>`
+      : it.builder ? builderStatus(it)
       : it.grilling ? '<div class="line3 sub agent planner"><span class="working-dot" aria-hidden="true"></span>preheating</div>'
       : it.refusal ? `<div class="line3 sub refused">${esc(it.refusal)}</div>`
       : it.working ? `<div class="line3 sub agent">${workingLine}</div>`
@@ -232,7 +261,7 @@
     return `${actions ?? cardActions(it, top)}<div class="line1 title">${ids ? `${ids} ` : ''}${esc(it.title)}</div>
       ${status}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
-      ${timeLine(it, unread, phaseBars(buildPhase(it)))}`;
+      ${timeLine(it, unread, phaseBars(phaseStrip(it)))}`;
   }
   const WAVE_ICON = '<svg class="wave-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/><path d="M2 16c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/></svg>';
   const askChip = (it) => (it.isNew ? badge('notice', 'New') : '');
@@ -279,5 +308,5 @@
       <div class="list">${list}${fold}</div></details>`;
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, buildButton, builderLine, BUILD_PHASES, buildPhase, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, askChip, askActions, askLine, planButton, WAVE_ICON, reviewLane });
+  Object.assign(globalThis.BoardUI, { prChips, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, buildButton, builderLine, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, askChip, askActions, askLine, planButton, WAVE_ICON, reviewLane });
 })();

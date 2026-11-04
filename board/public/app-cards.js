@@ -3,7 +3,7 @@
 // app-core.js and app-threads.js.
 BoardView.part((B) => {
   const { $, store, state, markSeen, seen, toast, links } = B;
-  const { esc, ago, REVIEW, reviewAge, unreadCount, workLines, BUILD_PHASES, buildPhase, phaseMotion, heldUntilWords, holdPicker, linkText, mergeButton, buildButton, installButton, tryButton, tryWords, waitOn, prName, BUTTON, LINK_ARROW } = BoardUI;
+  const { esc, ago, REVIEW, reviewAge, unreadCount, workLines, BUILD_PHASES, phaseStrip, phaseMotion, heldUntilWords, holdPicker, linkText, mergeButton, buildButton, installButton, tryButton, tryWords, waitOn, prName, BUTTON, LINK_ARROW } = BoardUI;
 
   const mainSheet = $('#mainLogSheet');
   const mainRetry = $('#mainLogRetry');
@@ -309,14 +309,18 @@ BoardView.part((B) => {
         </details>`;
   }
 
-  // The phase bars move as a card's phase changes across redraws (docs/adr/2026-11-03-1850-the-phase-bars-animate-as-a-build-starts-advances-and-ends.md).
-  // phases is each card's last drawn phase by key; the first draw only records it, so a loaded board stays still.
+  // The phase bars move as a card's reached count changes across redraws
+  // (docs/adr/2026-11-03-1850-the-phase-bars-animate-as-a-build-starts-advances-and-ends.md,
+  // docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md). phases is each card's last drawn count by
+  // key, null for no strip; the first draw only records it, so a loaded board stays still.
   const phases = new Map();
   let drawn = false;
   const PHASE_STEP = 40;
   const play = (el, frames, opts, hold = 'backwards') => el.animate(frames, { fill: hold, easing: 'ease-out', ...opts });
   const GROW = [{ opacity: 0, transform: 'scaleX(0)', transformOrigin: 'left' }, { opacity: 1, transform: 'none', transformOrigin: 'left' }];
-  const SWEEP = 'linear-gradient(var(--color-notice), var(--color-notice))';
+  const PHASE_SWEEP = 120;
+  // --bar-fill is the strip's fill, the muted one on a dimmed strip (style.css).
+  const SWEEP = 'linear-gradient(var(--bar-fill), var(--bar-fill))';
   const sweepFrame = (size) => ({ backgroundColor: 'var(--line)', backgroundImage: SWEEP, backgroundRepeat: 'no-repeat', backgroundPosition: 'left', backgroundSize: size });
   const stripOf = (card) => {
     const bars = card?.querySelector('.card-time .phase-bars');
@@ -326,18 +330,22 @@ BoardView.part((B) => {
   // Before lanes redraw: each drawn strip, kept so a build that ends can still leave.
   function captureStrips() {
     const strips = new Map();
-    for (const [key, phase] of phases) {
-      const strip = phase && stripOf(cardEl(key));
+    for (const [key, reached] of phases) {
+      const strip = typeof reached === 'number' && stripOf(cardEl(key));
       if (strip) strips.set(key, { sep: strip.sep?.cloneNode(true), bars: strip.bars.cloneNode(true) });
     }
     return strips;
   }
-  // After lanes redraw: compares each card's phase to its last, then enters, fills or leaves its strip.
+  // Sweeps bars from to before to full, one after another, starting after delay.
+  const sweep = (bars, from, to, delay) => [...bars.querySelectorAll('i')].slice(from, to)
+    .forEach((bar, k) => play(bar, [sweepFrame('0% 100%'), sweepFrame('100% 100%')], { duration: 220, delay: delay + k * PHASE_SWEEP, easing: 'ease-in-out' }));
+  // After lanes redraw: compares each card's reached count to its last, then enters, fills or leaves its strip. An
+  // entering strip grows in one bar at a time, then sweeps each reached bar.
   function moveStrips(items, before) {
-    const next = new Map(items.map((it) => [it.key, buildPhase(it)]));
+    const next = new Map(items.map((it) => [it.key, phaseStrip(it)?.reached ?? null]));
     const still = reduceMotion.matches || !drawn;
-    for (const [key, phase] of next) {
-      const kind = still ? null : phaseMotion(phases.get(key), phase);
+    for (const [key, reached] of next) {
+      const kind = still ? null : phaseMotion(phases.get(key), reached);
       if (!kind) continue;
       const strip = stripOf(cardEl(key));
       if (kind === 'leave') {
@@ -352,12 +360,13 @@ BoardView.part((B) => {
       } else if (strip && kind === 'enter') {
         if (strip.sep) play(strip.sep, [{ opacity: 0 }, { opacity: 1 }], { duration: 120 });
         [...strip.bars.querySelectorAll('i')].forEach((bar, k) => play(bar, GROW, { duration: 140, delay: 60 + k * PHASE_STEP }));
+        sweep(strip.bars, 0, reached, 60 + BUILD_PHASES.length * PHASE_STEP + 140);
       } else if (strip && kind === 'fill') {
-        play(strip.bars.querySelectorAll('i')[BUILD_PHASES.indexOf(phase)], [sweepFrame('0% 100%'), sweepFrame('100% 100%')], { duration: 220, easing: 'ease-in-out' });
+        sweep(strip.bars, phases.get(key), reached, 0);
       }
     }
     phases.clear();
-    for (const [key, phase] of next) phases.set(key, phase);
+    for (const [key, reached] of next) phases.set(key, reached);
     drawn = true;
   }
 
@@ -455,7 +464,7 @@ BoardView.part((B) => {
     // The tapped button waits and the rest of its action row is disabled until the server answers.
     const group = { group: $(`.actions[data-actions="${CSS.escape(key)}"]`)?.querySelectorAll('button') ?? [] };
     try {
-      await waitOn(b, B.sentHere(key, () => B.send('builder-nudge', { key })), group); b.textContent = 'Sent'; b.disabled = true; toast('Nudge sent');
+      await waitOn(b, B.sentHere(key, () => B.send('builder-nudge', { key })), group); b.disabled = true; toast('Nudge sent');
     } catch { redrawActions(key); toast('Could not send. Is the host awake?'); }
   });
 
