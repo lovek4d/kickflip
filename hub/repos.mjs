@@ -78,6 +78,17 @@ export function runRepo(command, argv, options = {}) {
   });
 }
 
+// The folder's default branch: origin's (refs/remotes/origin/HEAD) first, since the folder may have a feature branch
+// checked out, else the checked-out branch. → the name, or '' when neither is a valid branch
+export async function defaultBranch(cwd, run = runRepo) {
+  const remote = await run('git', ['-C', cwd, 'symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
+  const head = await run('git', ['-C', cwd, 'symbolic-ref', '--quiet', '--short', 'HEAD']);
+  for (const branch of [remote.status === 0 && remote.stdout.trim().replace(/^origin\//, ''), head.status === 0 && head.stdout.trim()]) {
+    if (branch && valid(validateBranch, branch)) return branch;
+  }
+  return '';
+}
+
 // repo is a GitHub owner/name or a remote link.
 export function repoPath(repo, base = reposDir()) {
   const parts = repoParts(repo);

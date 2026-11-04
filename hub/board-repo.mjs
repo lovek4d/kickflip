@@ -1,6 +1,6 @@
 import { readManifest, withManifestLock, writeManifest, isBoardSite, listBoards, appendEvent, buildsLocally } from './boards.mjs';
 import { routeRecord } from './routes.mjs';
-import { repoService, validateBranch, runRepo, githubFromOrigin } from './repos.mjs';
+import { repoService, validateBranch, runRepo, githubFromOrigin, defaultBranch } from './repos.mjs';
 import { repoInput } from './new-board.mjs';
 import { boardConfig } from '../board/store.mjs';
 import { storedPath } from '../bin/install.mjs';
@@ -12,8 +12,8 @@ const refuse = (message, status = 400) => { throw Object.assign(new Error(messag
 export function boardRepo(route, manifest = readManifest()) {
   const site = routeRecord(manifest.sites, route);
   if (!isBoardSite(site)) refuse('Board not found.', 404);
-  // `local` (boards.mjs buildsLocally): builders branch from the repo's local main. A board's repo is its session's
-  // folder, the hub board's too.
+  // `local` (boards.mjs buildsLocally): builders branch from the repo's local branch (`branch`, else main). A board's
+  // repo is its session's folder, the hub board's too.
   const local = buildsLocally(site);
   return { github: site.github || '', ...(site.remote ? { remote: site.remote } : {}), branch: site.branch || '', repo: storedPath(site.owner?.repo || ''), ...(local ? { local: true } : {}) };
 }
@@ -43,16 +43,6 @@ export async function changeBoardRepo(route, input, { repos = repoService(), eve
   });
 }
 
-// The remote's default branch first: the folder may have a feature branch checked out.
-async function defaultBranch(run, cwd) {
-  const remote = await run('git', ['-C', cwd, 'symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
-  const head = await run('git', ['-C', cwd, 'symbolic-ref', '--quiet', '--short', 'HEAD']);
-  for (const branch of [remote.status === 0 && remote.stdout.trim().replace(/^origin\//, ''), head.status === 0 && head.stdout.trim()]) {
-    try { if (branch) return validateBranch(branch); } catch {}
-  }
-  return '';
-}
-
 export async function migrateBoardRepos({ run = runRepo } = {}) {
   return withManifestLock(async () => {
     const manifest = readManifest();
@@ -66,7 +56,7 @@ export async function migrateBoardRepos({ run = runRepo } = {}) {
       const github = origin.status === 0 ? githubFromOrigin(origin.stdout) : null;
       if (!github) continue;
       site.github = github;
-      const branch = site.branch || await defaultBranch(run, cwd);
+      const branch = site.branch || await defaultBranch(cwd, run);
       if (branch) site.branch = branch;
       changed.push(route);
     }

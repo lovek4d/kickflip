@@ -443,12 +443,24 @@ test('a web script serves root paths and upgrades through the relay and keeps it
   assert.equal(calls().filter((call) => call === 'serve --https=8500 off').length, 3);
 });
 
+test("a local board's main builds the tip of its recorded branch in its folder, not a branch called main", async () => {
+  git(repo, 'switch', '--quiet', '-c', 'trunk');
+  setScript('process.exit(0);', repo);
+  const sha = commit(repo, 'trunk script');
+  git(repo, 'switch', '--quiet', 'main');
+  Object.assign(manifest.sites.orch, { local: true, branch: 'trunk' });
+  await tick();
+  await until(() => state().main?.state === 'ready');
+  assert.deepEqual([state().main.sha, state().main.branch], [sha, 'trunk']);
+});
+
 test('main keeps its fixed port across merges and restart, never idles out and uses the recorded branch and origin slug', async (t) => {
   const relays = fakeRelays(t);
   manager = createTryManager({ now: () => clock, answers: async () => true, log() {} });
   setScript("console.log('port 32123'); setInterval(() => {}, 1000);", repo);
   const sha = commit(repo, 'web main');
-  git(repo, 'update-ref', 'refs/remotes/origin/develop', sha);
+  // With no github, the board builds locally: from its folder's own develop.
+  git(repo, 'branch', '--force', 'develop', sha);
   manifest.sites.orch.branch = 'develop';
   delete manifest.sites.orch.github;
   await tick();
@@ -463,7 +475,7 @@ test('main keeps its fixed port across merges and restart, never idles out and u
   assert.equal(state().cards['w/A1'].https, 8501);
   write(path.join(repo, 'file'), 'merged');
   const merged = commit(repo, 'merge');
-  git(repo, 'update-ref', 'refs/remotes/origin/develop', merged);
+  git(repo, 'branch', '--force', 'develop', merged);
   await tick();
   await until(() => state().main?.state === 'ready');
   assert.equal(state().main.sha, merged);

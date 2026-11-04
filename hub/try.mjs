@@ -432,7 +432,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
         const { state } = stateOf(board);
         const source = boardRepo(board.route, manifest);
         const branch = source.branch || 'main';
-        const ref = source.local ? 'refs/heads/main' : `refs/remotes/origin/${branch}`;
+        const ref = source.local ? `refs/heads/${branch}` : `refs/remotes/origin/${branch}`;
         for (const { slug, wave } of board.waves) for (const item of wave.items) {
           const key = `${slug}/${item.id}`;
           if (['done', 'merged', 'dropped'].includes(String(item.status).toLowerCase()) || ['MERGED', 'CLOSED'].includes(prs[`${board.github || wave.repo}#${item.pr}`]?.state)) continue;

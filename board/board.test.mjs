@@ -1651,7 +1651,7 @@ test('land refuses a worktree with uncommitted changes, with no commit beyond ma
   assert.deepEqual(restarts(), []);
 });
 
-test("a local board, or one with no GitHub repo or git remote, branches from its own folder's local main and lands there, never kickflip's clone", () => {
+test("a local board, or one with no GitHub repo or git remote, branches from its own folder's local branch and lands there, never kickflip's clone", () => {
   scratchRepo();
   const project = path.join(home, 'local-project');
   fs.mkdirSync(project);
@@ -1668,7 +1668,7 @@ test("a local board, or one with no GitHub repo or git remote, branches from its
     write(at('kickflip', 'manifest.json'), manifest);
   };
   const reset = () => { git(project, 'worktree', 'remove', '--force', worktree()); git(project, 'branch', '--quiet', '-D', 'A1'); };
-  for (const fields of [{ owner: { repo: project } }, { github: 'owner/project', branch: 'develop', local: true, owner: { repo: project } }]) {
+  for (const fields of [{ owner: { repo: project } }, { github: 'owner/project', branch: 'main', local: true, owner: { repo: project } }]) {
     setOrch(fields);
     const r = board('--site', 'orch', 'builder', 'start', 'w/A1', '--worktree');
     assert.equal(r.code, 0, r.err);
@@ -1689,6 +1689,38 @@ test("a local board, or one with no GitHub repo or git remote, branches from its
   assert.equal(landed.code, 0, landed.err);
   assert.match(landed.out, new RegExp(`main fast-forwarded to \\w+ in ${project}`));
   assert.equal(fs.readFileSync(path.join(project, 'card.txt'), 'utf8'), 'card');
+});
+
+test('a local board whose recorded branch is trunk branches from trunk and lands there, refusing while its folder is on another branch, naming trunk', () => {
+  scratchRepo();
+  const project = path.join(home, 'trunk-project');
+  fs.mkdirSync(project);
+  git(project, 'init', '--quiet', '-b', 'trunk');
+  git(project, 'config', 'user.name', 'Test');
+  git(project, 'config', 'user.email', 'test@example.com');
+  commit(project, 'project.txt', 'trunk');
+  const manifest = read(at('kickflip', 'manifest.json'));
+  manifest.sites.orch = { dir: manifest.sites.orch.dir, port: 1, cmd: manifest.sites.orch.cmd, local: true, branch: 'trunk', owner: { repo: project } };
+  write(at('kickflip', 'manifest.json'), manifest);
+  const started = board('--site', 'orch', 'builder', 'start', 'w/A1', '--worktree');
+  assert.equal(started.code, 0, started.err);
+  assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(project, 'rev-parse', 'trunk'));
+  commit(worktree(), 'card.txt', 'card');
+
+  git(project, 'switch', '--quiet', '-c', 'feature');
+  const landTrunk = () => run('board.mjs', ['land', 'w/A1', '--site', 'orch', '--text', 'Checked.'], undefined, { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) });
+  const refused = landTrunk();
+  assert.deepEqual([refused.code, refused.err], [1, `${project} is on feature, not trunk; switch it to trunk (git -C ${project} switch trunk) and land again\n`]);
+
+  git(project, 'switch', '--quiet', 'trunk');
+  commit(project, 'moved.txt', 'trunk moved');
+  const moved = git(project, 'rev-parse', '--short', 'trunk');
+  const landed = landTrunk();
+  assert.equal(landed.code, 0, landed.err);
+  const tip = git(project, 'rev-parse', '--short', 'trunk');
+  assert.deepEqual(landed.out.trim().split('\n').slice(0, 3), [`rebased A1 onto trunk (${moved})`, 'tests passed: 0', `trunk fast-forwarded to ${tip} in ${project}`]);
+  assert.equal(fs.readFileSync(path.join(project, 'card.txt'), 'utf8'), 'card');
+  assert.equal(git(project, 'rev-parse', 'trunk~1'), git(project, 'rev-parse', moved));
 });
 
 test('land keeps a "#N: subject" commit through its rebase, and refuses a commit with an empty subject before fast-forwarding main', () => {
@@ -1745,7 +1777,7 @@ test("land into the running kickflip clone restarts only the code that changed: 
   const restarted = [];
   const landHere = () => {
     const said = [];
-    landWorktree({ path: worktree(), branch: 'A1', repo }, {
+    landWorktree({ path: worktree(), branch: 'A1', repo, base: 'main' }, {
       clone: repo, say: (line) => said.push(line), runTests: () => ({ ok: true, pass: 1 }),
       restart: (what, route) => { restarted.push([what, route].filter(Boolean).join(' ')); return null; },
       boards: () => [{ route: 'orch' }, { route: 'audit' }],

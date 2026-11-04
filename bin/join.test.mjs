@@ -252,6 +252,22 @@ test('kickflip join in a repo makes a local board named as asked, with its GitHu
   assert.equal(claudeCalls().length, 1);
 });
 
+test("kickflip join records origin's default branch over the checked-out one, and running it again picks up a renamed default", async () => {
+  const repo = gitRepo('legacy', 'git@github.com:owner/legacy.git');
+  git(repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/master');
+  git(repo, 'checkout', '--quiet', '-b', 'feature');
+  const r = await cliIn(repo, ['join', '--name', 'Legacy']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(manifest().legacy.branch, 'master');
+
+  git(repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk');
+  const again = await cliIn(repo, ['join']);
+  assert.deepEqual([again.status, again.stdout], [1, 'This folder already has a board: Legacy (/legacy).\nIts branch is now trunk (it was master).\n']);
+  assert.equal(manifest().legacy.branch, 'trunk');
+  const same = await cliIn(repo, ['join']);
+  assert.deepEqual([same.status, same.stdout], [1, 'This folder already has a board: Legacy (/legacy).\n']);
+});
+
 test('kickflip join --hub in a repo with no origin makes the hub board with no GitHub repo, starts its session in tmux and attaches this terminal', async () => {
   const repo = gitRepo('second');
   const claudeBefore = claudeCalls().length;

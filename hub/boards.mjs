@@ -96,7 +96,7 @@ export const reviewerLogins = (list) => Object.fromEntries((Array.isArray(list) 
 const isWave = (w) => Array.isArray(w?.items);
 
 export const isBoardSite = (s) => Array.isArray(s?.cmd) && s.cmd.some((a) => /board[/\\]server\.mjs$/.test(a)) && typeof s.dir === 'string';
-// Whether a board's builders branch from its repo's local main and land there, with no fetch: a board
+// Whether a board's builders branch from its repo's local copy of its branch and land there, with no fetch: a board
 // `kickflip join` made (`local: true`), the hub board among them, and a board with neither a GitHub repo nor a plain git remote
 // (docs/adr/0143-kickflip-join-adds-the-current-repository-as-a-board.md).
 export const buildsLocally = (s) => s.local === true || !(s.github || s.remote);

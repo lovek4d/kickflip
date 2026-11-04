@@ -75,14 +75,14 @@ function removeLeftover(root, dir, id, { ref, base, busy }) {
 
 // Where the board at site's builders branch from and land (hub/board-repo.mjs boardRepo): a board on GitHub or a plain
 // git remote from its branch of its shared clone, fetched first; a local board, the hub board included, from its repo's
-// local main. With no site, or a site that isn't a board, the running kickflip clone's main. repo stands in for the
-// board's folder. → {repo, base, remote}
+// local copy of its recorded branch (`kickflip join` saves the folder's default branch), else main. With no site, or a
+// site that isn't a board, the running kickflip clone's main. repo stands in for the board's folder. → {repo, base, remote}
 export function builderRepo(site, { repo, manifest = readManifest() } = {}) {
   const board = site ? boardAt(site, manifest) : null;
   if (!board) return { repo: repo ?? skillRepo(), base: 'main', remote: false };
   const chosen = boardRepo(board.route, manifest);
   const folder = repo ?? (chosen.repo || fail(`/${board.route} has no folder recorded for its session; rejoin it from its repo folder`));
-  return chosen.local ? { repo: folder, base: 'main', remote: false } : { repo: folder, base: chosen.branch || 'main', remote: true };
+  return { repo: folder, base: chosen.branch || 'main', remote: !chosen.local };
 }
 
 // The worktree of card id on the board at site, from builderRepo. → as makeWorktree
@@ -183,9 +183,10 @@ export function restartRunner(what, route) {
   return r.status === 0 ? null : (r.stderr || r.error?.message || `exit ${r.status}`).trim().split('\n')[0];
 }
 
-// Brings a checked worktree's branch into the live repo's main, saying each step: refuses while the worktree has
-// uncommitted changes or the branch adds nothing; rebases it onto main when main moved, refusing on a conflict with
-// the rebase undone; runs the worktree's full suite; fast-forwards main; when repo is the running kickflip clone,
+// Brings a checked worktree's branch into the live repo's base branch (builderRepo's base), saying each step: refuses
+// unless the repo has base checked out, naming it, or while the worktree has uncommitted changes or the branch adds
+// nothing; rebases it onto base when base moved, refusing on a conflict with the rebase undone; runs the worktree's
+// full suite; fast-forwards base; when repo is the running kickflip clone,
 // restarts the hub when its code changed, else the board servers when board/ changed (a hub restart restarts every
 // site), test files aside; removes the worktree and branch.
 // Never pushes. A restart that fails is reported after the rest is done.
@@ -227,23 +228,23 @@ function refuseDuplicateAdr(dir) {
   fail(`land: docs/adr has two ADRs numbered ${number} (${files.join(', ')}); renumber yours to ${next} and land again`);
 }
 
-export function land({ path: dir, branch, repo }, { say = console.log, runTests = nodeTests, restart = restartRunner, boards = () => listBoards(), clone = skillRepo() } = {}) {
+export function land({ path: dir, branch, repo, base }, { say = console.log, runTests = nodeTests, restart = restartRunner, boards = () => listBoards(), clone = skillRepo() } = {}) {
   if (!fs.existsSync(dir)) fail(`no worktree at ${dir}`);
   const head = git(repo, 'symbolic-ref', '--quiet', '--short', 'HEAD').out;
-  if (head !== 'main') fail(`${repo} is on ${head || 'a detached HEAD'}, not main; land fast-forwards main there`);
+  if (head !== base) fail(`${repo} is on ${head || 'a detached HEAD'}, not ${base}; switch it to ${base} (git -C ${repo} switch ${base}) and land again`);
   if (git(dir, 'status', '--porcelain').out) fail(`${dir} has uncommitted changes; commit them there first`);
-  if (Number(git(repo, 'rev-list', '--count', `main..${branch}`).out) === 0) fail(`${branch} has no commits beyond main; nothing to land`);
+  if (Number(git(repo, 'rev-list', '--count', `${base}..${branch}`).out) === 0) fail(`${branch} has no commits beyond ${base}; nothing to land`);
 
-  if (!git(repo, 'merge-base', '--is-ancestor', 'main', branch).ok) {
-    if (!git(dir, 'rebase', '--quiet', 'main').ok) {
+  if (!git(repo, 'merge-base', '--is-ancestor', base, branch).ok) {
+    if (!git(dir, 'rebase', '--quiet', base).ok) {
       const conflicted = git(dir, 'diff', '--name-only', '--diff-filter=U').out.split('\n').filter(Boolean);
       git(dir, 'rebase', '--abort');
-      fail(`rebasing ${branch} onto main conflicts in ${conflicted.join(', ') || 'files git did not name'}; resolve it in ${dir} and land again`);
+      fail(`rebasing ${branch} onto ${base} conflicts in ${conflicted.join(', ') || 'files git did not name'}; resolve it in ${dir} and land again`);
     }
-    say(`rebased ${branch} onto main (${short(repo, 'main')})`);
+    say(`rebased ${branch} onto ${base} (${short(repo, base)})`);
   }
 
-  const blank = git(repo, 'log', '--format=%h %s', `main..${branch}`).out.split('\n').filter((l) => l && !l.includes(' '));
+  const blank = git(repo, 'log', '--format=%h %s', `${base}..${branch}`).out.split('\n').filter((l) => l && !l.includes(' '));
   if (blank.length) fail(`${branch} has a commit with an empty subject (${blank[0]}); reword it in ${dir} and land again`);
 
   refuseDuplicateAdr(dir);
@@ -256,10 +257,10 @@ export function land({ path: dir, branch, repo }, { say = console.log, runTests 
   ].join('\n'));
   say(`tests passed: ${tests.pass}`);
 
-  const changed = git(repo, 'diff', '--name-only', 'main', branch).out.split('\n').filter(Boolean);
+  const changed = git(repo, 'diff', '--name-only', base, branch).out.split('\n').filter(Boolean);
   const merged = git(repo, 'merge', '--quiet', '--ff-only', branch);
-  if (!merged.ok) fail(`could not fast-forward main in ${repo}: ${merged.err}`);
-  say(`main fast-forwarded to ${short(repo, 'main')} in ${repo}`);
+  if (!merged.ok) fail(`could not fast-forward ${base} in ${repo}: ${merged.err}`);
+  say(`${base} fast-forwarded to ${short(repo, base)} in ${repo}`);
 
   const failed = [];
   // Only the running kickflip clone's code runs in the hub and the board servers, and no test file runs in either.

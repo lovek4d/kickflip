@@ -381,13 +381,15 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
          [--note <t>]                                    refuses while any record on the card has a call after it
   land <wave>/<id> --text <t> [--repo <dir>]             brings the worktree its builder record keeps (else
          [--dir <dir>]
-                                                         ~/.claude/kickflip/worktrees/<id> of --repo) into main, one line
-                                                         per step: refuses while it has uncommitted changes or adds no
-                                                         commit; rebases onto main when main moved, refusing on a
-                                                         conflict with the rebase undone; refuses unless its full
-                                                         node --test suite passes, naming each failing test and
-                                                         saving the TAP output under ~/.claude/kickflip/logs;
-                                                         fast-forwards main in the repo;
+                                                         ~/.claude/kickflip/worktrees/<id> of --repo) into the board's
+                                                         branch (the one its builders branch from, else main), one
+                                                         line per step: refuses unless the repo has that branch
+                                                         checked out, naming it, or while the worktree has uncommitted
+                                                         changes or adds no commit; rebases onto the branch when it
+                                                         moved, refusing on a conflict with the rebase undone; refuses
+                                                         unless its full node --test suite passes, naming each failing
+                                                         test and saving the TAP output under ~/.claude/kickflip/logs;
+                                                         fast-forwards the branch in the repo;
                                                          restarts the hub when its code changed, else each board
                                                          server when board/ changed; removes the worktree and its
                                                          branch. Never pushes. One land runs at a time on the host: a
@@ -612,8 +614,8 @@ const COMMANDS = {
       if (site) await store.checkClose(site, key, f.text);
       await store.checkCallsVerified(site, key, { dir: f.dir });
       const recorded = await store.recordedWorktree(site, key, { dir: f.dir });
-      const repo = path.resolve(f.repo ?? recorded?.repo ?? builderRepo(site).repo);
-      land({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo });
+      const { repo, base } = builderRepo(site, { repo: f.repo ?? recorded?.repo });
+      land({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base });
       return site ? store.setItem(site, key, { status: 'done', text: f.text }) : { lines: [] };
     });
   }],

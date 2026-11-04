@@ -9,11 +9,12 @@
 //               run in a git repo's folder: adds it as a board (docs/adr/0143-kickflip-join-adds-the-current-repository-as-a-board.md).
 //               Asks for the board name, default the folder's name; with no terminal to ask in, --name is needed. The name
 //               takes letters, digits and spaces, and gives the route, lowercased with dashes for spaces. Records the
-//               folder's origin as `github` and its branch; the board's builders branch from the folder's local main and
-//               land there (`local: true`). Marks the folder trusted for Claude Code, then starts the board's session in
+//               folder's origin as `github` and its default branch (origin's, else the checked-out one); the board's
+//               builders branch from the folder's local copy of that branch and land there (`local: true`). Marks the folder trusted for Claude Code, then starts the board's session in
 //               the background as `start` does, or with --hub flags the board as the hub board, starts its session in
 //               the foreground in tmux and attaches this terminal to it, as `hub` does. Refuses a folder outside git (exit 2), and exits 1 while the hub isn't
-//               running. A folder that already has a board names it and offers to restart its session
+//               running. A folder that already has a board names it, records its default branch again when that
+//               changed, saying so, and offers to restart its session
 //   Every other join names its site with --name <name>, which gives its title and its route as above (any characters,
 //   other than letters and digits, become dashes). A name that is the route itself keeps the site's title.
 //   kickflip join --name <name> (--port <n> | --dir <folder> [--cmd '<json array>' [--port <n>]])
@@ -161,7 +162,7 @@ import { ICON_KEYS } from '../hub/icons.mjs';
 import { liveSessions } from '../hub/live.mjs';
 import { isBoardSite, writeManifest } from '../hub/boards.mjs';
 import { joinName, routeFromName, routeRecord, validRoute } from '../hub/routes.mjs';
-import { githubFromOrigin } from '../hub/repos.mjs';
+import { defaultBranch, githubFromOrigin } from '../hub/repos.mjs';
 import { uninstallStatusLine, storedPath, nodeBin, watcherCommand, tailnetUrl } from './install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { runDoctor } from './doctor.mjs';
@@ -368,7 +369,8 @@ async function joinFolder() {
   const folder = fs.realpathSync(top);
   if (!(await hubStatus())) fail('the hub is not running; run kickflip init to set it up, then kickflip join here again');
   const had = Object.entries(readManifest().sites).find(([, s]) => isBoardSite(s) && s.owner?.repo && realPath(s.owner.repo) === folder);
-  if (had) return restartFolderBoard(...had);
+  const branch = await defaultBranch(folder);
+  if (had) return restartFolderBoard(...had, branch);
   const fallback = path.basename(folder).replace(/[^A-Za-z0-9]+/g, ' ').trim();
   let name = args.name?.trim();
   if (name === undefined && !canAsk()) fail('join needs --name "<Board name>" when it has no terminal to ask in', 2);
@@ -384,7 +386,6 @@ async function joinFolder() {
   const route = routeFromName(title);
   const origin = git(folder, 'remote', 'get-url', 'origin');
   const github = origin ? githubFromOrigin(origin) : null;
-  const branch = git(folder, 'symbolic-ref', '--quiet', '--short', 'HEAD');
   // Running join in the folder is the owner's consent to Claude Code's workspace trust for it.
   const { trustFolder } = await import('../hub/trust.mjs');
   try { trustFolder(folder); } catch (e) { fail(`Couldn't trust this folder for Claude Code: ${e.message}`); }
@@ -411,11 +412,20 @@ async function joinFolder() {
   out('Its session is starting in the background, and joins the board shortly.');
 }
 
-// A folder that already has a board: names it and, on a yes, restarts its session as the Hub page's Restart does
-// (../hub/restart-board.mjs), then attaches to the hub board's tmux session, or starts one when none is recorded.
-async function restartFolderBoard(route, site) {
+// A folder that already has a board: names it, records branch (the folder's default branch now) when it changed, and,
+// on a yes, restarts its session as the Hub page's Restart does (../hub/restart-board.mjs), then attaches to the hub
+// board's tmux session, or starts one when none is recorded.
+async function restartFolderBoard(route, site, branch) {
   const title = site.title || route;
   out(`This folder already has a board: ${title} (/${route}).`);
+  if (branch && branch !== site.branch) {
+    await withLock(async () => {
+      const m = readManifest();
+      Object.assign(routeRecord(m.sites, route), { branch, updated: new Date().toISOString() });
+      await writeManifest(m);
+    });
+    out(`Its branch is now ${branch}${site.branch ? ` (it was ${site.branch})` : ''}.`);
+  }
   if (!canAsk()) fail(site.hub === true ? 'Open its session with kickflip hub.' : 'Run kickflip join in a terminal to restart its session, or tap Restart on its row of the Hub page.');
   const answer = (await ask('Restart its session? (Y/n) ')).toLowerCase();
   if (answer && !'yes'.startsWith(answer)) return;
