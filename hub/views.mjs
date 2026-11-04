@@ -34,17 +34,17 @@ function pollingNow(st, poll, now) {
 }
 
 // One site's row on the hub page: a word for the site, then each of its board links that isn't passing. links is the
-// board's boards.mjs linksOf, or undefined for a site that isn't a board. A broken link reads amber Degraded, since the
+// board's boards.mjs linksOf, or undefined for a site that isn't a board. A broken link reads amber degraded, since the
 // site still answers; red is for a site that is down (docs/adr/0149-the-hub-reads-healthy-degraded-or-a-site-down.md).
 export function siteHealth(r, links) {
-  const down = { port: 'Down · not answering', files: 'Down · folder missing' }[r.serves] || 'Down · restarting';
-  if (r.state !== 'up') return { tone: r.state === 'down' ? 'down' : 'wait', word: r.state === 'down' ? down : capital(r.state), lines: [] };
-  if (!links) return { tone: 'ok', word: 'Up', lines: [] };
+  const down = { port: 'down · not answering', files: 'down · folder missing' }[r.serves] || 'down · restarting';
+  if (r.state !== 'up') return { tone: r.state === 'down' ? 'down' : 'wait', word: r.state === 'down' ? down : r.state, lines: [] };
+  if (!links) return { tone: 'ok', word: 'up', lines: [] };
   const off = links.filter((l) => !l.ok);
   const broken = off.filter((l) => l.state === 'broken');
   const events = links.find((l) => l.link === 'events');
   const heard = events?.listen === 'asleep' || events?.listen === 'waking' ? events.listen : events?.ok ? 'listening' : 'not listening';
-  const word = broken.length ? `Degraded · ${heard}` : off.length ? `Up · ${heard} · ${off.length} settling` : `Up · ${heard} · every link passes`;
+  const word = broken.length ? `degraded · ${heard}` : off.length ? `up · ${heard} · ${off.length} settling` : `up · ${heard} · every link passes`;
   return { tone: off.length ? 'wait' : 'ok', word, lines: off.map((l) => ({ link: l.link, detail: `${l.state === 'broken' ? '' : 'settling: '}${l.detail}` })) };
 }
 
@@ -60,7 +60,7 @@ const CODEX_CHOICES = [
 // what to run, and the choices are disabled. claudeModel names who takes over (docs/adr/0162-usage-picks-opus-auto-or-sonnet-for-claude-builders.md).
 const codexView = (share, status, claudeModel) => ({
   usable: status.usable,
-  tag: status.usable ? null : capital(status.reason),
+  tag: status.usable ? null : status.reason,
   share,
   choices: CODEX_CHOICES.map(({ value, label }) => ({ value, label, on: value === share })),
   description: status.usable ? CODEX_CHOICES.find((c) => c.value === share).description(BUILDER_WORDS[claudeModel]) : status.words,
@@ -174,7 +174,7 @@ function linearWords(linear) {
   const workspace = linear.workspace ? `${linear.workspace} workspace` : '';
   if (!linear.set) return { set: false, title: 'No key', sub: `Make a personal API key in ${LINEAR_KEYS.label}, then paste it here.`, keys: LINEAR_KEYS, summary: 'No key' };
   if (linear.refused) {
-    return { set: true, refused: true, title: workspace || 'Linear key', down: 'Doesn’t work', sub: `Linear refused the key. Make a new one in ${LINEAR_KEYS.label} and paste it here.`,
+    return { set: true, refused: true, title: workspace || 'Linear key', down: 'doesn’t work', sub: `Linear refused the key. Make a new one in ${LINEAR_KEYS.label} and paste it here.`,
       keys: LINEAR_KEYS, summary: workspace ? `Key doesn’t work · ${workspace}` : 'Key doesn’t work' };
   }
   return { set: true, title: workspace, sub: 'Key ••••••••', summary: `Key set · ${workspace}` };

@@ -102,7 +102,7 @@ after(async () => {
   fs.rmSync(home, { recursive: true, force: true });
 });
 
-test('join --port puts a server the session runs at /<route> under Pages with no owner, watcher or needs, and it reads Down once that server stops', async () => {
+test('join --port puts a server the session runs at /<route> under Pages with no owner, watcher or needs, and it reads down once that server stops', async () => {
   const r = await cli('join', '--name', 'Notes', '--port', String(pagePort));
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(r.json(), { route: 'notes', url: 'https://mac.tail.ts.net/notes/', serves: 'port', port: pagePort, answering: true, hub: 'running' });
@@ -120,7 +120,7 @@ test('join --port puts a server the session runs at /<route> under Pages with no
   page.closeAllConnections();
   await closed;
   await until(async () => (await row('notes')).state === 'down', 'notes reads down');
-  assert.match((await row('notes')).sub, /Down/);
+  assert.match((await row('notes')).sub, />down</);
   const down = await fetch(`${base}/notes/`);
   assert.equal(down.status, 502);
   assert.match(await down.text(), /nothing answers on port/);

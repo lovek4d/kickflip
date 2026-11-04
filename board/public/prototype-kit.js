@@ -39,10 +39,10 @@
       ...(claude === null ? {} : { claude: reading(...[claude, 61].flat().slice(0, 2), 2 * 60_000, 3.4, 2.6) }),
       ...(codex === null ? {} : { codex: reading(...[codex, 40].flat().slice(0, 2), 6 * 60_000, 1.2, 4.1) }),
     }),
-    sidebar: () => ({ total: 1, sites: fake.sites(), hub: { tone: 'ok', word: 'Healthy', detail: '3 of 3 sites up' }, notifications: { state: 'on' }, usage: fake.usage() }),
+    sidebar: () => ({ total: 1, sites: fake.sites(), hub: { tone: 'ok', word: 'healthy', detail: '3 of 3 sites up' }, notifications: { state: 'on' }, usage: fake.usage() }),
     hub: () => ({
       usage: fake.usage(),
-      hub: { tone: 'ok', word: 'Healthy', detail: '3 of 3 sites up' },
+      hub: { tone: 'ok', word: 'healthy', detail: '3 of 3 sites up' },
       sites: fake.sites(),
       polling: { title: 'Checks every 15 min until 6:00pm', lines: ['Next check 12:00pm · last 11:45am, 8 PRs, no change', 'No pushes queued.'], count: 0 },
       settings: [['notifications', 'Notifications', 'Pushes on · Off on weekends · This device on'], ['polling', 'Polling', '3 windows, 52 checks a day · held overnight'],
@@ -63,7 +63,7 @@
   function hub(data = {}) {
     const d = { ...fake.hub(), header: true, ...data };
     const { row, tile, nowRow, CHEVRON } = HubUI;
-    const site = (s) => row({ icon: s.icon, title: esc(s.title), sub: s.status ?? '<span class="st ok">Up · listening · every link passes</span>', wrap: true, trail: CHEVRON, href: `/${s.route}/` });
+    const site = (s) => row({ icon: s.icon, title: esc(s.title), sub: s.status ?? '<span class="st ok">up · listening · every link passes</span>', wrap: true, trail: CHEVRON, href: `/${s.route}/` });
     const settings = d.settings.map(([id, title, sub]) => `<button type="button" class="hub-setting" data-setting="${esc(id)}" data-kit-inert aria-haspopup="dialog"><span class="text"><span class="title">${esc(title)}</span><span class="sub">${esc(sub)}</span></span>${CHEVRON}</button>`).join('');
     const usage = d.usageCard ?? HubUI.usageCard(d.usage);
     const header = d.header ? BoardUI.header({ lead: 'logo', title: 'Hub', time: 'now', logoSrc: '/_hub/kickflip.png', logoHref: '/_hub/', settingsHref: null }) : '';

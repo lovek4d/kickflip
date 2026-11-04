@@ -12,7 +12,7 @@
     return sessions.map((s) => `<div class="remembered"><p>Always allow · session <code>${esc(s.session)}</code></p><ul>${s.rules.map((rule) => `<li><code>${esc(rule)}</code></li>`).join('')}</ul></div>`).join('');
   }
 
-  const RESTARTING = '<span class="st wait">Restarting</span> · stopping its session, then starting it again';
+  const RESTARTING = '<span class="st wait">restarting</span> · stopping its session, then starting it again';
 
   // A board with Restart (hub/restart-board.mjs restartable) keeps its link and chevron around the button, since a
   // button can't sit inside a link.
@@ -40,8 +40,8 @@
     const fixHtml = (fix) => fix.command ? `<code>${esc(fix.command)}</code>` : fix.settings
       ? `${esc(fix.text)} <button type="button" class="link" data-settings-open="${esc(fix.settings)}">${esc(fix.label)}</button>.` : esc(fix.text);
     const rows = integrations.map((it) => row({ icon: tile(it.id, it.ready ? 'var(--color-quiet)' : 'var(--color-notice)'), title: esc(it.name), wrap: true,
-      sub: it.ready ? `<span class="st ok">Ready</span> · ${esc(it.detail)}`
-        : `<span class="st wait">Not ready</span> · ${esc(it.missing)}<span class="links"><span class="rd-fix">${fixHtml(it.fix)}</span><span class="rd-waits">${esc(it.waits)}</span></span>` })).join('');
+      sub: it.ready ? `<span class="st ok">ready</span> · ${esc(it.detail)}`
+        : `<span class="st wait">not ready</span> · ${esc(it.missing)}<span class="links"><span class="rd-fix">${fixHtml(it.fix)}</span><span class="rd-waits">${esc(it.waits)}</span></span>` })).join('');
     return `<h2 class="label" id="integrations">Integrations</h2><div class="group">${rows}</div>
 <p class="note">A feature that needs an integration stays off until it’s ready, and says why.</p>
 `;

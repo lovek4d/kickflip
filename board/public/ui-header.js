@@ -7,9 +7,9 @@
   // said so yet), and a red not listening when nothing will wake it
   // (docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md). link is 'online',
   // 'offline' (the last board load failed) or 'reconnecting' (a refresh tap is retrying it).
-  const statusLine = (at, { link = 'online', watcher, pause, waking = false } = {}) => (pause?.state === 'paused' ? `<span class="late">Paused until ${esc(BoardUI.usageClock(pause.resets_at))}</span>`
+  const statusLine = (at, { link = 'online', watcher, pause, waking = false } = {}) => (pause?.state === 'paused' ? `<span class="late">paused until ${esc(BoardUI.usageClock(pause.resets_at))}</span>`
     : link === 'offline' ? `<span class="link-state offline" title="Offline: can't reach the host">${at ? shortSince(at) : 'offline'}</span>`
-    : link === 'reconnecting' ? '<span class="link-state">Reconnecting…</span>'
+    : link === 'reconnecting' ? '<span class="link-state">reconnecting…</span>'
     : watcher === 'waking' || (waking && watcher === 'asleep') ? '<span class="claude asleep" title="Waking: the hub is resuming its session">waking…</span>'
     : watcher === 'asleep' ? '<span class="claude asleep" title="Asleep: its session idled out. Refresh, or any tap on the page, wakes it">asleep</span>'
     : watcher === 'stopped' ? '<span class="claude down" title="Claude not listening">not listening</span>'

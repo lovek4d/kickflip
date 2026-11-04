@@ -59,11 +59,11 @@ The hub's status page, `/_hub/`, which the sidebar's Hub row opens: a pause or K
 _Avoid_: dashboard, console, hub home
 
 **Hub status**:
-The word on the Hub row of the sidebar and the hub page's Health card: **Healthy** (green); **Degraded** (amber) while a board's hub link stays broken past its grace period or the hub runs older code than its files; "1 site down" (red) only while a site is down. Integrations that aren't set up don't count. On the hub page, tapping it jumps to Integrations. A board whose link fails reads "Degraded · listening" in amber, with the failing link named underneath ([0149](docs/adr/0149-the-hub-reads-healthy-degraded-or-a-site-down.md)).
+The word on the Hub row of the sidebar and the hub page's Health card: **healthy** (green); **degraded** (amber) while a board's hub link stays broken past its grace period or the hub runs older code than its files; "1 site down" (red) only while a site is down. Integrations that aren't set up don't count. On the hub page, tapping it jumps to Integrations. A board whose link fails reads "degraded · listening" in amber, with the failing link named underneath ([0149](docs/adr/0149-the-hub-reads-healthy-degraded-or-a-site-down.md)).
 _Avoid_: broken, hub health
 
 **Integration readiness**:
-What each integration needs before its features can run: the Hub page’s Integrations section between Health and Boards lists GitHub, Codex, Linear, Slack, Tailscale and Notifications in that order. Ready says what passed; Not ready is orange and says what is missing, how to fix it and which features wait. A board session reports whether Claude’s Slack connector is available; the hub shares the same readiness and words with feature gates ([0108](docs/adr/0108-integrations-show-readiness-and-features-wait.md)).
+What each integration needs before its features can run: the Hub page’s Integrations section between Health and Boards lists GitHub, Codex, Linear, Slack, Tailscale and Notifications in that order. A row reading ready says what passed; one reading not ready is orange and says what is missing, how to fix it and which features wait. A board session reports whether Claude’s Slack connector is available; the hub shares the same readiness and words with feature gates ([0108](docs/adr/0108-integrations-show-readiness-and-features-wait.md)).
 _Avoid_: integration health, availability
 
 **Usage reading**:
@@ -106,11 +106,19 @@ _Avoid_: hub server, permanent orchestrator
 A session whose `~/.claude/sessions/<pid>.json` record names it and whose process still runs, started when the record says. A live session is never started or resumed again.
 
 **Listening**:
-A board is listening while its owner session is live and a watcher runs for it. A watcher outlives its session, so a watcher alone isn't listening. A board that isn't listening is waking, **asleep** or deaf. The board header, the sidebar, the events link and the not-listening push read that state, and the **session wake** uses this test ([0061](docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md)).
+A board is listening while its owner session is live and a watcher runs for it. A watcher outlives its session, so a watcher alone isn't listening. A board that isn't listening is waking, **asleep** or not listening. The board header, the sidebar, the events link and the not-listening push read that state, and the **session wake** uses this test ([0061](docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md)).
 
 **Asleep**:
-A board whose owner session isn't live but that the hub can wake on its next event or a tap on its page: a session and folder are recorded, and no **session wake** of this outage has failed or gone unanswered. It reads asleep in grey in the sidebar and the board header, its events link passes, and it gets no not-listening push. Once the hub resumed its session it is waking, and reads waking… in grey until it listens. A board that is neither listening, waking nor asleep is deaf and reads not listening in red ([0061](docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md), [0147](docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md)).
+A board whose owner session isn't live but that the hub can wake on its next event or a tap on its page: a session and folder are recorded, and no **session wake** of this outage has failed or gone unanswered. It reads asleep in grey in the sidebar and the board header, its events link passes, and it gets no not-listening push. Once the hub resumed its session it is waking, and reads waking… in grey until it listens. A board that is neither listening, waking nor asleep is **not listening** and reads so in red ([0061](docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md), [0147](docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md)).
 _Avoid_: idle, stopped, offline
+
+**Not listening**:
+A board that isn't listening, waking nor **asleep**: its session or watcher isn't running and the hub can't wake it, so events wait. It reads not listening in red in the board header, the sidebar and the hub page, "Not listening: …" in its events link and "X isn't listening" in its push ([0178](docs/adr/0178-status-words-are-lowercase.md)).
+_Avoid_: deaf, stopped, not responding
+
+**Status word**:
+A word in a status slot: beside a status dot, in a hub page row's status, in the board header's time slot, in a running or failed build chip, or as a usage block's tag. It is lowercase (down, starting, working, implementing, paused, healthy, degraded, up, not listening…), while sentences, toasts, tooltips, pushes, titles and button labels keep their capital ([0178](docs/adr/0178-status-words-are-lowercase.md)).
+_Avoid_: status label, badge text
 
 **Session wake**:
 The hub resuming a board session as soon as an event lands while that session isn't live, or the owner taps the board's page while it is **asleep** (the header's refresh or any other tap or send, through `/_hub/wake`), or, as a fallback, once its board hasn't been listening for 3 minutes with an event its session hasn't heard. Once per outage, then one push to the owner if the board still isn't listening 5 minutes later. A session that idles out with nothing waiting stays stopped. The hub board's session comes back in its tmux session ([0061](docs/adr/0061-a-boards-session-wakes-when-an-event-arrives.md), [0147](docs/adr/0147-boards-run-in-the-background-and-the-hub-board-in-tmux.md)).
@@ -486,7 +494,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `sidebar.css` | The sidebar's rail, its collapse, the drawer and switch mode, plus the shared New board dialog and the shortcuts sheet; linked after `colors.css` |
 | `hub.css` | The hub views' CSS and the hub's down page's, every rule under `.hub-view`, the class on a hub view's root, on the down page's `<html>` and on the board's Hold sheet picker, which shares the duration picker's rules; the shell links it after `style.css`, whose header the hub views share, and the down page as `/_hub/hub.css` |
 | `ui-page-header.js` | `BoardUI.header`, every page's header: the logo (which toggles the sidebar), a back arrow where needed (beside a phone-only logo), the title, then the time and ↻, a board's bulb, and the gear, or a page's own trail. On a page of its own, the back arrow's own script goes one step back, or to its href after a push; in the app shell `router.js` does that. Needs nothing else: `server.mjs` renders each page's `<!--header {…}-->` with it, such as a prototype's, and `hub/hub.mjs` the shell's first sidebar, whose head is one too (`ui-sidebar.js`), each in a vm context |
-| `ui-header.js` | The header's time, or Paused until from the shell's pause state, and when it moves, the GitHub status line and its Hub links mark, the Hub links list, the setup checklist, when a refresh asks for a GitHub check, and which board header controls take taps |
+| `ui-header.js` | The header's time, or paused until from the shell's pause state, and when it moves, the GitHub status line and its Hub links mark, the Hub links list, the setup checklist, when a refresh asks for a GitHub check, and which board header controls take taps |
 | `ui-threads.js` | Thread messages, with link, status and agent lines, the open card's window over them with its Show more, and the reply form's Done |
 | `ui-questions.js` | Owner question cards with their takes inline and diagrams, answer history, prototype status, a confirm's take link, the topic head's round chip and the Waiting on you topic row; `BoardUI.nextQuestion`, the pure move-on rule shared by Send and a prototype pick, and `sentNotice`, the Sent line the board reads on return |
 | `ui-markdown.js` | The Markdown subset `view-notes.js` renders a card's notes with |

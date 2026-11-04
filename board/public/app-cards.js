@@ -61,7 +61,7 @@ BoardView.part((B) => {
     mainRetry.disabled = busy;
     mainRetry.setAttribute('aria-disabled', String(busy));
     mainRetry.classList.toggle('main-log-going', busy);
-    mainRetry.innerHTML = busy ? `<span class="try-spin" aria-hidden="true"></span>${esc(words.going)}` : 'Retry';
+    mainRetry.innerHTML = busy ? `<span class="try-spin" aria-hidden="true"></span>${esc(words.retrying)}` : 'Retry';
   }
   B.renderMainLog = renderMainLog;
   B.on(B.root, 'click', (ev) => {

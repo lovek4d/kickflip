@@ -133,7 +133,7 @@ test('the header reads the time since the last change signal or refresh, and the
   assert.match(ui.statusLine(fresh, { watcher: 'waking' }), /^<span class="claude asleep" title="Waking: [^"]*">waking…<\/span>$/);
   assert.equal(text(ui.statusLine(fresh, { watcher: 'running', waking: true })), '1 min');
   assert.equal(text(ui.statusLine(fresh, { watcher: 'stopped', waking: true })), 'not listening');
-  assert.equal(text(ui.statusLine(fresh, { link: 'reconnecting' })), 'Reconnecting…');
+  assert.equal(text(ui.statusLine(fresh, { link: 'reconnecting' })), 'reconnecting…');
   assert.match(ui.statusLine(undefined, { link: 'offline' }), /^<span class="link-state offline"[^>]*>offline<\/span>$/);
   assert.equal(text(ui.githubLine(checks)), 'GitHub 4 min');
   assert.match(ui.githubLine(checks), /<svg class="gh-mark"[^>]*aria-label="GitHub"/);
@@ -265,10 +265,10 @@ test("the Kickflip sidebar lists Hub, notifications, Pages, then Boards with New
   const site = (route, board, count, sub = '') => ({ route, title: route.toUpperCase(), board, count, icon: `<i data-r="${route}"></i>`, sub });
   const data = {
     sites: [site('ios', true, 2, '<b>2 need you</b>'), site('learn', false, 1), site('shop', true, 0), site('hub', true, 3)],
-    hub: { tone: 'ok', word: 'Healthy', detail: '4 of 4 sites up' }, notifications: { state: 'on', text: 'On' }, polling: { text: 'Every 15 min · next 4:45pm' },
+    hub: { tone: 'ok', word: 'healthy', detail: '4 of 4 sites up' }, notifications: { state: 'on', text: 'On' }, polling: { text: 'Every 15 min · next 4:45pm' },
   };
   const html = ui.sidebar(data, { here: 'ios', device: 'on' });
-  assert.equal(text(html), 'Kickflip Hub Healthy 4 of 4 sites up Pages LEARN Boards IOS 2 need you SHOP HUB New board');
+  assert.equal(text(html), 'Kickflip Hub healthy 4 of 4 sites up Pages LEARN Boards IOS 2 need you SHOP HUB New board');
   const utility = (html) => /<section class="sb-utility"[^>]*>(.*?)<\/section>/.exec(html)[1];
   assert.deepEqual([...utility(html).matchAll(/href="([^"]+)"/g)].map((m) => m[1]), ['/_hub/']);
   assert.match(html, /^<header class="top"><div class="brand"><a class="hub" href="\/_hub\/" aria-label="Hide boards" title="Hide boards" data-sidebar-close=""><img src="\/_hub\/kickflip\.png" alt=""><\/a><h2>Kickflip<\/h2><\/div><div class="nav"><button type="button" class="sb-close" data-sidebar-close aria-label="Close boards"><svg [^>]*>.*?<\/svg><\/button><\/div><\/header>/);
@@ -290,7 +290,7 @@ test("the Kickflip sidebar lists Hub, notifications, Pages, then Boards with New
     ['blocked', weekend, ' Notifications blocked on this device', true, 'Notifications held for the weekend until 8:00am tomorrow'],
   ]) {
     const hubRow = utility(ui.sidebar({ ...data, notifications }, { device }));
-    assert.equal(text(hubRow), `Hub Healthy 4 of 4 sites up${status}`);
+    assert.equal(text(hubRow), `Hub healthy 4 of 4 sites up${status}`);
     assert.equal(hubRow.includes('word t-needs'), urgent);
     const mark = /<span class="sb-title">Hub<span class="sb-moon" role="img" aria-label="([^"]*)" title="([^"]*)"><svg /.exec(hubRow);
     assert.deepEqual(mark && [mark[1], mark[2]], moon && [moon, moon]);
@@ -1145,8 +1145,8 @@ test('an app install badge opens in place and uses the agreed current and stale 
 test('try badges share ready, stale, running, failed and absent states for both kinds, including legacy builders', () => {
   for (const kind of ['web', 'app']) for (const render of [ui.installChip, ui.installButton]) {
     const done = kind === 'web' ? 'Visit' : 'Install';
-    const going = kind === 'web' ? 'Serving…' : 'Building…';
-    const failed = kind === 'web' ? 'Serve failed' : 'Build failed';
+    const going = kind === 'web' ? 'serving…' : 'building…';
+    const failed = kind === 'web' ? 'serve failed' : 'build failed';
     const card = { ...workCard, try: { kind, state: 'ready', url: kind === 'web' ? null : 'https://m/app.apk', port: kind === 'web' ? 8501 : null, sha: 'abcdef1' } };
     assert.equal(text(render(card)), done);
     assert.match(render(card), /tone-ready/);
@@ -1612,14 +1612,14 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   assert.match(text(going), /Past the buffer: spending usage until .* Stop/);
   assert.match(going, /name="value" value="off"/);
   assert.equal(hub.pauseBanner({ state: 'normal' }), '');
-  const sites = [{ route: 'a', title: 'A', board: true, icon: '', sub: '<span class="dot t-working" aria-hidden="true"></span><span class="word t-working">Working</span><span class="lcs"><span class="lc">3 todo</span></span>' }];
-  const sidebar = ui.sidebar({ pause, sites, hub: { tone: 'ok', word: 'Healthy', detail: 'up' } });
-  assert.equal([...sidebar.matchAll(/class="word t-wait">Paused/g)].length, 2);
+  const sites = [{ route: 'a', title: 'A', board: true, icon: '', sub: '<span class="dot t-working" aria-hidden="true"></span><span class="word t-working">working</span><span class="lcs"><span class="lc">3 todo</span></span>' }];
+  const sidebar = ui.sidebar({ pause, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
+  assert.equal([...sidebar.matchAll(/class="word t-wait">paused/g)].length, 2);
   assert.ok(text(sidebar).includes(`until ${until}`));
-  assert.match(text(sidebar), /Paused 3 todo/);
-  assert.doesNotMatch(sidebar, />Working</);
-  assert.equal(ui.statusLine(null, { pause }), `<span class="late">Paused until ${until}</span>`);
-  assert.doesNotMatch(ui.statusLine(null, { pause: { ...pause, state: 'going' } }), /Paused/);
+  assert.match(text(sidebar), /paused 3 todo/);
+  assert.doesNotMatch(sidebar, />working</);
+  assert.equal(ui.statusLine(null, { pause }), `<span class="late">paused until ${until}</span>`);
+  assert.doesNotMatch(ui.statusLine(null, { pause: { ...pause, state: 'going' } }), /paused/i);
 });
 
 test('the New version row offers the npm update, waits for builders and gives Reload priority', () => {

@@ -103,9 +103,9 @@ test("the hub page's Codex share says what each choice means while Codex is usab
   const sidebar = { sites: [], hub: {}, notifications: {}, total: 0, usage: { claude: null, codex: null } };
   const view = (extra = {}) => hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar, rows: [], ...extra }).codex;
   const unusable = (v) => [v.usable, v.tag, v.share, v.choices.find((c) => c.on).value, v.description, v.fix];
-  assert.deepEqual(unusable(view()), [false, 'Not installed', 'off', 'off', "Codex isn't installed on the host.", process.platform === 'darwin' ? 'brew install --cask codex' : 'npm i -g @openai/codex']);
+  assert.deepEqual(unusable(view()), [false, 'not installed', 'off', 'off', "Codex isn't installed on the host.", process.platform === 'darwin' ? 'brew install --cask codex' : 'npm i -g @openai/codex']);
   assert.deepEqual(unusable(view({ codex: NOT_INSTALLED })), unusable(view()));
-  assert.deepEqual(unusable(view({ codex: LOGGED_OUT })), [false, 'Not logged in', 'off', 'off', "Codex isn't logged in on the host.", 'codex login']);
+  assert.deepEqual(unusable(view({ codex: LOGGED_OUT })), [false, 'not logged in', 'off', 'off', "Codex isn't logged in on the host.", 'codex login']);
   const meanings = {
     always: 'Codex implements and reviews. Work pauses when it runs out.',
     auto: "Codex implements and reviews, and Claude takes over while it's out.",
@@ -373,7 +373,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
   assert.equal(root.querySelector('[data-summary=linear]').textContent, 'Key doesn’t work');
   await B.openSettings({ hash: '#linear' });
   const slot = root.querySelector('.setting-content');
-  assert.match(slot.textContent, /Doesn’t work · Linear refused the key/);
+  assert.match(slot.textContent, /doesn’t work · Linear refused the key/);
   assert.ok(slot.querySelector('a[href="https://linear.app/settings/account/security"]'));
   assert.ok(slot.querySelector('[data-linear-remove]'));
   const keyInput = root.querySelector('#linearKey');
@@ -415,14 +415,14 @@ test("the hub page lists Boards and Pages apart with each site's health and link
   };
   const v = hubView({ now, st: status(now, DEFAULTS, 1), poll: poll(now), sidebar, rows, links: new Map(Object.entries(links)), code: { running: 'abc', onDisk: 'abc' }, host: 'mac.ts.net', rules: [{ text: 'a' }, { text: 'b' }] });
   assert.deepEqual(v.groups.map((g) => [g.label, g.sites.map((s) => [s.route, s.tone, s.word, s.href])]), [
-    ['Boards', [['alpha', 'ok', 'Up · listening · every link passes', '/alpha/'], ['beta', 'wait', 'Degraded · not listening', '/beta/'],
-      ['gone', 'down', 'Down · restarting', '/gone/'], ['new', 'wait', 'Starting', '/new/']]],
-    ['Pages', [['learn', 'ok', 'Up', '/learn/']]],
+    ['Boards', [['alpha', 'ok', 'up · listening · every link passes', '/alpha/'], ['beta', 'wait', 'degraded · not listening', '/beta/'],
+      ['gone', 'down', 'down · restarting', '/gone/'], ['new', 'wait', 'starting', '/new/']]],
+    ['Pages', [['learn', 'ok', 'up', '/learn/']]],
   ]);
   assert.deepEqual(plain(v.groups[0].sites[1].lines), [{ link: 'events', detail: 'no watcher since 6:00pm' }, { link: 'wakes', detail: 'settling: missed 9:00am' }]);
   assert.match(v.groups[0].sites[0].icon, /^<span class="icon/);
   assert.deepEqual(plain(v.hub), { tone: 'down', word: '1 site down', detail: '3 of 5 sites up · 1 link failing · runs the code in its files (abc)', restart: false });
-  const staleHub = { tone: 'wait', word: 'Degraded', detail: '3 of 5 sites up · runs older code than its files; restart it' };
+  const staleHub = { tone: 'wait', word: 'degraded', detail: '3 of 5 sites up · runs older code than its files; restart it' };
   assert.deepEqual(plain(hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar: { ...sidebar, hub: staleHub }, rows, code: { running: 'old', onDisk: 'abc' } }).hub), { ...staleHub, restart: true });
   assert.deepEqual(plain(v.polling), { title: 'Checks every 30 min until 10:00pm', lines: ['Next check 7:30pm', '1 push queued; next send 7:30pm.'], count: 1,
     summary: '3 windows, 58 checks a day · held overnight · wakes 8:00am, 9:00am' });
@@ -441,13 +441,13 @@ test("the hub page lists Boards and Pages apart with each site's health and link
   assert.deepEqual([v.rules, v.sites, v.host, v.total, v.empty], ['2 rules', '5 sites', 'mac.ts.net', 3, false]);
   const none = hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar: { ...sidebar, sites: [] }, rows: [] });
   assert.deepEqual([none.groups, none.empty, none.rules, none.sites], [[], true, 'None yet', '0 sites']);
-  assert.deepEqual(plain(siteHealth({ state: 'stopped' })), { tone: 'wait', word: 'Stopped', lines: [] });
-  assert.deepEqual(plain(siteHealth({ state: 'up' }, [ok('github'), { ...ok('events'), listen: 'asleep' }])), { tone: 'ok', word: 'Up · asleep · every link passes', lines: [] });
+  assert.deepEqual(plain(siteHealth({ state: 'stopped' })), { tone: 'wait', word: 'stopped', lines: [] });
+  assert.deepEqual(plain(siteHealth({ state: 'up' }, [ok('github'), { ...ok('events'), listen: 'asleep' }])), { tone: 'ok', word: 'up · asleep · every link passes', lines: [] });
   const fetchFails = { link: 'repo-fetch', ok: false, state: 'broken', detail: "git can't reach origin" };
   assert.deepEqual(plain(siteHealth({ state: 'up' }, [ok('github'), fetchFails, ok('events')])),
-    { tone: 'wait', word: 'Degraded · listening', lines: [{ link: 'repo-fetch', detail: "git can't reach origin" }] });
+    { tone: 'wait', word: 'degraded · listening', lines: [{ link: 'repo-fetch', detail: "git can't reach origin" }] });
   assert.deepEqual(plain(siteHealth({ state: 'up' }, [ok('github'), { ...fetchFails, state: 'settling' }, ok('events')])),
-    { tone: 'wait', word: 'Up · listening · 1 settling', lines: [{ link: 'repo-fetch', detail: "settling: git can't reach origin" }] });
+    { tone: 'wait', word: 'up · listening · 1 settling', lines: [{ link: 'repo-fetch', detail: "settling: git can't reach origin" }] });
 });
 
 test("a device that loses its push subscription tells the hub, which forgets it; one that has it is remembered", async () => {
@@ -516,7 +516,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
     { id: 'linear', name: 'Linear', ready: false, missing: 'No Linear key set', fix: { settings: 'linear', label: 'Hub settings › Linear', text: 'Add one in' }, waits: 'Linear moves wait on this.' },
   ];
   const data = hubView({ now, st: status(now, DEFAULTS), poll: poll(now), integrations,
-    sidebar: { sites: [{ route: 'alpha', board: true }, { route: 'beta', board: true }], hub: { tone: 'wait', word: 'Degraded', detail: '2 of 2 sites up · 1 link failing' }, notifications: {}, total: 0,
+    sidebar: { sites: [{ route: 'alpha', board: true }, { route: 'beta', board: true }], hub: { tone: 'wait', word: 'degraded', detail: '2 of 2 sites up · 1 link failing' }, notifications: {}, total: 0,
       usage: { claude: { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null }, codex: null } },
     rows: [{ route: 'alpha', title: 'Alpha', state: 'up' }, { route: 'beta', title: 'Beta', state: 'up' }], remembered: new Map([['alpha', sessions]]), code: { running: 'abc', onDisk: 'abc' },
   });
@@ -529,12 +529,12 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   const group = label.nextSibling;
   assert.deepEqual(group.querySelectorAll('.title').map((el) => el.textContent), ['GitHub', 'Codex', 'Linear']);
   const [github, codex, linear] = group.querySelectorAll('.row');
-  assert.equal(github.querySelector('.st.wait').textContent, 'Not ready');
+  assert.equal(github.querySelector('.st.wait').textContent, 'not ready');
   assert.match(github.textContent, /gh isn't logged in <img>/);
   assert.equal(github.querySelector('code').textContent, 'gh auth login <img>');
   assert.equal(github.querySelector('.rd-waits').textContent, integrations[0].waits);
   assert.match(github.querySelector('.icon').getAttribute('style'), /var\(--color-notice\)/);
-  assert.equal(codex.querySelector('.st.ok').textContent, 'Ready');
+  assert.equal(codex.querySelector('.st.ok').textContent, 'ready');
   assert.match(codex.textContent, /Installed and logged in <img>/);
   assert.match(codex.querySelector('.icon').getAttribute('style'), /var\(--color-quiet\)/);
   assert.equal(linear.querySelector('[data-settings-open="linear"]').textContent, 'Hub settings › Linear');
@@ -544,7 +544,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   assert.equal(opened[0][1], link);
   assert.match(linear.querySelector('.rd-fix').textContent, /Add one in Hub settings › Linear\./);
   const health = root.querySelector('[data-jump="integrations"]');
-  assert.deepEqual([health.textContent, health.getAttribute('class')], ['Degraded', 'st wait']);
+  assert.deepEqual([health.textContent, health.getAttribute('class')], ['degraded', 'st wait']);
   let scrolled = 0;
   root.querySelector('#integrations').scrollIntoView = () => { scrolled++; };
   listeners.find((l) => l.target === root.querySelector('.hub-status') && l.type === 'click').fn({ target: health });
@@ -595,7 +595,7 @@ test("the hub's runs-older-code notice jumps to Restart hub, which confirms, wai
   context.AppViews.hub.create(root, '/_hub', {});
   const now = t(19);
   const view = (code) => hubView({ now, st: status(now, DEFAULTS), poll: poll(now), rows: [], code,
-    sidebar: { sites: [], hub: { tone: 'wait', word: 'Degraded', detail: '0 of 0 sites up · runs older code than its files; restart it' }, notifications: {}, total: 0 } });
+    sidebar: { sites: [], hub: { tone: 'wait', word: 'degraded', detail: '0 of 0 sites up · runs older code than its files; restart it' }, notifications: {}, total: 0 } });
   const click = (target) => listeners.find((l) => l.target === root.querySelector('.hub-status') && l.type === 'click').fn({ target });
   const settle = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -605,7 +605,7 @@ test("the hub's runs-older-code notice jumps to Restart hub, which confirms, wai
 
   live.paint(view({ running: 'old', onDisk: 'abc' }));
   const notice = root.querySelector('[data-jump="restart-hub"]');
-  assert.equal(notice.textContent, 'Degraded');
+  assert.equal(notice.textContent, 'degraded');
   const button = root.querySelector('#restart-hub');
   assert.equal(button.textContent, 'Restart hub');
   let scrolled = 0;
@@ -690,8 +690,8 @@ test("the hub page's Usage card opens Codex's block with Codex share, bars under
   };
 
   for (const [status, tag, words, fix] of [
-    [NOT_INSTALLED, 'Not installed', "Codex isn't installed on the host.", process.platform === 'darwin' ? 'brew install --cask codex' : 'npm i -g @openai/codex'],
-    [LOGGED_OUT, 'Not logged in', "Codex isn't logged in on the host.", 'codex login'],
+    [NOT_INSTALLED, 'not installed', "Codex isn't installed on the host.", process.platform === 'darwin' ? 'brew install --cask codex' : 'npm i -g @openai/codex'],
+    [LOGGED_OUT, 'not logged in', "Codex isn't logged in on the host.", 'codex login'],
   ]) {
     live.paint(hub('off', status));
     assert.equal(codex().textContent, `Codex${tag}Always onAutoOff${words}${fix}`);

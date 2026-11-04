@@ -137,7 +137,7 @@ test("the hub saves the Linear key from its settings form, serves only the works
   assert.equal((await form('key=two%20words')).status, 400);
   const refused = await form('key=wrong');
   assert.equal(refused.status, 200);
-  assert.deepEqual((await refused.json()).linear, { set: true, refused: true, title: 'Linear key', down: 'Doesn’t work',
+  assert.deepEqual((await refused.json()).linear, { set: true, refused: true, title: 'Linear key', down: 'doesn’t work',
     sub: 'Linear refused the key. Make a new one in Linear › Settings › Security & access › Personal API keys and paste it here.',
     keys: { url: 'https://linear.app/settings/account/security', label: 'Linear › Settings › Security & access › Personal API keys' }, summary: 'Key doesn’t work' });
   assert.deepEqual(await (await fetch(`${base}/_hub/api/linear`)).json(), { set: true, refused: true });

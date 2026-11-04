@@ -24,15 +24,15 @@ export function readNeeds(body) {
 // The most urgent thing a site is doing, or null when it is calm. state is the hub's process state; listen is a board's
 // boards.mjs listenState and undefined for a site that isn't a board.
 export function siteStatus({ state, working, count: waiting, building, listen } = {}) {
-  if (state === 'down') return { tone: 'down', word: 'Down' };
+  if (state === 'down') return { tone: 'down', word: 'down' };
   if (listen === 'deaf') return { tone: 'down', word: 'not listening' };
-  if (state === 'starting') return { tone: 'starting', word: 'Starting' };
-  if (state === 'stopped') return { tone: 'stopped', word: 'Stopped' };
+  if (state === 'starting') return { tone: 'starting', word: 'starting' };
+  if (state === 'stopped') return { tone: 'stopped', word: 'stopped' };
   if (waiting) return { tone: 'needs', word: `${waiting} need you` };
-  if (working) return { tone: 'working', word: 'Working' };
+  if (working) return { tone: 'working', word: 'working' };
   if (listen === 'waking') return { tone: 'asleep', word: 'waking…' };
   if (listen === 'asleep') return { tone: 'asleep', word: 'asleep' };
-  if (building) return { tone: 'building', word: 'Implementing' };
+  if (building) return { tone: 'building', word: 'implementing' };
   return null;
 }
 
@@ -80,7 +80,7 @@ export const STALE_CODE = 'runs older code than its files; restart it';
 
 // The hub's health from the sites' process states, each board's linksOf states (a Map by route) and the hub's own
 // boards.mjs hubLink (docs/adr/0149-the-hub-reads-healthy-degraded-or-a-site-down.md): red only while a site is down,
-// amber Degraded while a board link reads broken or the hub runs older code than its files, else Healthy. A link
+// amber degraded while a board link reads broken or the hub runs older code than its files, else healthy. A link
 // still settling doesn't count (docs/adr/0046-hub-links-turn-red-only-after-a-grace-period.md). The stale code says
 // why in the detail, here and nowhere else (docs/adr/0064-every-builder-works-in-a-worktree.md).
 export function hubHealth(sites, linksByRoute = new Map(), hub = null) {
@@ -90,7 +90,7 @@ export function hubHealth(sites, linksByRoute = new Map(), hub = null) {
   const stale = hub?.ok === false;
   return {
     tone: down ? 'down' : failing || stale ? 'wait' : 'ok',
-    word: down ? `${down} site${down === 1 ? '' : 's'} down` : failing || stale ? 'Degraded' : 'Healthy',
+    word: down ? `${down} site${down === 1 ? '' : 's'} down` : failing || stale ? 'degraded' : 'healthy',
     detail: `${up} of ${sites.length} site${sites.length === 1 ? '' : 's'} up${failing ? ` · ${failing} link${failing === 1 ? '' : 's'} failing` : ''}${stale ? ` · ${STALE_CODE}` : ''}`,
   };
 }

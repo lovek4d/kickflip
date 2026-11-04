@@ -100,7 +100,7 @@ BoardView.part((B) => {
   B.on($('.nav'), 'click', (ev) => {
     if (ev.target.closest('a[aria-disabled="true"]')) { ev.preventDefault(); ev.stopImmediatePropagation(); }
   }, true);
-  // A load can return in milliseconds, so the spin and "Reconnecting…" hold long enough to read.
+  // A load can return in milliseconds, so the spin and "reconnecting…" hold long enough to read.
   const RELOAD_MIN = 700;
   async function reloading(load) {
     controls.reloading = true;

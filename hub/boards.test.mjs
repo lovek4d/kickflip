@@ -412,7 +412,7 @@ test("sidebar and Hub page serve usage, the shell keeps it inside Hub, and Codex
   const NO_READING = { at: null, five_hour: null, seven_day: null };
   try {
     assert.deepEqual((await get('/_hub/sidebar.json')).usage, { claude: null, codex: null });
-    assert.deepEqual(await codex(), [null, false, 'Not logged in', 'off']);
+    assert.deepEqual(await codex(), [null, false, 'not logged in', 'off']);
     write(usageFile, { claude: { at, five_hour: { used_percentage: 42, resets_at: resets } } });
     const expected = { claude: { at, five_hour: { used_percentage: 42, resets_at: resets, state: 'live' }, seven_day: null }, codex: null };
     assert.deepEqual((await get('/_hub/sidebar.json')).usage, expected);
@@ -426,7 +426,7 @@ test("sidebar and Hub page serve usage, the shell keeps it inside Hub, and Codex
     write(settingsFile, { ...settings, codexShare: 'always' });
     assert.deepEqual(await codex(), [NO_READING, true, null, 'always']);
     fs.unlinkSync(path.join(codexDir, 'auth.json'));
-    assert.deepEqual(await codex(), [null, false, 'Not logged in', 'off']);
+    assert.deepEqual(await codex(), [null, false, 'not logged in', 'off']);
     write(path.join(codexDir, 'auth.json'), {});
     assert.deepEqual(await codex(), [NO_READING, true, null, 'always']);
   } finally {
@@ -450,7 +450,7 @@ test('while the hub runs older code than its files, the Hub row and Health card 
     }
     const side = await sidebar();
     assert.match(side.hub.detail, /^\d+ of \d+ sites up · runs older code than its files; restart it$/);
-    assert.notEqual(side.hub.word, 'Healthy');
+    assert.notEqual(side.hub.word, 'healthy');
     assert.ok(side.sites.every((s) => !/older code|restart/i.test(s.sub)));
     const hub = await page();
     assert.equal(hub.hub.detail, side.hub.detail);
@@ -459,7 +459,7 @@ test('while the hub runs older code than its files, the Hub row and Health card 
   assert.match((await page()).hub.detail, /runs the code in its files/);
 });
 
-test("a board whose repo fetch fails gets a Repo fetch link that settles, reads Degraded on Health and shows on the watcher after its grace, and clears on the next fetch", async () => {
+test("a board whose repo fetch fails gets a Repo fetch link that settles, reads degraded on Health and shows on the watcher after its grace, and clears on the next fetch", async () => {
   const manifestFile = claude('kickflip', 'manifest.json');
   const manifest = read(manifestFile);
   const faultsFile = claude('kickflip', 'link-faults.json');
@@ -485,7 +485,7 @@ test("a board whose repo fetch fails gets a Repo fetch link that settles, reads 
     }, 'the fetch fault turns broken past its grace');
     await until(async () => (await shopLines()).some((l) => l.link === 'repo-fetch' && l.detail === detail), 'Health lists the broken fetch');
     const health = (await (await fetch(`${base}/_hub/sidebar.json`)).json()).hub;
-    assert.notEqual(health.word, 'Healthy');
+    assert.notEqual(health.word, 'healthy');
     assert.match(health.detail, /^\d+ of \d+ sites up · \d+ links? failing/);
     write(cursor, { 'data/events.jsonl': 0 });
     const watched = await cli(path.join(SKILL, 'bin', 'wait-events.mjs'), ['shop', 's-shop']);

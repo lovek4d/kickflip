@@ -576,8 +576,8 @@ test('Hub Settings lists closed boards, keeps a refused reopen available, then r
 test("Restart on a board's row of the Hub page confirms, reads Restarting until the hub answers, then toasts; a refusal shows above the page, and the hub board has no Restart", async () => {
   const page = fakePage(memoryStorage().localStorage);
   const { Element } = miniDom(page.Target, page.win.document);
-  const site = (route, title, restart) => ({ route, title, icon: '', href: `/${route}/`, tone: 'ok', word: 'Up · listening · every link passes', lines: [], remembered: [], restart });
-  const hub = { hub: { tone: 'ok', word: 'Healthy', detail: '2 of 2 sites up' }, integrations: [], polling: { title: 'Checks every 30 min', lines: [], count: 0 }, sites: '2 sites', host: 'mac',
+  const site = (route, title, restart) => ({ route, title, icon: '', href: `/${route}/`, tone: 'ok', word: 'up · listening · every link passes', lines: [], remembered: [], restart });
+  const hub = { hub: { tone: 'ok', word: 'healthy', detail: '2 of 2 sites up' }, integrations: [], polling: { title: 'Checks every 30 min', lines: [], count: 0 }, sites: '2 sites', host: 'mac',
     groups: [{ label: 'Boards', sites: [site('shop', 'The <Shop>', true), site('hub-orchestrator', 'Hub', false)] }] };
   const settings = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], awake: { summary: 'Off' }, closed: [] };
   const confirms = [];
@@ -604,7 +604,7 @@ test("Restart on a board's row of the Hub page confirms, reads Restarting until 
   await settle();
   assert.deepEqual(confirms, [['This stops The <Shop>’s session mid-task, along with any implementer it started, then restarts its server and resumes the session. Its cards and threads stay. For a stuck board. Restart The <Shop>?', undefined]]);
   assert.deepEqual(posts, [['/_hub/restart-board', { route: 'shop' }]]);
-  assert.equal(row().querySelector('.sub').textContent, 'Restarting · stopping its session, then starting it again');
+  assert.equal(row().querySelector('.sub').textContent, 'restarting · stopping its session, then starting it again');
   assert.equal(button().textContent, 'Restarting…');
   assert.ok(button().disabled);
   assert.ok(button().querySelector('.try-spin'));
@@ -612,7 +612,7 @@ test("Restart on a board's row of the Hub page confirms, reads Restarting until 
   await settle();
   assert.equal(root.querySelector('.toast').textContent, 'The <Shop> is back up, and its session is listening.');
   assert.equal(button().textContent, 'Restart');
-  assert.equal(row().querySelector('.sub').textContent, 'Up · listening · every link passes');
+  assert.equal(row().querySelector('.sub').textContent, 'up · listening · every link passes');
   page.fire(root.querySelector('.hub-status'), 'click', { target: button() });
   await settle();
   answer({ ok: false, json: async () => ({ error: 'session 1234 did not stop' }) });
@@ -1600,7 +1600,7 @@ test('Board Settings saves each Tickets change at once, opens Hub’s key modal 
   const posts = [], keyPosts = [], dismissed = [];
   const KEYS = { url: 'https://linear.app/settings/account/security', label: 'Linear › Settings › Security & access › Personal API keys' };
   const words = () => (hubKey === 'works' ? { set: true, title: 'Acme workspace', sub: 'Key ••••••••', summary: 'Key set · Acme workspace' }
-    : { set: true, refused: true, title: 'Acme workspace', down: 'Doesn’t work', sub: `Linear refused the key. Make a new one in ${KEYS.label} and paste it here.`, keys: KEYS, summary: 'Key doesn’t work · Acme workspace' });
+    : { set: true, refused: true, title: 'Acme workspace', down: 'doesn’t work', sub: `Linear refused the key. Make a new one in ${KEYS.label} and paste it here.`, keys: KEYS, summary: 'Key doesn’t work · Acme workspace' });
   page.win.fetch = async (url, options = {}) => {
     if (url === '/_hub/api/settings') return repoResponse({ linear: words() });
     if (url === '/_hub/settings/linear') { keyPosts.push(String(options.body)); await hold?.promise; hubKey = 'works'; return repoResponse({ linear: words() }); }
@@ -1653,7 +1653,7 @@ test('Board Settings saves each Tickets change at once, opens Hub’s key modal 
   assert.equal(keyModal.open, true);
   assert.equal(modal.open, true);
   assert.equal(pressed(), 'internal');
-  assert.match(keyModal.textContent, /Doesn’t work · Linear refused the key/);
+  assert.match(keyModal.textContent, /doesn’t work · Linear refused the key/);
   assert.equal(keyModal.querySelector(`a[href="${KEYS.url}"]`).textContent, KEYS.label);
   assert.equal(keyModal.querySelector('.lk-form button'), null);
   page.fire(keyModal, 'click', { target: keyModal.querySelector('.settings-footer [data-lk-done]') });
@@ -2054,7 +2054,7 @@ test('a running badge replaces its install link without confirmation and becomes
   const install = { url: 'https://m/app.apk', sha: 'abcdef1', older: true };
   const b = boardOnDom({ open: ['w/R1'], board: boardOf([workCard('R1', { lane: 'progress', install, builder: { kind: 'install' } })]), threads: {} });
   await b.settle();
-  assert.equal(b.root.querySelector('.external-links .install').textContent, 'Building…');
+  assert.equal(b.root.querySelector('.external-links .install').textContent, 'building…');
   assert.equal(b.root.querySelector('.external-links .install').getAttribute('href'), null);
   assert.equal(b.root.querySelector('[data-install-confirm]'), null);
   assert.deepEqual(b.confirms, []);
