@@ -1301,9 +1301,9 @@ test("a reload naming its version since gets a patch of the cards that changed, 
   const { applyPatch } = vmContext.BoardUI;
   const content = (b) => { const { generatedAt: _, ...rest } = JSON.parse(JSON.stringify(b)); return rest; };
   const get = async (q = '') => (await fetch(`${base}/api/board${q}`)).json();
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'F1', title: 'Patched' }, { id: 'F2', title: 'Still' }, { id: 'F3', title: 'Gone soon' }] }));
+  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'F1', title: 'Patched' }, { id: 'F2', title: 'Still' }, { id: 'F3', title: 'Gone soon' }] })));
   const first = await get();
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'F1', title: 'Patched again' }, { id: 'F2', title: 'Still' }] }));
+  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'F1', title: 'Patched again' }, { id: 'F2', title: 'Still' }] })));
   const patch = await get(`?since=${first.version}`);
   assert.equal(patch.since, first.version);
   assert.deepEqual(patch.lists.items.set.map((c) => [c.key, c.title]), [['t/F1', 'Patched again']]);
@@ -1329,7 +1329,9 @@ test("a card's question topic in the page's board carries no title of its own: t
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'G1', title: 'Asked' }] }));
   fs.writeFileSync(ownerFile, JSON.stringify({ topics: [{ id: 'plan', title: 'Plan', summary: 'Kept' }], items: [{ id: 'g1', topic: 'item:t/G1', question: 'Which?', options: [{ id: 'A', label: 'This' }] }, { id: 'g2', topic: 'plan', question: 'Ship?', options: [{ id: 'A', label: 'Yes' }] }] }));
   try {
-    const b = await (await fetch(`${base}/api/board`)).json();
+    // The server sees both writes once its file watcher does.
+    let b;
+    await until(async () => (b = await (await fetch(`${base}/api/board`)).json()).items.some((i) => i.key === 't/G1') && b.ownerTopics.length === 2, 'the board sees the card and its questions');
     assert.deepEqual(b.ownerTopics.map((t) => [t.id, t.card, t.title, t.summary]), [['plan', undefined, 'Plan', 'Kept'], ['item:t/G1', 't/G1', undefined, undefined]]);
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
