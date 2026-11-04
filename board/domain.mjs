@@ -543,7 +543,8 @@ function roundState(qs) {
 
 // A topic is resolved once every question in it is; questions without a known topic share "Other".
 // A card's questions use topic `item:<key>`: `item:<wave>/<id>`, or `item:ask:<event id>` for a New card not yet sorted.
-// The board supplies its title when owner.json has none. closed holds the topics of Done cards: one with no open
+// The board supplies its title when owner.json has none, and names the card as card, so the page's board can leave the
+// title out and name the topic from its card (server.mjs pageBoard). closed holds the topics of Done cards: one with no open
 // question is resolved, so its answered questions never wait on Claude.
 function ownerTopics(topics, questions, closed = new Set()) {
   const known = new Set(topics.map((t) => t.id));
@@ -835,7 +836,7 @@ export function buildBoard(snapshot) {
     return { ...l, phases, keys: phases.flat() };
   }));
   const topicsOf = () => ownerTopics([...(owner.topics || []), ...items.filter((it) => !declared.has(`item:${it.key}`))
-    .map((it) => ({ id: `item:${it.key}`, title: `${it.ref}: ${it.title}`, ...(it.kind === 'ask' ? { askedAt: it.ask.askedAt } : {}), summary: 'Questions about this work item.' })),
+    .map((it) => ({ id: `item:${it.key}`, card: it.key, title: `${it.ref}: ${it.title}`, ...(it.kind === 'ask' ? { askedAt: it.ask.askedAt } : {}), summary: 'Questions about this work item.' })),
   ...lineups.filter((l) => !declared.has(`lineup:${l.slug}`)).map((l) => ({ id: `lineup:${l.slug}`, title: l.title, summary: 'Wave triage.' })),
   ...(snapshot.fromWaves ? waves : []).filter((w) => !declared.has(`wave:${w.slug}`)).map((w) => ({ id: `wave:${w.slug}`, title: w.title, summary: 'Wave triage.' }))], questions,
   new Set(items.filter(closedLane).map((it) => `item:${it.key}`)));

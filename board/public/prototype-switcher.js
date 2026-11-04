@@ -120,6 +120,8 @@
     let take = startTake(keys, params.get('variant'), initial);
     let question = null;
     let topics = [];
+    // The board's cards, which name their own question topics (ui-questions.js cardTopics).
+    let cards = [];
     // A push opened this page (board/store.mjs pushUrl). Read once and dropped from the URL, so a pick made here or a
     // reload stays on the page; only the first load sends an already-picked question on to its card's thread.
     let fromPush = params.get('from') === 'push';
@@ -155,6 +157,7 @@
       try {
         board = await (await fetch(site.url('api/board'), { cache: 'no-store' })).json();
         topics = board.ownerTopics;
+        cards = board.items || [];
         // A resolved question is left out of /api/board, and its topic's resolved questions hold it
         // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md).
         const topic = topics.find((t) => t.questions.includes(qid));
@@ -184,7 +187,7 @@
         ui = await sharedQuestions(site);
         pills = ui.topicRow(topics, answered.topic).pills;
         const topic = topics.find((t) => t.id === answered.topic);
-        name = topic ? ui.topicName(topic) : '';
+        name = topic ? ui.topicName(ui.cardTopics([topic], cards)[0]) : '';
         await site.send('owner-answer', { id: answered.id, question: answered.question, choice: state.option.id, label: answerLabel(state.option), note: text.value.trim() });
       } catch { busy = false; paint(); note('Could not send. Is the host awake?'); return; }
       try { localStorage.removeItem(draftKey(qid)); } catch { /* nothing kept */ }

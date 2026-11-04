@@ -10,7 +10,7 @@ import { freePorts, until } from '../shared/test-helpers.mjs';
 import { miniDom } from './mini-dom.mjs';
 import { buildBoard, slimDone, BUTTON, ACTION_KIND } from './domain.mjs';
 
-const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-order.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
+const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-order.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
   'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-arch.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-frame.js', 'router.js'];
 
@@ -2179,12 +2179,16 @@ function boardOnDom({ open = [], seen = {}, board, threads, confirm = false, rea
   const posts = [];
   const gets = [];
   const downloads = [];
+  const patched = [];
   page.win.fetch = async (url, opts = {}) => {
     const u = new URL(url, 'https://mac.ts.net/');
     if (opts.method === 'POST') { posts.push([u.pathname, JSON.parse(opts.body)]); return { ok: true, status: 200, json: async () => ({ ok: true }) }; }
     gets.push(u.pathname);
     // A board with a version answers 304 to a request naming it, as board/server.mjs does.
     if (u.pathname.endsWith('/api/board') && server.board.version && opts.headers?.['if-none-match'] === `"${server.board.version}"`) return { ok: false, status: 304, json: async () => { throw new Error('a 304 has no body'); } };
+    // A reload naming a version the server holds gets a patch from it, as board/server.mjs answerBoard does.
+    const since = u.pathname.endsWith('/api/board') && server.held?.[u.searchParams.get('since')];
+    if (since) { patched.push(u.searchParams.get('since')); return { ok: true, status: 200, json: async () => structuredClone(page.win.BoardUI.boardPatch(since, server.board)) }; }
     if (u.pathname.endsWith('/api/board')) downloads.push(server.board.version);
     if (u.pathname.endsWith('/api/done')) return { ok: true, status: 200, json: async () => structuredClone(server.done(u.searchParams)) };
     const body = u.pathname.endsWith('/api/board') ? server.board : server.threads[u.searchParams.get('key')] || [];
@@ -2197,7 +2201,7 @@ function boardOnDom({ open = [], seen = {}, board, threads, confirm = false, rea
   view.mount();
   const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
   const change = async (next) => { Object.assign(server, next); signalled(); await settle(); };
-  return { page, root, view, settle, change, sent, confirms, confirmLabels, posts, gets, downloads, server, doc: page.win.document };
+  return { page, root, view, settle, change, sent, confirms, confirmLabels, posts, gets, downloads, patched, server, doc: page.win.document };
 }
 const askCard = (id, lane) => ({ key: `ask:${id}`, id, kind: 'ask', lane, title: `Task ${id}`, deps: [], othersAt: [] });
 const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items, waves: [], needs: [], answers: [], doneArchived: 0 });
@@ -2222,6 +2226,27 @@ test("the board reloads naming the version it shows, so an unchanged board downl
   assert.deepEqual([b.sent.map(([k]) => k), boardGets(b), b.downloads, order()], [['card-bump'], 3, ['v1'], ['w/T2', 'w/T1']], "the tap's change signal downloads nothing");
   await b.change({ board: { ...bumped, title: 'Renamed', version: 'v3' } });
   assert.deepEqual([b.downloads, b.root.querySelector('.top h1').textContent], [['v1', 'v3'], 'Renamed']);
+  b.view.unmount();
+});
+
+// docs/adr/2026-11-04-0332-the-board-sends-per-card-patches.md
+test("a changed board comes as a patch from the version on screen, a reload's and a tap's alike, and the board draws the patched cards", async () => {
+  const T1 = workCard('T1', { bumpable: true, sortAt: '2026-10-01T00:00:00.000Z', order: 0 });
+  const T2 = workCard('T2', { bumpable: true, sortAt: '2026-10-02T00:00:00.000Z', order: 1 });
+  const v1 = { ...boardOf([T1, T2]), version: 'v1' };
+  const v2 = { ...boardOf([{ ...T1, title: 'Renamed T1' }, T2]), generatedAt: '2026-10-30T10:00:01.000Z', version: 'v2' };
+  const v3 = { ...boardOf([{ ...T2, bumpedAt: '2026-10-30T10:00:02.000Z' }, { ...T1, title: 'Renamed T1' }]), generatedAt: '2026-10-30T10:00:02.000Z', version: 'v3' };
+  const b = boardOnDom({ board: v1, threads: {}, send: (kind, data, server) => { server.board = v3; return { id: 'e1', board: structuredClone(b.page.win.BoardUI.boardPatch(server.held[data.since], v3)) }; } });
+  b.server.held = { v1, v2 };
+  await b.settle();
+  const order = () => b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key);
+  const title = (key) => b.root.querySelector(`details.item[data-key="${key}"]`).textContent;
+  await b.change({ board: v2 });
+  assert.deepEqual([b.downloads, b.patched, b.view.B.state.board.version], [['v1'], ['v1'], 'v2']);
+  assert.match(title('w/T1'), /Renamed T1/);
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('details.item[data-key="w/T2"] button[data-card-bump]') });
+  await b.settle();
+  assert.deepEqual([b.sent.map(([k, d]) => [k, d.since]), b.view.B.state.board.version, order()], [[['card-bump', 'v2']], 'v3', ['w/T2', 'w/T1']]);
   b.view.unmount();
 });
 
@@ -2951,6 +2976,14 @@ test("a question's note on Waiting on you takes attachments the same way as the 
   v.unmount();
 });
 
+test("Waiting on you names a card's topic from its card, since the board sends that topic with no title", async () => {
+  const question = { id: 'q1', topic: 'item:w/T1', source: '', question: 'Question?', context: '', options: [{ id: 'A', label: 'Yes' }], answers: [], state: 'open' };
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', card: 'w/T1' }], items: [workCard('T1', { ref: 'INT-1', title: 'Search' })], questions: [question], at: 'q1' });
+  await v.settle();
+  assert.match(v.root.querySelector('.topichead').textContent, /^INT-1: Search · Questions about this work item\./);
+  v.unmount();
+});
+
 test('Hold opens a sheet of the shared duration picker in place of a confirm, whose chip sends card-hold with that choice, and Unhold confirms naming the time', async () => {
   const until = new Date(Date.now() + 2 * 86_400_000).toISOString();
   const holdChoices = [['1h', '1h', 3_600_000], ['3h', '3h', 10_800_000], ['6h', '6h', 21_600_000], ['1d', '1d', 86_400_000], ['forever', 'Forever', null]].map(([value, label, ms]) => ({ value, label, ms }));
@@ -3272,7 +3305,7 @@ test("Mark as done closes the card and leaves the page where it is as the card m
   assert.deepEqual([flashing(), tinting()], [[], ['ask:b1', 'w/C1']]);
 });
 
-function questionsOnDom({ topics, questions, at, next, gate = null }) {
+function questionsOnDom({ topics, questions, at, next, gate = null, items = [] }) {
   const page = fakePage(memoryStorage().localStorage);
   const { Element } = miniDom(page.Target, page.win.document);
   const base = 'https://mac.ts.net/board-a';
@@ -3283,7 +3316,7 @@ function questionsOnDom({ topics, questions, at, next, gate = null }) {
     return { ...t, state: qs.every((q) => q.state === 'resolved') ? 'resolved' : 'open', questions: qs.map((q) => q.id), open: count('open'), answered: count('answered'), resolved: count('resolved') };
   }).filter((t) => t.questions.length);
   // As board/server.mjs answers: /api/board leaves resolved questions out, and /api/questions?topic= answers a topic's.
-  const boardBody = () => ({ ...boardOf([]), owner: server.questions.filter((q) => q.state !== 'resolved'), ownerTopics: ownerTopics() });
+  const boardBody = () => ({ ...boardOf(items), owner: server.questions.filter((q) => q.state !== 'resolved'), ownerTopics: ownerTopics() });
   const body = (u) => (u.pathname.endsWith('/api/board') ? boardBody()
     : u.pathname.endsWith('/api/questions') ? { questions: server.questions.filter((q) => q.topic === u.searchParams.get('topic') && q.state === 'resolved') } : []);
   const gets = [];

@@ -107,6 +107,15 @@
   }
   // A card's pill is its ID, or for an ask (item:ask:<id>) the time it appeared; other topics keep their title.
   const topicName = (t) => (t.askedAt ? BoardUI.cardTime(t.askedAt) : (String(t.title).match(/^([A-Z]+-\d+|[A-Z]\d+):/) || [])[1] || t.title);
+  // /api/board's ownerTopics, each card's topic named from its card, which the board sends in its place while the card
+  // is on the board (board/server.mjs pageBoard). cards: the board's items.
+  function cardTopics(topics, cards) {
+    const byKey = new Map(cards.map((c) => [c.key, c]));
+    return topics.map((t) => {
+      const c = t.title === undefined && byKey.get(t.card);
+      return c ? { ...t, title: `${c.ref}: ${c.title}`, summary: 'Questions about this work item.', ...(c.kind === 'ask' ? { askedAt: c.ask.askedAt } : {}) } : t;
+    });
+  }
   // Topics from /api/board ownerTopics, in order. pills: unresolved topics with an open question, plus the
   // current topic wherever it stands; waiting: the other unresolved topics, which wait only on Claude.
   function topicRow(topics, current) {
@@ -141,5 +150,5 @@
     },
   };
 
-  Object.assign(globalThis.BoardUI, { choiceLabel, option, answerHistory, questionCard, roundChip, takes, topicName, topicRow, nextQuestion, sentNotice });
+  Object.assign(globalThis.BoardUI, { choiceLabel, option, answerHistory, questionCard, roundChip, takes, topicName, cardTopics, topicRow, nextQuestion, sentNotice });
 })();

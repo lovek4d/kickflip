@@ -20,7 +20,7 @@
 
   create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
     const { $, site } = B;
-    const { esc, choiceLabel, questionCard, roundChip, takes, linkContext, badge, topicName, topicRow, nextQuestion, sentNotice, fetchJSON, restartNotice } = BoardUI;
+    const { esc, choiceLabel, questionCard, roundChip, takes, linkContext, badge, topicName, cardTopics, topicRow, nextQuestion, sentNotice, fetchJSON, restartNotice } = BoardUI;
     // prototype-switcher.js reads a draft's note and clears the draft once it sends that question's answer.
     const draftKey = (id) => 'qdraft:' + id;
     const getDraft = (id) => { try { return JSON.parse(localStorage.getItem(draftKey(id)) || '{}'); } catch { return {}; } };
@@ -31,8 +31,9 @@
     // The shown topic's resolved questions, which /api/board leaves out: GET /api/questions answers them as the topic
     // shows, and again once its resolved count changes or after a failed load, at its next draw (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md).
     let resolved = { topic: null, n: 0, questions: [] };
-    // The version of the board last read, which the next load names so an unchanged board downloads nothing.
-    let version = null;
+    // The board last landed, whose version the next load and each tap name, so an unchanged board downloads nothing
+    // and a changed one comes as a patch (ui-patch.js).
+    let board = null;
     let items = [];
     let topics = [];
     let topicId = null;
@@ -51,6 +52,7 @@
     };
     B.atUnmount(() => clearTakeResources());
 
+    const send = (kind, data) => site.send(kind, { ...data, ...(board ? { since: board.version } : {}) });
     const byId = (id) => all.find((q) => q.id === id) || resolved.questions.find((q) => q.id === id);
     const topicOf = (qid) => topics.find((t) => t.questions.includes(qid)) || null;
     const openTopics = () => topics.filter((t) => t.state !== 'resolved');
@@ -244,7 +246,7 @@
     async function moveOnOnceLoaded({ from, pills }, what, out, footer = what) {
       await loading;
       if (!B.alive()) return;
-      land(out.board, false);
+      if (!land(out.board, false)) await load(false);
       moveOn(from, pills, what, typeof footer === 'function' ? footer() : footer, typeof footer !== 'function');
     }
 
@@ -257,7 +259,7 @@
       const d = getDraft(q.id);
       const last = q.answers[q.answers.length - 1];
       let out;
-      try { out = await BoardUI.waitOn(button, site.send('prototype-request', { ...(key ? { key } : {}), question: q.id, note: (d.note || '').trim(), choice: d.choice ?? (last ? last.choice : null) })); }
+      try { out = await BoardUI.waitOn(button, send('prototype-request', { ...(key ? { key } : {}), question: q.id, note: (d.note || '').trim(), choice: d.choice ?? (last ? last.choice : null) })); }
       catch (e) { st.textContent = e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?'; return; }
       setDraft(q.id, {});
       await moveOnOnceLoaded(at, `Prototype requested${at.name ? ` for ${at.name}` : ''}.`, out, PROTOTYPE_REQUESTED);
@@ -290,7 +292,7 @@
     async function fetchBoard(first) {
       const page = $('#page');
       try {
-        const { body: d } = await fetchJSON(site.url('api/board'), { tag: version, onWait: () => { if (first) page.innerHTML = restartNotice(); }, sleep: B.sleep });
+        const { body: d } = await fetchJSON(site.url('api/board' + (board ? '?since=' + encodeURIComponent(board.version) : '')), { tag: board?.version, onWait: () => { if (first) page.innerHTML = restartNotice(); }, sleep: B.sleep });
         if (!B.alive()) return false;
         if (d) land(d, first);
         repaint(first);
@@ -300,17 +302,21 @@
         return false;
       }
     }
-    // A board from a load or a tap's POST.
+    // A board, or a patch from the board held, from a load or a tap's POST. → false for a patch from a board no longer
+    // held, which leaves the page as it is.
     function land(d, first) {
-      version = d.version;
-      all = d.owner;
-      items = d.items;
-      topics = d.ownerTopics;
+      const next = d.since === undefined ? d : BoardUI.applyPatch(board, d);
+      if (!next) return false;
+      board = next;
+      all = board.owner;
+      items = board.items;
+      topics = cardTopics(board.ownerTopics, items);
       site.syncBadge();
       if (first) pick(hashId());
       else if (soloId && byId(soloId)?.state !== 'open') pick('');
       else if (!topics.some((t) => t.id === topicId)) pick('');
       loaded = true;
+      return true;
     }
     // Draws what changed, unless the owner is typing a note.
     function repaint(first) {
@@ -417,7 +423,7 @@
         return { id: q.id, question: q.question, choice, label: choiceLabel(q, choice), note: (d.note || '').trim(), ...(files.length ? { files } : {}) };
       });
       let out;
-      try { out = await BoardUI.waitOn($('#send'), site.send('owner-answers', { answers })); }
+      try { out = await BoardUI.waitOn($('#send'), send('owner-answers', { answers })); }
       catch (e) { st.textContent = e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?'; return; }
       for (const q of list) {
         setDraft(q.id, {});

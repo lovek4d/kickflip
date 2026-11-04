@@ -816,6 +816,14 @@ test('an ask topic pill reads the time it appeared, not its title', () => {
   assert.equal(ui.topicName({ title: 'New: Fix it', askedAt: at.toISOString() }), ui.cardTime(at.toISOString()));
 });
 
+test("a card's topic, which the board sends with no title, takes its name from its card, and every other topic keeps its own", () => {
+  const at = new Date(); at.setHours(9, 5, 0, 0);
+  const cards = [{ key: 'w/B5', kind: 'work', ref: 'B5', title: 'Lane chips' }, { key: 'ask:e1', kind: 'ask', ref: 'New', title: 'Fix it', ask: { askedAt: at.toISOString() } }];
+  const named = ui.cardTopics([{ id: 'item:w/B5', card: 'w/B5', open: 1 }, { id: 'item:ask:e1', card: 'ask:e1', open: 1 }, { id: 'plan', title: 'Release plan' }, { id: 'item:w/Z', card: 'w/Z', title: 'Z9: Archived' }], cards);
+  assert.deepEqual(plain(named.map((t) => [t.title, t.summary ?? null, ui.topicName(t)])),
+    [['B5: Lane chips', 'Questions about this work item.', 'B5'], ['New: Fix it', 'Questions about this work item.', ui.cardTime(at.toISOString())], ['Release plan', null, 'Release plan'], ['Z9: Archived', null, 'Z9']]);
+});
+
 test('the topic row shows only topics with an open question, the current one kept, and the rest wait on Claude', () => {
   const t = (id, state, open, answered = 0, replied = 0) => ({ id, title: id, state, open, answered, replied });
   const topics = [t('a', 'open', 0, 1), t('b', 'open', 2), t('c', 'open', 0, 0, 1), t('d', 'resolved', 0), t('e', 'open', 1), t('f', 'resolved', 0)];

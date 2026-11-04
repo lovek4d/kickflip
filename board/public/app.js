@@ -266,10 +266,11 @@ window.BoardView = (function () {
       const threads = [...state.openItems].map((k) => B.loadThread(k, { from: started?.threads.get(k) || null, force: via !== 'poll' }));
       let landed = false;
       try {
-        // A reload names the version of the board on screen, and an unchanged board answers 304 with no body
-        // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md).
+        // A reload names the version of the board on screen: an unchanged board answers 304 with no body
+        // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md), and a changed one a patch from it
+        // (docs/adr/2026-11-04-0332-the-board-sends-per-card-patches.md).
         const tag = state.view === 'fresh' ? state.board.version : null;
-        const board = await (started?.board || fetch(B.site.url('api/board'), { cache: 'no-store', ...(tag ? { headers: { 'if-none-match': `"${tag}"` } } : {}) })
+        const board = await (started?.board || fetch(B.site.url('api/board' + (tag ? '?since=' + encodeURIComponent(tag) : '')), { cache: 'no-store', ...(tag ? { headers: { 'if-none-match': `"${tag}"` } } : {}) })
           .then((r) => (r.status === 304 ? null : r.ok ? r.json() : Promise.reject(new Error(`board ${r.status}`)))));
         if (board) land(board, load); else B.linkUp();
         landed = true;
@@ -285,10 +286,13 @@ window.BoardView = (function () {
       if (state.view === 'fresh') B.endFlash();
     }
 
-    // A board from the server, a load's or an events POST's. One built before the board on screen leaves it as it is,
-    // so a slow load can't undo a newer one. → whether it landed
-    function land(board, load) {
-      if (state.view === 'fresh' && state.board && board.generatedAt < state.board.generatedAt) return false;
+    // A board from the server, a load's or an events POST's, or a patch from the board on screen (ui-patch.js). One built
+    // before the board on screen leaves it as it is, so a slow load can't undo a newer one; a newer patch from a board
+    // no longer on screen, which another answer replaced meanwhile, reloads instead. → whether it landed
+    function land(answer, load) {
+      if (state.view === 'fresh' && state.board && answer.generatedAt < state.board.generatedAt) return false;
+      const board = answer.since === undefined ? answer : BoardUI.applyPatch(state.view === 'fresh' ? state.board : null, answer);
+      if (!board) { signalled(); return false; }
       const first = state.view !== 'fresh';
       state.board = board;
       B.setView('fresh');
@@ -304,11 +308,12 @@ window.BoardView = (function () {
 
     // An owner tap that saves something (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md): the events POST
     // answers once the server has recorded the tap, with the board as the tap left it, which lands as a load of its own,
-    // so the tap needs no reload (docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md). Nothing draws
+    // so the tap needs no reload (docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md); it names
+    // the version on screen, so the answer is a patch from it. Nothing draws
     // before that answer. answered() runs once it comes, before its board lands. A refusal throws, carrying the
     // server's reason for failed.
     async function send(kind, data, answered = null) {
-      const out = await B.site.send(kind, data);
+      const out = await B.site.send(kind, { ...data, ...(state.view === 'fresh' ? { since: state.board.version } : {}) });
       if (!B.alive()) return out;
       answered?.();
       land(out.board, B.boardLoad = (B.boardLoad || 0) + 1);

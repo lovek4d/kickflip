@@ -56,6 +56,10 @@
 //                                owner leaves resolved questions out; ownerTopics still lists and counts them (pageBoard).
 //                                version tags everything but generatedAt and is the ETag: a request whose If-None-Match
 //                                names it answers 304 with no body (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md)
+//                                ?since=<version>: while the server keeps that version's board, the answer is a patch
+//                                from it, {since, version, generatedAt, set, unset, lists} (public/ui-patch.js); else the
+//                                whole board. A card's question topic names its card as card and leaves its title to it
+//                                (docs/adr/2026-11-04-0332-the-board-sends-per-card-patches.md)
 //                                Done cards come slim (domain.mjs slimDone), the newest 100 and the ones the Done
 //                                archive keeps back; doneArchived: how many Done cards data/done-archive.json holds
 //   GET  /api/done?before=<sortAt>|<key>
@@ -82,7 +86,8 @@
 //   GET  /plan.html?…            redirects to notes.html with the same query, since pushes and threads link it
 //   POST /_claude/events         {kind, ...data} → one line in data/events.jsonl; wakes Claude. → {id, board}: the
 //                                event's id and /api/board's answer as the tap left it, version included, so the page draws the tap from
-//                                the one round trip (docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md)
+//                                the one round trip (docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md);
+//                                with since: <version>, which isn't recorded, that board is a patch from it as ?since= gives
 //                                ask, item-message and owner-answer may carry files: [upload]
 //                                An owner-answer with a note and no take resolves its question (store.mjs
 //                                resolveNoteAnswers). One to a card's prototype question that picks no take is
@@ -549,13 +554,34 @@ async function board() {
 // The board a page reads, from /api/board or an events POST's answer: board() with this request's onHost, leaving out
 // the resolved questions (GET /api/questions answers a topic's), with its Done cards slim and how many older ones wait in
 // the archive (docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md), and its version, a tag of
-// everything in it but generatedAt, which GET /api/board also sends as its ETag.
+// everything in it but generatedAt, which GET /api/board also sends as its ETag. A card's question topic leaves its
+// title, summary and askedAt to its card while the card is on the board: the page names the topic from the card
+// (view-questions.js), so a card's change patches the card alone (docs/adr/2026-11-04-0332-the-board-sends-per-card-patches.md).
 async function pageBoard(req) {
   const b = { ...(await board()), onHost: await fromHost(req), doneArchived: await archiveCount(here) };
   b.owner = b.owner.filter((q) => q.state !== 'resolved');
   b.items = b.items.map((i) => (i.lane === 'done' ? slimDone(i) : i));
+  const shown = new Set(b.items.map((i) => i.key));
+  b.ownerTopics = b.ownerTopics.map(({ title, summary, askedAt, ...t }) => (shown.has(t.card) ? t : { ...t, title, summary, ...(askedAt ? { askedAt } : {}) }));
   const { generatedAt: _, ...content } = b;
-  return { ...b, version: crypto.createHash('sha1').update(JSON.stringify(content)).digest('base64url').slice(0, 20) };
+  const page = { ...b, version: crypto.createHash('sha1').update(JSON.stringify(content)).digest('base64url').slice(0, 20) };
+  kept.delete(page.version);
+  kept.set(page.version, page);
+  for (const v of [...kept.keys()].slice(0, -BOARDS_KEPT)) kept.delete(v);
+  return page;
+}
+
+// docs/adr/2026-11-04-0332-the-board-sends-per-card-patches.md: the page boards this server built last, by version, so a page naming the version it holds gets a
+// patch from it (ui-patch.js boardPatch); one naming a version no longer kept, or none, gets the whole board.
+const BOARDS_KEPT = 8;
+const kept = new Map();
+const patches = vm.createContext({});
+vm.runInContext(await fs.readFile(new URL('./public/ui-patch.js', import.meta.url), 'utf8'), patches);
+const { boardPatch } = patches.BoardUI;
+async function answerBoard(req, since) {
+  const from = since && kept.get(since);
+  const b = await pageBoard(req);
+  return from ? boardPatch(from, b) : b;
 }
 
 // docs/adr/2026-11-02-1813-the-bulb-runs-an-architecture-review-of-the-boards-repo.md: one review at a time, so a second Run while
@@ -795,7 +821,7 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/_claude/health') return json(res, 200, { ok: true });
     if (p === '/api/board') {
-      const b = await pageBoard(req);
+      const b = await answerBoard(req, String(url.searchParams.get('since') || ''));
       const etag = `W/"${b.version}"`;
       if (sameTag(req.headers['if-none-match'], etag)) { res.writeHead(304, { etag, 'cache-control': 'no-store', vary: 'accept-encoding' }).end(); return; }
       return json(res, 200, b, { etag });
@@ -837,6 +863,9 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req, 512 * 1024);
       const kind = String(body.kind || 'message').slice(0, 64);
       delete body.kind;
+      // The version of the board the page holds, so the answer's board is a patch from it.
+      const since = String(body.since || '');
+      delete body.since;
       if (kind === 'card-hold' && body.hold && body.for !== undefined) {
         const end = durationEnd(new Date(), body.for);
         if (!end) return json(res, 400, { error: 'That hold ends in the past or more than 30 days on. Pick another time.' });
@@ -847,7 +876,7 @@ const server = http.createServer(async (req, res) => {
       if (kind === 'card-build') {
         const key = String(body.key || '');
         const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts));
-        return json(res, 200, { id: await handOff(started), board: await pageBoard(req) });
+        return json(res, 200, { id: await handOff(started), board: await answerBoard(req, since) });
       }
       // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
       if (kind === 'lineup-move') {
@@ -855,13 +884,13 @@ const server = http.createServer(async (req, res) => {
         const phases = lineupMoved(buildBoard(await snapshot({ github: false })), slug, String(body.key || ''), body.by === -1 ? -1 : body.by === 1 ? 1 : 0);
         if (!phases) return json(res, 400, { error: `That card can't move that way in the wave "${slug}".` });
         try { await changeLineup(here, slug, { phases: phases.map((p) => p.join(',')) }); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
-        return json(res, 200, { id: null, board: await pageBoard(req) });
+        return json(res, 200, { id: null, board: await answerBoard(req, since) });
       }
-      if (kind === 'owner-answer') return json(res, 200, { id: (await recordAnswers([body]))[0], board: await pageBoard(req) });
+      if (kind === 'owner-answer') return json(res, 200, { id: (await recordAnswers([body]))[0], board: await answerBoard(req, since) });
       if (kind === 'owner-answers') {
         const refused = await answersRefused(body.answers);
         if (refused) return json(res, 400, { error: refused });
-        return json(res, 200, { ids: await recordAnswers(body.answers), board: await pageBoard(req) });
+        return json(res, 200, { ids: await recordAnswers(body.answers), board: await answerBoard(req, since) });
       }
       // A Hold or Done is written to the card's wave file before its event, and one that couldn't be is refused with
       // why, recording nothing (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
@@ -882,13 +911,13 @@ const server = http.createServer(async (req, res) => {
           try { await removeReviewers(here, remove); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
         }
         const ids = await appendEvents([...(remove.length ? [['reviewers-removed', { remove }]] : []), ...(add.length ? [['reviewers', { add }]] : [])]);
-        return json(res, 200, { id: ids.at(-1), board: await pageBoard(req) });
+        return json(res, 200, { id: ids.at(-1), board: await answerBoard(req, since) });
       }
       const id = await appendEvent(kind, body);
       if (kind === 'prototype-request' && body.question) await resolveRequestedQuestion(here, String(body.question));
       if (kind === 'ask-withdrawn') await setHidden(here, String(body.id || ''), true);
       // docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md
-      return json(res, 200, { id, board: await pageBoard(req) });
+      return json(res, 200, { id, board: await answerBoard(req, since) });
     }
     if (p === '/api/rules' && req.method === 'GET') return json(res, 200, { board: await readBoardRules(here), hub: readHubRules() });
     if (p === '/api/rules' && req.method === 'POST') {
