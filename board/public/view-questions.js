@@ -227,14 +227,15 @@
       else if (B.alive()) { sentLine = footer; $('#qstatus').innerHTML = statusHtml(footer); $('#qstatus').classList.add('sent'); }
     }
 
-    async function askPrototype(q) {
+    // The tapped Prototype button waits (ui.js waitOn) while the request is sent.
+    async function askPrototype(q, button) {
       const st = $('#qstatus');
       const key = q.topic?.startsWith('item:') ? q.topic.slice(5) : null;
       const at = leaving();
-      st.textContent = 'Sending…';
+      st.textContent = '';
       const d = getDraft(q.id);
       const last = q.answers[q.answers.length - 1];
-      try { await site.send('prototype-request', { ...(key ? { key } : {}), question: q.id, note: (d.note || '').trim(), choice: d.choice ?? (last ? last.choice : null) }); }
+      try { await BoardUI.waitOn(button, site.send('prototype-request', { ...(key ? { key } : {}), question: q.id, note: (d.note || '').trim(), choice: d.choice ?? (last ? last.choice : null) })); }
       catch (e) { st.textContent = e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?'; return; }
       setDraft(q.id, {});
       await moveOnOnceLoaded(at, `Prototype requested${at.name ? ` for ${at.name}` : ''}.`, PROTOTYPE_REQUESTED);
@@ -323,7 +324,7 @@
     B.on(root, 'click', (ev) => {
       if (ev.target.id === 'showAll') { soloId = null; sentLine = ''; shown = ''; render(); return; }
       const eye = ev.target.closest && ev.target.closest('[data-proto]');
-      if (eye) { askPrototype(byId(eye.closest('section.q').dataset.q)); return; }
+      if (eye) { askPrototype(byId(eye.closest('section.q').dataset.q), eye); return; }
       const b = ev.target.closest && ev.target.closest('[data-topic]');
       if (b) { soloId = null; topicId = b.dataset.topic; sentLine = ''; shown = ''; render(); scrollTo(0, 0); }
     });
@@ -374,9 +375,9 @@
       const st = $('#qstatus');
       if (uploading(visible())) return;
       if (!list.length) { st.textContent = 'Pick an option or write a note first.'; return; }
-      st.textContent = 'Sending…';
+      st.textContent = '';
       const at = leaving();
-      // docs/adr/2026-11-03-1519-send-records-every-ready-answer-in-one-request.md: one request, recorded all or none.
+      // docs/adr/2026-11-03-1519-send-records-every-ready-answer-in-one-request.md: one request, recorded all or none. Send waits meanwhile.
       const answers = list.map((q) => {
         const d = getDraft(q.id);
         const last = q.answers[q.answers.length - 1];
@@ -384,7 +385,7 @@
         const files = filesOf(q);
         return { id: q.id, question: q.question, choice, label: choiceLabel(q, choice), note: (d.note || '').trim(), ...(files.length ? { files } : {}) };
       });
-      try { await site.send('owner-answers', { answers }); }
+      try { await BoardUI.waitOn($('#send'), site.send('owner-answers', { answers })); }
       catch (e) { st.textContent = e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?'; return; }
       for (const q of list) {
         setDraft(q.id, {});

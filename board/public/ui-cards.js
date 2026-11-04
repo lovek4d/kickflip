@@ -59,13 +59,13 @@
     return deps.map((d, i) => `<a class="card-blocked" href="#item=${encodeURIComponent(d.key)}">${i ? '' : 'blocked by '}${esc(d.ref)}</a>`).join('<span class="sep">, </span>');
   }
   const tryWords = (kind) => kind === 'app' ? {
-    go: 'Build', going: 'building…', retrying: 'Building…', done: 'Install', failed: 'build failed',
+    go: 'Build', going: 'building…', done: 'Install', failed: 'build failed',
     current: 'Nothing new to build: Install already has this card’s latest push.',
     busy: 'Building now. The badge turns back into Install when the new build is ready.',
     autoSub: 'The hub builds each card after each push, and main after each merge.',
     saved: (on) => on ? 'Saved. Each push builds its card.' : 'Saved. Cards wait for your Build.',
   } : {
-    go: 'Serve', going: 'serving…', retrying: 'Serving…', done: 'Visit', failed: 'serve failed',
+    go: 'Serve', going: 'serving…', done: 'Visit', failed: 'serve failed',
     current: 'Nothing new to serve: Visit already shows this card’s latest push.',
     busy: 'Serving now. The badge turns back into Visit when the new server is up.',
     autoSub: 'The hub serves each card after each push, and main after each merge.',
@@ -134,11 +134,11 @@
     return `<div class="tb-main" role="region" aria-label="Main’s version">${BRANCH}<div class="tb-main-text">${esc(main.slug)} · <strong>${esc(main.branch)}</strong>@<code>${esc(main.sha)}</code> · ${esc(ago(main.at))}${mainPull(main.pull, pulling)}</div><div class="meta">${chip}</div></div>`;
   }
   // The open card's Merge, while the board's auto-merge is off: it confirms, then sends card-merge, waiting while the
-  // server records it (app-cards.js), and reads "Merging…" while it waits on the session
+  // server records it (app-cards.js), and waits (ui.js BUSY) while the session merges it
   // (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md).
   function mergeButton(it) {
     if (it?.action?.kind !== ACTION_KIND.merge && !it?.merging) return '';
-    return `<button class="${it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${it.merging ? ' disabled' : ''}>${it.merging ? 'Merging…' : 'Merge'}</button>`;
+    return `<button class="${it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${it.merging ? BoardUI.BUSY : ''}>Merge</button>`;
   }
   // The open card's Implement, rightmost in its action row, on a card board/domain.mjs marks buildable: it confirms, then
   // sends card-build, waiting while the board server starts the implementer (app-cards.js). Build and Serve
@@ -244,30 +244,28 @@
   // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
   // The Auto Review lane, its needs you in the sidebar's needs-you red: one card per incoming PR (board/auto-review.mjs reviewsOf), needs you, then reviewing, then
   // posted. A tap opens the review text and the PR's links, and a review held for the owner offers Post it and Skip,
-  // disabled while answering names its PR. Older posted reviews are one line each under Posted earlier.
+  // whose tap waits while the server records it (app-lanes.js). Older posted reviews are one line each under Posted earlier.
   const REVIEW_WORDS = { needs: 'needs you', reviewing: 'reviewing', posted: 'posted' };
   const REVIEW_DOTS = { needs: 'rv-needs', reviewing: 'progress', posted: 'done' };
-  function reviewDetail(c, answering) {
+  function reviewDetail(c) {
     const text = c.text ? `<div class="rv-review">${c.state === 'needs' ? '<p class="muted small">Draft, not posted.</p>' : ''}${BoardUI.markdown(c.text)}</div>`
       : '<p class="muted small">Nothing posted yet. Right before posting, Claude reads the PR’s reviews again and adds only new points.</p>';
     const links = `<div class="rv-links"><a href="${esc(c.url)}" target="_blank" rel="noopener">PR #${c.number} on GitHub ${LINK_ARROW}</a>${c.reviewUrl ? `<a href="${esc(c.reviewUrl)}" target="_blank" rel="noopener">The review on GitHub ${LINK_ARROW}</a>` : ''}</div>`;
-    const busy = answering === c.number ? ' disabled' : '';
-    const acts = c.state === 'needs' ? `<div class="rv-acts"><button type="button" data-review-answer="post" data-review="${c.number}"${busy}>Post it</button><button type="button" class="ghost" data-review-answer="skip" data-review="${c.number}"${busy}>Skip</button></div>` : '';
+    const acts = c.state === 'needs' ? `<div class="rv-acts"><button type="button" data-review-answer="post" data-review="${c.number}">Post it</button><button type="button" class="ghost" data-review-answer="skip" data-review="${c.number}">Skip</button></div>` : '';
     return `<div class="rv-detail">${text}${links}${acts}</div>`;
   }
   const reviewChipsOf = (c) => [badge('quiet', `from ${esc(c.author)}`), ...c.touches.map((t) => badge(c.state === 'needs' ? 'danger' : 'quiet', `touches ${esc(t.ref)}`)), c.asked ? badge('normal', 'asked you') : ''].join(' ');
   const reviewWhen = (c) => `${c.state === 'reviewing' ? 'started ' : ''}${ago(c.at)}`;
-  function reviewCard(c, open, answering) {
+  function reviewCard(c, open) {
     return `<details class="rv-card" data-review="${c.number}"${open ? ' open' : ''}><summary><span class="status ${REVIEW_DOTS[c.state]}"></span><div class="title-wrap">
       <div class="line1 title">${badge('normal', `PR #${c.number}`)} ${esc(c.title)}</div>
       <div class="line3 sub${c.state === 'reviewing' ? ' agent' : ''}">${c.state === 'reviewing' ? '<span class="working-dot" aria-hidden="true"></span>' : ''}<span class="rv-word s-${c.state}">${REVIEW_WORDS[c.state]}</span> · ${esc(reviewWhen(c))}</div>
-      <div class="line2 meta">${reviewChipsOf(c)}</div></div></summary>${reviewDetail(c, answering)}</details>`;
+      <div class="line2 meta">${reviewChipsOf(c)}</div></div></summary>${reviewDetail(c)}</details>`;
   }
   const reviewLine = (c, open) => `<details class="rv-line" data-review="${c.number}"${open ? ' open' : ''}><summary><div class="title">${badge('normal', `PR #${c.number}`)} ${esc(c.title)}</div>
-    <div class="sub">${esc([c.author, c.state === 'posted' ? `posted ${ago(c.at)}` : 'not posted', c.open ? '' : 'closed'].filter(Boolean).join(' · '))}</div></summary>${reviewDetail(c, null)}</details>`;
-  // reviews: the built board's reviews; open: {lane, earlier, cards: Set of open PR numbers}; answering: the PR number
-  // whose answer is being sent, or null.
-  function reviewLane(reviews, { open = {}, answering = null } = {}) {
+    <div class="sub">${esc([c.author, c.state === 'posted' ? `posted ${ago(c.at)}` : 'not posted', c.open ? '' : 'closed'].filter(Boolean).join(' · '))}</div></summary>${reviewDetail(c)}</details>`;
+  // reviews: the built board's reviews; open: {lane, earlier, cards: Set of open PR numbers}.
+  function reviewLane(reviews, { open = {} } = {}) {
     if (!reviews?.shown) return '';
     const { cards, earlier } = reviews;
     const needs = cards.filter((c) => c.state === 'needs').length;
@@ -276,7 +274,7 @@
       <div class="fold-list">${earlier.map((c) => reviewLine(c, shown(c.number))).join('')}</div></details>` : '';
     const waiting = reviews.waiting ? `${reviews.waiting} incoming PR${reviews.waiting === 1 ? '' : 's'} wait${reviews.waiting === 1 ? 's' : ''} until the board is idle.`
       : `No incoming PR touches this board’s work yet.${reviews.at ? ` Checked ${esc(reviews.repo)} ${ago(reviews.at)}.` : ''}`;
-    const list = cards.length ? cards.map((c) => reviewCard(c, shown(c.number), answering)).join('') : `<div class="empty">${waiting}</div>`;
+    const list = cards.length ? cards.map((c) => reviewCard(c, shown(c.number))).join('') : `<div class="empty">${waiting}</div>`;
     return `<details class="lane" data-lane="reviews"${open.lane === false ? '' : ' open'}><summary><span class="lane-name">Auto Review</span><span class="count">${cards.length}</span>${needs ? `<span class="lane-github"><span class="rv-late">${needs} needs you</span></span>` : ''}</summary>
       <div class="list">${list}${fold}</div></details>`;
   }

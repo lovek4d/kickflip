@@ -18,7 +18,7 @@ BoardView.part((B) => {
     const lastHtml = last ? `<div class="arch-last"><span>Last review: <b>${esc(last.wave)}</b> · ${esc(day(last.at))}</span>`
       + `<span class="muted">${B.plural(last.findings, 'finding')}, ${last.built} built · <a href="#item=${encodeURIComponent(last.key)}" data-arch-open="${esc(last.key)}">${esc(last.ref)} ${LINK_ARROW}</a></span></div>` : '';
     const waits = a.waits ? `<p class="arch-waits" role="status">${esc(a.waits)}</p>` : '';
-    return `${lastHtml}${waits}<button type="button" class="primary arch-run" data-arch-run${a.waits || starting ? ' disabled' : ''}>${starting ? 'Starting…' : `Run a review of ${esc(a.repo)}`}</button>`
+    return `${lastHtml}${waits}<button type="button" class="primary arch-run" data-arch-run${starting ? BoardUI.BUSY : a.waits ? ' disabled' : ''}>Run a review of ${esc(a.repo)}</button>`
       + '<p class="muted">Claude reads the repo and makes a wave. Its first card asks you one question per finding.</p>';
   }
 

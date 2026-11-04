@@ -110,10 +110,9 @@
     addBox.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); add(); } });
     addBox.addEventListener('input', mark);
     saveBtn.addEventListener('click', async () => {
-      saveBtn.disabled = true;
-      status.textContent = 'Saving…';
+      status.textContent = '';
       try {
-        const r = await opts.save(payload(list));
+        const r = await BoardUI.waitOn(saveBtn, opts.save(payload(list)));
         list = rows(r.rules);
         editing = null;
         status.textContent = r.message || 'Saved.';

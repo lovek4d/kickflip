@@ -8,13 +8,14 @@ globalThis.PromptAnswers = (function () {
   // short message; after() runs once an answer has gone. → {state(p) for promptItem, shows(p)}
   function wire(B, { list, paint, notify, after = () => {} }) {
     const picks = new Map();
-    const sending = new Set();
+    // Each prompt whose answer is out, to the button tapped (ui-prompts.js promptItem's sending).
+    const sending = new Map();
     // Answered here, hidden until the view's next load drops them.
     const answered = new Set();
     const picksOf = (id) => { if (!picks.has(id)) picks.set(id, {}); return picks.get(id); };
 
-    async function send(p, body) {
-      sending.add(p.id);
+    async function send(p, body, tapped) {
+      sending.set(p.id, tapped);
       paint();
       try {
         const r = await fetch(`/_hub/prompts/${encodeURIComponent(p.id)}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -40,23 +41,23 @@ globalThis.PromptAnswers = (function () {
         const got = mine[i] || [];
         const label = opt.dataset.promptOpt;
         mine[i] = q.multiSelect ? (got.includes(label) ? got.filter((l) => l !== label) : [...got, label]) : [label];
-        if (BoardUI.oneTap(p)) send(p, BoardUI.promptAnswer(p, mine));
+        if (BoardUI.oneTap(p)) send(p, BoardUI.promptAnswer(p, mine), `${i}:${label}`);
         else paint();
         return;
       }
       if (ev.target.closest('button[data-prompt-send]')) {
         const body = BoardUI.promptAnswer(p, picksOf(p.id));
-        if (body) send(p, body);
+        if (body) send(p, body, 'send');
         return;
       }
       const choice = ev.target.closest('button[data-prompt-choice]')?.dataset.promptChoice;
       if (!choice) return;
       if (choice === 'always' && !(await BoardDialogs.confirm(`Always allow ${p.rule} for the rest of this session?`))) return;
-      send(p, { choice });
+      send(p, { choice }, choice);
     });
 
     return {
-      state: (p) => ({ picks: picks.get(p.id) || {}, sending: sending.has(p.id) }),
+      state: (p) => ({ picks: picks.get(p.id) || {}, sending: sending.get(p.id) ?? null }),
       shows: (p) => !answered.has(p.id),
     };
   }

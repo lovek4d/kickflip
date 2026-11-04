@@ -36,6 +36,8 @@
 .sidebar .sb-update-row:disabled { opacity: 1; cursor: default; }
 .sidebar .sb-go { flex: none; padding: 5px 10px; border-radius: 7px; background: var(--accent); color: var(--on-accent); font-size: 13px; font-weight: 600; }
 .sidebar .sb-update-row:disabled .sb-go { background: transparent; color: var(--muted); padding-right: 0; font-weight: 400; }
+/* While Reload or Upgrade runs, its pill keeps its blue with a spinner in place of its word (style.css, ui.js BUSY). */
+.sidebar .sb-update-row[aria-busy="true"] .sb-go { background: var(--accent); color: var(--on-accent); padding-right: 10px; font-weight: 600; }
 html.sb-update body.has-sidebar > .top .hub, html.sb-update body.has-sidebar > :not(.sidebar) > .top .hub { position: relative; }
 html.sb-update body.has-sidebar > .top .hub::after, html.sb-update body.has-sidebar > :not(.sidebar) > .top .hub::after {
   content: ''; position: absolute; width: 10px; height: 10px; top: 3px; right: 3px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }

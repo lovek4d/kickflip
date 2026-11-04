@@ -153,14 +153,15 @@
 
   // The New version row. update: the app's reload, null | 'ready' | 'reloading', which comes first. upgrade:
   // /_hub/sidebar.json's npm update, null | {state: available | waiting | updating | failed, version, builders, error}
-  // (hub/upgrade.mjs; docs/adr/2026-11-03-1521-the-hub-offers-a-newer-kickflip-from-npm.md).
+  // (hub/upgrade.mjs; docs/adr/2026-11-03-1521-the-hub-offers-a-newer-kickflip-from-npm.md). A reload, and an asked
+  // update until it runs out, waits (ui.js BUSY): its pill keeps its blue with a spinner in place of its word.
   function updateRow(update, upgrade) {
-    const button = (attr, disabled, title, sub, go) => `<button type="button" class="sb-row sb-update-row" ${attr}${disabled ? ' disabled' : ''}>${tile('up', 'var(--accent)')}`
-      + `<span class="sb-text"><span class="sb-title">${title}</span>${sub ? `<span class="sb-sub">${esc(sub)}</span>` : ''}</span>${go ? `<span class="sb-go">${go}</span>` : ''}</button>`;
-    if (update) return button('data-app-reload', update === 'reloading', 'New version', '', update === 'reloading' ? 'Reloading…' : 'Reload');
+    const button = (attr, busy, title, sub, go) => `<button type="button" class="sb-row sb-update-row" ${attr}${busy ? globalThis.BoardUI.BUSY : ''}>${tile('up', 'var(--accent)')}`
+      + `<span class="sb-text"><span class="sb-title">${title}</span>${sub ? `<span class="sb-sub">${esc(sub)}</span>` : ''}</span><span class="sb-go">${go}</span></button>`;
+    if (update) return button('data-app-reload', update === 'reloading', 'New version', '', 'Reload');
     if (!upgrade) return '';
-    if (upgrade.state === 'waiting') return button('data-app-upgrade', true, `Update waits for ${upgrade.builders} implementer${upgrade.builders === 1 ? '' : 's'}`, '', '');
-    if (upgrade.state === 'updating') return button('data-app-upgrade', true, 'Update available', '', 'Updating…');
+    if (upgrade.state === 'waiting') return button('data-app-upgrade', true, `Update waits for ${upgrade.builders} implementer${upgrade.builders === 1 ? '' : 's'}`, '', 'Upgrade');
+    if (upgrade.state === 'updating') return button('data-app-upgrade', true, 'Update available', '', 'Upgrade');
     if (upgrade.state === 'failed') return button('data-app-upgrade', false, 'Update failed', upgrade.error, 'Upgrade');
     return button('data-app-upgrade', false, 'Update available', '', 'Upgrade');
   }
@@ -184,7 +185,7 @@
       ? `<button type="button" class="sb-row sb-starting sb-failed" data-starting="${esc(s.route)}" data-failed-start="${esc(s.route)}" aria-haspopup="dialog">${plus}`
         + `<span class="sb-text"><span class="sb-title">${esc(s.title)}</span><span class="sb-sub">failed to start</span></span></button>`
       : `<div class="sb-row sb-starting" data-starting="${esc(s.route)}">${plus}`
-        + `<span class="sb-text"><span class="sb-title">${s.phase === 'cloning' ? 'Cloning…' : 'Starting…'}</span><span class="sb-sub">${esc(s.title)}${s.repo ? ` · ${esc(repoLabel(s.repo, data.home))}` : ''}${s.phase === 'cloning' ? ' · Cloning from GitHub' : ' · Waiting for the board to answer'}</span></span></div>`)).join('');
+        + `<span class="sb-text"><span class="sb-title">${s.phase === 'cloning' ? 'cloning…' : 'starting…'}</span><span class="sb-sub">${esc(s.title)}${s.repo ? ` · ${esc(repoLabel(s.repo, data.home))}` : ''}${s.phase === 'cloning' ? ' · Cloning from GitHub' : ' · Waiting for the board to answer'}</span></span></div>`)).join('');
     const newBoard = `<button type="button" class="sb-row sb-new" data-new-board aria-haspopup="dialog">${plus}<span class="sb-text"><span class="sb-title">New board</span></span></button>`;
     const turnOn = device === 'off' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Turn on notifications', sub: 'Off on this device', cls: 'sb-turnon' })
       : device === 'install' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })

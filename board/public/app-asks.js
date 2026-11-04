@@ -68,9 +68,9 @@ BoardView.part((B) => {
     const text = $('#askText').value.trim();
     const files = BoardAttach.files('ask', B.site.root);
     if ((!text && !files.length) || BoardAttach.busy('ask', B.site.root)) return;
-    $('#askStatus').textContent = 'Sending…';
+    $('#askStatus').textContent = '';
     try {
-      await sendDraft('draft:ask', $('#askText'), () => $('#askText'), () => B.send('ask', { text, ...(files.length ? { files } : {}) }));
+      await waitOn($('#askForm button[type="submit"]'), sendDraft('draft:ask', $('#askText'), () => $('#askText'), () => B.send('ask', { text, ...(files.length ? { files } : {}) })));
       BoardAttach.clear('ask', B.site.root);
       $('#askStatus').textContent = '';
       closeSheet();

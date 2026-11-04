@@ -3,7 +3,7 @@
 // Needs app-core.js and app-cards.js.
 BoardView.part((B) => {
   const { $, store, state } = B;
-  const { esc } = BoardUI;
+  const { esc, waitOn } = BoardUI;
   const LANES = [
     { id: 'review', name: 'In Review', open: true },
     { id: 'stale', name: 'Stale', open: true, hideEmpty: true },
@@ -48,10 +48,9 @@ BoardView.part((B) => {
   }
 
   // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md: the Auto Review lane leads the lanes. The PRs
-  // the owner has open are kept in memory, as cards are; answering is the held review whose Post it or Skip is out.
+  // the owner has open are kept in memory, as cards are.
   const openReviews = new Set();
-  let answering = null;
-  const reviewsHtml = (d) => BoardUI.reviewLane(d.reviews, { answering,
+  const reviewsHtml = (d) => BoardUI.reviewLane(d.reviews, {
     open: { lane: store.get('lanes', {}).reviews, earlier: store.get(FOLDS['reviews-earlier'].store, false), cards: openReviews } });
   // Opens PR number's review and its lane or fold, for a Needs you line or a push's #review=<number>.
   function openReview(number) {
@@ -85,15 +84,13 @@ BoardView.part((B) => {
   // Todo's wave bands (domain.mjs waveBandsOf), then its cards in no wave under Not in a wave. A band's open state lives
   // in storage once the owner taps its head; until then only the first band whose next card is ready (a wave file's:
   // any Todo card) starts open. A band's name shows its goal as a tooltip, or a popover on a long-press. menu is the
-  // card whose ⋯ menu is open, moving the card whose move is being sent and movingBy its way, goalShown the band whose goal popover is open.
+  // card whose ⋯ menu is open, goalShown the band whose goal popover is open.
   let menu = null;
-  let moving = null;
-  let movingBy = 0;
   let goalShown = null;
   const triaging = new Set();
   const triageTopic = (r) => `${r.kind}:${r.slug}`;
   function triageLink(r) {
-    if (r.triage.running || triaging.has(triageTopic(r))) return '<span class="wv-busy" role="status"><span class="try-spin" aria-hidden="true"></span>Triaging…</span>';
+    if (r.triage.running || triaging.has(triageTopic(r))) return '<span class="wv-busy" role="status"><span class="try-spin" aria-hidden="true"></span>triaging…</span>';
     if (r.triage.questions) return `<span class="muted">Triage: ${B.plural(r.triage.questions, 'open question')}</span>`;
     return `<button type="button" class="wv-link" data-triage="${esc(triageTopic(r))}">Triage</button>`;
   }
@@ -136,13 +133,12 @@ BoardView.part((B) => {
   }
 
   // A lineup card's ⋯ and, while open, its menu: Move up and Move down among the band's Todo cards. A move waits for
-  // the server (board/server.mjs lineup-move), reading Moving… meanwhile.
+  // the server (board/server.mjs lineup-move): the tapped move waits and the other is disabled meanwhile.
   function cardMenu(slug, key, at, count) {
     const shown = menu === key;
     const item = (by, label) => {
-      const sending = moving === key && movingBy === by;
-      const off = moving === key || (by < 0 ? at === 0 : at === count - 1);
-      return `<button type="button" role="menuitem" data-band-move="${by}" data-band="${esc(slug)}" data-key="${esc(key)}"${off ? ' disabled' : ''}>${sending ? 'Moving…' : label}</button>`;
+      const off = by < 0 ? at === 0 : at === count - 1;
+      return `<button type="button" role="menuitem" data-band-move="${by}" data-band="${esc(slug)}" data-key="${esc(key)}"${off ? ' disabled' : ''}>${label}</button>`;
     };
     return `<div class="ask-actions"><button type="button" class="ghost icon wb-dots" data-band-menu="${esc(key)}" aria-label="Card menu" aria-haspopup="menu" aria-expanded="${shown}">${DOTS}</button>`
       + (shown ? `<div class="wb-menu" role="menu">${item(-1, '↑ Move up')}${item(1, '↓ Move down')}</div>` : '') + '</div>';
@@ -168,12 +164,10 @@ BoardView.part((B) => {
   B.on(B.root, 'click', async (ev) => {
     const answer = ev.target.closest('button[data-review-answer]');
     if (answer) {
-      if (answering !== null) return;
-      answering = Number(answer.dataset.review);
-      B.render();
-      try { await B.send('review-answer', { pr: answering, answer: answer.dataset.reviewAnswer }); }
+      // The tapped answer waits, and the review's other answer is disabled, until the server records it.
+      const pr = Number(answer.dataset.review);
+      try { await waitOn(answer, B.send('review-answer', { pr, answer: answer.dataset.reviewAnswer }), { group: answer.parentNode.querySelectorAll('button') }); }
       catch { B.notice('Could not send. Is the host awake?'); }
-      finally { answering = null; B.render(); }
       return;
     }
     const review = ev.target.closest('a[data-review-open]');
@@ -183,9 +177,8 @@ BoardView.part((B) => {
     const pb = ev.target.closest('button[data-plan]');
     if (pb) {
       if (!(await B.confirm('Claude triages these Todo cards into one or more waves and asks you about them in Needs you. Nothing is implemented until you answer. Start?'))) return;
-      pb.disabled = true;
-      try { await B.send('plan-waves', { keys: pb.dataset.plan.split(' ') }); pb.textContent = 'Planning… its questions appear in Needs you'; }
-      catch { B.notice('Could not send. Is the host awake?'); pb.disabled = false; }
+      try { await waitOn(pb, B.send('plan-waves', { keys: pb.dataset.plan.split(' ') })); pb.textContent = 'Planning… its questions appear in Needs you'; pb.disabled = true; }
+      catch { B.notice('Could not send. Is the host awake?'); }
       return;
     }
     const tb = ev.target.closest('button[data-triage]');
@@ -235,14 +228,10 @@ BoardView.part((B) => {
     const mv = ev.target.closest('button[data-band-move]');
     if (mv) {
       ev.preventDefault();
-      if (mv.disabled || moving) return;
+      if (mv.disabled) return;
       const { band, key } = mv.dataset;
-      moving = key;
-      movingBy = Number(mv.dataset.bandMove);
-      B.render();
-      try { await B.send('lineup-move', { lineup: band, key, by: movingBy }); }
+      try { await waitOn(mv, B.send('lineup-move', { lineup: band, key, by: Number(mv.dataset.bandMove) }), { group: mv.parentNode.querySelectorAll('button') }); }
       catch { B.toast('Could not move it. Is the host awake?'); }
-      moving = null;
       menu = null;
       B.render();
       return;

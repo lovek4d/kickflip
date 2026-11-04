@@ -214,7 +214,7 @@
     }
     lastHtml.set(el, html);
     if (openDetails.size) for (const d of el.querySelectorAll('details:not([open])')) if (openDetails.has(detailsKey(d))) d.open = true;
-    for (const w of waits) { const b = waitingButton(w); if (b && !b.classList.contains('tap-waiting')) markWaiting(b, w); }
+    for (const w of waits) { const b = waitingButton(w); if (b && !b.classList.contains(w.mark)) markWaiting(b, w); }
     return true;
   }
 
@@ -224,33 +224,57 @@
     d.open = false;
   }
 
-  // A tap that saves something waits for the server (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md):
-  // waitOn(button, promise) disables the button until promise settles, and style.css button.tap-waiting keeps its colour
-  // and width and shows a spinner in its text colour in place of its content, or pulses a bump icon orange. A repaint
-  // meanwhile (setHTML) patches the button back to its markup, so setHTML marks it again, found by its id and data
-  // attributes when the repaint replaced it. Settling restores the disabled state its latest markup had. → promise
+  // A tap that saves something waits for the server (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md,
+  // docs/adr/2026-11-03-1915-every-pending-control-waits-in-one-style.md): waitOn(control, promise, {group}) disables
+  // control until promise settles and marks it tap-waiting and aria-busy. style.css button[aria-busy="true"] keeps a
+  // button's colours and width and shows a spinner in its text colour in place of its content, or pulses a bump icon
+  // orange. A toggle, select or field keeps its face, with a spinner beside it: after its caption in a .tk-field, else
+  // just before it. group: the other choices of the same setting, disabled (tap-blocked) with no spinner meanwhile.
+  // A repaint meanwhile (setHTML) patches each back to its markup, so setHTML marks it again, found by its id and data
+  // attributes when the repaint replaced it. Settling restores the disabled and aria-busy its latest markup had. → promise
+  // Work that outlives its request (a restart, an update, a merge) draws its button with BUSY in its markup until the
+  // state the page draws from says the work is done.
+  const BUSY = ' disabled aria-busy="true"';
   const waits = new Set();
   function markWaiting(b, w) {
     w.el = b;
     w.disabled = b.disabled;
+    w.busy = b.getAttribute('aria-busy');
     b.disabled = true;
-    b.classList.add('tap-waiting');
+    b.classList.add(w.mark);
+    if (w.mark !== 'tap-waiting') return;
     b.setAttribute('aria-busy', 'true');
+    if (b.tagName === 'BUTTON') return;
+    w.spin?.remove();
+    w.spin = document.createElement('span');
+    w.spin.setAttribute('class', 'try-spin tap-beside');
+    w.spin.setAttribute('aria-hidden', 'true');
+    const caption = b.closest('.tk-field')?.firstElementChild;
+    if (caption && caption !== b) caption.appendChild(w.spin);
+    else b.before(w.spin);
   }
   const waitingButton = (w) => (w.el.isConnected && w.el.matches(w.selector) ? w.el
     : w.named ? document.body.querySelector(w.selector) : null);
-  function waitOn(button, promise) {
-    const named = [...button.attributes].filter(({ name }) => name === 'id' || name.startsWith('data-'));
-    const w = { selector: button.tagName.toLowerCase() + named.map(({ name, value }) => (value ? `[${name}="${CSS.escape(value)}"]` : `[${name}]`)).join(''), named: named.length > 0 };
-    markWaiting(button, w);
+  function waitFor(el, mark) {
+    const named = [...el.attributes].filter(({ name }) => name === 'id' || name.startsWith('data-'));
+    const w = { mark, selector: el.tagName.toLowerCase() + named.map(({ name, value }) => (value ? `[${name}="${CSS.escape(value)}"]` : `[${name}]`)).join(''), named: named.length > 0 };
+    markWaiting(el, w);
     waits.add(w);
+    return w;
+  }
+  function waitOn(control, promise, { group = [] } = {}) {
+    const mine = [waitFor(control, 'tap-waiting'), ...[...group].filter((el) => el !== control).map((el) => waitFor(el, 'tap-blocked'))];
     const done = () => {
-      waits.delete(w);
-      const b = waitingButton(w);
-      if (!b?.classList.contains('tap-waiting')) return;
-      b.classList.remove('tap-waiting');
-      b.removeAttribute('aria-busy');
-      b.disabled = w.disabled;
+      for (const w of mine) {
+        waits.delete(w);
+        w.spin?.remove();
+        // setHTML keeps w.el the node it last marked; one a plain innerHTML replaced is gone with its mark.
+        const b = w.el;
+        if (!b.classList.contains(w.mark)) continue;
+        b.classList.remove(w.mark);
+        if (w.mark === 'tap-waiting') { if (w.busy === null) b.removeAttribute('aria-busy'); else b.setAttribute('aria-busy', w.busy); }
+        b.disabled = w.disabled;
+      }
     };
     promise.then(done, done);
     return promise;
@@ -282,7 +306,7 @@
 
   globalThis.BoardUI = {
     LINK_ARROW,
-    esc, record, time, ago, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, waitOn, fetchJSON, RESTARTING, restartNotice,
+    esc, record, time, ago, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, fetchJSON, RESTARTING, restartNotice,
     attachments, attachButton, dropZone, pendingFiles, protoButton, protoNotice, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, BADGE_TONES, badge,
   };
 })();

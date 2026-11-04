@@ -41,6 +41,9 @@ function fakePage(localStorage) {
     }
     querySelector(sel) { if (!this.els.has(sel)) this.els.set(sel, new El()); return this.els.get(sel); }
     querySelectorAll() { return []; }
+    get tagName() { return 'DIV'; }
+    get attributes() { return Object.entries(this.attrs).map(([name, value]) => ({ name, value })); }
+    before() {}
     setAttribute(k, v) { this.attrs[k] = String(v); }
     getAttribute(k) { return this.attrs[k] ?? null; }
     removeAttribute(k) { delete this.attrs[k]; }
@@ -389,7 +392,9 @@ test('Board Settings saves auto-build immediately, uses kind-specific words and 
     assert.match(root.querySelector('#autoBuildSub').textContent, kind === 'web' ? /hub serves/ : /hub builds/);
     toggle.checked = true;
     page.fire(toggle, 'change');
+    assert.deepEqual([toggle.disabled, toggle.getAttribute('aria-busy')], [true, 'true'], 'the toggle keeps its face, disabled, with a spinner beside it while it saves');
     await tick();
+    assert.deepEqual([toggle.disabled, toggle.getAttribute('aria-busy')], [false, null]);
     assert.deepEqual(posts.at(-1), ['https://mac.ts.net/orch/api/settings', { auto_build: true }]);
     assert.equal(root.querySelector('#autoBuildStatus').textContent, kind === 'web' ? 'Saved. Each push serves its card.' : 'Saved. Each push builds its card.');
     refuse = true;
@@ -566,6 +571,8 @@ test('Hub Settings lists closed boards, keeps a refused reopen available, then r
   assert.match(top.innerHTML, /data-reopen="shop"/);
   refuse = false;
   page.fire(root, 'click', { target: root.querySelector('[data-reopen="shop"]') });
+  const reopen = root.querySelector('[data-reopen="shop"]');
+  assert.deepEqual([reopen.textContent, reopen.disabled, reopen.getAttribute('aria-busy')], ['Reopen', true, 'true'], 'Reopen waits with its label kept behind the spinner');
   await settle();
   assert.deepEqual(posts.at(-1), ['/_hub/reopen-board', { route: 'shop' }, 'application/json']);
   assert.match(top.innerHTML, /No closed boards/);
@@ -573,7 +580,7 @@ test('Hub Settings lists closed boards, keeps a refused reopen available, then r
   view.unmount();
 });
 
-test("Restart on a board's row of the Hub page confirms, reads Restarting until the hub answers, then toasts; a refusal shows above the page, and the hub board has no Restart", async () => {
+test("Restart on a board's row of the Hub page confirms, waits disabled with its spinner until the hub answers, then toasts; a refusal shows above the page, and the hub board has no Restart", async () => {
   const page = fakePage(memoryStorage().localStorage);
   const { Element } = miniDom(page.Target, page.win.document);
   const site = (route, title, restart) => ({ route, title, icon: '', href: `/${route}/`, tone: 'ok', word: 'up · listening · every link passes', lines: [], remembered: [], restart });
@@ -605,13 +612,11 @@ test("Restart on a board's row of the Hub page confirms, reads Restarting until 
   assert.deepEqual(confirms, [['This stops The <Shop>’s session mid-task, along with any implementer it started, then restarts its server and resumes the session. Its cards and threads stay. For a stuck board. Restart The <Shop>?', undefined]]);
   assert.deepEqual(posts, [['/_hub/restart-board', { route: 'shop' }]]);
   assert.equal(row().querySelector('.sub').textContent, 'restarting · stopping its session, then starting it again');
-  assert.equal(button().textContent, 'Restarting…');
-  assert.ok(button().disabled);
-  assert.ok(button().querySelector('.try-spin'));
+  assert.deepEqual([button().textContent, button().disabled, button().getAttribute('aria-busy')], ['Restart', true, 'true'], 'Restart waits with its label kept behind the spinner');
   answer({ ok: true, json: async () => ({ route: 'shop', title: 'The <Shop>', session: 'abc' }) });
   await settle();
   assert.equal(root.querySelector('.toast').textContent, 'The <Shop> is back up, and its session is listening.');
-  assert.equal(button().textContent, 'Restart');
+  assert.deepEqual([button().textContent, button().disabled, button().getAttribute('aria-busy')], ['Restart', false, null]);
   assert.equal(row().querySelector('.sub').textContent, 'up · listening · every link passes');
   page.fire(root.querySelector('.hub-status'), 'click', { target: button() });
   await settle();
@@ -619,6 +624,64 @@ test("Restart on a board's row of the Hub page confirms, reads Restarting until 
   await settle();
   assert.equal(root.querySelector('.hub-status .flash.error').textContent, 'session 1234 did not stop');
   assert.equal(button().textContent, 'Restart');
+  view.unmount();
+});
+
+// docs/adr/2026-11-03-1915-every-pending-control-waits-in-one-style.md
+test("a Hub page form waits on its tapped control: Codex share's tapped segment spins and the other choices are disabled, the Pause stepper's tapped step spins, and Hub Settings' toggle keeps its face, disabled, with a spinner beside it, until the hub answers", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const { Element } = miniDom(page.Target, page.win.document);
+  Element.prototype.setSelectionRange = () => {};
+  page.win.document.getElementById = () => true;
+  page.win.FormData = class { constructor(form) { return form.querySelectorAll('input[name]').filter((i) => !i.disabled && (i.getAttribute('type') !== 'checkbox' || i.checked)).map((i) => [i.getAttribute('name'), i.value]); } };
+  const choices = (on) => ['half', 'auto', 'off'].map((value) => ({ value, label: value, on: value === on }));
+  const hub = { hub: { tone: 'ok', word: 'healthy', detail: '' }, integrations: [], polling: { title: 'Checks every 30 min', lines: [], count: 0 }, sites: '0 sites', host: 'mac', groups: [],
+    usage: {}, codex: { usable: true, share: 'auto', description: '', choices: choices('auto') }, claude: { builder: 'Opus', description: '', choices: choices('auto') },
+    pause: { state: 'normal', pause_at: 90, window: 'five_hour', used: 10, resets_at: new Date().toISOString() } };
+  const settings = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], awake: { summary: 'Off', choices: [] }, closed: [], snooze: { choices: [] } };
+  const posts = [];
+  let answer;
+  page.win.fetch = (url, opts = {}) => {
+    if (opts.method === 'POST') { posts.push([url, String(opts.body)]); return new Promise((resolve) => { answer = resolve; }); }
+    const body = url === '/_hub/api/hub' ? hub : settings;
+    return Promise.resolve({ ok: true, headers: { get: () => null }, json: async () => structuredClone(body) });
+  };
+  const root = page.win.document.body.appendChild(new Element('div'));
+  root.innerHTML = page.win.AppViews.hub.markup();
+  const view = page.win.AppViews.hub.create(root, 'https://mac.ts.net/_hub', { view: { kind: 'hub', hash: '#notifications' }, sidebarChanged() {} });
+  const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
+  view.mount();
+  await settle();
+  const looks = (form) => form.querySelectorAll('button').map((b) => (b.getAttribute('aria-busy') ? 'waits' : b.disabled ? 'disabled' : 'on'));
+  // The Hub page and its settings each wire their own forms, the settings over their own section.
+  const submit = (form, submitter) => {
+    if (submitter) submitter.name = submitter.getAttribute('name');
+    page.fire(form.closest('.hub-settings') || root, 'submit', { target: form, submitter });
+  };
+  const ok = async () => { answer({ ok: true, json: async () => structuredClone(hub) }); await settle(); };
+
+  const codex = () => root.querySelector('form[action="/_hub/settings/codex"]');
+  submit(codex(), codex().querySelector('button[value="half"]'));
+  assert.deepEqual(looks(codex()), ['waits', 'disabled', 'disabled']);
+  assert.deepEqual(posts.at(-1), ['/_hub/settings/codex', 'value=half']);
+  await ok();
+  assert.deepEqual(looks(codex()), ['on', 'on', 'on']);
+
+  const step = () => root.querySelector('form[action="/_hub/settings/pause-at"]');
+  submit(step(), step().querySelector('button[value="95"]'));
+  assert.deepEqual(looks(step()), ['disabled', 'waits']);
+  await ok();
+  assert.deepEqual(looks(step()), ['on', 'on']);
+
+  const weekends = root.querySelector('.settings-modal input[type="checkbox"][data-submit]');
+  weekends.checked = true;
+  submit(weekends.closest('form'), null);
+  assert.deepEqual([weekends.disabled, weekends.getAttribute('aria-busy'), weekends.previousSibling?.getAttribute('class')], [true, 'true', 'try-spin tap-beside']);
+  assert.deepEqual(posts.at(-1), ['/_hub/settings/notifications', 'set=weekends&value=on']);
+  answer({ ok: true, json: async () => structuredClone({ ...settings, weekends: { on: true, sub: '' } }) });
+  await settle();
+  const after = root.querySelector('.settings-modal input[type="checkbox"][data-submit]');
+  assert.deepEqual([after.hasAttribute('checked'), after.disabled, after.getAttribute('aria-busy'), root.querySelectorAll('.tap-beside').length], [true, false, null, 0]);
   view.unmount();
 });
 
@@ -922,7 +985,7 @@ test('the shell uses the inline or fetched boot code, adopts the first live code
     assert.equal(region.querySelector('[data-app-reload]'), button);
     assert.equal(reloads, 0);
     page.fire(doc.getElementById('sidebar'), 'click', { target: button });
-    assert.equal(region.querySelector('.sb-go').textContent, 'Reloading…');
+    assert.deepEqual([region.querySelector('.sb-go').textContent, region.querySelector('[data-app-reload]').getAttribute('aria-busy')], ['Reload', 'true']);
     assert.ok(region.querySelector('[data-app-reload]').disabled);
     page.runTimers(0);
     assert.equal(reloads, 1);
@@ -953,7 +1016,7 @@ test('a reload forgets the saved shell and waits for the worker reply or one sec
     page.fire(doc.getElementById('sidebar'), 'click', { target: region.querySelector('[data-app-reload]') });
     assert.deepEqual(sent, [{ forget: 'shell' }]);
     assert.ok(region.querySelector('[data-app-reload]').disabled);
-    assert.equal(region.querySelector('.sb-go').textContent, 'Reloading…');
+    assert.deepEqual([region.querySelector('.sb-go').textContent, region.querySelector('[data-app-reload]').getAttribute('aria-busy')], ['Reload', 'true']);
     page.runTimers(999);
     assert.equal(reloads, 0);
     if (responds) reply.postMessage({ forgot: true }); else page.runTimers(1000);
@@ -1084,7 +1147,7 @@ test('an open shell shows new hub code before the next Hub paint and reloads onl
   win.AppShell.codeSeen('a later hash');
   assert.equal(region.querySelector('[data-app-reload]'), button);
   page.fire(doc.getElementById('sidebar'), 'click', { target: button });
-  assert.equal(region.querySelector('.sb-go').textContent, 'Reloading…');
+  assert.deepEqual([region.querySelector('.sb-go').textContent, region.querySelector('[data-app-reload]').getAttribute('aria-busy')], ['Reload', 'true']);
   assert.ok(region.querySelector('[data-app-reload]').disabled);
   assert.equal(reloads, 0);
   page.fire(doc.getElementById('sidebar'), 'click', { target: region.querySelector('[data-app-reload]') });
@@ -1331,13 +1394,13 @@ test('New board chooses a searchable repo before board details, defaults its bra
     refusal = null;
     page.fire(form, 'submit');
     page.fire(form, 'submit');
-    assert.equal(start.disabled, true);
+    assert.deepEqual([start.textContent, start.disabled, start.getAttribute('aria-busy')], ['Start', true, 'true'], 'Start waits with its label kept behind the spinner');
     assert.equal(posted.length, 2);
     finish();
     await tick();
     assert.deepEqual(posted.at(-1), ['/_hub/new-board', 'POST', { name: 'Backend audit', github: 'owner/project', branch: 'release/next', purpose: 'Review changes', tickets: wide ? { source: 'internal', prefix: 'INT' } : { source: 'github' } }, 'application/json']);
     assert.equal(doc.getElementById('newBoardSheet'), null);
-    assert.match(aside.querySelector('[data-starting="backend-audit"]').textContent, /Cloning….*Backend audit/);
+    assert.match(aside.querySelector('[data-starting="backend-audit"]').textContent, /cloning….*Backend audit/);
     assert.equal(aside.querySelector('a[href="/backend-audit/"]'), null);
     assert.equal(aside.classList.contains('open'), !wide);
     const failed = { route: 'backend-audit', title: 'Backend audit', repo: repoList[0].clone, branch: 'release/next', tickets: { source: 'internal', prefix: 'INT' }, askedAt: new Date().toISOString(), failed: true, error: 'claude --bg failed (1): Not logged in' };
@@ -1352,18 +1415,21 @@ test('New board chooses a searchable repo before board details, defaults its bra
     assert.match(failedSheet.textContent, /Not logged in.*Branch\s*release\/next.*Tickets\s*Internal · INT/s);
     const tapSheet = (sel) => page.fire(failedSheet, 'click', { target: failedSheet.querySelector(sel) });
     tapSheet('[data-failed-retry]');
+    const sheetButton = (sel) => failedSheet.querySelector(sel);
+    assert.deepEqual([sheetButton('[data-failed-retry]').getAttribute('aria-busy'), sheetButton('[data-failed-retry]').disabled, sheetButton('[data-failed-dismiss]').disabled, sheetButton('[data-failed-dismiss]').getAttribute('aria-busy')],
+      ['true', true, true, null], 'Retry waits and Dismiss is disabled');
     await tick();
     assert.deepEqual(posted.at(-1), ['/_hub/new-board/backend-audit/retry', 'POST', {}, 'application/json']);
     assert.equal(failedSheet.open, true);
     assert.equal(failedSheet.querySelector('.fs-refused').textContent, retryRefusal);
     assert.equal(failedSheet.querySelector('.fs-refused').hidden, false);
-    assert.equal(failedSheet.querySelector('[data-failed-retry]').disabled, false);
+    assert.deepEqual([sheetButton('[data-failed-retry]').disabled, sheetButton('[data-failed-retry]').getAttribute('aria-busy'), sheetButton('[data-failed-dismiss]').disabled], [false, null, false]);
     retryRefusal = null;
     tapSheet('[data-failed-retry]');
     await tick();
     assert.equal(doc.getElementById('failedStartSheet'), null);
     assert.equal(failedRow(), null);
-    assert.match(aside.querySelector('[data-starting="backend-audit"]').textContent, /(Starting|Cloning)….*Backend audit/);
+    assert.match(aside.querySelector('[data-starting="backend-audit"]').textContent, /(starting|cloning)….*Backend audit/);
     data = { ...data, starting: [failed] };
     win.Sidebar.mount({ data });
     failedSheet = openFailed();
@@ -1682,10 +1748,16 @@ test('Board Settings saves each Tickets change at once, opens Hub’s key modal 
 
   hold = Promise.withResolvers();
   const team = control.querySelector('[data-tk="team"]');
-  team.value = 'OPS'; page.fire(control, 'change', { target: team });
+  team.value = 'OPS';
+  page.fire(root.querySelector('#ticketsForm'), 'change', { target: team });
+  page.fire(control, 'change', { target: team });
   assert.deepEqual(posts.at(-1), { tickets: { source: 'linear', workspace: 'acme', team: 'OPS', project: 'p2' } });
-  assert.match(status.textContent, /Saving…/);
-  assert.equal(done.getAttribute('aria-busy'), 'true');
+  // The changed select keeps its face, disabled, with the spinner after its caption; every other tickets control is disabled.
+  const field = (tk) => control.querySelector(`[data-tk="${tk}"]`);
+  assert.deepEqual([status.textContent, field('team').disabled, field('team').getAttribute('aria-busy'), field('team').closest('label').querySelector('span > .tap-beside') !== null],
+    ['', true, 'true', true]);
+  assert.deepEqual([field('project').disabled, control.querySelectorAll('[data-tk-source]').every((b) => b.disabled)], [true, true]);
+  assert.deepEqual([done.getAttribute('aria-busy'), done.disabled], ['true', true]);
   page.fire(modal, 'click', { target: done });
   page.fire(modal, 'click', { target: root.querySelector('.settings-head [data-settings-dismiss]') });
   await tick();
@@ -1693,7 +1765,7 @@ test('Board Settings saves each Tickets change at once, opens Hub’s key modal 
   hold.resolve(); hold = null;
   await tick(); await tick();
   assert.equal(status.textContent, 'Saved');
-  assert.equal(done.getAttribute('aria-busy'), null);
+  assert.deepEqual([done.getAttribute('aria-busy'), field('team').disabled, field('team').getAttribute('aria-busy'), control.querySelectorAll('.tap-beside').length], [null, false, null, 0]);
   assert.equal(dismissed.length, 1);
   view.unmount();
 });
@@ -2160,9 +2232,7 @@ test('main paints above the lanes, card failures scroll to their thread and main
   refusal = null;
   b.page.fire(retry, 'click');
   await b.settle();
-  assert.equal(retry.disabled, true);
-  assert.equal(retry.getAttribute('aria-disabled'), 'true');
-  assert.match(retry.textContent, /Serving…/);
+  assert.deepEqual([retry.disabled, retry.getAttribute('aria-busy'), retry.textContent], [true, 'true', 'Retry'], 'Retry waits, its label kept behind the spinner, until main is up or fails');
   await b.change({ board: failed });
   assert.equal(logReads, 1);
   assert.equal(retry.disabled, true);
@@ -2180,7 +2250,7 @@ test('main paints above the lanes, card failures scroll to their thread and main
   lines = ['new failure'];
   await b.change({ board: failed });
   assert.equal(b.root.querySelector('#mainLogLines').textContent, 'new failure');
-  assert.equal(retry.disabled, false);
+  assert.deepEqual([retry.disabled, retry.getAttribute('aria-busy')], [false, null]);
 
   b.page.fire(retry, 'click');
   await b.settle();
@@ -2344,6 +2414,49 @@ test("waitOn keeps a button waiting through a repaint that replaces it, found ag
   assert.deepEqual([hold().disabled, hold().classList.contains('tap-waiting'), hold().getAttribute('aria-busy')], [true, false, null]);
 });
 
+// docs/adr/2026-11-03-1915-every-pending-control-waits-in-one-style.md
+test("waitOn with a group disables every choice of the setting while one saves, the spinner only in the tapped one, through a repaint, and settling gives each back its own disabled state", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const { Element } = miniDom(page.Target, page.win.document);
+  const { setHTML, waitOn } = page.win.BoardUI;
+  const root = page.win.document.body.appendChild(new Element('div'));
+  const seg = (off) => `<div role="group"><button data-pick="a">A</button><button data-pick="b">B</button><button data-pick="c"${off ? ' disabled' : ''}>C</button></div>`;
+  setHTML(root, seg(true));
+  const pick = (v) => root.querySelector(`[data-pick="${v}"]`);
+  let answer;
+  const sent = waitOn(pick('b'), new Promise((resolve) => { answer = resolve; }), { group: root.querySelectorAll('button') });
+  const looks = () => ['a', 'b', 'c'].map((v) => [pick(v).disabled, pick(v).getAttribute('aria-busy'), pick(v).classList.contains('tap-blocked')]);
+  assert.deepEqual(looks(), [[true, null, true], [true, 'true', false], [true, null, true]]);
+  setHTML(root, `<p></p>${seg(false)}`);
+  assert.deepEqual(looks(), [[true, null, true], [true, 'true', false], [true, null, true]], 'a repaint keeps the whole group waiting');
+  answer();
+  await sent;
+  assert.deepEqual(looks(), [[false, null, false], [false, null, false], [false, null, false]]);
+});
+
+test("waitOn on a toggle, select or field keeps its face, disabled, with a spinner just before it, or after its caption in a .tk-field, and a button drawn busy in its markup stays busy once the tap settles", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const { Element } = miniDom(page.Target, page.win.document);
+  const { waitOn, BUSY } = page.win.BoardUI;
+  const root = page.win.document.body.appendChild(new Element('div'));
+  root.innerHTML = '<label class="who"><span>Auto-merge</span><input type="checkbox" class="toggle" id="autoMerge"></label>'
+    + `<label class="tk-field"><span>Team</span><select data-tk="team"><option>ENG</option></select></label><button data-confirm="merge"${BUSY}>Merge</button>`;
+  const toggle = root.querySelector('#autoMerge');
+  const select = root.querySelector('select');
+  let answer;
+  const held = new Promise((resolve) => { answer = resolve; });
+  const saves = Promise.all([waitOn(toggle, held), waitOn(select, held)]);
+  const spinners = () => root.querySelectorAll('.tap-beside').map((s) => s.parentNode.tagName + (s.nextSibling === toggle ? ' before the toggle' : ''));
+  assert.deepEqual([toggle.disabled, toggle.getAttribute('aria-busy'), select.disabled, spinners()], [true, 'true', true, ['LABEL before the toggle', 'SPAN']]);
+  assert.equal(root.querySelector('.tk-field > span').textContent, 'Team');
+  const merge = root.querySelector('[data-confirm="merge"]');
+  const merging = waitOn(merge, held);
+  answer();
+  await Promise.all([saves, merging]);
+  assert.deepEqual([toggle.disabled, toggle.getAttribute('aria-busy'), select.disabled, spinners()], [false, null, false, []]);
+  assert.deepEqual([merge.disabled, merge.getAttribute('aria-busy'), merge.classList.contains('tap-waiting')], [true, 'true', false]);
+});
+
 test("a bump or unbump waits for the server: its icon pulses, disabled, and the card stays put through a board landing meanwhile, until the POST's board moves it with no reload of its own; a refusal leaves the card where it was and toasts the server's reason", async () => {
   const T1 = workCard('T1', { bumpable: true, bumpedAt: '2026-10-30T09:00:00.000Z', sortAt: '2026-10-01T00:00:00.000Z', order: 0 });
   const T2 = workCard('T2', { bumpable: true, sortAt: '2026-10-03T00:00:00.000Z', order: 1 });
@@ -2468,6 +2581,33 @@ test("Done, Unhold, Implement, Merge and a Hold sheet chip each wait on their bu
   await b.settle();
   assert.deepEqual([card('w/T1').open, card('w/T1').closest('.lane').dataset.lane], [false, 'done']);
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).map(([kind]) => kind), ['card-hold', 'card-build', 'card-merge', 'card-hold', 'card-done']);
+  b.view.unmount();
+});
+
+// docs/adr/2026-11-03-1915-every-pending-control-waits-in-one-style.md
+test("a thread's Send and the New task sheet's Send each wait, disabled with their label kept, until the server answers, and the sheet has no Sending… line", async () => {
+  const sends = heldSends();
+  const b = boardOnDom({ open: ['w/T1'], board: boardOf([workCard('T1')]), threads: { 'w/T1': [] }, send: sends.send });
+  await b.settle();
+  const form = () => b.root.querySelector('form[data-reply="w/T1"]');
+  const send = () => form().querySelector('button[type="submit"]');
+  form().querySelector('textarea').value = 'Ship it';
+  b.page.fire(b.root, 'submit', { target: form() });
+  await b.settle();
+  assert.deepEqual([...waitState(send()), send().textContent], [...WAITING, 'Send']);
+  sends.answer();
+  await b.settle();
+  assert.deepEqual(waitState(send()), IDLE);
+
+  b.root.querySelector('#askText').value = 'A new task';
+  b.page.fire(b.root.querySelector('#askForm'), 'submit', { target: b.root.querySelector('#askForm') });
+  await b.settle();
+  const askSend = b.root.querySelector('#askForm button[type="submit"]');
+  assert.deepEqual([...waitState(askSend), b.root.querySelector('#askStatus').textContent], [...WAITING, '']);
+  sends.answer();
+  await b.settle();
+  assert.deepEqual(waitState(askSend), IDLE);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).map(([kind]) => kind), ['item-message', 'ask']);
   b.view.unmount();
 });
 
@@ -3017,7 +3157,7 @@ test("Waiting on you's eye on each question, after its attach button, asks for a
   v.page.fire(v.root, 'click', { target: eye('q2') });
   await v.settle();
   assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['prototype-request', { key: 'w/T1', question: 'q2', note: 'Show it on a phone', choice: 'B' }]]);
-  assert.equal($('#qstatus').textContent, 'Sending…');
+  assert.deepEqual([$('#qstatus').textContent, eye('q2').disabled, eye('q2').getAttribute('aria-busy')], ['', true, 'true'], 'the eye waits in place of a Sending… line');
   assert.deepEqual(v.shown().questions, ['q1', 'q2']);
   assert.equal($('details.done'), null);
   release();
@@ -3053,7 +3193,7 @@ test("Waiting on you's eye on a refused request keeps the question open with its
   v.unmount();
 });
 
-test("Waiting on you's Send carries every ready answer in one request, reads Sending… until the server answers, then shows them all sent at once, or on a refusal keeps every draft and says why", async () => {
+test("Waiting on you's Send carries every ready answer in one request, waits disabled with its spinner until the server answers, then shows them all sent at once, or on a refusal keeps every draft and says why", async () => {
   const question = (id) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
   let release;
   const gate = { promise: new Promise((r) => { release = r; }) };
@@ -3068,7 +3208,7 @@ test("Waiting on you's Send carries every ready answer in one request, reads Sen
   assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['owner-answers', { answers: [
     { id: 'q1', question: 'Question q1?', choice: 'A', label: 'A. Yes', note: '' },
     { id: 'q2', question: 'Question q2?', choice: 'A', label: 'A. Yes', note: '' }] }]]);
-  assert.equal($('#qstatus').textContent, 'Sending…');
+  assert.deepEqual([$('#qstatus').textContent, $('#send').disabled, $('#send').getAttribute('aria-busy')], ['', true, 'true']);
   assert.deepEqual(waiting(), []);
   assert.deepEqual([draft(v.page, 'q1'), draft(v.page, 'q2')], [{ choice: 'A' }, { choice: 'A' }]);
   release();
@@ -3557,7 +3697,8 @@ test("each wave is a band in Todo above its loose cards: only the first with a r
   b.page.fire(b.root, 'click', { target: b.root.querySelector('.wb-menu button[data-band-move="1"]') });
   await b.settle();
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).at(-1), ['lineup-move', { lineup: 'go', key: 'w/A6', by: 1 }]);
-  assert.deepEqual(items(), [['↑ Move up', true], ['Moving…', true]]);
+  assert.deepEqual(items(), [['↑ Move up', true], ['↓ Move down', true]]);
+  assert.deepEqual(b.root.querySelectorAll('.wb-menu button').map((x) => x.getAttribute('aria-busy')), [null, 'true'], 'the tapped move waits with its label kept behind the spinner');
   b.server.board = { ...b.server.board, waveBands: bands().map((x) => (x.slug === 'go' ? { ...x, keys: ['w/A7', 'w/A6'] } : x)) };
   moving();
   await b.settle();
@@ -3570,7 +3711,7 @@ test("each wave is a band in Todo above its loose cards: only the first with a r
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).at(-1), ['wave-triage', { wave: 'pilot' }]);
   assert.equal(head('pilot').getAttribute('aria-expanded'), 'false');
   await b.change({ board: { ...b.server.board, waveBands: bands({ running: true, questions: 0 }, { running: false, questions: 1 }) } });
-  assert.equal(head('mon').querySelector('.wv-busy').textContent, 'Triaging…');
+  assert.equal(head('mon').querySelector('.wv-busy').textContent, 'triaging…');
   assert.equal(head('pilot').querySelector('.wb-links').textContent, 'Triage: 1 open question');
 
   const touch = (type) => b.page.fire(b.root, type, { target: head('go').querySelector('[data-goal]'), pointerType: 'touch' });
@@ -3756,10 +3897,13 @@ test("the Auto Review lane leads the lanes; a held review's Needs you line opens
   b.page.fire(b.root, 'click', { target: post() });
   await b.settle();
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['review-answer', { pr: 437, answer: 'post' }]]);
-  assert.deepEqual([post().disabled, card().querySelector('button[data-review-answer="skip"]').disabled], [true, true]);
+  const skip = () => card().querySelector('button[data-review-answer="skip"]');
+  assert.deepEqual([post().disabled, post().getAttribute('aria-busy'), skip().disabled, skip().getAttribute('aria-busy')], [true, 'true', true, null], 'the tapped answer waits and the other is disabled');
+  await b.change({});
+  assert.deepEqual([post().getAttribute('aria-busy'), skip().disabled], ['true', true], 'a repaint keeps them waiting');
   answer();
   await b.settle();
-  assert.equal(post().disabled, false);
+  assert.deepEqual([post().disabled, post().getAttribute('aria-busy'), skip().disabled], [false, null, false]);
 });
 
 // docs/adr/2026-11-03-1921-board-settings-grant-a-boards-session-permissions.md

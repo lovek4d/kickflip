@@ -167,4 +167,6 @@
 .hub-view .rd-fix button.link { padding: 0; font-size: inherit; }
 .hub-view .site-row > .site-link { flex:1; min-width:0; display:flex; align-items:center; gap:10px; color:inherit; }
 .hub-view .restart-btn { min-width:76px; min-height:34px; display:inline-flex; align-items:center; justify-content:center; gap:6px; }
-.hub-view .restart-btn .try-spin { width:9px; height:9px; }
+/* A waiting button keeps its own look (style.css button[aria-busy="true"]), over .btn's and a step's disabled dimming. */
+.hub-view button[aria-busy="true"]:disabled { opacity:1; }
+.hub-view .ub-step button[aria-busy="true"]:disabled { color:var(--text); }

@@ -339,8 +339,8 @@ test("pending boards have muted non-link rows, a failed start keeps its name wit
     { route: 'broken', title: 'Broken', failed: true, error: 'claude --bg failed (1): <Not signed in>' },
   ] };
   const html = ui.sidebar(data, { switching: true });
-  assert.match(html, /<div class="sb-row sb-starting" data-starting="new">.*Starting….*Backend &lt;audit&gt; · Waiting for the board to answer/);
-  assert.match(html, /data-starting="cloning">.*?Cloning….*?Cloning board · Cloning from GitHub<\/span>/);
+  assert.match(html, /<div class="sb-row sb-starting" data-starting="new">.*starting….*Backend &lt;audit&gt; · Waiting for the board to answer/);
+  assert.match(html, /data-starting="cloning">.*?cloning….*?Cloning board · Cloning from GitHub<\/span>/);
   for (const [route, title] of [['old', 'Old board'], ['broken', 'Broken']]) {
     const row = new RegExp(`<button type="button" class="sb-row sb-starting sb-failed" data-starting="${route}" data-failed-start="${route}" aria-haspopup="dialog">.*?</button>`).exec(html)?.[0];
     assert.match(row, new RegExp(`<span class="sb-title">${title}</span><span class="sb-sub">failed to start</span></span></button>$`));
@@ -940,11 +940,11 @@ test('the side pages wait out a board restart: a failed request, a 5xx or a body
   assert.equal(ui.restartNotice().includes(ui.RESTARTING), true);
 });
 
-test("an open card waiting on the owner's Merge shows a Merge button that confirms first, and reads Merging…, disabled, while it waits on the session", () => {
-  const merge = (it) => { const html = ui.mergeButton(it); return html && [text(html), /disabled/.test(html), /data-confirm="merge"/.test(html), /data-key="w\/A1"/.test(html)]; };
+test("an open card waiting on the owner's Merge shows a Merge button that confirms first, and waits, disabled with its label kept behind the spinner, while the session merges it", () => {
+  const merge = (it) => { const html = ui.mergeButton(it); return html && [text(html), / disabled aria-busy="true"/.test(html), /data-confirm="merge"/.test(html), /data-key="w\/A1"/.test(html)]; };
   const waiting = { key: 'w/A1', action: { kind: 'merge', url: '#item=w%2FA1', label: 'Merge' }, merging: false };
   assert.deepEqual(merge(waiting), ['Merge', false, true, true]);
-  assert.deepEqual(merge({ key: 'w/A1', action: null, merging: true }), ['Merging…', true, true, true]);
+  assert.deepEqual(merge({ key: 'w/A1', action: null, merging: true }), ['Merge', true, true, true]);
   assert.equal(merge({ key: 'w/A1', action: { kind: 'steps', url: '#item=w%2FA1', label: 'Run the manual steps, then merge' }, merging: false }), '');
   assert.equal(merge({ key: 'w/A1', action: null, merging: false }), '');
   assert.equal(merge(undefined), '');
@@ -1667,23 +1667,26 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   assert.doesNotMatch(ui.statusLine(null, { pause: { ...pause, state: 'going' } }), /paused/i);
 });
 
-test('the New version row offers the npm update, waits for builders and gives Reload priority', () => {
+test('the New version row offers the npm update, waits with its pill spinning while the update waits for builders or runs, and gives Reload priority', () => {
   const row = (update, upgrade) => ui.updateRow(update, upgrade);
   assert.equal(row(null, null), '');
   const available = row(null, { state: 'available', version: '0.4.0' });
   assert.match(available, /<button type="button" class="sb-row sb-update-row" data-app-upgrade>/);
   assert.equal(text(available), 'Update available Upgrade');
   const waiting = row(null, { state: 'waiting', version: '0.4.0', builders: 2 });
-  assert.match(waiting, /data-app-upgrade disabled/);
-  assert.equal(text(waiting), 'Update waits for 2 implementers');
-  assert.equal(text(row(null, { state: 'waiting', version: '0.4.0', builders: 1 })), 'Update waits for 1 implementer');
+  assert.match(waiting, /data-app-upgrade disabled aria-busy="true"/);
+  assert.equal(text(waiting), 'Update waits for 2 implementers Upgrade');
+  assert.equal(text(row(null, { state: 'waiting', version: '0.4.0', builders: 1 })), 'Update waits for 1 implementer Upgrade');
   const updating = row(null, { state: 'updating', version: '0.4.0' });
-  assert.match(updating, /disabled/);
-  assert.equal(text(updating), 'Update available Updating…');
+  assert.match(updating, /data-app-upgrade disabled aria-busy="true"/);
+  assert.equal(text(updating), 'Update available Upgrade');
   const failed = row(null, { state: 'failed', version: '0.4.0', error: 'npm <update> failed' });
   assert.doesNotMatch(failed, /disabled/);
   assert.equal(text(failed), 'Update failed npm <update> failed Upgrade');
   assert.equal(text(row('ready', { state: 'available', version: '0.4.0' })), 'New version Reload');
+  const reloading = row('reloading', null);
+  assert.match(reloading, /data-app-reload disabled aria-busy="true"/);
+  assert.equal(text(reloading), 'New version Reload');
   const html = ui.sidebar({ sites: [], upgrade: { state: 'available', version: '0.4.0' } });
   assert.match(html, /<div class="sb-update" role="status"><button[^>]*data-app-upgrade>/);
 });
@@ -1706,7 +1709,6 @@ test('the Auto Review lane shows each PR with its author, cards and state, opens
   assert.doesNotMatch(cards[1], /data-review-answer/);
   assert.match(cards[2], /href="https:\/\/github\.com\/o\/r\/pull\/431#pullrequestreview-1"/);
   assert.match(text(html), /Posted earlier 1 PR #421 PR 421 Quinn · posted .* · closed/);
-  assert.match(ui.reviewLane(reviews, { answering: 437 }), /data-review-answer="post" data-review="437" disabled/);
 
   assert.equal(text(ui.reviewLane({ ...reviews, cards: [], earlier: [] })), 'Auto Review 0 No incoming PR touches this board’s work yet. Checked o/r 6m ago.');
   assert.match(text(ui.reviewLane({ ...reviews, cards: [], earlier: [], waiting: 2 })), /2 incoming PRs wait until the board is idle\./);
@@ -1726,4 +1728,23 @@ test('a card\'s phase bars enter when a build starts, fill on an advance, leave 
   assert.equal(ui.phaseMotion('landing', null), 'leave');
   assert.equal(ui.phaseMotion('building', 'building'), null);
   assert.equal(ui.phaseMotion(null, null), null);
+});
+
+// docs/adr/2026-11-03-1915-every-pending-control-waits-in-one-style.md
+test("a prompt line's tapped answer waits, disabled with its label kept behind the spinner, while the line's other buttons are disabled, with no Sending… line", () => {
+  const at = new Date().toISOString();
+  const perm = { id: 'p1', cwd: '~/repo', tool: 'Bash', action: 'run npm test', detail: 'npm test', rule: 'Bash(npm test)', questions: null, at };
+  const ask = { id: 'p2', cwd: '~/repo', tool: 'AskUserQuestion', at, questions: [{ question: 'Colour?', header: '', multiSelect: false, options: [{ label: 'Red' }, { label: 'Blue' }] }] };
+  const looks = (html) => [...html.matchAll(/<button[^>]*?(data-prompt-(?:choice|opt|send)(?:="[^"]*")?)[^>]*>/g)].map(([tag, name]) => [name, / disabled aria-busy="true"/.test(tag) ? 'waits' : / disabled/.test(tag) ? 'disabled' : 'on']);
+  assert.deepEqual(looks(ui.promptItem(perm, { sending: 'always' })), [['data-prompt-choice="allow"', 'disabled'], ['data-prompt-choice="always"', 'waits'], ['data-prompt-choice="deny"', 'disabled']]);
+  assert.deepEqual(looks(ui.promptItem(perm)), [['data-prompt-choice="allow"', 'on'], ['data-prompt-choice="always"', 'on'], ['data-prompt-choice="deny"', 'on']]);
+  assert.deepEqual(looks(ui.promptItem(ask, { sending: '0:Blue' })), [['data-prompt-opt="Red"', 'disabled'], ['data-prompt-opt="Blue"', 'waits'], ['data-prompt-choice="deny"', 'disabled']]);
+  assert.doesNotMatch(text(ui.promptItem(perm, { sending: 'allow' })), /Sending/);
+  assert.equal(text(ui.promptItem(perm, { sending: 'allow' })).includes('Allow once'), true);
+});
+
+test("This device's Turn on and Test wait in place of their label while they run", () => {
+  const row = (action) => context.HubUI.deviceRow({ title: 'This device', sub: 'Off', action });
+  assert.match(row({ label: 'Turn on', act: 'on', busy: true }), /data-device="on" disabled aria-busy="true">Turn on</);
+  assert.match(row({ label: 'Test', act: 'test', quiet: true }), /data-device="test">Test</);
 });

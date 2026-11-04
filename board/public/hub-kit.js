@@ -52,6 +52,8 @@
   // the hub's answer, fail(message) a refusal. A checkbox marked data-submit saves on change, and a time input marked
   // data-autosave once its picker closes, so turning an iOS wheel doesn't save each value it passes. accepts(action, form)
   // limits it to some of those forms, since the Hub page and its hub settings each wire their own over one root.
+  // While a post is out its control waits (ui.js waitOn): the tapped button, or else the form's toggle or field, with
+  // the form's other buttons, the setting's other choices, disabled.
   // → {busy()}, true while a post is out
   function forms(B, { answer, fail, accepts = () => true }) {
     let sending = false;
@@ -65,9 +67,10 @@
       const body = new URLSearchParams(new FormData(form));
       if (e.submitter?.name) body.append(e.submitter.name, e.submitter.value);
       sending = true;
+      const post = fetch(action, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' }, body })
+        .then(async (r) => [r, await r.json().catch(() => null)]);
       try {
-        const r = await fetch(action, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' }, body });
-        const out = await r.json().catch(() => null);
+        const [r, out] = await BoardUI.waitOn(e.submitter || form.querySelector('input:not([type="hidden"]), select'), post, { group: form.querySelectorAll('button') });
         if (!B.alive()) return;
         if (r.ok && out) answer(out, action); else fail(out?.error || FAILED);
       } catch {
@@ -138,7 +141,7 @@
     }
     async function enable() {
       busy = true;
-      show({ ...state, action: { ...state.action, disabled: true } }, on);
+      show({ ...state, action: { ...state.action, busy: true } }, on);
       try {
         if (await Notification.requestPermission() !== 'granted') { await render(); return; }
         const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
@@ -152,9 +155,9 @@
       finally { busy = false; }
     }
     async function test() {
-      show({ ...state, action: { ...state.action, disabled: true } }, true);
+      show({ ...state, action: { ...state.action, busy: true } }, true);
       const r = await post('/_hub/push/test').catch(() => null);
-      show({ ...state, action: { ...state.action, label: r?.sent ? 'Sent' : 'Could not send' } }, true);
+      show({ ...state, action: { ...state.action, busy: false, label: r?.sent ? 'Sent' : 'Could not send' } }, true);
     }
     B.on(B.root, 'click', (e) => {
       const act = e.target.closest?.('[data-device]')?.dataset.device;

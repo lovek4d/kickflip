@@ -1,7 +1,7 @@
 // A card's thread on the board view: loading and rendering it, and its reply box. Needs app-core.js.
 BoardView.part((B) => {
   const { $, store, state, toast, quieted, sendDraft, links } = B;
-  const { esc, setHTML, threadMessages, attachButton, dropZone, protoButton, protoNotice, doneButton } = BoardUI;
+  const { esc, setHTML, threadMessages, attachButton, dropZone, protoButton, protoNotice, doneButton, waitOn } = BoardUI;
 
   const thread = (key) => `<div class="thread" data-thread="${esc(key)}"><div class="muted small">Loading thread…</div></div>`;
 
@@ -106,10 +106,8 @@ BoardView.part((B) => {
     const b = ev.target.closest('form[data-reply] button[data-quick]');
     if (!b) return;
     const key = b.closest('form').dataset.reply;
-    b.disabled = true;
-    try { await B.sentHere(key, () => B.send('item-message', { key, text: b.dataset.quick })); loadThread(key, { force: true }); }
+    try { await waitOn(b, B.sentHere(key, () => B.send('item-message', { key, text: b.dataset.quick }))); loadThread(key, { force: true }); }
     catch { toast('Could not send'); }
-    b.disabled = false;
   });
   B.on(B.root, 'click', async (ev) => {
     const b = ev.target.closest('form[data-reply] button[data-proto]');
@@ -126,13 +124,13 @@ BoardView.part((B) => {
       return;
     }
     if (!(await B.confirm('Ask Claude for prototypes of this item?'))) return;
-    b.disabled = true;
     try {
-      await B.sentHere(key, () => B.send('prototype-request', { key }));
+      await waitOn(b, B.sentHere(key, () => B.send('prototype-request', { key })));
+      b.disabled = true;
       b.title = b.ariaLabel = 'Prototypes asked for';
       toast('Asked Claude for prototypes');
       loadThread(key, { force: true });
-    } catch { b.disabled = false; toast('Could not send'); }
+    } catch { toast('Could not send'); }
   });
   B.on(B.root, 'submit', async (ev) => {
     const f = ev.target.closest('form[data-reply]');
@@ -145,14 +143,12 @@ BoardView.part((B) => {
     const files = BoardAttach.files(id, B.site.root);
     if ((!text && !files.length) || BoardAttach.busy(id, B.site.root)) return;
     const key = f.dataset.reply;
-    const btn = f.querySelector('button[type=submit]'); btn.disabled = true;
     try {
-      await sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),
-        () => B.sentHere(key, () => B.send('item-message', { key, text, ...(files.length ? { files } : {}) })));
+      await waitOn(f.querySelector('button[type=submit]'), sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),
+        () => B.sentHere(key, () => B.send('item-message', { key, text, ...(files.length ? { files } : {}) }))));
       BoardAttach.clear(id, B.site.root);
-      btn.disabled = false;
       loadThread(f.dataset.reply, { force: true });
-    } catch { B.notice('Could not send. Is the host awake?'); btn.disabled = false; }
+    } catch { B.notice('Could not send. Is the host awake?'); }
   });
   // Send waits while a composer's files upload, the ask's included (attach.js attach-change).
   B.on(B.root, 'attach-change', (ev) => {

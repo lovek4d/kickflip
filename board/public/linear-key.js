@@ -82,11 +82,13 @@
     };
   }
 
-  // Done's spinner while a save is out (style.css .settings-footer [aria-busy]).
+  // The footer's Done waits, disabled with a spinner in place of its word (style.css button[aria-busy="true"]), while a
+  // save is out; ✕, Escape and the backdrop close once it lands.
   function doneBusy(buttons, busy) {
     for (const b of buttons) {
+      if (!b.closest('.settings-footer')) continue;
+      b.disabled = busy;
       if (busy) b.setAttribute('aria-busy', 'true'); else b.removeAttribute('aria-busy');
-      if (b.closest('.settings-footer')) b.innerHTML = `${busy ? SPIN : ''}Done`;
     }
   }
 

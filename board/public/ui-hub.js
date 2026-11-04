@@ -58,12 +58,12 @@
   const nowRow = (now, icon = '') => row({ icon, title: esc(now.title), sub: now.lines.map((l) => `<span class="sub wrap">${esc(l)}</span>`).join(''),
     trail: `<form method="post" action="/_hub/push/flush"><button class="btn quiet" ${now.count ? '' : 'disabled'}>Send now</button></form>` });
 
-  // This device's notifications (hub-kit.js device): state is {title, sub, action: {label, act, quiet, disabled}} or
-  // null while unknown, which keeps the row hidden.
+  // This device's notifications (hub-kit.js device): state is {title, sub, action: {label, act, quiet, busy}} or null
+  // while unknown, which keeps the row hidden. A busy action waits (ui.js BUSY) while it turns on or tests.
   function deviceRow(state, { compact = false } = {}) {
     if (!state) return `<div class="row" id="push" hidden>${tile('bell', 'var(--accent)')}</div>`;
     const a = state.action;
-    const button = a ? `<button type="button" class="${a.quiet ? 'btn quiet' : 'btn'}" data-device="${esc(a.act)}"${a.disabled ? ' disabled' : ''}>${esc(a.label)}</button>` : '';
+    const button = a ? `<button type="button" class="${a.quiet ? 'btn quiet' : 'btn'}" data-device="${esc(a.act)}"${a.busy ? BoardUI.BUSY : ''}>${esc(a.label)}</button>` : '';
     return `<div class="row" id="push">${tile('bell', state.action?.act === 'test' ? 'var(--color-success)' : 'var(--accent)')}<span class="body"><span class="text"><span class="title">${esc(state.title)}</span>${compact ? '' : `<span class="sub wrap">${esc(state.sub)}</span>`}</span>${compact && state.title === 'This device' ? `<span class="val">${state.sub?.startsWith('On') ? 'On' : 'Off'}</span>` : ''}${button}</span></div>`;
   }
 

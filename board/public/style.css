@@ -312,7 +312,7 @@ main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .ask-actions .icon.bumped svg { fill: currentColor; }
 /* A work card's empty bump icon always shows on touch screens; with a hover pointer it shows while the card is hovered or holds focus */
 @media (hover: hover) {
-  .item button[data-card-bump]:not(.bumped, .tap-waiting) { opacity: 0; }
+  .item button[data-card-bump]:not(.bumped, [aria-busy="true"]) { opacity: 0; }
   .item:hover button[data-card-bump]:not(.bumped), .item:focus-within button[data-card-bump]:not(.bumped) { opacity: 1; }
 }
 .working-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--color-notice); margin-right: 5px; vertical-align: 1px; }
@@ -634,8 +634,7 @@ main > * { transition: opacity .25s ease; }
 .settings-body { overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding: 0 20px 16px; }
 .settings-body input { font-size: 16px; }
 .settings-footer { display: flex; justify-content: flex-end; padding: 12px 20px; border-top: 1px solid var(--line); }
-.settings-footer button[aria-busy="true"] { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
-.tk-saving, .lk-checking { display: inline-flex; align-items: center; gap: 6px; }
+.lk-checking { display: inline-flex; align-items: center; gap: 6px; }
 /* linear-key.js's modal over a page sits in .hub-view main only for hub.css's selectors. */
 .lk-over, .lk-over > main { display: contents; }
 
@@ -662,20 +661,23 @@ main > * { transition: opacity .25s ease; }
 .try-spin { display: inline-block; width: 10px; height: 10px; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: try-spin .8s linear infinite; flex: none; }
 @keyframes try-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .try-spin { animation: none; } }
-/* A tap that saves something waits for the server (ui.js waitOn, docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md): its
-   button keeps its own colours and width, disabled, and its content gives way to a spinner in its text colour; a bump icon
-   keeps its arrow and pulses orange until the card moves */
-button.tap-waiting, button.tap-waiting:disabled, .ask-actions .icon.tap-waiting:disabled { cursor: default; opacity: 1; }
-button.tap-waiting:not([data-card-bump], [data-bump]) { position: relative; -webkit-text-fill-color: transparent; }
-button.tap-waiting:not([data-card-bump], [data-bump]) > * { visibility: hidden; }
-button.tap-waiting:not([data-card-bump], [data-bump])::after { content: ''; position: absolute; inset: 0; margin: auto; width: 12px; height: 12px; box-sizing: border-box;
-  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: try-spin .8s linear infinite; }
+/* A pending control waits in one style (ui.js waitOn and BUSY, docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md,
+   docs/adr/2026-11-03-1915-every-pending-control-waits-in-one-style.md): a busy button keeps its own colours and width, disabled, and
+   its content gives way to a spinner in its text colour; the New version row's spinner sits in its pill; a bump icon keeps
+   its arrow and pulses orange until the card moves; a toggle, select or field keeps its face with a spinner beside it */
+button[aria-busy="true"], button[aria-busy="true"]:disabled, .ask-actions .icon[aria-busy="true"]:disabled { cursor: default; opacity: 1; }
+:is(button[aria-busy="true"]:not([data-card-bump], [data-bump], .sb-update-row), .sb-update-row[aria-busy="true"] .sb-go) { position: relative; -webkit-text-fill-color: transparent; }
+:is(button[aria-busy="true"]:not([data-card-bump], [data-bump], .sb-update-row), .sb-update-row[aria-busy="true"] .sb-go) > * { visibility: hidden; }
+:is(button[aria-busy="true"]:not([data-card-bump], [data-bump], .sb-update-row), .sb-update-row[aria-busy="true"] .sb-go)::after { content: ''; position: absolute; inset: 0; margin: auto;
+  width: 12px; height: 12px; box-sizing: border-box; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: try-spin .8s linear infinite; }
 @keyframes wait-orange { 50% { color: var(--color-notice); opacity: 1; } }
-button.tap-waiting:is([data-card-bump], [data-bump]) { color: var(--muted); animation: wait-orange 1s ease-in-out infinite; }
-button.tap-waiting:is([data-card-bump], [data-bump]) svg { fill: currentColor; }
+button[aria-busy="true"]:is([data-card-bump], [data-bump]) { color: var(--muted); animation: wait-orange 1s ease-in-out infinite; }
+button[aria-busy="true"]:is([data-card-bump], [data-bump]) svg { fill: currentColor; }
+.try-spin.tap-beside { width: 12px; height: 12px; border-width: 2px; margin: 0 8px 0 auto; color: var(--muted); }
+.tk-field > span > .try-spin.tap-beside { margin: 0 0 0 6px; vertical-align: -2px; }
 @media (prefers-reduced-motion: reduce) {
-  button.tap-waiting::after { animation: none; }
-  button.tap-waiting:is([data-card-bump], [data-bump]) { animation: none; color: var(--color-notice); }
+  :is(button[aria-busy="true"], .sb-update-row[aria-busy="true"] .sb-go)::after { animation: none; }
+  button[aria-busy="true"]:is([data-card-bump], [data-bump]) { animation: none; color: var(--color-notice); }
 }
 .install { display: inline-flex; align-items: center; gap: 4px; }
 .external-links .install.tone-ready { color: var(--color-success); }
@@ -699,8 +701,6 @@ button.tap-waiting:is([data-card-bump], [data-bump]) svg { fill: currentColor; }
   max-height: calc(12 * 1.5 * 11.5px + 16px); white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; }
 .main-log-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
 .main-log-actions button { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 6px 18px; }
-.main-log-actions .main-log-going { border-color: color-mix(in srgb, var(--color-notice) 45%, var(--line));
-  background: color-mix(in srgb, var(--color-notice) 12%, var(--panel)); color: var(--color-notice); cursor: default; opacity: 1; }
 #mainLogReason { color: var(--color-notice); overflow-wrap: anywhere; }
 
 /* The Auto Review lane (ui-cards.js reviewLane): its cards read like the board's, and Posted earlier's lines like a fold's. */

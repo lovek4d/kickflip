@@ -15,6 +15,8 @@ const notify = (s, n) => ({ ...s, notifications: { ...ON, ...n } });
 const status = (now, s, count = 0) => ({ settings: s, window: windowAt(now, s), hold: hold(now, s), count, nextFlushAt: count ? flushAt(now, s) : null });
 const poll = (now, last = null) => ({ running: false, nextAt: new Date(now.getTime() + 30 * 60_000), last });
 const plain = (v) => JSON.parse(JSON.stringify(v));
+// The hub views wait on ui.js waitOn and draw its BUSY; board/view.test.mjs tests how a waiting control looks.
+const BOARD_UI = { header: () => '', BUSY: ' disabled aria-busy="true"', waitOn: (control, promise) => promise };
 const USABLE = { usable: true, reason: null, words: null, fix: null };
 const NOT_INSTALLED = codexStatus({ installed: false });
 const LOGGED_OUT = codexStatus({ installed: true, home: '/nonexistent' });
@@ -157,7 +159,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
     URL, URLSearchParams, document,
     Date: class extends Date { static now() { return now.getTime(); } },
     location: new URL('https://mac.ts.net/_hub/'), history: { replaceState() {} },
-    BoardDialogs: { fitSheet: () => () => {}, confirm: async () => confirmed },
+    BoardDialogs: { fitSheet: () => () => {}, confirm: async () => confirmed }, BoardUI: { ...BOARD_UI },
     atob: (s) => Buffer.from(s, 'base64').toString('binary'),
     navigator: { userAgent: 'Mac', serviceWorker: { getRegistration: async () => registration, register: async () => registration, ready: Promise.resolve(registration) } },
     PushManager: class {},
@@ -501,7 +503,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
     navigator: {},
     BoardView: { page: (root, site, run) => run({ $: (s) => root.querySelector(s), atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     HubSettings: { create: () => ({ B: { openSettings: (...args) => opened.push(args) }, mount() {}, unmount() {} }) },
-    BoardUI: { header: () => '' },
+    BoardUI: { ...BOARD_UI },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
     HubKit: { device: () => ({ state: () => null }), forms: () => ({}), live: (B, opts) => { live = opts; } },
   });
@@ -568,7 +570,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
 });
 
 // docs/adr/2026-11-03-1638-the-hub-restarts-itself-from-its-stale-code-notice.md
-test("the hub's runs-older-code notice jumps to Restart hub, which confirms, waits for the hub's answer, says restarting… and reloads once the hub answers with its new code", async () => {
+test("the hub's runs-older-code notice jumps to Restart hub, which confirms, waits with its spinner through the hub's answer and restart, and reloads once the hub answers with its new code", async () => {
   const document = {};
   const { Element } = miniDom(class {}, document);
   const root = new Element('div');
@@ -585,7 +587,7 @@ test("the hub's runs-older-code notice jumps to Restart hub, which confirms, wai
     AppShell: { reload: () => { reloads++; } },
     fetch: (url, init = {}) => { requests.push([url, init.method || 'GET', init.body]); return new Promise((resolve) => answers.push(resolve)); },
     HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
-    BoardUI: { header: () => '' },
+    BoardUI: { ...BOARD_UI },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
     HubKit: { forms: () => ({}), live: (B, opts) => { live = opts; } },
   });
@@ -626,20 +628,20 @@ test("the hub's runs-older-code notice jumps to Restart hub, which confirms, wai
   click(root.querySelector('#restart-hub'));
   await settle();
   assert.deepEqual(requests, [['/_hub/restart-hub', 'POST', '{}']]);
-  assert.equal(root.querySelector('#restart-hub').textContent, 'restarting…');
-  assert.ok(root.querySelector('#restart-hub').hasAttribute('disabled'));
+  const waits = () => { const b = root.querySelector('#restart-hub'); return [b.textContent, b.hasAttribute('disabled'), b.getAttribute('aria-busy')]; };
+  assert.deepEqual(waits(), ['Restart hub', true, 'true']);
 
   // A refusal says why, and the button comes back.
   answer(409, { error: 'The hub is already restarting.' }, 'old');
   await settle();
   assert.equal(root.querySelector('[role="alert"]').textContent, 'The hub is already restarting.');
-  assert.equal(root.querySelector('#restart-hub').textContent, 'Restart hub');
+  assert.deepEqual(waits(), ['Restart hub', false, null]);
 
   click(root.querySelector('#restart-hub'));
   await settle();
   answer(200, { restarting: true, command: 'launchctl kickstart -k gui/$(id -u)/local.claude.kickflip-hub' }, 'old');
   await settle();
-  assert.equal(root.querySelector('#restart-hub').textContent, 'restarting…');
+  assert.deepEqual(waits(), ['Restart hub', true, 'true'], 'Restart hub keeps waiting while the hub is down');
   assert.deepEqual(requests.at(-1), ['/_hub/api/hub', 'GET', undefined]);
   answers.shift()(Promise.reject(new Error('down')));
   await settle();
@@ -669,7 +671,7 @@ test("the hub page's Usage card opens Codex's block with Codex share, bars under
     FormData: class { *[Symbol.iterator]() {} },
     BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
-    BoardUI: { header: () => '' },
+    BoardUI: { ...BOARD_UI },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
     fetch: async (url, opts) => {
       posts.push({ url, opts });
@@ -746,7 +748,7 @@ test("the hub page's Usage card opens Claude's block with Opus, Auto and Sonnet,
     FormData: class { *[Symbol.iterator]() {} },
     BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
-    BoardUI: { header: () => '' },
+    BoardUI: { ...BOARD_UI },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
     fetch: async (url, opts) => {
       posts.push({ url, opts });
@@ -814,7 +816,7 @@ test("the hub page leads with a banner while pushes are held or snoozed, and its
     FormData: class { *[Symbol.iterator]() {} },
     BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     HubSettings: { create: (el, site, ctx) => { settingsCtx = ctx; return { B: { refreshSettings: () => settingsRefreshes++ }, mount() {}, unmount() {} }; } },
-    BoardUI: { header: () => '' },
+    BoardUI: { ...BOARD_UI },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
     fetch: async (url, opts) => { posts.push({ url, opts }); return { ok: true, json: async () => ({}) }; },
   });
@@ -861,7 +863,7 @@ test('the pause stepper and banner forms save in place, refresh the sidebar and 
     URLSearchParams, document, navigator: {}, FormData: class { *[Symbol.iterator]() {} },
     BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), toast: (text) => toasts.push(text), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
-    BoardUI: { header: () => '' }, PromptAnswers: { wire: () => ({ shows: () => true }) },
+    BoardUI: { ...BOARD_UI }, PromptAnswers: { wire: () => ({ shows: () => true }) },
     fetch: async (url, opts) => {
       posts.push([url, opts.method, opts.body.toString()]);
       if (url.endsWith('/pause-at')) gate.pause_at = Number(opts.body.get('value'));

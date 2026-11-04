@@ -166,24 +166,23 @@
       if (failed) openFailed(failed.dataset.failedStart);
     });
     // Upgrade asks the hub to run kickflip update (docs/adr/2026-11-03-1521-the-hub-offers-a-newer-kickflip-from-npm.md). The row
-    // keeps its words until the hub answers with what it did, and a refusal shows as a failed update.
-    let upgrading = false;
-    async function upgrade(button) {
-      if (upgrading) return;
-      upgrading = true;
-      button.disabled = true;
-      let next;
-      try {
-        const response = await fetch('/_hub/upgrade', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-        const body = await response.json().catch(() => ({}));
-        next = response.ok ? body.upgrade : { ...data.upgrade, state: 'failed', error: body.error || 'The hub didn’t answer.' };
-      } catch {
-        next = { ...data.upgrade, state: 'failed', error: 'The hub didn’t answer.' };
-      } finally { upgrading = false; }
-      setData({ ...data, upgrade: next });
+    // waits (ui.js waitOn) until the hub answers with what it did, then while that update waits or runs (ui-sidebar.js
+    // updateRow), and a refusal shows as a failed update.
+    function upgrade(button) {
+      BoardUI.waitOn(button, (async () => {
+        let next;
+        try {
+          const response = await fetch('/_hub/upgrade', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+          const body = await response.json().catch(() => ({}));
+          next = response.ok ? body.upgrade : { ...data.upgrade, state: 'failed', error: body.error || 'The hub didn’t answer.' };
+        } catch {
+          next = { ...data.upgrade, state: 'failed', error: 'The hub didn’t answer.' };
+        }
+        setData({ ...data, upgrade: next });
+      })());
     }
     // A failed start's sheet (docs/adr/2026-11-02-2006-a-failed-start-retries-from-its-sheet.md). Dismiss deletes its Starting
-    // record; Retry starts it again, and its row reads Starting… until the hub's next copy says otherwise.
+    // record; Retry starts it again, and its row reads starting… until the hub's next copy says otherwise.
     function openFailed(route) {
       const s = (data?.starting || []).find((x) => x.route === route && x.failed);
       if (!s || document.getElementById('failedStartSheet')) return;
@@ -195,13 +194,13 @@
       el.innerHTML = failedStart(s, { home: data.home });
       let sending = false;
       const done = () => { if (!sending) el.close(); };
-      async function act(request, after) {
+      // The tapped button waits (ui.js waitOn), the other disabled, until the hub answers.
+      async function act(button, request, after) {
         sending = true;
-        el.querySelectorAll('.fs-actions button').forEach((b) => { b.disabled = true; });
         const refused = el.querySelector('.fs-refused');
         refused.hidden = true;
         try {
-          const response = await fetch(`/_hub/new-board/${encodeURIComponent(route)}${request.path || ''}`, request.options);
+          const response = await BoardUI.waitOn(button, fetch(`/_hub/new-board/${encodeURIComponent(route)}${request.path || ''}`, request.options), { group: el.querySelectorAll('.fs-actions button') });
           if (!response.ok) throw new Error(await response.text());
           after();
           sending = false;
@@ -209,7 +208,6 @@
           refresh().catch(() => {});
         } catch (e) {
           sending = false;
-          el.querySelectorAll('.fs-actions button').forEach((b) => { b.disabled = false; });
           refused.textContent = e.message;
           refused.hidden = false;
         }
@@ -217,10 +215,12 @@
       el.addEventListener('click', (e) => {
         if (sending) return;
         if (e.target === el || e.target.closest('[data-failed-close]')) { done(); return; }
-        if (e.target.closest('[data-failed-dismiss]')) {
-          act({ options: { method: 'DELETE' } }, () => setData({ ...data, starting: data.starting.filter((x) => x.route !== route) }));
-        } else if (e.target.closest('[data-failed-retry]')) {
-          act({ path: '/retry', options: { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' } }, () => {
+        const dismiss = e.target.closest('[data-failed-dismiss]');
+        const retry = e.target.closest('[data-failed-retry]');
+        if (dismiss) {
+          act(dismiss, { options: { method: 'DELETE' } }, () => setData({ ...data, starting: data.starting.filter((x) => x.route !== route) }));
+        } else if (retry) {
+          act(retry, { path: '/retry', options: { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' } }, () => {
             const { error, ...rest } = s;
             const again = { ...rest, phase: 'starting', askedAt: new Date().toISOString(), failed: false };
             setData({ ...data, starting: data.starting.map((x) => (x.route === route ? again : x)) });

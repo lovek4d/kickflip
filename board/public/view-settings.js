@@ -141,11 +141,15 @@
       e.preventDefault();
       if (closing || typed.value !== closure?.title) return;
       closing = true;
-      closeConfirm.disabled = true;
-      try {
+      // Close board waits until the hub has stopped the board's session and server.
+      const post = (async () => {
         const r = await fetch('/_hub/close-board', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ route, name: typed.value }) });
         const out = await r.json();
         if (!r.ok) throw new Error(out.error || 'Could not close board.');
+        return out;
+      })();
+      try {
+        const out = await BoardUI.waitOn(closeConfirm, post);
         if (!B.alive()) return;
         closeSheet.close();
         ctx.sidebarChanged?.();
@@ -204,11 +208,21 @@
         return false;
       }
     }
+    // A save waits on the control last tapped or changed, found by selector since ticketsControl redraws it, and every
+    // other tickets control is disabled meanwhile (ui.js waitOn).
+    let ticketsTapped = '[data-tk-source][aria-pressed="true"]';
+    const tapped = (e) => {
+      const source = e.target.closest?.('[data-tk-source]');
+      if (source) ticketsTapped = `[data-tk-source="${source.dataset.tkSource}"]`;
+      else if (e.target.dataset?.tk) ticketsTapped = `[data-tk="${e.target.dataset.tk}"]`;
+    };
+    B.on(ticketsForm, 'click', tapped, true);
+    B.on(ticketsForm, 'change', tapped, true);
     // One save at a time: a change made while one is out saves once it lands.
     function saveTickets() {
       syncTickets();
       if (savingTickets || !unsaved() || !tickets.valid()) return;
-      ticketsStatus.innerHTML = '<span class="tk-saving"><span class="try-spin" aria-hidden="true"></span>Saving…</span>';
+      ticketsStatus.textContent = '';
       LinearKey.doneBusy(modal.querySelectorAll('[data-settings-dismiss]'), true);
       savingTickets = (async () => {
         let saved, value;
@@ -222,6 +236,8 @@
         LinearKey.doneBusy(modal.querySelectorAll('[data-settings-dismiss]'), false);
         syncTickets();
       })();
+      BoardUI.waitOn(ticketsForm.querySelector(ticketsTapped) || ticketsForm.querySelector('[data-tk-source][aria-pressed="true"]'), savingTickets,
+        { group: ticketsForm.querySelectorAll('button, select, input') });
     }
     B.on(ticketsForm, 'submit', (e) => { e.preventDefault(); saveTickets(); });
     let buildKind = 'web';
@@ -265,7 +281,7 @@
     B.on($('#save'), 'click', async () => {
       const status = $('#saveStatus');
       try {
-        await site.send('reviewers', { add: [...add], remove: [...remove] });
+        await BoardUI.waitOn($('#save'), site.send('reviewers', { add: [...add], remove: [...remove] }));
         add.clear(); remove.clear(); render();
         status.textContent = 'Sent. Claude updates the list and replies below.';
       } catch { status.textContent = 'Could not send. Is the host awake?'; }
@@ -304,6 +320,14 @@
       $('#autoReview').checked = d.settings?.auto_review === true;
       $('#autoReview').disabled = false;
     }).catch(() => { autoMergeStatus.textContent = ticketsStatus.textContent = 'Offline. Is the host awake?'; });
+    // An Auto toggle keeps its face, disabled with a spinner beside it (ui.js waitOn), while POST api/settings saves it.
+    // → the saved settings
+    const saveToggle = (toggle, body) => BoardUI.waitOn(toggle, (async () => {
+      const r = await fetch(site.url('api/settings'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(out.error);
+      return out.settings;
+    })());
     B.on(autoMerge, 'change', async () => {
       const want = autoMerge.checked;
       if (want && !(await BoardDialogs.confirm('Turn on auto-merge? Claude merges each approved PR on this board once CI is green and it merges cleanly, without asking you.'))) {
@@ -311,36 +335,28 @@
         return;
       }
       if (!B.alive()) return;
-      autoMerge.disabled = true;
       try {
-        const r = await fetch(site.url('api/settings'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ auto_merge: want }) });
-        const out = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(out.error);
-        autoMerge.checked = out.settings.auto_merge === true;
+        autoMerge.checked = (await saveToggle(autoMerge, { auto_merge: want })).auto_merge === true;
         autoMergeStatus.textContent = autoMerge.checked ? 'Saved. Claude merges approved, green PRs itself.' : 'Saved. Approved, green PRs wait for your Merge.';
       } catch (e) {
         autoMerge.checked = !want;
         autoMergeStatus.textContent = e.message || 'Could not save. Is the host awake?';
       }
-      autoMerge.disabled = false;
     });
 
     B.on($('#autoBuild'), 'change', async () => {
       const toggle = $('#autoBuild');
       const want = toggle.checked;
-      toggle.disabled = true;
       try {
-        const r = await fetch(site.url('api/settings'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ auto_build: want }) });
-        const out = await r.json();
-        if (!r.ok) throw new Error(out.error);
+        const settings = await saveToggle(toggle, { auto_build: want });
         if (!B.alive()) return;
-        toggle.checked = out.settings.auto_build === true;
+        toggle.checked = settings.auto_build === true;
         $('#autoBuildStatus').textContent = BoardUI.tryWords(buildKind).saved(toggle.checked);
       } catch (e) {
         if (!B.alive()) return;
         toggle.checked = !want;
         $('#autoBuildStatus').textContent = e.message || 'Could not save. Is the host awake?';
-      } finally { if (B.alive()) toggle.disabled = false; }
+      }
     });
 
     // These Auto toggles save with no confirmation: docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md,
@@ -349,19 +365,16 @@
     const autoToggle = (id, key, saved) => B.on($(`#${id}`), 'change', async () => {
       const toggle = $(`#${id}`);
       const want = toggle.checked;
-      toggle.disabled = true;
       try {
-        const r = await fetch(site.url('api/settings'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ [key]: want }) });
-        const out = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(out.error);
+        const settings = await saveToggle(toggle, { [key]: want });
         if (!B.alive()) return;
-        toggle.checked = out.settings[key] === true;
+        toggle.checked = settings[key] === true;
         $(`#${id}Status`).textContent = saved(toggle.checked);
       } catch (e) {
         if (!B.alive()) return;
         toggle.checked = !want;
         $(`#${id}Status`).textContent = e.message || 'Could not save. Is the host awake?';
-      } finally { if (B.alive()) toggle.disabled = false; }
+      }
     });
     autoToggle('autoPull', 'auto_pull', (on) => (on ? 'Saved. When idle, Claude starts the top Todo card.' : 'Saved. Todo cards wait for you.'));
     autoToggle('autoReview', 'auto_review', (on) => (on ? 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.' : 'Saved. Claude leaves incoming PRs alone.'));

@@ -57,11 +57,10 @@ BoardView.part((B) => {
       }
       mainState = main.state;
     }
+    // Retry waits (ui.js BUSY's look) from the tap until main is up again or its build fails.
     const busy = postingMain || followMainAfter !== null || main.state === 'running';
     mainRetry.disabled = busy;
-    mainRetry.setAttribute('aria-disabled', String(busy));
-    mainRetry.classList.toggle('main-log-going', busy);
-    mainRetry.innerHTML = busy ? `<span class="try-spin" aria-hidden="true"></span>${esc(words.retrying)}` : 'Retry';
+    if (busy) mainRetry.setAttribute('aria-busy', 'true'); else mainRetry.removeAttribute('aria-busy');
   }
   B.renderMainLog = renderMainLog;
   B.on(B.root, 'click', (ev) => {
@@ -404,12 +403,13 @@ BoardView.part((B) => {
     const key = button.dataset.try;
     const it = state.board.items.find((i) => i.key === key);
     if (!it || !(await B.confirm(`${tryWords(it.try?.kind).go} ${it.ref}? The hub runs its build script.`)) || !B.alive()) return;
-    button.disabled = true;
-    try {
+    // Serve / Build waits until the hub has started the build; the card's chip then says it runs.
+    const post = (async () => {
       const r = await fetch(B.site.url('api/try'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }) });
       const out = await r.json();
       if (!r.ok) throw new Error(out.error || 'The hub refused the build.');
-    } catch (error) { toast(error.message || 'Could not start. Is the host awake?'); }
+    })();
+    try { await waitOn(button, post); } catch (error) { toast(error.message || 'Could not start. Is the host awake?'); }
     B.reload();
   });
 
@@ -452,11 +452,10 @@ BoardView.part((B) => {
       if (act === 'finish') B.syncDone(key);
       return;
     }
-    const row = $(`.actions[data-actions="${CSS.escape(key)}"]`);
-    row?.querySelectorAll('button').forEach((x) => { x.disabled = true; });
-    b.disabled = true;
+    // The tapped button waits and the rest of its action row is disabled until the server answers.
+    const group = { group: $(`.actions[data-actions="${CSS.escape(key)}"]`)?.querySelectorAll('button') ?? [] };
     try {
-      await B.sentHere(key, () => B.send('builder-nudge', { key })); b.textContent = 'Sent'; toast('Nudge sent');
+      await waitOn(b, B.sentHere(key, () => B.send('builder-nudge', { key })), group); b.textContent = 'Sent'; b.disabled = true; toast('Nudge sent');
     } catch { redrawActions(key); toast('Could not send. Is the host awake?'); }
   });
 

@@ -15,11 +15,11 @@
   const RESTARTING = '<span class="st wait">restarting</span> · stopping its session, then starting it again';
 
   // A board with Restart (hub/restart-board.mjs restartable) keeps its link and chevron around the button, since a
-  // button can't sit inside a link.
+  // button can't sit inside a link. Restart waits (ui.js BUSY) until its POST answers, once the board is back up.
   function restartRow(s, sub, busy) {
     const href = esc(s.href);
     return `<div class="row site-row"><a class="site-link" href="${href}">${s.icon}<span class="text"><span class="title">${esc(s.title)}</span><span class="sub wrap">${sub}</span></span></a>`
-      + `<button type="button" class="btn quiet restart-btn" data-restart="${esc(s.route)}" data-title="${esc(s.title)}" aria-label="Restart ${esc(s.title)}"${busy ? ' disabled aria-busy="true"' : ''}>${busy ? '<span class="try-spin" aria-hidden="true"></span>Restarting…' : 'Restart'}</button>`
+      + `<button type="button" class="btn quiet restart-btn" data-restart="${esc(s.route)}" data-title="${esc(s.title)}" aria-label="Restart ${esc(s.title)}"${busy ? BoardUI.BUSY : ''}>Restart</button>`
       + `<a class="chev" href="${href}" tabindex="-1" aria-hidden="true">›</a></div>`;
   }
 
@@ -53,8 +53,9 @@
     return shown.length ? `<section class="waiting"><h2>Needs you · ${shown.length}</h2><ul>${shown.map((p) => BoardUI.promptItem(p, prompts.state(p))).join('')}</ul></section>` : '';
   }
 
-  // Restart hub, while the hub runs older code than its files (hub/views.mjs hubView's hub.restart).
-  const restartHubButton = (busy) => `<button type="button" class="btn quiet restart-btn" id="restart-hub" data-restart-hub${busy ? ' disabled aria-busy="true"' : ''}>${busy ? '<span class="try-spin" aria-hidden="true"></span>restarting…' : 'Restart hub'}</button>`;
+  // Restart hub, while the hub runs older code than its files (hub/views.mjs hubView's hub.restart). It waits (ui.js BUSY)
+  // from the tap until the hub answers with its new code and the page reloads.
+  const restartHubButton = (busy) => `<button type="button" class="btn quiet restart-btn" id="restart-hub" data-restart-hub${busy ? BoardUI.BUSY : ''}>Restart hub</button>`;
 
   function html(d, { flash, prompts, restarting, restartingHub }) {
     const { row, tile, nowRow } = HubUI;

@@ -109,6 +109,7 @@ export function miniDom(Target, document) {
       return n;
     }
     remove() { this.parentNode?.removeChild(this); }
+    before(n) { this.parentNode.insertBefore(n, this); }
     replaceWith(n) { const p = this.parentNode; p.insertBefore(n, this); p.removeChild(this); }
     replaceChildren() { for (const c of [...this.childNodes]) this.removeChild(c); }
     querySelectorAll(sel) {
