@@ -545,12 +545,9 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   assert.deepEqual(plain(opened[0][0]), { hash: '#linear' });
   assert.equal(opened[0][1], link);
   assert.match(linear.querySelector('.rd-fix').textContent, /Add one in Hub settings › Linear\./);
-  const health = root.querySelector('[data-jump="integrations"]');
-  assert.deepEqual([health.textContent, health.getAttribute('class')], ['degraded', 'st wait']);
-  let scrolled = 0;
-  root.querySelector('#integrations').scrollIntoView = () => { scrolled++; };
-  listeners.find((l) => l.target === root.querySelector('.hub-status') && l.type === 'click').fn({ target: health });
-  assert.equal(scrolled, 1);
+  const health = root.querySelector('.hub-status .st.wait');
+  assert.deepEqual([health.tagName, health.textContent, health.getAttribute('class')], ['SPAN', 'degraded', 'st wait']);
+  assert.equal(root.querySelector('[data-jump]'), null);
   assert.equal(group.querySelector('img'), null);
   const note = group.nextSibling.nodeType === 3 ? group.nextSibling.nextSibling : group.nextSibling;
   assert.equal(note.textContent, 'A feature that needs an integration stays off until it’s ready, and says why.');
@@ -603,22 +600,19 @@ test("the hub's runs-older-code notice jumps to Restart hub, which confirms, wai
 
   live.paint(view({ running: 'abc', onDisk: 'abc' }));
   assert.equal(root.querySelector('[data-restart-hub]'), null);
-  assert.ok(root.querySelector('[data-jump="integrations"]'));
+  assert.equal(root.querySelector('[data-jump]'), null);
+  assert.equal(root.querySelector('.hub-status .st.wait').tagName, 'SPAN', 'degraded for another reason is plain text');
 
   live.paint(view({ running: 'old', onDisk: 'abc' }));
-  const notice = root.querySelector('[data-jump="restart-hub"]');
+  const notice = root.querySelector('.hub-status button.st');
   assert.equal(notice.textContent, 'degraded');
+  assert.equal(root.querySelector('[data-jump]'), null);
   const button = root.querySelector('#restart-hub');
   assert.equal(button.textContent, 'Restart hub');
-  let scrolled = 0;
-  button.scrollIntoView = () => { scrolled++; };
-  click(notice);
-  assert.equal(scrolled, 1);
-  assert.equal(document.activeElement, button);
   assert.deepEqual(requests, []);
 
   confirmed = false;
-  click(button);
+  click(notice);
   await settle();
   assert.equal(asked.length, 1);
   assert.match(asked[0], /Restart the hub\?$/);
@@ -630,6 +624,7 @@ test("the hub's runs-older-code notice jumps to Restart hub, which confirms, wai
   assert.deepEqual(requests, [['/_hub/restart-hub', 'POST', '{}']]);
   const waits = () => { const b = root.querySelector('#restart-hub'); return [b.textContent, b.hasAttribute('disabled'), b.getAttribute('aria-busy')]; };
   assert.deepEqual(waits(), ['Restart hub', true, 'true']);
+  assert.equal(root.querySelector('.hub-status button.st').hasAttribute('disabled'), true);
 
   // A refusal says why, and the button comes back.
   answer(409, { error: 'The hub is already restarting.' }, 'old');

@@ -60,10 +60,12 @@
   function html(d, { flash, prompts, restarting, restartingHub }) {
     const { row, tile, nowRow } = HubUI;
     const usage = HubUI.usageCard(d.usage, d.codex, d.pause, d.claude);
-    // The status word jumps to what's behind it: Restart hub while the hub runs older code, else Integrations.
-    const jump = d.hub.restart ? 'restart-hub' : 'integrations';
+    // The status word is plain text, except while the hub runs older code: then it opens the Restart hub confirm and waits like that button.
+    const word = d.hub.restart
+      ? `<button type="button" class="st ${esc(d.hub.tone)}" data-restart-hub${restartingHub ? BoardUI.BUSY : ''}>${esc(d.hub.word)}</button>`
+      : `<span class="st ${esc(d.hub.tone)}">${esc(d.hub.word)}</span>`;
     return `${HubUI.flash(flash)}${HubUI.pauseBanner(d.pause)}${HubUI.holdBanner(d.hold)}${usage}${promptsHtml(d.prompts || [], prompts)}<h2 class="label"${usage ? '' : ' style="margin-top:4px"'}>Health</h2>
-<div class="group">${row({ icon: tile('power', { ok: '#22c55e', wait: '#f59e0b' }[d.hub.tone] || '#ef4444'), title: 'Hub', sub: `<button type="button" class="st ${esc(d.hub.tone)}" data-jump="${jump}">${esc(d.hub.word)}</button> ·${esc(d.hub.detail)}${d.awake ? `<span class="links"><span><span class="awake-on">Keeping awake</span> ${esc(d.awake)}</span></span>` : ''}`, wrap: true,
+<div class="group">${row({ icon: tile('power', { ok: '#22c55e', wait: '#f59e0b' }[d.hub.tone] || '#ef4444'), title: 'Hub', sub: `${word} ·${esc(d.hub.detail)}${d.awake ? `<span class="links"><span><span class="awake-on">Keeping awake</span> ${esc(d.awake)}</span></span>` : ''}`, wrap: true,
     trail: d.hub.restart ? restartHubButton(restartingHub) : '' })}
 ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/kickflip &lt;route&gt;</code>.' }) : ''}</div>
 ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, the fetch of its repo, events (its session and a watcher run, or the hub can wake it), daily wakes and reviewer links. One that just broke reads settling first.</p>
@@ -146,14 +148,6 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembe
       B.on(main, 'click', (e) => {
         const opener = e.target.closest?.('[data-settings-open]');
         if (opener) B.openSettings({ hash: `#${opener.dataset.settingsOpen}` }, opener);
-        // The Hub's status word jumps to what's behind it: Restart hub while the hub runs older code than its files,
-        // else Integrations, then each board's links below them.
-        const jump = e.target.closest?.('[data-jump]');
-        if (jump) {
-          const to = B.$(`#${jump.dataset.jump}`);
-          to.scrollIntoView({ behavior: 'smooth', block: to.matches('button') ? 'center' : 'start' });
-          if (to.matches('button')) to.focus({ preventScroll: true });
-        }
         if (e.target.closest?.('[data-restart-hub]')) restartHub();
         const restarter = e.target.closest?.('[data-restart]');
         if (restarter) restart(restarter.dataset.restart, restarter.dataset.title);
