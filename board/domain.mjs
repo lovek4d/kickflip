@@ -179,7 +179,10 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   // docs/adr/2026-11-02-1727-a-card-can-be-held-until-a-time.md
   const heldUntil = held ? (tapped ? holdAsk.data.until : it.pick_up_at) || null : null;
   // docs/adr/2026-10-29-1639-a-card-that-hasnt-started-can-be-bumped.md
-  const bumpable = lane === 'todo' || (!held && lane === 'progress' && waitsOn !== 'ready' && waitsOn !== 'checking');
+  const bumpable = lane === 'todo' || lane === 'progress';
+  // A bump made before the card's first build started clears when that build starts.
+  const firstBuild = agents.filter(builds).map((a) => String(a.started || '')).filter(Boolean).sort()[0] || '';
+  const bumpStands = bumpedAt && !(firstBuild && String(bumpedAt) < firstBuild);
   // The owner's Merge waits on the session until it merges or writes in the thread, such as why it can't merge yet.
   const lastClaudeAt = thread.filter((m) => (m.who || 'claude') === 'claude' && m.kind !== 'status').map((m) => String(m.ts)).sort().pop() || '';
   const merging = waitsOn === 'merge' && Boolean(mergeAt) && String(mergeAt) > lastClaudeAt;
@@ -202,7 +205,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, reachedPhase, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenAt), awaitsDone,
     ownerStep: awaitsDone ? ownerStep : null,
     queuedAt: lane !== 'done' ? it.queued_at || null : null, queued: false,
-    deps: it.deps || [], held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable ? bumpedAt || null : null,
+    deps: it.deps || [], held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable && bumpStands ? bumpedAt : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
     merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || draftNext || null,

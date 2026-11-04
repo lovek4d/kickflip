@@ -862,6 +862,18 @@ test('a bumped card that has not started, or is running, tops its lane, the late
   assert.deepEqual([draft.lane, draft.waitsOn, draft.bumpable, draft.bumpedAt], ['review', 'ready', false, null]);
 });
 
+test('every In Progress card bumps, held or waiting on checking included, and a bump made before the build started clears when it starts', () => {
+  const bump = (key, ts) => ({ id: 'c' + ts, ts, kind: 'card-bump', data: { key }, reply: null });
+  const early = '2026-10-23T09:00:00Z';
+  const late = '2026-10-23T11:00:00Z';
+  const items = [{ id: 'A1', title: 'Running', status: 'building' }, { id: 'A2', title: 'Checking', status: 'checking' }, { id: 'A3', title: 'Queued', queued_at: early }];
+  const b = askBoard([bump('w/A1', early), bump('w/A2', late), bump('w/A3', late)], { items, agents: runningBuilders('A1') });
+  const card = (id) => b.items.find((i) => i.id === id);
+  assert.deepEqual(['A1', 'A2', 'A3'].map((id) => [card(id).lane, card(id).bumpable, card(id).bumpedAt]), [['progress', true, null], ['progress', true, late], ['progress', true, late]]);
+  const again = askBoard([bump('w/A1', early), bump('w/A1', late)], { items, agents: runningBuilders('A1') }).items.find((i) => i.id === 'A1');
+  assert.equal(again.bumpedAt, late);
+});
+
 test('a card-hold applies at once unless held_at is newer, including a legacy held status, and only cards outside Done can be held; a held card ends at the newest hold time', () => {
   const hold = (key, ts, value) => ({ id: 'h' + ts, ts, kind: 'card-hold', data: { key, hold: value }, reply: null });
   const items = [
@@ -1064,7 +1076,7 @@ test("a checking card sits in In Progress waiting on Claude's check, with no bui
   ], prs: { 'o/r#7': greenDraft } });
   const card = (key) => b.items.find((i) => i.key === key);
   const one = card('site/S1');
-  assert.deepEqual([one.lane, one.waitsOn, one.builder, one.next, one.bumpable], ['progress', 'checking', null, null, false]);
+  assert.deepEqual([one.lane, one.waitsOn, one.builder, one.next, one.bumpable], ['progress', 'checking', null, null, true]);
   assert.deepEqual(card('site/S2').blockedBy, [{ key: 'site/S1', ref: 'INT-1' }]);
   assert.deepEqual([card('w/A1').lane, card('w/A1').waitsOn, card('w/A2').lane], ['progress', 'checking', 'progress']);
   assert.equal(b.waves[0].finished, null);
