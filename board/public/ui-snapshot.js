@@ -5,13 +5,35 @@
   const SNAPSHOT_MAX = 900000;
   const ACTIVE_LANES = ['review', 'stale', 'progress', 'todo'];
 
-  // threads maps item keys to thread messages (app.js state.threadCache). Threads of `keep` go in first, then the
-  // rest while they fit under max; threads of items no longer on the board are dropped. build is the saving page's
-  // (app.html data-build). Null when the board alone won't fit.
+  // The fields of a Done card that the page reads: the Done lane's card (ui-cards.js workLines, app-cards.js), the wave
+  // bands' "N done" links (app-lanes.js), unread counts (othersAt), the Notes and Open questions links, and updateSign.
+  // No page file reads `agents`, and the rest are set on a Done card only to be sent.
+  const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'status', 'wave', 'waveTitle', 'fold', 'internal', 'ticket', 'ticketSource', 'linear', 'pr', 'prs',
+    'review', 'reviewers', 'risky', 'sortAt', 'threadCount', 'othersAt', 'hasNotes', 'questions', 'next', 'ask', 'action', 'actionButton', 'builder', 'working', 'waitsOn',
+    'reachedPhase', 'grilling', 'refusal', 'install', 'parent', 'children', 'related', 'waitsOnIt', 'blockedBy', 'ready', 'reopened'];
+  const pick = (it, fields) => Object.fromEntries(fields.filter((f) => f in it).map((f) => [f, it[f]]));
+
+  // What a first paint shows of board: open lanes whole, Done cards cut to DONE_FIELDS (none when openOnly), and no
+  // resolved questions.
+  const firstPaint = (board, openOnly) => ({
+    ...board,
+    items: board.items.flatMap((it) => (it.lane !== 'done' ? [it] : openOnly ? [] : [pick(it, DONE_FIELDS)])),
+    ...(board.owner && { owner: board.owner.filter((q) => q.state !== 'resolved') }),
+  });
+
+  // threads maps item keys to thread messages (app.js state.threadCache). The board goes in as firstPaint, then threads of
+  // `keep` first and the rest while they fit under max; threads of items no longer on the board are dropped. When the
+  // board still won't fit, Done cards go too. build is the saving page's (app.html data-build). Null when open lanes alone won't fit.
   function packSnapshot(board, threads, { build, savedAt, keep = [], max = SNAPSHOT_MAX } = {}) {
-    const head = `{"build":${JSON.stringify(build)},"savedAt":${JSON.stringify(savedAt)},"board":${JSON.stringify(board)},"threads":{`;
-    if (head.length + 2 > max) return null;
-    const onBoard = new Set(board.items.map((i) => i.key));
+    const headOf = (b) => `{"build":${JSON.stringify(build)},"savedAt":${JSON.stringify(savedAt)},"board":${JSON.stringify(b)},"threads":{`;
+    let shown = firstPaint(board, false);
+    let head = headOf(shown);
+    if (head.length + 2 > max) {
+      shown = firstPaint(board, true);
+      head = headOf(shown);
+      if (head.length + 2 > max) return null;
+    }
+    const onBoard = new Set(shown.items.map((i) => i.key));
     let out = head;
     let n = 0;
     for (const key of new Set([...keep, ...threads.keys()])) {

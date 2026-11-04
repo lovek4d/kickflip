@@ -226,6 +226,52 @@ test("a snapshot keeps the board and the threads of its cards, open cards' first
   assert.equal(ui.packSnapshot(board, threads, { build: 'b1', savedAt, max: 50 }), null);
 });
 
+// A board of today's shape and size (about 1.5 MB): 555 resolved questions, 309 Done cards with agents, and a few open cards.
+function bigBoard() {
+  const prose = 'x'.repeat(3000);
+  const done = (n) => ({ key: `hub/GH-${n}`, kind: 'work', id: `GH-${n}`, ref: `#${n}`, title: `Done card ${n}`, lane: 'done', status: 'done', wave: 'hub', waveTitle: 'Hub', internal: true,
+    ticket: { id: `#${n}`, source: 'github' }, ticketSource: 'github', prs: [], threadCount: 9, lastTs: ago(1), othersAt: [ago(3), ago(2), ago(1)], hasNotes: true, sortAt: ago(1),
+    questions: { topic: `item:hub/GH-${n}`, state: 'resolved', open: 0, answered: 0, replied: 0, resolved: 3, first: 'q1' }, lineup: { slug: 's', title: 'S' }, created: ago(5), updatedAt: ago(1),
+    agents: [{ name: 'main', calls: [{ at: ago(1), text: prose.slice(0, 600) }, { at: ago(1), text: prose.slice(0, 600) }] }] });
+  const open = [{ key: 'hub/GH-1', lane: 'todo', ref: '#1', title: 'Todo', questions: { state: 'open', open: 1, answered: 0, replied: 0, first: 'live' }, agents: [{ name: 'main' }] },
+    { key: 'hub/GH-2', lane: 'progress', ref: '#2', title: 'Progress', builder: { progress: 'building' }, prs: [{ state: 'OPEN' }] }];
+  const resolved = (n) => ({ id: `r${n}`, topic: 't', state: 'resolved', question: prose.slice(0, 300), context: prose.slice(0, 500), options: [{ id: 'a', label: prose.slice(0, 500) }], answers: [{ text: prose.slice(0, 300) }] });
+  return { generatedAt: ago(0), title: 'Hub', items: [...open, ...Array.from({ length: 309 }, (_, n) => done(100 + n))],
+    owner: [{ id: 'live', topic: 'item:hub/GH-1', state: 'open', question: 'Which?' }, ...Array.from({ length: 555 }, (_, n) => resolved(n))], waveBands: [{ slug: 'hub', keys: ['hub/GH-1', 'hub/GH-100'] }] };
+}
+const packed = (board, o = {}) => ui.packSnapshot(board, new Map(), { build: 'b1', savedAt: board.generatedAt, ...o });
+
+test('a snapshot leaves out resolved questions and keeps Done cards to what the Done lane, band links and updateSign read', () => {
+  const board = bigBoard();
+  assert.ok(JSON.stringify(board).length > 1400000);
+  const back = plain(ui.unpackSnapshot(packed(board), 'b1'));
+  assert.deepEqual(back.board.owner.map((q) => q.id), ['live']);
+  const dones = back.board.items.filter((i) => i.lane === 'done');
+  assert.equal(dones.length, 309);
+  const [d] = dones;
+  const live = board.items.find((i) => i.key === d.key);
+  assert.equal(d.agents, undefined);
+  assert.equal(d.created, undefined);
+  for (const field of ['key', 'ref', 'title', 'lane', 'status', 'othersAt', 'hasNotes', 'questions', 'threadCount', 'prs', 'sortAt', 'ticket', 'wave']) assert.deepEqual(d[field], live[field], field);
+  assert.equal(ui.updateSign(d), ui.updateSign(live));
+});
+
+test("a snapshot of a board at today's size fits under the cap and draws open lanes as the live board does", () => {
+  const board = bigBoard();
+  const raw = packed(board);
+  assert.ok(raw && raw.length < ui.SNAPSHOT_MAX, String(raw?.length));
+  const back = plain(ui.unpackSnapshot(raw, 'b1'));
+  assert.deepEqual(back.board.items.filter((i) => i.lane !== 'done'), board.items.filter((i) => i.lane !== 'done'));
+  assert.deepEqual(back.board.waveBands, board.waveBands);
+});
+
+test('a board whose trimmed form is still over the cap saves its open lanes alone rather than nothing', () => {
+  const board = bigBoard();
+  const back = plain(ui.unpackSnapshot(packed(board, { max: packed(board).length - 1000 }), 'b1'));
+  assert.deepEqual(back.board.items.map((i) => i.key), ['hub/GH-1', 'hub/GH-2']);
+  assert.equal(packed(board, { max: 50 }), null);
+});
+
 test('a stored snapshot that is damaged, saved under another build or undated reads as none', () => {
   const good = ui.packSnapshot({ items: [{ key: 'w/A', lane: 'todo' }] }, new Map(), { build: 'b1', savedAt: '2026-10-23T08:00:00.000Z' });
   assert.ok(ui.unpackSnapshot(good, 'b1'));
