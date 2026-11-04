@@ -210,7 +210,7 @@ code { overflow-wrap: anywhere; }
 .file-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .file-link { display: inline-flex; align-items: center; max-width: 100%; padding: 3px 8px; border-radius: 6px; background: var(--chip);
   font-size: 13px; overflow-wrap: anywhere; }
-.file-link::before { content: "📎"; margin-right: 4px; }
+.file-link::before { content: "📎"; margin-right: 6px; }
 .msg .body:empty { display: none; }
 .note-tools { display: flex; align-items: flex-start; gap: 6px; }
 .note-tools .pending-files { flex: 1; margin-top: 4px; }
@@ -683,3 +683,4 @@ main > * { transition: opacity .25s ease; }
 .rv-links { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
 .rv-links a { color: var(--accent); text-decoration: none; }
 .rv-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.view-questions .bar #qstatus .try-spin { color: var(--accent); margin-right: 6px; }

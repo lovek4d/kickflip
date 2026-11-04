@@ -34,6 +34,9 @@
     let soloId = null;
     let shown = '';
     let sentLine = '';
+    // The footer after a prototype request: the blue spinner, then these words.
+    const PROTOTYPE_REQUESTED = 'prototype requested';
+    const statusHtml = (line) => (line.startsWith(PROTOTYPE_REQUESTED) ? '<span class="try-spin" aria-hidden="true"></span>' : '') + esc(line);
     let scrollTake = null;
     const takeResources = new Map();
     const clearTakeResources = (within = root) => {
@@ -95,7 +98,7 @@
       el.innerHTML = `${head}<form id="qform">
         ${live.map((q, i) => questionCard(q, { n: soloId ? 0 : i + 1, draft: getDraft(q.id), links: links(q), fit: fitOf(q) })).join('')}
         ${done.length ? `<details class="done"><summary>Resolved · ${done.length}</summary>${done.map((q) => questionCard(q, { draft: getDraft(q.id), links: links(q), fit: fitOf(q) })).join('')}</details>` : ''}
-        <div class="bar"><span class="muted small${sentLine ? ' sent' : ''}" id="qstatus" role="status">${esc(sentLine)}</span><span class="send-hint" aria-hidden="true">${/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘↵' : 'Ctrl+↵'}</span><button class="primary" type="submit" id="send">Send</button></div>
+        <div class="bar"><span class="muted small${sentLine ? ' sent' : ''}" id="qstatus" role="status">${statusHtml(sentLine)}</span><span class="send-hint" aria-hidden="true">${/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘↵' : 'Ctrl+↵'}</span><button class="primary" type="submit" id="send">Send</button></div>
       </form>${soloId ? '' : waitingTopics() + resolvedTopics()}`;
       BoardAttach.paintAll();
       el.querySelectorAll('.take-shot').forEach(fitTake);
@@ -218,10 +221,10 @@
       return { from, pills: topicRow(topics, from).pills, name: topicName(topics.find((t) => t.id === from) || { title: '' }) };
     }
     // After a recorded tap: a load that started before it went out would read its question as still open.
-    async function moveOnOnceLoaded({ from, pills }, what) {
+    async function moveOnOnceLoaded({ from, pills }, what, footer = what) {
       await loading;
-      if (await load(false)) moveOn(from, pills, what);
-      else if (B.alive()) { sentLine = what; $('#qstatus').textContent = what; $('#qstatus').classList.add('sent'); }
+      if (await load(false)) moveOn(from, pills, what, footer);
+      else if (B.alive()) { sentLine = footer; $('#qstatus').innerHTML = statusHtml(footer); $('#qstatus').classList.add('sent'); }
     }
 
     async function askPrototype(q) {
@@ -234,7 +237,7 @@
       try { await site.send('prototype-request', { ...(key ? { key } : {}), question: q.id, note: (d.note || '').trim(), choice: d.choice ?? (last ? last.choice : null) }); }
       catch (e) { st.textContent = e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?'; return; }
       setDraft(q.id, {});
-      await moveOnOnceLoaded(at, `Prototype requested${at.name ? ` for ${at.name}` : ''}.`);
+      await moveOnOnceLoaded(at, `Prototype requested${at.name ? ` for ${at.name}` : ''}.`, PROTOTYPE_REQUESTED);
     }
 
     function updateBar() {
@@ -289,20 +292,20 @@
       }
     }
 
-    function moveOn(from, pills, what) {
+    function moveOn(from, pills, what, footer = what) {
       soloId = null;
       const next = nextQuestion(all, pills, { topic: from });
       const left = topics.find((t) => t.id === from)?.open || 0;
       if (next?.topic === from) {
         topicId = from;
-        sentLine = `${what} ${left} still open, answer ${left === 1 ? 'it' : 'them'} any time.`;
+        sentLine = `${footer.replace(/\.?$/, '.')} ${left} still open, answer ${left === 1 ? 'it' : 'them'} any time.`;
         shown = sigNow();
         const y = scrollY;
         render();
         scrollTo(0, y);
         return;
       }
-      sentLine = what;
+      sentLine = footer;
       if (!next) {
         sentNotice.put(B.route, what);
         if (ctx.up?.()) return;
