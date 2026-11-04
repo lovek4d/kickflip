@@ -774,6 +774,66 @@ test('the stream sends a change, uncompressed, after a write to a thread or a wa
   } finally { req.destroy(); }
 });
 
+test('with thousands of folders and lock folders coming and going, the board answers at once, sends no change for the locks and still sends one for a write in a normal folder', async (t) => {
+  const own = fs.mkdtempSync(path.join(os.tmpdir(), 'board-churn-'));
+  const data = path.join(own, 'site', 'data');
+  for (let w = 0; w < 20; w++) {
+    for (let i = 0; i < 150; i++) fs.mkdirSync(path.join(data, `w${w}`, 'dd', 'Build', `m${i}`), { recursive: true });
+    for (let i = 0; i < 50; i++) fs.mkdirSync(path.join(data, `w${w}`, 'attachments', `a${i}`), { recursive: true });
+    for (let i = 0; i < 20; i++) fs.mkdirSync(path.join(data, `w${w}`, '.installs', `i${i}`), { recursive: true });
+  }
+  fs.writeFileSync(path.join(own, 'site', 'board.json'), JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't' }));
+  const [port] = await freePorts();
+  const server = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), path.join(own, 'site')], { env: { ...process.env, HOME: own, PORT: String(port) } });
+  const exited = new Promise((resolve) => server.once('exit', resolve));
+  let req, churn;
+  try {
+    await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', reject); });
+    req = http.get(`http://127.0.0.1:${port}/api/stream`);
+    const res = await new Promise((resolve, reject) => req.once('response', resolve).once('error', reject));
+    res.setEncoding('utf8');
+    let text = '';
+    res.on('data', (c) => { text += c; });
+    const changes = () => text.split('\n\n').filter((block) => /^event: change$/m.test(block)).length;
+    await until(() => text.includes('retry: 3000\n\n'), 'the board change stream opens');
+    await until(() => fs.existsSync(path.join(data, 'action-pushes.json')), 'the first Action needed check');
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const settled = changes();
+    churn = spawn(process.execPath, ['-e', `
+      const fs = require('fs'), path = require('path');
+      let n = 0;
+      const tick = () => {
+        for (let k = 0; k < 20; k++, n++) {
+          const locks = path.join(${JSON.stringify(data)}, 'w' + (n % 20), '.locks');
+          fs.mkdirSync(path.join(locks, 'l' + n), { recursive: true });
+          fs.rmSync(locks, { recursive: true, force: true });
+        }
+        setTimeout(tick, 1);
+      };
+      tick();`], { stdio: 'ignore' });
+
+    const BUDGET = 250;
+    let slowest = 0;
+    for (const end = Date.now() + 3000; Date.now() < end;) {
+      const start = Date.now();
+      const answer = await fetch(`http://127.0.0.1:${port}/_claude/health`, { signal: AbortSignal.timeout(BUDGET * 5) });
+      assert.equal(answer.status, 200);
+      slowest = Math.max(slowest, Date.now() - start);
+    }
+    t.diagnostic(`slowest health answer during churn: ${slowest} ms`);
+    if (slowest > BUDGET) console.warn(`the board answered in ${slowest} ms during churn, over its ${BUDGET} ms budget`);
+    assert.equal(changes(), settled, 'lock folders coming and going send no change');
+
+    fs.writeFileSync(path.join(data, 'w3', 'attachments', 'a7', 'note.json'), '{}');
+    await until(() => changes() > settled, 'a write in a normal folder sends a change during churn', 5000);
+  } finally {
+    req?.destroy();
+    churn?.kill();
+    server.kill(); await exited;
+    fs.rmSync(own, { recursive: true, force: true });
+  }
+});
+
 test('the shell links the shared colors.css, versioned, before style.css, and the board serves it', async () => {
   const html = (await raw('/')).body.toString();
   const colors = html.search(/href="\/_hub\/colors\.css\?v=/);

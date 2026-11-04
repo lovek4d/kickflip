@@ -1,3 +1,7 @@
+---
+status: superseded in part by 2026-11-03-1952-the-board-watches-each-folder-only-on-linux
+---
+
 # The board watches each folder
 
 This refines how the board server finds writes for its change signal ([the board reloads on a change signal](2026-10-29-1639-the-board-reloads-on-a-change-signal.md)).

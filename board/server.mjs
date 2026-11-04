@@ -661,23 +661,52 @@ function changed() {
     checkQueued();
   }, Math.max(0, Math.min(CHANGE_QUIET, changeFirst + CHANGE_MAX - now)));
 }
-// Each folder in the tree has its own watch, which sees every write to a file in it, including a file a rename
-// replaced; a folder that appears is watched and one that goes is dropped (docs/adr/2026-11-03-1517-the-board-watches-each-folder.md).
-// A root that doesn't exist yet, or whose watch fails, is retried; the first watch after a retry signals, since a
-// write may have landed meanwhile.
+// Lock folders, installs and build output churn and never hold board files: a path with a segment starting with "." or
+// named for build output, or a .tmp file, sends no change, and the per-folder watch never watches such a folder.
+const BUILD_OUTPUT = new Set(['node_modules', 'dd', 'DerivedData']);
+const ignored = (name) => String(name).endsWith('.tmp') || String(name).split(/[\\/]/).some((s) => s.startsWith('.') || BUILD_OUTPUT.has(s));
 const isFolder = (dir) => { try { return statSync(dir).isDirectory(); } catch { return false; } };
+// On macOS and Windows one recursive watch covers the tree; on Linux each folder has its own watch, since Node's
+// recursive watch there loses a file once a rename replaces it (docs/adr/2026-11-03-1952-the-board-watches-each-folder-only-on-linux.md).
+// A root that doesn't exist yet, that goes, or whose watch fails is retried; the first watch after a retry signals,
+// since a write may have landed meanwhile.
 function watchTree(root) {
-  const watches = new Map();
+  let stop = () => {};
   let retried = false;
+  let retryTimer = null;
+  const retry = () => {
+    if (retryTimer) return;
+    stop();
+    retried = true;
+    retryTimer = setTimeout(() => { retryTimer = null; start(); }, 2000).unref();
+  };
+  const start = () => {
+    try { stop = (process.platform === 'linux' ? watchEachFolder : watchRecursive)(root, retry); } catch { retry(); return; }
+    if (retried) changed();
+  };
+  start();
+}
+function watchRecursive(root, retry) {
+  const w = watchFiles(root, { recursive: true }, (_, name) => {
+    if (!name || !ignored(name)) changed();
+    if (!isFolder(root)) retry();
+  });
+  w.on('error', retry);
+  return () => w.close();
+}
+// A folder's watch sees every write to a file in it, including a file a rename replaced; a folder that appears is
+// watched and one that goes is dropped.
+function watchEachFolder(root, retry) {
+  const watches = new Map();
   const unwatch = (folder) => {
     for (const [dir, w] of watches) if (dir === folder || dir.startsWith(folder + path.sep)) { w.close(); watches.delete(dir); }
   };
   const watchFolder = (folder) => {
     if (watches.has(folder)) return;
     const w = watchFiles(folder, (_, name) => {
-      if (!String(name || '').endsWith('.tmp')) changed();
+      if (!name || !ignored(name)) changed();
       if (folder === root && !isFolder(root)) return retry();
-      if (!name) return;
+      if (!name || ignored(name)) return;
       const entry = path.join(folder, String(name));
       if (!isFolder(entry)) unwatch(entry);
       else try { watchFolder(entry); } catch { unwatch(entry); }
@@ -685,22 +714,12 @@ function watchTree(root) {
     watches.set(folder, w);
     w.on('error', () => (folder === root ? retry() : unwatch(folder)));
     for (const entry of readdirSync(folder, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
+      if (!entry.isDirectory() || ignored(entry.name)) continue;
       try { watchFolder(path.join(folder, entry.name)); } catch { unwatch(path.join(folder, entry.name)); }
     }
   };
-  let retryTimer = null;
-  const retry = () => {
-    if (retryTimer) return;
-    unwatch(root);
-    retried = true;
-    retryTimer = setTimeout(() => { retryTimer = null; start(); }, 2000).unref();
-  };
-  const start = () => {
-    try { watchFolder(root); } catch { retry(); return; }
-    if (retried) changed();
-  };
-  start();
+  try { watchFolder(root); } catch (error) { unwatch(root); throw error; }
+  return () => unwatch(root);
 }
 async function watchBoard() {
   const sources = (await config()).items === 'waves' ? [wavesDir()] : (await itemSources(here)).map((s) => s.dir);
