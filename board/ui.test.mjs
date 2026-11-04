@@ -725,9 +725,9 @@ test('a question waiting on its prototype shows only a prototype requested badge
   assert.doesNotMatch(ui.questionCard({ ...confirm, url: 'prototype-search.html?q=c1', confirm_of: undefined }), /pr-open|one-take confirm/);
 });
 
-test("a topic's prototype round chip is orange with a spinner while being made, blue while back, and grey once its confirm closes it", () => {
+test("a topic's prototype round chip is blue with a spinner while being made, blue while back, and grey once its confirm closes it", () => {
   assert.equal(ui.roundChip(null), '');
-  assert.equal(ui.roundChip({ n: 2, state: 'making' }), '<span class="chip tone-notice"><span class="try-spin" aria-hidden="true"></span>Prototype round 2</span>');
+  assert.equal(ui.roundChip({ n: 2, state: 'making' }), '<span class="chip tone-normal"><span class="try-spin" aria-hidden="true"></span>Prototype round 2</span>');
   assert.equal(ui.roundChip({ n: 2, state: 'back' }), '<span class="chip tone-normal">Prototype round 2</span>');
   assert.equal(ui.roundChip({ n: 2, state: 'closed', take: 'B' }), '<span class="chip tone-quiet">Round 2 closed · take B</span>');
 });

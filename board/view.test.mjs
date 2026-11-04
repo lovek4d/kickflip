@@ -2863,7 +2863,7 @@ test("Waiting on you's eye on each question, after its attach button, asks for a
   assert.equal(busy.querySelector('textarea.note').value, 'Show it on a phone');
   assert.equal(eye('q2').disabled, true);
   assert.equal($('.topichead .chip').textContent, 'Prototype round 1');
-  assert.ok($('.topichead .chip.tone-notice .try-spin'));
+  assert.ok($('.topichead .chip.tone-normal .try-spin'));
   assert.equal($('#qstatus').textContent, 'Prototype please.');
   assert.equal($('#send').disabled, true);
 
