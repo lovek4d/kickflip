@@ -10,3 +10,5 @@ The five phase bars sit inline in a building card's time row, after a " · " and
 Considered:
 - keeping the bars on their own line under the status line ([a building card shows its phase as five bars under its status line](2026-11-03-0458-a-building-card-shows-its-phase-as-five-bars.md)): the owner picked the bars inline at the time row's end;
 - the bars after the unread count (this ADR's first order): on #150 the owner wanted the count last.
+
+A card in orchestrator review keeps the strip with all five bars filled and none marked, so it does not blink; a build ending into review does not animate the strip out (#165, owner pick A of prototype review-bars).
