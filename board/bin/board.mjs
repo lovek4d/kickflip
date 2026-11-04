@@ -232,6 +232,11 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
                                                          no link recorded; reactions: git_merged on each recorded link
                                                          of a merged card. record is the command to run once sent.
                                                          While Slack isn't ready: {waiting} and nothing owed
+  review record <pr> --state posted|needs               the session's review of an incoming PR, after a pr-review
+         --text <markdown> | --file <path>               event, in data/reviews.json: posted once it is on GitHub
+         [--url <review link>]                           (--url its link), needs while it waits on the owner, which
+                                                         puts it in Needs you and pushes. The PR must be one the hub
+                                                         listed in data/incoming.json or reviewed before
   review digest                                         pending reviews as JSON; due weekday mornings from 09:00
   review digest sent <reviewer> --ts <ts>               records a digest in data/review-digests.json;
               --channel <dm> --items <key,key>           marks today sent in the Slack identity timezone
@@ -245,7 +250,8 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
   settings                                               the board's settings as JSON; flags default off, optional
                                                          settings appear when set: {"auto_merge": false,
                                                          "auto_build": false, "auto_pull": false,
-                                                         "auto_triage": false, "github_login": "owner"}
+                                                         "auto_triage": false, "auto_review": false,
+                                                         "github_login": "owner"}
   settings set auto-merge on|off                         on: the session merges an approved PR once CI is green and
                                                          the merge state is CLEAN. off (the default): the card
                                                          shows the owner a Merge button, and the session merges on its
@@ -271,6 +277,11 @@ creating the issue and running item set <wave>/<id> --ticket <id>.
                                                          first; with none, card-plan {key} for the top unready
                                                          card to grill or prototype. Off by default.
                                                          Only on the owner's word
+  settings set auto-review on|off                        on: while the board is idle and nothing is pulled, the board
+                                                         server sends pr-review {pr, head, repo, title, author, url,
+                                                         touches, asked} for one incoming PR at a time that touches
+                                                         this board's cards or asks the owner for review. Off by
+                                                         default. Only on the owner's word
   settings set auto-triage on|off                        on: while the board is idle and Todo changed since the last
                                                          triage, at most once a day and before any pull, the board
                                                          server declares topic todo-triage-<date> ("Todo triage
@@ -513,6 +524,10 @@ const COMMANDS = {
   }],
   'review sent': [['wave/id', 'reviewer'], ['ts', 'channel'], (site, [key, name], f) => store.reviewSent(site, key, name, f)],
   'review react': [['wave/id', 'reviewer', 'emoji'], [], (site, [key, name, emoji]) => store.reviewReact(site, key, name, emoji)],
+  'review record': [['pr'], ['state', 'text', 'file', 'url'], (site, [pr], f) => {
+    if ((f.text === undefined) === (f.file === undefined)) throw new UsageError('review record takes --text or --file');
+    return store.recordReview(site, pr, { state: f.state, text: f.text ?? readInput(f.file), url: f.url });
+  }],
   'review digest': [[], [], async (site, _, f, options) => ({ lines: [JSON.stringify(await store.reviewDigest(site, options))] })],
   'review due': [[], [], async (site, _, f, options) => ({ lines: [JSON.stringify(await store.reviewDue(site, options))] })],
   'review digest sent': [['reviewer'], ['ts', 'channel', 'items'], (site, [name], f, options) => store.reviewDigestSent(site, name, f, options)],
@@ -635,6 +650,7 @@ const SAID = {
   'review sent': async (site, [key, name]) => `review link to ${name} recorded on ${await card(site, key)}`,
   'review react': async (site, [key, name, emoji]) => `${emoji} on ${name}'s review link recorded on ${await card(site, key)}`,
   'review digest sent': (site, [name]) => `digest to ${name} recorded`,
+  'review record': (site, [pr], f) => `review of PR #${pr} recorded: ${f.state === 'needs' ? 'needs you' : 'posted'}`,
   'reviewers set': () => 'reviewers replaced',
   'reviewers add': () => 'reviewers added',
   'reviewers remove': (site, names) => `${plural(names, 'reviewer')} removed`,

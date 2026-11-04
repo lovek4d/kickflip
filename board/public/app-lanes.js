@@ -1,4 +1,4 @@
-// The board view's lanes and the Waves section above them: each lane's header and cards, Done's and Asks' Show more,
+// The board view's lanes, the Auto Review lane leading them, and the Waves section above them: each lane's header and cards, Done's and Asks' Show more,
 // Done's finished-wave folds, and the wave rows that filter the lanes and start a wave's triage.
 // Needs app-core.js and app-cards.js.
 BoardView.part((B) => {
@@ -47,10 +47,25 @@ BoardView.part((B) => {
     }).join('');
   }
 
+  // docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md: the Auto Review lane leads the lanes. The PRs
+  // the owner has open are kept in memory, as cards are; answering is the held review whose Post it or Skip is out.
+  const openReviews = new Set();
+  let answering = null;
+  const reviewsHtml = (d) => BoardUI.reviewLane(d.reviews, { answering,
+    open: { lane: store.get('lanes', {}).reviews, earlier: store.get(FOLDS['reviews-earlier'].store, false), cards: openReviews } });
+  // Opens PR number's review and its lane or fold, for a Needs you line or a push's #review=<number>.
+  function openReview(number) {
+    openReviews.add(number);
+    const s = store.get('lanes', {}); s.reviews = true; store.set('lanes', s);
+    if (state.board?.reviews?.earlier.some((c) => c.number === number)) store.set(FOLDS['reviews-earlier'].store, true);
+    B.render();
+    $(`[data-review="${number}"]`)?.scrollIntoView({ block: 'start' });
+  }
+
   // shown is the board's items after the wave filter and pending deletes.
   function lanesHtml(d, shown) {
     const laneState = store.get('lanes', {});
-    return LANES.map((lane) => {
+    return reviewsHtml(d) + LANES.map((lane) => {
       // Items arrive in each lane's fixed order (domain.mjs laneOrder).
       const items = shown.filter((i) => i.lane === lane.id);
       if (lane.hideEmpty && !items.length) return '';
@@ -103,9 +118,24 @@ BoardView.part((B) => {
     if (el.matches?.('details.lane')) {
       const s = store.get('lanes', {}); s[el.dataset.lane] = el.open; store.set('lanes', s);
     } else if (el.matches?.('details.fold')) store.set(FOLDS[el.dataset.fold].store, el.open);
+    else if (el.matches?.('details.rv-card, details.rv-line')) {
+      if (el.open) openReviews.add(Number(el.dataset.review)); else openReviews.delete(Number(el.dataset.review));
+    }
   }, true);
 
   B.on(B.root, 'click', async (ev) => {
+    const answer = ev.target.closest('button[data-review-answer]');
+    if (answer) {
+      if (answering !== null) return;
+      answering = Number(answer.dataset.review);
+      B.render();
+      try { await B.send('review-answer', { pr: answering, answer: answer.dataset.reviewAnswer }); }
+      catch { B.notice('Could not send. Is the host awake?'); }
+      finally { answering = null; B.render(); }
+      return;
+    }
+    const review = ev.target.closest('a[data-review-open]');
+    if (review) { ev.preventDefault(); openReview(Number(review.dataset.reviewOpen)); return; }
     const more = ev.target.closest('[data-lane-more]');
     if (more) { moreTaps.set(more.dataset.laneMore, (moreTaps.get(more.dataset.laneMore) || 0) + 1); B.render(); return; }
     const pb = ev.target.closest('button[data-plan]');
@@ -138,5 +168,5 @@ BoardView.part((B) => {
     if (row && !ev.target.closest('a')) showWave(row.dataset.waveRow !== state.waveFilter ? row.dataset.waveRow : null);
   });
 
-  Object.assign(B, { FOLDS, lanesHtml, renderWaves });
+  Object.assign(B, { FOLDS, lanesHtml, renderWaves, openReview });
 });

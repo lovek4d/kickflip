@@ -673,3 +673,23 @@ main > * { transition: opacity .25s ease; }
 .main-log-actions .main-log-going { border-color: color-mix(in srgb, var(--color-notice) 45%, var(--line));
   background: color-mix(in srgb, var(--color-notice) 12%, var(--panel)); color: var(--color-notice); cursor: default; opacity: 1; }
 #mainLogReason { color: var(--color-notice); overflow-wrap: anywhere; }
+
+/* The Auto Review lane (ui-cards.js reviewLane): its cards read like the board's, and Posted earlier's lines like a fold's. */
+.rv-card, .rv-line { border-top: 1px solid var(--line); }
+.rv-card:first-child, .rv-line:first-child { border-top: 0; }
+.rv-card > summary, .rv-line > summary { list-style: none; cursor: pointer; }
+.rv-card > summary::-webkit-details-marker, .rv-line > summary::-webkit-details-marker { display: none; }
+.rv-card > summary:hover, .rv-line > summary:hover { background: color-mix(in srgb, var(--chip) 60%, transparent); }
+.rv-card > summary { display: grid; grid-template-columns: 18px 1fr; gap: 8px; align-items: start; padding: 9px 12px; }
+.rv-card > summary .status { margin-top: 2px; }
+.rv-line > summary { padding: 8px 12px; font-size: 13px; }
+.status.rv-needs { border-color: var(--color-danger); background: var(--color-danger); }
+.rv-word.s-needs, .lane-github .rv-late { color: var(--color-danger); font-weight: 600; }
+.rv-detail { display: grid; gap: 10px; padding: 0 12px 12px 38px; font-size: 14px; min-width: 0; }
+.rv-line .rv-detail { padding-left: 12px; }
+.rv-detail p { margin: 0; }
+.rv-review { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); padding: 10px 12px; min-width: 0; overflow-wrap: anywhere; display: grid; gap: 8px; }
+.rv-review > * { margin: 0; }
+.rv-links { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
+.rv-links a { color: var(--accent); text-decoration: none; }
+.rv-acts { display: flex; flex-wrap: wrap; gap: 8px; }

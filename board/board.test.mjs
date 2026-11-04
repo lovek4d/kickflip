@@ -2382,12 +2382,12 @@ test("reviewers set, add and remove keep the board's own reviewers in its board.
 test("settings prints the board's settings as JSON, off when absent, and settings set auto-merge on|off writes board.json keeping its other keys", () => {
   const cfg = () => read(site('orch', 'board.json'));
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] });
-  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_pull":false,"auto_triage":false}\n', err: '' });
+  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_pull":false,"auto_triage":false,"auto_review":false}\n', err: '' });
   const on = board('settings', 'set', 'auto-merge', 'on', '--site', 'orch');
   assert.equal(on.code, 0);
   assert.match(on.out, /^auto-merge on$/m);
   assert.deepEqual(cfg(), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }], auto_merge: true });
-  assert.equal(board('settings', '--site', 'orch').out, '{"auto_merge":true,"auto_build":false,"auto_pull":false,"auto_triage":false}\n');
+  assert.equal(board('settings', '--site', 'orch').out, '{"auto_merge":true,"auto_build":false,"auto_pull":false,"auto_triage":false,"auto_review":false}\n');
   assert.equal(board('settings', 'set', 'auto-merge', 'off', '--site', 'orch').code, 0);
   assert.equal(cfg().auto_merge, false);
 
@@ -2572,8 +2572,8 @@ test('builder start refuses a Claude pause before making records or a worktree, 
   assert.match(board('--site', 'orch', 'builder', 'start', 'w/A1').err, /Claude's weekly usage is at 96%/);
 });
 
-test('settings set auto-build, auto-pull and auto-triage default off, change on and off, and preserve all other board keys', () => {
-  for (const name of ['auto-build', 'auto-pull', 'auto-triage']) {
+test('settings set auto-build, auto-pull, auto-triage and auto-review default off, change on and off, and preserve all other board keys', () => {
+  for (const name of ['auto-build', 'auto-pull', 'auto-triage', 'auto-review']) {
     const key = name.replace('-', '_');
     const cfg = read(site('orch', 'board.json'));
     assert.equal(JSON.parse(board('--site', 'orch', 'settings').out)[key], false);
@@ -2583,6 +2583,30 @@ test('settings set auto-build, auto-pull and auto-triage default off, change on 
     }
     assert.match(board('--site', 'orch', 'settings', 'set', name, 'yes').err, /takes on or off/);
   }
+});
+
+// docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+test("review record writes the session's review of a listed incoming PR, keeping the PR's details after it leaves the list", () => {
+  const pr = { number: 437, title: 'One endpoint', author: 'quinn', url: 'https://github.com/o/r/pull/437', head: 'abc', touches: ['w/A1'], asked: true };
+  write(site('orch', 'data', 'incoming.json'), { at: 'x', repo: 'o/r', prs: [pr] });
+  write(site('orch', 'data', 'reviews.json'), {});
+  const held = board('--site', 'orch', 'review', 'record', '437', '--state', 'needs', '--text', 'Clashes with #47.');
+  assert.deepEqual([held.code, held.out], [0, 'review of PR #437 recorded: needs you\n']);
+  const { at: heldAt, ...rec } = read(site('orch', 'data', 'reviews.json'))['437'];
+  assert.ok(Date.parse(heldAt));
+  assert.deepEqual(rec, { ...pr, state: 'needs', text: 'Clashes with #47.' });
+  write(site('orch', 'data', 'incoming.json'), { at: 'y', repo: 'o/r', prs: [] });
+  write(path.join(home, 'review.md'), 'Posted.\n\n- one point');
+  const url = 'https://github.com/o/r/pull/437#pullrequestreview-1';
+  assert.equal(board('--site', 'orch', 'review', 'record', '437', '--state', 'posted', '--file', path.join(home, 'review.md'), '--url', url).out, 'review of PR #437 recorded: posted\n');
+  assert.deepEqual([read(site('orch', 'data', 'reviews.json'))['437'].text, read(site('orch', 'data', 'reviews.json'))['437'].review_url, read(site('orch', 'data', 'reviews.json'))['437'].head], ['Posted.\n\n- one point', url, 'abc']);
+  for (const [args, err] of [
+    [['438', '--state', 'posted', '--text', 'x'], /not an incoming PR/],
+    [['437', '--state', 'approved', '--text', 'x'], /--state posted or --state needs/],
+    [['437', '--state', 'posted'], /--text or --file/],
+    [['437', '--state', 'posted', '--text', 'x', '--url', 'http://elsewhere'], /--url/],
+    [['seven', '--state', 'posted', '--text', 'x'], /PR number/],
+  ]) assert.match(board('--site', 'orch', 'review', 'record', ...args).err, err, args.join(' '));
 });
 
 test('main set publishes an install with the same URL and sha checks as card installs', () => {
@@ -2601,7 +2625,7 @@ test('main set publishes an install with the same URL and sha checks as card ins
 
 test('github-login settings lines and API validation support set and clear', async () => {
   const { settingsOf, settingsLines, saveBoardSettings } = await import('./store.mjs');
-  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting auto-triage off', 'setting github-login owner']);
+  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting auto-triage off', 'setting auto-review off', 'setting github-login owner']);
   assert.ok(!('github_login' in settingsOf({ github_login: 'bad login' })));
   await saveBoardSettings(site('orch'), { github_login: 'owner' });
   await saveBoardSettings(site('orch'), { github_login: null });

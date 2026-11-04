@@ -402,10 +402,11 @@ test('Board Settings saves auto-build immediately, uses kind-specific words and 
   }
 });
 
-// docs/adr/0165-an-idle-board-triages-its-todo-once-a-day.md
+// docs/adr/0165-an-idle-board-triages-its-todo-once-a-day.md, docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
 for (const [key, id, on] of [
-  ['auto_pull', 'autoPull', 'Saved. When no implementer runs, Claude pulls in the top Todo card.'],
+  ['auto_pull', 'autoPull', 'Saved. When idle, Claude starts the top Todo card.'],
   ['auto_triage', 'autoTriage', 'Saved. Once a day, when the board is idle and Todo changed, Claude triages it.'],
+  ['auto_review', 'autoReview', 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.'],
 ]) test(`Board Settings turns ${key} on and off with no confirmation and restores the toggle on refusal`, async () => {
   const page = fakePage(memoryStorage().localStorage);
   const root = new page.El();
@@ -3488,4 +3489,43 @@ test('Upgrade on the sidebar posts to the hub and shows only what the hub answer
   assert.equal(button(), null);
   assert.equal(doc.documentElement.classList.contains('sb-update'), false);
   sidebar.close();
+});
+
+// docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+test('Board Settings holds every automatic job in one Auto section, short labels in order, Auto review off until loaded on', () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
+  const auto = html.slice(html.indexOf('<h2>Auto</h2>'), html.indexOf('<h2>Reviewers</h2>'));
+  assert.deepEqual([...auto.matchAll(/<label class="who" for="(\w+)"><span><span>([^<]+)<\/span>/g)].map((m) => [m[1], m[2]]), [
+    ['autoPull', 'Pull in Todo cards'], ['autoBuild', 'Auto-build cards'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'], ['autoTriage', 'Triage Todo when idle'],
+  ]);
+  assert.match(auto, /May use a lot of usage\./);
+  assert.doesNotMatch(html, /<h2>(Merging|Builds|Todo)<\/h2>/);
+});
+
+// docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+test("the Auto Review lane leads the lanes; a held review's Needs you line opens it, and Post it waits for the server with both buttons off", async () => {
+  const held = { number: 437, title: 'One endpoint', author: 'Quinn', url: 'https://github.com/o/r/pull/437', asked: false, touches: [{ key: 'w/A1', ref: '#41' }],
+    state: 'needs', at: '2026-10-30T09:58:00.000Z', text: 'Clashes with #41.', reviewUrl: null };
+  const reviews = { on: true, shown: true, at: '2026-10-30T09:56:00.000Z', repo: 'o/r', cards: [held], earlier: [], waiting: 0, due: null };
+  const board = { ...boardOf([workCard('A1')]), reviews, needs: [{ kind: 'Review', title: 'PR #437 One endpoint', text: 'x', url: '#review=437', review: 437 }] };
+  let answer;
+  const b = boardOnDom({ board, threads: {}, send: (kind, data, server) => new Promise((resolve) => { answer = () => resolve({ id: 'e1', board: structuredClone(server.board) }); }) });
+  await b.settle();
+  assert.equal(b.root.querySelectorAll('#lanes details.lane')[0].dataset.lane, 'reviews');
+  const card = () => b.root.querySelector('#lanes details.rv-card[data-review="437"]');
+  assert.equal(card().open, false);
+  const line = b.root.querySelector('#waiting a[data-review-open="437"]');
+  assert.equal(line.textContent, 'PR #437 One endpoint');
+  b.page.fire(b.root, 'click', { target: line });
+  await b.settle();
+  assert.equal(card().open, true);
+  const post = () => card().querySelector('button[data-review-answer="post"]');
+  b.page.fire(b.root, 'click', { target: post() });
+  await b.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['review-answer', { pr: 437, answer: 'post' }]]);
+  assert.deepEqual([post().disabled, card().querySelector('button[data-review-answer="skip"]').disabled], [true, true]);
+  answer();
+  await b.settle();
+  assert.equal(post().disabled, false);
 });

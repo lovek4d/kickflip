@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import { ticketBadge, ticketIn } from './tickets.mjs';
 import { reviewLinks, reviewTime, reviewersOf } from './review.mjs';
 import { remoteFromInput } from '../hub/repos.mjs';
+import { reviewsOf, reviewNeeds, reviewActions } from './auto-review.mjs';
 import vm from 'node:vm';
 
 // Page scripts with no exports, which the page loads as is, so node runs them the same way.
@@ -751,7 +752,9 @@ export function buildBoard(snapshot) {
   const waveRows = waveRowsOf(snapshot, waves, lineups, items, questions, events);
   // Built again after the sort, so the item topics follow the lanes' order.
   const topicList = topicsOf();
-  const needs = [...promptLines(snapshot.prompts), ...needsOf(items, topicList, questions)];
+  const reviews = reviewsOf({ on: snapshot.autoReview, incoming: snapshot.incoming, records: snapshot.reviewRecords, events, now,
+    refs: new Map(items.filter((i) => i.kind === 'work').map((i) => [i.key, i.ref])) });
+  const needs = [...promptLines(snapshot.prompts), ...needsOf(items, topicList, questions), ...reviewNeeds(reviews)];
   // A marked event works until Claude answers it: a reply, a later Claude line in its card's thread or a reply to that
   // card's ask, its ask becoming or folding into a card, or its card leaving the board or closing after the mark. An
   // event on no card works until its reply.
@@ -783,7 +786,7 @@ export function buildBoard(snapshot) {
   // The page shows those this browser hasn't seen in the answer banner (docs/adr/0016-every-ask-is-a-card.md).
   const answers = items.filter((i) => i.ask?.answerAt).sort((a, b) => b.ask.answerAt.localeCompare(a.ask.answerAt))
     .map((i) => ({ key: i.key, id: i.id, text: i.title, at: i.ask.answerAt }));
-  return { kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, waves, waveRows, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, needs, needsSummary: needsSummary(needs), working: workingOn.length, workingOn, checks: checksOf(snapshot, now) };
+  return { kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, waves, waveRows, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, reviews, needs, needsSummary: needsSummary(needs), working: workingOn.length, workingOn, checks: checksOf(snapshot, now) };
 }
 
 // docs/adr/0156-a-follow-up-is-a-work-card-with-a-parent.md
@@ -886,7 +889,9 @@ function needsSummary(needs) {
   const prompts = needs.filter((line) => line.prompt).length;
   const questions = needs.reduce((n, line) => n + (line.questions?.open || 0), 0);
   const drafts = needs.filter((line) => line.ready).length;
-  return [prompts && plural(prompts, 'prompt'), questions && plural(questions, 'question'), drafts && `${plural(drafts, 'draft')} waiting on Ready`].filter(Boolean).join(' · ');
+  const reviews = needs.filter((line) => line.review).length;
+  return [prompts && plural(prompts, 'prompt'), questions && plural(questions, 'question'), drafts && `${plural(drafts, 'draft')} waiting on Ready`,
+    reviews && `${plural(reviews, 'review')} held`].filter(Boolean).join(' · ');
 }
 
 // The GET /_claude/needs body for a built board (docs/adr/0010-sites-report-what-waits-through-claude-needs.md).
@@ -930,8 +935,8 @@ export function todoOf(items) {
 export const pushTag = (key) => (key.startsWith('ask:') ? `ask-${key.slice(4)}` : `item-${key}`);
 
 // docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
-// What waits on the owner in a built board, one entry per push tag: each card with Action needed (pushTag), and each
-// Needs you line for a topic off the cards, tagged topic-<id>. questions are the open questions behind it, oldest
+// What waits on the owner in a built board, one entry per push tag: each card with Action needed (pushTag), each
+// Needs you line for a topic off the cards, tagged topic-<id>, and each held review, tagged review-<PR number>. questions are the open questions behind it, oldest
 // first. now: questions, picks, manual steps and a Done push at once; Ready and Merge queue for the tick's end.
 // url is relative to the site root. → [{tag, kind, title, body, url, now, questions: [{id, question}]}]
 export function ownerActions(built) {
@@ -946,7 +951,7 @@ export function ownerActions(built) {
     const questions = open(line.topic);
     return { tag: `topic-${line.topic}`, kind: ACTION_KIND.questions, title: line.text, body: questions[0]?.question || line.title, url: line.url, now: true, questions };
   });
-  return [...cards, ...topics];
+  return [...cards, ...topics, ...reviewActions(built.reviews)];
 }
 
 // docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md

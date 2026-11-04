@@ -46,6 +46,26 @@ export function reportOf({ view, issueComments, reviewComments, reviews }, { pr,
   };
 }
 
+// docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md: a repo's open PRs for hub/incoming.mjs, newest
+// 100, with the files each changes and the users asked to review it.
+export async function openPRs(repo) {
+  let list;
+  try { list = await gh(['pr', 'list', '--repo', repo, '--state', 'open', '--limit', '100', '--json', 'number,title,author,url,headRefOid,isDraft,files,reviewRequests']); }
+  catch (e) { throw new Error(`${repo} open PRs: ${e.message}`); }
+  return list.map((p) => ({
+    number: p.number, title: p.title, author: p.author?.login ?? null, url: p.url, head: p.headRefOid?.slice(0, 10) ?? null, draft: Boolean(p.isDraft),
+    files: (p.files || []).map((f) => f.path), requested: (p.reviewRequests || []).map((r) => r.login).filter(Boolean),
+  }));
+}
+
+// One PR's state and changed files, for a card PR no longer open.
+export async function prFiles(repo, pr) {
+  let view;
+  try { view = await gh(['pr', 'view', String(pr), '--repo', repo, '--json', 'state,files']); }
+  catch (e) { throw new Error(`${repo}#${pr}: ${e.message}`); }
+  return { state: view.state ?? null, files: (view.files || []).map((f) => f.path) };
+}
+
 export async function githubLogin({ env } = {}) {
   const user = await gh(['api', 'user'], env);
   if (typeof user?.login !== 'string' || !user.login) throw new Error('gh api user: missing login');

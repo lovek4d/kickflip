@@ -6,7 +6,7 @@
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask, ask progress|done,
 //   lineup create|add|remove|set|finish,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
-// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_pull, auto_triage, github_login}. auto_build asks the hub to
+// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_pull, auto_triage, auto_review, github_login}. auto_build asks the hub to
 // run each card's .kickflip/build after each push, and hides the cards' Serve / Build; main always builds after a merge.
 // auto_merge (false when absent) lets the session merge
 // an approved, green, clean PR itself; off, the card shows the owner's Merge (store.mjs settingsOf). rules are the owner's standing instructions to this
@@ -112,6 +112,12 @@
 //                                With auto_triage on, an idle board whose Todo changed since the last triage (domain.mjs
 //                                todoOf) gets todo-triage {date, topic} first, at most once a host day, tracked in
 //                                data/triaged.json; no pull goes out until Claude replies to it
+//                                With auto_review on, an idle board with nothing pulled sends pr-review {pr, head, repo,
+//                                title, author, url, touches, asked} for the next incoming PR the hub's poll listed in
+//                                data/incoming.json (../hub/incoming.mjs) and no review covers at its head, one at a
+//                                time: it reads reviewing until `board.mjs review record` writes data/reviews.json
+//                                (auto-review.mjs reviewsOf). review-answer {pr, answer: post|skip} is the owner's tap
+//                                on a review held for them
 //   POST /api/upload             the raw file as the body, its name URI-encoded in x-filename and its
 //                                type in content-type → data/uploads/<ms>-<safe name>, returning the
 //                                upload {name, url, path, type, size}: url is relative to the site
@@ -126,8 +132,8 @@
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (store.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
-//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull, auto_triage} (store.mjs readBoardSettings)
-//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, auto_triage?: boolean} → board.json, keeping its other keys, and when the value moved a
+//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull, auto_triage, auto_review} (store.mjs readBoardSettings)
+//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, auto_triage?: boolean, auto_review?: boolean} → board.json, keeping its other keys, and when the value moved a
 //                                `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id}; a bad body → 400 {error}
 //   POST /api/try                {key}: forwards a card build or main retry to the hub's loopback /_hub/build
@@ -402,7 +408,8 @@ async function itemSnapshot() {
   })));
   const self = boardAt(here);
   return { github: self?.github, remote: self?.remote, branch: self?.branch, reviewers: cfg.reviewers || [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, waves, threads: threadLines,
-    working: await readWorking(here) };
+    working: await readWorking(here), autoReview: settingsOf(cfg).auto_review, incoming: await readJSON(path.join(data, 'incoming.json'), null),
+    reviewRecords: await readJSON(path.join(data, 'reviews.json'), {}) };
 }
 
 // Reads every source buildBoard needs: wave files and their builder records,
@@ -882,7 +889,8 @@ function checkQueued() {
   return checkingQueued;
 }
 
-// The idle jobs, triage before the pull: a triage sent or under way holds the pull until its reply.
+// The idle jobs, triage, then the pull, then a review: a triage sent or under way holds the pull until its reply, and a
+// card pulled and not yet started holds the review.
 let checkingIdle = false;
 async function checkIdle() {
   if (checkingIdle) return;
@@ -891,12 +899,15 @@ async function checkIdle() {
     const settings = settingsOf(await config());
     const log = await readLines(events);
     const hidden = await readHidden(here);
-    const { items } = buildBoard({ ...(await itemSnapshot()), events: log.filter((e) => !hidden.has(e.id)), owner: await readJSON(path.join(data, 'owner.json'), { items: [] }) });
+    const { items, reviews } = buildBoard({ ...(await itemSnapshot()), events: log.filter((e) => !hidden.has(e.id)), owner: await readJSON(path.join(data, 'owner.json'), { items: [] }) });
     const { idle, pullable, plannable } = pullOf(items);
     const ready = idle && readUsageGate().state !== 'paused';
     if (await checkTriage(settings, log, items, ready)) return;
-    await checkPull(PULL, settings, log, pullable, ready);
-    await checkPull(PLAN, settings, log, pullable.length ? [] : plannable, ready);
+    if (await checkPull(PULL, settings, log, pullable, ready)) return;
+    if (await checkPull(PLAN, settings, log, pullable.length ? [] : plannable, ready)) return;
+    // docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md: one review at a time, after any pull.
+    const { due, repo } = reviews;
+    if (ready && due) await appendEvent('pr-review', { pr: due.number, head: due.head, repo, title: due.title, author: due.author, url: due.url, touches: due.touches, asked: Boolean(due.asked) });
   } catch (err) {
     console.error('Idle check failed:', err.message);
   } finally {
@@ -935,7 +946,8 @@ async function checkTriage(settings, log, items, ready) {
 // (docs/adr/0170-the-idle-pull-takes-ready-cards-first.md).
 const PULL = { kind: 'card-pull', file: 'pulled.json', line: 'Pulled in: the board was idle.' };
 const PLAN = { kind: 'card-plan', file: 'planned.json', line: 'Asked for a grill or prototype: nothing in Todo was ready to build.' };
-// The marker {key, at}: key is the card sent while it stays in keys, at when the marker last changed.
+// The marker {key, at}: key is the card sent while it stays in keys, at when the marker last changed. → true while
+// the card sent stays in keys.
 async function checkPull({ kind, file: name, line }, settings, log, keys, ready) {
   const file = path.join(data, name);
   const marker = await readJSON(file, {});
@@ -944,17 +956,18 @@ async function checkPull({ kind, file: name, line }, settings, log, keys, ready)
     await fs.writeFile(file + '.tmp', JSON.stringify({ key, at: new Date().toISOString() }) + '\n');
     await fs.rename(file + '.tmp', file);
   };
-  if (!settings.auto_pull) { if (marker.key) await save(null); return; }
+  if (!settings.auto_pull) { if (marker.key) await save(null); return false; }
   // The event log covers a restart between appending the event and saving the marker.
   const last = log.filter((e) => e.kind === kind).at(-1);
   const current = last && String(last.ts) > String(marker.at || '') ? last.data?.key : marker.key;
-  if (current && keys.includes(current)) return;
-  if (!ready || !keys.length) { if (current) await save(null); return; }
+  if (current && keys.includes(current)) return true;
+  if (!ready || !keys.length) { if (current) await save(null); return false; }
   const key = keys[0];
   await appendEvent(kind, { key });
   await fs.mkdir(path.dirname(threadFile(key)), { recursive: true });
   await fs.appendFile(threadFile(key), JSON.stringify({ ts: new Date().toISOString(), who: 'claude', text: line }) + '\n');
   await save(key);
+  return true;
 }
 
 // docs/adr/0133-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md

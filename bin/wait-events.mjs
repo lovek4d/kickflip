@@ -12,7 +12,7 @@
 //   rule hub <text>           each hub rule (settings.json `rules`), then
 //   rule board <text>         each of the board's own (board.json `rules`): the owner's standing instructions,
 //                             printed with every wake (docs/adr/0039-rules-live-on-settings-at-hub-and-board-level.md), then
-//   setting <name> <value>    each board setting from board.json: auto-merge, auto-build, auto-pull and auto-triage on|off,
+//   setting <name> <value>    each board setting from board.json: auto-merge, auto-build, auto-pull, auto-triage and auto-review on|off,
 //                             github-login <login> and tickets <json> when set
 //                             (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md), then
 //   quiet <text>              the fixed instruction to keep the terminal quiet (QUIET), then
@@ -64,6 +64,8 @@ const PLAIN = {
   'owner-answer': (e) => `answer received to question ${e.data?.id}`,
   hello: (e) => `hello ${e.id} from the hub answered`,
   'todo-triage': (e) => `Todo triage ${e.data?.date} asked: the board was idle`,
+  'pr-review': (e) => `review asked on PR #${e.data?.pr}: the board was idle`,
+  'review-answer': (e) => `${e.data?.answer === 'skip' ? 'skip' : 'post'} answered on the review of PR #${e.data?.pr}`,
 };
 const ON_CARD = {
   'item-message': (c) => `message received from ${c}'s thread`,

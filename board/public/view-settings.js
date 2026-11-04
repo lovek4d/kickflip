@@ -15,28 +15,28 @@
   <p class="muted small">Every card on this board has a ticket from here. A new card gets a new ticket unless you name one.</p>
   <form id="ticketsForm" class="tk-section"><div id="boardTickets">Loading…</div></form>
   <p class="muted small" id="ticketsStatus" role="status"></p>
-  <h2>Merging</h2>
-  <label class="who" for="autoMerge">
-    <span><span>Auto-merge approved PRs</span>
-      <span class="muted small sub">On: Claude merges a PR once it is approved, CI is green and it merges cleanly. Off: its card shows you a Merge button.</span></span>
-    <input type="checkbox" class="toggle" id="autoMerge" disabled>
-  </label>
-  <p class="muted small" id="autoMergeStatus"></p>
-  <h2>Builds</h2>
+  <h2>Auto</h2>
+  <label class="who" for="autoPull"><span><span>Pull in Todo cards</span>
+    <span class="muted small sub">When no builder is running, Claude starts the top Todo card nothing blocks or holds.</span></span>
+    <input type="checkbox" class="toggle" id="autoPull" disabled></label>
+  <p class="muted small" id="autoPullStatus" role="status"></p>
   <label class="who" for="autoBuild"><span><span>Auto-build cards</span>
     <span class="muted small sub" id="autoBuildSub">${BoardUI.esc(BoardUI.tryWords('web').autoSub)}</span></span>
     <input type="checkbox" class="toggle" id="autoBuild" disabled></label>
   <p class="muted small" id="autoBuildStatus" role="status"></p>
-  <p class="muted small">The hub runs <code>.kickflip/build</code> from each card’s branch and from main. Claude wrote it when it set up this board; if builds break, file a card.</p>
-  <h2>Todo</h2>
-  <label class="who" for="autoPull"><span><span>Pull in Todo cards when idle</span>
-    <span class="muted small sub">On: when no implementer is running on this board, Claude takes the top Todo card that nothing blocks or holds, and grills or implements it. Off: a Todo card waits until it is unblocked, answered or bumped.</span></span>
-    <input type="checkbox" class="toggle" id="autoPull" disabled></label>
-  <p class="muted small" id="autoPullStatus" role="status"></p>
+  <label class="who" for="autoReview"><span><span>Auto review</span>
+    <span class="muted small sub">Claude reviews teammates’ PRs that touch this board’s work. May use a lot of usage.</span></span>
+    <input type="checkbox" class="toggle" id="autoReview" disabled></label>
+  <p class="muted small" id="autoReviewStatus" role="status"></p>
+  <label class="who" for="autoMerge"><span><span>Auto-merge</span>
+    <span class="muted small sub">Claude merges a PR once it is approved, green and merges cleanly.</span></span>
+    <input type="checkbox" class="toggle" id="autoMerge" disabled></label>
+  <p class="muted small" id="autoMergeStatus" role="status"></p>
   <label class="who" for="autoTriage"><span><span>Triage Todo when idle</span>
-    <span class="muted small sub">On: once a day, when no implementer is running and Todo changed, Claude looks for duplicate cards, cards another covers, cards ready to close and stale deps. It links cards and merges clear duplicates itself, and asks you about the rest under one topic. Off: Todo is left as it is.</span></span>
+    <span class="muted small sub">Once a day, when Todo changed, Claude merges clear duplicates and asks you about the rest.</span></span>
     <input type="checkbox" class="toggle" id="autoTriage" disabled></label>
   <p class="muted small" id="autoTriageStatus" role="status"></p>
+  <p class="muted small">The hub runs <code>.kickflip/build</code> from each card’s branch and from main. Claude wrote it when it set up this board; if builds break, file a card.</p>
   <h2>Reviewers</h2>
   <p class="muted small">Everyone here gets each PR link on this board once it's ready, and the weekday digest. Someone you add also gets the links of PRs already in review.</p>
   <div id="list"><p class="muted small">Loading…</p></div>
@@ -299,6 +299,8 @@
       $('#autoPull').disabled = false;
       $('#autoTriage').checked = d.settings?.auto_triage === true;
       $('#autoTriage').disabled = false;
+      $('#autoReview').checked = d.settings?.auto_review === true;
+      $('#autoReview').disabled = false;
     }).catch(() => { autoMergeStatus.textContent = ticketsStatus.textContent = 'Offline. Is the host awake?'; });
     B.on(autoMerge, 'change', async () => {
       const want = autoMerge.checked;
@@ -339,9 +341,10 @@
       } finally { if (B.alive()) toggle.disabled = false; }
     });
 
-    // The Todo section's toggles save with no confirmation: docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md
-    // and docs/adr/0165-an-idle-board-triages-its-todo-once-a-day.md.
-    const todoToggle = (id, key, saved) => B.on($(`#${id}`), 'change', async () => {
+    // These Auto toggles save with no confirmation: docs/adr/0123-an-idle-board-pulls-in-its-top-todo-card.md,
+    // docs/adr/0165-an-idle-board-triages-its-todo-once-a-day.md and
+    // docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md.
+    const autoToggle = (id, key, saved) => B.on($(`#${id}`), 'change', async () => {
       const toggle = $(`#${id}`);
       const want = toggle.checked;
       toggle.disabled = true;
@@ -358,8 +361,9 @@
         $(`#${id}Status`).textContent = e.message || 'Could not save. Is the host awake?';
       } finally { if (B.alive()) toggle.disabled = false; }
     });
-    todoToggle('autoPull', 'auto_pull', (on) => (on ? 'Saved. When no implementer runs, Claude pulls in the top Todo card.' : 'Saved. Todo cards wait until they are unblocked, answered or bumped.'));
-    todoToggle('autoTriage', 'auto_triage', (on) => (on ? 'Saved. Once a day, when the board is idle and Todo changed, Claude triages it.' : 'Saved. Todo is left as it is.'));
+    autoToggle('autoPull', 'auto_pull', (on) => (on ? 'Saved. When idle, Claude starts the top Todo card.' : 'Saved. Todo cards wait for you.'));
+    autoToggle('autoReview', 'auto_review', (on) => (on ? 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.' : 'Saved. Claude leaves incoming PRs alone.'));
+    autoToggle('autoTriage', 'auto_triage', (on) => (on ? 'Saved. Once a day, when the board is idle and Todo changed, Claude triages it.' : 'Saved. Todo is left as it is.'));
 
     // Saving writes board.json through POST api/rules, whose `rules {scope: "board"}` event wakes Claude to acknowledge
     // the change; replies show below, newest first.

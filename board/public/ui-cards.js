@@ -55,13 +55,13 @@
     go: 'Build', going: 'Building…', done: 'Install', failed: 'Build failed',
     current: 'Nothing new to build: Install already has this card’s latest push.',
     busy: 'Building now. The badge turns back into Install when the new build is ready.',
-    autoSub: 'On: the hub builds each card after each push. Off: a card waits for your Build. Main builds again after every merge either way.',
+    autoSub: 'The hub builds each card after each push, and main after each merge.',
     saved: (on) => on ? 'Saved. Each push builds its card.' : 'Saved. Cards wait for your Build.',
   } : {
     go: 'Serve', going: 'Serving…', done: 'Visit', failed: 'Serve failed',
     current: 'Nothing new to serve: Visit already shows this card’s latest push.',
     busy: 'Serving now. The badge turns back into Visit when the new server is up.',
-    autoSub: 'On: the hub serves each card after each push. Off: a card waits for your Serve. Main serves again after every merge either way.',
+    autoSub: 'The hub serves each card after each push, and main after each merge.',
     saved: (on) => on ? 'Saved. Each push serves its card.' : 'Saved. Cards wait for your Serve.',
   };
   const spinner = '<span class="try-spin" aria-hidden="true"></span>';
@@ -214,5 +214,45 @@
     return keys.length > 1 ? `<button type="button" class="thread-more" data-plan="${esc(keys.join(' '))}">Plan waves</button>` : '';
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, buildButton, builderLine, unreadCount, heldUntilWords, holdPicker, workLines, askChip, askActions, askLine, planButton, WAVE_ICON });
+  // docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+  // The Auto Review lane, its needs you in the sidebar's needs-you red: one card per incoming PR (board/auto-review.mjs reviewsOf), needs you, then reviewing, then
+  // posted. A tap opens the review text and the PR's links, and a review held for the owner offers Post it and Skip,
+  // disabled while answering names its PR. Older posted reviews are one line each under Posted earlier.
+  const REVIEW_WORDS = { needs: 'needs you', reviewing: 'reviewing', posted: 'posted' };
+  const REVIEW_DOTS = { needs: 'rv-needs', reviewing: 'progress', posted: 'done' };
+  function reviewDetail(c, answering) {
+    const text = c.text ? `<div class="rv-review">${c.state === 'needs' ? '<p class="muted small">Draft, not posted.</p>' : ''}${BoardUI.markdown(c.text)}</div>`
+      : '<p class="muted small">Nothing posted yet. Right before posting, Claude reads the PR’s reviews again and adds only new points.</p>';
+    const links = `<div class="rv-links"><a href="${esc(c.url)}" target="_blank" rel="noopener">PR #${c.number} on GitHub ${LINK_ARROW}</a>${c.reviewUrl ? `<a href="${esc(c.reviewUrl)}" target="_blank" rel="noopener">The review on GitHub ${LINK_ARROW}</a>` : ''}</div>`;
+    const busy = answering === c.number ? ' disabled' : '';
+    const acts = c.state === 'needs' ? `<div class="rv-acts"><button type="button" data-review-answer="post" data-review="${c.number}"${busy}>Post it</button><button type="button" class="ghost" data-review-answer="skip" data-review="${c.number}"${busy}>Skip</button></div>` : '';
+    return `<div class="rv-detail">${text}${links}${acts}</div>`;
+  }
+  const reviewChipsOf = (c) => [badge('quiet', `from ${esc(c.author)}`), ...c.touches.map((t) => badge(c.state === 'needs' ? 'danger' : 'quiet', `touches ${esc(t.ref)}`)), c.asked ? badge('normal', 'asked you') : ''].join(' ');
+  const reviewWhen = (c) => `${c.state === 'reviewing' ? 'started ' : ''}${ago(c.at)}`;
+  function reviewCard(c, open, answering) {
+    return `<details class="rv-card" data-review="${c.number}"${open ? ' open' : ''}><summary><span class="status ${REVIEW_DOTS[c.state]}"></span><div class="title-wrap">
+      <div class="line1 title">${badge('normal', `PR #${c.number}`)} ${esc(c.title)}</div>
+      <div class="line3 sub${c.state === 'reviewing' ? ' agent' : ''}">${c.state === 'reviewing' ? '<span class="working-dot" aria-hidden="true"></span>' : ''}<span class="rv-word s-${c.state}">${REVIEW_WORDS[c.state]}</span> · ${esc(reviewWhen(c))}</div>
+      <div class="line2 meta">${reviewChipsOf(c)}</div></div></summary>${reviewDetail(c, answering)}</details>`;
+  }
+  const reviewLine = (c, open) => `<details class="rv-line" data-review="${c.number}"${open ? ' open' : ''}><summary><div class="title">${badge('normal', `PR #${c.number}`)} ${esc(c.title)}</div>
+    <div class="sub">${esc([c.author, c.state === 'posted' ? `posted ${ago(c.at)}` : 'not posted', c.open ? '' : 'closed'].filter(Boolean).join(' · '))}</div></summary>${reviewDetail(c, null)}</details>`;
+  // reviews: the built board's reviews; open: {lane, earlier, cards: Set of open PR numbers}; answering: the PR number
+  // whose answer is being sent, or null.
+  function reviewLane(reviews, { open = {}, answering = null } = {}) {
+    if (!reviews?.shown) return '';
+    const { cards, earlier } = reviews;
+    const needs = cards.filter((c) => c.state === 'needs').length;
+    const shown = (n) => open.cards?.has(n);
+    const fold = earlier.length ? `<details class="fold" data-fold="reviews-earlier"${open.earlier ? ' open' : ''}><summary><span class="lane-name">Posted earlier</span><span class="count">${earlier.length}</span></summary>
+      <div class="fold-list">${earlier.map((c) => reviewLine(c, shown(c.number))).join('')}</div></details>` : '';
+    const waiting = reviews.waiting ? `${reviews.waiting} incoming PR${reviews.waiting === 1 ? '' : 's'} wait${reviews.waiting === 1 ? 's' : ''} until the board is idle.`
+      : `No incoming PR touches this board’s work yet.${reviews.at ? ` Checked ${esc(reviews.repo)} ${ago(reviews.at)}.` : ''}`;
+    const list = cards.length ? cards.map((c) => reviewCard(c, shown(c.number), answering)).join('') : `<div class="empty">${waiting}</div>`;
+    return `<details class="lane" data-lane="reviews"${open.lane === false ? '' : ' open'}><summary><span class="lane-name">Auto Review</span><span class="count">${cards.length}</span>${needs ? `<span class="lane-github"><span class="rv-late">${needs} needs you</span></span>` : ''}</summary>
+      <div class="list">${list}${fold}</div></details>`;
+  }
+
+  Object.assign(globalThis.BoardUI, { prChips, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, buildButton, builderLine, unreadCount, heldUntilWords, holdPicker, workLines, askChip, askActions, askLine, planButton, WAVE_ICON, reviewLane });
 })();

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, threadOf, ownerQuestion, needsAnswer, pullOf, todoOf, owesNext, startedByAnswer, NO_NEXT, PROTOTYPE_AGAIN } from './domain.mjs';
+import { buildBoard, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, todoOf, owesNext, startedByAnswer, NO_NEXT, PROTOTYPE_AGAIN } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -1375,4 +1375,18 @@ test('the pull takes only ready cards in board order, never a card with no state
   ];
   for (const extra of planning) assert.deepEqual(pullOf([...unready, ...extra]).plannable, [], JSON.stringify(extra));
   assert.deepEqual(pullOf([...unready, card('w/C1', { state: 'grilling', agents: [{ kind: 'grill', started: '2026-11-03T10:00:00Z', done: '2026-11-03T10:30:00Z' }] })]).plannable, ['w/B4', 'w/B5', 'w/C1']);
+});
+
+// docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+test("a held incoming-PR review is in the Auto Review lane, in Needs you and among the owner's pushes", () => {
+  const built = buildBoard({
+    autoReview: true, waves: [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One' }] } }],
+    incoming: { at: '2026-11-03T11:56:00Z', repo: 'o/r', prs: [{ number: 437, title: 'One endpoint', author: 'quinn', url: 'u', head: 'h', touches: ['w/A1'], asked: false }] },
+    reviewRecords: { 437: { number: 437, title: 'One endpoint', author: 'quinn', url: 'u', head: 'h', touches: ['w/A1'], state: 'needs', text: 'Clashes with A1.', at: '2026-11-03T11:58:00Z' } },
+    now: Date.parse('2026-11-03T12:00:00Z'),
+  });
+  assert.deepEqual(built.reviews.cards.map((c) => [c.number, c.state, c.touches.map((t) => t.key)]), [[437, 'needs', ['w/A1']]]);
+  assert.deepEqual(needsAnswer(built).items.at(-1), { kind: 'Review', text: 'PR #437 One endpoint · review held for you', url: '#review=437' });
+  assert.match(built.needsSummary, /1 review held/);
+  assert.deepEqual(ownerActions(built).map((a) => a.tag), ['review-437']);
 });

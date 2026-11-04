@@ -495,6 +495,26 @@ export async function writeChecked(site, every, { idle } = {}) {
   return { file: checkedFile(site), every: minutes, lines: await flushAfterTick() };
 }
 
+// docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+// data/reviews.json {<number>: {number, title, author, url, touches, asked, head, state: posted|needs, text, review_url?,
+// at}}: the session's review of an incoming PR, at the head the hub's poll last listed for it in data/incoming.json, or
+// at the head its last review saw once the PR has left that list (board/auto-review.mjs reviewsOf).
+export async function recordReview(site, number, { state, text, url } = {}) {
+  needSite(site);
+  if (!/^[1-9]\d{0,6}$/.test(String(number))) fail(`review record takes the PR number, such as 437, not "${number}"`);
+  if (!['posted', 'needs'].includes(state)) fail('review record needs --state posted or --state needs');
+  if (!String(text ?? '').trim()) fail('review record needs the review text, as --text or --file');
+  if (url !== undefined && !/^https:\/\/github\.com\/\S+$/.test(url)) fail('--url takes the review\'s link on GitHub');
+  const file = path.join(site, 'data', 'reviews.json');
+  const records = await readJSON(file, {});
+  const listed = ((await readJSON(path.join(site, 'data', 'incoming.json'), {}))?.prs || []).find((p) => p.number === Number(number));
+  const pr = listed || records[number] || fail(`PR #${number} is not an incoming PR on this board`);
+  const { title, author, url: link, touches = [], asked = false, head } = pr;
+  records[number] = { number: Number(number), title, author, url: link, touches, asked, head, state, text, ...(url ? { review_url: url } : {}), at: new Date().toISOString() };
+  await writeJSON(file, records);
+  return { file, lines: [] };
+}
+
 // Whether a card the hub polls has a PR still open: the cards hub/boards.mjs prsOf lists.
 async function hasOpenPR(site) {
   for (const source of await itemSources(site)) {
@@ -734,18 +754,18 @@ const writeBoardRules = (site, change) => writeBoardJSON(site, (cfg) => {
 const validGithubLogin = (value) => typeof value === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(value);
 const storedTickets = (value) => { try { return value ? ticketSource(value) : null; } catch { return null; } };
 // A board's settings in board.json (docs/adr/0052-auto-merge-is-a-board-setting-off-by-default.md): auto_merge,
-// auto_build, auto_pull and auto_triage, off when absent, tickets, its one ticket source, and github_login, absent when unset or
+// auto_build, auto_pull, auto_triage and auto_review, off when absent, tickets, its one ticket source, and github_login, absent when unset or
 // invalid (docs/adr/0081-a-board-has-one-ticket-source.md).
 export const settingsOf = (cfg) => {
   const tickets = storedTickets(cfg?.tickets);
-  return { auto_merge: cfg?.auto_merge === true, auto_build: cfg?.auto_build === true, auto_pull: cfg?.auto_pull === true, auto_triage: cfg?.auto_triage === true, ...(tickets ? { tickets } : {}), ...(validGithubLogin(cfg?.github_login) ? { github_login: cfg.github_login } : {}) };
+  return { auto_merge: cfg?.auto_merge === true, auto_build: cfg?.auto_build === true, auto_pull: cfg?.auto_pull === true, auto_triage: cfg?.auto_triage === true, auto_review: cfg?.auto_review === true, ...(tickets ? { tickets } : {}), ...(validGithubLogin(cfg?.github_login) ? { github_login: cfg.github_login } : {}) };
 };
 export async function readBoardSettings(site) {
   return settingsOf(await readJSON(path.join(needSite(site), 'board.json'), {}));
 }
-// changes {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, auto_triage?: boolean, tickets?: source, github_login?: login | null} → {file, settings, changed}; changed lists the keys whose value moved.
+// changes {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, auto_triage?: boolean, auto_review?: boolean, tickets?: source, github_login?: login | null} → {file, settings, changed}; changed lists the keys whose value moved.
 export function saveBoardSettings(site, changes) {
-  onlyKeys(changes, ['auto_merge', 'auto_build', 'auto_pull', 'auto_triage', 'tickets', 'github_login'], 'the settings');
+  onlyKeys(changes, ['auto_merge', 'auto_build', 'auto_pull', 'auto_triage', 'auto_review', 'tickets', 'github_login'], 'the settings');
   if (!Object.keys(changes).length) fail('the settings name nothing to change');
   changes = { ...changes };
   for (const [k, v] of Object.entries(changes)) {
@@ -769,7 +789,7 @@ export function saveBoardSettings(site, changes) {
 // The CLI's `settings set <name> <value>`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
   const key = String(name).replace(/-/g, '_');
-  const names = ['auto_merge', 'auto_build', 'auto_pull', 'auto_triage', 'github_login', 'tickets'];
+  const names = ['auto_merge', 'auto_build', 'auto_pull', 'auto_triage', 'auto_review', 'github_login', 'tickets'];
   if (!names.includes(key)) fail(`no board setting "${name}"; settings are ${names.map((k) => k.replace(/_/g, '-')).join(', ')}`);
   if (key === 'tickets') {
     let tickets;

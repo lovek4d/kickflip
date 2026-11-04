@@ -179,14 +179,17 @@ window.BoardView = (function () {
       B.signCards(load);
     }
 
+    // #review=<PR number> opens that review in the Auto Review lane (app-lanes.js openReview), as a held review's push does.
     // #item=<wave>/<id> opens that card; push notifications link here, with &reply to land in the thread's reply box
     // (docs/adr/0036-a-push-lands-where-the-owner-answers.md). An ask now in a work item's thread opens that item.
     let focusKey = null;
     let replyKey = null;
     let hashRead = false;
     // A board this page left goes back to where the owner left it once it first renders, unless its URL names a card.
-    const returnToPlace = () => B.restorePlace({ linked: /^#item=/.test(location.hash) });
+    const returnToPlace = () => B.restorePlace({ linked: /^#(?:item|review)=/.test(location.hash) });
     function readHash() {
+      const review = /^#review=(\d+)$/.exec(location.hash);
+      if (review && state.board) { B.openReview(Number(review[1])); return; }
       const m = /^#item=([^&]+)(&reply)?$/.exec(location.hash);
       if (!m) return;
       focusKey = decodeURIComponent(m[1]);

@@ -1652,3 +1652,28 @@ test('the New version row offers the npm update, waits for builders and gives Re
   const html = ui.sidebar({ sites: [], upgrade: { state: 'available', version: '0.4.0' } });
   assert.match(html, /<div class="sb-update" role="status"><button[^>]*data-app-upgrade>/);
 });
+
+// docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+test('the Auto Review lane shows each PR with its author, cards and state, opens to the review and its links, and folds older posted ones', () => {
+  const c = (number, state, over = {}) => ({ number, title: `PR ${number}`, author: 'Quinn', url: `https://github.com/o/r/pull/${number}`, asked: false,
+    touches: [{ key: 'w/A2', ref: '#47' }], state, at: ago(0.1), text: null, reviewUrl: null, ...over });
+  const reviews = { on: true, shown: true, at: ago(0.1), repo: 'o/r', waiting: 0, due: null,
+    cards: [c(437, 'needs', { text: 'Clashes with **#47**.' }), c(440, 'reviewing', { asked: true }), c(431, 'posted', { text: 'Fine.', reviewUrl: 'https://github.com/o/r/pull/431#pullrequestreview-1' })],
+    earlier: [{ ...c(421, 'posted', { text: 'Nothing new.' }), open: false }] };
+  const html = ui.reviewLane(reviews, { open: { cards: new Set([437]) } });
+  assert.match(text(html), /^Auto Review 3 1 needs you/);
+  const cards = html.split('<details class="rv-card"').slice(1);
+  assert.deepEqual(cards.map((h) => /class="rv-word s-\w+">([^<]+)</.exec(h)[1]), ['needs you', 'reviewing', 'posted']);
+  assert.match(text(cards[0]), /PR #437 PR 437 needs you · .* from Quinn touches #47 Draft, not posted\. Clashes with #47 \. PR #437 on GitHub Post it Skip$/);
+  assert.match(cards[0], /data-review="437" open/);
+  assert.match(cards[0], /<strong>#47<\/strong>/);
+  assert.match(text(cards[1]), /reviewing · started .* asked you Nothing posted yet/);
+  assert.doesNotMatch(cards[1], /data-review-answer/);
+  assert.match(cards[2], /href="https:\/\/github\.com\/o\/r\/pull\/431#pullrequestreview-1"/);
+  assert.match(text(html), /Posted earlier 1 PR #421 PR 421 Quinn · posted .* · closed/);
+  assert.match(ui.reviewLane(reviews, { answering: 437 }), /data-review-answer="post" data-review="437" disabled/);
+
+  assert.equal(text(ui.reviewLane({ ...reviews, cards: [], earlier: [] })), 'Auto Review 0 No incoming PR touches this board’s work yet. Checked o/r 6m ago.');
+  assert.match(text(ui.reviewLane({ ...reviews, cards: [], earlier: [], waiting: 2 })), /2 incoming PRs wait until the board is idle\./);
+  assert.equal(ui.reviewLane({ ...reviews, shown: false }), '');
+});

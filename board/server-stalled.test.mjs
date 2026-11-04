@@ -530,3 +530,92 @@ test('an idle board with auto-pull on and nothing to pull sends card-plan for it
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+test('an idle board with auto review on sends pr-review for one incoming PR at a time, asked first, never while a builder runs or usage is paused', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-review-'));
+  const siteDir = path.join(dir, 'site');
+  const dataDir = path.join(siteDir, 'data');
+  const clockFile = path.join(dir, 'clock');
+  const setup = path.join(dir, 'setup.mjs');
+  const eventsFile = path.join(dataDir, 'events.jsonl');
+  const agentFile = path.join(dataDir, 'agents', 'A1.json');
+  const usageFile = path.join(dir, '.claude', 'kickflip', 'usage.json');
+  const now = Date.parse('2026-11-03T16:00:00Z');
+  const iso = (ms) => new Date(ms).toISOString();
+  let worker;
+  fs.mkdirSync(path.dirname(agentFile), { recursive: true });
+  fs.mkdirSync(path.dirname(usageFile), { recursive: true });
+  const boardJSON = (on) => put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't', auto_review: on }));
+  boardJSON(false);
+  fs.writeFileSync(path.join(dataDir, 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', status: 'building' }] }));
+  put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000) }));
+  const pr = (number, asked) => ({ number, title: `PR ${number}`, author: 'quinn', url: `https://github.com/o/r/pull/${number}`, head: `h${number}`, touches: ['t/A1'], asked });
+  fs.writeFileSync(path.join(dataDir, 'incoming.json'), JSON.stringify({ at: iso(now), repo: 'o/r', prs: [pr(440, false), pr(442, true)] }));
+  fs.writeFileSync(eventsFile, '');
+  put(usageFile, JSON.stringify({ claude: { at: iso(now), five_hour: { used_percentage: 95, resets_at: iso(now + 3600000) }, seven_day: { used_percentage: 40, resets_at: iso(now + 86400000) } } }));
+  fs.writeFileSync(clockFile, String(now));
+  fs.writeFileSync(setup, `
+    import http from 'node:http';
+    import fs from 'node:fs';
+    const RealDate = Date;
+    globalThis.Date = class extends RealDate {
+      constructor(...args) { super(...(args.length ? args : [Date.now()])); }
+      static now() { return Number(fs.readFileSync(process.env.BUILDER_TEST_CLOCK, 'utf8')); }
+    };
+    const interval = globalThis.setInterval;
+    interval(() => {}, 1000);
+    globalThis.setInterval = (fn, ms, ...args) => interval(fn, ms === 60000 ? 20 : ms, ...args);
+    http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };
+  `);
+  const sent = () => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse).filter((e) => e.kind === 'pr-review').map((e) => e.data);
+  const start = async () => {
+    worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
+      env: { ...process.env, HOME: dir, BUILDER_TEST_CLOCK: clockFile },
+    });
+    let errors = '';
+    worker.stderr.on('data', (chunk) => { errors += chunk; });
+    await new Promise((resolve, reject) => {
+      worker.stdout.once('data', resolve);
+      worker.once('error', reject);
+      worker.once('exit', (code) => reject(new Error(`Server exited ${code}: ${errors}`)));
+    });
+  };
+  const stop = async () => {
+    if (!worker || worker.exitCode !== null) return;
+    const exited = new Promise((resolve) => worker.once('exit', resolve));
+    worker.kill();
+    await exited;
+  };
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 80));
+  try {
+    await start();
+    await tick();
+    fs.rmSync(usageFile);
+    await tick();
+    assert.deepEqual(sent(), [], 'off by default');
+    boardJSON(true);
+    await tick();
+    await tick();
+    assert.deepEqual(sent(), [], 'a running builder keeps the board from being idle');
+    put(usageFile, JSON.stringify({ claude: { at: iso(now), five_hour: { used_percentage: 95, resets_at: iso(now + 3600000) }, seven_day: { used_percentage: 40, resets_at: iso(now + 86400000) } } }));
+    put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), done: iso(now) }));
+    await tick();
+    await tick();
+    assert.deepEqual(sent(), [], 'nothing while paused');
+    fs.rmSync(usageFile);
+    await until(() => sent().length === 1, 'the idle board asks for a review');
+    assert.deepEqual(sent()[0], { pr: 442, head: 'h442', repo: 'o/r', title: 'PR 442', author: 'quinn', url: 'https://github.com/o/r/pull/442', touches: ['t/A1'], asked: true });
+    await stop();
+    await start();
+    await tick();
+    await tick();
+    assert.equal(sent().length, 1, 'one at a time, across a restart');
+    put(path.join(dataDir, 'reviews.json'), JSON.stringify({ 442: { ...pr(442, true), state: 'posted', text: 'Fine.', at: iso(now + 1000) } }));
+    await until(() => sent().length === 2, 'the next PR follows the recorded review');
+    assert.equal(sent()[1].pr, 440);
+  } finally {
+    await stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

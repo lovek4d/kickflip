@@ -110,7 +110,7 @@
 // no `cmd` runs its own server: the hub only probes it, and it reads Down while nothing answers
 // (docs/adr/0087-a-page-joins-without-a-session.md). On each slot of the
 // polling interval (schedule.mjs), and once a minute after it starts, it checks
-// GitHub (github.mjs), pushes once for each board that is deaf (boards.mjs
+// GitHub (github.mjs) and each auto-review board's incoming PRs (incoming.mjs), pushes once for each board that is deaf (boards.mjs
 // checkListening, listenState), then sends the queued pushes unless schedule.mjs heldUntil holds them;
 // one poll never overlaps another. At each of the polling settings' wake times it wakes each
 // board's session once a day (github.mjs sendWakes)
@@ -153,6 +153,7 @@ import { nextSlot, windowAt, hold, heldUntil, holdLine, editPolling } from './sc
 import { capital, hubView, settingsView, pollingView, flushView, SNOOZE_REFUSED, AWAKE_REFUSED } from './views.mjs';
 import { caffeinate, setKeepAwake, awakeUntil, awakeUnsupported } from './awake.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
+import { checkIncoming } from './incoming.mjs';
 import { listBoards, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, runningHubCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON } from './boards.mjs';
 import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
@@ -379,6 +380,9 @@ function runPoll({ flush = true } = {}) {
       tryTick({ manifest: loadManifest(), routes: result.merged }).catch((e) => log('merge refresh failed:', e.message));
     }
     await fetchTryBranches({ manifest: loadManifest(), log });
+    // docs/adr/0176-each-board-reviews-incoming-prs-that-touch-its-work.md
+    try { result.failed.push(...(await checkIncoming({ manifest: loadManifest() })).failed); }
+    catch (e) { result.failed.push(`incoming PRs: ${e.message}`); }
     if (result.failed.length && Date.now() - polls.errorLoggedAt > ERROR_LOG_MS) {
       polls.errorLoggedAt = Date.now();
       log(`github check: ${result.failed.length} step${result.failed.length === 1 ? '' : 's'} failed, first: ${result.failed[0]} (logged at most hourly)`);
