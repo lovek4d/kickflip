@@ -3109,7 +3109,7 @@ test("Waiting on you's Send follows the shared next question, leaving an urgent 
   await middle.settle();
   middle.answer('q2');
   await middle.send();
-  assert.deepEqual(middle.shown(), { pills: [['item:w/T1', 'false'], ['item:w/T3', 'true']], questions: ['q3'], status: 'Sent 1 answer to INT-2.', hash: '#q3' });
+  assert.deepEqual(middle.shown(), { pills: [['item:w/T1', 'false'], ['item:w/T3', 'true']], questions: ['q3'], status: 'sent 1 answer · 2 still open', hash: '#q3' });
   assert.deepEqual(middle.decisions.map(([qs, pills, answered]) => [qs.map((q) => [q.id, q.state]), pills.map((t) => [t.id, t.open]), answered]),
     [[[['q1', 'open'], ['q2', 'answered'], ['q3', 'open']], [['item:w/T1', 1], ['item:w/T2', 1], ['item:w/T3', 1]], { topic: 'item:w/T2' }]]);
 
@@ -3118,7 +3118,7 @@ test("Waiting on you's Send follows the shared next question, leaving an urgent 
   partial.answer('q2');
   await partial.send();
   assert.deepEqual(partial.shown(), { pills: [['item:w/T1', 'false'], ['item:w/T2', 'true'], ['item:w/T3', 'false']], questions: ['q2', 'q2b'],
-    status: 'Sent 1 answer to INT-2. 1 still open, answer it any time.', hash: '#q2' });
+    status: 'sent 1 answer · 3 still open', hash: '#q2' });
 
   const last = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: open('q3'), at: 'q3', next: null });
   await last.settle();
@@ -3131,7 +3131,7 @@ test("Waiting on you's Send follows the shared next question, leaving an urgent 
   assert.deepEqual(urgent.shown().questions, ['q3']);
   urgent.answer('q3');
   await urgent.send();
-  assert.deepEqual(urgent.shown(), { pills: [['item:w/T1', 'true'], ['item:w/T2', 'false']], questions: ['q1'], status: 'Sent 1 answer to INT-3.', hash: '#q1' });
+  assert.deepEqual(urgent.shown(), { pills: [['item:w/T1', 'true'], ['item:w/T2', 'false']], questions: ['q1'], status: 'sent 1 answer · 2 still open', hash: '#q1' });
 });
 
 // docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md
@@ -3216,7 +3216,7 @@ test("Waiting on you's Send carries every ready answer in one request, waits dis
   assert.equal(v.sent.length, 1);
   assert.deepEqual(waiting(), ['q1', 'q2']);
   assert.deepEqual([draft(v.page, 'q1'), draft(v.page, 'q2')], [{}, {}]);
-  assert.equal($('#qstatus').textContent, 'Sent 2 answers to INT-1. 1 still open, answer it any time.');
+  assert.equal($('#qstatus').textContent, 'sent 2 answers · 1 still open');
 
   const refused = { promise: Promise.resolve(), refuse: 'Question q2 is no longer asked here. Reload to see what is.' };
   const r = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('q2')], at: 'q1', gate: refused });
@@ -3275,7 +3275,7 @@ test('Waiting on you measures a fitting grid, then uses one growing full-size fr
   assert.ok(shot('B'));
   assert.equal(v.root.querySelector('textarea'), note);
   assert.equal(v.page.win.document.activeElement, note);
-  assert.equal(v.root.querySelector('#send').textContent, 'Send 1 answer');
+  assert.equal(v.root.querySelector('#send').textContent, 'Send');
   assert.equal(JSON.parse(v.page.win.localStorage.getItem('qdraft:q1')).choice, undefined);
   assert.deepEqual(v.root.querySelectorAll('.take-choices input').map((o) => o.getAttribute('value')), ['A', 'B', 'C']);
   assert.match(v.root.querySelector('.take-choices').textContent, /B. DotRecommended/);

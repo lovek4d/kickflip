@@ -221,10 +221,11 @@
       return { from, pills: topicRow(topics, from).pills, name: topicName(topics.find((t) => t.id === from) || { title: '' }) };
     }
     // After a recorded tap: a load that started before it went out would read its question as still open.
+    // `footer` is a line or, for a Send, a function of the reloaded board giving the whole line.
     async function moveOnOnceLoaded({ from, pills }, what, footer = what) {
       await loading;
-      if (await load(false)) moveOn(from, pills, what, footer);
-      else if (B.alive()) { sentLine = footer; $('#qstatus').innerHTML = statusHtml(footer); $('#qstatus').classList.add('sent'); }
+      if (await load(false)) moveOn(from, pills, what, typeof footer === 'function' ? footer() : footer, typeof footer !== 'function');
+      else if (B.alive()) { if (typeof footer === 'function') footer = footer(); sentLine = footer; $('#qstatus').innerHTML = statusHtml(footer); $('#qstatus').classList.add('sent'); }
     }
 
     // The tapped Prototype button waits (ui.js waitOn) while the request is sent.
@@ -245,7 +246,7 @@
       const qs = visible();
       const n = pending(qs).length;
       const b = $('#send');
-      if (b) { b.disabled = !n || uploading(qs); b.textContent = uploading(qs) ? 'Uploading…' : n ? `Send ${n} answer${n === 1 ? '' : 's'}` : 'Send'; }
+      if (b) { b.disabled = !n || uploading(qs); b.textContent = uploading(qs) ? 'Uploading…' : 'Send'; }
       const live = qs.filter((q) => q.state !== 'resolved');
       const answered = live.filter((q) => q.state !== 'open').length;
       $('#progress').textContent = live.length > 1 ? `${answered}/${live.length} answered` : '';
@@ -293,13 +294,13 @@
       }
     }
 
-    function moveOn(from, pills, what, footer = what) {
+    function moveOn(from, pills, what, footer = what, countOpen = true) {
       soloId = null;
       const next = nextQuestion(all, pills, { topic: from });
       const left = topics.find((t) => t.id === from)?.open || 0;
       if (next?.topic === from) {
         topicId = from;
-        sentLine = `${footer.replace(/\.?$/, '.')} ${left} still open, answer ${left === 1 ? 'it' : 'them'} any time.`;
+        sentLine = countOpen ? `${footer.replace(/\.?$/, '.')} ${left} still open, answer ${left === 1 ? 'it' : 'them'} any time.` : footer;
         shown = sigNow();
         const y = scrollY;
         render();
@@ -391,7 +392,10 @@
         setDraft(q.id, {});
         BoardAttach.clear('q:' + q.id, site.root);
       }
-      await moveOnOnceLoaded(at, `Sent ${list.length} answer${list.length === 1 ? '' : 's'}${at.name ? ` to ${at.name}` : ''}.`);
+      await moveOnOnceLoaded(at, `Sent ${list.length} answer${list.length === 1 ? '' : 's'}${at.name ? ` to ${at.name}` : ''}.`, () => {
+        const open = all.filter((q) => q.state === 'open').length;
+        return `sent ${list.length} answer${list.length === 1 ? '' : 's'}${open ? ` · ${open} still open` : ''}`;
+      });
     });
     // Each composer painted raises a bubbling attach-change (attach.js).
     B.on(root, 'attach-change', updateBar);
