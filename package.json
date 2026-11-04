@@ -3,6 +3,10 @@
   "version": "0.3.1",
   "description": "Follow and steer Claude Code sessions from your phone.",
   "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lovek4d/kickflip.git"
+  },
   "private": true,
   "type": "module",
   "bin": {
