@@ -3542,6 +3542,17 @@ test("Waiting on you loads a topic's resolved questions only once the topic show
   v.unmount();
 });
 
+test("Waiting on you puts the tapped topic pill's first question in the URL, so going back reopens the topic last shown", async () => {
+  const question = (id, topic) => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'item:w/T2', title: 'INT-2: Old' }],
+    questions: [question('q1', 'item:w/T1'), question('q2', 'item:w/T2')], at: 'q1' });
+  await v.settle();
+  v.page.fire(v.root, 'click', { target: v.root.querySelector('button[data-topic="item:w/T2"]') });
+  await v.settle();
+  assert.equal(v.page.win.location.hash, '#q2');
+  v.unmount();
+});
+
 test("Waiting on you groups a topic's resolved questions under a collapsed 'resolved (N)' naming them, read-only; tapping one's green resolved badge confirms, then asks Claude to ask it again", async () => {
   const question = (id, state = 'open') => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state,
     ...(state === 'resolved' ? { resolved: 'Picked A', resolved_at: '2026-10-30T09:00:00.000Z', reask: null } : {}) });

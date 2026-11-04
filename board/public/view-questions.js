@@ -383,7 +383,12 @@
       const reask = ev.target.closest && ev.target.closest('[data-reask]');
       if (reask) { if (!reask.disabled) askAgain(byId(reask.dataset.reask), reask); return; }
       const b = ev.target.closest && ev.target.closest('[data-topic]');
-      if (b) { soloId = null; topicId = b.dataset.topic; sentLine = ''; shown = ''; render(); scrollTo(0, 0); }
+      if (b) {
+        soloId = null; topicId = b.dataset.topic; sentLine = ''; shown = '';
+        const first = topics.find((t) => t.id === topicId)?.questions[0];
+        if (first) history.replaceState(history.state, '', '#' + encodeURIComponent(first));
+        render(); scrollTo(0, 0);
+      }
     });
     // The full-width frame shows another take without reloading, where its page's switcher can
     // (prototype-switcher.js current.go), so the page keeps its place. → false when it can't.
