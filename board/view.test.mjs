@@ -4556,7 +4556,7 @@ test('Board Settings holds every automatic job in one Auto section, short labels
   const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
   const auto = html.slice(html.indexOf('<h2>Auto</h2>'), html.indexOf('<h2>Reviewers</h2>'));
   assert.deepEqual([...auto.matchAll(/<label class="who" for="(\w+)"><span><span>([^<]+)<\/span>/g)].map((m) => [m[1], m[2]]), [
-    ['autoPull', 'Auto implement Todo cards'], ['maxImplementers', 'Maximum parallel implementers'], ['headlessBuilders', 'Builders launch headless'], ['autoBuild', 'Auto-build cards'], ['autoReview', 'Auto review'], ['prs', 'PRs'], ['autoMerge', 'Auto-merge'], ['skipDraft', 'Skip the draft'],
+    ['autoPull', 'Auto implement Todo cards'], ['maxImplementers', 'Maximum parallel implementers'], ['autoBuild', 'Auto-build cards'], ['autoReview', 'Auto review'], ['prs', 'PRs'], ['autoMerge', 'Auto-merge'], ['skipDraft', 'Skip the draft'],
     ['autoTriage', 'Triage overnight'], ['idleNotification', 'Idle notification'],
   ]);
   assert.match(auto, /May use a lot of usage\./);

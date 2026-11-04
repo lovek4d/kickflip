@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until } from '../shared/test-helpers.mjs';
-import { builderBrief, landerBrief, launchHeadless, reviveBuilders, BOARD_CLI } from './headless.mjs';
+import { builderBrief, landerBrief, plannerBrief, launchHeadless, reviveBuilders, BOARD_CLI } from './headless.mjs';
 
 const card = { route: 'shop', key: 'w/A1', ref: 'ENG-1', title: 'Make it go', notes: '/s/waves/w/a1.md', worktree: '/wt/A1', base: 'main', rules: ['Use Node 22+'] };
 
@@ -32,6 +32,33 @@ test("a lander's brief takes up the card's verified build, acts on the owner's a
   }
 });
 
+// docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
+test("a headless planner's brief names its card, its notes so far and the skill to follow, and has it start, post questions and finish", () => {
+  const b = `node ${BOARD_CLI} --site shop`;
+  const grill = plannerBrief({ ...card, kind: 'grill', repo: '/r/shop' });
+  for (const want of ['ENG-1', 'Make it go', '/s/waves/w/a1.md', 'grilling skill', `${b} builder start w/A1 --kind grill`, `${b} question add`, `${b} builder done w/A1`, 'docs/adr', 'Never push']) {
+    assert.ok(grill.includes(want), `the grill's brief has ${want}`);
+  }
+  const proto = plannerBrief({ ...card, notes: null, kind: 'prototype', repo: '/r/shop', question: 'a1-look', note: 'Bigger', choice: 'B' });
+  for (const want of ['prototype skill', `${b} builder start w/A1 --kind prototype`, `${b} prototype add`, 'a1-look', 'Bigger', 'B']) {
+    assert.ok(proto.includes(want), `the prototype's brief has ${want}`);
+  }
+  assert.ok(!proto.includes('/s/waves/w/a1.md'));
+});
+
+test('launchHeadless runs codex exec in the worktree with full access for a codex build', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-codex-'));
+  try {
+    const out = path.join(dir, 'seen.json');
+    const fake = path.join(dir, 'codex');
+    fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }));\n`);
+    fs.chmodSync(fake, 0o755);
+    await launchHeadless({ bin: fake, kind: 'codex', cwd: dir, prompt: 'Build it.', log: path.join(dir, 'A1.log') });
+    await until(() => fs.existsSync(out), 'the fake codex runs');
+    assert.deepEqual(JSON.parse(fs.readFileSync(out, 'utf8')), { argv: ['exec', '--sandbox', 'danger-full-access', '--cd', dir, 'Build it.'], cwd: fs.realpathSync(dir) });
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('launchHeadless runs claude -p in the worktree in auto mode on the model, detached, streaming its events as JSON lines to a log file, and rejects when claude does not start', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-'));
   try {
@@ -53,7 +80,7 @@ test('launchHeadless runs claude -p in the worktree in auto mode on the model, d
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("on a board whose builders launch headless, the server launches the builder for a tap and a pull instead of waking the session, and a lander once a checking card's calls are verified and no question is open", async () => {
+test("the server launches the builder for a tap and a pull instead of waking the session, and a lander once a checking card's calls are verified and no question is open", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-server-'));
   const site = path.join(home, 'site');
   const data = path.join(site, 'data');
@@ -72,7 +99,7 @@ test("on a board whose builders launch headless, the server launches the builder
   const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
   fs.mkdirSync(path.dirname(manifest), { recursive: true });
   fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
-  const boardJSON = (extra = {}) => fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', headless_builders: true, ...extra }));
+  const boardJSON = (extra = {}) => fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', ...extra }));
   boardJSON();
   fs.writeFileSync(path.join(data, 'owner.json'), JSON.stringify({ topics: [], items: [{ id: 'h4q', topic: 'item:t/H4', question: 'Which?', options: [{ id: 'A', label: 'This' }] }] }));
   fs.writeFileSync(path.join(data, 'h1.md'), '# H1\n');
@@ -105,7 +132,7 @@ test("on a board whose builders launch headless, the server launches the builder
     const [landing] = runs();
     assert.equal(landing.cwd, fs.realpathSync(lander));
     assert.match(landing.argv[1], /builder done t\/H3 --text/);
-    assert.equal(thread('H3').at(-1).text.startsWith('Lander launched headless'), true);
+    assert.equal(thread('H3').at(-1).text.startsWith('Lander launched on '), true);
 
     const tapped = await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'card-build', key: 't/H1' }) }).then((r) => r.json());
     assert.equal(tapped.id, null);
@@ -116,9 +143,8 @@ test("on a board whose builders launch headless, the server launches the builder
     assert.deepEqual([built.argv[0], built.argv[2], built.argv[3], built.argv[4]], ['-p', '--permission-mode', 'auto', '--model']);
     assert.ok(built.argv[1].includes(path.join(data, 'h1.md')) && built.argv[1].includes('builder start t/H1 --kind build'));
     assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'agents', 'H1.json'), 'utf8')).dispatched, 'tap');
-    assert.match(thread('H1').at(-1).text, /^Builder launched headless/);
-    const launch = thread('H1').at(-1);
-    assert.match(launch.text, /^Builder launched headless on .* in .*H1\.$/);
+        const launch = thread('H1').at(-1);
+    assert.match(launch.text, /^Builder launched on Claude (Opus|Sonnet) in .*H1\.$/);
     assert.match(launch.log, /^builder-H1-.*\.log$/);
     const logs = path.join(home, '.claude', 'kickflip', 'logs');
     fs.writeFileSync(path.join(logs, launch.log), 'x'.repeat(300_000) + '\nlast line\n');
@@ -163,7 +189,7 @@ test('a lander whose process is gone while its card reads building (the usage pa
   const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
   fs.mkdirSync(path.dirname(manifest), { recursive: true });
   fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
-  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', headless_builders: true }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't' }));
   const worktree = path.join(home, 'wt');
   fs.mkdirSync(worktree);
   fs.writeFileSync(path.join(data, 'agents', 'H3.json'), JSON.stringify({ started: '2026-11-04T01:00:00.000Z', done: '2026-11-04T02:00:00.000Z', kind: 'claude', model: 'opus', calls: [{ at: '2026-11-04T01:30:00.000Z', text: 'Kept it small' }], verified: { at: '2026-11-04T03:00:00.000Z' }, worktree: { path: worktree, branch: 'H3', repo: clone } }));
@@ -244,7 +270,7 @@ test("the server's minute check relaunches a tracked headless builder whose proc
   const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
   fs.mkdirSync(path.dirname(manifest), { recursive: true });
   fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: wt } } } }));
-  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', headless_builders: true }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't' }));
   fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: [{ id: 'R1', title: 'Revive me', status: 'building' }] }));
   fs.writeFileSync(path.join(data, 'agents', 'R1.json'), JSON.stringify({ started: '2026-11-04T01:00:00.000Z', kind: 'claude', model: 'opus', worktree: { path: wt, branch: 'R1', repo: wt } }));
   const dead = spawn(process.execPath, ['-e', '']);
@@ -270,5 +296,107 @@ test("the server's minute check relaunches a tracked headless builder whose proc
   } finally {
     child.kill();
     fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+// docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
+// A local board over a git repo, its wave's items, and a fake claude at bin (by default one that logs each run).
+function oneLaunchBoard(items, bin) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-one-'));
+  const site = path.join(home, 'site');
+  const data = path.join(site, 'data');
+  fs.mkdirSync(path.join(data, 'threads'), { recursive: true });
+  const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
+  const clone = path.join(home, 'clone');
+  fs.mkdirSync(clone);
+  git(clone, 'init', '--quiet', '-b', 'main');
+  git(clone, 'config', 'user.name', 'Test');
+  git(clone, 'config', 'user.email', 'test@example.com');
+  fs.writeFileSync(path.join(clone, 'a.txt'), 'a\n');
+  git(clone, 'add', '-A');
+  git(clone, 'commit', '--quiet', '-m', 'base');
+  const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
+  fs.mkdirSync(path.dirname(manifest), { recursive: true });
+  fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], branch: 'main', local: true, owner: { repo: clone } } } }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't' }));
+  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items }));
+  const seen = path.join(home, 'claude-runs.jsonl');
+  const fake = bin ?? path.join(home, 'claude');
+  if (!bin) {
+    fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + '\\n');\n`);
+    fs.chmodSync(fake, 0o755);
+  }
+  const runs = () => (fs.existsSync(seen) ? fs.readFileSync(seen, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : []);
+  const events = () => (fs.existsSync(path.join(data, 'events.jsonl')) ? fs.readFileSync(path.join(data, 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l).kind) : []);
+  const thread = (id) => fs.readFileSync(path.join(data, 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse);
+  const record = (id) => JSON.parse(fs.readFileSync(path.join(data, 'agents', `${id}.json`), 'utf8'));
+  const item = (id) => JSON.parse(fs.readFileSync(path.join(data, 'wave.json'), 'utf8')).items.find((i) => i.id === id);
+  async function start() {
+    const [port] = await freePorts();
+    const child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
+    await new Promise((resolve, reject) => { child.stdout.once('data', resolve); child.once('exit', reject); });
+    const send = (kind, body) => fetch(`http://127.0.0.1:${port}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind, ...body }) }).then((r) => r.json());
+    return { child, send };
+  }
+  return { home, site, data, clone, runs, events, thread, record, item, start };
+}
+
+test("the server launches a planner for the owner's Grill and Prototype taps and for an idle board's plan, from the card, in the board's repo", async () => {
+  const b = oneLaunchBoard([
+    { id: 'G1', title: 'Grill me', state: 'grilling' },
+    { id: 'P1', title: 'Draw me', state: 'prototyping' },
+    { id: 'Q1', title: 'Plan me' },
+  ]);
+  const { child, send } = await b.start();
+  try {
+    await send('grill-more', { key: 't/G1' });
+    await until(() => b.runs().length === 1, 'the grill launches');
+    const [grill] = b.runs();
+    assert.equal(grill.cwd, fs.realpathSync(b.clone));
+    assert.match(grill.argv[1], /builder start t\/G1 --kind grill/);
+    assert.match(grill.argv[1], /grilling skill/);
+    assert.equal(grill.argv[grill.argv.indexOf('--model') + 1], 'opus');
+    assert.deepEqual([b.record('G1').kind, b.record('G1').dispatched], ['grill', 'hub']);
+    assert.match(b.thread('G1').at(-1).text, /^Planner launched on Claude Opus in .*clone\.$/);
+    assert.equal(b.item('G1').status, undefined, 'a planner never starts the card');
+
+    await send('prototype-request', { key: 't/P1' });
+    await until(() => b.runs().length === 2, 'the prototype launches');
+    const proto = b.runs()[1];
+    assert.match(proto.argv[1], /builder start t\/P1 --kind prototype/);
+    assert.equal(proto.argv[proto.argv.indexOf('--model') + 1], 'sonnet');
+
+    // An idle board with nothing ready plans its top plannable card, once no planner runs.
+    for (const id of ['G1', 'P1']) fs.writeFileSync(path.join(b.data, 'agents', `${id}.json`), JSON.stringify({ ...b.record(id), done: new Date().toISOString() }));
+    fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', auto_pull: true }));
+    await until(() => b.runs().length === 3, 'the plan launches a planner');
+    // The top plannable card is prototyping, so its planner is a prototype.
+    assert.match(b.runs()[2].argv[1], /builder start t\/P1 --kind prototype/);
+    assert.ok(!b.events().includes('card-plan'), 'the plan wakes no session');
+    // A tap while the card's planner is open launches nothing more.
+    await send('prototype-request', { key: 't/P1' });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(b.runs().length, 3);
+  } finally {
+    child.kill();
+    fs.rmSync(b.home, { recursive: true, force: true });
+  }
+});
+
+test('a build whose builder fails to launch goes back to Todo with the reason, and wakes no session', async () => {
+  const b = oneLaunchBoard([{ id: 'F1', title: 'Fail me', state: 'ready', size: 'large' }], path.join(os.tmpdir(), 'no-such-claude-here'));
+  const { child, send } = await b.start();
+  try {
+    const tapped = await send('card-build', { key: 't/F1' });
+    assert.equal(tapped.id, null);
+    const last = b.thread('F1').at(-1);
+    assert.equal(last.kind, 'build-refused');
+    assert.match(last.text, /^Couldn't start implementing: the launch failed \(.*ENOENT.*\)\. Tap Implement to try again\.$/);
+    assert.equal(b.item('F1').status, undefined, 'back in Todo');
+    assert.ok(b.record('F1').done, 'its builder record is closed');
+    assert.ok(!b.events().includes('card-build'));
+  } finally {
+    child.kill();
+    fs.rmSync(b.home, { recursive: true, force: true });
   }
 });

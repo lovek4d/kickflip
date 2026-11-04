@@ -785,8 +785,7 @@ const storedTickets = (value) => { try { return value ? ticketSource(value) : nu
 // A board's settings in board.json (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md): auto_merge,
 // auto_build, auto_pull (Auto implement Todo cards), auto_triage, auto_review and idle_notification, off when absent, max_implementers, a
 // whole number from 1 to 99 and MAX_IMPLEMENTERS when absent
-// (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md), headless_builders, off when absent
-// (docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md), skip_draft, off when
+// (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md), skip_draft, off when
 // absent (docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md), prs, on unless false (opensPRs;
 // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md), tickets, its one
 // ticket source, and github_login, absent when unset or invalid (docs/adr/2026-11-01-1348-a-board-has-one-ticket-source.md).
@@ -795,7 +794,6 @@ export const settingsOf = (cfg) => {
   const tickets = storedTickets(cfg?.tickets);
   return { auto_merge: cfg?.auto_merge === true, auto_build: cfg?.auto_build === true, auto_pull: cfg?.auto_pull === true,
     max_implementers: validMaxImplementers(cfg?.max_implementers) ? cfg.max_implementers : MAX_IMPLEMENTERS, auto_triage: cfg?.auto_triage === true, auto_review: cfg?.auto_review === true,
-    headless_builders: cfg?.headless_builders === true,
     idle_notification: cfg?.idle_notification === true, skip_draft: cfg?.skip_draft === true, prs: cfg?.prs !== false,
     ...(tickets ? { tickets } : {}), ...(validGithubLogin(cfg?.github_login) ? { github_login: cfg.github_login } : {}) };
 };
@@ -807,11 +805,11 @@ export async function readBoardSettings(site) {
 // answer, settings settingsOf's.
 export const opensPRs = (board, settings) => Boolean(board?.github) && !board.local && settings.prs;
 
-// changes {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean, headless_builders?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, tickets?: source, github_login?: login | null} → {file, settings, changed}; changed lists the keys whose value moved.
+// changes {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, tickets?: source, github_login?: login | null} → {file, settings, changed}; changed lists the keys whose value moved.
 // PRs off on a board on GitHub that builds from its shared clone needs its Push main switch on, since each land there
 // then pushes main (permissions.mjs pushMain).
 export async function saveBoardSettings(site, changes) {
-  onlyKeys(changes, ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'auto_triage', 'auto_review', 'headless_builders', 'idle_notification', 'skip_draft', 'prs', 'tickets', 'github_login'], 'the settings');
+  onlyKeys(changes, ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'auto_triage', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tickets', 'github_login'], 'the settings');
   if (!Object.keys(changes).length) fail('the settings name nothing to change');
   changes = { ...changes };
   for (const [k, v] of Object.entries(changes)) {
@@ -857,7 +855,7 @@ export async function fallBackFromLinear() {
 // The CLI's `settings set <name> <value>`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
   const key = String(name).replace(/-/g, '_');
-  const names = ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'auto_triage', 'auto_review', 'headless_builders', 'idle_notification', 'skip_draft', 'prs', 'github_login', 'tickets'];
+  const names = ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'auto_triage', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'github_login', 'tickets'];
   if (!names.includes(key)) fail(`no board setting "${name}"; settings are ${names.map((k) => k.replace(/_/g, '-')).join(', ')}`);
   if (key === 'tickets') {
     let tickets;
@@ -1351,10 +1349,10 @@ async function checkNextDeps(site, key, item, next) {
 }
 
 // docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
-// On a board whose builders launch headless, ready means a builder can start from the card alone: it has a size, a
-// notes file, and that file names the id of every question on the card the owner answered.
+// Ready means a builder can start from the card alone: it has a size, a notes file, and that file names the id of every
+// question on the card the owner answered (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
 async function checkNotesComplete(site, key, dir, item) {
-  const starts = 'a headless builder starts from it, so pass';
+  const starts = 'a builder starts from it, so pass';
   if (!item.size) fail(`${key} has no size; ${starts} --size small or large with --state ready`);
   if (!item.plan) fail(`${key} has no notes file; ${starts} --notes-file <file.md> with --state ready`);
   const notes = await fs.readFile(await planPath(dir, item.plan), 'utf8');
@@ -1529,7 +1527,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (state === 'ready' && site) {
     const open = (await cardQuestions(site, key)).asked.filter((q) => q.state === 'open').map((q) => q.id);
     if (open.length) fail(`${key} has ${open.length === 1 ? 'an open question' : 'open questions'} ${open.join(', ')}; it is ready once the owner has answered ${open.length === 1 ? 'it' : 'them'}`);
-    if ((await readBoardSettings(site)).headless_builders) await checkNotesComplete(site, key, source.dir, item);
+    await checkNotesComplete(site, key, source.dir, item);
   }
   if (state !== undefined) item.state = state;
   if (built) item.install = built;
@@ -1541,7 +1539,8 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (unrelate) await unrelate();
   const resolved = await resolve();
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
-  if (notesFile !== undefined) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
+  // Ready checked that the notes name every answered question, so it resolves them as a new notes file does.
+  if (notesFile !== undefined || (state === 'ready' && site)) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
   if (status === 'building') resolved.push(...await resolveAnswered(site, key, 'Acted on: build started'));
   if (ask) resolved.push(...(await appendThread(site, key, { text: said })).lines);
   if (lastLine && site) resolved.push(...(await appendThread(site, key, { text: lastLine, who })).lines);
@@ -2265,8 +2264,8 @@ const PLANNER_MODEL = { prototype: 'sonnet', grill: 'opus' };
 // open card marks it building first, refusing what item set --status building refuses
 // (docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
 // dispatch marks the record open before its agent runs, as dispatched: 'tap' for the owner's Build tap
-// (startTappedBuild), 'hub' for a pull the board server starts on a board whose builders launch headless
-// (docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md), or 'session' for the session's --dispatch right before it launches an agent of any kind. A
+// (startTappedBuild), 'hub' for a pull or a planner the board server starts
+// (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md), or 'session' for the session's --dispatch right before it launches some other agent. A
 // builder's own start on that open record takes it up: --kind build keeps the record's kind, its Claude model and
 // worktree stay, and the record starts again at now, no longer dispatched. A session's dispatch on a record the tap
 // opened leaves it as it is, and a start under another agent name refuses until main's tap-opened record is taken up
@@ -2357,7 +2356,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
 // A card an unfinished dep blocks is queued instead: no record and no worktree, its wave entry's queued_at the tap's
 // time, and a thread line; the board server starts it once nothing blocks it and an implementer slot is free (startQueuedBuild). → {key, ref, queued:
 // [blocker names]} (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
-// dispatch 'hub' is a pull the board server starts itself, on a board whose builders launch headless.
+// dispatch 'hub' is a pull the board server starts itself.
 export async function startTappedBuild(site, key, worktree, dispatch = 'tap') {
   try {
     const { held, blockers } = await tapRefusals(site, key);
@@ -2416,6 +2415,38 @@ export async function startQueuedBuild(site, key, worktree) {
     await writeJSON(source.file, wave);
   }
   return started;
+}
+
+// docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
+// A build the board server started whose agent couldn't launch goes back to Todo: its open main record closes, the card
+// loses the building status the start gave it, and the thread says why, as a refusal the Todo card shows.
+export async function abandonLaunch(site, key, why) {
+  const file = await builderFile(site, key);
+  const record = await readJSON(file, null);
+  const now = new Date().toISOString();
+  if (record && !record.done) await writeJSON(file, { ...record, done: now });
+  const { source, wave, item } = await loadItem(site, key);
+  if (item.status === 'building') { delete item.status; item.status_at = now; }
+  await writeJSON(source.file, wave);
+  await appendLine(threadFile(site, key), { ts: now, who: 'claude', kind: BUILD_REFUSED, text: `Couldn't start implementing: ${why}` });
+}
+
+// A planner the board server opened whose agent couldn't launch: its record closes and the thread says why.
+export async function abandonPlanner(site, key, text) {
+  const file = await builderFile(site, key);
+  const record = await readJSON(file, null);
+  if (record && !record.done) await writeJSON(file, { ...record, done: new Date().toISOString() });
+  await appendThread(site, key, { text });
+}
+
+// The board server's start of a planner, kind grill or prototype, on a card: the main record opens, dispatched: 'hub',
+// as builder start --kind <kind> does. → {key, kind, model}, or null while an agent already works on the card's main
+// record.
+export async function startPlanner(site, key, kind) {
+  const open = await readJSON(await builderFile(site, key), null);
+  if (open && !open.done) return null;
+  const started = await startBuilder(site, key, { kind, dispatch: 'hub' });
+  return { key, kind, model: started.model };
 }
 
 // A tapped build that failed to start puts back the hold the tap cleared.

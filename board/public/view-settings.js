@@ -26,10 +26,6 @@
     <span class="muted small sub">Cards building or waiting in Orchestrator review count. Grills and cards waiting on you don’t.</span></span>
     <input type="number" class="count" id="maxImplementers" min="1" max="99" step="1" inputmode="numeric" disabled></label>
   <p class="muted small" id="maxImplementersStatus" role="status"></p>
-  <label class="who" for="headlessBuilders"><span><span>Builders launch headless</span>
-    <span class="muted small sub">The board launches each ready card’s builder from its notes, and the builder lands its own work. Ready needs a size and notes.</span></span>
-    <input type="checkbox" class="toggle" id="headlessBuilders" disabled></label>
-  <p class="muted small" id="headlessBuildersStatus" role="status"></p>
   <label class="who" for="autoBuild"><span><span>Auto-build cards</span>
     <span class="muted small sub" id="autoBuildSub">${BoardUI.esc(BoardUI.tryWords('web').autoSub)}</span></span>
     <input type="checkbox" class="toggle" id="autoBuild" disabled></label>
@@ -363,8 +359,6 @@
       $('#autoTriage').disabled = false;
       $('#autoReview').checked = d.settings?.auto_review === true;
       $('#autoReview').disabled = false;
-      $('#headlessBuilders').checked = d.settings?.headless_builders === true;
-      $('#headlessBuilders').disabled = false;
       $('#idleNotification').checked = d.settings?.idle_notification === true;
       $('#idleNotification').disabled = false;
       $('#skipDraft').checked = d.settings?.skip_draft === true;
@@ -454,7 +448,6 @@
       }
     });
     autoToggle('autoReview', 'auto_review', (on) => (on ? 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.' : 'Saved. Claude leaves incoming PRs alone.'));
-    autoToggle('headlessBuilders', 'headless_builders', (on) => (on ? 'Saved. The board launches each ready card’s builder itself, and the builder lands its own work.' : 'Saved. Claude briefs and launches each builder.'));
     autoToggle('idleNotification', 'idle_notification', (on) => (on ? 'Saved. One push once the board has been idle for 15 minutes.' : 'Saved. No push when the board goes idle.'));
     autoToggle('autoTriage', 'auto_triage', (on) => (on ? 'Saved. Once a night, when cards wait on your answers, Claude triages them.' : 'Saved. Questions and Todo are left as they are.'));
     autoToggle('skipDraft', 'skip_draft', (on) => (on ? 'Saved. A builder’s draft PR is marked ready for review once CI passes.' : 'Saved. A builder’s draft PR waits for your review.'));

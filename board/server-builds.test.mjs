@@ -34,7 +34,7 @@ test('each change signal builds the board once for every check and the page that
     for (let last = -1; last !== count();) { last = count(); await new Promise((resolve) => setTimeout(resolve, 800)); }
   };
   const [port] = await freePorts();
-  const worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), site], { env: { ...process.env, HOME: dir, PORT: String(port) } });
+  const worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), site], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: dir, PORT: String(port) } });
   let page;
   try {
     await new Promise((resolve, reject) => { worker.stdout.once('data', resolve); worker.once('exit', reject); });

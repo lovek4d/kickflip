@@ -178,7 +178,8 @@
     }
     if (it.lane !== 'progress' || it.builder?.planner) return null;
     const all = BUILD_PHASES.length;
-    if (it.waitsOn === 'checking') return { reached: all, running: false, dim: false, label: `Orchestrator review, ${ALL_DONE}` };
+    // Orchestrator review is the checking phase, before landing (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
+    if (it.waitsOn === 'checking') return { reached: BUILD_PHASES.indexOf('checking') + 1, running: true, dim: false, label: `Orchestrator review, ${stepWords('checking')}` };
     const asking = it.action?.kind === ACTION_KIND.questions || it.action?.kind === ACTION_KIND.pick;
     const answers = asking ? ', waiting on your answers' : '';
     const name = (phase) => `${phase[0].toUpperCase()}${phase.slice(1)}`;

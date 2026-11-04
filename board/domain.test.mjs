@@ -1549,6 +1549,8 @@ test("a card made from an ask reads New until its session sets ready, grilling o
   assert.deepEqual([
     grilling(ran('2026-10-23T10:01:00Z', '2026-10-23T10:30:00Z')), grilling(ran('2026-10-23T10:01:00Z')), grilling(ran('2026-10-23T09:00:00Z', '2026-10-23T09:30:00Z')),
   ], [false, true, true]);
+  // The board server opens the grill in the request's own millisecond.
+  assert.equal(grilling(ran('2026-10-23T10:00:00Z', '2026-10-23T10:30:00Z')), false);
   // A card's Prototype tap is under way the same way, until questions post, a reply comes or a prototype agent that started after it finishes.
   const tap = { id: 'p1', ts: '2026-10-23T10:00:00Z', kind: 'prototype-request', data: { key: 'w/A1' } };
   const prototyping = (extra) => card({ item: { state: 'ready' }, events: [tap], ...extra });

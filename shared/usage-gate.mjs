@@ -55,7 +55,7 @@ export function setKeepGoing(value, { home = os.homedir(), now = Date.now() } = 
 }
 
 export const heldUsageEvent = (line) => {
-  try { return ['github-change', 'check-github', 'card-unblocked', 'card-pull', 'card-plan', 'overnight-triage', 'pr-review', 'owner-check-broken'].includes(JSON.parse(line).kind); } catch { return false; }
+  try { return ['github-change', 'check-github', 'card-unblocked', 'overnight-triage', 'pr-review', 'owner-check-broken'].includes(JSON.parse(line).kind); } catch { return false; }
 };
 
 // Who builds a card, codex or claude: Codex while it is usable, the Codex share in effect is auto or always, and Codex is

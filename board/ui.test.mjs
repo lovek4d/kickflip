@@ -1210,7 +1210,7 @@ test('every In Progress card shows its five phase bars: empty before a phase, fi
     [{ builder: { progress: null, phase: null, at: null } }, { dim: false, label: 'Preheating, no step yet', bars: '- - - - -' }],
     [{ builder: testing }, { dim: false, label: 'Testing, step 3 of 5', bars: 'done done now - -' }],
     [{ builder: { ...testing, stalled: true } }, { dim: true, label: 'Testing, step 3 of 5', bars: 'done done now - -' }],
-    [{ waitsOn: 'checking' }, { dim: false, label: 'Orchestrator review, all 5 steps done', bars: 'done done done done done' }],
+    [{ waitsOn: 'checking' }, { dim: false, label: 'Orchestrator review, step 4 of 5', bars: 'done done done now -' }],
     [{ builder: { ...testing, phase: 'building' }, action: questions }, { dim: true, label: 'Building, step 2 of 5, waiting on your answers', bars: 'done now - - -' }],
     [{ reachedPhase: 'building', action: questions }, { dim: true, label: 'Stopped at building, step 2 of 5, waiting on your answers', bars: 'done done - - -' }],
     [{ queued: true, blockedBy: [{ key: 'w/A1', ref: 'A1' }] }, { dim: true, label: 'Queued, no step yet', bars: '- - - - -' }],
@@ -2007,7 +2007,7 @@ test("a card's phase bars enter as it lands in In Progress, empty or not, fill a
   const reached = (it) => ui.phaseStrip(it)?.reached ?? null;
   assert.equal(reached({ lane: 'progress', builder: { phase: 'testing' } }), 3);
   assert.equal(reached({ lane: 'progress', builder: { phase: null } }), 0);
-  assert.equal(reached({ lane: 'progress', waitsOn: 'checking' }), 5);
+  assert.equal(reached({ lane: 'progress', waitsOn: 'checking' }), 4);
   assert.equal(reached({ lane: 'todo', builder: { phase: 'testing' } }), null);
   assert.equal(reached({ lane: 'progress', builder: { planner: true, phase: 'testing' } }), null);
   assert.equal(ui.phaseMotion(undefined, 0), 'enter');

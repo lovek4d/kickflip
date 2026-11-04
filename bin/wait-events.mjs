@@ -79,7 +79,6 @@ const PLAIN = {
 };
 const ON_CARD = {
   'item-message': (c) => `message received from ${c}'s thread`,
-  'card-build': (c) => `build started on ${c}`,
   'card-merge': (c) => `merge asked on ${c}`,
   'card-done': (c) => `${c} marked done`,
   'card-bump': (c) => `${c} bumped`,
@@ -89,8 +88,6 @@ const ON_CARD = {
   'ask-withdrawn': (c) => `${c} deleted`,
   'card-hold': (c, e) => `${c} ${e.data?.hold ? 'held' : 'resumed'}`,
   'card-unblocked': (c) => `${c} unblocked`,
-  'card-pull': (c) => `${c} pulled in`,
-  'card-plan': (c) => `plan asked on ${c}`,
   'prototype-request': (c) => `prototype asked on ${c}`,
   'reask-request': (c) => `question asked again on ${c}`,
   'builder-ask': (c, e) => `${e.data?.ask} from ${c}'s builder: ${e.data?.text}`,

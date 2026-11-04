@@ -202,7 +202,7 @@ test('tickets validate prefixes and link or create in the board source through t
   assert.equal(await cli('item', 'add', 'audit/H8', '--title', 'Eight', '--notes-file', 'notes.md'), 0);
   write(site('audit', 'data', 'events.jsonl'), JSON.stringify({ id: 'e1', kind: 'ask', data: { text: 'Ask' } }) + '\n');
   write(waveFile, { ...read(waveFile), items: [...read(waveFile).items, { id: 'I9', title: 'From ask', notes: 'Asked why' }] });
-  assert.equal(await cli('item', 'set', 'audit/I9', '--from-ask', 'e1', '--state', 'ready', '--text', 'On it.'), 0);
+  assert.equal(await cli('item', 'set', 'audit/I9', '--from-ask', 'e1', '--state', 'grilling', '--text', 'On it.'), 0);
   assert.equal(await cli('item', 'add', 'audit/github-follow', '--title', 'Another follow', '--parent', 'audit/A1'), 0);
   assert.deepEqual(calls, [
     ['gh', ['issue', 'view', '41', '--repo', 'o/r', '--json', 'number,url']],
@@ -364,7 +364,7 @@ test("a board still on Linear after Hub's key went refuses new tickets, links an
   write(waveFile, { ...read(waveFile), items: [...read(waveFile).items, { id: 'D4', title: 'Asked' }] });
   const before = fs.readFileSync(waveFile, 'utf8');
   for (const args of [['item', 'add', 'audit/C3', '--title', 'Three'], ['item', 'add', 'audit', '--title', 'Unnamed'], ['item', 'add', 'audit/later', '--title', 'Later', '--parent', 'A1'],
-    ['item', 'set', 'audit/B2', '--ticket', 'ENG-4'], ['item', 'set', 'audit/D4', '--from-ask', 'e1', '--state', 'ready', '--text', 'On it.']]) {
+    ['item', 'set', 'audit/B2', '--ticket', 'ENG-4'], ['item', 'set', 'audit/D4', '--from-ask', 'e1', '--state', 'grilling', '--text', 'On it.']]) {
     assert.equal(await cli(...args), 1, args.join(' '));
     assert.equal(err.at(-1), noKey);
   }
@@ -1037,9 +1037,9 @@ test('item set edits the item in a waves board and in a file board', () => {
     }
   }
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e9', '--state', 'ready', '--text', 'On it.').code, 1);
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e1', '--state', 'ready', '--text', 'On it.').code, 0);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e1', '--state', 'grilling', '--text', 'On it.').code, 0);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].ticket, 'INT-1');
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e1', '--state', 'ready', '--text', 'On it.').code, 0);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e1', '--state', 'grilling', '--text', 'On it.').code, 0);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].ticket, 'INT-1');
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].from_ask, 'e1');
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'checking', '--next', '').code, 0);
@@ -1070,18 +1070,17 @@ test('item set --state sets ready, grilling or prototyping, with --from-ask too,
   assert.equal(state(), 'prototyping');
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'grilling').code, 0);
   assert.equal(board('question', 'resolve', 'q1', '--site', 'orch', '--note', 'Settled').code, 0);
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'ready').code, 0);
+  write(at('waves', 'w', 'a1.md'), '# A1\n');
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'ready', '--size', 'small', '--notes-file', 'a1.md').code, 0);
   assert.equal(state(), 'ready');
 });
 
 // docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
-test('on a board whose builders launch headless, ready refuses a card without a size, without a notes file, or whose notes leave out an answered question', () => {
+// docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
+test('ready refuses a card without a size, without a notes file, or whose notes leave out an answered question, and resolves the answered questions its notes carry', () => {
   const state = () => read(at('waves', 'w', 'wave.json')).items[0].state;
-  assert.deepEqual(board('settings', 'set', 'headless-builders', 'on', '--site', 'orch'), { code: 0, out: 'headless-builders on\n', err: '' });
-  assert.equal(read(site('orch', 'board.json')).headless_builders, true);
-  assert.match(board('settings', '--site', 'orch').out, /"headless_builders":true/);
-  assert.deepEqual(board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'ready'), { code: 1, out: '', err: 'w/A1 has no size; a headless builder starts from it, so pass --size small or large with --state ready\n' });
-  assert.deepEqual(board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'ready', '--size', 'small'), { code: 1, out: '', err: 'w/A1 has no notes file; a headless builder starts from it, so pass --notes-file <file.md> with --state ready\n' });
+  assert.deepEqual(board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'ready'), { code: 1, out: '', err: 'w/A1 has no size; a builder starts from it, so pass --size small or large with --state ready\n' });
+  assert.deepEqual(board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'ready', '--size', 'small'), { code: 1, out: '', err: 'w/A1 has no notes file; a builder starts from it, so pass --notes-file <file.md> with --state ready\n' });
   assert.equal(state(), undefined);
   write(path.join(home, 'card.json'), question('q1', { topic: 'item:w/A1' }));
   assert.equal(board('question', 'add', '--site', 'orch', '--file', path.join(home, 'card.json')).code, 0);
@@ -1089,11 +1088,17 @@ test('on a board whose builders launch headless, ready refuses a card without a 
   write(at('waves', 'w', 'a1.md'), '# A1\n\nKeep it.\n');
   assert.deepEqual(board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'ready', '--size', 'small', '--notes-file', 'a1.md'), { code: 1, out: '', err: "w/A1's notes leave out the answered question q1; record each answer in a1.md, naming its id, before it is ready\n" });
   write(at('waves', 'w', 'a1.md'), '# A1\n\n- q1: keep it.\n');
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'ready', '--size', 'small', '--notes-file', 'a1.md').code, 0);
+  // The notes file came in an earlier command, so ready alone resolves the answer the notes carry.
+  const wave = read(at('waves', 'w', 'wave.json'));
+  Object.assign(wave.items[0], { size: 'small', plan: 'a1.md' });
+  write(at('waves', 'w', 'wave.json'), wave);
+  const ready = board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'ready');
+  assert.equal(ready.code, 0);
+  assert.match(ready.out, /resolved: q1/);
   assert.equal(state(), 'ready');
-  // A board without it keeps ready as it was.
-  assert.equal(board('settings', 'set', 'headless-builders', 'off', '--site', 'orch').code, 0);
-  assert.equal(board('item', 'set', 'w/ENG-1', '--site', 'orch', '--state', 'ready').code, 0);
+  assert.ok(read(site('orch', 'data', 'owner.json')).items.find((q) => q.id === 'q1').resolved);
+  // There is no setting to turn the check off.
+  assert.equal(board('settings', 'set', 'headless-builders', 'off', '--site', 'orch').code, 1);
 });
 
 test('item set --next requires unfinished card ids and refs to be deps, and allows finished cards', () => {
@@ -2978,9 +2983,9 @@ test('ask move refuses a route that is not another board, and an ask that is not
 test('ask move drops the card an ask became when it has not started, and refuses one that has', () => {
   boardsManifest();
   addEvents({ id: 'e2', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Filed first' } }, { id: 'e3', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Started' } });
-  board('item', 'set', 'w/A1', '--from-ask', 'e2', '--state', 'ready', '--site', 'orch', '--text', 'Filed.');
+  board('item', 'set', 'w/A1', '--from-ask', 'e2', '--state', 'grilling', '--site', 'orch', '--text', 'Filed.');
   board('item', 'add', 'w/A2', '--title', 'Two', '--site', 'orch');
-  board('item', 'set', 'w/A2', '--from-ask', 'e3', '--state', 'ready', '--status', 'building', '--site', 'orch', '--text', 'Building it.');
+  board('item', 'set', 'w/A2', '--from-ask', 'e3', '--state', 'grilling', '--status', 'building', '--site', 'orch', '--text', 'Building it.');
   assert.match(board('ask', 'move', 'e3', '--to', 'audit', '--site', 'orch').err, /ask "e3" became w\/A2, which has started/);
   const r = board('ask', 'move', 'e2', '--to', 'audit', '--site', 'orch');
   assert.equal(r.code, 0, r.err);
@@ -2992,12 +2997,12 @@ test('ask move drops the card an ask became when it has not started, and refuses
 
 test('item set --from-ask on a card that came from another ask refuses and points to relate-ask; the same ask again stays fine', () => {
   addEvents({ id: 'e2', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'A second ask' } });
-  assert.equal(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--state', 'ready', '--site', 'orch', '--text', 'On it.').code, 0);
-  const r = board('item', 'set', 'w/A1', '--from-ask', 'e2', '--state', 'ready', '--site', 'orch', '--text', 'Also this.');
+  assert.equal(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--state', 'grilling', '--site', 'orch', '--text', 'On it.').code, 0);
+  const r = board('item', 'set', 'w/A1', '--from-ask', 'e2', '--state', 'grilling', '--site', 'orch', '--text', 'Also this.');
   assert.equal(r.code, 1);
   assert.match(r.err, /w\/A1 came from ask "e1".*item relate-ask e2 w\/A1 --summary/);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].from_ask, 'e1');
-  assert.equal(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--state', 'ready', '--site', 'orch', '--text', 'Again.').code, 0);
+  assert.equal(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--state', 'grilling', '--site', 'orch', '--text', 'Again.').code, 0);
 });
 
 test('item set records when the status last changed, and only then', () => {
@@ -3071,12 +3076,12 @@ test("reviewers set, add and remove keep the board's own reviewers in its board.
 test("settings prints the board's settings as JSON, off when absent, and settings set auto-merge on|off writes board.json keeping its other keys", () => {
   const cfg = () => read(site('orch', 'board.json'));
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] });
-  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_pull":false,"max_implementers":10,"auto_triage":false,"auto_review":false,"headless_builders":false,"idle_notification":false,"skip_draft":false,"prs":true}\n', err: '' });
+  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_pull":false,"max_implementers":10,"auto_triage":false,"auto_review":false,"idle_notification":false,"skip_draft":false,"prs":true}\n', err: '' });
   const on = board('settings', 'set', 'auto-merge', 'on', '--site', 'orch');
   assert.equal(on.code, 0);
   assert.match(on.out, /^auto-merge on$/m);
   assert.deepEqual(cfg(), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }], auto_merge: true });
-  assert.equal(board('settings', '--site', 'orch').out, '{"auto_merge":true,"auto_build":false,"auto_pull":false,"max_implementers":10,"auto_triage":false,"auto_review":false,"headless_builders":false,"idle_notification":false,"skip_draft":false,"prs":true}\n');
+  assert.equal(board('settings', '--site', 'orch').out, '{"auto_merge":true,"auto_build":false,"auto_pull":false,"max_implementers":10,"auto_triage":false,"auto_review":false,"idle_notification":false,"skip_draft":false,"prs":true}\n');
   assert.equal(board('settings', 'set', 'auto-merge', 'off', '--site', 'orch').code, 0);
   assert.equal(cfg().auto_merge, false);
   // docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md
@@ -3331,7 +3336,7 @@ test('main set publishes an install with the same URL and sha checks as card ins
 
 test('github-login settings lines and API validation support set and clear', async () => {
   const { settingsOf, settingsLines, saveBoardSettings } = await import('./store.mjs');
-  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on', 'setting github-login owner']);
+  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on', 'setting github-login owner']);
   assert.ok(!('github_login' in settingsOf({ github_login: 'bad login' })));
   await saveBoardSettings(site('orch'), { github_login: 'owner' });
   await saveBoardSettings(site('orch'), { github_login: null });

@@ -3,13 +3,34 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { until } from '../shared/test-helpers.mjs';
 
 // Writes a file the running server may be reading the way the board does (write aside, then rename), so the server
 // never reads it half-written.
 const put = (file, text) => { fs.writeFileSync(file + '.tmp', text); fs.renameSync(file + '.tmp', file); };
+
+// The board at siteDir as the hub's manifest under dir records it, building from a git repo of its own, and a fake
+// claude that logs the card and kind of each agent the server launches
+// (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md). → {claude, launched(kinds)}: the cards
+// launched with any of kinds, each once, first launch first.
+function launchingBoard(dir, siteDir) {
+  const repo = path.join(dir, 'repo');
+  fs.mkdirSync(repo, { recursive: true });
+  const git = (...args) => execFileSync('git', ['-C', repo, ...args]);
+  git('init', '--quiet', '-b', 'main');
+  git('-c', 'user.name=T', '-c', 'user.email=t@example.com', 'commit', '--quiet', '--allow-empty', '-m', 'base');
+  const manifest = path.join(dir, '.claude', 'kickflip', 'manifest.json');
+  fs.mkdirSync(path.dirname(manifest), { recursive: true });
+  fs.writeFileSync(manifest, JSON.stringify({ sites: { t: { dir: siteDir, port: 1, cmd: ['node', '/x/board/server.mjs'], branch: 'main', owner: { repo } } } }));
+  const log = path.join(dir, 'launches.log');
+  const claude = path.join(dir, 'claude');
+  fs.writeFileSync(claude, `#!/usr/bin/env node\nconst m = process.argv[3].match(/builder start (\\S+) --kind (\\w+)/);\nrequire('fs').appendFileSync(${JSON.stringify(log)}, m[1] + ' ' + m[2] + '\\n');\n`);
+  fs.chmodSync(claude, 0o755);
+  const launched = (...kinds) => [...new Set((fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '').split('\n').filter(Boolean).map((l) => l.split(' ')).filter(([, k]) => kinds.includes(k)).map(([key]) => key))];
+  return { claude, launched };
+}
 
 test('automatic builder check-ins run without a browser, once per silent spell across a restart, and stop on done', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'builder-stalled-'));
@@ -48,7 +69,7 @@ test('automatic builder check-ins run without a browser, once per silent spell a
   };
   const start = async () => {
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
-      env: { ...process.env, HOME: dir, BUILDER_TEST_CLOCK: clockFile },
+      env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: dir, BUILDER_TEST_CLOCK: clockFile },
     });
     let errors = '';
     worker.stderr.on('data', (chunk) => { errors += chunk; });
@@ -146,7 +167,7 @@ test('a held card resumes itself within a minute of its pick-up time, once per t
   const threadLines = (id) => (fs.existsSync(path.join(dataDir, 'threads', `t__${id}.jsonl`)) ? fs.readFileSync(path.join(dataDir, 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').length : 0);
   const start = async () => {
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
-      env: { ...process.env, HOME: dir, BUILDER_TEST_CLOCK: clockFile },
+      env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: dir, BUILDER_TEST_CLOCK: clockFile },
     });
     let errors = '';
     worker.stderr.on('data', (chunk) => { errors += chunk; });
@@ -190,7 +211,7 @@ test('a held card resumes itself within a minute of its pick-up time, once per t
 });
 
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
-test('with auto implement on the board sends card-pull for the top pullable Todo cards at start and on each change, filling free slots up to Maximum parallel implementers, once each across a restart, and never while paused', async () => {
+test('with auto implement on the board starts and launches the build of the top pullable Todo cards at start and on each change, filling free slots up to Maximum parallel implementers, once each across a restart, and never while paused', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-pull-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
@@ -242,13 +263,15 @@ test('with auto implement on the board sends card-pull for the top pullable Todo
     globalThis.setInterval = (fn, ms, ...args) => interval(fn, ms === 60000 ? 20 : ms, ...args);
     http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };
   `);
-  const pulls = () => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').map(JSON.parse).filter((e) => e.kind === 'card-pull').map((e) => e.data.key);
+  const { claude, launched } = launchingBoard(dir, siteDir);
+  const pulls = () => launched('build');
   const thread = (id) => (fs.existsSync(path.join(dataDir, 'threads', `t__${id}.jsonl`)) ? fs.readFileSync(path.join(dataDir, 'threads', `t__${id}.jsonl`), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l).text) : []);
-  const ask = (id, key) => { owner.items.push(question(id, key)); put(ownerFile, JSON.stringify(owner)); };
-  const setStatus = (id, status) => { wave.items.find((it) => it.id === id).status = status; put(waveFile, JSON.stringify(wave)); };
+  // The server writes the wave file too, so a change reads it fresh.
+  const setStatus = (id, status) => { const now = JSON.parse(fs.readFileSync(waveFile, 'utf8')); now.items.find((it) => it.id === id).status = status; put(waveFile, JSON.stringify(now)); };
+  const finish = (id) => { const file = path.join(dataDir, 'agents', `${id}.json`); put(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), done: iso(now) })); setStatus(id, 'done'); };
   const start = async () => {
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
-      env: { ...process.env, HOME: dir, BUILDER_TEST_CLOCK: clockFile },
+      env: { ...process.env, KICKFLIP_CODEX: 'true', HOME: dir, BUILDER_TEST_CLOCK: clockFile, KICKFLIP_CLAUDE: claude },
     });
     let errors = '';
     worker.stderr.on('data', (chunk) => { errors += chunk; });
@@ -268,29 +291,27 @@ test('with auto implement on the board sends card-pull for the top pullable Todo
   try {
     // At start the running build takes one of the two slots; the top pullable card takes the other.
     await start();
-    await until(() => pulls().length === 1 && thread('A5').length === 1, 'the board pulls in a card at start');
+    await until(() => pulls().length === 1 && thread('A5').length >= 2, 'the board pulls in a card at start');
     assert.deepEqual(pulls(), ['t/A5']);
-    assert.deepEqual(thread('A5'), ['Pulled in: an implementer slot was free.']);
-    await until(() => fs.existsSync(pulledFile) && JSON.parse(fs.readFileSync(pulledFile, 'utf8')).keys.join() === 't/A5', 'the pull is marked');
+    // The fake builder exits at once, so the minute check may relaunch it after these two lines.
+    assert.deepEqual(thread('A5').slice(0, 2).map((t) => t.replace(/ in .*/, '')), ['Pulled in: an implementer slot was free.', 'Builder launched on Claude Opus']);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'agents', 'A5.json'), 'utf8')).dispatched, 'hub');
+    assert.ok(!fs.readFileSync(eventsFile, 'utf8').includes('card-pull'), 'no event wakes the session');
     await stop();
-    fs.rmSync(pulledFile);
+    fs.rmSync(pulledFile, { force: true });
     await start();
     await tick();
-    assert.deepEqual(pulls(), ['t/A5'], 'the event log covers a lost marker');
+    assert.deepEqual(pulls(), ['t/A5'], 'a started build holds its slot without the marker');
 
-    // The build finishing frees its slot at once, with A5 still waiting to start.
+    // The running build finishing frees its slot at once.
     put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), done: iso(now) }));
     await until(() => pulls().length === 2, 'a freed slot is filled on the change');
     assert.deepEqual(pulls(), ['t/A5', 't/A7']);
-    // The event comes first and the marker after; stopping between them loses the pull, since the mocked clock gives the
-    // event and the marker one timestamp and the log only covers events after the marker.
-    await until(() => JSON.parse(fs.readFileSync(pulledFile, 'utf8')).keys.join() === 't/A5,t/A7', 'the second pull is marked');
 
-    // Changed while the server is down: Orchestrator review takes A0's slot back, so A5 stopping being pullable frees
-    // none.
+    // Changed while the server is down: Orchestrator review takes A0's slot back, so A5 finishing frees none.
     await stop();
     setStatus('A0', 'checking');
-    ask('q5', 't/A5');
+    finish('A5');
     await start();
     await tick();
     assert.deepEqual(pulls(), ['t/A5', 't/A7']);
@@ -299,7 +320,7 @@ test('with auto implement on the board sends card-pull for the top pullable Todo
     assert.deepEqual(pulls(), ['t/A5', 't/A7', 't/A6']);
 
     put(usageFile, JSON.stringify({ claude: { at: iso(now), five_hour: { used_percentage: 95, resets_at: iso(now + 3600000) }, seven_day: { used_percentage: 40, resets_at: iso(now + 86400000) } } }));
-    ask('q7', 't/A7');
+    finish('A7');
     await tick();
     await tick();
     assert.deepEqual(pulls(), ['t/A5', 't/A7', 't/A6']);
@@ -335,14 +356,17 @@ test('a tapped card whose blockers are done waits in Queued while In Progress is
   put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000) }));
   fs.writeFileSync(setup, "import http from 'node:http'; http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };");
   const queuedAt = () => JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === 'Q1').queued_at;
+  const { claude, launched } = launchingBoard(dir, siteDir);
   try {
-    worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], { env: { ...process.env, HOME: dir } });
+    worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], { env: { ...process.env, KICKFLIP_CODEX: 'true', HOME: dir, KICKFLIP_CLAUDE: claude } });
     await new Promise((resolve, reject) => { worker.stdout.once('data', resolve); worker.once('exit', (code) => reject(new Error(`Server exited ${code}`))); });
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(queuedAt(), iso(now - 60000), 'the running build holds the only slot');
-    // The start is tried once the build finishes; with no repo here it is refused, which clears the queue.
+    assert.deepEqual(launched('build'), []);
+    // The start is tried once the build finishes, which clears the queue and launches its builder.
     put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), done: iso(now) }));
-    await until(() => queuedAt() === undefined, 'the queued card starts once a slot frees');
+    await until(() => queuedAt() === undefined && launched('build').length === 1, 'the queued card starts once a slot frees');
+    assert.deepEqual(launched('build'), ['t/Q1']);
   } finally {
     if (worker?.exitCode === null) { const exited = new Promise((resolve) => worker.once('exit', resolve)); worker.kill(); await exited; }
     fs.rmSync(dir, { recursive: true, force: true });
@@ -399,11 +423,12 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
   `);
   const logged = (kind) => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse).filter((e) => e.kind === kind);
   const triages = () => logged('overnight-triage');
-  const pulls = () => logged('card-pull').map((e) => e.data.key);
+  const { claude, launched } = launchingBoard(dir, siteDir);
+  const pulls = () => launched('build');
   const reply = (id) => { fs.mkdirSync(path.join(dataDir, 'replies'), { recursive: true }); put(path.join(dataDir, 'replies', `${id}.html`), '<p>Triaged.</p>'); };
   const start = async () => {
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
-      env: { ...process.env, HOME: dir, TZ: 'UTC', BUILDER_TEST_CLOCK: clockFile },
+      env: { ...process.env, KICKFLIP_CODEX: 'true', HOME: dir, TZ: 'UTC', BUILDER_TEST_CLOCK: clockFile, KICKFLIP_CLAUDE: claude },
     });
     let errors = '';
     worker.stderr.on('data', (chunk) => { errors += chunk; });
@@ -432,6 +457,10 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
     await until(() => pulls().length === 1, 'the day\'s pull');
     await tick();
     assert.deepEqual(triages(), [], 'never in the day');
+    // The pulled build goes back to Todo unstarted, held so it isn't pulled again.
+    fs.rmSync(path.join(dataDir, 'agents', 'A1.json'));
+    wave.items[1].held = true;
+    writeWave();
 
     agent(false);
     setClock(Date.parse('2026-11-03T02:59:00Z'));
@@ -495,7 +524,7 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
 });
 
 // docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md
-test('an idle board with auto-pull on and nothing to pull sends card-plan for its top unready Todo card, one at a time, never while one is planned or paused', async () => {
+test('an idle board with auto-pull on and nothing to pull launches a planner on its top unready Todo card, one at a time, never while one is planned or paused', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-plan-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
@@ -539,9 +568,10 @@ test('an idle board with auto-pull on and nothing to pull sends card-plan for it
   `);
   const logged = (kind) => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse).filter((e) => e.kind === kind).map((e) => e.data.key);
   const thread = (id) => (fs.existsSync(path.join(dataDir, 'threads', `t__${id}.jsonl`)) ? fs.readFileSync(path.join(dataDir, 'threads', `t__${id}.jsonl`), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l).text) : []);
+  const { claude, launched } = launchingBoard(dir, siteDir);
   const start = async () => {
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
-      env: { ...process.env, HOME: dir, BUILDER_TEST_CLOCK: clockFile },
+      env: { ...process.env, KICKFLIP_CODEX: 'true', HOME: dir, BUILDER_TEST_CLOCK: clockFile, KICKFLIP_CLAUDE: claude },
     });
     let errors = '';
     worker.stderr.on('data', (chunk) => { errors += chunk; });
@@ -561,33 +591,32 @@ test('an idle board with auto-pull on and nothing to pull sends card-plan for it
   try {
     await start();
     await tick();
-    assert.deepEqual(logged('card-plan'), []);
+    assert.deepEqual(launched('grill', 'prototype'), []);
     fs.rmSync(usageFile);
-    await until(() => logged('card-plan').length === 1 && thread('B3').length === 1, 'the idle board asks for a plan');
-    assert.deepEqual(logged('card-plan'), ['t/B3']);
-    assert.deepEqual(thread('B3'), ['Asked for a grill or prototype: nothing in Todo was ready to build.']);
+    await until(() => launched('grill', 'prototype').length === 1 && thread('B3').length === 2, 'the idle board launches a planner');
+    assert.deepEqual(launched('grill'), ['t/B3']);
+    assert.deepEqual(thread('B3').map((t) => t.replace(/ in \/.*/, '')), ['Asked for a grill or prototype: nothing in Todo was ready to build.', 'Planner launched on Claude Opus']);
+    assert.deepEqual(JSON.parse(fs.readFileSync(agentFile, 'utf8')).dispatched, 'hub');
     await stop();
     await start();
     await tick();
     await tick();
-    assert.deepEqual(logged('card-plan'), ['t/B3']);
+    assert.deepEqual(launched('grill', 'prototype'), ['t/B3'], 'nothing else is planned while its planner is open');
 
-    // The session starts a prototype: nothing else is planned while it runs, and B3 is planned no more once it posts a question.
-    put(agentFile, JSON.stringify({ kind: 'prototype', started: iso(now) }));
-    await tick();
-    await tick();
-    assert.deepEqual(logged('card-plan'), ['t/B3']);
+    // The grill posts a question and finishes: B3 is planned no more, and the next unready card, prototyping, gets a prototype.
     put(ownerFile, JSON.stringify({ topics: [], items: [question('q1', 't/B1'), question('q2', 't/B3')] }));
-    put(agentFile, JSON.stringify({ kind: 'prototype', started: iso(now), done: iso(now) }));
-    await until(() => logged('card-plan').length === 2, 'the next unready card is planned');
-    assert.deepEqual(logged('card-plan'), ['t/B3', 't/B2']);
+    put(agentFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(agentFile, 'utf8')), done: iso(now) }));
+    await until(() => launched('grill', 'prototype').length === 2, 'the next unready card is planned');
+    assert.deepEqual(launched('prototype'), ['t/B2']);
 
     // A ready card is pulled, not planned.
     wave.items.push({ id: 'B4', title: 'Ready', status: 'planned', state: 'ready' });
-    put(waveFile, JSON.stringify(wave));
-    await until(() => logged('card-pull').length === 1, 'a ready card is pulled');
-    assert.deepEqual(logged('card-pull'), ['t/B4']);
-    assert.deepEqual(logged('card-plan'), ['t/B3', 't/B2']);
+    const current = JSON.parse(fs.readFileSync(waveFile, 'utf8'));
+    put(waveFile, JSON.stringify({ ...current, items: [...current.items, wave.items.at(-1)] }));
+    await until(() => launched('build').length === 1, 'a ready card is pulled');
+    assert.deepEqual(launched('build'), ['t/B4']);
+    assert.deepEqual(launched('grill', 'prototype'), ['t/B3', 't/B2']);
+    assert.deepEqual(logged('card-plan'), [], 'no event wakes the session');
     assert.deepEqual(thread('B1'), []);
   } finally {
     await stop();
@@ -635,7 +664,7 @@ test('an idle board with auto review on sends pr-review for one incoming PR at a
   const sent = () => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse).filter((e) => e.kind === 'pr-review').map((e) => e.data);
   const start = async () => {
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
-      env: { ...process.env, HOME: dir, BUILDER_TEST_CLOCK: clockFile },
+      env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: dir, BUILDER_TEST_CLOCK: clockFile },
     });
     let errors = '';
     worker.stderr.on('data', (chunk) => { errors += chunk; });

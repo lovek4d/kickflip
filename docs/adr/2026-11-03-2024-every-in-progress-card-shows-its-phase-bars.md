@@ -14,3 +14,5 @@ Considered:
 - take A, bars that never dim: a queued or questioned card's strip read the same as a running one;
 - take C, dimming plus a red outline on the bar where a build stopped: a second red mark beside the red status line;
 - a stalled build's bars staying bright: a bright, blinking bar says work is moving, and a stale build isn't.
+
+Superseded in part: Orchestrator review fills four bars with checking current, not all five ([the hub launches every agent from the card](2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md)).

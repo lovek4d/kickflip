@@ -25,7 +25,7 @@ before(async () => {
   // A held card's Merge runs this instead of board.mjs merge, recording its arguments.
   fs.writeFileSync(path.join(home, 'merge-stub.mjs'), `import fs from 'node:fs'; fs.appendFileSync(${JSON.stringify(path.join(home, 'merges.jsonl'))}, JSON.stringify(process.argv.slice(2)) + '\\n');`);
   const mergeEnv = { KICKFLIP_MERGE_CMD: JSON.stringify([process.execPath, path.join(home, 'merge-stub.mjs')]) };
-  child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), PREFIX: '', ...pushEnv, ...mergeEnv } });
+  child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: home, PORT: String(port), PREFIX: '', ...pushEnv, ...mergeEnv } });
   await new Promise((resolve, reject) => { child.stdout.once('data', resolve); child.once('exit', reject); });
   await until(() => fs.existsSync(path.join(site, 'data', 'action-pushes.json')), 'the first Action needed check');
 });
@@ -299,7 +299,7 @@ test('a copied starter refuses cross-site writes and accepts same-origin JSON an
   fs.cpSync(fileURLToPath(new URL('../starter', import.meta.url)), root, { recursive: true });
   const [port] = await freePorts();
   const url = `http://127.0.0.1:${port}`;
-  const server = spawn(process.execPath, [path.join(root, 'server.mjs')], { env: { ...process.env, HOME: home, PORT: String(port), PREFIX: '/plain' } });
+  const server = spawn(process.execPath, [path.join(root, 'server.mjs')], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: home, PORT: String(port), PREFIX: '/plain' } });
   try {
     await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', reject); });
     const post = (headers, body = '{"kind":"message","text":"Hello"}') => fetch(`${url}/plain/_claude/events`, { method: 'POST', headers, body });
@@ -369,7 +369,7 @@ test('a card with a message marked working or a prototype recorded for it stays 
   }
 });
 
-test("a Build tap starts the build in the board server, moving the card to In Progress reading preheating and waking the session with its worktree and pick, and a refusal leaves it in Todo with the reason; on a blocked card it queues the build, which the server starts once the blocker is done", async () => {
+test("a Build tap starts the build in the board server, moving the card to In Progress reading preheating and launching its builder with no event, and a refusal leaves it in Todo with the reason; on a blocked card it queues the build, which the server starts once the blocker is done", async () => {
   const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
   const origin = path.join(home, 'origin');
   fs.mkdirSync(origin);
@@ -390,7 +390,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
   ] }));
   const wave = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  const log = () => fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const log = () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
   const card = async (id) => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.id === id);
   const thread = (id) => fs.readFileSync(path.join(site, 'data', 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse);
   const worktree = path.join(home, '.claude', 'kickflip', 'worktrees', 'B1');
@@ -401,9 +401,8 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.deepEqual([record.kind, record.label, record.dispatched, record.worktree], ['claude', 'Builder', 'tap', { path: worktree, branch: 'B1', repo: clone }]);
     assert.equal(git(worktree, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'HEAD'));
     assert.equal(wave().items.find((i) => i.id === 'B1').next, undefined);
-    const woke = log().slice(before);
-    assert.deepEqual(woke.map((e) => [e.kind, e.data]), [['card-build', { key: 't/B1', ref: 'B1', kind: 'claude', model: 'opus', reason: woke[0].data.reason, worktree }]]);
-    assert.match(woke[0].data.reason, /\S/);
+    assert.deepEqual(log().slice(before), []);
+    assert.match(thread('B1').at(-1).text, new RegExp(`^Builder launched on Claude Opus in ${worktree}\\.$`));
     const started = await card('B1');
     assert.deepEqual([started.lane, started.status, started.buildable, started.builder.progress, started.refusal], ['progress', 'building', false, null, null]);
 
@@ -413,8 +412,8 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     const unheld = await card('B2');
     assert.deepEqual([unheld.held, unheld.lane, unheld.status, unheld.builder.progress, unheld.refusal], [false, 'progress', 'building', null, null]);
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items[1].pick_up_at, undefined);
-    assert.deepEqual(thread('B2').map((m) => [m.who, m.text]), [['love', 'Resumed.']]);
-    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), ['card-build', 'card-build']);
+    assert.deepEqual(thread('B2').map((m) => [m.who, m.text.replace(/ in .*/, '')]), [['love', 'Resumed.'], ['claude', 'Builder launched on Claude Opus']]);
+    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), []);
     // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md
     const queuedAnswer = await (await post({ kind: 'card-build', key: 't/B3' })).json();
     assert.equal(queuedAnswer.id, null);
@@ -428,22 +427,20 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     const unheldQueued = await card('B5');
     assert.deepEqual([unheldQueued.held, unheldQueued.lane, unheldQueued.queued], [false, 'todo', true]);
     assert.deepEqual(thread('B5').map((m) => m.text), ['Resumed.', 'Implement queued: it starts once B4 is done.']);
-    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), ['card-build', 'card-build']);
+    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), []);
 
     const taken = path.join(home, '.claude', 'kickflip', 'worktrees', 'B4');
     fs.mkdirSync(taken, { recursive: true });
     assert.equal((await post({ kind: 'card-build', key: 't/B4' })).status, 200);
     const leftover = await card('B4');
     assert.deepEqual([leftover.lane, leftover.status, leftover.refusal], ['todo', null, `Couldn't start implementing: --worktree: ${taken} already exists; land or remove it first`]);
-    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), ['card-build', 'card-build']);
+    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), []);
 
-    // The blocker finishing starts both queued builds in the server, each waking the session once, with no card-unblocked.
+    // The blocker finishing starts both queued builds in the server, each launching its builder, with no card-unblocked.
     const done = wave();
     done.items.find((i) => i.id === 'B4').status = 'done';
     fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify(done));
-    await until(() => log().slice(before).filter((e) => e.kind === 'card-build').length === 4, 'the queued builds start');
-    const woken = log().slice(before).filter((e) => e.kind === 'card-build').slice(2).map((e) => e.data.key).sort();
-    assert.deepEqual(woken, ['t/B3', 't/B5']);
+    await until(() => ['B3', 'B5'].every((id) => thread(id).at(-1).text.startsWith('Builder launched on ')), 'the queued builds start');
     for (const id of ['B3', 'B5']) {
       const startedQueued = await card(id);
       assert.deepEqual([startedQueued.lane, startedQueued.status, startedQueued.queued, startedQueued.builder.progress], ['progress', 'building', false, null]);
@@ -466,7 +463,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     const remade = await card('B6');
     assert.deepEqual([remade.lane, remade.status, remade.refusal], ['progress', 'building', null]);
     assert.equal(git(leftover6, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'HEAD'));
-    assert.deepEqual(thread('B6').map((m) => [m.who, m.text]), [['claude', `Remade the leftover worktree ${leftover6} from main: it held no commits or changes.`]]);
+    assert.deepEqual(thread('B6').map((m) => [m.who, m.text]), [['claude', `Remade the leftover worktree ${leftover6} from main: it held no commits or changes.`], ['claude', `Builder launched on Claude Opus in ${leftover6}.`]]);
     assert.equal((await post({ kind: 'card-build', key: 't/B7' })).status, 200);
     const kept = await card('B7');
     assert.deepEqual([kept.lane, kept.status, kept.refusal], ['todo', null, `Couldn't start implementing: --worktree: ${leftover7} holds 1 changed file; land or remove it first`]);
@@ -513,10 +510,11 @@ test("a Quick build ask carries quick: true to the session, and its thread says 
   const wave = JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'));
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ ...wave, items: [...wave.items, { id: 'Q1', title: 'Badge', from_ask: id }] }));
   const taps = [await post('/_claude/events', { kind: 'grill-more', key: 't/Q1' }), await post('/_claude/events', { kind: 'prototype-request', key: 't/Q1' })];
-  assert.deepEqual(await thread('t/Q1'), [['Add a badge', false], ['quick build: no grill, as you asked', true], ['grill requested', true], ['prototype requested', true]]);
+  assert.deepEqual((await thread('t/Q1')).filter(([, request]) => request), [['quick build: no grill, as you asked', true], ['grill requested', true], ['prototype requested', true]]);
   const card = (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/Q1');
   assert.deepEqual([card.grilling, card.prototyping], [true, true]);
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify(wave));
+  fs.rmSync(path.join(site, 'data', 'agents'), { recursive: true, force: true });
   for (const e of [{ id }, ...taps]) await post('/api/hide', { id: e.id, hidden: true });
 });
 
@@ -635,7 +633,7 @@ test('a watcher that just exited on an event still counts as listening, until it
   const cmd = [process.execPath, path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site];
   fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'manifest.json'), JSON.stringify({ sites: { t: { dir: site, port: 1, cmd, owner: { session: 's1' } } } }));
   fs.writeFileSync(path.join(site, 'data', 'checked.json'), JSON.stringify({ at: new Date().toISOString(), every: 30 }));
-  const watcher = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'wait-events.mjs'), 't', 's1'], { env: { ...process.env, HOME: home } });
+  const watcher = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'wait-events.mjs'), 't', 's1'], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: home } });
   const out = [];
   watcher.stdout.on('data', (c) => out.push(String(c)));
   const exited = new Promise((resolve) => watcher.once('exit', resolve));
@@ -863,7 +861,7 @@ test('with thousands of folders and lock folders coming and going, the board ans
   }
   fs.writeFileSync(path.join(own, 'site', 'board.json'), JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't' }));
   const [port] = await freePorts();
-  const server = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), path.join(own, 'site')], { env: { ...process.env, HOME: own, PORT: String(port), PREFIX: '' } });
+  const server = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), path.join(own, 'site')], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: own, PORT: String(port), PREFIX: '' } });
   const exited = new Promise((resolve) => server.once('exit', resolve));
   let req, churn;
   try {
@@ -998,11 +996,11 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
   const checks = async () => (await (await fetch(`${base}/_claude/events?kind=check-github`)).json()).map((e) => e.data);
   const before = (await checks()).length;
   try {
-    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false, auto_pull: false, max_implementers: 10, auto_triage: false, auto_review: false, headless_builders: false, idle_notification: false, skip_draft: false, prs: true } });
+    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false, auto_pull: false, max_implementers: 10, auto_triage: false, auto_review: false, idle_notification: false, skip_draft: false, prs: true } });
     const on = await save({ auto_merge: true });
     assert.equal(on.status, 200);
     const out = await on.json();
-    assert.deepEqual(out.settings, { auto_merge: true, auto_build: false, auto_pull: false, max_implementers: 10, auto_triage: false, auto_review: false, headless_builders: false, idle_notification: false, skip_draft: false, prs: true });
+    assert.deepEqual(out.settings, { auto_merge: true, auto_build: false, auto_pull: false, max_implementers: 10, auto_triage: false, auto_review: false, idle_notification: false, skip_draft: false, prs: true });
     assert.match(out.id, /^e/);
     const written = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8'));
     assert.deepEqual([written.title, written.rules.length, written.auto_merge], ['T', 1, true]);
@@ -1049,7 +1047,7 @@ test('try forwards only the board route and key over loopback, returning hub sta
   await new Promise((resolve, reject) => hub.once('error', reject).listen(port, '127.0.0.1', resolve));
   const [boardPort] = await freePorts();
   const server = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], {
-    env: { ...process.env, HOME: home, PORT: String(boardPort), PREFIX: '/own-route', KICKFLIP_HUB_PORT: String(port) },
+    env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: home, PORT: String(boardPort), PREFIX: '/own-route', KICKFLIP_HUB_PORT: String(port) },
   });
   const exited = new Promise((resolve) => server.once('exit', resolve));
   try {
@@ -1126,7 +1124,7 @@ test('the watcher prints the hub rules, then the board rules, the board settings
   const ask = () => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ask', text: 'Wake' }) });
   const watch = async (session, wake = ask) => {
     ownSession(home, session);
-    const watcher = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'wait-events.mjs'), 't', session], { env: { ...process.env, HOME: home } });
+    const watcher = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'wait-events.mjs'), 't', session], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: home } });
     const out = [];
     watcher.stdout.on('data', (c) => out.push(String(c)));
     const exited = new Promise((resolve) => watcher.once('exit', resolve));
@@ -1145,10 +1143,10 @@ test('the watcher prints the hub rules, then the board rules, the board settings
     await until(async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === `ask:${asked}`).working, 'the board shows the ask working');
     assert.deepEqual((await (await fetch(`${base}/api/working`)).json()).working.filter((w) => w.id === asked).map(({ since, ...w }) => w), [{ id: asked, kind: 'ask', card: null }]);
     assert.match(lines.at(-1), /^quiet .*AskUserQuestion/);
-    assert.deepEqual(lines.slice(2, -1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on']);
+    assert.deepEqual(lines.slice(2, -1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on']);
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, auto_merge: true }));
     fs.rmSync(path.join(web, 'settings.json'));
-    assert.deepEqual((await watch('rules2')).slice(2, -1), ['setting auto-merge on', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting headless-builders off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on']);
+    assert.deepEqual((await watch('rules2')).slice(2, -1), ['setting auto-merge on', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on']);
     const hello = () => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: 'hello1', ts: new Date().toISOString(), kind: 'hello', data: { title: 'T' } }) + '\n');
     assert.equal((await watch('hello', hello))[1], 'hello hello1 from the hub answered');
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'handshake.json'), 'utf8')).ack.id, 'hello1');
@@ -1415,7 +1413,7 @@ test("the board's version depends on its data alone: a minute later with nothing
       const later = await get();
       console.log(JSON.stringify({ versions: [first.version, later.version], times: [first.generatedAt, later.generatedAt], holdChoices: later.holdChoices }));
       process.exit(0);
-    `], { env: { ...process.env, HOME: dir }, encoding: 'utf8', timeout: 20000 });
+    `], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: dir }, encoding: 'utf8', timeout: 20000 });
     assert.equal(result.status, 0, result.stderr);
     const out = JSON.parse(result.stdout);
     assert.notEqual(out.times[0], out.times[1]);
@@ -1485,7 +1483,7 @@ test('with Idle notification on, the board pushes "<board> has gone idle" once 1
       await until(() => !state(), 'turning it off forgets the stretch');
       console.log(JSON.stringify({ seen, pushes: pushes() }));
       process.exit(0);
-    `], { env: { ...process.env, HOME: dir, PREFIX: '', KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, path.join(dir, 'push-stub.mjs'), 'push']), STUB_CALLS: calls }, encoding: 'utf8', timeout: 60000 });
+    `], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: dir, PREFIX: '', KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, path.join(dir, 'push-stub.mjs'), 'push']), STUB_CALLS: calls }, encoding: 'utf8', timeout: 60000 });
     assert.equal(result.status, 0, result.stderr);
     const out = JSON.parse(result.stdout.trim().split('\n').at(-1));
     assert.deepEqual(out.seen, [0, 1], 'nothing at 14 minutes, and no second push in one stretch');

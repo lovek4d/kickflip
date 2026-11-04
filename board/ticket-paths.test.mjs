@@ -99,11 +99,11 @@ test("item set --from-ask gives a card with no ticket one in the board's current
     const wave = read(path.join(b.site, 'data', 'wave.json'));
     write(path.join(b.site, 'data', 'wave.json'), { ...wave, items: [...wave.items, { id: name, title: `Asked on ${name}` }] });
     b.ask(`e-${name}`);
-    assert.equal(await cli('asked', 'item', 'set', `asked/${name}`, '--from-ask', `e-${name}`, '--state', 'ready', '--text', 'On it.'), 0);
+    assert.equal(await cli('asked', 'item', 'set', `asked/${name}`, '--from-ask', `e-${name}`, '--state', 'grilling', '--text', 'On it.'), 0);
     assert.match(b.item(name).ticket, pattern);
   }
   b.ask('e-old');
-  assert.equal(await cli('asked', 'item', 'set', 'asked/OLD', '--from-ask', 'e-old', '--state', 'ready', '--text', 'On it.'), 0);
+  assert.equal(await cli('asked', 'item', 'set', 'asked/OLD', '--from-ask', 'e-old', '--state', 'grilling', '--text', 'On it.'), 0);
   assert.equal(b.item('OLD').ticket, 'INT-1');
 });
 
@@ -120,7 +120,7 @@ test("ask move makes no card, and the card the moved ask becomes gets a ticket i
     const moved = fs.readFileSync(path.join(to.site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).at(-1);
     assert.equal(moved.data.from.id, `m-${name}`);
     assert.equal(await cli('target', 'item', 'add', `target/${name}`, '--title', `Moved on ${name}`), 0);
-    assert.equal(await cli('target', 'item', 'set', `target/${name}`, '--from-ask', moved.id, '--state', 'ready', '--text', 'On it.'), 0);
+    assert.equal(await cli('target', 'item', 'set', `target/${name}`, '--from-ask', moved.id, '--state', 'grilling', '--text', 'On it.'), 0);
     assert.match(to.item(name).ticket, pattern);
   }
   assert.deepEqual([from.item('OLD'), to.item('OLD')], [OLD, OLD]);

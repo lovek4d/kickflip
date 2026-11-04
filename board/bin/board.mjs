@@ -115,7 +115,10 @@ command fails and changes nothing.
                                                          from another ask (use item relate-ask), and one with no
                                                          state when --state is missing
          [--state ready|grilling|prototyping]            what a card from an ask does next; it reads New until set.
-                                                         ready refuses while the card has an open question
+                                                         ready refuses while the card has an open question, and
+                                                         a card without --size, a notes file, or the id of each
+                                                         answered question in that file, since a builder starts
+                                                         from it; it resolves those answered questions
          [--held | --unheld | --pick-up-at <time>]       holds or resumes the card on the owner's words; the board
                                                          server records the owner's own Hold and Resume taps. A later
                                                          --held/--unheld overrides a tap; --unheld also clears a held status.
@@ -282,7 +285,6 @@ command fails and changes nothing.
                                                          "auto_build": false, "auto_pull": false,
                                                          "max_implementers": 10,
                                                          "auto_triage": false, "auto_review": false,
-                                                         "headless_builders": false,
                                                          "idle_notification": false, "skip_draft": false,
                                                          "prs": true, "github_login": "owner"}
   settings set auto-merge on|off                         on: the hub's tick merges an approved PR once CI is green and
@@ -313,11 +315,12 @@ command fails and changes nothing.
   settings set auto-build on|off                         on: each push builds its card. Off by default.
                                                          Main builds after every merge either way
   settings set auto-pull on|off                          Auto implement Todo cards. on: on every board change the
-                                                         board server sends card-pull {key} for the top ready Todo
-                                                         cards nothing blocks, holds or asks about, one per free
-                                                         implementer slot (see max-implementers), each once; with
-                                                         none ready and nothing building, card-plan {key} for the
-                                                         top unready card to grill or prototype. Off by default.
+                                                         board server starts and launches the build of the top
+                                                         ready Todo cards nothing blocks, holds or asks about, one
+                                                         per free implementer slot (see max-implementers), each
+                                                         once; with none ready and nothing building, it launches a
+                                                         planner on the top unready card: a prototype when it is
+                                                         prototyping, else a grill. Off by default.
                                                          Only on the owner's word
   settings set max-implementers <1..99>                  Maximum parallel implementers, 10 by default: the cards
                                                          building or waiting in Orchestrator review the pull fills
@@ -328,17 +331,6 @@ command fails and changes nothing.
                                                          touches, asked} for one incoming PR at a time that touches
                                                          this board's cards or asks the owner for review. Off by
                                                          default. Only on the owner's word
-  settings set headless-builders on|off                  on: the board server launches each Claude build itself, as
-                                                         claude -p in the card's worktree with a brief built from the
-                                                         card's notes and rules, for the Implement tap, a queued start
-                                                         and Auto implement's pull, instead of waking you with
-                                                         card-build or card-pull; a codex pick, or a launch that
-                                                         fails, still sends card-build. The builder lands its own
-                                                         work; once you verify a handed-back build's calls and its
-                                                         card has no open question, the server launches a headless
-                                                         lander. item set --state ready then refuses a card without
-                                                         --size, a notes file, or the id of each answered question in
-                                                         that file. Off by default. Only on the owner's word
   settings set auto-triage on|off                       on: once a night, from the middle of the hub's quiet hours
                                                          to their end, when two or more cards wait on open
                                                          questions, nothing builds and something changed since the

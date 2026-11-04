@@ -469,14 +469,15 @@ export const builds = (agent) => !plans(agent);
 export const PLANNER_WORD = { grill: 'preheating', prototype: 'prototyping' };
 // The owner's request of a planner kind on a card: a Grill tap (grill-more) or a card's Prototype tap (prototype-request
 // with no question). Under way while a planner of that kind runs, or while the newest request has no reply, no
-// question was posted after it and no planner of that kind that started after it has finished.
+// question was posted after it and no planner of that kind that started with or after it has finished; the board
+// server opens the planner in the request's own millisecond.
 const REQUEST_KIND = { grill: 'grill-more', prototype: 'prototype-request' };
 const isRequest = (e, kind) => e.kind === REQUEST_KIND[kind] && !e.data?.question;
 function planningOf(kind, events, agents, askedAt) {
   if (agents.some((a) => a.kind === kind && a.started && !a.done)) return true;
   const last = events.filter((e) => isRequest(e, kind)).pop();
   return Boolean(last && !last.reply && !askedAt.some((t) => String(t) > String(last.ts))
-    && !agents.some((a) => a.kind === kind && a.done && String(a.started) > String(last.ts)));
+    && !agents.some((a) => a.kind === kind && a.done && String(a.started) >= String(last.ts)));
 }
 
 // docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md
@@ -1180,8 +1181,8 @@ const queueable = (i) => i.buildable && i.state === 'ready' && !i.held && !i.uns
 export const MAX_IMPLEMENTERS = 10;
 
 // docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md
-// For built items in board order, cap the board's Maximum parallel implementers and pulled the cards card-pull went
-// out for: implementers counts the open cards with a running build or waiting in Orchestrator review, a running
+// For built items in board order, cap the board's Maximum parallel implementers and pulled the cards the pull started
+// builds on: implementers counts the open cards with a running build or waiting in Orchestrator review, a running
 // planner and a card waiting on the owner counting as no work
 // (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md); idle while there are none.
 // pullable lists the queueable cards no message a session is working on, in board order
@@ -1287,7 +1288,7 @@ export function startedByAnswer(built, id) {
 }
 
 // docs/adr/2026-11-04-0257-an-idle-board-pushes-once-when-it-has-gone-idle.md
-// Strictly idle, for a built board and pulled the cards card-pull went out for: no agent running on an open card, so
+// Strictly idle, for a built board and pulled the cards the pull started builds on: no agent running on an open card, so
 // nothing building, grilling or prototyping, no grill or prototype request under way, no card waiting in Orchestrator
 // review to land, no pulled card waiting to start and no event a session is working on.
 export function strictlyIdle(built, { pulled = [] } = {}) {

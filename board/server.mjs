@@ -6,7 +6,7 @@
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask, ask progress|done,
 //   lineup create|add|remove|set|finish,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
-// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review, headless_builders, idle_notification, skip_draft, prs, github_login}. auto_build asks the hub to
+// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review, idle_notification, skip_draft, prs, github_login}. auto_build asks the hub to
 // run each card's .kickflip/build after each push, and hides the cards' Serve / Build; main always builds after a merge.
 // auto_merge (false when absent) lets the session merge
 // an approved, green, clean PR itself; off, the card shows the owner's Merge (store.mjs settingsOf). rules are the owner's standing instructions to this
@@ -104,7 +104,9 @@
 //                                question, which reads requested until a question naming it in round_of resolves it
 //                                (domain.mjs ownerQuestion). The server appends prototype-overdue {key, request,
 //                                question?, since} once per request still waiting on its prototype after
-//                                PROTOTYPE_WAIT with no prototype agent running on the card (domain.mjs prototypeWaits)
+//                                PROTOTYPE_WAIT with no prototype agent running on the card (domain.mjs prototypeWaits).
+//                                Either one on a card launches a headless planner on it (startPlanner) unless an
+//                                agent already works on it, so the session acts only on prototype-overdue.
 //                                reask-request {key?, question} asks the session to ask a resolved question again from the
 //                                card's current notes; one naming a question that isn't resolved → 400 {error}. The
 //                                question reads reask until question add names it in reask_of (domain.mjs ownerQuestion)
@@ -130,21 +132,20 @@
 //                                PR the server merges it (store.mjs mergeCard) and appends no event; a refusal → 400
 //                                {error} and a thread line.
 //                                card-build {key} is the owner's Build: the server starts the build itself (store.mjs
-//                                startTappedBuild, board/worktree.mjs boardWorktree) and, once started, appends
-//                                card-build {key, ref, kind, model, reason, worktree}, model only for claude, which wakes the session to brief and launch
-//                                the builder; a refusal appends no event and leaves its reason in the card's thread.
+//                                startTappedBuild, board/worktree.mjs boardWorktree) and launches its builder, Claude
+//                                or Codex, headless in its worktree (headless.mjs launchBuilder), appending no event; a
+//                                refusal leaves its reason in the card's thread, and a launch that fails puts the card
+//                                back in Todo with the reason (store.mjs abandonLaunch).
 //                                On a card an unfinished dep blocks, the tap queues the build instead (queued_at, no
 //                                event), and once nothing blocks it and an implementer slot is free the server starts
 //                                it the same way, from the top of In Progress's Queued section (checkAuto, store.mjs
 //                                startQueuedBuild; docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md,
 //                                docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md).
-//                                With headless_builders on, a started Claude build launches here instead, as claude -p
-//                                in its worktree (headless.mjs launchBuilder), with no card-build, and Auto implement's
-//                                pull starts and launches the build itself, with no card-pull, its record marked
-//                                dispatched: 'hub'; a codex pick or a failed launch still appends card-build. A
+//                                A
 //                                checking card whose calls are all verified and that has no open question gets one
 //                                headless lander per verification, tracked in data/landers.json (store.mjs landable;
-//                                docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md).
+//                                docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md,
+//                                docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
 //                                lineup-move {lineup, key, by: -1 | 1} is a wave band card's ⋯ Move up or Move down: the
 //                                server reorders the lineup's Todo cards (domain.mjs lineupMoved, store.mjs changeLineup)
 //                                and answers {id: null, board}, appending no event; a move it can't make → 400 {error}.
@@ -162,11 +163,12 @@
 //                                (store.mjs pickUp), at most once per time even across a restart.
 //                                The Auto jobs below run on every board change and once at start, and on the minute
 //                                check only once a usage pause lifts or while an overnight triage is due. With auto_pull on (Auto implement Todo
-//                                cards), the server appends card-pull {key} for the top pullable Todo cards, one per
+//                                cards), the server starts and launches the build of the top pullable Todo cards, one per
 //                                implementer slot max_implementers leaves free (domain.mjs pullOf), whether or not
-//                                the board is idle, each once, tracked in data/pulled.json; with nothing to pull, an
-//                                idle board gets card-plan {key} for the top plannable card, one at a time, tracked in
-//                                data/planned.json, which asks the session for a grill or prototype on it.
+//                                the board is idle, each once, tracked in data/pulled.json, its record dispatched:
+//                                'hub'; with nothing to pull, an idle board launches a planner on the top plannable
+//                                card, a prototype when it is prototyping and a grill otherwise, one at a time,
+//                                tracked in data/planned.json. Neither appends an event.
 //                                With auto_triage on, once a night from the middle of the hub's quiet hours to their
 //                                end, an idle board with two or more cards waiting on open questions (domain.mjs
 //                                triageOf) gets overnight-triage {date, topic, cards} first, unless nothing changed
@@ -199,8 +201,8 @@
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (store.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
-//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review, headless_builders, idle_notification, skip_draft, prs} (store.mjs readBoardSettings)
-//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean, headless_builders?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean} → board.json, keeping its other keys, and when a value other
+//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review, idle_notification, skip_draft, prs} (store.mjs readBoardSettings)
+//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean} → board.json, keeping its other keys, and when a value other
 //                                than idle_notification moved a `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id}; a bad body → 400 {error}
 //   GET  /api/permissions        {owner, file, permissions: [{id, name, allows, rule, on, refused}]}: the board's session
@@ -245,7 +247,7 @@ import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders } from './headless.mjs';
-import { BoardError, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, landable, relaunchLander, migrateFollowups, stripDeadFields, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, abandonPlanner, landable, relaunchLander, migrateFollowups, startPlanner, stripDeadFields, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -1056,6 +1058,14 @@ const server = http.createServer(async (req, res) => {
         if (refused) return json(res, 400, { error: refused });
       }
       const id = await appendEvent(kind, body);
+      if ((kind === 'grill-more' || kind === 'prototype-request') && body.key) {
+        const ask = {
+          ...(body.text ? { text: String(body.text) } : {}),
+          ...(Array.isArray(body.files) && body.files.length ? { files: body.files } : {}),
+          ...(body.question ? { question: String(body.question), note: body.note ? String(body.note) : undefined, choice: body.choice ?? undefined } : {}),
+        };
+        await launchPlanner(String(body.key), kind === 'grill-more' ? 'grill' : 'prototype', ask);
+      }
       if (kind === 'ask-withdrawn') await setHidden(here, String(body.id || ''), true);
       // docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md
       return json(res, 200, { id, board: await answerBoard(req, since) });
@@ -1212,7 +1222,7 @@ async function checkPickUps() {
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
 // The Auto jobs, run on every board change and once at start: the queued starts, triage, then the pull, then a plan,
 // then a review. The queue's top fills the free implementer slots (domain.mjs pullOf): a tapped card nothing blocks
-// any more starts as the owner's Build tap would, waking the session with card-build, whether Auto implement is on or
+// any more starts as the owner's Build tap would, launching its builder, whether Auto implement is on or
 // not (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md, docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md). The pull fills every free implementer slot whatever else runs; triage, the plan and the review wait for an idle
 // board. A triage sent or under way holds the pull until its reply, and a card pulled and not yet started holds the
 // plan and the review. None goes out while usage is paused; the minute check runs the jobs again once a pause lifts,
@@ -1234,45 +1244,61 @@ async function runAuto() {
   const settings = settingsOf(await config());
   const log = await readLines(events);
   const { items, reviews } = await sharedBoard();
-  const { idle, pullable, waiting, starts, pulls, plannable } = pullOf(items, { cap: settings.max_implementers, pulled: await sentOf(PULL, log) });
+  const { idle, pullable, waiting, starts, pulls, plannable } = pullOf(items, { cap: settings.max_implementers, pulled: await sentOf(PULL) });
   heldByPause = readUsageGate().state === 'paused';
   const ready = idle && !heldByPause;
   for (const key of heldByPause ? [] : starts) {
     await handOff(await startQueuedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts)));
   }
-  if (settings.headless_builders && !heldByPause) await launchLanders();
+  // A lander is only ever due on a checking card, so a board without one skips landable's read of the wave files.
+  if (!heldByPause && items.some((i) => i.status === 'checking')) await launchLanders();
   if (await checkTriage(settings, log, items, ready)) return;
   const startPull = async (key) => handOff(await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub'));
-  if (await sendPulls(PULL, settings.auto_pull, waiting, heldByPause ? [] : pulls, settings.headless_builders ? startPull : null)) return;
+  if (await sendPulls(PULL, settings.auto_pull, waiting, heldByPause ? [] : pulls, startPull)) return;
   const unready = pullable.length ? [] : plannable;
-  const planned = (await sentOf(PLAN, log)).filter((k) => unready.includes(k));
-  if (await sendPulls(PLAN, settings.auto_pull, planned, ready && !planned.length ? unready.slice(0, 1) : [])) return;
+  const planned = (await sentOf(PLAN)).filter((k) => unready.includes(k));
+  const startPlan = async (key) => launchPlanner(key, items.find((i) => i.key === key)?.state === 'prototyping' ? 'prototype' : 'grill');
+  if (await sendPulls(PLAN, settings.auto_pull, planned, ready && !planned.length ? unready.slice(0, 1) : [], startPlan)) return;
   // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md: one review at a time, after any pull.
   const { due, repo } = reviews;
   if (ready && due) await appendEvent('pr-review', { pr: due.number, head: due.head, repo, title: due.title, author: due.author, url: due.url, touches: due.touches, asked: Boolean(due.asked) });
 }
 
-// docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
-// A build the server started ({key, kind, model, worktree}, startTappedBuild's) goes to its builder: on a board whose
-// builders launch headless a Claude build launches here, and anything else, or a launch that fails, wakes the session
-// with card-build to brief and launch it. → the card-build event's id, or null.
+// docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
+// A build the server started ({key, kind, model, worktree}, startTappedBuild's) launches its builder here, Claude or
+// Codex. A launch that fails puts the card back in Todo with the reason (store.mjs abandonLaunch). → null, the
+// tap's event id, since no event wakes the session.
 async function handOff(started) {
   if (!started || started.queued) return null;
-  if (settingsOf(await config()).headless_builders && started.kind === 'claude') {
-    try {
-      // A pause that began after the pull holds the launch; reviveHeadless launches it once the pause lifts.
-      if (readUsageGate().state === 'paused') await trackLaunch(started.key, { model: started.model, pid: null, relaunched: false });
-      else await trackLaunch(started.key, { model: started.model, ...(await launchBuilder(here, started)), relaunched: false });
-      return null;
-    } catch (e) {
-      await appendThread(here, started.key, { text: `Couldn't launch the builder headless (${e.message}), so the orchestrator launches it.` });
-    }
+  const entry = { kind: started.kind, model: started.model, relaunched: false };
+  try {
+    // A pause that began after the pull holds the launch; reviveHeadless launches it once the pause lifts.
+    if (readUsageGate().state === 'paused') await trackLaunch(started.key, { ...entry, pid: null });
+    else await trackLaunch(started.key, { ...entry, ...(await launchBuilder(here, started)) });
+  } catch (e) {
+    await abandonLaunch(here, started.key, `the launch failed (${e.message}). Tap Implement to try again.`);
   }
-  return appendEvent('card-build', started);
+  return null;
+}
+
+// A planner, kind grill or prototype, the owner asked for or the idle board's plan picked, opens on the card and
+// launches headless in the board's repo (store.mjs startPlanner), unless an agent already works on it. One that can't
+// start or launch leaves a thread line and its record closed.
+async function launchPlanner(key, kind, ask = {}) {
+  try {
+    const started = await startPlanner(here, key, kind);
+    if (!started) return;
+    try { await launchBuilder(here, { ...started, ...ask }); } catch (e) {
+      await abandonPlanner(here, key, `Couldn't launch the ${kind} (${e.message}).`);
+    }
+  } catch (e) {
+    if (!(e instanceof BoardError)) throw e;
+    await appendThread(here, key, { text: `Couldn't start the ${kind}: ${e.message}` });
+  }
 }
 
 // docs/adr/2026-11-04-1010-a-dead-headless-builder-is-relaunched-once.md
-// data/headless-builders.json {<key>: {model, pid, relaunched}}: the headless builders launched, for reviveHeadless.
+// data/headless-builders.json {<key>: {kind, model, pid, relaunched}}: the headless builders launched, for reviveHeadless.
 // trackLaunch sets a key's entry, or with null drops it (a lander takes the card over from its builder).
 async function trackLaunch(key, entry) {
   const file = path.join(data, 'headless-builders.json');
@@ -1283,20 +1309,19 @@ async function trackLaunch(key, entry) {
   await fs.rename(file + '.tmp', file);
 }
 // Once a minute while usage isn't paused: a headless builder whose process exited with its record open launches again
-// once, and after that goes to the session with card-build and a thread line.
+// once, and after that leaves a thread line; its record stays open, so the stall alarm brings in the orchestrator.
 let revivingHeadless = false;
 async function reviveHeadless() {
   if (revivingHeadless) return;
   revivingHeadless = true;
   try {
-    if (!settingsOf(await config()).headless_builders || readUsageGate().state === 'paused') return;
+    if (readUsageGate().state === 'paused') return;
     const file = path.join(data, 'headless-builders.json');
     const tracked = await readJSON(file, {});
     if (!Object.keys(tracked).length) return;
     const open = new Set(buildBoard(await itemSnapshot(await outsideData())).items.filter((c) => c.lane !== 'done' && c.builder && !c.builder.planner).map((c) => c.key));
     const handBack = async (card) => {
-      await appendThread(here, card.key, { text: 'Its headless builder exited twice with the build unfinished, so the orchestrator launches it.' });
-      await appendEvent('card-build', { ...card, kind: 'claude' });
+      await appendThread(here, card.key, { text: 'Its builder exited twice with the build unfinished; it reads Stalled once 30 minutes pass without progress.' });
     };
     const launch = async (card) => {
       try { return await launchBuilder(here, card); } catch (e) {
@@ -1395,33 +1420,25 @@ async function triageDue() {
 }
 
 // docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md
-// The pull sends card-pull {key} for each card domain.mjs pullOf says fills a free slot, tracked in data/pulled.json
-// (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md). With nothing to pull an idle board sends
-// card-plan {key} for the top plannable card instead, one at a time, tracked in data/planned.json
-// (docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md).
-const PULL = { kind: 'card-pull', file: 'pulled.json', line: 'Pulled in: an implementer slot was free.' };
-const PLAN = { kind: 'card-plan', file: 'planned.json', line: 'Asked for a grill or prototype: nothing in Todo was ready to build.' };
-// The marker {keys, at}: keys are the cards sent that still wait to start, at when the marker last changed. A marker
-// from before the cap holds one key instead. The event log covers a restart between appending an event and saving the
-// marker. → the keys sent.
+// The pull starts the build of each card domain.mjs pullOf says fills a free slot, tracked in data/pulled.json
+// (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md). With nothing to pull an idle board starts
+// a planner on the top plannable card instead, one at a time, tracked in data/planned.json
+// (docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md, docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
+const PULL = { file: 'pulled.json', line: 'Pulled in: an implementer slot was free.' };
+const PLAN = { file: 'planned.json', line: 'Asked for a grill or prototype: nothing in Todo was ready to build.' };
+// The marker {keys, at}: keys are the cards started that still wait for their agent, at when the marker last changed.
+// A marker from before the cap holds one key instead. → the keys started.
 const markedOf = (marker) => marker.keys || (marker.key ? [marker.key] : []);
-async function sentOf({ kind, file }, log) {
-  const marker = await readJSON(path.join(data, file), {});
-  const at = String(marker.at || '');
-  const since = log.filter((e) => e.kind === kind && String(e.ts) > at).map((e) => e.data?.key).filter(Boolean);
-  return [...new Set([...markedOf(marker), ...since])];
-}
-// With on, sends kind {key} with its thread line for each of go, or with start starts each itself, and marks keep and
-// go as sent; off, clears the marker. The marker is written only when its keys move, since each write is itself a
-// board change. → true while any is marked.
-async function sendPulls({ kind, file: name, line }, on, keep, go, start = null) {
+const sentOf = async ({ file }) => markedOf(await readJSON(path.join(data, file), {}));
+// With on, writes the thread line and starts each of go, and marks keep and go as started; off, clears the marker. The
+// marker is written only when its keys move, since each write is itself a board change. → true while any is marked.
+async function sendPulls({ file: name, line }, on, keep, go, start) {
   const file = path.join(data, name);
   const keys = on ? [...keep, ...go] : [];
   for (const key of on ? go : []) {
-    if (start) { await start(key); continue; }
-    await appendEvent(kind, { key });
     await fs.mkdir(path.dirname(threadFile(key)), { recursive: true });
     await fs.appendFile(threadFile(key), JSON.stringify({ ts: new Date().toISOString(), who: 'claude', text: line }) + '\n');
+    await start(key);
   }
   if (JSON.stringify(markedOf(await readJSON(file, {}))) !== JSON.stringify(keys)) {
     await fs.mkdir(data, { recursive: true });
@@ -1538,7 +1555,7 @@ async function stepIdle() {
   if (!settingsOf(cfg).idle_notification) return fs.rm(file, { force: true });
   const previous = await readJSON(file, {});
   const built = await sharedBoard();
-  const idle = strictlyIdle(built, { pulled: await sentOf(PULL, await readLines(events)) });
+  const idle = strictlyIdle(built, { pulled: await sentOf(PULL) });
   const { state, push } = idleStep(previous, { idle, now: new Date() });
   if (push) {
     try { await sendPush(here, { kind: 'reminder', title: `${cfg.title || route} has gone idle`, body: idleSummary(built.items, previous.last), url: `/${route}/`, tag: 'idle', now: true }); }
