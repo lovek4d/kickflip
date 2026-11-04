@@ -1594,13 +1594,16 @@ async function depList(site, slug, deps) {
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 // --parent for card key of wave slug (key null for a new card): the key of a card that exists, neither key itself nor
-// one of its descendants; "" is none.
+// one of its descendants (the walk up its ancestors stops at one that no longer exists); "" is none.
 async function parentKey(site, slug, key, parent) {
   if (!String(parent).trim()) return null;
   const to = depKey(slug, String(parent).trim());
   if (to === key) fail("--parent: a card can't be its own Parent");
   for (let at = to; at;) {
-    const { item } = await loadItem(site, at);
+    // Only the new Parent must exist; an ancestor that is gone can't be a descendant of key, so the walk ends there.
+    const loaded = at === to ? await loadItem(site, at) : await loadItem(site, at).catch((e) => { if (e instanceof BoardError) return null; throw e; });
+    if (!loaded) break;
+    const { item } = loaded;
     if (item.parent && depKey(parseKey(at).wave, item.parent) === key) fail(`--parent: ${to} is a child of ${key}, so it can't be its Parent`);
     at = item.parent ? depKey(parseKey(at).wave, item.parent) : null;
   }

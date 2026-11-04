@@ -1249,6 +1249,17 @@ test('a follow-up is item add --parent; item set sets or clears a Parent and rep
   assert.equal(board('item', 'set', 'audit/ENG-7', '--site', 'audit', '--parent', 'audit/ENG-1').out, 'ENG-7: parent audit/ENG-1\n');
 });
 
+test('--parent works when an ancestor of the new Parent no longer exists', () => {
+  const file = site('audit', 'data', 'wave.json');
+  const data = read(file);
+  data.items.push({ id: 'ORPHAN', title: 'Orphan', parent: 'audit/GONE' }, { id: 'KID', title: 'Kid', parent: 'audit/ORPHAN' }, { id: 'NEW', title: 'New' });
+  write(file, data);
+  const set = board('item', 'set', 'audit/NEW', '--site', 'audit', '--parent', 'audit/KID');
+  assert.deepEqual([set.code, set.err, set.out], [0, '', 'NEW: parent audit/KID\n']);
+  const cycle = board('item', 'set', 'audit/ORPHAN', '--site', 'audit', '--parent', 'audit/KID');
+  assert.match(cycle.err, /^--parent: audit\/KID is a child of audit\/ORPHAN/);
+});
+
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 test("a wave file's follow-ups move into its items once: ids, titles, tickets and notes kept, done ones done, Filed from as the Parent", async (t) => {
   const { migrateFollowups } = await import('./store.mjs');
