@@ -1686,3 +1686,18 @@ test('the Auto Review lane shows each PR with its author, cards and state, opens
   assert.match(text(ui.reviewLane({ ...reviews, cards: [], earlier: [], waiting: 2 })), /2 incoming PRs wait until the board is idle\./);
   assert.equal(ui.reviewLane({ ...reviews, shown: false }), '');
 });
+
+test('a card\'s phase bars enter when a build starts, fill on an advance, leave when it ends, and are still otherwise', () => {
+  const building = (phase) => ({ lane: 'progress', builder: { phase } });
+  assert.equal(ui.buildPhase(building('testing')), 'testing');
+  assert.equal(ui.buildPhase({ ...building('testing'), waitsOn: 'checking' }), null);
+  assert.equal(ui.buildPhase({ lane: 'todo', builder: { phase: 'testing' } }), null);
+  assert.equal(ui.buildPhase({ lane: 'progress', builder: { planner: true, phase: 'testing' } }), null);
+  assert.equal(ui.buildPhase({ lane: 'progress', builder: { phase: null } }), null);
+  assert.equal(ui.buildPhase({ lane: 'progress' }), null);
+  assert.equal(ui.phaseMotion(null, 'reading'), 'enter');
+  assert.equal(ui.phaseMotion('reading', 'building'), 'fill');
+  assert.equal(ui.phaseMotion('landing', null), 'leave');
+  assert.equal(ui.phaseMotion('building', 'building'), null);
+  assert.equal(ui.phaseMotion(null, null), null);
+});

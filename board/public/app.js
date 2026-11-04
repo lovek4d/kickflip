@@ -166,8 +166,10 @@ window.BoardView = (function () {
         for (const el of $$('details.item[open]')) state.openItems.add(el.dataset.key);
         for (const it of d.items) if (!it.isNew) markSeen(it, !state.openItems.has(it.key));
         // An open card's thread is renderThread's (app-threads.js), so a lane repaint leaves it as it is.
+        const strips = B.captureStrips();
         setHTML($('#lanes'), B.lanesHtml(d, live), { keep: '[data-thread]' });
         for (const key of state.openItems) if (state.threadCache.has(key)) B.renderThread(key, state.threadCache.get(key));
+        B.moveStrips(live, strips);
         B.renderNeeds(d);
         B.renderBanner(d);
       });

@@ -141,6 +141,11 @@
   // marked. The phases are store.mjs PHASES (docs/adr/0137-a-builder-status-line-is-a-phase-and-a-short-detail.md,
   // docs/adr/0160-a-building-cards-phase-bars-end-its-time-row.md).
   const BUILD_PHASES = ['reading', 'building', 'testing', 'checking', 'landing'];
+  // The phase a card's bars show, or null when it shows none: an In Progress card with a builder past "starting", not a
+  // planner and not in orchestrator review.
+  const buildPhase = (it) => (it.lane === 'progress' && it.builder && !it.builder.planner && it.waitsOn !== 'checking' && BUILD_PHASES.includes(it.builder.phase) ? it.builder.phase : null);
+  // What the bars do when a card's phase goes from prev to next across redraws (docs/adr/0183-the-phase-bars-animate-as-a-build-starts-advances-and-ends.md).
+  const phaseMotion = (prev, next) => (!prev === !next ? (prev && next && prev !== next ? 'fill' : null) : next ? 'enter' : 'leave');
   function phaseBars(phase) {
     const at = BUILD_PHASES.indexOf(phase);
     if (at < 0) return '';
@@ -212,7 +217,7 @@
     return `${actions ?? cardActions(it, top)}<div class="line1 title">${ids ? `${ids} ` : ''}${esc(it.title)}</div>
       ${status}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
-      ${timeLine(it, unread, it.lane === 'progress' && it.builder && !it.builder.planner && it.waitsOn !== 'checking' ? phaseBars(it.builder.phase) : '')}`;
+      ${timeLine(it, unread, phaseBars(buildPhase(it)))}`;
   }
   const WAVE_ICON = '<svg class="wave-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/><path d="M2 16c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/></svg>';
   const askChip = (it) => (it.isNew ? badge('notice', 'New') : '');
@@ -261,5 +266,5 @@
       <div class="list">${list}${fold}</div></details>`;
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, buildButton, builderLine, unreadCount, heldUntilWords, holdPicker, workLines, askChip, askActions, askLine, planButton, WAVE_ICON, reviewLane });
+  Object.assign(globalThis.BoardUI, { prChips, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, buildButton, builderLine, BUILD_PHASES, buildPhase, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, askChip, askActions, askLine, planButton, WAVE_ICON, reviewLane });
 })();

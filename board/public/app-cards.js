@@ -3,7 +3,7 @@
 // app-core.js and app-threads.js.
 BoardView.part((B) => {
   const { $, store, state, markSeen, seen, toast, links } = B;
-  const { esc, ago, REVIEW, reviewAge, unreadCount, workLines, heldUntilWords, holdPicker, linkText, mergeButton, buildButton, installButton, tryButton, tryWords, BUTTON, LINK_ARROW } = BoardUI;
+  const { esc, ago, REVIEW, reviewAge, unreadCount, workLines, BUILD_PHASES, buildPhase, phaseMotion, heldUntilWords, holdPicker, linkText, mergeButton, buildButton, installButton, tryButton, tryWords, BUTTON, LINK_ARROW } = BoardUI;
 
   const mainSheet = $('#mainLogSheet');
   const mainRetry = $('#mainLogRetry');
@@ -272,6 +272,58 @@ BoardView.part((B) => {
         </details>`;
   }
 
+  // The phase bars move as a card's phase changes across redraws (docs/adr/0183-the-phase-bars-animate-as-a-build-starts-advances-and-ends.md).
+  // phases is each card's last drawn phase by key; the first draw only records it, so a loaded board stays still.
+  const phases = new Map();
+  let drawn = false;
+  const PHASE_STEP = 40;
+  const play = (el, frames, opts, hold = 'backwards') => el.animate(frames, { fill: hold, easing: 'ease-out', ...opts });
+  const GROW = [{ opacity: 0, transform: 'scaleX(0)', transformOrigin: 'left' }, { opacity: 1, transform: 'none', transformOrigin: 'left' }];
+  const SWEEP = 'linear-gradient(var(--color-notice), var(--color-notice))';
+  const sweepFrame = (size) => ({ backgroundColor: 'var(--line)', backgroundImage: SWEEP, backgroundRepeat: 'no-repeat', backgroundPosition: 'left', backgroundSize: size });
+  const stripOf = (card) => {
+    const bars = card?.querySelector('.card-time .phase-bars');
+    return bars && { sep: bars.previousElementSibling?.matches('.sep') ? bars.previousElementSibling : null, bars };
+  };
+  const cardEl = (key) => $(`details.item[data-key="${CSS.escape(key)}"]`);
+  // Before lanes redraw: each drawn strip, kept so a build that ends can still leave.
+  function captureStrips() {
+    const strips = new Map();
+    for (const [key, phase] of phases) {
+      const strip = phase && stripOf(cardEl(key));
+      if (strip) strips.set(key, { sep: strip.sep?.cloneNode(true), bars: strip.bars.cloneNode(true) });
+    }
+    return strips;
+  }
+  // After lanes redraw: compares each card's phase to its last, then enters, fills or leaves its strip.
+  function moveStrips(items, before) {
+    const next = new Map(items.map((it) => [it.key, buildPhase(it)]));
+    const still = reduceMotion.matches || !drawn;
+    for (const [key, phase] of next) {
+      const kind = still ? null : phaseMotion(phases.get(key), phase);
+      if (!kind) continue;
+      const strip = stripOf(cardEl(key));
+      if (kind === 'leave') {
+        const gone = before.get(key);
+        const row = cardEl(key)?.querySelector('.card-time');
+        if (!gone || !row) continue;
+        const bars = [...gone.bars.querySelectorAll('i')].reverse();
+        row.append(...[gone.sep, gone.bars].filter(Boolean));
+        Promise.all(bars.map((bar, k) => play(bar, [...GROW].reverse(), { duration: 120, delay: k * PHASE_STEP, easing: 'ease-in' }, 'forwards').finished))
+          .then(() => play(gone.sep ?? gone.bars, [{ opacity: 1 }, { opacity: 0 }], { duration: 100 }, 'forwards').finished)
+          .finally(() => { gone.sep?.remove(); gone.bars.remove(); });
+      } else if (strip && kind === 'enter') {
+        if (strip.sep) play(strip.sep, [{ opacity: 0 }, { opacity: 1 }], { duration: 120 });
+        [...strip.bars.querySelectorAll('i')].forEach((bar, k) => play(bar, GROW, { duration: 140, delay: 60 + k * PHASE_STEP }));
+      } else if (strip && kind === 'fill') {
+        play(strip.bars.querySelectorAll('i')[BUILD_PHASES.indexOf(phase)], [sweepFrame('0% 100%'), sweepFrame('100% 100%')], { duration: 220, easing: 'ease-in-out' });
+      }
+    }
+    phases.clear();
+    for (const [key, phase] of next) phases.set(key, phase);
+    drawn = true;
+  }
+
   B.on(B.root, 'toggle', (ev) => {
     const el = ev.target;
     if (!el.matches?.('details.item')) return;
@@ -391,5 +443,5 @@ BoardView.part((B) => {
     } catch { redrawActions(key); toast('Could not send. Is the host awake?'); }
   });
 
-  Object.assign(B, { detail, card, startingBuild: (key) => sendingBuild.has(key) });
+  Object.assign(B, { captureStrips, moveStrips, detail, card, startingBuild: (key) => sendingBuild.has(key) });
 });
