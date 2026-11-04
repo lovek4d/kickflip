@@ -403,7 +403,7 @@ test("a starting board's row shows the three start steps on the board's phase ba
     const html = ui.sidebar({ sites: [], starting: [{ route: 'audit', title: 'Backend audit', failed: false, ...s }] }, { now });
     return /<div class="sb-row sb-starting" data-starting="audit">.*?<\/div>/.exec(html)[0];
   };
-  const plus = /<span class="icon sb-plus" aria-hidden="true"><svg [^>]*>.*?<\/svg><\/span>/.source;
+  const plus = /<span class="icon sb-plus sb-start-icon" aria-hidden="true"><svg [^>]*>.*?<\/svg><\/span>/.source;
   const bars = (label, inner) => `<span class="sb-steps"><span class="phase-bars" role="img" aria-label="${label}" title="${label}">${inner}</span></span>`;
   const shape = (label, inner, caption) => new RegExp(`^<div class="sb-row sb-starting" data-starting="audit">${plus}<span class="sb-text"><span class="sb-title">Backend audit</span>${bars(label, inner).replace(/[()]/g, '\\$&')}<span class="sb-sub sb-step">${caption.replace(/[()]/g, '\\$&')}</span></span></div>$`);
   assert.match(row({ step: 'cloning', stepAt: at(7.9), percent: 42 }), shape('cloning, step 1 of 3', '<i class="fill" style="--p:42%"></i><i class=""></i><i class=""></i>', 'cloning (42%) · 7s'));
@@ -412,6 +412,20 @@ test("a starting board's row shows the three start steps on the board's phase ba
   assert.match(row({ step: 'landing', stepAt: at(125) }), shape('landing it, step 3 of 3', '<i class="done"></i><i class="done"></i><i class="now"></i>', 'landing it · 125s'));
   assert.match(row({ step: 'starting', stepAt: new Date(now + 4000).toISOString() }), /starting orchestrator · 0s/, "a host clock ahead of this device's counts from 0s");
   assert.equal(ui.startCaption({ step: 'landing', stepAt: at(3) }, now), 'landing it · 3s');
+});
+
+test("a starting board's row draws an icon for its step, the download arrow, the terminal prompt, then take A's skateboard, and the New board and failed rows keep the plus", () => {
+  const glyph = (s) => {
+    const html = ui.sidebar({ sites: [], starting: [{ route: 'audit', title: 'Backend audit', failed: false, stepAt: new Date().toISOString(), ...s }] });
+    return /<span class="icon sb-plus sb-start-icon" aria-hidden="true"><svg [^>]*>(.*?)<\/svg>/.exec(html)[1];
+  };
+  assert.equal(glyph({ step: 'cloning' }), '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14"/>');
+  assert.equal(glyph({ step: 'starting' }), '<path d="m5 7 5 5-5 5M12 18h7"/>');
+  assert.equal(glyph({ step: 'landing' }), '<path d="M2.5 9c0 1.7 1.2 3 3 3h13c1.8 0 3-1.3 3-3"/><circle cx="7.5" cy="16.5" r="2"/><circle cx="16.5" cy="16.5" r="2"/>');
+  const html = ui.sidebar({ sites: [], starting: [{ route: 'bad', title: 'Bad', failed: true }] });
+  assert.doesNotMatch(html, /sb-start-icon/);
+  assert.match(html, /sb-failed[^>]*>\s*<span class="icon sb-plus" aria-hidden="true"><svg [^>]*><path d="M12 5v14M5 12h14"\/>/);
+  assert.match(html, /data-new-board[^>]*><span class="icon sb-plus" aria-hidden="true"><svg [^>]*><path d="M12 5v14M5 12h14"\/>/);
 });
 
 test("a failed start's sheet labels its folder from home with a directory boundary, and without home shows the whole path", () => {

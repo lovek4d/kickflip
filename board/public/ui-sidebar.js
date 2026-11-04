@@ -14,6 +14,11 @@
     pulse: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
     close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    // A starting board's step icons, one per START_STEPS key. No open icon set (Lucide, Tabler) has a skateboard, so landing's
+    // deck with upturned ends over two wheels is drawn here.
+    cloning: '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14"/>',
+    starting: '<path d="m5 7 5 5-5 5M12 18h7"/>',
+    landing: '<path d="M2.5 9c0 1.7 1.2 3 3 3h13c1.8 0 3-1.3 3-3"/><circle cx="7.5" cy="16.5" r="2"/><circle cx="16.5" cy="16.5" r="2"/>',
     moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
     up: '<circle cx="12" cy="12" r="9"/><path d="m8 12 4-4 4 4"/><path d="M12 16V8"/>',
   };
@@ -203,7 +208,7 @@
     const pending = (data?.starting || []).map((s) => (s.failed
       ? `<button type="button" class="sb-row sb-starting sb-failed" data-starting="${esc(s.route)}" data-failed-start="${esc(s.route)}" aria-haspopup="dialog">${plus}`
         + `<span class="sb-text"><span class="sb-title">${esc(s.title)}</span><span class="sb-sub">failed to start</span></span></button>`
-      : `<div class="sb-row sb-starting" data-starting="${esc(s.route)}">${plus}`
+      : `<div class="sb-row sb-starting" data-starting="${esc(s.route)}"><span class="icon sb-plus sb-start-icon" aria-hidden="true">${svg(ICONS[s.step], 20)}</span>`
         + `<span class="sb-text"><span class="sb-title">${esc(s.title)}</span>${startSteps(s)}<span class="sb-sub sb-step">${esc(startCaption(s, now))}</span></span></div>`)).join('');
     const newBoard = `<button type="button" class="sb-row sb-new" data-new-board aria-haspopup="dialog">${plus}<span class="sb-text"><span class="sb-title">New board</span></span></button>`;
     const turnOn = device === 'off' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Turn on notifications', sub: 'Off on this device', cls: 'sb-turnon' })

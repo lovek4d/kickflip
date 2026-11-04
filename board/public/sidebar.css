@@ -84,6 +84,7 @@ html.sb-update body.has-sidebar > .top .hub::after, html.sb-update body.has-side
   #failedStartSheet { inset: 0; margin: auto; height: fit-content; max-height: calc(100dvh - 48px); }
 }
 .sidebar .sb-row .icon.sb-plus { color: var(--muted); background: var(--chip); }
+.sidebar .sb-row .icon.sb-start-icon { color: var(--accent); }
 
 #newBoardSheet .nb-form { min-width: 0; }
 #newBoardSheet .sheet-head { margin-bottom: 8px; }
