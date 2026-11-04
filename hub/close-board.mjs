@@ -69,7 +69,7 @@ export async function reopenBoard(route, { run, tmux, live } = {}) {
       return { route, session: session.session };
     } catch (error) {
       const current = routeRecord(readManifest().sites, route);
-      if (error.reason === 'live' && current?.owner?.session && (live || liveSessions)().has(current.owner.session)) return { route, session: current.owner.session };
+      if (error.reason === 'live' && current?.owner?.session && (live || liveSessions)()?.has(current.owner.session)) return { route, session: current.owner.session };
       await withManifestLock(async () => {
         const manifest = readManifest();
         if (JSON.stringify(routeRecord(manifest.sites, route)) !== JSON.stringify(saved.site)) return;

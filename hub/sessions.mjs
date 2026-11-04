@@ -64,7 +64,8 @@ export const BG_SETTINGS = JSON.stringify({
 });
 
 export class SessionError extends Error {
-  // reason: 'none' (no session or folder recorded), 'hub' (no hub board), 'live' (the session runs), 'failed' (claude or tmux refused)
+  // reason: 'none' (no session or folder recorded), 'hub' (no hub board), 'live' (the session runs), 'unknown' (ps gave
+  // no answer, so whether the session runs is unknown), 'failed' (claude or tmux refused)
   constructor(message, reason) { super(message); this.reason = reason; }
 }
 
@@ -106,6 +107,8 @@ const hasTmux = (tmux, route) => tmux(['has-session', '-t', `=${tmuxName(route)}
 // (docs/adr/2026-11-03-1823-a-board-session-compacts-before-its-context-fills.md). The hub runs it after each session check.
 // → {compacted: [route], failed: [message]}
 export async function compactFullContexts({ manifest = readManifest(), now = new Date(), running = liveSessions(), wakes = readJSON(RESUME_STATE, {}), tmux = runTmux } = {}) {
+  // With ps giving no answer, no board's listen state is known, so the check waits for the next.
+  if (!running) return { compacted: [], failed: [] };
   const state = Object.assign(Object.create(null), readJSON(COMPACT_STATE, {}));
   const compacted = [];
   const failed = [];
@@ -166,11 +169,14 @@ export async function runSessionStop(record, { cwd, run = runClaude, starts = pr
 
 export async function stopSession(owner, { live = liveSessions, stop = runSessionStop } = {}) {
   if (!owner?.session) return;
-  const record = live().get(owner.session);
+  const running = live();
+  if (!running) throw new SessionError(unknownLiveness(owner.session), 'unknown');
+  const record = running.get(owner.session);
   if (!record) return;
   await stop(record, { cwd: owner.repo || record.cwd || os.homedir() });
   const deadline = Date.now() + 5000;
-  while (live().get(owner.session)?.pid === record.pid) {
+  // A check ps gives no answer for leaves the session running, so the wait goes on to the next.
+  for (let running = live(); !running || running.get(owner.session)?.pid === record.pid; running = live()) {
     if (Date.now() >= deadline) throw new SessionError(`session ${owner.session} did not stop`, 'failed');
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -272,8 +278,14 @@ async function isBackground(id, { run, cwd }) {
   try { return JSON.parse(r.stdout).some((s) => s?.sessionId === id && s.kind === 'background'); } catch { return false; }
 }
 
+const unknownLiveness = (session) => `Couldn't tell whether session ${session} is live: ps gave no answer in time, as happens on a busy Mac. Try again in a moment.`;
+
+// Refuses while rec's session is live, and while ps can't say whether it is, since a second process can't be undone.
 function refuseLive(rec, live) {
-  const l = rec && live().get(rec.session);
+  if (!rec) return;
+  const running = live();
+  if (!running) throw new SessionError(unknownLiveness(rec.session), 'unknown');
+  const l = running.get(rec.session);
   if (l) throw new SessionError(`session ${rec.session} is live (${l.kind === 'bg' ? 'in the background' : 'in a terminal'}, pid ${l.pid}); it gets no second process`, 'live');
 }
 
@@ -380,8 +392,11 @@ export async function checkSessions({
   resume = (route, mark) => resumeSession(route, { manifest, live, mark }), push = deliver,
   gate = readUsageGate({ now }),
 } = {}) {
-  const state = readJSON(RESUME_STATE, {});
   const running = live();
+  // With ps giving no answer, which sessions run is unknown, so nothing wakes or pushes and every outage is kept for
+  // the next check.
+  if (!running) return { resumed: [], pushed: [], failed: [] };
+  const state = readJSON(RESUME_STATE, {});
   const next = Object.create(null);
   const out = { resumed: [], pushed: [], failed: [] };
   for (const board of listBoards(manifest)) {
@@ -398,7 +413,12 @@ export async function checkSessions({
       if (!pending.some((line) => !heldUsageEvent(line))) { action = 'none'; delete entry.resumed_at; }
     }
     if (action === 'resume') {
-      try { await resume(board.route, entry.mark); out.resumed.push(board.route); } catch (e) { entry = { ...entry, error: e.message }; out.failed.push(`${board.route}: could not resume its session (${e.message})`); }
+      try { await resume(board.route, entry.mark); out.resumed.push(board.route); } catch (e) {
+        // A resume that couldn't tell whether the session runs is tried again on the next check.
+        if (e.reason === 'unknown') delete entry.resumed_at;
+        else entry = { ...entry, error: e.message };
+        out.failed.push(`${board.route}: could not resume its session (${e.message})`);
+      }
     } else if (action === 'push') {
       const body = entry.error ? `The hub couldn't resume it: ${entry.error}`
         : isLive ? "Its session is running but hasn't relaunched its watcher."

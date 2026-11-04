@@ -109,7 +109,10 @@ if (!s0) { console.log('site-removed'); process.exit(0); }
 const cursorFile = path.resolve(s0.dir, 'data', `.watch-cursor-${session}.json`);
 const watcherFile = path.resolve(s0.dir, 'data', 'watcher.json');
 const parents = [process.ppid, parentOf(process.ppid)];
-const orphaned = () => { if (sessionGone(session, parents)) process.exit(0); };
+const orphaned = () => {
+  parents[1] ??= parentOf(parents[0]);
+  if (sessionGone(session, parents)) process.exit(0);
+};
 stopPreviousWatcher(s0.dir, route, session);
 try {
   fs.mkdirSync(path.dirname(cursorFile), { recursive: true });

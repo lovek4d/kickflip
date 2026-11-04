@@ -97,7 +97,9 @@ export function matchesRule(rule, input) {
 }
 
 // Process identity prevents a resumed conversation with the same session id from inheriting an ended run's rules.
+// running is null when ps gave no answer; no run is known to have ended then, so every rule is kept.
 export function pruneRemembered(store, { running, boards }) {
+  if (!running) return false;
   let changed = false;
   for (const [session, entry] of Object.entries(store.remembered || {})) {
     const board = boards.find((b) => entry.route ? b.route === entry.route : b.owner?.session === session);
@@ -116,7 +118,7 @@ export function pruneRemembered(store, { running, boards }) {
 
 export function rememberRules(store, record, context) {
   if (record.answer?.choice !== 'always' || record.tool === ASK || !record.session || !record.permissions) return false;
-  if (!sameRuntime(record.runtime, runtimeOf(context.running.get(record.session)))) return false;
+  if (!sameRuntime(record.runtime, runtimeOf(context.running?.get(record.session)))) return false;
   const previous = routeRecord(store.remembered, record.session);
   const route = record.route || previous?.route;
   const board = (route && context.boards.find((b) => b.route === route)) ||

@@ -1092,7 +1092,7 @@ async function hubRoute(req, res, url) {
       if (pruneRemembered(store, context)) stream.refresh();
       const answer = rememberedAnswer(store, input);
       if (answer) return { answer };
-      const rec = promptRecord(input, { board, live: context.running.get(input.session_id) });
+      const rec = promptRecord(input, { board, live: context.running?.get(input.session_id) });
       store.prompts[rec.id] = rec;
       return { rec };
     });

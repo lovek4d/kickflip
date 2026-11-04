@@ -612,7 +612,7 @@ const commands = {
       site.owner = {
         ...(same || { session: args.session, since: now }),
         label: args.label || kept?.label || '',
-        repo: args.repo ? path.resolve(args.repo) : ((site.github || site.remote) && kept?.repo) || liveSessions().get(args.session)?.cwd || kept?.repo || process.cwd(),
+        repo: args.repo ? path.resolve(args.repo) : ((site.github || site.remote) && kept?.repo) || liveSessions()?.get(args.session)?.cwd || kept?.repo || process.cwd(),
       };
       const model = args.model || kept?.model;
       if (model) site.owner.model = model;
@@ -769,12 +769,14 @@ const commands = {
     const routes = [...listBoards(m).map((b) => b.route), ...Object.keys(m.starting || {}).filter((r) => !routeRecord(m.sites, r))];
     const rows = routes.map((route) => {
       const rec = sessionOf(m, route);
-      const l = rec && live.get(rec.session);
-      return { route, session: rec?.session || null, live: l ? (l.kind === 'bg' ? 'background' : 'terminal') : null, repo: rec?.repo || null, starting: !routeRecord(m.sites, route) };
+      const l = rec && live?.get(rec.session);
+      // live is 'unknown' when ps gave no answer.
+      const state = !rec ? null : !live ? 'unknown' : l ? (l.kind === 'bg' ? 'background' : 'terminal') : null;
+      return { route, session: rec?.session || null, live: state, repo: rec?.repo || null, starting: !routeRecord(m.sites, route) };
     });
     if (args.json) return out(rows);
     if (!rows.length) return out('no boards');
-    for (const r of rows) out(`/${r.route}  ${r.session || 'no session'}  ${r.live ? `live (${r.live})` : 'not live'}  ${r.repo || 'no folder'}${r.starting ? '  (starting: not joined yet)' : ''}`);
+    for (const r of rows) out(`/${r.route}  ${r.session || 'no session'}  ${r.live === 'unknown' ? 'live unknown (ps gave no answer)' : r.live ? `live (${r.live})` : 'not live'}  ${r.repo || 'no folder'}${r.starting ? '  (starting: not joined yet)' : ''}`);
   },
 
   async hub() {

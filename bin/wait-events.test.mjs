@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { until, ownSession } from '../shared/test-helpers.mjs';
+import { until, ownSession, stallingPs } from '../shared/test-helpers.mjs';
 
 const write = (file, data) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof data === 'string' ? data : JSON.stringify(data)); };
 
@@ -121,6 +121,28 @@ test("a watcher whose session dies exits without taking the next event, so the r
   const resumed = await watch().done;
   assert.equal(resumed.code, 0);
   assert.match(resumed.stdout, /^event data\/events.jsonl .*"kind":"ask"/);
+});
+
+test("a watcher keeps waiting while ps can't answer whether its session runs, and takes the next event", { timeout: 90000 }, async (t) => {
+  const { home, env, add, watcherRecord } = shop(t);
+  ownSession(home, 's1');
+  const ps = stallingPs(home);
+  t.after(() => ps.stall(false));
+  const child = spawn(process.execPath, [WATCHER, 'shop', 's1'], { env: { ...env, PATH: `${ps.bin}:${env.PATH}` } });
+  t.after(() => child.kill('SIGKILL'));
+  let stdout = '';
+  child.stdout.on('data', (d) => { stdout += d; });
+  const done = new Promise((resolve) => child.on('close', (code) => resolve(code)));
+  await until(() => watcherRecord()?.pid === child.pid, 'the watcher started');
+  ps.stall(true);
+  // Each check waits out ps's 3 s timeout twice, for the shell's parent and for the session.
+  await new Promise((resolve) => setTimeout(resolve, 15000));
+  assert.equal(child.exitCode, null, 'the watcher still waits');
+  assert.equal(stdout, '');
+  ps.stall(false);
+  add('ask');
+  assert.equal(await done, 0);
+  assert.match(stdout, /^event data\/events.jsonl .*"kind":"ask"/);
 });
 
 test('a new watcher for the same session stops the one watcher.json records, and no other process', { timeout: 60000 }, async (t) => {

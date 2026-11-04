@@ -113,6 +113,15 @@ test('remembered rules end when the session stops, restarts under the same id, l
   assert.equal(rememberRules({ prompts: {} }, rec, { ...context(), boards: [] }), false);
 });
 
+test("remembered rules are kept while ps can't answer whether their session runs, and none is added then", () => {
+  const store = kept([bash('npm test')]);
+  assert.equal(pruneRemembered(store, { ...context(), running: null }), false);
+  assert.notEqual(rememberedAnswer(store, bash('npm test')), null);
+  const rec = promptRecord(bash('npm test'), { board, live });
+  rec.answer = { choice: 'always' };
+  assert.equal(rememberRules({ prompts: {} }, rec, { ...context(), running: null }), false);
+});
+
 test('remembered rules follow a session into its board and then end when that board changes owner', () => {
   const store = { prompts: {}, remembered: {} };
   const rec = promptRecord(bash('npm test'), { board: null, live });

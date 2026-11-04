@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
-import { liveOf, liveSessions, parentOf, sessionGone } from './live.mjs';
+import { liveOf, liveSessions, parentOf, processStarts, sessionGone } from './live.mjs';
+import { stallingPs } from '../shared/test-helpers.mjs';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'live-'));
 const sleepers = [];
@@ -56,6 +57,27 @@ test("a watcher's session is gone once its shell or the shell's parent changes, 
   assert.equal(sessionGone('s1', [20, 10], { ...at, parent: parent({ 20: 1 }) }), true, 'the session died and its shell went to launchd');
   assert.equal(sessionGone('s1', [20, 10], { ...at, parent: parent({}) }), true, 'the shell no longer runs');
   assert.equal(sessionGone('s1', [20, 10], { ...at, live: live('s2') }), true, 'the session no longer runs');
+  assert.equal(sessionGone('s1', [20, 10], { ...at, live: () => null }), false, 'ps gave no answer for the session');
+  assert.equal(sessionGone('s1', [20, 10], { ...at, parent: () => undefined }), false, "ps gave no answer for the shell's parent");
+  assert.equal(sessionGone('s1', [20, undefined], at), false, "the shell's parent wasn't known at start");
+  assert.equal(sessionGone('s1', [20, undefined], { ...at, ppid: 1 }), true);
+});
+
+test("a ps that times out leaves every liveness unknown, so a live session's watcher isn't told it is gone", { timeout: 60000 }, async (t) => {
+  const running = await sleeper();
+  record(running.pid, 'stalled', { procStart: lstart(running.pid) });
+  const ps = stallingPs(dir);
+  const PATH = process.env.PATH;
+  process.env.PATH = `${ps.bin}:${PATH}`;
+  t.after(() => { process.env.PATH = PATH; ps.stall(false); });
+  assert.deepEqual([...liveSessions({ dir, session: 'stalled' }).keys()], ['stalled'], 'the stand-in ps answers as ps does');
+  assert.equal(parentOf(running.pid), process.pid);
+  ps.stall(true);
+  assert.equal(processStarts([running.pid]), null);
+  assert.equal(liveSessions({ dir }), null);
+  assert.equal(parentOf(running.pid), undefined);
+  assert.equal(sessionGone('stalled', [running.pid, process.pid], { ppid: running.pid, live: (o) => liveSessions({ dir, ...o }) }), false);
+  assert.equal(processStarts([0x7ffffffe]).size, 0, 'a pid that no longer runs is known gone without asking ps');
 });
 
 test('parentOf reads a running process\'s parent with ps, and null once it has exited', async () => {

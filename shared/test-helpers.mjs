@@ -115,3 +115,13 @@ export function ownSession(home, session, pid = process.pid) {
   fs.mkdirSync(path.join(home, '.claude', 'sessions'), { recursive: true });
   fs.writeFileSync(path.join(home, '.claude', 'sessions', `${pid}-${session}.json`), JSON.stringify({ pid, sessionId: session, cwd: home, procStart, kind: 'bg' }));
 }
+
+// A ps on a PATH of its own that answers as /bin/ps does, and while stall(true) hangs past live.mjs's 3 s timeout, as
+// ps does on a heavily loaded Mac. → {bin: the folder to put first on PATH, stall(on)}
+export function stallingPs(dir) {
+  const bin = path.join(dir, 'stalling-ps');
+  const flag = path.join(dir, 'ps-stalls');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(bin, 'ps'), `#!/bin/sh\n[ -e '${flag}' ] && exec sleep 10\nexec /bin/ps "$@"\n`, { mode: 0o755 });
+  return { bin, stall: (on) => (on ? fs.writeFileSync(flag, '') : fs.rmSync(flag, { force: true })) };
+}

@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { installLinks, installClaudeSettings, nodeBin } from '../bin/install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { REVIEW_SKILLS } from '../shared/skills.mjs';
+import { stallingPs, until } from '../shared/test-helpers.mjs';
 
 const SKILL = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sessions-')));
@@ -698,6 +699,56 @@ test("a tap on an asleep board's page wakes its session at once with no event, o
   await check(['tap']);
   assert.deepEqual(resumed, ['tap']);
   fs.rmSync(web('resume-state.json'), { force: true });
+});
+
+test("while ps can't answer whether a session runs, the wake, the deaf push and the compact check wait for the next check, and start, resume, stop and hub refuse", { timeout: 90000 }, async () => {
+  const { stopSession, hubSession, compactFullContexts } = await import('./sessions.mjs');
+  const { checkListening, listenState } = await import('./boards.mjs');
+  const dir = path.join(home, 'unknown-board');
+  write(path.join(dir, 'board.json'), { title: 'Unknown' });
+  write(path.join(dir, 'data', 'events.jsonl'), JSON.stringify({ id: 'u1', ts: new Date(Date.now() - 3600_000).toISOString(), kind: 'ask' }) + '\n');
+  const m = { sites: { unknown: { dir, port: 1, cmd: boardCmd(dir), owner: { session: 's-unknown', repo, since: '2026-10-30T00:00:00Z' } } } };
+  const board = { route: 'unknown', dir, watch: ['data/events.jsonl'], owner: m.sites.unknown.owner };
+  const outage = { unknown: { down_since: new Date(Date.now() - 3600_000).toISOString(), mark: { 'data/events.jsonl': 0 } } };
+  write(web('resume-state.json'), outage);
+  const nobody = { resume: async () => assert.fail('resumed'), push: async () => assert.fail('pushed') };
+  assert.deepEqual(await checkSessions({ manifest: m, live: () => null, asked: new Set(['unknown']), listening: () => false, ...nobody }), { resumed: [], pushed: [], failed: [] });
+  assert.deepEqual(read(web('resume-state.json')), outage, 'the outage and its mark are kept');
+  const unknown = Object.assign(new Error('unknown'), { reason: 'unknown' });
+  const tried = await checkSessions({ manifest: m, live: () => new Map(), asked: new Set(['unknown']), listening: () => false, resume: async () => { throw unknown; }, push: nobody.push });
+  assert.equal(tried.failed.length, 1);
+  assert.deepEqual([read(web('resume-state.json')).unknown.resumed_at, read(web('resume-state.json')).unknown.error], [undefined, undefined], 'the next check tries the resume again');
+  write(web('deaf-state.json'), {});
+  assert.deepEqual(await checkListening({ manifest: m, running: null }), { pushed: [], failed: [] });
+  assert.deepEqual(read(web('deaf-state.json')), {});
+  assert.deepEqual(await compactFullContexts({ manifest: m, running: null, tmux: () => assert.fail('ran tmux') }), { compacted: [], failed: [] });
+  assert.equal(listenState(board, { running: null, wakes: {} }), 'asleep', 'with no watcher, an unknown session reads asleep, which pushes nothing');
+  const watcher = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', 'wait-events.mjs'], { stdio: 'ignore' });
+  sleepers.push(watcher);
+  write(path.join(dir, 'data', 'watcher.json'), { pid: watcher.pid, since: new Date().toISOString() });
+  await until(() => listenState(board, { running: null, wakes: {} }) === 'listening', 'a running watcher vouches for its session');
+  fs.rmSync(path.join(dir, 'data', 'watcher.json'));
+  await assert.rejects(stopSession({ session: 's-unknown' }, { live: () => null, stop: async () => assert.fail('stopped') }), { reason: 'unknown' });
+  await assert.rejects(hubSession({ manifest: hubManifest({ session: 's-hub', repo }), tmux: () => ({ status: 1 }), attach: async () => assert.fail('attached'), live: () => null }), { reason: 'unknown' });
+  fs.rmSync(web('resume-state.json'), { force: true });
+
+  // ps is asked only about a pid that runs.
+  const session = liveRecord('s-unknown', repo);
+  const ps = stallingPs(home);
+  ps.stall(true);
+  try {
+    const env = { PATH: `${ps.bin}:${process.env.PATH}` };
+    const before = calls().length;
+    write(web('manifest.json'), { ...(fs.existsSync(web('manifest.json')) ? manifest() : {}), sites: { ...(fs.existsSync(web('manifest.json')) ? manifest().sites : {}), ...m.sites } });
+    const refusals = [await cli(['resume', 'unknown'], { env }), await cli(['start', 'unknown'], { env })];
+    assert.deepEqual(refusals.map((x) => x.status), [1, 1]);
+    for (const r of refusals) assert.match(r.stderr, /Couldn't tell whether session \S+ is live: ps gave no answer in time, as happens on a busy Mac\. Try again in a moment\./);
+    assert.equal(calls().length, before, 'no second claude process');
+    const listed = await cli(['sessions'], { env });
+    assert.match(listed.stdout, /^\/unknown  s-unknown  live unknown \(ps gave no answer\)  /m);
+    delete m.sites.unknown;
+    write(web('manifest.json'), { ...manifest(), sites: Object.fromEntries(Object.entries(manifest().sites).filter(([route]) => route !== 'unknown')) });
+  } finally { ps.stall(false); session.kill(); }
 });
 
 test("the hub board's wake resumes its session in its tmux session, keeping its id, and refuses while that tmux session is open", async () => {

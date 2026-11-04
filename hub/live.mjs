@@ -33,14 +33,26 @@ export function sessionRecords(dir = SESSIONS_DIR) {
   });
 }
 
-// pids → Map pid → start time (ms) for those still running, from one ps call.
+// Whether pid runs, by signal 0, which needs no ps: EPERM is a process this user can't signal, still running.
+const running = (pid) => {
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+};
+
+// ps's answer for argv, or null when ps gave none: it timed out (a loaded Mac takes seconds) or didn't run. ps exits
+// 1 when a pid it was asked about doesn't run, and that is still its answer.
+export function ps(argv) {
+  try { return execFileSync('ps', argv, { encoding: 'utf8', timeout: 3000, env: { ...process.env, TZ: 'UTC' } }); }
+  catch (e) { return typeof e.status === 'number' && !e.signal ? e.stdout || '' : null; }
+}
+
+// pids → Map pid → start time (ms) for those still running, from one ps call over the pids that still run, or null
+// when ps gave no answer, which leaves every pid's liveness unknown.
 export function processStarts(pids) {
   const starts = new Map();
-  if (!pids.length) return starts;
-  let text = '';
-  try {
-    text = execFileSync('ps', ['-o', 'pid=,lstart=', '-p', pids.join(',')], { encoding: 'utf8', timeout: 3000, env: { ...process.env, TZ: 'UTC' } });
-  } catch (e) { text = e.stdout || ''; }
+  const alive = pids.filter(running);
+  if (!alive.length) return starts;
+  const text = ps(['-o', 'pid=,lstart=', '-p', alive.join(',')]);
+  if (text === null) return null;
   for (const line of text.split('\n')) {
     const m = line.trim().match(/^(\d+)\s+(.+)$/);
     if (m) starts.set(Number(m[1]), utc(m[2]));
@@ -52,25 +64,35 @@ export function verifiedProcess(record, starts = processStarts) {
   if (!Number.isInteger(record?.pid) || record.pid <= 0 || !record.sessionId || typeof record.procStart !== 'string') return false;
   const recorded = utc(record.procStart);
   if (!Number.isFinite(recorded)) return false;
-  const actual = starts([record.pid]).get(record.pid);
+  const actual = starts([record.pid])?.get(record.pid);
   return Number.isFinite(actual) && Math.abs(recorded - actual) <= START_SLACK;
 }
 
-// → Map sessionId → its live record.
-export function liveSessions({ dir = SESSIONS_DIR, starts = processStarts } = {}) {
-  const records = sessionRecords(dir);
-  return new Map(liveOf(records, starts([...new Set(records.map((r) => r.pid))])).map((r) => [r.sessionId, r]));
+// → Map sessionId → its live record, or null when ps gave no answer and which sessions run is unknown. session limits
+// it to that session's records, so ps is asked about its pid alone.
+export function liveSessions({ dir = SESSIONS_DIR, starts = processStarts, session = null } = {}) {
+  const records = sessionRecords(dir).filter((r) => !session || r.sessionId === session);
+  const found = starts([...new Set(records.map((r) => r.pid))]);
+  return found && new Map(liveOf(records, found).map((r) => [r.sessionId, r]));
 }
 
-// pid's parent pid, or null once pid no longer runs.
+// pid's parent pid, null once pid no longer runs, or undefined when ps gave no answer.
 export function parentOf(pid) {
-  try { return Number(execFileSync('ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8', timeout: 3000 }).trim()) || null; } catch { return null; }
+  const text = ps(['-o', 'ppid=', '-p', String(pid)]);
+  return text === null ? undefined : Number(text.trim()) || null;
 }
 
 // Whether the Claude Code session that launched a process has died, for bin/wait-events.mjs: its parent (the shell
 // the session ran it in) changed, that shell's parent (the session's process) changed, which happens when the session
 // dies and the shell is reparented to launchd, or the session no longer runs at all. start is [parent, grandparent] as
-// the process started (docs/adr/2026-11-03-2010-a-watcher-exits-when-its-session-dies.md).
+// the process started, the grandparent undefined while ps hasn't answered for it. A check ps gives no answer for
+// leaves the session's liveness unknown, which never counts as gone
+// (docs/adr/2026-11-03-2010-a-watcher-exits-when-its-session-dies.md).
 export function sessionGone(session, start, { ppid = process.ppid, parent = parentOf, live = liveSessions } = {}) {
-  return ppid !== start[0] || parent(start[0]) !== start[1] || !live().has(session);
+  if (ppid !== start[0]) return true;
+  const grandparent = parent(start[0]);
+  if (grandparent === null) return true;
+  if (grandparent !== undefined && start[1] !== undefined && grandparent !== start[1]) return true;
+  const running = live({ session });
+  return running !== null && !running.has(session);
 }
