@@ -527,7 +527,7 @@ test("pr comment and pr reply post Claude's words through gh with the robot pref
   assert.equal(posts().length, 3);
 });
 
-test("merge squashes a card's PR once GitHub would merge it, with no commit after the approval unexplained and manual steps on the owner's word, and says why it won't on the card the owner asked to merge", () => {
+test("merge squashes a card's PR once GitHub would merge it, with no commit after the approval unexplained and manual steps on the owner's word, and leaves its refusal off the card's thread", () => {
   const dir = path.join(home, 'fake-gh');
   const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
   const merge = (...args) => run('board.mjs', ['--site', 'orch', 'merge', ...args], undefined, env);
@@ -539,7 +539,6 @@ test("merge squashes a card's PR once GitHub would merge it, with no commit afte
   assert.deepEqual(merge('w/A1'), { code: 1, out: '', err: "Not merged: review: review required; failing: build; merge state: blocked; manual steps: merge only on the owner's word, with --confirmed \"<their words>\".\n" });
   assert.deepEqual(thread(), []);
   fs.appendFileSync(site('orch', 'data', 'events.jsonl'), [
-    { id: 'e2', ts: '2026-11-01T11:00:00Z', kind: 'card-merge', data: { key: 'w/A1' } },
     { id: 'e3', ts: '2026-11-01T11:01:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'The backfill ran on prod.' } },
   ].map((e) => JSON.stringify(e) + '\n').join(''));
   writePR(dir, 7, prView({ reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN', head: 'bbb' }));
@@ -547,7 +546,7 @@ test("merge squashes a card's PR once GitHub would merge it, with no commit afte
   const after = merge('w/A1', '--confirmed', 'the backfill ran on prod');
   assert.equal(after.code, 1);
   assert.match(after.err, /^Not merged: commits after the approval: pass --after-approval/);
-  assert.deepEqual(thread(), [after.err.trim()]);
+  assert.deepEqual(thread(), []);
   assert.match(merge('w/A1', '--after-approval', 'Rebased.', '--confirmed', 'the backfill is done').err, /--confirmed must quote the owner's words/);
   approved('bbb');
   assert.match(merge('w/A1', '--after-approval', 'Rebased.', '--confirmed', 'the backfill ran on prod').err, /--after-approval: no commit came after the approval/);

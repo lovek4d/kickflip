@@ -1693,8 +1693,8 @@ const boardSource = async (site) => storedTickets((await boardConfig(site)).tick
 // (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md). A PR already merged or closed is left as it is. It refuses
 // commits after the newest approval unless afterApproval says why they're trivial, and a card with manual steps unless
 // confirmed quotes the owner. A refusal names every reason, each after its PR's name on a card with several, and also
-// goes in the card's thread while the owner's Merge waits on it.
-export async function mergeCard(site, key, { afterApproval, confirmed } = {}) {
+// goes in the card's thread when tapped, the owner's Merge tap (server.mjs).
+export async function mergeCard(site, key, { afterApproval, confirmed, tapped } = {}) {
   needSite(site);
   const { wave, item } = await loadItem(site, key);
   if (!hasPR(item)) fail(`${key} has no PR`);
@@ -1730,7 +1730,7 @@ export async function mergeCard(site, key, { afterApproval, confirmed } = {}) {
   if (steps === null) reasons.push('manual steps: merge only on the owner\'s word, with --confirmed "<their words>"');
   if (reasons.length) {
     const why = `Not merged: ${reasons.join('; ')}.`;
-    if (await ownerMergeWaits(site, key)) await appendThread(site, key, { text: why });
+    if (tapped) await appendThread(site, key, { text: why });
     fail(why);
   }
   const done = [];
@@ -1743,13 +1743,6 @@ export async function mergeCard(site, key, { afterApproval, confirmed } = {}) {
   }
   const said = [mergedLine(done, repo), afterApproval !== undefined && `After the approval: ${text(afterApproval, '--after-approval')}`, steps && `The owner's word on the manual steps: "${steps}"`];
   return setItem(site, key, { status: 'merged', text: said.filter(Boolean).join(' ') });
-}
-
-// Whether the owner's Merge on the card waits on the session: a card-merge newer than Claude's last thread line.
-async function ownerMergeWaits(site, key) {
-  const asked = (await readLines(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'card-merge' && e.data?.key === key).at(-1)?.ts;
-  const said = (await readLines(threadFile(site, key))).filter((m) => (m.who || 'claude') === 'claude' && m.kind !== 'status').at(-1)?.ts;
-  return Boolean(asked) && String(asked) > String(said || '');
 }
 
 // Sets item.ticket from the board's source, and ticket_created when kickflip made it. self is the card's <wave>/<id>:

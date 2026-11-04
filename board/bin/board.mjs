@@ -280,10 +280,10 @@ command fails and changes nothing.
                                                          "headless_builders": false,
                                                          "idle_notification": false, "skip_draft": false,
                                                          "github_login": "owner"}
-  settings set auto-merge on|off                         on: the session merges an approved PR once CI is green and
+  settings set auto-merge on|off                         on: the hub's tick merges an approved PR once CI is green and
                                                          the merge state is CLEAN. off (the default): the card
-                                                         shows the owner a Merge button, and the session merges on its
-                                                         card-merge event. Board Settings' toggle writes it too
+                                                         shows the owner a Merge button, and the board server merges
+                                                         when it is tapped. Board Settings' toggle writes it too
   settings set skip-draft on|off                         on: the hub's poll marks a card's draft PR ready for
                                                          review once its CI passes. off (the default): the draft
                                                          waits in In Review on the owner's review and Ready

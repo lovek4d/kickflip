@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fakeGh, prView, writePR, writeReady, writeUser, writeIssueComments, writeReviewComments, writeReviews, calls, queried } from '../shared/fake-gh.mjs';
+import { fakeGh, prView, writePR, writeReady, writeUser, writeIssueComments, writeReviewComments, writeReviews, writeMerge, calls, queried } from '../shared/fake-gh.mjs';
 import { fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'github-'));
@@ -256,6 +256,35 @@ test("on a board that skips the draft, the poll marks a card's draft ready once 
   assert.deepEqual(second.failed, ['skips: could not mark o/r#82 ready for review (GraphQL: Resource not accessible by integration)']);
   assert.deepEqual(skips.thread('k/A1').map((l) => l.text), ['CI passed, so PR #80 is marked ready for review.']);
   assert.deepEqual(skips.thread('k/A3'), []);
+});
+
+// docs/adr/2026-11-04-2045-the-merge-tap-and-auto-merge-run-in-code.md
+test("on a board with auto-merge on, the poll merges an approved, green, clean PR itself, and leaves commits after the approval to the session", async () => {
+  const auto = fileBoard('auto', { slug: 'a', auto_merge: true }, [{ id: 'A1', pr: 90 }, { id: 'A2', pr: 91 }, { id: 'A3', pr: 92 }, { id: 'A4', pr: 93 }]);
+  const manual = fileBoard('manual', { slug: 'm' }, [{ id: 'B1', pr: 94 }]);
+  const ready = { reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN' };
+  const approval = (head) => [{ id: 1, state: 'APPROVED', submitted_at: '2026-11-04T10:00:00Z', commit_id: head, user: { login: 'ann-gh' } }];
+  writePR(home, 90, prView({ ...ready, head: 'aaa' })); writeReviews(home, 90, approval('aaa'));
+  writePR(home, 91, prView({ ...ready, head: 'bbb' })); writeReviews(home, 91, approval('aaa'));
+  writePR(home, 92, prView({ ...ready, mergeStateStatus: 'BLOCKED' })); writeReviews(home, 92, approval('abc1234567'));
+  writePR(home, 93, prView({ ...ready, isDraft: true })); writeReviews(home, 93, approval('abc1234567'));
+  writePR(home, 94, prView({ ...ready, head: 'ccc' })); writeReviews(home, 94, approval('ccc'));
+  const merges = () => calls(home).filter((a) => a[0] === 'pr' && a[1] === 'merge').map((a) => a[2]);
+  const before = merges().length;
+  const first = await auto.poll();
+  assert.deepEqual(first.failed, []);
+  assert.deepEqual(merges().slice(before), ['90']);
+  assert.equal(auto.wave().items[0].status, 'merged');
+  assert.equal(auto.thread('a/A1').at(-1).text, 'Merged PR #90.');
+  for (const id of ['A2', 'A3', 'A4']) assert.equal(auto.wave().items.find((i) => i.id === id).status, undefined, id);
+  await manual.poll();
+  assert.deepEqual(merges().slice(before), ['90'], 'a board with auto-merge off merges none');
+
+  // gh refusing the merge is reported, and the card stays open.
+  writePR(home, 92, prView({ ...ready })); writeMerge(home, 92, { error: 'base branch policy prohibits the merge' });
+  const second = await auto.poll();
+  assert.deepEqual(second.failed, ['auto: could not merge a/A3 (gh pr merge #92 failed: base branch policy prohibits the merge)']);
+  assert.equal(auto.wave().items[2].status, undefined);
 });
 
 test("the poll reads every PR on a card in its own repo, and closes the card only once all have merged or closed, one merged", async () => {

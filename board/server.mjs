@@ -229,7 +229,7 @@ import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { createReadStream, existsSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { launchBuilder, reviveBuilders } from './headless.mjs';
-import { BoardError, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, landable, migrateFollowups, stripDeadFields, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, landable, migrateFollowups, stripDeadFields, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, resolveRequestedQuestion, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -974,6 +974,14 @@ const server = http.createServer(async (req, res) => {
         const refused = await answersRefused(body.answers);
         if (refused) return json(res, 400, { error: refused });
         return json(res, 200, { ids: await recordAnswers(body.answers), board: await answerBoard(req, since) });
+      }
+      // docs/adr/2026-11-04-2045-the-merge-tap-and-auto-merge-run-in-code.md
+      // The Merge tap merges the card here and records no event, so no session wakes; a refusal answers 400 and is a
+      // thread line (store.mjs mergeCard).
+      if (kind === 'card-merge') {
+        try { await mergeCard(here, String(body.key || ''), { tapped: true }); }
+        catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
+        return json(res, 200, { id: null, board: await answerBoard(req, since) });
       }
       // A Hold or Done is written to the card's wave file before its event, and one that couldn't be is refused with
       // why, recording nothing (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).

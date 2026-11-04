@@ -17,7 +17,7 @@ import { savedClient } from './linear.mjs';
 import { checksPassed, fetchPRs, markReady, reportOf } from './pr-report.mjs';
 import { wakesDue, localDay } from './schedule.mjs';
 import { GITHUB_STATE as STATE, WAKE_STATE, WAVES, listBoards, appendEvent, prKey, readJSON, saveJSON, reviewerLogins } from './boards.mjs';
-import { appendThread, setItem, mergedLine } from '../board/store.mjs';
+import { appendThread, setItem, mergedLine, mergeCard } from '../board/store.mjs';
 import { allLanded, leastReady } from '../shared/card-prs.mjs';
 
 export const CHANGE_KINDS = ['ci', 'review', 'comments', 'merged', 'mergeable', 'draft'];
@@ -135,6 +135,7 @@ export async function checkGitHub({ every, manifest }) {
   const merged = new Map();
   const mergedRoutes = new Set();
   const readied = new Set();
+  const mergeTried = new Set();
   for (const board of boards) {
     const cards = board.prs.map((p) => {
       const key = prKey(p);
@@ -150,6 +151,7 @@ export async function checkGitHub({ every, manifest }) {
       const siblings = cards.filter((c) => c.p.wave === card.p.wave && c.p.id === card.p.id);
       if (report && await recordOnCard(board, card, report, siblings, { state, merged, failed })) mergedRoutes.add(board.route);
       if (board.skipDraft) await readyGreenDraft(board, card, raw.get(card.key)?.view, readied, failed);
+      if (board.autoMerge) await mergeApproved(board, card, raw.get(card.key)?.view, mergeTried, failed);
     }
     const changed = cards.filter((c) => c.changes.length);
     let reached = cards.every((c) => c.next);
@@ -246,6 +248,19 @@ async function readyGreenDraft(board, { p, key }, view, readied, failed) {
   catch (err) { failed.push(`${board.route}: could not mark ${key} ready for review (${err.message})`); return; }
   try { await appendThread(board.dir, `${p.wave}/${p.id}`, { text: `CI passed, so PR #${p.pr} is marked ready for review.` }); }
   catch (err) { failed.push(`${board.route}: could not write ${p.wave}/${p.id}'s ready line (${err.message})`); }
+}
+
+// docs/adr/2026-11-04-2045-the-merge-tap-and-auto-merge-run-in-code.md: on a board with auto-merge on, a card whose PR
+// GitHub reads approved, green and CLEAN is merged here (store.mjs mergeCard, which rereads every PR on the card), once
+// a check however many of its PRs show it. A refusal such as commits after the approval is left to the session, which
+// the github-change event wakes; a gh failure is reported.
+async function mergeApproved(board, { p }, view, tried, failed) {
+  const card = `${p.wave}/${p.id}`;
+  const key = JSON.stringify([board.dir, card]);
+  if (tried.has(key) || view?.state !== 'OPEN' || view.isDraft || view.reviewDecision !== 'APPROVED' || view.mergeStateStatus !== 'CLEAN' || !checksPassed(view.statusCheckRollup)) return;
+  tried.add(key);
+  try { await mergeCard(board.dir, card); }
+  catch (err) { if (!err.message.startsWith('Not merged:')) failed.push(`${board.route}: could not merge ${card} (${err.message})`); }
 }
 
 async function advanceLinear(boards, fetched, fetchKey, result) {

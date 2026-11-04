@@ -1,0 +1,8 @@
+# The Merge tap and auto-merge run in code
+
+The two merges that were a session's reaction to an event are now code, so neither wakes the session (#180's skill audit found both).
+
+- **The Merge tap.** `POST /_claude/events` with `card-merge` calls `store.mjs mergeCard` in the board server, as the Hold and Done taps record in it ([a tap waits for the server to record it](2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md)). It appends no event, so the watcher has nothing to wake on. The button waits on the POST: success answers 200 with the merged card, and a refusal answers 400 with `mergeCard`'s "Not merged: …" reasons, which also go in the card's thread.
+- **Auto-merge.** On a board with `auto_merge` on, the hub's tick (`hub/github.mjs mergeApproved`, beside `readyGreenDraft`) calls `mergeCard` for a card whose PR it reads open, ready, approved, passing its checks and CLEAN. `mergeCard` rereads every PR on the card and refuses what GitHub would. A refusal for commits after the approval is left to the session, which the tick's `github-change` event wakes; a `gh pr merge` failure is reported by the tick.
+- **What stays with the session.** A card with manual steps, or commits after the approval, is still merged by `board.mjs merge <key>` with `--confirmed` or `--after-approval`, each needing a judgment. The tap passes neither, so such a card's tap is refused in its thread.
+- **Gone.** `mergeCard`'s thread line used to depend on a `card-merge` event newer than Claude's last line (`ownerMergeWaits`); the tap now says so itself (`tapped`), and the CLI leaves a refusal on stderr alone. The card's `merging` state and the Merge button's BUSY no longer come from an event; the button waits on its POST.
