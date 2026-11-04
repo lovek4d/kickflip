@@ -87,6 +87,7 @@
 .hub-view .remembered { padding:0 12px 10px; color:var(--muted); font-size:12px; }
 .hub-view .remembered p { margin:0; }
 .hub-view .remembered ul { margin:4px 0 0; padding-left:18px; }
+.hub-view :is(.hub-modal, .sheet) code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .hub-view .remembered code { white-space:pre-wrap; overflow-wrap:anywhere; }
 
 @media (max-width: 899px) {

@@ -257,6 +257,10 @@ main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .sheet::backdrop { background: rgba(0,0,0,.35); touch-action: none; }
 /* A phone sheet sits above the bottom bar, which already pads the safe area (--app-bottom). */
 .sheet form { padding: 10px 16px max(12px, calc(env(safe-area-inset-bottom) - var(--app-bottom, 0px))); }
+/* Modals never scroll sideways: content wraps at the modal's width, and overflow-x hidden is only the last guard. */
+.sheet, .settings-modal { overflow-x: hidden; overflow-wrap: anywhere; }
+.settings-body { overflow-x: hidden; overflow-wrap: anywhere; }
+.sheet input, .sheet select, .sheet textarea, .settings-modal input, .settings-modal select, .settings-modal textarea { max-width: 100%; min-width: 0; }
 /* A sheet's last row of buttons stays in view at the foot of its scrolling content. Sticking stops at the scroll
    area's bottom padding, so the shadow covers what scrolls through that padding. */
 .sheet-actions { position: sticky; bottom: 0; z-index: 1; padding-top: 8px; background: var(--panel); box-shadow: 0 40px 0 var(--panel); }
