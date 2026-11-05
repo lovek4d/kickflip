@@ -26,6 +26,7 @@ BoardView.part((B) => {
     if (!at) return;
     const item = state.board?.items.find((i) => i.key === key);
     const kind = sendsOf(item);
+    const todo = item?.lane === 'todo';
     if (at.dataset.sends !== kind) { at.insertAdjacentHTML('afterend', sends(kind)); at.remove(); }
     const tools = el.querySelector('form .tools');
     const bolt = tools.querySelector('[data-bolt]');
