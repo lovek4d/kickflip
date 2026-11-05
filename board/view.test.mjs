@@ -5126,6 +5126,32 @@ test("on a desktop the board's Needs you sits in a pane beside the lanes, with t
   assert.equal(narrow.root.querySelector('#needsDeck').hidden, false, 'a phone keeps Needs you at the top');
 });
 
+test("on a desktop, a link into open questions focuses that topic's pill in the pane instead of navigating, a link to a topic the pane doesn't hold goes to the page, and a phone follows the link", async () => {
+  const board = deckBoard([deckQuestion('q1', 't1'), deckQuestion('q2', 't2')], []);
+  const link = (b, href, extra = {}) => {
+    const a = { getAttribute: () => href, href, closest: (sel) => (sel === 'a[href]' ? a : null) };
+    return b.page.fire(b.root, 'click', { target: a, button: 0, ...extra });
+  };
+  const wide = boardOnDom({ board, threads: {}, width: 1280 });
+  await wide.settle();
+  wide.root.constructor.prototype.click = function click() { wide.page.fire(wide.root.querySelector('.needs-questions'), 'click', { target: this }); };
+  const pill = (id) => wide.root.querySelector(`#needsPane button[data-topic="${id}"]`);
+  const scrolled = [];
+  wide.root.constructor.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this.dataset.topic); };
+  assert.equal(pill('t1').getAttribute('aria-pressed'), 'true');
+  let e = link(wide, 'questions.html#q2');
+  assert.deepEqual([e.defaultPrevented, pill('t2').getAttribute('aria-pressed'), wide.doc.activeElement, scrolled], [true, 'true', pill('t2'), ['t2']], 'a question link focuses its topic pill');
+  e = link(wide, 'questions.html#t1');
+  assert.deepEqual([e.defaultPrevented, pill('t1').getAttribute('aria-pressed'), wide.doc.activeElement], [true, 'true', pill('t1')], 'a topic link does too');
+  assert.equal(link(wide, 'questions.html#gone').defaultPrevented, false, 'a topic the pane does not hold keeps the link');
+  assert.equal(link(wide, 'questions.html').defaultPrevented, false, 'a link with no topic keeps the link');
+  assert.equal(link(wide, 'questions.html#q2', { metaKey: true }).defaultPrevented, false, 'a held modifier keeps the link');
+  assert.equal(link(wide, '#item=w%2FGH-9').defaultPrevented, false, 'another link is left alone');
+  const narrow = boardOnDom({ board, threads: {} });
+  await narrow.settle();
+  assert.equal(link(narrow, 'questions.html#q2').defaultPrevented, false, 'a phone follows the link');
+});
+
 test("a topic or question arriving on Waiting on you inserts its pill or card in place, leaving the open topic's cards and the note being typed as they were", async () => {
   const question = (id, topic) => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
   const topics = [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'item:w/T3', title: 'INT-3: Sort' }];

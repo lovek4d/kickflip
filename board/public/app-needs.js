@@ -5,7 +5,8 @@
 //   (the draft Send on the questions page sends) and a prompt's buttons answering it, Skip to the next, a dot for each thing waiting, and All open questions at its foot;
 // - from 900px, #waiting, one line each, in the pane beside the lanes, over Waiting on you mounted there
 //   (view-questions.js, embedded) while the width lasts. Waiting on you shows the questions there, so #waiting leaves out
-//   a line that only asks questions, and with nothing else left the orange section is gone.
+//   a line that only asks questions, and with nothing else left the orange section is gone. A link into those
+//   questions, wherever it sits on the board, picks its topic's pill there instead of opening the page.
 // Needs app-core.js.
 BoardView.part((B) => {
   const { $, plural, state, toast } = B;
@@ -120,6 +121,25 @@ BoardView.part((B) => {
     questions = Object.assign(AppViews.questions.create(slot, B.site.root, { embedded: true }), { slot });
     questions.mount();
   }
+  // From 900px, a link into open questions for a topic the pane holds picks that topic's pill there, rather than
+  // navigating to the page. It runs before the router's listener, which skips a prevented click.
+  B.on(B.root, 'click', (ev) => {
+    if (ev.defaultPrevented || ev.button || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || !questions) return;
+    const a = ev.target.closest?.('a[href]');
+    if (!a || (a.target && a.target !== '_self')) return;
+    const home = new URL(`${B.site.root}/`, location.href);
+    const url = new URL(a.getAttribute('href'), home);
+    if (url.pathname !== new URL('questions.html', home).pathname || url.hash.length < 2) return;
+    const id = decodeURIComponent(url.hash.slice(1));
+    const topic = (state.board?.ownerTopics || []).find((t) => t.id === id || t.questions.includes(id));
+    const pill = topic && questions.slot.querySelector(`button[data-topic="${CSS.escape(topic.id)}"]`);
+    if (!pill) return;
+    ev.preventDefault();
+    pill.click();
+    const picked = questions.slot.querySelector(`button[data-topic="${CSS.escape(topic.id)}"]`);
+    picked.focus();
+    picked.scrollIntoView({ block: 'nearest' });
+  });
   fitPane();
   B.on(wide, 'change', fitPane);
   B.atUnmount(() => { questions?.unmount(); questions = null; });
