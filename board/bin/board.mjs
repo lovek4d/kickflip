@@ -371,7 +371,7 @@ command fails and changes nothing.
                                                          opened, it keeps that record's kind and worktree.
          [--dispatch]                                    --dispatch: the session runs this right before it launches
                                                          an agent of any kind (build, prototype, grill) so the record
-                                                         is open at launch and the card reads preheating; the agent's
+                                                         is open at launch and the card reads starting; the agent's
                                                          own builder start takes it up. On a record the Build tap
                                                          opened it changes nothing and prints "already open". The
                                                          record keeps dispatched: tap or session, whoever opened it.

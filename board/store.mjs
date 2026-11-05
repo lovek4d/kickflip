@@ -1332,6 +1332,8 @@ const FINISHED = ['done', 'merged', 'dropped'];
 export const isFinished = async (site, key) => FINISHED.includes((await loadItem(site, key)).item.status);
 // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
 const CARD_STATES = ['ready', 'grilling', 'prototyping'];
+// A Next asking the owner to mark the card ready ("Mark ready", "mark it ready").
+const ASKS_READY = /^mark (?:it |this |the card )?ready\b/i;
 function clearBuildingStatus(item) {
   if (!['building', 'fixing'].includes(item?.status)) return false;
   delete item.status;
@@ -1568,6 +1570,8 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     await checkNotesComplete(site, key, source.dir, item);
   }
   if (state !== undefined) item.state = state;
+  // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a Next never asks for the state the card is in.
+  if (item.state === 'ready' && ASKS_READY.test(item.next ?? '')) fail(`${key} would read ready with Next "${item.next}", which asks for the state it is already in; pass --next with what happens next, or --clear-next`);
   if (built) item.install = built;
   if (built === null) delete item.install;
   // docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md: building and fixing go with a builder start.
@@ -2395,7 +2399,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
 
 // The owner's Build tap, in the board server: it refuses what a build's builder start refuses, in the owner's words,
 // else starts the build as `builder start --kind build --worktree` does, with the record marked dispatched: 'tap', so the
-// card is In Progress reading "preheating" until its builder's first status line. A refusal is a thread line
+// card is In Progress reading "starting" until its builder's first status line. A refusal is a thread line
 // of kind BUILD_REFUSED, which the Todo card shows while it is the card's newest line. worktree makes the worktree, as
 // builder start's does (board/worktree.mjs boardWorktree). → {key, ref, kind, reason, worktree}, or null when refused
 // (docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md).

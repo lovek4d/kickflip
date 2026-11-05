@@ -1001,7 +1001,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
   const pushed = { ...open, ref: 'INT-12', next: 'merge INT-12 into main', branch: 'INT-12', pushed: { branch: 'INT-12', at: new Date(Date.now() - 25 * 60_000).toISOString(), host: 'gitlab.com' } };
-  assert.deepEqual(rows(pushed), [['Wave', 'W'], ['Branch', 'INT-12'], ['Next', 'merge INT-12 into main'], ['Links', 'Notes · Pushed INT-12 to gitlab.com · 25m ago']]);
+  assert.deepEqual(rows(pushed), [['Wave', 'W'], ['Branch', 'INT-12'], ['Status', 'in review'], ['Next', 'merge INT-12 into main'], ['Links', 'Notes · Pushed INT-12 to gitlab.com · 25m ago']]);
   assert.doesNotMatch(B.detail(pushed), /github\.com|gitlab\.com\/|<button[^>]*data-copy/);
   // ↗ marks a link that leaves the page; Notes opens the reader sheet, so it has none.
   const notesLink = B.detail(open).match(/<a href="notes\.html[^>]*>.*?<\/a>/)[0];
@@ -1016,7 +1016,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   assert.deepEqual([copied, link.textContent, prevented], [['INT-12'], 'Copied the branch name', true]);
   later.at(-1)[1]();
   assert.equal(link.textContent, 'Pushed INT-12 to gitlab.com · 25m ago');
-  assert.deepEqual(rows(open), [['Wave', 'W'], ['Next', 'Waiting for PR reviewers'], ['Links', 'Notes']]);
+  assert.deepEqual(rows(open), [['Wave', 'W'], ['Status', 'in review'], ['Next', 'Waiting for PR reviewers'], ['Links', 'Notes']]);
   assert.match(B.detail(open), /href="notes.html\?item=w%2FA1"/);
   assert.doesNotMatch(B.detail(open), /Old short note|A stored summary|view more|<summary[^>]*>Notes|class="actions"[^]*notes\.html/);
   assert.doesNotMatch(B.detail({ ...open, hasNotes: false }), /Notes|notes\.html/);
@@ -1063,12 +1063,27 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
   const card = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/GH-93', ref: '#93', lane: 'todo', action: null, waveTitle: 'W', status: 'planned', next: null, deps: ['GH-80'], manualSteps: [], holdable: true,
     parent: link('#53'), children: [link('#94'), link('#95')], related: [link('#75')], blockedBy: [link('#80')], waitsOnIt: [link('#99')] };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
-  assert.deepEqual(rows(card), [['Wave', 'W'], ['Status', 'planned'], ['Parent', '#53'], ['Children', '#94 #95'], ['Related to', '#75'], ['Blocked by', '#80'], ['Waits on it', '#99']]);
+  assert.deepEqual(rows(card), [['Wave', 'W'], ['Status', 'to do'], ['Parent', '#53'], ['Children', '#94 #95'], ['Related to', '#75'], ['Blocked by', '#80'], ['Waits on it', '#99']]);
   assert.deepEqual([...B.detail(card).matchAll(/<a class="card-link" href="([^"]*)">([^<]*)<\/a>/g)].map(([, href, ref]) => [href, ref]),
     [['#item=w%2FGH-53', '#53'], ['#item=w%2FGH-94', '#94'], ['#item=w%2FGH-95', '#95'], ['#item=w%2FGH-75', '#75'], ['#item=w%2FGH-80', '#80'], ['#item=w%2FGH-99', '#99']]);
-  assert.deepEqual(rows({ ...card, parent: null, children: [], related: [], blockedBy: [], waitsOnIt: [] }), [['Wave', 'W'], ['Status', 'planned']]);
-  // An In Progress card whose agent works on it reads implementing; Build only means the package (docs/adr/2026-11-03-1549-a-todo-cards-button-reads-implement.md).
-  assert.deepEqual(rows({ ...card, status: 'building', parent: null, children: [], related: [], blockedBy: [], waitsOnIt: [] }), [['Wave', 'W'], ['Status', 'implementing']]);
+  assert.deepEqual(rows({ ...card, parent: null, children: [], related: [], blockedBy: [], waitsOnIt: [] }), [['Wave', 'W'], ['Status', 'to do']]);
+  // The Status row reads the card's lane and agent, never the wave file's raw status
+  // (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
+  const bare = { ...card, status: 'building', parent: null, children: [], related: [], blockedBy: [], waitsOnIt: [] };
+  const testing = { progress: 'Testing · x', phase: 'testing', at: null };
+  for (const [extra, want] of [
+    [{ lane: 'progress', builder: testing }, 'implementing'],
+    [{ lane: 'progress', builder: { ...testing, phase: 'landing' } }, 'landing'],
+    [{ lane: 'progress', builder: { ...testing, alive: false, stalled: true } }, 'stopped'],
+    [{ lane: 'progress', builder: null, waitsOn: 'checking' }, 'Orchestrator review'],
+    [{ lane: 'progress', builder: null, reachedPhase: 'testing' }, 'stopped at testing'],
+    [{ lane: 'todo', builder: { progress: 'Grilling · x', planner: true, kind: 'grill' } }, 'grilling'],
+    [{ lane: 'todo', grilling: true }, 'preheating'],
+    [{ lane: 'todo', ready: true }, 'ready'],
+    [{ lane: 'todo', queued: true }, 'queued'],
+    [{ lane: 'review' }, 'in review'],
+    [{ lane: 'done' }, 'done'],
+  ]) assert.deepEqual(rows({ ...bare, ...extra }), [['Wave', 'W'], ['Status', want]], JSON.stringify(extra));
   assert.doesNotMatch(B.detail(card), /data-confirm="build"|Filed from|Waits on</);
   assert.deepEqual(lines(app.BoardUI.workLines({ ...card, linear: [], ticket: null })).slice(0, 2), ['Five', 'blocked by #80']);
   assert.doesNotMatch(app.BoardUI.workLines(card), /follow-up/);
@@ -1162,6 +1177,12 @@ test('a stalled builder has no Stalled badge: its status line turns the needs-yo
   const html = ui.workLines({ ...workCard, lane: 'progress', builder });
   assert.match(html, /<button type="button" class="line3 sub agent in-progress stalled" data-confirm="nudge" data-key="w\/B5" title="No recent progress\. Nudge Claude to check this implementer"><span class="working-dot" aria-hidden="true"><\/span>Running tests<\/button>/);
   assert.doesNotMatch(html, /Stalled|tone-danger/);
+  // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a builder whose process is gone
+  // reads stopped in the same red at once, and one whose live process went quiet reads quiet in grey, with no dot and no nudge.
+  assert.match(ui.workLines({ ...workCard, lane: 'progress', builder: { ...builder, alive: false } }), /data-confirm="nudge"[^>]*><span class="working-dot" aria-hidden="true"><\/span>stopped · Running tests<\/button>/);
+  const quiet = ui.workLines({ ...workCard, lane: 'progress', builder: { ...builder, stalled: false, alive: true, quiet: true } });
+  assert.match(quiet, /<div class="line3 sub agent in-progress quiet">quiet · Running tests<\/div>/);
+  assert.doesNotMatch(quiet, /working-dot|data-confirm="nudge"/);
   for (const next of [{ ...builder, stalled: false }, null]) assert.doesNotMatch(ui.workLines({ ...workCard, builder: next }), /stalled|data-confirm="nudge"/);
   assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'done', builder }), /stalled|data-confirm="nudge"/);
 });
@@ -1172,6 +1193,7 @@ test('a button drawn as a status line resets to the div it replaces in one rule,
   for (const prop of ['margin-inline: 0', 'margin-bottom: 0', 'padding: 0', 'min-height: 0', 'line-height: inherit', 'font-family: inherit', 'appearance: none', 'text-align: left']) assert.ok(reset.includes(prop), prop);
   assert.doesNotMatch(reset, /(^|[\s;])font:/);
   assert.match(css, /^button\.sub\.agent\.stalled \{ color: var\(--color-danger\); \}$/m);
+  assert.match(css, /^\.sub\.agent\.quiet, \.sub\.asked \{ color: var\(--muted\); \}$/m);
 });
 
 test("a refused Implement's reason takes the card's status line, in place of its next step", () => {
@@ -1215,13 +1237,12 @@ test('every In Progress card shows its five phase bars: empty before a phase, fi
     return m && { dim: Boolean(m[1]), label: m[2], bars: [...m[3].matchAll(/class="(\w*)"/g)].map((b) => b[1] || '-').join(' ') };
   };
   const cases = [
-    [{ builder: { progress: null, phase: null, at: null } }, { dim: false, label: 'Preheating, no step yet', bars: '- - - - -' }],
+    [{ builder: { progress: null, phase: null, at: null } }, { dim: false, label: 'Starting, no step yet', bars: '- - - - -' }],
     [{ builder: testing }, { dim: false, label: 'Testing, step 3 of 5', bars: 'done done now - -' }],
     [{ builder: { ...testing, stalled: true } }, { dim: true, label: 'Testing, step 3 of 5', bars: 'done done now - -' }],
     [{ waitsOn: 'checking' }, { dim: false, label: 'Orchestrator review, step 4 of 5', bars: 'done done done now -' }],
     [{ builder: { ...testing, phase: 'building' }, action: questions }, { dim: true, label: 'Building, step 2 of 5, waiting on your answers', bars: 'done now - - -' }],
     [{ reachedPhase: 'building', action: questions }, { dim: true, label: 'Stopped at building, step 2 of 5, waiting on your answers', bars: 'done done - - -' }],
-    [{ queued: true, blockedBy: [{ key: 'w/A1', ref: 'A1' }] }, { dim: true, label: 'Queued, no step yet', bars: '- - - - -' }],
     [{ reopened: true, reachedPhase: 'testing' }, { dim: true, label: 'Reopened, all 5 steps done', bars: 'done done done done done' }],
     [{ reachedPhase: 'landing', next: 'Fix the failing CI' }, { dim: true, label: 'Stopped at landing, step 5 of 5', bars: 'done done done done done' }],
     [{}, { dim: true, label: 'No step yet', bars: '- - - - -' }],
@@ -1236,7 +1257,7 @@ test('every In Progress card shows its five phase bars: empty before a phase, fi
 
 // docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md,
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
-test("a planner's line on a card is marked planner, keeping its dot, orange in In Progress and blue in Todo, where a running grill or prototype draws blue dashes; a Grill or Prototype request reads preheating or prototyping in the same slot until the planner's line takes it", () => {
+test("a planner's line on a card is marked planner, keeping its dot, orange in In Progress and blue in Todo, where a running grill or prototype draws blue dashes; a Grill or Prototype request no planner has picked up reads preheating in grey, with no dot, until the planner's line takes it", () => {
   const planner = { progress: 'Prototyping · the takes', kind: 'prototype', phase: null, at: null, planner: true };
   for (const [lane, tone] of [['todo', 'in-todo'], ['progress', 'in-progress']]) {
     const html = ui.workLines({ ...workCard, lane, sortAt: '2020-01-01T10:00:00.000Z', builder: planner });
@@ -1248,8 +1269,10 @@ test("a planner's line on a card is marked planner, keeping its dot, orange in I
   assert.deepEqual(dashes({ ...planner, kind: 'grill' }).slice(1), ['Grilling', '<i class="now"></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i>']);
   assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'progress', sortAt: '2020-01-01T10:00:00.000Z', builder: planner }), /phase-bars/, 'no dashes in In Progress');
   const line = (it) => /<div class="line3 sub agent planner in-todo">.*?<\/span>([^<]*)<\/div>/.exec(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.[1];
-  assert.equal(line({ grilling: true }), 'preheating');
-  assert.equal(line({ prototyping: true }), 'prototyping');
+  const asked = (it) => /<div class="line3 sub asked">([^<]*)<\/div>/.exec(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.[1];
+  assert.equal(asked({ grilling: true }), 'preheating');
+  assert.equal(asked({ prototyping: true }), 'preheating');
+  assert.equal(line({ grilling: true }), undefined);
   assert.equal(line({ prototyping: true, builder: planner }), 'Prototyping · the takes');
   assert.equal(line({}), undefined);
 });
@@ -1271,8 +1294,10 @@ test("a card idle on the orchestrator reads waiting for orchestrator with how lo
 test("a builder line shows the progress and its age, not who is building", () => {
   const at = new Date(Date.now() - 4 * 60000).toISOString();
   assert.equal(ui.builderLine({ label: 'Opus builder', progress: 'Testing · the limiter', at }), 'Testing · the limiter · 4m');
-  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at }), 'preheating · 4m');
-  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at: null }), 'preheating');
+  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at }), 'starting · 4m');
+  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at: null }), 'starting');
+  assert.equal(ui.builderLine({ progress: null, at, alive: false }), 'stopped · 4m');
+  assert.equal(ui.builderLine({ progress: 'Testing · x', at, quiet: true }), 'quiet · Testing · x · 4m');
   assert.equal(ui.builderLine({ label: null, progress: 'Making changes', at: null }), 'Making changes');
 });
 

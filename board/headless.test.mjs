@@ -33,6 +33,8 @@ test("a lander's brief takes up the card's verified build, acts on the owner's a
     assert.ok(brief.includes(want), `the lander's brief has ${want}`);
   }
   assert.ok(brief.includes("don't start the text with it"), 'the lander brief says not to lead with the phase word');
+  // Its start posts the landing line, so the card reads landing from the lander's first second.
+  assert.ok(brief.includes(`${b} builder start w/A1 --kind build --label Lander --phase landing --progress "taking up the verified build"`), 'the lander starts on landing');
 });
 
 // docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
@@ -229,8 +231,12 @@ test('a headless builder whose process exited with its record open is relaunched
   assert.deepEqual(next, {
     'w/A': tracked['w/A'],
     'w/B': { model: 'sonnet', pid: 901, relaunched: true },
+    'w/C': { ...tracked['w/C'], handedBack: true },
     'w/D': { model: 'opus', pid: 902, relaunched: false },
   });
+  // A handed-back build stays tracked, so its card reads stopped, and is handed back only once.
+  const again = await reviveBuilders({ 'w/C': next['w/C'] }, open, { launch, handBack, alive });
+  assert.deepEqual([again, handed.length, launched.length], [{ 'w/C': next['w/C'] }, 1, 2]);
 });
 
 // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md

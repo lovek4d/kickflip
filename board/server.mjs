@@ -559,8 +559,22 @@ async function snapshot(outside, archived = []) {
     }
   }
 
+  // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md
+  // alive {<key>: whether its headless process lives}: a card's tracked builder, else its lander (domain.mjs builderOf).
+  // A gone process reads false only once the board has stopped relaunching it (handedBack, reviveHeadless); before that
+  // the next minute's pass relaunches it, as launchLanders does a lander, so it reads as untracked.
+  const alive = Object.create(null);
+  const headless = await readJSON(path.join(data, 'headless-builders.json'), {});
+  const landers = await readJSON(path.join(data, 'landers.json'), {});
+  for (const [key, entry] of [...Object.entries(landers), ...Object.entries(headless)]) {
+    if (!Number.isInteger(entry?.pid)) continue;
+    if (pidAlive(entry.pid)) alive[key] = true;
+    else if (entry.handedBack) alive[key] = false;
+    else delete alive[key];
+  }
+
   return {
-    ...items, moved, try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
+    ...items, moved, alive, try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
     checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
     owner: ((owner) => ({ ...owner, items: [...(owner.items || []), ...archived.flatMap((a) => a.questions || [])] }))(await readJSON(path.join(data, 'owner.json'), { items: [] })),
     topicItems: outside.topicItems,
@@ -1344,7 +1358,7 @@ async function reviveHeadless() {
     if (!Object.keys(tracked).length) return;
     const open = new Set(buildBoard(await itemSnapshot(await outsideData())).items.filter((c) => c.lane !== 'done' && c.builder && !c.builder.planner).map((c) => c.key));
     const handBack = async (card) => {
-      await appendThread(here, card.key, { text: 'Its builder exited twice with the build unfinished; it reads Stalled once 10 minutes pass without progress or movement.' });
+      await appendThread(here, card.key, { text: 'Its builder exited twice with the build unfinished; it reads stopped until the orchestrator takes it up.' });
     };
     const launch = async (card) => {
       try { return { pid: (await launchBuilder(here, card)).pid }; } catch (e) {

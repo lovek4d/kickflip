@@ -155,9 +155,10 @@
     if (it.kind !== 'work' || it.lane !== 'todo' || it.queued) return '';
     return `<button class="build${it.ready ? ' ready' : ''}" data-confirm="card-build" data-key="${esc(it.key)}">Implement</button>`;
   }
-  // A builder reads "preheating" until its first status line, from the Implement tap or the session's dispatch on, and
-  // ends with how long ago that line was set.
-  const builderLine = (b) => [b.progress || 'preheating', b.at && lasted(b.at)].filter(Boolean).join(' · ');
+  // A builder reads "starting" until its first status line, from the Implement tap or the session's dispatch on, and
+  // ends with how long ago that line was set. One whose process is gone leads with stopped, and one whose live process
+  // went quiet with quiet (domain.mjs builderOf; docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
+  const builderLine = (b) => [b.alive === false ? 'stopped' : b.quiet && 'quiet', b.progress || (b.alive === false ? null : 'starting'), b.at && lasted(b.at)].filter(Boolean).join(' · ');
   // Five bars at the end of an In Progress card's time row: reached phases filled, a running one marked. The phases are
   // store.mjs PHASES (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md,
   // docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md).
@@ -185,12 +186,12 @@
     const name = (phase) => `${phase[0].toUpperCase()}${phase.slice(1)}`;
     if (it.builder && it.builder.kind !== BUILDER_KIND.install) {
       const reached = BUILD_PHASES.indexOf(it.builder.phase) + 1;
-      return { reached, running: reached > 0, dim: asking || Boolean(it.builder.stalled), label: `${reached ? `${name(it.builder.phase)}, ${stepWords(it.builder.phase)}` : 'Preheating, no step yet'}${answers}` };
+      return { reached, running: reached > 0, dim: asking || Boolean(it.builder.stalled || it.builder.quiet), label: `${reached ? `${name(it.builder.phase)}, ${stepWords(it.builder.phase)}` : 'Starting, no step yet'}${answers}` };
     }
     const dim = !it.builder || asking;
     if (it.reopened) return { reached: all, running: false, dim, label: `Reopened, ${ALL_DONE}${answers}` };
     const reached = BUILD_PHASES.indexOf(it.reachedPhase) + 1;
-    const label = reached ? `Stopped at ${it.reachedPhase}, ${stepWords(it.reachedPhase)}` : it.queued ? 'Queued, no step yet' : 'No step yet';
+    const label = reached ? `Stopped at ${it.reachedPhase}, ${stepWords(it.reachedPhase)}` : 'No step yet';
     return { reached, running: false, dim, label: `${label}${answers}` };
   }
   // What the bars do when a card's reached count goes from prev to next across redraws, null or undefined meaning no
@@ -213,12 +214,27 @@
     const { since, picked } = it.orchestrator;
     return `<div class="line3 sub agent${tone(it)}">${picked ? `${DOT}orchestrator review · ${esc(lasted(picked))}` : `waiting for orchestrator · ${esc(lasted(since))}`}</div>`;
   }
-  // A stale build's status line is the needs-you red, and a tap on it nudges Claude to check the implementer.
+  // A stale or stopped build's status line is the needs-you red, and a tap on it nudges Claude to check the implementer.
+  // A quiet one is grey, with no dot.
   function builderStatus(it) {
-    const classes = `line3 sub agent${it.builder.planner ? ' planner' : ''}${tone(it)}`;
-    const words = `<span class="working-dot" aria-hidden="true"></span>${esc(builderLine(it.builder))}`;
+    const { quiet } = it.builder;
+    const classes = `line3 sub agent${it.builder.planner ? ' planner' : ''}${tone(it)}${quiet ? ' quiet' : ''}`;
+    const words = `${quiet ? '' : DOT}${esc(builderLine(it.builder))}`;
     if (!it.builder.stalled || it.lane === 'done') return `<div class="${classes}">${words}</div>`;
     return `<button type="button" class="${classes} stalled" data-confirm="nudge" data-key="${esc(it.key)}" title="No recent progress. Nudge Claude to check this implementer">${words}</button>`;
+  }
+  // The open card's Status row: what runs on the card, else where its lane leaves it, never the wave file's raw status
+  // (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
+  function statusWord(it) {
+    const b = it.builder;
+    if (b?.planner) return b.kind === 'prototype' ? 'prototyping' : 'grilling';
+    if (b && b.kind !== BUILDER_KIND.install) return b.alive === false ? 'stopped' : b.phase === 'landing' ? 'landing' : 'implementing';
+    if (it.waitsOn === 'checking') return 'Orchestrator review';
+    if (it.lane === 'done') return 'done';
+    if (it.grilling || it.prototyping) return 'preheating';
+    if (it.lane === 'todo') return it.queued ? 'queued' : it.ready ? 'ready' : 'to do';
+    if (it.lane === 'progress') return it.reachedPhase ? `stopped at ${it.reachedPhase}` : 'in progress';
+    return 'in review';
   }
   const unreadCount = (othersAt, seenAt) => (seenAt ? (othersAt || []).filter((t) => String(t) > seenAt).length : 0);
   // When a hold ends, as a card reads it: the time today, the weekday within six days, else the date
@@ -286,7 +302,7 @@
       : it.orchestrator && !it.builder ? orchestratorStatus(it)
       : it.waitsOn === 'checking' ? `<div class="line3 sub agent${tone(it)}">${DOT}Orchestrator review</div>`
       : it.builder ? builderStatus(it)
-      : it.grilling || it.prototyping ? `<div class="line3 sub agent planner${tone(it)}">${DOT}${it.grilling ? 'preheating' : 'prototyping'}</div>`
+      : it.grilling || it.prototyping ? '<div class="line3 sub asked">preheating</div>'
       : it.refusal ? `<div class="line3 sub refused">${esc(it.refusal)}</div>`
       : it.working ? `<div class="line3 sub agent">${workingLine}</div>`
       : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.held || it.queued ? ' idle' : ''}">Next: ${esc(it.next)}</div>` : '';
@@ -344,5 +360,5 @@
       <div class="list">${list}${fold}</div></details>`;
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, buildButton, builderLine, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, askChip, askActions, askLine, planButton, WAVE_ICON, reviewLane });
+  Object.assign(globalThis.BoardUI, { prChips, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, buildButton, builderLine, statusWord, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, askChip, askActions, askLine, planButton, WAVE_ICON, reviewLane });
 })();

@@ -29,6 +29,9 @@ const { laneOrder } = enums.BoardUI;
 export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'prototype-request', 'reask-request'];
 export const ITEM_STATUSES = ['planned', 'waiting', 'building', 'fixing', 'checking', 'held', 'merged', 'done', 'dropped'];
 export const BUILDER_STALLED_AFTER = 10 * 60000;
+// How long a headless builder whose process lives may go without a status line or transcript movement before it reads
+// quiet (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
+export const BUILDER_QUIET_AFTER = 5 * 60000;
 // The thread line's kind for a Build tap the board server refused (store.mjs startTappedBuild).
 export const BUILD_REFUSED = 'build-refused';
 // The thread line kinds of a builder's ask and the orchestrator's answer or deferral of it (store.mjs askOrchestrator).
@@ -465,8 +468,9 @@ const PLANNERS = new Set(['grill', 'prototype']);
 export const plans = (agent) => PLANNERS.has(agent.kind);
 export const builds = (agent) => !plans(agent);
 // A planner's word, never a builder phase: its card reads it before the planner's first line and leads each line with
-// it (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
-export const PLANNER_WORD = { grill: 'preheating', prototype: 'prototyping' };
+// it (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md). A request no planner has picked up
+// reads preheating instead (ui-cards.js; docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
+export const PLANNER_WORD = { grill: 'grilling', prototype: 'prototyping' };
 // The owner's request of a planner kind on a card: a Grill tap (grill-more) or a card's Prototype tap (prototype-request
 // with no question). Under way while a planner of that kind runs, or while the newest request has no reply, no
 // question was posted after it and no planner of that kind that started with or after it has finished; the board
@@ -513,7 +517,7 @@ function worktreeOf(records = {}) {
 // An install builder takes precedence so another running agent cannot hide the install's build state. A phased line
 // ("Testing: <detail>") reads "Testing · <detail>" on the card; a line with no phase, from builder done's note or from
 // before phases, reads as written (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md). Before the
-// first line the card reads preheating, whoever opened the record
+// first line a build's progress is null, which the card reads as starting, whoever opened the record
 // (docs/adr/2026-11-03-1718-a-card-reads-starting-from-its-tap-with-one-dispatched-mark.md). While a build runs, its line wins over a running
 // planner's; with only planners running the line is theirs, marked planner
 // (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md).
@@ -525,9 +529,13 @@ function reachedPhaseOf(agents, lines = []) {
   return lines.filter((m) => m.kind === 'status' && m.phase && !m.planner && String(m.ts) >= since).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop()?.phase || null;
 }
 
-// A run reads stalled once BUILDER_STALLED_AFTER passes with neither a progress line nor movement in its worktree's Claude
-// transcript (moved {<worktree path>: ms}, server.mjs snapshot); a run with no readable transcript has its progress lines alone.
-function builderOf(agents, lines = [], now, movedAt = null) {
+// A run's silence is the time since its newest progress line or movement in its worktree's Claude transcript (moved
+// {<worktree path>: ms}, server.mjs snapshot); a run with no readable transcript has its progress lines alone. alive is
+// whether the card's headless process lives (server.mjs snapshot alive), null when the board tracks none for it.
+// A live one reads quiet after BUILDER_QUIET_AFTER of silence and is never stalled; a gone one is stalled at once; an
+// untracked one is stalled after BUILDER_STALLED_AFTER of silence
+// (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
+function builderOf(agents, lines = [], now, movedAt = null, alive = null) {
   const open = agents.filter((a) => a.started && !a.done);
   const planner = open.every(plans);
   const running = planner ? open : open.filter(builds);
@@ -538,7 +546,10 @@ function builderOf(agents, lines = [], now, movedAt = null) {
   const quiet = line?.ts || since;
   const silentSince = movedAt !== null && movedAt > Date.parse(quiet) ? new Date(movedAt).toISOString() : quiet;
   const progress = line ? (line.phase || line.planner ? line.text.replace(': ', ' · ') : line.text || null) : planner ? PLANNER_WORD[kind] : null;
-  return { progress, phase: line?.phase || null, at: quiet, kind, planner, silentSince, stalled: now - Date.parse(silentSince) >= BUILDER_STALLED_AFTER };
+  const silent = now - Date.parse(silentSince);
+  const live = planner ? null : alive;
+  const stalled = live === null ? silent >= BUILDER_STALLED_AFTER : !live;
+  return { progress, phase: line?.phase || null, at: quiet, kind, planner, silentSince, stalled, alive: live, quiet: live === true && silent >= BUILDER_QUIET_AFTER };
 }
 
 // The model the agent runs: a Claude kind's record holds it as model (opus or sonnet), a record without one reads from its kind.
@@ -891,7 +902,7 @@ export function buildBoard(snapshot) {
       items.push(workItem({
         slug, wave, it, order, repo, remote, base: snapshot.branch || 'main',
         prs: cardPRs(it, repo).map((p) => ({ ...p, gh: routeRecord(prs, prKeyOf(p)) || null })),
-        ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now, snapshot.moved?.[worktreeOf(routeRecord(records, it.id))] ?? null), reachedPhase: reachedPhaseOf(agents, routeRecord(threads, key)), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
+        ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now, snapshot.moved?.[worktreeOf(routeRecord(records, it.id))] ?? null, routeRecord(snapshot.alive, key) ?? null), reachedPhase: reachedPhaseOf(agents, routeRecord(threads, key)), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
         worktree: worktreeOf(routeRecord(records, it.id)) ?? it.worktree?.path ?? null,
         thread: lines,
         events: [...inLogOrder(index, [key, ...askKeys].map((k) => index.byKey.get(k))), ...askIds.map((id) => asks.get(id))],

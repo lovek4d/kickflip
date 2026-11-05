@@ -2464,7 +2464,7 @@ test('a tap anywhere on an asleep board, refresh included, asks the hub to wake 
   b.view.unmount();
 });
 
-test("an open card shows its workflow buttons below a final details line of Notes, Install and GitHub links, and colours orange the control that clears Action needed: Open questions links to its first question, a grilling card reads preheating, and an ask's Mark as done confirms and sends ask-done", async () => {
+test("an open card shows its workflow buttons below a final details line of Notes, Install and GitHub links, and colours orange the control that clears Action needed: Open questions links to its first question, a grill request no planner has picked up reads preheating in grey, and an ask's Mark as done confirms and sends ask-done", async () => {
   const draft = { state: 'OPEN', isDraft: true, number: 7, url: 'https://github.com/o/r/pull/7', checks: { state: 'pass' } };
   const ready = { ...draft, isDraft: false };
   const install = { url: 'itms-services://?action=download-manifest&url=https://m/x/manifest.plist', label: null, older: false };
@@ -2524,7 +2524,7 @@ test("an open card shows its workflow buttons below a final details line of Note
   await b.settle();
   assert.deepEqual(b.confirms, ['Mark this task done? "Task a1" moves to Done.']);
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['ask-done', { id: 'a1' }]]);
-  assert.match(b.root.querySelector('details.item[data-key="w/A3"] summary .line3.sub.agent.planner').textContent, /preheating/);
+  assert.match(b.root.querySelector('details.item[data-key="w/A3"] summary .line3.sub.asked').textContent, /^preheating$/);
   assert.equal(b.root.querySelector('details.item[data-key="w/A2"] summary .line3.planner'), null);
 });
 
@@ -2533,7 +2533,7 @@ test("the thread's eye and fire are toggles, one at a time, that Send carries: n
   const cards = [workCard('A1'), workCard('A2', { prototyping: true })];
   const b = boardOnDom({ open: ['w/A1'], board: boardOf(cards), threads: { 'w/A1': [] } });
   await b.settle();
-  assert.match(b.root.querySelector('details.item[data-key="w/A2"] summary .line3.sub.agent.planner').textContent, /^prototyping$/);
+  assert.match(b.root.querySelector('details.item[data-key="w/A2"] summary .line3.sub.asked').textContent, /^preheating$/);
   const form = () => b.root.querySelector('form[data-reply="w/A1"]');
   const eye = () => form().querySelector('button[data-proto]');
   const fire = () => form().querySelector('button[data-grill]');

@@ -68,7 +68,7 @@ export function landerBrief({ route, key, ref, title, worktree, base, answers = 
   return [
     `You are the headless lander for card ${ref} (${key}, "${title}") on the kickflip board /${route}. Its build is done and the orchestrator verified its judgment calls; it waits only to land. Nobody watches this session, so never wait on a person. Work only in ${worktree}, never restart the hub or a board server, and never push.`,
     '',
-    `1. Run \`${b} builder start ${key} --kind build --label Lander\`. If it refuses, stop.`,
+    `1. Run \`${b} builder start ${key} --kind build --label Lander --phase landing --progress "taking up the verified build"\`. If it refuses, stop.`,
     `2. Report progress with \`${b} builder progress ${key} --phase landing "<plain, 80 characters or fewer>"\`. The board adds the phase word; don't start the text with it.`,
     ...(answers.length ? [
       "3. The owner answered the builder's deferred asks. Where an answer changes the build, change it, with its tests, and commit:",
@@ -116,16 +116,17 @@ export const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } ca
 // tracked is {<key>: {kind, model, pid, relaunched}}, the headless builds the server launched or meant to launch (pid null: held
 // by the usage pause, not yet launched). open is the set of keys whose builder record is still open. A tracked build whose
 // record has closed drops. One with no pid yet launches; one whose process has exited with its record still open launches
-// again once, and the second time goes to handBack. One whose kind held(kind) says its usage holds waits as it is
+// again once, and the second time goes to handBack, once: it stays tracked, marked handedBack, so its card reads stopped
+// (server.mjs snapshot alive). One whose kind held(kind) says its usage holds waits as it is
 // (docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md). launch({key, kind, model}) → {pid}.
 // → the tracked map as it now stands.
 export async function reviveBuilders(tracked, open, { launch, handBack, alive = pidAlive, held = () => false }) {
   const next = {};
   for (const [key, entry] of Object.entries(tracked)) {
     if (!open.has(key)) continue;
-    if ((entry.pid !== null && alive(entry.pid)) || held(entry.kind ?? 'claude')) { next[key] = entry; continue; }
+    if ((entry.pid !== null && alive(entry.pid)) || held(entry.kind ?? 'claude') || entry.handedBack) { next[key] = entry; continue; }
     const card = { key, ...(entry.kind ? { kind: entry.kind } : {}), ...(entry.model ? { model: entry.model } : {}) };
-    if (entry.pid !== null && entry.relaunched) { await handBack(card); continue; }
+    if (entry.pid !== null && entry.relaunched) { await handBack(card); next[key] = { ...entry, handedBack: true }; continue; }
     const { key: _, ...kept } = card;
     next[key] = { ...kept, ...(await launch(card)), relaunched: entry.pid !== null };
   }
