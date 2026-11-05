@@ -593,10 +593,12 @@ test("an ask's Done and a work card's Hold, Resume and Done apply at once from t
 
 // docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md
 test("the events POST answers with the board as the tap left it, so a bump, unbump, Hold and Done each draw from the one round trip", async () => {
-  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'C1', title: 'One' }, { id: 'C2', title: 'Two' }] })));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const todo = (board) => board.items.filter((i) => i.lane === 'todo').map((i) => [i.id, Boolean(i.bumpedAt)]);
-  const first = await (await fetch(`${base}/api/board`)).json();
+  // Waits for the cards themselves, not any new version: another change can move the version before the wave file is read.
+  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'C1', title: 'One' }, { id: 'C2', title: 'Two' }] }));
+  let first;
+  await until(async () => { first = await (await fetch(`${base}/api/board`)).json(); return ['C1', 'C2'].every((id) => todo(first).some(([i]) => i === id)); }, 'the board sees the wave file');
   const bottom = todo(first).at(-1)[0];
   const bumped = await post({ kind: 'card-bump', key: `t/${bottom}` });
   assert.match(bumped.id, /\S/);
