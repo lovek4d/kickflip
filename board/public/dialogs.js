@@ -30,7 +30,7 @@
     function openInline() {
       if (!inline) {
         keySlot.innerHTML = '<p class="tk-ask">Linear needs a key. Paste one here.</p><div class="hub-view"><main></main></div>';
-        inline = LinearKey.mount(keySlot.querySelector('main'), { linear: key, busy: keyBusy,
+        inline = LinearKey.mount(keySlot.querySelector('main'), { state: key, busy: keyBusy,
           saved: (out) => { key = out.linear; render(); },
           worked: async () => {
             closeInline();

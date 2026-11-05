@@ -1,11 +1,10 @@
 // Integrations share their checks and words with the features that wait (docs/adr/2026-11-02-1118-integrations-show-readiness-and-features-wait.md).
-import fs from 'node:fs';
 import os from 'node:os';
-import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { githubLogin } from './pr-report.mjs';
 import { codexStatusReader } from '../shared/codex.mjs';
 import { linearStatus } from './linear.mjs';
+import { slackStatus } from './slack.mjs';
 import { readSettings, subscriptions } from './push.mjs';
 import { tailscaleState } from '../bin/install.mjs';
 import { tailscaleBin, tailscaleInstallCommand } from '../shared/tailscale.mjs';
@@ -19,23 +18,6 @@ const INTEGRATIONS = [
   ['tailscale', 'Tailscale', 'Try builds wait on this.'],
   ['notifications', 'Notifications', 'Pushes wait on this.'],
 ];
-const reportFile = (home) => path.join(home, '.claude', 'kickflip', 'integrations.json');
-export function readSlackReport(home = os.homedir()) {
-  try { return JSON.parse(fs.readFileSync(reportFile(home), 'utf8')).slack || null; } catch { return null; }
-}
-export function reportSlack(ready, { home = os.homedir(), now = new Date(), route = null, title = 'Board' } = {}) {
-  const file = reportFile(home);
-  const report = { ready, at: now.toISOString(), route, title };
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify({ slack: report }, null, 2) + '\n', { mode: 0o600 });
-  fs.renameSync(tmp, file);
-  return report;
-}
-const age = (at, now) => {
-  const minutes = Math.floor((now - Date.parse(at)) / 60_000);
-  return minutes < 1 ? 'just now' : minutes < 60 ? `${minutes} min ago` : minutes < 1440 ? `${Math.floor(minutes / 60)} h ago` : `${Math.floor(minutes / 1440)} days ago`;
-};
 const settingsFix = (settings, label, text) => ({ settings, label: `Hub settings › ${label}`, text });
 
 export function readinessRows(checks, { now = Date.now(), platform = process.platform } = {}) {
@@ -48,11 +30,9 @@ export function readinessRows(checks, { now = Date.now(), platform = process.pla
       case 'linear': return !value.set ? { ready: false, missing: 'No Linear key set', fix: settingsFix('linear', 'Linear', 'Add one in') }
         : value.refused ? { ready: false, missing: 'Linear refused the key', fix: settingsFix('linear', 'Linear', 'Paste a new one in') }
         : { ready: true, detail: `Key set · ${value.workspace} workspace` };
-      case 'slack': {
-        const words = value ? `${value.title}’s session reported ${value.ready ? 'a' : 'no'} Slack connector, ${age(value.at, now)}` : 'No board session has reported yet';
-        return value?.ready ? { ready: true, detail: words }
-          : { ready: false, missing: words, fix: { text: 'Add Slack to Claude’s connectors. The next board session to start reports it.' } };
-      }
+      case 'slack': return !value.set ? { ready: false, missing: 'No Slack token set', fix: settingsFix('slack', 'Slack', 'Add one in') }
+        : value.refused ? { ready: false, missing: 'Slack refused the token', fix: settingsFix('slack', 'Slack', 'Paste a new one in') }
+        : { ready: true, detail: `Token set · ${value.team} workspace, sending as ${value.user}` };
       case 'tailscale': {
         let missing, command;
         if (!value.installed) { missing = "Tailscale isn't installed on the host"; command = tailscaleInstallCommand(platform); }
@@ -78,7 +58,7 @@ export function readinessReader({ home = os.homedir(), env = process.env, now = 
     github: () => githubLogin({ env }).catch(() => null),
     codex,
     linear: () => linearStatus(home),
-    slack: () => readSlackReport(home),
+    slack: () => slackStatus(home),
     tailscale: () => tailscaleState({ run: asyncRun(env), port: Number(env.KICKFLIP_HUB_PORT || 4500), tailscale: tailscaleBin({ env }) }),
     notifications: () => ({ on: readSettings(home).notifications.on, devices: subscriptions(home).length }),
     ...probes,

@@ -266,7 +266,7 @@ async function ticketCli(t) {
   t.mock.method(console, 'error', (...args) => err.push(args.join(' ')));
   const world = linearWorld();
   const linear = fakeLinear(world);
-  write(at('kickflip', 'linear.json'), { key: world.key, workspace: 'Acme', url_key: 'acme', viewer: world.viewer });
+  write(at('kickflip', 'secrets.json'), { linear: { key: world.key, workspace: 'Acme', url_key: 'acme', viewer: world.viewer } });
   const gh = [];
   const ghAnswers = { view: { state: 'OPEN', assignees: [{ login: 'someone' }] }, login: 'love' };
   const run = async (cmd, argv) => {
@@ -357,7 +357,7 @@ test("a board still on Linear after Hub's key went refuses new tickets, links an
   assert.equal(await cli('item', 'add', 'audit/B2', '--title', 'Two', '--notes', 'Why'), 0);
   assert.equal(item('B2').ticket, 'ENG-101');
   const calls = linear.calls.length;
-  fs.rmSync(at('kickflip', 'linear.json'));
+  write(at('kickflip', 'secrets.json'), {});
   const noKey = 'Hub has no Linear key, so this board can’t create Linear tickets; add it in Hub settings › Linear, or pick another ticket source.';
   const waveFile = site('audit', 'data', 'wave.json');
   write(site('audit', 'data', 'events.jsonl'), JSON.stringify({ id: 'e1', kind: 'ask', data: { text: 'Ask' } }) + '\n');
@@ -3545,6 +3545,8 @@ test('slack identity imports config once, protects the saved file and lets the s
   assert.equal(board('slack', 'set', '--self-dm', 'UWRONG').code, 1);
 });
 
+const slackToken = (extra = {}) => write(at('kickflip', 'secrets.json'), { slack: { token: 'xoxp-test-token', team: 'Acme', user: 'love', ...extra } });
+
 function digestCommand(args, now) {
   const script = `import {main} from ${JSON.stringify(new URL('./bin/board.mjs', import.meta.url).href)};
     process.exitCode = await main(${JSON.stringify(['--site', 'orch', 'review', 'digest', ...args])}, {now: new Date(${JSON.stringify(now)})});`;
@@ -3555,7 +3557,7 @@ function digestCommand(args, now) {
 
 test('review digest lists the hub-checked PRs awaiting review, dates old links and turns due off after a sent digest', () => {
   const now = '2026-11-02T17:00:00Z';
-  assert.equal(board('--site', 'orch', 'integrations', 'report', '--slack', 'yes').code, 0);
+  slackToken();
   assert.equal(board('slack', 'set', '--timezone', 'America/Los_Angeles').code, 0);
   const ts = (hours) => String((Date.parse(now) - hours * 3600000) / 1000);
   write(site('orch', 'board.json'), { items: 'waves', reviewers: [bobReviewer] });
@@ -3596,7 +3598,7 @@ test('review due lists the reviewer DMs, git_merged reactions and digest still o
     assert.equal(r.status, 0, r.stderr);
     return JSON.parse(r.stdout);
   };
-  assert.equal(board('--site', 'orch', 'integrations', 'report', '--slack', 'yes').code, 0);
+  slackToken();
   assert.equal(board('slack', 'set', '--timezone', 'America/Los_Angeles').code, 0);
   write(at('waves', 'w', 'wave.json'), { repo: 'o/r', reviewers: [annReviewer, bobReviewer], items: [
     { id: 'A1', title: 'Open', pr: 1, review_link_ts: { Ann: { ts: '1.1', channel: 'D1' } } },
@@ -3606,52 +3608,14 @@ test('review due lists the reviewer DMs, git_merged reactions and digest still o
   ] });
   write(at('kickflip', 'github-state.json'), { prs: { 'o/r#1': { state: 'OPEN', isDraft: false }, 'o/r#2': { state: 'OPEN', isDraft: true }, 'o/r#3': { state: 'MERGED' } } });
   const owed = due();
-  assert.deepEqual(owed.dms, [{ key: 'w/A1', reviewer: 'Bob', channel: 'D2', text: 'https://github.com/o/r/pull/1', record: 'board.mjs --site orch review sent w/A1 Bob --ts <ts> --channel D2' }]);
+  assert.deepEqual(owed.dms, [{ key: 'w/A1', reviewer: 'Bob', slack_user: 'U2', channel: 'D2', text: 'https://github.com/o/r/pull/1', record: 'board.mjs --site orch review sent w/A1 Bob --ts <ts> --channel D2' }]);
   assert.deepEqual(owed.reactions, [{ key: 'w/A3', reviewer: 'Bob', channel: 'D2', ts: '3.2', emoji: 'git_merged', record: 'board.mjs --site orch review react w/A3 Bob git_merged' }]);
   assert.deepEqual([owed.digest.due, owed.digest.reviewers.map((r) => r.name), owed.digest.record], [true, ['Ann', 'Bob'], 'board.mjs --site orch review digest sent <reviewer> --ts <ts> --channel <dm> --items <key,key>']);
   assert.equal(board('--site', 'orch', 'review', 'sent', 'w/A1', 'Bob', '--ts', '1.2', '--channel', 'D2').code, 0);
   assert.equal(board('--site', 'orch', 'review', 'react', 'w/A3', 'Bob', 'git_merged').code, 0);
   assert.deepEqual([due().dms, due().reactions], [[], []]);
-  board('--site', 'orch', 'integrations', 'report', '--slack', 'no');
-  assert.deepEqual(due(), { waiting: 'Reviewer DMs and digests wait on Slack: Orch’s session reported no Slack connector, just now.', dms: [], reactions: [], digest: null });
-});
-
-test('integrations report writes the latest Slack connector report and integrations reads it', () => {
-  const stub = path.join(home, 'bin');
-  for (const name of ['gh', 'tailscale', 'claude', 'codex', 'launchctl', 'systemctl']) {
-    const file = path.join(stub, name);
-    write(file, '#!/bin/sh\nexit 1\n');
-    fs.chmodSync(file, 0o700);
-  }
-  write(at('kickflip', 'manifest.json'), { sites: { orch: { title: 'Orchestrator' } } });
-  const rows = () => {
-    const r = run('board.mjs', ['integrations'], undefined, { PATH: stub });
-    assert.equal(r.code, 0, r.err);
-    assert.equal(r.out.trim().split('\n').length, 1);
-    return JSON.parse(r.out);
-  };
-  assert.equal(rows()[3].missing, 'No board session has reported yet');
-  for (const value of ['yes', 'no']) {
-    const atStart = Date.now();
-    const result = board('integrations', 'report', '--slack', value, '--site', 'orch');
-    assert.equal(result.code, 0, result.err);
-    assert.equal(result.out.trim().split('\n').length, 1);
-    const report = read(at('kickflip', 'integrations.json')).slack;
-    assert.deepEqual([report.ready, report.route, report.title], [value === 'yes', 'orch', 'Orchestrator']);
-    assert.ok(Date.parse(report.at) >= atStart && Date.parse(report.at) <= Date.now());
-    const row = rows()[3];
-    assert.equal(row.ready, value === 'yes');
-    assert.match(row.detail || row.missing, new RegExp(`Orchestrator’s session reported ${value === 'yes' ? 'a' : 'no'} Slack connector, just now`));
-  }
-  const before = read(at('kickflip', 'integrations.json'));
-  const bad = board('integrations', 'report', '--slack', 'maybe');
-  assert.equal(bad.code, 2);
-  assert.match(bad.err, /--slack yes\|no/);
-  assert.deepEqual(read(at('kickflip', 'integrations.json')), before);
-  const siteless = board('integrations', 'report', '--slack', 'yes');
-  assert.equal(siteless.code, 1);
-  assert.match(siteless.err, /needs --site/);
-  assert.deepEqual(read(at('kickflip', 'integrations.json')), before);
+  slackToken({ refused_at: '2026-11-02T00:00:00Z' });
+  assert.deepEqual(due(), { waiting: 'Reviewer DMs and digests wait on Slack: Slack refused the token.', dms: [], reactions: [], digest: null });
 });
 
 test('review digest waits without changing the record while Slack is not ready', () => {
@@ -3662,13 +3626,13 @@ test('review digest waits without changing the record while Slack is not ready',
   write(file, record);
   const digest = digestCommand([], now);
   assert.equal(digest.due, false);
-  assert.equal(digest.waiting, 'Reviewer DMs and digests wait on Slack: No board session has reported yet.');
+  assert.equal(digest.waiting, 'Reviewer DMs and digests wait on Slack: No Slack token set.');
   assert.equal(digest.date, '2026-11-02');
   assert.deepEqual(digest.reviewers, []);
   assert.deepEqual(read(file), record);
-  board('--site', 'orch', 'integrations', 'report', '--slack', 'no');
-  assert.match(digestCommand([], now).waiting, /Orch’s session reported no Slack connector/);
-  board('--site', 'orch', 'integrations', 'report', '--slack', 'yes');
+  slackToken({ refused_at: '2026-11-02T00:00:00Z' });
+  assert.match(digestCommand([], now).waiting, /Slack refused the token/);
+  slackToken();
   assert.equal(digestCommand([], now).due, true);
   assert.deepEqual(read(file), record);
 });

@@ -26,7 +26,7 @@ const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: t
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const world = linearWorld();
 const linear = fakeLinear(world);
-write(path.join(kickflip, 'linear.json'), { key: world.key, workspace: 'Acme', url_key: 'acme', viewer: world.viewer });
+write(path.join(kickflip, 'secrets.json'), { linear: { key: world.key, workspace: 'Acme', url_key: 'acme', viewer: world.viewer } });
 
 let issues = 0;
 const run = async (cmd, argv) => {
@@ -146,7 +146,7 @@ test("the board server's Run review route and arch file give their cards tickets
   const waveFile = path.join(b.site, 'data', 'wave.json');
   write(waveFile, { ...read(waveFile), items: read(waveFile).items.map((it) => (it.id === 'GH-1' ? { ...it, status: 'done' } : it)) });
 
-  const keyFile = path.join(kickflip, 'linear.json');
+  const keyFile = path.join(kickflip, 'secrets.json');
   const key = fs.readFileSync(keyFile, 'utf8');
   fs.rmSync(keyFile);
   assert.deepEqual(await post('/api/settings', { tickets: SOURCES[2][1] }), { status: 400, body: { error: NEEDS_KEY } });
@@ -171,10 +171,10 @@ test("the board server's Run review route and arch file give their cards tickets
 
 // Hub's key moved aside for one test: gone, or refused by Linear.
 function withoutKey(t) {
-  const keyFile = path.join(kickflip, 'linear.json');
+  const keyFile = path.join(kickflip, 'secrets.json');
   const saved = fs.readFileSync(keyFile, 'utf8');
   t.after(() => write(keyFile, saved));
-  return { remove: () => fs.rmSync(keyFile, { force: true }), refuse: () => write(keyFile, { ...JSON.parse(saved), refused_at: '2026-11-04T00:00:00Z' }), restore: () => write(keyFile, saved) };
+  return { remove: () => fs.rmSync(keyFile, { force: true }), refuse: () => write(keyFile, { linear: { ...JSON.parse(saved).linear, refused_at: '2026-11-04T00:00:00Z' } }), restore: () => write(keyFile, saved) };
 }
 
 test("Linear can't be picked as a board's ticket source while Hub has no working Linear key, by the store or the CLI", async (t) => {

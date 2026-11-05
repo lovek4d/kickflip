@@ -139,7 +139,7 @@ const snoozedUntil = (n, now) => (n.on ? endOf(n.snoozed_until, now) : null);
 // choices are null while that setting is on, and Snooze's while notifications are off. route is push.mjs pushRoute():
 // where an action push goes now (docs/adr/2026-10-30-1704-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md). awake is
 // {until: awake.mjs awakeUntil, unsupported: awake.mjs awakeUnsupported}.
-export function settingsView({ now, st, rules = [], route = { atMac: false, desktops: 0 }, linear = { set: false }, awake = { until: null, unsupported: null } }) {
+export function settingsView({ now, st, rules = [], route = { atMac: false, desktops: 0 }, linear = { set: false }, slack = { set: false }, awake = { until: null, unsupported: null } }) {
   const s = st.settings;
   const n = s.notifications;
   const until = snoozedUntil(n, now);
@@ -167,7 +167,23 @@ export function settingsView({ now, st, rules = [], route = { atMac: false, desk
     quiet: quietView(s, now),
     rules,
     linear: linearWords(linear),
+    slack: slackWords(slack),
   };
+}
+
+// The Slack app the owner makes once: a manifest with the user scopes the hub's sends need, opened on Slack's new-app
+// page, whose User OAuth Token goes in the slot (docs/adr/2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md).
+const SLACK_MANIFEST = { display_information: { name: 'Kickflip' }, oauth_config: { scopes: { user: ['chat:write', 'im:write', 'reactions:write'] } } };
+const SLACK_APPS = { url: `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(JSON.stringify(SLACK_MANIFEST))}`, label: 'a new Slack app' };
+function slackWords(slack) {
+  const workspace = slack.team ? `${slack.team} workspace` : '';
+  const make = `Make ${SLACK_APPS.label}, install it to your workspace, then paste its User OAuth Token (xoxp-…) here.`;
+  if (!slack.set) return { set: false, title: 'No token', sub: make, keys: SLACK_APPS, summary: 'No token' };
+  if (slack.refused) {
+    return { set: true, refused: true, title: workspace || 'Slack token', down: 'doesn’t work', sub: `Slack refused the token. ${make}`,
+      keys: SLACK_APPS, summary: workspace ? `Token doesn’t work · ${workspace}` : 'Token doesn’t work' };
+  }
+  return { set: true, title: workspace, sub: `Token •••••••• · sends as ${slack.user}`, summary: `Token set · ${workspace}` };
 }
 
 // sub names keys.label, which board/public/linear-key.js links to keys.url.

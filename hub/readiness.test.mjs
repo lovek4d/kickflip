@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { readinessReader, readinessRows, reportSlack } from './readiness.mjs';
+import { readinessReader, readinessRows } from './readiness.mjs';
 
 const now = Date.parse('2026-11-02T17:00:00Z');
 const tailscale = { installed: true, signedIn: true, pointsAtHub: true, dns: 'host.ts.net', operatorChecked: true, operator: 'love', username: 'love' };
-const ready = () => ({ github: 'love', codex: { usable: true }, linear: { set: true, workspace: 'Work' }, slack: { ready: true, title: 'Board', at: new Date(now).toISOString() }, tailscale, notifications: { on: true, devices: 2 } });
-const off = () => ({ github: null, codex: { usable: false, words: "Codex isn't installed on the host.", fix: 'install codex' }, linear: { set: false }, slack: null, tailscale: { ...tailscale, installed: false }, notifications: { on: false, devices: 0 } });
+const ready = () => ({ github: 'love', codex: { usable: true }, linear: { set: true, workspace: 'Work' }, slack: { set: true, team: 'Acme', user: 'love' }, tailscale, notifications: { on: true, devices: 2 } });
+const off = () => ({ github: null, codex: { usable: false, words: "Codex isn't installed on the host.", fix: 'install codex' }, linear: { set: false }, slack: { set: false }, tailscale: { ...tailscale, installed: false }, notifications: { on: false, devices: 0 } });
 const probesOf = (checks) => Object.fromEntries(Object.entries(checks).map(([id, value]) => [id, () => value]));
 
 test('readiness shares fixed row order, ready details, fixes, waits and waiting sentences', async () => {
@@ -17,7 +17,7 @@ test('readiness shares fixed row order, ready details, fixes, waits and waiting 
   assert.deepEqual(rows.map((r) => r.id), ['github', 'codex', 'linear', 'slack', 'tailscale', 'notifications']);
   assert.deepEqual(rows.map((r) => r.name), ['GitHub', 'Codex', 'Linear', 'Slack', 'Tailscale', 'Notifications']);
   assert.ok(rows.every((r) => r.ready));
-  assert.deepEqual(rows.map((r) => r.detail), ['gh logged in as love', 'Installed and logged in', 'Key set · Work workspace', 'Board’s session reported a Slack connector, just now', 'Serving host.ts.net · operator love', 'Pushes on · 2 devices']);
+  assert.deepEqual(rows.map((r) => r.detail), ['gh logged in as love', 'Installed and logged in', 'Key set · Work workspace', 'Token set · Acme workspace, sending as love', 'Serving host.ts.net · operator love', 'Pushes on · 2 devices']);
   for (const row of rows) assert.equal(await r.waiting(row.id), null);
   const reader = readinessReader({ now: () => now, probes: probesOf(off()) });
   const missing = await reader.rows();
@@ -27,23 +27,17 @@ test('readiness shares fixed row order, ready details, fixes, waits and waiting 
   assert.equal(missing[1].fix.command, 'install codex');
   assert.deepEqual(missing[2].fix, { settings: 'linear', label: 'Hub settings › Linear', text: 'Add one in' });
   assert.equal(missing[5].fix.settings, 'notifications');
-  assert.equal(await reader.waiting('slack'), 'Reviewer DMs and digests wait on Slack: No board session has reported yet.');
+  assert.equal(await reader.waiting('slack'), 'Reviewer DMs and digests wait on Slack: No Slack token set.');
   assert.equal(await reader.waiting('tailscale'), "Try builds wait on Tailscale: Tailscale isn't installed on the host.");
   for (const row of missing.filter((r) => r.waits)) assert.match(await reader.waiting(row.id), new RegExp(`wait on ${row.name}:`));
   assert.equal(await reader.waiting('linear'), null);
 });
 
-test('Slack reports yes, no and no report, with the reporting site and age', async () => {
-  for (const [minutes, age] of [[0, 'just now'], [40, '40 min ago'], [120, '2 h ago'], [4320, '3 days ago']]) {
-    for (const yes of [false, true]) {
-      const checks = { ...ready(), slack: { ready: yes, title: 'Hub', at: new Date(now - minutes * 60_000).toISOString() } };
-      const row = (await readinessReader({ now: () => now, probes: probesOf(checks) }).rows())[3];
-      assert.equal(row.ready, yes);
-      assert.equal(row.detail || row.missing, `Hub’s session reported ${yes ? 'a' : 'no'} Slack connector, ${age}`);
-      if (!yes) assert.equal(row.fix.text, 'Add Slack to Claude’s connectors. The next board session to start reports it.');
-    }
-  }
-  assert.equal(readinessRows(off())[3].missing, 'No board session has reported yet');
+test('Slack is ready while Hub’s token is saved and Slack has not refused it, and its fix opens Hub settings › Slack', () => {
+  const row = (slack) => readinessRows({ slack })[0];
+  assert.deepEqual(row({ set: false }), { id: 'slack', name: 'Slack', ready: false, missing: 'No Slack token set', fix: { settings: 'slack', label: 'Hub settings › Slack', text: 'Add one in' }, waits: 'Reviewer DMs and digests wait on this.' });
+  assert.deepEqual([row({ set: true, refused: true, team: 'Acme', user: 'love' }).missing, row({ set: true, refused: true }).fix.text], ['Slack refused the token', 'Paste a new one in']);
+  assert.equal(row({ set: true, team: 'Acme', user: 'love' }).detail, 'Token set · Acme workspace, sending as love');
 });
 
 test('Tailscale uses the first failing check and doctor fixes; Notifications ignore holds', () => {
@@ -95,17 +89,16 @@ test('file-backed checks see changes immediately while gh and tailscale stay cac
   const r = readinessReader({ home, env: { PATH: bin }, now: () => now, probes: { github: () => 'love', tailscale: () => tailscale } });
   assert.deepEqual((await r.rows()).map((r) => r.ready), [true, false, false, false, true, false]);
   write(path.join(home, '.codex', 'auth.json'), {});
-  write(path.join(state, 'linear.json'), { key: 'secret', workspace: 'Office' });
-  reportSlack(true, { home, title: 'Other board', route: 'other', now: new Date(now) });
+  const slack = { token: 'xoxp-secret', team: 'Acme', user: 'love' };
+  write(path.join(state, 'secrets.json'), { linear: { key: 'secret', workspace: 'Office' }, slack });
   write(path.join(state, 'settings.json'), { notifications: { on: true, weekends_off: true, snoozed_until: '2099-01-01T00:00:00Z' } });
   write(path.join(state, 'push', 'subs.json'), [{ endpoint: 'https://push.example/device' }]);
   assert.ok((await r.rows()).every((r) => r.ready));
-  write(path.join(state, 'linear.json'), { key: 'secret', workspace: 'Office', refused_at: new Date(now).toISOString() });
+  write(path.join(state, 'secrets.json'), { linear: { key: 'secret', workspace: 'Office', refused_at: new Date(now).toISOString() }, slack });
   const refused = (await r.rows())[2];
   assert.deepEqual([refused.ready, refused.missing, refused.fix.text], [false, 'Linear refused the key', 'Paste a new one in']);
   fs.rmSync(path.join(home, '.codex', 'auth.json'));
-  fs.rmSync(path.join(state, 'linear.json'));
-  reportSlack(false, { home, now: new Date(now) });
+  write(path.join(state, 'secrets.json'), {});
   write(path.join(state, 'push', 'subs.json'), []);
   const rows = await r.rows();
   assert.deepEqual(rows.map((r) => r.ready), [true, false, false, false, true, false]);

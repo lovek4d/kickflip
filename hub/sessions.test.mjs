@@ -857,7 +857,7 @@ test('export bundles a board with its portable entry fields and the three hub se
   write(web('manifest.json'), { sites: { moving: { dir, port: 4999, cmd: boardCmd(dir), ...entry, owner: { session: 's-moving', label: "Love's board", model: 'opus', since: '2026-10-29T00:00:00.000Z', repo }, updated: '2026-11-01T00:00:00.000Z', restart_at: 1 } } });
   const carried = { notifications: { on: true, weekends_off: true, snoozed_until: null }, quiet: { start: '23:00', end: '07:00', hold: true }, codexShare: 'off' };
   write(web('settings.json'), { ...carried, rules: [{ id: 'r1', text: 'Old rule' }], pauseAt: 80, keepGoing: { until: 'x' } });
-  for (const f of ['linear.json', 'slack.json', 'integrations.json']) write(web(f), { key: 'secret' });
+  for (const f of ['secrets.json', 'slack.json']) write(web(f), { key: 'secret' });
   const file = path.join(home, 'moving.tgz');
 
   const open = await cli(['export', 'moving', '--out', file]);

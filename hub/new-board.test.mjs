@@ -205,8 +205,8 @@ test('Retry starts a failed start again from its record, stopping a timed-out st
   saveJSON(manifestFile, { sites });
   const repo = path.join(base, 'owner/project');
   const tickets = { source: 'linear', workspace: 'acme', team: 'ENG', project: 'p1' };
-  const keyFile = path.join(home, '.claude', 'kickflip', 'linear.json');
-  fs.writeFileSync(keyFile, JSON.stringify({ key: 'lin_api_test_key' }));
+  const keyFile = path.join(home, '.claude', 'kickflip', 'secrets.json');
+  fs.writeFileSync(keyFile, JSON.stringify({ linear: { key: 'lin_api_test_key' } }));
   const broken = claude({ status: 1, stdout: '', stderr: 'Not signed in · run claude /login' });
   const first = await requestBoard({ ...input('Retry me'), purpose: 'Try it again', tickets }, { run: broken.run, live, repos });
   fs.rmSync(keyFile);

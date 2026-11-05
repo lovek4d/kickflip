@@ -83,6 +83,9 @@
 //   /_hub/settings/linear POST key=<Linear personal API key>, checked with Linear and saved, as refused if Linear
 //                     refuses it, or remove=1 → /_hub/api/settings's JSON, whose `linear` names only the workspace,
 //                     or 400 {error}, 502 {error} when Linear can't be reached (linear.mjs)
+//   /_hub/settings/slack POST token=<Slack user token, xoxp->, checked with Slack's auth.test and saved, as refused if
+//                     Slack refuses it, or remove=1 → /_hub/api/settings's JSON, whose `slack` names only the workspace
+//                     and user, or 400 {error}, 502 {error} when Slack can't be reached (slack.mjs)
 //   /_hub/settings/quiet POST start=HH:MM, end=HH:MM, or set=hold with value=on (absent for off), one schedule.mjs editQuiet change → /_hub/api/settings's
 //                     JSON, or 400 {error}
 //   /_hub/presence    POST {} from a shell page's tap, key or scroll, at most once a minute: the owner is present
@@ -147,8 +150,7 @@
 // card's board first and refreshes its Main at once (docs/adr/2026-11-03-1619-a-merge-refreshes-its-boards-main-at-once.md).
 // Try worktrees live in ~/.claude/kickflip/try/<route>-main; board data/try.json and data/try/*.log record runs.
 // State lives in ~/.claude/kickflip: manifest.json, logs/<route>.log, run/<route>.pid, github-state.json, wake-state.json,
-// deaf-state.json, link-faults.json, repo-fetch.json, hub-code.json, resume-state.json, prompts.json, linear.json,
-// integrations.json.
+// deaf-state.json, link-faults.json, repo-fetch.json, hub-code.json, resume-state.json, prompts.json, secrets.json.
 import http from 'node:http';
 import net from 'node:net';
 import { spawn, execFileSync } from 'node:child_process';
@@ -195,6 +197,8 @@ import { restartRunner } from '../board/worktree.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { LinearError, linearStatus, removeLinearKey, saveLinearKey, savedClient } from './linear.mjs';
+import { SlackError, slackStatus, removeSlackToken, saveSlackToken } from './slack.mjs';
+import { sendReviews } from './review-send.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const COLORS = path.join(HUB_DIR, '..', 'shared', 'colors.css');
@@ -394,7 +398,7 @@ const FIRST_POLL_MS = 60_000;
 const ERROR_LOG_MS = 60 * 60_000;
 // running: the poll in progress; startedAt: when the last one began; last: its result; remaining: GitHub's points left
 // after its query, null when it made none.
-const polls = { running: null, startedAt: 0, firstAt: Date.now() + FIRST_POLL_MS, last: null, remaining: null, errorLoggedAt: 0, linearErrorLoggedAt: 0 };
+const polls = { running: null, startedAt: 0, firstAt: Date.now() + FIRST_POLL_MS, last: null, remaining: null, errorLoggedAt: 0, linearErrorLoggedAt: 0, slackErrorLoggedAt: 0 };
 const owner = ownerTracker();
 
 const nextPollAt = () => (polls.startedAt ? nextCheckAt({ last: new Date(polls.startedAt), ...owner.state(), remaining: polls.remaining }) : new Date(polls.firstAt));
@@ -439,6 +443,14 @@ function runPoll({ flush = true } = {}) {
     if (result.linear.failed.length && Date.now() - polls.linearErrorLoggedAt > ERROR_LOG_MS) {
       polls.linearErrorLoggedAt = Date.now();
       log(`linear check: ${result.linear.failed.length} step${result.linear.failed.length === 1 ? '' : 's'} failed, first: ${result.linear.failed[0]} (logged at most hourly)`);
+    }
+    // docs/adr/2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md
+    try { result.slack = await sendReviews({ boards: listBoards(loadManifest()) }); }
+    catch (e) { result.slack = { sent: [], failed: [e.message] }; }
+    for (const line of result.slack.sent) log(`slack: sent ${line}`);
+    if (result.slack.failed.length && Date.now() - polls.slackErrorLoggedAt > ERROR_LOG_MS) {
+      polls.slackErrorLoggedAt = Date.now();
+      log(`slack sends: ${result.slack.failed.length} failed, first: ${result.slack.failed[0]} (logged at most hourly)`);
     }
     try { result.deaf = await checkListening({ manifest: loadManifest() }); }
     catch (e) { result.deaf = { pushed: [], failed: [e.message] }; }
@@ -799,7 +811,7 @@ async function hubData(req) {
 const settingsData = async () => {
   const now = new Date();
   const awake = { until: awakeUntil(now), unsupported: awakeUnsupported() };
-  return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), route: await pushRoute(), linear: linearStatus(), awake }), closed: closedBoards() };
+  return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), route: await pushRoute(), linear: linearStatus(), slack: slackStatus(), awake }), closed: closedBoards() };
 };
 
 const redirect = (res, location) => { res.writeHead(303, { location, 'cache-control': 'no-store' }); res.end(); };
@@ -1055,6 +1067,17 @@ async function hubRoute(req, res, url) {
       return json ? sendJSON(e.status, { error: e.message }) : send(e.status, 'text/plain; charset=utf-8', e.message);
     }
     return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#linear');
+  }
+  if (p === '/_hub/settings/slack' && req.method === 'POST') {
+    const f = new URLSearchParams(await readBody(req, 4 * 1024));
+    try {
+      if (f.has('remove')) { removeSlackToken(); log('slack: token removed'); }
+      else log(`slack: token ${(await saveSlackToken(f.get('token'))).refused ? 'refused by Slack' : 'saved'}`);
+    } catch (e) {
+      if (!(e instanceof SlackError)) throw e;
+      return json ? sendJSON(e.status, { error: e.message }) : send(e.status, 'text/plain; charset=utf-8', e.message);
+    }
+    return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#slack');
   }
   if (p === '/_hub/api/linear' && req.method === 'GET') {
     const status = linearStatus();

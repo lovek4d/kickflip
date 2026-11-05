@@ -315,9 +315,9 @@ async function linearPoll(t, { key = true } = {}) {
   const server = await linear.serve();
   const previous = process.env.KICKFLIP_LINEAR_URL;
   process.env.KICKFLIP_LINEAR_URL = server.url;
-  const keyFile = path.join(home, '.claude', 'kickflip', 'linear.json');
+  const keyFile = path.join(home, '.claude', 'kickflip', 'secrets.json');
   const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value)); };
-  if (key) write(keyFile, { key: world.key, workspace: 'Acme', url_key: 'acme', viewer: world.viewer });
+  if (key) write(keyFile, { linear: { key: world.key, workspace: 'Acme', url_key: 'acme', viewer: world.viewer } });
   t.after(async () => {
     await server.close();
     if (previous === undefined) delete process.env.KICKFLIP_LINEAR_URL; else process.env.KICKFLIP_LINEAR_URL = previous;

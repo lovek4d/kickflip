@@ -12,3 +12,5 @@ Considered:
 - Integrations inside the Health card (take B): a section of its own makes the prerequisites and their waiting features easier to find.
 - Probing Slack from the hub: it cannot see Claude’s connectors; a board session reports what it can use.
 - Per-feature checks: duplicated checks and words drift from the hub’s explanation.
+
+Superseded in part (2026-11-05): the Slack row reads Hub’s Slack token, and sessions no longer report a connector ([the hub sends reviewer Slack messages with its own token](2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md)).

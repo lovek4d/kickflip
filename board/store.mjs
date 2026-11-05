@@ -23,7 +23,7 @@ import { fetchPR, reportOf, githubLogin, postToPR, CLAUDE_PREFIX, CLAUDE_MARK } 
 import { allLanded, cardPRs, hasPR, leastReady, parsePRRef, prKeyOf, prNames, prURL, storedPRs } from '../shared/card-prs.mjs';
 import { reviewLinks, topicItems, reviewersOf } from './review.mjs';
 import { readiness } from '../hub/readiness.mjs';
-import { slackDay } from '../hub/slack.mjs';
+import { slackDay, savedSlack, SlackError, SLACK_NEEDS_TOKEN } from '../hub/slack.mjs';
 import { storedPath } from '../bin/install.mjs';
 import { readPermissions } from './permissions.mjs';
 import { parseCheck, checkText } from '../shared/owner-check.mjs';
@@ -678,7 +678,7 @@ export async function reviewDue(site, options) {
       } else if (pr.gh?.state === 'OPEN' && !pr.gh.isDraft) {
         const url = prs.filter((p) => p.gh?.state === 'OPEN').map((p) => p.url).join('\n');
         for (const r of people.filter((p) => !routeRecord(links, p.name))) {
-          dms.push({ key, reviewer: r.name, channel: r.dm, text: url, record: `${cmd} review sent ${key} ${arg(r.name)} --ts <ts> --channel ${r.dm}` });
+          dms.push({ key, reviewer: r.name, slack_user: r.slack_user, channel: r.dm, text: url, record: `${cmd} review sent ${key} ${arg(r.name)} --ts <ts> --channel ${r.dm}` });
         }
       }
     }
@@ -686,6 +686,36 @@ export async function reviewDue(site, options) {
   const digest = await reviewDigest(site, options);
   return { dms, reactions, digest: digest.due ? { ...digest, record: `${cmd} review digest sent <reviewer> --ts <ts> --channel <dm> --items <key,key>` } : null };
 }
+// Each login's latest review state on a PR, from GitHub. → {<login>: APPROVED|CHANGES_REQUESTED|COMMENTED|…}
+function ghLatestReviews(repo, number) {
+  return new Promise((resolve, reject) => {
+    execFile('gh', ['pr', 'view', String(number), '--repo', repo, '--json', 'latestReviews'], { encoding: 'utf8', timeout: 20_000 }, (e, stdout, stderr) => {
+      if (e) return reject(new BoardError(`gh could not read ${repo}#${number}'s reviews: ${String(stderr || e.message).trim().split('\n')[0]}`));
+      resolve(Object.fromEntries((JSON.parse(stdout).latestReviews || []).map((r) => [r.author?.login, r.state])));
+    });
+  });
+}
+
+// `review updated`: “🤖 Updated: <what changed>” in the thread of each recorded link whose reviewer's latest review on
+// the card's PRs isn't an approval, sent as the owner through Hub's Slack token
+// (docs/adr/2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md).
+export async function reviewUpdated(site, key, whatChanged, { fetch, reviews = ghLatestReviews } = {}) {
+  needSite(site);
+  const slack = savedSlack({ fetch }) || fail(SLACK_NEEDS_TOKEN);
+  const words = text(whatChanged, 'what changed');
+  const { wave, item } = await loadItem(site, key);
+  const links = reviewLinks(wave, item, key, topicItems());
+  const people = reviewersOf(wave, (await boardConfig(site)).reviewers).filter((r) => links[r.name]?.ts);
+  if (!people.length) return { lines: [`no reviewer waiting on a sent link for ${key}`] };
+  const verdicts = await Promise.all(cardPRs(item, boardRepoOf(site, wave)).map((p) => reviews(p.repo, p.number)));
+  const waiting = people.filter((r) => !verdicts.length || verdicts.some((v) => v[r.github] !== 'APPROVED'));
+  for (const r of waiting) {
+    try { await slack.post({ channel: links[r.name].channel || r.dm, thread_ts: links[r.name].ts, text: `🤖 Updated: ${words}` }); }
+    catch (e) { if (e instanceof SlackError) fail(`Updated to ${r.name} on ${key} not sent: ${e.message}`); throw e; }
+  }
+  return { lines: [waiting.length ? `🤖 Updated sent to ${waiting.map((r) => r.name).join(', ')} on ${key}` : `every reviewer on ${key} has approved; nothing sent`] };
+}
+
 // A card's PRs with the hub's cached GitHub state as gh, and pr, the least-ready one that decides it.
 function cachedPRs(cache, item, repo) {
   const prs = cardPRs(item, repo).map((p) => ({ ...p, url: prURL(p), gh: routeRecord(cache.prs, prKeyOf(p)) || null }));

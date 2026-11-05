@@ -482,7 +482,7 @@ The bundle carries no secret and nothing tied to the old machine. Set these up o
 
 - GitHub sign-in: \`gh auth login\`.
 - Linear API key: Hub → Linear.
-- Slack: Claude's Slack connector in the new session, and the hub's Slack identity with \`board.mjs slack set --self-dm <D…> --user <U…>\`.
+- Slack user token: Hub → Slack. Digests follow the hub's Slack timezone, set with \`board.mjs slack set --timezone Area/City\`.
 - Codex: \`codex login\`, if Codex builds.
 - Notifications: open the Hub page on each phone and tap Turn on.
 - Other hub settings, such as the pause line and Rules for every board, stay on the old machine.

@@ -19,3 +19,5 @@ Considered:
 - the session landing after a `checking` hand-back: the card waited on the session for minutes, and the reminder only nagged;
 - `merge` checking the rule and leaving `gh pr merge` to the session: the record could still be skipped;
 - `review due` sending to Slack itself: kickflip holds no Slack token.
+
+Superseded in part (2026-11-05): the hub now sends what `review due` lists, with its own Slack token ([the hub sends reviewer Slack messages with its own token](2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md)).

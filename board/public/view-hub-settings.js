@@ -1,6 +1,6 @@
 // HubSettings: summary rows below Hub’s health and status open centred settings modals ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)), using
 // settingsView's words from GET /_hub/api/settings. Each toggle and snooze posts to /_hub/settings/notifications, Quiet
-// hours' times and hold to /_hub/settings/quiet, and Keep awake to /_hub/settings/keep-awake, and saves at once, as Linear's key does through linear-key.js; Done waits for
+// hours' times and hold to /_hub/settings/quiet, and Keep awake to /_hub/settings/keep-awake, and saves at once, as Linear's key and Slack's token do through linear-key.js; Done waits for
 // a key's save to land. The rules editor saves through POST /_hub/settings/rules
 // and marks [data-dirty] while an edit is unsaved, so the shell asks before leaving then. The data refreshes every 30 seconds while nothing is being edited.
 (function () {
@@ -58,7 +58,7 @@
       + `<h2 class="label">Snoozes and wakes read</h2><div class="group">${reads}</div>`;
   }
 
-  const sections = [['notifications', 'Notifications'], ['quiet', 'Quiet hours'], ['keep-awake', 'Keep awake'], ['linear', 'Linear'], ['rules', 'Rules for every board'], ['closed', 'Closed boards']];
+  const sections = [['notifications', 'Notifications'], ['quiet', 'Quiet hours'], ['keep-awake', 'Keep awake'], ['linear', 'Linear'], ['slack', 'Slack'], ['rules', 'Rules for every board'], ['closed', 'Closed boards']];
   const sectionOf = (hash) => {
     const id = { push: 'notifications', 'closed-boards': 'closed', polling: 'quiet' }[hash?.slice(1)] || hash?.slice(1);
     return sections.some(([section]) => section === id) ? id : null;
@@ -79,7 +79,7 @@
       let flash = null;
       let rules = null;
       let rulesJSON = '';
-      let linearKey = null;
+      let tokenSlot = null;
 
       function paint() {
         if (!last) return;
@@ -93,10 +93,10 @@
         } else if (active === 'keep-awake') {
           content.innerHTML = last.awake.unsupported ? `<p class="note">${esc(last.awake.unsupported)}.</p>`
             : `<div class="group">${awakeRow(last.awake)}</div><p class="note">Runs <code>caffeinate -ims</code> on the host so it doesn’t sleep while boards work. The screen can still turn off.</p>`;
-        } else if (active === 'linear') {
-          if (linearKey) linearKey.set(last.linear);
+        } else if (active === 'linear' || active === 'slack') {
+          if (tokenSlot) tokenSlot.set(last[active]);
           else {
-            linearKey = LinearKey.mount(content, { linear: last.linear,
+            tokenSlot = LinearKey.mount(content, { kind: active, state: last[active],
               saved(out) { last = out; flash = null; paint(); ctx.sidebarChanged?.(); },
               busy: (on) => LinearKey.doneBusy(modal.querySelectorAll('[data-settings-dismiss]'), on) });
           }
@@ -112,6 +112,7 @@
           quiet: last.quiet.summary,
           'keep-awake': last.awake.summary,
           linear: last.linear?.summary || 'No key',
+          slack: last.slack?.summary || 'No token',
           rules: last.rules.length ? `${last.rules.length} rule${last.rules.length === 1 ? '' : 's'}` : 'None yet',
           closed: last.closed?.length ? `${last.closed.length} closed` : 'No closed boards',
         };
@@ -152,7 +153,7 @@
       function closeModal(restore = true) {
         unfitModal?.(); unfitModal = null;
         modal.close();
-        linearKey?.destroy(); linearKey = null;
+        tokenSlot?.destroy(); tokenSlot = null;
         content.innerHTML = '';
         rules = null;
         active = null;
@@ -186,8 +187,8 @@
         return true;
       };
       const dismiss = () => {
-        if (!linearKey?.busy()) { B.openSettings({ kind: 'hub' }); return; }
-        linearKey.settled().then(() => { if (B.alive()) B.openSettings({ kind: 'hub' }); });
+        if (!tokenSlot?.busy()) { B.openSettings({ kind: 'hub' }); return; }
+        tokenSlot.settled().then(() => { if (B.alive()) B.openSettings({ kind: 'hub' }); });
       };
       B.on(modal, 'cancel', (e) => { e.preventDefault(); dismiss(); });
       B.on(root, 'click', (e) => {

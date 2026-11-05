@@ -134,3 +134,52 @@ export function stallingPs(dir) {
   fs.writeFileSync(path.join(bin, 'ps'), `#!/bin/sh\n[ -e '${flag}' ] && exec sleep 10\nexec /bin/ps "$@"\n`, { mode: 0o755 });
   return { bin, stall: (on) => (on ? fs.writeFileSync(flag, '') : fs.rmSync(flag, { force: true })) };
 }
+
+// Slack's Web API for one user token: auth.test, conversations.open, chat.postMessage and reactions.add, recording
+// each call. world.dms maps a user id to the DM channel conversations.open answers; posts land in world.messages and
+// reactions in world.reactions.
+export const slackWorld = () => ({
+  token: 'xoxp-test-token', team: 'Acme', team_id: 'T1', user: 'love', user_id: 'U0', url: 'https://acme.slack.com/',
+  dms: { U1: 'D1', U2: 'D2', U3: 'D3' }, messages: [], reactions: [],
+});
+export function fakeSlack(world) {
+  const calls = [];
+  let next = 1000;
+  function answer(method, body, auth) {
+    calls.push({ method, body });
+    if (auth !== `Bearer ${world.token}`) return { ok: false, error: 'invalid_auth' };
+    if (method === 'auth.test') return { ok: true, team: world.team, team_id: world.team_id, user: world.user, user_id: world.user_id, url: world.url };
+    if (method === 'conversations.open') {
+      const channel = world.dms[body.users];
+      return channel ? { ok: true, channel: { id: channel } } : { ok: false, error: 'user_not_found' };
+    }
+    if (method === 'chat.postMessage') {
+      const ts = `${1792800000 + ++next}.000100`;
+      world.messages.push({ channel: body.channel, text: body.text, ...(body.thread_ts ? { thread_ts: body.thread_ts } : {}), ts });
+      return { ok: true, channel: body.channel, ts };
+    }
+    if (method === 'reactions.add') {
+      if (world.reactions.some((r) => r.channel === body.channel && r.timestamp === body.timestamp && r.name === body.name)) return { ok: false, error: 'already_reacted' };
+      world.reactions.push({ channel: body.channel, timestamp: body.timestamp, name: body.name });
+      return { ok: true };
+    }
+    return { ok: false, error: 'unknown_method' };
+  }
+  return {
+    calls,
+    async fetch(url, init) {
+      return { ok: true, status: 200, json: async () => answer(String(url).split('/').at(-1), JSON.parse(init.body || '{}'), init.headers.authorization) };
+    },
+    async serve() {
+      const http = await import('node:http');
+      const server = http.createServer(async (req, res) => {
+        let body = '';
+        for await (const chunk of req) body += chunk;
+        const out = answer(req.url.split('/').at(-1), JSON.parse(body || '{}'), req.headers.authorization);
+        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(out));
+      });
+      await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+      return { url: `http://127.0.0.1:${server.address().port}/api`, close: () => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }) };
+    },
+  };
+}

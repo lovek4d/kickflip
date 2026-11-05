@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readiness, reportSlack } from '../../hub/readiness.mjs';
+import { readiness } from '../../hub/readiness.mjs';
 import { readSlack, setSlack } from '../../hub/slack.mjs';
 import { routeRecord } from '../../hub/routes.mjs';
 import fs from 'node:fs';
@@ -10,7 +10,7 @@ import { boardWorktree, builderRepo, joiningLand, landInTurn, worktreesDir } fro
 import { fileFindings } from '../arch-review.mjs';
 import { finishCard, landHeld } from '../finish.mjs';
 import { ITEM_STATUSES } from '../domain.mjs';
-import { boardAt, readManifest } from '../../hub/boards.mjs';
+import { boardAt } from '../../hub/boards.mjs';
 import { boardRepo } from '../../hub/board-repo.mjs';
 
 export const USAGE = `usage: node board.mjs <command> [--site <route>] ...
@@ -258,10 +258,11 @@ command fails and changes nothing.
               --channel <dm>
   review react <wave>/<id> <reviewer> <emoji>            records a reaction once on that reviewer's link
   integrations                                          readiness rows as one JSON line
-  integrations report --slack yes|no                    with --site: reports whether this session has Claude's
-                                                         Slack connector, in ~/.claude/kickflip/integrations.json
-  review due                                            one JSON line of the Slack sends owed, from local state:
-                                                         {dms: [{key, reviewer, channel, text, record}], reactions:
+  review updated <wave>/<id> --text "<what changed>"     posts “🤖 Updated: <what changed>” under each recorded link
+                                                         of a reviewer who hasn't approved, as you, through Hub's
+                                                         Slack token
+  review due                                            one JSON line of the Slack sends the hub owes, from local state:
+                                                         {dms: [{key, reviewer, slack_user, channel, text, record}], reactions:
                                                          [{key, reviewer, channel, ts, emoji, record}], digest:
                                                          review digest's answer while due (with record), else null}.
                                                          dms: a PR link to each reviewer of an open, non-draft PR with
@@ -664,13 +665,7 @@ const COMMANDS = {
     catch (e) { throw new store.BoardError(e.message); }
   }],
   integrations: [[], [], async () => ({ lines: [JSON.stringify(await readiness.rows())] })],
-  'integrations report': [[], ['slack'], async (site, _, f) => {
-    if (!['yes', 'no'].includes(f.slack)) throw new UsageError('integrations report takes --slack yes|no');
-    if (!site) throw new store.BoardError('integrations report needs --site <route>');
-    const route = path.basename(site);
-    reportSlack(f.slack === 'yes', { route, title: readManifest().sites?.[route]?.title || (await store.boardConfig(site)).title });
-    return { lines: [`Slack connector reported: ${f.slack}.`] };
-  }],
+  'review updated': [['wave/id'], ['text'], (site, [key], f) => store.reviewUpdated(site, key, f.text)],
   'review sent': [['wave/id', 'reviewer'], ['ts', 'channel'], (site, [key, name], f) => store.reviewSent(site, key, name, f)],
   'review react': [['wave/id', 'reviewer', 'emoji'], [], (site, [key, name, emoji]) => store.reviewReact(site, key, name, emoji)],
   'review record': [['pr'], ['state', 'text', 'file', 'url'], (site, [pr], f) => {

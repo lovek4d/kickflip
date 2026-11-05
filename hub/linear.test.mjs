@@ -15,8 +15,9 @@ function withHome(t) {
   const old = process.env.HOME;
   process.env.HOME = home;
   t.after(() => { if (old === undefined) delete process.env.HOME; else process.env.HOME = old; fs.rmSync(home, { recursive: true, force: true }); });
-  return path.join(home, '.claude', 'kickflip', 'linear.json');
+  return path.join(home, '.claude', 'kickflip', 'secrets.json');
 }
+const linearIn = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')).linear; } catch { return undefined; } };
 
 test('the client reads the viewer and teams, creates projects and issues, and finds issues by identifier through the fetch it is given', async () => {
   const world = linearWorld();
@@ -111,7 +112,19 @@ test('the key is saved once Linear answers, as refused when Linear refuses it, i
   await savedClient({ fetch }).teams();
   assert.deepEqual(linearStatus(), { set: true, workspace: 'Acme', url_key: 'acme' });
   assert.deepEqual(removeLinearKey(), { set: false });
-  assert.equal(fs.existsSync(file), false);
+  assert.equal(linearIn(file), undefined);
+});
+
+test('a linear.json from before secrets.json moves in on the first read, keeping any Slack token beside it', (t) => {
+  const file = withHome(t);
+  const legacy = path.join(path.dirname(file), 'linear.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ slack: { token: 'xoxp-kept' } }));
+  fs.writeFileSync(legacy, JSON.stringify({ key: 'lin_api_old', workspace: 'Acme', url_key: 'acme' }));
+  assert.deepEqual(linearStatus(), { set: true, workspace: 'Acme', url_key: 'acme' });
+  assert.equal(fs.existsSync(legacy), false);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { slack: { token: 'xoxp-kept' }, linear: { key: 'lin_api_old', workspace: 'Acme', url_key: 'acme' } });
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
 
 test("the hub saves the Linear key from its settings form, serves only the workspace, lists teams and projects, and creates a project", async (t) => {
@@ -146,7 +159,7 @@ test("the hub saves the Linear key from its settings form, serves only the works
   const text = await saved.text();
   assert.doesNotMatch(text, /lin_api/);
   assert.deepEqual(JSON.parse(text).linear, { set: true, title: 'Acme workspace', sub: 'Key ••••••••', summary: 'Key set · Acme workspace' });
-  assert.equal(fs.statSync(path.join(web, 'linear.json')).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(path.join(web, 'secrets.json')).mode & 0o777, 0o600);
   const listed = await (await fetch(`${base}/_hub/api/linear`)).text();
   assert.doesNotMatch(listed, /lin_api/);
   assert.deepEqual(JSON.parse(listed), { set: true, workspace: 'Acme', url_key: 'acme', teams: [{ key: 'ENG', name: 'Engineering' }, { key: 'OPS', name: 'Ops' }],
@@ -162,7 +175,7 @@ test("the hub saves the Linear key from its settings form, serves only the works
   assert.deepEqual(await (await fetch(`${base}/_hub/api/linear`)).json(), { set: true, refused: true, workspace: 'Acme', url_key: 'acme' });
   assert.equal(linear.calls.length, calls);
   assert.equal((await form('remove=1')).status, 200);
-  assert.equal(fs.existsSync(path.join(web, 'linear.json')), false);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(web, 'secrets.json'), 'utf8')).linear, undefined);
   assert.equal((await create({ team: 'OPS', name: 'Again' })).status, 400);
 });
 

@@ -139,9 +139,10 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
   const posts = [];
   const now = t(10);
   let linear = { set: false };
+  let slack = { set: false };
   let checked = null;
   let awake = { until: null, unsupported: null };
-  const data = (notifications = ON) => settingsView({ now, st: status(now, notify(DEFAULTS, notifications)), linear, awake });
+  const data = (notifications = ON) => settingsView({ now, st: status(now, notify(DEFAULTS, notifications)), linear, slack, awake });
   let confirmed = false;
   let live;
   let subscribed = false;
@@ -176,6 +177,10 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
         linear = opts.body.has('remove') ? { set: false } : opts.body.get('key') === 'bad' ? { set: true, refused: true } : { set: true, workspace: 'Acme', url_key: 'acme' };
         return { ok: true, json: async () => data() };
       }
+      if (url === '/_hub/settings/slack') {
+        slack = opts.body.has('remove') ? { set: false } : { set: true, team: 'Acme', user: 'love' };
+        return { ok: true, json: async () => data() };
+      }
       if (url === '/_hub/settings/notifications') {
         const choice = opts.body.get('snooze');
         const end = choice === 'off' ? null : snoozeEnd(now, choice, DEFAULTS);
@@ -203,7 +208,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
   const modal = root.querySelector('#hubSettingsModal');
   assert.equal(modal.open, true);
   assert.equal(root.querySelector('#hubSettingsTitle').textContent, 'Rules for every board');
-  assert.equal(root.querySelectorAll('[data-summary]').length, 6);
+  assert.equal(root.querySelectorAll('[data-summary]').length, 7);
   const rulesBox = root.querySelector('#hubRules');
   rulesBox.setAttribute('data-dirty', '');
   live.paint(data());
@@ -211,7 +216,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
   assert.equal(await B.openSettings({ hash: '#notifications' }), false);
   rulesBox.removeAttribute('data-dirty');
   await B.openSettings({ hash: '#notifications' });
-  assert.deepEqual(root.querySelectorAll('.hub-setting .title').map((h) => h.textContent), ['Notifications', 'Quiet hours', 'Keep awake', 'Linear', 'Rules for every board', 'Closed boards']);
+  assert.deepEqual(root.querySelectorAll('.hub-setting .title').map((h) => h.textContent), ['Notifications', 'Quiet hours', 'Keep awake', 'Linear', 'Slack', 'Rules for every board', 'Closed boards']);
   assert.deepEqual(root.querySelectorAll('form input[name="set"]').map((input) => input.value), ['on', 'weekends']);
   assert.deepEqual(root.querySelectorAll('.dur-choices button').map((b) => b.textContent), ['1h', '3h', '6h', '1d', 'Forever']);
   assert.equal(root.querySelector('.dur-custom .btn').textContent, 'Custom');
@@ -404,6 +409,28 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
   await settle();
   assert.equal(posts.at(-1).opts.body.toString(), 'remove=1');
   assert.equal(root.querySelector('[data-summary=linear]').textContent, 'No key');
+
+  assert.equal(root.querySelector('[data-summary=slack]').textContent, 'No token');
+  await B.openSettings({ hash: '#slack' });
+  assert.equal(root.querySelector('#hubSettingsTitle').textContent, 'Slack');
+  const slackSlot = root.querySelector('.setting-content');
+  const appLink = slackSlot.querySelector('a[href^="https://api.slack.com/apps?new_app=1&manifest_json="]');
+  assert.equal(appLink.textContent, 'a new Slack app');
+  assert.deepEqual(JSON.parse(new URL(appLink.getAttribute('href')).searchParams.get('manifest_json')).oauth_config.scopes.user, ['chat:write', 'im:write', 'reactions:write']);
+  assert.match(slackSlot.textContent, /User OAuth Token \(xoxp-…\)/);
+  assert.match(slackSlot.textContent, /The hub sends your reviewers their PR links, git_merged reactions and weekday digests as you, in your DMs with them\./);
+  assert.equal(root.querySelector('#linearKey'), null);
+  await fire(slackSlot, 'paste', { target: root.querySelector('#slackToken'), clipboardData: { getData: () => ' xoxp-secret-token ' } });
+  await settle();
+  assert.equal(posts.at(-1).url, '/_hub/settings/slack');
+  assert.equal(posts.at(-1).opts.body.toString(), 'token=xoxp-secret-token');
+  assert.equal(root.querySelector('[data-summary=slack]').textContent, 'Token set · Acme workspace');
+  assert.match(slackSlot.textContent, /sends as love/);
+  assert.doesNotMatch(root.innerHTML, /xoxp-secret/);
+  await fire(slackSlot, 'click', { target: slackSlot.querySelector('[data-slack-remove]') });
+  await settle();
+  assert.equal(posts.at(-1).opts.body.toString(), 'remove=1');
+  assert.equal(root.querySelector('[data-summary=slack]').textContent, 'No token');
 });
 
 test("the hub page lists Boards and Pages apart with each site's health and links, and says what the hub runs, polls and holds", () => {

@@ -1,44 +1,55 @@
-// Hub's Linear key slot. Hub settings › Linear mounts it, and the Tickets control (dialogs.js) opens it over Board
-// settings or New board when Linear is tapped without a working key
-// (docs/adr/2026-11-02-1712-a-board-picks-linear-only-while-hubs-key-works.md). A key saves on paste, change or Enter through
-// POST /_hub/settings/linear, which checks it with Linear; linear is hub/views.mjs settingsView's `linear`.
+// Hub's token slots: Linear's key and Slack's user token. Hub settings › Linear and › Slack mount them, and the Tickets
+// control (dialogs.js) opens Linear's over Board settings or New board when Linear is tapped without a working key
+// (docs/adr/2026-11-02-1712-a-board-picks-linear-only-while-hubs-key-works.md). A token saves on paste, change or Enter
+// through POST /_hub/settings/<kind>, which checks it with the service; state is hub/views.mjs settingsView's `<kind>`.
 (function () {
   const FAILED = 'Could not save. Is the host awake?';
   const SPIN = '<span class="try-spin" aria-hidden="true"></span>';
-  const works = (linear) => Boolean(linear?.set && !linear.refused);
+  const works = (state) => Boolean(state?.set && !state.refused);
+  const KINDS = {
+    linear: { field: 'key', input: 'linearKey', checking: 'Checking the key with Linear…', first: 'Paste a Linear API key', replace: 'Paste a new key to replace it', label: 'Linear API key',
+      note: 'Stays on the host. Boards use it to list teams and projects, create issues and move the ones that are yours. A board can pick Linear for its tickets only while this key works.',
+      confirm: 'Boards on Linear fall back to internal tickets, and their cards keep the Linear tickets they have. Remove the Linear key?' },
+    slack: { field: 'token', input: 'slackToken', checking: 'Checking the token with Slack…', first: 'Paste a Slack user token', replace: 'Paste a new token to replace it', label: 'Slack user token',
+      note: 'Stays on the host. The hub sends your reviewers their PR links, git_merged reactions and weekday digests as you, in your DMs with them.',
+      confirm: 'Reviewer links, reactions and digests stop until a token is back. Remove the Slack token?' },
+  };
 
-  function slot(linear, { checking, flash }) {
+  function slot(kind, state, { checking, flash }) {
     const { esc, row, tile } = HubUI;
-    const sub = checking ? `<span class="lk-checking">${SPIN}Checking the key with Linear…</span>`
-      : `${linear.down ? `<span class="st down">${esc(linear.down)}</span> · ` : ''}${linear.keys
-        ? esc(linear.sub).replace(esc(linear.keys.label), `<a href="${esc(linear.keys.url)}" target="_blank" rel="noopener">${esc(linear.keys.label)}</a>`)
-        : esc(linear.sub)}`;
-    const remove = linear.set && !checking ? '<button type="button" class="btn quiet danger" data-linear-remove>Remove</button>' : '';
-    const placeholder = checking ? 'Checking…' : linear.set ? 'Paste a new key to replace it' : 'Paste a Linear API key';
-    return `${HubUI.flash(flash)}<div class="group">${row({ icon: tile('key', linear.refused ? 'var(--color-danger)' : 'var(--color-quiet)'), title: esc(linear.title), sub, wrap: !works(linear), trail: remove })}`
-      + `<form class="block lk-form"><input id="linearKey" name="key" type="password" required${checking ? ' disabled' : ''} placeholder="${placeholder}" aria-label="Linear API key" autocomplete="off" autocapitalize="off" spellcheck="false"></form></div>`
-      + '<p class="note">Stays on the host. Boards use it to list teams and projects, create issues and move the ones that are yours. A board can pick Linear for its tickets only while this key works.</p>';
+    const k = KINDS[kind];
+    const sub = checking ? `<span class="lk-checking">${SPIN}${k.checking}</span>`
+      : `${state.down ? `<span class="st down">${esc(state.down)}</span> · ` : ''}${state.keys
+        ? esc(state.sub).replace(esc(state.keys.label), `<a href="${esc(state.keys.url)}" target="_blank" rel="noopener">${esc(state.keys.label)}</a>`)
+        : esc(state.sub)}`;
+    const remove = state.set && !checking ? `<button type="button" class="btn quiet danger" data-${kind}-remove>Remove</button>` : '';
+    const placeholder = checking ? 'Checking…' : state.set ? k.replace : k.first;
+    return `${HubUI.flash(flash)}<div class="group">${row({ icon: tile('key', state.refused ? 'var(--color-danger)' : 'var(--color-quiet)'), title: esc(state.title), sub, wrap: !works(state), trail: remove })}`
+      + `<form class="block lk-form"><input id="${k.input}" name="${k.field}" type="password" required${checking ? ' disabled' : ''} placeholder="${placeholder}" aria-label="${k.label}" autocomplete="off" autocapitalize="off" spellcheck="false"></form></div>`
+      + `<p class="note">${k.note}</p>`;
   }
 
-  // Draws the slot into root and saves from it. busy(true) starts each save and busy(false) ends it; saved(out) gets
-  // each answer, /_hub/api/settings's JSON, before the slot repaints; worked() follows a saved key Linear accepted.
-  // → {busy(), settled(): a promise that resolves once no save is out, linear(), set(linear) unless busy, destroy()}
-  function mount(root, { linear, saved = () => {}, worked = () => {}, busy = () => {} }) {
-    let current = linear, flash = null, checking = false, pending = null, destroyed = false;
+  // Draws kind's slot into root and saves from it. busy(true) starts each save and busy(false) ends it; saved(out) gets
+  // each answer, /_hub/api/settings's JSON, before the slot repaints; worked() follows a saved token the service accepted.
+  // → {busy(), settled(): a promise that resolves once no save is out, state(), set(state) unless busy, destroy()}
+  function mount(root, { kind = 'linear', state, saved = () => {}, worked = () => {}, busy = () => {} }) {
+    const k = KINDS[kind];
+    const input = `#${k.input}`;
+    let current = state, flash = null, checking = false, pending = null, destroyed = false;
     const paint = () => {
-      const typed = root.querySelector('#linearKey')?.value || '';
-      root.innerHTML = slot(current, { checking, flash });
-      if (!checking) root.querySelector('#linearKey').value = typed;
+      const typed = root.querySelector(input)?.value || '';
+      root.innerHTML = slot(kind, current, { checking, flash });
+      if (!checking) root.querySelector(input).value = typed;
     };
     function post(body) {
-      checking = body.has('key');
+      checking = body.has(k.field);
       flash = null;
       pending = (async () => {
         try {
-          const r = await fetch('/_hub/settings/linear', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' }, body });
+          const r = await fetch(`/_hub/settings/${kind}`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' }, body });
           const out = await r.json().catch(() => null);
           if (destroyed) return;
-          if (r.ok && out) { current = out.linear; saved(out); } else flash = { text: out?.error || FAILED, error: true };
+          if (r.ok && out) { current = out[kind]; saved(out); } else flash = { text: out?.error || FAILED, error: true };
         } catch { flash = { text: FAILED, error: true }; }
         const key = checking;
         checking = false;
@@ -52,23 +63,23 @@
       paint();
       return pending;
     }
-    const save = (value) => { if (!pending && value.trim()) post(new URLSearchParams({ key: value.trim() })); };
+    const save = (value) => { if (!pending && value.trim()) post(new URLSearchParams({ [k.field]: value.trim() })); };
     const onPaste = (e) => {
       const text = e.clipboardData?.getData('text');
-      if (!e.target.matches?.('#linearKey') || !text) return;
+      if (!e.target.matches?.(input) || !text) return;
       e.preventDefault();
       e.target.value = text.trim();
       save(e.target.value);
     };
-    const onChange = (e) => { if (e.target.matches?.('#linearKey')) save(e.target.value); };
+    const onChange = (e) => { if (e.target.matches?.(input)) save(e.target.value); };
     const onSubmit = (e) => {
       if (!e.target.matches?.('.lk-form')) return;
       e.preventDefault();
-      save(e.target.querySelector('#linearKey').value);
+      save(e.target.querySelector(input).value);
     };
     const onClick = async (e) => {
-      if (!e.target.closest?.('[data-linear-remove]') || pending) return;
-      if (await BoardDialogs.confirm('Boards on Linear fall back to internal tickets, and their cards keep the Linear tickets they have. Remove the Linear key?') && !destroyed) post(new URLSearchParams({ remove: '1' }));
+      if (!e.target.closest?.(`[data-${kind}-remove]`) || pending) return;
+      if (await BoardDialogs.confirm(k.confirm) && !destroyed) post(new URLSearchParams({ remove: '1' }));
     };
     const listeners = [['paste', onPaste], ['change', onChange], ['submit', onSubmit], ['click', onClick]];
     for (const [type, fn] of listeners) root.addEventListener(type, fn);
@@ -76,7 +87,7 @@
     return {
       busy: () => Boolean(pending),
       settled: () => pending || Promise.resolve(),
-      linear: () => current,
+      state: () => current,
       set(next) { if (!pending) { current = next; paint(); } },
       destroy() { destroyed = true; for (const [type, fn] of listeners) root.removeEventListener(type, fn); },
     };
@@ -115,7 +126,7 @@
       dialog.close();
       wrap.remove();
       if (previous?.isConnected) previous.focus({ preventScroll: true });
-      resolve(works(key?.linear()));
+      resolve(works(key?.state()));
     }
     function close() {
       if (!key?.busy()) { finish(); return; }
@@ -134,7 +145,7 @@
     wrap.querySelector('#linearKeyTitle').focus({ preventScroll: true });
     fetch('/_hub/api/settings', { cache: 'no-store', headers: { accept: 'application/json' } }).then((r) => (r.ok ? r.json() : Promise.reject())).then((out) => {
       if (finished) return;
-      key = mount(content, { linear: out.linear, worked: finish, busy: (on) => doneBusy(wrap.querySelectorAll('[data-lk-done]'), on) });
+      key = mount(content, { state: out.linear, worked: finish, busy: (on) => doneBusy(wrap.querySelectorAll('[data-lk-done]'), on) });
     }).catch(() => { if (!finished) content.innerHTML = '<p class="note">Offline. Is the host awake?</p>'; });
     return result;
   }

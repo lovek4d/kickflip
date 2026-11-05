@@ -1,24 +1,19 @@
 // Linear through the owner's personal API key (docs/adr/2026-11-01-1436-kickflip-reaches-linear-with-a-key-on-the-mac.md).
-// The key lives in ~/.claude/kickflip/linear.json, mode 600: {key, workspace, url_key, viewer, saved_at}, plus
+// The key lives in secrets.json's `linear` (secrets.mjs): {key, workspace, url_key, viewer, saved_at}, plus
 // refused_at once Linear refused it (docs/adr/2026-11-02-1712-a-board-picks-linear-only-while-hubs-key-works.md). Only
 // linearStatus's {set, refused, workspace, url_key} ever leaves this module for a page.
 // Every request goes to KICKFLIP_LINEAR_URL when it is set, else Linear's GraphQL API, through the fetch passed in.
-import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
+import { readSecret, writeSecret } from './secrets.mjs';
 
 export class LinearError extends Error {
   constructor(message, status = 502) { super(message); this.status = status; }
 }
 
-const keyFile = (home = os.homedir()) => path.join(home, '.claude', 'kickflip', 'linear.json');
 const endpoint = () => process.env.KICKFLIP_LINEAR_URL || 'https://api.linear.app/graphql';
 
 export function readLinearKey(home) {
-  try {
-    const saved = JSON.parse(fs.readFileSync(keyFile(home), 'utf8'));
-    return typeof saved?.key === 'string' && saved.key ? saved : null;
-  } catch { return null; }
+  const saved = readSecret('linear', home);
+  return typeof saved?.key === 'string' && saved.key ? saved : null;
 }
 
 export function linearStatus(home) {
@@ -31,15 +26,6 @@ export function linearStatus(home) {
 // (docs/adr/2026-11-04-0227-every-new-card-gets-a-ticket-in-the-boards-current-source.md).
 export const linearWorks = (home) => { const status = linearStatus(home); return status.set && !status.refused; };
 export const LINEAR_NEEDS_KEY = 'Linear needs Hub’s Linear key; add it in Hub settings › Linear first, or pick Internal or GitHub issues.';
-
-function writeKeyFile(saved) {
-  const file = keyFile();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(saved, null, 2) + '\n', { mode: 0o600 });
-  fs.chmodSync(tmp, 0o600);
-  fs.renameSync(tmp, file);
-}
 
 // Personal API keys go in the Authorization header as they are, with no Bearer prefix (Linear's API docs).
 // checked(works) follows each answer: false when Linear refused the key, true when it answered with data.
@@ -162,7 +148,7 @@ export async function saveLinearKey(key, { fetch } = {}) {
   const now = new Date().toISOString();
   let refused = false;
   const who = await linearClient(k, { fetch, checked: (works) => { refused = !works; } }).viewer().catch((e) => { if (!refused) throw e; return null; });
-  writeKeyFile(who ? { key: k, ...who, saved_at: now } : { key: k, saved_at: now, refused_at: now });
+  writeSecret('linear', who ? { key: k, ...who, saved_at: now } : { key: k, saved_at: now, refused_at: now });
   return linearStatus();
 }
 
@@ -171,11 +157,11 @@ function markChecked(key, works) {
   const saved = readLinearKey();
   if (saved?.key !== key || Boolean(saved.refused_at) === !works) return;
   const { refused_at: _, ...rest } = saved;
-  writeKeyFile(works ? rest : { ...rest, refused_at: new Date().toISOString() });
+  writeSecret('linear', works ? rest : { ...rest, refused_at: new Date().toISOString() });
 }
 
 export function removeLinearKey() {
-  fs.rmSync(keyFile(), { force: true });
+  writeSecret('linear', null);
   return linearStatus();
 }
 
