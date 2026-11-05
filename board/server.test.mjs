@@ -245,7 +245,9 @@ test("one owner-answers request records every answer as one-by-one answers would
 
 test('board writes refuse cross-site requests and non-JSON bodies before their handlers run', async () => {
   const file = path.join(site, 'data', 'events.jsonl');
-  const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+  // The server's own orchestrator-waits pass appends meanwhile; the refused writes are what this compares.
+  const writes = () => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter((l) => !l.includes('"kind":"orchestrator-waits"')).join('\n') : null);
+  const before = writes();
   for (const headers of [
     { 'sec-fetch-site': 'cross-site' },
     { 'sec-fetch-site': 'same-site' },
@@ -268,7 +270,7 @@ test('board writes refuse cross-site requests and non-JSON bodies before their h
   for (const method of ['POST', 'DELETE', 'PUT', 'PATCH', 'OPTIONS']) {
     assert.equal((await fetch(`${base}/_claude/health`, { method, headers: { 'sec-fetch-site': 'cross-site' } })).status, 403, method);
   }
-  assert.equal(fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null, before);
+  assert.equal(writes(), before);
   for (const headers of [
     { origin: base },
     { 'sec-fetch-site': 'same-origin', origin: base },
