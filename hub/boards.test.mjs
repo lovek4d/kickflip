@@ -69,6 +69,23 @@ test('the registry lists every board site, over the waves or its own file, with 
   assert.deepEqual(listBoards({}), []);
 });
 
+test("an event for a board that is down is appended directly, and one a board took without answering in time is not written twice", async () => {
+  const { appendEvent } = await import('./boards.mjs');
+  const dir = fs.mkdtempSync(path.join(home, 'append-'));
+  const lines = () => { try { return fs.readFileSync(path.join(dir, 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
+  const [downPort] = await freePorts(1);
+  const id = await appendEvent({ dir, port: downPort }, 'hello', { title: 'Down' });
+  assert.deepEqual(lines().map((e) => [e.id, e.kind, e.data]), [[id, 'hello', { title: 'Down' }]]);
+  // A board that reads the request and never answers may well have written the line: the hub can't tell, so it says so.
+  const slow = http.createServer(() => {});
+  await new Promise((resolve) => slow.listen(0, '127.0.0.1', resolve));
+  try {
+    await assert.rejects(appendEvent({ dir, port: slow.address().port, route: 'slow' }, 'hello', { title: 'Slow' }, { timeout: 300 }),
+      /^Error: \/slow didn't answer within 0\.3 s, so it may already have the hello event$/);
+    assert.equal(lines().length, 1);
+  } finally { slow.closeAllConnections(); slow.close(); }
+});
+
 test('linksOf names each hub link that reaches a board and each that does not', () => {
   const orch = listBoards().find((b) => b.route === 'orch');
   const github = { lastCheck: { at: 'T', boards: ['orch'] }, prs: { 'o/r#11': { at: 'T', state: 'OPEN', isDraft: false } } };
@@ -518,7 +535,9 @@ test("a board whose repo fetch fails gets a Repo fetch link that settles, reads 
 test("the daily wake reaches both boards", async () => {
   await until(() => events('orch', 'check-github').length && events('shop', 'check-github').length && fs.existsSync(claude('kickflip', 'wake-state.json')), 'the daily wake reaches both boards and records its state');
   for (const route of ['orch', 'shop']) assert.deepEqual(events(route, 'check-github').map((e) => e.data), [{ reason: 'morning' }]);
-  assert.deepEqual([...read(claude('kickflip', 'wake-state.json')).last.routes].sort(), ['orch', 'shop']);
+  // The wake can run while another test has a board of its own in the manifest, which it reaches too.
+  const routes = read(claude('kickflip', 'wake-state.json')).last.routes;
+  assert.ok(routes.includes('orch') && routes.includes('shop'), routes.join(', '));
 });
 
 test('listening again ends the outage, a watcher whose session is not running does not, and the next one pushes again', async () => {
@@ -588,12 +607,14 @@ test('a board whose stopped session the hub can wake is asleep, then waking once
 });
 
 test("the handshake sends a ping without a push; the board shows its checklist until the session's watcher answers the ping", async () => {
-  const before = pushes().length;
+  // The hub's own session check may push that Shop's session didn't come back meanwhile; the handshake pushes nothing.
+  const handshakePushes = () => pushes().filter((p) => p.tag !== 'resume-shop');
+  const before = handshakePushes().length;
   const r = await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['handshake', 'shop']);
   assert.equal(r.status, 0, r.stderr);
   const { ping } = JSON.parse(r.stdout);
   assert.deepEqual(events('shop', 'ping').map((e) => [e.id, e.data.title]), [[ping, 'Shop']]);
-  assert.equal(pushes().length, before);
+  assert.equal(handshakePushes().length, before);
   assert.deepEqual((await api('shop')).setup, { events: false, github: true });
   const { ackPing } = await import('../board/store.mjs');
   await assert.rejects(ackPing(site('shop'), 'e-shop'), /no ping event "e-shop"/);

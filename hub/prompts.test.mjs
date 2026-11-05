@@ -431,7 +431,8 @@ test("a session that owns no board waits on the hub page by its folder and count
   await startHub();
   assert.deepEqual((await hubPrompts()).map((x) => x.id), [p.id]);
   assert.equal((await answer(p.id, { choice: 'allow', answers: { 'Colour?': 'Blue', 'Size?': 'S' } })).status, 200);
-  assert.equal((await answer(p.id, { choice: 'deny' })).status, 409);
+  // Refused as answered (409), or as gone (404) once the hook's poll has already taken the answer.
+  assert.ok([409, 404].includes((await answer(p.id, { choice: 'deny' })).status));
   assert.deepEqual(decision(await hook), { behavior: 'allow', updatedInput: { ...two.tool_input, answers: { 'Colour?': 'Blue', 'Size?': 'S' } } });
   assert.deepEqual(await hubPrompts(), []);
   assert.equal(await total(), 0);

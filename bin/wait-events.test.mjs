@@ -65,7 +65,9 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   assert.equal(saved['data/events.jsonl'], 6);
   assert.equal(saved.$usageHeld['data/events.jsonl'].length, 3);
   const second = start();
-  await until(() => JSON.parse(fs.readFileSync(watcher, 'utf8')).pid === second.child.pid, 'replacement watcher started');
+  // The watcher writes its file in place, so a read can land between the truncate and the write.
+  const watcherPid = () => { try { return JSON.parse(fs.readFileSync(watcher, 'utf8')).pid; } catch { return null; } };
+  await until(() => watcherPid() === second.child.pid, 'replacement watcher started');
   await new Promise((resolve) => setTimeout(resolve, 2500));
   assert.equal(second.child.exitCode, null);
   write(path.join(state, 'usage.json'), usage(new Date(Date.now() - 1000).toISOString()));

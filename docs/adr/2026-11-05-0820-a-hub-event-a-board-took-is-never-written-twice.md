@@ -1,0 +1,5 @@
+# A hub event a board took is never written twice
+
+The hub appends an event to a board through the board server's `POST /_claude/events` (hub/boards.mjs `appendEvent`), and appended the line to the board's events.jsonl itself when that request failed in any way, a 5-second timeout included. The board answers only after it has written the line and built the board for its reply, so on a loaded host a timeout usually came after the write, and the hub's own append doubled it: a board got two identical `github-change` events for one poll, as eight suites side by side showed.
+
+Decision: the hub appends directly only when the board can't be reached (no port, or the request failed before an answer). A board that took the request and gave no answer within 30 seconds throws "/<route> didn't answer within 30 s, so it may already have the <kind> event". Each caller already treats a throw as a delivery that failed: the GitHub check retries the change on its next poll, and a board the morning wake missed shows on its wakes link. A board that is truly hung may so get a change twice, once it recovers; one that was only slow gets it once.

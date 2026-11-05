@@ -827,7 +827,9 @@ setInterval(() => {}, 1000);`);
   await until(() => fs.existsSync(path.join(worktree, 'server.pid')));
   const pid = Number(fs.readFileSync(path.join(worktree, 'server.pid'), 'utf8'));
   await manager.stop();
-  assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+  // The server ignores SIGTERM, so it is gone only once the SIGKILL escalation reached it; a loaded host can take past
+  // stop's own wait to reap it.
+  await until(() => { try { process.kill(pid, 0); return false; } catch (e) { return e.code === 'ESRCH'; } }, 'the server that ignores SIGTERM was never killed');
   assert.deepEqual(thread(), []);
 });
 

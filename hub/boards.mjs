@@ -160,14 +160,20 @@ export function boardAt(dir, manifest = readManifest()) {
 }
 
 // One event on a board, through its server's own append path, so the line has the server's id scheme and wakes its
-// watcher. A board that is down gets the same line appended directly. → the event id
-export async function appendEvent(board, kind, data) {
-  try {
-    const r = await fetch(`http://127.0.0.1:${board.port}/_claude/events`, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind, ...data }), signal: AbortSignal.timeout(5000),
-    });
-    if (r.ok) return (await r.json()).id;
-  } catch {}
+// watcher. A board whose server can't be reached gets the same line appended directly. A server that took the request and
+// gave no answer within `timeout` may already have the line, so that throws rather than write it twice
+// (docs/adr/2026-11-05-0820-a-hub-event-a-board-took-is-never-written-twice.md). → the event id
+export async function appendEvent(board, kind, data, { timeout = 30000 } = {}) {
+  if (board.port) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${board.port}/_claude/events`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind, ...data }), signal: AbortSignal.timeout(timeout),
+      });
+      if (r.ok) return (await r.json()).id;
+    } catch (e) {
+      if (e.name === 'TimeoutError') throw new Error(`/${board.route} didn't answer within ${timeout / 1000} s, so it may already have the ${kind} event`);
+    }
+  }
   const e = { id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ts: new Date().toISOString(), kind, data };
   fs.mkdirSync(path.join(board.dir, 'data'), { recursive: true });
   fs.appendFileSync(path.join(board.dir, 'data', 'events.jsonl'), JSON.stringify(e) + '\n');
