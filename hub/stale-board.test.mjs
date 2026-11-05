@@ -46,22 +46,25 @@ test('a board server whose code changed on disk restarts once its board has no r
     await until(async () => Boolean(await pid()), 'the Shop server answers');
     const first = await pid();
 
-    // The new code waits 3 seconds before it listens, so its page can be caught while it restarts.
-    write(path.join(pkg, 'board', 'dep.mjs'), 'export const v = 2;\nawait new Promise((r) => setTimeout(r, 3000));\n');
+    // The new code waits for the release file before it listens, so its page can be caught while it restarts.
+    const release = path.join(home, 'release');
+    write(path.join(pkg, 'board', 'dep.mjs'), `import fs from 'node:fs';\nexport const v = 2;\nwhile (!fs.existsSync(${JSON.stringify(release)})) await new Promise((r) => setTimeout(r, 50));\n`);
     await until(() => out.includes('shop runs older code than its files; restarts once no builder runs'), 'the hub sees the stale server and waits on the builder');
-    await new Promise((r) => setTimeout(r, 3000));
     assert.equal(await pid(), first, 'a running builder keeps the old server');
 
     write(builder, { started: new Date().toISOString(), done: new Date().toISOString(), label: 'Builder' });
     await until(() => out.includes('shop runs older code than its files; restarting it'), 'the hub restarts the stale server');
     const page = await fetch(`${base}/shop/`, { headers: { accept: 'text/html' } });
     assert.match(await page.text(), /restarting · its code changed/);
+    write(release, '');
     await until(async () => { const now = await pid(); return now && now !== first; }, 'the new server answers');
 
-    // Once restarted, it runs the code in its files, so nothing restarts it again.
+    // Once restarted, it runs the code in its files, so the check that finds it up restarts nothing.
     const second = await pid();
-    await new Promise((r) => setTimeout(r, 3000));
+    const proxied = () => fetch(`${base}/shop/`).then((r) => r.json()).then((j) => j.pid, () => null);
+    await until(async () => (await proxied()) === second, 'the hub finds the new server up');
     assert.equal(await pid(), second);
+    assert.equal(out.split('restarting it').length, 2, 'the hub restarted the server once');
   } finally {
     hub.kill();
     await new Promise((resolve) => hub.once('exit', resolve));

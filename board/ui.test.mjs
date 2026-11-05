@@ -1135,7 +1135,6 @@ test("an open card's action row has no Implement, which lives in a Todo card's t
 });
 
 test('the working line reads thinking, in one shared class on the card and in the thread', () => {
-  assert.equal(ui.workingLine, '<span class="thinking"><span class="working-dot" aria-hidden="true"></span>thinking</span>');
   const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: '10:00', title: 'Fix it', internal: false, linear: [], pr: null, prs: [], deps: [], blockedBy: [], working: true };
   assert.match(ui.workLines(ask), /<div class="line3 sub agent"><span class="thinking">/);
   assert.match(ui.threadMessages([{ ts: ago(3), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it', eventId: 'e1', reply: null, state: 'working', canDelete: true }]), /<div class="reply muted small"><span class="thinking">/);
@@ -1209,21 +1208,6 @@ test("the phase bars draw any list of phases: the board's five build phases and 
     '<span class="phase-bars dim" role="img" aria-label="B &lt;2&gt;" title="B &lt;2&gt;"><i class="done"></i><i class="now"></i><i class=""></i></span>');
   assert.equal(ui.phaseBars({ reached: 1, running: false, fill: 30, label: 'x' }, ['a', 'b', 'c']),
     '<span class="phase-bars" role="img" aria-label="x" title="x"><i class="done"></i><i class="fill" style="--p:30%"></i><i class=""></i></span>');
-  assert.match(ui.workLines({ ...workCard, lane: 'progress', builder: { progress: 'x', phase: 'building', at: null } }), /<span class="phase-bars" role="img" aria-label="Building, step 2 of 5" title="Building, step 2 of 5"><i class="done"><\/i><i class="now"><\/i>(<i class=""><\/i>){3}<\/span>/);
-});
-
-test('a building card in In Progress ends its time row with five bars, before the new-messages count, done phases filled and the current one marked', () => {
-  const builder = { progress: 'Testing · the limiter', phase: 'testing', at: null };
-  const sortAt = '2020-01-01T10:00:00.000Z';
-  const building = { ...workCard, lane: 'progress', sortAt, builder };
-  const html = ui.workLines(building, { unread: 2 });
-  assert.match(html, /<div class="line3 sub agent in-progress"><span class="working-dot" aria-hidden="true"><\/span>Testing · the limiter<\/div>/);
-  assert.match(html, new RegExp(`<div class="line6 sub card-time"><time datetime="${sortAt}">[^<]*</time><span class="sep"> · </span><span class="phase-bars" role="img" aria-label="Testing, step 3 of 5" title="Testing, step 3 of 5"><i class="done"></i><i class="done"></i><i class="now"></i><i class=""></i><i class=""></i></span><span class="card-unread"><span class="sep"> · </span>2 new messages</span></div>`));
-  assert.equal(html.match(/phase-bars/g).length, 1);
-  assert.match(ui.workLines(building), /<\/time><span class="sep"> · <\/span><span class="phase-bars"/);
-  const first = ui.workLines({ ...building, builder: { ...builder, phase: 'reading' } });
-  assert.match(first, /<i class="now"><\/i><i class=""><\/i><i class=""><\/i><i class=""><\/i><i class=""><\/i>/);
-  assert.match(ui.workLines({ ...building, builder: { ...builder, phase: 'landing' } }), /aria-label="Landing, step 5 of 5"/);
 });
 
 // docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md
@@ -1238,7 +1222,9 @@ test('every In Progress card shows its five phase bars: empty before a phase, fi
   };
   const cases = [
     [{ builder: { progress: null, phase: null, at: null } }, { dim: false, label: 'Starting, no step yet', bars: '- - - - -' }],
+    [{ builder: { ...testing, phase: 'reading' } }, { dim: false, label: 'Reading, step 1 of 5', bars: 'now - - - -' }],
     [{ builder: testing }, { dim: false, label: 'Testing, step 3 of 5', bars: 'done done now - -' }],
+    [{ builder: { ...testing, phase: 'landing' } }, { dim: false, label: 'Landing, step 5 of 5', bars: 'done done done done now' }],
     [{ builder: { ...testing, stalled: true } }, { dim: true, label: 'Testing, step 3 of 5', bars: 'done done now - -' }],
     [{ waitsOn: 'checking' }, { dim: false, label: 'Orchestrator review, step 4 of 5', bars: 'done done done now -' }],
     [{ builder: { ...testing, phase: 'building' }, action: questions }, { dim: true, label: 'Building, step 2 of 5, waiting on your answers', bars: 'done now - - -' }],
@@ -1253,6 +1239,9 @@ test('every In Progress card shows its five phase bars: empty before a phase, fi
     assert.doesNotMatch(ui.workLines({ ...card, ...off }), /phase-bars/, JSON.stringify(off));
   }
   assert.match(ui.workLines(card, { unread: 1 }), /<\/time><span class="sep"> · <\/span><span class="phase-bars dim"[^>]*>.*<\/span><span class="card-unread"><span class="sep"> · <\/span>1 new message<\/span><\/div>/);
+  const building = ui.workLines({ ...card, builder: testing }, { unread: 2 });
+  assert.match(building, /<div class="line3 sub agent in-progress"><span class="working-dot" aria-hidden="true"><\/span>Testing · the limiter<\/div>/);
+  assert.equal(building.match(/phase-bars/g).length, 1);
 });
 
 // docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md,

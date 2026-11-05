@@ -261,14 +261,8 @@ test('board writes refuse cross-site requests and non-JSON bodies before their h
   // The server's own orchestrator-waits pass appends meanwhile; the refused writes are what this compares.
   const writes = () => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter((l) => !l.includes('"kind":"orchestrator-waits"')).join('\n') : null);
   const before = writes();
-  for (const headers of [
-    { 'sec-fetch-site': 'cross-site' },
-    { 'sec-fetch-site': 'same-site' },
-    { origin: 'https://other.example' },
-    { origin: 'null' },
-    { origin: 'invalid' },
-    { 'sec-fetch-site': 'same-origin', origin: 'https://other.example' },
-  ]) {
+  // Each guard once here; hub/cross-site.test.mjs checks every header case.
+  for (const headers of [{ 'sec-fetch-site': 'cross-site' }, { origin: 'https://other.example' }]) {
     const r = await fetch(`${base}/_claude/events`, {
       method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ kind: 'ask', text: 'Refused' }),
     });
@@ -276,21 +270,11 @@ test('board writes refuse cross-site requests and non-JSON bodies before their h
     assert.match(r.headers.get('content-type'), /^text\/plain/);
   }
   for (const p of ['/_claude/events', '/api/settings', '/api/try', '/api/rules', '/api/hide', '/api/read']) {
-    for (const headers of [{ 'content-type': 'text/plain' }, { 'content-type': 'application/x-www-form-urlencoded' }, {}]) {
-      assert.equal((await fetch(base + p, { method: 'POST', headers, body: '{' })).status, 403, p);
-    }
+    assert.equal((await fetch(base + p, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{' })).status, 403, p);
   }
-  for (const method of ['POST', 'DELETE', 'PUT', 'PATCH', 'OPTIONS']) {
-    assert.equal((await fetch(`${base}/_claude/health`, { method, headers: { 'sec-fetch-site': 'cross-site' } })).status, 403, method);
-  }
+  assert.equal((await fetch(`${base}/_claude/health`, { method: 'DELETE', headers: { 'sec-fetch-site': 'cross-site' } })).status, 403);
   assert.equal(writes(), before);
-  for (const headers of [
-    { origin: base },
-    { 'sec-fetch-site': 'same-origin', origin: base },
-    { 'sec-fetch-site': 'none' },
-    { 'x-forwarded-host': 'mac.example.ts.net', origin: 'https://mac.example.ts.net' },
-    {},
-  ]) {
+  for (const headers of [{ 'sec-fetch-site': 'same-origin', origin: base }, {}]) {
     const r = await fetch(`${base}/_claude/events`, {
       method: 'POST', headers: { 'content-type': 'application/json; charset=utf-8', ...headers }, body: JSON.stringify({ kind: 'guard-check' }),
     });
@@ -319,15 +303,12 @@ test('a copied starter refuses cross-site writes and accepts same-origin JSON an
     await boardListening(server);
     const post = (headers, body = '{"kind":"message","text":"Hello"}') => fetch(`${url}/plain/_claude/events`, { method: 'POST', headers, body });
     for (const headers of [
-      { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' },
       { 'content-type': 'application/json', origin: 'https://other.example' },
       { 'content-type': 'text/plain', origin: url },
     ]) assert.equal((await post(headers)).status, 403, JSON.stringify(headers));
     assert.equal(fs.existsSync(path.join(root, 'data')), false);
     for (const headers of [
       { 'content-type': 'application/json', origin: url },
-      { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
-      { 'content-type': 'application/json', origin: 'https://mac.example.ts.net', 'x-forwarded-host': 'mac.example.ts.net' },
       { 'content-type': 'application/json' },
     ]) assert.equal((await post(headers)).status, 200, JSON.stringify(headers));
     assert.equal((await fetch(`${url}/_claude/events`)).status, 200);
@@ -1133,29 +1114,20 @@ test('try forwards only the board route and key over loopback, returning hub sta
   }
 });
 
-test('the board snapshot reads try.json and main.json and ignores the old install_script setting', async () => {
+// The try and main mapping is domain.test.mjs's; this checks the server feeds it board.json, try.json and main.json.
+test('the board snapshot reads try.json, main.json and the auto_build setting', async () => {
   const config = path.join(site, 'board.json');
   const previous = fs.readFileSync(config, 'utf8');
   try {
     await boardSees(base, () => {
-      fs.writeFileSync(config, JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't', install_script: '/ignored' }));
+      fs.writeFileSync(config, JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't', auto_build: true }));
       fs.writeFileSync(path.join(site, 'data/wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One' }] }));
       fs.writeFileSync(path.join(site, 'data/try.json'), JSON.stringify({ kind: 'app', main: { sha: 'abcdef123', branch: 'main', slug: 'o/r', at: '2026-11-01', script: true, state: 'ready' }, cards: { 't/A1': { head: 'abc123456', sha: 'abc1234', state: 'running', ahead: 1, script: true } } }));
       fs.writeFileSync(path.join(site, 'data/main.json'), JSON.stringify({ install: { url: 'https://example.com/main.apk' } }));
     });
     const board = await (await fetch(`${base}/api/board`)).json();
-    assert.equal(board.main.url, 'https://example.com/main.apk');
-    assert.equal(board.main.sha, 'abcdef1');
-    assert.deepEqual(board.items.find((i) => i.key === 't/A1').try, { kind: 'app', state: 'running', stale: false, url: null, port: null, sha: null, changes: true, script: true, autoBuild: false });
-    fs.writeFileSync(config, JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't', auto_build: true }));
-    assert.equal((await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/A1').try.autoBuild, true);
-    await boardSees(base, () => fs.writeFileSync(path.join(site, 'data/try.json'), JSON.stringify({ kind: 'web', main_port: 8500, main: { sha: 'abcdef123', script: true, state: 'ready', https: 8500 }, cards: { 't/A1': { sha: 'abc1234', state: 'ready', https: 8501 } } })));
-    const web = await (await fetch(`${base}/api/board`)).json();
-    assert.equal(web.main.url, null);
-    assert.equal(web.main.port, 8500);
-    assert.equal(web.items.find((i) => i.key === 't/A1').try.url, null);
-    assert.equal(web.items.find((i) => i.key === 't/A1').try.port, 8501);
-    assert.equal((await fetch(`${base}/api/install-script`)).status, 404);
+    assert.deepEqual([board.main.url, board.main.sha], ['https://example.com/main.apk', 'abcdef1']);
+    assert.deepEqual(board.items.find((i) => i.key === 't/A1').try, { kind: 'app', state: 'running', stale: false, url: null, port: null, sha: null, changes: true, script: true, autoBuild: true });
   } finally {
     fs.writeFileSync(config, previous);
     fs.rmSync(path.join(site, 'data/try.json'), { force: true });
@@ -1508,7 +1480,8 @@ test("the board's version depends on its data alone: a minute later with nothing
 });
 
 // docs/adr/2026-11-04-0257-an-idle-board-pushes-once-when-it-has-gone-idle.md
-test('with Idle notification on, the board pushes "<board> has gone idle" once 15 minutes into an idle stretch, with what closed since, and again only after it was busy', () => {
+// When an idle stretch pushes is domain.test.mjs's (idleStep, idleSummary); this checks the server's wiring.
+test('with Idle notification on, the board pushes "<board> has gone idle" 15 minutes into an idle stretch, with what closed since, and turning it off forgets the stretch', () => {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'board-idle-')));
   const at = path.join(dir, 'site');
   fs.mkdirSync(path.join(at, 'data'), { recursive: true });
@@ -1545,36 +1518,22 @@ test('with Idle notification on, the board pushes "<board> has gone idle" once 1
       };
       await import(${JSON.stringify(server)});
       await until(() => state(), 'the first idle check');
-      const seen = [];
       const done = (id, mins) => ({ id, title: id, status: 'done', status_at: new Date(Date.parse('2026-11-04T10:00:00Z') + mins * 60000).toISOString() });
-      await write([{ id: 'I1', title: 'Open' }, done('I2', 5)]);
-      mock.timers.tick(14 * 60000);
-      await write([{ id: 'I1', title: 'Open!' }, done('I2', 5)]);
-      seen.push(pushes().length);
-      mock.timers.tick(2 * 60000);
-      await write([{ id: 'I1', title: 'Open' }, done('I2', 5)]);
-      await until(() => pushes().length === 1, 'the idle push');
-      mock.timers.tick(20 * 60000);
-      await write([{ id: 'I1', title: 'Open!' }, done('I2', 5)]);
-      seen.push(pushes().length);
-      await write([{ id: 'I1', title: 'Open', status: 'checking', status_at: new Date().toISOString() }, done('I2', 5)]);
       await write([{ id: 'I1', title: 'Open' }, done('I2', 5)]);
       mock.timers.tick(16 * 60000);
       await write([{ id: 'I1', title: 'Open!' }, done('I2', 5)]);
-      await until(() => pushes().length === 2, 'the second idle push');
+      await until(() => pushes().length === 1, 'the idle push');
       fs.writeFileSync(${JSON.stringify(path.join(at, 'board.json'))}, JSON.stringify({ title: 'Idle board', items: 'data/wave.json', slug: 'i' }));
       await write([{ id: 'I1', title: 'Open' }, done('I2', 5)]);
       await until(() => !state(), 'turning it off forgets the stretch');
-      console.log(JSON.stringify({ seen, pushes: pushes() }));
+      console.log(JSON.stringify({ pushes: pushes() }));
       process.exit(0);
     `], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: dir, PREFIX: '', KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, path.join(dir, 'push-stub.mjs'), 'push']), STUB_CALLS: calls }, encoding: 'utf8', timeout: 60000 });
     assert.equal(result.status, 0, result.stderr);
     const out = JSON.parse(result.stdout.trim().split('\n').at(-1));
-    assert.deepEqual(out.seen, [0, 1], 'nothing at 14 minutes, and no second push in one stretch');
-    const [first, second] = out.pushes;
-    assert.deepEqual([flag(first, 'kind'), flag(first, 'title'), flag(first, 'body'), flag(first, 'url'), flag(first, 'tag')],
-      ['reminder', 'Idle board has gone idle', '1 card landed: I2', '/site/', 'idle']);
-    assert.deepEqual([flag(second, 'title'), flag(second, 'body')], ['Idle board has gone idle', 'Nothing closed since the last idle notification.']);
+    const [push] = out.pushes;
+    assert.deepEqual([out.pushes.length, flag(push, 'kind'), flag(push, 'title'), flag(push, 'body'), flag(push, 'url'), flag(push, 'tag')],
+      [1, 'reminder', 'Idle board has gone idle', '1 card landed: I2', '/site/', 'idle']);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

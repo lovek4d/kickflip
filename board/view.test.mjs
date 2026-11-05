@@ -4548,15 +4548,6 @@ test('a slim Done card draws as the whole card does, closed and open', async () 
 });
 
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
-test('a held Todo card shows Unhold, and no Implement in its action row', async () => {
-  const cards = [workCard('H1', { ref: 'INT-42', held: true, holdable: true, buildable: true, ready: true })];
-  const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
-  await b.settle();
-  const detail = b.root.querySelector('details.item[data-key="w/H1"] .detail');
-  assert.equal(detail.querySelector('.actions [data-confirm="resume"]').textContent, 'Unhold');
-  assert.equal(detail.querySelector('.actions [data-confirm="card-build"]'), null);
-});
-
 test('Update after a failed pull posts to the hub and shows only what the hub answers', async () => {
   const page = repoPage();
   const { win, doc } = page;

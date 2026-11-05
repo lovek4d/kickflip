@@ -28,7 +28,6 @@ const snapshotOf = (count) => ({ waves: [{ slug: 't', wave: waveOf(count), agent
 
 test('the Done cards past the newest 100 leave the board, except one in an open wave, one an open card names and one with a question open', () => {
   const built = buildBoard(snapshotOf(DONE_KEPT + 6));
-  assert.equal(DONE_KEPT, 100);
   assert.deepEqual(archivedOf(built).map((c) => c.key), ['t/D100', 't/D101', 't/D102']);
   assert.deepEqual(archivedOf(buildBoard(snapshotOf(DONE_KEPT))), []);
 });

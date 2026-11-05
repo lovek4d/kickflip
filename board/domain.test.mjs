@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, withHub, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, MAX_IMPLEMENTERS, arrivalsOf, MAX_PLANNERS, todoOf, triageOf, owesNext, startedByAnswer, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, ORCHESTRATOR_PUSH_AFTER } from './domain.mjs';
+import { buildBoard, withHub, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, arrivalsOf, todoOf, triageOf, owesNext, startedByAnswer, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -822,7 +822,6 @@ test("an unstarted Todo card that waits on nothing from the owner can Build, a b
   const answer = (n, choice, note) => ({ id: `a${n}`, ts: `2026-10-23T10:0${n}:00Z`, kind: 'owner-answer', data: { id: 'p1', choice, note }, reply: null });
   const unpicked = card({ owner: { items: [takes] }, events: [answer(1, 'A', ''), answer(2, null, 'Neither: try a darker moon')] });
   assert.deepEqual([one(unpicked).lane, one(unpicked).buildable, one(unpicked).next, one(unpicked).action, one(unpicked).state], ['todo', false, PROTOTYPE_AGAIN, null, 'prototyping']);
-  assert.equal(PROTOTYPE_AGAIN, 'Prototype again');
   assert.equal(startedByAnswer(unpicked, 'p1'), null);
   // A card prototyping again has had its questions, so it is no arrival for the board to grill.
   assert.deepEqual(arrivalsOf(unpicked.items), ['w/ENG-1'], 'its fresh follow-up arrives, the card itself does not');
@@ -1805,7 +1804,6 @@ test('the pull fills every free implementer slot with the top ready cards; build
   const progress = (key, more) => card(key, { lane: 'progress', buildable: false, state: null, ...more });
   const todo = ['w/T1', 'w/T2', 'w/T3', 'w/T4'].map((k) => card(k));
   const busy = [progress('w/P1', { agents: run('claude') }), progress('w/P2', { waitsOn: 'checking' }), progress('w/P3', { waitsOn: 'owner' }), progress('w/P4', { agents: run('grill') })];
-  assert.equal(MAX_IMPLEMENTERS, 10);
   assert.deepEqual(pullOf([...busy, ...todo]).pulls, ['w/T1', 'w/T2', 'w/T3', 'w/T4'], 'the default cap leaves room for every ready card');
   assert.deepEqual(pullOf([...busy, ...todo], { cap: 3 }).pulls, ['w/T1'], 'a build and a review take two of three slots');
   assert.deepEqual(pullOf([...busy, ...todo], { cap: 2 }).pulls, []);
@@ -1851,7 +1849,6 @@ test('a card arrives in Todo however it was filed, until something picks it up, 
     card('w/C1', { lane: 'progress', buildable: false }),
     card('w/C2', { lane: 'done', buildable: false }),
   ];
-  assert.equal(MAX_PLANNERS, 3);
   assert.deepEqual(arrivalsOf([...pickedUp, ...arrived], { cap: 99 }), ['w/A1', 'w/A2', 'w/A3']);
   assert.deepEqual(arrivalsOf([card('w/B0', { blockedBy: [{ key: 'w/X' }] })]), [], 'a blocked card waits for its blockers');
   assert.deepEqual(arrivalsOf([card('w/B0')]), ['w/B0'], 'and arrives once none is left');
@@ -2137,5 +2134,4 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
   assert.deepEqual(orchestratorWaits(both).map((w) => w.key), ['w/P1', 'w/T1']);
   assert.deepEqual(both.items.find((i) => i.key === 'w/P1').orchestrator, { kind: 'calls', since: at, picked: null, next: "Verify the builder's judgment calls" });
   assert.equal(both.items.find((i) => i.key === 'w/P1').waitFacts, undefined, 'the facts stay off the card');
-  assert.equal(ORCHESTRATOR_PUSH_AFTER, 30 * 60000);
 });

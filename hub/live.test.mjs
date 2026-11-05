@@ -69,9 +69,10 @@ test("a watcher's session is gone once its shell or the shell's parent changes, 
 test("a ps that times out leaves every liveness unknown, so a live session's watcher isn't told it is gone", { timeout: 60000 }, async (t) => {
   const running = await sleeper();
   record(running.pid, 'stalled', { procStart: START });
-  t.after(() => ps.stall(false));
+  t.after(() => { ps.stall(false); delete process.env.KICKFLIP_PS_TIMEOUT_MS; });
   assert.deepEqual([...liveSessions({ dir, session: 'stalled' }).keys()], ['stalled'], 'the stand-in ps answers before it stalls');
   assert.equal(parentOf(running.pid), process.pid);
+  process.env.KICKFLIP_PS_TIMEOUT_MS = '200';
   ps.stall(true);
   assert.equal(processStarts([running.pid]), null);
   assert.equal(liveSessions({ dir }), null);

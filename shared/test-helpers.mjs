@@ -143,10 +143,12 @@ export function ownSession(home, session, pid = process.pid) {
   fs.writeFileSync(path.join(home, '.claude', 'sessions', `${pid}-${session}.json`), JSON.stringify({ pid, sessionId: session, cwd: home, procStart, kind: 'bg' }));
 }
 
-// A ps on a PATH of its own that answers as /bin/ps does, and while stall(true) hangs past live.mjs's 3 s timeout, as
-// ps does on a heavily loaded Mac. Given standIn {lstart, ppid}, it answers live.mjs's start-time and parent queries
-// itself, without ps: every running pid started at lstart (ps -o lstart= text) with parent ppid, so a test's own
-// load can't push a real ps past that timeout. → {bin: the folder to put first on PATH, stall(on)}
+// A ps on a PATH of its own that answers as /bin/ps does, and while stall(true) hangs for 10 s, past live.mjs's ps
+// timeout, as ps does on a heavily loaded Mac; a test sets KICKFLIP_PS_TIMEOUT_MS short to wait out that timeout fast.
+// Given standIn {lstart, ppid}, it answers live.mjs's start-time and parent queries itself, without ps: every running
+// pid started at lstart (ps -o lstart= text) with parent ppid, so a test's own load can't push a real ps past that
+// timeout. → {bin: the folder to put first on PATH, stall(on), stalls(): how many
+// calls have hung so far}
 export function stallingPs(dir, standIn = null) {
   const bin = path.join(dir, 'stalling-ps');
   const flag = path.join(dir, 'ps-stalls');
@@ -160,8 +162,13 @@ export function stallingPs(dir, standIn = null) {
     '  esac',
     'fi',
   ] : [];
-  fs.writeFileSync(path.join(bin, 'ps'), ['#!/bin/sh', `[ -e '${flag}' ] && exec sleep 10`, ...answers, 'exec /bin/ps "$@"', ''].join('\n'), { mode: 0o755 });
-  return { bin, stall: (on) => (on ? fs.writeFileSync(flag, '') : fs.rmSync(flag, { force: true })) };
+  const stalled = path.join(dir, 'ps-stalled');
+  fs.writeFileSync(path.join(bin, 'ps'), ['#!/bin/sh', `[ -e '${flag}' ] && { echo >> '${stalled}'; exec sleep 10; }`, ...answers, 'exec /bin/ps "$@"', ''].join('\n'), { mode: 0o755 });
+  return {
+    bin,
+    stall: (on) => (on ? fs.writeFileSync(flag, '') : fs.rmSync(flag, { force: true })),
+    stalls: () => (fs.existsSync(stalled) ? fs.readFileSync(stalled, 'utf8').length : 0),
+  };
 }
 
 // Slack's Web API for one user token: auth.test, conversations.open, chat.postMessage and reactions.add, recording

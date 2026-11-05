@@ -39,9 +39,11 @@ const running = (pid) => {
 };
 
 // ps's answer for argv, or null when ps gave none: it timed out (a loaded Mac takes seconds) or didn't run. ps exits
-// 1 when a pid it was asked about doesn't run, and that is still its answer.
+// 1 when a pid it was asked about doesn't run, and that is still its answer. The timeout is 3 s, or
+// KICKFLIP_PS_TIMEOUT_MS, which tests of a stalled ps set short.
 export function ps(argv) {
-  try { return execFileSync('ps', argv, { encoding: 'utf8', timeout: 3000, env: { ...process.env, TZ: 'UTC' } }); }
+  const timeout = Number(process.env.KICKFLIP_PS_TIMEOUT_MS) || 3000;
+  try { return execFileSync('ps', argv, { encoding: 'utf8', timeout, env: { ...process.env, TZ: 'UTC' } }); }
   catch (e) { return typeof e.status === 'number' && !e.signal ? e.stdout || '' : null; }
 }
 

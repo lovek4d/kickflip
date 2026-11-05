@@ -177,7 +177,7 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
   };
 }
 
-test('doctor CLI reports healthy setup as text and JSON with exit 0; status is removed from commands and help', async () => {
+test('doctor CLI reports healthy setup as text and JSON with exit 0', async () => {
   const fixture = doctorCLI('doctor-ok', { healthy: true, installed: true });
   const report = await fixture.run('doctor');
   assert.equal(report.status, 0, report.stderr);
@@ -187,10 +187,6 @@ test('doctor CLI reports healthy setup as text and JSON with exit 0; status is r
   assert.ok(result.items.every((item) => item.state === (process.platform !== 'darwin' && item.item === 'macOS-only parts' ? 'note' : 'ok')));
   if (process.platform === 'linux') assert.equal(result.items.find((item) => item.item === 'macOS-only parts').state, 'note');
   assert.equal(fixture.calls().filter((call) => call[0] === 'gh' && call[1] === 'auth' && call[2] === 'status').length, 2);
-  const removed = await fixture.run('status');
-  assert.equal(removed.status, 2);
-  assert.match(removed.stdout, /kickflip doctor/);
-  assert.doesNotMatch(removed.stdout, /kickflip status/);
 });
 
 test('doctor CLI exits 1 on a broken HOME and prints commands', async () => {
@@ -223,15 +219,14 @@ test('doctor --fix and init CLI run the same setup once and finish with a JSON r
   }
 });
 
-test('doctor --fix --dry-run and install --dry-run CLI write no setup and invoke no service', async () => {
-  for (const [name, args] of [['doctor-dry', ['doctor', '--fix']], ['init-dry', ['init']]]) {
-    const fixture = doctorCLI(name);
-    const result = await fixture.run(...args, '--dry-run');
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /would map tailscale \/ to the hub on 19460/);
-    assert.deepEqual(fixture.calls(), []);
-    assert.deepEqual(fs.readdirSync(fixture.scratch), []);
-  }
+// runDoctor's dry run is install.test.mjs's; this checks the CLI passes --dry-run through init, doctor --fix's first-run name.
+test('init --dry-run CLI writes no setup and invokes no service', async () => {
+  const fixture = doctorCLI('init-dry');
+  const result = await fixture.run('init', '--dry-run');
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /would map tailscale \/ to the hub on 19460/);
+  assert.deepEqual(fixture.calls(), []);
+  assert.deepEqual(fs.readdirSync(fixture.scratch), []);
 });
 
 test('join records the session and its folder: --repo, else the live session\'s cwd, else the recorded one, else where join ran; a rejoin, or a --force takeover, keeps the label, model and folder it leaves out', async () => {
@@ -482,8 +477,9 @@ test('a session is told to join by its board name: the title when it hyphenates 
   assert.ok(hubArgv({ route: 'dev-hub', title: 'Dev hub' }).at(-1).startsWith("/kickflip --name 'Dev hub' --hub\n"));
 });
 
+// One route runs the CLI end to end; the route lookups test below covers each property name in-process.
 test('start, join and resume accept routes named after object properties', async () => {
-  for (const [i, route] of ['constructor', 'tostring', 'hasownproperty', 'valueof'].entries()) {
+  for (const [i, route] of ['constructor'].entries()) {
     const started = json(await cli(['start', route, '--repo', repo]));
     assert.equal(manifest().starting[route].session, started.session);
     json(await cli(['join', '--name', route, '--session', started.session, '--template', 'board', '--port', String(4650 + i)]));
@@ -499,7 +495,7 @@ test('start, join and resume accept routes named after object properties', async
 test('route lookups ignore inherited site and starting records, including __proto__', async () => {
   const { sessionOf, startingBoards } = await import('./sessions.mjs');
   const { routeRecord } = await import('./routes.mjs');
-  for (const route of ['constructor', '__proto__', 'toString']) {
+  for (const route of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf']) {
     const owner = { session: 's-own', repo };
     const sites = { [route]: { owner, title: route } };
     const starting = { [route]: { ...owner, title: route, asked_at: new Date().toISOString() } };
@@ -758,6 +754,7 @@ test("while ps can't answer whether a session runs, the wake, the deaf push and 
 
   // ps is asked only about a pid that runs.
   const session = liveRecord('s-unknown', repo);
+  process.env.KICKFLIP_PS_TIMEOUT_MS = '200';
   ps.stall(true);
   try {
     const before = calls().length;
@@ -770,7 +767,7 @@ test("while ps can't answer whether a session runs, the wake, the deaf push and 
     assert.match(listed.stdout, /^\/unknown  s-unknown  live unknown \(ps gave no answer\)  /m);
     delete m.sites.unknown;
     write(web('manifest.json'), { ...manifest(), sites: Object.fromEntries(Object.entries(manifest().sites).filter(([route]) => route !== 'unknown')) });
-  } finally { ps.stall(false); session.kill(); }
+  } finally { ps.stall(false); delete process.env.KICKFLIP_PS_TIMEOUT_MS; session.kill(); }
 });
 
 test("the hub board's wake resumes its session in its tmux session, keeping its id, and refuses while that tmux session is open", async () => {

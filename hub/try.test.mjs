@@ -203,8 +203,7 @@ test('a failed run writes one failure with its exit, keychain hint and last five
   assert.equal(thread().length, 1);
 });
 
-test('a second concurrent start returns 409, while a legacy install_script setting is ignored', async () => {
-  config({ install_script: '/caller/selected/script' });
+test('a second concurrent start returns 409', async () => {
   setScript('setInterval(() => {}, 1000);');
   const results = await Promise.allSettled([start(), start()]);
   assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
@@ -348,14 +347,6 @@ test('a restart clears dead web cards and stops main so the next tick serves it 
   write(path.join(site, 'data/try.json'), { kind: 'web', cards: { 'w/A1': { state: 'ready', port: 1 } }, main: { state: 'ready', port: 2, sha: 'old', script: true } });
   await manager.initialize(manifest);
   assert.deepEqual(state(), { kind: 'web', cards: {}, main: { sha: 'old', script: true } });
-});
-
-test('shutdown stops process groups without failure messages and refuses new starts', async () => {
-  setScript('setInterval(() => {}, 1000);');
-  await start();
-  await manager.stop();
-  assert.deepEqual(thread(), []);
-  await assert.rejects(start(), /hub is stopping/);
 });
 
 test('builds waiting on each other when the hub restarts run after it, and one that can no longer start fails in its thread', async () => {
@@ -851,7 +842,7 @@ test('an unanswered announced port fails after sixty seconds', async () => {
   assert.match(thread()[0].text, /Nothing answered.*60 seconds/);
 });
 
-test('shutdown kills the whole process group, escalating when a server ignores SIGTERM', async () => {
+test('shutdown kills the whole process group, escalating when a server ignores SIGTERM, with no failure message, and refuses new starts', async () => {
   setScript(`const fs = require('node:fs');
 const child = require('node:child_process').spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => {}); console.log("ready"); setInterval(() => {}, 1000);'], { stdio: ['ignore', 'pipe', 'inherit'] });
 child.stdout.once('data', () => fs.writeFileSync('server.pid', String(child.pid)));
@@ -864,6 +855,7 @@ setInterval(() => {}, 1000);`);
   // stop's own wait to reap it.
   await until(() => { try { process.kill(pid, 0); return false; } catch (e) { return e.code === 'ESRCH'; } }, 'the server that ignores SIGTERM was never killed');
   assert.deepEqual(thread(), []);
+  await assert.rejects(start(), /hub is stopping/);
 });
 
 test('an automatic validation refusal records one failed head and useful thread log, while a main failure survives restart', async () => {

@@ -238,14 +238,8 @@ after(async () => {
 test('hub writes refuse cross-site requests before handling forms, JSON or deletes', async () => {
   const settings = claude('kickflip', 'settings.json');
   const before = fs.readFileSync(settings, 'utf8');
-  for (const headers of [
-    { 'sec-fetch-site': 'cross-site' },
-    { 'sec-fetch-site': 'same-site' },
-    { origin: 'https://other.example' },
-    { origin: 'null' },
-    { origin: 'invalid' },
-    { 'sec-fetch-site': 'same-origin', origin: 'https://other.example' },
-  ]) {
+  // Each guard once here; hub/cross-site.test.mjs checks every header case.
+  for (const headers of [{ 'sec-fetch-site': 'cross-site' }, { origin: 'https://other.example' }]) {
     const r = await fetch(`${base}/_hub/settings/codex`, {
       method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers }, body: 'value=auto',
     });
@@ -254,21 +248,12 @@ test('hub writes refuse cross-site requests before handling forms, JSON or delet
     assert.equal(fs.readFileSync(settings, 'utf8'), before);
   }
   for (const p of ['/_hub/settings/rules', '/_hub/prompts', '/_hub/prompts/missing/answer', '/_hub/poll', '/_hub/push/subscribe', '/_hub/push/unsubscribe']) {
-    for (const headers of [{ 'content-type': 'text/plain' }, { 'content-type': 'application/json', origin: 'https://other.example' }]) {
-      const r = await fetch(base + p, { method: 'POST', headers, body: '{' });
-      assert.equal(r.status, 403, p);
-      assert.match(r.headers.get('content-type'), /^text\/plain/);
-    }
+    const r = await fetch(base + p, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{' });
+    assert.equal(r.status, 403, p);
+    assert.match(r.headers.get('content-type'), /^text\/plain/);
   }
-  for (const method of ['DELETE', 'PUT', 'PATCH', 'OPTIONS']) {
-    assert.equal((await fetch(`${base}/_hub/new-board/missing`, { method, headers: { origin: 'https://other.example' } })).status, 403, method);
-  }
-  for (const headers of [{ 'sec-fetch-site': 'cross-site' }, { origin: 'https://other.example' }]) {
-    assert.equal((await fetch(`${base}/_hub/push/test`, { method: 'POST', headers })).status, 403);
-    assert.equal((await fetch(`${base}/_hub/push/flush`, { method: 'POST', headers })).status, 403);
-    assert.equal((await fetch(`${base}/_hub/api/settings`, { method: 'HEAD', headers })).status, 200);
-    assert.equal((await fetch(`${base}/_hub/api/settings`, { headers })).status, 200);
-  }
+  assert.equal((await fetch(`${base}/_hub/new-board/missing`, { method: 'DELETE', headers: { origin: 'https://other.example' } })).status, 403);
+  assert.equal((await fetch(`${base}/_hub/api/settings`, { headers: { origin: 'https://other.example' } })).status, 200);
   assert.equal(fs.readFileSync(settings, 'utf8'), before);
 });
 
@@ -826,9 +811,11 @@ test("a command auto mode still refused, or the session still asked about, while
 test('object property names work as page routes and as new boards through HTTP and the CLI', async () => {
   const manifestFile = claude('kickflip', 'manifest.json');
   const original = read(manifestFile);
-  const routes = ['constructor', 'tostring', 'hasownproperty', 'valueof'];
-  const names = ['Constructor', 'toString', 'hasOwnProperty', 'valueOf'];
-  const sessions = ['constructor', 'toString', 'hasOwnProperty', 'valueOf'];
+  const pageRoutes = ['constructor', 'tostring', 'hasownproperty', 'valueof'];
+  // One new board runs end to end; sessions.test.mjs's route lookups test covers each property name in-process.
+  const routes = ['hasownproperty'];
+  const names = ['hasOwnProperty'];
+  const sessions = ['hasOwnProperty'];
   const repo = fs.realpathSync(home);
   const get = async (url) => {
     const response = await fetch(base + url);
@@ -837,10 +824,10 @@ test('object property names work as page routes and as new boards through HTTP a
   };
   try {
     const pages = structuredClone(original);
-    for (const route of routes) pages.sites[route] = { ...pages.sites.plain, title: route };
+    for (const route of pageRoutes) pages.sites[route] = { ...pages.sites.plain, title: route };
     await writeManifestFile(pages);
-    assert.equal((await get('/_hub/sidebar.json')).sites.filter((s) => routes.includes(s.route)).length, 4);
-    const pageRows = (await get('/_hub/api/hub')).groups.flatMap((g) => g.sites).filter((s) => routes.includes(s.route));
+    assert.equal((await get('/_hub/sidebar.json')).sites.filter((s) => pageRoutes.includes(s.route)).length, 4);
+    const pageRows = (await get('/_hub/api/hub')).groups.flatMap((g) => g.sites).filter((s) => pageRoutes.includes(s.route));
     assert.equal(pageRows.length, 4);
     assert.ok(pageRows.every((s) => s.word && Array.isArray(s.remembered) && s.remembered.length === 0));
     await writeManifestFile(original);

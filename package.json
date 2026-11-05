@@ -27,6 +27,7 @@
     "CONTEXT.md",
     "!**/*.test.mjs",
     "!board/mini-dom.mjs",
+    "!board/board-fixture.mjs",
     "!hub/fake-device.mjs",
     "!shared/test-helpers.mjs"
   ],
