@@ -47,6 +47,9 @@ test("a headless planner's brief names its card, its notes so far and the skill 
     assert.ok(proto.includes(want), `the prototype's brief has ${want}`);
   }
   assert.ok(!proto.includes('/s/waves/w/a1.md'));
+  // docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md: a grill offers the prototype round.
+  assert.match(grill, /When the card changes the hub's or a board's UI, end with one more question asking for a prototype round/);
+  assert.ok(!proto.includes('one more question asking for a prototype round'));
 });
 
 test('launchHeadless runs codex exec in the worktree with full access for a codex build', async () => {
@@ -344,7 +347,7 @@ function oneLaunchBoard(items, bin) {
   return { home, site, data, clone, runs, events, thread, record, item, start };
 }
 
-test("the server launches a planner for the owner's Grill and Prototype taps and for an idle board's plan, from the card, in the board's repo", async () => {
+test("the server launches a planner for the owner's Grill and Prototype taps and for a card arriving in Todo, from the card, in the board's repo", async () => {
   const b = oneLaunchBoard([
     { id: 'G1', title: 'Grill me', state: 'grilling' },
     { id: 'P1', title: 'Draw me', state: 'prototyping' },
@@ -369,15 +372,15 @@ test("the server launches a planner for the owner's Grill and Prototype taps and
     assert.match(proto.argv[1], /builder start t\/P1 --kind prototype/);
     assert.equal(proto.argv[proto.argv.indexOf('--model') + 1], 'sonnet');
 
-    // An idle board with nothing ready plans its top plannable card, once no planner runs.
+    // With Auto implement on, the card that arrived in Todo with no planner yet gets its grill; the planned ones don't.
     for (const id of ['G1', 'P1']) fs.writeFileSync(path.join(b.data, 'agents', `${id}.json`), JSON.stringify({ ...b.record(id), done: new Date().toISOString() }));
     fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', auto_pull: true }));
-    await until(() => b.runs().length === 3, 'the plan launches a planner');
-    // The top plannable card is prototyping, so its planner is a prototype.
-    assert.match(b.runs()[2].argv[1], /builder start t\/P1 --kind prototype/);
-    assert.ok(!b.events().includes('card-plan'), 'the plan wakes no session');
+    await until(() => b.runs().length === 3, 'the arrival launches a grill');
+    assert.match(b.runs()[2].argv[1], /builder start t\/Q1 --kind grill/);
+    assert.deepEqual(b.thread('Q1').map((t) => t.text.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.', 'Planner launched on Claude Opus']);
+    assert.ok(!b.events().includes('card-plan'), 'the grill wakes no session');
     // A tap while the card's planner is open launches nothing more.
-    await send('prototype-request', { key: 't/P1' });
+    await send('grill-more', { key: 't/Q1' });
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(b.runs().length, 3);
   } finally {

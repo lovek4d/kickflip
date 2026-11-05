@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, withHub, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, MAX_IMPLEMENTERS, todoOf, triageOf, owesNext, startedByAnswer, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, ORCHESTRATOR_PUSH_AFTER } from './domain.mjs';
+import { buildBoard, withHub, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, MAX_IMPLEMENTERS, arrivalsOf, MAX_PLANNERS, todoOf, triageOf, owesNext, startedByAnswer, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, ORCHESTRATOR_PUSH_AFTER } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -761,17 +761,15 @@ test("an unstarted Todo card that waits on nothing from the owner can Build, a b
   assert.equal(one(card({ agents: runningBuilders('A1') })).buildable, false);
   assert.equal(one(card({ item: { status: 'done' } })).buildable, false);
 
-  // A prototype answer with no take picked leaves the card unready to build and prototyping again, which the idle board
-  // can plan; a pick, note or not, makes it ready (docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md).
+  // A prototype answer with no take picked leaves the card unready to build and prototyping again; a pick, note or not, makes it ready (docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md).
   const takes = { id: 'p1', topic: 'item:w/A1', question: 'Which take?', url: 'prototype-x.html?q=p1', options: [{ id: 'A', label: 'One' }, { id: 'B', label: 'Two' }] };
   const answer = (n, choice, note) => ({ id: `a${n}`, ts: `2026-10-23T10:0${n}:00Z`, kind: 'owner-answer', data: { id: 'p1', choice, note }, reply: null });
   const unpicked = card({ owner: { items: [takes] }, events: [answer(1, 'A', ''), answer(2, null, 'Neither: try a darker moon')] });
   assert.deepEqual([one(unpicked).lane, one(unpicked).buildable, one(unpicked).next, one(unpicked).action, one(unpicked).state], ['todo', false, PROTOTYPE_AGAIN, null, 'prototyping']);
   assert.equal(PROTOTYPE_AGAIN, 'Prototype again');
   assert.equal(startedByAnswer(unpicked, 'p1'), null);
-  // The board resolves a note with no take (store.mjs resolveNoteAnswers), which leaves the card for the idle board to plan.
-  const noted = card({ owner: { items: [{ ...takes, resolved: 'Answered with a note' }] }, events: [answer(2, null, 'Neither: try a darker moon')] });
-  assert.deepEqual([pullOf(noted.items).plannable.includes('w/A1'), pullOf(unpicked.items).plannable.includes('w/A1')], [true, false]);
+  // A card prototyping again has had its questions, so it is no arrival for the board to grill.
+  assert.deepEqual(arrivalsOf(unpicked.items), ['w/ENG-1'], 'its fresh follow-up arrives, the card itself does not');
   const picked = card({ owner: { items: [takes] }, events: [answer(2, null, 'Neither'), answer(3, 'B', 'but with the moon on the left')] });
   assert.deepEqual([one(picked).buildable, one(picked).next, one(picked).state], [true, null, null]);
   assert.equal(startedByAnswer(picked, 'p1'), 'w/A1');
@@ -1737,32 +1735,44 @@ test('the pull fills every free implementer slot with the top ready cards; build
 });
 
 // docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md
-test('the pull takes only ready cards in board order, never a card with no state; with none pullable it plans the top unready card while nothing is being planned', () => {
+test('the pull takes only ready cards in board order, never a card with no state', () => {
   const card = (key, more = {}) => ({ key, lane: 'todo', kind: 'work', buildable: true, state: null, blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
-  const items = [card('w/A1'), card('w/A2', { state: 'ready' }), card('w/A3'), card('w/A4', { state: 'ready' })];
+  const items = [card('w/A1'), card('w/A2', { state: 'ready' }), card('w/A3'), card('w/A4', { state: 'ready' }), card('w/A5', { state: 'ready', blockedBy: [{ key: 'w/X' }] })];
   assert.deepEqual(pullOf(items).pullable, ['w/A2', 'w/A4']);
-  assert.deepEqual(pullOf(items).plannable, ['w/A1', 'w/A3']);
+});
 
-  const asked = { topic: 'item:w/B2', open: 1, answered: 0 };
-  const unready = [
-    card('w/B0', { state: 'ready', blockedBy: [{ key: 'w/X' }] }),
-    card('w/B1', { state: 'grilling', held: true }),
-    card('w/B2', { state: 'grilling', questions: asked, buildable: false }),
-    card('w/B3', { state: 'prototyping', questions: { topic: 'item:w/B3', open: 0, answered: 1 } }),
-    card('w/B4', { state: 'grilling', questions: { topic: 'item:w/B4', open: 0, answered: 0 } }),
-    card('w/B5', { blockedBy: [{ key: 'w/X' }] }),
+// docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md
+test('a card arrives in Todo however it was filed, until something picks it up, and the planner cap takes arrivals from the top', () => {
+  const card = (key, more = {}) => ({ key, lane: 'todo', kind: 'work', buildable: true, state: null, blockedBy: [], questions: null, grilling: false, prototyping: false, working: false, held: false, agents: [], ...more });
+  const at = '2026-11-04T10:00:00Z';
+  const arrived = [
+    card('w/A1'),
+    card('w/A2', { state: 'grilling', fromAsk: 'e1' }),
+    card('w/A3', { state: 'prototyping' }),
+    card('w/A4', { blockedBy: [{ key: 'w/X' }] }),
   ];
-  assert.deepEqual(pullOf(unready).pullable, []);
-  assert.deepEqual(pullOf(unready).plannable, ['w/B4', 'w/B5']);
-  const planning = [
-    [card('w/C1', { state: 'grilling', grilling: true })],
-    [card('w/C1', { state: 'prototyping', prototyping: true })],
-    [card('w/C1', { state: 'prototyping', agents: [{ kind: 'prototype', started: '2026-11-03T10:00:00Z', done: null }] })],
+  const pickedUp = [
+    card('w/B1', { state: 'ready' }),
+    card('w/B2', { held: true }),
+    card('w/B3', { queuedAt: at }),
+    card('w/B4', { working: true }),
+    card('w/B5', { grilling: true }),
+    card('w/B6', { prototyping: true }),
+    card('w/B7', { questions: { topic: 'item:w/B7', open: 0, answered: 0, resolved: 2 } }),
+    card('w/B8', { agents: [{ kind: 'grill', started: at, done: at }] }),
+    card('w/B9', { buildable: false, action: { kind: 'questions' } }),
+    card('w/C1', { lane: 'progress', buildable: false }),
+    card('w/C2', { lane: 'done', buildable: false }),
   ];
-  for (const extra of planning) assert.deepEqual(pullOf([...unready, ...extra]).plannable, [], JSON.stringify(extra));
-  assert.deepEqual(pullOf([...unready, card('w/C1', { state: 'grilling', agents: [{ kind: 'grill', started: '2026-11-03T10:00:00Z', done: '2026-11-03T10:30:00Z' }] })]).plannable, ['w/B4', 'w/B5', 'w/C1']);
-  // A card left at grilling with no agent, dispatch or Grill tap does not stop planning.
-  assert.deepEqual(pullOf([card('w/B4', { state: 'grilling' })]).plannable, ['w/B4']);
+  assert.equal(MAX_PLANNERS, 3);
+  assert.deepEqual(arrivalsOf([...pickedUp, ...arrived], { cap: 99 }), ['w/A1', 'w/A2', 'w/A3', 'w/A4']);
+  assert.deepEqual(arrivalsOf([...pickedUp, ...arrived]), ['w/A1', 'w/A2', 'w/A3'], 'the default cap takes three');
+  const running = card('w/R1', { buildable: false, agents: [{ kind: 'grill', started: at, done: null }] });
+  const drawing = card('w/R2', { lane: 'progress', buildable: false, agents: [{ kind: 'prototype', started: at, done: null }] });
+  assert.deepEqual(arrivalsOf([running, drawing, ...arrived], { cap: 3 }), ['w/A1'], 'each running planner takes a slot');
+  assert.deepEqual(arrivalsOf([running, drawing, ...arrived], { cap: 2 }), [], 'a cap already reached launches nothing');
+  const building = card('w/R3', { lane: 'progress', buildable: false, agents: [{ kind: 'claude', started: at, done: null }] });
+  assert.deepEqual(arrivalsOf([building, ...arrived], { cap: 1 }), ['w/A1'], 'a running build takes no planner slot');
 });
 
 // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md

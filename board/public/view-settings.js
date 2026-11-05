@@ -19,13 +19,17 @@
   <p class="muted small" id="ticketsStatus" role="status"></p>
   <h2>Auto</h2>
   <label class="who" for="autoPull"><span><span>Auto implement Todo cards</span>
-    <span class="muted small sub">Claude starts a Todo card as soon as it’s ready and nothing blocks or holds it, while an implementer slot is free.</span></span>
+    <span class="muted small sub">Claude grills each card that lands in Todo, and starts a Todo card as soon as it’s ready and nothing blocks or holds it, while an implementer slot is free.</span></span>
     <input type="checkbox" class="toggle" id="autoPull" disabled></label>
   <p class="muted small" id="autoPullStatus" role="status"></p>
   <label class="who" for="maxImplementers"><span><span>Maximum parallel implementers</span>
     <span class="muted small sub">Cards building or waiting in Orchestrator review count. Grills and cards waiting on you don’t.</span></span>
     <input type="number" class="count" id="maxImplementers" min="1" max="99" step="1" inputmode="numeric" disabled></label>
   <p class="muted small" id="maxImplementersStatus" role="status"></p>
+  <label class="who" for="maxPlanners"><span><span>Maximum parallel planners</span>
+    <span class="muted small sub">Grills and prototypes running at once. A card that lands in Todo past it waits its turn.</span></span>
+    <input type="number" class="count" id="maxPlanners" min="1" max="99" step="1" inputmode="numeric" disabled></label>
+  <p class="muted small" id="maxPlannersStatus" role="status"></p>
   <label class="who" for="autoBuild"><span><span>Auto serve</span>
     <span class="muted small sub" id="autoBuildSub">${BoardUI.esc(BoardUI.tryWords('web').autoSub)}</span></span>
     <input type="checkbox" class="toggle" id="autoBuild" disabled></label>
@@ -329,7 +333,7 @@
     // session awake (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md).
     const autoMerge = $('#autoMerge');
     const autoMergeStatus = $('#autoMergeStatus');
-    let savedMax = '';
+    const savedCaps = {};
     get(site.url('api/settings'), waitIn('#autoMergeStatus')).then(({ body: d }) => {
       if (!B.alive()) return;
       savedTickets = d.settings?.tickets || null;
@@ -353,8 +357,10 @@
       $('#autoBuild').disabled = false;
       $('#autoPull').checked = d.settings?.auto_pull === true;
       $('#autoPull').disabled = false;
-      $('#maxImplementers').value = savedMax = String(d.settings?.max_implementers);
-      $('#maxImplementers').disabled = false;
+      for (const [id, key] of [['maxImplementers', 'max_implementers'], ['maxPlanners', 'max_planners']]) {
+        $(`#${id}`).value = savedCaps[key] = String(d.settings?.[key]);
+        $(`#${id}`).disabled = false;
+      }
       $('#autoTriage').checked = d.settings?.auto_triage === true;
       $('#autoTriage').disabled = false;
       $('#autoReview').checked = d.settings?.auto_review === true;
@@ -427,26 +433,29 @@
         $(`#${id}Status`).textContent = e.message || 'Could not save. Is the host awake?';
       }
     });
-    autoToggle('autoPull', 'auto_pull', (on) => (on ? 'Saved. Claude starts ready Todo cards while an implementer slot is free.' : 'Saved. Todo cards wait for you.'));
+    autoToggle('autoPull', 'auto_pull', (on) => (on ? 'Saved. Claude grills each card that lands in Todo and starts ready ones while an implementer slot is free.' : 'Saved. Todo cards wait for you.'));
 
-    // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md: Maximum parallel implementers saves on
+    // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md: Maximum parallel implementers, and
+    // Maximum parallel planners (docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md), save on
     // change, waiting on the server like a toggle; a number outside 1 to 99 or a refusal puts the saved one back.
-    B.on($('#maxImplementers'), 'change', async () => {
-      const input = $('#maxImplementers');
-      const status = $('#maxImplementersStatus');
+    const capInput = (id, key, saidOf) => B.on($(`#${id}`), 'change', async () => {
+      const input = $(`#${id}`);
+      const status = $(`#${id}Status`);
       const want = /^\d+$/.test(input.value) ? Number(input.value) : 0;
-      if (want < 1 || want > 99) { input.value = savedMax; status.textContent = 'Pick a whole number from 1 to 99.'; return; }
+      if (want < 1 || want > 99) { input.value = savedCaps[key]; status.textContent = 'Pick a whole number from 1 to 99.'; return; }
       try {
-        const settings = await saveToggle(input, { max_implementers: want });
+        const settings = await saveToggle(input, { [key]: want });
         if (!B.alive()) return;
-        input.value = savedMax = String(settings.max_implementers);
-        status.textContent = `Saved. Up to ${settings.max_implementers === 1 ? '1 card builds or waits' : `${settings.max_implementers} cards build or wait`} in Orchestrator review at once.`;
+        input.value = savedCaps[key] = String(settings[key]);
+        status.textContent = saidOf(settings[key]);
       } catch (e) {
         if (!B.alive()) return;
-        input.value = savedMax;
+        input.value = savedCaps[key];
         status.textContent = e.message || 'Could not save. Is the host awake?';
       }
     });
+    capInput('maxImplementers', 'max_implementers', (n) => `Saved. Up to ${n === 1 ? '1 card builds or waits' : `${n} cards build or wait`} in Orchestrator review at once.`);
+    capInput('maxPlanners', 'max_planners', (n) => `Saved. Up to ${n === 1 ? '1 grill or prototype runs' : `${n} grills or prototypes run`} at once.`);
     autoToggle('autoReview', 'auto_review', (on) => (on ? 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.' : 'Saved. Claude leaves incoming PRs alone.'));
     autoToggle('idleNotification', 'idle_notification', (on) => (on ? 'Saved. One push once the board has been idle for 15 minutes.' : 'Saved. No push when the board goes idle.'));
     autoToggle('autoTriage', 'auto_triage', (on) => (on ? 'Saved. Once a night, when cards wait on your answers, Claude triages them.' : 'Saved. Questions and Todo are left as they are.'));

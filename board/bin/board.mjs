@@ -182,6 +182,9 @@ command fails and changes nothing.
          [--notes-file <file>]                           --plan is an alias of --notes-file
          [--pick-up-at <time>]                           holds it until then, as item set's --pick-up-at
          [--size small|large] [--model opus|sonnet]      as item set's
+         [--state ready]                                 a Quick build: the pull takes it as it is, so it needs
+                                                         --size and --notes-file. Without it the board grills the
+                                                         card as soon as it lands in Todo
          [--parent <wave>/<id>]                          the card it was spun out of, such as one filed from
                                                          another card's thread, grill or answer: it reads as a
                                                          follow-up, and its Parent lists it in Children. A card
@@ -283,7 +286,7 @@ command fails and changes nothing.
   settings                                               the board's settings as JSON; flags default off, optional
                                                          settings appear when set: {"auto_merge": false,
                                                          "auto_build": false, "auto_pull": false,
-                                                         "max_implementers": 10,
+                                                         "max_implementers": 10, "max_planners": 3,
                                                          "auto_triage": false, "auto_review": false,
                                                          "idle_notification": false, "skip_draft": false,
                                                          "prs": true, "github_login": "owner"}
@@ -318,14 +321,18 @@ command fails and changes nothing.
                                                          board server starts and launches the build of the top
                                                          ready Todo cards nothing blocks, holds or asks about, one
                                                          per free implementer slot (see max-implementers), each
-                                                         once; with none ready and nothing building, it launches a
-                                                         planner on the top unready card: a prototype when it is
-                                                         prototyping, else a grill. Off by default.
+                                                         once, and launches a grill on each card that arrives in
+                                                         Todo, up to max-planners at a time (an arrival: not ready,
+                                                         held or queued, with no planner record and no questions
+                                                         yet). Off by default.
                                                          Only on the owner's word
   settings set max-implementers <1..99>                  Maximum parallel implementers, 10 by default: the cards
                                                          building or waiting in Orchestrator review the pull fills
                                                          up to. Planners and cards waiting on the owner don't count.
                                                          Only on the owner's word
+  settings set max-planners <1..99>                      Maximum parallel planners, 3 by default: the grills and
+                                                         prototypes running at once; arrivals past it wait in board
+                                                         order. Only on the owner's word
   settings set auto-review on|off                        on: while the board is idle and nothing is pulled, the board
                                                          server sends pr-review {pr, head, repo, title, author, url,
                                                          touches, asked} for one incoming PR at a time that touches
@@ -638,7 +645,7 @@ const COMMANDS = {
     return store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps, parent: f.parent, related: f.related,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, text: f.text, check: f.check }, options);
   }],
-  'item add': [['wave[/id]'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'parent', 'size', 'model'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket, pickUpAt: f['pick-up-at'], parent: f.parent, size: f.size, model: f.model }, options)],
+  'item add': [['wave[/id]'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'parent', 'size', 'model', 'state'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket, pickUpAt: f['pick-up-at'], parent: f.parent, size: f.size, model: f.model, state: f.state }, options)],
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
   'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],
   'ask done': [['eventId'], [], (site, [id]) => store.markAsk(site, id, 'done')],

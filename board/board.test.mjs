@@ -1597,6 +1597,19 @@ test("a card's --size and --model feed builder pick's Claude model, and builder 
   const added = board('item', 'add', 'w/A9', '--title', 'Nine', '--size', 'small', '--model', 'sonnet');
   assert.equal(added.code, 0, added.err);
   assert.deepEqual([read(at('waves', 'w', 'wave.json')).items.at(-1).size, read(at('waves', 'w', 'wave.json')).items.at(-1).model], ['small', 'sonnet']);
+  assert.equal('state' in read(at('waves', 'w', 'wave.json')).items.at(-1), false, 'a card added without --state gets its grill from the board');
+  // docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md: a Quick build is added ready, with
+  // what a builder starts from, so the board never grills it.
+  const count = () => read(at('waves', 'w', 'wave.json')).items.length;
+  const before = count();
+  assert.match(board('item', 'add', 'w/Q1', '--title', 'Quick', '--state', 'grilling').err, /item add takes --state ready only/);
+  write(at('waves', 'w', 'q1.md'), '# Quick\n');
+  assert.match(board('item', 'add', 'w/Q1', '--title', 'Quick', '--state', 'ready', '--notes-file', 'q1.md').err, /w\/Q1 has no size; a builder starts from it/);
+  assert.match(board('item', 'add', 'w/Q1', '--title', 'Quick', '--state', 'ready', '--size', 'small').err, /w\/Q1 has no notes file/);
+  assert.equal(count(), before, 'a refused add writes no card');
+  const quick = board('item', 'add', 'w/Q1', '--title', 'Quick', '--state', 'ready', '--size', 'small', '--notes-file', 'q1.md');
+  assert.equal(quick.code, 0, quick.err);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items.at(-1).state, 'ready');
 
   write(at('kickflip', 'settings.json'), { claudeModel: 'sonnet' });
   assert.equal(pick(), "claude sonnet: Codex isn't installed on the host. Claude model is Sonnet.\n");
@@ -3116,12 +3129,12 @@ test("reviewers set, add and remove keep the board's own reviewers in its board.
 test("settings prints the board's settings as JSON, off when absent, and settings set auto-merge on|off writes board.json keeping its other keys", () => {
   const cfg = () => read(site('orch', 'board.json'));
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] });
-  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_pull":false,"max_implementers":10,"auto_triage":false,"auto_review":false,"idle_notification":false,"skip_draft":false,"prs":true}\n', err: '' });
+  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_pull":false,"max_implementers":10,"max_planners":3,"auto_triage":false,"auto_review":false,"idle_notification":false,"skip_draft":false,"prs":true}\n', err: '' });
   const on = board('settings', 'set', 'auto-merge', 'on', '--site', 'orch');
   assert.equal(on.code, 0);
   assert.match(on.out, /^auto-merge on$/m);
   assert.deepEqual(cfg(), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }], auto_merge: true });
-  assert.equal(board('settings', '--site', 'orch').out, '{"auto_merge":true,"auto_build":false,"auto_pull":false,"max_implementers":10,"auto_triage":false,"auto_review":false,"idle_notification":false,"skip_draft":false,"prs":true}\n');
+  assert.equal(board('settings', '--site', 'orch').out, '{"auto_merge":true,"auto_build":false,"auto_pull":false,"max_implementers":10,"max_planners":3,"auto_triage":false,"auto_review":false,"idle_notification":false,"skip_draft":false,"prs":true}\n');
   assert.equal(board('settings', 'set', 'auto-merge', 'off', '--site', 'orch').code, 0);
   assert.equal(cfg().auto_merge, false);
   // docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md
@@ -3141,6 +3154,14 @@ test("settings prints the board's settings as JSON, off when absent, and setting
   }
   assert.equal(cfg().max_implementers, 4);
   assert.equal(board('settings', 'set', 'max-implementers', '10', '--site', 'orch').code, 0);
+  // docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md
+  assert.deepEqual(board('settings', 'set', 'max-planners', '5', '--site', 'orch'), { code: 0, out: 'max-planners 5\n', err: '' });
+  assert.equal(cfg().max_planners, 5);
+  for (const invalid of ['0', '100', '2.5', 'on']) {
+    assert.match(board('settings', 'set', 'max-planners', invalid, '--site', 'orch').err, /max_planners must be a whole number from 1 to 99/, invalid);
+  }
+  assert.equal(cfg().max_planners, 5);
+  assert.equal(board('settings', 'set', 'max-planners', '3', '--site', 'orch').code, 0);
 
   const login = board('settings', 'set', 'github-login', 'owner', '--site', 'orch');
   assert.equal(login.code, 0);
@@ -3376,7 +3397,7 @@ test('main set publishes an install with the same URL and sha checks as card ins
 
 test('github-login settings lines and API validation support set and clear', async () => {
   const { settingsOf, settingsLines, saveBoardSettings } = await import('./store.mjs');
-  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting auto-triage off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on', 'setting github-login owner']);
+  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting max-planners 3', 'setting auto-triage off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on', 'setting github-login owner']);
   assert.ok(!('github_login' in settingsOf({ github_login: 'bad login' })));
   await saveBoardSettings(site('orch'), { github_login: 'owner' });
   await saveBoardSettings(site('orch'), { github_login: null });

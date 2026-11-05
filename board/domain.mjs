@@ -1191,10 +1191,7 @@ export const MAX_IMPLEMENTERS = 10;
 // working on them. The free slots, the cap less the implementers and waiting, take the queue from its top in board
 // order, queued cards holding none: starts lists the tapped cards nothing blocks any more, which the board server
 // starts as a tap, and pulls the pullable cards not pulled
-// (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md, docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md). plannable lists, top first, the buildable cards
-// not set ready, and the cards prototyping again with nothing waiting on the owner
-// (docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md), that aren't held, with no planner running, no grill or prototype under way, no question waiting on the owner or on
-// Claude and no message a session is working on; empty while any card has a grill or prototype under way or a planner running.
+// (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md, docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md).
 export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
   const open = items.filter((i) => !closedLane(i));
   const running = (i) => (i.agents || []).filter((a) => !a.done);
@@ -1205,9 +1202,22 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
   const next = open.filter((i) => tapped(i) || (pullable.includes(i.key) && !waiting.includes(i.key))).slice(0, Math.max(0, cap - implementers - waiting.length));
   const starts = next.filter(tapped).map((i) => i.key);
   const pulls = next.filter((i) => !tapped(i)).map((i) => i.key);
-  const planning = open.some((i) => i.grilling || i.prototyping || running(i).some(plans));
-  const plannable = planning ? [] : open.filter((i) => (i.buildable || (i.unpicked && !i.action)) && i.state !== 'ready' && !i.held && !i.questions?.open && !i.questions?.answered && !i.working).map((i) => i.key);
-  return { idle: !implementers, pullable, waiting, starts, pulls, plannable };
+  return { idle: !implementers, pullable, waiting, starts, pulls };
+}
+
+// docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md
+// How many grills and prototypes a board runs at once, unless its max_planners setting says otherwise.
+export const MAX_PLANNERS = 3;
+// For built items: the cards that arrived in Todo and get a grill now, top first. A card arrives when it is an open work
+// card in Todo nothing has picked up: buildable, not ready, held, queued by a Build tap or worked on by a session, with
+// no planner record ever, no grill or prototype requested and no question topic. However it was filed (an ask, item add,
+// the +, an import) it counts the same. The cap, less the planners running, takes them from the top; the rest wait.
+export function arrivalsOf(items, { cap = MAX_PLANNERS } = {}) {
+  const open = items.filter((i) => !closedLane(i));
+  const planners = open.filter((i) => (i.agents || []).some((a) => plans(a) && a.started && !a.done)).length;
+  const arrived = open.filter((i) => i.buildable && i.state !== 'ready' && !i.held && !i.queuedAt && !i.working && !i.grilling && !i.prototyping
+    && !i.questions && !(i.agents || []).some(plans));
+  return arrived.slice(0, Math.max(0, cap - planners)).map((i) => i.key);
 }
 
 // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md

@@ -327,7 +327,9 @@ test('with auto implement on the board starts and launches the build of the top 
     fs.rmSync(usageFile);
     await until(() => pulls().length === 4, 'the pull waits for the pause to end');
     assert.deepEqual(pulls(), ['t/A5', 't/A7', 't/A6', 't/A4']);
-    assert.deepEqual(['A1', 'A2', 'A3', 'F1'].map(thread), [[], [], [], []]);
+    assert.deepEqual(['A1', 'A2', 'A3'].map(thread), [[], [], []]);
+    // The follow-up, filed with no state, is no pull but arrived in Todo, so it got its grill.
+    assert.deepEqual(thread('F1').map((t) => t.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.', 'Planner launched on Claude Opus']);
   } finally {
     await stop();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -523,8 +525,8 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
   }
 });
 
-// docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md
-test('an idle board with auto-pull on and nothing to pull launches a planner on its top unready Todo card, one at a time, never while one is planned or paused', async () => {
+// docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md
+test('with auto-pull on, each card arriving in Todo gets a grill up to the planner cap, busy board or not, the rest in board order, once each, never while paused', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-plan-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
@@ -533,20 +535,22 @@ test('an idle board with auto-pull on and nothing to pull launches a planner on 
   const waveFile = path.join(dataDir, 'wave.json');
   const eventsFile = path.join(dataDir, 'events.jsonl');
   const ownerFile = path.join(dataDir, 'owner.json');
-  const agentFile = path.join(dataDir, 'agents', 'B3.json');
+  const agentFile = (id) => path.join(dataDir, 'agents', `${id}.json`);
   const usageFile = path.join(dir, '.claude', 'kickflip', 'usage.json');
   const now = Date.parse('2026-11-03T16:00:00Z');
   const iso = (ms) => new Date(ms).toISOString();
   let worker;
-  fs.mkdirSync(path.dirname(agentFile), { recursive: true });
+  fs.mkdirSync(path.dirname(agentFile('B1')), { recursive: true });
   fs.mkdirSync(path.join(dataDir, 'threads'));
   fs.mkdirSync(path.dirname(usageFile), { recursive: true });
-  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't', auto_pull: true }));
+  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't', auto_pull: true, max_planners: 2 }));
   const wave = { items: [
     { id: 'B1', title: 'Asking', status: 'planned', state: 'grilling' },
-    { id: 'B2', title: 'Also unready', status: 'planned', state: 'prototyping' },
-    { id: 'B3', title: 'Left grilling', status: 'planned', state: 'grilling' },
-  ] };
+    { id: 'B2', title: 'Filed prototyping', status: 'planned', state: 'prototyping' },
+    { id: 'B3', title: 'A follow-up', status: 'planned', parent: 't/B1' },
+    { id: 'B4', title: 'Past the cap', status: 'planned' },
+    { id: 'B5', title: 'Quick build', status: 'planned', state: 'ready' },
+  ].map((it, n) => ({ ...it, created: iso(now - (9 - n) * 60000) })) };
   fs.writeFileSync(waveFile, JSON.stringify(wave));
   const question = (id, key) => ({ id, topic: `item:${key}`, question: 'Which?', options: [{ id: 'a', label: 'A' }] });
   fs.writeFileSync(ownerFile, JSON.stringify({ topics: [], items: [question('q1', 't/B1')] }));
@@ -591,33 +595,36 @@ test('an idle board with auto-pull on and nothing to pull launches a planner on 
   try {
     await start();
     await tick();
-    assert.deepEqual(launched('grill', 'prototype'), []);
+    const grills = () => fs.readFileSync(path.join(dir, 'launches.log'), 'utf8').split('\n').filter((l) => l.endsWith(' grill')).length;
+    assert.deepEqual(launched('grill', 'prototype', 'build'), [], 'nothing launches while usage is paused');
     fs.rmSync(usageFile);
-    await until(() => launched('grill', 'prototype').length === 1 && thread('B3').length === 2, 'the idle board launches a planner');
-    assert.deepEqual(launched('grill'), ['t/B3']);
-    assert.deepEqual(thread('B3').map((t) => t.replace(/ in \/.*/, '')), ['Asked for a grill or prototype: nothing in Todo was ready to build.', 'Planner launched on Claude Opus']);
-    assert.deepEqual(JSON.parse(fs.readFileSync(agentFile, 'utf8')).dispatched, 'hub');
+    await until(() => launched('grill').length === 2 && launched('build').length === 1 && thread('B3').length === 2, 'the arrivals get their grills');
+    assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4'], 'the cap of two takes the top arrivals, Todo being newest first');
+    assert.deepEqual(launched('prototype'), []);
+    assert.deepEqual(launched('build'), ['t/B5'], 'a ready card is pulled, not grilled, and its build holds no planner back');
+    assert.deepEqual(thread('B3').map((t) => t.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.', 'Planner launched on Claude Opus']);
+    const record = JSON.parse(fs.readFileSync(agentFile('B4'), 'utf8'));
+    assert.deepEqual([record.kind, record.dispatched], ['grill', 'hub']);
     await stop();
     await start();
     await tick();
     await tick();
-    assert.deepEqual(launched('grill', 'prototype'), ['t/B3'], 'nothing else is planned while its planner is open');
+    assert.equal(grills(), 2, 'an open grill is not launched again, and B2 waits for a slot');
 
-    // The grill posts a question and finishes: B3 is planned no more, and the next unready card, prototyping, gets a prototype.
-    put(ownerFile, JSON.stringify({ topics: [], items: [question('q1', 't/B1'), question('q2', 't/B3')] }));
-    put(agentFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(agentFile, 'utf8')), done: iso(now) }));
-    await until(() => launched('grill', 'prototype').length === 2, 'the next unready card is planned');
-    assert.deepEqual(launched('prototype'), ['t/B2']);
-
-    // A ready card is pulled, not planned.
-    wave.items.push({ id: 'B4', title: 'Ready', status: 'planned', state: 'ready' });
-    const current = JSON.parse(fs.readFileSync(waveFile, 'utf8'));
-    put(waveFile, JSON.stringify({ ...current, items: [...current.items, wave.items.at(-1)] }));
-    await until(() => launched('build').length === 1, 'a ready card is pulled');
-    assert.deepEqual(launched('build'), ['t/B4']);
-    assert.deepEqual(launched('grill', 'prototype'), ['t/B3', 't/B2']);
+    // B4's grill posts a question and finishes: its slot goes to B2, the next arrival, which gets a grill though it
+    // was filed prototyping.
+    put(ownerFile, JSON.stringify({ topics: [], items: [question('q1', 't/B1'), question('q2', 't/B4')] }));
+    put(agentFile('B4'), JSON.stringify({ ...record, done: iso(now) }));
+    await until(() => launched('grill').length === 3, 'the next arrival gets the free slot');
+    assert.deepEqual(launched('grill').sort(), ['t/B2', 't/B3', 't/B4']);
+    assert.deepEqual(launched('prototype'), []);
+    // B3's grill finishes with no questions: one grill per arrival, so it isn't grilled again.
+    put(agentFile('B3'), JSON.stringify({ ...JSON.parse(fs.readFileSync(agentFile('B3'), 'utf8')), done: iso(now) }));
+    await tick();
+    await tick();
+    assert.equal(grills(), 3);
     assert.deepEqual(logged('card-plan'), [], 'no event wakes the session');
-    assert.deepEqual(thread('B1'), []);
+    assert.deepEqual(thread('B1'), [], 'a card with questions has had its grill');
   } finally {
     await stop();
     fs.rmSync(dir, { recursive: true, force: true });

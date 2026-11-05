@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, ITEM_STATUSES, MAX_IMPLEMENTERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, ITEM_STATUSES, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, builderPick } from '../shared/usage-gate.mjs';
 import { reviseQueued, flushQueue, queueStatus, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -785,15 +785,18 @@ const storedTickets = (value) => { try { return value ? ticketSource(value) : nu
 // A board's settings in board.json (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md): auto_merge,
 // auto_build, auto_pull (Auto implement Todo cards), auto_triage, auto_review and idle_notification, off when absent, max_implementers, a
 // whole number from 1 to 99 and MAX_IMPLEMENTERS when absent
-// (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md), skip_draft, off when
+// (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md), max_planners, the same and MAX_PLANNERS when
+// absent (docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md), skip_draft, off when
 // absent (docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md), prs, on unless false (opensPRs;
 // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md), tickets, its one
 // ticket source, and github_login, absent when unset or invalid (docs/adr/2026-11-01-1348-a-board-has-one-ticket-source.md).
-const validMaxImplementers = (value) => Number.isInteger(value) && value >= 1 && value <= 99;
+const validCap = (value) => Number.isInteger(value) && value >= 1 && value <= 99;
+const CAPS = ['max_implementers', 'max_planners'];
 export const settingsOf = (cfg) => {
   const tickets = storedTickets(cfg?.tickets);
   return { auto_merge: cfg?.auto_merge === true, auto_build: cfg?.auto_build === true, auto_pull: cfg?.auto_pull === true,
-    max_implementers: validMaxImplementers(cfg?.max_implementers) ? cfg.max_implementers : MAX_IMPLEMENTERS, auto_triage: cfg?.auto_triage === true, auto_review: cfg?.auto_review === true,
+    max_implementers: validCap(cfg?.max_implementers) ? cfg.max_implementers : MAX_IMPLEMENTERS,
+    max_planners: validCap(cfg?.max_planners) ? cfg.max_planners : MAX_PLANNERS, auto_triage: cfg?.auto_triage === true, auto_review: cfg?.auto_review === true,
     idle_notification: cfg?.idle_notification === true, skip_draft: cfg?.skip_draft === true, prs: cfg?.prs !== false,
     ...(tickets ? { tickets } : {}), ...(validGithubLogin(cfg?.github_login) ? { github_login: cfg.github_login } : {}) };
 };
@@ -805,11 +808,11 @@ export async function readBoardSettings(site) {
 // answer, settings settingsOf's.
 export const opensPRs = (board, settings) => Boolean(board?.github) && !board.local && settings.prs;
 
-// changes {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, tickets?: source, github_login?: login | null} → {file, settings, changed}; changed lists the keys whose value moved.
+// changes {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, max_planners?: 1..99, auto_triage?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, tickets?: source, github_login?: login | null} → {file, settings, changed}; changed lists the keys whose value moved.
 // PRs off on a board on GitHub that builds from its shared clone needs its Push main switch on, since each land there
 // then pushes main (permissions.mjs pushMain).
 export async function saveBoardSettings(site, changes) {
-  onlyKeys(changes, ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'auto_triage', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tickets', 'github_login'], 'the settings');
+  onlyKeys(changes, ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'max_planners', 'auto_triage', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tickets', 'github_login'], 'the settings');
   if (!Object.keys(changes).length) fail('the settings name nothing to change');
   changes = { ...changes };
   for (const [k, v] of Object.entries(changes)) {
@@ -823,8 +826,8 @@ export async function saveBoardSettings(site, changes) {
     else if (k === 'github_login') {
       if (v === '' || v === null) changes.github_login = undefined;
       else if (!validGithubLogin(v)) fail('github_login must be a GitHub login');
-    } else if (k === 'max_implementers') {
-      if (!validMaxImplementers(v)) fail('max_implementers must be a whole number from 1 to 99');
+    } else if (CAPS.includes(k)) {
+      if (!validCap(v)) fail(`${k} must be a whole number from 1 to 99`);
     } else bool(v, k);
   }
   if (changes.prs === false) {
@@ -855,7 +858,7 @@ export async function fallBackFromLinear() {
 // The CLI's `settings set <name> <value>`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
   const key = String(name).replace(/-/g, '_');
-  const names = ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'auto_triage', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'github_login', 'tickets'];
+  const names = ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'max_planners', 'auto_triage', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'github_login', 'tickets'];
   if (!names.includes(key)) fail(`no board setting "${name}"; settings are ${names.map((k) => k.replace(/_/g, '-')).join(', ')}`);
   if (key === 'tickets') {
     let tickets;
@@ -867,15 +870,15 @@ export async function setBoardSetting(site, name, value) {
     const { file, settings } = await saveBoardSettings(site, { github_login: value });
     return { file, lines: [`github-login ${settings.github_login || 'unset'}`] };
   }
-  if (key === 'max_implementers') {
-    const { file, settings } = await saveBoardSettings(site, { max_implementers: /^\d+$/.test(value) ? Number(value) : value });
-    return { file, lines: [`${name} ${settings.max_implementers}`] };
+  if (CAPS.includes(key)) {
+    const { file, settings } = await saveBoardSettings(site, { [key]: /^\d+$/.test(value) ? Number(value) : value });
+    return { file, lines: [`${name} ${settings[key]}`] };
   }
   if (!['on', 'off'].includes(value)) fail(`settings set ${name} takes on or off, not "${value}"`);
   const { file, settings } = await saveBoardSettings(site, { [key]: value === 'on' });
   return { file, lines: [`${name} ${settings[key] ? 'on' : 'off'}`] };
 }
-export const settingsLines = (settings) => Object.entries(settings).map(([k, v]) => `setting ${k.replace(/_/g, '-')} ${k === 'tickets' ? JSON.stringify(v) : k === 'github_login' || k === 'max_implementers' ? v : v ? 'on' : 'off'}`);
+export const settingsLines = (settings) => Object.entries(settings).map(([k, v]) => `setting ${k.replace(/_/g, '-')} ${k === 'tickets' ? JSON.stringify(v) : k === 'github_login' || CAPS.includes(k) ? v : v ? 'on' : 'off'}`);
 
 // change(list) → {rules, rule} from hub/rules.mjs; → {file, lines} naming the rule's id.
 async function changeRules(site, hub, change) {
@@ -1351,10 +1354,13 @@ async function checkNextDeps(site, key, item, next) {
 // docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
 // Ready means a builder can start from the card alone: it has a size, a notes file, and that file names the id of every
 // question on the card the owner answered (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
-async function checkNotesComplete(site, key, dir, item) {
+function checkSizeAndNotes(key, item) {
   const starts = 'a builder starts from it, so pass';
   if (!item.size) fail(`${key} has no size; ${starts} --size small or large with --state ready`);
   if (!item.plan) fail(`${key} has no notes file; ${starts} --notes-file <file.md> with --state ready`);
+}
+async function checkNotesComplete(site, key, dir, item) {
+  checkSizeAndNotes(key, item);
   const notes = await fs.readFile(await planPath(dir, item.plan), 'utf8');
   const left = (await cardQuestions(site, key)).asked.filter((q) => q.answers.length && !notes.includes(q.id)).map((q) => q.id);
   if (left.length) fail(`${key}'s notes leave out the answered question${left.length === 1 ? '' : 's'} ${left.join(', ')}; record each answer in ${item.plan}, naming its id, before it is ready`);
@@ -1868,7 +1874,9 @@ export const addItem = (site, key, details, options) => ticketWrite(site, () => 
 // → {file, key}. A new card starts unstarted: planned, or waiting when it names deps. key is <wave>/<id>, or <wave>
 // alone, which names the card from the ticket made or linked for it. parent is the card it was spun out of
 // (docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md).
-async function createItem(site, key, { title, notes, deps, notesFile, ticket, pickUpAt, parent, size, model }, options) {
+async function createItem(site, key, { title, notes, deps, notesFile, ticket, pickUpAt, parent, size, model, state }, options) {
+  // docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md: a card added without ready is grilled.
+  if (state !== undefined && state !== 'ready') fail('item add takes --state ready only: a card added without it gets its grill from the board');
   const { wave: slug, id } = key.includes('/') ? parseKey(key) : { wave: key };
   if (id !== undefined) domId(id, 'the item id');
   const { source, wave } = await loadWave(site, slug);
@@ -1881,6 +1889,8 @@ async function createItem(site, key, { title, notes, deps, notesFile, ticket, pi
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
   item.status = item.deps?.length ? 'waiting' : 'planned';
   if (pickUpAt !== undefined) setHold(item, { until: pickUpTime(pickUpAt) });
+  // A new card has no questions, so ready needs only its size and notes file, checked before its ticket is made.
+  if (state) { checkSizeAndNotes(id === undefined ? 'the card' : key, item); item.state = state; }
   await assignTicket(site, key, wave, item, ticket, options, source.dir);
   if (id === undefined) {
     item.id = cardIdOf(item.ticket);

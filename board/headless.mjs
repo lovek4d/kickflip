@@ -98,6 +98,7 @@ export function plannerBrief({ route, key, ref, title, notes, kind, repo, rules 
     `3. Report progress with \`${b} builder progress ${key} "<plain, 80 characters or fewer>"\` at least every 10 minutes.`,
     grill
       ? `4. Follow the grilling skill: find every decision the card leaves open, and post each as a question for the owner with \`${b} question add --file <json>\` on topic item:${key}, one per decision, your recommendation first.`
+        + ' When the card changes the hub\'s or a board\'s UI, end with one more question asking for a prototype round of it, that round recommended first, so the owner can pick it or tap its eye.'
       : `4. Follow the prototype skill: record the prototype with \`${b} prototype add <topic> --card ${key} --take <K>:<label> …\`, write one take per option, built from the board's real components fed fake data, and post one question whose url opens it with \`${b} question add --file <json>\` on topic item:${key}.`,
     ...(text ? [`   The owner asked for this ${grill ? 'grill' : 'prototype'}, writing: "${text}"`] : []),
     ...(files.length ? [`   The owner attached: ${files.map((f) => f.path).join(', ')}.`] : []),

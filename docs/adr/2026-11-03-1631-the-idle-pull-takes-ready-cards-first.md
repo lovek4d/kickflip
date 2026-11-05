@@ -12,3 +12,5 @@ Considered:
 - pulling no-state cards after the ready ones: a fresh card has not been judged trivial, so it is grilled or prototyped first (#153);
 - the board picking grill or prototype: the board can't tell UI work from its fields, and the session can;
 - a plan per minute while grills run: planners don't count against idle, so this would grill the whole Todo at once.
+
+Superseded in part: the plan when nothing is pullable is replaced by [every card arriving in Todo is grilled by the board](2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md).

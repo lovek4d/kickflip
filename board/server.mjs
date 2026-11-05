@@ -6,7 +6,7 @@
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask, ask progress|done,
 //   lineup create|add|remove|set|finish,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
-// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review, idle_notification, skip_draft, prs, github_login}. auto_build asks the hub to
+// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_pull, max_implementers, max_planners, auto_triage, auto_review, idle_notification, skip_draft, prs, github_login}. auto_build asks the hub to
 // run each card's .kickflip/build after each push, and hides the cards' Serve / Build; main always builds after a merge.
 // auto_merge (false when absent) lets the session merge
 // an approved, green, clean PR itself; off, the card shows the owner's Merge (store.mjs settingsOf). rules are the owner's standing instructions to this
@@ -166,9 +166,9 @@
 //                                cards), the server starts and launches the build of the top pullable Todo cards, one per
 //                                implementer slot max_implementers leaves free (domain.mjs pullOf), whether or not
 //                                the board is idle, each once, tracked in data/pulled.json, its record dispatched:
-//                                'hub'; with nothing to pull, an idle board launches a planner on the top plannable
-//                                card, a prototype when it is prototyping and a grill otherwise, one at a time,
-//                                tracked in data/planned.json. Neither appends an event.
+//                                'hub'; and each card that arrives in Todo (domain.mjs arrivalsOf) gets a grill
+//                                launched, up to max_planners running at once, the rest waiting in board order, busy
+//                                board or not. Neither appends an event.
 //                                With auto_triage on, once a night from the middle of the hub's quiet hours to their
 //                                end, an idle board with two or more cards waiting on open questions (domain.mjs
 //                                triageOf) gets overnight-triage {date, topic, cards} first, unless nothing changed
@@ -201,8 +201,8 @@
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (store.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
-//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull, max_implementers, auto_triage, auto_review, idle_notification, skip_draft, prs} (store.mjs readBoardSettings)
-//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, auto_triage?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean} → board.json, keeping its other keys, and when a value other
+//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull, max_implementers, max_planners, auto_triage, auto_review, idle_notification, skip_draft, prs} (store.mjs readBoardSettings)
+//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, max_planners?: 1..99, auto_triage?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean} → board.json, keeping its other keys, and when a value other
 //                                than idle_notification moved a `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id}; a bad body → 400 {error}
 //   GET  /api/permissions        {file, permissions: [{id, name, allows, rule, on, refused}]}: the board's session
@@ -241,7 +241,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { archivedOf, buildBoard, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, refOf, startedByAnswer, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { archivedOf, buildBoard, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, refOf, startedByAnswer, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
@@ -1218,12 +1218,14 @@ async function checkPickUps() {
 }
 
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
-// The Auto jobs, run on every board change and once at start: the queued starts, triage, then the pull, then a plan,
-// then a review. The queue's top fills the free implementer slots (domain.mjs pullOf): a tapped card nothing blocks
+// The Auto jobs, run on every board change and once at start: the queued starts, the arrivals' grills, triage, then
+// the pull, then a review. The queue's top fills the free implementer slots (domain.mjs pullOf): a tapped card nothing blocks
 // any more starts as the owner's Build tap would, launching its builder, whether Auto implement is on or
-// not (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md, docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md). The pull fills every free implementer slot whatever else runs; triage, the plan and the review wait for an idle
+// not (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md, docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md).
+// With Auto implement on, each card that arrived in Todo gets its grill, up to max_planners at once (launchArrivals).
+// The pull fills every free implementer slot whatever else runs; triage and the review wait for an idle
 // board. A triage sent or under way holds the pull until its reply, and a card pulled and not yet started holds the
-// plan and the review. None goes out while usage is paused; the minute check runs the jobs again once a pause lifts,
+// review. None goes out while usage is paused; the minute check runs the jobs again once a pause lifts,
 // since the pause lives outside the board's data. A check asked for while one runs runs again after it.
 let checkingAuto = null;
 let autoAgain = false;
@@ -1242,20 +1244,17 @@ async function runAuto() {
   const settings = settingsOf(await config());
   const log = await readLines(events);
   const { items, reviews } = await sharedBoard();
-  const { idle, pullable, waiting, starts, pulls, plannable } = pullOf(items, { cap: settings.max_implementers, pulled: await sentOf(PULL) });
+  const { idle, waiting, starts, pulls } = pullOf(items, { cap: settings.max_implementers, pulled: await sentOf(PULL) });
   heldByPause = readUsageGate().state === 'paused';
   const ready = idle && !heldByPause;
   for (const key of heldByPause ? [] : starts) {
     await handOff(await startQueuedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts)));
   }
   if (!heldByPause) await launchLanders(items.some((i) => i.status === 'checking'));
+  if (settings.auto_pull && !heldByPause) await launchArrivals(arrivalsOf(items, { cap: settings.max_planners }));
   if (await checkTriage(settings, log, items, ready)) return;
   const startPull = async (key) => handOff(await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub'));
   if (await sendPulls(PULL, settings.auto_pull, waiting, heldByPause ? [] : pulls, startPull)) return;
-  const unready = pullable.length ? [] : plannable;
-  const planned = (await sentOf(PLAN)).filter((k) => unready.includes(k));
-  const startPlan = async (key) => launchPlanner(key, items.find((i) => i.key === key)?.state === 'prototyping' ? 'prototype' : 'grill');
-  if (await sendPulls(PLAN, settings.auto_pull, planned, ready && !planned.length ? unready.slice(0, 1) : [], startPlan)) return;
   // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md: one review at a time, after any pull.
   const { due, repo } = reviews;
   if (ready && due) await appendEvent('pr-review', { pr: due.number, head: due.head, repo, title: due.title, author: due.author, url: due.url, touches: due.touches, asked: Boolean(due.asked) });
@@ -1280,7 +1279,18 @@ async function handOff(started) {
   return null;
 }
 
-// A planner, kind grill or prototype, the owner asked for or the idle board's plan picked, opens on the card and
+// docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md
+// Each card domain.mjs arrivalsOf lists gets its grill, with a thread line saying why. Its open grill record keeps it
+// off the list from then on, so the cached board is dropped, as handOff does, before the next pass reads it.
+async function launchArrivals(keys) {
+  for (const key of keys) {
+    await appendThread(here, key, { text: 'Landed in Todo, so the board started its grill.' });
+    await launchPlanner(key, 'grill');
+    dataVersion++;
+  }
+}
+
+// A planner, kind grill or prototype, the owner asked for or a card's arrival in Todo started, opens on the card and
 // launches headless in the board's repo (store.mjs startPlanner), unless an agent already works on it. One that can't
 // start or launch leaves a thread line and its record closed.
 async function launchPlanner(key, kind, ask = {}) {
@@ -1422,11 +1432,8 @@ async function triageDue() {
 
 // docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md
 // The pull starts the build of each card domain.mjs pullOf says fills a free slot, tracked in data/pulled.json
-// (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md). With nothing to pull an idle board starts
-// a planner on the top plannable card instead, one at a time, tracked in data/planned.json
-// (docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md, docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
+// (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md).
 const PULL = { file: 'pulled.json', line: 'Pulled in: an implementer slot was free.' };
-const PLAN = { file: 'planned.json', line: 'Asked for a grill or prototype: nothing in Todo was ready to build.' };
 // The marker {keys, at}: keys are the cards started that still wait for their agent, at when the marker last changed.
 // A marker from before the cap holds one key instead. → the keys started.
 const markedOf = (marker) => marker.keys || (marker.key ? [marker.key] : []);
