@@ -538,92 +538,86 @@ for (const [key, id, on] of [
   view.unmount();
 });
 
-// docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md
-test('Board Settings shows Skip the draft only on a GitHub board, says under it what Auto-merge adds, and saves it with no confirmation', async () => {
-  for (const github of ['owner/project', null]) {
-    const page = fakePage(memoryStorage().localStorage);
-    const root = new page.El();
-    let saved = false;
-    const posts = [], confirms = [];
-    page.win.BoardDialogs.confirm = async (text) => { confirms.push(text); return true; };
-    page.win.fetch = async (url, opts = {}) => {
-      let body = {};
-      if (url.includes('board-repo')) body = github ? { github, branch: 'main' } : { remote: 'https://git.example/r', branch: 'main' };
-      if (url.endsWith('/api/settings')) {
-        if (opts.method === 'POST') { posts.push(JSON.parse(opts.body)); saved = JSON.parse(opts.body).skip_draft; }
-        body = { settings: { skip_draft: saved } };
-      }
-      return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
-    };
-    const view = page.win.AppViews.settings.create(root, '/orch', {});
-    view.mount();
-    await tick();
-    assert.equal(root.querySelector('#skipDraftRow').hidden, !github, String(github));
-    const markup = page.win.AppViews.settings.markup({}, {});
-    assert.match(markup.slice(markup.indexOf('id="skipDraftRow"')), /^[^]*Skip the draft[^]*With Auto-merge on too, a builder’s PR can merge once reviewers approve it, without you seeing it\.[^]*id="skipDraftStatus"/);
-    const toggle = root.querySelector('#skipDraft');
-    assert.deepEqual([toggle.disabled, toggle.checked], [false, false]);
-    toggle.checked = true;
-    page.fire(toggle, 'change');
-    await tick();
-    assert.deepEqual([confirms, posts.at(-1), toggle.checked], [[], { skip_draft: true }, true]);
-    assert.equal(root.querySelector('#skipDraftStatus').textContent, 'Saved. A builder’s draft PR is marked ready for review once CI passes.');
-    view.unmount();
-  }
-});
-
-// docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md
-test('Board Settings shows PRs only on a GitHub board that builds from its shared clone; off, it hides Skip the draft and Reviewers and Auto-merge says it lands verified cards; a refusal puts it back', async () => {
-  for (const [repoBody, shown] of [[{ github: 'owner/project', branch: 'main' }, true], [{ github: 'owner/project', branch: 'main', local: true }, false], [{}, false]]) {
+// docs/adr/2026-11-05-0200-landing-is-one-choice-draft-pr-ready-pr-or-merge.md
+test('Board Settings shows Landing above Auto only on a GitHub board that builds from its shared clone, its choice read from prs and skip_draft, and Auto-merge says it merges PRs and base branch landings', async () => {
+  const markup = fakePage(memoryStorage().localStorage).win.AppViews.settings.markup({}, {});
+  assert.ok(markup.indexOf('<h2>Landing</h2>') > markup.indexOf('<h2>Tickets</h2>') && markup.indexOf('<h2>Landing</h2>') < markup.indexOf('<h2>Auto</h2>'));
+  assert.deepEqual([...markup.matchAll(/data-landing="(\w+)"[^>]*><span>([^<]+)<\/span><span class="small sub">([^<]+)<\/span>/g)].map((m) => m.slice(1)), [
+    ['draft', 'Draft PR', 'Opens a draft; you mark it ready.'],
+    ['ready', 'Ready PR', 'Opens ready for review once CI passes.'],
+    ['merge', 'Merge', 'No PR; lands on the base branch.'],
+  ]);
+  assert.doesNotMatch(markup, /id="prs"|id="skipDraft"|Skip the draft|lands on main/);
+  assert.match(markup, /Auto-merge<\/span>\s*<span class="muted small sub">Claude merges a PR once it is approved, green and merges cleanly, and lands a build waiting to merge into the base branch\.<\/span>/);
+  const cases = [
+    [{ github: 'owner/project', branch: 'main' }, { prs: true, skip_draft: false }, 'draft', 'Each card opens a draft PR and waits for you to mark it ready for review.'],
+    [{ github: 'owner/project', branch: 'main' }, { prs: true, skip_draft: true }, 'ready', 'Each card opens a PR ready for review, without waiting for you.'],
+    [{ github: 'owner/project', branch: 'main' }, { prs: false, skip_draft: true }, 'merge', 'No PR opens: each card lands on the base branch and the base branch is pushed.'],
+    [{ github: 'owner/project', branch: 'main', local: true }, { prs: true }, null],
+    [{}, { prs: true }, null],
+  ];
+  for (const [repoBody, settings, pressed, sub] of cases) {
     const page = fakePage(memoryStorage().localStorage);
     const root = new page.El();
     const view = page.win.AppViews.settings.create(root, '/orch', {});
     page.win.fetch = async (url) => {
-      const body = url.includes('board-repo') ? repoBody : url.endsWith('/api/settings') ? { settings: { prs: true } } : {};
+      const body = url.includes('board-repo') ? repoBody : url.endsWith('/api/settings') ? { settings } : {};
       return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
     };
     view.mount();
     await tick();
-    assert.equal(root.querySelector('#prsRow').hidden, !shown, JSON.stringify(repoBody));
-    assert.equal(root.querySelector('#reviewersSection').hidden, !shown, JSON.stringify(repoBody));
-    assert.equal(root.querySelector('#autoMergeSub').textContent, shown ? 'Claude merges a PR once it is approved, green and merges cleanly.' : 'Lands each verified card on main without waiting for your Merge.');
+    const label = JSON.stringify([repoBody, settings]);
+    assert.equal(root.querySelector('#landingSection').hidden, !pressed, label);
+    assert.equal(root.querySelector('#reviewersSection').hidden, pressed === 'merge' || !pressed, label);
+    if (pressed) {
+      assert.deepEqual(['draft', 'ready', 'merge'].map((v) => root.querySelector(`[data-landing="${v}"]`).getAttribute('aria-pressed')), ['draft', 'ready', 'merge'].map((v) => String(v === pressed)), label);
+      assert.equal(root.querySelector('#landingSub').textContent, sub, label);
+    }
     view.unmount();
   }
+});
+
+// docs/adr/2026-11-05-0200-landing-is-one-choice-draft-pr-ready-pr-or-merge.md
+test('a Landing tap saves prs and skip_draft together with no confirmation, Merge hides Reviewers, and a refusal keeps the saved choice', async () => {
   const page = fakePage(memoryStorage().localStorage);
   const root = new page.El();
-  let refuse = false, saved = true;
-  const posts = [];
+  let refuse = false, saved = { prs: true, skip_draft: false };
+  const posts = [], confirms = [];
+  page.win.BoardDialogs.confirm = async (text) => { confirms.push(text); return true; };
   page.win.fetch = async (url, opts = {}) => {
     let body = {}, status = 200;
     if (url.includes('board-repo')) body = { github: 'owner/project', branch: 'main' };
     if (url.endsWith('/api/settings')) {
       if (opts.method === 'POST') {
         posts.push(JSON.parse(opts.body));
-        if (refuse) { status = 400; body = { error: 'PRs off lands each card on main and pushes it, so turn on Push main after a land first' }; }
-        else saved = JSON.parse(opts.body).prs;
+        if (refuse) { status = 400; body = { error: 'Merge lands each card on main and pushes it, so turn on Push main after a land first' }; }
+        else saved = { ...saved, ...JSON.parse(opts.body) };
       }
-      if (status === 200) body = { settings: { prs: saved } };
+      if (status === 200) body = { settings: saved };
     }
     return { ok: status === 200, status, text: async () => JSON.stringify(body), json: async () => body };
   };
   const view = page.win.AppViews.settings.create(root, '/orch', {});
   view.mount();
   await tick();
-  const toggle = root.querySelector('#prs');
-  assert.deepEqual([toggle.disabled, toggle.checked, root.querySelector('#skipDraftRow').hidden], [false, true, false]);
+  const button = (v) => root.querySelector(`[data-landing="${v}"]`);
+  const pressed = () => ['draft', 'ready', 'merge'].filter((v) => button(v).getAttribute('aria-pressed') === 'true');
+  const tap = async (v) => { page.fire(button(v), 'click', { target: button(v) }); await tick(); };
+  assert.deepEqual([button('draft').disabled, pressed()], [false, ['draft']]);
+  await tap('ready');
+  assert.deepEqual([confirms, posts.at(-1), pressed(), root.querySelector('#landingStatus').textContent], [[], { prs: true, skip_draft: true }, ['ready'], 'Saved. Each card opens a PR ready for review.']);
+  assert.equal(root.querySelector('#landingSub').textContent, 'Each card opens a PR ready for review, without waiting for you.');
   refuse = true;
-  toggle.checked = false;
-  page.fire(toggle, 'change');
-  await tick();
-  assert.deepEqual([toggle.checked, root.querySelector('#prsStatus').textContent], [true, 'PRs off lands each card on main and pushes it, so turn on Push main after a land first']);
-  assert.equal(root.querySelector('#skipDraftRow').hidden, false);
+  await tap('merge');
+  assert.deepEqual([posts.at(-1), pressed(), root.querySelector('#landingStatus').textContent], [{ prs: false }, ['ready'], 'Merge lands each card on main and pushes it, so turn on Push main after a land first']);
+  assert.equal(root.querySelector('#reviewersSection').hidden, false);
   refuse = false;
-  toggle.checked = false;
-  page.fire(toggle, 'change');
-  await tick();
-  assert.deepEqual([posts.at(-1), toggle.checked, root.querySelector('#prsStatus').textContent], [{ prs: false }, false, 'Saved. Each card lands on main with no PR, and main is pushed.']);
-  assert.deepEqual([root.querySelector('#skipDraftRow').hidden, root.querySelector('#reviewersSection').hidden, root.querySelector('#prsRow').hidden], [true, true, false]);
-  assert.equal(root.querySelector('#autoMergeSub').textContent, 'Lands each verified card on main without waiting for your Merge.');
+  await tap('merge');
+  assert.deepEqual([posts.at(-1), pressed(), root.querySelector('#landingStatus').textContent], [{ prs: false }, ['merge'], 'Saved. Each card lands on the base branch with no PR, and the base branch is pushed.']);
+  assert.deepEqual([root.querySelector('#reviewersSection').hidden, root.querySelector('#landingSection').hidden], [true, false]);
+  await tap('draft');
+  assert.deepEqual([posts.at(-1), pressed(), root.querySelector('#landingStatus').textContent], [{ prs: true, skip_draft: false }, ['draft'], 'Saved. Each card opens a draft PR.']);
+  assert.equal(root.querySelector('#reviewersSection').hidden, false);
   view.unmount();
 });
 
@@ -4660,7 +4654,7 @@ test('Board Settings holds every automatic job in one Auto section, short labels
   const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
   const auto = html.slice(html.indexOf('<h2>Auto</h2>'), html.indexOf('<h2>Reviewers</h2>'));
   assert.deepEqual([...auto.matchAll(/<label class="who" for="(\w+)"><span><span>([^<]+)<\/span>/g)].map((m) => [m[1], m[2]]), [
-    ['autoPull', 'Auto implement Todo cards'], ['maxImplementers', 'Maximum parallel implementers'], ['maxPlanners', 'Maximum parallel planners'], ['autoBuild', 'Auto serve'], ['autoReview', 'Auto review'], ['prs', 'PRs'], ['autoMerge', 'Auto-merge'], ['skipDraft', 'Skip the draft'],
+    ['autoPull', 'Auto implement Todo cards'], ['maxImplementers', 'Maximum parallel implementers'], ['maxPlanners', 'Maximum parallel planners'], ['autoBuild', 'Auto serve'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'],
     ['autoTriage', 'Triage overnight'], ['idleNotification', 'Idle notification'],
   ]);
   assert.match(auto, /May use a lot of usage\./);

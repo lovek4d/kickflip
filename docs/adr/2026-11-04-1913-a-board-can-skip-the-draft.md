@@ -1,5 +1,7 @@
 # A board can skip the draft, and a draft waits in In Review on the owner
 
+Superseded in part by [Landing is one choice](2026-11-05-0200-landing-is-one-choice-draft-pr-ready-pr-or-merge.md): Board settings shows `skip_draft` on as the Landing choice Ready PR, not a Skip the draft switch, with no note under it about Auto-merge.
+
 Card #205, a follow-up from #195. Owner, 11/04: "there should be a setting for whether to skip the draft stage or not. And if it is enabled, then it automatically marks a draft as ready and pushes it into the review lane." And on #195's PR boards: "the draft should go to In review, but be Action needed for me with the next item. In progress is strictly things that are being implemented."
 
 On a GitHub board, finishing a build opens a draft PR ([finishing a build is one step](2026-11-04-1611-finishing-a-build-is-one-step.md)). What happens to that draft is now a board setting, `skip_draft` in `board.json`, off when absent.

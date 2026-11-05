@@ -321,13 +321,10 @@ _Avoid_: merge rule, merge policy
 
 A card with no PR lands the same way: with Auto-merge off its builder's `done` stops after the tests, and the card waits in In Review with a Merge button; the tap makes the board server rebase it onto main as it is now, rerun the tests and land it, sending a conflict or a failing test to a headless lander ([a land waits for your Merge](docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md)).
 
-**PRs**:
-A board setting, `prs` in its `board.json`, on unless set, shown on a GitHub board that builds in its own clone only. On, every card opens a PR, and with no reviewers on the board that PR merges once it is green and clean, with no approval. Off, no PR opens and each card lands on main, which is pushed; Skip the draft and Reviewers are hidden, and turning it off needs Push main granted ([a land waits for your Merge](docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md)).
-_Avoid_: PR mode, no-PR mode
-
-**Skip the draft**:
-A board setting, `skip_draft` in its `board.json`, off unless set, shown on a GitHub board only. On, the hub's GitHub check marks a card's draft PR ready for review once its CI passes, and the card waits in In Review with no Action needed until then; off, the draft waits in In Review with Action needed "Review draft PR #n". With **Auto-merge** on too, a builder's PR can merge once reviewers approve it, without the owner seeing it ([a board can skip the draft](docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md)).
-_Avoid_: auto-ready, skip review
+**Landing**:
+A board's one choice of how a card lands, a section above Auto in Board settings, shown on a GitHub board that builds in its own clone only: **Draft PR** (each card opens a draft PR and waits for the owner to mark it ready), **Ready PR** (the hub's GitHub check marks the draft ready for review once its CI passes) or **Merge** (no PR opens; each card lands on the board's base branch, which is pushed, and turning it on needs Push main granted). Reviewers show only while cards open PRs. The words never say "main", whatever the base branch. **Auto-merge** stays its own switch and covers both: merging an approved PR, and landing a build that waits to merge into the base branch ([Landing is one choice](docs/adr/2026-11-05-0200-landing-is-one-choice-draft-pr-ready-pr-or-merge.md)).
+It is stored as two `board.json` settings, read together: `prs`, on unless set (off is Merge), and `skip_draft`, off unless set (on is Ready PR); `board.mjs settings set prs|skip-draft` sets each. With no reviewers on the board a PR merges once it is green and clean, with no approval ([a land waits for your Merge](docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md), [a board can skip the draft](docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md)).
+_Avoid_: PRs switch, Skip the draft, PR mode, no-PR mode, auto-ready
 
 **Review on GitHub**:
 The open card's link to its PR, on every card with an open PR, last on the details list's final line after Notes and Install when present. It reads "Review draft on GitHub ↗" on a draft and "Review on GitHub ↗" once ready, with no PR number, and is orange while a green draft's Ready or manual steps wait on the owner ([a card's external links share the last details line](docs/adr/2026-10-30-2008-a-cards-external-links-share-the-last-details-line.md)).

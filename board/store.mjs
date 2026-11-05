@@ -862,7 +862,7 @@ export async function saveBoardSettings(site, changes) {
   }
   if (changes.prs === false) {
     const board = site ? listBoards().find((b) => samePath(b.dir, site)) : null;
-    if (board?.github && !board.local && !(await readPermissions(board.owner?.repo)).pushMain) fail('PRs off lands each card on main and pushes it, so turn on Push main after a land first');
+    if (board?.github && !board.local && !(await readPermissions(board.owner?.repo)).pushMain) fail('Merge lands each card on main and pushes it, so turn on Push main after a land first');
   }
   return writeBoardJSON(site, (cfg) => {
     const before = settingsOf(cfg);

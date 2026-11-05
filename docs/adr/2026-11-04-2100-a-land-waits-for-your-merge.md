@@ -1,5 +1,7 @@
 # A land waits for your Merge, and a PRs switch picks PRs or landing on main
 
+Superseded in part by [Landing is one choice](2026-11-05-0200-landing-is-one-choice-draft-pr-ready-pr-or-merge.md): Board settings shows `prs` off as the Landing choice Merge, not a PRs switch, and Auto-merge has one subtitle covering both PRs and builds waiting on the base branch.
+
 This changes [Auto-merge is a board setting, off by default, and the owner merges from the card](2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md) and [builders launch headless, check their notes and land on their own](2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md). Until now a card with no PR landed on main the moment its builder ran `done`, with Auto-merge reaching only PRs.
 
 **PRs** is a board setting, `prs` in `board.json`, on unless set, shown only on a GitHub board that builds in its own clone. A local board, including one that names a `github` repo for links, never opens PRs; a plain-remote board without GitHub is unchanged.

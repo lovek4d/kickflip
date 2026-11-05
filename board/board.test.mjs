@@ -2506,7 +2506,7 @@ test('PRs off on a GitHub board needs Push main granted; then a finish lands in 
   git(origin, 'config', 'receive.denyCurrentBranch', 'updateInstead');
   const clone = path.join(home, 'clone');
   const refused = onOrch('settings', 'set', 'prs', 'off');
-  assert.deepEqual([refused.code, refused.err], [1, 'PRs off lands each card on main and pushes it, so turn on Push main after a land first\n']);
+  assert.deepEqual([refused.code, refused.err], [1, 'Merge lands each card on main and pushes it, so turn on Push main after a land first\n']);
   write(path.join(clone, '.claude', 'settings.local.json'), { permissions: { allow: ['Bash(git push origin main)'] } });
   write(path.join(clone, '.git', 'info', 'exclude'), '.claude\n');
   assert.deepEqual(onOrch('settings', 'set', 'prs', 'off'), { code: 0, out: 'prs off\n', err: '' });
