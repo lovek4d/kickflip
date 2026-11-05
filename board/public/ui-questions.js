@@ -179,5 +179,5 @@
     },
   };
 
-  Object.assign(globalThis.BoardUI, { choiceLabel, choiceOf, option, answerHistory, questionCard, roundChip, takes, topicName, cardTopics, topicRow, nextQuestion, sentNotice });
+  Object.assign(globalThis.BoardUI, { isPrototype, choiceLabel, choiceOf, option, answerHistory, questionCard, roundChip, takes, topicName, cardTopics, topicRow, nextQuestion, sentNotice });
 })();

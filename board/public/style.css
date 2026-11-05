@@ -723,7 +723,7 @@ main > * { transition: opacity .25s ease; }
     border-bottom: 0; border-top: 1px solid var(--line); padding-top: 4px; padding-bottom: max(4px, env(safe-area-inset-bottom));
   }
   .top .nav #refresh, .top .nav a.icon, .top .nav .arch-bulb { min-width: 44px; min-height: 44px; }
-  body > main, body.has-sidebar > :not(.sidebar) > main { padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: calc(96px + var(--app-bottom, 0px) + env(safe-area-inset-bottom)); }
+  body > main, body.has-sidebar > :not(.sidebar) > main, body.has-sidebar > :not(.sidebar) > .split > main { padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: calc(96px + var(--app-bottom, 0px) + env(safe-area-inset-bottom)); }
   .view-frame:not(.own-header) { padding-bottom: var(--app-bottom, 0px); }
   .sheet { bottom: max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px)));
     max-height: calc(var(--vh, 100dvh) + var(--kb, 0px) - max(var(--app-bottom, 0px), var(--kb, 0px)) - env(safe-area-inset-top) - 12px); }
@@ -873,3 +873,42 @@ button[aria-busy="true"]:is([data-card-bump], [data-bump]) svg { fill: currentCo
 .rv-links a { color: var(--accent); text-decoration: none; }
 .rv-acts { display: flex; flex-wrap: wrap; gap: 8px; }
 .view-questions .bar #qstatus .try-spin { color: var(--accent); margin-right: 6px; }
+
+/* Needs you (app-needs.js): a deck at the top of the board on a phone; from 900px a pane beside the lanes, its lines over
+   Waiting on you (docs/adr/2026-11-05-0408-needs-you-is-a-deck-on-a-phone-and-a-pane-on-a-desktop.md). */
+.needs-pane { display: none; }
+.needs-deck { margin: 0 0 12px; border: 1px solid color-mix(in srgb, var(--color-notice) 45%, var(--line)); border-radius: 14px;
+  background: color-mix(in srgb, var(--color-notice) 7%, var(--panel)); overflow: hidden; }
+.deck-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px 4px; }
+.deck-head h2 { margin: 0; flex: 1; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--color-notice); }
+.deck-n { min-width: 20px; padding: 1px 7px; border-radius: 999px; background: var(--color-notice); color: #1c1407; font-size: 12px; font-weight: 700; text-align: center; }
+.deck-card { padding: 2px 14px 12px; min-width: 0; overflow-wrap: anywhere; }
+.deck-what { margin: 0 0 2px; font-size: 12px; color: var(--muted); }
+.deck-card h3 { margin: 0 0 4px; font-size: 15px; line-height: 1.3; }
+.deck-card h3 a { color: inherit; text-decoration: none; }
+.deck-card .ctx { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+.deck-proto { margin: 0 0 10px; color: var(--accent); }
+.deck-opts { display: flex; flex-direction: column; gap: 6px; }
+.deck-opts button { text-align: left; border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+.deck-opts button.rec { border-color: var(--accent); }
+.deck-opts .rec-word { color: var(--accent); font-weight: 500; font-size: 12px; margin-left: 4px; }
+.deck-opts small { display: block; color: var(--muted); font-size: 12.5px; }
+.deck-prompt { margin: 0; padding: 0; list-style: none; }
+.deck-prompt li.prompt { padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.deck-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.deck-bar { display: flex; align-items: center; gap: 10px; padding: 0 14px 10px; }
+.deck-dots { flex: 1; display: flex; flex-wrap: wrap; gap: 5px; }
+.deck-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+.deck-dots i.on { background: var(--color-notice); }
+.deck-bar button { border-radius: 999px; padding: 5px 12px; font-size: 13px; }
+.deck-more { display: flex; align-items: center; justify-content: space-between; min-height: 46px; padding: 10px 14px; border-top: 1px solid color-mix(in srgb, var(--color-notice) 28%, var(--line));
+  background: color-mix(in srgb, var(--color-notice) 14%, var(--panel)); color: var(--text); font-weight: 600; font-size: 14px; text-decoration: none; }
+.deck-more::after { content: '›'; color: var(--accent); font-size: 18px; }
+@media (min-width: 900px) {
+  .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  .split > main { max-width: none; margin: 0; }
+  .needs-deck { display: none; }
+  .needs-pane { display: block; position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto; padding: 12px 16px 24px; border-left: 1px solid var(--line); }
+  .needs-pane .needs-questions main { padding: 0; max-width: none; }
+  .needs-pane .waiting { margin: 0 0 12px; }
+}

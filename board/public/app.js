@@ -389,13 +389,16 @@ window.BoardView = (function () {
 
   function markup({ title = '' } = {}) {
     return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', bulb: true, moon: true })}
+<div class="split">
 <main>
   <section id="setup" class="setup" aria-live="polite" hidden></section>
   <section id="answers" class="answer-banner" hidden></section>
-  <section id="waiting" class="waiting" hidden></section>
+  <section id="needsDeck" class="needs-deck" aria-label="Needs you" hidden></section>
   <div id="tryMain"></div>
   <div id="lanes"></div>
 </main>
+<aside id="needsPane" class="needs-pane" aria-label="Needs you"><section id="waiting" class="waiting" hidden></section></aside>
+</div>
 ${BoardNewTask.markup()}
 <dialog id="mainLogSheet" class="sheet" aria-labelledby="mainLogTitle">
   <div class="sheet-body">

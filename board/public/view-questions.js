@@ -12,23 +12,30 @@
 // docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md).
 // A topic's resolved questions fold under "resolved (N)", read-only; a resolved question's badge, once confirmed, sends
 // `reask-request {key?, question}` (docs/adr/2026-11-04-2001-a-resolved-question-is-read-only-and-can-be-asked-again.md).
+// A topic or question that arrives while the page shows inserts its pill or card where it belongs, and the counts
+// update, with no repaint, so the open topic, its picks, the note being typed and the scroll stay
+// (docs/adr/2026-11-05-0408-needs-you-is-a-deck-on-a-phone-and-a-pane-on-a-desktop.md).
+// markup({embedded: true}) and ctx.embedded mount it in the board's desktop Needs you pane (app-needs.js): no header,
+// and the board's URL and scroll are left alone.
 // fits: each framed take's measured size, kept across repaints and visits so a take redraws at its size at once.
 (globalThis.AppViews ||= {}).questions = ((fits) => ({
   className: 'view-questions',
   title: () => 'Waiting On You',
-  markup: () => `${BoardUI.header({ lead: 'back', title: 'Waiting on you', controls: false, trail: '<span class="muted small" id="progress"></span>' })}
+  markup: ({ embedded = false } = {}) => `${embedded ? '' : BoardUI.header({ lead: 'back', title: 'Waiting on you', controls: false, trail: '<span class="muted small" id="progress"></span>' })}
 <main>
-  <section id="page"></section>
+  ${embedded ? '<span class="muted small" id="progress" hidden></span>' : ''}<section id="page"></section>
 </main>`,
 
   create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
     const { $, site } = B;
+    const scroll = (y) => { if (!ctx.embedded) scrollTo(0, y); };
+    const setHash = (id) => { if (!ctx.embedded) history.replaceState(history.state, '', '#' + encodeURIComponent(id)); };
     const { esc, choiceLabel, choiceOf, questionCard, roundChip, takes, linkContext, badge, topicName, cardTopics, topicRow, nextQuestion, sentNotice, fetchJSON, restartNotice } = BoardUI;
     // prototype-switcher.js reads a draft's note and clears the draft once it sends that question's answer.
     const draftKey = (id) => 'qdraft:' + id;
     const getDraft = (id) => { try { return JSON.parse(localStorage.getItem(draftKey(id)) || '{}'); } catch { return {}; } };
     const setDraft = (id, v) => { try { localStorage.setItem(draftKey(id), JSON.stringify(v)); } catch {} };
-    const hashId = () => { const h = location.hash.slice(1); try { return decodeURIComponent(h); } catch { return h; } };
+    const hashId = () => { if (ctx.embedded) return ''; const h = location.hash.slice(1); try { return decodeURIComponent(h); } catch { return h; } };
 
     let all = [];
     // The shown topic's resolved questions, which /api/board leaves out: GET /api/questions answers them as the topic
@@ -68,9 +75,9 @@
     function topicBar() {
       const list = topicRow(topics, topicId).pills;
       if (list.length < 2) return '';
-      return `<div class="topics" role="group" aria-label="Topics">${list.map((t) =>
-        `<button data-topic="${esc(t.id)}" aria-pressed="${t.id === topicId}" title="${esc(t.title)}">${esc(topicName(t))}<span class="n">${t.state === 'resolved' ? 'resolved' : t.open}</span></button>`).join('')}</div>`;
+      return `<div class="topics" role="group" aria-label="Topics">${list.map(pillHtml).join('')}</div>`;
     }
+    const pillHtml = (t) => `<button data-topic="${esc(t.id)}" aria-pressed="${t.id === topicId}" title="${esc(t.title)}">${esc(topicName(t))}<span class="n">${t.state === 'resolved' ? 'resolved' : t.open}</span></button>`;
     const topicHead = (t) => t ? `<div class="topichead muted small"><span>${esc(t.title)}${t.summary ? ` · ${esc(t.summary)}` : ''}</span>${roundChip(t.round)}</div>` : '';
 
     // Only open questions changed here since their last answer, with files attached, or with a suggested option
@@ -111,6 +118,7 @@
     function render() {
       clearTakeResources();
       loadResolved();
+      drawn = drawnOf();
       const el = $('#page');
       const qs = visible();
       if (!qs.length) {
@@ -213,7 +221,7 @@
         }
         shot.style.height = `${height}px`;
         shot.classList.remove('measuring');
-        if (scrollTake === shot) { scrollTo(0, frameTop(shot)); scrollTake = null; }
+        if (scrollTake === shot) { scroll(frameTop(shot)); scrollTake = null; }
       };
       const off = B.on(frame, 'load', () => {
         if (measure() === null || !B.alive()) return;
@@ -354,17 +362,67 @@
       loaded = true;
       return true;
     }
-    // Draws what changed, unless the owner is typing a note.
+    // Draws what changed: an arrival in place (arrive), else the whole page, unless the owner is typing a note.
     function repaint(first) {
       const sig = sigNow();
+      if (sig === shown) return;
+      if (!first && arrive()) { shown = sig; return; }
       const active = document.activeElement;
-      if (sig !== shown && !(active && active.tagName === 'TEXTAREA')) {
-        shown = sig;
-        const y = scrollY;
-        render();
-        scrollTo(0, first ? 0 : y);
-      }
+      if (active && active.tagName === 'TEXTAREA') return;
+      shown = sig;
+      const y = scrollY;
+      render();
+      scroll(first ? 0 : y);
     }
+
+    // What render last drew of the topic: its questions in order as they stood, and its resolved count.
+    const drawnOf = () => {
+      const t = topics.find((x) => x.id === topicId);
+      return { solo: soloId, topic: topicId, resolved: t?.resolved || 0, qs: visible().map((q) => JSON.stringify([q.id, q.state, q.answers.length, q.answers.map((a) => Boolean(a.reply)), Boolean(q.reask)])) };
+    };
+    let drawn = null;
+    // A change that only adds topics, counts or open questions at the end of the shown topic is drawn in place: each
+    // pill keeps its node and a new one lands at its place in the row, a new question's card goes after the last open
+    // one, and the topic line, the folds under the form and the bar update. → false when anything shown changed.
+    function arrive() {
+      const form = $('#qform');
+      const now = drawnOf();
+      if (!form || !drawn || now.solo || drawn.solo || now.topic !== drawn.topic || now.resolved !== drawn.resolved
+        || drawn.qs.some((s, i) => now.qs[i] !== s)) return false;
+      const added = visible().slice(drawn.qs.length);
+      if (added.some((q) => q.state !== 'open')) return false;
+      const page = $('#page');
+      const list = topicRow(topics, topicId).pills;
+      const bar = page.querySelector('.topics');
+      if (list.length < 2) bar?.remove();
+      else if (!bar) page.insertAdjacentHTML('afterbegin', topicBar());
+      else {
+        const pills = list.map((t) => bar.querySelector(`button[data-topic="${CSS.escape(t.id)}"]`) || fragmentOf(pillHtml(t)));
+        for (const b of [...bar.children]) if (!pills.includes(b)) b.remove();
+        pills.forEach((b, i) => {
+          const t = list[i];
+          b.setAttribute('aria-pressed', String(t.id === topicId));
+          b.querySelector('.n').textContent = t.state === 'resolved' ? 'resolved' : String(t.open);
+          if (bar.children[i] !== b) bar.insertBefore(b, bar.children[i] || null);
+        });
+      }
+      const head = page.querySelector('.topichead');
+      const headHtml = topicHead(topics.find((x) => x.id === topicId));
+      if (head && head.outerHTML !== headHtml) head.outerHTML = headHtml;
+      const live = visible().filter((q) => q.state !== 'resolved').length - added.length;
+      const before = form.querySelector('details.resolved-group') || form.querySelector('.bar');
+      added.forEach((q, i) => before.insertAdjacentHTML('beforebegin', questionCard(q, { n: live + i + 1, draft: getDraft(q.id), links: links(q), fit: fitOf(q) })));
+      const opened = new Set();
+      for (const d of [...page.children]) if (d.matches('details.done')) { if (d.open) opened.add(d.querySelector('summary').textContent.split(' ·')[0]); d.remove(); }
+      page.insertAdjacentHTML('beforeend', waitingTopics() + resolvedTopics());
+      for (const d of page.children) if (d.matches('details.done') && opened.has(d.querySelector('summary').textContent.split(' ·')[0])) d.open = true;
+      for (const q of added) form.querySelectorAll(`section.q[data-q="${CSS.escape(q.id)}"] .take-shot`).forEach(fitTake);
+      BoardAttach.paintAll();
+      drawn = now;
+      updateBar();
+      return true;
+    }
+    const fragmentOf = (html) => { const box = document.createElement('div'); box.innerHTML = html; return box.firstElementChild; };
 
     function moveOn(from, pills, what, footer = what, countOpen = true) {
       soloId = null;
@@ -376,7 +434,7 @@
         shown = sigNow();
         const y = scrollY;
         render();
-        scrollTo(0, y);
+        scroll(y);
         return;
       }
       sentLine = footer;
@@ -387,11 +445,11 @@
         topicId = from;
       } else {
         topicId = next.topic;
-        history.replaceState(history.state, '', '#' + encodeURIComponent(next.id));
+        setHash(next.id);
       }
       shown = sigNow();
       render();
-      scrollTo(0, 0);
+      scroll(0);
     }
 
     B.on(root, 'click', (ev) => {
@@ -404,8 +462,8 @@
       if (b) {
         soloId = null; topicId = b.dataset.topic; sentLine = ''; shown = '';
         const first = topics.find((t) => t.id === topicId)?.questions[0];
-        if (first) history.replaceState(history.state, '', '#' + encodeURIComponent(first));
-        render(); scrollTo(0, 0);
+        if (first) setHash(first);
+        render(); scroll(0);
       }
     });
     // The full-width frame shows another take without reloading, where its page's switcher can
@@ -434,7 +492,7 @@
         repaintTakes(sec);
         scrollTake = sec.querySelector('.take-shot');
         sec.querySelector(`input[value="${CSS.escape(d.choice)}"]`)?.focus({ preventScroll: true });
-        scrollTo(0, top);
+        scroll(top);
       }
     });
     B.on(root, 'input', (ev) => {
@@ -481,13 +539,13 @@
     // Each composer painted raises a bubbling attach-change (attach.js).
     B.on(root, 'attach-change', updateBar);
     // A link to another question here only moves the hash.
-    B.on(window, 'hashchange', () => {
+    if (!ctx.embedded) B.on(window, 'hashchange', () => {
       if (!loaded) return;
       pick(hashId());
       sentLine = '';
       shown = '';
       render();
-      scrollTo(0, 0);
+      scroll(0);
     });
 
     load(true);

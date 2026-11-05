@@ -83,7 +83,7 @@ function fakePage(localStorage) {
     setTimeout: (fn, ms) => { timeouts.set(++ids, { fn, ms }); return ids; },
     clearTimeout: (id) => timeouts.delete(id),
     BoardDialogs: { confirm: async () => false, notice: async () => {} },
-    BoardAttach: { files: () => [], busy: () => false, clear() {}, paint() {} },
+    BoardAttach: { files: () => [], busy: () => false, clear() {}, paint() {}, paintAll() {} },
     ClaudeSite: {
       site: (root) => ({
         root, url: (p) => new URL(`${root}/${p}`, 'https://mac.ts.net/').href, send: async () => ({}), events: async () => [], syncBadge() {},
@@ -2372,9 +2372,10 @@ test("h h on a desktop shows the shortcuts sheet listing each shortcut's keys, a
 });
 
 // seen: card key → its readAt on the board, the read mark board/server.mjs keeps for every device.
-function boardOnDom({ open = [], seen = {}, stored = [], board, threads, confirm = false, realDialogs = false, send = null }) {
+function boardOnDom({ open = [], seen = {}, stored = [], board, threads, confirm = false, realDialogs = false, send = null, width = 390 }) {
   const { storage, localStorage } = memoryStorage([['site:board-a:openItems', JSON.stringify(open)], ...stored]);
   const page = fakePage(localStorage);
+  page.win.innerWidth = width;
   const { Element } = miniDom(page.Target, page.win.document);
   const server = { board: { ...board, items: board.items.map((it) => (seen[it.key] ? { ...it, readAt: seen[it.key] } : it)) }, threads };
   const sent = [];
@@ -2401,7 +2402,7 @@ function boardOnDom({ open = [], seen = {}, stored = [], board, threads, confirm
     if (u.pathname.endsWith('/api/board')) downloads.push(server.board.version);
     if (u.pathname.endsWith('/api/done')) return { ok: true, status: 200, json: async () => structuredClone(server.done(u.searchParams)) };
     const body = u.pathname.endsWith('/api/board') ? server.board : server.threads[u.searchParams.get('key')] || [];
-    return { ok: true, status: 200, json: async () => structuredClone(body) };
+    return { ok: true, status: 200, json: async () => structuredClone(body), text: async () => JSON.stringify(body) };
   };
   const root = page.win.document.body.appendChild(new Element('div'));
   root.innerHTML = page.win.BoardView.markup({ title: 'A' });
@@ -5127,4 +5128,100 @@ test("every lane groups its cards under wave headers, none for a wave with no ca
   assert.equal(counts('progress', 'Alpha').querySelector('.wv-cur').textContent, '1');
   assert.equal(counts('review', 'Beta').querySelector('.wv-cur').textContent, '1');
   assert.equal(counts('todo', 'Alpha').querySelector('.wv-cur').textContent, '2');
+});
+
+// docs/adr/2026-11-05-0408-needs-you-is-a-deck-on-a-phone-and-a-pane-on-a-desktop.md
+const deckQuestion = (id, topic, extra = {}) => ({ id, topic, source: 'Grill', question: `Question ${id}?`, context: `Why ${id}`, answers: [], state: 'open',
+  options: [{ id: 'A', label: 'Yes', detail: 'Do it', recommended: true }, { id: 'B', label: 'No', detail: 'Leave it' }], ...extra });
+const deckBoard = (questions, needs) => {
+  const topics = [...new Set(questions.map((q) => q.topic))].map((id) => ({ id, title: `Topic ${id}`, state: 'open', questions: questions.filter((q) => q.topic === id).map((q) => q.id),
+    open: questions.filter((q) => q.topic === id && q.state === 'open').length, answered: 0, resolved: 0 }));
+  return { ...boardOf([]), owner: questions, ownerTopics: topics, needs };
+};
+const topicNeed = (id, n) => ({ kind: 'Question', title: `Topic ${id}`, text: '', url: `questions.html#${id}`, topic: id, band: null, questions: { open: n, url: `questions.html#${id}` }, ready: null });
+
+test("on a phone, Needs you is a deck showing one thing at a time: a question's options answer it on the tap, Skip moves on, dots count what waits, and the foot links to every open question", async () => {
+  const questions = [deckQuestion('q1', 't1'), deckQuestion('q2', 't1'), deckQuestion('q3', 't2', { url: 'prototype-shell.html?q=q3' })];
+  const action = { kind: 'Action needed', title: 'GH-9: Merge it', text: '', url: '#item=w%2FGH-9', key: 'w/GH-9', questions: null, ready: null, action: { label: 'Merge', url: '#item=w%2FGH-9' } };
+  const board = deckBoard(questions, [topicNeed('t1', 2), topicNeed('t2', 1), action]);
+  const b = boardOnDom({ board, threads: {}, send: (kind, data, server) => {
+    for (const a of data.answers) server.board.owner.find((q) => q.id === a.id).state = 'answered';
+    server.board.needs = [topicNeed('t1', 1), topicNeed('t2', 1), action];
+    return { id: 'e1', board: structuredClone(server.board) };
+  } });
+  await b.settle();
+  const deck = () => b.root.querySelector('#needsDeck');
+  const card = () => deck().querySelector('.deck-card');
+  const tap = async (sel) => { b.page.fire(b.root, 'click', { target: deck().querySelector(sel) }); await b.settle(); };
+
+  assert.equal(deck().hidden, false);
+  assert.equal(deck().querySelector('.deck-n').textContent, '4');
+  assert.deepEqual([card().dataset.deck, card().querySelector('h3').textContent, card().querySelector('.deck-what').textContent], ['q:q1', 'Question q1?', 'Topic t1']);
+  assert.deepEqual(card().querySelectorAll('[data-deck-pick]').map((x) => [x.dataset.deckPick, x.classList.contains('rec')]), [['A', true], ['B', false]]);
+  assert.equal(deck().querySelectorAll('.deck-dots i').length, 4);
+  assert.deepEqual([deck().querySelector('a.deck-more').getAttribute('href'), deck().querySelector('a.deck-more').textContent.trim()], ['questions.html', 'All open questions · 3']);
+  assert.equal(card().querySelector('a.deck-proto'), null, 'a question with no prototype has no View prototypes');
+
+  await tap('[data-deck-skip]');
+  assert.equal(card().dataset.deck, 'q:q2');
+  await tap('[data-deck-skip]');
+  assert.equal(card().dataset.deck, 'q:q3');
+  assert.deepEqual([card().querySelector('a.deck-proto').textContent, card().querySelector('a.deck-proto').getAttribute('href')], ['View prototypes', 'prototype-shell.html?q=q3']);
+  await tap('[data-deck-skip]');
+  assert.deepEqual([card().dataset.deck, card().querySelector('a.button').getAttribute('href'), card().querySelector('a.button').textContent], ['l:w/GH-9', '#item=w%2FGH-9', 'Merge']);
+  await tap('[data-deck-skip]');
+  assert.equal(card().dataset.deck, 'q:q1', 'Skip past the last goes back to the first');
+
+  await tap('[data-deck-pick="B"]');
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['owner-answers', { answers: [{ id: 'q1', question: 'Question q1?', choice: 'B', label: 'B. No', note: '' }] }]]);
+  assert.deepEqual([card().dataset.deck, deck().querySelector('.deck-n').textContent], ['q:q2', '3']);
+});
+
+test("the phone's deck keeps the thing it shows when another arrives, adding only its dot", async () => {
+  const board = deckBoard([deckQuestion('q1', 't1'), deckQuestion('q2', 't2')], [topicNeed('t1', 1), topicNeed('t2', 1)]);
+  const b = boardOnDom({ board, threads: {} });
+  await b.settle();
+  const deck = () => b.root.querySelector('#needsDeck');
+  b.page.fire(b.root, 'click', { target: deck().querySelector('[data-deck-skip]') });
+  await b.settle();
+  const shown = deck().querySelector('.deck-card');
+  assert.equal(shown.dataset.deck, 'q:q2');
+  await b.change({ board: deckBoard([deckQuestion('q0', 't0'), deckQuestion('q1', 't1'), deckQuestion('q2', 't2')], [topicNeed('t0', 1), topicNeed('t1', 1), topicNeed('t2', 1)]) });
+  assert.deepEqual([deck().querySelector('.deck-card').dataset.deck, deck().querySelector('.deck-n').textContent, deck().querySelectorAll('.deck-dots i').length], ['q:q2', '3', 3]);
+  assert.equal(deck().querySelector('.deck-card'), shown, 'the card on screen is the same node');
+});
+
+test("on a desktop the board's Needs you sits in a pane beside the lanes, with the open questions under it, and a phone mounts no pane", async () => {
+  const wide = boardOnDom({ board: deckBoard([deckQuestion('q1', 't1')], [topicNeed('t1', 1)]), threads: {}, width: 1280 });
+  await wide.settle();
+  const pane = wide.root.querySelector('#needsPane');
+  assert.ok(pane.querySelector('#waiting'));
+  assert.deepEqual(pane.querySelectorAll('.needs-questions section.q').map((s) => s.dataset.q), ['q1']);
+  assert.equal(pane.querySelector('.needs-questions header'), null, 'the pane has no header of its own');
+  const narrow = boardOnDom({ board: deckBoard([deckQuestion('q1', 't1')], [topicNeed('t1', 1)]), threads: {} });
+  await narrow.settle();
+  assert.equal(narrow.root.querySelector('#needsPane .needs-questions'), null, 'a phone mounts no pane');
+});
+
+test("a topic or question arriving on Waiting on you inserts its pill or card in place, leaving the open topic's cards and the note being typed as they were", async () => {
+  const question = (id, topic) => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
+  const topics = [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'item:w/T3', title: 'INT-3: Sort' }];
+  const v = questionsOnDom({ topics, questions: [question('q1', 'item:w/T1'), question('q3', 'item:w/T3')], at: 'q1' });
+  await v.settle();
+  const card = v.root.querySelector('section.q[data-q="q1"]');
+  const reload = async () => { v.page.fire(v.page.win.document, 'visibilitychange'); await v.settle(); };
+
+  topics.splice(1, 0, { id: 'item:w/T2', title: 'INT-2: Filter' });
+  v.server.questions.push(question('q2', 'item:w/T2'));
+  await reload();
+  assert.deepEqual(v.shown().pills, [['item:w/T1', 'true'], ['item:w/T2', 'false'], ['item:w/T3', 'false']]);
+  assert.equal(v.root.querySelector('section.q[data-q="q1"]'), card, 'the open topic did not repaint');
+
+  v.server.questions.push(question('q1b', 'item:w/T1'));
+  await reload();
+  assert.deepEqual(v.shown().questions, ['q1', 'q1b']);
+  assert.equal(v.root.querySelector('section.q[data-q="q1"]'), card);
+  assert.equal(v.root.querySelector('button[data-topic="item:w/T1"] .n').textContent, '2');
+  assert.deepEqual(v.root.querySelector('#qform').children.map((c) => c.dataset.q || c.getAttribute('class')), ['q1', 'q1b', 'bar'], 'the new card goes after the last open one');
+  v.unmount();
 });
