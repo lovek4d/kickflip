@@ -226,7 +226,7 @@ BoardView.part((B) => {
     if (it.next) rows.push(['Next', linkText(it.next, ctx)]);
     // docs/adr/2026-10-30-1626-notes-is-a-link-in-the-details-list.md
     const external = [
-      it.hasNotes ? `<a href="notes.html?item=${encodeURIComponent(it.key)}">Notes ${LINK_ARROW}</a>` : '',
+      it.hasNotes ? `<a href="notes.html?item=${encodeURIComponent(it.key)}">Notes</a>` : '',
       // A vscode: link opens a folder on the machine whose browser follows it, so only the host's browser gets one.
       it.worktree && state.board.onHost ? `<a href="vscode://file${esc(encodeURI(it.worktree))}" title="Open the worktree in VS Code">Open in VS Code ${LINK_ARROW}</a>` : '',
       installButton(it),

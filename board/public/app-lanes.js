@@ -151,7 +151,7 @@ BoardView.part((B) => {
     const now = cards.filter((i) => LANE_WORDS[i.lane]).map((i) => `${esc(i.ref)} ${i.queued ? 'queued' : LANE_WORDS[i.lane]}`);
     const progress = [`${band.merged} of ${band.total} merged`, ...now].join(' · ');
     const name = `<span class="lane-name wb-name"${band.goal ? ` title="${esc(band.goal)}" data-goal="${esc(band.slug)}"` : ''}>${esc(band.title)}</span>`;
-    const notes = band.kind === 'lineup' ? `<span class="external-link"><a href="notes.html?wave=${encodeURIComponent(band.slug)}">Notes ${BoardUI.LINK_ARROW}</a></span><span class="external-separator" aria-hidden="true"> · </span>` : '';
+    const notes = band.kind === 'lineup' ? `<span class="external-link"><a href="notes.html?wave=${encodeURIComponent(band.slug)}">Notes</a></span><span class="external-separator" aria-hidden="true"> · </span>` : '';
     const next = band.next;
     const go = !next ? '' : next.ready
       ? `<button type="button" class="wv-link" data-confirm="card-build" data-key="${esc(next.key)}">Implement</button>`

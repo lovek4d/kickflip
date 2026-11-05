@@ -711,6 +711,9 @@ test('a thread names who wrote each message and where', () => {
     { ts: ago(1), who: 'love', via: 'site', text: 'Ship it', eventId: 'e1', reply: null },
   ]);
   assert.match(text(html), /^Jamie · GitHub · .* Looks good You · .* Ship it Waiting for Claude…$/);
+  const log = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'done', log: 'b.log' }]);
+  assert.match(log, /<a href="log\.html\?file=b\.log">Open the log<\/a>/);
+  assert.doesNotMatch(log, /link-arrow|→/);
   assert.equal(text(ui.threadMessages([])), 'No messages here yet.');
 });
 
@@ -1000,6 +1003,10 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   const pushed = { ...open, ref: 'INT-12', next: 'merge INT-12 into main', branch: 'INT-12', pushed: { branch: 'INT-12', at: new Date(Date.now() - 25 * 60_000).toISOString(), host: 'gitlab.com' } };
   assert.deepEqual(rows(pushed), [['Wave', 'W'], ['Branch', 'INT-12'], ['Next', 'merge INT-12 into main'], ['Links', 'Notes · Pushed INT-12 to gitlab.com · 25m ago']]);
   assert.doesNotMatch(B.detail(pushed), /github\.com|gitlab\.com\/|<button[^>]*data-copy/);
+  // ↗ marks a link that leaves the page; Notes opens the reader sheet, so it has none.
+  const notesLink = B.detail(open).match(/<a href="notes\.html[^>]*>.*?<\/a>/)[0];
+  assert.doesNotMatch(notesLink, /link-arrow/);
+  assert.match(B.detail({ ...open, pr: openPR, prs: [openPR] }), /target="_blank"[^>]*>Review on GitHub <svg[^>]*link-arrow/);
   const copied = [];
   app.navigator = { clipboard: { writeText: async (t) => { copied.push(t); } } };
   const link = { dataset: { copyBranch: 'INT-12' }, textContent: 'Pushed INT-12 to gitlab.com · 25m ago', isConnected: true };
@@ -1666,7 +1673,7 @@ test("only Claude's and GitHub's messages are unread: the owner's answers after 
 
 test('a thread line with a log field links to open the log', () => {
   const html = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'Builder launched headless on Claude Sonnet in /wt/A1.', log: 'builder-A1-2026.log' }]);
-  assert.match(html, /<a href="log\.html\?file=builder-A1-2026\.log">Open the log →<\/a>/);
+  assert.match(html, /<a href="log\.html\?file=builder-A1-2026\.log">Open the log<\/a>/);
   assert.doesNotMatch(html, /its log is/);
 });
 
