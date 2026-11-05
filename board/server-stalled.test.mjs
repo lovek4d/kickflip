@@ -547,7 +547,7 @@ test('with auto-pull on, each card arriving in Todo gets a grill up to the plann
   const wave = { items: [
     { id: 'B1', title: 'Asking', status: 'planned', state: 'grilling' },
     { id: 'B2', title: 'Filed prototyping', status: 'planned', state: 'prototyping' },
-    { id: 'B3', title: 'A follow-up', status: 'planned', parent: 't/B1' },
+    { id: 'B3', title: 'A follow-up', status: 'planned', state: 'grilling', parent: 't/B1' },
     { id: 'B4', title: 'Past the cap', status: 'planned' },
     { id: 'B5', title: 'Quick build', status: 'planned', state: 'ready' },
   ].map((it, n) => ({ ...it, created: iso(now - (9 - n) * 60000) })) };
@@ -600,7 +600,7 @@ test('with auto-pull on, each card arriving in Todo gets a grill up to the plann
     fs.rmSync(usageFile);
     await until(() => launched('grill').length === 2 && launched('build').length === 1 && thread('B3').length === 2, 'the arrivals get their grills');
     assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4'], 'the cap of two takes the top arrivals, Todo being newest first');
-    assert.deepEqual(launched('prototype'), []);
+    assert.deepEqual(launched('prototype'), [], 'B2, filed prototyping, waits past the cap');
     assert.deepEqual(launched('build'), ['t/B5'], 'a ready card is pulled, not grilled, and its build holds no planner back');
     assert.deepEqual(thread('B3').map((t) => t.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.', 'Planner launched on Claude Opus']);
     const record = JSON.parse(fs.readFileSync(agentFile('B4'), 'utf8'));
@@ -611,18 +611,20 @@ test('with auto-pull on, each card arriving in Todo gets a grill up to the plann
     await tick();
     assert.equal(grills(), 2, 'an open grill is not launched again, and B2 waits for a slot');
 
-    // B4's grill posts a question and finishes: its slot goes to B2, the next arrival, which gets a grill though it
-    // was filed prototyping.
+    // B4's grill posts a question and finishes: its slot goes to B2, the next arrival, which was filed prototyping, so
+    // it gets a prototype planner, not a grill.
     put(ownerFile, JSON.stringify({ topics: [], items: [question('q1', 't/B1'), question('q2', 't/B4')] }));
     put(agentFile('B4'), JSON.stringify({ ...record, done: iso(now) }));
-    await until(() => launched('grill').length === 3, 'the next arrival gets the free slot');
-    assert.deepEqual(launched('grill').sort(), ['t/B2', 't/B3', 't/B4']);
-    assert.deepEqual(launched('prototype'), []);
+    await until(() => launched('prototype').length === 1, 'the next arrival gets the free slot');
+    assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4']);
+    assert.deepEqual(launched('prototype'), ['t/B2']);
+    assert.deepEqual([JSON.parse(fs.readFileSync(agentFile('B2'), 'utf8'))].map((r) => [r.kind, r.dispatched]), [['prototype', 'hub']]);
+    assert.deepEqual(thread('B2')[0], 'Landed in Todo, so the board started its prototype.');
     // B3's grill finishes with no questions: one grill per arrival, so it isn't grilled again.
     put(agentFile('B3'), JSON.stringify({ ...JSON.parse(fs.readFileSync(agentFile('B3'), 'utf8')), done: iso(now) }));
     await tick();
     await tick();
-    assert.equal(grills(), 3);
+    assert.equal(grills(), 2);
     assert.deepEqual(logged('card-plan'), [], 'no event wakes the session');
     assert.deepEqual(thread('B1'), [], 'a card with questions has had its grill');
   } finally {

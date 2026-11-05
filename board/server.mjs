@@ -1251,7 +1251,7 @@ async function runAuto() {
     await handOff(await startQueuedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts)));
   }
   if (!heldByPause) await launchLanders(items.some((i) => i.status === 'checking'));
-  if (settings.auto_pull && !heldByPause) await launchArrivals(arrivalsOf(items, { cap: settings.max_planners }));
+  if (settings.auto_pull && !heldByPause) await launchArrivals(arrivalsOf(items, { cap: settings.max_planners }).map((key) => items.find((i) => i.key === key)));
   if (await checkTriage(settings, log, items, ready)) return;
   const startPull = async (key) => handOff(await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub'));
   if (await sendPulls(PULL, settings.auto_pull, waiting, heldByPause ? [] : pulls, startPull)) return;
@@ -1280,12 +1280,14 @@ async function handOff(started) {
 }
 
 // docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md
-// Each card domain.mjs arrivalsOf lists gets its grill, with a thread line saying why. Its open grill record keeps it
-// off the list from then on, so the cached board is dropped, as handOff does, before the next pass reads it.
-async function launchArrivals(keys) {
-  for (const key of keys) {
-    await appendThread(here, key, { text: 'Landed in Todo, so the board started its grill.' });
-    await launchPlanner(key, 'grill');
+// Each card domain.mjs arrivalsOf lists gets a planner, with a thread line saying why: a prototype for a card filed
+// prototyping, the owner having asked for one, a grill for any other. Its open record keeps it off the list from then
+// on, so the cached board is dropped, as handOff does, before the next pass reads it.
+async function launchArrivals(cards) {
+  for (const { key, state } of cards) {
+    const kind = state === 'prototyping' ? 'prototype' : 'grill';
+    await appendThread(here, key, { text: `Landed in Todo, so the board started its ${kind}.` });
+    await launchPlanner(key, kind);
     dataVersion++;
   }
 }
