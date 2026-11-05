@@ -732,15 +732,12 @@ main > * { transition: opacity .25s ease; }
 .lk-over, .lk-over > main { display: contents; }
 
 .tk-section { margin: 10px 0; }
-/* The Tickets source row's live state, and Hub's key field opened under it (dialogs.js ticketsControl keyState). */
+/* The Tickets source row's live state (dialogs.js ticketsControl keyState). */
 .tk-status { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; font-size: 13px; color: var(--muted); }
 .tk-status b { font-weight: 600; color: var(--text); }
 .tk-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line); flex: none; }
 .tk-status.on .dot { background: var(--accent); }
 .tk-status.on b { color: var(--accent); }
-.tk-inline { margin: 6px 0 10px; border: 1px solid var(--accent); border-radius: 10px; padding: 8px 10px; background: var(--accent-soft); }
-.tk-inline .tk-ask { margin: 2px 0 6px; font-size: 13px; }
-.tk-inline .hub-view main { padding: 0; }
 .tk-seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; margin: 8px 0; border: 1px solid var(--line); border-radius: 9px; background: var(--chip); }
 .tk-seg button { min-width: 0; min-height: 44px; padding: 6px 4px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
 .tk-seg button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }

@@ -2,21 +2,18 @@
 // Load before any page script that asks (docs/adr/2026-11-03-0259-confirmations-are-the-browsers-own.md).
 (function () {
   // linear: Hub's /_hub/api/linear answer, else loadLinear() fetches it once Linear is the source. Linear is picked only
-  // while Hub's key works; tapping it without one opens Hub's key modal over the page, or with keyState the key field
-  // inline (linear-key.js,
+  // while Hub's key works; tapping it without one opens Hub's key modal over the page (linear-key.js,
   // docs/adr/2026-11-02-1712-a-board-picks-linear-only-while-hubs-key-works.md). A New board's "New project…" reads as
   // new_project, which the hub creates on Start; Board Settings creates it with createProject. change(value, valid,
   // {loaded, typing}) follows each change: loaded when only Linear's lists arrived, typing while a text field is being typed in.
   // GitHub issues needs repo(), the board's GitHub owner/name: without one, as on a board whose repo is another git
   // remote, it can't be picked and says why (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
   // With keyState(), Hub's /_hub/api/settings `linear`, as Board Settings passes it, the source row reads its live state
-  // as a status word, and Linear tapped without a working key opens Hub's key field in keySlot, an element outside any
-  // form, since the key field is a form of its own; keyBusy(on) follows each save of the key
-  // (docs/adr/2026-11-04-0227-every-new-card-gets-a-ticket-in-the-boards-current-source.md).
-  function ticketsControl(root, { value = { source: 'internal', prefix: 'INT' }, repo = () => '', title = () => '', linear = null, loadLinear, isNew = false, change = () => {}, createProject, keyState, keySlot, keyBusy = () => {} } = {}) {
+  // as a status word (docs/adr/2026-11-04-0227-every-new-card-gets-a-ticket-in-the-boards-current-source.md).
+  function ticketsControl(root, { value = { source: 'internal', prefix: 'INT' }, repo = () => '', title = () => '', linear = null, loadLinear, isNew = false, change = () => {}, createProject, keyState } = {}) {
     const { esc } = BoardUI;
     const draft = { prefix: 'INT', ...value };
-    let creating = false, createError = '', destroyed = false, asking = false, noGithub = false, key = null, inline = null;
+    let creating = false, createError = '', destroyed = false, asking = false, noGithub = false, key = null;
     const works = () => Boolean(linear?.set && !linear.refused);
     const keyWorks = () => Boolean(key?.set && !key.refused);
     const keyWord = () => (keyWorks() ? 'linear key saved' : key.refused ? 'Linear refused the key' : 'no Linear key');
@@ -25,31 +22,6 @@
       if (!key) return '';
       const on = draft.source === 'linear' && keyWorks();
       return `<div class="tk-status${on ? ' on' : ''}" data-tk-status role="status"><span class="dot" aria-hidden="true"></span><b>${esc(statusWord())}</b></div>`;
-    }
-    // Hub's key field in keySlot. Once a key works, Linear is picked.
-    function openInline() {
-      if (!inline) {
-        keySlot.innerHTML = '<p class="tk-ask">Linear needs a key. Paste one here.</p><div class="hub-view"><main></main></div>';
-        inline = LinearKey.mount(keySlot.querySelector('main'), { state: key, busy: keyBusy,
-          saved: (out) => { key = out.linear; render(); },
-          worked: async () => {
-            closeInline();
-            draft.source = 'linear';
-            await load();
-            if (destroyed) return;
-            pickDefaults();
-            render(); root.querySelector('[data-tk-source="linear"]').focus(); change(read(), valid());
-          } });
-        keySlot.hidden = false;
-      }
-      keySlot.querySelector('#linearKey')?.focus({ preventScroll: true });
-    }
-    function closeInline() {
-      if (!inline) return;
-      inline.destroy();
-      inline = null;
-      keySlot.hidden = true;
-      keySlot.innerHTML = '';
     }
     async function load() {
       linear = { loading: true };
@@ -114,13 +86,12 @@
       if (!works()) {
         draft.source = before;
         render();
-        await keyed;
-        if (destroyed) return;
-        if (key) { openInline(); return; }
         asking = true;
         const added = await LinearKey.open();
         asking = false;
         if (destroyed || !added) return;
+        if (keyState) key = await keyState().catch(() => key);
+        if (destroyed) return;
         draft.source = 'linear';
         await load();
         if (destroyed) return;
@@ -149,7 +120,6 @@
       noGithub = button.dataset.tkSource === 'github' && !repo();
       if (noGithub) { render(); root.querySelector('[data-tk-source="github"]').focus(); return; }
       if (button.dataset.tkSource === 'linear') { pickLinear(); return; }
-      closeInline();
       draft.source = button.dataset.tkSource;
       render(); root.querySelector(`[data-tk-source="${draft.source}"]`).focus(); change(read(), valid());
     };
@@ -168,13 +138,13 @@
     root.addEventListener('change', input);
     render();
     if (draft.source === 'linear' && !linear) load().then(() => { if (destroyed) return; pickDefaults(); render(); change(read(), valid(), { loaded: true }); });
-    // Without an answer the row has no status word, and Linear without a key opens Hub's key modal as on New board.
-    const keyed = keyState ? keyState().then((state) => { if (destroyed) return; key = state; render(); }, () => {}) : null;
+    // Without an answer the row has no status word.
+    if (keyState) keyState().then((state) => { if (destroyed) return; key = state; render(); }, () => {});
     return { read, valid, render, nameChanged() {
         const field = root.querySelector('[data-tk="newName"]');
         if (field && draft.newName === undefined) field.value = title();
       },
-      destroy() { destroyed = true; closeInline(); root.removeEventListener('click', click); root.removeEventListener('input', input); root.removeEventListener('change', input); } };
+      destroy() { destroyed = true; root.removeEventListener('click', click); root.removeEventListener('input', input); root.removeEventListener('change', input); } };
   }
   function fitSheet(sheet) {
     const vv = window.visualViewport;

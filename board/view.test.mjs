@@ -1939,7 +1939,7 @@ test('bare repo lookups debounce, cancel when edited or closed, and ignore stale
   assert.equal(urls.some((url) => url.includes('cancel') || url.includes('first')), false);
 });
 
-test('Board Settings saves each Tickets change at once, shows the source and Hub’s key as a status word, opens the key field inline for Linear without a working key, and Done waits for a save', async () => {
+test('Board Settings saves each Tickets change at once, shows the source and Hub’s key as a status word, opens Hub’s key modal over it for Linear without a working key, and Done waits for a save', async () => {
   const page = repoPage(true);
   const { doc, Element } = page;
   const root = doc.body.appendChild(new Element('div'));
@@ -2000,31 +2000,31 @@ test('Board Settings saves each Tickets change at once, shows the source and Hub
 
   const word = () => control.querySelector('[data-tk-status]').textContent;
   assert.equal(word(), 'internal · Linear refused the key');
+  assert.equal(root.querySelector('#ticketsKey'), null);
   await tapLinear();
-  assert.equal(doc.getElementById('linearKeyModal'), null);
-  const keySlot = root.querySelector('#ticketsKey');
-  let inline = keySlot.hidden ? null : keySlot;
+  let keyModal = doc.getElementById('linearKeyModal');
+  assert.equal(keyModal.open, true);
   assert.equal(modal.open, true);
   assert.equal(pressed(), 'internal');
-  assert.match(inline.textContent, /Linear needs a key\. Paste one here\./);
-  assert.match(inline.textContent, /doesn’t work · Linear refused the key/);
-  assert.equal(inline.querySelector(`a[href="${KEYS.url}"]`).textContent, KEYS.label);
-  assert.equal(inline.querySelector('.lk-form button'), null);
-  page.fire(control, 'click', { target: control.querySelector('[data-tk-source="internal"]') }); await tick();
-  assert.deepEqual([keySlot.hidden, keySlot.innerHTML], [true, '']);
+  assert.match(keyModal.textContent, /doesn’t work · Linear refused the key|Linear refused the key/);
+  assert.equal(keyModal.querySelector(`a[href="${KEYS.url}"]`).textContent, KEYS.label);
+  page.fire(keyModal, 'click', { target: keyModal.querySelector('.settings-footer [data-lk-done]') }); await tick();
+  assert.equal(doc.getElementById('linearKeyModal'), null);
+  assert.equal(modal.open, true);
   assert.equal(pressed(), 'internal');
   assert.equal(posts.length, 3);
 
   await tapLinear();
-  inline = keySlot.hidden ? null : keySlot;
+  keyModal = doc.getElementById('linearKeyModal');
   hold = Promise.withResolvers();
-  page.fire(inline.querySelector('main'), 'paste', { target: inline.querySelector('#linearKey'), clipboardData: { getData: () => ' lin_api_new ' } });
+  page.fire(keyModal.querySelector('.setting-content'), 'paste', { target: keyModal.querySelector('#linearKey'), clipboardData: { getData: () => ' lin_api_new ' } });
   assert.deepEqual(keyPosts, ['key=lin_api_new']);
-  assert.match(inline.textContent, /Checking the key with Linear…/);
-  assert.deepEqual([done.getAttribute('aria-busy'), done.disabled], ['true', true]);
+  assert.match(keyModal.textContent, /Checking the key with Linear…/);
+  assert.deepEqual([keyModal.querySelector('.settings-footer [data-lk-done]').getAttribute('aria-busy'), pressed()], ['true', 'internal']);
   hold.resolve(); hold = null;
   await tick(); await tick(); await tick();
-  assert.equal(keySlot.hidden, true);
+  assert.equal(doc.getElementById('linearKeyModal'), null);
+  assert.equal(modal.open, true);
   assert.equal(pressed(), 'linear');
   assert.equal(word(), 'linear · connected');
   assert.equal(control.querySelector('[data-tk-status]').classList.contains('on'), true);
