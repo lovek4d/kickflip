@@ -87,7 +87,7 @@
         top.innerHTML = HubUI.flash(flash);
         const scrollTop = B.$('.settings-body').scrollTop;
         if (active === 'notifications') {
-          content.innerHTML = `<div class="group">${deviceRow(device.state(last.device), { compact: true })}${notificationRows(last)}${last.presence ? row({ icon: tile('laptop', 'var(--color-quiet)'), title: esc(last.presence.title) }) : ''}</div>`;
+          content.innerHTML = `<div class="group">${deviceRow(device.state(last.device), { compact: true })}${notificationRows(last)}</div>`;
         } else if (active === 'quiet') {
           content.innerHTML = quietRows(last.quiet);
         } else if (active === 'keep-awake') {

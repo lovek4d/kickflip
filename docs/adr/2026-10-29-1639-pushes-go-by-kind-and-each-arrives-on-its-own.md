@@ -17,7 +17,7 @@ What pushes, when it goes, and how several arrive together.
 
 `hub/schedule.mjs` `heldUntil` is the one gate that now and queued pushes pass.
 
-**Where it goes.** A push goes to every subscribed device, except an action push while the owner is at the Mac, which goes to the Mac only. A queued push goes by where the owner is when it is sent ([pushes go to the Mac only while the owner is at it](2026-10-30-1704-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md)).
+**Where it goes.** A push goes to every subscribed device ([every push goes to every device](2026-11-05-2230-every-push-goes-to-every-device.md)).
 
 **How several arrive.** When several pushes go out together, each goes as its own notification and opens its own card. This replaces the "N updates" bundle, which opened only the newest. A newer push with the same tag replaces the older one, both in the queue and on the lock screen, and `hub/sw.js` shows it with `renotify`, so a card whose action changed alerts again.
 

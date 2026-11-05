@@ -74,11 +74,6 @@ test('Hub Settings says whether pushes go, when a snooze ends and what each snoo
   assert.deepEqual(awake('forever'), { unsupported: null, on: { title: 'Keeping awake until you turn it off' }, choices: null, summary: 'On · forever' });
   assert.deepEqual(awake(null, 'macOS only · this host runs Linux'), { unsupported: 'macOS only · this host runs Linux', on: null, choices: null, summary: 'macOS only · this host runs Linux' });
   assert.deepEqual(plain(v.rules), [{ id: 'r1', text: 'Be brief' }]);
-  assert.deepEqual(plain(v.presence), { title: 'Away from the host', sub: 'Pushes go to every device. At the host means unlocked and used in the last 3 minutes.' });
-  assert.deepEqual(plain(settingsView({ now, st: status(now, DEFAULTS), route: { atMac: true, desktops: 1 } }).presence),
-    { title: 'At the host', sub: 'Pushes go to the host only. Prompts, faults and urgent pushes still reach the phone.' });
-  assert.deepEqual(plain(settingsView({ now, st: status(now, DEFAULTS), route: { atMac: true, desktops: 0 } }).presence),
-    { title: 'At the host', sub: 'No notifications on the host, so pushes still go to the phone.' });
 
   const snoozed = settingsView({ now, st: status(now, notify(DEFAULTS, { snoozed_until: t(12).toISOString() }), 2) });
   assert.deepEqual(plain(snoozed.snoozed), { title: 'Snoozed until 12:00pm', summary: 'Snoozed until 12:00pm' });
@@ -92,7 +87,7 @@ test('Hub Settings says whether pushes go, when a snooze ends and what each snoo
   assert.equal(forever.device, 'snoozed until you end it');
 
   const off = settingsView({ now, st: status(now, notify(DEFAULTS, { on: false, snoozed_until: t(12).toISOString() })) });
-  assert.deepEqual([off.snoozed, off.snooze, off.presence], [null, null, null]);
+  assert.deepEqual([off.snoozed, off.snooze], [null, null]);
   assert.deepEqual([off.on.on, off.on.sub], [false, 'Off. Every push is dropped, urgent ones too. Needs you and the badge still update.']);
   assert.equal(off.device, 'notifications are off');
 });
@@ -222,7 +217,6 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
   assert.equal(root.querySelector('.dur-custom .btn').textContent, 'Custom');
   assert.equal(root.querySelectorAll('dialog').length, 1);
   assert.equal(modal.open, true);
-  assert.match(root.textContent, /Away from the host/);
   assert.doesNotMatch(modal.textContent, /Pushes wait, then go|Turn off to drop|unlocked and used/);
   const enable = root.querySelector('[data-device="on"]');
   assert.equal(enable.textContent, 'Turn on');

@@ -1,5 +1,5 @@
 ---
-status: superseded in part by 2026-11-01-1542-the-hub-runs-under-the-hosts-service-manager
+status: superseded by 2026-11-05-2230-every-push-goes-to-every-device
 ---
 
 # Pushes go to the Mac only while the owner is at it

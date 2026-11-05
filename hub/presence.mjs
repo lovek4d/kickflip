@@ -1,4 +1,4 @@
-// Whether the owner is at the host (docs/adr/2026-10-30-1704-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md): the screen
+// Whether the owner is at the host (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md): the screen
 // is unlocked and a key or the pointer was used in the last 3 minutes, whatever app is in front. Both readings come
 // from macOS ioreg, which needs no permission, so the hub's service and a session's CLI read the same. A host without
 // ioreg, such as Linux, fails the reading, so the owner always reads away there.
@@ -11,7 +11,7 @@ const ioreg = (args) => new Promise((resolve, reject) => {
 });
 
 // run(args) → ioreg's output for those args. Resolves {atMac, locked, idleMs}, or {atMac: false, error} when a
-// reading fails, so a host that can't be read counts as away and pushes keep reaching the phone.
+// reading fails, so a host that can't be read counts as away.
 export async function readPresence(run = ioreg) {
   try {
     const [root, hid] = await Promise.all([run(['-n', 'Root', '-d1']), run(['-c', 'IOHIDSystem'])]);
@@ -25,23 +25,12 @@ export async function readPresence(run = ioreg) {
   }
 }
 
-// A readPresence that reuses one reading for ttl ms, so a flush of several pushes reads ioreg once.
-export function presenceReader({ run = ioreg, ttl = 5000, clock = Date.now } = {}) {
-  let last = null;
-  return () => {
-    if (!last || clock() - last.at >= ttl) last = { at: clock(), reading: readPresence(run) };
-    return last.reading;
-  };
-}
-
-export const presence = presenceReader();
-
 // The owner's presence for the hub's checks (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md):
 // present while at the Mac (read, a readPresence) or within IDLE_LIMIT_MS of a beat, a tap, key or scroll on a board or Hub
 // page on any device. It starts away until a check or beat says otherwise. check() reads the Mac and beat() records a
 // beat; each → {present, changed, back}, back when the owner just came back from away. state() → {present, backAt},
 // backAt being when the owner last came back.
-export function ownerTracker({ read = presence, clock = Date.now } = {}) {
+export function ownerTracker({ read = readPresence, clock = Date.now } = {}) {
   let beatAt = -Infinity;
   let present = false;
   let backAt = null;

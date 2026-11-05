@@ -163,7 +163,7 @@ WantedBy=default.target
       const lingering = linger.status === 0 && /^Linger=yes$/m.test(linger.stdout || '');
       return [
         { item: 'hub without a login', state: lingering ? 'ok' : 'optional', detail: lingering ? 'the user lingers, so the hub runs with nobody logged in' : 'the hub stops when your last login session ends', fix: 'sudo loginctl enable-linger "$USER"' },
-        { item: 'macOS-only parts', state: 'note', detail: 'At the host always reads away, since presence comes from macOS ioreg, so pushes reach every device' },
+        { item: 'macOS-only parts', state: 'note', detail: 'The owner reads away from the host, since presence comes from macOS ioreg, so only a page tap makes the hub check every minute' },
       ];
     },
   };

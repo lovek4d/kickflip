@@ -161,7 +161,7 @@ import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import zlib from 'node:zlib';
 import { routeRecord } from './routes.mjs';
-import { publicKey, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, deliver, pushRoute } from './push.mjs';
+import { publicKey, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, deliver } from './push.mjs';
 import { ownerTracker } from './presence.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
 import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt, LOW_POINTS } from './schedule.mjs';
@@ -811,7 +811,7 @@ async function hubData(req) {
 const settingsData = async () => {
   const now = new Date();
   const awake = { until: awakeUntil(now), unsupported: awakeUnsupported() };
-  return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), route: await pushRoute(), linear: linearStatus(), slack: slackStatus(), awake }), closed: closedBoards() };
+  return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), linear: linearStatus(), slack: slackStatus(), awake }), closed: closedBoards() };
 };
 
 const redirect = (res, location) => { res.writeHead(303, { location, 'cache-control': 'no-store' }); res.end(); };

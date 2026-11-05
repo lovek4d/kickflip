@@ -137,10 +137,9 @@ const snoozedUntil = (n, now) => (n.on ? endOf(n.snoozed_until, now) : null);
 // its workspace are shown (linear.mjs linearStatus; docs/adr/2026-11-01-1436-kickflip-reaches-linear-with-a-key-on-the-mac.md),
 // and Keep awake. Snooze and
 // Keep awake share one duration picker (docs/adr/2026-11-02-1402-snooze-and-keep-awake-share-one-duration-picker.md), whose
-// choices are null while that setting is on, and Snooze's while notifications are off. route is push.mjs pushRoute():
-// where an action push goes now (docs/adr/2026-10-30-1704-pushes-go-to-the-mac-only-while-the-owner-is-at-it.md). awake is
+// choices are null while that setting is on, and Snooze's while notifications are off. awake is
 // {until: awake.mjs awakeUntil, unsupported: awake.mjs awakeUnsupported}.
-export function settingsView({ now, st, rules = [], route = { atMac: false, desktops: 0 }, linear = { set: false }, slack = { set: false }, awake = { until: null, unsupported: null } }) {
+export function settingsView({ now, st, rules = [], linear = { set: false }, slack = { set: false }, awake = { until: null, unsupported: null } }) {
   const s = st.settings;
   const n = s.notifications;
   const until = snoozedUntil(n, now);
@@ -154,9 +153,6 @@ export function settingsView({ now, st, rules = [], route = { atMac: false, desk
       sub: n.on ? 'On. Turn off to drop every push, urgent ones too.' : 'Off. Every push is dropped, urgent ones too. Needs you and the badge still update.',
       confirm: `Turn off notifications? Every push is dropped until you turn them back on, urgent ones too.${queued} Needs you and the badge still update.`,
     },
-    presence: !n.on ? null : !route.atMac ? { title: 'Away from the host', sub: 'Pushes go to every device. At the host means unlocked and used in the last 3 minutes.' }
-      : route.desktops ? { title: 'At the host', sub: 'Pushes go to the host only. Prompts, faults and urgent pushes still reach the phone.' }
-      : { title: 'At the host', sub: 'No notifications on the host, so pushes still go to the phone.' },
     snooze: n.on && !until ? { choices: durationChoices(now, SNOOZE_FOREVER) } : null,
     awake: {
       unsupported: awake.unsupported,
