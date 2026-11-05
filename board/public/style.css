@@ -646,7 +646,6 @@ main > * { transition: opacity .25s ease; }
   display: flex; justify-content: space-between; align-items: center; gap: 8px; border-top: 1px solid var(--line); }
 .view-questions .bar .send-hint { margin-left: auto; }
 /* The + rides above the sticky Send bar rather than over its Send. */
-.view-questions:has(.bar) .fab { bottom: calc(var(--app-bottom, 0px) + var(--fab-edge) + 72px); }
 .view-questions .bar #qstatus { min-width: 0; }
 /* Typing with the keyboard up: one compact row docked on the keyboard, and the + out of the way (view-questions.js dock). */
 .view-questions.kb-up .bar { position: fixed; left: 0; right: 0; bottom: var(--kb, 0px); z-index: 7; padding: 6px 16px; box-shadow: 0 -6px 14px rgba(0,0,0,.12); }
@@ -908,6 +907,10 @@ button[aria-busy="true"]:is([data-card-bump], [data-bump]) svg { fill: currentCo
   .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
   .split > main { max-width: none; margin: 0; }
   .needs-deck { display: none; }
+  /* The board's + sits at the bottom right of the left pane: the pane ends at the middle of the space right of the sidebar. */
+  .view-board .fab { right: calc(50% - var(--sidebar-w, 0px) / 2 + var(--fab-edge)); }
+  body.has-sidebar { --sidebar-w: 272px; }
+  html.sb-collapsed body.has-sidebar { --sidebar-w: 0px; }
   .needs-pane { display: block; position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto; overscroll-behavior: contain; padding: 12px 16px 24px; border-left: 1px solid var(--line); }
   .needs-pane .needs-questions main { padding: 0; max-width: none; }
   .needs-pane .waiting { margin: 0 0 12px; }

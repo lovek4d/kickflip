@@ -5275,3 +5275,13 @@ test("a shared person's tap on an asleep board never asks the hub to wake the ow
   assert.deepEqual(b.posts.filter(([p]) => p === '/_hub/wake'), []);
   b.view.unmount();
 });
+
+// docs/adr/2026-11-05-2330-the-plus-lives-on-the-board-pane.md
+test("the + is on the board's left pane on desktop and gone from the Open questions page", async () => {
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  const shell = readFileSync(new URL('./public/shell.js', import.meta.url), 'utf8');
+  assert.match(shell, /const plus = [^\n]*view\.kind !== 'questions'/);
+  assert.doesNotMatch(css, /view-questions[^{]*\.fab/);
+  assert.match(css, /@media \(min-width: 900px\) \{[^@]*\.view-board \.fab \{ right: calc\(50% /);
+});
