@@ -414,8 +414,8 @@ export function owesNext(item, records) {
 
 // An ask is a New card at the top of Todo until Claude replies to it or writes in its thread; then it is an answered ask
 // in the Asks section, below Done, with its thread (docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md,
-// docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md). An ask that became work or was folded into a card has no card
-// of its own: buildBoard leaves it out. msgs is its thread; bumpedAt is its latest ask-bump.
+// docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md). An ask that became work has no card
+// of its own: buildBoard leaves it out. A folded ask stays, in Asks, with a thread line saying where it went. msgs is its thread; bumpedAt is its latest ask-bump.
 // mark is Claude's latest data/ask-progress.json entry {state, at, next} and doneAt the owner's latest ask-done: the newer
 // one decides whether the ask sits in In Progress with a Done button (docs/adr/2026-10-29-1639-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md).
 // A mark with moved is an ask sent to another board on the owner's answer, so it never shows as an answer.
@@ -757,7 +757,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       .flatMap((e) => [{ ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, ...(moved.includes(e.id) ? { moved: true } : {}),
         ...(typeof e.data?.from?.title === 'string' ? { from: e.data.from.title } : {}) },
         ...(e.data?.quick === true ? [{ ts: e.ts, who: 'love', kind: 'quick-build', request: true, text: QUICK_BUILD }] : []),
-        ...links.map((l) => ({ ts: e.ts, who: 'claude', kind: 'ask-link', text: `${l.became ? 'Became' : 'Added to'} ${l.ref}`, link: `#item=${encodeURIComponent(l.key)}`, html: null, via: null }))]),
+        ...links.map((l) => ({ ts: e.ts, who: 'claude', kind: 'ask-link', text: l.folded ? `Moved to ${l.ref}: ${l.title}` : `${l.became ? 'Became' : 'Added to'} ${l.ref}`, link: `#item=${encodeURIComponent(l.key)}`, html: null, via: null }))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
   const lastClaude = claudeAtOf(msgs);
   const { edits, editFiles } = index;
@@ -957,10 +957,11 @@ export function buildBoard(snapshot) {
     const key = `ask:${e.id}`;
     const related = works.get(routeRecord(askLinks, e.id));
     const links = [...(madeFrom.get(e.id) || [])];
-    if (related && !links.some((l) => l.key === related.key)) links.push({ key: related.key, ref: related.ref, became: false });
-    if (links.length) { moved.set(key, links[0].key); continue; }
+    const folded = related && !links.some((l) => l.key === related.key);
+    if (folded) links.push({ key: related.key, ref: related.ref, title: related.title, became: false, folded: true });
+    if (links.length && !folded) { moved.set(key, links[0].key); continue; }
     // An ask linked to a card the board no longer holds went with it to the archive (store.mjs archiveCards).
-    if (routeRecord(askLinks, e.id)) { moved.set(key, routeRecord(askLinks, e.id)); continue; }
+    if (!folded && routeRecord(askLinks, e.id)) { moved.set(key, routeRecord(askLinks, e.id)); continue; }
     const msgs = threadOf(key, { lines: routeRecord(threads, key) || [], events, working, links, index });
     for (const m of msgs) if (m.eventId) threadStates.set(m.eventId, m.state);
     claudeAt.set(key, claudeAtOf(msgs));

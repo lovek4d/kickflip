@@ -593,7 +593,9 @@ test("an ask that became work or was folded into a card has no card of its own: 
   const later = { id: 'm3', ts: '2026-10-23T09:10:00Z', kind: 'item-message', data: { key: 'ask:a3', text: 'And the footer' }, reply: null };
   const related = buildBoard({ fromWaves: false, askLinks: { a3: 'site/S4' }, events: [folded, later], working: { a3: '2026-10-23T09:01:00Z' },
     waves: [{ slug: 'site', agents: runningBuilders('S4'), wave: { internal: true, items: [{ id: 'S4', title: 'Four', status: 'building' }] } }] });
-  assert.deepEqual([related.items.map((i) => [i.key, i.lane, i.threadCount]), related.moved, related.working], [[['site/S4', 'progress', 2]], { 'ask:a3': 'site/S4' }, 0]);
+  assert.deepEqual([related.items.map((i) => [i.key, i.lane, i.threadCount]), related.moved, related.working], [[['site/S4', 'progress', 2], ['ask:a3', 'asks', 3]], {}, 0]);
+  assert.deepEqual(threadOf('ask:a3', { events: [folded, later], links: [{ key: 'site/S4', ref: 'S4', title: 'Four', became: false, folded: true }] })
+    .filter((m) => m.kind === 'ask-link').map((m) => [m.text, m.link]), [['Moved to S4: Four', '#item=site%2FS4']]);
   const movedIn = threadOf('site/S4', { events: [folded, later], moved: ['a3'], lines: [{ ts: '2026-10-23T09:20:00Z', who: 'claude', text: 'Folded in.' }] });
   assert.deepEqual(movedIn.map(({ kind, text, moved, state }) => [kind, text, moved, state]), [['ask', 'a3 first line\nmore', true, 'answered'], ['item-message', 'And the footer', undefined, 'answered'], [undefined, 'Folded in.', undefined, undefined]]);
   const lines = [{ ts: '2026-10-23T09:05:00Z', who: 'claude', text: 'Building it.' }];
