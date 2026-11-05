@@ -2182,7 +2182,7 @@ test("a shared person's sidebar lists only their boards: no Hub row, no New boar
   assert.deepEqual(plain(ui.switchKeys(data)).map((r) => r.href), ['/orch/']);
 });
 
-test('the Questions page bar docks on the keyboard while a field is focused, and the + hides', () => {
+test('the Questions page bar docks on the keyboard while a field is focused', () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   const view = fs.readFileSync(new URL('./public/view-questions.js', import.meta.url), 'utf8');
   assert.match(css, /\.view-questions\.kb-up \.bar \{[^}]*position: fixed;[^}]*bottom: var\(--kb/);
