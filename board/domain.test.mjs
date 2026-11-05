@@ -1750,7 +1750,7 @@ test("a card's bare Grill and Prototype taps are muted request entries in its th
   ];
   const msgs = threadOf('w/A1', { events, fromAsk: 'a1', owner: { items: [{ id: 'q1', topic: 'item:w/A1', question: 'Keep it?' }] } });
   assert.deepEqual(msgs.map((m) => [m.kind, m.text, Boolean(m.request), m.status || null]), [
-    ['ask', 'Add a badge', false, null], ['quick-build', 'quick build: no grill, as you asked', true, null],
+    ['ask', 'Add a badge', false, null], ['quick-build', 'quick build: no grill', true, null],
     ['grill-more', 'grill requested', true, null], ['prototype-request', 'prototype requested', true, null],
     ['grill-more', 'Ask about the colours', false, 'grill requested'], ['prototype-request', 'Phone width first', false, 'prototype requested'],
     ['owner-answer', 'Keep it?\n→ A. Keep it · yes', false, 'answers submitted'],

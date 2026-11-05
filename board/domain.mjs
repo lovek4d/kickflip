@@ -670,7 +670,7 @@ function ownerTopics(topics, questions, closed = new Set()) {
 // (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
 const ACTION_LABELS = { 'mark-ready': 'Mark ready', 'grill-more': 'grill requested', 'prototype-request': 'prototype requested', 'reask-request': 're-ask requested' };
 const ANSWERS_SUBMITTED = 'answers submitted';
-const QUICK_BUILD = 'quick build: no grill, as you asked';
+const QUICK_BUILD = 'quick build: no grill';
 // A Todo card's Reply and build (docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md).
 const BUILD_REQUESTED = 'build requested';
 const actionText = (e, asked) => {

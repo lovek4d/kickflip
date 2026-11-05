@@ -519,11 +519,11 @@ test("a Quick build ask carries quick: true to the session, and its thread says 
   const logged = fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).find((e) => e.id === id);
   assert.deepEqual(logged.data, { text: 'Add a badge', quick: true });
   const thread = async (key) => (await (await fetch(`${base}/api/thread?key=${encodeURIComponent(key)}`)).json()).map((m) => [m.text, Boolean(m.request)]);
-  assert.deepEqual(await thread(`ask:${id}`), [['Add a badge', false], ['quick build: no grill, as you asked', true]]);
+  assert.deepEqual(await thread(`ask:${id}`), [['Add a badge', false], ['quick build: no grill', true]]);
   const wave = JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'));
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ ...wave, items: [...wave.items, { id: 'Q1', title: 'Badge', from_ask: id }] }));
   const taps = [await post('/_claude/events', { kind: 'grill-more', key: 't/Q1' }), await post('/_claude/events', { kind: 'prototype-request', key: 't/Q1' })];
-  assert.deepEqual((await thread('t/Q1')).filter(([, request]) => request), [['quick build: no grill, as you asked', true], ['grill requested', true], ['prototype requested', true]]);
+  assert.deepEqual((await thread('t/Q1')).filter(([, request]) => request), [['quick build: no grill', true], ['grill requested', true], ['prototype requested', true]]);
   const card = (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/Q1');
   assert.deepEqual([card.grilling, card.prototyping], [true, true]);
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify(wave));
