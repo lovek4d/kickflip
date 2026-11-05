@@ -366,10 +366,17 @@ button.attach:disabled { opacity: .35; }
 @media (prefers-reduced-motion: no-preference) { .phase-bars:not(.dim) i.now { animation: pulse-fill 1.4s ease-in-out infinite; } }
 /* A stale build's status line, dot included, is the needs-you red, and a tap on it nudges Claude (ui-cards.js builderStatus). */
 /* A status line that is a button is drawn as the div it replaces: this one reset, then only a colour per state. The font
-   shorthand stays out so .sub's 12px wins. */
-button.sub { display: block; width: 100%; margin-inline: 0; margin-bottom: 0; padding: 0; min-height: 0; border: 0; border-radius: 0; background: none;
+   shorthand stays out so .sub's 12px wins. It sets no width: a button is its own block formatting context, so a full-width one
+   drops below the bump icons' float instead of sitting beside it as the div's line box does (board/layout.test.mjs). */
+button.sub { display: block; margin-inline: 0; margin-bottom: 0; padding: 0; min-height: 0; border: 0; border-radius: 0; background: none;
   font-family: inherit; font-weight: inherit; letter-spacing: inherit; line-height: inherit; text-align: left; appearance: none; -webkit-appearance: none; }
 button.sub.agent.stalled { color: var(--color-danger); }
+/* A tap on it calms the line to the in-progress orange, its dot sending a ripple, until the card's next status line (app-cards.js nudge). */
+button.sub.agent.stalled.nudging { color: var(--color-notice); cursor: default; }
+.nudging .working-dot { position: relative; }
+.nudging .working-dot::after { content: ''; position: absolute; inset: -1px; border-radius: 50%; border: 1.5px solid currentColor; opacity: 0; }
+@keyframes nudge-ping { from { transform: scale(1); opacity: .9; } to { transform: scale(2.6); opacity: 0; } }
+@media (prefers-reduced-motion: no-preference) { .nudging .working-dot::after { animation: nudge-ping 1.1s ease-out infinite; } }
 .stalled .working-dot { background: currentColor; }
 .brand { display: grid; grid-template-columns: auto auto minmax(0, 1fr); column-gap: 10px; row-gap: 2px; }
 .brand .hub { grid-row: 1 / span 2; align-self: center; }

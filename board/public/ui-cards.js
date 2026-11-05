@@ -222,7 +222,8 @@
     const classes = `line3 sub agent${it.builder.planner ? ' planner' : ''}${tone(it)}${quiet ? ' quiet' : ''}`;
     const words = `${quiet ? '' : DOT}${esc(builderLine(it.builder))}`;
     if (!it.builder.stalled || it.lane === 'done') return `<div class="${classes}">${words}</div>`;
-    return `<button type="button" class="${classes} stalled" data-confirm="nudge" data-key="${esc(it.key)}"${BoardUI.pending.has(`${it.key}:nudge`) ? BoardUI.BUSY : ''} title="No recent progress. Nudge Claude to check this implementer">${words}</button>`;
+    const nudging = BoardUI.pending.has(`${it.key}:nudge`) ? ' nudging' : '';
+    return `<button type="button" class="${classes} stalled${nudging}" data-confirm="nudge" data-key="${esc(it.key)}" title="No recent progress. Nudge Claude to check this implementer">${words}</button>`;
   }
   // The open card's Status row: what runs on the card, else where its lane leaves it, never the wave file's raw status
   // (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).

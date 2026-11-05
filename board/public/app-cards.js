@@ -404,12 +404,6 @@ BoardView.part((B) => {
     store.set('openItems', [...state.openItems]);
   }, true);
 
-  function redrawActions(key) {
-    const it = state.board.items.find((i) => i.key === key);
-    const row = $(`.actions[data-actions="${CSS.escape(key)}"]`);
-    if (it && row) row.outerHTML = actions(it);
-  }
-
   B.on(B.root, 'click', async (ev) => {
     const log = ev.target.closest('[data-try-log]');
     if (log && state.openItems.has(log.dataset.tryLog)) {
@@ -462,6 +456,7 @@ BoardView.part((B) => {
     if (!b) return;
     ev.preventDefault();
     const { key, confirm: act } = b.dataset;
+    if (b.classList.contains('nudging')) return;
     const it = state.board.items.find((i) => i.key === key);
     if (it && act === 'hold') { openHold(it); return; }
     if (!it || !(await B.confirm(CONFIRM[act](it, it.ref)))) return;
@@ -492,18 +487,17 @@ BoardView.part((B) => {
       if (act === 'finish') B.syncDone(key);
       return;
     }
-    // The tapped button waits and the rest of its action row is disabled until the server answers.
-    const group = { group: $(`.actions[data-actions="${CSS.escape(key)}"]`)?.querySelectorAll('button') ?? [] };
-    // The nudge reads done when the card's builder line moves (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
+    // A stalled line's nudge calms it to orange with a ripple, not a spinner, until a board shows the card's status line
+    // changed, the builder no longer stalled or the card gone (style.css .nudging).
     const id = `${key}:nudge`;
-    const before = JSON.stringify(it.builder);
-    BoardUI.pending.start(id, (board) => JSON.stringify(board.items.find((i) => i.key === key)?.builder) !== before, B.stillWaiting);
+    const { progress, at } = it.builder;
+    BoardUI.pending.start(id, (board) => { const c = board.items.find((i) => i.key === key); return !c?.builder?.stalled || c.builder.progress !== progress || c.builder.at !== at; }, B.stillWaiting);
+    B.render();
     try {
-      const out = await waitOn(b, B.sentHere(key, () => B.send('builder-nudge', { key })), group);
-      BoardUI.pending.answered(id, out.board.generatedAt);
-      B.render();
-      toast('Nudge sent');
-    } catch { BoardUI.pending.drop(id); redrawActions(key); toast('Could not send. Is the host awake?'); }
+      const out = await B.sentHere(key, () => B.send('builder-nudge', { key }));
+      BoardUI.pending.answered(id, out.board.generatedAt); toast('Nudge sent');
+    } catch { BoardUI.pending.drop(id); toast('Could not send. Is the host awake?'); }
+    B.render();
   });
 
   Object.assign(B, { captureStrips, moveStrips, detail, card });

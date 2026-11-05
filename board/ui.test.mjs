@@ -1187,11 +1187,32 @@ test('a stalled builder has no Stalled badge: its status line turns the needs-yo
   assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'done', builder }), /stalled|data-confirm="nudge"/);
 });
 
+test('a tap on the red status line calms it to orange with a ripple, no spinner, until the card has a new status line', () => {
+  const builder = { progress: 'Running tests', at: null, stalled: true };
+  const card = { ...workCard, lane: 'progress', builder };
+  const id = `${card.key}:nudge`;
+  assert.doesNotMatch(ui.workLines(card), /nudging/);
+  ui.pending.start(id, (board) => { const c = board.items.find((i) => i.key === card.key); return !c?.builder?.stalled || c.builder.progress !== 'Running tests'; });
+  ui.pending.answered(id, 100);
+  const html = ui.workLines(card);
+  assert.match(html, /class="line3 sub agent in-progress stalled nudging"/);
+  assert.doesNotMatch(html, /aria-busy/);
+  ui.pending.settle({ generatedAt: 200, items: [card] });
+  assert.ok(ui.pending.has(id));
+  ui.pending.settle({ generatedAt: 300, items: [{ ...card, builder: { ...builder, progress: 'Writing docs' } }] });
+  assert.ok(!ui.pending.has(id));
+  assert.doesNotMatch(ui.workLines(card), /nudging/);
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /^button\.sub\.agent\.stalled\.nudging \{ color: var\(--color-notice\);/m);
+});
+
 test('a button drawn as a status line resets to the div it replaces in one rule, so turning red changes only its colour', () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   const reset = css.match(/^button\.sub \{([^}]*)\}/m)?.[1] ?? '';
   for (const prop of ['margin-inline: 0', 'margin-bottom: 0', 'padding: 0', 'min-height: 0', 'line-height: inherit', 'font-family: inherit', 'appearance: none', 'text-align: left']) assert.ok(reset.includes(prop), prop);
   assert.doesNotMatch(reset, /(^|[\s;])font:/);
+  // A full-width button is its own block formatting context and drops below the bump icons' float: board/layout.test.mjs.
+  assert.doesNotMatch(reset, /(^|[\s;])width:/);
   assert.match(css, /^button\.sub\.agent\.stalled \{ color: var\(--color-danger\); \}$/m);
   assert.match(css, /^\.sub\.agent\.quiet, \.sub\.asked \{ color: var\(--muted\); \}$/m);
 });
