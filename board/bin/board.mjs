@@ -281,12 +281,12 @@ command fails and changes nothing.
                                                          of a merged card. record is the command to run once sent.
                                                          While Slack isn't ready: {waiting} and nothing owed
   review post <pr> --file <review.md>                   posts the session's words as one Comment review (never an
-         [--read-at <time>]                              approval or a request for changes) on an incoming PR at
+          --read-at <time>                               approval or a request for changes) on an incoming PR at
                                                          its listed head, as the board's github-login (else gh's
                                                          account), under "🤖 Claude review from the <board title>
                                                          board" and the <!-- claude-bridge --> marker, and records
                                                          it posted with the review's link. Refuses words that carry
-                                                         the header or marker, and, with --read-at, a PR that got
+                                                         the header or marker, and a PR that got
                                                          another review after that time. The PR must be one the hub
                                                          listed in data/incoming.json or reviewed before
   review record <pr> --state posted|needs               the session's review of an incoming PR that was not posted
@@ -696,6 +696,7 @@ const COMMANDS = {
   }],
   'review post': [['pr'], ['file', 'read-at'], (site, [pr], f) => {
     if (f.file === undefined) throw new UsageError('review post needs --file <review.md>');
+    if (f['read-at'] === undefined) throw new UsageError('review post needs --read-at <time>, when you read the PR, so a review that landed since is caught');
     return store.postIncomingReview(site, pr, { words: readInput(f.file), readAt: f['read-at'] });
   }],
   'review digest': [[], [], async (site, _, f, options) => ({ lines: [JSON.stringify(await store.reviewDigest(site, options))] })],

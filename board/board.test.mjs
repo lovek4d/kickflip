@@ -3495,7 +3495,7 @@ test("review post posts the session's words as one Comment review on a listed in
   assert.equal(cli('settings', 'set', 'github-login', 'owner').code, 0);
   const title = JSON.parse(fs.readFileSync(site('orch', 'board.json'), 'utf8')).title;
 
-  const done = cli('review', 'post', '437', '--file', file);
+  const done = cli('review', 'post', '437', '--file', file, '--read-at', '2026-11-05T09:00:00Z');
   assert.equal(done.code, 0, done.err);
   assert.equal(done.out, 'posted review on PR #437: https://github.com/o/incoming/pull/437#pullrequestreview-1\n');
   assert.deepEqual(posts(), [[['repos/o/incoming/pulls/437/reviews', '-f', `body=🤖 Claude review from the ${title} board\n\nOne point: the retry loops.\n\n<!-- claude-bridge -->`, '-f', 'event=COMMENT', '-f', 'commit_id=abc'], 'token-owner']]);
@@ -3517,11 +3517,12 @@ test("review post posts the session's words as one Comment review on a listed in
     ['marker', 'Fine.\n<!-- claude-bridge -->', /adds the 🤖 header/],
   ]) {
     write(path.join(home, `${name}.md`), words);
-    assert.match(cli('review', 'post', '437', '--file', path.join(home, `${name}.md`)).err, err, name);
+    assert.match(cli('review', 'post', '437', '--file', path.join(home, `${name}.md`), '--read-at', '2026-11-05T10:30:00Z').err, err, name);
   }
-  assert.match(cli('review', 'post', '438', '--file', file).err, /not an incoming PR/);
-  assert.match(cli('review', 'post', 'seven', '--file', file).err, /review post takes the PR number/);
-  assert.match(cli('review', 'post', '437').err, /review post needs --file/);
+  assert.match(cli('review', 'post', '438', '--file', file, '--read-at', '2026-11-05T10:30:00Z').err, /not an incoming PR/);
+  assert.match(cli('review', 'post', 'seven', '--file', file, '--read-at', '2026-11-05T10:30:00Z').err, /review post takes the PR number/);
+  assert.match(cli('review', 'post', '437', '--read-at', '2026-11-05T10:30:00Z').err, /review post needs --file/);
+  assert.match(cli('review', 'post', '437', '--file', file).err, /review post needs --read-at/);
   assert.match(cli('review', 'post', '437', '--file', file, '--read-at', 'noon').err, /--read-at takes the time/);
   assert.equal(posts().length, 2);
 });
