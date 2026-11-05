@@ -8,8 +8,8 @@ BoardView.part((B) => {
   // The hub serves every site from one origin, so each board keeps its own key.
   const KEY = 'boardSnapshot:' + B.site.url('');
   // Every board's snapshots together stay within three at ui-snapshot.js's cap, the boards saved least recently
-  // dropping first, so they leave room in the browser's 5 MB of storage for the drafts and seen marks, which would
-  // otherwise fail to save.
+  // dropping first, so they leave room in the browser's 5 MB of storage for the drafts, which would otherwise fail to
+  // save.
   const BUDGET = 3 * SNAPSHOT_MAX;
   const ORDER = 'boardSnapshots';
   const BUILD = document.documentElement.dataset.build;

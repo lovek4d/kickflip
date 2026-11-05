@@ -2356,10 +2356,12 @@ test("h h on a desktop shows the shortcuts sheet listing each shortcut's keys, a
   assert.equal(sheet(), null);
 });
 
-function boardOnDom({ open = [], seen = {}, board, threads, confirm = false, realDialogs = false, send = null }) {
-  const page = fakePage(memoryStorage([['site:board-a:openItems', JSON.stringify(open)], ['site:board-a:seenThreads', JSON.stringify(seen)]]).localStorage);
+// seen: card key → its readAt on the board, the read mark board/server.mjs keeps for every device.
+function boardOnDom({ open = [], seen = {}, stored = [], board, threads, confirm = false, realDialogs = false, send = null }) {
+  const { storage, localStorage } = memoryStorage([['site:board-a:openItems', JSON.stringify(open)], ...stored]);
+  const page = fakePage(localStorage);
   const { Element } = miniDom(page.Target, page.win.document);
-  const server = { board, threads };
+  const server = { board: { ...board, items: board.items.map((it) => (seen[it.key] ? { ...it, readAt: seen[it.key] } : it)) }, threads };
   const sent = [];
   const confirms = [];
   const confirmLabels = [];
@@ -2393,7 +2395,7 @@ function boardOnDom({ open = [], seen = {}, board, threads, confirm = false, rea
   view.mount();
   const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
   const change = async (next) => { Object.assign(server, next); signalled(); await settle(); };
-  return { page, root, view, settle, change, sent, confirms, confirmLabels, posts, gets, downloads, patched, server, doc: page.win.document };
+  return { page, root, view, settle, change, sent, confirms, confirmLabels, posts, gets, downloads, patched, server, storage, doc: page.win.document };
 }
 const askCard = (id, lane) => ({ key: `ask:${id}`, id, kind: 'ask', lane, title: `Task ${id}`, deps: [], othersAt: [] });
 const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items, waves: [], needs: [], answers: [], doneArchived: 0 });
@@ -3479,7 +3481,8 @@ test("a card opened with more than 3 unread messages shows them all, and once cl
   const msgs = [said(0, 'One'), said(1, 'Plan written', { kind: 'status' }),
     said(2, 'Two?', { who: 'love', kind: 'item-message', eventId: 'e1', state: 'replied', reply: { html: 'Two.', at: at(3) } }),
     said(5, 'Three', { who: 'Sam' }), said(6, 'Four'), said(7, 'Opened #1', { kind: 'status' }), said(8, 'Five'), said(10, 'Six')];
-  const b = boardOnDom({ open: ['w/A1'], seen: { 'w/A1': at(2) }, board: boardOf([workCard('A1', { lane: 'progress' })]), threads: { 'w/A1': msgs } });
+  const othersAt = [at(0), at(3), at(6), at(8), at(10)];
+  const b = boardOnDom({ open: ['w/A1'], seen: { 'w/A1': at(2) }, board: boardOf([workCard('A1', { lane: 'progress', othersAt })]), threads: { 'w/A1': msgs } });
   await b.settle();
   const card = b.root.querySelector('details.item[data-key="w/A1"]');
   const thread = () => b.root.querySelector('[data-thread="w/A1"] .msgs');
@@ -3492,7 +3495,7 @@ test("a card opened with more than 3 unread messages shows them all, and once cl
   assert.deepEqual(seen(), ['Show more · 4 previous messages', ['Four', 'Five', 'Six']]);
   b.page.fire(b.root, 'click', { target: thread().querySelector('[data-thread-more]') });
   assert.deepEqual(seen(), ['Show more · 1 previous message', ['Two?', 'Two.', 'Three', 'Four', 'Five', 'Six']]);
-  await b.change({ threads: { 'w/A1': [...msgs, said(12, 'Seven')] } });
+  await b.change({ threads: { 'w/A1': [...msgs, said(12, 'Seven')] }, board: boardOf([workCard('A1', { lane: 'progress', othersAt: [...othersAt, at(12)] })]) });
   assert.deepEqual(seen(), ['Show more · 1 previous message', ['Two?', 'Two.', 'Three', 'Four', 'Five', 'Six', 'Seven']]);
   await toggle(false);
   await toggle(true);
@@ -3512,6 +3515,54 @@ test("a closed card ends its time line with its count of unread messages, and op
   for (const key of ['w/A1', 'w/A2']) { card(key).open = true; b.page.fire(b.root, 'toggle', { target: card(key) }); }
   await b.settle();
   assert.deepEqual([last('w/A1'), last('w/A2')], [null, `${time} · held`]);
+});
+
+// docs/adr/2026-11-05-0910-read-marks-live-on-the-board.md
+test("opening a card reads it up to the newest message it shows: the page posts that mark to the board for every device and takes the card's answer off the banner at once; a redraw with nothing newer posts nothing", async () => {
+  const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
+  const board = { ...boardOf([workCard('A1', { othersAt: [at(5)] }), workCard('A2', { othersAt: [at(3)], questions: { askedAt: [at(7)] } })]),
+    answers: [{ key: 'w/A1', id: 'A1', text: 'Work A1', at: at(5) }] };
+  const b = boardOnDom({ seen: { 'w/A1': at(2), 'w/A2': at(2) }, board, threads: {} });
+  await b.settle();
+  const banner = () => b.root.querySelector('#answers');
+  const card = (key) => b.root.querySelector(`details.item[data-key="${key}"]`);
+  const reads = () => b.posts.filter(([p]) => p.endsWith('/api/read')).map(([, body]) => body);
+  assert.equal(banner().hidden, false);
+  card('w/A1').open = true; b.page.fire(b.root, 'toggle', { target: card('w/A1') });
+  assert.equal(banner().hidden, true, 'the banner redraws as the card opens');
+  card('w/A2').open = true; b.page.fire(b.root, 'toggle', { target: card('w/A2') });
+  await b.settle();
+  assert.deepEqual(reads(), [{ marks: { 'w/A1': at(5) } }, { marks: { 'w/A2': at(7) } }], "a question's ask counts as shown");
+  await b.change({ board: { ...board, version: 'v2' } });
+  assert.equal(reads().length, 2);
+  assert.deepEqual([...b.storage.keys()].filter((k) => /seenThreads|dismissedAnswers/.test(k)), []);
+});
+
+test("the banner's ✕ marks each answer it shows read on the board, so the answers leave it on every device", async () => {
+  const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
+  const board = { ...boardOf([workCard('A1', { othersAt: [at(5)] }), workCard('A2', { othersAt: [at(7)] })]),
+    answers: [{ key: 'w/A2', id: 'A2', text: 'Work A2', at: at(7) }, { key: 'w/A1', id: 'A1', text: 'Work A1', at: at(5) }] };
+  const b = boardOnDom({ seen: { 'w/A1': at(2), 'w/A2': at(2) }, board, threads: {} });
+  await b.settle();
+  const banner = b.root.querySelector('#answers');
+  assert.match(banner.textContent, /2 answers/);
+  b.page.fire(banner, 'click', { target: banner.querySelector('.answer-dismiss') });
+  await b.settle();
+  assert.equal(banner.hidden, true);
+  assert.deepEqual(b.posts.filter(([p]) => p.endsWith('/api/read')).map(([, body]) => body), [{ marks: { 'w/A2': at(7), 'w/A1': at(5) } }]);
+});
+
+test("a mark made on another device reaches the page with the board, taking away the card's unread count and its answer; old browser marks are dropped", async () => {
+  const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
+  const board = { ...boardOf([workCard('A1', { othersAt: [at(5)] })]), answers: [{ key: 'w/A1', id: 'A1', text: 'Work A1', at: at(5) }] };
+  const b = boardOnDom({ seen: { 'w/A1': at(2) }, stored: [['site:board-a:seenThreads', JSON.stringify({ 'w/A1': at(9) })], ['site:board-a:dismissedAnswers', '{}'], ['seenThreads', '{}']], board, threads: {} });
+  await b.settle();
+  const last = () => b.root.querySelector('details.item[data-key="w/A1"] summary .card-time')?.textContent ?? null;
+  assert.deepEqual([last(), b.root.querySelector('#answers').hidden], ['1 new message', false], 'the board\'s mark counts, not the browser\'s');
+  assert.deepEqual([...b.storage.keys()].filter((k) => /seenThreads|dismissedAnswers/.test(k)), []);
+  await b.change({ board: { ...board, items: [{ ...board.items[0], readAt: at(5) }], version: 'v2' } });
+  assert.deepEqual([last(), b.root.querySelector('#answers').hidden], [null, true]);
+  assert.deepEqual(b.posts.filter(([p]) => p.endsWith('/api/read')), []);
 });
 
 test("opening a building card takes away its unread count and keeps the phase bars, which then end its time line", async () => {

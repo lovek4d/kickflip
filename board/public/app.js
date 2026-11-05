@@ -27,7 +27,9 @@ window.BoardView = (function () {
     try {
       const old = [];
       for (let i = 0; i < localStorage.length; i++) old.push(localStorage.key(i));
-      for (const k of old.filter((k) => /^(openItems|wave|lanes|seenThreads|dismissedAnswers|draft:ask|foldOpen:.+)$/.test(k))) {
+      // Read marks moved to the board (docs/adr/2026-11-05-0910-read-marks-live-on-the-board.md), so this browser's old copies go.
+      for (const k of old.filter((k) => /^(site:[\w-]+:)?(seenThreads|dismissedAnswers)$/.test(k))) localStorage.removeItem(k);
+      for (const k of old.filter((k) => /^(openItems|wave|lanes|draft:ask|foldOpen:.+)$/.test(k))) {
         if (localStorage.getItem(keyOf(k)) != null) continue;
         localStorage.setItem(keyOf(k), localStorage.getItem(k));
         localStorage.removeItem(k);
@@ -187,7 +189,8 @@ window.BoardView = (function () {
         BoardUI.setHTML($('#tryMain'), BoardUI.mainBar(d.main, state.mainPull));
         B.renderMainLog(d.main, load);
         for (const el of $$('details.item[open]')) state.openItems.add(el.dataset.key);
-        for (const it of d.items) if (!it.isNew) markSeen(it, !state.openItems.has(it.key));
+        B.takeMarks(d.items);
+        for (const it of d.items) if (state.openItems.has(it.key)) markSeen(it);
         // An open card's thread is renderThread's (app-threads.js), so a lane repaint leaves it as it is.
         const strips = B.captureStrips();
         setHTML($('#lanes'), B.lanesHtml(d, d.items), { keep: '[data-thread]' });

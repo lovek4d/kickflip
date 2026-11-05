@@ -393,6 +393,7 @@ BoardView.part((B) => {
       state.openItems.add(key);
       const it = state.board.items.find((i) => i.key === key) || state.archived.cards.find((i) => i.key === key);
       markSeen(it);
+      B.renderBanner(state.board);
       const unread = el.querySelector('summary .card-unread');
       const line = unread?.parentNode;
       unread?.remove();

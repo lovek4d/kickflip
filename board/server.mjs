@@ -200,6 +200,9 @@
 //                                while a review is open → {key, ref, existing: true}; a review that must wait → 409 {error}
 //   POST /api/hide               {id, hidden} → data/hidden.json; the page clears an event for
 //                                every device, without waking Claude
+//   POST /api/read               {marks: {card key: time}} → data/read.json (store.mjs markRead), each mark only moving
+//                                forward, without waking Claude; every board answer carries each card's mark as its
+//                                readAt, and a card new to the board gets one as the server first sees it. A bad body → 400 {error}
 //   GET  /api/rules              {board, hub}: board.json's rules and the hub's from settings.json (hub/rules.mjs)
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (store.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
@@ -251,7 +254,7 @@ import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
-import { BoardError, openAgents, isLanding, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startReleasedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, openAgents, isLanding, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startReleasedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, removeReviewers, markRead, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -677,7 +680,8 @@ async function pageBoard(req) {
   if (!['GET', 'HEAD'].includes(req.method)) dataVersion++;
   const b = { ...(await board()), onHost: await fromHost(req), doneArchived: await archiveCount(here) };
   b.owner = b.owner.filter((q) => q.state !== 'resolved');
-  b.items = b.items.map((i) => (i.lane === 'done' ? slimDone(i) : i));
+  const marks = await readMarks(here);
+  b.items = b.items.map((i) => ({ ...(i.lane === 'done' ? slimDone(i) : i), readAt: marks[i.key] || null }));
   const shown = new Set(b.items.map((i) => i.key));
   b.ownerTopics = b.ownerTopics.map(({ title, summary, askedAt, ...t }) => (shown.has(t.card) ? t : { ...t, title, summary, ...(askedAt ? { askedAt } : {}) }));
   const { generatedAt: _, ...content } = b;
@@ -873,6 +877,7 @@ function changed() {
     changeTimer = null;
     broadcast(`event: change\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`);
     checkArchive();
+    markNewCards();
     checkActions();
     checkWaits();
     checkAuto();
@@ -1199,6 +1204,13 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/hide' && req.method === 'POST') {
       const body = await readBody(req);
       try { await setHidden(here, String(body.id || ''), body.hidden !== false); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
+      return json(res, 200, { ok: true });
+    }
+    if (p === '/api/read' && req.method === 'POST') {
+      const { marks } = await readBody(req);
+      const valid = marks && typeof marks === 'object' && !Array.isArray(marks) && Object.values(marks).every((t) => typeof t === 'string' && !Number.isNaN(Date.parse(t)));
+      if (!valid) return json(res, 400, { error: 'Send {marks: {card key: ISO time}}.' });
+      await markRead(here, (await sharedBoard()).items.map((i) => i.key), marks);
       return json(res, 200, { ok: true });
     }
     if (p === '/_claude/events' && req.method === 'GET') {
@@ -1630,6 +1642,12 @@ function checkArchive() {
   })().finally(() => { archiving = null; });
   return archiving;
 }
+// docs/adr/2026-11-05-0910-read-marks-live-on-the-board.md
+// Each card new to the board is read up to now, and a card gone from it loses its mark (store.mjs markRead), as the
+// server starts and after each board change.
+async function markNewCards() {
+  try { await markRead(here, (await sharedBoard()).items.map((i) => i.key)); } catch (err) { console.error('Read marks failed:', err.message); }
+}
 async function archiveDone() {
   if (!archivedOf(await sharedBoard()).length) return;
   const picks = archivedOf(await board());
@@ -1642,6 +1660,7 @@ try { for (const line of await migrateFollowups(here)) console.log(line); } catc
 try { for (const line of await dropPlannedStatus(here)) console.log(line); } catch (e) { console.error('planned-status migration:', e.message); }
 try { await stripDeadFields(here); } catch (e) { console.error('dead-field strip:', e.message); }
 await checkArchive();
+await markNewCards();
 await watchBoard();
 setInterval(() => {
   dataVersion++;

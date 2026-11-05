@@ -272,6 +272,27 @@ export function setHidden(site, eventId, hidden) {
   return write;
 }
 
+// docs/adr/2026-11-05-0910-read-marks-live-on-the-board.md
+// The owner's read marks, one set for every device: card key → the newest message time they have seen on it.
+export const readMarksFile = (site) => path.join(site, 'data', 'read.json');
+export const readMarks = async (site) => (await readJSON(readMarksFile(site), {})).cards || {};
+
+// keys: the cards on the board. Each keeps the later of its mark and marks[key]; a card with no mark yet is read up to
+// now, so a card new to the board badges only what comes after it; a key not on the board loses its mark. Writes run
+// one at a time, sorted by key, and only when a mark changed.
+let readWrites = Promise.resolve();
+export function markRead(site, keys, marks = {}) {
+  const write = readWrites.then(async () => {
+    const old = await readMarks(site);
+    const now = new Date().toISOString();
+    const later = (a, b) => (String(b || '') > a ? b : a);
+    const cards = Object.fromEntries([...new Set(keys)].sort().map((key) => [key, later(old[key] || now, marks[key])]));
+    if (JSON.stringify(cards) !== JSON.stringify(old)) await writeJSON(readMarksFile(site), { cards });
+  });
+  readWrites = write.catch(() => {});
+  return write;
+}
+
 export const UPLOAD_LIMIT = 20 * 1024 * 1024;
 const uploadsDir = (site) => path.join(site, 'data', 'uploads');
 const uploadMeta = (site, file) => path.join(uploadsDir(site), '.meta', `${file}.json`);

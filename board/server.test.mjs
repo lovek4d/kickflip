@@ -262,7 +262,7 @@ test('board writes refuse cross-site requests and non-JSON bodies before their h
     assert.equal(r.status, 403, JSON.stringify(headers));
     assert.match(r.headers.get('content-type'), /^text\/plain/);
   }
-  for (const p of ['/_claude/events', '/api/settings', '/api/try', '/api/rules', '/api/hide']) {
+  for (const p of ['/_claude/events', '/api/settings', '/api/try', '/api/rules', '/api/hide', '/api/read']) {
     for (const headers of [{ 'content-type': 'text/plain' }, { 'content-type': 'application/x-www-form-urlencoded' }, {}]) {
       assert.equal((await fetch(base + p, { method: 'POST', headers, body: '{' })).status, 403, p);
     }
@@ -1554,4 +1554,34 @@ test("board answers are counted as patch, missed or none in data/since-counts.js
       assert.deepEqual(counts(), { since, patch: 1, missed: 2, none: 1, restarts: 2 });
     } finally { second.server.kill(); }
   } finally { first.server.kill(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// docs/adr/2026-11-05-0910-read-marks-live-on-the-board.md
+test("read marks live on the board: a card new to it is read up to then, POST /api/read moves a mark only forward, every page's board carries it as the card's readAt, and a card leaving the board drops its mark", async () => {
+  const waveFile = path.join(site, 'data', 'wave.json');
+  const readFile = path.join(site, 'data', 'read.json');
+  const before = fs.existsSync(waveFile) ? fs.readFileSync(waveFile, 'utf8') : null;
+  const wave = before ? JSON.parse(before) : { items: [] };
+  const post = (body) => fetch(`${base}/api/read`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const card = async (key) => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === key);
+  const marks = () => JSON.parse(fs.readFileSync(readFile, 'utf8')).cards;
+  try {
+    const start = new Date().toISOString();
+    fs.writeFileSync(waveFile, JSON.stringify({ ...wave, items: [...wave.items, { id: 'R1', title: 'Read' }, { id: 'R2', title: 'Dropped' }] }));
+    await until(async () => (await card('t/R1'))?.readAt && (await card('t/R2'))?.readAt, 'cards new to the board get a mark');
+    const first = (await card('t/R1')).readAt;
+    assert.ok(first >= start, `${first} is when the server first saw the card`);
+
+    assert.equal((await post({ marks: { 't/R1': '2099-01-01T00:00:00.000Z' } })).status, 200);
+    assert.equal((await card('t/R1')).readAt, '2099-01-01T00:00:00.000Z');
+    assert.equal((await post({ marks: { 't/R1': '2098-01-01T00:00:00.000Z', 'gone/X': '2099-01-01T00:00:00.000Z' } })).status, 200);
+    assert.equal((await card('t/R1')).readAt, '2099-01-01T00:00:00.000Z', 'an older mark leaves the later one');
+    assert.equal(marks()['gone/X'], undefined, 'a card not on the board keeps no mark');
+
+    for (const bad of [{}, { marks: [] }, { marks: { 't/R1': 5 } }, { marks: { 't/R1': 'yesterday' } }]) assert.equal((await post(bad)).status, 400, JSON.stringify(bad));
+
+    fs.writeFileSync(waveFile, JSON.stringify({ ...wave, items: [...wave.items, { id: 'R1', title: 'Read' }] }));
+    await until(() => marks()['t/R2'] === undefined, 'the dropped card loses its mark');
+    assert.equal(marks()['t/R1'], '2099-01-01T00:00:00.000Z');
+  } finally { if (before) fs.writeFileSync(waveFile, before); else fs.rmSync(waveFile); }
 });

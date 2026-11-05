@@ -1,18 +1,13 @@
-// The answer banner at the top of the board view: asks Claude answered without making work, whose answer this
-// browser hasn't seen (domain.mjs answers; docs/adr/2026-10-29-1639-every-ask-is-a-card.md). Needs app-core.js.
+// The answer banner at the top of the board view: asks Claude answered without making work, whose answer came after the
+// card's read mark (domain.mjs answers; docs/adr/2026-10-29-1639-every-ask-is-a-card.md,
+// docs/adr/2026-11-05-0910-read-marks-live-on-the-board.md). Needs app-core.js.
 BoardView.part((B) => {
-  const { $, store, state, seen, markSeen, plural, svg } = B;
+  const { $, state, seen, markSeen, markRead, plural, svg } = B;
   const { esc } = BoardUI;
-  const DISMISSED = 'dismissedAnswers';
 
-  function unseenAnswers(d) {
-    const dismissed = Object.assign(Object.create(null), store.get(DISMISSED, {}));
-    return (d.answers || []).filter((a) => seen[a.key] && a.at > seen[a.key] && !(dismissed[a.id] >= a.at));
-  }
+  const unseenAnswers = (d) => (d.answers || []).filter((a) => seen[a.key] && a.at > seen[a.key]);
 
   function renderBanner(d) {
-    // A New card seen before its answer counts the answer as new; one first seen in Done starts from now (app-core.js markSeen).
-    for (const it of d.items) if (it.isNew) markSeen(it, true);
     const shown = unseenAnswers(d);
     const el = $('#answers');
     el.hidden = !shown.length;
@@ -28,10 +23,9 @@ BoardView.part((B) => {
   B.on($('#answers'), 'click', (ev) => {
     const d = state.board;
     if (!d) return;
+    // ✕ marks each answer shown read, on every device.
     if (ev.target.closest('.answer-dismiss')) {
-      const dismissed = Object.assign(Object.create(null), store.get(DISMISSED, {}));
-      for (const a of unseenAnswers(d)) dismissed[a.id] = a.at;
-      store.set(DISMISSED, dismissed);
+      markRead(unseenAnswers(d).map((a) => [a.key, a.at]));
       renderBanner(d);
       return;
     }

@@ -40,19 +40,19 @@ BoardView.part((B) => {
   }
 
   // Each open card's ui-threads.js threadMessages view. Opening a card marks it seen (app-core.js markSeen) before its
-  // thread draws, so its unread messages start from its seen mark as the page loaded or as the card last closed. A
-  // board left and opened again in this page keeps them, so its open threads show what they showed.
+  // thread draws, so its unread messages start from its read mark from before it opened (B.seenBefore). A board left
+  // and opened again in this page keeps them, so its open threads show what they showed.
   const kept = B.place?.threads;
-  const seenBefore = new Map(kept?.seenBefore || Object.entries(B.seen));
   const moreTaps = new Map(kept?.moreTaps);
   const firstDrawn = new Map(kept?.firstDrawn);
-  B.keep(() => ({ threads: { seenBefore: [...seenBefore], moreTaps: [...moreTaps], firstDrawn: [...firstDrawn] } }));
+  B.keep(() => ({ threads: { moreTaps: [...moreTaps], firstDrawn: [...firstDrawn] } }));
+  const seenAt = (key) => (B.seenBefore.has(key) ? B.seenBefore.get(key) : B.seen[key] || null);
   const newestTs = (msgs) => msgs.reduce((top, m) => [String(m.ts), m.reply?.at ? String(m.reply.at) : ''].reduce((a, b) => (b > a ? b : a), top), '');
-  const viewOf = (key) => ({ seenAt: seenBefore.get(key) || null, more: moreTaps.get(key) || 0, upto: firstDrawn.get(key) || null });
+  const viewOf = (key) => ({ seenAt: seenAt(key), more: moreTaps.get(key) || 0, upto: firstDrawn.get(key) || null });
   B.on(B.root, 'toggle', (ev) => {
     const el = ev.target;
     if (!el.matches?.('details.item') || el.open) return;
-    seenBefore.set(el.dataset.key, B.seen[el.dataset.key]);
+    B.seenBefore.delete(el.dataset.key);
     moreTaps.delete(el.dataset.key);
     firstDrawn.delete(el.dataset.key);
   }, true);
@@ -71,7 +71,7 @@ BoardView.part((B) => {
     const edits = editsIn(key);
     if (!firstDrawn.has(key) && msgs.length) firstDrawn.set(key, newestTs(msgs));
     const view = viewOf(key);
-    const asked = newQuestionsLine(state.board?.items.find((i) => i.key === key)?.questions, seenBefore.get(key));
+    const asked = newQuestionsLine(state.board?.items.find((i) => i.key === key)?.questions, seenAt(key));
     const lines = asked.length ? [...msgs, ...asked].sort((a, b) => String(a.ts).localeCompare(String(b.ts))) : msgs;
     const sig = JSON.stringify([lines, [...edits.keys()], view]);
     if (el.dataset.sig === sig) return;

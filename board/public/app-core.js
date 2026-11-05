@@ -86,13 +86,31 @@ BoardView.part((B) => {
 
   const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-  // A card this browser has never seen starts from now, so a first load badges nothing.
-  const seen = Object.assign(Object.create(null), store.get('seenThreads', {}));
-  const latestOf = (it) => [new Date().toISOString(), ...(it?.othersAt || [])].sort().pop();
-  function markSeen(it, onlyNew = false) {
-    if (!it || (onlyNew && seen[it.key])) return;
-    seen[it.key] = latestOf(it);
-    store.set('seenThreads', seen);
+  // Read marks live on the board, one set for every device: each card's readAt, the newest message the owner has seen
+  // on it (docs/adr/2026-11-05-0910-read-marks-live-on-the-board.md). seen is card key → the later of the board's mark
+  // and this page's own, so a card read here reads at once, before the board comes back with it. seenBefore is an open
+  // card's mark from before it opened, where its thread's unread lines start (app-threads.js); a card closing drops it,
+  // and a board left and opened again in this page keeps it.
+  const seen = Object.create(null);
+  const seenBefore = new Map(B.place?.seenBefore);
+  B.keep(() => ({ seenBefore: [...seenBefore] }));
+  function takeMarks(items) {
+    for (const it of items) if (String(it.readAt || '') > (seen[it.key] || '')) seen[it.key] = it.readAt;
+  }
+  // [[card key, time]] → each card read up to its time, here at once and on the board for every device.
+  function markRead(pairs) {
+    const marks = Object.fromEntries(pairs.filter(([key, at]) => at && String(at) > (seen[key] || '')));
+    if (!Object.keys(marks).length) return;
+    Object.assign(seen, marks);
+    fetch(B.site.url('api/read'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ marks }) }).catch(() => {});
+  }
+  // The newest message card it shows: its counted messages (domain.mjs othersAt), its questions' asks and its answer.
+  const newestOf = (it) => [...(it.othersAt || []), ...(it.questions?.askedAt || []), it.ask?.answerAt].filter(Boolean).map(String).sort().pop();
+  // Card it, open, reads up to the newest message it shows.
+  function markSeen(it) {
+    if (!it) return;
+    if (!seenBefore.has(it.key)) seenBefore.set(it.key, seen[it.key] || null);
+    markRead([[it.key, newestOf(it)]]);
   }
 
   // The ui-links.js linkContext for text shown on item `key`'s card or thread.
@@ -105,5 +123,5 @@ BoardView.part((B) => {
   const confirm = (message, labels) => dialogs.confirm(message, { ...labels, signal: controller.signal });
   const notice = dialogs.notice;
 
-  Object.assign(B, { steady, restorePlace, plural, seen, markSeen, links, svg, confirm, notice });
+  Object.assign(B, { steady, restorePlace, plural, seen, seenBefore, takeMarks, markRead, markSeen, links, svg, confirm, notice });
 });
