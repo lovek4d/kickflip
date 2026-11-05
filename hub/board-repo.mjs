@@ -15,7 +15,7 @@ export function boardRepo(route, manifest = readManifest()) {
   // `local` (boards.mjs buildsLocally): builders branch from the repo's local branch (`branch`, else main). A board's
   // repo is its session's folder, the hub board's too.
   const local = buildsLocally(site);
-  return { github: site.github || '', ...(site.remote ? { remote: site.remote } : {}), branch: site.branch || '', repo: storedPath(site.owner?.repo || ''), ...(local ? { local: true } : {}) };
+  return { github: site.github || '', ...(site.remote ? { remote: site.remote } : {}), branch: site.branch || '', repo: storedPath(site.owner?.repo || ''), ...(local ? { local: true } : {}), ...(site.hub === true ? { hub: true } : {}) };
 }
 
 export async function changeBoardRepo(route, input, { repos = repoService(), event = appendEvent } = {}) {

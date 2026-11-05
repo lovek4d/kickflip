@@ -200,7 +200,8 @@
     const repoURL = `/_hub/board-repo/${encodeURIComponent(B.route)}`;
     let repo = {}, closeRepo = () => {};
     let tickets, savedTickets, savingTickets = null, ticketsTouched = false;
-    // Landing shows on a board on GitHub that builds from its shared clone; a local board never opens PRs. Its choice is
+    // Landing shows on a board on GitHub that builds from its shared clone and on the hub board, which builds from its
+    // folder and starts on Merge; any other local board never opens PRs. Its choice is
     // the board's prs and skip_draft settings read together: Draft PR, prs on and skip_draft off; Ready PR, both on;
     // Merge, prs off. Reviewers show only while cards open PRs
     // (docs/adr/2026-11-05-0200-landing-is-one-choice-draft-pr-ready-pr-or-merge.md).
@@ -214,7 +215,7 @@
     const landingOf = (settings) => (settings?.prs === false ? 'merge' : settings?.skip_draft === true ? 'ready' : 'draft');
     const opensPRs = () => Boolean(repo.github) && !repo.local && landing !== 'merge';
     const syncPRs = () => {
-      $('#landingSection').hidden = !repo.github || Boolean(repo.local);
+      $('#landingSection').hidden = !repo.github || (Boolean(repo.local) && !repo.hub);
       $('#reviewersSection').hidden = !opensPRs();
       $('#landingSub').textContent = LANDING[landing].sub;
       for (const button of landingButtons()) button.setAttribute('aria-pressed', String(button === $(`[data-landing="${landing}"]`)));

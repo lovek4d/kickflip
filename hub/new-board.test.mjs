@@ -465,7 +465,7 @@ test("origin migration runs once, the hub board's included, preserves configured
   assert.deepEqual(await migrateBoardRepos({ run }), ['one', 'local', 'hub']);
   assert.deepEqual(boardRepo('one'), { github: 'Owner/Project', branch: 'trunk', repo: '/project' });
   assert.deepEqual(boardRepo('local'), { github: 'Owner/Project', branch: 'develop', repo: '/local' });
-  assert.deepEqual(boardRepo('hub'), { github: 'Owner/Project', branch: 'trunk', repo: '/project' });
+  assert.deepEqual(boardRepo('hub'), { github: 'Owner/Project', branch: 'trunk', repo: '/project', hub: true });
   assert.equal(readManifest().sites.two.github, 'kept/repo');
   assert.equal(readManifest().sites.other.github, undefined);
   const count = calls.length;
@@ -482,7 +482,7 @@ test('Settings clone changes update repo, branch and session folder and notify t
   const events = [];
   const event = async (board, kind, data) => { events.push([board.route, kind, data]); return 'e1'; };
   // The hub board works on its session's folder like any local board (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
-  assert.deepEqual(boardRepo('hub'), { github: '', branch: '', repo: '/session', local: true });
+  assert.deepEqual(boardRepo('hub'), { github: '', branch: '', repo: '/session', local: true, hub: true });
   assert.equal(listBoards().find((b) => b.route === 'hub').github, undefined);
   const out = await changeBoardRepo('settings', { github: 'owner/settings', branch: 'develop' }, { repos, event });
   assert.deepEqual(out, { github: 'owner/settings', branch: 'develop', repo: path.join(base, 'owner/settings'), id: 'e1' });

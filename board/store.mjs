@@ -893,21 +893,23 @@ const storedTickets = (value) => { try { return value ? ticketSource(value) : nu
 // whole number from 1 to 99 and MAX_IMPLEMENTERS when absent
 // (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md), max_planners, the same and MAX_PLANNERS when
 // absent (docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md), skip_draft, off when
-// absent (docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md), prs, on unless false (opensPRs;
-// docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md), tickets, its one
+// absent (docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md), prs, on unless false, and on the hub board (board is its listBoards
+// entry, `hub: true`) off unless true (opensPRs; docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md,
+// docs/adr/2026-11-05-1100-the-hub-board-shows-landing-and-defaults-to-merge.md), tickets, its one
 // ticket source, and github_login, absent when unset or invalid (docs/adr/2026-11-01-1348-a-board-has-one-ticket-source.md).
 const validCap = (value) => Number.isInteger(value) && value >= 1 && value <= 99;
 const CAPS = ['max_implementers', 'max_planners'];
-export const settingsOf = (cfg) => {
+export const settingsOf = (cfg, board) => {
   const tickets = storedTickets(cfg?.tickets);
   return { auto_merge: cfg?.auto_merge === true, auto_build: cfg?.auto_build === true, auto_pull: cfg?.auto_pull === true,
     max_implementers: validCap(cfg?.max_implementers) ? cfg.max_implementers : MAX_IMPLEMENTERS,
     max_planners: validCap(cfg?.max_planners) ? cfg.max_planners : MAX_PLANNERS, auto_triage: cfg?.auto_triage === true, auto_review: cfg?.auto_review === true,
-    idle_notification: cfg?.idle_notification === true, skip_draft: cfg?.skip_draft === true, prs: cfg?.prs !== false,
+    idle_notification: cfg?.idle_notification === true, skip_draft: cfg?.skip_draft === true, prs: board?.hub ? cfg?.prs === true : cfg?.prs !== false,
     ...(tickets ? { tickets } : {}), ...(validGithubLogin(cfg?.github_login) ? { github_login: cfg.github_login } : {}) };
 };
 export async function readBoardSettings(site) {
-  return settingsOf(await readJSON(path.join(needSite(site), 'board.json'), {}));
+  const dir = needSite(site);
+  return settingsOf(await readJSON(path.join(dir, 'board.json'), {}), listBoards().find((b) => samePath(b.dir, dir)));
 }
 // Whether cards on a board open PRs: a board on GitHub that builds from its shared clone, not its folder
 // (hub/boards.mjs buildsLocally), with its PRs setting on. board is a listBoards entry or hub/board-repo.mjs boardRepo's
@@ -941,8 +943,9 @@ export async function saveBoardSettings(site, changes) {
     if (board?.github && !board.local && !(await readPermissions(board.owner?.repo)).pushMain) fail('Merge lands each card on main and pushes it, so turn on Push main after a land first');
   }
   return writeBoardJSON(site, (cfg) => {
-    const before = settingsOf(cfg);
-    const settings = settingsOf({ ...cfg, ...changes });
+    const board = site ? listBoards().find((b) => samePath(b.dir, site)) : null;
+    const before = settingsOf(cfg, board);
+    const settings = settingsOf({ ...cfg, ...changes }, board);
     return { set: changes, settings, changed: Object.keys(changes).filter((k) => JSON.stringify(before[k]) !== JSON.stringify(settings[k])) };
   });
 }

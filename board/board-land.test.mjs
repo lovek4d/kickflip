@@ -807,6 +807,26 @@ test("a tapped Merge refused for a reason no lander fixes says why in the thread
   assert.deepEqual([itemOf().status, itemOf().merge_ready.branch], [undefined, 'A1']);
 });
 
+// docs/adr/2026-11-05-1100-the-hub-board-shows-landing-and-defaults-to-merge.md
+test("the hub board's settings default to Merge, prs off, until its owner picks a PR mode; any other board defaults to PRs on", () => {
+  scratchRepo();
+  const manifestFile = at('kickflip', 'manifest.json');
+  const setOrch = (fields) => {
+    const manifest = read(manifestFile);
+    manifest.sites.orch = { dir: manifest.sites.orch.dir, port: 1, cmd: manifest.sites.orch.cmd, github: 'owner/project', branch: 'main', local: true, ...fields };
+    write(manifestFile, manifest);
+  };
+  const prs = () => JSON.parse(board('--site', 'orch', 'settings').out).prs;
+  setOrch({ hub: true });
+  assert.equal(prs(), false);
+  setOrch({});
+  assert.equal(prs(), true);
+  setOrch({ hub: true });
+  const cfgFile = site('orch', 'board.json');
+  write(cfgFile, { ...read(cfgFile), prs: true });
+  assert.equal(prs(), true);
+});
+
 test('PRs off on a GitHub board needs Push main granted; then a finish lands in the shared clone on main as origin has it, and pushes main', () => {
   const origin = remoteBoard(() => ({ github: 'owner/project' }));
   git(origin, 'config', 'receive.denyCurrentBranch', 'updateInstead');

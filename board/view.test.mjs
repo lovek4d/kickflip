@@ -566,6 +566,8 @@ test('Board Settings shows Landing above Auto only on a GitHub board that builds
     [{ github: 'owner/project', branch: 'main' }, { prs: true, skip_draft: true }, 'ready', 'Each card opens a PR ready for review, without waiting for you.'],
     [{ github: 'owner/project', branch: 'main' }, { prs: false, skip_draft: true }, 'merge', 'No PR opens: each card lands on the base branch and the base branch is pushed.'],
     [{ github: 'owner/project', branch: 'main', local: true }, { prs: true }, null],
+    [{ github: 'owner/project', branch: 'main', local: true, hub: true }, { prs: false }, 'merge', 'No PR opens: each card lands on the base branch and the base branch is pushed.'],
+    [{ github: 'owner/project', branch: 'main', local: true, hub: true }, { prs: true, skip_draft: false }, 'draft', 'Each card opens a draft PR and waits for you to mark it ready for review.'],
     [{}, { prs: true }, null],
   ];
   for (const [repoBody, settings, pressed, sub] of cases) {
@@ -580,7 +582,7 @@ test('Board Settings shows Landing above Auto only on a GitHub board that builds
     await tick();
     const label = JSON.stringify([repoBody, settings]);
     assert.equal(root.querySelector('#landingSection').hidden, !pressed, label);
-    assert.equal(root.querySelector('#reviewersSection').hidden, pressed === 'merge' || !pressed, label);
+    assert.equal(root.querySelector('#reviewersSection').hidden, pressed === 'merge' || !pressed || Boolean(repoBody.local), label);
     if (pressed) {
       assert.deepEqual(['draft', 'ready', 'merge'].map((v) => root.querySelector(`[data-landing="${v}"]`).getAttribute('aria-pressed')), ['draft', 'ready', 'merge'].map((v) => String(v === pressed)), label);
       assert.equal(root.querySelector('#landingSub').textContent, sub, label);
