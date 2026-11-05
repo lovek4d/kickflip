@@ -855,10 +855,11 @@ test("Restart on a board's row of the Hub page confirms, waits disabled with its
   page.win.BoardDialogs.confirm = async (text, labels) => { confirms.push([text, labels?.ok]); return true; };
   const posts = [];
   let answer;
+  let holdHub = null;
   page.win.fetch = (url, opts = {}) => {
     if (opts.method === 'POST') { posts.push([url, JSON.parse(opts.body)]); return new Promise((resolve) => { answer = resolve; }); }
     const body = url === '/_hub/api/hub' ? hub : settings;
-    return Promise.resolve({ ok: true, headers: { get: () => null }, json: async () => structuredClone(body) });
+    return Promise.resolve(url === '/_hub/api/hub' ? holdHub : null).then(() => ({ ok: true, headers: { get: () => null }, json: async () => structuredClone(body) }));
   };
   const root = page.win.document.body.appendChild(new Element('div'));
   root.innerHTML = page.win.AppViews.hub.markup();
@@ -877,11 +878,18 @@ test("Restart on a board's row of the Hub page confirms, waits disabled with its
   assert.deepEqual(posts, [['/_hub/restart-board', { route: 'shop' }]]);
   assert.equal(row().querySelector('.sub').textContent, 'restarting · stopping its session, then starting it again');
   assert.deepEqual([button().textContent, button().disabled, button().getAttribute('aria-busy')], ['Restart', true, 'true'], 'Restart waits with its label kept behind the spinner');
+  let release;
+  holdHub = new Promise((resolve) => { release = resolve; });
   answer({ ok: true, json: async () => ({ route: 'shop', title: 'The <Shop>', session: 'abc' }) });
   await settle();
   assert.equal(root.querySelector('.toast').textContent, 'The <Shop> is back up, and its session is listening.');
+  assert.deepEqual([button().disabled, button().getAttribute('aria-busy'), row().querySelector('.sub').textContent], [true, 'true', 'restarting · stopping its session, then starting it again'], 'the answer ends the request, not the spinner: the row waits for the hub data');
+  hub.groups[0].sites[0].word = 'up · restarted';
+  release();
+  holdHub = null;
+  await settle();
   assert.deepEqual([button().textContent, button().disabled, button().getAttribute('aria-busy')], ['Restart', false, null]);
-  assert.equal(row().querySelector('.sub').textContent, 'up · listening · every link passes');
+  assert.equal(row().querySelector('.sub').textContent, 'up · restarted');
   page.fire(root.querySelector('.hub-status'), 'click', { target: button() });
   await settle();
   answer({ ok: false, json: async () => ({ error: 'session 1234 did not stop' }) });
@@ -4894,4 +4902,155 @@ test("the reader sheet wraps long lines in monospace and never scrolls sideways"
   assert.match(css, /\.reader-row \{[^}]*overflow-wrap: anywhere/);
   assert.match(css, /\.reader-raw, \.reader-text \{[^}]*white-space: pre-wrap;[^}]*overflow-wrap: anywhere;[^}]*ui-monospace/);
   assert.match(css, /\.reader-sheet \{[^}]*height: 85dvh/);
+});
+
+// docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md
+test('a thread Send spins until the thread shows the message, a refusal rests it with the reason in a toast, and 60 seconds without it reloads once and rests', async () => {
+  const b = boardOnDom({ open: ['w/A1'], board: boardOf([workCard('A1')]), threads: { 'w/A1': [] } });
+  await b.settle();
+  const form = () => b.root.querySelector('form[data-reply="w/A1"]');
+  const submit = () => form().querySelector('button[type="submit"]');
+  const state = () => [submit().disabled, submit().getAttribute('aria-busy')];
+  const timers = [];
+  const real = { setTimeout: b.page.win.setTimeout, clearTimeout: b.page.win.clearTimeout };
+  b.page.win.setTimeout = (fn, ms) => (ms === 60000 ? timers.push({ fn }) : real.setTimeout(fn, ms));
+  b.page.win.clearTimeout = (id) => { if (timers[id - 1]) timers[id - 1].fn = null; else real.clearTimeout(id); };
+  const fetched = b.page.win.fetch;
+  let hold = null;
+  b.page.win.fetch = async (url, opts) => { if (hold && String(url).includes('/api/thread')) await hold; return fetched(url, opts); };
+  const tap = async (text) => { form().querySelector('textarea').value = text; b.page.fire(b.root, 'submit', { target: form(), submitter: submit() }); await b.settle(); };
+
+  let release;
+  hold = new Promise((resolve) => { release = resolve; });
+  b.server.threads['w/A1'] = [{ ts: '2026-10-30T10:00:00.000Z', who: 'love', kind: 'item-message', text: 'Use the blue', eventId: 'e1', state: 'waiting' }];
+  await tap('Use the blue');
+  assert.equal(b.sent.length, 1);
+  assert.deepEqual(state(), [true, 'true'], 'the POST answered, but the thread does not show the message yet');
+  assert.doesNotMatch(b.root.textContent, /Use the blue/);
+  release();
+  await b.settle();
+  assert.deepEqual(state(), [false, null]);
+  assert.match(b.root.textContent, /Use the blue/);
+  assert.equal(timers.at(-1).fn, null, 'the 60 second timer is cancelled');
+
+  // A load that never answers: after 60 seconds the thread and board load once more and the button rests.
+  hold = new Promise(() => {});
+  const gets = b.gets.length;
+  await tap('Anything?');
+  assert.deepEqual(state(), [true, 'true']);
+  timers.at(-1).fn();
+  hold = null;
+  await b.settle();
+  assert.deepEqual(state(), [false, null]);
+  assert.equal(b.root.querySelector('.toast').textContent, 'Still waiting on the board');
+  assert.ok(b.gets.slice(gets).some((p) => p.endsWith('/api/board')), 'the board reloads once');
+  b.view.unmount();
+
+  // A refusal rests the button with the server's reason in a toast.
+  const refused = boardOnDom({ open: ['w/A1'], board: boardOf([workCard('A1')]), threads: { 'w/A1': [] }, send: () => { throw Object.assign(new Error('send failed: 400'), { status: 400, reason: 'w/A1 is not open.' }); } });
+  await refused.settle();
+  const f = refused.root.querySelector('form[data-reply="w/A1"]');
+  f.querySelector('textarea').value = 'Hello';
+  refused.page.fire(refused.root, 'submit', { target: f, submitter: f.querySelector('button[type="submit"]') });
+  await refused.settle();
+  assert.deepEqual([f.querySelector('button[type="submit"]').disabled, refused.root.querySelector('.toast').textContent], [false, 'w/A1 is not open.']);
+  refused.view.unmount();
+});
+
+test("a tap whose POST board cannot land because a reload won the race keeps its spinner until a board made after the tap is drawn", async () => {
+  const T1 = workCard('T1', { bumpable: true, sortAt: '2026-10-01T00:00:00.000Z', order: 0 });
+  const T2 = workCard('T2', { bumpable: true, sortAt: '2026-10-02T00:00:00.000Z', order: 1 });
+  const v1 = { ...boardOf([T1, T2]), version: 'v1', generatedAt: '2026-10-30T10:00:00.000Z' };
+  const raced = { ...v1, version: 'v1b', generatedAt: '2026-10-30T10:00:00.500Z' };
+  const bumped = { ...boardOf([{ ...T2, bumpedAt: '2026-10-30T10:00:01.000Z' }, T1]), version: 'v2', generatedAt: '2026-10-30T10:00:01.000Z' };
+  let hold = null;
+  const b = boardOnDom({ board: v1, threads: {}, send: async (kind, data, server) => {
+    // A change signal's reload lands while the POST is out, without the tap.
+    await b.change({ board: raced });
+    server.board = bumped;
+    hold = new Promise((resolve) => { b.release = resolve; });
+    return { id: 'e1', board: structuredClone(b.page.win.BoardUI.boardPatch(v1, bumped)) };
+  } });
+  await b.settle();
+  const fetched = b.page.win.fetch;
+  b.page.win.fetch = async (url, opts) => { if (hold && String(url).includes('/api/board')) await hold; return fetched(url, opts); };
+  const order = () => b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key);
+  const bump = () => b.root.querySelector('details.item[data-key="w/T2"] button[data-card-bump]');
+  b.page.fire(b.root, 'click', { target: bump() });
+  await b.settle();
+  assert.deepEqual([order(), bump().getAttribute('aria-busy')], [['w/T1', 'w/T2'], 'true'], 'the board on screen lacks the bump, so the button still spins');
+  b.release();
+  hold = null;
+  await b.settle();
+  assert.deepEqual([order(), bump().getAttribute('aria-busy')], [['w/T2', 'w/T1'], null]);
+  b.view.unmount();
+});
+
+test("Waiting on you's Send, Prototype and Re-ask stay busy until the page has moved on, not until their POST answers", async () => {
+  const question = (id, state = 'open', extra = {}) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state, ...extra });
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('q2'), question('q3'), question('r1', 'resolved', { resolved: 'Picked A', resolved_at: '2026-10-30T09:00:00.000Z', reask: null })], at: 'q1' });
+  v.page.win.BoardDialogs.confirm = async () => true;
+  await v.settle();
+  const $ = (sel) => v.root.querySelector(sel);
+  const fetched = v.page.win.fetch;
+  let hold = null;
+  v.page.win.fetch = async (url, opts) => { if (hold && /\/api\/(board|questions)/.test(String(url))) await hold; return fetched(url, opts); };
+  // A poll's load is out when the tap's POST answers: the page moves on only once it has landed.
+  const slowLoad = () => { let release; hold = new Promise((resolve) => { release = () => { hold = null; resolve(); }; }); v.page.fire(v.page.win.document, 'visibilitychange', {}); return release; };
+
+  let release = slowLoad();
+  v.answer('q1');
+  await v.send();
+  assert.deepEqual([$('#send').disabled, $('#send').getAttribute('aria-busy'), v.sent.length], [true, 'true', 1], 'the POST answered, the page has not moved on');
+  release();
+  await v.settle();
+  assert.deepEqual([$('#send').getAttribute('aria-busy'), v.shown().status], [null, 'sent 1 answer · 2 still open']);
+
+  release = slowLoad();
+  v.page.fire(v.root, 'click', { target: $('section.q[data-q="q2"] [data-proto]') });
+  await v.settle();
+  const eye = () => $('section.q[data-q="q2"] [data-proto]');
+  assert.equal(v.sent.at(-1)[0], 'prototype-request');
+  assert.deepEqual([eye().disabled, eye().getAttribute('aria-busy')], [true, 'true']);
+  release();
+  await v.settle();
+  assert.match(v.shown().status, /^prototype requested/);
+
+  v.page.fire(v.root, 'click', { target: $('section.q[data-q="r1"] [data-reask]') });
+  await v.settle();
+  assert.equal(v.sent.at(-1)[0], 'reask-request');
+  assert.match($('section.q[data-q="r1"]').textContent, /re-ask requested/, 'the badge rests only once the page shows the re-ask');
+  v.unmount();
+});
+
+test("a Permissions switch keeps its spinner past the server's answer until the new face is drawn", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
+  let on = false;
+  let holdBody = null;
+  const view = () => ({ permissions: [{ id: 'pushMain', name: 'Push main', allows: 'Allows it.', rule: 'Bash(git push origin main)', on, refused: null }] });
+  const reply = (body) => ({ ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => { await holdBody; return body; } });
+  page.win.fetch = async (url, opts = {}) => {
+    if (!url.endsWith('/api/permissions')) return reply({});
+    if (opts.method === 'POST') { on = JSON.parse(opts.body).on; return reply(view()); }
+    return reply(view());
+  };
+  const { Element } = miniDom(page.Target, page.win.document);
+  const root = page.win.document.body.appendChild(new Element('div'));
+  root.innerHTML = html;
+  const v = page.win.AppViews.settings.create(root, '/orch', {});
+  v.mount();
+  await tick(); await tick();
+  const toggle = () => root.querySelector('#perm-pushMain');
+  let release;
+  holdBody = new Promise((resolve) => { release = resolve; });
+  toggle().checked = true;
+  page.fire(root.querySelector('#permissions'), 'change', { target: toggle() });
+  await tick(); await tick();
+  assert.deepEqual([toggle().checked, toggle().disabled], [false, true], 'the answer came, but the old face stays under its spinner');
+  release();
+  holdBody = null;
+  await tick(); await tick();
+  assert.deepEqual([toggle().checked, toggle().disabled], [true, false]);
+  v.unmount();
 });

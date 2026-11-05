@@ -222,7 +222,7 @@ BoardView.part((B) => {
       if (!(await B.confirm('Claude triages these Todo cards into one or more waves and asks you about them in Needs you. Nothing is implemented until you answer. Start?'))) return;
       // Spins until a board shows a grill running on one of the cards (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
       const keys = pb.dataset.plan.split(' ');
-      BoardUI.pending.start('todo:plan', (board) => board.items.some((i) => keys.includes(i.key) && i.grilling), () => { B.notice('Still waiting on the board'); B.reload(); B.render(); });
+      BoardUI.pending.start('todo:plan', (board) => board.items.some((i) => keys.includes(i.key) && i.grilling), B.stillWaiting);
       try {
         const out = await waitOn(pb, B.send('plan-waves', { keys }));
         BoardUI.pending.answered('todo:plan', out.board.generatedAt);

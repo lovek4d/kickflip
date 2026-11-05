@@ -329,6 +329,13 @@
     answered(id, after = '') { const p = pendings.get(id); if (p) p.after = after; },
     drop(id) { clearTimeout(pendings.get(id)?.late); pendings.delete(id); },
     has: (id) => pendings.has(id),
+    // A tap whose change is drawn by the page's own load, not by a board (a thread, a page's redraw): resolves when work
+    // settles, or after PENDING_LATE_MS calls onLate() and resolves, so waitOn's spinner rests either way.
+    within(work, onLate) {
+      let timer;
+      const late = new Promise((resolve) => { timer = setTimeout(() => { onLate(); resolve(); }, PENDING_LATE_MS); });
+      return Promise.race([work, late]).finally(() => clearTimeout(timer));
+    },
     settle(board) {
       for (const [id, p] of pendings) if (p.after !== null && board.generatedAt >= p.after && p.until(board)) pending.drop(id);
     },

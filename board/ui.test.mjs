@@ -2149,3 +2149,19 @@ test('a pending tap keeps its button busy through any repaint until a board made
   assert.equal(busy(ui.tryButton({ key: 'w/A1', kind: 'work', lane: 'todo', try: { script: true, changes: true, kind: 'web', state: 'ready' } })), false);
   Object.assign(context, { setTimeout, clearTimeout });
 });
+
+test('pending.within settles with its work, and past 60 seconds runs onLate and resolves', async () => {
+  const timers = [];
+  context.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+  context.clearTimeout = (id) => { timers[id - 1].fn = null; };
+  let late = 0;
+  const done = await ui.pending.within(Promise.resolve('ok'), () => { late += 1; });
+  assert.deepEqual([done, late, timers.at(-1).ms, timers.at(-1).fn], ['ok', 0, 60000, null]);
+  await assert.rejects(ui.pending.within(Promise.reject(new Error('refused')), () => { late += 1; }), /refused/);
+  assert.equal(timers.at(-1).fn, null);
+  const never = ui.pending.within(new Promise(() => {}), () => { late += 1; });
+  timers.at(-1).fn();
+  assert.equal(await never, undefined);
+  assert.equal(late, 1);
+  Object.assign(context, { setTimeout, clearTimeout });
+});

@@ -94,12 +94,14 @@
       return t ? t.questions.map(byId).filter(Boolean) : [];
     }
 
-    function loadResolved() {
+    // → the fetch of the topic's resolved questions, or null when they are held. force asks again; the questions held stay
+    // drawn until the new ones land.
+    function loadResolved(force = false) {
       const t = soloId ? null : topics.find((x) => x.id === topicId);
-      if (!t?.resolved || (resolved.topic === t.id && resolved.n === t.resolved)) return;
-      resolved = { topic: t.id, n: t.resolved, questions: [] };
+      if (!t?.resolved || (!force && resolved.topic === t.id && resolved.n === t.resolved)) return null;
+      resolved = { topic: t.id, n: t.resolved, questions: resolved.topic === t.id ? resolved.questions : [] };
       const asked = resolved;
-      fetchJSON(site.url('api/questions?topic=' + encodeURIComponent(t.id)), { sleep: B.sleep }).then(({ body }) => {
+      return fetchJSON(site.url('api/questions?topic=' + encodeURIComponent(t.id)), { sleep: B.sleep }).then(({ body }) => {
         if (!B.alive() || resolved !== asked) return;
         asked.questions = body.questions || [];
         repaint(false);
@@ -255,33 +257,44 @@
       moveOn(from, pills, what, typeof footer === 'function' ? footer() : footer, typeof footer !== 'function');
     }
 
-    // The tapped Prototype button waits (ui.js waitOn) while the request is sent.
-    async function askPrototype(q, button) {
-      const st = $('#qstatus');
+    // A tap's change no load has drawn in BoardUI's PENDING_LATE_MS: the board loads once and the button rests.
+    function stillWaiting() {
+      if (!B.alive()) return;
+      B.toast('Still waiting on the board');
+      shown = '';
+      load(false);
+    }
+    // A refusal rests the button with its reason on the status line, as before.
+    const refused = (e) => { $('#qstatus').textContent = e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?'; };
+
+    // The tapped Prototype button waits (ui.js waitOn) until the page shows the request
+    // (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
+    function askPrototype(q, button) {
       const key = q.topic?.startsWith('item:') ? q.topic.slice(5) : null;
       const at = leaving();
-      st.textContent = '';
+      $('#qstatus').textContent = '';
       const d = getDraft(q.id);
-      let out;
-      try { out = await BoardUI.waitOn(button, send('prototype-request', { ...(key ? { key } : {}), question: q.id, note: (d.note || '').trim(), choice: choiceOf(q, d) })); }
-      catch (e) { st.textContent = e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?'; return; }
-      setDraft(q.id, {});
-      await moveOnOnceLoaded(at, `Prototype requested${at.name ? ` for ${at.name}` : ''}.`, out, PROTOTYPE_REQUESTED);
+      return BoardUI.waitOn(button, BoardUI.pending.within((async () => {
+        let out;
+        try { out = await send('prototype-request', { ...(key ? { key } : {}), question: q.id, note: (d.note || '').trim(), choice: choiceOf(q, d) }); } catch (e) { refused(e); return; }
+        setDraft(q.id, {});
+        await moveOnOnceLoaded(at, `Prototype requested${at.name ? ` for ${at.name}` : ''}.`, out, PROTOTYPE_REQUESTED);
+      })(), stillWaiting));
     }
 
     // A resolved question's badge asks Claude to ask it again from the card's current notes, once the owner confirms.
     // The topic's resolved questions load again, so the question shows its re-ask under way.
     async function askAgain(q, button) {
       if (!(await BoardDialogs.confirm('Ask this again from today’s context?')) || !B.alive()) return;
-      const st = $('#qstatus');
       const key = q.topic?.startsWith('item:') ? q.topic.slice(5) : null;
-      let out;
-      try { out = await BoardUI.waitOn(button, send('reask-request', { ...(key ? { key } : {}), question: q.id })); }
-      catch (e) { st.textContent = e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?'; return; }
-      if (!B.alive()) return;
-      resolved = { topic: null, n: 0, questions: [] };
-      if (!land(out.board, false)) await load(false);
-      repaint(false);
+      await BoardUI.waitOn(button, BoardUI.pending.within((async () => {
+        let out;
+        try { out = await send('reask-request', { ...(key ? { key } : {}), question: q.id }); } catch (e) { refused(e); return; }
+        if (!B.alive()) return;
+        if (!land(out.board, false)) await load(false);
+        await loadResolved(true);
+        repaint(false);
+      })(), stillWaiting));
     }
 
     function updateBar() {
@@ -451,17 +464,19 @@
         const files = filesOf(q);
         return { id: q.id, question: q.question, choice, label: choiceLabel(q, choice), note: (d.note || '').trim(), ...(files.length ? { files } : {}) };
       });
-      let out;
-      try { out = await BoardUI.waitOn($('#send'), send('owner-answers', { answers })); }
-      catch (e) { st.textContent = e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?'; return; }
-      for (const q of list) {
-        setDraft(q.id, {});
-        BoardAttach.clear('q:' + q.id, site.root);
-      }
-      await moveOnOnceLoaded(at, `Sent ${list.length} answer${list.length === 1 ? '' : 's'}${at.name ? ` to ${at.name}` : ''}.`, out, () => {
-        const open = all.filter((q) => q.state === 'open').length;
-        return `sent ${list.length} answer${list.length === 1 ? '' : 's'}${open ? ` · ${open} still open` : ''}`;
-      });
+      // Send waits until the page has moved on (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
+      await BoardUI.waitOn($('#send'), BoardUI.pending.within((async () => {
+        let out;
+        try { out = await send('owner-answers', { answers }); } catch (e) { refused(e); return; }
+        for (const q of list) {
+          setDraft(q.id, {});
+          BoardAttach.clear('q:' + q.id, site.root);
+        }
+        await moveOnOnceLoaded(at, `Sent ${list.length} answer${list.length === 1 ? '' : 's'}${at.name ? ` to ${at.name}` : ''}.`, out, () => {
+          const open = all.filter((q) => q.state === 'open').length;
+          return `sent ${list.length} answer${list.length === 1 ? '' : 's'}${open ? ` · ${open} still open` : ''}`;
+        });
+      })(), stillWaiting));
     });
     // Each composer painted raises a bubbling attach-change (attach.js).
     B.on(root, 'attach-change', updateBar);

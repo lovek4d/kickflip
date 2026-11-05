@@ -101,13 +101,6 @@ BoardView.part((B) => {
   // Main's refresh icon pulls now, spinning until the server answers. After a failed pull, a hover pointer's click
   // pulls again while its reason shows on hover; a touch tap opens the reason instead, and a tap anywhere closes it.
   // An open reason shifts left as far as it would run past the screen's right edge, less the 16px gutter.
-  // A pending tap no board has answered in BoardUI's PENDING_LATE_MS: the board reloads once and the button rests.
-  function stillWaiting() {
-    if (!B.alive()) return;
-    toast('Still waiting on the board');
-    B.reload();
-    B.render();
-  }
   function paintMain() {
     BoardUI.setHTML($('#tryMain'), BoardUI.mainBar(state.board?.main, state.mainPull));
     const why = $('#tryMain .main-pull-why.open');
@@ -135,7 +128,7 @@ BoardView.part((B) => {
     // for Main to rebuild.
     const mainFace = (main) => JSON.stringify([main?.pull, main?.sha, main?.state, main?.at]);
     const before = mainFace(state.board.main);
-    BoardUI.pending.start('main:pull', (board) => mainFace(board.main) !== before, stillWaiting);
+    BoardUI.pending.start('main:pull', (board) => mainFace(board.main) !== before, B.stillWaiting);
     paintMain();
     try {
       const response = await fetch(B.site.url('api/try/main/pull'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
@@ -436,7 +429,7 @@ BoardView.part((B) => {
     // (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
     const before = JSON.stringify(it.try);
     const id = `${key}:try`;
-    BoardUI.pending.start(id, (board) => JSON.stringify(board.items.find((i) => i.key === key)?.try) !== before, stillWaiting);
+    BoardUI.pending.start(id, (board) => JSON.stringify(board.items.find((i) => i.key === key)?.try) !== before, B.stillWaiting);
     B.render();
     try {
       const r = await fetch(B.site.url('api/try'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }) });
@@ -504,7 +497,7 @@ BoardView.part((B) => {
     // The nudge reads done when the card's builder line moves (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
     const id = `${key}:nudge`;
     const before = JSON.stringify(it.builder);
-    BoardUI.pending.start(id, (board) => JSON.stringify(board.items.find((i) => i.key === key)?.builder) !== before, stillWaiting);
+    BoardUI.pending.start(id, (board) => JSON.stringify(board.items.find((i) => i.key === key)?.builder) !== before, B.stillWaiting);
     try {
       const out = await waitOn(b, B.sentHere(key, () => B.send('builder-nudge', { key })), group);
       BoardUI.pending.answered(id, out.board.generatedAt);

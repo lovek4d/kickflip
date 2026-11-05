@@ -128,8 +128,9 @@ BoardView.part((B) => {
     const b = ev.target.closest('form[data-reply] button[data-quick]');
     if (!b) return;
     const key = b.closest('form').dataset.reply;
-    try { await waitOn(b, B.sentHere(key, () => B.send('item-message', { key, text: b.dataset.quick }))); loadThread(key, { force: true }); }
-    catch { toast('Could not send'); }
+    // Spins until the thread shows the message (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
+    try { await waitOn(b, BoardUI.pending.within(B.sentHere(key, () => B.send('item-message', { key, text: b.dataset.quick })).then(() => loadThread(key, { force: true })), B.stillWaiting)); }
+    catch (e) { B.failed(e); }
   });
   // docs/adr/2026-11-05-0010-a-lightning-button-in-a-todo-threads-footer-starts-a-quick-build.md
   B.on(B.root, 'click', async (ev) => {
@@ -150,12 +151,14 @@ BoardView.part((B) => {
     const key = f.dataset.reply;
     const build = !flag && button.dataset.intent === 'build';
     const data = { key, ...(text || !flag ? { text } : {}), ...(files.length ? { files } : {}), ...(build ? { intent: 'build' } : {}) };
-    try {
-      await waitOn(button, sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),
-        () => B.sentHere(key, () => B.send(REQUEST_EVENT[flag] || 'item-message', data))));
+    // Spins until the thread shows the message (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
+    const sending = (async () => {
+      await sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),
+        () => B.sentHere(key, () => B.send(REQUEST_EVENT[flag] || 'item-message', data)));
       BoardAttach.clear(id, B.site.root);
-      loadThread(key, { force: true });
-    } catch { B.notice('Could not send. Is the host awake?'); }
+      await loadThread(key, { force: true });
+    })();
+    try { await waitOn(button, BoardUI.pending.within(sending, B.stillWaiting)); } catch (e) { B.failed(e); }
   }
   B.on(B.root, 'click', (ev) => {
     const b = ev.target.closest('form[data-reply] button[data-proto], form[data-reply] button[data-grill]');

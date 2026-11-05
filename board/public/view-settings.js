@@ -482,6 +482,12 @@
     const drawPermissions = (d) => {
       permissions.innerHTML = d.permissions.map(permRow).join('');
     };
+    // A switch whose saved face no answer has drawn in BoardUI's PENDING_LATE_MS: the switches load once and rest.
+    function stillWaiting() {
+      if (!B.alive()) return;
+      B.toast('Still waiting on the board');
+      get(site.url('api/permissions')).then(({ ok, body }) => { if (ok && B.alive()) drawPermissions(body); }, () => {});
+    }
     get(site.url('api/permissions'), waitIn('#permissions')).then(({ ok, body }) => {
       if (!B.alive()) return;
       if (!ok) { permissions.innerHTML = `<p class="muted small">${esc(body.error || 'Could not load permissions.')}</p>`; return; }
@@ -493,14 +499,17 @@
       const id = toggle.dataset.perm;
       const on = toggle.checked;
       toggle.checked = !on;
-      try {
-        const r = await BoardUI.waitOn(toggle, fetch(site.url('api/permissions'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, on }) }));
+      // The switch spins until the answer is drawn, so it never shows its old face in between
+      // (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
+      const saving = (async () => {
+        const r = await fetch(site.url('api/permissions'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, on }) });
         const out = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(out.error);
         if (!B.alive()) return;
         drawPermissions(out);
         $(`#perm-${id}Status`).textContent = on ? 'Saved. The session runs it without asking.' : 'Saved. The session asks first again.';
-      } catch (error) {
+      })();
+      try { await BoardUI.waitOn(toggle, BoardUI.pending.within(saving, stillWaiting)); } catch (error) {
         if (B.alive()) $(`#perm-${id}Status`).textContent = error.message || 'Could not save. Is the host awake?';
       }
     });

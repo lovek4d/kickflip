@@ -109,8 +109,11 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembe
           if (!r.ok || !out) throw new Error();
           if (B.alive()) B.toast(`${out.title} is back up, and its session is listening.`);
         } catch { flash = { text: out?.error || `Could not restart ${title}. Is the host awake?`, error: true }; }
+        // The row keeps its Restart busy until the hub's data shows the board's new word, and only a refusal loads after
+        // (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
+        if (!flash && B.alive()) await BoardUI.pending.within(load(), () => { B.toast('Still waiting on the board'); load(); });
         restarting.delete(route);
-        if (B.alive()) { paint(); load(); }
+        if (B.alive()) { paint(); if (flash) load(); }
       }
       // Restart hub asks the host to restart the hub service (POST /_hub/restart-hub), then waits for the hub to answer
       // with other code than it ran (its x-hub-code) and reloads the app; past HUB_WAIT tries it says how to restart by hand.

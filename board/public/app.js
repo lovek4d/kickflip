@@ -336,8 +336,14 @@ window.BoardView = (function () {
       const out = await B.site.send(kind, { ...data, ...(state.view === 'fresh' ? { since: state.board.version } : {}) });
       if (!B.alive()) return out;
       answered?.();
-      land(out.board, B.boardLoad = (B.boardLoad || 0) + 1);
+      if (!land(out.board, B.boardLoad = (B.boardLoad || 0) + 1)) await boardAfter(out.board.generatedAt);
       return out;
+    }
+
+    // A board that reload raced the POST left the tap's own board unlanded (land): the tap is not drawn until a board
+    // made after it is, so send waits for one, and a tap's spinner with it (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
+    async function boardAfter(generatedAt) {
+      for (let tries = 0; tries < 3 && B.alive() && !(state.view === 'fresh' && state.board.generatedAt >= generatedAt); tries++) await (reloading || loadBoard({ via: 'signal' }));
     }
 
     // The server signals each change to what the board reads, through the shell, and the board reloads at once; the
@@ -356,7 +362,14 @@ window.BoardView = (function () {
 
     // The toast for a tap the server refused, with its reason, or that never reached it.
     const failed = (e) => B.toast(e?.reason || 'That didn’t go through. Is the host awake?');
-    Object.assign(B, { render, loadBoard, send, failed, reload: signalled });
+    // A tap's change no board has shown in BoardUI's PENDING_LATE_MS (ui.js pending): the board reloads once and the button rests.
+    function stillWaiting() {
+      if (!B.alive()) return;
+      B.toast('Still waiting on the board');
+      signalled();
+      render();
+    }
+    Object.assign(B, { render, loadBoard, send, failed, stillWaiting, reload: signalled });
     const live = paintSnapshot();
     B.headerWired();
     if (live) B.linkUp();
