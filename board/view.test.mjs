@@ -2506,12 +2506,12 @@ test("an open card shows its workflow buttons below a final details line of Note
   const labels = (els) => els.map((el) => el.textContent.trim());
   const shown = (key) => ['.action-row.workflow a, .action-row.workflow button', '.external-links a', '.actions .resolves, .external-links .resolves'].map((selector) => labels(row(key)?.querySelectorAll(selector) || []));
   assert.deepEqual(Object.fromEntries(cards.map((c) => [c.key, shown(c.key)])), {
-    'w/A1': [['Open questions', 'Implement'], [], ['Open questions']],
-    'w/A2': [['Implement'], [], []],
-    'w/A3': [['Implement'], [], []],
+    'w/A1': [['Open questions'], [], ['Open questions']],
+    'w/A2': [[], [], []],
+    'w/A3': [[], [], []],
     'w/A4': [[], [], []],
-    'w/A5': [['Unhold', 'Open questions', 'Implement'], [], []],
-    'w/P1': [['Open questions', 'Implement'], [], ['Open questions']],
+    'w/A5': [['Unhold', 'Open questions'], [], []],
+    'w/P1': [['Open questions'], [], ['Open questions']],
     'w/D1': [[], ['Notes', 'Install', 'Review draft on GitHub'], ['Review draft on GitHub']],
     'w/R1': [[], ['Install', 'Review on GitHub'], []],
     'w/S1': [[], ['Review on GitHub'], ['Review on GitHub']],
@@ -2558,21 +2558,22 @@ test("the thread's eye and fire send their request at once: nothing typed sends 
   await send('Just a reply');
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [
     ['prototype-request', { key: 'w/A1' }], ['grill-more', { key: 'w/A1', text: 'Ask about the colours' }],
-    ['prototype-request', { key: 'w/A1', text: 'Phone width first' }], ['grill-more', { key: 'w/A1' }], ['item-message', { key: 'w/A1', text: 'Just a reply' }],
+    ['prototype-request', { key: 'w/A1', text: 'Phone width first' }], ['grill-more', { key: 'w/A1' }], ['item-message', { key: 'w/A1', text: 'Just a reply', intent: 'reply' }],
   ]);
   b.view.unmount();
 });
 
-test('Implement is on every Todo card, plain while its questions wait on the owner and builder orange once it is ready, and its tap sends card-build either way', async () => {
+// docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
+test("a Todo card's Implement is in its thread box, quiet while the card isn't ready and builder orange once it is, following each board load; its action row has none", async () => {
   const asking = { actionButton: 'openQuestions', buildable: false, questions: { first: 'q7', open: 1, state: 'open' }, action: { kind: 'questions', url: 'questions.html#q7', label: 'Answer 1 question' } };
   const cards = [workCard('Q1', asking), workCard('R1', { buildable: true, ready: true })];
-  const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
+  const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: { 'w/Q1': [], 'w/R1': [] }, confirm: true });
   await b.settle();
-  const implement = (key) => b.root.querySelector(`details.item[data-key="${key}"] button[data-confirm="card-build"]`);
+  const implement = (key) => b.root.querySelector(`form[data-reply="${key}"] button[data-intent="build"]`);
   assert.deepEqual([implement('w/Q1').getAttribute('class'), implement('w/R1').getAttribute('class')], ['build', 'build ready']);
-  b.page.fire(b.root, 'click', { target: implement('w/Q1') });
-  await b.settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-build', { key: 'w/Q1' }]]);
+  assert.equal(b.root.querySelector('.actions [data-confirm="card-build"]'), null);
+  await b.change({ board: boardOf([workCard('Q1', { buildable: true, ready: true }), cards[1]]) });
+  assert.equal(implement('w/Q1').getAttribute('class'), 'build ready');
   b.view.unmount();
 });
 
@@ -2602,31 +2603,35 @@ test('the New task sheet has two buttons and no Send: Discuss (⌘↵) sends the
 });
 
 // docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md
-test("a Todo card's thread box has Reply (⌘↵) and Reply and build (⌥↵), which sends the message with intent: 'build'; a card past Todo keeps one Send on ⌘↵, and the box follows the card's lane", async () => {
+// docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
+test("a Todo card's thread box has Reply (⌘↵) and Implement (⌥↵), which send the message with intent: 'reply' or 'build'; a card past Todo keeps one Send on ⌘↵, and the box follows the card's lane", async () => {
   const b = boardOnDom({ open: ['w/T1', 'w/P1'], board: boardOf([workCard('T1'), workCard('P1', { lane: 'progress' })]), threads: { 'w/T1': [], 'w/P1': [] } });
   await b.settle();
   const form = (key) => b.root.querySelector(`form[data-reply="${key}"]`);
   const buttons = (key) => [...form(key).querySelectorAll('button[type="submit"]')].map((el) => [el.dataset.intent ?? null, el.textContent]);
-  assert.deepEqual(buttons('w/T1'), [['reply', 'Reply⌘↵'], ['build', 'Reply and build⌥↵']]);
-  assert.deepEqual(buttons('w/P1'), [['reply', 'Send⌘↵']]);
+  assert.deepEqual(buttons('w/T1'), [['reply', 'Reply⌘↵'], ['build', 'Implement⌥↵']]);
+  assert.deepEqual(buttons('w/P1'), [[null, 'Send⌘↵']]);
   const send = async (key, text, intent) => {
     form(key).querySelector('textarea').value = text;
-    b.page.fire(b.root, 'submit', { target: form(key), submitter: form(key).querySelector(`button[data-intent="${intent}"]`) });
+    b.page.fire(b.root, 'submit', { target: form(key), submitter: form(key).querySelector(intent ? `button[data-intent="${intent}"]` : 'button[type="submit"]') });
     await b.settle();
   };
   await send('w/T1', 'Use the blue', 'build');
   await send('w/T1', 'Just a reply', 'reply');
-  await send('w/P1', 'Later', 'reply');
+  await send('w/P1', 'Later');
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [
-    ['item-message', { key: 'w/T1', text: 'Use the blue', intent: 'build' }], ['item-message', { key: 'w/T1', text: 'Just a reply' }], ['item-message', { key: 'w/P1', text: 'Later' }],
+    ['item-message', { key: 'w/T1', text: 'Use the blue', intent: 'build' }], ['item-message', { key: 'w/T1', text: 'Just a reply', intent: 'reply' }], ['item-message', { key: 'w/P1', text: 'Later' }],
   ]);
+  // An empty box still sends Implement.
+  await send('w/T1', '', 'build');
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['item-message', { key: 'w/T1', text: '', intent: 'build' }]);
   const pressed = [];
   for (const key of ['w/T1', 'w/P1']) form(key).requestSubmit = (s) => pressed.push([key, s?.dataset.intent ?? null]);
   const key = (k, ev) => { const box = form(k).querySelector('textarea'); return b.page.fire(b.root, 'keydown', { key: 'Enter', target: box, ...ev }).defaultPrevented; };
   assert.deepEqual([key('w/T1', { metaKey: true }), key('w/T1', { altKey: true }), key('w/P1', { ctrlKey: true }), key('w/P1', { altKey: true })], [true, true, true, false]);
-  assert.deepEqual(pressed, [['w/T1', 'reply'], ['w/T1', 'build'], ['w/P1', 'reply']]);
+  assert.deepEqual(pressed, [['w/T1', 'reply'], ['w/T1', 'build'], ['w/P1', null]]);
   await b.change({ board: boardOf([workCard('T1', { lane: 'progress' }), workCard('P1', { lane: 'progress' })]) });
-  assert.deepEqual(buttons('w/T1'), [['reply', 'Send⌘↵']]);
+  assert.deepEqual(buttons('w/T1'), [[null, 'Send⌘↵']]);
   b.view.unmount();
 });
 
@@ -2903,7 +2908,7 @@ test("every bumpable card, closed or open, carries the bump icon at its top righ
     'w/T1': ['Unbump', true, false], 'w/T2': ['Unbump', true, false], 'w/T3': ['Bump to top', false, false], 'w/P1': ['Unbump', true, false], 'w/H1': null,
   });
   for (const key of ['w/T1', 'w/T3', 'w/H1']) assert.equal(card(key).querySelector('.detail .actions [data-card-bump]'), null, key);
-  assert.deepEqual(['w/T1', 'w/T3'].map((key) => card(key).querySelector('.detail .action-row.workflow').textContent.trim()), ['Implement', 'HoldImplement']);
+  assert.deepEqual(['w/T1', 'w/T3'].map((key) => card(key).querySelector('.detail .action-row.workflow')?.textContent.trim() ?? null), [null, 'Hold']);
 
   b.page.fire(b.root, 'click', { target: icon('w/T3') });
   await b.settle();
@@ -3084,13 +3089,13 @@ test("deleting a New card is one events POST: its trash icon waits, the card sta
 test("Done, Unhold, Implement, Merge and a Hold sheet chip each wait on their button, disabled with its label kept, while the card stays as it was; Done closes its card once the server answers, and a refusal toasts the server's reason", async () => {
   const merge = { kind: 'merge', url: '#item=w%2FM1', label: 'Merge' };
   const holdChoices = [{ value: '1h', label: '1h', ms: 3_600_000 }];
-  const cards = [workCard('T1', { finishable: true, holdable: true }), workCard('H1', { held: true, holdable: true }), workCard('B1', { buildable: true }), workCard('M1', { lane: 'review', action: merge })];
+  const cards = [workCard('T1', { finishable: true, holdable: true }), workCard('H1', { held: true, holdable: true }), workCard('M1', { lane: 'review', action: merge })];
   const sends = heldSends();
   const b = boardOnDom({ open: cards.map((c) => c.key), board: { ...boardOf(cards), holdChoices }, threads: {}, send: sends.send, confirm: true });
   await b.settle();
   const button = (key, act) => b.root.querySelector(`details.item[data-key="${key}"] [data-confirm="${act}"]`);
   const card = (key) => b.root.querySelector(`details.item[data-key="${key}"]`);
-  for (const [key, act, label] of [['w/H1', 'resume', 'Unhold'], ['w/B1', 'card-build', 'Implement'], ['w/M1', 'merge', 'Merge']]) {
+  for (const [key, act, label] of [['w/H1', 'resume', 'Unhold'], ['w/M1', 'merge', 'Merge']]) {
     b.page.fire(b.root, 'click', { target: button(key, act) });
     await b.settle();
     assert.deepEqual([...waitState(button(key, act)), button(key, act).textContent], [...WAITING, label], act);
@@ -3115,7 +3120,7 @@ test("Done, Unhold, Implement, Merge and a Hold sheet chip each wait on their bu
   sends.answer();
   await b.settle();
   assert.deepEqual([card('w/T1').open, card('w/T1').closest('.lane').dataset.lane], [false, 'done']);
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).map(([kind]) => kind), ['card-hold', 'card-build', 'card-merge', 'card-hold', 'card-done']);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).map(([kind]) => kind), ['card-hold', 'card-merge', 'card-hold', 'card-done']);
   b.view.unmount();
 });
 
@@ -4602,30 +4607,14 @@ test('a slim Done card draws as the whole card does, closed and open', async () 
   assert.equal(await draw(built.items.map((i) => (i.lane === 'done' ? slimDone(i) : i))), whole);
 });
 
-test('a held Todo card that can be implemented shows Implement in place of Unhold, whose confirm says it also unholds, and sends card-build', async () => {
-  const cards = [workCard('H1', { ref: 'INT-42', held: true, holdable: true, buildable: true })];
+// docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
+test('a held Todo card shows Unhold, and no Implement in its action row', async () => {
+  const cards = [workCard('H1', { ref: 'INT-42', held: true, holdable: true, buildable: true, ready: true })];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
   await b.settle();
   const detail = b.root.querySelector('details.item[data-key="w/H1"] .detail');
-  assert.equal(detail.querySelector('[data-confirm="resume"]'), null);
-  b.page.fire(b.root, 'click', { target: detail.querySelector('[data-confirm="card-build"]') });
-  await b.settle();
-  assert.deepEqual(b.confirms, ['Unhold and implement INT-42? Claude starts its implementer now with the notes as they stand.']);
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['card-build', { key: 'w/H1' }]);
-});
-
-// docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md
-test('a blocked Todo card shows Implement, whose confirm says it is implemented once its blockers are done, and sends card-build', async () => {
-  const blockedBy = [{ key: 'w/A9', ref: '#53' }];
-  const cards = [workCard('B1', { ref: 'INT-44', buildable: true, blockedBy }), workCard('B2', { ref: 'INT-45', held: true, holdable: true, buildable: true, blockedBy })];
-  const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
-  await b.settle();
-  for (const key of ['w/B1', 'w/B2']) {
-    b.page.fire(b.root, 'click', { target: b.root.querySelector(`details.item[data-key="${key}"] .detail [data-confirm="card-build"]`) });
-    await b.settle();
-  }
-  assert.deepEqual(b.confirms, ['Implement INT-44 once #53 is done? It waits in In Progress until then.', 'Unhold and implement INT-45 once #53 is done? It waits in In Progress until then.']);
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-build', { key: 'w/B1' }], ['card-build', { key: 'w/B2' }]]);
+  assert.equal(detail.querySelector('.actions [data-confirm="resume"]').textContent, 'Unhold');
+  assert.equal(detail.querySelector('.actions [data-confirm="card-build"]'), null);
 });
 
 test('Upgrade on the sidebar posts to the hub and shows only what the hub answers', async () => {

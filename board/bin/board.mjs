@@ -118,7 +118,10 @@ command fails and changes nothing.
                                                          ready refuses while the card has an open question, and
                                                          a card without --size, a notes file, or the id of each
                                                          answered question in that file, since a builder starts
-                                                         from it; it resolves those answered questions
+                                                         from it; it resolves those answered questions. On a card
+                                                         an Implement message queued for you, it releases the
+                                                         build: the board server starts it from the queue, and
+                                                         prints "released: <key> starts building from the queue"
          [--held | --unheld | --pick-up-at <time>]       holds or resumes the card on the owner's words; the board
                                                          server records the owner's own Hold and Resume taps. A later
                                                          --held/--unheld overrides a tap; --unheld also clears a held status.

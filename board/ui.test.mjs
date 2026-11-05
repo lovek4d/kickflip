@@ -1125,14 +1125,9 @@ test("an open card waiting on the owner's Merge shows a Merge button that confir
   assert.equal(merge(undefined), '');
 });
 
-test("an open card that can be implemented shows Implement rightmost in its action row, which confirms first, plain until the card is ready and builder orange once it is, with no Grill or Prototype beside it", () => {
-  const build = (it) => { const html = ui.buildButton(it); return html && [text(html), /disabled/.test(html), /data-confirm="card-build"/.test(html), /data-key="w\/A1"/.test(html), /class="([^"]*)"/.exec(html)[1]]; };
-  const todoCard = { key: 'w/A1', kind: 'work', lane: 'todo' };
-  assert.deepEqual(build({ ...todoCard, buildable: true }), ['Implement', false, true, true, 'build']);
-  assert.deepEqual(build({ ...todoCard, buildable: true, ready: true }), ['Implement', false, true, true, 'build ready']);
-  // Always on a Todo card, plain while its questions wait on the owner.
-  assert.deepEqual(build({ ...todoCard, buildable: false, action: { kind: 'questions' } }), ['Implement', false, true, true, 'build']);
-  for (const off of [{ lane: 'progress' }, { lane: 'review' }, { lane: 'done' }, { kind: 'ask' }]) assert.equal(build({ ...todoCard, ...off }), '', JSON.stringify(off));
+// docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
+test("an open card's action row has no Implement, which lives in a Todo card's thread box, nor Grill or Prototype; a held card shows Unhold", () => {
+  assert.equal(ui.buildButton, undefined);
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.match(css, /button\.build\.ready[,\s][^{]*\{[^}]*--color-notice/);
   assert.doesNotMatch(css, /button\.build[,\s{]/);
@@ -1145,14 +1140,14 @@ test("an open card that can be implemented shows Implement rightmost in its acti
   const todo = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', lane: 'todo', action: null, actionButton: null, waveTitle: 'W', deps: [], manualSteps: [], holdable: true, hasNotes: true,
     try: { kind: 'web', script: true, changes: false }, buildable: true };
   const row = (it) => [...B.detail(it).match(/<div class="action-row workflow">(.*?)<\/div>/)[1].matchAll(/<button[^>]*>(.*?)<\/button>/g)].map(([, label]) => label);
-  assert.deepEqual(row(todo), ['Hold', 'Implement']);
+  assert.deepEqual(row(todo), ['Hold']);
   const changed = { ...todo, try: { ...todo.try, changes: true } };
-  assert.deepEqual(row(changed), ['Hold', 'Serve', 'Implement']);
-  assert.deepEqual(row({ ...changed, buildable: false }), ['Hold', 'Serve', 'Implement']);
+  assert.deepEqual(row(changed), ['Hold', 'Serve']);
+  assert.deepEqual(row({ ...changed, ready: true }), ['Hold', 'Serve']);
   assert.deepEqual(row({ ...changed, lane: 'progress' }), ['Hold', 'Serve']);
-  assert.deepEqual(row({ ...todo, held: true }), ['Implement']);
-  assert.deepEqual(row({ ...todo, held: true, buildable: false }), ['Unhold', 'Implement']);
-  assert.match(B.detail({ ...todo, held: true }), /data-confirm="card-build"/);
+  assert.deepEqual(row({ ...todo, held: true }), ['Unhold']);
+  assert.deepEqual(row({ ...todo, held: true, buildable: false }), ['Unhold']);
+  assert.doesNotMatch(B.detail({ ...todo, held: true, ready: true }), /data-confirm="card-build"/);
 });
 
 test('the working line reads thinking, in one shared class on the card and in the thread', () => {
@@ -1307,6 +1302,8 @@ test("a card idle on the orchestrator reads waiting for orchestrator with how lo
   assert.deepEqual(status({ lane: 'progress', waitsOn: 'checking', orchestrator: { ...waiting, picked: minutes(3) } }),
     ['in-progress', '<span class="working-dot" aria-hidden="true"></span>orchestrator review · 3m']);
   assert.deepEqual(status({ lane: 'todo', refusal: 'Couldn’t start', orchestrator: { ...waiting, kind: 'refused' } }), ['in-todo', 'waiting for orchestrator · 14m']);
+  // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md: an Implement message's card reads queued.
+  assert.deepEqual(status({ lane: 'progress', orchestrator: { ...waiting, kind: 'implement' } }), ['in-progress', 'queued · waiting for orchestrator · 14m']);
   // A running builder keeps its own line while its ask waits.
   assert.deepEqual(status({ lane: 'progress', builder: { progress: 'Testing · x', phase: 'testing', at: minutes(2) }, orchestrator: { ...waiting, kind: 'ask' } }),
     ['in-progress', '<span class="working-dot" aria-hidden="true"></span>Testing · x · 2m']);

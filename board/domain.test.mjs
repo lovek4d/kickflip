@@ -1770,11 +1770,28 @@ test("a card's bare Grill and Prototype taps are muted request entries in its th
   assert.equal(threadOf('w/A1', { events: [{ ...events[0], data: { text: 'Add a badge' } }], fromAsk: 'a1' }).length, 1);
 });
 
-// docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md
-test("a thread message sent with Reply and build carries intent: 'build', and reads build requested in its footer", () => {
+// docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
+test("a thread message's footer names the button that sent it: Reply, or Implement, with queued while its card waits on the orchestrator; a bare Implement is a request line; a one-button box's message has none", () => {
   const ev = (id, data) => ({ id, ts: `2026-10-23T10:0${id.slice(1)}:00Z`, kind: 'item-message', data: { key: 'w/A1', ...data }, reply: null });
-  const msgs = threadOf('w/A1', { events: [ev('m1', { text: 'Use the blue', intent: 'build' }), ev('m2', { text: 'Just a reply' })] });
-  assert.deepEqual(msgs.map((m) => [m.text, m.status || null, m.state]), [['Use the blue', 'build requested', 'waiting'], ['Just a reply', null, 'waiting']]);
+  const events = [ev('m1', { text: 'Use the blue', intent: 'build' }), ev('m2', { text: 'Just a reply', intent: 'reply' }), ev('m3', { text: 'Sent' }), ev('m4', { text: '', intent: 'build' })];
+  const shown = (opts) => threadOf('w/A1', { events, ...opts }).map((m) => [m.text, m.status || null, Boolean(m.request)]);
+  assert.deepEqual(shown({}), [['Use the blue', 'Implement', false], ['Just a reply', 'Reply', false], ['Sent', null, false], ['Implement', null, true]]);
+  assert.deepEqual(shown({ implementAt: '2026-10-23T10:04:00Z' }), [['Use the blue', 'Implement', false], ['Just a reply', 'Reply', false], ['Sent', null, false], ['Implement · queued', null, true]]);
+  assert.deepEqual(shown({ implementAt: '2026-10-23T10:01:00Z' })[0], ['Use the blue', 'Implement · queued', false]);
+});
+
+// docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
+test('a card an Implement message queued is In Progress, waiting on the orchestrator to fold the message in and mark it ready, with no gap Next, no pull and no planner', () => {
+  const asked = '2026-11-05T10:00:00.000Z';
+  const items = [{ id: 'I1', title: 'Implement asked', state: 'grilling', implement_at: asked }, { id: 'T1', title: 'Plain', state: 'ready' }];
+  const b = buildBoard({ fromWaves: false, autoPull: true, now: Date.parse('2026-11-05T10:05:00Z'), waves: [{ slug: 'w', wave: { internal: true, items } }] });
+  const card = b.items.find((i) => i.id === 'I1');
+  assert.deepEqual([card.lane, card.queued, card.implementAt, card.next, card.buildable, card.progressSince], ['progress', false, asked, null, false, asked]);
+  assert.deepEqual(card.orchestrator, { kind: 'implement', since: asked, picked: null, next: 'Fold the Implement message into the notes, then item set --state ready to start the build' });
+  assert.equal(pullOf(b.items).pullable.includes('w/I1'), false);
+  assert.deepEqual(pullOf(b.items).starts, []);
+  assert.equal(arrivalsOf(b.items).includes('w/I1'), false);
+  assert.equal(owesNext(items[0], []), false);
 });
 
 test('only a running build keeps the board from being idle: a running planner leaves Pull free to start the next ready card', () => {

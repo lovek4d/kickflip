@@ -78,7 +78,8 @@ const PLAIN = {
   'review-answer': (e) => `${e.data?.answer === 'skip' ? 'skip' : 'post'} answered on the review of PR #${e.data?.pr}`,
 };
 const ON_CARD = {
-  'item-message': (c) => `message received from ${c}'s thread`,
+  // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
+  'item-message': (c, e) => (e.data?.intent === 'build' ? `Implement asked on ${c}: fold the message into its notes, then item set --state ready starts the build` : `message received from ${c}'s thread`),
   'card-merge': (c) => `merge asked on ${c}`,
   'card-done': (c) => `${c} marked done`,
   'card-bump': (c) => `${c} bumped`,

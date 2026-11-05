@@ -10,20 +10,23 @@ BoardView.part((B) => {
 
   const thread = (key) => `<div class="thread" data-thread="${esc(key)}"><div class="muted small">Loading thread…</div></div>`;
 
-  // docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md
-  // A Todo card's reply box sends with Reply or Reply and build, which carries intent: 'build' for the session to mark
-  // the card ready and build it; any other card's sends with Send. The pair wraps onto its own line under the row.
-  const sends = (todo) => (todo
-    ? `<span class="send-actions" data-sends="todo">${sendButton('Reply', 0, ' data-intent="reply"')}${sendButton('Reply and build', 1, ' data-intent="build"')}</span>`
-    : `<span data-sends="one">${sendButton('Send', 0, ' data-intent="reply"')}</span>`);
+  // docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md,
+  // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
+  // A Todo card's reply box sends with Reply (intent: 'reply') or Implement (intent: 'build'), which is the card's build
+  // action: builder orange once the card is ready, quiet before. Any other card's box sends with Send, carrying no intent.
+  // The pair wraps onto its own line under the row.
+  const sendsOf = (item) => (item?.lane !== 'todo' ? 'one' : item.ready ? 'todo-ready' : 'todo');
+  const sends = (kind) => (kind === 'one'
+    ? `<span data-sends="one">${sendButton('Send', 0)}</span>`
+    : `<span class="send-actions" data-sends="${kind}">${sendButton('Reply', 0, ' data-intent="reply"')}${sendButton('Implement', 1, ` class="build${kind === 'todo-ready' ? ' ready' : ''}" data-intent="build"`)}</span>`);
   // The board, not the thread, decides the Done button and the send buttons, so they follow each board load even when
   // the thread is unchanged.
   function syncDone(el, key) {
     const at = el.querySelector('form [data-sends]');
     if (!at) return;
     const item = state.board?.items.find((i) => i.key === key);
-    const todo = item?.lane === 'todo';
-    if (at.dataset.sends !== (todo ? 'todo' : 'one')) { at.insertAdjacentHTML('afterend', sends(todo)); at.remove(); }
+    const kind = sendsOf(item);
+    if (at.dataset.sends !== kind) { at.insertAdjacentHTML('afterend', sends(kind)); at.remove(); }
     const tools = el.querySelector('form .tools');
     const bolt = tools.querySelector('[data-bolt]');
     if (todo && !bolt) tools.insertAdjacentHTML('afterbegin', boltButton(key));
@@ -77,7 +80,7 @@ BoardView.part((B) => {
       const draft = store.get('draft:' + key, '');
       el.innerHTML = `<div class="msgs"></div><form data-reply="${esc(key)}" data-composer="item:${esc(key)}">${dropZone(`<textarea rows="2" placeholder="${esc(PLACEHOLDER)}">${esc(draft)}</textarea>`)}
         <div class="pending-files" data-files></div>
-        <div class="row"><span class="tools">${protoButton(key)}${grillButton(key)}</span><button class="chip quick" type="button" data-quick="What's left?">What's left?</button>${sends(false)}</div></form>`;
+        <div class="row"><span class="tools">${protoButton(key)}${grillButton(key)}</span><button class="chip quick" type="button" data-quick="What's left?">What's left?</button>${sends('one')}</div></form>`;
       BoardAttach.paint('item:' + key, B.site.root);
     }
     syncDone(el, key);
@@ -147,10 +150,11 @@ BoardView.part((B) => {
     const text = flag ? slashOf(ta.value).text : ta.value.trim();
     const id = f.dataset.composer;
     const files = BoardAttach.files(id, B.site.root);
-    if ((!flag && !text && !files.length) || BoardAttach.busy(id, B.site.root)) return;
+    // An empty box still sends Implement, the card's build action.
+    const intent = flag ? null : button.dataset.intent || null;
+    if ((!flag && !text && !files.length && intent !== 'build') || BoardAttach.busy(id, B.site.root)) return;
     const key = f.dataset.reply;
-    const build = !flag && button.dataset.intent === 'build';
-    const data = { key, ...(text || !flag ? { text } : {}), ...(files.length ? { files } : {}), ...(build ? { intent: 'build' } : {}) };
+    const data = { key, ...(text || !flag ? { text } : {}), ...(files.length ? { files } : {}), ...(intent ? { intent } : {}) };
     // Spins until the thread shows the message (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
     const sending = (async () => {
       await sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),

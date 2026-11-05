@@ -1522,7 +1522,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     if (blockers.length) fail(`${key} is blocked by ${blockers.join(', ')}; start it once ${blockers.length === 1 ? 'that is' : 'those are'} done or merged`);
   }
   // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md: a build that starts, or a card that closes, ends its queued build.
-  if (status === 'building' || FINISHED.includes(status)) delete item.queued_at;
+  if (status === 'building' || FINISHED.includes(status)) { delete item.queued_at; delete item.implement_at; }
   const unpicked = status === 'building' && site ? await unpickedPrototype(site, key) : null;
   if (unpicked) fail(`${key} has no take picked: the owner's answer to ${unpicked.id} picks none${unpicked.note ? ` ("${clip(unpicked.note)}")` : ''}, so it prototypes again: draw the next round from that note, or grill when the note asks a question, and build once a take is picked`);
   const resolve = FINISHED.includes(status) ? await closeQuestions(site, key, `--status ${status}`, force) : async () => [];
@@ -1573,6 +1573,10 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (state !== undefined) item.state = state;
   // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a Next never asks for the state the card is in.
   if (item.state === 'ready' && ASKS_READY.test(item.next ?? '')) fail(`${key} would read ready with Next "${item.next}", which asks for the state it is already in; pass --next with what happens next, or --clear-next`);
+  // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md: ready releases an Implement
+  // message's card to the queue from the message's time, which the board server starts as a tapped build.
+  const released = state === 'ready' && item.implement_at;
+  if (released) { item.queued_at = item.implement_at; delete item.implement_at; }
   if (built) item.install = built;
   if (built === null) delete item.install;
   // docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md: building and fixing go with a builder start.
@@ -1585,6 +1589,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   // Ready checked that the notes name every answered question, so it resolves them as a new notes file does.
   if (notesFile !== undefined || (state === 'ready' && site)) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
   if (status === 'building') resolved.push(...await resolveAnswered(site, key, 'Acted on: build started'));
+  if (released) resolved.push(`released: ${key} starts building from the queue`);
   if (ask) resolved.push(...(await appendThread(site, key, { text: said })).lines);
   if (lastLine && site) resolved.push(...(await appendThread(site, key, { text: lastLine, who })).lines);
   // The ticket stays open while the card waits on its owner step.
@@ -2456,6 +2461,20 @@ async function tapRefusals(site, key) {
   if (await unpickedPrototype(site, key)) fail('no take is picked on its prototypes, so it prototypes again. Pick a take from the next round, then tap Implement.');
   const blockers = await Promise.all((await unfinishedDeps(site, parseKey(key).wave, item)).map((k) => cardName(site, k)));
   return { held, blockers };
+}
+
+// docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
+// An Implement message on a Todo card, in the board server before its event: the card's wave entry records implement_at,
+// so it is In Progress waiting on the orchestrator to fold the message into its notes, until item set --state ready
+// releases it to the queue. A held card is resumed, as the Build tap does. A second message while it waits keeps the
+// first's time.
+export async function askImplement(site, key) {
+  const { item } = await loadItem(site, key);
+  if (item.implement_at) return;
+  if (item.held || item.status === 'held') await recordOwnerTap(site, 'card-hold', { key, hold: false });
+  const { source, wave, item: resumed } = await loadItem(site, key);
+  resumed.implement_at = new Date().toISOString();
+  await writeJSON(source.file, wave);
 }
 
 async function queueBuild(site, key, blockers) {

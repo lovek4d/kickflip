@@ -91,8 +91,12 @@
 //                                the one round trip (docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md);
 //                                with since: <version>, which isn't recorded, that board is a patch from it as ?since= gives
 //                                ask, item-message and owner-answer may carry files: [upload]
-//                                item-message may carry intent: 'build', a Todo card's Reply and build, which the
-//                                session treats as Mark ready and Implement
+//                                item-message may carry intent: 'reply' or 'build', a Todo card's Reply or Implement.
+//                                Implement with no text or files on a ready card starts the build as card-build does,
+//                                with no event; any other on a Todo card records implement_at on the card (store.mjs
+//                                askImplement), which is In Progress waiting on the orchestrator until item set
+//                                --state ready queues its build, and appends the message
+//                                (docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md)
 //                                An owner-answer with a note and no take resolves its question (store.mjs
 //                                resolveNoteAnswers). One to a card's prototype question that picks no take is
 //                                recorded with prototype_again: true: the card reads prototyping with Next "Prototype
@@ -249,7 +253,7 @@ import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders } from './headless.mjs';
-import { BoardError, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -758,7 +762,7 @@ async function thread(key) {
     || (e.kind === 'ask' && askIds.includes(e.id)) || e.kind === 'ask-edited');
   const lines = (await Promise.all([...keys].map((k) => readLines(threadFile(k))))).flat();
   return threadOf(key, { lines, events: await Promise.all(mine.map(withReply)), owner, working: await readWorking(here), fromAsk: askId,
-    links: own ? await askLinksOf(askId) : [], agents, moved });
+    links: own ? await askLinksOf(askId) : [], agents, moved, implementAt: item?.implement_at || null });
 }
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -994,6 +998,20 @@ const server = http.createServer(async (req, res) => {
         const key = String(body.key || '');
         const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts));
         return json(res, 200, { id: await handOff(started), board: await answerBoard(req, since) });
+      }
+      // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
+      if (kind === 'item-message' && body.intent === 'build') {
+        const key = String(body.key || '');
+        const card = (await sharedBoard()).items.find((i) => i.key === key && i.kind === 'work');
+        const bare = !String(body.text || '').trim() && !(Array.isArray(body.files) && body.files.length);
+        if (card?.ready && bare) {
+          const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts));
+          return json(res, 200, { id: await handOff(started), board: await answerBoard(req, since) });
+        }
+        if (card?.lane === 'todo') {
+          await askImplement(here, key);
+          dataVersion++;
+        }
       }
       // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
       if (kind === 'lineup-move') {

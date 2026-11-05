@@ -390,6 +390,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     { id: 'B1', title: 'Tapped', next: 'Implement' }, { id: 'B2', title: 'Held', held: true, pick_up_at: '2099-01-01T00:00:00.000Z' }, { id: 'B3', title: 'Blocked', deps: ['B4'] }, { id: 'B4', title: 'Dep' },
     { id: 'B5', title: 'Held and blocked', deps: ['B4'], held: true }, { id: 'B6', title: 'Leftover worktree' }, { id: 'B7', title: 'Leftover work' },
     { id: 'B8', title: 'Held and unstarted', held: true }, { id: 'B9', title: 'Held and waiting', status: 'waiting', held: true }, { id: 'B10', title: 'Held and grilled', held: true },
+    { id: 'B11', title: 'Ready', state: 'ready' },
   ] }));
   const wave = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -480,11 +481,43 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.equal((await post({ kind: 'card-build', key: 't/B7' })).status, 200);
     const kept = await card('B7');
     assert.deepEqual([kept.lane, kept.status, kept.refusal], ['todo', null, `Couldn't start implementing: --worktree: ${leftover7} holds 1 changed file; land or remove it first`]);
+
+    // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md: an empty Implement on a
+    // ready card is the old Implement tap, starting the build with no event.
+    const events = log().length;
+    assert.equal((await post({ kind: 'item-message', key: 't/B11', text: '', intent: 'build' })).status, 200);
+    const tapped = await card('B11');
+    assert.deepEqual([tapped.lane, tapped.status, tapped.implementAt], ['progress', 'building', null]);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'agents', 'B11.json'), 'utf8')).dispatched, 'tap');
+    assert.deepEqual(log().slice(events).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), []);
   } finally {
     fs.rmSync(manifest);
     fs.rmSync(path.join(site, 'data', 'agents'), { recursive: true, force: true });
     fs.rmSync(path.join(home, '.claude', 'kickflip', 'worktrees'), { recursive: true, force: true });
   }
+});
+
+// docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
+test("an Implement message on a Todo card moves it to In Progress, queued for the orchestrator, and wakes the session with the message; a Reply leaves the card where it is", async () => {
+  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'I1', title: 'Implement', held: true }, { id: 'IR1', title: 'Reply' }] }));
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+  const wave = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'));
+  const log = () => fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const sent = await post({ kind: 'item-message', key: 't/I1', text: 'Use the blue', intent: 'build' });
+  const card = sent.board.items.find((i) => i.id === 'I1');
+  const asked = wave().items[0].implement_at;
+  assert.ok(asked);
+  assert.deepEqual([card.lane, card.held, card.implementAt, card.orchestrator.kind], ['progress', false, asked, 'implement']);
+  assert.deepEqual(log().filter((e) => e.kind === 'item-message').at(-1).data, { key: 't/I1', text: 'Use the blue', intent: 'build' });
+  assert.equal(log().find((e) => e.id === sent.id).ts >= asked, true);
+  const footer = async (key) => (await (await fetch(`${base}/api/thread?key=${encodeURIComponent(key)}`)).json()).filter((m) => m.eventId).map((m) => [m.text, m.status]);
+  assert.deepEqual(await footer('t/I1'), [['Use the blue', 'Implement · queued']]);
+  // A second Implement while it waits keeps the first ask's time.
+  await post({ kind: 'item-message', key: 't/I1', text: 'And the red', intent: 'build' });
+  assert.equal(wave().items[0].implement_at, asked);
+  const replied = await post({ kind: 'item-message', key: 't/IR1', text: 'Why blue?', intent: 'reply' });
+  assert.deepEqual([replied.board.items.find((i) => i.id === 'IR1').lane, wave().items[1].implement_at], ['todo', undefined]);
+  assert.deepEqual(await footer('t/IR1'), [['Why blue?', 'Reply']]);
 });
 
 test("a hidden thread message leaves the item's thread", async () => {

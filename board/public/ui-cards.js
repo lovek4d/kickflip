@@ -146,16 +146,6 @@
     const busy = it.merging || BoardUI.pending.has(`${it.key}:merge`);
     return `<button class="${it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${busy ? BoardUI.BUSY : ''}>Merge</button>`;
   }
-  // The open card's Implement, rightmost in its action row, on every unstarted Todo work card, its questions waiting or
-  // not: it confirms, then
-  // sends card-build, waiting while the board server starts the implementer (app-cards.js). Build and Serve
-  // mean the package only (docs/adr/2026-11-02-1745-a-todo-card-that-nothing-blocks-has-build.md,
-  // docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md, docs/adr/2026-11-03-1549-a-todo-cards-button-reads-implement.md).
-  // Implement is plain until the card is ready, then builder orange (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
-  function buildButton(it) {
-    if (it.kind !== 'work' || it.lane !== 'todo' || it.queued) return '';
-    return `<button class="build${it.ready ? ' ready' : ''}" data-confirm="card-build" data-key="${esc(it.key)}">Implement</button>`;
-  }
   // A builder reads "starting" until its first status line, from the Implement tap or the session's dispatch on, and
   // ends with how long ago that line was set. One whose process is gone leads with stopped, and one whose live process
   // went quiet with quiet (domain.mjs builderOf; docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
@@ -210,10 +200,11 @@
   const tone = (it) => (it.lane === 'progress' ? ' in-progress' : it.lane === 'todo' ? ' in-todo' : '');
   const DOT = '<span class="working-dot" aria-hidden="true"></span>';
   // A card idle on the orchestrator (domain.mjs orchestratorWaitOf) reads waiting for orchestrator, then orchestrator
-  // review with its dot once the session picks it up, each with how long ago.
+  // review with its dot once the session picks it up, each with how long ago. A card an Implement message queued leads
+  // with queued (docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md).
   function orchestratorStatus(it) {
-    const { since, picked } = it.orchestrator;
-    return `<div class="line3 sub agent${tone(it)}">${picked ? `${DOT}orchestrator review · ${esc(lasted(picked))}` : `waiting for orchestrator · ${esc(lasted(since))}`}</div>`;
+    const { since, picked, kind } = it.orchestrator;
+    return `<div class="line3 sub agent${tone(it)}">${picked ? `${DOT}orchestrator review · ${esc(lasted(picked))}` : `${kind === 'implement' ? 'queued · ' : ''}waiting for orchestrator · ${esc(lasted(since))}`}</div>`;
   }
   // A stale or stopped build's status line is the needs-you red, and a tap on it nudges Claude to check the implementer.
   // A quiet one is grey, with no dot.
@@ -362,5 +353,5 @@
       <div class="list">${list}${fold}</div></details>`;
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, buildButton, builderLine, statusWord, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, askChip, askActions, askLine, planButton, WAVE_ICON, reviewLane });
+  Object.assign(globalThis.BoardUI, { prChips, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, statusWord, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, askChip, askActions, askLine, planButton, WAVE_ICON, reviewLane });
 })();

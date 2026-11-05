@@ -2875,6 +2875,18 @@ test("a dep finishing names a queued build as the board's to start and wakes no 
   assert.deepEqual(read(at('waves', 'd', 'wave.json')).items.map((it) => it.queued_at), [undefined, undefined, undefined, undefined]);
 });
 
+// docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
+test("ready releases a card an Implement message queued: its ask becomes a queued build from the message's time, which the board server starts", () => {
+  const askedAt = '2026-11-05T10:00:00.000Z';
+  write(at('waves', 'd', 'wave.json'), { items: [{ id: 'A1', title: 'One', implement_at: askedAt }] });
+  write(at('waves', 'd', 'a1.md'), '# A1\n\nUse the blue.\n');
+  const r = board('item', 'set', 'd/A1', '--site', 'orch', '--state', 'ready', '--size', 'small', '--notes-file', 'a1.md');
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^released: d\/A1 starts building from the queue$/m);
+  const item = read(at('waves', 'd', 'wave.json')).items[0];
+  assert.deepEqual([item.state, item.implement_at, item.queued_at], ['ready', undefined, askedAt]);
+});
+
 test('a held item emits its unblocking but never starts until --unheld resumes it', () => {
   write(at('waves', 'd', 'wave.json'), { items: [
     { id: 'A1', title: 'One', status: 'building' },

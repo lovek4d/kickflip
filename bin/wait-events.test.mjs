@@ -48,10 +48,13 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   assert.equal(first.child.exitCode, null);
   assert.equal(first.stdout(), '');
   add('item-message', { key: 'w/A1' });
+  add('item-message', { key: 'w/A1', text: 'Use the blue', intent: 'build' });
   add('builder-ask', { key: 'w/A1', ask: 'ask1', agent: 'main', text: 'Stay orange?' });
   const out = await first.done;
   assert.deepEqual([out.code, out.stderr], [0, '']);
   assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"item-message".*\nmessage received from A1's thread$/m);
+  // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
+  assert.match(out.stdout, /^event data\/events.jsonl .*"intent":"build".*\nImplement asked on A1: fold the message into its notes, then item set --state ready starts the build$/m);
   // A builder's ask wakes the session while usage is paused: the builder is mid-build.
   assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"builder-ask".*\nask1 from A1's builder: Stay orange\?$/m);
   assert.doesNotMatch(out.stdout, /"kind":"github-change"|"kind":"check-github"|"kind":"card-unblocked"/);
@@ -59,7 +62,7 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   assert.match(out.stdout, /Stay orange\?\nwaits calls A1 w\/A1 since 2026-11-04T10:00:00.000Z: Verify the builder's judgment calls\nwaits answer A2 w\/A2 since 2026-11-04T10:05:00.000Z, picked up 2026-11-04T10:06:00.000Z: Act on the owner's answer\nrule hub /);
   assert.match(out.stdout, new RegExp(`rule hub Hub rule[^]*rule board Board rule[^]*setting auto-merge off[^]*\\nquiet [^\\n]*AskUserQuestion[^]*usage paused ${reset} five_hour 91%`));
   const saved = JSON.parse(fs.readFileSync(cursor, 'utf8'));
-  assert.equal(saved['data/events.jsonl'], 5);
+  assert.equal(saved['data/events.jsonl'], 6);
   assert.equal(saved.$usageHeld['data/events.jsonl'].length, 3);
   const second = start();
   await until(() => JSON.parse(fs.readFileSync(watcher, 'utf8')).pid === second.child.pid, 'replacement watcher started');
