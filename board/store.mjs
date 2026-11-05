@@ -2495,6 +2495,14 @@ export async function builderProgress(site, key, progress, { phase, dir, agent =
   return file;
 }
 
+// The finish step's own landing line, so the card's fifth bar lights while it rebases and lands, whoever finishes it.
+export async function landingLine(site, key) {
+  await loadItem(site, key);
+  const file = threadFile(site, key);
+  if ((await readLines(file)).filter((m) => m.kind === 'status').pop()?.phase === 'landing') return;
+  await appendLine(file, { ts: new Date().toISOString(), who: 'claude', kind: 'status', phase: 'landing', text: 'Landing: rebasing onto main and landing' });
+}
+
 // A judgment call is one line a builder records as it decides, kept on its record as {at, text}; the session's
 // `builder verified` stamps the record verified {at, note}, which covers every call made before it. land refuses while
 // any record on the card has a call after its stamp

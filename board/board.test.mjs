@@ -2041,6 +2041,7 @@ test('land on --site needs --text, refuses before landing what closing would ref
   assert.deepEqual(r.out.trim().split('\n').slice(-2), ['A1: landed and done', 'resolved: q1']);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status, 'done');
   assert.equal(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).at(-1).text, 'Checked on the phone.');
+  assert.ok(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).some((m) => m.kind === 'status' && m.phase === 'landing'), 'the finish itself sets the landing phase');
 });
 
 test('land --owner-step lands the code and leaves the card open on its owner step and its check; a blank step or a bad check is refused before landing', () => {

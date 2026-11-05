@@ -19,6 +19,7 @@ test("a headless builder's brief names its card, notes, worktree and rules, and 
     `${b} builder start w/A1 --kind build`, `${b} builder progress w/A1 --phase`, `${b} builder call w/A1`, `${b} builder ask w/A1`,
     `${b} builder asks w/A1`, `${b} builder done w/A1 --text`, "git -c core.commentChar=';' rebase main", 'Never push',
   ]) assert.ok(brief.includes(want), `the brief has ${want}`);
+  for (const phase of ['reading', 'building', 'testing', 'checking', 'landing']) assert.ok(brief.includes(`- ${phase}:`), `the brief says what ${phase} means`);
   assert.ok(!brief.includes(`${b} land`), 'done finishes the card, so the brief never runs land');
   assert.ok(brief.indexOf('builder call') < brief.indexOf(`${b} builder done`), 'calls come before the finishing step');
   assert.match(builderBrief({ ...card, notes: null }), /no notes file/);
