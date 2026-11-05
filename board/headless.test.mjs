@@ -346,7 +346,7 @@ test("the server's minute check relaunches a tracked headless builder whose proc
     const lines = fs.readFileSync(path.join(data, 'threads', 't__R1.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
     assert.match(lines.at(-1).text, new RegExp(`^Builder launched on Claude Opus in ${wt}, session sess-R1\\.$`));
     // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
-    const [logged] = fs.readFileSync(path.join(data, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    const logged = fs.readFileSync(path.join(data, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).find((e) => e.call === 'relaunch');
     assert.deepEqual({ ...logged, at: undefined }, { at: undefined, call: 'relaunch', key: 't/R1', result: 'relaunched', reason: 'Its builder exited with its record open, for the first time.', inputs: { model: 'opus', pid: dead.pid, relaunched: false } });
   } finally {
     child.kill();
