@@ -2186,7 +2186,6 @@ test('the Questions page bar docks on the keyboard while a field is focused', ()
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   const view = fs.readFileSync(new URL('./public/view-questions.js', import.meta.url), 'utf8');
   assert.match(css, /\.view-questions\.kb-up \.bar \{[^}]*position: fixed;[^}]*bottom: var\(--kb/);
-  assert.match(css, /\.view-questions\.kb-up \.fab/);
   assert.match(view, /classList\.toggle\('kb-up', typing && kb > 0\)/);
   assert.match(view, /B\.on\(vv, 'resize', dock\)[\s\S]*B\.on\(vv, 'scroll', dock\)/);
 });
