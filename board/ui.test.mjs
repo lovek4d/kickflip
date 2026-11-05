@@ -1001,11 +1001,10 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
   const pushed = { ...open, ref: 'INT-12', next: 'merge INT-12 into main', branch: 'INT-12', pushed: { branch: 'INT-12', at: new Date(Date.now() - 25 * 60_000).toISOString(), host: 'gitlab.com' } };
-  assert.deepEqual(rows(pushed), [['Wave', 'W'], ['Branch', 'INT-12'], ['Status', 'in review'], ['Next', 'merge INT-12 into main'], ['Links', 'Notes · Pushed INT-12 to gitlab.com · 25m ago']]);
+  assert.deepEqual(rows(pushed), [['Wave', 'W'], ['Branch', 'INT-12'], ['Status', 'in review'], ['Next', 'merge INT-12 into main'], ['Links', 'Pushed INT-12 to gitlab.com · 25m ago']]);
   assert.doesNotMatch(B.detail(pushed), /github\.com|gitlab\.com\/|<button[^>]*data-copy/);
-  // ↗ marks a link that leaves the page; Notes opens the reader sheet, so it has none.
-  const notesLink = B.detail(open).match(/<a href="notes\.html[^>]*>.*?<\/a>/)[0];
-  assert.doesNotMatch(notesLink, /link-arrow/);
+  // Notes is a button at the end of the workflow row, after Hold, and has no ↗.
+  assert.match(B.detail(open), /<div class="action-row workflow">.*<a class="button" href="notes\.html\?item=w%2FA1">Notes<\/a><\/div>/s);
   assert.match(B.detail({ ...open, pr: openPR, prs: [openPR] }), /target="_blank"[^>]*>Review on GitHub <svg[^>]*link-arrow/);
   const copied = [];
   app.navigator = { clipboard: { writeText: async (t) => { copied.push(t); } } };
@@ -1016,9 +1015,8 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   assert.deepEqual([copied, link.textContent, prevented], [['INT-12'], 'Copied the branch name', true]);
   later.at(-1)[1]();
   assert.equal(link.textContent, 'Pushed INT-12 to gitlab.com · 25m ago');
-  assert.deepEqual(rows(open), [['Wave', 'W'], ['Status', 'in review'], ['Next', 'Waiting for PR reviewers'], ['Links', 'Notes']]);
-  assert.match(B.detail(open), /href="notes.html\?item=w%2FA1"/);
-  assert.doesNotMatch(B.detail(open), /Old short note|A stored summary|view more|<summary[^>]*>Notes|class="actions"[^]*notes\.html/);
+  assert.deepEqual(rows(open), [['Wave', 'W'], ['Status', 'in review'], ['Next', 'Waiting for PR reviewers']]);
+  assert.doesNotMatch(B.detail(open), /Old short note|A stored summary|view more|<summary[^>]*>Notes/);
   assert.doesNotMatch(B.detail({ ...open, hasNotes: false }), /Notes|notes\.html/);
   const install = { url: 'https://m/app.apk', older: false };
   const pr = { state: 'OPEN', url: 'https://github.com/o/r/pull/1' };
@@ -1026,7 +1024,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
     for (const build of [null, install]) {
       for (const state of ['OPEN', 'MERGED', 'CLOSED']) {
         const it = { ...open, hasNotes, install: build, pr: { ...pr, state }, prs: [{ ...pr, state }] };
-        const expected = [hasNotes && 'Notes', build && 'Install', state === 'OPEN' && 'Review on GitHub'].filter(Boolean);
+        const expected = [build && 'Install', state === 'OPEN' && 'Review on GitHub'].filter(Boolean);
         assert.deepEqual(rows(it).filter(([label]) => label === 'Links'), expected.length ? [['Links', expected.join(' · ')]] : []);
         assert.match(B.detail(it), expected.length ? /<dd class="external-links">[^]*<\/dd><\/dl>/ : /<dd>Waiting for PR reviewers<\/dd><\/dl>/);
         assert.doesNotMatch(B.detail(it), /action-row external/);
@@ -1035,7 +1033,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   }
 });
 
-test("a card with a worktree opens it in VS Code from its Links line after Notes, only on the host", () => {
+test("a card with a worktree opens it in VS Code from its Links line only on the host", () => {
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-phase-bars.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const B = { $: () => ({}), on() {}, later() {}, store: {}, state: { board: { items: [], onHost: true } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
@@ -1043,7 +1041,7 @@ test("a card with a worktree opens it in VS Code from its Links line after Notes
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
   const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, worktree: '/Users/me/.claude/kickflip/worktrees/A 1' };
-  assert.deepEqual(rows(open).at(-1), ['Links', 'Notes · Open in VS Code']);
+  assert.deepEqual(rows(open).at(-1), ['Links', 'Open in VS Code']);
   assert.match(B.detail(open), /<a href="vscode:\/\/file\/Users\/me\/\.claude\/kickflip\/worktrees\/A%201" title="Open the worktree in VS Code">Open in VS Code /);
   assert.deepEqual(rows({ ...open, hasNotes: false }).at(-1), ['Links', 'Open in VS Code']);
   for (const lane of ['progress', 'review']) assert.match(B.detail({ ...open, lane }), /Open in VS Code/);

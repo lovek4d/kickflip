@@ -2491,9 +2491,7 @@ test("an open card shows its workflow buttons below a final details line of Note
   const links = [...b.root.querySelectorAll('.external-links a')];
   assert.ok(links.length);
   for (const link of links) {
-    // Notes opens the reader sheet, so only the links that leave the page carry the arrow.
-    assert.equal(link.querySelectorAll('svg.link-arrow').length, /^Notes$/.test(link.textContent.trim()) ? 0 : 1);
-    if (/^Notes$/.test(link.textContent.trim())) continue;
+    assert.equal(link.querySelectorAll('svg.link-arrow').length, 1);
     assert.equal(link.querySelector('svg.link-arrow').getAttribute('aria-hidden'), 'true');
   }
   const row = (key) => b.root.querySelector(`details.item[data-key="${key}"] .detail`);
@@ -2506,7 +2504,7 @@ test("an open card shows its workflow buttons below a final details line of Note
     'w/A4': [[], [], []],
     'w/A5': [['Unhold', 'Open questions'], [], []],
     'w/P1': [['Open questions'], [], ['Open questions']],
-    'w/D1': [[], ['Notes', 'Install', 'Review draft on GitHub'], ['Review draft on GitHub']],
+    'w/D1': [['Notes'], ['Install', 'Review draft on GitHub'], ['Review draft on GitHub']],
     'w/R1': [[], ['Install', 'Review on GitHub'], []],
     'w/S1': [[], ['Review on GitHub'], ['Review on GitHub']],
     'w/M1': [['Merge'], ['Review on GitHub'], ['Merge']],
@@ -2515,8 +2513,10 @@ test("an open card shows its workflow buttons below a final details line of Note
   });
   assert.equal(row('w/A1').querySelector('a.button').getAttribute('href'), 'questions.html#q7');
   const external = row('w/D1').querySelector('.grid .external-links');
-  assert.deepEqual(external.querySelectorAll('a').map((a) => a.getAttribute('href')), ['notes.html?item=w%2FD1', install.url, draft.url]);
-  assert.equal(external.textContent, 'Notes · Install  · Review draft on GitHub ');
+  assert.deepEqual(external.querySelectorAll('a').map((a) => a.getAttribute('href')), [install.url, draft.url]);
+  assert.equal(external.textContent, 'Install  · Review draft on GitHub ');
+  const notes = row('w/D1').querySelectorAll('.action-row.workflow a').at(-1);
+  assert.deepEqual([notes.textContent, notes.getAttribute('href'), notes.getAttribute('class')], ['Notes', 'notes.html?item=w%2FD1', 'button']);
   assert.equal(external.parentNode.children.at(-1), external);
   assert.equal(b.root.querySelector('.action-row.external'), null);
   assert.equal(row('w/D1').querySelector('.actions .install, .actions a[target="_blank"]'), null);

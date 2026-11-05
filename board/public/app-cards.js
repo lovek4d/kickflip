@@ -232,9 +232,7 @@ BoardView.part((B) => {
     }
     if (it.manualSteps.length) rows.push(['Manual steps', linkText(it.manualSteps.join('; '), ctx)]);
     if (it.next) rows.push(['Next', linkText(it.next, ctx)]);
-    // docs/adr/2026-10-30-1626-notes-is-a-link-in-the-details-list.md
     const external = [
-      it.hasNotes ? `<a href="notes.html?item=${encodeURIComponent(it.key)}">Notes</a>` : '',
       // A vscode: link opens a folder on the machine whose browser follows it, so only the host's browser gets one.
       it.worktree && state.board.onHost ? `<a href="vscode://file${esc(encodeURI(it.worktree))}" title="Open the worktree in VS Code">Open in VS Code ${LINK_ARROW}</a>` : '',
       installButton(it),
@@ -290,13 +288,16 @@ BoardView.part((B) => {
   };
   const actionRow = (kind, html) => (html.trim() ? `<div class="action-row ${kind}">${html}</div>` : '');
 
+  // The reader sheet opens it (app-reader.js); docs/adr/2026-11-05-0830-notes-is-a-button-on-the-hold-row.md.
+  const notesButton = (it) => (it.hasNotes ? `<a class="button" href="notes.html?item=${encodeURIComponent(it.key)}">Notes</a>` : '');
+
   function actions(it) {
     const key = esc(it.key);
     const ask = (act, label, cls = '') => `<button${cls ? ` class="${cls}"` : ''} data-confirm="${act}" data-key="${key}">${label}</button>`;
     const hold = it.kind !== 'work' || !it.holdable ? ''
       : it.held ? ask('resume', 'Unhold', 'unhold') : ask('hold', 'Hold');
     // A Todo card's Implement is in its thread box (app-threads.js; docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md).
-    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${mergeButton(it)}${hold}${actionButton(it)}${tryButton(it)}`)}</div>`;
+    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${mergeButton(it)}${hold}${actionButton(it)}${tryButton(it)}${notesButton(it)}`)}</div>`;
   }
 
   // board/domain.mjs actionButtonOf picks the button and resolvedBy its colour (docs/adr/2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo.md).
