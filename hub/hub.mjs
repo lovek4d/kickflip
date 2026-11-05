@@ -193,7 +193,7 @@ import { hubStream } from './stream.mjs';
 import { usageReader, checkUsagePause, contextReading } from './usage.mjs';
 import { readUsageGate, setPauseAt, setKeepGoing } from '../shared/usage-gate.mjs';
 import { readiness, readCodex } from './readiness.mjs';
-import { BuildError, startBuild, stopTries, tryTick, initializeTries, fetchTryBranches, pullNow, pullMains } from './try.mjs';
+import { BuildError, startBuild, stopTries, endUnsharedTries, tryTick, initializeTries, fetchTryBranches, pullNow, pullMains } from './try.mjs';
 import { serveFiles } from './files.mjs';
 import { upgrader, CHECK_MS } from './upgrade.mjs';
 import { fallBackFromLinear, openBoardBuilders } from '../board/store.mjs';
@@ -1286,10 +1286,11 @@ const requestURL = (req) => new URL(req.url.replace(/^\/+/, '/'), 'http://hub');
 
 // Shared boards (share.mjs): when each shared person was last seen, and who was just refused.
 const shares = shareTracker({ file: path.join(HOME, 'share-seen.json') });
-// A shared person's open /_hub/stream, {login, routes, res}: the one long-lived answer a shared view holds. A board's
-// share can be removed while it's open, from Board settings or by editing board.json, so every 2 seconds, and at once
-// after the owner's POST /<route>/api/share, a stream whose login has lost a board it was opened with is ended; its
-// page's EventSource comes back through access, with the boards still shared or refused.
+// A shared person's open /_hub/stream, {login, routes, res}: the one long-lived answer a shared view holds on the hub.
+// A board's share can be removed while it's open, from Board settings or by editing board.json, so every 2 seconds, and
+// at once after the owner's POST /<route>/api/share, a stream whose login has lost a board it was opened with is ended
+// (its page's EventSource comes back through access, with the boards still shared or refused), as are that login's
+// open responses through the board's try relays (try.mjs).
 const sharedStreams = new Set();
 function endUnshared() {
   const sites = loadManifest().sites;
@@ -1297,8 +1298,9 @@ function endUnshared() {
     const now = sharedRoutes(open.login, sites);
     if ([...open.routes].some((route) => !now.has(route))) { sharedStreams.delete(open); open.res.destroy(); }
   }
+  endUnsharedTries();
 }
-setInterval(() => { if (sharedStreams.size) endUnshared(); }, 2000).unref();
+setInterval(endUnshared, 2000).unref();
 
 // Every request and upgrade passes the owner gate first (board/on-host.mjs ownerGate, front-door.mjs). A login the gate
 // calls someone else that a board's board.json shares with reaches what share.mjs shareReach allows.

@@ -160,13 +160,22 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     try { await tailscale(['serve', `--https=${port}`, 'off']); }
     catch (e) { log(`try port ${port}: could not close port: ${(e.stderr || e.message).trim()}`); }
   }
-  // The relay's verdict: the gate's, except that a login the run's board shares with passes by GET or HEAD, and any other
-  // method of theirs is view only (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md).
+  // The relay's verdict: the gate's, except that a login the run's board shares with is 'shared' by GET or HEAD, and any
+  // other method of theirs, or an upgrade, is view only (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md).
+  const sharedWith = (board) => shareOf(readJSON(path.join(board.dir, 'board.json'), {}));
   async function relayVerdict(req, board) {
     const verdict = await gate(req);
     const login = req.headers['tailscale-user-login'];
-    if (verdict !== 'other' || !login || !shareOf(readJSON(path.join(board.dir, 'board.json'), {})).includes(login)) return verdict;
-    return req.method === 'GET' || req.method === 'HEAD' ? 'owner' : 'view-only';
+    if (verdict !== 'other' || !login || !sharedWith(board).includes(login)) return verdict;
+    return req.method === 'GET' || req.method === 'HEAD' ? 'shared' : 'view-only';
+  }
+  // A shared login's responses still open, ended once the board no longer shares with it; run.shared: Set of {login, res}.
+  function endUnshared() {
+    for (const run of runs.values()) {
+      if (!run.shared?.size) continue;
+      const logins = sharedWith(run.board);
+      for (const open of run.shared) if (!logins.includes(open.login)) { run.shared.delete(open); open.res.destroy(); }
+    }
   }
   async function openPort(run) {
     run.https = publicPort(run);
@@ -179,9 +188,15 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     };
     // tailscale serve proxies the port as HTTP, so the relay reads each request's login and lets only the owner and the
     // board's shared logins through.
+    const shared = run.shared = new Set();
     run.relay = http.createServer(async (req, res) => {
       const verdict = await relayVerdict(req, run.board);
-      if (verdict !== 'owner') { refuse(req, res, verdict); return; }
+      if (verdict !== 'owner' && verdict !== 'shared') { refuse(req, res, verdict); return; }
+      if (verdict === 'shared') {
+        const open = { login: req.headers['tailscale-user-login'], res };
+        shared.add(open);
+        res.on('close', () => shared.delete(open));
+      }
       const up = http.request({ host: '127.0.0.1', port: run.port, method: req.method, path: req.url, headers: req.headers }, (answer) => {
         res.writeHead(answer.statusCode, answer.headers);
         answer.on('data', visit);
@@ -195,7 +210,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     run.relay.on('connection', (socket) => { visit(); track(socket); });
     run.relay.on('upgrade', async (req, socket, head) => {
       const verdict = await relayVerdict(req, run.board);
-      if (verdict !== 'owner') { refuseUpgrade(socket, verdict); return; }
+      if (verdict !== 'owner') { refuseUpgrade(socket, verdict === 'shared' ? 'view-only' : verdict); return; }
       track(pipeUpgrade({ req, socket, head, port: run.port, path: req.url }));
     });
     await new Promise((resolve, reject) => {
@@ -583,7 +598,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     const stopped = Promise.all([...runs.values()].map((run) => run.ready ? stopRun(run) : halt(run)));
     await Promise.all([stopped, ticking, ...pulls.values()]);
   }
-  return { start, tick, stop, lookup, initialize, pull, pullMains };
+  return { start, tick, stop, lookup, initialize, pull, pullMains, endUnshared };
 }
 
 // Git that reaches a board repo's origin, GitHub or a remote board's: git's own credential with its prompts off
@@ -682,4 +697,5 @@ export const tryTick = (...args) => manager.tick(...args);
 export const pullNow = (...args) => manager.pull(...args);
 export const pullMains = (...args) => manager.pullMains(...args);
 export const stopTries = () => manager.stop();
+export const endUnsharedTries = () => manager.endUnshared();
 export const initializeTries = (...args) => manager.initialize(...args);

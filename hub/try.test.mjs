@@ -404,7 +404,7 @@ test("a web script serves root paths and upgrades through the relay to the owner
   await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
   await new Promise((resolve) => server.close(resolve));
-  setScript(`const server = require('node:http').createServer((req, res) => res.end('served ' + req.url));
+  setScript(`const server = require('node:http').createServer((req, res) => req.url === '/hold' ? res.writeHead(200).write('held') : res.end('served ' + req.url));
   server.on('upgrade', (req, socket) => socket.end('HTTP/1.1 101 Switching Protocols\\r\\nConnection: Upgrade\\r\\nUpgrade: test\\r\\n\\r\\n' + req.url));
   server.listen(${port}, '127.0.0.1', () => console.log('port ${port}'));`);
   await start();
@@ -447,7 +447,33 @@ test("a web script serves root paths and upgrades through the relay to the owner
   assert.equal(await (await fetch(relayOf(8500) + '/nested', { headers: friend })).text(), 'served /nested');
   const write = await fetch(relayOf(8500) + '/api', { method: 'POST', headers: friend, body: 'x' });
   assert.deepEqual([write.status, await write.json()], [403, { error: 'This board is shared with you to look at only.' }]);
+  // A shared view opens no upgrades, so nothing outlives its share but a response, which removing the share ends.
+  const sharedUpgrade = await new Promise((resolve, reject) => {
+    const request = http.request(relayOf(8500) + '/socket', { headers: { connection: 'Upgrade', upgrade: 'test', ...friend } });
+    request.on('error', reject);
+    request.on('upgrade', () => reject(new Error('upgraded')));
+    request.on('response', (res) => { let body = ''; res.on('data', (c) => { body += c; }); res.on('end', () => resolve([res.statusCode, JSON.parse(body)])); });
+    request.end();
+  });
+  assert.deepEqual(sharedUpgrade, [403, { error: 'This board is shared with you to look at only.' }]);
+  const hold = (headers) => new Promise((resolve, reject) => {
+    http.get(relayOf(8500) + '/hold', { headers }, (res) => {
+      const held = { ended: false, res };
+      res.on('data', () => {});
+      res.on('close', () => { held.ended = true; });
+      resolve(held);
+    }).on('error', reject);
+  });
+  const theirs = await hold(friend);
+  const owners = await hold(phone);
+  manager.endUnshared();
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(theirs.ended, false, 'still shared, still open');
   config();
+  manager.endUnshared();
+  await until(() => theirs.ended);
+  assert.equal(owners.ended, false, "the owner's response stays open");
+  owners.res.destroy();
   assert.equal((await fetch(relayOf(8500) + '/nested', { headers: friend })).status, 403);
   commit(worktree, 'new head');
   for (let n = 0; n < 2; n++) {
