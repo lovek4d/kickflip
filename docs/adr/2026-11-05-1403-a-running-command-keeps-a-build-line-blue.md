@@ -9,9 +9,9 @@ writes nothing until the command returns, so the line went gray while the builde
 
 ## Decision
 
-- A run's transcript counts as moving now while its newest transcript file's last message is a tool call with no
-  result after it. `transcriptMovedAt` reads the file's tail for this, so a builder's silence, quiet and an untracked
-  run's Stalled all start counting only once the command returns.
-- A quiet builder is one with a live process, no status line, no transcript movement and no command running for 5
-  minutes. The 5 minutes (`BUILDER_QUIET_AFTER`) stay. A builder stuck between commands still goes gray after them.
+- Whether a run's newest transcript file ends on a tool call with no result after it (a command still running) is its
+  own reading, `transcriptCommandRunning`, taken from the file's tail. `transcriptMovedAt` keeps meaning the file's
+  mtime, so an untracked run that died mid-command still reads Stalled after `BUILDER_STALLED_AFTER`.
+- A quiet builder is one with a live process, no status line and no transcript movement for 5 minutes, and no command
+  running. The 5 minutes (`BUILDER_QUIET_AFTER`) stay. A builder stuck between commands still goes gray after them.
 - Codex builders have no transcript the board reads and keep going by their status lines alone.

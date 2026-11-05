@@ -19,17 +19,29 @@ function endsOnToolCall(file, size) {
   return false;
 }
 
-// → when (ms) a run in worktree last moved: now while its newest .jsonl in its Claude Code transcript folder
-// (<home>/.claude/projects/<the worktree path with / and . turned into ->) ends on a tool call with no result yet,
-// else that file's mtime; null when the folder holds none or can't be read.
-export function transcriptMovedAt(worktree, home = os.homedir(), now = Date.now()) {
+// → the newest .jsonl ({file, stat}) in a run's Claude Code transcript folder
+// (<home>/.claude/projects/<the worktree path with / and . turned into ->), or undefined when it holds none; throws when the folder can't be read.
+function newestTranscript(worktree, home) {
   const folder = path.join(home, '.claude', 'projects', worktree.replace(/[/.]/g, '-'));
+  return fs.readdirSync(folder).filter((f) => f.endsWith('.jsonl')).map((f) => ({ file: path.join(folder, f), stat: fs.statSync(path.join(folder, f)) }))
+    .reduce((a, b) => (a && a.stat.mtimeMs >= b.stat.mtimeMs ? a : b), undefined);
+}
+
+// → when (ms) a run in worktree last moved: the mtime of its newest transcript, or null when there is none or it can't be read.
+export function transcriptMovedAt(worktree, home = os.homedir()) {
   try {
-    const files = fs.readdirSync(folder).filter((f) => f.endsWith('.jsonl')).map((f) => ({ file: path.join(folder, f), stat: fs.statSync(path.join(folder, f)) }));
-    if (!files.length) return null;
-    const newest = files.reduce((a, b) => (b.stat.mtimeMs > a.stat.mtimeMs ? b : a));
-    return endsOnToolCall(newest.file, newest.stat.size) ? now : newest.stat.mtimeMs;
+    return newestTranscript(worktree, home)?.stat.mtimeMs ?? null;
   } catch {
     return null;
+  }
+}
+
+// → whether a run in worktree has a command still running: its newest transcript ends on a tool call with no result yet.
+export function transcriptCommandRunning(worktree, home = os.homedir()) {
+  try {
+    const newest = newestTranscript(worktree, home);
+    return newest !== undefined && endsOnToolCall(newest.file, newest.stat.size);
+  } catch {
+    return false;
   }
 }

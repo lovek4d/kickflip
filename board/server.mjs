@@ -242,7 +242,7 @@
 // Claude's reply to event <id> is data/replies/<id>.html, or .json.
 import { topicItems } from './review.mjs';
 import { boardWorktree } from './worktree.mjs';
-import { transcriptMovedAt } from './transcript.mjs';
+import { transcriptMovedAt, transcriptCommandRunning } from './transcript.mjs';
 import { fromHost } from './on-host.mjs';
 import { archOf, readReviews, repoName, startReview } from './arch-review.mjs';
 import http from 'node:http';
@@ -571,11 +571,13 @@ async function snapshot(outside, archived = []) {
   }));
 
   const moved = Object.create(null);
+  const commandRunning = Object.create(null);
   for (const { agents } of waves) {
     for (const record of Object.values(agents || {}).flatMap((byAgent) => Object.values(byAgent))) {
       const dir = record.worktree?.path;
       const at = dir && !record.done ? transcriptMovedAt(dir) : null;
       if (at !== null) moved[dir] = at;
+      if (dir && !record.done && transcriptCommandRunning(dir)) commandRunning[dir] = true;
     }
   }
 
@@ -594,7 +596,7 @@ async function snapshot(outside, archived = []) {
   }
 
   return {
-    ...items, moved, alive, try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
+    ...items, moved, commandRunning, alive, try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
     checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
     owner: ((owner) => ({ ...owner, items: [...(owner.items || []), ...archived.flatMap((a) => a.questions || [])] }))(await readJSON(path.join(data, 'owner.json'), { items: [] })),
     topicItems: outside.topicItems,

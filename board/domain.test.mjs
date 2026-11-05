@@ -6,11 +6,12 @@ import { buildBoard, withHub, threadOf, ownerQuestion, needsAnswer, ownerActions
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
 
-function board({ agents = {}, pr = greenDraft, owner = {}, events = [], topicItems = {}, now, held = false, threads = {}, item = {}, fromWaves = true, skipDraft, moved, alive } = {}) {
+function board({ agents = {}, pr = greenDraft, owner = {}, events = [], topicItems = {}, now, held = false, threads = {}, item = {}, fromWaves = true, skipDraft, moved, alive, commandRunning } = {}) {
   return buildBoard({
     now,
     moved,
     alive,
+    commandRunning,
     skipDraft,
     topicItems,
     threads,
@@ -1706,6 +1707,17 @@ test("a headless builder whose process lives reads quiet once its transcript and
   const untracked = card(9, { alive: {} });
   assert.deepEqual([untracked.alive, untracked.quiet, untracked.stalled], [null, false, false]);
   assert.equal(card(10, { alive: {} }).stalled, true);
+});
+
+// docs/adr/2026-11-05-1403-a-running-command-keeps-a-build-line-blue.md
+test("a live builder with a command running never reads quiet, and an untracked one whose transcript ends on a dangling tool call still stalls after 10 minutes", () => {
+  const record = { kind: 'claude', started: '2026-10-30T10:00:00Z', worktree: { path: '/w/GH-1' } };
+  const card = (minutes, extra) => board({ now: Date.parse(record.started) + minutes * 60000, agents: { A1: { main: record } }, ...extra }).items.find((i) => i.key === 'w/A1').builder;
+  const live = card(40, { alive: { 'w/A1': true }, commandRunning: { '/w/GH-1': true } });
+  assert.deepEqual([live.quiet, live.stalled], [false, false]);
+  assert.equal(card(40, { alive: { 'w/A1': true } }).quiet, true);
+  const untracked = card(10, { alive: {}, commandRunning: { '/w/GH-1': true } });
+  assert.deepEqual([untracked.alive, untracked.stalled], [null, true]);
 });
 
 test("a running planner's line is the card's builder line, marked planner, until a build runs, whose line wins; before its first line a planner reads its kind's word, grilling for a grill and prototyping for a prototype", () => {

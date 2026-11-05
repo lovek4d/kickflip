@@ -532,12 +532,13 @@ function reachedPhaseOf(agents, lines = []) {
 }
 
 // A run's silence is the time since its newest progress line or movement in its worktree's Claude transcript (moved
-// {<worktree path>: ms}, server.mjs snapshot; a command still running counts as movement now); a run with no readable transcript has its progress lines alone. alive is
+// {<worktree path>: ms}, server.mjs snapshot); a run with no readable transcript has its progress lines alone. alive is
 // whether the card's headless process lives (server.mjs snapshot alive), null when the board tracks none for it.
-// A live one reads quiet after BUILDER_QUIET_AFTER of silence and is never stalled; a gone one is stalled at once; an
+// commandRunning is whether its transcript ends on a tool call with no result (server.mjs snapshot commandRunning).
+// A live one reads quiet after BUILDER_QUIET_AFTER of silence with no command running, and is never stalled; a gone one is stalled at once; an
 // untracked one is stalled after BUILDER_STALLED_AFTER of silence
 // (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
-function builderOf(agents, lines = [], now, movedAt = null, alive = null) {
+function builderOf(agents, lines = [], now, movedAt = null, alive = null, commandRunning = false) {
   const open = agents.filter((a) => a.started && !a.done);
   const planner = open.every(plans);
   const running = planner ? open : open.filter(builds);
@@ -551,7 +552,7 @@ function builderOf(agents, lines = [], now, movedAt = null, alive = null) {
   const silent = now - Date.parse(silentSince);
   const live = planner ? null : alive;
   const stalled = live === null ? silent >= BUILDER_STALLED_AFTER : !live;
-  return { progress, phase: line?.phase || null, at: quiet, kind, planner, silentSince, stalled, alive: live, quiet: live === true && silent >= BUILDER_QUIET_AFTER };
+  return { progress, phase: line?.phase || null, at: quiet, kind, planner, silentSince, stalled, alive: live, quiet: live === true && !commandRunning && silent >= BUILDER_QUIET_AFTER };
 }
 
 // The model the agent runs: a Claude kind's record holds it as model (opus or sonnet), a record without one reads from its kind.
@@ -908,7 +909,7 @@ export function buildBoard(snapshot) {
       items.push(workItem({
         slug, wave, it, order, repo, remote, base: snapshot.branch || 'main',
         prs: cardPRs(it, repo).map((p) => ({ ...p, gh: routeRecord(prs, prKeyOf(p)) || null })),
-        ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now, snapshot.moved?.[worktreeOf(routeRecord(records, it.id))] ?? null, routeRecord(snapshot.alive, key) ?? null), reachedPhase: reachedPhaseOf(agents, routeRecord(threads, key)), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
+        ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now, snapshot.moved?.[worktreeOf(routeRecord(records, it.id))] ?? null, routeRecord(snapshot.alive, key) ?? null, Boolean(snapshot.commandRunning?.[worktreeOf(routeRecord(records, it.id))])), reachedPhase: reachedPhaseOf(agents, routeRecord(threads, key)), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
         worktree: worktreeOf(routeRecord(records, it.id)) ?? it.worktree?.path ?? null,
         thread: lines,
         events: [...inLogOrder(index, [key, ...askKeys].map((k) => index.byKey.get(k))), ...askIds.map((id) => asks.get(id))],
