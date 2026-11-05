@@ -111,13 +111,24 @@ after(() => {
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+// The doctor lists the running clone's own .repos folder, so it runs from a copy of the code without it: the report
+// then doesn't depend on which board clones the machine's checkout holds.
+let doctorRoot;
+function doctorClone() {
+  if (!doctorRoot) {
+    doctorRoot = path.join(home, 'doctor-clone');
+    for (const dir of ['bin', 'board', 'hub', 'shared', 'hooks-plugin']) fs.cpSync(path.join(SKILL, dir), path.join(doctorRoot, dir), { recursive: true, filter: (file) => !file.endsWith('.test.mjs') });
+  }
+  return doctorRoot;
+}
+
 function doctorCLI(name, { healthy = false, installed = false } = {}) {
   const scratch = path.join(home, name);
   fs.mkdirSync(scratch);
   const log = path.join(scratch, 'commands.jsonl');
   const port = 19460;
   if (installed) {
-    installLinks({ home: scratch, cloneRoot: SKILL });
+    installLinks({ home: scratch, cloneRoot: doctorClone() });
     installClaudeSettings({ home: scratch });
     write(hubService({ home: scratch }).file, 'service');
   }
@@ -159,7 +170,7 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
   return {
     scratch,
     calls: () => fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [],
-    run: (...args) => cli(args, { env: { HOME: scratch, PATH: path.join(scratch, 'doctor-bin'), KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false' }, preload: 'data:text/javascript,' + encodeURIComponent(source) }),
+    run: (...args) => cli(args, { entry: doctorClone(), env: { HOME: scratch, PATH: path.join(scratch, 'doctor-bin'), KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false' }, preload: 'data:text/javascript,' + encodeURIComponent(source) }),
   };
 }
 
