@@ -2528,32 +2528,23 @@ test("an open card shows its workflow buttons below a final details line of Note
   assert.equal(b.root.querySelector('details.item[data-key="w/A2"] summary .line3.planner'), null);
 });
 
-// docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
-test("the thread's eye and fire are toggles, one at a time, that Send carries: nothing typed sends the bare request, typed text goes with it, /prototype and /grill in the text do the same, and a plain reply stays an item-message", async () => {
+// docs/adr/2026-11-05-0430-the-eye-and-fire-send-their-request-at-once.md
+test("the thread's eye and fire send their request at once: nothing typed sends the bare request, typed text goes with it, /prototype and /grill in the text still work on Reply, and no toggle or hint remains", async () => {
   const cards = [workCard('A1'), workCard('A2', { prototyping: true })];
   const b = boardOnDom({ open: ['w/A1'], board: boardOf(cards), threads: { 'w/A1': [] } });
   await b.settle();
-  assert.match(b.root.querySelector('details.item[data-key="w/A2"] summary .line3.sub.asked').textContent, /^preheating$/);
   const form = () => b.root.querySelector('form[data-reply="w/A1"]');
   const eye = () => form().querySelector('button[data-proto]');
   const fire = () => form().querySelector('button[data-grill]');
-  const pressed = () => [eye().getAttribute('aria-pressed'), fire().getAttribute('aria-pressed')];
-  const hint = () => form().querySelector('[data-hint]').textContent;
-  const send = async (text) => { form().querySelector('textarea').value = text; b.page.fire(b.root, 'submit', { target: form(), submitter: form().querySelector('button[type="submit"]') }); await b.settle(); };
-  assert.equal(b.root.querySelector('details.item[data-key="w/A1"] .action-row.workflow button[data-confirm="grill"], details.item[data-key="w/A1"] button[data-confirm="prototype"]'), null);
-  assert.match(form().querySelector('textarea').getAttribute('placeholder'), /\/prototype or \/grill/);
-  assert.deepEqual([pressed(), hint()], [['false', 'false'], 'Tap the eye or the fire to request a prototype or a grill']);
-  b.page.fire(b.root, 'click', { target: eye() });
-  assert.deepEqual([pressed(), hint()], [['true', 'false'], 'posts one gray line: prototype requested']);
-  b.page.fire(b.root, 'click', { target: fire() });
-  assert.deepEqual(pressed(), ['false', 'true']);
-  b.page.fire(b.root, 'click', { target: fire() });
-  assert.deepEqual(pressed(), ['false', 'false']);
-  b.page.fire(b.root, 'click', { target: eye() });
-  await send('');
-  assert.deepEqual(pressed(), ['false', 'false'], 'Send clears the choice');
-  b.page.fire(b.root, 'click', { target: fire() });
-  await send('Ask about the colours');
+  const box = () => form().querySelector('textarea');
+  const tap = async (button, text = '') => { box().value = text; b.page.fire(b.root, 'click', { target: button }); await b.settle(); };
+  const send = async (text) => { box().value = text; b.page.fire(b.root, 'submit', { target: form(), submitter: form().querySelector('button[type="submit"]') }); await b.settle(); };
+  assert.match(box().getAttribute('placeholder'), /\/prototype or \/grill/);
+  assert.equal(form().querySelector('[data-hint]'), null);
+  assert.deepEqual([eye().getAttribute('aria-pressed'), fire().getAttribute('aria-pressed')], [null, null]);
+  await tap(eye());
+  await tap(fire(), 'Ask about the colours');
+  assert.equal(box().value, '', 'the draft clears');
   await send('/prototype Phone width first');
   await send('/grill');
   await send('Just a reply');

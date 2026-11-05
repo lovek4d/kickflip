@@ -76,11 +76,9 @@ BoardView.part((B) => {
     if (!el.querySelector('.msgs')) {
       const draft = store.get('draft:' + key, '');
       el.innerHTML = `<div class="msgs"></div><form data-reply="${esc(key)}" data-composer="item:${esc(key)}">${dropZone(`<textarea rows="2" placeholder="${esc(PLACEHOLDER)}">${esc(draft)}</textarea>`)}
-        <div class="flag-hint" data-hint aria-live="polite">${esc(HINT)}</div>
         <div class="pending-files" data-files></div>
         <div class="row"><span class="tools">${protoButton(key)}${grillButton(key)}</span><button class="chip quick" type="button" data-quick="What's left?">What's left?</button>${sends(false)}</div></form>`;
       BoardAttach.paint('item:' + key, B.site.root);
-      syncFlag(el.querySelector('form'));
     }
     syncDone(el, key);
     B.steady(() => setHTML(el.querySelector('.msgs'), threadMessages(lines, links(key), edits, view)));
@@ -88,23 +86,10 @@ BoardView.part((B) => {
     B.flashChanged?.(el);
   }
 
-  // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
-  // The composer's eye asks for a prototype and its fire for a grill: each is a toggle, one at a time, that Send carries
-  // with whatever is typed, as /prototype or /grill in the text does. Nothing typed sends the bare request.
+  // docs/adr/2026-11-05-0430-the-eye-and-fire-send-their-request-at-once.md
+  // The composer's eye asks for a prototype and its fire for a grill: a tap sends the request at once, with whatever is
+  // typed, as /prototype or /grill in the text does on Reply. Nothing typed sends the bare request.
   const PLACEHOLDER = 'Reply in this thread… (/prototype or /grill asks for one)';
-  const HINT = 'Tap the eye or the fire to request a prototype or a grill';
-  const flagOf = (f) => f.dataset.flag || slashOf(f.querySelector('textarea').value).flag;
-  function syncFlag(f) {
-    const chosen = f.dataset.flag || null;
-    f.querySelector('button[data-proto]')?.setAttribute('aria-pressed', String(chosen === 'prototype'));
-    f.querySelector('button[data-grill]')?.setAttribute('aria-pressed', String(chosen === 'grill'));
-    const hint = f.querySelector('[data-hint]');
-    if (!hint) return;
-    const flag = flagOf(f);
-    const typed = slashOf(f.querySelector('textarea').value).text || BoardAttach.files(f.dataset.composer, B.site.root).length;
-    hint.classList.toggle('on', Boolean(flag));
-    hint.textContent = !flag ? HINT : typed ? `posts your message, with ${flag} requested in its footer` : `posts one gray line: ${flag} requested`;
-  }
 
   // A load while one for the same thread runs shares it, so a card the page inserts open isn't fetched twice; force
   // starts a new one, after a send. maxAge skips a thread that loaded that recently. from is a load already started
@@ -136,7 +121,6 @@ BoardView.part((B) => {
   B.on(B.root, 'input', (ev) => {
     const f = ev.target.closest('form[data-reply]');
     if (!f || ev.target.tagName !== 'TEXTAREA') return;
-    syncFlag(f);
     if (quieted('draft:' + f.dataset.reply, ev.target)) return;
     store.set('draft:' + f.dataset.reply, ev.target.value);
   });
@@ -155,41 +139,38 @@ BoardView.part((B) => {
     try { await waitOn(b, B.sentHere(key, () => B.send('item-message', { key, text: 'Quick build', intent: 'build' }))); loadThread(key, { force: true }); }
     catch { toast('Could not send'); }
   });
-  B.on(B.root, 'click', (ev) => {
-    const b = ev.target.closest('form[data-reply] button[data-proto], form[data-reply] button[data-grill]');
-    if (!b) return;
-    const f = b.closest('form');
-    const kind = b.hasAttribute('data-proto') ? 'prototype' : 'grill';
-    if (f.dataset.flag === kind) delete f.dataset.flag; else f.dataset.flag = kind;
-    syncFlag(f);
-  });
-  B.on(B.root, 'submit', async (ev) => {
-    const f = ev.target.closest('form[data-reply]');
-    if (!f) return;
-    ev.preventDefault();
+  // Sends the composer's draft as one message, or as a request when flag names one; button spins until the thread has it.
+  async function post(f, flag, button) {
     const ta = f.querySelector('textarea');
     ta.blur();
-    const flag = flagOf(f);
     const text = flag ? slashOf(ta.value).text : ta.value.trim();
     const id = f.dataset.composer;
     const files = BoardAttach.files(id, B.site.root);
     if ((!flag && !text && !files.length) || BoardAttach.busy(id, B.site.root)) return;
     const key = f.dataset.reply;
-    const build = !flag && ev.submitter.dataset.intent === 'build';
+    const build = !flag && button.dataset.intent === 'build';
     const data = { key, ...(text || !flag ? { text } : {}), ...(files.length ? { files } : {}), ...(build ? { intent: 'build' } : {}) };
     try {
-      await waitOn(ev.submitter, sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),
+      await waitOn(button, sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),
         () => B.sentHere(key, () => B.send(REQUEST_EVENT[flag] || 'item-message', data))));
       BoardAttach.clear(id, B.site.root);
-      delete f.dataset.flag;
-      syncFlag(f);
-      loadThread(f.dataset.reply, { force: true });
+      loadThread(key, { force: true });
     } catch { B.notice('Could not send. Is the host awake?'); }
+  }
+  B.on(B.root, 'click', (ev) => {
+    const b = ev.target.closest('form[data-reply] button[data-proto], form[data-reply] button[data-grill]');
+    if (b) post(b.closest('form'), b.hasAttribute('data-proto') ? 'prototype' : 'grill', b);
+  });
+  B.on(B.root, 'submit', (ev) => {
+    const f = ev.target.closest('form[data-reply]');
+    if (!f) return;
+    ev.preventDefault();
+    post(f, slashOf(f.querySelector('textarea').value).flag, ev.submitter);
   });
   // A composer's send buttons wait while its files upload, the ask's included (attach.js attach-change).
   B.on(B.root, 'attach-change', (ev) => {
     for (const b of ev.target.querySelectorAll('button[type=submit]')) b.disabled = BoardAttach.busy(ev.detail.id, B.site.root);
-    if (ev.target.matches?.('form[data-reply]')) syncFlag(ev.target);
+    if (ev.target.matches?.('form[data-reply]')) for (const b of ev.target.querySelectorAll('button[data-proto], button[data-grill]')) b.disabled = BoardAttach.busy(ev.detail.id, B.site.root);
   });
 
   Object.assign(B, {

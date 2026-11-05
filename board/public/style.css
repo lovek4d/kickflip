@@ -416,8 +416,6 @@ button.sub.agent.stalled { color: var(--color-danger); }
 /* The thread's eye and fire are toggles: pressed reads as chosen, and the hint under the box says what Send posts. */
 form[data-reply] .tools { display: inline-flex; flex: none; }
 button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chip); }
-.flag-hint { margin: 4px 2px 0; min-height: 1.2em; color: var(--muted); font-size: 12px; }
-.flag-hint.on { color: var(--accent); }
 /* INT-30: card line order */
 .line6 { margin-top: 4px; }
 .card-time time { font-variant-numeric: tabular-nums; }
