@@ -425,7 +425,7 @@ export function owesNext(item, records) {
   return !agents.some((r) => !r.done) && started({ status, agents });
 }
 
-// An ask is a New card at the top of Todo until Claude replies to it or writes in its thread; then it is an answered ask
+// An ask is a New card in Todo, at the bottom among the cards by when it was sent (a bump moves it to the top), until Claude replies to it or writes in its thread; then it is an answered ask
 // in the Asks section, below Done, with its thread (docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md,
 // docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md). An ask that became work has no card
 // of its own: buildBoard leaves it out. A folded ask stays, in Asks, with a thread line saying where it went. msgs is its thread; bumpedAt is its latest ask-bump.

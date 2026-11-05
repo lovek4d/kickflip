@@ -577,14 +577,14 @@ test('a new task is a New card in Todo with no action while it waits or works, a
   assert.deepEqual(msgs.map(({ who, text, state, reply }) => [who, text, state, reply]), [['love', 'a3 first line\nmore', 'replied', { html: 'Yes.' }]]);
 });
 
-test('New cards lead Todo above bumped work, bumped ones first, the latest bump on top, then the rest oldest first', () => {
+test('Todo lists bumped cards first, the latest bump on top, then the rest oldest first, so a New ask sits below the older work', () => {
   const bump = (id, ts) => ({ id: 'b' + ts, ts, kind: 'ask-bump', data: { id }, reply: null });
   const cardBump = { id: 'cb', ts: '2026-10-23T11:50:00Z', kind: 'card-bump', data: { key: 'w/T1' }, reply: null };
   const order = (events) => askBoard([...events, cardBump], { items: [{ id: 'T1', title: 'Planned' }] }).items.filter((i) => i.lane === 'todo').map((i) => i.key);
   const asks = [askAt('a1', '2026-10-23T09:00:00Z'), askAt('a2', '2026-10-23T10:00:00Z'), askAt('a3', '2026-10-23T11:00:00Z')];
-  assert.deepEqual(order(asks), ['ask:a1', 'ask:a2', 'ask:a3', 'w/T1']);
-  assert.deepEqual(order([...asks, bump('a3', '2026-10-23T11:10:00Z'), bump('a2', '2026-10-23T11:20:00Z')]), ['ask:a2', 'ask:a3', 'ask:a1', 'w/T1']);
-  assert.deepEqual(order([...asks, bump('a3', '2026-10-23T11:30:00Z'), bump('a2', '2026-10-23T11:20:00Z')]), ['ask:a3', 'ask:a2', 'ask:a1', 'w/T1']);
+  assert.deepEqual(order(asks), ['w/T1', 'ask:a1', 'ask:a2', 'ask:a3']);
+  assert.deepEqual(order([...asks, bump('a3', '2026-10-23T11:10:00Z'), bump('a2', '2026-10-23T11:20:00Z')]), ['w/T1', 'ask:a2', 'ask:a3', 'ask:a1']);
+  assert.deepEqual(order([...asks, bump('a3', '2026-10-23T11:30:00Z'), bump('a2', '2026-10-23T11:20:00Z')]), ['w/T1', 'ask:a3', 'ask:a2', 'ask:a1']);
 });
 
 test("an ask that became work or was folded into a card has no card of its own: that card's thread holds it and its thread, a folded one marked Moved, and its old links open that card", () => {
@@ -1028,7 +1028,7 @@ test('a card-hold applies at once unless held_at is newer, including a legacy he
 });
 
 // docs/adr/2026-11-03-0223-each-lane-has-one-fixed-order.md
-test("each lane has one fixed order, each card carrying the time it sorts by: Todo its New cards, then bumped cards, then oldest made; In Progress and In Review newest arrival first; Done most recently closed first; Asks newest answer first", () => {
+test("each lane has one fixed order, each card carrying the time it sorts by: Todo its bumped cards, then oldest made, a New ask by when it was sent; In Progress and In Review newest arrival first; Done most recently closed first; Asks newest answer first", () => {
   const now = Date.parse('2026-11-10T12:00:00Z');
   const at = (d) => `2026-11-${String(d).padStart(2, '0')}T10:00:00Z`;
   const made = (d) => `2026-11-${String(d).padStart(2, '0')}T08:00:00Z`;
@@ -1072,7 +1072,7 @@ test("each lane has one fixed order, each card carrying the time it sorts by: To
     review: ['R1', 'R2'],
     stale: ['S1', 'S2'],
     progress: ['P2', 'P4', 'P3', 'P1'],
-    todo: ['ask:a1', 'ask:a2', 'ENG-1', 'T2', 'ENG-2', 'T1'],
+    todo: ['ENG-1', 'T2', 'ENG-2', 'ask:a1', 'T1', 'ask:a2'],
     done: ['D4', 'D3', 'D2', 'D1'],
     asks: ['ask:a4', 'ask:a3'],
   });
@@ -1084,7 +1084,7 @@ test("each lane has one fixed order, each card carrying the time it sorts by: To
     'ask:a3': at(9), 'ask:a4': at(10), D1: at(2), D2: at(7), D3: at(8), D4: tapped,
   });
   const bumped = built([{ id: 'cb', ts: at(10), kind: 'card-bump', data: { key: 'w/ENG-2' }, reply: null }]);
-  assert.deepEqual(lanesOf(bumped).todo, ['ask:a1', 'ask:a2', 'ENG-2', 'ENG-1', 'T2', 'T1']);
+  assert.deepEqual(lanesOf(bumped).todo, ['ENG-2', 'ENG-1', 'T2', 'ask:a1', 'T1', 'ask:a2']);
 });
 
 test("an internal card's ref reads INT-<n> with no repo, and each card lists when Claude or GitHub wrote in its thread, leaving out builder status lines and the owner's answers", () => {

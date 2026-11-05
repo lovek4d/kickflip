@@ -3698,6 +3698,10 @@ test("Mark as done closes the card and leaves the page where it is as the card m
   board.items.push(workCard('C2'));
   await b.change({ board });
   assert.deepEqual(flashing(), ['w/C2'], 'a work card that joins Todo flashes once');
+  // docs/adr/2026-11-06-0300-a-new-task-lands-at-the-bottom-of-todo-and-flashes-blue.md
+  board.items.push({ ...askCard('n2', 'todo'), isNew: true, ref: 'New', sortAt: '2026-10-30T08:00:00.000Z', ask: { eventId: 'n2', state: 'waiting', askedAt: '2026-10-30T08:00:00.000Z', text: 'Task n2', files: [], canEdit: true } });
+  await b.change({ board });
+  assert.deepEqual(flashing(), ['w/C2', 'ask:n2'], 'a New task that lands in Todo flashes once');
 });
 
 function questionsOnDom({ topics, questions, at, next, gate = null, items = [] }) {
