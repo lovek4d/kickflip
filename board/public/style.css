@@ -163,7 +163,9 @@ button.link { background: none; border: 0; color: var(--accent); padding: 8px 12
 .wb-done { padding: 8px 12px; font-size: 12.5px; color: var(--muted); }
 .wb-done a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .wb-loosehead { cursor: default; }
-.wb-counts { color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wb-counts { position: relative; border: 0; background: none; padding: 4px 0; font: inherit; cursor: help; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wb-tip { display: none; position: absolute; right: 0; top: 100%; z-index: 6; margin-top: 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 6px 18px rgba(0,0,0,.18); color: var(--text); font-weight: 400; text-align: left; }
+.wb-counts:hover .wb-tip, .wb-counts.open .wb-tip { display: block; }
 .wb-counts .wv-cur { font-weight: 700; color: var(--accent); }
 .wb-lane + .wb-lane, .wb-lane + .wb-loose { border-top: 1px solid var(--line); }
 .wb-loosehead:hover { background: var(--band); }

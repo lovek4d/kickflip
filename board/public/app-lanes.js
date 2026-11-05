@@ -111,12 +111,17 @@ BoardView.part((B) => {
   // band order, then the cards in no wave under No wave. A lane with no card in a wave lists its cards plainly. A header
   // counts its wave's cards in Todo, In Progress (Stale included), In Review and Done as x/y/k/z, from every lane, with
   // the lane's own number bold in its colour and a tooltip that spells the counts out.
+  // A tap on the counts opens the tooltip (countsShown, the header's lane/wave); a second tap or a tap elsewhere closes it.
+  let countsShown = null;
   const COUNT_LANES = [['todo', 'in Todo'], ['progress', 'in progress'], ['review', 'in review'], ['done', 'done']];
   function waveCounts(band, laneId) {
     const lanes = state.board.items.reduce((m, i) => m.set(i.key, i.lane === 'stale' ? 'progress' : i.lane), new Map());
     const n = COUNT_LANES.map(([id]) => band.keys.filter((k) => lanes.get(k) === id).length);
     const here = laneId === 'stale' ? 'progress' : laneId;
-    return `<span class="wb-counts" tabindex="0" title="${COUNT_LANES.map(([, word], at) => `${n[at]} ${word}`).join(' · ')}">${COUNT_LANES.map(([id], at) => `<span${id === here ? ` class="wv-cur wv-${id}"` : ''}>${n[at]}</span>`).join('<span aria-hidden="true">/</span>')}</span>`;
+    const id = `${laneId}/${band.slug}`;
+    const spelled = COUNT_LANES.map(([, word], at) => `${n[at]} ${word}`);
+    const tip = `<span class="wb-tip" role="tooltip">${spelled.map((t) => `<div>${t}</div>`).join('')}</span>`;
+    return `<button type="button" class="wb-counts${countsShown === id ? ' open' : ''}" data-counts="${esc(id)}" aria-label="${spelled.join(', ')}">${COUNT_LANES.map(([lane], at) => `<span${lane === here ? ` class="wv-cur wv-${lane}"` : ''}>${n[at]}</span>`).join('<span aria-hidden="true">/</span>')}${tip}</button>`;
   }
   function waveGroups(laneId, cards) {
     const bands = state.board.waveBands || [];
@@ -293,6 +298,12 @@ BoardView.part((B) => {
   for (const type of ['pointerup', 'pointercancel']) B.on(B.root, type, endPress);
   B.on(B.root, 'contextmenu', (ev) => { if (ev.target.closest?.('[data-goal]')) ev.preventDefault(); });
   B.on(B.root, 'click', async (ev) => {
+    const counts = ev.target.closest?.('[data-counts]');
+    if (counts || countsShown) {
+      countsShown = counts && counts.dataset.counts !== countsShown ? counts.dataset.counts : null;
+      B.render();
+      if (counts) return;
+    }
     if (pressed) { pressed = false; ev.preventDefault(); return; }
     if (goalShown) { goalShown = null; B.render(); if (ev.target.closest('.wb-head')) return; }
     const dots = ev.target.closest('button[data-band-menu]');
