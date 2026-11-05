@@ -315,14 +315,22 @@
   // until(board) holds. start(id, until) on the tap; answered(id, generatedAt) with the generatedAt of the POST's board;
   // drop(id) when the POST is refused. Boards made before the POST answered never end it, so a reload that races the POST
   // keeps the spinner.
+  // A tap whose answer carries no board (a bare fetch) calls answered(id) with no time: any board then ends it, so its
+  // until() must hold only for a change the tap caused. start(id, until, onLate): if no board ends it within
+  // PENDING_LATE_MS the entry drops and onLate() runs (the page reloads once and says so).
+  const PENDING_LATE_MS = 60000;
   const pendings = new Map();
   const pending = {
-    start(id, until) { pendings.set(id, { until, after: null }); },
-    answered(id, after) { const p = pendings.get(id); if (p) p.after = after; },
-    drop(id) { pendings.delete(id); },
+    start(id, until, onLate = null) {
+      pending.drop(id);
+      const late = onLate && setTimeout(() => { pendings.delete(id); onLate(); }, PENDING_LATE_MS);
+      pendings.set(id, { until, after: null, late });
+    },
+    answered(id, after = '') { const p = pendings.get(id); if (p) p.after = after; },
+    drop(id) { clearTimeout(pendings.get(id)?.late); pendings.delete(id); },
     has: (id) => pendings.has(id),
     settle(board) {
-      for (const [id, p] of pendings) if (p.after !== null && board.generatedAt >= p.after && p.until(board)) pendings.delete(id);
+      for (const [id, p] of pendings) if (p.after !== null && board.generatedAt >= p.after && p.until(board)) pending.drop(id);
     },
   };
 

@@ -2815,7 +2815,20 @@ test("Main's refresh icon pulls now and spins only itself until the server answe
   assert.equal(posts.length, 1);
   answer({ commits: 0 });
   await b.settle();
+  assert.equal(icon().getAttribute('aria-disabled'), null, 'a pull that brought no commits changes nothing a board shows, so its answer ends the spinner');
+
+  // A pull that brought commits keeps the spinner past its answer, through a board that still shows nothing, until Main moves.
+  b.page.fire(b.root, 'click', { target: icon() });
+  await b.settle();
+  answer({ commits: 2 });
+  await b.settle();
+  assert.equal(icon().getAttribute('aria-disabled'), 'true');
+  await b.change({ board: data });
+  assert.equal(icon().getAttribute('aria-disabled'), 'true');
+  await b.change({ board: { ...data, main: { ...main, sha: '1234567', state: 'running' } } });
   assert.equal(icon().getAttribute('aria-disabled'), null);
+  await b.change({ board: data });
+  posts.length = 1;
 
   const failed = { ...data, main: { ...main, pull: { running: false, error: 'can’t pull: local changes' } } };
   b.page.win.innerWidth = 390;
@@ -3341,6 +3354,12 @@ test("a stalled card's red status line, closed or open, confirms before sending 
     await b.settle();
     assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['builder-nudge', { key: 'w/S1' }]]);
     assert.equal(b.root.querySelector('.toast').textContent, 'Nudge sent');
+    // The answer ends the request, not the spinner: the line stays busy until a board shows the builder's line moved.
+    assert.deepEqual([chip().disabled, chip().getAttribute('aria-busy')], [true, 'true']);
+    await b.change({ board: boardOf([item]) });
+    assert.equal(chip().getAttribute('aria-busy'), 'true');
+    await b.change({ board: boardOf([workCard('S1', { lane: 'progress', builder: { stalled: false, progress: 'Running tests', at: null } })]) });
+    assert.equal(b.root.querySelector('summary button.stalled'), null);
     assert.equal(b.root.querySelector('summary .agent').textContent, 'Running tests');
     assert.equal(b.root.querySelector('details.item').open, open.length > 0);
     b.view.unmount();

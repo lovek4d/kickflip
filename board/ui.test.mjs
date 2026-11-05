@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const context = vm.createContext({ location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443' } });
+const context = vm.createContext({ location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }, setTimeout, clearTimeout });
 for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-phase-bars.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-sidebar.js', 'ui-hub.js']) {
   vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
 }
@@ -995,7 +995,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-phase-bars.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const clicks = [], later = [];
-  const B = { $: () => ({}), alive: () => false, on: (el, type, fn) => { if (type === 'click') clicks.push(fn); }, later: (ms, fn) => later.push([ms, fn]), store: {}, state: { board: { items: [] }, mainPull: { sending: false, open: false } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
+  const B = { $: () => ({}), alive: () => false, on: (el, type, fn) => { if (type === 'click') clicks.push(fn); }, later: (ms, fn) => later.push([ms, fn]), store: {}, state: { board: { items: [] }, mainPull: { open: false } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
@@ -1498,7 +1498,10 @@ test("a local board's Main has a refresh icon right of its timestamp that spins 
   assert.match(idle, /<\/code> · [^<]+<span class="main-pull"><button class="ghost gh-refresh" type="button" data-main-pull aria-label="Pull main now"><svg/);
   assert.doesNotMatch(idle, /role="tooltip"/);
   assert.equal(text(idle).includes('Visit'), true);
-  for (const html of [ui.mainBar({ ...main, pull: { running: true, error: null } }), ui.mainBar({ ...main, pull: { running: false, error: null } }, { sending: true })]) {
+  ui.pending.start('main:pull', () => false);
+  const tapped = ui.mainBar({ ...main, pull: { running: false, error: null } });
+  ui.pending.drop('main:pull');
+  for (const html of [ui.mainBar({ ...main, pull: { running: true, error: null } }), tapped]) {
     assert.match(html, /class="ghost gh-refresh spinning" type="button" data-main-pull aria-label="Pulling main" aria-disabled="true"/);
     assert.equal(text(html).includes('Visit'), true);
   }
@@ -2090,4 +2093,59 @@ test("a card waiting on its owner step reads its code check under the Next, or t
     ['ENG-1 Five', `Next: ${step}`, "Check can't run: npm view failed: <E404>"]);
   assert.match(ui.workLines({ ...waiting, ownerCheck: { words: 'x', broken: '<b>' } }), /<div class="line3 sub refused">Check can&#39;t run: &lt;b&gt;<\/div>/);
   assert.doesNotMatch(ui.workLines(waiting), /Checks:|Check can/);
+});
+
+// docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md
+test('a pending tap keeps its button busy through any repaint until a board made after the answer shows its change, a refusal drops it, and 60 seconds without one runs its late callback', () => {
+  const timers = [];
+  context.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+  context.clearTimeout = (id) => { if (timers[id - 1]) timers[id - 1].fn = null; };
+  const card = (extra) => ({ key: 'w/A1', kind: 'work', lane: 'todo', ...extra });
+  const busy = (html) => / disabled aria-busy="true"/.test(html);
+  const grills = (board) => board.items.some((i) => i.grilling);
+  const planButton = () => ui.planButton([card(), { ...card(), key: 'w/A2' }]);
+  assert.equal(busy(planButton()), false);
+
+  let late = 0;
+  ui.pending.start('todo:plan', grills, () => { late += 1; });
+  assert.equal(timers.at(-1).ms, 60000);
+  assert.equal(busy(planButton()), true);
+  // Nothing ends it before the POST is answered, whatever the board says.
+  ui.pending.settle({ generatedAt: 5, items: [card({ grilling: true })] });
+  assert.equal(busy(planButton()), true);
+  ui.pending.answered('todo:plan', 10);
+  ui.pending.settle({ generatedAt: 9, items: [card({ grilling: true })] });
+  ui.pending.settle({ generatedAt: 11, items: [card()] });
+  assert.equal(busy(planButton()), true, 'a board without the change leaves it busy');
+  ui.pending.settle({ generatedAt: 12, items: [card({ grilling: true })] });
+  assert.equal(busy(planButton()), false, 'the board that shows the change ends it');
+  assert.equal(timers.at(-1).fn, null, 'and cancels its timeout');
+  assert.equal(late, 0);
+
+  // A tap whose answer carries no board: any board then settles it.
+  ui.pending.start('w/A1:try', (board) => board.items[0].try === 'running');
+  ui.pending.answered('w/A1:try');
+  ui.pending.settle({ generatedAt: 1, items: [{ try: 'ready' }] });
+  assert.equal(ui.pending.has('w/A1:try'), true);
+  ui.pending.settle({ generatedAt: 2, items: [{ try: 'running' }] });
+  assert.equal(ui.pending.has('w/A1:try'), false);
+
+  // A refusal drops it; the other card's entry stays.
+  ui.pending.start('w/A1:nudge', () => false);
+  ui.pending.start('w/A2:nudge', () => false);
+  ui.pending.drop('w/A1:nudge');
+  assert.deepEqual([ui.pending.has('w/A1:nudge'), ui.pending.has('w/A2:nudge')], [false, true]);
+  ui.pending.drop('w/A2:nudge');
+
+  // 60 seconds on, it drops by itself and says so once.
+  ui.pending.start('todo:plan', grills, () => { late += 1; });
+  timers.at(-1).fn();
+  assert.deepEqual([ui.pending.has('todo:plan'), late], [false, 1]);
+
+  // Try draws busy from the entry, through any repaint.
+  ui.pending.start('w/A1:try', () => false);
+  assert.equal(busy(ui.tryButton({ key: 'w/A1', kind: 'work', lane: 'todo', try: { script: true, changes: true, kind: 'web', state: 'ready' } })), true);
+  ui.pending.drop('w/A1:try');
+  assert.equal(busy(ui.tryButton({ key: 'w/A1', kind: 'work', lane: 'todo', try: { script: true, changes: true, kind: 'web', state: 'ready' } })), false);
+  Object.assign(context, { setTimeout, clearTimeout });
 });

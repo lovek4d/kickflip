@@ -131,7 +131,7 @@ window.BoardView = (function () {
       edits: new Map(),
       githubPending: null,
       // Main's refresh icon (ui-cards.js mainPull): a tap waiting on the server, and the failed pull's reason open on touch.
-      mainPull: { sending: false, open: false },
+      mainPull: { open: false },
       // The Done cards Show more paged in from the archive past the board's own (app-lanes.js), and how many older ones
       // the archive holds past them, null before the first page.
       archived: { cards: [], left: null },

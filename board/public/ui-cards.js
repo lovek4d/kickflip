@@ -112,16 +112,17 @@
     if (it.kind !== 'work' || !t?.script || t.autoBuild || !t.changes) return '';
     const words = tryWords(t.kind);
     const reason = t.state === 'running' ? words.busy : t.state === 'ready' && !t.stale ? words.current : '';
-    return `<button type="button" data-try="${esc(it.key)}"${reason ? ` aria-disabled="true" title="${esc(reason)}" data-tip="${esc(reason)}"` : ''}>${t.state === 'failed' && !reason ? 'Retry' : words.go}</button>`;
+    const attrs = BoardUI.pending.has(`${it.key}:try`) ? BoardUI.BUSY : reason ? ` aria-disabled="true" title="${esc(reason)}" data-tip="${esc(reason)}"` : '';
+    return `<button type="button" data-try="${esc(it.key)}"${attrs}>${t.state === 'failed' && !reason ? 'Retry' : words.go}</button>`;
   }
   const BRANCH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7"/><path d="M18 10.5c0 4-6 3-11 6"/></svg>';
   // Main's refresh icon on a local board (docs/adr/2026-11-03-1914-a-local-boards-main-pulls-from-origin-on-its-own.md),
   // the header's refresh icon as a ghost button right of the timestamp: it spins while a pull runs or a tap waits on the
   // server, and turns red when the last pull failed, with the reason as a tooltip on hover or a popover a tap opens
   // (`open`). Visit is left alone: it changes only once Main rebuilds.
-  function mainPull(pull, { sending = false, open = false } = {}) {
+  function mainPull(pull, { open = false } = {}) {
     if (!pull) return '';
-    const busy = pull.running || sending;
+    const busy = pull.running || BoardUI.pending.has('main:pull');
     const failed = !busy && pull.error;
     const label = busy ? 'Pulling main' : failed ? pull.error : 'Pull main now';
     const why = failed ? `<span class="main-pull-why${open ? ' open' : ''}" role="tooltip">${esc(pull.error)}</span>` : '';
@@ -221,7 +222,7 @@
     const classes = `line3 sub agent${it.builder.planner ? ' planner' : ''}${tone(it)}${quiet ? ' quiet' : ''}`;
     const words = `${quiet ? '' : DOT}${esc(builderLine(it.builder))}`;
     if (!it.builder.stalled || it.lane === 'done') return `<div class="${classes}">${words}</div>`;
-    return `<button type="button" class="${classes} stalled" data-confirm="nudge" data-key="${esc(it.key)}" title="No recent progress. Nudge Claude to check this implementer">${words}</button>`;
+    return `<button type="button" class="${classes} stalled" data-confirm="nudge" data-key="${esc(it.key)}"${BoardUI.pending.has(`${it.key}:nudge`) ? BoardUI.BUSY : ''} title="No recent progress. Nudge Claude to check this implementer">${words}</button>`;
   }
   // The open card's Status row: what runs on the card, else where its lane leaves it, never the wave file's raw status
   // (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
@@ -319,7 +320,7 @@
   const askChip = (it) => (it.isNew ? badge('notice', 'New') : '');
   function planButton(items) {
     const keys = items.filter((i) => i.kind === 'work' && !i.held && !i.blockedBy?.length).map((i) => i.key);
-    return keys.length > 1 ? `<button type="button" class="thread-more" data-plan="${esc(keys.join(' '))}">Plan waves</button>` : '';
+    return keys.length > 1 ? `<button type="button" class="thread-more" data-plan="${esc(keys.join(' '))}"${BoardUI.pending.has('todo:plan') ? BoardUI.BUSY : ''}>Plan waves</button>` : '';
   }
 
   // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md

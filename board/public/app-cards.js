@@ -101,6 +101,13 @@ BoardView.part((B) => {
   // Main's refresh icon pulls now, spinning until the server answers. After a failed pull, a hover pointer's click
   // pulls again while its reason shows on hover; a touch tap opens the reason instead, and a tap anywhere closes it.
   // An open reason shifts left as far as it would run past the screen's right edge, less the 16px gutter.
+  // A pending tap no board has answered in BoardUI's PENDING_LATE_MS: the board reloads once and the button rests.
+  function stillWaiting() {
+    if (!B.alive()) return;
+    toast('Still waiting on the board');
+    B.reload();
+    B.render();
+  }
   function paintMain() {
     BoardUI.setHTML($('#tryMain'), BoardUI.mainBar(state.board?.main, state.mainPull));
     const why = $('#tryMain .main-pull-why.open');
@@ -116,20 +123,29 @@ BoardView.part((B) => {
     }
     ev.preventDefault();
     const pull = state.board?.main?.pull;
-    if (!pull || pull.running || state.mainPull.sending) return;
+    if (!pull || pull.running || BoardUI.pending.has('main:pull')) return;
     if (pull.error && !matchMedia('(hover: hover)').matches) {
       state.mainPull.open = !state.mainPull.open;
       paintMain();
       return;
     }
-    state.mainPull = { sending: true, open: false };
+    state.mainPull = { open: false };
+    // Spins until a board shows the pull running or changed (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
+    // A pull that brought no commits changes nothing a board shows, so its answer ends the spinner; one that did waits
+    // for Main to rebuild.
+    const mainFace = (main) => JSON.stringify([main?.pull, main?.sha, main?.state, main?.at]);
+    const before = mainFace(state.board.main);
+    BoardUI.pending.start('main:pull', (board) => mainFace(board.main) !== before, stillWaiting);
     paintMain();
     try {
       const response = await fetch(B.site.url('api/try/main/pull'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
       const out = await response.json();
       if (!response.ok) throw new Error(out.error || 'The hub refused the pull.');
-    } catch (error) { if (B.alive()) toast(error.message || 'Could not pull. Is the host awake?'); }
-    state.mainPull.sending = false;
+      if (out.commits) BoardUI.pending.answered('main:pull'); else BoardUI.pending.drop('main:pull');
+    } catch (error) {
+      BoardUI.pending.drop('main:pull');
+      if (B.alive()) toast(error.message || 'Could not pull. Is the host awake?');
+    }
     if (B.alive()) { paintMain(); B.reload(); }
   });
 
@@ -416,13 +432,22 @@ BoardView.part((B) => {
     const key = button.dataset.try;
     const it = state.board.items.find((i) => i.key === key);
     if (!it || !(await B.confirm(`${tryWords(it.try?.kind).go} ${it.ref}? The hub runs its build script.`)) || !B.alive()) return;
-    // Serve / Build waits until the hub has started the build; the card's chip then says it runs.
-    const post = (async () => {
+    // Serve / Build spins until a board shows the card's build changed: running, or already done
+    // (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
+    const before = JSON.stringify(it.try);
+    const id = `${key}:try`;
+    BoardUI.pending.start(id, (board) => JSON.stringify(board.items.find((i) => i.key === key)?.try) !== before, stillWaiting);
+    B.render();
+    try {
       const r = await fetch(B.site.url('api/try'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }) });
       const out = await r.json();
       if (!r.ok) throw new Error(out.error || 'The hub refused the build.');
-    })();
-    try { await waitOn(button, post); } catch (error) { toast(error.message || 'Could not start. Is the host awake?'); }
+      BoardUI.pending.answered(id);
+    } catch (error) {
+      BoardUI.pending.drop(id);
+      B.render();
+      toast(error.message || 'Could not start. Is the host awake?');
+    }
     B.reload();
   });
 
@@ -476,9 +501,16 @@ BoardView.part((B) => {
     }
     // The tapped button waits and the rest of its action row is disabled until the server answers.
     const group = { group: $(`.actions[data-actions="${CSS.escape(key)}"]`)?.querySelectorAll('button') ?? [] };
+    // The nudge reads done when the card's builder line moves (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
+    const id = `${key}:nudge`;
+    const before = JSON.stringify(it.builder);
+    BoardUI.pending.start(id, (board) => JSON.stringify(board.items.find((i) => i.key === key)?.builder) !== before, stillWaiting);
     try {
-      await waitOn(b, B.sentHere(key, () => B.send('builder-nudge', { key })), group); b.disabled = true; toast('Nudge sent');
-    } catch { redrawActions(key); toast('Could not send. Is the host awake?'); }
+      const out = await waitOn(b, B.sentHere(key, () => B.send('builder-nudge', { key })), group);
+      BoardUI.pending.answered(id, out.board.generatedAt);
+      B.render();
+      toast('Nudge sent');
+    } catch { BoardUI.pending.drop(id); redrawActions(key); toast('Could not send. Is the host awake?'); }
   });
 
   Object.assign(B, { captureStrips, moveStrips, detail, card });

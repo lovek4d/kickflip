@@ -30,6 +30,6 @@ The owner (2026-11-03): "Work item to audit all of the buttons that may have spi
 Considered:
 - a spinner in place of a toggle's face (take A): a switch can't hold a spinner, and the owner chose B;
 - a "saving…" word after the spinner (take C): it is the status line again;
-- a separate long-wait form of `waitOn` that holds until a done signal: the page already redraws from the state that says when the work ends, so drawing `BUSY` from that state needs nothing more, and it survives the hub page's `innerHTML` repaints, which `waitOn` doesn't see.
+- a separate long-wait form of `waitOn` that holds until a done signal: the page already redraws from the state that says when the work ends, so drawing `BUSY` from that state needs nothing more (a tap whose change shows only in a later board uses `BoardUI.pending`, [a tap spins until the board shows its change](2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md)), and it survives the hub page's `innerHTML` repaints, which `waitOn` doesn't see.
 
 Not changed: Check GitHub stays `aria-disabled` while it spins. It sits in a lane's `<summary>`, and a disabled button there would let the tap fold the lane (`ui-header.js` `githubRefresh`).
